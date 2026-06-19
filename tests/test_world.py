@@ -29,6 +29,19 @@ def test_ring_neighbours_are_evenly_spaced():
     np.testing.assert_allclose(ang, 60.0, atol=1e-6)
 
 
+def test_ring_tilt_points_cameras_downward():
+    flat = make_ring_rig(n=6, tilt_deg=0.0)
+    tilted = make_ring_rig(n=6, tilt_deg=15.0)
+    # forward axis (+Z) gains a downward (negative world-z) component when tilted
+    f_flat = flat[0].pose.R @ np.array([0.0, 0.0, 1.0])
+    f_tilt = tilted[0].pose.R @ np.array([0.0, 0.0, 1.0])
+    np.testing.assert_allclose(f_flat[2], 0.0, atol=1e-9)
+    assert f_tilt[2] < -0.2
+    # still orthonormal and still pointing outward in x
+    np.testing.assert_allclose(tilted[0].pose.R @ tilted[0].pose.R.T, np.eye(3), atol=1e-9)
+    assert f_tilt[0] > 0.0
+
+
 def test_ring_overlap_default():
     # 6 cams * 60deg spacing; 75deg fov => 15deg overlap each side seam
     cams = make_ring_rig(n=6, hfov_deg=75.0)

@@ -70,7 +70,29 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest
   is the best-case view.
 - **Near-field blind zone**: cameras mounted at height looking horizontally have
   a blind cone around the robot base → a ring with no source pixels. Mitigated by
-  the robot proxy overlay; tunable via mount height / downward tilt.
+  the robot proxy overlay and by the rig tuning below.
+
+## Rig & bowl tuning
+
+`Engine.from_defaults` exposes the knobs that matter most for realism:
+
+- `tilt_deg` (default 12°) — pitches the ring cameras downward for near-field
+  ground coverage. This is the main lever that shrinks the blind ring (orbit
+  blind zone ~9% → ~3%).
+- `mount_height` (default 0.45 m) and `rig_fov_deg` (default 85°) — lower mount +
+  wider FOV reinforce the tilt and keep neighbour seams overlapping.
+- `BowlSurface(R0, k, Rmax)` (default `6, 0.08, 20`) — smaller `R0` / steeper `k`
+  make objects beyond the robot "stand up" on the wall sooner instead of smearing
+  flat. Trade-off: too steep curves the distant ground and can push the orbiting
+  virtual camera *outside* the bowl, so `R0` must stay larger than the orbit
+  radius. PSNR slightly favors a flatter bowl; perceived realism favors a tighter
+  one.
+
+**Why far objects still distort during wide orbits:** a single fixed surface
+cannot place an object that sits at the *orbit radius* (e.g. a box ~6 m out while
+orbiting at ~5 m) at its true depth, so it ghosts. This is inherent to projection
+without scene depth — the real fix is a depth-driven `Surface` (roadmap item 4),
+which the architecture is already set up to accept.
 
 ## Roadmap
 

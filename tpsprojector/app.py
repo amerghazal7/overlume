@@ -51,13 +51,21 @@ class Engine:
         self.renderer = renderer or NumpyRenderer()
 
     @classmethod
-    def from_defaults(cls, width=320, height=240, n_cameras=6, fov_deg=75.0,
-                      cam_width=320, cam_height=240):
+    def from_defaults(cls, width=320, height=240, n_cameras=6, rig_fov_deg=85.0,
+                      tilt_deg=12.0, mount_height=0.45, cam_width=320,
+                      cam_height=240):
         scene = default_scene()
-        cameras = make_ring_rig(n=n_cameras, hfov_deg=fov_deg,
+        # Cameras tilt down and sit lower for more near-field ground coverage
+        # (shrinks the blind zone around the robot). Wider FOV keeps the seams
+        # overlapping despite the tilt.
+        cameras = make_ring_rig(n=n_cameras, hfov_deg=rig_fov_deg,
+                                mount_height=mount_height, tilt_deg=tilt_deg,
                                 width=cam_width, height=cam_height)
         images = [scene.render(c)[0] for c in cameras]
-        surface = BowlSurface(R0=8.0, k=0.05, Rmax=25.0)
+        # Smaller flat floor + steeper wall: objects beyond the robot "stand up"
+        # on the wall instead of smearing flat across the ground. R0 stays large
+        # enough that the orbiting virtual camera remains inside the bowl.
+        surface = BowlSurface(R0=6.0, k=0.08, Rmax=20.0)
         robot = RobotProxy.default()
         return cls(scene, cameras, images, surface, robot, fov_deg=70.0,
                    width=width, height=height)
@@ -114,7 +122,7 @@ def main():  # pragma: no cover
 
     # free-orbit debug state
     orbit = False
-    az, el, dist = np.radians(180.0), np.radians(30.0), 5.0
+    az, el, dist = np.radians(180.0), np.radians(28.0), 4.5
 
     def orbit_shot():
         ex = dist * np.cos(el) * np.cos(az)
