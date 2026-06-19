@@ -54,6 +54,7 @@ class Engine:
         self.height = height
         self.mode = mode
         self.tilt_deg = 0.0
+        self.sky_color = np.array([0.45, 0.6, 0.8])  # fills genuinely-unseen sky
         self.bowl_renderer = NumpyRenderer()
         self.depth_renderer = DepthRenderer(splat_radius=1)
 
@@ -110,6 +111,9 @@ class Engine:
     def synthesize(self, shot: Shot) -> RenderResult:
         vc = self.virtual_camera(shot)
         env, valid = self._render_env(vc)
+        # Genuinely-unseen pixels (above the horizon / outside all coverage) read
+        # as a sky color rather than black holes.
+        env = np.where(valid[:, :, None], env, self.sky_color)
         robot_rgb, robot_depth = self.robot.render(vc)
         robot_mask = np.isfinite(robot_depth)
 
