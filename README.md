@@ -29,15 +29,31 @@ onboard ring cameras ──▶ images + calibration
    compare to ground-truth view ──▶ PSNR / SSIM / diff heatmap
 ```
 
+## Render modes
+
+The app renders the environment three ways (toggle live with `b`/`d`/`h`):
+
+| Mode | Geometry | Strength | Weakness |
+|---|---|---|---|
+| `bowl` | static bowl proxy | always covers the frame | off-surface objects ghost/smear |
+| `depth` | per-camera depth point cloud | parallax-correct for all objects | disocclusion holes (unseen geometry) |
+| `hybrid` (default) | depth + bowl fallback | correct geometry *and* complete | bowl-filled holes are approximate |
+
+Depth uses accurate per-camera depth (synthetic ground truth from the
+rasterizer's z-buffer now; a real system would supply a depth model or LIDAR
+fusion behind the same `CameraFrame` interface). This is the fix for the
+far-object ghosting that a single static surface cannot solve.
+
 ## Module map
 
 | Module | Role |
 |---|---|
 | `transforms` | SE(3) poses, rotations, `look_at` |
-| `camera` | pinhole project / unproject / FOV tests |
+| `camera` | pinhole project / unproject / backproject / FOV tests |
 | `surface` | `Surface` interface; `BowlSurface`, `FlatSurface` (geometry swap point) |
 | `blend` | feather + normalized weighted blend for overlaps |
-| `renderer` | `Renderer` interface; `NumpyRenderer` (backend swap point → GL → CUDA) |
+| `renderer` | `Renderer` interface; `NumpyRenderer` bowl backend (→ GL → CUDA) |
+| `depth_renderer` | `CameraFrame`, `DepthRenderer` (point-cloud splatting), depth provider |
 | `robot` | robot proxy mesh + depth compositing |
 | `validate` | PSNR / SSIM / diff heatmap |
 | `presets` | cinematic shots + smoothstep tween |
@@ -97,6 +113,10 @@ which the architecture is already set up to accept.
 ## Roadmap
 
 1. ✅ NumPy prototype — validated against ground truth.
-2. `GLRenderer` (moderngl) — same `Renderer` interface, real time.
-3. C++/CUDA library — per-pixel reproject + blend kernels, clean C++ API.
-4. Geometry upgrades behind `Surface`: depth/stereo, learned.
+2. ✅ Depth-derived geometry (point-cloud splatting) + hybrid fallback — fixes
+   far-object ghosting using accurate per-camera depth.
+3. Real depth source behind `CameraFrame`: monocular/stereo depth model or LIDAR
+   fusion (replacing synthetic ground-truth depth).
+4. `GLRenderer` / C++/CUDA backend — splat + bowl as GPU kernels, clean C++ API.
+5. Disocclusion handling: temporal accumulation / inpainting to fill unseen
+   geometry instead of bowl fallback.

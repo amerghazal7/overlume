@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .camera import PinholeCamera
+from .depth_renderer import DepthRenderer, synthetic_frames
 from .presets import PRESET_NAMES, Shot, get_preset, tween
 from .renderer import NumpyRenderer
 from .robot import RobotProxy, composite
@@ -24,6 +25,8 @@ from .transforms import look_at
 from .validate import diff_heatmap, psnr, ssim
 from .world.rig import make_ring_rig
 from .world.scene import default_scene
+
+RENDER_MODES = ("hybrid", "depth", "bowl")
 
 
 @dataclass
@@ -38,22 +41,25 @@ class RenderResult:
 
 
 class Engine:
-    def __init__(self, scene, cameras, images, surface, robot, fov_deg,
-                 width, height, renderer=None):
+    def __init__(self, scene, cameras, frames, surface, robot, fov_deg,
+                 width, height, mode="hybrid"):
         self.scene = scene
         self.cameras = cameras
-        self.images = images
+        self.frames = frames                       # CameraFrames (image+depth)
+        self.images = [f.image for f in frames]
         self.surface = surface
         self.robot = robot
         self.fov_deg = fov_deg
         self.width = width
         self.height = height
-        self.renderer = renderer or NumpyRenderer()
+        self.mode = mode
+        self.bowl_renderer = NumpyRenderer()
+        self.depth_renderer = DepthRenderer(splat_radius=1)
 
     @classmethod
     def from_defaults(cls, width=320, height=240, n_cameras=6, rig_fov_deg=85.0,
                       tilt_deg=12.0, mount_height=0.45, cam_width=320,
-                      cam_height=240):
+                      cam_height=240, mode="hybrid"):
         scene = default_scene()
         # Cameras tilt down and sit lower for more near-field ground coverage
         # (shrinks the blind zone around the robot). Wider FOV keeps the seams
@@ -61,23 +67,35 @@ class Engine:
         cameras = make_ring_rig(n=n_cameras, hfov_deg=rig_fov_deg,
                                 mount_height=mount_height, tilt_deg=tilt_deg,
                                 width=cam_width, height=cam_height)
-        images = [scene.render(c)[0] for c in cameras]
-        # Smaller flat floor + steeper wall: objects beyond the robot "stand up"
-        # on the wall instead of smearing flat across the ground. R0 stays large
-        # enough that the orbiting virtual camera remains inside the bowl.
+        # Per-camera ground-truth depth (synthetic now; real model/LIDAR later).
+        frames = synthetic_frames(scene, cameras)
+        # Bowl is the fallback geometry that fills depth disocclusion holes.
         surface = BowlSurface(R0=6.0, k=0.08, Rmax=20.0)
         robot = RobotProxy.default()
-        return cls(scene, cameras, images, surface, robot, fov_deg=70.0,
-                   width=width, height=height)
+        return cls(scene, cameras, frames, surface, robot, fov_deg=70.0,
+                   width=width, height=height, mode=mode)
 
     def virtual_camera(self, shot: Shot) -> PinholeCamera:
         return PinholeCamera.from_fov(self.width, self.height, self.fov_deg,
                                       shot.pose())
 
+    def _render_env(self, vc: PinholeCamera):
+        """Render the environment per the active mode -> (rgb, valid)."""
+        if self.mode == "bowl":
+            return self.bowl_renderer.render(self.images, self.cameras,
+                                             self.surface, vc)
+        if self.mode == "depth":
+            return self.depth_renderer.render(self.frames, vc)
+        # hybrid: true-depth geometry where available, bowl fallback for holes
+        d, dv = self.depth_renderer.render(self.frames, vc)
+        b, bv = self.bowl_renderer.render(self.images, self.cameras,
+                                          self.surface, vc)
+        env = np.where(dv[:, :, None], d, b)
+        return env, (dv | bv)
+
     def synthesize(self, shot: Shot) -> RenderResult:
         vc = self.virtual_camera(shot)
-        env, valid = self.renderer.render(self.images, self.cameras,
-                                          self.surface, vc)
+        env, valid = self._render_env(vc)
         robot_rgb, robot_depth = self.robot.render(vc)
         robot_mask = np.isfinite(robot_depth)
 
@@ -146,6 +164,12 @@ def main():  # pragma: no cover
                     show_validation = not show_validation
                 elif e.key == pygame.K_o:
                     orbit = not orbit
+                elif e.key == pygame.K_b:
+                    eng.mode = "bowl"
+                elif e.key == pygame.K_d:
+                    eng.mode = "depth"
+                elif e.key == pygame.K_h:
+                    eng.mode = "hybrid"
                 elif pygame.K_1 <= e.key <= pygame.K_9:
                     idx = e.key - pygame.K_1
                     if idx < len(PRESET_NAMES):
@@ -183,9 +207,9 @@ def main():  # pragma: no cover
             for i, lab in enumerate(labels):
                 screen.blit(font.render(lab, True, (220, 220, 220)), (i * W + 6, 4))
 
-        hud = ("ORBIT" if orbit else "preset") + \
+        hud = f"mode={eng.mode:6s} " + ("ORBIT" if orbit else "preset") + \
             f"  PSNR={res.psnr:5.2f}dB  SSIM={res.ssim:4.2f}  cover={res.valid.mean():.0%}"
-        keys_help = "[1-4] presets  [v] validation  [o] orbit+arrows/+-  [esc] quit"
+        keys_help = "[1-4]presets [b]owl/[d]epth/[h]ybrid [v]alidation [o]rbit+arrows/+- [esc]"
         screen.blit(font.render(hud, True, (255, 230, 140)), (6, H + 4))
         screen.blit(font.render(keys_help, True, (160, 160, 170)), (6, H + 22))
 

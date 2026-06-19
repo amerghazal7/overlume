@@ -66,6 +66,19 @@ class PinholeCamera:
         origins = np.broadcast_to(self.pose.t, dirs_world.shape).copy()
         return origins, dirs_world
 
+    def backproject(self, uv: np.ndarray, depth: np.ndarray) -> np.ndarray:
+        """Back-project pixels ``(N, 2)`` at camera-space ``depth`` (z) to world.
+
+        Inverse of :meth:`project`: turns a pixel plus its forward distance into
+        a 3D world point.
+        """
+        uv = np.asarray(uv, dtype=float).reshape(-1, 2)
+        z = np.asarray(depth, dtype=float).reshape(-1)
+        x = (uv[:, 0] - self.K[0, 2]) / self.K[0, 0] * z
+        y = (uv[:, 1] - self.K[1, 2]) / self.K[1, 1] * z
+        cam = np.stack([x, y, z], axis=-1)
+        return self.pose.transform_points(cam)
+
     def in_bounds(self, uv: np.ndarray) -> np.ndarray:
         uv = np.asarray(uv, dtype=float).reshape(-1, 2)
         return (

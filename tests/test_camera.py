@@ -60,6 +60,22 @@ def test_unproject_origin_is_camera_center():
     np.testing.assert_allclose(dirs[0], pose.R @ np.array([0, 0, 1.0]), atol=1e-9)
 
 
+def test_backproject_center_pixel():
+    cam = make_cam()
+    pts = cam.backproject(np.array([[320.0, 240.0]]), np.array([5.0]))
+    np.testing.assert_allclose(pts[0], [0.0, 0.0, 5.0], atol=1e-9)
+
+
+def test_backproject_inverts_project():
+    cam = make_cam(pose=Pose(R=rot_y(0.4), t=np.array([1.0, -2.0, 3.0])))
+    uv = np.array([[100.0, 150.0], [500.0, 300.0]])
+    depth = np.array([4.0, 9.0])  # camera-space z
+    pts = cam.backproject(uv, depth)
+    uv2, valid = cam.project(pts)
+    assert valid.all()
+    np.testing.assert_allclose(uv2, uv, atol=1e-6)
+
+
 def test_in_bounds():
     cam = make_cam(width=640, height=480)
     uv = np.array([[0.0, 0.0], [639.0, 479.0], [-1.0, 5.0], [640.0, 5.0]])
