@@ -27,12 +27,16 @@ class RobotProxy:
         return self.scene.vertices
 
     @classmethod
-    def default(cls) -> "RobotProxy":
-        """A simple body box with a colored 'front' marker (toward +X)."""
+    def default(cls, footprint_radius: float = 0.5,
+                height: float = 0.5) -> "RobotProxy":
+        """A body box of the given footprint radius with a 'front' marker (+X)."""
+        r = float(footprint_radius)
         b = _Builder()
-        b.add_box(center=(0.0, 0.0, 0.25), size=(0.6, 0.5, 0.5), color=(0.25, 0.5, 0.8))
+        b.add_box(center=(0.0, 0.0, height / 2),
+                  size=(2 * r, 1.6 * r, height), color=(0.25, 0.5, 0.8))
         # front marker so orientation is visible in the view
-        b.add_box(center=(0.32, 0.0, 0.3), size=(0.12, 0.2, 0.2), color=(0.95, 0.85, 0.2))
+        b.add_box(center=(r + 0.06, 0.0, height * 0.6),
+                  size=(0.14, 0.5 * r, 0.2 * height + 0.1), color=(0.95, 0.85, 0.2))
         return cls(scene=b.build())
 
     def render(self, camera: PinholeCamera):

@@ -66,6 +66,10 @@ class PinholeCamera:
         origins = np.broadcast_to(self.pose.t, dirs_world.shape).copy()
         return origins, dirs_world
 
+    def vfov_deg(self) -> float:
+        """Vertical field of view in degrees, from the intrinsics."""
+        return float(np.degrees(2.0 * np.arctan((self.height / 2.0) / self.K[1, 1])))
+
     def backproject(self, uv: np.ndarray, depth: np.ndarray) -> np.ndarray:
         """Back-project pixels ``(N, 2)`` at camera-space ``depth`` (z) to world.
 

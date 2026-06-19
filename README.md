@@ -92,11 +92,17 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest
 
 `Engine.from_defaults` exposes the knobs that matter most for realism:
 
-- `tilt_deg` (default 12°) — pitches the ring cameras downward for near-field
-  ground coverage. This is the main lever that shrinks the blind ring (orbit
-  blind zone ~9% → ~3%).
-- `mount_height` (default 0.45 m) and `rig_fov_deg` (default 85°) — lower mount +
-  wider FOV reinforce the tilt and keep neighbour seams overlapping.
+- `tilt_deg` (default: auto) — when left as `None`, each camera's downward tilt
+  is computed by `tilt_for_body_edge` so its nearest visible ground lands at the
+  robot body edge (body boundary at the bottom of frame, no blind ground ring),
+  matching how rigs are physically mounted. ~31° for a 0.55 m mount here.
+- `mount_height` — scalar **or per-camera list**: real rigs place cameras at
+  different heights, and each camera's body-edge tilt follows from its own height
+  (e.g. heights `[0.4, 0.55, 0.7, 0.85]` → tilts `[23.5°, 31.1°, 35.8°, 39.1°]`).
+- `mount_radius` vs `body_radius` — the mounting tradeoff: cameras near the body
+  rim keep the body to a thin sliver but need steep tilt (losing far view);
+  inset cameras keep the far view but show more of the body. `rig_fov_deg`
+  (default 85°) keeps neighbour seams overlapping despite the tilt.
 - `BowlSurface(R0, k, Rmax)` (default `6, 0.08, 20`) — smaller `R0` / steeper `k`
   make objects beyond the robot "stand up" on the wall sooner instead of smearing
   flat. Trade-off: too steep curves the distant ground and can push the orbiting

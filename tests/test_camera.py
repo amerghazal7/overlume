@@ -60,6 +60,12 @@ def test_unproject_origin_is_camera_center():
     np.testing.assert_allclose(dirs[0], pose.R @ np.array([0, 0, 1.0]), atol=1e-9)
 
 
+def test_vfov_from_square_pixels():
+    cam = make_cam(width=320, height=240, fov_deg=90.0)
+    # f = 160; vfov = 2*atan(120/160) = 73.74 deg
+    np.testing.assert_allclose(cam.vfov_deg(), 73.7398, atol=1e-2)
+
+
 def test_backproject_center_pixel():
     cam = make_cam()
     pts = cam.backproject(np.array([[320.0, 240.0]]), np.array([5.0]))

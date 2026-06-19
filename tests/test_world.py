@@ -2,7 +2,7 @@ import numpy as np
 
 from tpsprojector.camera import PinholeCamera
 from tpsprojector.transforms import Pose, rot_x
-from tpsprojector.world.rig import make_ring_rig
+from tpsprojector.world.rig import make_ring_rig, tilt_for_body_edge
 from tpsprojector.world.scene import Scene, default_scene
 
 
@@ -29,6 +29,25 @@ def test_ring_neighbours_are_evenly_spaced():
     np.testing.assert_allclose(ang, 60.0, atol=1e-6)
 
 
+def test_tilt_for_body_edge_covers_ground_to_body():
+    # nearest visible ground should land at the body edge; check the geometry:
+    # nearest ground radius = mount_radius + h / tan(tilt + vfov/2) == body_radius
+    h, mr, br, vfov = 0.55, 0.25, 0.5, 69.0
+    tilt = tilt_for_body_edge(mount_height=h, mount_radius=mr,
+                              body_radius=br, vfov_deg=vfov)
+    phi = np.radians(tilt + vfov / 2.0)
+    nearest = mr + h / np.tan(phi)
+    np.testing.assert_allclose(nearest, br, atol=1e-3)
+    assert 25.0 < tilt < 40.0
+
+
+def test_tilt_for_body_edge_clamps_when_no_tilt_needed():
+    # a low camera with a distant body edge already sees the ground there
+    tilt = tilt_for_body_edge(mount_height=0.2, mount_radius=0.25,
+                              body_radius=3.0, vfov_deg=69.0)
+    assert tilt == 0.0
+
+
 def test_ring_tilt_points_cameras_downward():
     flat = make_ring_rig(n=6, tilt_deg=0.0)
     tilted = make_ring_rig(n=6, tilt_deg=15.0)
@@ -40,6 +59,26 @@ def test_ring_tilt_points_cameras_downward():
     # still orthonormal and still pointing outward in x
     np.testing.assert_allclose(tilted[0].pose.R @ tilted[0].pose.R.T, np.eye(3), atol=1e-9)
     assert f_tilt[0] > 0.0
+
+
+def test_ring_per_camera_heights():
+    cams = make_ring_rig(n=4, mount_height=[0.4, 0.6, 0.8, 1.0])
+    zs = [c.pose.t[2] for c in cams]
+    np.testing.assert_allclose(zs, [0.4, 0.6, 0.8, 1.0])
+
+
+def test_ring_per_camera_tilt():
+    cams = make_ring_rig(n=2, tilt_deg=[0.0, 30.0])
+    f0 = cams[0].pose.R @ np.array([0.0, 0.0, 1.0])
+    f1 = cams[1].pose.R @ np.array([0.0, 0.0, 1.0])
+    np.testing.assert_allclose(f0[2], 0.0, atol=1e-9)
+    assert f1[2] < -0.2
+
+
+def test_ring_mismatched_height_length_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        make_ring_rig(n=4, mount_height=[0.4, 0.6])
 
 
 def test_ring_overlap_default():

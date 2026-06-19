@@ -21,9 +21,9 @@ from .presets import PRESET_NAMES, Shot, get_preset, tween
 from .renderer import NumpyRenderer
 from .robot import RobotProxy, composite
 from .surface import BowlSurface
-from .transforms import look_at
+from .transforms import Pose, look_at
 from .validate import diff_heatmap, psnr, ssim
-from .world.rig import make_ring_rig
+from .world.rig import make_ring_rig, tilt_for_body_edge
 from .world.scene import default_scene
 
 RENDER_MODES = ("hybrid", "depth", "bowl")
@@ -53,27 +53,41 @@ class Engine:
         self.width = width
         self.height = height
         self.mode = mode
+        self.tilt_deg = 0.0
         self.bowl_renderer = NumpyRenderer()
         self.depth_renderer = DepthRenderer(splat_radius=1)
 
     @classmethod
     def from_defaults(cls, width=320, height=240, n_cameras=6, rig_fov_deg=85.0,
-                      tilt_deg=12.0, mount_height=0.45, cam_width=320,
-                      cam_height=240, mode="hybrid"):
+                      mount_radius=0.25, mount_height=0.55, body_radius=0.5,
+                      tilt_deg=None, cam_width=320, cam_height=240, mode="hybrid"):
         scene = default_scene()
-        # Cameras tilt down and sit lower for more near-field ground coverage
-        # (shrinks the blind zone around the robot). Wider FOV keeps the seams
-        # overlapping despite the tilt.
+        # Realistic mounting: tilt each camera down just enough that its nearest
+        # visible ground reaches the robot body edge (body boundary at the bottom
+        # of frame, no blind ground ring), but no more. Computed from geometry.
+        vfov = PinholeCamera.from_fov(cam_width, cam_height, rig_fov_deg,
+                                      Pose.identity()).vfov_deg()
+        # mount_height may be a scalar or a per-camera list (cameras at different
+        # heights). Each camera's body-edge tilt follows from its own height.
+        heights = np.atleast_1d(np.asarray(mount_height, dtype=float))
+        if heights.size == 1:
+            heights = np.repeat(heights, n_cameras)
+        if tilt_deg is None:
+            tilt_deg = [tilt_for_body_edge(h, mount_radius, body_radius, vfov)
+                        for h in heights]
         cameras = make_ring_rig(n=n_cameras, hfov_deg=rig_fov_deg,
-                                mount_height=mount_height, tilt_deg=tilt_deg,
-                                width=cam_width, height=cam_height)
+                                radius=mount_radius, mount_height=list(heights),
+                                tilt_deg=tilt_deg, width=cam_width,
+                                height=cam_height)
         # Per-camera ground-truth depth (synthetic now; real model/LIDAR later).
         frames = synthetic_frames(scene, cameras)
         # Bowl is the fallback geometry that fills depth disocclusion holes.
         surface = BowlSurface(R0=6.0, k=0.08, Rmax=20.0)
-        robot = RobotProxy.default()
-        return cls(scene, cameras, frames, surface, robot, fov_deg=70.0,
-                   width=width, height=height, mode=mode)
+        robot = RobotProxy.default(footprint_radius=body_radius)
+        eng = cls(scene, cameras, frames, surface, robot, fov_deg=70.0,
+                  width=width, height=height, mode=mode)
+        eng.tilt_deg = tilt_deg
+        return eng
 
     def virtual_camera(self, shot: Shot) -> PinholeCamera:
         return PinholeCamera.from_fov(self.width, self.height, self.fov_deg,
