@@ -59,8 +59,11 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
     vcam_.width = out_width_;
     vcam_.height = out_height_;
 
-    // Virtual camera intrinsics — simple pinhole, 60° VFOV
-    float fy = (out_height_ / 2.0f) / std::tan(30.0f * M_PI / 180.0f);
+    // Virtual camera intrinsics — pinhole with configurable vertical FOV.
+    // Narrower FOV reduces wide-angle edge distortion (more realistic); the
+    // auto-tuner sets this alongside the pose.
+    double vfov_deg = declare_parameter<double>("virtual_vfov_deg", 60.0);
+    float fy = (out_height_ / 2.0f) / std::tan(static_cast<float>(vfov_deg) * 0.5f * M_PI / 180.0f);
     float fx = fy;
     vcam_.K[0] = fx;  vcam_.K[1] = 0;   vcam_.K[2] = out_width_ / 2.0f;
     vcam_.K[3] = 0;   vcam_.K[4] = fy;  vcam_.K[5] = out_height_ / 2.0f;
