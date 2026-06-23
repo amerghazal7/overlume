@@ -148,23 +148,23 @@ class Engine:
 
 def main():  # pragma: no cover
     import pygame
+    from . import gl_present
+    from .gl_context import use_window_context
 
-    W, H = 360, 270
-    eng = Engine.from_defaults(width=W, height=H)
-
+    W, H = 960, 720
     pygame.init()
-    screen = pygame.display.set_mode((W * 3, H + 40))
-    pygame.display.set_caption("TPSProjector prototype")
-    font = pygame.font.SysFont("monospace", 14)
+    pygame.display.set_mode((W, H), pygame.OPENGL | pygame.DOUBLEBUF)
+    pygame.display.set_caption("TPSProjector — GL live")
+    use_window_context()                       # GL backend renders into this window's context
     clock = pygame.time.Clock()
 
-    cur = get_preset(PRESET_NAMES[0])
-    src = cur
-    dst = cur
-    t = 1.0  # tween progress (1 = settled)
-    show_validation = True
+    eng = Engine.from_defaults(width=W, height=H, backend="gl")
+    ctx = None
+    from .gl_context import get_context
+    ctx = get_context()
 
-    # free-orbit debug state
+    cur = get_preset(PRESET_NAMES[0]); src = dst = cur; t = 1.0
+    show_validation = False
     orbit = False
     az, el, dist = np.radians(180.0), np.radians(28.0), 4.5
 
@@ -173,10 +173,6 @@ def main():  # pragma: no cover
         ey = dist * np.cos(el) * np.sin(az)
         ez = dist * np.sin(el) + 0.5
         return Shot(eye=[ex, ey, ez], target=[0.0, 0.0, 0.3])
-
-    def to_surf(arr):
-        a = (np.clip(arr, 0, 1) * 255).astype(np.uint8)
-        return pygame.surfarray.make_surface(np.transpose(a, (1, 0, 2)))
 
     running = True
     while running:
@@ -198,8 +194,7 @@ def main():  # pragma: no cover
                     eng.mode = "hybrid"
                 elif e.key == pygame.K_g:
                     new = "numpy" if eng.backend == "gl" else "gl"
-                    eng = Engine.from_defaults(width=W, height=H, mode=eng.mode,
-                                               backend=new)
+                    eng = Engine.from_defaults(width=W, height=H, mode=eng.mode, backend=new)
                 elif pygame.K_1 <= e.key <= pygame.K_9:
                     idx = e.key - pygame.K_1
                     if idx < len(PRESET_NAMES):
@@ -207,44 +202,45 @@ def main():  # pragma: no cover
 
         keys = pygame.key.get_pressed()
         if orbit:
-            if keys[pygame.K_LEFT]:
-                az -= 0.04
-            if keys[pygame.K_RIGHT]:
-                az += 0.04
-            if keys[pygame.K_UP]:
-                el = min(el + 0.03, np.radians(85))
-            if keys[pygame.K_DOWN]:
-                el = max(el - 0.03, np.radians(5))
-            if keys[pygame.K_EQUALS]:
-                dist = max(dist - 0.1, 1.5)
-            if keys[pygame.K_MINUS]:
-                dist += 0.1
+            if keys[pygame.K_LEFT]:  az -= 0.04
+            if keys[pygame.K_RIGHT]: az += 0.04
+            if keys[pygame.K_UP]:    el = min(el + 0.03, np.radians(85))
+            if keys[pygame.K_DOWN]:  el = max(el - 0.03, np.radians(5))
+            if keys[pygame.K_EQUALS]: dist = max(dist - 0.1, 1.5)
+            if keys[pygame.K_MINUS]:  dist += 0.1
             cur = orbit_shot()
         else:
             if t < 1.0:
-                t = min(1.0, t + 0.05)
-                cur = tween(src, dst, t)
+                t = min(1.0, t + 0.05); cur = tween(src, dst, t)
             else:
                 cur = dst
 
-        res = eng.synthesize(cur)
-        screen.fill((20, 20, 24))
-        screen.blit(to_surf(res.synth), (0, 0))
-        if show_validation:
-            screen.blit(to_surf(res.truth), (W, 0))
-            screen.blit(to_surf(res.diff), (W * 2, 0))
-            labels = ["synthesized", "ground truth", "diff (cold=good)"]
-            for i, lab in enumerate(labels):
-                screen.blit(font.render(lab, True, (220, 220, 220)), (i * W + 6, 4))
-
-        hud = f"mode={eng.mode:6s} " + ("ORBIT" if orbit else "preset") + \
-            f"  PSNR={res.psnr:5.2f}dB  SSIM={res.ssim:4.2f}  cover={res.valid.mean():.0%}"
-        keys_help = "[1-4]presets [b]owl/[d]epth/[h]ybrid [g]pu-toggle [v]alidation [o]rbit+arrows/+- [esc]"
-        screen.blit(font.render(hud, True, (255, 230, 140)), (6, H + 4))
-        screen.blit(font.render(keys_help, True, (160, 160, 170)), (6, H + 22))
+        vc = eng.virtual_camera(cur)
+        hud_extra = ""
+        fast = (eng.backend == "gl" and eng.mode == "bowl" and not show_validation)
+        if fast:
+            # No-readback path: env FBO over a sky clear, robot composited on GPU.
+            env_fbo = eng.bowl_renderer._render_to_fbo(eng.images, eng.cameras,
+                                                       eng.surface, vc)
+            robot_rgb, robot_depth = eng.robot.render(vc)
+            alpha = np.isfinite(robot_depth).astype("f4")
+            robot_rgba = np.dstack([np.clip(robot_rgb, 0, 1).astype("f4"), alpha])
+            ctx.screen.use()
+            ctx.clear(*eng.sky_color, 1.0)
+            gl_present.present_fbo(env_fbo, blend=True)        # env where valid, else sky
+            gl_present.present_array(robot_rgba, blend=True)   # robot over env
+        else:
+            # Readback path: full synthesize (metrics available), present the frame.
+            res = eng.synthesize(cur)
+            gl_present.present_array(np.clip(res.synth, 0, 1))
+            hud_extra = f" PSNR={res.psnr:5.2f} SSIM={res.ssim:4.2f}"
 
         pygame.display.flip()
-        clock.tick(30)
+        clock.tick(0)   # uncapped, to see real fps
+        pygame.display.set_caption(
+            f"TPSProjector — mode={eng.mode} backend={eng.backend} "
+            f"{'ORBIT' if orbit else 'preset'} fps={clock.get_fps():4.1f}{hud_extra}  "
+            f"[1-4]preset [b/d/h]mode [g]pu [v]alidation [o]rbit [esc]")
 
     pygame.quit()
 
