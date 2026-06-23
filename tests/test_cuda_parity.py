@@ -85,3 +85,28 @@ def test_cuda_bowl_matches_numpy():
     assert (cuda_valid == np_valid).mean() > 0.97
     both = cuda_valid & np_valid
     assert _psnr(cuda_frame[both], np_frame[both]) > 40.0
+
+
+def test_cuda_depth_matches_numpy():
+    import tpscuda
+    from tpsprojector.depth_renderer import DepthRenderer, synthetic_frames
+    from tpsprojector.world.rig import make_ring_rig
+    from tpsprojector.world.scene import default_scene
+    from tpsprojector.camera import PinholeCamera
+    from tpsprojector.transforms import look_at
+    scene = default_scene()
+    cams = make_ring_rig(n=6, hfov_deg=85.0, radius=0.25, mount_height=0.55,
+                         tilt_deg=10.0, width=128, height=96)
+    frames = synthetic_frames(scene, cams)
+    vc = PinholeCamera.from_fov(96, 72, 70.0, look_at(eye=[0, -3, 2], target=[0, 0, 0]))
+    r = tpscuda.Reprojector(96, 72)
+    r.set_cameras([_cam_dict(c) for c in cams])
+    r.upload_images(np.stack([np.asarray(f.image, "f4") for f in frames]))
+    depth = np.stack([np.where(np.isfinite(f.depth), f.depth, np.inf).astype("f4") for f in frames])
+    r.upload_depth(depth)
+    out = r.render_depth(_cam_dict(vc), 1)
+    cf, cvld = out[..., :3].astype(float), out[..., 3] > 0.5
+    nf, nvld = DepthRenderer(splat_radius=1).render(frames, vc)
+    assert (cvld == nvld).mean() > 0.90
+    both = cvld & nvld
+    assert _psnr(cf[both], nf[both]) > 28.0

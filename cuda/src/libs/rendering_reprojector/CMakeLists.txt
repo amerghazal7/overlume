@@ -6,6 +6,7 @@ add_library(rendering_reprojector SHARED
     src/reprojector.cpp
     src/kernels/fill.cu
     src/kernels/reproject.cu
+    src/kernels/splat.cu
 )
 set_target_properties(rendering_reprojector PROPERTIES EXPORT_NAME reprojector)
 

@@ -47,5 +47,17 @@ PYBIND11_MODULE(tpscuda, m)
                  auto out = py::array_t<float>({v.height, v.width, 4});
                  r.render_bowl(v, b, out.mutable_data());
                  return out;
+             })
+        .def("upload_depth",
+             [](Reprojector& r,
+                py::array_t<float, py::array::c_style | py::array::forcecast> a) {
+                 r.upload_depth(a.data(), a.shape(0), a.shape(1), a.shape(2));
+             })
+        .def("render_depth",
+             [](Reprojector& r, py::dict vcam, int splat_radius) {
+                 CameraParams v = to_cam(vcam);
+                 auto out = py::array_t<float>({v.height, v.width, 4});
+                 r.render_depth(v, splat_radius, out.mutable_data());
+                 return out;
              });
 }
