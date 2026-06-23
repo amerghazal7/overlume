@@ -25,6 +25,7 @@ if(BUILD_TESTING)
 endif()
 
 add_subdirectory(src/libs)
+add_subdirectory(tools)
 
 include(CMakePackageConfigHelpers)
 install(EXPORT micropilot_renderingTargets
