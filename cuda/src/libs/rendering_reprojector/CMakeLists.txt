@@ -4,6 +4,7 @@ find_package(CUDAToolkit REQUIRED)
 
 add_library(rendering_reprojector SHARED
     src/reprojector.cpp
+    src/kernels/fill.cu
 )
 set_target_properties(rendering_reprojector PROPERTIES EXPORT_NAME reprojector)
 
