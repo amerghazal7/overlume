@@ -1,0 +1,4 @@
+build:
+  build-base: ../../build/src/ros_apps/
+  install-base: ../../install/ros_apps/
+  parallel-workers: 8

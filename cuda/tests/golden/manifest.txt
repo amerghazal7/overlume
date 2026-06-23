@@ -1,0 +1,8 @@
+ncam 6
+cam_w 128
+cam_h 96
+out_w 96
+out_h 72
+R0 6.0
+k 0.08
+Rmax 20.0
