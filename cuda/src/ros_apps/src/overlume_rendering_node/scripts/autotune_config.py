@@ -131,12 +131,16 @@ def vcam(eye, target, vfov, ow, oh):
     return dict(K=K, R=p.R.astype("f4").ravel(), t=np.asarray(p.t, "f4"), width=ow, height=oh), p
 
 
-def driving_pose(eye_back, eye_height, look_ahead):
-    """Teleop chase-cam: behind+above, looking toward the HORIZON (target far ahead
-    at ground level) so the road recedes ahead and the upper frame shows the
-    horizon/sky (sky-filled). This is the 'driving the robot like a game' view —
-    do NOT tilt steeply down (that hides the horizon you need to drive)."""
-    return [-eye_back, 0.0, eye_height], [look_ahead, 0.0, 0.0]
+def driving_pose(eye_back, eye_height, vfov, sky_frac):
+    """Teleop chase-cam: behind+above, tilted so the HORIZON sits ~sky_frac from the
+    top of the frame. The operator still sees ahead to the horizon, but only a thin
+    sky strip remains (no wasted half-frame of sky). Geometric relation:
+      sky fraction of frame = (vfov/2 - downpitch) / vfov  =>  downpitch = (vfov/2)(1 - 2*sky_frac)
+    Target placed on the ground ahead to realise that downpitch."""
+    phi = vfov / 2.0
+    theta = np.radians(max(phi * (1.0 - 2.0 * sky_frac), 1.0))  # downpitch (deg->rad)
+    target_x = eye_height / np.tan(theta) - eye_back
+    return [-eye_back, 0.0, eye_height], [target_x, 0.0, 0.0]
 
 
 def overlap_score(tps, cams, imgs_f, V, R0, k, Rmax, ow, oh):
@@ -176,8 +180,13 @@ def main():
     ap.add_argument("--vfov", type=float, default=65.0)        # forward-aware driving FOV
     ap.add_argument("--eye-back", type=float, default=6.0)
     ap.add_argument("--eye-height", type=float, default=4.0)
-    ap.add_argument("--look-ahead", type=float, default=30.0)  # horizon target distance (m)
+    ap.add_argument("--sky-frac", type=float, default=0.10)    # fraction of frame left as sky (horizon near top)
     ap.add_argument("--sky", default="0.53,0.70,0.92")         # sky fill RGB for unseen region
+    # Bowl: modest wall by default so distant objects "stand up" (option C); tunable.
+    # Set --bowl-k 0 / large --bowl-r0 for a flat floor (less seam, squashed far objects).
+    ap.add_argument("--bowl-r0", type=float, default=12.0)
+    ap.add_argument("--bowl-k", type=float, default=0.06)
+    ap.add_argument("--bowl-rmax", type=float, default=35.0)
     ap.add_argument("--ground-offset", type=float, default=0.0)
     ap.add_argument("--coverage-floor", type=float, default=0.90)
     ap.add_argument("--max-sync-latency", type=float, default=0.12)
@@ -208,17 +217,21 @@ def main():
     imgs_f = np.stack([imgs[n].astype("f4") / 255.0 for n in names])
     tps = tpscuda.Reprojector(OW, OH)
 
-    # 3. teleop driving pose (look toward the horizon)
-    eye, target = driving_pose(a.eye_back, a.eye_height, a.look_ahead)
+    # 3. teleop driving pose (horizon near the top, minimal sky)
+    eye, target = driving_pose(a.eye_back, a.eye_height, a.vfov, a.sky_frac)
     V, pose = vcam(eye, target, a.vfov, OW, OH)
-    print(f"pose eye={np.round(eye,2).tolist()} target={np.round(target,2).tolist()} vfov={a.vfov}")
+    print(f"pose eye={np.round(eye,2).tolist()} target={np.round(target,2).tolist()} "
+          f"vfov={a.vfov} sky_frac={a.sky_frac}")
 
-    # 4. bowl sweep, scored by overlap disagreement (lower=more realistic)
-    rmax_xy = max(np.hypot(t[0], t[1]) for _, t in ext)
-    candidates = [
-        (6.0, 0.08, 20.0), (10.0, 0.05, 30.0), (15.0, 0.03, 40.0),
-        (20.0, 0.02, 60.0), (30.0, 0.012, 80.0), (12.0, 0.04, 35.0),
-    ]
+    # 4. bowl montage (informational): flat -> walled. The CHOSEN bowl is the
+    # tunable --bowl-* (default a modest wall so distant objects stand up); the
+    # printed "seam" (overlap disagreement) is a quality readout, not the decider,
+    # because flat minimises seams but squashes far objects — a style tradeoff.
+    chosen_bowl = (a.bowl_r0, a.bowl_k, a.bowl_rmax)
+    candidates = sorted(set([
+        (30.0, 0.012, 80.0), (15.0, 0.03, 40.0), chosen_bowl,
+        (10.0, 0.10, 30.0), (8.0, 0.15, 25.0), (6.0, 0.20, 22.0),
+    ]))
     tiles, results = [], []
     for (R0, k, Rmax) in candidates:
         cov, dis = overlap_score(tps, cams, imgs_f, V, R0, k, Rmax, OW, OH)
@@ -233,10 +246,9 @@ def main():
         tiles.append(cv2.resize(bgr, (OW // 2, OH // 2)))
         print(f"R0={R0} k={k} Rmax={Rmax}: coverage {cov*100:.1f}% disagreement {dis:.4f}")
 
-    valid = [r for r in results if r[3] >= a.coverage_floor] or results
-    best = min(valid, key=lambda r: r[4])
-    R0, k, Rmax = best[0], best[1], best[2]
-    print(f"CHOSEN bowl: R0={R0} k={k} Rmax={Rmax} (coverage {best[3]*100:.1f}%, disagreement {best[4]:.4f})")
+    R0, k, Rmax = chosen_bowl
+    chosen_dis = next((r[4] for r in results if (r[0], r[1], r[2]) == chosen_bowl), float("nan"))
+    print(f"CHOSEN bowl (tunable via --bowl-*): R0={R0} k={k} Rmax={Rmax} (disagreement {chosen_dis:.4f})")
 
     # montage
     cols = 3
