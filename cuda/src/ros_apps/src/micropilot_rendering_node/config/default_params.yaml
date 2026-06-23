@@ -145,16 +145,19 @@
     # third-person follow-cam). t = eye position (metres) in the rig frame
     # (x-forward, y-left, z-up). Move t.x more negative to pull further back,
     # t.z up to rise higher. Intrinsics are a fixed 60° vertical-FOV pinhole.
+    # Pose = look_at(eye=[-4,0,3.5], target=[2,0,-0.5]) -> ~34 deg downward pitch,
+    # which keeps the top of the frame below the horizon (no black sky border).
+    # To re-tilt: regen with tpsprojector.transforms.look_at(eye, target).
     virtual_pose:
       - 0.0
-      - -0.3121532890
-      - 0.9500317490
+      - -0.5547001962
+      - 0.8320502943
       - -1.0
       - 0.0
       - 0.0
       - 0.0
-      - -0.9500317490
-      - -0.3121532890
+      - -0.8320502943
+      - -0.5547001962
       - -4.0   # eye x  (4 m behind)
       - 0.0    # eye y
       - 3.5    # eye z  (3.5 m up)
