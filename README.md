@@ -123,6 +123,6 @@ which the architecture is already set up to accept.
    far-object ghosting using accurate per-camera depth.
 3. Real depth source behind `CameraFrame`: monocular/stereo depth model or LIDAR
    fusion (replacing synthetic ground-truth depth).
-4. `GLRenderer` / C++/CUDA backend — splat + bowl as GPU kernels, clean C++ API.
+4. ✅ `GLRenderer` — implemented: `GLBowlRenderer`, `GLDepthRenderer`, backend toggle (`[g]` key live-switches numpy ↔ GL).
 5. Disocclusion handling: temporal accumulation / inpainting to fill unseen
    geometry instead of bowl fallback.

@@ -196,6 +196,10 @@ def main():  # pragma: no cover
                     eng.mode = "depth"
                 elif e.key == pygame.K_h:
                     eng.mode = "hybrid"
+                elif e.key == pygame.K_g:
+                    new = "numpy" if eng.backend == "gl" else "gl"
+                    eng = Engine.from_defaults(width=W, height=H, mode=eng.mode,
+                                               backend=new)
                 elif pygame.K_1 <= e.key <= pygame.K_9:
                     idx = e.key - pygame.K_1
                     if idx < len(PRESET_NAMES):
@@ -235,7 +239,7 @@ def main():  # pragma: no cover
 
         hud = f"mode={eng.mode:6s} " + ("ORBIT" if orbit else "preset") + \
             f"  PSNR={res.psnr:5.2f}dB  SSIM={res.ssim:4.2f}  cover={res.valid.mean():.0%}"
-        keys_help = "[1-4]presets [b]owl/[d]epth/[h]ybrid [v]alidation [o]rbit+arrows/+- [esc]"
+        keys_help = "[1-4]presets [b]owl/[d]epth/[h]ybrid [g]pu-toggle [v]alidation [o]rbit+arrows/+- [esc]"
         screen.blit(font.render(hud, True, (255, 230, 140)), (6, H + 4))
         screen.blit(font.render(keys_help, True, (160, 160, 170)), (6, H + 22))
 
