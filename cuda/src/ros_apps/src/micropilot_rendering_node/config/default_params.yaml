@@ -1,0 +1,163 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# micropilot_rendering_node — default parameters
+#
+# Loaded by rendering_node.launch.py. Override per deployment with:
+#   ros2 launch micropilot_rendering_node rendering_node.launch.py \
+#       params_file:=/path/to/your_robot_params.yaml
+# or edit this file and rebuild (colcon, --symlink-install picks edits up live).
+#
+# The "/**" wildcard applies these to the node regardless of its name/namespace.
+# ─────────────────────────────────────────────────────────────────────────────
+/**:
+  ros__parameters:
+
+    # ── rig size ──────────────────────────────────────────────────────────────
+    n_cameras: 6
+
+    # ── output virtual-camera image ───────────────────────────────────────────
+    out_width: 1280
+    out_height: 720
+
+    # ── frame sync ──────────────────────────────────────────────────────────────
+    # Render only when ALL cameras have a new frame whose header stamps span <=
+    # this window (seconds). Prevents flicker from stitching async frames. Set a
+    # touch above one camera period (cameras ~10 fps -> ~0.10 s).
+    max_sync_latency: 0.12
+
+    # ── proxy bowl surface (metres) ───────────────────────────────────────────
+    # Flat floor inside R0, parabolic wall (curvature k) out to Rmax. Tune to the
+    # scene scale: larger R0 keeps more near-ground crisp; k/Rmax shape the wall
+    # where distant objects "stand up".
+    bowl_R0: 6.0
+    bowl_k: 0.08
+    bowl_Rmax: 20.0
+
+    # ── camera topics (per-camera, order matches camera_extrinsics) ───────────
+    # Point these at the robot's real camera drivers. Image encoding must be
+    # convertible to rgb8; intrinsics (K) + resolution are taken from CameraInfo.
+    image_topics:
+      - /fl_camera/raw_images
+      - /fm_camera/raw_images
+      - /fr_camera/raw_images
+      - /bl_camera/raw_images
+      - /bm_camera/raw_images
+      - /br_camera/raw_images
+    info_topics:
+      - /fl_camera/camera_info
+      - /fm_camera/camera_info
+      - /fr_camera/camera_info
+      - /bl_camera/camera_info
+      - /bm_camera/camera_info
+      - /br_camera/camera_info
+
+    # ── camera extrinsics: per-camera [R(9, row-major) | t(3)] in the rig frame ─
+    # Camera→rig pose. R columns = (right, down, fwd) of the camera optical frame
+    # (CV convention: +Z fwd, +X right, +Y down). t = camera centre, metres.
+    # Rig frame: x-forward, y-left, z-up, GROUND at z=0.
+    # These defaults are derived from the CARLA sim ground truth
+    #   (micropilot_sim/config/carla_interface_config.yaml spawn_points) via
+    #   scripts/extrinsics_from_carla.py. On the real robot, regenerate from the
+    #   vehicle calibration (e.g. sensors_extrinsic_calib.yaml) into this same
+    #   [R|t] layout, with the ground plane at z=0.
+    # Order: fl, fm, fr, bl, bm, br.
+    camera_extrinsics:
+      # fl_camera
+      - 0.5000000000  # R00
+      - -0.2241438680
+      - 0.8365163037
+      - -0.8660254038  # R10
+      - -0.1294095226
+      - 0.4829629131
+      - 0.0            # R20
+      - -0.9659258263
+      - -0.2588190451
+      - 0.55           # tx
+      - 0.21           # ty
+      - 0.60           # tz
+      # fm_camera
+      - 0.0
+      - 0.0
+      - 1.0
+      - -1.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - -1.0
+      - 0.0
+      - 0.60
+      - 0.0
+      - 0.60
+      # fr_camera
+      - -0.5000000000
+      - -0.2241438680
+      - 0.8365163037
+      - -0.8660254038
+      - 0.1294095226
+      - -0.4829629131
+      - 0.0
+      - -0.9659258263
+      - -0.2588190451
+      - 0.55
+      - -0.21
+      - 0.60
+      # bl_camera
+      - 0.9396926208
+      - 0.0
+      - -0.3420201433
+      - 0.3420201433
+      - 0.0
+      - 0.9396926208
+      - 0.0
+      - -1.0
+      - 0.0
+      - 0.47
+      - 0.37
+      - 0.58
+      # bm_camera
+      - 0.0
+      - 0.0
+      - -1.0
+      - 1.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - -1.0
+      - 0.0
+      - -0.80
+      - 0.0
+      - 0.468
+      # br_camera
+      - -0.9396926208
+      - 0.0
+      - -0.3420201433
+      - 0.3420201433
+      - 0.0
+      - -0.9396926208
+      - 0.0
+      - -1.0
+      - 0.0
+      - 0.47
+      - -0.37
+      - 0.58
+
+    # ── virtual (TPS) camera pose: [R(9, row-major) | t(3)] in the rig frame ───
+    # Behind + above the vehicle, looking forward and slightly down (the classic
+    # third-person follow-cam). t = eye position (metres) in the rig frame
+    # (x-forward, y-left, z-up). Move t.x more negative to pull further back,
+    # t.z up to rise higher. Intrinsics are a fixed 60° vertical-FOV pinhole.
+    # Pose = look_at(eye=[-4,0,3.5], target=[2,0,-0.5]) -> ~34 deg downward pitch,
+    # which keeps the top of the frame below the horizon (no black sky border).
+    # To re-tilt: regen with tpsprojector.transforms.look_at(eye, target).
+    virtual_pose:
+      - 0.0
+      - -0.5547001962
+      - 0.8320502943
+      - -1.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - -0.8320502943
+      - -0.5547001962
+      - -4.0   # eye x  (4 m behind)
+      - 0.0    # eye y
+      - 3.5    # eye z  (3.5 m up)

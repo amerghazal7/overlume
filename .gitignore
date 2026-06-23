@@ -5,3 +5,10 @@ __pycache__/
 
 # Generated artifacts
 gl_montage.png
+
+# CUDA library build/install artifacts
+cuda/build/
+cuda/install/
+cuda/logs/
+*.db*CMakeFiles/
+.vscode/
