@@ -128,6 +128,23 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
     pub_image_ = create_publisher<sensor_msgs::msg::Image>("/rendering/image", 1);
     pub_info_ = create_publisher<sensor_msgs::msg::CameraInfo>("/rendering/camera_info", 1);
 
+    // ── explicit topic names (optional) ─────────────────────────────────────
+    // If provided (size == n_cameras), the node subscribes to these exact topics
+    // instead of the default "/camera/camN/..." pattern — used to point at real
+    // camera drivers (e.g. "/fl_camera/raw_images" + "/fl_camera/camera_info").
+    image_topics_ = declare_parameter<std::vector<std::string>>(
+        "image_topics", std::vector<std::string>{});
+    info_topics_ = declare_parameter<std::vector<std::string>>(
+        "info_topics", std::vector<std::string>{});
+    if ((!image_topics_.empty() && static_cast<int>(image_topics_.size()) != n_cameras_) ||
+        (!info_topics_.empty() && static_cast<int>(info_topics_.size()) != n_cameras_))
+    {
+        RCLCPP_ERROR(get_logger(),
+                     "image_topics/info_topics, when set, must have n_cameras=%d entries",
+                     n_cameras_);
+        return CallbackReturn::FAILURE;
+    }
+
     // ── per-camera state ─────────────────────────────────────────────────────
     per_cam_.resize(n_cameras_);
     img_dirty_.assign(n_cameras_, false);
@@ -151,8 +168,12 @@ RenderingNode::CallbackReturn RenderingNode::on_activate(const rclcpp_lifecycle:
 
     for (int i = 0; i < n_cameras_; ++i)
     {
-        std::string img_topic = "/camera/cam" + std::to_string(i) + "/image_raw";
-        std::string info_topic = "/camera/cam" + std::to_string(i) + "/camera_info";
+        std::string img_topic = image_topics_.empty()
+                                    ? "/camera/cam" + std::to_string(i) + "/image_raw"
+                                    : image_topics_[i];
+        std::string info_topic = info_topics_.empty()
+                                     ? "/camera/cam" + std::to_string(i) + "/camera_info"
+                                     : info_topics_[i];
 
         // Capture index by value
         img_subs_[i] = create_subscription<sensor_msgs::msg::Image>(

@@ -77,6 +77,11 @@ private:
 
     // track which cameras had an image update since last upload
     std::vector<bool> img_dirty_;
+
+    // explicit per-camera topic names (size n_cameras_); empty => default
+    // "/camera/camN/image_raw" + "/camera/camN/camera_info" pattern.
+    std::vector<std::string> image_topics_;
+    std::vector<std::string> info_topics_;
 };
 
 }  // namespace micropilot::rendering_app
