@@ -123,6 +123,20 @@ class GLBowlRenderer(Renderer):
         # Cached for the lifetime of the singleton GL context (see gl_context.get_context).
         self._progs = {}        # ncam -> (program, vao)
         self._cam_tex = None    # (ncam, H, W) cached sampler2DArray
+        # Upload-once caches: re-upload only when inputs change (by identity).
+        self._img_sig = None    # tuple(id(img)) of last-uploaded camera images
+        self._cam_sig = None    # tuple(id(cam)) of last camera set
+        self._uniforms_set = set()  # ncam values whose per-cam uniforms are current
+
+    def invalidate(self):
+        """Force re-upload of camera textures and per-camera uniforms next render.
+
+        Call after mutating an input image/camera in place (identity-based
+        caching cannot detect in-place changes).
+        """
+        self._img_sig = None
+        self._cam_sig = None
+        self._uniforms_set = set()
 
     def _program(self, ncam: int):
         from .gl_context import get_context
@@ -135,58 +149,62 @@ class GLBowlRenderer(Renderer):
             self._progs[ncam] = prog = (program, vao)
         return prog
 
-    def render(self, camera_images: Sequence[np.ndarray],
-               cameras: Sequence[PinholeCamera], surface,
-               virtual_camera: PinholeCamera):
+    def _render_to_fbo(self, camera_images: Sequence[np.ndarray],
+                       cameras: Sequence[PinholeCamera], surface,
+                       virtual_camera: PinholeCamera):
         from .gl_context import get_context, get_fbo
         ctx = get_context()
         n = len(cameras)
         program, vao = self._program(n)
 
         cam_h, cam_w = camera_images[0].shape[:2]
-        stack = np.stack([np.asarray(im, dtype="f4") for im in camera_images])  # (n,H,W,3)
-        # Reuse the same allocation when camera geometry is unchanged; write() below always re-uploads the pixel data.
-        if self._cam_tex is None or self._cam_tex.size != (cam_w, cam_h) \
+        if self._cam_tex is None or self._cam_tex.size[:2] != (cam_w, cam_h) \
                 or self._cam_tex.layers != n:
             if self._cam_tex is not None:
                 self._cam_tex.release()
             self._cam_tex = ctx.texture_array((cam_w, cam_h, n), 3, dtype="f4")
             self._cam_tex.filter = (9729, 9729)             # GL_LINEAR, GL_LINEAR
             self._cam_tex.repeat_x = self._cam_tex.repeat_y = False  # CLAMP_TO_EDGE
-        self._cam_tex.write(stack.tobytes())
+            self._img_sig = None    # new allocation: force the upload below
+        # Upload pixel data only when the image set changed (by identity).
+        img_sig = tuple(id(im) for im in camera_images)
+        if img_sig != self._img_sig:
+            stack = np.stack([np.asarray(im, dtype="f4") for im in camera_images])
+            self._cam_tex.write(stack.tobytes())
+            self._img_sig = img_sig
         self._cam_tex.use(0)
         program["cams"] = 0
         program["cam_w"].value = float(cam_w)
         program["cam_h"].value = float(cam_h)
 
-        # per-camera uniforms: R columns are (right, down, fwd); center is pose.t
-        # moderngl array uniforms are set as a list of values for the whole array
-        cright_list = []
-        cdown_list = []
-        cfwd_list = []
-        ccenter_list = []
-        cfx_list = []
-        cfy_list = []
-        ccx_list = []
-        ccy_list = []
-        for cam in cameras:
-            R, t = cam.pose.R, cam.pose.t
-            cright_list.append(tuple(float(v) for v in R[:, 0]))
-            cdown_list.append(tuple(float(v) for v in R[:, 1]))
-            cfwd_list.append(tuple(float(v) for v in R[:, 2]))
-            ccenter_list.append(tuple(float(v) for v in t))
-            cfx_list.append(float(cam.K[0, 0]))
-            cfy_list.append(float(cam.K[1, 1]))
-            ccx_list.append(float(cam.K[0, 2]))
-            ccy_list.append(float(cam.K[1, 2]))
-        program["cright"].value = cright_list
-        program["cdown"].value = cdown_list
-        program["cfwd"].value = cfwd_list
-        program["ccenter"].value = ccenter_list
-        program["cfx"].value = cfx_list
-        program["cfy"].value = cfy_list
-        program["ccx"].value = ccx_list
-        program["ccy"].value = ccy_list
+        # Per-camera uniforms live on the program; set them only when the camera
+        # set changes (by identity) or this program has not been populated yet.
+        cam_sig = tuple(id(c) for c in cameras)
+        if cam_sig != self._cam_sig:
+            self._cam_sig = cam_sig
+            self._uniforms_set = set()
+        if n not in self._uniforms_set:
+            cright_list, cdown_list, cfwd_list, ccenter_list = [], [], [], []
+            cfx_list, cfy_list, ccx_list, ccy_list = [], [], [], []
+            for cam in cameras:
+                R, t = cam.pose.R, cam.pose.t
+                cright_list.append(tuple(float(v) for v in R[:, 0]))
+                cdown_list.append(tuple(float(v) for v in R[:, 1]))
+                cfwd_list.append(tuple(float(v) for v in R[:, 2]))
+                ccenter_list.append(tuple(float(v) for v in t))
+                cfx_list.append(float(cam.K[0, 0]))
+                cfy_list.append(float(cam.K[1, 1]))
+                ccx_list.append(float(cam.K[0, 2]))
+                ccy_list.append(float(cam.K[1, 2]))
+            program["cright"].value = cright_list
+            program["cdown"].value = cdown_list
+            program["cfwd"].value = cfwd_list
+            program["ccenter"].value = ccenter_list
+            program["cfx"].value = cfx_list
+            program["cfy"].value = cfy_list
+            program["ccx"].value = ccx_list
+            program["ccy"].value = ccy_list
+            self._uniforms_set.add(n)
 
         W, H = virtual_camera.width, virtual_camera.height
         Rv, tv = virtual_camera.pose.R, virtual_camera.pose.t
@@ -224,7 +242,14 @@ class GLBowlRenderer(Renderer):
         fbo = get_fbo(W, H)
         fbo.use()
         fbo.clear(*self.fill_color, 0.0)
-        vao.render(mode=6, vertices=3)   # 6 = GL_TRIANGLES
+        vao.render(mode=6, vertices=3)   # 6 = GL_TRIANGLE_FAN (== one triangle for 3 verts)
+        return fbo
+
+    def render(self, camera_images: Sequence[np.ndarray],
+               cameras: Sequence[PinholeCamera], surface,
+               virtual_camera: PinholeCamera):
+        W, H = virtual_camera.width, virtual_camera.height
+        fbo = self._render_to_fbo(camera_images, cameras, surface, virtual_camera)
         raw = np.frombuffer(fbo.read(components=4, dtype="f4"), dtype="f4").reshape(H, W, 4)
         raw = np.flipud(raw).copy()      # framebuffer is bottom-up
         frame = raw[..., :3].astype(np.float64)

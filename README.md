@@ -67,7 +67,8 @@ pip install -r requirements.txt
 python -m tpsprojector.app
 ```
 
-Controls: `1`–`4` cinematic presets · `v` toggle validation panel ·
+Controls: `1`–`4` cinematic presets · `b`/`d`/`h` render mode (bowl/depth/hybrid) ·
+`g` toggle GL ↔ NumPy backend · `v` validation panel (readback path, shows PSNR/SSIM) ·
 `o` free-orbit debug (arrows orbit, `+`/`-` distance) · `esc` quit.
 
 ## Tests
@@ -124,5 +125,6 @@ which the architecture is already set up to accept.
 3. Real depth source behind `CameraFrame`: monocular/stereo depth model or LIDAR
    fusion (replacing synthetic ground-truth depth).
 4. ✅ `GLRenderer` — implemented: `GLBowlRenderer`, `GLDepthRenderer`, backend toggle (`[g]` key live-switches numpy ↔ GL). Note: the current GL path includes a per-frame framebuffer readback to NumPy (to keep the `Renderer` contract identical), so the 720p bowl benchmark measures ~38 fps; reaching the >60 fps target needs the no-readback direct-blit path and upload-once-for-static-scene optimizations (designed-for, not yet built).
-5. Disocclusion handling: temporal accumulation / inpainting to fill unseen
+5. ✅ GPU optimizations — upload-once caching (camera textures + per-camera uniforms for `GLBowlRenderer`; point-cloud VBO for `GLDepthRenderer`) and a no-readback `_render_to_fbo` path for both renderers. The live app opens a real OpenGL window (pygame `OPENGL|DOUBLEBUF`) and presents the rendered FBO directly via `gl_present.present_fbo` — no CPU readback on the fast path. Measured on RTX 3090 @ 720p bowl: **882.6 fps no-readback** vs 45.3 fps with readback (19.5× speedup). The `[v]` key switches to the readback path to show PSNR/SSIM.
+6. Disocclusion handling: temporal accumulation / inpainting to fill unseen
    geometry instead of bowl fallback.
