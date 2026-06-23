@@ -38,3 +38,22 @@ def test_render_to_fbo_readback_matches_render():
 
     assert np.array_equal(fbo_valid, valid)
     assert np.allclose(fbo_frame, frame, atol=1e-6)
+
+
+def test_depth_render_to_fbo_readback_matches_render():
+    from tpsprojector.gl_depth_renderer import GLDepthRenderer
+    scene = default_scene()
+    cameras = make_ring_rig(n=6, hfov_deg=85.0, radius=0.25,
+                            mount_height=0.55, tilt_deg=10.0, width=128, height=96)
+    frames = synthetic_frames(scene, cameras)
+    vc = PinholeCamera.from_fov(96, 72, 70.0,
+                                look_at(eye=[0.0, -3.0, 2.0], target=[0.0, 0.0, 0.0]))
+    gl = GLDepthRenderer(splat_radius=1)
+    frame, valid = gl.render(frames, vc)
+    fbo = gl._render_to_fbo(frames, vc)
+    raw = np.frombuffer(fbo.read(components=4, dtype="f4"), dtype="f4").reshape(72, 96, 4)
+    raw = np.flipud(raw).copy()
+    fb_frame = raw[..., :3].astype(np.float64); fb_valid = raw[..., 3] > 0.5
+    fb_frame[~fb_valid] = gl.fill_color
+    assert np.array_equal(fb_valid, valid)
+    assert np.allclose(fb_frame, frame, atol=1e-6)
