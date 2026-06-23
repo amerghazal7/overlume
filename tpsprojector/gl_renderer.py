@@ -135,9 +135,9 @@ class GLBowlRenderer(Renderer):
             self._progs[ncam] = prog = (program, vao)
         return prog
 
-    def render(self, camera_images: Sequence[np.ndarray],
-               cameras: Sequence[PinholeCamera], surface,
-               virtual_camera: PinholeCamera):
+    def _render_to_fbo(self, camera_images: Sequence[np.ndarray],
+                       cameras: Sequence[PinholeCamera], surface,
+                       virtual_camera: PinholeCamera):
         from .gl_context import get_context, get_fbo
         ctx = get_context()
         n = len(cameras)
@@ -159,16 +159,8 @@ class GLBowlRenderer(Renderer):
         program["cam_w"].value = float(cam_w)
         program["cam_h"].value = float(cam_h)
 
-        # per-camera uniforms: R columns are (right, down, fwd); center is pose.t
-        # moderngl array uniforms are set as a list of values for the whole array
-        cright_list = []
-        cdown_list = []
-        cfwd_list = []
-        ccenter_list = []
-        cfx_list = []
-        cfy_list = []
-        ccx_list = []
-        ccy_list = []
+        cright_list, cdown_list, cfwd_list, ccenter_list = [], [], [], []
+        cfx_list, cfy_list, ccx_list, ccy_list = [], [], [], []
         for cam in cameras:
             R, t = cam.pose.R, cam.pose.t
             cright_list.append(tuple(float(v) for v in R[:, 0]))
@@ -225,6 +217,13 @@ class GLBowlRenderer(Renderer):
         fbo.use()
         fbo.clear(*self.fill_color, 0.0)
         vao.render(mode=6, vertices=3)   # 6 = GL_TRIANGLES
+        return fbo
+
+    def render(self, camera_images: Sequence[np.ndarray],
+               cameras: Sequence[PinholeCamera], surface,
+               virtual_camera: PinholeCamera):
+        W, H = virtual_camera.width, virtual_camera.height
+        fbo = self._render_to_fbo(camera_images, cameras, surface, virtual_camera)
         raw = np.frombuffer(fbo.read(components=4, dtype="f4"), dtype="f4").reshape(H, W, 4)
         raw = np.flipud(raw).copy()      # framebuffer is bottom-up
         frame = raw[..., :3].astype(np.float64)
