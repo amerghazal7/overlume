@@ -32,6 +32,15 @@ if(BUILD_TESTING)
         target_link_libraries(test_reprojector PRIVATE rendering_reprojector GTest::GTest GTest::Main)
         include(GoogleTest)
         gtest_discover_tests(test_reprojector DISCOVERY_TIMEOUT 30)
+
+        # Golden test: reads cuda/tests/golden/ and checks PSNR > 40 dB vs NumpyRenderer.
+        add_executable(test_golden tests/test_golden.cpp)
+        target_link_libraries(test_golden PRIVATE rendering_reprojector GTest::GTest GTest::Main)
+        # GOLDEN_DIR points to the fixture directory.
+        # CMAKE_SOURCE_DIR is cuda/ (the top-level CMakeLists.txt).
+        target_compile_definitions(test_golden PRIVATE
+            GOLDEN_DIR="${CMAKE_SOURCE_DIR}/tests/golden")
+        gtest_discover_tests(test_golden DISCOVERY_TIMEOUT 30)
     else()
         message(STATUS "GTest not found; skipping rendering_reprojector tests.")
     endif()
