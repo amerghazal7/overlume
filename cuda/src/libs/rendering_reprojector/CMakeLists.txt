@@ -5,6 +5,7 @@ find_package(CUDAToolkit REQUIRED)
 add_library(rendering_reprojector SHARED
     src/reprojector.cpp
     src/kernels/fill.cu
+    src/kernels/reproject.cu
 )
 set_target_properties(rendering_reprojector PROPERTIES EXPORT_NAME reprojector)
 
@@ -12,6 +13,8 @@ target_include_directories(rendering_reprojector
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:rendering_reprojector/include/rendering_reprojector>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 target_link_libraries(rendering_reprojector PUBLIC CUDA::cudart)
 
