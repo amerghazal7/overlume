@@ -59,7 +59,7 @@ def present_texture(tex, target=None, blend=False, flip=False):
     if blend:
         ctx.enable(moderngl.BLEND)
         ctx.blend_func = (moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA)
-    vao.render(mode=6, vertices=3)   # 6 = GL_TRIANGLES
+    vao.render(mode=6, vertices=3)   # 6 = GL_TRIANGLE_FAN (== one triangle for 3 verts)
     if blend:
         ctx.disable(moderngl.BLEND)
 
@@ -84,3 +84,15 @@ def present_array(arr, target=None, blend=False):
         _arr_tex[key] = tex
     tex.write(a.tobytes())
     present_texture(tex, target=target, blend=blend, flip=True)
+
+
+def release_present():
+    """Release cached present programs/VAOs and upload textures (process-lifetime; opt-in)."""
+    global _progs, _arr_tex
+    for program, vao in _progs.values():
+        vao.release()
+        program.release()
+    for tex in _arr_tex.values():
+        tex.release()
+    _progs = {}
+    _arr_tex = {}

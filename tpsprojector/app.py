@@ -159,7 +159,6 @@ def main():  # pragma: no cover
     clock = pygame.time.Clock()
 
     eng = Engine.from_defaults(width=W, height=H, backend="gl")
-    ctx = None
     from .gl_context import get_context
     ctx = get_context()
 
