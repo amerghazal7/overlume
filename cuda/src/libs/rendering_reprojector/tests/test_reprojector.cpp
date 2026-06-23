@@ -17,6 +17,13 @@ TEST(Reprojector, ConstructsAndRendersBufferOfCorrectSize)
     v.width = 8;
     v.height = 6;
     r.render_bowl(v, bowl, out.data());
-    // skeleton zeroes the buffer; just assert it wrote all elements
-    for (float val : out) EXPECT_EQ(val, 0.0f);
+    // Task 2 scaffolding: fill_kernel writes constant RGBA (0.1, 0.2, 0.3, 1.0) per pixel.
+    // Task 3 will update this test when the real reprojection kernel replaces fill.
+    for (int i = 0; i < 8 * 6; ++i)
+    {
+        EXPECT_NEAR(out[i * 4 + 0], 0.1f, 1e-4f);
+        EXPECT_NEAR(out[i * 4 + 1], 0.2f, 1e-4f);
+        EXPECT_NEAR(out[i * 4 + 2], 0.3f, 1e-4f);
+        EXPECT_NEAR(out[i * 4 + 3], 1.0f, 1e-4f);
+    }
 }

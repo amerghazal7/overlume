@@ -15,6 +15,10 @@ cd ../../
 BUILD_DIR="build"
 [ -d "$BUILD_DIR" ] || mkdir "$BUILD_DIR"
 cd $BUILD_DIR
+PYBIND11_DIR=$(python3 -c "import pybind11; print(pybind11.get_cmake_dir())" 2>/dev/null || true)
+if [ -n "$PYBIND11_DIR" ]; then
+    BUILD_ARGS="$BUILD_ARGS -Dpybind11_DIR=$PYBIND11_DIR"
+fi
 cmake $BUILD_ARGS ..
 cmake --build . --parallel $(($(nproc)/2))
 cmake --install .
