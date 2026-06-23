@@ -40,3 +40,26 @@ def test_gl_bowl_matches_numpy_on_flat_surface():
     assert (gl_valid == np_valid).mean() > 0.97
     both = gl_valid & np_valid
     assert _psnr(gl_frame[both], np_frame[both]) > 40.0
+
+
+def test_gl_bowl_matches_numpy_on_bowl_surface():
+    from tpsprojector.gl_renderer import GLBowlRenderer
+    from tpsprojector.surface import BowlSurface
+    images, cameras, vc = _setup()
+    surf = BowlSurface(R0=6.0, k=0.08, Rmax=20.0)
+    gl_frame, gl_valid = GLBowlRenderer().render(images, cameras, surf, vc)
+    np_frame, np_valid = NumpyRenderer().render(images, cameras, surf, vc)
+    assert (gl_valid == np_valid).mean() > 0.97
+    both = gl_valid & np_valid
+    assert _psnr(gl_frame[both], np_frame[both]) > 40.0
+
+
+def test_gl_bowl_meets_ground_truth_threshold():
+    from tpsprojector.gl_renderer import GLBowlRenderer
+    from tpsprojector.surface import BowlSurface
+    images, cameras, vc = _setup()
+    surf = BowlSurface(R0=6.0, k=0.08, Rmax=20.0)
+    gl_frame, gl_valid = GLBowlRenderer().render(images, cameras, surf, vc)
+    truth, _ = default_scene().render(vc)
+    # same regime as the NumPy integration test: above the floor on overlap
+    assert _psnr(gl_frame[gl_valid], truth[gl_valid]) > 12.0
