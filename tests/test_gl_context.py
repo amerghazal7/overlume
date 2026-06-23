@@ -27,3 +27,8 @@ def test_fbo_clear_and_read_roundtrips_rgba32f():
 def test_depth_fbo_has_depth_attachment():
     fbo = get_fbo(16, 16, depth=True)
     assert fbo.depth_attachment is not None
+
+
+def test_use_window_context_is_exposed():
+    import tpsprojector.gl_context as gc
+    assert hasattr(gc, "use_window_context") and callable(gc.use_window_context)
