@@ -25,4 +25,8 @@ void launch_bowl(float* d_out, int OW, int OH, const float* d_images, const CamD
 void launch_splat(unsigned long long* d_zbuf, float* d_out, int OW, int OH, const float* d_pts,
                   const float* d_cols, int npts, CamDev v, int radius, float fr, float fg,
                   float fb);
+
+/** Composite depth-where-valid else bowl, per pixel (Task 5).
+ *  n = OW * OH (number of pixels); all buffers are device RGBA (4 floats/pixel). */
+void launch_composite(const float* d_depth, const float* d_bowl, float* d_out, int n);
 }  // namespace micropilot::rendering

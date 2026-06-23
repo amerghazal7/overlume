@@ -59,5 +59,13 @@ PYBIND11_MODULE(tpscuda, m)
                  auto out = py::array_t<float>({v.height, v.width, 4});
                  r.render_depth(v, splat_radius, out.mutable_data());
                  return out;
+             })
+        .def("render_hybrid",
+             [](Reprojector& r, py::dict vcam, float R0, float k, float Rmax, int radius) {
+                 CameraParams v = to_cam(vcam);
+                 BowlParams b{R0, k, Rmax};
+                 auto out = py::array_t<float>({v.height, v.width, 4});
+                 r.render_hybrid(v, b, radius, out.mutable_data());
+                 return out;
              });
 }

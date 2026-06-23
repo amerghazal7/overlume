@@ -110,3 +110,46 @@ def test_cuda_depth_matches_numpy():
     assert (cvld == nvld).mean() > 0.90
     both = cvld & nvld
     assert _psnr(cf[both], nf[both]) > 28.0
+
+
+# ---------------------------------------------------------------------------
+# Hybrid parity: CUDA render_hybrid must match Python hybrid composite
+# (mask agreement > 0.90, PSNR > 28 dB on jointly-valid pixels)
+# ---------------------------------------------------------------------------
+
+def test_cuda_hybrid_matches_numpy():
+    import tpscuda
+    from tpsprojector.renderer import NumpyRenderer
+    from tpsprojector.depth_renderer import DepthRenderer, synthetic_frames
+    from tpsprojector.world.rig import make_ring_rig
+    from tpsprojector.world.scene import default_scene
+    from tpsprojector.camera import PinholeCamera
+    from tpsprojector.surface import BowlSurface
+    from tpsprojector.transforms import look_at
+    scene = default_scene()
+    cams = make_ring_rig(n=6, hfov_deg=85.0, radius=0.25, mount_height=0.55,
+                         tilt_deg=10.0, width=128, height=96)
+    frames = synthetic_frames(scene, cams)
+    images = [f.image for f in frames]
+    vc = PinholeCamera.from_fov(96, 72, 70.0, look_at(eye=[0, -3, 2], target=[0, 0, 0]))
+    surf = BowlSurface(R0=6.0, k=0.08, Rmax=20.0)
+    # Python hybrid reference (Engine._render_env rule):
+    # env = where(depth_valid, depth_rgb, bowl_rgb); valid = depth_valid | bowl_valid
+    d, dv = DepthRenderer(splat_radius=1).render(frames, vc)
+    b, bv = NumpyRenderer().render(images, cams, surf, vc)
+    env = np.where(dv[:, :, None], d, b)
+    valid = dv | bv
+    # CUDA hybrid
+    r = tpscuda.Reprojector(96, 72)
+    r.set_cameras([_cam_dict(c) for c in cams])
+    r.upload_images(np.stack([np.asarray(im, "f4") for im in images]))
+    depth = np.stack([np.where(np.isfinite(f.depth), f.depth, np.inf).astype("f4")
+                      for f in frames])
+    r.upload_depth(depth)
+    out = r.render_hybrid(_cam_dict(vc), surf.R0, surf.k, surf.Rmax, 1)
+    cvld = out[..., 3] > 0.5
+    assert (cvld == valid).mean() > 0.90, \
+        f"hybrid mask agreement {(cvld == valid).mean():.3f} < 0.90"
+    both = cvld & valid
+    psnr = _psnr(out[..., :3][both].astype(float), env[both])
+    assert psnr > 28.0, f"hybrid PSNR {psnr:.1f} dB < 28 dB"

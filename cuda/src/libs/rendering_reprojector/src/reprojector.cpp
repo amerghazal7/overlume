@@ -288,8 +288,52 @@ void Reprojector::render_depth(const CameraParams& vcam, int splat_radius, float
     CUDA_CHECK(cudaFree(d_zbuf));
 }
 
-void Reprojector::render_hybrid(const CameraParams&, const BowlParams&, int, float* out_rgba)
+void Reprojector::render_hybrid(const CameraParams& vcam, const BowlParams& bowl,
+                                int splat_radius, float* out_rgba)
 {
-    std::memset(out_rgba, 0, sizeof(float) * impl_->out_w * impl_->out_h * 4);
+    assert(vcam.width == impl_->out_w && vcam.height == impl_->out_h &&
+           "render_hybrid: vcam dimensions must match Reprojector constructor dims");
+
+    int OW   = impl_->out_w;
+    int OH   = impl_->out_h;
+    int ncam = impl_->img_n;
+    int npts = impl_->npts;
+    int npx  = OW * OH;
+
+    CamDev v = to_camdev(vcam);
+
+    // Allocate device buffers for bowl, depth, and output.
+    float*             d_bowl  = nullptr;
+    float*             d_depth = nullptr;
+    float*             d_out   = nullptr;
+    unsigned long long* d_zbuf  = nullptr;
+
+    CUDA_CHECK(cudaMalloc(&d_bowl,  sizeof(float) * npx * 4));
+    CUDA_CHECK(cudaMalloc(&d_depth, sizeof(float) * npx * 4));
+    CUDA_CHECK(cudaMalloc(&d_out,   sizeof(float) * npx * 4));
+    CUDA_CHECK(cudaMalloc(&d_zbuf,  sizeof(unsigned long long) * npx));
+
+    // --- Bowl pass ---
+    launch_bowl(d_bowl, OW, OH, impl_->d_images, impl_->d_cams, ncam, v,
+                /*surf_type=*/1, /*flat_z0=*/0.0f,
+                bowl.R0, bowl.k, bowl.Rmax,
+                /*feather_margin=*/30.0f,
+                /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f);
+
+    // --- Depth (splat) pass ---
+    launch_splat(d_zbuf, d_depth, OW, OH,
+                 impl_->d_pts, impl_->d_cols, npts, v, splat_radius,
+                 /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f);
+
+    // --- Composite: depth-where-valid else bowl ---
+    launch_composite(d_depth, d_bowl, d_out, npx);
+
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(out_rgba, d_out, sizeof(float) * npx * 4, cudaMemcpyDeviceToHost));
+
+    CUDA_CHECK(cudaFree(d_bowl));
+    CUDA_CHECK(cudaFree(d_depth));
+    CUDA_CHECK(cudaFree(d_out));
+    CUDA_CHECK(cudaFree(d_zbuf));
 }
 }  // namespace micropilot::rendering

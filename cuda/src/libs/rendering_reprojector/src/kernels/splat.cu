@@ -67,4 +67,28 @@ void launch_splat(unsigned long long* d_zbuf, float* d_out, int OW, int OH, cons
     splat_kernel<<<(npts + t - 1) / t, t>>>(d_zbuf, OW, OH, d_pts, npts, v, radius);
     resolve_kernel<<<(n + t - 1) / t, t>>>(d_zbuf, d_cols, d_out, n, fr, fg, fb);
 }
+
+// ---------------------------------------------------------------------------
+// Composite kernel: depth-where-valid else bowl (Task 5).
+// Per pixel: if depth alpha > 0.5 use depth RGB; else use bowl RGB.
+// Output alpha = 1 if either input is valid, 0 otherwise.
+// ---------------------------------------------------------------------------
+__global__ void composite_kernel(const float* depth, const float* bowl, float* out, int n)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    float dA = depth[i * 4 + 3];
+    bool dv = dA > 0.5f, bv = bowl[i * 4 + 3] > 0.5f;
+    const float* src = dv ? &depth[i * 4] : &bowl[i * 4];
+    out[i * 4 + 0] = src[0];
+    out[i * 4 + 1] = src[1];
+    out[i * 4 + 2] = src[2];
+    out[i * 4 + 3] = (dv || bv) ? 1.0f : 0.0f;
+}
+
+void launch_composite(const float* d_depth, const float* d_bowl, float* d_out, int n)
+{
+    int t = 256;
+    composite_kernel<<<(n + t - 1) / t, t>>>(d_depth, d_bowl, d_out, n);
+}
 }  // namespace micropilot::rendering
