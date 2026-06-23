@@ -40,3 +40,26 @@ def test_bowl_uploads_textures_only_once():
     gl.invalidate()
     gl.render(images, cameras, surf, vc)               # forced re-upload
     assert len(writes) == 1
+
+
+def test_depth_rebuilds_cloud_only_when_frames_change():
+    from tpsprojector.gl_depth_renderer import GLDepthRenderer
+    from tpsprojector.world.scene import default_scene
+    scene = default_scene()
+    cameras = make_ring_rig(n=6, hfov_deg=85.0, radius=0.25,
+                            mount_height=0.55, tilt_deg=10.0, width=128, height=96)
+    frames = synthetic_frames(scene, cameras)
+    vc = PinholeCamera.from_fov(96, 72, 70.0,
+                                look_at(eye=[0.0, -3.0, 2.0], target=[0.0, 0.0, 0.0]))
+    gl = GLDepthRenderer(splat_radius=1)
+
+    builds = []
+    real_build = gl._point_cloud
+    gl._point_cloud = lambda fr: (builds.append(1), real_build(fr))[1]
+
+    gl.render(frames, vc)            # first build
+    gl.render(frames, vc)            # same frames -> no rebuild
+    assert len(builds) == 1
+    gl.invalidate()
+    gl.render(frames, vc)            # forced rebuild
+    assert len(builds) == 2
