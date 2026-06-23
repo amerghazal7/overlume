@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>micropilot_rendering_node</name>
+  <version>0.0.1</version>
+  <description>ROS2 LifecycleNode wrapping the micropilot_rendering CUDA reprojector.</description>
+  <maintainer email="amer.ghazal@micropolis.ae">Amer Ghazal</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>cv_bridge</depend>
+
+  <!-- micropilot_rendering (the CUDA reprojector lib) is NOT a ROS package.
+       It is resolved via CMAKE_PREFIX_PATH (see scripts/ros_apps_build/colcon_build.sh).
+       No rosdep entry is needed; colcon_build.sh exports the path automatically. -->
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

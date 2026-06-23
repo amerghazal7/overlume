@@ -126,5 +126,21 @@ which the architecture is already set up to accept.
    fusion (replacing synthetic ground-truth depth).
 4. ✅ `GLRenderer` — implemented: `GLBowlRenderer`, `GLDepthRenderer`, backend toggle (`[g]` key live-switches numpy ↔ GL). Note: the current GL path includes a per-frame framebuffer readback to NumPy (to keep the `Renderer` contract identical), so the 720p bowl benchmark measures ~38 fps; reaching the >60 fps target needs the no-readback direct-blit path and upload-once-for-static-scene optimizations (designed-for, not yet built).
 5. ✅ GPU optimizations — upload-once caching (camera textures + per-camera uniforms for `GLBowlRenderer`; point-cloud VBO for `GLDepthRenderer`) and a no-readback `_render_to_fbo` path for both renderers. The live app opens a real OpenGL window (pygame `OPENGL|DOUBLEBUF`) and presents the rendered FBO directly via `gl_present.present_fbo` — no CPU readback on the fast path. Measured on RTX 3090 @ 720p bowl: **882.6 fps no-readback** vs 45.3 fps with readback (19.5× speedup). The `[v]` key switches to the readback path to show PSNR/SSIM.
-6. Disocclusion handling: temporal accumulation / inpainting to fill unseen
+6. ✅ C++/CUDA library (`micropilot_rendering`) — `Reprojector` class: bowl, depth, hybrid
+   render modes, upload-once-for-static-scene optimisation. Pure C++17/CUDA; no ROS, no GL, no
+   display dependencies. Installs as a manager-convention CMake package
+   (`find_package(micropilot_rendering)` → `micropilot_rendering::reprojector`). Pybind11
+   bindings provide Python-side bit-identical results vs the NumPy reference. Measured on
+   RTX 3090 @ 720p bowl: **682 fps** (headless, no readback).
+7. ✅ Headless consumer integrations:
+   - **ROS2 LifecycleNode** (`micropilot_rendering_node`, `cuda/src/ros_apps/`) — wraps the
+     CUDA reprojector in an `rclcpp_lifecycle::LifecycleNode`. Subscribes to N
+     `sensor_msgs/Image` + `sensor_msgs/CameraInfo` topics, renders at 30 Hz, publishes a
+     virtual-camera `sensor_msgs/Image` on `/rendering/image`. Camera extrinsics read from a
+     ROS parameter (flat list of N×12 floats); production upgrade path is tf2 lookup (noted in
+     code). Built with `colcon` (see `cuda/scripts/ros_apps_build/colcon_build.sh`).
+     Headless smoke test (`cuda/src/ros_apps/src/micropilot_rendering_node/test/smoke_test.py`)
+     validates a non-blank rendered frame end-to-end and exits 0.
+   - Video-file / GL consumer: designed-for seam in `Reprojector` interface; not yet wired.
+8. Disocclusion handling: temporal accumulation / inpainting to fill unseen
    geometry instead of bowl fallback.
