@@ -131,11 +131,12 @@ def vcam(eye, target, vfov, ow, oh):
     return dict(K=K, R=p.R.astype("f4").ravel(), t=np.asarray(p.t, "f4"), width=ow, height=oh), p
 
 
-def horizon_pose(vfov, eye_back, eye_height, margin_deg=5.0):
-    """Behind+above eye; target placed so top ray sits margin below horizon."""
-    theta = np.radians(vfov / 2.0 + margin_deg)
-    target_x = eye_height / np.tan(theta) - eye_back
-    return [-eye_back, 0.0, eye_height], [target_x, 0.0, 0.0]
+def driving_pose(eye_back, eye_height, look_ahead):
+    """Teleop chase-cam: behind+above, looking toward the HORIZON (target far ahead
+    at ground level) so the road recedes ahead and the upper frame shows the
+    horizon/sky (sky-filled). This is the 'driving the robot like a game' view —
+    do NOT tilt steeply down (that hides the horizon you need to drive)."""
+    return [-eye_back, 0.0, eye_height], [look_ahead, 0.0, 0.0]
 
 
 def overlap_score(tps, cams, imgs_f, V, R0, k, Rmax, ow, oh):
@@ -172,9 +173,11 @@ def main():
     ap.add_argument("--montage", default="/tmp/autotune_montage.png")
     ap.add_argument("--out-width", type=int, default=1280)
     ap.add_argument("--out-height", type=int, default=720)
-    ap.add_argument("--vfov", type=float, default=50.0)
+    ap.add_argument("--vfov", type=float, default=65.0)        # forward-aware driving FOV
     ap.add_argument("--eye-back", type=float, default=6.0)
     ap.add_argument("--eye-height", type=float, default=4.0)
+    ap.add_argument("--look-ahead", type=float, default=30.0)  # horizon target distance (m)
+    ap.add_argument("--sky", default="0.53,0.70,0.92")         # sky fill RGB for unseen region
     ap.add_argument("--ground-offset", type=float, default=0.0)
     ap.add_argument("--coverage-floor", type=float, default=0.90)
     ap.add_argument("--max-sync-latency", type=float, default=0.12)
@@ -205,8 +208,8 @@ def main():
     imgs_f = np.stack([imgs[n].astype("f4") / 255.0 for n in names])
     tps = tpscuda.Reprojector(OW, OH)
 
-    # 3. geometric pose
-    eye, target = horizon_pose(a.vfov, a.eye_back, a.eye_height)
+    # 3. teleop driving pose (look toward the horizon)
+    eye, target = driving_pose(a.eye_back, a.eye_height, a.look_ahead)
     V, pose = vcam(eye, target, a.vfov, OW, OH)
     print(f"pose eye={np.round(eye,2).tolist()} target={np.round(target,2).tolist()} vfov={a.vfov}")
 
@@ -256,6 +259,7 @@ def main():
         "max_sync_latency": a.max_sync_latency,
         "bowl_R0": float(R0), "bowl_k": float(k), "bowl_Rmax": float(Rmax),
         "virtual_vfov_deg": float(a.vfov),
+        "sky_color": [float(x) for x in a.sky.split(",")],
         "image_topics": [f"/{n}/raw_images" for n in names],
         "info_topics": [f"/{n}/camera_info" for n in names],
         "camera_extrinsics": ext_flat,

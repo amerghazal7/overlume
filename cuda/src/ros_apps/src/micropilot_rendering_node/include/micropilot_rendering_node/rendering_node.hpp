@@ -52,6 +52,9 @@ private:
     // Render only when all cameras have a new frame whose stamps fall within this
     // window (seconds). Prevents stitching temporally-misaligned async frames.
     double max_sync_latency_{0.12};
+    // Fill color for genuinely-unseen pixels (above the bowl rim) — sky, not black,
+    // so the teleop driving view shows a natural horizon. RGB in [0,1].
+    float sky_color_[3]{0.53f, 0.70f, 0.92f};
     micropilot::rendering::BowlParams bowl_{6.0f, 0.08f, 20.0f};
     micropilot::rendering::CameraParams vcam_{};
 
