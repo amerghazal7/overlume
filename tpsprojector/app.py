@@ -42,7 +42,7 @@ class RenderResult:
 
 class Engine:
     def __init__(self, scene, cameras, frames, surface, robot, fov_deg,
-                 width, height, mode="hybrid"):
+                 width, height, mode="hybrid", backend="numpy"):
         self.scene = scene
         self.cameras = cameras
         self.frames = frames                       # CameraFrames (image+depth)
@@ -55,13 +55,21 @@ class Engine:
         self.mode = mode
         self.tilt_deg = 0.0
         self.sky_color = np.array([0.45, 0.6, 0.8])  # fills genuinely-unseen sky
-        self.bowl_renderer = NumpyRenderer()
-        self.depth_renderer = DepthRenderer(splat_radius=1)
+        self.backend = backend
+        if backend == "gl":
+            from .gl_renderer import GLBowlRenderer
+            from .gl_depth_renderer import GLDepthRenderer
+            self.bowl_renderer = GLBowlRenderer()
+            self.depth_renderer = GLDepthRenderer(splat_radius=1)
+        else:
+            self.bowl_renderer = NumpyRenderer()
+            self.depth_renderer = DepthRenderer(splat_radius=1)
 
     @classmethod
     def from_defaults(cls, width=320, height=240, n_cameras=6, rig_fov_deg=85.0,
                       mount_radius=0.25, mount_height=0.55, body_radius=0.5,
-                      tilt_deg=None, cam_width=320, cam_height=240, mode="hybrid"):
+                      tilt_deg=None, cam_width=320, cam_height=240, mode="hybrid",
+                      backend="numpy"):
         scene = default_scene()
         # Realistic mounting: tilt each camera down just enough that its nearest
         # visible ground reaches the robot body edge (body boundary at the bottom
@@ -86,7 +94,7 @@ class Engine:
         surface = BowlSurface(R0=6.0, k=0.08, Rmax=20.0)
         robot = RobotProxy.default(footprint_radius=body_radius)
         eng = cls(scene, cameras, frames, surface, robot, fov_deg=70.0,
-                  width=width, height=height, mode=mode)
+                  width=width, height=height, mode=mode, backend=backend)
         eng.tilt_deg = tilt_deg
         return eng
 
@@ -188,6 +196,10 @@ def main():  # pragma: no cover
                     eng.mode = "depth"
                 elif e.key == pygame.K_h:
                     eng.mode = "hybrid"
+                elif e.key == pygame.K_g:
+                    new = "numpy" if eng.backend == "gl" else "gl"
+                    eng = Engine.from_defaults(width=W, height=H, mode=eng.mode,
+                                               backend=new)
                 elif pygame.K_1 <= e.key <= pygame.K_9:
                     idx = e.key - pygame.K_1
                     if idx < len(PRESET_NAMES):
@@ -227,7 +239,7 @@ def main():  # pragma: no cover
 
         hud = f"mode={eng.mode:6s} " + ("ORBIT" if orbit else "preset") + \
             f"  PSNR={res.psnr:5.2f}dB  SSIM={res.ssim:4.2f}  cover={res.valid.mean():.0%}"
-        keys_help = "[1-4]presets [b]owl/[d]epth/[h]ybrid [v]alidation [o]rbit+arrows/+- [esc]"
+        keys_help = "[1-4]presets [b]owl/[d]epth/[h]ybrid [g]pu-toggle [v]alidation [o]rbit+arrows/+- [esc]"
         screen.blit(font.render(hud, True, (255, 230, 140)), (6, H + 4))
         screen.blit(font.render(keys_help, True, (160, 160, 170)), (6, H + 22))
 
