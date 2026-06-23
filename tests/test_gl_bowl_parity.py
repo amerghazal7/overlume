@@ -39,6 +39,7 @@ def test_gl_bowl_matches_numpy_on_flat_surface():
     # masks agree on the vast majority of pixels (edge rounding aside)
     assert (gl_valid == np_valid).mean() > 0.97
     both = gl_valid & np_valid
+    assert both.sum() > 1000
     assert _psnr(gl_frame[both], np_frame[both]) > 40.0
 
 
@@ -51,6 +52,7 @@ def test_gl_bowl_matches_numpy_on_bowl_surface():
     np_frame, np_valid = NumpyRenderer().render(images, cameras, surf, vc)
     assert (gl_valid == np_valid).mean() > 0.97
     both = gl_valid & np_valid
+    assert both.sum() > 1000
     assert _psnr(gl_frame[both], np_frame[both]) > 40.0
 
 

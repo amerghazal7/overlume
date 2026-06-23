@@ -8,8 +8,6 @@ The hardware depth test implements nearest-wins, replacing the NumPy z-buffer.
 
 from __future__ import annotations
 
-from typing import Sequence
-
 import numpy as np
 
 _VERT = """
@@ -46,6 +44,7 @@ class GLDepthRenderer:
     def __init__(self, splat_radius: int = 1, fill_color=(0.0, 0.0, 0.0)):
         self.splat_radius = int(splat_radius)
         self.fill_color = tuple(float(c) for c in fill_color)
+        # Cached for the lifetime of the singleton GL context (see gl_context.get_context).
         self._prog = None
 
     def _point_cloud(self, frames):

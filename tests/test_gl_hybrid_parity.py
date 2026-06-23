@@ -22,4 +22,5 @@ def test_gl_engine_matches_numpy_engine(mode):
     gl_res = gl_eng.synthesize(shot)
     assert (gl_res.valid == np_res.valid).mean() > 0.90
     both = gl_res.valid & np_res.valid
+    assert both.sum() > 1000
     assert _psnr(gl_res.synth[both], np_res.synth[both]) > 28.0
