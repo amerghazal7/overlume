@@ -134,6 +134,13 @@ def build_ros_args(params: list) -> list:
     return args
 
 
+# ── custom topic names (validates the image_topics/info_topics node param path) ─
+# We publish on custom topics and pass them to the node, so the integration
+# test exercises the production image_topics/info_topics branch.
+IMAGE_TOPICS = [f"/smoke/cam{i}/image_raw" for i in range(N_CAMERAS)]
+INFO_TOPICS  = [f"/smoke/cam{i}/camera_info" for i in range(N_CAMERAS)]
+
+
 # ── publisher node ─────────────────────────────────────────────────────────────
 
 class SyntheticPublisher(Node):
@@ -143,10 +150,10 @@ class SyntheticPublisher(Node):
     def __init__(self):
         super().__init__("smoke_synthetic_publisher")
         self._img_pubs = [
-            self.create_publisher(Image, f"/camera/cam{i}/image_raw", SENSOR_QOS)
+            self.create_publisher(Image, IMAGE_TOPICS[i], SENSOR_QOS)
             for i in range(N_CAMERAS)]
         self._info_pubs = [
-            self.create_publisher(CameraInfo, f"/camera/cam{i}/camera_info", SENSOR_QOS)
+            self.create_publisher(CameraInfo, INFO_TOPICS[i], SENSOR_QOS)
             for i in range(N_CAMERAS)]
 
     def publish_once(self):
@@ -209,6 +216,9 @@ def main() -> int:
         ("bowl_Rmax",         20.0),
         ("camera_extrinsics", EXTRINSICS),
         ("virtual_pose",      VIRTUAL_POSE),
+        # M1: exercise the production image_topics/info_topics parameter path
+        ("image_topics",      IMAGE_TOPICS),
+        ("info_topics",       INFO_TOPICS),
     ]
 
     # ── launch the node subprocess ────────────────────────────────────────────

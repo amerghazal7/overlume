@@ -4,7 +4,6 @@
 
 #include <cuda_runtime.h>
 
-#include <cassert>
 #include <cmath>
 #include <cstring>
 #include <stdexcept>
@@ -238,9 +237,10 @@ void Reprojector::upload_depth(const float* nhw, int n, int h, int w)
 
 void Reprojector::render_bowl(const CameraParams& vcam, const BowlParams& bowl, float* out_rgba)
 {
-    // Carry-forward #2: enforce output-resolution contract.
-    assert(vcam.width == impl_->out_w && vcam.height == impl_->out_h &&
-           "render_bowl: vcam dimensions must match Reprojector constructor dims");
+    // Output-resolution contract: enforced in all build configs (Release + Debug).
+    if (vcam.width != impl_->out_w || vcam.height != impl_->out_h)
+        throw std::invalid_argument(
+            "render_bowl: vcam dimensions must match Reprojector constructor dims");
 
     int OW = impl_->out_w;
     int OH = impl_->out_h;
@@ -264,8 +264,9 @@ void Reprojector::render_bowl(const CameraParams& vcam, const BowlParams& bowl, 
 
 void Reprojector::render_depth(const CameraParams& vcam, int splat_radius, float* out_rgba)
 {
-    assert(vcam.width == impl_->out_w && vcam.height == impl_->out_h &&
-           "render_depth: vcam dimensions must match Reprojector constructor dims");
+    if (vcam.width != impl_->out_w || vcam.height != impl_->out_h)
+        throw std::invalid_argument(
+            "render_depth: vcam dimensions must match Reprojector constructor dims");
 
     int OW = impl_->out_w;
     int OH = impl_->out_h;
@@ -291,8 +292,9 @@ void Reprojector::render_depth(const CameraParams& vcam, int splat_radius, float
 void Reprojector::render_hybrid(const CameraParams& vcam, const BowlParams& bowl,
                                 int splat_radius, float* out_rgba)
 {
-    assert(vcam.width == impl_->out_w && vcam.height == impl_->out_h &&
-           "render_hybrid: vcam dimensions must match Reprojector constructor dims");
+    if (vcam.width != impl_->out_w || vcam.height != impl_->out_h)
+        throw std::invalid_argument(
+            "render_hybrid: vcam dimensions must match Reprojector constructor dims");
 
     int OW   = impl_->out_w;
     int OH   = impl_->out_h;
