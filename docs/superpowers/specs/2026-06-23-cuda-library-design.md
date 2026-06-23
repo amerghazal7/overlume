@@ -24,6 +24,9 @@ micropilot's two-tier layout, so it is a clean copy/move into `~/micropilot` lat
 ### Goals
 - A pure C++/CUDA reprojection library (`micropilot::rendering`) with bowl, depth,
   and hybrid rendering, numerically matching the validated NumPy/GL paths.
+- **Headless-first:** the library computes the reprojected TPS frame on the GPU with
+  **no GL, no windowing, and no ROS dependency** (links only `CUDA::cudart`); it returns
+  a frame buffer. The same output feeds any consumer — see "Consumer modes" below.
 - A clean public C++ API consumable via `find_package(micropilot_rendering)` →
   `micropilot_rendering::reprojector` (manager-style CMake package export).
 - A `pybind11` module so the existing Python test suite validates the CUDA output
@@ -128,6 +131,19 @@ public:
   frame orientation; RGB = color, A = valid mask (>0.5 means a camera/point hit).
 - `set_cameras` / `upload_images` split bakes in the upload-once lesson.
 - Host arrays in/out in v1; device-pointer overloads are a designed-for extension.
+
+### 6.3 Consumer modes (the library depends on none of them)
+The library is headless by construction; the returned host RGBA frame is consumed by:
+1. **ROS app** — the `LifecycleNode` (§9) converts the frame via `cv_bridge` and publishes
+   `sensor_msgs/Image`. No GL/window.
+2. **Pure C++ executable** — render frames and write them to a video (e.g. OpenCV
+   `VideoWriter`) or image files. No GL/window. (Demonstrated by the standalone example.)
+3. **C++ GL windowed app** — a GL consumer uploads the frame as a texture and blits it to a
+   window. The core lib stays GL-free; an optional **device-pointer output overload** (CUDA→GL
+   interop, zero host copy) is a designed-for extension for this consumer's efficiency, not v1.
+
+None of these are required to build/test the core library — the lib + pybind + GTest build and
+validate with no ROS, no GL, and no display.
 
 ### 6.2 Kernels & numeric parity (same math as the validated paths)
 - **Bowl** (`reproject.cu`): one thread per output pixel; reconstruct the world ray

@@ -17,6 +17,7 @@
 - **Numeric parity targets** (vs the validated Python reference, skip-guarded by `cuda_available()`): bowl vs `NumpyRenderer` mask>0.97 & **PSNR>40 dB**; depth vs `DepthRenderer` mask>0.90 & PSNR>28 dB; hybrid vs Python hybrid PSNR>28 dB.
 - **Orientation:** CUDA writes output row 0 = top directly (no flip — unlike GL). `out_rgba` is host `(H,W,4)` float32 row-major; RGB=color, A=valid (1.0 hit / 0.0 miss).
 - **Camera mapping:** `CameraParams{K[9],R[9],t[3],width,height}`; `K` row-major (fx=K[0],fy=K[4],cx=K[2],cy=K[5]); `R` row-major, columns = (right,down,fwd) so right=(R[0],R[3],R[6]), down=(R[1],R[4],R[7]), fwd=(R[2],R[5],R[8]); `t` = camera center. Same as Python `Pose`.
+- **Headless-first (hard constraint):** the core library (`rendering_reprojector`) links ONLY `CUDA::cudart` — NO GL, no windowing, no ROS, no display. It returns a host RGBA frame. The lib + pybind + GTest must build and pass with no ROS sourced and no display. The three consumers (ROS publish, video/file write, GL window) depend on the lib, never the reverse.
 - The existing **107 Python tests stay green** — this is an additive new `cuda/` tree; do NOT edit the `tpsprojector/` Python package.
 - Test runner for Python parity: `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest`. Use `python3`.
 
@@ -933,7 +934,7 @@ git commit -m "feat(cuda): depth splat kernel (packed-atomicMin z-buffer) + pari
 
 - [ ] **Step 1:** `export_golden.py` runs `NumpyRenderer` on the fixed setup and writes `golden_bowl.bin` (raw float32 `(H,W,3)`) + `golden_bowl.txt` (H W on one line) + the camera/rig params as a simple text file the C++ test reads.
 - [ ] **Step 2:** `test_golden.cpp` (GTest) loads the params + golden, builds a `Reprojector`, renders bowl, computes PSNR vs golden in-process, `EXPECT_GT(psnr, 40.0)`. Add to the lib test target.
-- [ ] **Step 3:** `render_demo.cpp` is a `main()` that `find_package`-style links `micropilot_rendering::reprojector`, renders one frame, writes a PPM — proving standalone (no-Python) consumability. A separate tiny CMake project under `cuda/examples/` that does `find_package(micropilot_rendering REQUIRED)` against the install tree.
+- [ ] **Step 3:** `render_demo.cpp` is a **headless pure-C++ consumer** (consumer mode 2): a `main()` that `find_package`-style links `micropilot_rendering::reprojector`, renders a short sequence of virtual poses, and writes each frame to a numbered PPM (`frame_000.ppm`, …) — proving standalone (no-Python, no-GL, no-display) consumability and the render-to-file path. A header comment notes that swapping the PPM write for an OpenCV `cv::VideoWriter` yields a video (the production pure-C++ app), kept out of the example to avoid an OpenCV dependency. A separate tiny CMake project under `cuda/examples/` that does `find_package(micropilot_rendering REQUIRED)` against the install tree and links nothing GL/windowing.
 - [ ] **Step 4:** Build (`./libs_build.sh Debug`), run `ctest` (golden passes), configure+build the example against `cuda/install`, run it. Commit `feat(cuda): C++ golden test + standalone find_package example`.
 
 ---
