@@ -34,8 +34,7 @@ using micropilot::rendering::Reprojector;
 // ---------------------------------------------------------------------------
 static std::array<float, 3> cross3(std::array<float, 3> a, std::array<float, 3> b)
 {
-    return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
-            a[0] * b[1] - a[1] * b[0]};
+    return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
 }
 static float dot3(std::array<float, 3> a, std::array<float, 3> b)
 {
@@ -51,15 +50,14 @@ static std::array<float, 3> norm3(std::array<float, 3> v)
 // ---------------------------------------------------------------------------
 // Build one ring camera (CV convention: +Z fwd, +X right, +Y down)
 // ---------------------------------------------------------------------------
-static CameraParams make_ring_cam(float theta_rad, float radius, float mount_h,
-                                  float tilt_rad, float fx, float fy, float cx,
-                                  float cy, int w, int h)
+static CameraParams make_ring_cam(float theta_rad, float radius, float mount_h, float tilt_rad,
+                                  float fx, float fy, float cx, float cy, int w, int h)
 {
     float ct = std::cos(theta_rad), st = std::sin(theta_rad);
 
     // Forward direction: outward + downward tilt (Z points up in world)
     std::array<float, 3> fwd_raw{ct * std::cos(tilt_rad), st * std::cos(tilt_rad),
-                                  -std::sin(tilt_rad)};
+                                 -std::sin(tilt_rad)};
     std::array<float, 3> fwd = norm3(fwd_raw);
 
     std::array<float, 3> world_up{0.f, 0.f, -1.f};  // +Z up → down for CV
@@ -139,8 +137,8 @@ int main()
     const int CAM_W = 128, CAM_H = 96;
     const int N_ITERS = 100;
 
-    std::printf("bench_reprojector: %dx%d output, %d cams (%dx%d each), N=%d iters\n",
-                OUT_W, OUT_H, N_CAM, CAM_W, CAM_H, N_ITERS);
+    std::printf("bench_reprojector: %dx%d output, %d cams (%dx%d each), N=%d iters\n", OUT_W, OUT_H,
+                N_CAM, CAM_W, CAM_H, N_ITERS);
     std::fflush(stdout);
 
     // ---- Build 6 ring cameras -----------------------------------------------
@@ -153,9 +151,8 @@ int main()
     const float cx = CAM_W / 2.f, cy = CAM_H / 2.f;
 
     // Distinct solid colors for each camera
-    const float colors[N_CAM][3] = {{0.9f, 0.2f, 0.2f}, {0.2f, 0.8f, 0.2f},
-                                     {0.2f, 0.3f, 0.9f}, {0.9f, 0.8f, 0.1f},
-                                     {0.8f, 0.3f, 0.8f}, {0.2f, 0.8f, 0.8f}};
+    const float colors[N_CAM][3] = {{0.9f, 0.2f, 0.2f}, {0.2f, 0.8f, 0.2f}, {0.2f, 0.3f, 0.9f},
+                                    {0.9f, 0.8f, 0.1f}, {0.8f, 0.3f, 0.8f}, {0.2f, 0.8f, 0.8f}};
 
     std::vector<CameraParams> cams;
     std::vector<float> images_nhwc(N_CAM * CAM_H * CAM_W * 3, 0.f);
@@ -163,8 +160,8 @@ int main()
     for (int i = 0; i < N_CAM; ++i)
     {
         float theta = 2.f * 3.14159265f * i / N_CAM;
-        cams.push_back(make_ring_cam(theta, radius, mount_h, tilt_rad, fx, fy, cx, cy,
-                                     CAM_W, CAM_H));
+        cams.push_back(
+            make_ring_cam(theta, radius, mount_h, tilt_rad, fx, fy, cx, cy, CAM_W, CAM_H));
         size_t img_start = static_cast<size_t>(i) * CAM_H * CAM_W * 3;
         for (int px = 0; px < CAM_H * CAM_W; ++px)
         {
@@ -191,17 +188,15 @@ int main()
     // ---- Timed loop -----------------------------------------------------------
     // render_bowl already calls cudaDeviceSynchronize() + device→host copy.
     auto t0 = std::chrono::high_resolution_clock::now();
-    for (int i = 0; i < N_ITERS; ++i)
-        rep.render_bowl(vcam, bowl, out.data());
+    for (int i = 0; i < N_ITERS; ++i) rep.render_bowl(vcam, bowl, out.data());
     auto t1 = std::chrono::high_resolution_clock::now();
 
-    double elapsed_ms =
-        std::chrono::duration<double, std::milli>(t1 - t0).count();
+    double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
     double ms_per_frame = elapsed_ms / N_ITERS;
     double fps = 1000.0 / ms_per_frame;
 
-    std::printf("elapsed: %.3f ms total  =>  %.3f ms/frame  =>  %.1f fps\n",
-                elapsed_ms, ms_per_frame, fps);
+    std::printf("elapsed: %.3f ms total  =>  %.3f ms/frame  =>  %.1f fps\n", elapsed_ms,
+                ms_per_frame, fps);
     std::fflush(stdout);
     return 0;
 }

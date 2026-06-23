@@ -71,7 +71,7 @@ fi
 echo ""
 echo "--- run binary ---"
 cd "${TMP_BUILD}"
-"${BINARY}" "${TMP_BUILD}/demo_frames" 2>&1 | head -10
+"${BINARY}" "${TMP_BUILD}/demo_frames" 2>&1 | { head -10; cat >/dev/null; }
 
 echo ""
 echo "PASS: find_package(micropilot_rendering) + build + run succeeded."

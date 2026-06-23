@@ -10,7 +10,7 @@ Run from the repository root:
 Outputs:
     cuda/tests/golden/manifest.txt  -- scalar metadata
     cuda/tests/golden/cameras.txt   -- N lines, K(9)+R(9)+t(3)+w+h
-    cuda/tests/golden/vcam.txt      -- 1 line, same 22-field format
+    cuda/tests/golden/vcam.txt      -- 1 line, same 23-field format
     cuda/tests/golden/images.bin    -- float32, N*camH*camW*3
     cuda/tests/golden/golden_bowl.bin -- float32, OH*OW*3
 """
@@ -79,7 +79,7 @@ with open(os.path.join(OUT_DIR, "manifest.txt"), "w") as f:
 
 
 def cam_line(cam: PinholeCamera) -> str:
-    """22 fields: K(9) + R(9) + t(3) + w + h (space-separated)."""
+    """23 fields: K(9) + R(9) + t(3) + w + h (space-separated)."""
     K = np.asarray(cam.K, dtype=float).ravel()          # (9,)
     R = np.asarray(cam.pose.R, dtype=float).ravel()     # (9,)
     t = np.asarray(cam.pose.t, dtype=float).ravel()     # (3,)

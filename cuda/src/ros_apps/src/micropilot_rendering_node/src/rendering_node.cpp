@@ -204,6 +204,8 @@ RenderingNode::CallbackReturn RenderingNode::on_activate(const rclcpp_lifecycle:
             info_topic, rclcpp::SensorDataQoS(),
             [this, i](const sensor_msgs::msg::CameraInfo::SharedPtr msg)
             {
+                // I3: guard cam_params_ width/height/K writes with the per-camera mutex.
+                std::lock_guard<std::mutex> lk(*per_cam_[i].mtx);
                 auto& cp = cam_params_[i];
                 cp.width = static_cast<int>(msg->width);
                 cp.height = static_cast<int>(msg->height);
@@ -232,16 +234,42 @@ void RenderingNode::timer_callback()
         if (!per_cam_[i].image.has_value()) return;
     }
 
-    // Build NHWC float buffer (N, H, W, C=3) — use first camera's size
-    int H = per_cam_[0].image->rows;
-    int W = per_cam_[0].image->cols;
+    // Build NHWC float buffer (N, H, W, C=3) — use first camera's size.
+    // Invariant: every image plane uploaded is (H, W); CamDev w/h/K must also
+    // reflect (W, H). Each cam's K is rescaled from its CameraInfo resolution
+    // to (W, H) so the kernel bilinear-sample bounds and focal lengths agree.
+    int H, W;
+    {
+        std::lock_guard<std::mutex> lk(*per_cam_[0].mtx);
+        H = per_cam_[0].image->rows;
+        W = per_cam_[0].image->cols;
+    }
 
     std::vector<float> nhwc(n_cameras_ * H * W * 3);
+    // I1/I2: rescaled camera params — only width/height/K change; R/t are taken
+    // from the stored cam_params_ extrinsics and are NOT mutated here.
+    std::vector<micropilot::rendering::CameraParams> scaled_params(n_cameras_);
     bool any_dirty = false;
 
     for (int i = 0; i < n_cameras_; ++i)
     {
+        // I3: hold the per-camera lock while reading both image and cam_params_[i]
+        // so width/height/K are consistent with the image that was received.
         std::lock_guard<std::mutex> lk(*per_cam_[i].mtx);
+
+        // Build rescaled CameraParams: copy extrinsics, then overwrite w/h/K.
+        scaled_params[i] = cam_params_[i];
+        int info_w = cam_params_[i].width;
+        int info_h = cam_params_[i].height;
+        float sx = (info_w > 0) ? static_cast<float>(W) / info_w : 1.0f;
+        float sy = (info_h > 0) ? static_cast<float>(H) / info_h : 1.0f;
+        scaled_params[i].width  = W;
+        scaled_params[i].height = H;
+        scaled_params[i].K[0] *= sx;  // fx
+        scaled_params[i].K[2] *= sx;  // cx
+        scaled_params[i].K[4] *= sy;  // fy
+        scaled_params[i].K[5] *= sy;  // cy
+
         if (!img_dirty_[i]) continue;
         any_dirty = true;
 
@@ -264,7 +292,7 @@ void RenderingNode::timer_callback()
 
     if (any_dirty)
     {
-        reprojector_->set_cameras(cam_params_);
+        reprojector_->set_cameras(scaled_params);
         reprojector_->upload_images(nhwc.data(), n_cameras_, H, W);
     }
 
