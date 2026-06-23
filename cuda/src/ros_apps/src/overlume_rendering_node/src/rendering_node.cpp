@@ -34,6 +34,10 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
     // Frame-sync window (s): render only when all cameras have a new frame whose
     // header stamps span <= this. ~10 fps cameras -> ~0.10 s period.
     max_sync_latency_ = declare_parameter<double>("max_sync_latency", 0.12);
+    // Sky fill for unseen-above-bowl pixels (keeps the horizon natural, not black).
+    auto sky = declare_parameter<std::vector<double>>("sky_color", {0.53, 0.70, 0.92});
+    if (sky.size() == 3)
+        for (int i = 0; i < 3; ++i) sky_color_[i] = static_cast<float>(sky[i]);
 
     bowl_.R0 = static_cast<float>(declare_parameter<double>("bowl_R0", 6.0));
     bowl_.k = static_cast<float>(declare_parameter<double>("bowl_k", 0.08));
@@ -331,9 +335,17 @@ void RenderingNode::timer_callback()
         for (int col = 0; col < out_width_; ++col)
         {
             int idx = (row * out_width_ + col) * 4;
-            float r = std::min(1.0f, std::max(0.0f, out_rgba[idx + 0]));
-            float g = std::min(1.0f, std::max(0.0f, out_rgba[idx + 1]));
-            float b = std::min(1.0f, std::max(0.0f, out_rgba[idx + 2]));
+            float r, g, b;
+            if (out_rgba[idx + 3] < 0.5f)  // genuinely-unseen (above the bowl) -> sky, not black
+            {
+                r = sky_color_[0]; g = sky_color_[1]; b = sky_color_[2];
+            }
+            else
+            {
+                r = std::min(1.0f, std::max(0.0f, out_rgba[idx + 0]));
+                g = std::min(1.0f, std::max(0.0f, out_rgba[idx + 1]));
+                b = std::min(1.0f, std::max(0.0f, out_rgba[idx + 2]));
+            }
             out_rgb.at<cv::Vec3b>(row, col) = {
                 static_cast<uint8_t>(r * 255),
                 static_cast<uint8_t>(g * 255),
