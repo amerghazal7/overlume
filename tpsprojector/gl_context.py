@@ -36,6 +36,21 @@ def get_context():
     return _ctx
 
 
+def use_window_context():
+    """Bind the GL backend to the CURRENT GL context (e.g. a pygame OpenGL window).
+
+    Call this ONCE after creating the OpenGL window and BEFORE any GL renderer or
+    get_context() use, so the renderers' FBOs/textures are allocated in the
+    window's context and can be presented to the screen. Clears the FBO pool,
+    which belonged to any previous (e.g. standalone) context.
+    """
+    global _ctx, _fbos
+    import moderngl
+    _ctx = moderngl.create_context()
+    _fbos = {}
+    return _ctx
+
+
 def get_fbo(width: int, height: int, depth: bool = False):
     """Return a size-keyed cached framebuffer (RGBA32F color, optional depth)."""
     key = (int(width), int(height), bool(depth))
