@@ -49,6 +49,9 @@ private:
     int n_cameras_{4};
     int out_width_{640};
     int out_height_{480};
+    // Render only when all cameras have a new frame whose stamps fall within this
+    // window (seconds). Prevents stitching temporally-misaligned async frames.
+    double max_sync_latency_{0.12};
     micropilot::rendering::BowlParams bowl_{6.0f, 0.08f, 20.0f};
     micropilot::rendering::CameraParams vcam_{};
 
@@ -61,6 +64,8 @@ private:
     {
         std::optional<cv::Mat> image;        // float32 NHWC staging
         bool info_ready{false};
+        rclcpp::Time stamp;                  // header stamp of the staged image
+        bool have_new{false};                // a new frame arrived since last render
         std::unique_ptr<std::mutex> mtx;     // unique_ptr keeps vector movable
 
         PerCamera() : mtx(std::make_unique<std::mutex>()) {}

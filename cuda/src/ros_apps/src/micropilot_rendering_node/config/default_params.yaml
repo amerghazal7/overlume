@@ -18,6 +18,12 @@
     out_width: 1280
     out_height: 720
 
+    # ── frame sync ──────────────────────────────────────────────────────────────
+    # Render only when ALL cameras have a new frame whose header stamps span <=
+    # this window (seconds). Prevents flicker from stitching async frames. Set a
+    # touch above one camera period (cameras ~10 fps -> ~0.10 s).
+    max_sync_latency: 0.12
+
     # ── proxy bowl surface (metres) ───────────────────────────────────────────
     # Flat floor inside R0, parabolic wall (curvature k) out to Rmax. Tune to the
     # scene scale: larger R0 keeps more near-ground crisp; k/Rmax shape the wall

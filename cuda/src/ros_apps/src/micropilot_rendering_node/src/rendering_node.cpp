@@ -31,6 +31,9 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
     n_cameras_ = declare_parameter<int>("n_cameras", 4);
     out_width_ = declare_parameter<int>("out_width", 640);
     out_height_ = declare_parameter<int>("out_height", 480);
+    // Frame-sync window (s): render only when all cameras have a new frame whose
+    // header stamps span <= this. ~10 fps cameras -> ~0.10 s period.
+    max_sync_latency_ = declare_parameter<double>("max_sync_latency", 0.12);
 
     bowl_.R0 = static_cast<float>(declare_parameter<double>("bowl_R0", 6.0));
     bowl_.k = static_cast<float>(declare_parameter<double>("bowl_k", 0.08));
@@ -197,6 +200,8 @@ RenderingNode::CallbackReturn RenderingNode::on_activate(const rclcpp_lifecycle:
 
                 std::lock_guard<std::mutex> lk(*per_cam_[i].mtx);
                 per_cam_[i].image = float_img;
+                per_cam_[i].stamp = rclcpp::Time(msg->header.stamp);
+                per_cam_[i].have_new = true;
                 img_dirty_[i] = true;
             });
 
@@ -227,11 +232,27 @@ RenderingNode::CallbackReturn RenderingNode::on_activate(const rclcpp_lifecycle:
 // ── Timer callback ───────────────────────────────────────────────────────────
 void RenderingNode::timer_callback()
 {
-    // Check all cameras have an image
+    // ── frame-sync gate ───────────────────────────────────────────────────────
+    // Render only when EVERY camera has delivered a NEW frame since the last
+    // render, and those frames' header stamps fall within max_sync_latency_.
+    // This avoids stitching temporally-misaligned async frames (the cameras run
+    // ~10 fps and arrive independently), which otherwise causes heavy flicker.
+    rclcpp::Time t_min, t_max;
     for (int i = 0; i < n_cameras_; ++i)
     {
         std::lock_guard<std::mutex> lk(*per_cam_[i].mtx);
-        if (!per_cam_[i].image.has_value()) return;
+        if (!per_cam_[i].image.has_value() || !per_cam_[i].have_new) return;  // wait
+        const rclcpp::Time& s = per_cam_[i].stamp;
+        if (i == 0) { t_min = s; t_max = s; }
+        else { if (s < t_min) t_min = s; if (s > t_max) t_max = s; }
+    }
+    if ((t_max - t_min).seconds() > max_sync_latency_)
+    {
+        // Frames not yet aligned within the window — wait for a fresher, tighter set.
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                             "camera frames span %.3fs > max_sync_latency %.3fs; skipping render",
+                             (t_max - t_min).seconds(), max_sync_latency_);
+        return;
     }
 
     // Build NHWC float buffer (N, H, W, C=3) — use first camera's size.
@@ -333,6 +354,14 @@ void RenderingNode::timer_callback()
         for (int c = 0; c < 3; ++c)
             info_msg.k[r * 3 + c] = static_cast<double>(vcam_.K[r * 3 + c]);
     pub_info_->publish(info_msg);
+
+    // Consume the synced set: require a fresh frame from every camera before the
+    // next render (so the published rate tracks the synchronized camera rate).
+    for (int i = 0; i < n_cameras_; ++i)
+    {
+        std::lock_guard<std::mutex> lk(*per_cam_[i].mtx);
+        per_cam_[i].have_new = false;
+    }
 }
 
 // ── Lifecycle: teardown helpers ──────────────────────────────────────────────
