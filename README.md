@@ -123,6 +123,6 @@ which the architecture is already set up to accept.
    far-object ghosting using accurate per-camera depth.
 3. Real depth source behind `CameraFrame`: monocular/stereo depth model or LIDAR
    fusion (replacing synthetic ground-truth depth).
-4. ✅ `GLRenderer` — implemented: `GLBowlRenderer`, `GLDepthRenderer`, backend toggle (`[g]` key live-switches numpy ↔ GL).
+4. ✅ `GLRenderer` — implemented: `GLBowlRenderer`, `GLDepthRenderer`, backend toggle (`[g]` key live-switches numpy ↔ GL). Note: the current GL path includes a per-frame framebuffer readback to NumPy (to keep the `Renderer` contract identical), so the 720p bowl benchmark measures ~38 fps; reaching the >60 fps target needs the no-readback direct-blit path and upload-once-for-static-scene optimizations (designed-for, not yet built).
 5. Disocclusion handling: temporal accumulation / inpainting to fill unseen
    geometry instead of bowl fallback.

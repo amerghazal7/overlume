@@ -31,4 +31,5 @@ def test_gl_depth_matches_numpy_depth():
     # splat footprints are square in both; masks agree on most pixels
     assert (gl_valid == np_valid).mean() > 0.90
     both = gl_valid & np_valid
+    assert both.sum() > 1000
     assert _psnr(gl_frame[both], np_frame[both]) > 28.0

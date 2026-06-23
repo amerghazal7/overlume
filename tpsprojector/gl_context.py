@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Dict, Optional, Tuple
 
-_ctx = None                       # type: ignore[var-annotated]
+_ctx: "moderngl.Context | None" = None
 _fbos: Dict[Tuple[int, int, bool], object] = {}
 _available: Optional[bool] = None
 
@@ -49,3 +49,16 @@ def get_fbo(width: int, height: int, depth: bool = False):
         fbo = ctx.framebuffer(**attachments)
         _fbos[key] = fbo
     return fbo
+
+
+def release_fbos() -> None:
+    """Release all pooled framebuffers and their attachment textures."""
+    global _fbos
+    for fbo in _fbos.values():
+        for tex in getattr(fbo, "color_attachments", ()):  # color textures
+            tex.release()
+        depth = getattr(fbo, "depth_attachment", None)
+        if depth is not None:
+            depth.release()
+        fbo.release()
+    _fbos = {}

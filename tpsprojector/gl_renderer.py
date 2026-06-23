@@ -120,6 +120,7 @@ class GLBowlRenderer(Renderer):
     def __init__(self, feather_margin: float = 30.0, fill_color=(0.0, 0.0, 0.0)):
         self.feather_margin = float(feather_margin)
         self.fill_color = tuple(float(c) for c in fill_color)
+        # Cached for the lifetime of the singleton GL context (see gl_context.get_context).
         self._progs = {}        # ncam -> (program, vao)
         self._cam_tex = None    # (ncam, H, W) cached sampler2DArray
 
@@ -144,6 +145,7 @@ class GLBowlRenderer(Renderer):
 
         cam_h, cam_w = camera_images[0].shape[:2]
         stack = np.stack([np.asarray(im, dtype="f4") for im in camera_images])  # (n,H,W,3)
+        # Reuse the same allocation when camera geometry is unchanged; write() below always re-uploads the pixel data.
         if self._cam_tex is None or self._cam_tex.size != (cam_w, cam_h) \
                 or self._cam_tex.layers != n:
             if self._cam_tex is not None:
