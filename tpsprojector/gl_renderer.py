@@ -242,7 +242,7 @@ class GLBowlRenderer(Renderer):
         fbo = get_fbo(W, H)
         fbo.use()
         fbo.clear(*self.fill_color, 0.0)
-        vao.render(mode=6, vertices=3)   # 6 = GL_TRIANGLES
+        vao.render(mode=6, vertices=3)   # 6 = GL_TRIANGLE_FAN (== one triangle for 3 verts)
         return fbo
 
     def render(self, camera_images: Sequence[np.ndarray],

@@ -24,6 +24,8 @@ def benchmark(width: int = 1280, height: int = 720, mode: str = "bowl",
     ``ctx.finish()`` — the sync is required because GL is asynchronous).
     ``fps_readback`` times the end-to-end ``Engine._render_env`` for ``mode``.
     """
+    if mode != "bowl":
+        raise ValueError("benchmark no-readback path measures bowl only; pass mode='bowl'")
     from .gl_context import get_context
     eng = Engine.from_defaults(width=width, height=height, mode=mode, backend="gl")
     vc = eng.virtual_camera(get_preset(PRESET_NAMES[0]))

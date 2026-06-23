@@ -39,14 +39,15 @@ def get_context():
 def use_window_context():
     """Bind the GL backend to the CURRENT GL context (e.g. a pygame OpenGL window).
 
-    Standalone-context mode (the default) renders headless; the live app instead
-    needs the renderers' FBOs in the window's own context so they can be blitted
-    to the screen. Call this once after creating the OpenGL window, before any
-    GL renderer is used.
+    Call this ONCE after creating the OpenGL window and BEFORE any GL renderer or
+    get_context() use, so the renderers' FBOs/textures are allocated in the
+    window's context and can be presented to the screen. Clears the FBO pool,
+    which belonged to any previous (e.g. standalone) context.
     """
-    global _ctx
+    global _ctx, _fbos
     import moderngl
     _ctx = moderngl.create_context()
+    _fbos = {}
     return _ctx
 
 
