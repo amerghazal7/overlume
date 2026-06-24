@@ -10,8 +10,10 @@ triggers configure + activate programmatically. For manual activation:
   ros2 lifecycle set /rendering_node activate
 """
 
+import os
+
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, SetEnvironmentVariable
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import LifecycleNode
 from launch_ros.substitutions import FindPackageShare
@@ -21,6 +23,17 @@ def generate_launch_description() -> LaunchDescription:
     default_params = PathJoinSubstitution(
         [FindPackageShare("micropilot_rendering_node"), "config", "default_params.yaml"]
     )
+
+    # Subscribe to the 6 CARLA camera streams over Iceoryx shared memory
+    # (zero-copy) instead of loopback UDP. SHM only engages when BOTH this node
+    # AND the publisher (CARLA bridge) have it enabled; without it, every 4 MB
+    # frame is copied per-subscriber and collapses the synchronous-mode sim FPS.
+    # Set here so it holds regardless of the launching shell. Skip if already set.
+    pre_actions = []
+    if "CYCLONEDDS_URI" not in os.environ:
+        pre_actions.append(SetEnvironmentVariable(
+            "CYCLONEDDS_URI",
+            "file://" + os.path.expanduser("~/.config/cyclonedds/cyclonedds.xml")))
 
     args = [
         DeclareLaunchArgument(
@@ -39,4 +52,4 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
-    return LaunchDescription(args + [node])
+    return LaunchDescription(pre_actions + args + [node])
