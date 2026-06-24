@@ -32,6 +32,11 @@ public:
     void render_hybrid(const CameraParams& vcam, const BowlParams& bowl, int splat_radius,
                        float* out_rgba);
 
+    /// Diagnostics/tests: cumulative number of device-buffer (re)allocations.
+    /// Device buffers are persistent and grow-only, so after the working set is
+    /// reached this stays constant — the steady-state render path allocates nothing.
+    std::size_t device_alloc_count() const;
+
 private:
     struct Impl;
     Impl* impl_;

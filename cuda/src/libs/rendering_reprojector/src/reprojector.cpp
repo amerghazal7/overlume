@@ -1,10 +1,18 @@
-/** @file reprojector.cpp @brief Host orchestration + device buffer management. */
+/** @file reprojector.cpp @brief Host orchestration + device buffer management.
+ *
+ *  Device buffers are PERSISTENT and grow-only: they are (re)allocated only when
+ *  a larger size is needed, never per frame. Per-frame cudaMalloc/cudaFree are
+ *  device-serializing calls — when this node shares a GPU with the CARLA server,
+ *  churning the ~96 MB image buffer every frame stalled the simulator's render
+ *  pipeline (server 30->8 fps, cameras 10->3). Allocate once, reuse forever.
+ */
 
 #include "rendering_reprojector/reprojector.hpp"
 
 #include <cuda_runtime.h>
 
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <stdexcept>
 #include <string>
@@ -49,10 +57,19 @@ struct Reprojector::Impl
 
     // Per-camera host metadata (for to_camdev conversion).
     std::vector<CameraParams> cams;
+    bool cams_dirty = false;  // host cams changed → re-upload d_cams before next render
 
-    // Device buffers (owned; null until upload).
-    float*   d_images = nullptr;   // (N, H, W, 3) flat float
-    CamDev*  d_cams   = nullptr;   // N × CamDev
+    // ── Persistent device buffers (grow-only; freed only in dtor) ────────────
+    // Each tracks its allocated capacity in BYTES; ensure_bytes() reallocates
+    // only when a larger size is requested.
+    float*  d_images = nullptr;  size_t d_images_cap = 0;
+    CamDev* d_cams   = nullptr;  size_t d_cams_cap   = 0;
+    float*  d_out    = nullptr;  size_t d_out_cap    = 0;  // shared RGBA output (OW*OH*4)
+
+    // Depth / hybrid scratch (fixed OW*OH; allocated once on first use).
+    float*              d_bowl  = nullptr;  size_t d_bowl_cap  = 0;
+    float*              d_depth = nullptr;  size_t d_depth_cap = 0;
+    unsigned long long* d_zbuf  = nullptr;  size_t d_zbuf_cap  = 0;
 
     int img_n = 0, img_h = 0, img_w = 0;
 
@@ -60,29 +77,56 @@ struct Reprojector::Impl
     std::vector<float> h_pts;   // (M, 3) xyz flat
     std::vector<float> h_cols;  // (M, 3) rgb flat
 
-    // Device point cloud buffers (owned; null until upload_depth).
-    float* d_pts  = nullptr;  // (M, 3)
-    float* d_cols = nullptr;  // (M, 3)
+    // Device point cloud buffers (persistent, grow-only).
+    float* d_pts  = nullptr;  size_t d_pts_cap  = 0;
+    float* d_cols = nullptr;  size_t d_cols_cap = 0;
     int    npts   = 0;
 
-    void free_device()
+    // Cumulative device (re)allocation count — exposed for diagnostics/tests.
+    size_t alloc_count = 0;
+
+    // Grow-only device allocation: (re)allocate *ptr only when need > cap.
+    // Frees the old buffer first so capacity can shrink-then-grow safely.
+    void ensure_bytes(void** ptr, size_t& cap, size_t need)
     {
-        if (d_images) { cudaFree(d_images); d_images = nullptr; }
-        if (d_cams)   { cudaFree(d_cams);   d_cams   = nullptr; }
+        if (need <= cap) return;
+        if (*ptr) cudaFree(*ptr);
+        *ptr = nullptr;
+        CUDA_CHECK(cudaMalloc(ptr, need));
+        cap = need;
+        ++alloc_count;
     }
 
-    void free_depth_device()
+    // Upload device camera records iff the host cams changed since last upload.
+    // d_cams persists; only a small (ncam × CamDev) memcpy runs per dirty frame.
+    void sync_cams()
     {
-        if (d_pts)  { cudaFree(d_pts);  d_pts  = nullptr; }
-        if (d_cols) { cudaFree(d_cols); d_cols = nullptr; }
-        npts = 0;
+        if (cams.empty()) return;
+        ensure_bytes(reinterpret_cast<void**>(&d_cams), d_cams_cap, cams.size() * sizeof(CamDev));
+        if (cams_dirty)
+        {
+            std::vector<CamDev> hcams;
+            hcams.reserve(cams.size());
+            for (auto& c : cams) hcams.push_back(to_camdev(c));
+            CUDA_CHECK(cudaMemcpy(d_cams, hcams.data(), hcams.size() * sizeof(CamDev),
+                                  cudaMemcpyHostToDevice));
+            cams_dirty = false;
+        }
     }
 
-    ~Impl()
+    void free_all()
     {
-        free_device();
-        free_depth_device();
+        if (d_images) cudaFree(d_images);
+        if (d_cams)   cudaFree(d_cams);
+        if (d_out)    cudaFree(d_out);
+        if (d_bowl)   cudaFree(d_bowl);
+        if (d_depth)  cudaFree(d_depth);
+        if (d_zbuf)   cudaFree(d_zbuf);
+        if (d_pts)    cudaFree(d_pts);
+        if (d_cols)   cudaFree(d_cols);
     }
+
+    ~Impl() { free_all(); }
 };
 
 Reprojector::Reprojector(int out_width, int out_height) : impl_(new Impl)
@@ -93,20 +137,14 @@ Reprojector::Reprojector(int out_width, int out_height) : impl_(new Impl)
 
 Reprojector::~Reprojector() { delete impl_; }
 
+std::size_t Reprojector::device_alloc_count() const { return impl_->alloc_count; }
+
 void Reprojector::set_cameras(const std::vector<CameraParams>& cams)
 {
+    // Store host params and mark dirty; the (cheap) device upload is deferred to
+    // the next render via sync_cams(). No per-call cudaMalloc/cudaFree.
     impl_->cams = cams;
-    // If images were already uploaded, rebuild device camera records.
-    if (impl_->img_n == static_cast<int>(cams.size()) && impl_->d_images)
-    {
-        std::vector<CamDev> hcams;
-        hcams.reserve(cams.size());
-        for (auto& c : cams) hcams.push_back(to_camdev(c));
-        if (impl_->d_cams) { cudaFree(impl_->d_cams); impl_->d_cams = nullptr; }
-        CUDA_CHECK(cudaMalloc(&impl_->d_cams, hcams.size() * sizeof(CamDev)));
-        CUDA_CHECK(cudaMemcpy(impl_->d_cams, hcams.data(),
-                              hcams.size() * sizeof(CamDev), cudaMemcpyHostToDevice));
-    }
+    impl_->cams_dirty = true;
 }
 
 void Reprojector::upload_images(const float* nhwc, int n, int h, int w)
@@ -115,24 +153,9 @@ void Reprojector::upload_images(const float* nhwc, int n, int h, int w)
     impl_->img_h = h;
     impl_->img_w = w;
 
-    // Release old device buffers.
-    impl_->free_device();
-
-    // Upload image data.
     size_t img_bytes = static_cast<size_t>(n) * h * w * 3 * sizeof(float);
-    CUDA_CHECK(cudaMalloc(&impl_->d_images, img_bytes));
+    impl_->ensure_bytes(reinterpret_cast<void**>(&impl_->d_images), impl_->d_images_cap, img_bytes);
     CUDA_CHECK(cudaMemcpy(impl_->d_images, nhwc, img_bytes, cudaMemcpyHostToDevice));
-
-    // Build device camera records (requires set_cameras to have been called).
-    if (!impl_->cams.empty())
-    {
-        std::vector<CamDev> hcams;
-        hcams.reserve(impl_->cams.size());
-        for (auto& c : impl_->cams) hcams.push_back(to_camdev(c));
-        CUDA_CHECK(cudaMalloc(&impl_->d_cams, hcams.size() * sizeof(CamDev)));
-        CUDA_CHECK(cudaMemcpy(impl_->d_cams, hcams.data(),
-                              hcams.size() * sizeof(CamDev), cudaMemcpyHostToDevice));
-    }
 }
 
 void Reprojector::upload_depth(const float* nhw, int n, int h, int w)
@@ -143,11 +166,7 @@ void Reprojector::upload_depth(const float* nhw, int n, int h, int w)
     impl_->h_cols.clear();
 
     const float* images = nullptr;
-    // h_images is not kept on host; we need it for colors.
-    // If d_images is uploaded, we need image data — keep host copy.
-    // Fallback: we stored img_n/img_h/img_w; colors come from d_images copy.
-    // We must download d_images to get colors since we don't keep a host copy.
-    // Download once for the point cloud build.
+    // d_images is not mirrored on host; download once to source point colors.
     int img_n = impl_->img_n;
     int img_h = impl_->img_h;
     int img_w = impl_->img_w;
@@ -219,15 +238,14 @@ void Reprojector::upload_depth(const float* nhw, int n, int h, int w)
         }
     }
 
-    // Upload point cloud to device.
-    impl_->free_depth_device();
+    // Upload point cloud to (persistent, grow-only) device buffers.
     impl_->npts = static_cast<int>(impl_->h_pts.size() / 3);
     if (impl_->npts > 0)
     {
         size_t pts_bytes  = static_cast<size_t>(impl_->npts) * 3 * sizeof(float);
         size_t cols_bytes = static_cast<size_t>(impl_->npts) * 3 * sizeof(float);
-        CUDA_CHECK(cudaMalloc(&impl_->d_pts,  pts_bytes));
-        CUDA_CHECK(cudaMalloc(&impl_->d_cols, cols_bytes));
+        impl_->ensure_bytes(reinterpret_cast<void**>(&impl_->d_pts),  impl_->d_pts_cap,  pts_bytes);
+        impl_->ensure_bytes(reinterpret_cast<void**>(&impl_->d_cols), impl_->d_cols_cap, cols_bytes);
         CUDA_CHECK(cudaMemcpy(impl_->d_pts,  impl_->h_pts.data(),  pts_bytes,
                               cudaMemcpyHostToDevice));
         CUDA_CHECK(cudaMemcpy(impl_->d_cols, impl_->h_cols.data(), cols_bytes,
@@ -246,20 +264,23 @@ void Reprojector::render_bowl(const CameraParams& vcam, const BowlParams& bowl, 
     int OH = impl_->out_h;
     int ncam = impl_->img_n;
 
-    float* d_out = nullptr;
-    CUDA_CHECK(cudaMalloc(&d_out, sizeof(float) * OW * OH * 4));
+    impl_->sync_cams();
+    impl_->ensure_bytes(reinterpret_cast<void**>(&impl_->d_out), impl_->d_out_cap,
+                        sizeof(float) * OW * OH * 4);
 
     CamDev v = to_camdev(vcam);
 
-    launch_bowl(d_out, OW, OH, impl_->d_images, impl_->d_cams, ncam, v,
+    launch_bowl(impl_->d_out, OW, OH, impl_->d_images, impl_->d_cams, ncam, v,
                 /*surf_type=*/1, /*flat_z0=*/0.0f,
                 bowl.R0, bowl.k, bowl.Rmax,
                 /*feather_margin=*/30.0f,
                 /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f);
+    CUDA_CHECK(cudaGetLastError());  // surface launch-config errors immediately
 
-    CUDA_CHECK(cudaDeviceSynchronize());
-    CUDA_CHECK(cudaMemcpy(out_rgba, d_out, sizeof(float) * OW * OH * 4, cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaFree(d_out));
+    // Synchronous D2H copy on the default stream already orders after (and waits
+    // for) the kernel — no separate cudaDeviceSynchronize() needed.
+    CUDA_CHECK(cudaMemcpy(out_rgba, impl_->d_out, sizeof(float) * OW * OH * 4,
+                          cudaMemcpyDeviceToHost));
 }
 
 void Reprojector::render_depth(const CameraParams& vcam, int splat_radius, float* out_rgba)
@@ -272,21 +293,20 @@ void Reprojector::render_depth(const CameraParams& vcam, int splat_radius, float
     int OH = impl_->out_h;
     int npts = impl_->npts;
 
-    float* d_out = nullptr;
-    unsigned long long* d_zbuf = nullptr;
-    CUDA_CHECK(cudaMalloc(&d_out,  sizeof(float) * OW * OH * 4));
-    CUDA_CHECK(cudaMalloc(&d_zbuf, sizeof(unsigned long long) * OW * OH));
+    impl_->ensure_bytes(reinterpret_cast<void**>(&impl_->d_out), impl_->d_out_cap,
+                        sizeof(float) * OW * OH * 4);
+    impl_->ensure_bytes(reinterpret_cast<void**>(&impl_->d_zbuf), impl_->d_zbuf_cap,
+                        sizeof(unsigned long long) * OW * OH);
 
     CamDev v = to_camdev(vcam);
 
-    launch_splat(d_zbuf, d_out, OW, OH,
+    launch_splat(impl_->d_zbuf, impl_->d_out, OW, OH,
                  impl_->d_pts, impl_->d_cols, npts, v, splat_radius,
                  /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f);
+    CUDA_CHECK(cudaGetLastError());
 
-    CUDA_CHECK(cudaDeviceSynchronize());
-    CUDA_CHECK(cudaMemcpy(out_rgba, d_out, sizeof(float) * OW * OH * 4, cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaFree(d_out));
-    CUDA_CHECK(cudaFree(d_zbuf));
+    CUDA_CHECK(cudaMemcpy(out_rgba, impl_->d_out, sizeof(float) * OW * OH * 4,
+                          cudaMemcpyDeviceToHost));
 }
 
 void Reprojector::render_hybrid(const CameraParams& vcam, const BowlParams& bowl,
@@ -302,40 +322,35 @@ void Reprojector::render_hybrid(const CameraParams& vcam, const BowlParams& bowl
     int npts = impl_->npts;
     int npx  = OW * OH;
 
+    impl_->sync_cams();
+    impl_->ensure_bytes(reinterpret_cast<void**>(&impl_->d_bowl),  impl_->d_bowl_cap,
+                        sizeof(float) * npx * 4);
+    impl_->ensure_bytes(reinterpret_cast<void**>(&impl_->d_depth), impl_->d_depth_cap,
+                        sizeof(float) * npx * 4);
+    impl_->ensure_bytes(reinterpret_cast<void**>(&impl_->d_out),   impl_->d_out_cap,
+                        sizeof(float) * npx * 4);
+    impl_->ensure_bytes(reinterpret_cast<void**>(&impl_->d_zbuf),  impl_->d_zbuf_cap,
+                        sizeof(unsigned long long) * npx);
+
     CamDev v = to_camdev(vcam);
 
-    // Allocate device buffers for bowl, depth, and output.
-    float*             d_bowl  = nullptr;
-    float*             d_depth = nullptr;
-    float*             d_out   = nullptr;
-    unsigned long long* d_zbuf  = nullptr;
-
-    CUDA_CHECK(cudaMalloc(&d_bowl,  sizeof(float) * npx * 4));
-    CUDA_CHECK(cudaMalloc(&d_depth, sizeof(float) * npx * 4));
-    CUDA_CHECK(cudaMalloc(&d_out,   sizeof(float) * npx * 4));
-    CUDA_CHECK(cudaMalloc(&d_zbuf,  sizeof(unsigned long long) * npx));
-
     // --- Bowl pass ---
-    launch_bowl(d_bowl, OW, OH, impl_->d_images, impl_->d_cams, ncam, v,
+    launch_bowl(impl_->d_bowl, OW, OH, impl_->d_images, impl_->d_cams, ncam, v,
                 /*surf_type=*/1, /*flat_z0=*/0.0f,
                 bowl.R0, bowl.k, bowl.Rmax,
                 /*feather_margin=*/30.0f,
                 /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f);
 
     // --- Depth (splat) pass ---
-    launch_splat(d_zbuf, d_depth, OW, OH,
+    launch_splat(impl_->d_zbuf, impl_->d_depth, OW, OH,
                  impl_->d_pts, impl_->d_cols, npts, v, splat_radius,
                  /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f);
 
     // --- Composite: depth-where-valid else bowl ---
-    launch_composite(d_depth, d_bowl, d_out, npx);
+    launch_composite(impl_->d_depth, impl_->d_bowl, impl_->d_out, npx);
+    CUDA_CHECK(cudaGetLastError());
 
-    CUDA_CHECK(cudaDeviceSynchronize());
-    CUDA_CHECK(cudaMemcpy(out_rgba, d_out, sizeof(float) * npx * 4, cudaMemcpyDeviceToHost));
-
-    CUDA_CHECK(cudaFree(d_bowl));
-    CUDA_CHECK(cudaFree(d_depth));
-    CUDA_CHECK(cudaFree(d_out));
-    CUDA_CHECK(cudaFree(d_zbuf));
+    CUDA_CHECK(cudaMemcpy(out_rgba, impl_->d_out, sizeof(float) * npx * 4,
+                          cudaMemcpyDeviceToHost));
 }
 }  // namespace micropilot::rendering

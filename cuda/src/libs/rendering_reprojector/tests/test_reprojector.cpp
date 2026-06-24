@@ -89,9 +89,10 @@ TEST(Reprojector, ConstructsAndRendersBufferOfCorrectSize)
 
 // ---------------------------------------------------------------------------
 // Regression performance floor (720p, 20 iters).
-// render_bowl includes cudaDeviceSynchronize() + device→host copy — this is
-// the full realistic per-call cost.  The floor is set conservatively at 200
-// fps; a Debug build on an RTX 3090 should comfortably exceed this.
+// render_bowl includes the kernel launch + a synchronous device→host copy (which
+// orders after and waits for the kernel) — the full realistic per-call cost.
+// The floor is set conservatively at 200 fps; a Debug build on an RTX 3090
+// should comfortably exceed this.
 // ---------------------------------------------------------------------------
 static std::array<float, 3> bench_cross3(std::array<float, 3> a, std::array<float, 3> b)
 {
@@ -147,6 +148,64 @@ static CameraParams make_bench_ring_cam(float theta_rad)
     cam.width = CAM_W;
     cam.height = CAM_H;
     return cam;
+}
+
+// ---------------------------------------------------------------------------
+// Steady-state device-allocation guard.
+// The realistic per-frame node loop is: set_cameras() + upload_images() (same
+// size) + render_bowl(), repeated every frame. Re-allocating device buffers
+// (notably the ~96 MB image buffer) every frame issues cudaMalloc/cudaFree —
+// device-serializing calls that, on a GPU time-sliced with the CARLA server,
+// starved the simulator (server 30->8 fps, cameras 10->3). After warm-up the
+// per-frame path must perform ZERO device (re)allocations: buffers persist and
+// are reused. This test fails if any render cycle reallocates.
+// ---------------------------------------------------------------------------
+TEST(Reprojector, SteadyStateRenderDoesNotReallocateDevice)
+{
+    const int OUT_W = 1280, OUT_H = 720;
+    const int N_CAM = 6;
+    const int CAM_W = 128, CAM_H = 96;
+
+    std::vector<CameraParams> cams;
+    std::vector<float> images_nhwc(N_CAM * CAM_H * CAM_W * 3, 0.2f);
+    for (int i = 0; i < N_CAM; ++i)
+        cams.push_back(make_bench_ring_cam(2.f * 3.14159265f * i / N_CAM));
+
+    CameraParams vcam{};
+    const float hfov_rad = 90.f * 3.14159265f / 180.f;
+    const float vfx = (OUT_W / 2.f) / std::tan(hfov_rad / 2.f);
+    vcam.K[0] = vfx;
+    vcam.K[2] = OUT_W / 2.f;
+    vcam.K[4] = vfx;
+    vcam.K[5] = OUT_H / 2.f;
+    vcam.K[8] = 1.f;
+    vcam.R[0] = 1.f;
+    vcam.R[4] = 1.f;
+    vcam.R[8] = 1.f;
+    vcam.t[2] = 5.f;
+    vcam.width = OUT_W;
+    vcam.height = OUT_H;
+
+    BowlParams bowl{6.0f, 0.08f, 20.0f};
+    std::vector<float> out(OUT_W * OUT_H * 4, 0.f);
+
+    Reprojector rep(OUT_W, OUT_H);
+    // Warm-up: this is where the (one-time) device allocations are allowed.
+    rep.set_cameras(cams);
+    rep.upload_images(images_nhwc.data(), N_CAM, CAM_H, CAM_W);
+    rep.render_bowl(vcam, bowl, out.data());
+
+    const std::size_t base = rep.device_alloc_count();
+    for (int i = 0; i < 30; ++i)
+    {
+        rep.set_cameras(cams);  // node re-pushes rescaled params every frame
+        rep.upload_images(images_nhwc.data(), N_CAM, CAM_H, CAM_W);  // same size
+        rep.render_bowl(vcam, bowl, out.data());
+    }
+
+    EXPECT_EQ(rep.device_alloc_count(), base)
+        << "per-frame device (re)allocation detected (" << (rep.device_alloc_count() - base)
+        << " allocs over 30 frames) — device buffers are not persistent";
 }
 
 TEST(Reprojector, BowlRenderFloor720p)
