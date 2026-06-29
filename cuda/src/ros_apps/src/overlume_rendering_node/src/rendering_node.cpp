@@ -83,7 +83,12 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
                             {vcam_.t[0] + vcam_.R[2], vcam_.t[1] + vcam_.R[5],
                              vcam_.t[2] + vcam_.R[8]}};
     // Presets 2-5: rig frame is x-forward, y-left, z-up (same as virtual_pose).
-    presets_[1] = LookPoint{{4.0f, 0.0f, 2.5f}, {-2.0f, 0.0f, 0.3f}};   // reverse_follow
+    // reverse_follow: the config view mirrored 180° about the robot's vertical
+    // axis (negate x,y; keep height) — placed symmetrically opposite preset 1
+    // across the robot at the origin, looking back the other way.
+    presets_[1] = LookPoint{
+        {-presets_[0].eye[0], -presets_[0].eye[1], presets_[0].eye[2]},
+        {-presets_[0].target[0], -presets_[0].target[1], presets_[0].target[2]}};
     presets_[2] = LookPoint{{0.0f, 4.0f, 2.5f}, {0.0f, 0.0f, 0.5f}};    // left_side
     presets_[3] = LookPoint{{0.0f, -4.0f, 2.5f}, {0.0f, 0.0f, 0.5f}};   // right_side
     presets_[4] = LookPoint{{0.0f, 0.0f, 8.0f}, {0.0f, 0.001f, 0.0f}};  // top_down
