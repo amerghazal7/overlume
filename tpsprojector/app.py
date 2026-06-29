@@ -143,6 +143,19 @@ class Engine:
                                                  self.splat_radius)
         return out[..., :3].astype(float), out[..., 3] > 0.5
 
+    def render_view(self, shot: Shot) -> np.ndarray:
+        """Fast live path: CUDA env + sky fill + robot composite, no metrics.
+
+        This is the per-frame display path. The ground-truth ``scene.render``
+        and PSNR/SSIM in :meth:`synthesize` cost ~135 ms/frame in pure Python —
+        only pay them on demand (the validation toggle), not every frame.
+        """
+        vc = self.virtual_camera(shot)
+        env, valid = self._render_env(vc)
+        env = np.where(valid[:, :, None], env, self.sky_color)
+        robot_rgb, robot_depth = self.robot.render(vc)
+        return np.clip(composite(env, robot_rgb, robot_depth), 0.0, 1.0)
+
     def synthesize(self, shot: Shot) -> RenderResult:
         vc = self.virtual_camera(shot)
         env, valid = self._render_env(vc)
@@ -188,6 +201,7 @@ def main():  # pragma: no cover
     eng = Engine.from_defaults(width=W, height=H)
 
     cur = get_preset(PRESET_NAMES[0]); src = dst = cur; t = 1.0
+    show_validation = False
     orbit = False
     az, el, dist = np.radians(180.0), np.radians(28.0), 4.5
 
@@ -205,6 +219,8 @@ def main():  # pragma: no cover
             elif e.type == pygame.KEYDOWN:
                 if e.key == pygame.K_ESCAPE:
                     running = False
+                elif e.key == pygame.K_v:
+                    show_validation = not show_validation
                 elif e.key == pygame.K_o:
                     orbit = not orbit
                 elif e.key == pygame.K_b:
@@ -233,17 +249,23 @@ def main():  # pragma: no cover
             else:
                 cur = dst
 
-        # CUDA reprojection (env) + Python robot composite + metrics, then present.
-        res = eng.synthesize(cur)
-        gl_present.present_array(np.clip(res.synth, 0, 1))
-        hud_extra = f" PSNR={res.psnr:5.2f} SSIM={res.ssim:4.2f}"
+        if show_validation:
+            # On-demand: full synthesize adds the Python ground-truth render +
+            # PSNR/SSIM (~135 ms/frame). Off by default to keep the live view fast.
+            res = eng.synthesize(cur)
+            gl_present.present_array(res.synth)
+            hud_extra = f" PSNR={res.psnr:5.2f} SSIM={res.ssim:4.2f}"
+        else:
+            # Fast live path: CUDA env + robot composite only.
+            gl_present.present_array(eng.render_view(cur))
+            hud_extra = ""
 
         pygame.display.flip()
         clock.tick(0)   # uncapped, to see real fps
         pygame.display.set_caption(
             f"TPSProjector — mode={eng.mode} (cuda) "
             f"{'ORBIT' if orbit else 'preset'} fps={clock.get_fps():4.1f}{hud_extra}  "
-            f"[1-4]preset [b/d/h]mode [o]rbit [esc]")
+            f"[1-4]preset [b/d/h]mode [v]alidation [o]rbit [esc]")
 
     pygame.quit()
 
