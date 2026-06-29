@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
-project(micropilot_rendering_node LANGUAGES CXX)
+# C is required by rosidl interface generation (srv/SetVirtualCam.srv); CXX for the node.
+project(micropilot_rendering_node LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -15,6 +16,11 @@ find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+
+# ── Service interface ─────────────────────────────────────────────────────────
+rosidl_generate_interfaces(${PROJECT_NAME}
+  srv/SetVirtualCam.srv)
 
 set(THIS_PACKAGE_DEPS
   rclcpp
@@ -34,6 +40,10 @@ target_include_directories(rendering_node_lib PUBLIC
 
 ament_target_dependencies(rendering_node_lib ${THIS_PACKAGE_DEPS})
 target_link_libraries(rendering_node_lib micropilot_rendering::reprojector)
+
+# Link this package's generated service typesupport (SetVirtualCam) into the lib.
+rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} rosidl_typesupport_cpp)
+target_link_libraries(rendering_node_lib "${cpp_typesupport_target}")
 
 # ── Executable ───────────────────────────────────────────────────────────────
 add_executable(rendering_node src/main.cpp)

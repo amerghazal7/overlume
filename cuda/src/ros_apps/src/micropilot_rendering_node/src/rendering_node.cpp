@@ -5,6 +5,7 @@
 #include "micropilot_rendering_node/rendering_node.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <stdexcept>
 
@@ -72,6 +73,22 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
     vcam_.K[0] = fx;  vcam_.K[1] = 0;   vcam_.K[2] = out_width_ / 2.0f;
     vcam_.K[3] = 0;   vcam_.K[4] = fy;  vcam_.K[5] = out_height_ / 2.0f;
     vcam_.K[6] = 0;   vcam_.K[7] = 0;   vcam_.K[8] = 1;
+
+    // ── virtual-camera presets ────────────────────────────────────────────────
+    // Preset 1 (config) is the just-built pose expressed as look-points:
+    // eye = camera center t, target = t + forward (R column 2). look_at()
+    // reproduces this exact rotation, so presets share one representation and
+    // switching is a smoothstep tween of the look-points (see advance_tween()).
+    presets_[0] = LookPoint{{vcam_.t[0], vcam_.t[1], vcam_.t[2]},
+                            {vcam_.t[0] + vcam_.R[2], vcam_.t[1] + vcam_.R[5],
+                             vcam_.t[2] + vcam_.R[8]}};
+    // Presets 2-5: rig frame is x-forward, y-left, z-up (same as virtual_pose).
+    presets_[1] = LookPoint{{4.0f, 0.0f, 2.5f}, {-2.0f, 0.0f, 0.3f}};   // reverse_follow
+    presets_[2] = LookPoint{{0.0f, 4.0f, 2.5f}, {0.0f, 0.0f, 0.5f}};    // left_side
+    presets_[3] = LookPoint{{0.0f, -4.0f, 2.5f}, {0.0f, 0.0f, 0.5f}};   // right_side
+    presets_[4] = LookPoint{{0.0f, 0.0f, 8.0f}, {0.0f, 0.001f, 0.0f}};  // top_down
+    cur_ = src_ = dst_ = presets_[0];
+    tween_t_ = 1.0;  // start settled on the config preset
 
     // ── camera extrinsics from parameter ────────────────────────────────────
     // Flat list of N*12 floats: per-camera [R(9 row-major) | t(3)] in rig frame.
@@ -154,6 +171,14 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
                      n_cameras_);
         return CallbackReturn::FAILURE;
     }
+
+    // ── preset-switch service ────────────────────────────────────────────────
+    // ~/set_virtual_cam -> /rendering_node/set_virtual_cam. Switches the virtual
+    // camera among the 5 presets with an eased tween (see on_set_virtual_cam).
+    set_vcam_srv_ = create_service<SetVirtualCam>(
+        "~/set_virtual_cam",
+        std::bind(&RenderingNode::on_set_virtual_cam, this, std::placeholders::_1,
+                  std::placeholders::_2));
 
     // ── per-camera state ─────────────────────────────────────────────────────
     per_cam_.resize(n_cameras_);
@@ -239,6 +264,9 @@ RenderingNode::CallbackReturn RenderingNode::on_activate(const rclcpp_lifecycle:
 // ── Timer callback ───────────────────────────────────────────────────────────
 void RenderingNode::timer_callback()
 {
+    // Ease the virtual camera toward the selected preset (no-op once settled).
+    advance_tween();
+
     // ── frame-sync gate ───────────────────────────────────────────────────────
     // Render only when EVERY camera has delivered a NEW frame since the last
     // render, and those frames' header stamps fall within max_sync_latency_.
@@ -379,6 +407,93 @@ void RenderingNode::timer_callback()
     }
 }
 
+// ── Virtual-camera presets / eased switching ─────────────────────────────────
+namespace
+{
+float smoothstep(float s)
+{
+    s = std::min(1.0f, std::max(0.0f, s));
+    return s * s * (3.0f - 2.0f * s);
+}
+void cross(const float a[3], const float b[3], float out[3])
+{
+    out[0] = a[1] * b[2] - a[2] * b[1];
+    out[1] = a[2] * b[0] - a[0] * b[2];
+    out[2] = a[0] * b[1] - a[1] * b[0];
+}
+void normalize(float v[3])
+{
+    float n = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    if (n > 1e-9f) { v[0] /= n; v[1] /= n; v[2] /= n; }
+}
+}  // namespace
+
+// Mirror of tpsprojector.transforms.look_at: CV camera (R columns = right,
+// down, fwd) looking from eye toward target with world-up +z. Falls back to a
+// +y up vector when looking nearly straight up/down (top-down preset).
+void RenderingNode::look_at(const float eye[3], const float target[3], float R_out[9])
+{
+    float f[3] = {target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]};
+    normalize(f);
+    float up[3] = {0.0f, 0.0f, 1.0f};
+    float right[3];
+    cross(f, up, right);
+    if (std::sqrt(right[0] * right[0] + right[1] * right[1] + right[2] * right[2]) < 1e-6f)
+    {
+        up[0] = 0.0f; up[1] = 1.0f; up[2] = 0.0f;
+        cross(f, up, right);
+    }
+    normalize(right);
+    float down[3];
+    cross(f, right, down);
+    // Row-major; columns are (right, down, fwd).
+    R_out[0] = right[0]; R_out[1] = down[0]; R_out[2] = f[0];
+    R_out[3] = right[1]; R_out[4] = down[1]; R_out[5] = f[1];
+    R_out[6] = right[2]; R_out[7] = down[2]; R_out[8] = f[2];
+}
+
+void RenderingNode::apply_lookpoint(const LookPoint& lp)
+{
+    look_at(lp.eye, lp.target, vcam_.R);
+    for (int i = 0; i < 3; ++i) vcam_.t[i] = lp.eye[i];
+}
+
+void RenderingNode::advance_tween()
+{
+    if (tween_t_ >= 1.0) return;  // settled — nothing to do
+    // Timer fires at 33 ms; ~0.5 s transition -> step 0.033/0.5 per tick.
+    tween_t_ = std::min(1.0, tween_t_ + 0.033 / 0.5);
+    float w = smoothstep(static_cast<float>(tween_t_));
+    for (int i = 0; i < 3; ++i)
+    {
+        cur_.eye[i] = src_.eye[i] + (dst_.eye[i] - src_.eye[i]) * w;
+        cur_.target[i] = src_.target[i] + (dst_.target[i] - src_.target[i]) * w;
+    }
+    apply_lookpoint(cur_);
+}
+
+void RenderingNode::on_set_virtual_cam(const std::shared_ptr<SetVirtualCam::Request> req,
+                                       std::shared_ptr<SetVirtualCam::Response> res)
+{
+    // ponytail: no lock — the node runs on a single-threaded executor
+    // (rclcpp::spin in main.cpp), so this callback and timer_callback() never
+    // overlap. Add a mutex here if it ever moves to a MultiThreadedExecutor.
+    const int p = req->preset;
+    if (p < 1 || p > static_cast<int>(presets_.size()))
+    {
+        res->success = false;
+        res->active = "invalid preset (expected 1.." + std::to_string(presets_.size()) + ")";
+        RCLCPP_WARN(get_logger(), "set_virtual_cam: rejected preset %d", p);
+        return;
+    }
+    src_ = cur_;
+    dst_ = presets_[p - 1];
+    tween_t_ = 0.0;  // begin the eased transition
+    res->success = true;
+    res->active = kPresetNames[p - 1];
+    RCLCPP_INFO(get_logger(), "set_virtual_cam: -> preset %d (%s)", p, kPresetNames[p - 1]);
+}
+
 // ── Lifecycle: teardown helpers ──────────────────────────────────────────────
 void RenderingNode::teardown_active()
 {
@@ -407,6 +522,7 @@ RenderingNode::CallbackReturn RenderingNode::on_cleanup(const rclcpp_lifecycle::
     cam_params_.clear();
     pub_image_.reset();
     pub_info_.reset();
+    set_vcam_srv_.reset();
     return CallbackReturn::SUCCESS;
 }
 
@@ -415,6 +531,7 @@ RenderingNode::CallbackReturn RenderingNode::on_shutdown(const rclcpp_lifecycle:
     RCLCPP_INFO(get_logger(), "on_shutdown() called.");
     teardown_active();
     reprojector_.reset();
+    set_vcam_srv_.reset();
     return CallbackReturn::SUCCESS;
 }
 

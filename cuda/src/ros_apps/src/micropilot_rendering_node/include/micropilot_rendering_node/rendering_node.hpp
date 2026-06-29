@@ -9,6 +9,7 @@
  *  `CameraParams.R/t` from `geometry_msgs::msg::TransformStamped`.
  */
 
+#include <array>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -24,8 +25,19 @@
 #include "rendering_reprojector/reprojector.hpp"
 #include "rendering_reprojector/types.hpp"
 
+#include "micropilot_rendering_node/srv/set_virtual_cam.hpp"
+
 namespace micropilot::rendering_app
 {
+
+/// A virtual-camera placement as look-points in the rig frame (x-fwd, y-left,
+/// z-up). The pose rotation is rebuilt from these via look_at(), so eased
+/// preset switches only need to interpolate the points — never rotations.
+struct LookPoint
+{
+    float eye[3];
+    float target[3];
+};
 
 class RenderingNode : public rclcpp_lifecycle::LifecycleNode
 {
@@ -44,6 +56,27 @@ public:
 private:
     void timer_callback();
     void teardown_active();
+
+    // ── virtual-camera presets / eased switching ─────────────────────────────
+    using SetVirtualCam = micropilot_rendering_node::srv::SetVirtualCam;
+    /// Build a camera pose (R columns = right/down/fwd, t = eye) from look-points.
+    static void look_at(const float eye[3], const float target[3], float R_out[9]);
+    /// Apply a look-point to vcam_ (rebuilds R/t; keeps K/width/height).
+    void apply_lookpoint(const LookPoint& lp);
+    /// Advance the smoothstep tween one timer tick and update vcam_.
+    void advance_tween();
+    void on_set_virtual_cam(const std::shared_ptr<SetVirtualCam::Request> req,
+                            std::shared_ptr<SetVirtualCam::Response> res);
+
+    // Preset table: [0]=config [1]=reverse_follow [2]=left_side [3]=right_side
+    // [4]=top_down. Index i is preset (i+1) in the service request.
+    std::array<LookPoint, 5> presets_{};
+    static constexpr std::array<const char*, 5> kPresetNames{
+        "config", "reverse_follow", "left_side", "right_side", "top_down"};
+    LookPoint cur_{}, src_{}, dst_{};
+    double tween_t_{1.0};  // [0,1]; 1.0 = settled on dst_. Eased per timer tick.
+
+    rclcpp::Service<SetVirtualCam>::SharedPtr set_vcam_srv_;
 
     // ── configuration ────────────────────────────────────────────────────────
     int n_cameras_{4};

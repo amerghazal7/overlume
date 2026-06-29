@@ -11,14 +11,15 @@ Run:  ``python -m tpsprojector.app``
 
 from __future__ import annotations
 
+import os
+import sys
 from dataclasses import dataclass
 
 import numpy as np
 
 from .camera import PinholeCamera
-from .depth_renderer import DepthRenderer, synthetic_frames
+from .depth_renderer import synthetic_frames
 from .presets import PRESET_NAMES, Shot, get_preset, tween
-from .renderer import NumpyRenderer
 from .robot import RobotProxy, composite
 from .surface import BowlSurface
 from .transforms import Pose, look_at
@@ -27,6 +28,22 @@ from .world.rig import make_ring_rig, tilt_for_body_edge
 from .world.scene import default_scene
 
 RENDER_MODES = ("hybrid", "depth", "bowl")
+
+# The reprojection core is the C++ CUDA library, exposed via the `tpscuda`
+# pybind module (built under cuda/install/…/python). Make it importable.
+_CUDA_PY = os.path.normpath(os.path.join(
+    os.path.dirname(__file__), "..", "cuda", "install",
+    "libs", "rendering_reprojector", "python"))
+if os.path.isdir(_CUDA_PY) and _CUDA_PY not in sys.path:
+    sys.path.insert(0, _CUDA_PY)
+
+
+def _cam_dict(cam: PinholeCamera) -> dict:
+    """Pack a PinholeCamera into the {K,R,t,width,height} dict tpscuda expects."""
+    return dict(K=np.asarray(cam.K, "f4").ravel(),
+                R=np.asarray(cam.pose.R, "f4").ravel(),
+                t=np.asarray(cam.pose.t, "f4"),
+                width=cam.width, height=cam.height)
 
 
 @dataclass
@@ -42,7 +59,9 @@ class RenderResult:
 
 class Engine:
     def __init__(self, scene, cameras, frames, surface, robot, fov_deg,
-                 width, height, mode="hybrid", backend="numpy"):
+                 width, height, mode="hybrid", splat_radius=1):
+        import tpscuda  # lazy: only the CUDA path needs the GPU module present
+
         self.scene = scene
         self.cameras = cameras
         self.frames = frames                       # CameraFrames (image+depth)
@@ -53,23 +72,27 @@ class Engine:
         self.width = width
         self.height = height
         self.mode = mode
+        self.splat_radius = splat_radius
         self.tilt_deg = 0.0
         self.sky_color = np.array([0.45, 0.6, 0.8])  # fills genuinely-unseen sky
-        self.backend = backend
-        if backend == "gl":
-            from .gl_renderer import GLBowlRenderer
-            from .gl_depth_renderer import GLDepthRenderer
-            self.bowl_renderer = GLBowlRenderer()
-            self.depth_renderer = GLDepthRenderer(splat_radius=1)
-        else:
-            self.bowl_renderer = NumpyRenderer()
-            self.depth_renderer = DepthRenderer(splat_radius=1)
+
+        # ── core reprojector: the C++ CUDA library via its pybind bindings ──
+        # Calibration and images are static, so upload them once; only the
+        # virtual pose changes per frame (see _render_env).
+        self.reprojector = tpscuda.Reprojector(width, height)
+        self.reprojector.set_cameras([_cam_dict(c) for c in cameras])
+        self.reprojector.upload_images(
+            np.stack([np.asarray(im, "f4") for im in self.images]))  # (N,H,W,3)
+        # Depth feeds the depth/hybrid modes; inf marks "no return" (matches the
+        # parity tests). Bowl mode ignores it.
+        depth = np.stack([np.where(np.isfinite(f.depth), f.depth, np.inf).astype("f4")
+                          for f in frames])
+        self.reprojector.upload_depth(depth)
 
     @classmethod
     def from_defaults(cls, width=320, height=240, n_cameras=6, rig_fov_deg=85.0,
                       mount_radius=0.25, mount_height=0.55, body_radius=0.5,
-                      tilt_deg=None, cam_width=320, cam_height=240, mode="hybrid",
-                      backend="numpy"):
+                      tilt_deg=None, cam_width=320, cam_height=240, mode="hybrid"):
         scene = default_scene()
         # Realistic mounting: tilt each camera down just enough that its nearest
         # visible ground reaches the robot body edge (body boundary at the bottom
@@ -94,7 +117,7 @@ class Engine:
         surface = BowlSurface(R0=6.0, k=0.08, Rmax=20.0)
         robot = RobotProxy.default(footprint_radius=body_radius)
         eng = cls(scene, cameras, frames, surface, robot, fov_deg=70.0,
-                  width=width, height=height, mode=mode, backend=backend)
+                  width=width, height=height, mode=mode)
         eng.tilt_deg = tilt_deg
         return eng
 
@@ -103,18 +126,22 @@ class Engine:
                                       shot.pose())
 
     def _render_env(self, vc: PinholeCamera):
-        """Render the environment per the active mode -> (rgb, valid)."""
+        """Render the environment per the active mode via the CUDA reprojector.
+
+        Returns ``(rgb, valid)`` where ``valid`` is the alpha>0.5 coverage mask.
+        bowl/depth/hybrid map 1:1 onto the C++ kernels; the hybrid composite
+        (depth where valid, bowl fallback) is done inside the kernel.
+        """
+        s = self.surface
+        vcam = _cam_dict(vc)
         if self.mode == "bowl":
-            return self.bowl_renderer.render(self.images, self.cameras,
-                                             self.surface, vc)
-        if self.mode == "depth":
-            return self.depth_renderer.render(self.frames, vc)
-        # hybrid: true-depth geometry where available, bowl fallback for holes
-        d, dv = self.depth_renderer.render(self.frames, vc)
-        b, bv = self.bowl_renderer.render(self.images, self.cameras,
-                                          self.surface, vc)
-        env = np.where(dv[:, :, None], d, b)
-        return env, (dv | bv)
+            out = self.reprojector.render_bowl(vcam, s.R0, s.k, s.Rmax)
+        elif self.mode == "depth":
+            out = self.reprojector.render_depth(vcam, self.splat_radius)
+        else:  # hybrid
+            out = self.reprojector.render_hybrid(vcam, s.R0, s.k, s.Rmax,
+                                                 self.splat_radius)
+        return out[..., :3].astype(float), out[..., 3] > 0.5
 
     def synthesize(self, shot: Shot) -> RenderResult:
         vc = self.virtual_camera(shot)
@@ -158,12 +185,9 @@ def main():  # pragma: no cover
     use_window_context()                       # GL backend renders into this window's context
     clock = pygame.time.Clock()
 
-    eng = Engine.from_defaults(width=W, height=H, backend="gl")
-    from .gl_context import get_context
-    ctx = get_context()
+    eng = Engine.from_defaults(width=W, height=H)
 
     cur = get_preset(PRESET_NAMES[0]); src = dst = cur; t = 1.0
-    show_validation = False
     orbit = False
     az, el, dist = np.radians(180.0), np.radians(28.0), 4.5
 
@@ -181,8 +205,6 @@ def main():  # pragma: no cover
             elif e.type == pygame.KEYDOWN:
                 if e.key == pygame.K_ESCAPE:
                     running = False
-                elif e.key == pygame.K_v:
-                    show_validation = not show_validation
                 elif e.key == pygame.K_o:
                     orbit = not orbit
                 elif e.key == pygame.K_b:
@@ -191,9 +213,6 @@ def main():  # pragma: no cover
                     eng.mode = "depth"
                 elif e.key == pygame.K_h:
                     eng.mode = "hybrid"
-                elif e.key == pygame.K_g:
-                    new = "numpy" if eng.backend == "gl" else "gl"
-                    eng = Engine.from_defaults(width=W, height=H, mode=eng.mode, backend=new)
                 elif pygame.K_1 <= e.key <= pygame.K_9:
                     idx = e.key - pygame.K_1
                     if idx < len(PRESET_NAMES):
@@ -214,32 +233,17 @@ def main():  # pragma: no cover
             else:
                 cur = dst
 
-        vc = eng.virtual_camera(cur)
-        hud_extra = ""
-        fast = (eng.backend == "gl" and eng.mode == "bowl" and not show_validation)
-        if fast:
-            # No-readback path: env FBO over a sky clear, robot composited on GPU.
-            env_fbo = eng.bowl_renderer._render_to_fbo(eng.images, eng.cameras,
-                                                       eng.surface, vc)
-            robot_rgb, robot_depth = eng.robot.render(vc)
-            alpha = np.isfinite(robot_depth).astype("f4")
-            robot_rgba = np.dstack([np.clip(robot_rgb, 0, 1).astype("f4"), alpha])
-            ctx.screen.use()
-            ctx.clear(*eng.sky_color, 1.0)
-            gl_present.present_fbo(env_fbo, blend=True)        # env where valid, else sky
-            gl_present.present_array(robot_rgba, blend=True)   # robot over env
-        else:
-            # Readback path: full synthesize (metrics available), present the frame.
-            res = eng.synthesize(cur)
-            gl_present.present_array(np.clip(res.synth, 0, 1))
-            hud_extra = f" PSNR={res.psnr:5.2f} SSIM={res.ssim:4.2f}"
+        # CUDA reprojection (env) + Python robot composite + metrics, then present.
+        res = eng.synthesize(cur)
+        gl_present.present_array(np.clip(res.synth, 0, 1))
+        hud_extra = f" PSNR={res.psnr:5.2f} SSIM={res.ssim:4.2f}"
 
         pygame.display.flip()
         clock.tick(0)   # uncapped, to see real fps
         pygame.display.set_caption(
-            f"TPSProjector — mode={eng.mode} backend={eng.backend} "
+            f"TPSProjector — mode={eng.mode} (cuda) "
             f"{'ORBIT' if orbit else 'preset'} fps={clock.get_fps():4.1f}{hud_extra}  "
-            f"[1-4]preset [b/d/h]mode [g]pu [v]alidation [o]rbit [esc]")
+            f"[1-4]preset [b/d/h]mode [o]rbit [esc]")
 
     pygame.quit()
 

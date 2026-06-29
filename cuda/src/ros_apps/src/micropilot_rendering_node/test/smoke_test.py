@@ -179,6 +179,25 @@ class SmokeTestNode(Node):
             self.received_frame = msg
 
 
+def call_set_virtual_cam(preset: int, timeout: float = 15.0):
+    """Call /rendering_node/set_virtual_cam via subprocess; return (ok, stdout).
+
+    Sources the package install so the SetVirtualCam interface type is known.
+    """
+    env = os.environ.copy()
+    env["LD_LIBRARY_PATH"] = RENDERING_LIBS + ":" + env.get("LD_LIBRARY_PATH", "")
+    cmd = (f"source /opt/ros/humble/setup.bash && "
+           f"source {INSTALL_DIR}/setup.bash && "
+           f"ros2 service call /rendering_node/set_virtual_cam "
+           f"micropilot_rendering_node/srv/SetVirtualCam '{{preset: {preset}}}'")
+    result = subprocess.run(["bash", "-c", cmd], env=env, capture_output=True,
+                            text=True, timeout=timeout)
+    out = result.stdout.strip()
+    print(f"  [set_virtual_cam preset={preset}] {out.splitlines()[-1] if out else ''}",
+          file=sys.stderr)
+    return result.returncode == 0, out
+
+
 def call_lifecycle_subprocess(transition_name: str, timeout: float = 15.0) -> bool:
     """Send a lifecycle transition via `ros2 lifecycle set` subprocess.
 
@@ -309,6 +328,22 @@ def main() -> int:
         if nonzero == 0:
             print("FAIL: rendered frame is all-zero — pipeline produced nothing.", file=sys.stderr)
             return 1
+
+        # 6. Exercise the preset-switch service: all 5 presets must succeed and
+        #    report the expected name; an out-of-range index must be rejected.
+        print("INFO: testing /rendering_node/set_virtual_cam …")
+        expected = ["config", "reverse_follow", "left_side", "right_side", "top_down"]
+        for i, name in enumerate(expected, start=1):
+            ok, out = call_set_virtual_cam(i)
+            if not ok or "success=True" not in out or f"active='{name}'" not in out:
+                print(f"FAIL: set_virtual_cam preset {i} expected success/active='{name}'; "
+                      f"got:\n{out}", file=sys.stderr)
+                return 1
+        ok, out = call_set_virtual_cam(99)  # out of range -> rejected
+        if not ok or "success=False" not in out:
+            print(f"FAIL: set_virtual_cam should reject preset 99; got:\n{out}", file=sys.stderr)
+            return 1
+        print("INFO: set_virtual_cam presets 1-5 + invalid index verified.")
 
         print("PASS: smoke test passed — non-blank frame received and verified.")
         success = True

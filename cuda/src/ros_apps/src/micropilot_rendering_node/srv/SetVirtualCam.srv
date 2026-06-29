@@ -1,0 +1,5 @@
+# Switch the virtual camera to one of the named presets.
+int32 preset     # 1=config 2=reverse_follow 3=left_side 4=right_side 5=top_down
+---
+bool success
+string active    # name of the now-active preset, or an error reason
