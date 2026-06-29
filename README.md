@@ -68,9 +68,10 @@ python -m tpsprojector.app
 ```
 
 Controls: `1`–`4` cinematic presets · `b`/`d`/`h` render mode (bowl/depth/hybrid) ·
+`v` validation panel (adds the Python ground-truth render + PSNR/SSIM; slower) ·
 `o` free-orbit debug (arrows orbit, `+`/`-` distance) · `esc` quit.
-Env reprojection runs on the C++ CUDA core via the `tpscuda` bindings; the
-HUD shows PSNR/SSIM every frame.
+Env reprojection runs on the C++ CUDA core via the `tpscuda` bindings; the live
+view is the fast path, validation is on-demand.
 
 ## Tests
 
