@@ -1,7 +1,28 @@
-import numpy as np
+import os
+import sys
 
-from tpsprojector.app import Engine, RenderResult
-from tpsprojector.presets import get_preset
+import numpy as np
+import pytest
+
+# Engine's reprojection core is the C++ CUDA library (tpscuda); skip if unbuilt.
+_CUDA_PY = os.path.join(os.path.dirname(__file__), "..", "cuda", "install",
+                        "libs", "rendering_reprojector", "python")
+if os.path.isdir(_CUDA_PY):
+    sys.path.insert(0, _CUDA_PY)
+
+
+def _cuda_available():
+    try:
+        import tpscuda  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+pytestmark = pytest.mark.skipif(not _cuda_available(), reason="tpscuda module not built")
+
+from tpsprojector.app import Engine, RenderResult  # noqa: E402
+from tpsprojector.presets import get_preset  # noqa: E402
 
 
 def test_engine_render_modes_all_produce_valid_frames():
