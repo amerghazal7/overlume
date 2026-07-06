@@ -65,8 +65,9 @@ GTK3 (PyGObject; everything already installed — zero new dependencies):
 - Mouse drag on the video = orbit around the robot origin, exactly the
   prototype's `orbit_shot` geometry: fixed target `[0,0,0.3]`, eye on a
   sphere centred at `z=+0.5`, elevation clamped 5°–85°; scroll wheel = dolly
-  distance. az/el/dist are seeded from the latest telemetry (nearest pose on
-  the orbit sphere) so entering orbit doesn't teleport the camera.
+  distance. az/el/dist persist across preset switches; grabbing the view
+  jumps back to the stored orbit pose (the prototype's `[o]`-toggle
+  behaviour).
 - Streams `set_look` over the WS; status bar shows connection + live pose +
   active preset.
 - WS client runs in a background asyncio thread; UI updates via
