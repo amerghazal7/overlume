@@ -43,6 +43,9 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
     bowl_.R0 = static_cast<float>(declare_parameter<double>("bowl_R0", 6.0));
     bowl_.k = static_cast<float>(declare_parameter<double>("bowl_k", 0.08));
     bowl_.Rmax = static_cast<float>(declare_parameter<double>("bowl_Rmax", 20.0));
+    // Seam crossfade width (px on source images) — see BowlParams::feather_margin.
+    bowl_.feather_margin =
+        static_cast<float>(declare_parameter<double>("feather_margin", 30.0));
 
     // Virtual camera: 12-float row-major [R(3x3 row-major) | t(3)].
     // Default: identity rotation, camera 4 m above origin looking down.

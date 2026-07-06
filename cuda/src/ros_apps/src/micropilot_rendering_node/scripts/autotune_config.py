@@ -187,6 +187,9 @@ def main():
     ap.add_argument("--bowl-r0", type=float, default=12.0)
     ap.add_argument("--bowl-k", type=float, default=0.06)
     ap.add_argument("--bowl-rmax", type=float, default=35.0)
+    # Seam crossfade width in source-image px; should span a good fraction of the
+    # camera overlap (1440px @ 120deg HFOV, >=50deg overlap -> ~480px ~= 30deg).
+    ap.add_argument("--feather", type=float, default=480.0)
     ap.add_argument("--ground-offset", type=float, default=0.0)
     ap.add_argument("--coverage-floor", type=float, default=0.90)
     ap.add_argument("--max-sync-latency", type=float, default=0.12)
@@ -270,6 +273,7 @@ def main():
         "out_width": OW, "out_height": OH,
         "max_sync_latency": a.max_sync_latency,
         "bowl_R0": float(R0), "bowl_k": float(k), "bowl_Rmax": float(Rmax),
+        "feather_margin": float(a.feather),
         "virtual_vfov_deg": float(a.vfov),
         "sky_color": [float(x) for x in a.sky.split(",")],
         "image_topics": [f"/{n}/raw_images" for n in names],

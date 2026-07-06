@@ -273,7 +273,7 @@ void Reprojector::render_bowl(const CameraParams& vcam, const BowlParams& bowl, 
     launch_bowl(impl_->d_out, OW, OH, impl_->d_images, impl_->d_cams, ncam, v,
                 /*surf_type=*/1, /*flat_z0=*/0.0f,
                 bowl.R0, bowl.k, bowl.Rmax,
-                /*feather_margin=*/30.0f,
+                bowl.feather_margin,
                 /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f);
     CUDA_CHECK(cudaGetLastError());  // surface launch-config errors immediately
 
@@ -338,7 +338,7 @@ void Reprojector::render_hybrid(const CameraParams& vcam, const BowlParams& bowl
     launch_bowl(impl_->d_bowl, OW, OH, impl_->d_images, impl_->d_cams, ncam, v,
                 /*surf_type=*/1, /*flat_z0=*/0.0f,
                 bowl.R0, bowl.k, bowl.Rmax,
-                /*feather_margin=*/30.0f,
+                bowl.feather_margin,
                 /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f);
 
     // --- Depth (splat) pass ---

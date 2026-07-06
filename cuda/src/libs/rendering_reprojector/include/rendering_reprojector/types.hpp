@@ -19,5 +19,9 @@ struct BowlParams
     float R0;
     float k;
     float Rmax;
+    // Seam crossfade width in source-image pixels: a camera's weight fades to 0
+    // over this distance from its image border. Size it to a good fraction of
+    // the camera-overlap width or the seam shows as a hard line.
+    float feather_margin = 30.0f;
 };
 }  // namespace micropilot::rendering
