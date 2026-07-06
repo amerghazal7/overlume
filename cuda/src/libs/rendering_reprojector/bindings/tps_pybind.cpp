@@ -3,8 +3,10 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <cstring>
 #include <vector>
 
+#include "rendering_reprojector/mesh_loader.hpp"
 #include "rendering_reprojector/reprojector.hpp"
 
 namespace py = pybind11;
@@ -74,4 +76,21 @@ PYBIND11_MODULE(tpscuda, m)
              },
              py::arg("vcam"), py::arg("R0"), py::arg("k"), py::arg("Rmax"),
              py::arg("radius"), py::arg("feather_margin") = 30.0f);
+
+    m.def("load_obj_mesh",
+          [](const std::string& path,
+             py::array_t<float, py::array::c_style | py::array::forcecast> T) {
+              if (T.size() != 12)
+                  throw std::invalid_argument("transform must be 12 floats [R(9)|t(3)]");
+              auto mesh = micropilot::rendering::load_obj_mesh(path, T.data());
+              py::ssize_t n = static_cast<py::ssize_t>(mesh.n_tris);
+              auto verts = py::array_t<float>({n, static_cast<py::ssize_t>(9)});
+              auto cols = py::array_t<float>({n, static_cast<py::ssize_t>(3)});
+              std::memcpy(verts.mutable_data(), mesh.verts.data(),
+                          mesh.verts.size() * sizeof(float));
+              std::memcpy(cols.mutable_data(), mesh.cols.data(),
+                          mesh.cols.size() * sizeof(float));
+              return py::make_tuple(verts, cols);
+          },
+          py::arg("path"), py::arg("transform"));
 }

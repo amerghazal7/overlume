@@ -4,6 +4,7 @@ find_package(CUDAToolkit REQUIRED)
 
 add_library(rendering_reprojector SHARED
     src/reprojector.cpp
+    src/mesh_loader.cpp
     src/kernels/fill.cu
     src/kernels/reproject.cu
     src/kernels/splat.cu
