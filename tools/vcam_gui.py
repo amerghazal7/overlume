@@ -7,10 +7,12 @@ Control: pure WebSocket client of tools/vcam_ws_bridge.py — this GUI is the
 
 Interaction (mirrors the pygame prototype in tpsprojector/app.py):
   - preset buttons 1-5      eased preset switch (via the node's tween)
-  - left-drag on the video  orbit: azimuth/elevation around the current target
+  - left-drag on the video  orbit: azimuth/elevation around the robot origin
+                            (fixed target [0,0,0.3], eye sphere centred z=+0.5
+                            — exactly the prototype's orbit_shot geometry)
   - scroll wheel            dolly distance in/out
-Orbit params (az/el/dist) are the prototype's parametrization, seeded from
-live telemetry so orbiting continues from wherever the camera currently is.
+az/el/dist are seeded from live telemetry on drag start (nearest pose on the
+orbit sphere) so entering orbit doesn't teleport the camera.
 
 Run (ROS sourced so the gst plugin's ROS node can join the graph):
     python3 tools/vcam_gui.py [--ws ws://localhost:8765] [--topic /rendering/image]
@@ -37,17 +39,22 @@ DIST_MIN = 1.5
 DRAG_GAIN = 0.006      # rad per pixel
 SCROLL_GAIN = 0.3      # m per wheel notch
 
-
-def orbit_eye(az: float, el: float, dist: float, target) -> list[float]:
-    """Prototype's orbit_shot(): spherical (az, el, dist) around target -> eye."""
-    return [target[0] + dist * math.cos(el) * math.cos(az),
-            target[1] + dist * math.cos(el) * math.sin(az),
-            target[2] + dist * math.sin(el)]
+# Prototype orbit geometry (app.py orbit_shot): the robot at the origin is the
+# orbit centre — eye moves on a sphere centred at z=+0.5, target is fixed.
+ORBIT_TARGET = [0.0, 0.0, 0.3]
+ORBIT_Z_OFFSET = 0.5
 
 
-def eye_to_orbit(eye, target) -> tuple[float, float, float]:
+def orbit_eye(az: float, el: float, dist: float) -> list[float]:
+    """Prototype's orbit_shot(): spherical (az, el, dist) about the origin -> eye."""
+    return [dist * math.cos(el) * math.cos(az),
+            dist * math.cos(el) * math.sin(az),
+            dist * math.sin(el) + ORBIT_Z_OFFSET]
+
+
+def eye_to_orbit(eye) -> tuple[float, float, float]:
     """Inverse of orbit_eye: seed az/el/dist from a live telemetry pose."""
-    d = [eye[i] - target[i] for i in range(3)]
+    d = [eye[0], eye[1], eye[2] - ORBIT_Z_OFFSET]
     dist = max(math.sqrt(sum(v * v for v in d)), 1e-6)
     return math.atan2(d[1], d[0]), math.asin(max(-1.0, min(1.0, d[2] / dist))), dist
 
@@ -111,10 +118,9 @@ class VcamWindow(Gtk.Window):
         self.set_default_size(1000, 640)
         self.connect("destroy", self._quit)
 
-        # latest telemetry + orbit state
+        # latest telemetry + orbit state (prototype defaults)
         self._state: dict | None = None
         self._az, self._el, self._dist = math.radians(180.0), math.radians(28.0), 4.5
-        self._target = [0.0, 0.0, 0.3]    # prototype defaults until telemetry arrives
         self._drag_xy: tuple[float, float] | None = None
 
         # ── gstreamer video ──────────────────────────────────────────────────
@@ -180,17 +186,17 @@ class VcamWindow(Gtk.Window):
 
     # ── orbit interaction ──────────────────────────────────────────────────────
     def _seed_orbit(self):
-        """Continue orbiting from the camera's current pose (telemetry)."""
+        """Enter orbit at the pose on the orbit sphere nearest the camera's
+        current eye (telemetry) — same geometry as the prototype, without the
+        teleport its [o] toggle does."""
         if self._state is not None:
-            self._target = list(self._state["target"])
-            self._az, self._el, self._dist = eye_to_orbit(
-                self._state["eye"], self._target)
+            self._az, self._el, self._dist = eye_to_orbit(self._state["eye"])
             self._el = max(EL_MIN, min(EL_MAX, self._el))
 
     def _send_look(self):
         self._ws.send({"cmd": "set_look",
-                       "eye": orbit_eye(self._az, self._el, self._dist, self._target),
-                       "target": self._target})
+                       "eye": orbit_eye(self._az, self._el, self._dist),
+                       "target": ORBIT_TARGET})
 
     def _on_press(self, _w, ev):
         if ev.button == 1:
