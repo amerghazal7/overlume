@@ -11,8 +11,8 @@ Interaction (mirrors the pygame prototype in tpsprojector/app.py):
                             (fixed target [0,0,0.3], eye sphere centred z=+0.5
                             — exactly the prototype's orbit_shot geometry)
   - scroll wheel            dolly distance in/out
-az/el/dist are seeded from live telemetry on drag start (nearest pose on the
-orbit sphere) so entering orbit doesn't teleport the camera.
+az/el/dist persist across preset switches; grabbing the view jumps back to
+the stored orbit pose — the prototype's [o]-toggle behaviour.
 
 Run (ROS sourced so the gst plugin's ROS node can join the graph):
     python3 tools/vcam_gui.py [--ws ws://localhost:8765] [--topic /rendering/image]
@@ -50,13 +50,6 @@ def orbit_eye(az: float, el: float, dist: float) -> list[float]:
     return [dist * math.cos(el) * math.cos(az),
             dist * math.cos(el) * math.sin(az),
             dist * math.sin(el) + ORBIT_Z_OFFSET]
-
-
-def eye_to_orbit(eye) -> tuple[float, float, float]:
-    """Inverse of orbit_eye: seed az/el/dist from a live telemetry pose."""
-    d = [eye[0], eye[1], eye[2] - ORBIT_Z_OFFSET]
-    dist = max(math.sqrt(sum(v * v for v in d)), 1e-6)
-    return math.atan2(d[1], d[0]), math.asin(max(-1.0, min(1.0, d[2] / dist))), dist
 
 
 class WsClient(threading.Thread):
@@ -185,14 +178,6 @@ class VcamWindow(Gtk.Window):
         return False
 
     # ── orbit interaction ──────────────────────────────────────────────────────
-    def _seed_orbit(self):
-        """Enter orbit at the pose on the orbit sphere nearest the camera's
-        current eye (telemetry) — same geometry as the prototype, without the
-        teleport its [o] toggle does."""
-        if self._state is not None:
-            self._az, self._el, self._dist = eye_to_orbit(self._state["eye"])
-            self._el = max(EL_MIN, min(EL_MAX, self._el))
-
     def _send_look(self):
         self._ws.send({"cmd": "set_look",
                        "eye": orbit_eye(self._az, self._el, self._dist),
@@ -200,8 +185,8 @@ class VcamWindow(Gtk.Window):
 
     def _on_press(self, _w, ev):
         if ev.button == 1:
-            self._seed_orbit()
             self._drag_xy = (ev.x, ev.y)
+            self._send_look()  # jump to the stored orbit pose, like the prototype's [o]
         return True
 
     def _on_release(self, _w, ev):
@@ -221,8 +206,6 @@ class VcamWindow(Gtk.Window):
 
     def _on_scroll(self, _w, ev):
         from gi.repository import Gdk
-        if self._drag_xy is None:
-            self._seed_orbit()
         if ev.direction == Gdk.ScrollDirection.UP:
             self._dist = max(DIST_MIN, self._dist - SCROLL_GAIN)
         elif ev.direction == Gdk.ScrollDirection.DOWN:
