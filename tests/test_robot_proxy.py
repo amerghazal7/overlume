@@ -65,3 +65,60 @@ def test_load_obj_missing_file_raises(tmp_path):
     import tpscuda
     with pytest.raises(RuntimeError):
         tpscuda.load_obj_mesh(str(tmp_path / "nope.obj"), T_M02P)
+
+
+def _down_vcam(W=64, H=48, fx=40.0, z=5.0):
+    """vcam looking straight down from (0,0,z): R columns = right/down/fwd."""
+    # right=(0,-1,0), down=(-1,0,0), fwd=(0,0,-1); fwd == right x down (CV frame)
+    R = np.array([[0, -1, 0],
+                  [-1, 0, 0],
+                  [0, 0, -1]], dtype="f4")
+    K = np.array([[fx, 0, W / 2], [0, fx, H / 2], [0, 0, 1]], dtype="f4")
+    return dict(K=K.ravel(), R=R.ravel(), t=np.array([0, 0, z], "f4"),
+                width=W, height=H)
+
+
+def test_robot_triangle_composited_over_env():
+    import tpscuda
+    W, H = 64, 48
+    r = tpscuda.Reprojector(W, H)
+    vcam = _down_vcam(W, H)
+    # single red triangle on the z=1 plane near the origin
+    verts = np.array([[0, 0, 1, 0.5, 0, 1, 0, 0.5, 1]], dtype="f4")
+    cols = np.array([[1.0, 0.0, 0.0]], dtype="f4")
+    r.upload_robot_mesh(verts, cols)
+    out = r.render_bowl(vcam, 6.0, 0.08, 20.0)
+    # no cameras -> env alpha 0 everywhere except the robot
+    # projected corners: (32,24), (32,19), (27,24) -> interior pixels around (30,22)
+    patch = out[20:24, 28:32]
+    assert np.any(patch[..., 3] == 1.0), "robot not rendered"
+    hit = patch[patch[..., 3] == 1.0]
+    assert np.allclose(hit[:, 0], 1.0) and np.allclose(hit[:, 1:3], 0.0), \
+        "robot pixels are not the uploaded color"
+    assert out[5, 5, 3] == 0.0, "robot leaked outside its projection"
+    # clearing the mesh restores env-only output
+    r.upload_robot_mesh(np.zeros((0, 9), "f4"), np.zeros((0, 3), "f4"))
+    out2 = r.render_bowl(vcam, 6.0, 0.08, 20.0)
+    assert np.all(out2[..., 3] == 0.0)
+
+
+def test_robot_depth_test_nearer_triangle_wins():
+    import tpscuda
+    W, H = 64, 48
+    r = tpscuda.Reprojector(W, H)
+    vcam = _down_vcam(W, H)
+    # same right-angle footprint; z=1 is 4 m from the cam, z=2 is 3 m (nearer)
+    tri = np.array([0, 0, 0, 0.5, 0, 0, 0, 0.5, 0], "f4").reshape(3, 3)
+    far = (tri + [0, 0, 1.0]).ravel()
+    near = (tri + [0, 0, 2.0]).ravel()
+    verts = np.stack([far, near]).astype("f4")
+    cols = np.array([[1, 0, 0], [0, 1, 0]], dtype="f4")
+    r.upload_robot_mesh(verts, cols)
+    out = r.render_bowl(vcam, 6.0, 0.08, 20.0)
+    # both triangles share the right-angle vertex at the principal point (32,24)
+    # and open toward -x/-y on screen (legs: far 5 px, near ~6.7 px); near fully
+    # encloses far, so any pixel in far's footprint, e.g. (y=23,x=31), is covered
+    # by both -- the nearer (green) triangle must win the depth test there
+    px = out[23, 31]
+    assert px[3] == 1.0
+    assert px[1] > 0.9 and px[0] < 0.1, f"nearer triangle lost the depth test: {px}"

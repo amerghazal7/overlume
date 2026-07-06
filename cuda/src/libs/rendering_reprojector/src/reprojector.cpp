@@ -82,6 +82,11 @@ struct Reprojector::Impl
     float* d_cols = nullptr;  size_t d_cols_cap = 0;
     int    npts   = 0;
 
+    // Robot proxy mesh (persistent, uploaded once; n_rtris == 0 -> no robot).
+    float* d_rverts = nullptr;  size_t d_rverts_cap = 0;
+    float* d_rcols  = nullptr;  size_t d_rcols_cap  = 0;
+    int    n_rtris  = 0;
+
     // Cumulative device (re)allocation count — exposed for diagnostics/tests.
     size_t alloc_count = 0;
 
@@ -114,6 +119,23 @@ struct Reprojector::Impl
         }
     }
 
+    // Rasterize the robot proxy and overlay it on the environment already in
+    // d_out. Reuses d_zbuf + d_bowl as scratch (both free at this point in
+    // every render path: bowl/depth don't use them afterwards, hybrid has
+    // already consumed them into d_out). No-op without a mesh.
+    void composite_robot(const CamDev& v)
+    {
+        if (n_rtris == 0) return;
+        int npx = out_w * out_h;
+        ensure_bytes(reinterpret_cast<void**>(&d_zbuf), d_zbuf_cap,
+                     sizeof(unsigned long long) * npx);
+        ensure_bytes(reinterpret_cast<void**>(&d_bowl), d_bowl_cap,
+                     sizeof(float) * npx * 4);
+        launch_robot(d_zbuf, d_bowl, out_w, out_h, d_rverts, d_rcols, n_rtris, v);
+        // robot-where-valid else env: exactly launch_composite's contract
+        launch_composite(d_bowl, d_out, d_out, npx);
+    }
+
     void free_all()
     {
         if (d_images) cudaFree(d_images);
@@ -124,6 +146,8 @@ struct Reprojector::Impl
         if (d_zbuf)   cudaFree(d_zbuf);
         if (d_pts)    cudaFree(d_pts);
         if (d_cols)   cudaFree(d_cols);
+        if (d_rverts) cudaFree(d_rverts);
+        if (d_rcols)  cudaFree(d_rcols);
     }
 
     ~Impl() { free_all(); }
@@ -253,6 +277,18 @@ void Reprojector::upload_depth(const float* nhw, int n, int h, int w)
     }
 }
 
+void Reprojector::upload_robot_mesh(const float* verts, const float* cols, std::size_t n_tris)
+{
+    impl_->n_rtris = static_cast<int>(n_tris);
+    if (n_tris == 0) return;
+    size_t vb = n_tris * 9 * sizeof(float);
+    size_t cb = n_tris * 3 * sizeof(float);
+    impl_->ensure_bytes(reinterpret_cast<void**>(&impl_->d_rverts), impl_->d_rverts_cap, vb);
+    impl_->ensure_bytes(reinterpret_cast<void**>(&impl_->d_rcols), impl_->d_rcols_cap, cb);
+    CUDA_CHECK(cudaMemcpy(impl_->d_rverts, verts, vb, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(impl_->d_rcols, cols, cb, cudaMemcpyHostToDevice));
+}
+
 void Reprojector::render_bowl(const CameraParams& vcam, const BowlParams& bowl, float* out_rgba)
 {
     // Output-resolution contract: enforced in all build configs (Release + Debug).
@@ -276,6 +312,9 @@ void Reprojector::render_bowl(const CameraParams& vcam, const BowlParams& bowl, 
                 bowl.feather_margin,
                 /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f);
     CUDA_CHECK(cudaGetLastError());  // surface launch-config errors immediately
+
+    impl_->composite_robot(v);
+    CUDA_CHECK(cudaGetLastError());
 
     // Synchronous D2H copy on the default stream already orders after (and waits
     // for) the kernel — no separate cudaDeviceSynchronize() needed.
@@ -303,6 +342,9 @@ void Reprojector::render_depth(const CameraParams& vcam, int splat_radius, float
     launch_splat(impl_->d_zbuf, impl_->d_out, OW, OH,
                  impl_->d_pts, impl_->d_cols, npts, v, splat_radius,
                  /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f);
+    CUDA_CHECK(cudaGetLastError());
+
+    impl_->composite_robot(v);
     CUDA_CHECK(cudaGetLastError());
 
     CUDA_CHECK(cudaMemcpy(out_rgba, impl_->d_out, sizeof(float) * OW * OH * 4,
@@ -348,6 +390,9 @@ void Reprojector::render_hybrid(const CameraParams& vcam, const BowlParams& bowl
 
     // --- Composite: depth-where-valid else bowl ---
     launch_composite(impl_->d_depth, impl_->d_bowl, impl_->d_out, npx);
+    CUDA_CHECK(cudaGetLastError());
+
+    impl_->composite_robot(v);
     CUDA_CHECK(cudaGetLastError());
 
     CUDA_CHECK(cudaMemcpy(out_rgba, impl_->d_out, sizeof(float) * npx * 4,

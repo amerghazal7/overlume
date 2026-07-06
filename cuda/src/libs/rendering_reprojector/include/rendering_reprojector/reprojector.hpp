@@ -27,6 +27,11 @@ public:
     void upload_images(const float* nhwc, int n, int h, int w);
     void upload_depth(const float* nhw, int n, int h, int w);
 
+    /** Upload the robot proxy mesh (persistent; call once). verts = n_tris*9
+     *  rig-frame xyz, cols = n_tris*3 baked RGB (see mesh_loader.hpp).
+     *  n_tris == 0 disables robot compositing. */
+    void upload_robot_mesh(const float* verts, const float* cols, std::size_t n_tris);
+
     void render_bowl(const CameraParams& vcam, const BowlParams& bowl, float* out_rgba);
     void render_depth(const CameraParams& vcam, int splat_radius, float* out_rgba);
     void render_hybrid(const CameraParams& vcam, const BowlParams& bowl, int splat_radius,

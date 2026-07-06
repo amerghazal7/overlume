@@ -29,4 +29,8 @@ void launch_splat(unsigned long long* d_zbuf, float* d_out, int OW, int OH, cons
 /** Composite depth-where-valid else bowl, per pixel (Task 5).
  *  n = OW * OH (number of pixels); all buffers are device RGBA (4 floats/pixel). */
 void launch_composite(const float* d_depth, const float* d_bowl, float* d_out, int n);
+
+/** Robot proxy triangle raster: z-buffered mesh layer for compositing (robot proxy). */
+void launch_robot(unsigned long long* d_zbuf, float* d_layer, int OW, int OH,
+                  const float* d_verts, const float* d_cols, int ntris, CamDev v);
 }  // namespace micropilot::rendering
