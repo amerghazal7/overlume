@@ -74,6 +74,9 @@ class Engine:
         self.mode = mode
         self.splat_radius = splat_radius
         self.tilt_deg = 0.0
+        # Seam crossfade width (px on source images); widen toward the camera
+        # overlap width to hide seam lines (30 = legacy parity default).
+        self.feather_margin = 30.0
         self.sky_color = np.array([0.45, 0.6, 0.8])  # fills genuinely-unseen sky
 
         # ── core reprojector: the C++ CUDA library via its pybind bindings ──
@@ -135,12 +138,14 @@ class Engine:
         s = self.surface
         vcam = _cam_dict(vc)
         if self.mode == "bowl":
-            out = self.reprojector.render_bowl(vcam, s.R0, s.k, s.Rmax)
+            out = self.reprojector.render_bowl(vcam, s.R0, s.k, s.Rmax,
+                                               feather_margin=self.feather_margin)
         elif self.mode == "depth":
             out = self.reprojector.render_depth(vcam, self.splat_radius)
         else:  # hybrid
             out = self.reprojector.render_hybrid(vcam, s.R0, s.k, s.Rmax,
-                                                 self.splat_radius)
+                                                 self.splat_radius,
+                                                 feather_margin=self.feather_margin)
         return out[..., :3].astype(float), out[..., 3] > 0.5
 
     def render_view(self, shot: Shot) -> np.ndarray:

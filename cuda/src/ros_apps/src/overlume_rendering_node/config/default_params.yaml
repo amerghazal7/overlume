@@ -9,6 +9,7 @@
     bowl_R0: 17.0
     bowl_k: 0.06
     bowl_Rmax: 40.0
+    feather_margin: 480.0
     virtual_vfov_deg: 65.0
     sky_color:
     - 0.53

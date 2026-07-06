@@ -41,13 +41,16 @@ PYBIND11_MODULE(tpscuda, m)
                  r.upload_images(a.data(), a.shape(0), a.shape(1), a.shape(2));
              })
         .def("render_bowl",
-             [](Reprojector& r, py::dict vcam, float R0, float k, float Rmax) {
+             [](Reprojector& r, py::dict vcam, float R0, float k, float Rmax,
+                float feather_margin) {
                  CameraParams v = to_cam(vcam);
-                 BowlParams b{R0, k, Rmax};
+                 BowlParams b{R0, k, Rmax, feather_margin};
                  auto out = py::array_t<float>({v.height, v.width, 4});
                  r.render_bowl(v, b, out.mutable_data());
                  return out;
-             })
+             },
+             py::arg("vcam"), py::arg("R0"), py::arg("k"), py::arg("Rmax"),
+             py::arg("feather_margin") = 30.0f)
         .def("upload_depth",
              [](Reprojector& r,
                 py::array_t<float, py::array::c_style | py::array::forcecast> a) {
@@ -61,11 +64,14 @@ PYBIND11_MODULE(tpscuda, m)
                  return out;
              })
         .def("render_hybrid",
-             [](Reprojector& r, py::dict vcam, float R0, float k, float Rmax, int radius) {
+             [](Reprojector& r, py::dict vcam, float R0, float k, float Rmax, int radius,
+                float feather_margin) {
                  CameraParams v = to_cam(vcam);
-                 BowlParams b{R0, k, Rmax};
+                 BowlParams b{R0, k, Rmax, feather_margin};
                  auto out = py::array_t<float>({v.height, v.width, 4});
                  r.render_hybrid(v, b, radius, out.mutable_data());
                  return out;
-             });
+             },
+             py::arg("vcam"), py::arg("R0"), py::arg("k"), py::arg("Rmax"),
+             py::arg("radius"), py::arg("feather_margin") = 30.0f);
 }
