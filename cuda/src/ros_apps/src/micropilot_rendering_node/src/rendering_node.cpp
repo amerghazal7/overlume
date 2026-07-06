@@ -14,6 +14,8 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/header.hpp>
 
+#include "rendering_reprojector/mesh_loader.hpp"
+
 namespace micropilot::rendering_app
 {
 
@@ -157,6 +159,41 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
     {
         RCLCPP_ERROR(get_logger(), "Reprojector init failed: %s", e.what());
         return CallbackReturn::FAILURE;
+    }
+
+    // ── robot proxy mesh (optional) ──────────────────────────────────────────
+    // No real camera sees the robot, so the virtual view composites a known 3D
+    // proxy. robot_model_path = "" disables it; load failure is non-fatal
+    // (render without the robot rather than take the node down).
+    auto robot_path = declare_parameter<std::string>("robot_model_path", "");
+    // OBJ->rig [R(9 row-major)|t(3)]. Default matches the M02P Blender export:
+    // obj x-fwd, y-up, z-right -> rig x-fwd, y-left, z-up.
+    auto robot_tf = declare_parameter<std::vector<double>>(
+        "robot_model_transform", {1, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0, 0});
+    if (!robot_path.empty())
+    {
+        if (robot_tf.size() != 12)
+        {
+            RCLCPP_ERROR(get_logger(),
+                         "robot_model_transform must be 12 floats [R(9)|t(3)], got %zu",
+                         robot_tf.size());
+            return CallbackReturn::FAILURE;
+        }
+        float T[12];
+        for (int i = 0; i < 12; ++i) T[i] = static_cast<float>(robot_tf[i]);
+        try
+        {
+            auto mesh = micropilot::rendering::load_obj_mesh(robot_path, T);
+            reprojector_->upload_robot_mesh(mesh.verts.data(), mesh.cols.data(),
+                                            mesh.n_tris);
+            RCLCPP_INFO(get_logger(), "robot proxy: %zu triangles from %s",
+                        mesh.n_tris, robot_path.c_str());
+        }
+        catch (const std::exception& e)
+        {
+            RCLCPP_ERROR(get_logger(),
+                         "robot model load failed, rendering without robot: %s", e.what());
+        }
     }
 
     // ── publishers (created in configure, activated in on_activate) ──────────

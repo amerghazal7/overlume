@@ -193,6 +193,11 @@ def main():
     ap.add_argument("--ground-offset", type=float, default=0.0)
     ap.add_argument("--coverage-floor", type=float, default=0.90)
     ap.add_argument("--max-sync-latency", type=float, default=0.12)
+    ap.add_argument("--robot-model", default="/home/ag7/Downloads/M02P.obj",
+                    help="robot proxy OBJ path written to robot_model_path ('' disables)")
+    ap.add_argument("--robot-transform",
+                    default="1,0,0,0,0,-1,0,1,0,0,0,0",
+                    help="12 floats [R(9)|t(3)] OBJ->rig for robot_model_transform")
     a = ap.parse_args()
     names = a.names.split(",")
 
@@ -274,6 +279,8 @@ def main():
         "max_sync_latency": a.max_sync_latency,
         "bowl_R0": float(R0), "bowl_k": float(k), "bowl_Rmax": float(Rmax),
         "feather_margin": float(a.feather),
+        "robot_model_path": a.robot_model,
+        "robot_model_transform": [float(x) for x in a.robot_transform.split(",")],
         "virtual_vfov_deg": float(a.vfov),
         "sky_color": [float(x) for x in a.sky.split(",")],
         "image_topics": [f"/{n}/raw_images" for n in names],
