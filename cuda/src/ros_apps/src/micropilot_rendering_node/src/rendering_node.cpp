@@ -185,6 +185,17 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
         std::bind(&RenderingNode::on_set_virtual_cam, this, std::placeholders::_1,
                   std::placeholders::_2));
 
+    // ── free-look input + vcam telemetry ─────────────────────────────────────
+    // ~/set_look: 6 floats [eye xyz | target xyz] in the rig frame, applied
+    // immediately (orbiting streams continuous poses; a tween would lag them).
+    // Generic runtime pose input — used by tools/vcam_ws_bridge.py.
+    set_look_sub_ = create_subscription<std_msgs::msg::Float64MultiArray>(
+        "~/set_look", 10,
+        std::bind(&RenderingNode::on_set_look, this, std::placeholders::_1));
+    // ~/vcam_state: [eye xyz | target xyz | active_preset (0 = free look)],
+    // published each render tick as telemetry for external UIs.
+    pub_vcam_state_ = create_publisher<std_msgs::msg::Float64MultiArray>("~/vcam_state", 1);
+
     // ── per-camera state ─────────────────────────────────────────────────────
     per_cam_.resize(n_cameras_);
     img_dirty_.assign(n_cameras_, false);
@@ -201,6 +212,7 @@ RenderingNode::CallbackReturn RenderingNode::on_activate(const rclcpp_lifecycle:
     RCLCPP_INFO(get_logger(), "on_activate() called.");
     pub_image_->on_activate();
     pub_info_->on_activate();
+    pub_vcam_state_->on_activate();
 
     // ── image subscriptions ──────────────────────────────────────────────────
     img_subs_.resize(n_cameras_);
@@ -271,6 +283,14 @@ void RenderingNode::timer_callback()
 {
     // Ease the virtual camera toward the selected preset (no-op once settled).
     advance_tween();
+
+    // vcam telemetry — published before the frame-sync gate so external UIs
+    // keep receiving pose updates even while waiting for camera frames.
+    std_msgs::msg::Float64MultiArray state;
+    state.data = {cur_.eye[0],    cur_.eye[1],    cur_.eye[2],
+                  cur_.target[0], cur_.target[1], cur_.target[2],
+                  static_cast<double>(active_preset_)};
+    pub_vcam_state_->publish(state);
 
     // ── frame-sync gate ───────────────────────────────────────────────────────
     // Render only when EVERY camera has delivered a NEW frame since the last
@@ -494,9 +514,30 @@ void RenderingNode::on_set_virtual_cam(const std::shared_ptr<SetVirtualCam::Requ
     src_ = cur_;
     dst_ = presets_[p - 1];
     tween_t_ = 0.0;  // begin the eased transition
+    active_preset_ = p;
     res->success = true;
     res->active = kPresetNames[p - 1];
     RCLCPP_INFO(get_logger(), "set_virtual_cam: -> preset %d (%s)", p, kPresetNames[p - 1]);
+}
+
+void RenderingNode::on_set_look(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+{
+    // Same single-threaded-executor note as on_set_virtual_cam: never overlaps
+    // timer_callback(), so no lock.
+    if (msg->data.size() != 6)
+    {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                             "set_look expects 6 floats [eye xyz | target xyz], got %zu",
+                             msg->data.size());
+        return;
+    }
+    LookPoint lp;
+    for (int i = 0; i < 3; ++i) lp.eye[i] = static_cast<float>(msg->data[i]);
+    for (int i = 0; i < 3; ++i) lp.target[i] = static_cast<float>(msg->data[3 + i]);
+    cur_ = src_ = dst_ = lp;
+    tween_t_ = 1.0;  // cancel any in-flight preset tween
+    apply_lookpoint(cur_);
+    active_preset_ = 0;  // free look
 }
 
 // ── Lifecycle: teardown helpers ──────────────────────────────────────────────
@@ -514,6 +555,7 @@ RenderingNode::CallbackReturn RenderingNode::on_deactivate(
     teardown_active();
     pub_image_->on_deactivate();
     pub_info_->on_deactivate();
+    pub_vcam_state_->on_deactivate();
     return CallbackReturn::SUCCESS;
 }
 
@@ -527,7 +569,9 @@ RenderingNode::CallbackReturn RenderingNode::on_cleanup(const rclcpp_lifecycle::
     cam_params_.clear();
     pub_image_.reset();
     pub_info_.reset();
+    pub_vcam_state_.reset();
     set_vcam_srv_.reset();
+    set_look_sub_.reset();
     return CallbackReturn::SUCCESS;
 }
 
@@ -537,6 +581,7 @@ RenderingNode::CallbackReturn RenderingNode::on_shutdown(const rclcpp_lifecycle:
     teardown_active();
     reprojector_.reset();
     set_vcam_srv_.reset();
+    set_look_sub_.reset();
     return CallbackReturn::SUCCESS;
 }
 

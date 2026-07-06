@@ -143,6 +143,17 @@ which the architecture is already set up to accept.
      code). Built with `colcon` (see `cuda/scripts/ros_apps_build/colcon_build.sh`).
      Headless smoke test (`cuda/src/ros_apps/src/micropilot_rendering_node/test/smoke_test.py`)
      validates a non-blank rendered frame end-to-end and exits 0.
+     Runtime virtual-cam control: `~/set_virtual_cam` service (presets 1-5, eased tween),
+     `~/set_look` topic (6 floats `[eye|target]`, immediate free look) and `~/vcam_state`
+     telemetry (7 floats `[eye|target|active_preset]`, 0 = free look, each render tick).
+   - **Virtual-cam GUI + WebSocket bridge** (`tools/`) — realtime orbit + preset control with
+     live video. `vcam_ws_bridge.py` exposes a generic WS JSON API (`set_look`/`set_preset`
+     in, `state`/`ack` out; default `:8765`) for third-party integration; `vcam_gui.py` is a
+     GTK3 client embedding `rosimagesrc ! videoconvert ! gtksink` (left-drag orbits, scroll
+     dollies, buttons switch presets). Design:
+     `docs/superpowers/specs/2026-07-06-vcam-gui-ws-bridge-design.md`. Run (node
+     configured+activated, ROS + `cuda/install/ros_apps` sourced):
+     `python3 tools/vcam_ws_bridge.py` then `python3 tools/vcam_gui.py`.
    - Video-file / GL consumer: designed-for seam in `Reprojector` interface; not yet wired.
 8. Disocclusion handling: temporal accumulation / inpainting to fill unseen
    geometry instead of bowl fallback.

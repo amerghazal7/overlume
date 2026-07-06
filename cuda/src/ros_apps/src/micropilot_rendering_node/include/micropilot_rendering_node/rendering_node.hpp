@@ -21,6 +21,7 @@
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <std_msgs/msg/float64_multi_array.hpp>
 
 #include "rendering_reprojector/reprojector.hpp"
 #include "rendering_reprojector/types.hpp"
@@ -67,6 +68,9 @@ private:
     void advance_tween();
     void on_set_virtual_cam(const std::shared_ptr<SetVirtualCam::Request> req,
                             std::shared_ptr<SetVirtualCam::Response> res);
+    /// Handle ~/set_look: 6 floats [eye xyz | target xyz] applied immediately
+    /// (no tween) — the generic runtime pose input used for free-look orbiting.
+    void on_set_look(const std_msgs::msg::Float64MultiArray::SharedPtr msg);
 
     // Preset table: [0]=config [1]=reverse_follow [2]=left_side [3]=right_side
     // [4]=top_down. Index i is preset (i+1) in the service request.
@@ -75,8 +79,13 @@ private:
         "config", "reverse_follow", "left_side", "right_side", "top_down"};
     LookPoint cur_{}, src_{}, dst_{};
     double tween_t_{1.0};  // [0,1]; 1.0 = settled on dst_. Eased per timer tick.
+    int active_preset_{1};  // 1-5 = preset in service numbering; 0 = free look
 
     rclcpp::Service<SetVirtualCam>::SharedPtr set_vcam_srv_;
+    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr set_look_sub_;
+    // vcam telemetry: [eye xyz | target xyz | active_preset], one per render tick.
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr
+        pub_vcam_state_;
 
     // ── configuration ────────────────────────────────────────────────────────
     int n_cameras_{4};

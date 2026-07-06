@@ -30,6 +30,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CameraInfo, Image
+from std_msgs.msg import Float64MultiArray
 
 # ── constants ─────────────────────────────────────────────────────────────────
 # Golden fixture params — identical to cuda/tests/golden/ (proven to render).
@@ -171,12 +172,20 @@ class SmokeTestNode(Node):
     def __init__(self):
         super().__init__("smoke_test_node")
         self.received_frame: Image | None = None
+        self.vcam_state: list | None = None
         self._sub = self.create_subscription(
             Image, "/rendering/image", self._on_image, 10)
+        self._state_sub = self.create_subscription(
+            Float64MultiArray, "/rendering_node/vcam_state", self._on_state, 10)
+        self.look_pub = self.create_publisher(
+            Float64MultiArray, "/rendering_node/set_look", 10)
 
     def _on_image(self, msg: Image):
         if self.received_frame is None:
             self.received_frame = msg
+
+    def _on_state(self, msg: Float64MultiArray):
+        self.vcam_state = list(msg.data)
 
 
 def call_set_virtual_cam(preset: int, timeout: float = 15.0):
@@ -344,6 +353,29 @@ def main() -> int:
             print(f"FAIL: set_virtual_cam should reject preset 99; got:\n{out}", file=sys.stderr)
             return 1
         print("INFO: set_virtual_cam presets 1-5 + invalid index verified.")
+
+        # 7. Free-look: publish ~/set_look and verify ~/vcam_state echoes the
+        #    pose with the preset flag at 0 (free look).
+        print("INFO: testing /rendering_node/set_look → vcam_state …")
+        look = [1.5, -2.0, 3.0, 0.0, 0.0, 0.5]
+        deadline = time.time() + 10.0
+        ok_look = False
+        while time.time() < deadline:
+            msg = Float64MultiArray()
+            msg.data = look
+            test_node.look_pub.publish(msg)
+            pub_node.publish_once()  # keep the render timer publishing state
+            time.sleep(0.2)
+            s = test_node.vcam_state
+            if (s is not None and len(s) == 7 and s[6] == 0.0
+                    and all(abs(s[i] - look[i]) < 1e-4 for i in range(6))):
+                ok_look = True
+                break
+        if not ok_look:
+            print(f"FAIL: vcam_state never echoed set_look; last state: "
+                  f"{test_node.vcam_state}", file=sys.stderr)
+            return 1
+        print("INFO: set_look applied and echoed by vcam_state (preset=0 free look).")
 
         print("PASS: smoke test passed — non-blank frame received and verified.")
         success = True
