@@ -62,10 +62,11 @@ GTK3 (PyGObject; everything already installed — zero new dependencies):
   gtksink` embedded as a native widget.
 - Preset buttons 1–5 (config / reverse_follow / left_side / right_side /
   top_down).
-- Mouse drag on the video = orbit (azimuth/elevation around the current
-  target, elevation clamped 5°–85° like the prototype); scroll wheel = dolly
-  distance. Orbit params are seeded from the latest telemetry so orbiting
-  continues smoothly from wherever the camera is (including after a preset).
+- Mouse drag on the video = orbit around the robot origin, exactly the
+  prototype's `orbit_shot` geometry: fixed target `[0,0,0.3]`, eye on a
+  sphere centred at `z=+0.5`, elevation clamped 5°–85°; scroll wheel = dolly
+  distance. az/el/dist are seeded from the latest telemetry (nearest pose on
+  the orbit sphere) so entering orbit doesn't teleport the camera.
 - Streams `set_look` over the WS; status bar shows connection + live pose +
   active preset.
 - WS client runs in a background asyncio thread; UI updates via
