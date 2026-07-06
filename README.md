@@ -146,6 +146,11 @@ which the architecture is already set up to accept.
      Runtime virtual-cam control: `~/set_virtual_cam` service (presets 1-5, eased tween),
      `~/set_look` topic (6 floats `[eye|target]`, immediate free look) and `~/vcam_state`
      telemetry (7 floats `[eye|target|active_preset]`, 0 = free look, each render tick).
+     Robot proxy: `robot_model_path` (OBJ+MTL, e.g. the M02P model) is loaded at
+     configure time, rasterized on the GPU, and depth-composited into every
+     rendered frame — the robot's own body is visible in the virtual view even
+     though no real camera sees it. `robot_model_transform` ([R|t], default
+     Blender-export → rig) is the model-orientation calibration knob.
    - **Virtual-cam GUI + WebSocket bridge** (`tools/`) — realtime orbit + preset control with
      live video. `vcam_ws_bridge.py` exposes a generic WS JSON API (`set_look`/`set_preset`
      in, `state`/`ack` out; default `:8765`) for third-party integration; `vcam_gui.py` is a
