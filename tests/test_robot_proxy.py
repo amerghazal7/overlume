@@ -122,3 +122,29 @@ def test_robot_depth_test_nearer_triangle_wins():
     px = out[23, 31]
     assert px[3] == 1.0
     assert px[1] > 0.9 and px[0] < 0.1, f"nearer triangle lost the depth test: {px}"
+
+
+def test_robot_composited_in_depth_and_hybrid():
+    import tpscuda
+    W, H = 64, 48
+    r = tpscuda.Reprojector(W, H)
+    vcam = _down_vcam(W, H)
+    # minimal scene so the splat path has a point cloud (npts >= 1), placed at
+    # pixel (5,5), away from the robot triangle
+    r.set_cameras([vcam])
+    r.upload_images(np.zeros((1, H, W, 3), "f4"))
+    depth = np.full((1, H, W), np.inf, "f4")
+    depth[0, 5, 5] = 2.0
+    r.upload_depth(depth)
+    # blue triangle at world z=1 (same footprint as the bowl-path test)
+    verts = np.array([[0, 0, 1, 0.5, 0, 1, 0, 0.5, 1]], dtype="f4")
+    cols = np.array([[0.0, 0.0, 1.0]], dtype="f4")
+    r.upload_robot_mesh(verts, cols)
+    for name, out in (("depth", r.render_depth(vcam, 1)),
+                      ("hybrid", r.render_hybrid(vcam, 6.0, 0.08, 20.0, 1))):
+        assert out[5, 5, 3] == 1.0, f"{name}: splat env point missing"
+        # (31.5, 23.5) is interior to the robot triangle -> must be robot blue
+        px = out[23, 31]
+        assert px[3] == 1.0, f"{name}: robot not composited"
+        assert px[2] > 0.9 and px[0] < 0.1 and px[1] < 0.1, \
+            f"{name}: robot pixel is not the uploaded color: {px}"
