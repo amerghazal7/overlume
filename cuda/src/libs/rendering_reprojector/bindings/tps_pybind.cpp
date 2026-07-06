@@ -58,6 +58,17 @@ PYBIND11_MODULE(tpscuda, m)
                 py::array_t<float, py::array::c_style | py::array::forcecast> a) {
                  r.upload_depth(a.data(), a.shape(0), a.shape(1), a.shape(2));
              })
+        .def("upload_robot_mesh",
+             [](Reprojector& r,
+                py::array_t<float, py::array::c_style | py::array::forcecast> verts,
+                py::array_t<float, py::array::c_style | py::array::forcecast> cols) {
+                 if (verts.ndim() != 2 || verts.shape(1) != 9 || cols.ndim() != 2 ||
+                     cols.shape(1) != 3 || verts.shape(0) != cols.shape(0))
+                     throw std::invalid_argument(
+                         "upload_robot_mesh expects verts (N,9) and cols (N,3)");
+                 r.upload_robot_mesh(verts.data(), cols.data(),
+                                     static_cast<std::size_t>(verts.shape(0)));
+             })
         .def("render_depth",
              [](Reprojector& r, py::dict vcam, int splat_radius) {
                  CameraParams v = to_cam(vcam);

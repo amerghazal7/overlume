@@ -8,6 +8,7 @@ add_library(rendering_reprojector SHARED
     src/kernels/fill.cu
     src/kernels/reproject.cu
     src/kernels/splat.cu
+    src/kernels/robot_raster.cu
 )
 set_target_properties(rendering_reprojector PROPERTIES EXPORT_NAME reprojector)
 
