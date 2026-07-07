@@ -193,6 +193,9 @@ def main():
     ap.add_argument("--ground-offset", type=float, default=0.0)
     ap.add_argument("--coverage-floor", type=float, default=0.90)
     ap.add_argument("--max-sync-latency", type=float, default=0.12)
+    ap.add_argument("--ground-z", default="auto",
+                    help="global camera-height offset (m) correcting rig-origin-vs-ground "
+                         "error; 'auto' sweeps for the overlap-disagreement minimum")
     ap.add_argument("--robot-model", default="/home/ag7/Downloads/M02P.obj",
                     help="robot proxy OBJ path written to robot_model_path ('' disables)")
     ap.add_argument("--robot-transform",
@@ -231,6 +234,37 @@ def main():
     V, pose = vcam(eye, target, a.vfov, OW, OH)
     print(f"pose eye={np.round(eye,2).tolist()} target={np.round(target,2).tolist()} "
           f"vfov={a.vfov} sky_frac={a.sky_frac}")
+
+    # 3b. ground-z calibration. The rig frame assumes ground at z=0, but the
+    # CARLA vehicle pivot is only ~ground (suspension, mesh origin). A dz error
+    # shifts each camera's ground reprojection by dz*d/h — cameras at DIFFERENT
+    # heights shift differently, splitting lane lines at the seams. Sweep a
+    # global camera-height offset on the captured frames and keep the overlap-
+    # disagreement minimum (coarse 1 cm, then 2 mm refine around the best).
+    if a.ground_z == "auto":
+        def dis_at(dz):
+            cams_dz = [make_cam(Ks[n], R, t + np.array([0.0, 0.0, dz]), W, H)
+                       for n, (R, t) in zip(names, ext)]
+            _, dis = overlap_score(tps, cams_dz, imgs_f, V,
+                                   a.bowl_r0, a.bowl_k, a.bowl_rmax, OW, OH)
+            return dis
+        best_dz, best_dis = 0.0, dis_at(0.0)
+        for dz in np.arange(-0.08, 0.0801, 0.01):
+            dis = dis_at(dz)
+            if dis < best_dis:
+                best_dz, best_dis = dz, dis
+        for dz in np.arange(best_dz - 0.008, best_dz + 0.0081, 0.002):
+            dis = dis_at(dz)
+            if dis < best_dis:
+                best_dz, best_dis = dz, dis
+        ground_z = float(best_dz)
+        print(f"ground-z calibration: dz={ground_z:+.3f} m "
+              f"(disagreement {best_dis:.4f} vs {dis_at(0.0):.4f} at 0)")
+    else:
+        ground_z = float(a.ground_z)
+        print(f"ground-z offset (manual): dz={ground_z:+.3f} m")
+    ext = [(R, t + np.array([0.0, 0.0, ground_z])) for (R, t) in ext]
+    cams = [make_cam(Ks[n], R, t, W, H) for n, (R, t) in zip(names, ext)]
 
     # 4. bowl montage (informational): flat -> walled. The CHOSEN bowl is the
     # tunable --bowl-* (default a modest wall so distant objects stand up); the
