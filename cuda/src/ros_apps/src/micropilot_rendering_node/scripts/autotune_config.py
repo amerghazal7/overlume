@@ -71,17 +71,18 @@ def extrinsics_carla(path, names):
 def extrinsics_calib(path, names, ground_offset, name_map):
     """sensors_extrinsic_calib.yaml camera_to_ego 4x4 -> [R, t] (+ optional z offset).
 
-    The calib ego frame is x-fwd / y-RIGHT / z-DOWN (verified empirically against
-    bag imagery + the base_link-at-wheel-center ground truth, 2026-07-07: the
-    as-parsed frame put every camera below ground). Left-multiply diag(1,-1,-1)
-    to reach the rig frame (x-fwd / y-left / z-up). R columns are already the
-    optical right/down/fwd axes."""
-    S = np.diag([1.0, -1.0, -1.0])
+    The calib ego frame IS rig-convention (x-fwd / y-left / z-up; cameras come
+    out upright with headings/sides matching their names) but its ORIGIN is a
+    sensor frame ~1 m above ground (top lidar), NOT base_link — so camera z's
+    are negative as parsed and the ground offset is large (+~0.97 on m2o1,
+    found by the --ground-z sweep, which is bounded by the robot's physical
+    height). Do NOT axis-flip: a diag(1,-1,-1) "fix" renders the world
+    upside-down while keeping cameras mutually consistent (2026-07-07)."""
     cal = yaml.safe_load(open(path))
     out = []
     for n in names:
         M = np.array(cal[name_map[n]]["camera_to_ego"], float)
-        R, t = S @ M[:3, :3], S @ M[:3, 3]
+        R, t = M[:3, :3], M[:3, 3].copy()
         t[2] += ground_offset
         out.append((R, t))
     return out
@@ -277,10 +278,13 @@ def main():
                                    a.bowl_r0, a.bowl_k, a.bowl_rmax, OW, OH)
             return dis
         if kind == "calib":
-            # calib ego origins sit ABOVE the ground (e.g. m2o1's lidar frame):
-            # only physical offsets — every camera must end up above the road.
+            # calib ego origins sit ABOVE the ground (e.g. m2o1's lidar frame).
+            # Bound by ROBOT PHYSICS: every camera between 0.25 m and the robot
+            # top (1.30 m). This excludes the degenerate high-dz attractor where
+            # raised cameras lose parallax and game the disagreement metric.
             min_tz = min(t[2] for _, t in ext)
-            lo, hi, coarse = 0.3 - min_tz, 1.8 - min_tz, 0.02
+            max_tz = max(t[2] for _, t in ext)
+            lo, hi, coarse = 0.25 - min_tz, 1.30 - max_tz, 0.02
         else:
             lo, hi, coarse = -0.08, 0.08, 0.01  # CARLA pivots are near-ground
         best_dz, best_dis = 0.0, dis_at(0.0)
