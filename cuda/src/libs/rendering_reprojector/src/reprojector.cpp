@@ -310,8 +310,19 @@ void Reprojector::render_bowl(const CameraParams& vcam, const BowlParams& bowl, 
                 /*surf_type=*/1, /*flat_z0=*/0.0f,
                 bowl.R0, bowl.k, bowl.Rmax,
                 bowl.feather_margin,
-                /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f);
+                /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f,
+                bowl.fill_blind_zone ? 1 : 0);
     CUDA_CHECK(cudaGetLastError());  // surface launch-config errors immediately
+
+    if (bowl.fill_blind_zone)
+    {
+        // grow surrounding scene colors into the uncovered blind ring
+        // (before the robot overlay, so robot colors never bleed into it)
+        impl_->ensure_bytes(reinterpret_cast<void**>(&impl_->d_bowl), impl_->d_bowl_cap,
+                            sizeof(float) * OW * OH * 4);
+        launch_hole_fill(impl_->d_out, impl_->d_bowl, OW, OH, /*iters=*/128);
+        CUDA_CHECK(cudaGetLastError());
+    }
 
     impl_->composite_robot(v);
     CUDA_CHECK(cudaGetLastError());
@@ -381,7 +392,15 @@ void Reprojector::render_hybrid(const CameraParams& vcam, const BowlParams& bowl
                 /*surf_type=*/1, /*flat_z0=*/0.0f,
                 bowl.R0, bowl.k, bowl.Rmax,
                 bowl.feather_margin,
-                /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f);
+                /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f,
+                bowl.fill_blind_zone ? 1 : 0);
+
+    if (bowl.fill_blind_zone)
+    {
+        // fill the bowl fallback layer before splat/composite consume it
+        // (d_out is free until the composite pass writes it)
+        launch_hole_fill(impl_->d_bowl, impl_->d_out, OW, OH, /*iters=*/128);
+    }
 
     // --- Depth (splat) pass ---
     launch_splat(impl_->d_zbuf, impl_->d_depth, OW, OH,

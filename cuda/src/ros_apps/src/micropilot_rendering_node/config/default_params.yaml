@@ -10,6 +10,7 @@
     bowl_k: 0.06
     bowl_Rmax: 40.0
     feather_margin: 480.0
+    fill_blind_zone: true
     robot_model_path: /home/ag7/Downloads/M02P.obj
     robot_model_transform:
     - 1.0

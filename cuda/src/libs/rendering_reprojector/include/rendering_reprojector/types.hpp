@@ -23,5 +23,9 @@ struct BowlParams
     // over this distance from its image border. Size it to a good fraction of
     // the camera-overlap width or the seam shows as a hard line.
     float feather_margin = 30.0f;
+    // Fill surface-hit pixels that no camera covers (the blind ring around the
+    // robot) by propagating surrounding scene colors, instead of leaving them
+    // invalid for the consumer's sky fill. Runs before the robot proxy overlay.
+    bool fill_blind_zone = false;
 };
 }  // namespace micropilot::rendering

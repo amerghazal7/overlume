@@ -16,10 +16,16 @@ struct CamDev
 /** Toolchain smoke kernel (Task 2 scaffolding). */
 void launch_fill(float* d_out, int n, float r, float g, float b, float a);
 
-/** Real bowl reprojection kernel (Task 3). */
+/** Real bowl reprojection kernel (Task 3). mark_uncovered != 0 writes alpha 0.5
+ *  (instead of 0) to surface-hit pixels no camera covers, for launch_hole_fill. */
 void launch_bowl(float* d_out, int OW, int OH, const float* d_images, const CamDev* d_cams,
                  int ncam, CamDev v, int surf_type, float flat_z0, float R0, float k, float Rmax,
-                 float feather_margin, float fr, float fg, float fb);
+                 float feather_margin, float fr, float fg, float fb, int mark_uncovered);
+
+/** Blind-zone fill: iteratively grows valid (alpha 1) colors into alpha-0.5
+ *  marked pixels (Jacobi, ping-pong via d_scratch); leftovers revert to alpha 0.
+ *  Result ends in d_buf. Run BEFORE the robot overlay so it can't bleed in. */
+void launch_hole_fill(float* d_buf, float* d_scratch, int OW, int OH, int iters);
 
 /** Forward point-cloud splat with packed-atomicMin z-buffer (Task 4). */
 void launch_splat(unsigned long long* d_zbuf, float* d_out, int OW, int OH, const float* d_pts,
