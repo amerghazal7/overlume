@@ -280,6 +280,7 @@ def main():
         "max_sync_latency": a.max_sync_latency,
         "bowl_R0": float(R0), "bowl_k": float(k), "bowl_Rmax": float(Rmax),
         "feather_margin": float(a.feather),
+        "fill_blind_zone": True,
         "robot_model_path": a.robot_model,
         "robot_model_transform": [float(x) for x in a.robot_transform.split(",")],
         "virtual_vfov_deg": float(a.vfov),

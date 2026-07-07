@@ -48,6 +48,9 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
     // Seam crossfade width (px on source images) — see BowlParams::feather_margin.
     bowl_.feather_margin =
         static_cast<float>(declare_parameter<double>("feather_margin", 30.0));
+    // Fill the uncovered blind ring around the robot from surrounding scene
+    // colors (GPU, pre-robot-overlay) instead of leaving it for the sky fill.
+    bowl_.fill_blind_zone = declare_parameter<bool>("fill_blind_zone", true);
 
     // Virtual camera: 12-float row-major [R(3x3 row-major) | t(3)].
     // Default: identity rotation, camera 4 m above origin looking down.
