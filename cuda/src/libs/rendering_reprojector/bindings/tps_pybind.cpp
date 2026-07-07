@@ -74,6 +74,15 @@ PYBIND11_MODULE(tpscuda, m)
                  r.upload_robot_mesh(verts.data(), cols.data(),
                                      static_cast<std::size_t>(verts.shape(0)));
              })
+        .def("upload_self_masks",
+             [](Reprojector& r,
+                py::array_t<unsigned char, py::array::c_style | py::array::forcecast> m) {
+                 if (m.ndim() != 3)
+                     throw std::invalid_argument("upload_self_masks expects (N,H,W) uint8");
+                 r.upload_self_masks(m.data(), static_cast<int>(m.shape(0)),
+                                     static_cast<int>(m.shape(1)),
+                                     static_cast<int>(m.shape(2)));
+             })
         .def("render_depth",
              [](Reprojector& r, py::dict vcam, int splat_radius) {
                  CameraParams v = to_cam(vcam);

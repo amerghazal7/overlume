@@ -88,6 +88,10 @@ struct Reprojector::Impl
     float* d_rcols  = nullptr;  size_t d_rcols_cap  = 0;
     int    n_rtris  = 0;
 
+    // Per-camera self-view masks (persistent; n_masks == 0 -> disabled).
+    unsigned char* d_selfmask = nullptr;  size_t d_selfmask_cap = 0;
+    int n_masks = 0;
+
     // Cumulative device (re)allocation count — exposed for diagnostics/tests.
     size_t alloc_count = 0;
 
@@ -149,6 +153,7 @@ struct Reprojector::Impl
         if (d_cols)   cudaFree(d_cols);
         if (d_rverts) cudaFree(d_rverts);
         if (d_rcols)  cudaFree(d_rcols);
+        if (d_selfmask) cudaFree(d_selfmask);
     }
 
     ~Impl() { free_all(); }
@@ -290,6 +295,16 @@ void Reprojector::upload_robot_mesh(const float* verts, const float* cols, std::
     CUDA_CHECK(cudaMemcpy(impl_->d_rcols, cols, cb, cudaMemcpyHostToDevice));
 }
 
+void Reprojector::upload_self_masks(const unsigned char* nhw, int n, int h, int w)
+{
+    impl_->n_masks = n;
+    if (n == 0) return;
+    size_t bytes = static_cast<size_t>(n) * h * w;
+    impl_->ensure_bytes(reinterpret_cast<void**>(&impl_->d_selfmask), impl_->d_selfmask_cap,
+                        bytes);
+    CUDA_CHECK(cudaMemcpy(impl_->d_selfmask, nhw, bytes, cudaMemcpyHostToDevice));
+}
+
 void Reprojector::render_bowl(const CameraParams& vcam, const BowlParams& bowl, float* out_rgba)
 {
     // Output-resolution contract: enforced in all build configs (Release + Debug).
@@ -312,7 +327,8 @@ void Reprojector::render_bowl(const CameraParams& vcam, const BowlParams& bowl, 
                 bowl.R0, bowl.k, bowl.Rmax,
                 bowl.feather_margin,
                 /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f,
-                bowl.fill_blind_zone ? 1 : 0);
+                bowl.fill_blind_zone ? 1 : 0,
+                impl_->n_masks > 0 ? impl_->d_selfmask : nullptr);
     CUDA_CHECK(cudaGetLastError());  // surface launch-config errors immediately
 
     if (bowl.fill_blind_zone)
@@ -394,7 +410,8 @@ void Reprojector::render_hybrid(const CameraParams& vcam, const BowlParams& bowl
                 bowl.R0, bowl.k, bowl.Rmax,
                 bowl.feather_margin,
                 /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f,
-                bowl.fill_blind_zone ? 1 : 0);
+                bowl.fill_blind_zone ? 1 : 0,
+                impl_->n_masks > 0 ? impl_->d_selfmask : nullptr);
 
     if (bowl.fill_blind_zone)
     {
