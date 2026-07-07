@@ -12,3 +12,4 @@ cuda/install/
 cuda/logs/
 *.db*CMakeFiles/
 .vscode/
+graphify-out/
