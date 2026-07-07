@@ -32,6 +32,12 @@ public:
      *  n_tris == 0 disables robot compositing. */
     void upload_robot_mesh(const float* verts, const float* cols, std::size_t n_tris);
 
+    /** Upload per-camera self-view masks (persistent): (n, h, w) uint8, nonzero
+     *  where a source pixel sees the robot's own body — those pixels are skipped
+     *  during bowl reprojection (the blind-zone fill then covers the region).
+     *  Dims must match the uploaded images; n == 0 clears. */
+    void upload_self_masks(const unsigned char* nhw, int n, int h, int w);
+
     void render_bowl(const CameraParams& vcam, const BowlParams& bowl, float* out_rgba);
     void render_depth(const CameraParams& vcam, int splat_radius, float* out_rgba);
     void render_hybrid(const CameraParams& vcam, const BowlParams& bowl, int splat_radius,

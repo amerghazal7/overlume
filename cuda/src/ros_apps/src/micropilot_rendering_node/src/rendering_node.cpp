@@ -186,11 +186,12 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
         for (int i = 0; i < 12; ++i) T[i] = static_cast<float>(robot_tf[i]);
         try
         {
-            auto mesh = micropilot::rendering::load_obj_mesh(robot_path, T);
-            reprojector_->upload_robot_mesh(mesh.verts.data(), mesh.cols.data(),
-                                            mesh.n_tris);
+            robot_mesh_ = micropilot::rendering::load_obj_mesh(robot_path, T);
+            have_robot_mesh_ = true;
+            reprojector_->upload_robot_mesh(robot_mesh_.verts.data(), robot_mesh_.cols.data(),
+                                            robot_mesh_.n_tris);
             RCLCPP_INFO(get_logger(), "robot proxy: %zu triangles from %s",
-                        mesh.n_tris, robot_path.c_str());
+                        robot_mesh_.n_tris, robot_path.c_str());
         }
         catch (const std::exception& e)
         {
@@ -326,8 +327,65 @@ RenderingNode::CallbackReturn RenderingNode::on_activate(const rclcpp_lifecycle:
 }
 
 // ── Timer callback ───────────────────────────────────────────────────────────
+void RenderingNode::generate_self_masks()
+{
+    // Rasterize the robot mesh FROM each real camera's calibrated pose
+    // (distortion-aware): nonzero pixels see the robot's own body, get skipped
+    // during reprojection, and the blind-zone fill paints them from the scene.
+    // Runs once, lazily, after every camera's CameraInfo arrived (real dims/K/D).
+    int W = cam_params_[0].width, H = cam_params_[0].height;
+    micropilot::rendering::Reprojector mask_rend(W, H);
+    mask_rend.upload_robot_mesh(robot_mesh_.verts.data(), robot_mesh_.cols.data(),
+                                robot_mesh_.n_tris);
+    micropilot::rendering::BowlParams flat{};  // no env uploaded; robot layer only
+    std::vector<unsigned char> masks(static_cast<size_t>(n_cameras_) * H * W, 0);
+    std::vector<float> rgba(static_cast<size_t>(W) * H * 4);
+    long total = 0;
+    for (int i = 0; i < n_cameras_; ++i)
+    {
+        micropilot::rendering::CameraParams vc = cam_params_[i];
+        vc.width = W;
+        vc.height = H;
+        mask_rend.render_bowl(vc, flat, rgba.data());
+        cv::Mat m(H, W, CV_8U);
+        for (int p = 0; p < W * H; ++p)
+            m.data[p] = rgba[static_cast<size_t>(p) * 4 + 3] == 1.0f ? 255 : 0;
+        // dilate a little: calibration is cm-accurate, not mm-accurate
+        cv::dilate(m, m, cv::getStructuringElement(cv::MORPH_RECT, {9, 9}));
+        std::memcpy(masks.data() + static_cast<size_t>(i) * H * W, m.data,
+                    static_cast<size_t>(H) * W);
+        total += cv::countNonZero(m);
+    }
+    reprojector_->upload_self_masks(masks.data(), n_cameras_, H, W);
+    RCLCPP_INFO(get_logger(), "self-view masks: %ld body pixels masked across %d cameras",
+                total, n_cameras_);
+}
+
 void RenderingNode::timer_callback()
 {
+    // ── lazy self-view mask generation (needs all CameraInfo; one-shot) ──────
+    if (!self_masks_done_ && have_robot_mesh_ && bowl_.fill_blind_zone)
+    {
+        bool infos = true;
+        for (int i = 0; i < n_cameras_; ++i)
+        {
+            std::lock_guard<std::mutex> lk(*per_cam_[i].mtx);
+            infos = infos && per_cam_[i].info_ready;
+        }
+        if (infos)
+        {
+            try
+            {
+                generate_self_masks();
+            }
+            catch (const std::exception& e)
+            {
+                RCLCPP_WARN(get_logger(), "self-view mask generation failed: %s", e.what());
+            }
+            self_masks_done_ = true;  // one attempt either way
+        }
+    }
+
     // Ease the virtual camera toward the selected preset (no-op once settled).
     advance_tween();
 

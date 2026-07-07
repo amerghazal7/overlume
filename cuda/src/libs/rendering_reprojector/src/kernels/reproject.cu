@@ -12,7 +12,7 @@ namespace micropilot::rendering
 __global__ void bowl_kernel(float* out, int OW, int OH, const float* images, const CamDev* cams,
                             int ncam, CamDev v, int surf_type, float flat_z0, float R0, float k,
                             float Rmax, float feather_margin, float fr, float fg, float fb,
-                            int mark_uncovered)
+                            int mark_uncovered, const unsigned char* selfmask)
 {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -56,6 +56,9 @@ __global__ void bowl_kernel(float* out, int OW, int OH, const float* images, con
         float xp = c.fx * xn + c.cx;
         float yp = c.fy * yn + c.cy;
         if (xp < 0 || xp > c.w - 1 || yp < 0 || yp > c.h - 1) continue;
+        // self-view mask: this source pixel sees the robot body, not the scene
+        if (selfmask && selfmask[((size_t)i * c.h + (int)(yp + 0.5f)) * c.w
+                                 + (int)(xp + 0.5f)]) continue;
         float r, g, b;
         bilinear(images + (size_t)i * c.w * c.h * 3, c.w, c.h, xp, yp, r, g, b);
         float align = fmaxf(0.0f, fminf(1.0f, vdot(vnorm(rel), c.fwd)));
@@ -127,12 +130,13 @@ __global__ void hole_finalize_kernel(float* buf, int n)
 
 void launch_bowl(float* d_out, int OW, int OH, const float* d_images, const CamDev* d_cams,
                  int ncam, CamDev v, int surf_type, float flat_z0, float R0, float k, float Rmax,
-                 float feather_margin, float fr, float fg, float fb, int mark_uncovered)
+                 float feather_margin, float fr, float fg, float fb, int mark_uncovered,
+                 const unsigned char* d_selfmask)
 {
     dim3 block(16, 16);
     dim3 grid((OW + 15) / 16, (OH + 15) / 16);
     bowl_kernel<<<grid, block>>>(d_out, OW, OH, d_images, d_cams, ncam, v, surf_type, flat_z0, R0,
-                                 k, Rmax, feather_margin, fr, fg, fb, mark_uncovered);
+                                 k, Rmax, feather_margin, fr, fg, fb, mark_uncovered, d_selfmask);
 }
 
 void launch_hole_fill(float* d_buf, float* d_scratch, int OW, int OH, int iters)

@@ -6,9 +6,9 @@
     out_width: 1280
     out_height: 720
     max_sync_latency: 0.12
-    bowl_R0: 4.0
-    bowl_k: 0.3
-    bowl_Rmax: 15.0
+    bowl_R0: 8.0
+    bowl_k: 0.12
+    bowl_Rmax: 25.0
     feather_margin: 480.0
     fill_blind_zone: true
     robot_model_path: /home/ag7/Downloads/M02P.obj

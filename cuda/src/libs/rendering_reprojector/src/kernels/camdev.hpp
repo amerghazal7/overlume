@@ -18,10 +18,13 @@ struct CamDev
 void launch_fill(float* d_out, int n, float r, float g, float b, float a);
 
 /** Real bowl reprojection kernel (Task 3). mark_uncovered != 0 writes alpha 0.5
- *  (instead of 0) to surface-hit pixels no camera covers, for launch_hole_fill. */
+ *  (instead of 0) to surface-hit pixels no camera covers, for launch_hole_fill.
+ *  d_selfmask (nullable): per-camera (ncam,H,W) uint8 body masks — nonzero
+ *  source pixels see the robot itself and are skipped like out-of-bounds. */
 void launch_bowl(float* d_out, int OW, int OH, const float* d_images, const CamDev* d_cams,
                  int ncam, CamDev v, int surf_type, float flat_z0, float R0, float k, float Rmax,
-                 float feather_margin, float fr, float fg, float fb, int mark_uncovered);
+                 float feather_margin, float fr, float fg, float fb, int mark_uncovered,
+                 const unsigned char* d_selfmask);
 
 /** Blind-zone fill: iteratively grows valid (alpha 1) colors into alpha-0.5
  *  marked pixels (Jacobi, ping-pong via d_scratch); leftovers revert to alpha 0.

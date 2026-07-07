@@ -38,8 +38,22 @@ __global__ void robot_raster_kernel(unsigned long long* zbuf, int OW, int OH,
         float3 rel = vsub(P, v.t);
         float z = vdot(v.fwd, rel);
         if (z <= 1e-4f) return;  // any vertex at/behind the camera -> drop triangle
-        sx[k] = v.fx * vdot(v.right, rel) / z + v.cx;
-        sy[k] = v.fy * vdot(v.down, rel) / z + v.cy;
+        float xn = vdot(v.right, rel) / z;
+        float yn = vdot(v.down, rel) / z;
+        if (v.k1 != 0.0f || v.k2 != 0.0f || v.p1 != 0.0f || v.p2 != 0.0f || v.k3 != 0.0f)
+        {
+            // plumb_bob forward distortion per vertex (piecewise-linear across
+            // mm-scale triangles) — used when rasterizing self-view masks from a
+            // real distorted camera. Same out-of-field guard as reproject.cu.
+            float r2 = xn * xn + yn * yn;
+            if (r2 > 3.0f) return;
+            float radial = 1.0f + r2 * (v.k1 + r2 * (v.k2 + r2 * v.k3));
+            float xd = xn * radial + 2.0f * v.p1 * xn * yn + v.p2 * (r2 + 2.0f * xn * xn);
+            float yd = yn * radial + v.p1 * (r2 + 2.0f * yn * yn) + 2.0f * v.p2 * xn * yn;
+            xn = xd; yn = yd;
+        }
+        sx[k] = v.fx * xn + v.cx;
+        sy[k] = v.fy * yn + v.cy;
         sz[k] = z;
     }
     float area = (sx[1] - sx[0]) * (sy[2] - sy[0]) - (sy[1] - sy[0]) * (sx[2] - sx[0]);

@@ -23,6 +23,7 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 
+#include "rendering_reprojector/mesh_loader.hpp"
 #include "rendering_reprojector/reprojector.hpp"
 #include "rendering_reprojector/types.hpp"
 
@@ -57,6 +58,14 @@ public:
 private:
     void timer_callback();
     void teardown_active();
+    /// Rasterize the robot mesh from each real camera pose -> self-view masks
+    /// (body pixels skipped in reprojection; blind-zone fill covers them).
+    void generate_self_masks();
+
+    // robot proxy mesh (kept for self-mask generation) + one-shot mask state
+    micropilot::rendering::RobotMesh robot_mesh_;
+    bool have_robot_mesh_ = false;
+    bool self_masks_done_ = false;
 
     // ── virtual-camera presets / eased switching ─────────────────────────────
     using SetVirtualCam = micropilot_rendering_node::srv::SetVirtualCam;
