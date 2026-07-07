@@ -196,9 +196,9 @@ def main():
     ap.add_argument("--robot-model", default="/home/ag7/Downloads/M02P.obj",
                     help="robot proxy OBJ path written to robot_model_path ('' disables)")
     ap.add_argument("--robot-transform",
-                    default="1.25,0,0,0,0,-1.25,0,1.25,0,0,0,0",
+                    default="1.0,0,0,0,0,-1.0,0,1.0,0,0,0,0",
                     help="12 floats [R(9)|t(3)] OBJ->rig for robot_model_transform "
-                         "(1.25x scale: visually calibrated against the camera-projected body)")
+                         "(1.0x scale: visually calibrated against the camera-projected body)")
     a = ap.parse_args()
     names = a.names.split(",")
 

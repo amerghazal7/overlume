@@ -13,14 +13,14 @@
     fill_blind_zone: true
     robot_model_path: /home/ag7/Downloads/M02P.obj
     robot_model_transform:
-    - 1.25
+    - 1.0
     - 0.0
     - 0.0
     - 0.0
     - 0.0
-    - -1.25
+    - -1.0
     - 0.0
-    - 1.25
+    - 1.0
     - 0.0
     - 0.0
     - 0.0
