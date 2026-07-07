@@ -5,12 +5,13 @@
 
 namespace micropilot::rendering
 {
-/** Per-camera device record: K split + R columns + center. */
+/** Per-camera device record: K split + R columns + center + plumb_bob distortion. */
 struct CamDev
 {
     float fx, fy, cx, cy;
     float3 right, down, fwd, t;
     int w, h;
+    float k1, k2, p1, p2, k3;   // plumb_bob; all-zero = pinhole
 };
 
 /** Toolchain smoke kernel (Task 2 scaffolding). */

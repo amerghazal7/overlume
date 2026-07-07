@@ -47,6 +47,7 @@ static CamDev to_camdev(const CameraParams& c)
     d.fwd   = make_float3(c.R[2], c.R[5], c.R[8]);
     d.t = make_float3(c.t[0], c.t[1], c.t[2]);
     d.w = c.width; d.h = c.height;
+    d.k1 = c.dist[0]; d.k2 = c.dist[1]; d.p1 = c.dist[2]; d.p2 = c.dist[3]; d.k3 = c.dist[4];
     return d;
 }
 

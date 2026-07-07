@@ -3,7 +3,9 @@
 
 namespace micropilot::rendering
 {
-/** @brief Pinhole camera: row-major K and R, center t. R columns = (right,down,fwd). */
+/** @brief Pinhole camera: row-major K and R, center t. R columns = (right,down,fwd).
+ *  dist = plumb_bob [k1 k2 p1 p2 k3] applied when projecting INTO this camera
+ *  (real lenses publish raw/distorted images); all-zero = pure pinhole (sim). */
 struct CameraParams
 {
     float K[9];
@@ -11,6 +13,7 @@ struct CameraParams
     float t[3];
     int width;
     int height;
+    float dist[5] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 };
 
 /** @brief Bowl proxy surface: flat floor radius R0, parabolic wall k, clamp Rmax. */

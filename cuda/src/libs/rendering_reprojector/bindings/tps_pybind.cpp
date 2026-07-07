@@ -25,6 +25,11 @@ static CameraParams to_cam(py::dict d)
     std::memcpy(c.t, t.data(), 3 * sizeof(float));
     c.width = d["width"].cast<int>();
     c.height = d["height"].cast<int>();
+    if (d.contains("dist"))
+    {
+        auto dd = d["dist"].cast<py::array_t<float, py::array::c_style | py::array::forcecast>>();
+        for (py::ssize_t i = 0; i < 5 && i < dd.size(); ++i) c.dist[i] = dd.data()[i];
+    }
     return c;
 }
 
