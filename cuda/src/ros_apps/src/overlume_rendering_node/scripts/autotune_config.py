@@ -93,6 +93,7 @@ def capture_live(names, win=0.12, timeout_s=20.0):
             self.img = {n: None for n in names}
             self.st = {n: None for n in names}
             self.K = {n: None for n in names}
+            self.D = {n: None for n in names}
             for n in names:
                 self.create_subscription(Image, f"/{n}/raw_images",
                                          lambda m, nn=n: self._i(m, nn), qos_profile_sensor_data)
@@ -105,6 +106,7 @@ def capture_live(names, win=0.12, timeout_s=20.0):
 
         def _k(self, m, n):
             self.K[n] = np.array(m.k, float).reshape(3, 3)
+            self.D[n] = np.array(m.d, float) if len(m.d) else None  # plumb_bob [k1 k2 p1 p2 k3]
 
         def ready(self):
             if any(self.img[n] is None or self.K[n] is None for n in names):
@@ -120,16 +122,20 @@ def capture_live(names, win=0.12, timeout_s=20.0):
     ok = g.ready()
     imgs = {n: g.img[n] for n in names}
     Ks = {n: g.K[n] for n in names}
+    Ds = {n: g.D[n] for n in names}
     rclpy.shutdown()
     if not ok:
         raise RuntimeError("cameras not all synced within window")
-    return imgs, Ks
+    return imgs, Ks, Ds
 
 
 # ── rendering helpers (tpscuda) ──────────────────────────────────────────────
-def make_cam(K, R, t, w, h):
-    return dict(K=np.asarray(K, "f4").ravel(), R=np.asarray(R, "f4").ravel(),
-                t=np.asarray(t, "f4"), width=int(w), height=int(h))
+def make_cam(K, R, t, w, h, dist=None):
+    cam = dict(K=np.asarray(K, "f4").ravel(), R=np.asarray(R, "f4").ravel(),
+               t=np.asarray(t, "f4"), width=int(w), height=int(h))
+    if dist is not None and np.any(np.asarray(dist)):
+        cam["dist"] = np.asarray(dist, "f4").ravel()[:5]
+    return cam
 
 
 def vcam(eye, target, vfov, ow, oh):
@@ -218,8 +224,9 @@ def main():
         d = np.load(a.frames)
         imgs = {n: d[f"img_{n}"] for n in names}
         Ks = {n: d[f"K_{n}"] for n in names}
+        Ds = {n: None for n in names}
     else:
-        imgs, Ks = capture_live(names)
+        imgs, Ks, Ds = capture_live(names)
     H, W = imgs[names[0]].shape[:2]
 
     # 2. extrinsics
@@ -234,7 +241,7 @@ def main():
 
     import tpscuda
     OW, OH = a.out_width, a.out_height
-    cams = [make_cam(Ks[n], R, t, W, H) for n, (R, t) in zip(names, ext)]
+    cams = [make_cam(Ks[n], R, t, W, H, Ds[n]) for n, (R, t) in zip(names, ext)]
     imgs_f = np.stack([imgs[n].astype("f4") / 255.0 for n in names])
     tps = tpscuda.Reprojector(OW, OH)
 
@@ -257,7 +264,7 @@ def main():
         # ground-dominated — the split-lane symptom is exactly what it measures.
         V_ground, _ = vcam([0.0, 0.0, 5.0], [0.01, 0.0, 0.0], 60.0, OW, OH)
         def dis_at(dz):
-            cams_dz = [make_cam(Ks[n], R, t + np.array([0.0, 0.0, dz]), W, H)
+            cams_dz = [make_cam(Ks[n], R, t + np.array([0.0, 0.0, dz]), W, H, Ds[n])
                        for n, (R, t) in zip(names, ext)]
             _, dis = overlap_score(tps, cams_dz, imgs_f, V_ground,
                                    a.bowl_r0, a.bowl_k, a.bowl_rmax, OW, OH)
@@ -285,7 +292,7 @@ def main():
         ground_z = float(a.ground_z)
         print(f"ground-z offset (manual): dz={ground_z:+.3f} m")
     ext = [(R, t + np.array([0.0, 0.0, ground_z])) for (R, t) in ext]
-    cams = [make_cam(Ks[n], R, t, W, H) for n, (R, t) in zip(names, ext)]
+    cams = [make_cam(Ks[n], R, t, W, H, Ds[n]) for n, (R, t) in zip(names, ext)]
 
     # 4. bowl montage (informational): flat -> walled. The CHOSEN bowl is the
     # tunable --bowl-* (default a modest wall so distant objects stand up); the

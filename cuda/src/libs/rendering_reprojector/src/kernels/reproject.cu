@@ -39,8 +39,22 @@ __global__ void bowl_kernel(float* out, int OW, int OH, const float* images, con
         float3 rel = vsub(P, c.t);
         float z = vdot(c.fwd, rel);
         if (z <= 1e-9f) continue;
-        float xp = c.fx * vdot(c.right, rel) / z + c.cx;
-        float yp = c.fy * vdot(c.down, rel) / z + c.cy;
+        float xn = vdot(c.right, rel) / z;
+        float yn = vdot(c.down, rel) / z;
+        if (c.k1 != 0.0f || c.k2 != 0.0f || c.p1 != 0.0f || c.p2 != 0.0f || c.k3 != 0.0f)
+        {
+            // plumb_bob (OpenCV) forward distortion on normalized coords. The
+            // polynomial only holds inside the calibrated field: beyond r2 ~ 3
+            // (>60 deg off-axis) it can fold points back into frame — reject.
+            float r2 = xn * xn + yn * yn;
+            if (r2 > 3.0f) continue;
+            float radial = 1.0f + r2 * (c.k1 + r2 * (c.k2 + r2 * c.k3));
+            float xd = xn * radial + 2.0f * c.p1 * xn * yn + c.p2 * (r2 + 2.0f * xn * xn);
+            float yd = yn * radial + c.p1 * (r2 + 2.0f * yn * yn) + 2.0f * c.p2 * xn * yn;
+            xn = xd; yn = yd;
+        }
+        float xp = c.fx * xn + c.cx;
+        float yp = c.fy * yn + c.cy;
         if (xp < 0 || xp > c.w - 1 || yp < 0 || yp > c.h - 1) continue;
         float r, g, b;
         bilinear(images + (size_t)i * c.w * c.h * 3, c.w, c.h, xp, yp, r, g, b);

@@ -309,6 +309,10 @@ RenderingNode::CallbackReturn RenderingNode::on_activate(const rclcpp_lifecycle:
                 for (int r = 0; r < 3; ++r)
                     for (int c = 0; c < 3; ++c)
                         cp.K[r * 3 + c] = static_cast<float>(msg->k[r * 3 + c]);
+                // plumb_bob distortion from the driver (real lenses publish raw
+                // images); absent/empty D leaves the zeros = pinhole (sim).
+                for (std::size_t j = 0; j < 5; ++j)
+                    cp.dist[j] = j < msg->d.size() ? static_cast<float>(msg->d[j]) : 0.0f;
                 per_cam_[i].info_ready = true;
             });
     }
