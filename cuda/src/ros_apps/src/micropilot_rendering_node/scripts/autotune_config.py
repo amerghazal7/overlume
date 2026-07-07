@@ -251,15 +251,24 @@ def main():
     # global camera-height offset on the captured frames and keep the overlap-
     # disagreement minimum (coarse 1 cm, then 2 mm refine around the best).
     if a.ground_z == "auto":
+        # Score ground alignment on a TOP-DOWN view: dz shifts near-ground
+        # reprojection strongly and far-field weakly, so a forward view (mostly
+        # wall content) lets distortion noise dominate the sweep. Top-down is
+        # ground-dominated — the split-lane symptom is exactly what it measures.
+        V_ground, _ = vcam([0.0, 0.0, 5.0], [0.01, 0.0, 0.0], 60.0, OW, OH)
         def dis_at(dz):
             cams_dz = [make_cam(Ks[n], R, t + np.array([0.0, 0.0, dz]), W, H)
                        for n, (R, t) in zip(names, ext)]
-            _, dis = overlap_score(tps, cams_dz, imgs_f, V,
+            _, dis = overlap_score(tps, cams_dz, imgs_f, V_ground,
                                    a.bowl_r0, a.bowl_k, a.bowl_rmax, OW, OH)
             return dis
-        # calib ego origins are often far from the ground (e.g. a lidar frame,
-        # ~1 m up on m2o1) — sweep wide there; CARLA pivots are near-ground.
-        lo, hi, coarse = (-1.5, 1.5, 0.02) if kind == "calib" else (-0.08, 0.08, 0.01)
+        if kind == "calib":
+            # calib ego origins sit ABOVE the ground (e.g. m2o1's lidar frame):
+            # only physical offsets — every camera must end up above the road.
+            min_tz = min(t[2] for _, t in ext)
+            lo, hi, coarse = 0.3 - min_tz, 1.8 - min_tz, 0.02
+        else:
+            lo, hi, coarse = -0.08, 0.08, 0.01  # CARLA pivots are near-ground
         best_dz, best_dis = 0.0, dis_at(0.0)
         for dz in np.arange(lo, hi + coarse / 2, coarse):
             dis = dis_at(dz)
