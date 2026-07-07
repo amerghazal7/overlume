@@ -51,6 +51,12 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
     // Fill the uncovered blind ring around the robot from surrounding scene
     // colors (GPU, pre-robot-overlay) instead of leaving it for the sky fill.
     bowl_.fill_blind_zone = declare_parameter<bool>("fill_blind_zone", true);
+    // Auto-generated per-camera self-view masks (robot mesh rastered from each
+    // camera pose). OFF by default: correct masks require the rig origin to be
+    // exactly the body center — verify with the mask-overlay preview before
+    // enabling (a wrong origin masks REAL scene, which is far worse than the
+    // body smear it removes).
+    self_view_masks_ = declare_parameter<bool>("self_view_masks", false);
 
     // Virtual camera: 12-float row-major [R(3x3 row-major) | t(3)].
     // Default: identity rotation, camera 4 m above origin looking down.
@@ -364,7 +370,7 @@ void RenderingNode::generate_self_masks()
 void RenderingNode::timer_callback()
 {
     // ── lazy self-view mask generation (needs all CameraInfo; one-shot) ──────
-    if (!self_masks_done_ && have_robot_mesh_ && bowl_.fill_blind_zone)
+    if (self_view_masks_ && !self_masks_done_ && have_robot_mesh_ && bowl_.fill_blind_zone)
     {
         bool infos = true;
         for (int i = 0; i < n_cameras_; ++i)
