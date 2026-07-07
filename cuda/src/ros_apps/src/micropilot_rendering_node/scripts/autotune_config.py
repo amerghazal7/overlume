@@ -69,12 +69,19 @@ def extrinsics_carla(path, names):
 
 
 def extrinsics_calib(path, names, ground_offset, name_map):
-    """sensors_extrinsic_calib.yaml camera_to_ego 4x4 -> [R, t] (+ optional z offset)."""
+    """sensors_extrinsic_calib.yaml camera_to_ego 4x4 -> [R, t] (+ optional z offset).
+
+    The calib ego frame is x-fwd / y-RIGHT / z-DOWN (verified empirically against
+    bag imagery + the base_link-at-wheel-center ground truth, 2026-07-07: the
+    as-parsed frame put every camera below ground). Left-multiply diag(1,-1,-1)
+    to reach the rig frame (x-fwd / y-left / z-up). R columns are already the
+    optical right/down/fwd axes."""
+    S = np.diag([1.0, -1.0, -1.0])
     cal = yaml.safe_load(open(path))
     out = []
     for n in names:
         M = np.array(cal[name_map[n]]["camera_to_ego"], float)
-        R, t = M[:3, :3], M[:3, 3].copy()
+        R, t = S @ M[:3, :3], S @ M[:3, 3]
         t[2] += ground_offset
         out.append((R, t))
     return out
