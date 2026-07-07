@@ -36,6 +36,14 @@ from tpsprojector.transforms import look_at
 DEF_NAMES = ["fl_camera", "fm_camera", "fr_camera", "bl_camera", "bm_camera", "br_camera"]
 CARLA_NAME_MAP = {  # live name -> CARLA spawn name (if different); identity by default
 }
+CALIB_NAME_MAP = {  # live topic name -> real-robot calib entry (m2o1_calib.yaml keys)
+    "fl_camera": "front_left_camera",
+    "fm_camera": "front_camera",
+    "fr_camera": "front_right_camera",
+    "bl_camera": "back_left_camera",
+    "bm_camera": "back_camera",
+    "br_camera": "back_right_camera",
+}
 
 
 # ── extrinsics sources ───────────────────────────────────────────────────────
@@ -219,7 +227,8 @@ def main():
     if kind == "carla":
         ext = extrinsics_carla(path, names)
     elif kind == "calib":
-        ext = extrinsics_calib(path, names, a.ground_offset, {n: n for n in names})
+        ext = extrinsics_calib(path, names, a.ground_offset,
+                               {n: CALIB_NAME_MAP.get(n, n) for n in names})
     else:
         raise SystemExit(f"unknown --source kind {kind}")
 
@@ -248,8 +257,11 @@ def main():
             _, dis = overlap_score(tps, cams_dz, imgs_f, V,
                                    a.bowl_r0, a.bowl_k, a.bowl_rmax, OW, OH)
             return dis
+        # calib ego origins are often far from the ground (e.g. a lidar frame,
+        # ~1 m up on m2o1) — sweep wide there; CARLA pivots are near-ground.
+        lo, hi, coarse = (-1.5, 1.5, 0.02) if kind == "calib" else (-0.08, 0.08, 0.01)
         best_dz, best_dis = 0.0, dis_at(0.0)
-        for dz in np.arange(-0.08, 0.0801, 0.01):
+        for dz in np.arange(lo, hi + coarse / 2, coarse):
             dis = dis_at(dz)
             if dis < best_dis:
                 best_dz, best_dis = dz, dis

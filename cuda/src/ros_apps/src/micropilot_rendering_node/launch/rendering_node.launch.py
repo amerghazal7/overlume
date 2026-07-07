@@ -1,6 +1,9 @@
 """Launch the micropilot_rendering_node LifecycleNode.
 
-Loads config/default_params.yaml by default. Override per deployment:
+Loads config/default_params.yaml by default. Switch deployments by config NAME
+(a file inside this package's config/ directory):
+  ros2 launch micropilot_rendering_node rendering_node.launch.py config:=m2o1_params.yaml
+Or override with a full path:
   ros2 launch micropilot_rendering_node rendering_node.launch.py \\
       params_file:=/path/to/your_robot_params.yaml
 
@@ -21,7 +24,7 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description() -> LaunchDescription:
     default_params = PathJoinSubstitution(
-        [FindPackageShare("micropilot_rendering_node"), "config", "default_params.yaml"]
+        [FindPackageShare("micropilot_rendering_node"), "config", LaunchConfiguration("config")]
     )
 
     # Subscribe to the 6 CARLA camera streams over Iceoryx shared memory
@@ -37,9 +40,15 @@ def generate_launch_description() -> LaunchDescription:
 
     args = [
         DeclareLaunchArgument(
+            "config",
+            default_value="default_params.yaml",
+            description="Config file NAME inside this package's config/ dir "
+                        "(default_params.yaml = CARLA sim, m2o1_params.yaml = real robot).",
+        ),
+        DeclareLaunchArgument(
             "params_file",
             default_value=default_params,
-            description="Node parameters YAML (see config/default_params.yaml).",
+            description="Node parameters YAML (full path; overrides config:=).",
         ),
     ]
 

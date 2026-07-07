@@ -1,0 +1,138 @@
+# Real-robot (m2o1) params — extrinsics from ~/Downloads/m2o1_calib.yaml
+# (camera_to_ego, ego frame ~1 m above ground: ground-z NOT yet calibrated).
+# Finalize against recorded data (bag playing) with:
+#   autotune_config.py --source calib:$HOME/Downloads/m2o1_calib.yaml \
+#     --out <this file> --ground-z auto --bowl-r0 17 --bowl-k 0.06 --bowl-rmax 40 \
+#     --feather 480 --vfov 65 --eye-back 3 --eye-height 3 --sky-frac 0
+# NOTE: real lenses have distortion (k1~-0.08); the reprojector samples pure
+# pinhole — feed RECTIFIED images or expect warping at seams.
+/**:
+  ros__parameters:
+    n_cameras: 6
+    out_width: 1280
+    out_height: 720
+    max_sync_latency: 0.12
+    bowl_R0: 17.0
+    bowl_k: 0.06
+    bowl_Rmax: 40.0
+    feather_margin: 480.0
+    fill_blind_zone: true
+    robot_model_path: /home/ag7/Downloads/M02P.obj
+    robot_model_transform:
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - -1.0
+    - 0.0
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    virtual_vfov_deg: 65.0
+    sky_color:
+    - 0.53
+    - 0.7
+    - 0.92
+    image_topics:
+    - /fl_camera/raw_images
+    - /fm_camera/raw_images
+    - /fr_camera/raw_images
+    - /bl_camera/raw_images
+    - /bm_camera/raw_images
+    - /br_camera/raw_images
+    info_topics:
+    - /fl_camera/camera_info
+    - /fm_camera/camera_info
+    - /fr_camera/camera_info
+    - /bl_camera/camera_info
+    - /bm_camera/camera_info
+    - /br_camera/camera_info
+    camera_extrinsics:
+    - 0.8792
+    - -0.0618
+    - 0.4724
+    - -0.4763
+    - -0.1354
+    - 0.8688
+    - 0.0102
+    - -0.9889
+    - -0.1485
+    - 0.4076
+    - 0.2811
+    - -0.1699
+    - 0.0247
+    - 0.0202
+    - 0.9995
+    - -0.9996
+    - 0.0146
+    - 0.0244
+    - -0.0141
+    - -0.9997
+    - 0.0205
+    - 0.6069
+    - -0.0162
+    - -0.2942
+    - -0.8586
+    - -0.0271
+    - 0.512
+    - -0.5116
+    - 0.1123
+    - -0.8519
+    - -0.0344
+    - -0.9933
+    - -0.1103
+    - 0.3346
+    - -0.0693
+    - -0.3111
+    - 0.7713
+    - 0.0119
+    - -0.6364
+    - 0.6354
+    - 0.0445
+    - 0.7709
+    - 0.0375
+    - -0.9989
+    - 0.0268
+    - 0.2088
+    - 0.3849
+    - -0.4258
+    - 0.0073
+    - 0.0181
+    - -0.9998
+    - 0.9999
+    - 0.0147
+    - 0.0075
+    - 0.0149
+    - -0.9997
+    - -0.018
+    - -0.8408
+    - -0.0662
+    - -0.39
+    - -0.7941
+    - 0.0342
+    - -0.6069
+    - 0.6073
+    - 0.0015
+    - -0.7945
+    - -0.0263
+    - -0.9994
+    - -0.022
+    - 0.3153
+    - -0.1857
+    - -0.2828
+    virtual_pose:
+    - 0.0
+    - -0.5372996083468239
+    - 0.8433914458128857
+    - -1.0
+    - -0.0
+    - 0.0
+    - 0.0
+    - -0.8433914458128857
+    - -0.5372996083468239
+    - -3.0
+    - 0.0
+    - 3.0
