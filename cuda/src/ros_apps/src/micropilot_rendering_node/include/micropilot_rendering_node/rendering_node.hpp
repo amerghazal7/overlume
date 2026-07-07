@@ -66,6 +66,7 @@ private:
     micropilot::rendering::RobotMesh robot_mesh_;
     bool have_robot_mesh_ = false;
     bool self_masks_done_ = false;
+    bool self_view_masks_ = false;
 
     // ── virtual-camera presets / eased switching ─────────────────────────────
     using SetVirtualCam = micropilot_rendering_node::srv::SetVirtualCam;
