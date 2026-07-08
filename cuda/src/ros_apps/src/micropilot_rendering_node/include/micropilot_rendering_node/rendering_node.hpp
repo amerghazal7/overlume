@@ -25,6 +25,7 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
+#include <std_msgs/msg/int32.hpp>
 
 #include "rendering_reprojector/mesh_loader.hpp"
 #include "rendering_reprojector/reprojector.hpp"
@@ -171,6 +172,10 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
     std::vector<float> cloud_pts_;  // rig-frame xyz flat; guarded by cloud_mtx_
     std::mutex cloud_mtx_;
+    // Runtime view switch (~/set_render_mode): 1 = bowl-only, 2 = pointcloud
+    // hybrid (falls back to bowl when no cloud is buffered). Default hybrid.
+    int render_mode_{2};
+    rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr set_mode_sub_;
 
     rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::Image>::SharedPtr pub_image_;
     rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::CameraInfo>::SharedPtr pub_info_;

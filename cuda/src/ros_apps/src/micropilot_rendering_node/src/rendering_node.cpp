@@ -266,9 +266,26 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
     set_look_sub_ = create_subscription<std_msgs::msg::Float64MultiArray>(
         "~/set_look", 10,
         std::bind(&RenderingNode::on_set_look, this, std::placeholders::_1));
-    // ~/vcam_state: [eye xyz | target xyz | active_preset (0 = free look)],
-    // published each render tick as telemetry for external UIs.
+    // ~/vcam_state: [eye xyz | target xyz | active_preset (0 = free look) |
+    // render_mode], published each render tick as telemetry for external UIs.
     pub_vcam_state_ = create_publisher<std_msgs::msg::Float64MultiArray>("~/vcam_state", 1);
+
+    // ~/set_render_mode: 1 = bowl-only, 2 = pointcloud hybrid (view switch
+    // from the WS bridge / GUI; hybrid falls back to bowl without a cloud).
+    set_mode_sub_ = create_subscription<std_msgs::msg::Int32>(
+        "~/set_render_mode", 10,
+        [this](const std_msgs::msg::Int32::SharedPtr msg)
+        {
+            if (msg->data != 1 && msg->data != 2)
+            {
+                RCLCPP_WARN(get_logger(), "set_render_mode: expected 1 (bowl) or 2 "
+                            "(pointcloud), got %d", msg->data);
+                return;
+            }
+            render_mode_ = msg->data;
+            RCLCPP_INFO(get_logger(), "render mode -> %s",
+                        render_mode_ == 1 ? "bowl" : "pointcloud");
+        });
 
     // ── per-camera state ─────────────────────────────────────────────────────
     per_cam_.resize(n_cameras_);
@@ -555,7 +572,8 @@ void RenderingNode::timer_callback()
     std_msgs::msg::Float64MultiArray state;
     state.data = {cur_.eye[0],    cur_.eye[1],    cur_.eye[2],
                   cur_.target[0], cur_.target[1], cur_.target[2],
-                  static_cast<double>(active_preset_)};
+                  static_cast<double>(active_preset_),
+                  static_cast<double>(render_mode_)};
     pub_vcam_state_->publish(state);
 
     // ── frame-sync gate ───────────────────────────────────────────────────────
@@ -660,7 +678,7 @@ void RenderingNode::timer_callback()
     // images/extrinsics just uploaded, then hybrid (splat over bowl fallback).
     // Points refresh at lidar rate; colors refresh every render tick.
     bool have_cloud = false;
-    if (cloud_sub_)
+    if (cloud_sub_ && render_mode_ == 2)
     {
         std::lock_guard<std::mutex> lk(cloud_mtx_);
         if (!cloud_pts_.empty())
@@ -877,6 +895,7 @@ RenderingNode::CallbackReturn RenderingNode::on_cleanup(const rclcpp_lifecycle::
     pub_vcam_state_.reset();
     set_vcam_srv_.reset();
     set_look_sub_.reset();
+    set_mode_sub_.reset();
     return CallbackReturn::SUCCESS;
 }
 
@@ -887,6 +906,7 @@ RenderingNode::CallbackReturn RenderingNode::on_shutdown(const rclcpp_lifecycle:
     reprojector_.reset();
     set_vcam_srv_.reset();
     set_look_sub_.reset();
+    set_mode_sub_.reset();
     return CallbackReturn::SUCCESS;
 }
 

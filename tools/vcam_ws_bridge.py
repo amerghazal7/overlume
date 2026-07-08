@@ -8,8 +8,10 @@ third-party client — can drive the virtual camera:
   client -> server:
     {"cmd": "set_look", "eye": [x,y,z], "target": [x,y,z]}   (rig frame, m)
     {"cmd": "set_preset", "preset": 1..5}
+    {"cmd": "set_render_mode", "mode": "bowl" | "pointcloud"}  (also 1 | 2)
   server -> client:
-    {"type": "state", "eye": [...], "target": [...], "preset": 0..5}  (~15 Hz)
+    {"type": "state", "eye": [...], "target": [...], "preset": 0..5,
+     "render_mode": 1|2}  (~15 Hz)
     {"type": "ack", "cmd": "set_preset", "success": bool, "active": str}
     {"type": "error", "message": str}
 
@@ -29,12 +31,14 @@ import threading
 
 STATE_HZ = 15.0
 PRESET_RANGE = (1, 5)
+RENDER_MODES = {"bowl": 1, "pointcloud": 2, 1: 1, 2: 2}
 
 
 def parse_cmd(text: str):
     """Validate one inbound JSON command.
 
-    Returns ("set_look", (eye, target)) or ("set_preset", preset).
+    Returns ("set_look", (eye, target)), ("set_preset", preset) or
+    ("set_render_mode", mode 1|2).
     Raises ValueError on anything malformed — the caller answers with an
     {"type":"error"} frame instead of touching ROS.
     """
@@ -59,13 +63,18 @@ def parse_cmd(text: str):
             raise ValueError(
                 f"set_preset: preset must be an int {PRESET_RANGE[0]}..{PRESET_RANGE[1]}")
         return "set_preset", p
+    if cmd == "set_render_mode":
+        m = msg.get("mode")
+        if isinstance(m, bool) or m not in RENDER_MODES:
+            raise ValueError('set_render_mode: mode must be "bowl", "pointcloud", 1 or 2')
+        return "set_render_mode", RENDER_MODES[m]
     raise ValueError(f"unknown cmd {cmd!r}")
 
 
 def main() -> int:
     import rclpy
     from rclpy.node import Node
-    from std_msgs.msg import Float64MultiArray
+    from std_msgs.msg import Float64MultiArray, Int32
     from micropilot_rendering_node.srv import SetVirtualCam
     import websockets
 
@@ -80,6 +89,8 @@ def main() -> int:
             self.state: list[float] | None = None  # [eye3, target3, preset]
             self._pub_look = self.create_publisher(
                 Float64MultiArray, "/rendering_node/set_look", 10)
+            self._pub_mode = self.create_publisher(
+                Int32, "/rendering_node/set_render_mode", 10)
             self._cli = self.create_client(
                 SetVirtualCam, "/rendering_node/set_virtual_cam")
             self.create_subscription(
@@ -92,6 +103,11 @@ def main() -> int:
             m = Float64MultiArray()
             m.data = [*eye, *target]
             self._pub_look.publish(m)
+
+        def set_render_mode(self, mode: int):
+            m = Int32()
+            m.data = mode
+            self._pub_mode.publish(m)
 
         def set_preset_async(self, preset: int):
             """Returns an rclpy Future, or None if the service is unavailable."""
@@ -124,6 +140,8 @@ def main() -> int:
                     continue
                 if cmd == "set_look":
                     node.set_look(*payload)
+                elif cmd == "set_render_mode":
+                    node.set_render_mode(payload)
                 else:  # set_preset
                     fut = node.set_preset_async(payload)
                     if fut is None:
@@ -159,7 +177,8 @@ def main() -> int:
             frame = json.dumps({
                 "type": "state",
                 "eye": s[0:3], "target": s[3:6],
-                "preset": int(s[6]) if len(s) > 6 else 0})
+                "preset": int(s[6]) if len(s) > 6 else 0,
+                "render_mode": int(s[7]) if len(s) > 7 else 2})
             await asyncio.gather(
                 *(ws.send(frame) for ws in list(clients)), return_exceptions=True)
 
