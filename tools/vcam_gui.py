@@ -95,24 +95,26 @@ def pose_to_rt(x, y, z, yaw, pitch, roll):
     return [float(v) for v in R.reshape(-1)] + [float(x), float(y), float(z)]
 
 
-# (label, lo, hi, step, digits) for the render-tunable scalars
+# (label, lo, hi, step, digits) for the render-tunable scalars.
+# Bounds are deliberately loose — they only guard against nonsense (negative
+# radii), not taste; tune freely and judge by the render.
 RENDER_SPINS = [
-    ("bowl_R0", 1.0, 40.0, 0.5, 1),
-    ("bowl_k", 0.0, 0.5, 0.005, 3),
-    ("bowl_Rmax", 5.0, 80.0, 1.0, 0),
-    ("feather_margin", 1.0, 800.0, 10.0, 0),
-    ("virtual_vfov_deg", 30.0, 120.0, 1.0, 0),
-    ("max_sync_latency", 0.02, 0.6, 0.01, 2),
-    ("splat_radius", 0.0, 6.0, 1.0, 0),
+    ("bowl_R0", 0.1, 500.0, 0.5, 2),
+    ("bowl_k", 0.0, 10.0, 0.01, 3),
+    ("bowl_Rmax", 0.5, 1000.0, 1.0, 1),
+    ("feather_margin", 0.0, 5000.0, 10.0, 0),
+    ("virtual_vfov_deg", 5.0, 175.0, 1.0, 1),
+    ("max_sync_latency", 0.0, 10.0, 0.01, 2),
+    ("splat_radius", 0.0, 30.0, 1.0, 0),
 ]
 RENDER_BOOLS = ["fill_blind_zone", "exposure_match"]
 POSE_SPINS = [  # (key, lo, hi, step, digits)
-    ("x", -3.0, 3.0, 0.01, 3),
-    ("y", -3.0, 3.0, 0.01, 3),
-    ("z", 0.0, 3.0, 0.01, 3),
+    ("x", -10.0, 10.0, 0.01, 3),
+    ("y", -10.0, 10.0, 0.01, 3),
+    ("z", -10.0, 10.0, 0.01, 3),
     ("yaw", -180.0, 180.0, 0.1, 2),
     ("pitch", -90.0, 90.0, 0.1, 2),
-    ("roll", -30.0, 30.0, 0.1, 2),
+    ("roll", -180.0, 180.0, 0.1, 2),
 ]
 
 
