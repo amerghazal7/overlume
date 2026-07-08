@@ -37,6 +37,13 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
     // Frame-sync window (s): render only when all cameras have a new frame whose
     // header stamps span <= this. ~10 fps cameras -> ~0.10 s period.
     max_sync_latency_ = declare_parameter<double>("max_sync_latency", 0.12);
+    // Odometry topic for ego-motion time compensation ("" disables). The real
+    // cameras free-run with stable phase offsets (~80 ms spread on m2o1); while
+    // driving that bakes up to ~0.5 m of robot travel into every stitched frame,
+    // which looks like a static calibration error. With odometry, each camera's
+    // extrinsic is advanced by the rig twist over (t_newest - t_cam) so all
+    // cameras project from a common reference time.
+    odom_topic_ = declare_parameter<std::string>("odom_topic", "");
     // Sky fill for unseen-above-bowl pixels (keeps the horizon natural, not black).
     auto sky = declare_parameter<std::vector<double>>("sky_color", {0.53, 0.70, 0.92});
     if (sky.size() == 3)
@@ -57,6 +64,23 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
     // enabling (a wrong origin masks REAL scene, which is far worse than the
     // body smear it removes).
     self_view_masks_ = declare_parameter<bool>("self_view_masks", false);
+
+    // Lidar point cloud for hybrid rendering ("" disables -> bowl-only).
+    // pointcloud_transform maps cloud-frame points into the rig frame
+    // [R(9 row-major)|t(3)] — on m2o1 the fused cloud is in the calib ego
+    // (top-lidar) frame, so it needs the same +z ground offset the camera
+    // extrinsics have baked in.
+    pointcloud_topic_ = declare_parameter<std::string>("pointcloud_topic", "");
+    auto pc_tf = declare_parameter<std::vector<double>>(
+        "pointcloud_transform", {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0});
+    if (pc_tf.size() != 12)
+    {
+        RCLCPP_ERROR(get_logger(), "pointcloud_transform must be 12 floats [R(9)|t(3)], got %zu",
+                     pc_tf.size());
+        return CallbackReturn::FAILURE;
+    }
+    for (int i = 0; i < 12; ++i) pointcloud_tf_[i] = static_cast<float>(pc_tf[i]);
+    splat_radius_ = static_cast<int>(declare_parameter<int>("splat_radius", 2));
 
     // Virtual camera: 12-float row-major [R(3x3 row-major) | t(3)].
     // Default: identity rotation, camera 4 m above origin looking down.
@@ -324,6 +348,75 @@ RenderingNode::CallbackReturn RenderingNode::on_activate(const rclcpp_lifecycle:
             });
     }
 
+    // ── odometry subscription (ego-motion time compensation) ─────────────────
+    if (!odom_topic_.empty())
+    {
+        odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+            odom_topic_, rclcpp::SensorDataQoS(),
+            [this](const nav_msgs::msg::Odometry::SharedPtr msg)
+            {
+                // Odometry twist is expressed in child_frame_id (the body frame,
+                // REP-103 x-fwd / y-left / z-up) — matches the rig frame.
+                StampedTwist tw;
+                tw.t = rclcpp::Time(msg->header.stamp).seconds();
+                tw.vx = msg->twist.twist.linear.x;
+                tw.vy = msg->twist.twist.linear.y;
+                tw.wz = msg->twist.twist.angular.z;
+                std::lock_guard<std::mutex> lk(odom_mtx_);
+                twists_.push_back(tw);
+                while (!twists_.empty() && tw.t - twists_.front().t > 2.0)
+                    twists_.pop_front();
+            });
+        RCLCPP_INFO(get_logger(), "ego-motion compensation enabled (odom: %s)",
+                    odom_topic_.c_str());
+    }
+
+    // ── lidar point-cloud subscription (hybrid rendering) ────────────────────
+    if (!pointcloud_topic_.empty())
+    {
+        cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
+            pointcloud_topic_, rclcpp::SensorDataQoS(),
+            [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg)
+            {
+                // Locate float32 x/y/z field offsets (layout is declared per msg).
+                int ox = -1, oy = -1, oz = -1;
+                for (const auto& f : msg->fields)
+                {
+                    if (f.datatype != sensor_msgs::msg::PointField::FLOAT32) continue;
+                    if (f.name == "x") ox = static_cast<int>(f.offset);
+                    else if (f.name == "y") oy = static_cast<int>(f.offset);
+                    else if (f.name == "z") oz = static_cast<int>(f.offset);
+                }
+                if (ox < 0 || oy < 0 || oz < 0)
+                {
+                    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                                         "point cloud lacks float32 x/y/z fields; ignoring");
+                    return;
+                }
+                const float* T = pointcloud_tf_;
+                size_t n = static_cast<size_t>(msg->width) * msg->height;
+                std::vector<float> pts;
+                pts.reserve(n * 3);
+                const uint8_t* base = msg->data.data();
+                for (size_t p = 0; p < n; ++p)
+                {
+                    const uint8_t* rec = base + p * msg->point_step;
+                    float x, y, z;
+                    std::memcpy(&x, rec + ox, 4);
+                    std::memcpy(&y, rec + oy, 4);
+                    std::memcpy(&z, rec + oz, 4);
+                    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) continue;
+                    pts.push_back(T[0] * x + T[1] * y + T[2] * z + T[9]);
+                    pts.push_back(T[3] * x + T[4] * y + T[5] * z + T[10]);
+                    pts.push_back(T[6] * x + T[7] * y + T[8] * z + T[11]);
+                }
+                std::lock_guard<std::mutex> lk(cloud_mtx_);
+                cloud_pts_.swap(pts);
+            });
+        RCLCPP_INFO(get_logger(), "hybrid rendering enabled (point cloud: %s)",
+                    pointcloud_topic_.c_str());
+    }
+
     // ── render timer @ 30 Hz ─────────────────────────────────────────────────
     using namespace std::chrono_literals;
     timer_ = create_wall_timer(33ms, [this]() { timer_callback(); });
@@ -365,6 +458,68 @@ void RenderingNode::generate_self_masks()
     reprojector_->upload_self_masks(masks.data(), n_cameras_, H, W);
     RCLCPP_INFO(get_logger(), "self-view masks: %ld body pixels masked across %d cameras",
                 total, n_cameras_);
+}
+
+// ── Ego-motion time compensation ─────────────────────────────────────────────
+bool RenderingNode::twist_at(double t, StampedTwist& out)
+{
+    std::lock_guard<std::mutex> lk(odom_mtx_);
+    if (twists_.empty()) return false;
+    if (t <= twists_.front().t) { out = twists_.front(); return true; }
+    if (t >= twists_.back().t) { out = twists_.back(); return true; }
+    for (size_t i = 1; i < twists_.size(); ++i)
+    {
+        if (twists_[i].t < t) continue;
+        const auto& a = twists_[i - 1];
+        const auto& b = twists_[i];
+        double w = (t - a.t) / std::max(b.t - a.t, 1e-9);
+        out.t = t;
+        out.vx = a.vx + (b.vx - a.vx) * w;
+        out.vy = a.vy + (b.vy - a.vy) * w;
+        out.wz = a.wz + (b.wz - a.wz) * w;
+        return true;
+    }
+    out = twists_.back();
+    return true;
+}
+
+micropilot::rendering::CameraParams RenderingNode::compensate(
+    const micropilot::rendering::CameraParams& cp, double t_cam, double t_ref)
+{
+    // Integrate the planar body twist from t_cam to t_ref -> rig pose delta D
+    // (pose of rig(t_ref) expressed in the rig(t_cam) frame). The frame that was
+    // captured at t_cam must be projected from the camera's pose expressed in
+    // the rig(t_ref) frame: X' = D^-1 * X, i.e. R' = Rd^T R, t' = Rd^T (t - pd).
+    // Signed-dt Euler steps handle t_cam on either side of t_ref.
+    const double span = t_ref - t_cam;
+    micropilot::rendering::CameraParams out = cp;
+    if (std::abs(span) < 1e-4) return out;
+    const int n = std::max(1, static_cast<int>(std::ceil(std::abs(span) / 0.005)));
+    const double dt = span / n;
+    double th = 0.0, px = 0.0, py = 0.0;
+    for (int i = 0; i < n; ++i)
+    {
+        StampedTwist tw;
+        if (!twist_at(t_cam + (i + 0.5) * dt, tw)) return out;
+        const double c = std::cos(th), s = std::sin(th);
+        px += (c * tw.vx - s * tw.vy) * dt;
+        py += (s * tw.vx + c * tw.vy) * dt;
+        th += tw.wz * dt;
+    }
+    // Rd = Rz(th): rotation of rig(t_ref) in rig(t_cam); pd = (px, py).
+    const double c = std::cos(th), s = std::sin(th);
+    // t' = Rd^T (t - pd)
+    const double tx = cp.t[0] - px, ty = cp.t[1] - py;
+    out.t[0] = static_cast<float>(c * tx + s * ty);
+    out.t[1] = static_cast<float>(-s * tx + c * ty);
+    // R' = Rd^T R (row-major 3x3; Rz^T only mixes rows 0 and 1)
+    for (int col = 0; col < 3; ++col)
+    {
+        const double r0 = cp.R[col], r1 = cp.R[3 + col];
+        out.R[col] = static_cast<float>(c * r0 + s * r1);
+        out.R[3 + col] = static_cast<float>(-s * r0 + c * r1);
+    }
+    return out;
 }
 
 void RenderingNode::timer_callback()
@@ -443,14 +598,27 @@ void RenderingNode::timer_callback()
     std::vector<micropilot::rendering::CameraParams> scaled_params(n_cameras_);
     bool any_dirty = false;
 
+    // Ego-motion compensation is active once odometry is flowing; each camera's
+    // extrinsic is advanced to the newest stamp in the synced set (t_max).
+    bool compensate_motion = false;
+    if (!odom_topic_.empty())
+    {
+        std::lock_guard<std::mutex> lk(odom_mtx_);
+        compensate_motion = !twists_.empty();
+    }
+
     for (int i = 0; i < n_cameras_; ++i)
     {
         // I3: hold the per-camera lock while reading both image and cam_params_[i]
         // so width/height/K are consistent with the image that was received.
         std::lock_guard<std::mutex> lk(*per_cam_[i].mtx);
 
-        // Build rescaled CameraParams: copy extrinsics, then overwrite w/h/K.
-        scaled_params[i] = cam_params_[i];
+        // Build rescaled CameraParams: copy extrinsics (ego-motion-compensated
+        // to the common reference time when enabled), then overwrite w/h/K.
+        scaled_params[i] = compensate_motion
+                               ? compensate(cam_params_[i], per_cam_[i].stamp.seconds(),
+                                            t_max.seconds())
+                               : cam_params_[i];
         int info_w = cam_params_[i].width;
         int info_h = cam_params_[i].height;
         float sx = (info_w > 0) ? static_cast<float>(W) / info_w : 1.0f;
@@ -482,15 +650,31 @@ void RenderingNode::timer_callback()
         img_dirty_[i] = false;
     }
 
-    if (any_dirty)
-    {
+    if (any_dirty || compensate_motion)
         reprojector_->set_cameras(scaled_params);
+    if (any_dirty)
         reprojector_->upload_images(nhwc.data(), n_cameras_, H, W);
-    }
 
     // ── render ───────────────────────────────────────────────────────────────
+    // With a lidar cloud buffered: colorize the latest points against the
+    // images/extrinsics just uploaded, then hybrid (splat over bowl fallback).
+    // Points refresh at lidar rate; colors refresh every render tick.
+    bool have_cloud = false;
+    if (cloud_sub_)
+    {
+        std::lock_guard<std::mutex> lk(cloud_mtx_);
+        if (!cloud_pts_.empty())
+        {
+            reprojector_->upload_points(cloud_pts_.data(), cloud_pts_.size() / 3,
+                                        bowl_.feather_margin);
+            have_cloud = true;
+        }
+    }
     std::vector<float> out_rgba(static_cast<size_t>(out_width_) * out_height_ * 4);
-    reprojector_->render_bowl(vcam_, bowl_, out_rgba.data());
+    if (have_cloud)
+        reprojector_->render_hybrid(vcam_, bowl_, splat_radius_, out_rgba.data());
+    else
+        reprojector_->render_bowl(vcam_, bowl_, out_rgba.data());
 
     // ── convert float RGBA → rgb8 ─────────────────────────────────────────
     cv::Mat out_rgb(out_height_, out_width_, CV_8UC3);
@@ -657,6 +841,16 @@ void RenderingNode::teardown_active()
     timer_.reset();
     img_subs_.clear();
     info_subs_.clear();
+    odom_sub_.reset();
+    cloud_sub_.reset();
+    {
+        std::lock_guard<std::mutex> lk(cloud_mtx_);
+        cloud_pts_.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lk(odom_mtx_);
+        twists_.clear();
+    }
 }
 
 RenderingNode::CallbackReturn RenderingNode::on_deactivate(

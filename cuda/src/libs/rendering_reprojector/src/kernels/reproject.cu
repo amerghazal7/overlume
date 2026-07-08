@@ -78,6 +78,61 @@ __global__ void bowl_kernel(float* out, int OW, int OH, const float* images, con
     }
 }
 
+// Colorize rig-frame points from the camera images: the bowl kernel's
+// per-camera loop (distortion, bounds, feather x alignment^2 weight) applied
+// to an explicit point instead of a ray-surface hit. Uncovered points get
+// cols = (-1,-1,-1) so the splat pass skips them.
+__global__ void colorize_kernel(float* cols, const float* pts, int npts, const float* images,
+                                const CamDev* cams, int ncam, float feather_margin)
+{
+    int p = blockIdx.x * blockDim.x + threadIdx.x;
+    if (p >= npts) return;
+    float3 P = make_float3(pts[p * 3], pts[p * 3 + 1], pts[p * 3 + 2]);
+    float ar = 0, ag = 0, ab = 0, wsum = 0;
+    for (int i = 0; i < ncam; ++i)
+    {
+        CamDev c = cams[i];
+        float3 rel = vsub(P, c.t);
+        float z = vdot(c.fwd, rel);
+        if (z <= 1e-9f) continue;
+        float xn = vdot(c.right, rel) / z;
+        float yn = vdot(c.down, rel) / z;
+        if (c.k1 != 0.0f || c.k2 != 0.0f || c.p1 != 0.0f || c.p2 != 0.0f || c.k3 != 0.0f)
+        {
+            float r2 = xn * xn + yn * yn;
+            if (r2 > 3.0f) continue;
+            float radial = 1.0f + r2 * (c.k1 + r2 * (c.k2 + r2 * c.k3));
+            float xd = xn * radial + 2.0f * c.p1 * xn * yn + c.p2 * (r2 + 2.0f * xn * xn);
+            float yd = yn * radial + c.p1 * (r2 + 2.0f * yn * yn) + 2.0f * c.p2 * xn * yn;
+            xn = xd; yn = yd;
+        }
+        float xp = c.fx * xn + c.cx;
+        float yp = c.fy * yn + c.cy;
+        if (xp < 0 || xp > c.w - 1 || yp < 0 || yp > c.h - 1) continue;
+        float r, g, b;
+        bilinear(images + (size_t)i * c.w * c.h * 3, c.w, c.h, xp, yp, r, g, b);
+        float align = fmaxf(0.0f, fminf(1.0f, vdot(vnorm(rel), c.fwd)));
+        float w = border_feather(xp, yp, c.w, c.h, feather_margin) * align * align;
+        ar += w * r; ag += w * g; ab += w * b; wsum += w;
+    }
+    if (wsum > 0.0f)
+    {
+        cols[p * 3] = ar / wsum; cols[p * 3 + 1] = ag / wsum; cols[p * 3 + 2] = ab / wsum;
+    }
+    else
+    {
+        cols[p * 3] = -1.0f; cols[p * 3 + 1] = -1.0f; cols[p * 3 + 2] = -1.0f;
+    }
+}
+
+void launch_colorize(float* d_cols, const float* d_pts, int npts, const float* d_images,
+                     const CamDev* d_cams, int ncam, float feather_margin)
+{
+    int t = 256;
+    colorize_kernel<<<(npts + t - 1) / t, t>>>(d_cols, d_pts, npts, d_images, d_cams, ncam,
+                                               feather_margin);
+}
+
 // One Jacobi step of blind-zone fill: an unfilled hole pixel (alpha == 0.5)
 // takes the average color of its valid (alpha == 1) 8-neighbours and becomes
 // valid; everything else passes through. Ping-pong src -> dst.

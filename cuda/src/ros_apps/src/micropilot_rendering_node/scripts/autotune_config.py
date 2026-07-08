@@ -36,7 +36,7 @@ from tpsprojector.transforms import look_at
 DEF_NAMES = ["fl_camera", "fm_camera", "fr_camera", "bl_camera", "bm_camera", "br_camera"]
 CARLA_NAME_MAP = {  # live name -> CARLA spawn name (if different); identity by default
 }
-CALIB_NAME_MAP = {  # live topic name -> real-robot calib entry (m2o1_calib.yaml keys)
+CALIB_NAME_MAP = {  # live topic name -> real-robot calib entry (cams_calib.yaml keys)
     "fl_camera": "front_left_camera",
     "fm_camera": "front_camera",
     "fr_camera": "front_right_camera",
@@ -72,12 +72,13 @@ def extrinsics_calib(path, names, ground_offset, name_map):
     """sensors_extrinsic_calib.yaml camera_to_ego 4x4 -> [R, t] (+ optional z offset).
 
     The calib ego frame IS rig-convention (x-fwd / y-left / z-up; cameras come
-    out upright with headings/sides matching their names) but its ORIGIN is a
-    sensor frame ~1 m above ground (top lidar), NOT base_link — so camera z's
-    are negative as parsed and the ground offset is large (+~0.97 on m2o1,
-    found by the --ground-z sweep, which is bounded by the robot's physical
-    height). Do NOT axis-flip: a diag(1,-1,-1) "fix" renders the world
-    upside-down while keeping cameras mutually consistent (2026-07-07)."""
+    out upright with headings/sides matching their names) but its ORIGIN is the
+    VERTICAL CENTER of the robot body, NOT base_link — so camera z's are
+    negative as parsed and a ground offset is needed. For m2o1 / cams_calib.yaml
+    the body bottom sits 0.22 m above ground and the body is ~1.05 m tall, so
+    --ground-z 0.75 (= 0.22 + body/2); the metric sweep minimum (~0.80) agrees
+    to within a few cm. Do NOT axis-flip: a diag(1,-1,-1) "fix" renders the
+    world upside-down while keeping cameras mutually consistent (2026-07-07)."""
     cal = yaml.safe_load(open(path))
     out = []
     for n in names:
@@ -213,6 +214,10 @@ def main():
     # camera overlap (1440px @ 120deg HFOV, >=50deg overlap -> ~480px ~= 30deg).
     ap.add_argument("--feather", type=float, default=480.0)
     ap.add_argument("--ground-offset", type=float, default=0.0)
+    ap.add_argument("--odom-topic", default="",
+                    help="nav_msgs/Odometry topic for the node's ego-motion time "
+                         "compensation ('' disables); real robots with free-running "
+                         "cameras need this while driving (e.g. /fixposition/odometry_enu)")
     ap.add_argument("--coverage-floor", type=float, default=0.90)
     ap.add_argument("--max-sync-latency", type=float, default=0.12)
     ap.add_argument("--ground-z", default="auto",
@@ -227,14 +232,22 @@ def main():
     a = ap.parse_args()
     names = a.names.split(",")
 
-    # 1. frames + K
-    if a.frames:
+    # 1. frames + K (--frames caches the capture: loads if the npz exists,
+    # otherwise captures live and saves — lets param sweeps reuse one frame set)
+    if a.frames and os.path.exists(a.frames):
         d = np.load(a.frames)
         imgs = {n: d[f"img_{n}"] for n in names}
         Ks = {n: d[f"K_{n}"] for n in names}
-        Ds = {n: None for n in names}
+        Ds = {n: (d[f"D_{n}"] if f"D_{n}" in d.files else None) for n in names}
     else:
         imgs, Ks, Ds = capture_live(names)
+        if a.frames:
+            np.savez_compressed(
+                a.frames,
+                **{f"img_{n}": imgs[n] for n in names},
+                **{f"K_{n}": Ks[n] for n in names},
+                **{f"D_{n}": Ds[n] for n in names if Ds[n] is not None})
+            print(f"WROTE frames -> {a.frames}")
     H, W = imgs[names[0]].shape[:2]
 
     # 2. extrinsics
@@ -351,6 +364,7 @@ def main():
         "n_cameras": len(names),
         "out_width": OW, "out_height": OH,
         "max_sync_latency": a.max_sync_latency,
+        "odom_topic": a.odom_topic,
         "bowl_R0": float(R0), "bowl_k": float(k), "bowl_Rmax": float(Rmax),
         "feather_margin": float(a.feather),
         "fill_blind_zone": True,

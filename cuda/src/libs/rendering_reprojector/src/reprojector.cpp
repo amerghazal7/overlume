@@ -283,6 +283,25 @@ void Reprojector::upload_depth(const float* nhw, int n, int h, int w)
     }
 }
 
+void Reprojector::upload_points(const float* xyz, std::size_t n, float feather_margin)
+{
+    // Colorization needs camera images + calibrations already on device.
+    if (n == 0 || impl_->img_n == 0 || impl_->cams.empty())
+    {
+        impl_->npts = 0;
+        return;
+    }
+    impl_->npts = static_cast<int>(n);
+    size_t bytes = n * 3 * sizeof(float);
+    impl_->ensure_bytes(reinterpret_cast<void**>(&impl_->d_pts), impl_->d_pts_cap, bytes);
+    impl_->ensure_bytes(reinterpret_cast<void**>(&impl_->d_cols), impl_->d_cols_cap, bytes);
+    CUDA_CHECK(cudaMemcpy(impl_->d_pts, xyz, bytes, cudaMemcpyHostToDevice));
+    impl_->sync_cams();
+    launch_colorize(impl_->d_cols, impl_->d_pts, impl_->npts, impl_->d_images, impl_->d_cams,
+                    static_cast<int>(impl_->cams.size()), feather_margin);
+    CUDA_CHECK(cudaGetLastError());
+}
+
 void Reprojector::upload_robot_mesh(const float* verts, const float* cols, std::size_t n_tris)
 {
     impl_->n_rtris = static_cast<int>(n_tris);

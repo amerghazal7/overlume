@@ -10,17 +10,20 @@
  */
 
 #include <array>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include <nav_msgs/msg/odometry.hpp>
 #include <opencv2/core.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 
 #include "rendering_reprojector/mesh_loader.hpp"
@@ -104,6 +107,14 @@ private:
     // Render only when all cameras have a new frame whose stamps fall within this
     // window (seconds). Prevents stitching temporally-misaligned async frames.
     double max_sync_latency_{0.12};
+    // ── ego-motion time compensation ─────────────────────────────────────────
+    // The real cameras free-run with stable phase offsets (~80 ms spread on
+    // m2o1). While driving, each camera then projects the ground from where the
+    // robot WAS at its own stamp — up to ~0.5 m apart — which reads as a static
+    // "calibration" misalignment. If odom_topic is set, each camera's extrinsic
+    // is advanced by the rig's odometry twist over (t_ref - t_cam) before
+    // upload, so all cameras project from a common reference time.
+    std::string odom_topic_;
     // Fill color for genuinely-unseen pixels (above the bowl rim) — sky, not black,
     // so the teleop driving view shows a natural horizon. RGB in [0,1].
     float sky_color_[3]{0.53f, 0.70f, 0.92f};
@@ -130,6 +141,36 @@ private:
     // subscriptions (active only while ACTIVE)
     std::vector<rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr> img_subs_;
     std::vector<rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr> info_subs_;
+
+    // ── odometry twist buffer (ego-motion time compensation) ────────────────
+    // Small ring of recent body twists; twist_at() interpolates the planar
+    // (vx, vy, wz) twist at an arbitrary stamp. Guarded by odom_mtx_.
+    struct StampedTwist
+    {
+        double t;         // stamp (s)
+        double vx, vy;    // body-frame linear velocity (m/s), x-fwd / y-left
+        double wz;        // body-frame yaw rate (rad/s), +z up
+    };
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+    std::deque<StampedTwist> twists_;
+    std::mutex odom_mtx_;
+    /// Interpolated planar twist at stamp t (clamps to buffer ends); false if empty.
+    bool twist_at(double t, StampedTwist& out);
+    /// cam extrinsic advanced by the rig motion over [t_cam, t_ref].
+    micropilot::rendering::CameraParams compensate(
+        const micropilot::rendering::CameraParams& cp, double t_cam, double t_ref);
+
+    // ── lidar point cloud (hybrid rendering) ─────────────────────────────────
+    // If pointcloud_topic_ is set, points are transformed into the rig frame
+    // via pointcloud_tf_, colorized on the GPU from the camera images, and
+    // splatted over the bowl (render_hybrid) — parallax-correct for objects
+    // above the ground that the bowl alone smears.
+    std::string pointcloud_topic_;
+    float pointcloud_tf_[12] = {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};  // [R(9)|t(3)]
+    int splat_radius_{2};
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
+    std::vector<float> cloud_pts_;  // rig-frame xyz flat; guarded by cloud_mtx_
+    std::mutex cloud_mtx_;
 
     rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::Image>::SharedPtr pub_image_;
     rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::CameraInfo>::SharedPtr pub_info_;

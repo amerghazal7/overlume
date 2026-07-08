@@ -16,10 +16,11 @@ __global__ void zbuf_init(unsigned long long* zbuf, int n)
 }
 
 __global__ void splat_kernel(unsigned long long* zbuf, int OW, int OH, const float* pts,
-                             int npts, CamDev v, int radius)
+                             const float* cols, int npts, CamDev v, int radius)
 {
     int p = blockIdx.x * blockDim.x + threadIdx.x;
     if (p >= npts) return;
+    if (cols[p * 3] < 0.0f) return;  // uncovered point (no camera color) — skip
     float3 P = make_float3(pts[p * 3], pts[p * 3 + 1], pts[p * 3 + 2]);
     float3 rel = vsub(P, v.t);
     float z = vdot(v.fwd, rel);
@@ -64,7 +65,8 @@ void launch_splat(unsigned long long* d_zbuf, float* d_out, int OW, int OH, cons
 {
     int n = OW * OH, t = 256;
     zbuf_init<<<(n + t - 1) / t, t>>>(d_zbuf, n);
-    splat_kernel<<<(npts + t - 1) / t, t>>>(d_zbuf, OW, OH, d_pts, npts, v, radius);
+    if (npts > 0)
+        splat_kernel<<<(npts + t - 1) / t, t>>>(d_zbuf, OW, OH, d_pts, d_cols, npts, v, radius);
     resolve_kernel<<<(n + t - 1) / t, t>>>(d_zbuf, d_cols, d_out, n, fr, fg, fb);
 }
 
