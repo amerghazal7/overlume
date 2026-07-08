@@ -63,6 +63,16 @@ PYBIND11_MODULE(tpscuda, m)
                 py::array_t<float, py::array::c_style | py::array::forcecast> a) {
                  r.upload_depth(a.data(), a.shape(0), a.shape(1), a.shape(2));
              })
+        .def("upload_points",
+             [](Reprojector& r,
+                py::array_t<float, py::array::c_style | py::array::forcecast> pts,
+                float feather_margin) {
+                 if (pts.ndim() != 2 || pts.shape(1) != 3)
+                     throw std::invalid_argument("upload_points expects (N,3) float xyz");
+                 r.upload_points(pts.data(), static_cast<std::size_t>(pts.shape(0)),
+                                 feather_margin);
+             },
+             py::arg("pts"), py::arg("feather_margin") = 30.0f)
         .def("upload_robot_mesh",
              [](Reprojector& r,
                 py::array_t<float, py::array::c_style | py::array::forcecast> verts,

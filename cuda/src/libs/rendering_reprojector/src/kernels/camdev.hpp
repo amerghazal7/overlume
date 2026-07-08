@@ -31,7 +31,15 @@ void launch_bowl(float* d_out, int OW, int OH, const float* d_images, const CamD
  *  Result ends in d_buf. Run BEFORE the robot overlay so it can't bleed in. */
 void launch_hole_fill(float* d_buf, float* d_scratch, int OW, int OH, int iters);
 
-/** Forward point-cloud splat with packed-atomicMin z-buffer (Task 4). */
+/** Colorize rig-frame points from the camera images: per point, project into
+ *  each camera (distortion-aware) and feather-blend, exactly like the bowl
+ *  kernel's per-pixel loop. Points no camera covers get cols = (-1,-1,-1),
+ *  which launch_splat treats as "skip". */
+void launch_colorize(float* d_cols, const float* d_pts, int npts, const float* d_images,
+                     const CamDev* d_cams, int ncam, float feather_margin);
+
+/** Forward point-cloud splat with packed-atomicMin z-buffer (Task 4).
+ *  Points whose d_cols r-component is negative are skipped (uncovered). */
 void launch_splat(unsigned long long* d_zbuf, float* d_out, int OW, int OH, const float* d_pts,
                   const float* d_cols, int npts, CamDev v, int radius, float fr, float fg,
                   float fb);

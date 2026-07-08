@@ -27,6 +27,14 @@ public:
     void upload_images(const float* nhwc, int n, int h, int w);
     void upload_depth(const float* nhw, int n, int h, int w);
 
+    /** Upload an explicit rig-frame point cloud (e.g. lidar): xyz = n*3 floats.
+     *  Points are colorized ON DEVICE from the already-uploaded camera images
+     *  (distortion-aware, feather-weighted — same blend as the bowl kernel);
+     *  points no camera covers are skipped by the splat pass. Call after
+     *  upload_images / set_cameras; n == 0 clears. Replaces any point cloud
+     *  built by upload_depth. */
+    void upload_points(const float* xyz, std::size_t n, float feather_margin = 30.0f);
+
     /** Upload the robot proxy mesh (persistent; call once). verts = n_tris*9
      *  rig-frame xyz, cols = n_tris*3 baked RGB (see mesh_loader.hpp).
      *  n_tris == 0 disables robot compositing. */
