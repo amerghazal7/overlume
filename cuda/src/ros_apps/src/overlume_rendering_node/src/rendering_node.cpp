@@ -294,6 +294,15 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
     per_cam_.resize(n_cameras_);
     img_dirty_.assign(n_cameras_, false);
 
+    // Path of the YAML this node was launched with (set by the launch file) —
+    // the WS bridge reads it to implement the GUI's "update config" save.
+    declare_parameter<std::string>("config_path", "");
+
+    // Live tuning: registered AFTER all declares so it only fires on updates
+    // (from the GUI panel via the WS bridge -> set_parameters service).
+    param_cb_ = add_on_set_parameters_callback(
+        std::bind(&RenderingNode::on_params, this, std::placeholders::_1));
+
     RCLCPP_INFO(get_logger(),
                 "on_configure() succeeded. n_cameras=%d out=%dx%d bowl(R0=%.2f k=%.3f Rmax=%.1f)",
                 n_cameras_, out_width_, out_height_, bowl_.R0, bowl_.k, bowl_.Rmax);
@@ -778,6 +787,68 @@ void RenderingNode::timer_callback()
         std::lock_guard<std::mutex> lk(*per_cam_[i].mtx);
         per_cam_[i].have_new = false;
     }
+}
+
+// ── Live parameter tuning ────────────────────────────────────────────────────
+rcl_interfaces::msg::SetParametersResult RenderingNode::on_params(
+    const std::vector<rclcpp::Parameter>& params)
+{
+    rcl_interfaces::msg::SetParametersResult res;
+    res.successful = true;
+    for (const auto& p : params)
+    {
+        const std::string& n = p.get_name();
+        try
+        {
+            if (n == "bowl_R0") bowl_.R0 = static_cast<float>(p.as_double());
+            else if (n == "bowl_k") bowl_.k = static_cast<float>(p.as_double());
+            else if (n == "bowl_Rmax") bowl_.Rmax = static_cast<float>(p.as_double());
+            else if (n == "feather_margin")
+                bowl_.feather_margin = static_cast<float>(p.as_double());
+            else if (n == "fill_blind_zone") bowl_.fill_blind_zone = p.as_bool();
+            else if (n == "exposure_match") bowl_.exposure_match = p.as_bool();
+            else if (n == "splat_radius") splat_radius_ = static_cast<int>(p.as_int());
+            else if (n == "max_sync_latency") max_sync_latency_ = p.as_double();
+            else if (n == "virtual_vfov_deg")
+            {
+                float fy = (out_height_ / 2.0f) /
+                           std::tan(static_cast<float>(p.as_double()) * 0.5f * M_PI / 180.0f);
+                vcam_.K[0] = fy;
+                vcam_.K[4] = fy;
+            }
+            else if (n == "sky_color")
+            {
+                auto v = p.as_double_array();
+                if (v.size() == 3)
+                    for (int i = 0; i < 3; ++i) sky_color_[i] = static_cast<float>(v[i]);
+            }
+            else if (n == "camera_extrinsics")
+            {
+                auto v = p.as_double_array();
+                if (static_cast<int>(v.size()) != n_cameras_ * 12)
+                {
+                    res.successful = false;
+                    res.reason = "camera_extrinsics must be n_cameras*12 floats";
+                    continue;
+                }
+                for (int i = 0; i < n_cameras_; ++i)
+                {
+                    std::lock_guard<std::mutex> lk(*per_cam_[i].mtx);
+                    for (int j = 0; j < 9; ++j)
+                        cam_params_[i].R[j] = static_cast<float>(v[i * 12 + j]);
+                    for (int j = 0; j < 3; ++j)
+                        cam_params_[i].t[j] = static_cast<float>(v[i * 12 + 9 + j]);
+                }
+            }
+            // other params: accept (stored by rclcpp) but nothing to apply live
+        }
+        catch (const std::exception& e)
+        {
+            res.successful = false;
+            res.reason = std::string("bad value for ") + n + ": " + e.what();
+        }
+    }
+    return res;
 }
 
 // ── Virtual-camera presets / eased switching ─────────────────────────────────

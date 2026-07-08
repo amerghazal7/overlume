@@ -25,6 +25,21 @@
     - 0.0
     - 0.0
     - 0.0
+    pointcloud_topic: /iv_points_fusion
+    pointcloud_transform:
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    - 0.0
+    - 0.0
+    - 1.15
+    splat_radius: 3
     virtual_vfov_deg: 65.0
     sky_color:
     - 0.53

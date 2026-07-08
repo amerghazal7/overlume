@@ -28,6 +28,8 @@ import math
 import queue
 import threading
 
+import numpy as np
+
 import gi
 
 gi.require_version("Gtk", "3.0")
@@ -51,6 +53,67 @@ def orbit_eye(az: float, el: float, dist: float) -> list[float]:
     return [dist * math.cos(el) * math.cos(az),
             dist * math.cos(el) * math.sin(az),
             dist * math.sin(el) + ORBIT_Z_OFFSET]
+
+
+# ── camera extrinsics <-> user-friendly pose ─────────────────────────────────
+# A camera row is 12 floats [R(9 row-major)|t(3)], R columns = optical
+# right/down/fwd in the rig frame (x-fwd, y-left, z-up). The panel edits it as
+# x/y/z (m) + yaw/pitch/roll (deg): yaw = heading of the optical axis, pitch =
+# its elevation, roll = rotation about it (0 = horizon level).
+CAM_NAMES_6 = ["fl", "fm", "fr", "bl", "bm", "br"]
+POSE_KEYS = ["x", "y", "z", "yaw", "pitch", "roll"]
+
+
+def _roll_basis(fwd):
+    r0 = np.cross(fwd, [0.0, 0.0, 1.0])
+    n = np.linalg.norm(r0)
+    if n < 1e-6:  # looking straight up/down
+        r0, n = np.array([0.0, -1.0, 0.0]), 1.0
+    r0 = r0 / n
+    return r0, np.cross(fwd, r0)
+
+
+def rt_to_pose(row):
+    R = np.array(row[:9], float).reshape(3, 3)
+    right, fwd = R[:, 0], R[:, 2]
+    yaw = math.degrees(math.atan2(fwd[1], fwd[0]))
+    pitch = math.degrees(math.asin(max(-1.0, min(1.0, float(fwd[2])))))
+    r0, d0 = _roll_basis(fwd)
+    roll = math.degrees(math.atan2(float(np.dot(right, d0)), float(np.dot(right, r0))))
+    return [row[9], row[10], row[11], yaw, pitch, roll]
+
+
+def pose_to_rt(x, y, z, yaw, pitch, roll):
+    cy, sy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+    cp, sp = math.cos(math.radians(pitch)), math.sin(math.radians(pitch))
+    fwd = np.array([cp * cy, cp * sy, sp])
+    r0, d0 = _roll_basis(fwd)
+    cr, sr = math.cos(math.radians(roll)), math.sin(math.radians(roll))
+    right = cr * r0 + sr * d0
+    down = np.cross(fwd, right)
+    R = np.stack([right, down, fwd], axis=1)
+    return [float(v) for v in R.reshape(-1)] + [float(x), float(y), float(z)]
+
+
+# (label, lo, hi, step, digits) for the render-tunable scalars
+RENDER_SPINS = [
+    ("bowl_R0", 1.0, 40.0, 0.5, 1),
+    ("bowl_k", 0.0, 0.5, 0.005, 3),
+    ("bowl_Rmax", 5.0, 80.0, 1.0, 0),
+    ("feather_margin", 1.0, 800.0, 10.0, 0),
+    ("virtual_vfov_deg", 30.0, 120.0, 1.0, 0),
+    ("max_sync_latency", 0.02, 0.6, 0.01, 2),
+    ("splat_radius", 0.0, 6.0, 1.0, 0),
+]
+RENDER_BOOLS = ["fill_blind_zone", "exposure_match"]
+POSE_SPINS = [  # (key, lo, hi, step, digits)
+    ("x", -3.0, 3.0, 0.01, 3),
+    ("y", -3.0, 3.0, 0.01, 3),
+    ("z", 0.0, 3.0, 0.01, 3),
+    ("yaw", -180.0, 180.0, 0.1, 2),
+    ("pitch", -90.0, 90.0, 0.1, 2),
+    ("roll", -30.0, 30.0, 0.1, 2),
+]
 
 
 class WsClient(threading.Thread):
@@ -78,9 +141,7 @@ class WsClient(threading.Thread):
                     sender = asyncio.ensure_future(self._sender(ws))
                     try:
                         async for text in ws:
-                            msg = json.loads(text)
-                            if msg.get("type") == "state":
-                                self.on_state(msg)
+                            self.on_state(json.loads(text))  # all frame types
                     finally:
                         sender.cancel()
             except (OSError, Exception):  # ponytail: reconnect on anything
@@ -90,15 +151,23 @@ class WsClient(threading.Thread):
 
     async def _sender(self, ws):
         loop = asyncio.get_running_loop()
+
+        def same_stream(a, b):
+            # bursts where only the newest value matters
+            if a.get("cmd") != b.get("cmd"):
+                return False
+            if a.get("cmd") == "set_look":
+                return True
+            return a.get("cmd") == "set_param" and a.get("name") == b.get("name")
+
         while True:
             obj = await loop.run_in_executor(None, self._q.get)
-            # coalesce a burst of drag events — only the newest pose matters
-            while obj.get("cmd") == "set_look" and not self._q.empty():
+            while obj.get("cmd") in ("set_look", "set_param") and not self._q.empty():
                 try:
                     nxt = self._q.get_nowait()
                 except queue.Empty:
                     break
-                if nxt.get("cmd") == "set_look":
+                if same_stream(obj, nxt):
                     obj = nxt
                 else:
                     await ws.send(json.dumps(obj))
@@ -109,7 +178,7 @@ class WsClient(threading.Thread):
 class VcamWindow(Gtk.Window):
     def __init__(self, ws_url: str, topic: str):
         super().__init__(title="TPSProjector — virtual cam")
-        self.set_default_size(1000, 640)
+        self.set_default_size(1340, 680)
         self.connect("destroy", self._quit)
 
         # latest telemetry + orbit state (prototype defaults)
@@ -155,17 +224,179 @@ class VcamWindow(Gtk.Window):
         vbox.pack_start(ebox, True, True, 0)
         vbox.pack_start(btns, False, False, 0)
         vbox.pack_start(self._status, False, False, 0)
-        self.add(vbox)
+
+        # ── live tuning panel (params from the node via the bridge) ──────────
+        self._loading = False          # True while populating widgets from node
+        self._param_spins = {}
+        self._param_switches = {}
+        self._pose_spins = {}
+        self._extrinsics: list[float] | None = None
+        panel = self._build_panel()
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.add(panel)
+        scroll.set_size_request(300, -1)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        outer.pack_start(vbox, True, True, 0)
+        outer.pack_start(scroll, False, False, 0)
+        self.add(outer)
 
         # ── websocket client ─────────────────────────────────────────────────
         self._ws = WsClient(
             ws_url,
-            on_state=lambda s: GLib.idle_add(self._apply_state, s),
+            on_state=lambda s: GLib.idle_add(self._on_ws_msg, s),
             on_conn=lambda ok: GLib.idle_add(self._apply_conn, ok))
         self._ws.start()
         self._connected = False
 
         self._pipeline.set_state(Gst.State.PLAYING)
+
+    # ── tuning panel ───────────────────────────────────────────────────────────
+    def _build_panel(self) -> Gtk.Box:
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        for m in ("set_margin_top", "set_margin_bottom", "set_margin_start",
+                  "set_margin_end"):
+            getattr(panel, m)(8)
+
+        def section(title):
+            lbl = Gtk.Label(xalign=0.0)
+            lbl.set_markup(f"<b>{title}</b>")
+            lbl.set_margin_top(6)
+            panel.pack_start(lbl, False, False, 0)
+
+        def spin_row(label, lo, hi, step, digits, cb):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            l = Gtk.Label(label=label, xalign=0.0)
+            l.set_size_request(130, -1)
+            adj = Gtk.Adjustment(value=lo, lower=lo, upper=hi,
+                                 step_increment=step, page_increment=step * 10)
+            s = Gtk.SpinButton(adjustment=adj, digits=digits)
+            s.set_numeric(True)
+            s.connect("value-changed", cb)
+            row.pack_start(l, False, False, 0)
+            row.pack_start(s, True, True, 0)
+            panel.pack_start(row, False, False, 0)
+            return s
+
+        section("Render")
+        for name, lo, hi, step, digits in RENDER_SPINS:
+            self._param_spins[name] = spin_row(
+                name, lo, hi, step, digits,
+                lambda sp, n=name: self._on_param_spin(n, sp))
+        for name in RENDER_BOOLS:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            l = Gtk.Label(label=name, xalign=0.0)
+            l.set_size_request(130, -1)
+            sw = Gtk.Switch()
+            sw.connect("notify::active", lambda s, _p, n=name: self._on_param_switch(n, s))
+            row.pack_start(l, False, False, 0)
+            row.pack_start(sw, False, False, 0)
+            panel.pack_start(row, False, False, 0)
+            self._param_switches[name] = sw
+
+        section("Camera pose (calib)")
+        self._cam_combo = Gtk.ComboBoxText()
+        self._cam_combo.connect("changed", lambda _c: self._refresh_pose_spins())
+        panel.pack_start(self._cam_combo, False, False, 0)
+        for key, lo, hi, step, digits in POSE_SPINS:
+            unit = "m" if key in ("x", "y", "z") else "deg"
+            self._pose_spins[key] = spin_row(
+                f"{key} ({unit})", lo, hi, step, digits,
+                lambda sp, k=key: self._on_pose_spin(k, sp))
+
+        section("Save")
+        upd = Gtk.Button(label="Update node config file")
+        upd.connect("clicked", lambda _b: self._ws.send({"cmd": "save_params"}))
+        panel.pack_start(upd, False, False, 0)
+        save_as = Gtk.Button(label="Save As…")
+        save_as.connect("clicked", self._on_save_as)
+        panel.pack_start(save_as, False, False, 0)
+        refresh = Gtk.Button(label="Reload from node")
+        refresh.connect("clicked", lambda _b: self._ws.send({"cmd": "get_params"}))
+        panel.pack_start(refresh, False, False, 0)
+        return panel
+
+    def _on_param_spin(self, name, spin):
+        if self._loading:
+            return
+        v = spin.get_value()
+        if name == "splat_radius":
+            v = int(round(v))
+        self._ws.send({"cmd": "set_param", "name": name, "value": v})
+
+    def _on_param_switch(self, name, sw):
+        if self._loading:
+            return
+        self._ws.send({"cmd": "set_param", "name": name, "value": bool(sw.get_active())})
+
+    def _selected_cam(self) -> int:
+        i = self._cam_combo.get_active()
+        return max(0, i)
+
+    def _refresh_pose_spins(self):
+        if not self._extrinsics:
+            return
+        ci = self._selected_cam()
+        row = self._extrinsics[ci * 12:(ci + 1) * 12]
+        pose = rt_to_pose(row)
+        was = self._loading
+        self._loading = True
+        for k, v in zip(POSE_KEYS, pose):
+            self._pose_spins[k].set_value(v)
+        self._loading = was
+
+    def _on_pose_spin(self, _key, _spin):
+        if self._loading or not self._extrinsics:
+            return
+        pose = [self._pose_spins[k].get_value() for k in POSE_KEYS]
+        ci = self._selected_cam()
+        self._extrinsics[ci * 12:(ci + 1) * 12] = pose_to_rt(*pose)
+        self._ws.send({"cmd": "set_param", "name": "camera_extrinsics",
+                       "value": self._extrinsics})
+
+    def _apply_params(self, values: dict):
+        self._loading = True
+        try:
+            for name, spin in self._param_spins.items():
+                v = values.get(name)
+                if v is not None:
+                    spin.set_value(float(v))
+            for name, sw in self._param_switches.items():
+                v = values.get(name)
+                if v is not None:
+                    sw.set_active(bool(v))
+            ext = values.get("camera_extrinsics")
+            if ext:
+                first = self._extrinsics is None
+                self._extrinsics = list(ext)
+                if first:
+                    n = len(ext) // 12
+                    names = CAM_NAMES_6 if n == 6 else [f"cam{i}" for i in range(n)]
+                    for nm in names:
+                        self._cam_combo.append_text(nm)
+                    self._cam_combo.set_active(0)
+        finally:
+            self._loading = False
+        self._refresh_pose_spins()
+        return False
+
+    def _apply_ack(self, msg: dict):
+        if msg.get("cmd") == "save_params":
+            ok = msg.get("success")
+            self._status.set_text(
+                ("✔ saved " if ok else "✘ save failed: ") + str(msg.get("path")))
+        return False
+
+    def _on_save_as(self, _btn):
+        dlg = Gtk.FileChooserDialog(title="Save params as…", parent=self,
+                                    action=Gtk.FileChooserAction.SAVE)
+        dlg.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Save", Gtk.ResponseType.OK)
+        dlg.set_do_overwrite_confirmation(True)
+        dlg.set_current_name("tuned_params.yaml")
+        if dlg.run() == Gtk.ResponseType.OK:
+            self._ws.send({"cmd": "save_params", "path": dlg.get_filename()})
+        dlg.destroy()
 
     # ── telemetry → UI ─────────────────────────────────────────────────────────
     def _apply_state(self, s: dict):
@@ -184,10 +415,24 @@ class VcamWindow(Gtk.Window):
             f"target ({tgt[0]:+.2f}, {tgt[1]:+.2f}, {tgt[2]:+.2f})")
         return False
 
+    def _on_ws_msg(self, msg: dict):
+        t = msg.get("type")
+        if t == "state":
+            return self._apply_state(msg)
+        if t == "params":
+            return self._apply_params(msg.get("values") or {})
+        if t == "ack":
+            return self._apply_ack(msg)
+        if t == "error":
+            self._status.set_text(f"✘ {msg.get('message')}")
+        return False
+
     def _apply_conn(self, ok: bool):
         self._connected = ok
         if not ok:
             self._status.set_text("○ bridge disconnected — retrying…")
+        else:
+            self._ws.send({"cmd": "get_params"})  # populate the tuning panel
         return False
 
     # ── orbit interaction ──────────────────────────────────────────────────────
