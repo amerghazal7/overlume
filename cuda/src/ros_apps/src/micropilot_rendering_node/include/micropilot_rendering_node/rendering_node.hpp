@@ -19,6 +19,7 @@
 
 #include <nav_msgs/msg/odometry.hpp>
 #include <opencv2/core.hpp>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
@@ -94,6 +95,13 @@ private:
     LookPoint cur_{}, src_{}, dst_{};
     double tween_t_{1.0};  // [0,1]; 1.0 = settled on dst_. Eased per timer tick.
     int active_preset_{1};  // 1-5 = preset in service numbering; 0 = free look
+
+    // ── live parameter tuning (GUI panel via WS bridge) ──────────────────────
+    // Runtime updates for render-tunable params + camera extrinsics; registered
+    // in on_configure AFTER the initial declares so it only sees real updates.
+    rcl_interfaces::msg::SetParametersResult on_params(
+        const std::vector<rclcpp::Parameter>& params);
+    rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_cb_;
 
     rclcpp::Service<SetVirtualCam>::SharedPtr set_vcam_srv_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr set_look_sub_;

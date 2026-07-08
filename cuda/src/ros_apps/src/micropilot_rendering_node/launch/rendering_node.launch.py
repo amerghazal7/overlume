@@ -57,7 +57,10 @@ def generate_launch_description() -> LaunchDescription:
         executable="rendering_node",
         name="rendering_node",
         namespace="",
-        parameters=[LaunchConfiguration("params_file")],
+        # config_path: the resolved YAML fed to this node — read by the WS
+        # bridge's save_params so the GUI tuning panel can update it in place.
+        parameters=[LaunchConfiguration("params_file"),
+                    {"config_path": LaunchConfiguration("params_file")}],
         output="screen",
     )
 

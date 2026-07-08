@@ -9,9 +9,15 @@ third-party client — can drive the virtual camera:
     {"cmd": "set_look", "eye": [x,y,z], "target": [x,y,z]}   (rig frame, m)
     {"cmd": "set_preset", "preset": 1..5}
     {"cmd": "set_render_mode", "mode": "bowl" | "pointcloud"}  (also 1 | 2)
+    {"cmd": "get_params"}                                (tunable param values)
+    {"cmd": "set_param", "name": str, "value": num|bool|[floats]}
+    {"cmd": "save_params"}                  (update the node's launch config yaml)
+    {"cmd": "save_params", "path": "/abs/new.yaml"}      (save as a new yaml)
   server -> client:
     {"type": "state", "eye": [...], "target": [...], "preset": 0..5,
      "render_mode": 1|2}  (~15 Hz)
+    {"type": "params", "values": {name: value, ...}}
+    {"type": "ack", "cmd": "save_params", "success": bool, "path": str}
     {"type": "ack", "cmd": "set_preset", "success": bool, "active": str}
     {"type": "error", "message": str}
 
@@ -27,11 +33,69 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import threading
 
 STATE_HZ = 15.0
 PRESET_RANGE = (1, 5)
 RENDER_MODES = {"bowl": 1, "pointcloud": 2, 1: 1, 2: 2}
+
+# Params the GUI tuning panel may read/write, with their declared ROS types.
+TUNABLE_PARAMS = {
+    "bowl_R0": float, "bowl_k": float, "bowl_Rmax": float,
+    "feather_margin": float, "max_sync_latency": float, "virtual_vfov_deg": float,
+    "splat_radius": int, "fill_blind_zone": bool, "exposure_match": bool,
+    "sky_color": list, "camera_extrinsics": list,
+}
+
+
+def patch_yaml_text(text: str, values: dict) -> str:
+    """Update scalar and flat-list keys in a ROS params YAML, preserving all
+    other lines (comments, ordering). Missing keys are appended under the
+    first ros__parameters: block."""
+    def fmt(v):
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        if isinstance(v, float):
+            return f"{v:.6g}"
+        return str(v)
+
+    lines = text.splitlines(keepends=True)
+    pending = dict(values)
+    out = []
+    i = 0
+    while i < len(lines):
+        m = re.match(r"^(\s*)([A-Za-z_]\w*):\s*(.*?)\s*(#.*)?$", lines[i])
+        if m and m.group(2) in pending:
+            ind, key = m.group(1), m.group(2)
+            v = pending.pop(key)
+            if isinstance(v, (list, tuple)):
+                out.append(f"{ind}{key}:\n")
+                i += 1
+                while i < len(lines) and re.match(rf"^{re.escape(ind)}- ", lines[i]):
+                    i += 1
+                out.extend(f"{ind}- {fmt(float(x))}\n" for x in v)
+                continue
+            out.append(f"{ind}{key}: {fmt(v)}\n")
+            i += 1
+            continue
+        out.append(lines[i])
+        i += 1
+    if pending:
+        for idx, ln in enumerate(out):
+            m = re.match(r"^(\s*)ros__parameters:\s*$", ln)
+            if m:
+                ind = m.group(1) + "  "
+                ins = []
+                for key, v in pending.items():
+                    if isinstance(v, (list, tuple)):
+                        ins.append(f"{ind}{key}:\n")
+                        ins.extend(f"{ind}- {fmt(float(x))}\n" for x in v)
+                    else:
+                        ins.append(f"{ind}{key}: {fmt(v)}\n")
+                out[idx + 1:idx + 1] = ins
+                break
+    return "".join(out)
 
 
 def parse_cmd(text: str):
@@ -68,6 +132,36 @@ def parse_cmd(text: str):
         if isinstance(m, bool) or m not in RENDER_MODES:
             raise ValueError('set_render_mode: mode must be "bowl", "pointcloud", 1 or 2')
         return "set_render_mode", RENDER_MODES[m]
+    if cmd == "get_params":
+        return "get_params", None
+    if cmd == "set_param":
+        name = msg.get("name")
+        if name not in TUNABLE_PARAMS:
+            raise ValueError(f"set_param: unknown/untunable param {name!r}")
+        want = TUNABLE_PARAMS[name]
+        v = msg.get("value")
+        if want is bool:
+            if not isinstance(v, bool):
+                raise ValueError(f"set_param: {name} expects a bool")
+        elif want is int:
+            if isinstance(v, bool) or not isinstance(v, int):
+                raise ValueError(f"set_param: {name} expects an int")
+        elif want is float:
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                raise ValueError(f"set_param: {name} expects a number")
+            v = float(v)
+        else:  # list of numbers
+            if not isinstance(v, (list, tuple)) or not v or \
+                    not all(isinstance(x, (int, float)) and not isinstance(x, bool)
+                            for x in v):
+                raise ValueError(f"set_param: {name} expects a list of numbers")
+            v = [float(x) for x in v]
+        return "set_param", (name, v)
+    if cmd == "save_params":
+        path = msg.get("path")
+        if path is not None and (not isinstance(path, str) or not path):
+            raise ValueError("save_params: path must be a non-empty string")
+        return "save_params", path
     raise ValueError(f"unknown cmd {cmd!r}")
 
 
@@ -75,6 +169,8 @@ def main() -> int:
     import rclpy
     from rclpy.node import Node
     from std_msgs.msg import Float64MultiArray, Int32
+    from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
+    from rcl_interfaces.srv import GetParameters, SetParameters
     from micropilot_rendering_node.srv import SetVirtualCam
     import websockets
 
@@ -93,6 +189,10 @@ def main() -> int:
                 Int32, "/rendering_node/set_render_mode", 10)
             self._cli = self.create_client(
                 SetVirtualCam, "/rendering_node/set_virtual_cam")
+            self._cli_getp = self.create_client(
+                GetParameters, "/rendering_node/get_parameters")
+            self._cli_setp = self.create_client(
+                SetParameters, "/rendering_node/set_parameters")
             self.create_subscription(
                 Float64MultiArray, "/rendering_node/vcam_state", self._on_state, 10)
 
@@ -117,6 +217,45 @@ def main() -> int:
             req.preset = preset
             return self._cli.call_async(req)
 
+        def get_params_async(self, names):
+            if not self._cli_getp.service_is_ready():
+                return None
+            req = GetParameters.Request()
+            req.names = list(names)
+            return self._cli_getp.call_async(req)
+
+        def set_param_async(self, name, value):
+            if not self._cli_setp.service_is_ready():
+                return None
+            pv = ParameterValue()
+            if isinstance(value, bool):
+                pv.type = ParameterType.PARAMETER_BOOL
+                pv.bool_value = value
+            elif isinstance(value, int):
+                pv.type = ParameterType.PARAMETER_INTEGER
+                pv.integer_value = value
+            elif isinstance(value, float):
+                pv.type = ParameterType.PARAMETER_DOUBLE
+                pv.double_value = value
+            else:
+                pv.type = ParameterType.PARAMETER_DOUBLE_ARRAY
+                pv.double_array_value = [float(x) for x in value]
+            req = SetParameters.Request()
+            req.parameters = [Parameter(name=name, value=pv)]
+            return self._cli_setp.call_async(req)
+
+        @staticmethod
+        def param_value(pv):
+            """ParameterValue -> python value (None for unset)."""
+            t = pv.type
+            if t == ParameterType.PARAMETER_BOOL: return pv.bool_value
+            if t == ParameterType.PARAMETER_INTEGER: return pv.integer_value
+            if t == ParameterType.PARAMETER_DOUBLE: return pv.double_value
+            if t == ParameterType.PARAMETER_STRING: return pv.string_value
+            if t == ParameterType.PARAMETER_DOUBLE_ARRAY:
+                return list(pv.double_array_value)
+            return None
+
     rclpy.init()
     # rclpy.init() hooks SIGTERM but nothing here watches rclpy's shutdown flag,
     # which would leave the process unkillable except by SIGKILL — restore default.
@@ -127,6 +266,36 @@ def main() -> int:
     spin_thread.start()
 
     clients: set = set()
+
+    async def await_ros(fut, timeout=5.0):
+        """Await an rclpy future from asyncio."""
+        loop = asyncio.get_running_loop()
+        afut = loop.create_future()
+        fut.add_done_callback(
+            lambda f: loop.call_soon_threadsafe(
+                lambda: afut.done() or afut.set_result(f.result())))
+        return await asyncio.wait_for(afut, timeout=timeout)
+
+    async def fetch_params(names):
+        fut = node.get_params_async(names)
+        if fut is None:
+            raise RuntimeError("get_parameters service unavailable")
+        res = await await_ros(fut)
+        return {n: node.param_value(v) for n, v in zip(names, res.values)}
+
+    async def do_save_params(path):
+        vals = await fetch_params(list(TUNABLE_PARAMS) + ["config_path"])
+        src = vals.pop("config_path")
+        if not src:
+            raise RuntimeError("node has no config_path (relaunch with the "
+                               "updated launch file)")
+        dst = path or src
+        with open(src) as f:
+            text = f.read()
+        patch = {k: v for k, v in vals.items() if v is not None}
+        with open(dst, "w") as f:
+            f.write(patch_yaml_text(text, patch))
+        return dst
 
     async def handle_client(ws):
         clients.add(ws)
@@ -142,6 +311,27 @@ def main() -> int:
                     node.set_look(*payload)
                 elif cmd == "set_render_mode":
                     node.set_render_mode(payload)
+                elif cmd == "set_param":
+                    # fire-and-forget: slider drags stream updates
+                    if node.set_param_async(*payload) is None:
+                        await ws.send(json.dumps({
+                            "type": "error",
+                            "message": "set_parameters service unavailable"}))
+                elif cmd == "get_params":
+                    try:
+                        vals = await fetch_params(list(TUNABLE_PARAMS))
+                        await ws.send(json.dumps({"type": "params", "values": vals}))
+                    except Exception as e:
+                        await ws.send(json.dumps({"type": "error",
+                                                  "message": f"get_params: {e}"}))
+                elif cmd == "save_params":
+                    try:
+                        dst = await do_save_params(payload)
+                        await ws.send(json.dumps({"type": "ack", "cmd": "save_params",
+                                                  "success": True, "path": dst}))
+                    except Exception as e:
+                        await ws.send(json.dumps({"type": "ack", "cmd": "save_params",
+                                                  "success": False, "path": str(e)}))
                 else:  # set_preset
                     fut = node.set_preset_async(payload)
                     if fut is None:
