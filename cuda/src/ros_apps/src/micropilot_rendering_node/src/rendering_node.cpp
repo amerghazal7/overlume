@@ -429,6 +429,7 @@ RenderingNode::CallbackReturn RenderingNode::on_activate(const rclcpp_lifecycle:
                 }
                 std::lock_guard<std::mutex> lk(cloud_mtx_);
                 cloud_pts_.swap(pts);
+                cloud_stamp_ = rclcpp::Time(msg->header.stamp).seconds();
             });
         RCLCPP_INFO(get_logger(), "hybrid rendering enabled (point cloud: %s)",
                     pointcloud_topic_.c_str());
@@ -500,29 +501,37 @@ bool RenderingNode::twist_at(double t, StampedTwist& out)
     return true;
 }
 
-micropilot::rendering::CameraParams RenderingNode::compensate(
-    const micropilot::rendering::CameraParams& cp, double t_cam, double t_ref)
+bool RenderingNode::rig_delta(double t_from, double t_ref, double& th, double& px, double& py)
 {
-    // Integrate the planar body twist from t_cam to t_ref -> rig pose delta D
-    // (pose of rig(t_ref) expressed in the rig(t_cam) frame). The frame that was
-    // captured at t_cam must be projected from the camera's pose expressed in
-    // the rig(t_ref) frame: X' = D^-1 * X, i.e. R' = Rd^T R, t' = Rd^T (t - pd).
-    // Signed-dt Euler steps handle t_cam on either side of t_ref.
-    const double span = t_ref - t_cam;
-    micropilot::rendering::CameraParams out = cp;
-    if (std::abs(span) < 1e-4) return out;
+    // Integrate the planar body twist from t_from to t_ref -> rig pose delta D
+    // (pose of rig(t_ref) expressed in the rig(t_from) frame). Signed-dt Euler
+    // steps handle t_from on either side of t_ref.
+    th = px = py = 0.0;
+    const double span = t_ref - t_from;
+    if (std::abs(span) < 1e-4) return false;
     const int n = std::max(1, static_cast<int>(std::ceil(std::abs(span) / 0.005)));
     const double dt = span / n;
-    double th = 0.0, px = 0.0, py = 0.0;
     for (int i = 0; i < n; ++i)
     {
         StampedTwist tw;
-        if (!twist_at(t_cam + (i + 0.5) * dt, tw)) return out;
+        if (!twist_at(t_from + (i + 0.5) * dt, tw)) return false;
         const double c = std::cos(th), s = std::sin(th);
         px += (c * tw.vx - s * tw.vy) * dt;
         py += (s * tw.vx + c * tw.vy) * dt;
         th += tw.wz * dt;
     }
+    return true;
+}
+
+micropilot::rendering::CameraParams RenderingNode::compensate(
+    const micropilot::rendering::CameraParams& cp, double t_cam, double t_ref)
+{
+    // The frame captured at t_cam must be projected from the camera's pose
+    // expressed in the rig(t_ref) frame: X' = D^-1 * X, i.e. R' = Rd^T R,
+    // t' = Rd^T (t - pd), with D = rig_delta(t_cam -> t_ref).
+    micropilot::rendering::CameraParams out = cp;
+    double th, px, py;
+    if (!rig_delta(t_cam, t_ref, th, px, py)) return out;
     // Rd = Rz(th): rotation of rig(t_ref) in rig(t_cam); pd = (px, py).
     const double c = std::cos(th), s = std::sin(th);
     // t' = Rd^T (t - pd)
@@ -683,8 +692,31 @@ void RenderingNode::timer_callback()
         std::lock_guard<std::mutex> lk(cloud_mtx_);
         if (!cloud_pts_.empty())
         {
-            reprojector_->upload_points(cloud_pts_.data(), cloud_pts_.size() / 3,
-                                        bowl_.feather_margin);
+            const float* src = cloud_pts_.data();
+            const size_t npts = cloud_pts_.size() / 3;
+            // Ego-motion compensation: the cloud was captured at cloud_stamp_
+            // but the images are referenced to t_max — advance the points by
+            // the rig motion in between (p' = Rd^T (p - pd), same delta as the
+            // camera compensation) so splats and bowl agree while driving.
+            std::vector<float> comp;
+            double th, px, py;
+            if (compensate_motion &&
+                rig_delta(cloud_stamp_, t_max.seconds(), th, px, py))
+            {
+                comp.resize(cloud_pts_.size());
+                const float c = static_cast<float>(std::cos(th));
+                const float s = static_cast<float>(std::sin(th));
+                const float fx2 = static_cast<float>(px), fy2 = static_cast<float>(py);
+                for (size_t p = 0; p < npts; ++p)
+                {
+                    const float x = src[p * 3] - fx2, y = src[p * 3 + 1] - fy2;
+                    comp[p * 3]     = c * x + s * y;
+                    comp[p * 3 + 1] = -s * x + c * y;
+                    comp[p * 3 + 2] = src[p * 3 + 2];
+                }
+                src = comp.data();
+            }
+            reprojector_->upload_points(src, npts, bowl_.feather_margin);
             have_cloud = true;
         }
     }

@@ -157,6 +157,9 @@ private:
     std::mutex odom_mtx_;
     /// Interpolated planar twist at stamp t (clamps to buffer ends); false if empty.
     bool twist_at(double t, StampedTwist& out);
+    /// Integrated planar rig pose delta over [t_from, t_ref]: pose of rig(t_ref)
+    /// in the rig(t_from) frame (yaw th, position px/py). False if no odometry.
+    bool rig_delta(double t_from, double t_ref, double& th, double& px, double& py);
     /// cam extrinsic advanced by the rig motion over [t_cam, t_ref].
     micropilot::rendering::CameraParams compensate(
         const micropilot::rendering::CameraParams& cp, double t_cam, double t_ref);
@@ -171,6 +174,7 @@ private:
     int splat_radius_{2};
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
     std::vector<float> cloud_pts_;  // rig-frame xyz flat; guarded by cloud_mtx_
+    double cloud_stamp_{0.0};       // header stamp (s) of cloud_pts_
     std::mutex cloud_mtx_;
     // Runtime view switch (~/set_render_mode): 1 = bowl-only, 2 = pointcloud
     // hybrid (falls back to bowl when no cloud is buffered). Default hybrid.
