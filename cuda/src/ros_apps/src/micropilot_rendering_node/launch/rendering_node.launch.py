@@ -16,10 +16,16 @@ triggers configure + activate programmatically. For manual activation:
 import os
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, SetEnvironmentVariable
+from launch.actions import (DeclareLaunchArgument, EmitEvent, RegisterEventHandler,
+                            SetEnvironmentVariable)
+from launch.conditions import IfCondition
+from launch.events import matches_action
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import LifecycleNode
+from launch_ros.event_handlers import OnStateTransition
+from launch_ros.events.lifecycle import ChangeState
 from launch_ros.substitutions import FindPackageShare
+from lifecycle_msgs.msg import Transition
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -50,6 +56,14 @@ def generate_launch_description() -> LaunchDescription:
             default_value=default_params,
             description="Node parameters YAML (full path; overrides config:=).",
         ),
+        DeclareLaunchArgument(
+            "autostart",
+            default_value="true",
+            description="Automatically configure + activate the lifecycle node "
+                        "(parameters only exist after configure — the GUI tuning "
+                        "panel needs an active node). Set false for manual "
+                        "lifecycle control.",
+        ),
     ]
 
     node = LifecycleNode(
@@ -64,4 +78,24 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
-    return LaunchDescription(pre_actions + args + [node])
+    # autostart: configure on startup, activate once 'inactive' is reached
+    auto = [
+        EmitEvent(
+            event=ChangeState(
+                lifecycle_node_matcher=matches_action(node),
+                transition_id=Transition.TRANSITION_CONFIGURE),
+            condition=IfCondition(LaunchConfiguration("autostart")),
+        ),
+        RegisterEventHandler(
+            OnStateTransition(
+                target_lifecycle_node=node,
+                goal_state="inactive",
+                entities=[EmitEvent(event=ChangeState(
+                    lifecycle_node_matcher=matches_action(node),
+                    transition_id=Transition.TRANSITION_ACTIVATE))],
+            ),
+            condition=IfCondition(LaunchConfiguration("autostart")),
+        ),
+    ]
+
+    return LaunchDescription(pre_actions + args + [node] + auto)
