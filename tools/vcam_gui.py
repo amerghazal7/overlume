@@ -227,6 +227,7 @@ class VcamWindow(Gtk.Window):
 
         # ── live tuning panel (params from the node via the bridge) ──────────
         self._loading = False          # True while populating widgets from node
+        self._params_loaded = False    # real values received from the node
         self._param_spins = {}
         self._param_switches = {}
         self._pose_spins = {}
@@ -265,7 +266,7 @@ class VcamWindow(Gtk.Window):
             lbl.set_margin_top(6)
             panel.pack_start(lbl, False, False, 0)
 
-        def spin_row(label, lo, hi, step, digits, cb):
+        def spin_row(label, lo, hi, step, digits, cb, box=None):
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
             l = Gtk.Label(label=label, xalign=0.0)
             l.set_size_request(130, -1)
@@ -276,8 +277,9 @@ class VcamWindow(Gtk.Window):
             s.connect("value-changed", cb)
             row.pack_start(l, False, False, 0)
             row.pack_start(s, True, True, 0)
-            panel.pack_start(row, False, False, 0)
+            (box or panel).pack_start(row, False, False, 0)
             return s
+        self._spin_row = spin_row
 
         section("Render")
         for name, lo, hi, step, digits in RENDER_SPINS:
@@ -295,15 +297,10 @@ class VcamWindow(Gtk.Window):
             panel.pack_start(row, False, False, 0)
             self._param_switches[name] = sw
 
-        section("Camera pose (calib)")
-        self._cam_combo = Gtk.ComboBoxText()
-        self._cam_combo.connect("changed", lambda _c: self._refresh_pose_spins())
-        panel.pack_start(self._cam_combo, False, False, 0)
-        for key, lo, hi, step, digits in POSE_SPINS:
-            unit = "m" if key in ("x", "y", "z") else "deg"
-            self._pose_spins[key] = spin_row(
-                f"{key} ({unit})", lo, hi, step, digits,
-                lambda sp, k=key: self._on_pose_spin(k, sp))
+        section("Camera poses (calib)")
+        # one collapsible block per camera, created when extrinsics arrive
+        self._cam_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        panel.pack_start(self._cam_box, False, False, 0)
 
         section("Save")
         upd = Gtk.Button(label="Update node config file")
@@ -330,32 +327,46 @@ class VcamWindow(Gtk.Window):
             return
         self._ws.send({"cmd": "set_param", "name": name, "value": bool(sw.get_active())})
 
-    def _selected_cam(self) -> int:
-        i = self._cam_combo.get_active()
-        return max(0, i)
+    def _build_cam_expanders(self, n: int):
+        names = CAM_NAMES_6 if n == 6 else [f"cam{i}" for i in range(n)]
+        for ci, nm in enumerate(names):
+            exp = Gtk.Expander(label=nm)
+            inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            inner.set_margin_start(12)
+            exp.add(inner)
+            spins = {}
+            for key, lo, hi, step, digits in POSE_SPINS:
+                unit = "m" if key in ("x", "y", "z") else "deg"
+                spins[key] = self._spin_row(
+                    f"{key} ({unit})", lo, hi, step, digits,
+                    lambda sp, c=ci, k=key: self._on_pose_spin(c, k), box=inner)
+            self._pose_spins[ci] = spins
+            self._cam_box.pack_start(exp, False, False, 0)
+        self._cam_box.show_all()
 
     def _refresh_pose_spins(self):
         if not self._extrinsics:
             return
-        ci = self._selected_cam()
-        row = self._extrinsics[ci * 12:(ci + 1) * 12]
-        pose = rt_to_pose(row)
         was = self._loading
         self._loading = True
-        for k, v in zip(POSE_KEYS, pose):
-            self._pose_spins[k].set_value(v)
+        for ci, spins in self._pose_spins.items():
+            pose = rt_to_pose(self._extrinsics[ci * 12:(ci + 1) * 12])
+            for k, v in zip(POSE_KEYS, pose):
+                spins[k].set_value(v)
         self._loading = was
 
-    def _on_pose_spin(self, _key, _spin):
+    def _on_pose_spin(self, ci, _key):
         if self._loading or not self._extrinsics:
             return
-        pose = [self._pose_spins[k].get_value() for k in POSE_KEYS]
-        ci = self._selected_cam()
+        pose = [self._pose_spins[ci][k].get_value() for k in POSE_KEYS]
         self._extrinsics[ci * 12:(ci + 1) * 12] = pose_to_rt(*pose)
         self._ws.send({"cmd": "set_param", "name": "camera_extrinsics",
                        "value": self._extrinsics})
 
     def _apply_params(self, values: dict):
+        if not any(v is not None for v in values.values()):
+            return False  # node not configured yet — retry timer keeps polling
+        self._params_loaded = True
         self._loading = True
         try:
             for name, spin in self._param_spins.items():
@@ -371,11 +382,7 @@ class VcamWindow(Gtk.Window):
                 first = self._extrinsics is None
                 self._extrinsics = list(ext)
                 if first:
-                    n = len(ext) // 12
-                    names = CAM_NAMES_6 if n == 6 else [f"cam{i}" for i in range(n)]
-                    for nm in names:
-                        self._cam_combo.append_text(nm)
-                    self._cam_combo.set_active(0)
+                    self._build_cam_expanders(len(ext) // 12)
         finally:
             self._loading = False
         self._refresh_pose_spins()
@@ -432,7 +439,17 @@ class VcamWindow(Gtk.Window):
         if not ok:
             self._status.set_text("○ bridge disconnected — retrying…")
         else:
-            self._ws.send({"cmd": "get_params"})  # populate the tuning panel
+            # Populate the tuning panel; keep retrying until the node is
+            # configured (its params only exist after the lifecycle transition).
+            self._params_loaded = False
+            self._ws.send({"cmd": "get_params"})
+            GLib.timeout_add_seconds(2, self._retry_params)
+        return False
+
+    def _retry_params(self):
+        if self._connected and not self._params_loaded:
+            self._ws.send({"cmd": "get_params"})
+            return True   # keep the timer running
         return False
 
     # ── orbit interaction ──────────────────────────────────────────────────────
