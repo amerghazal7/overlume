@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import collections
 import json
 import math
 import queue
@@ -108,6 +109,21 @@ RENDER_SPINS = [
     ("splat_radius", 0.0, 30.0, 1.0, 0),
 ]
 RENDER_BOOLS = ["fill_blind_zone", "exposure_match"]
+
+# A numeric tuning row: slider + value box sharing one Adjustment, plus
+# editable min/max boxes that rewrite the slider's range on the fly.
+Row = collections.namedtuple("Row", "val adj mn mx")
+
+
+def set_row_value(row: Row, v: float):
+    """Set a row's value, auto-expanding its slider range if v falls outside."""
+    if v < row.adj.get_lower():
+        row.adj.set_lower(v)
+        row.mn.set_value(v)
+    if v > row.adj.get_upper():
+        row.adj.set_upper(v)
+        row.mx.set_value(v)
+    row.val.set_value(v)
 POSE_SPINS = [  # (key, lo, hi, step, digits)
     ("x", -10.0, 10.0, 0.01, 3),
     ("y", -10.0, 10.0, 0.01, 3),
@@ -180,7 +196,7 @@ class WsClient(threading.Thread):
 class VcamWindow(Gtk.Window):
     def __init__(self, ws_url: str, topic: str):
         super().__init__(title="TPSProjector — virtual cam")
-        self.set_default_size(1340, 680)
+        self.set_default_size(1500, 680)
         self.connect("destroy", self._quit)
 
         # latest telemetry + orbit state (prototype defaults)
@@ -238,7 +254,7 @@ class VcamWindow(Gtk.Window):
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.add(panel)
-        scroll.set_size_request(300, -1)
+        scroll.set_size_request(470, -1)
 
         outer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         outer.pack_start(vbox, True, True, 0)
@@ -269,18 +285,41 @@ class VcamWindow(Gtk.Window):
             panel.pack_start(lbl, False, False, 0)
 
         def spin_row(label, lo, hi, step, digits, cb, box=None):
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            # label | min | ── slider ── | max | value. Slider + value share one
+            # Adjustment; the min/max boxes rewrite the slider range live.
+            outer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
             l = Gtk.Label(label=label, xalign=0.0)
-            l.set_size_request(130, -1)
+            l.set_size_request(105, -1)
             adj = Gtk.Adjustment(value=lo, lower=lo, upper=hi,
                                  step_increment=step, page_increment=step * 10)
-            s = Gtk.SpinButton(adjustment=adj, digits=digits)
-            s.set_numeric(True)
-            s.connect("value-changed", cb)
-            row.pack_start(l, False, False, 0)
-            row.pack_start(s, True, True, 0)
-            (box or panel).pack_start(row, False, False, 0)
-            return s
+
+            def bound_spin(v0):
+                b = Gtk.SpinButton(adjustment=Gtk.Adjustment(
+                    value=v0, lower=-1e9, upper=1e9, step_increment=step),
+                    digits=digits)
+                b.set_numeric(True)
+                b.set_width_chars(5)
+                return b
+
+            mn, mx = bound_spin(lo), bound_spin(hi)
+            mn.connect("value-changed",
+                       lambda s: adj.set_lower(min(s.get_value(), adj.get_upper())))
+            mx.connect("value-changed",
+                       lambda s: adj.set_upper(max(s.get_value(), adj.get_lower())))
+            scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=adj)
+            scale.set_draw_value(False)
+            scale.set_size_request(120, -1)
+            val = Gtk.SpinButton(adjustment=adj, digits=digits)
+            val.set_numeric(True)
+            val.set_width_chars(7)
+            val.connect("value-changed", cb)
+            outer.pack_start(l, False, False, 0)
+            outer.pack_start(mn, False, False, 0)
+            outer.pack_start(scale, True, True, 0)
+            outer.pack_start(mx, False, False, 0)
+            outer.pack_start(val, False, False, 0)
+            (box or panel).pack_start(outer, False, False, 0)
+            return Row(val, adj, mn, mx)
         self._spin_row = spin_row
 
         section("Render")
@@ -319,7 +358,7 @@ class VcamWindow(Gtk.Window):
     def _on_param_spin(self, name, spin):
         if self._loading:
             return
-        v = spin.get_value()
+        v = spin.get_value()  # the row's value SpinButton
         if name == "splat_radius":
             v = int(round(v))
         self._ws.send({"cmd": "set_param", "name": name, "value": v})
@@ -354,13 +393,13 @@ class VcamWindow(Gtk.Window):
         for ci, spins in self._pose_spins.items():
             pose = rt_to_pose(self._extrinsics[ci * 12:(ci + 1) * 12])
             for k, v in zip(POSE_KEYS, pose):
-                spins[k].set_value(v)
+                set_row_value(spins[k], v)
         self._loading = was
 
     def _on_pose_spin(self, ci, _key):
         if self._loading or not self._extrinsics:
             return
-        pose = [self._pose_spins[ci][k].get_value() for k in POSE_KEYS]
+        pose = [self._pose_spins[ci][k].val.get_value() for k in POSE_KEYS]
         self._extrinsics[ci * 12:(ci + 1) * 12] = pose_to_rt(*pose)
         self._ws.send({"cmd": "set_param", "name": "camera_extrinsics",
                        "value": self._extrinsics})
@@ -371,10 +410,10 @@ class VcamWindow(Gtk.Window):
         self._params_loaded = True
         self._loading = True
         try:
-            for name, spin in self._param_spins.items():
+            for name, row in self._param_spins.items():
                 v = values.get(name)
                 if v is not None:
-                    spin.set_value(float(v))
+                    set_row_value(row, float(v))
             for name, sw in self._param_switches.items():
                 v = values.get(name)
                 if v is not None:
