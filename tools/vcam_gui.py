@@ -7,6 +7,7 @@ Control: pure WebSocket client of tools/vcam_ws_bridge.py — this GUI is the
 
 Interaction (mirrors the pygame prototype in tpsprojector/app.py):
   - preset buttons 1-5      eased preset switch (via the node's tween)
+  - view toggle button      bowl-only <-> pointcloud hybrid render mode
   - left-drag on the video  orbit: azimuth/elevation around the robot origin
                             (fixed target [0,0,0.3], eye sphere centred z=+0.5
                             — exactly the prototype's orbit_shot geometry)
@@ -139,6 +140,13 @@ class VcamWindow(Gtk.Window):
             b.connect("clicked", self._on_preset, i)
             btns.pack_start(b, False, False, 0)
 
+        # view switch: bowl-only <-> pointcloud hybrid (label shows CURRENT
+        # mode as reported by the node's telemetry; click sends the other one)
+        self._render_mode = 2
+        self._mode_btn = Gtk.Button(label="view: pointcloud")
+        self._mode_btn.connect("clicked", self._on_mode_toggle)
+        btns.pack_end(self._mode_btn, False, False, 6)
+
         self._status = Gtk.Label(label="connecting…", xalign=0.0)
         self._status.set_margin_start(8)
         self._status.set_margin_bottom(4)
@@ -162,6 +170,11 @@ class VcamWindow(Gtk.Window):
     # ── telemetry → UI ─────────────────────────────────────────────────────────
     def _apply_state(self, s: dict):
         self._state = s
+        mode = s.get("render_mode", 2)
+        if mode != self._render_mode:
+            self._render_mode = mode
+            self._mode_btn.set_label(
+                "view: bowl" if mode == 1 else "view: pointcloud")
         p = s.get("preset", 0)
         name = PRESETS[p - 1] if 1 <= p <= len(PRESETS) else "free look"
         eye, tgt = s["eye"], s["target"]
@@ -217,6 +230,11 @@ class VcamWindow(Gtk.Window):
 
     def _on_preset(self, _btn, preset: int):
         self._ws.send({"cmd": "set_preset", "preset": preset})
+
+    def _on_mode_toggle(self, _btn):
+        target = 1 if self._render_mode == 2 else 2
+        self._ws.send({"cmd": "set_render_mode",
+                       "mode": "bowl" if target == 1 else "pointcloud"})
 
     def _quit(self, *_a):
         self._pipeline.set_state(Gst.State.NULL)

@@ -25,6 +25,14 @@ def test_set_preset_valid():
     assert parse_cmd('{"cmd": "set_preset", "preset": 5}') == ("set_preset", 5)
 
 
+@pytest.mark.parametrize("mode,expect", [
+    ("bowl", 1), ("pointcloud", 2), (1, 1), (2, 2),
+])
+def test_set_render_mode_valid(mode, expect):
+    assert parse_cmd(json.dumps({"cmd": "set_render_mode", "mode": mode})) == \
+        ("set_render_mode", expect)
+
+
 @pytest.mark.parametrize("text", [
     "not json",
     "[1,2,3]",                                            # not an object
@@ -36,6 +44,9 @@ def test_set_preset_valid():
     '{"cmd": "set_preset", "preset": 6}',
     '{"cmd": "set_preset", "preset": true}',              # bool is not an index
     '{"cmd": "set_preset", "preset": "2"}',
+    '{"cmd": "set_render_mode", "mode": 3}',              # unknown mode
+    '{"cmd": "set_render_mode", "mode": "depth"}',
+    '{"cmd": "set_render_mode", "mode": true}',           # bool is not a mode
 ])
 def test_rejects_malformed(text):
     with pytest.raises(ValueError):
