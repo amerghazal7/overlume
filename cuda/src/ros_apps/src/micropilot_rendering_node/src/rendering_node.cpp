@@ -64,6 +64,9 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
     // enabling (a wrong origin masks REAL scene, which is far worse than the
     // body smear it removes).
     self_view_masks_ = declare_parameter<bool>("self_view_masks", false);
+    // Per-camera exposure matching (GPU): removes the brightness step between
+    // auto-exposed cameras at sector boundaries. See BowlParams::exposure_match.
+    bowl_.exposure_match = declare_parameter<bool>("exposure_match", true);
 
     // Lidar point cloud for hybrid rendering ("" disables -> bowl-only).
     // pointcloud_transform maps cloud-frame points into the rig frame

@@ -12,7 +12,8 @@ namespace micropilot::rendering
 __global__ void bowl_kernel(float* out, int OW, int OH, const float* images, const CamDev* cams,
                             int ncam, CamDev v, int surf_type, float flat_z0, float R0, float k,
                             float Rmax, float feather_margin, float fr, float fg, float fb,
-                            int mark_uncovered, const unsigned char* selfmask)
+                            int mark_uncovered, const unsigned char* selfmask,
+                            const float* gains, float* pair_stats)
 {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -33,6 +34,9 @@ __global__ void bowl_kernel(float* out, int OW, int OH, const float* images, con
         return;
     }
     float ar = 0, ag = 0, ab = 0, wsum = 0;
+    float lum[kMaxCams];
+    bool vis[kMaxCams];
+    for (int i = 0; i < kMaxCams; ++i) vis[i] = false;
     for (int i = 0; i < ncam; ++i)
     {
         CamDev c = cams[i];
@@ -63,7 +67,30 @@ __global__ void bowl_kernel(float* out, int OW, int OH, const float* images, con
         bilinear(images + (size_t)i * c.w * c.h * 3, c.w, c.h, xp, yp, r, g, b);
         float align = fmaxf(0.0f, fminf(1.0f, vdot(vnorm(rel), c.fwd)));
         float w = border_feather(xp, yp, c.w, c.h, feather_margin) * align * align;
-        ar += w * r; ag += w * g; ab += w * b; wsum += w;
+        if (i < kMaxCams)
+        {
+            lum[i] = 0.299f * r + 0.587f * g + 0.114f * b;  // raw, pre-gain
+            vis[i] = true;
+        }
+        float gi = gains ? gains[i] : 1.0f;
+        ar += w * r * gi; ag += w * g * gi; ab += w * b * gi; wsum += w;
+    }
+    // exposure statistics: subsampled pixels where camera pairs overlap
+    if (pair_stats && (x & 1) == 0 && (y & 1) == 0)
+    {
+        int nc = ncam < kMaxCams ? ncam : kMaxCams;
+        for (int i = 0; i < nc; ++i)
+        {
+            if (!vis[i]) continue;
+            for (int j = i + 1; j < nc; ++j)
+            {
+                if (!vis[j]) continue;
+                float* s = pair_stats + ((size_t)i * ncam + j) * 3;
+                atomicAdd(s, lum[i]);
+                atomicAdd(s + 1, lum[j]);
+                atomicAdd(s + 2, 1.0f);
+            }
+        }
     }
     if (wsum > 0.0f)
     {
@@ -83,7 +110,8 @@ __global__ void bowl_kernel(float* out, int OW, int OH, const float* images, con
 // to an explicit point instead of a ray-surface hit. Uncovered points get
 // cols = (-1,-1,-1) so the splat pass skips them.
 __global__ void colorize_kernel(float* cols, const float* pts, int npts, const float* images,
-                                const CamDev* cams, int ncam, float feather_margin)
+                                const CamDev* cams, int ncam, float feather_margin,
+                                const float* gains)
 {
     int p = blockIdx.x * blockDim.x + threadIdx.x;
     if (p >= npts) return;
@@ -113,7 +141,8 @@ __global__ void colorize_kernel(float* cols, const float* pts, int npts, const f
         bilinear(images + (size_t)i * c.w * c.h * 3, c.w, c.h, xp, yp, r, g, b);
         float align = fmaxf(0.0f, fminf(1.0f, vdot(vnorm(rel), c.fwd)));
         float w = border_feather(xp, yp, c.w, c.h, feather_margin) * align * align;
-        ar += w * r; ag += w * g; ab += w * b; wsum += w;
+        float gi = gains ? gains[i] : 1.0f;
+        ar += w * r * gi; ag += w * g * gi; ab += w * b * gi; wsum += w;
     }
     if (wsum > 0.0f)
     {
@@ -126,11 +155,11 @@ __global__ void colorize_kernel(float* cols, const float* pts, int npts, const f
 }
 
 void launch_colorize(float* d_cols, const float* d_pts, int npts, const float* d_images,
-                     const CamDev* d_cams, int ncam, float feather_margin)
+                     const CamDev* d_cams, int ncam, float feather_margin, const float* d_gains)
 {
     int t = 256;
     colorize_kernel<<<(npts + t - 1) / t, t>>>(d_cols, d_pts, npts, d_images, d_cams, ncam,
-                                               feather_margin);
+                                               feather_margin, d_gains);
 }
 
 // One Jacobi step of blind-zone fill: an unfilled hole pixel (alpha == 0.5)
@@ -186,12 +215,13 @@ __global__ void hole_finalize_kernel(float* buf, int n)
 void launch_bowl(float* d_out, int OW, int OH, const float* d_images, const CamDev* d_cams,
                  int ncam, CamDev v, int surf_type, float flat_z0, float R0, float k, float Rmax,
                  float feather_margin, float fr, float fg, float fb, int mark_uncovered,
-                 const unsigned char* d_selfmask)
+                 const unsigned char* d_selfmask, const float* d_gains, float* d_pair_stats)
 {
     dim3 block(16, 16);
     dim3 grid((OW + 15) / 16, (OH + 15) / 16);
     bowl_kernel<<<grid, block>>>(d_out, OW, OH, d_images, d_cams, ncam, v, surf_type, flat_z0, R0,
-                                 k, Rmax, feather_margin, fr, fg, fb, mark_uncovered, d_selfmask);
+                                 k, Rmax, feather_margin, fr, fg, fb, mark_uncovered, d_selfmask,
+                                 d_gains, d_pair_stats);
 }
 
 void launch_hole_fill(float* d_buf, float* d_scratch, int OW, int OH, int iters)

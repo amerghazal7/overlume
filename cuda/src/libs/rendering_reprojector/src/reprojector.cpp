@@ -11,6 +11,7 @@
 
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
@@ -92,6 +93,94 @@ struct Reprojector::Impl
     unsigned char* d_selfmask = nullptr;  size_t d_selfmask_cap = 0;
     int n_masks = 0;
 
+    // Exposure matching: pair luminance stats (ncam*ncam*3) collected by the
+    // bowl kernel; per-camera gains solved on host (log space, EMA-smoothed)
+    // and applied the NEXT frame — auto-exposure drifts slowly, one frame of
+    // latency is invisible.
+    float* d_pairstats = nullptr;  size_t d_pairstats_cap = 0;
+    float* d_gains = nullptr;      size_t d_gains_cap = 0;
+    std::vector<float> h_gains;
+    bool gains_valid = false;
+
+    // Zero + return the pair-stats buffer for this frame's collection.
+    float* exposure_begin(int ncam)
+    {
+        size_t bytes = static_cast<size_t>(ncam) * ncam * 3 * sizeof(float);
+        ensure_bytes(reinterpret_cast<void**>(&d_pairstats), d_pairstats_cap, bytes);
+        ensure_bytes(reinterpret_cast<void**>(&d_gains), d_gains_cap,
+                     static_cast<size_t>(ncam) * sizeof(float));
+        CUDA_CHECK(cudaMemset(d_pairstats, 0, bytes));
+        return d_pairstats;
+    }
+
+    // Solve per-camera gains from the collected stats and upload for next frame.
+    void exposure_end(int ncam)
+    {
+        std::vector<float> st(static_cast<size_t>(ncam) * ncam * 3);
+        CUDA_CHECK(cudaMemcpy(st.data(), d_pairstats, st.size() * sizeof(float),
+                              cudaMemcpyDeviceToHost));
+        const int n = ncam < kMaxCams ? ncam : kMaxCams;
+        double A[kMaxCams][kMaxCams] = {};
+        double b[kMaxCams] = {};
+        bool any = false;
+        for (int i = 0; i < n; ++i)
+            for (int j = i + 1; j < n; ++j)
+            {
+                const float* s = &st[(static_cast<size_t>(i) * ncam + j) * 3];
+                double cnt = s[2];
+                if (cnt < 100.0) continue;  // too little overlap to trust
+                double li = s[0] / cnt, lj = s[1] / cnt;
+                if (li < 1e-3 || lj < 1e-3) continue;
+                // want g_i*li == g_j*lj  ->  x_i - x_j = log(lj) - log(li)
+                double d = std::log(lj) - std::log(li);
+                A[i][i] += cnt; A[j][j] += cnt; A[i][j] -= cnt; A[j][i] -= cnt;
+                b[i] += cnt * d; b[j] -= cnt * d;
+                any = true;
+            }
+        if (!any) return;
+        for (int i = 0; i < n; ++i) A[i][i] += 1.0;  // ridge anchor: gains ~ 1
+        // Gaussian elimination with partial pivoting (n <= 12)
+        double x[kMaxCams];
+        for (int c = 0; c < n; ++c)
+        {
+            int piv = c;
+            for (int r2 = c + 1; r2 < n; ++r2)
+                if (std::abs(A[r2][c]) > std::abs(A[piv][c])) piv = r2;
+            if (std::abs(A[piv][c]) < 1e-12) return;
+            if (piv != c)
+            {
+                for (int k2 = 0; k2 < n; ++k2) std::swap(A[c][k2], A[piv][k2]);
+                std::swap(b[c], b[piv]);
+            }
+            for (int r2 = c + 1; r2 < n; ++r2)
+            {
+                double f = A[r2][c] / A[c][c];
+                for (int k2 = c; k2 < n; ++k2) A[r2][k2] -= f * A[c][k2];
+                b[r2] -= f * b[c];
+            }
+        }
+        for (int c = n - 1; c >= 0; --c)
+        {
+            double s = b[c];
+            for (int k2 = c + 1; k2 < n; ++k2) s -= A[c][k2] * x[k2];
+            x[c] = s / A[c][c];
+        }
+        if (h_gains.size() != static_cast<size_t>(ncam)) h_gains.assign(ncam, 1.0f);
+        float mean = 0.0f;
+        for (int i = 0; i < ncam; ++i)
+        {
+            float g = i < n ? std::exp(static_cast<float>(x[i])) : 1.0f;
+            g = std::min(2.0f, std::max(0.5f, g));
+            h_gains[i] = 0.8f * h_gains[i] + 0.2f * g;
+            mean += h_gains[i];
+        }
+        mean /= ncam;  // renormalize so overall brightness stays put
+        for (auto& g : h_gains) g /= mean;
+        CUDA_CHECK(cudaMemcpy(d_gains, h_gains.data(), ncam * sizeof(float),
+                              cudaMemcpyHostToDevice));
+        gains_valid = true;
+    }
+
     // Cumulative device (re)allocation count — exposed for diagnostics/tests.
     size_t alloc_count = 0;
 
@@ -154,6 +243,8 @@ struct Reprojector::Impl
         if (d_rverts) cudaFree(d_rverts);
         if (d_rcols)  cudaFree(d_rcols);
         if (d_selfmask) cudaFree(d_selfmask);
+        if (d_pairstats) cudaFree(d_pairstats);
+        if (d_gains) cudaFree(d_gains);
     }
 
     ~Impl() { free_all(); }
@@ -298,7 +389,8 @@ void Reprojector::upload_points(const float* xyz, std::size_t n, float feather_m
     CUDA_CHECK(cudaMemcpy(impl_->d_pts, xyz, bytes, cudaMemcpyHostToDevice));
     impl_->sync_cams();
     launch_colorize(impl_->d_cols, impl_->d_pts, impl_->npts, impl_->d_images, impl_->d_cams,
-                    static_cast<int>(impl_->cams.size()), feather_margin);
+                    static_cast<int>(impl_->cams.size()), feather_margin,
+                    impl_->gains_valid ? impl_->d_gains : nullptr);
     CUDA_CHECK(cudaGetLastError());
 }
 
@@ -341,14 +433,17 @@ void Reprojector::render_bowl(const CameraParams& vcam, const BowlParams& bowl, 
 
     CamDev v = to_camdev(vcam);
 
+    float* stats = (bowl.exposure_match && ncam > 1) ? impl_->exposure_begin(ncam) : nullptr;
     launch_bowl(impl_->d_out, OW, OH, impl_->d_images, impl_->d_cams, ncam, v,
                 /*surf_type=*/1, /*flat_z0=*/0.0f,
                 bowl.R0, bowl.k, bowl.Rmax,
                 bowl.feather_margin,
                 /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f,
                 bowl.fill_blind_zone ? 1 : 0,
-                impl_->n_masks > 0 ? impl_->d_selfmask : nullptr);
+                impl_->n_masks > 0 ? impl_->d_selfmask : nullptr,
+                (stats && impl_->gains_valid) ? impl_->d_gains : nullptr, stats);
     CUDA_CHECK(cudaGetLastError());  // surface launch-config errors immediately
+    if (stats) impl_->exposure_end(ncam);
 
     if (bowl.fill_blind_zone)
     {
@@ -424,13 +519,16 @@ void Reprojector::render_hybrid(const CameraParams& vcam, const BowlParams& bowl
     CamDev v = to_camdev(vcam);
 
     // --- Bowl pass ---
+    float* stats = (bowl.exposure_match && ncam > 1) ? impl_->exposure_begin(ncam) : nullptr;
     launch_bowl(impl_->d_bowl, OW, OH, impl_->d_images, impl_->d_cams, ncam, v,
                 /*surf_type=*/1, /*flat_z0=*/0.0f,
                 bowl.R0, bowl.k, bowl.Rmax,
                 bowl.feather_margin,
                 /*fr=*/0.0f, /*fg=*/0.0f, /*fb=*/0.0f,
                 bowl.fill_blind_zone ? 1 : 0,
-                impl_->n_masks > 0 ? impl_->d_selfmask : nullptr);
+                impl_->n_masks > 0 ? impl_->d_selfmask : nullptr,
+                (stats && impl_->gains_valid) ? impl_->d_gains : nullptr, stats);
+    if (stats) impl_->exposure_end(ncam);
 
     if (bowl.fill_blind_zone)
     {

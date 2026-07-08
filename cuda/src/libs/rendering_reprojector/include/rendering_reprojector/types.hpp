@@ -30,5 +30,10 @@ struct BowlParams
     // robot) by propagating surrounding scene colors, instead of leaving them
     // invalid for the consumer's sky fill. Runs before the robot proxy overlay.
     bool fill_blind_zone = false;
+    // Per-camera exposure (gain) matching: luminance statistics are collected
+    // on the GPU where neighboring cameras overlap, per-camera gains solved in
+    // log space (anchored to mean 1) and applied to the blend the next frame.
+    // Removes the brightness step at sector boundaries from auto-exposure.
+    bool exposure_match = false;
 };
 }  // namespace micropilot::rendering
