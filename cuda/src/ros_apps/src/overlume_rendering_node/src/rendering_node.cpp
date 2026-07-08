@@ -603,21 +603,41 @@ void RenderingNode::timer_callback()
     // This avoids stitching temporally-misaligned async frames (the cameras run
     // ~10 fps and arrive independently), which otherwise causes heavy flicker.
     rclcpp::Time t_min, t_max;
+    bool all_new = true;
     for (int i = 0; i < n_cameras_; ++i)
     {
         std::lock_guard<std::mutex> lk(*per_cam_[i].mtx);
-        if (!per_cam_[i].image.has_value() || !per_cam_[i].have_new) return;  // wait
+        if (!per_cam_[i].image.has_value()) return;  // no complete set seen yet
+        all_new = all_new && per_cam_[i].have_new;
         const rclcpp::Time& s = per_cam_[i].stamp;
         if (i == 0) { t_min = s; t_max = s; }
         else { if (s < t_min) t_min = s; if (s > t_max) t_max = s; }
     }
-    if ((t_max - t_min).seconds() > max_sync_latency_)
-    {
-        // Frames not yet aligned within the window — wait for a fresher, tighter set.
+    // A FRESH set (new frame from every camera, stamps within the window)
+    // replaces the device images. Otherwise keep re-rendering the cached set:
+    // the output stays live while the bag is paused, so GUI tuning (params,
+    // extrinsics, vcam) is immediately visible on the frozen frame.
+    const bool fresh = all_new && (t_max - t_min).seconds() <= max_sync_latency_;
+    if (all_new && !fresh)
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
-                             "camera frames span %.3fs > max_sync_latency %.3fs; skipping render",
+                             "camera frames span %.3fs > max_sync_latency %.3fs; "
+                             "re-rendering previous set",
                              (t_max - t_min).seconds(), max_sync_latency_);
-        return;
+    if (!fresh && !have_set_) return;  // nothing uploaded yet to re-render
+    if (fresh)
+    {
+        up_stamps_.resize(n_cameras_);
+        for (int i = 0; i < n_cameras_; ++i)
+        {
+            std::lock_guard<std::mutex> lk(*per_cam_[i].mtx);
+            up_stamps_[i] = per_cam_[i].stamp;
+        }
+        t_max = *std::max_element(up_stamps_.begin(), up_stamps_.end());
+    }
+    else
+    {
+        // stamps of the set actually on the GPU
+        t_max = *std::max_element(up_stamps_.begin(), up_stamps_.end());
     }
 
     // Build NHWC float buffer (N, H, W, C=3) — use first camera's size.
@@ -655,7 +675,7 @@ void RenderingNode::timer_callback()
         // Build rescaled CameraParams: copy extrinsics (ego-motion-compensated
         // to the common reference time when enabled), then overwrite w/h/K.
         scaled_params[i] = compensate_motion
-                               ? compensate(cam_params_[i], per_cam_[i].stamp.seconds(),
+                               ? compensate(cam_params_[i], up_stamps_[i].seconds(),
                                             t_max.seconds())
                                : cam_params_[i];
         int info_w = cam_params_[i].width;
@@ -669,7 +689,7 @@ void RenderingNode::timer_callback()
         scaled_params[i].K[4] *= sy;  // fy
         scaled_params[i].K[5] *= sy;  // cy
 
-        if (!img_dirty_[i]) continue;
+        if (!fresh || !img_dirty_[i]) continue;
         any_dirty = true;
 
         const cv::Mat& m = per_cam_[i].image.value();
@@ -689,10 +709,14 @@ void RenderingNode::timer_callback()
         img_dirty_[i] = false;
     }
 
-    if (any_dirty || compensate_motion)
-        reprojector_->set_cameras(scaled_params);
+    // Always push camera params: the GUI tunes extrinsics live even while the
+    // image set is frozen (paused bag), and the vcam/K may change any tick.
+    reprojector_->set_cameras(scaled_params);
     if (any_dirty)
+    {
         reprojector_->upload_images(nhwc.data(), n_cameras_, H, W);
+        have_set_ = true;
+    }
 
     // ── render ───────────────────────────────────────────────────────────────
     // With a lidar cloud buffered: colorize the latest points against the
@@ -780,13 +804,14 @@ void RenderingNode::timer_callback()
             info_msg.k[r * 3 + c] = static_cast<double>(vcam_.K[r * 3 + c]);
     pub_info_->publish(info_msg);
 
-    // Consume the synced set: require a fresh frame from every camera before the
-    // next render (so the published rate tracks the synchronized camera rate).
-    for (int i = 0; i < n_cameras_; ++i)
-    {
-        std::lock_guard<std::mutex> lk(*per_cam_[i].mtx);
-        per_cam_[i].have_new = false;
-    }
+    // Consume the synced set so the next UPLOAD waits for a full fresh set
+    // (rendering itself continues every tick from the cached images).
+    if (fresh)
+        for (int i = 0; i < n_cameras_; ++i)
+        {
+            std::lock_guard<std::mutex> lk(*per_cam_[i].mtx);
+            per_cam_[i].have_new = false;
+        }
 }
 
 // ── Live parameter tuning ────────────────────────────────────────────────────

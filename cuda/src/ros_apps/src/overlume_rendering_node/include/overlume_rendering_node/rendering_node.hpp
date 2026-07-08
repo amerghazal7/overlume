@@ -195,6 +195,14 @@ private:
 
     // track which cameras had an image update since last upload
     std::vector<bool> img_dirty_;
+    // a complete synced set has been uploaded — from then on the node renders
+    // EVERY tick (re-rendering the cached set when no new frames arrive, so a
+    // paused bag stays tunable live from the GUI)
+    bool have_set_ = false;
+    // header stamps of the currently-uploaded set (ego-motion compensation
+    // must reference THESE, not the latest arrivals, when re-rendering cached
+    // images while a new set is still assembling)
+    std::vector<rclcpp::Time> up_stamps_;
 
     // explicit per-camera topic names (size n_cameras_); empty => default
     // "/camera/camN/image_raw" + "/camera/camN/camera_info" pattern.
