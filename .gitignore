@@ -13,3 +13,4 @@ cuda/logs/
 *.db*CMakeFiles/
 .vscode/
 graphify-out/
+**/build/
