@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>micropilot_visualization_node</name>
+  <version>0.0.1</version>
+  <description>ROS2 LifecycleNode wrapping micropilot::visualization (Filament headless renderer) — Visual Mode (mode 3) on the /rendering/image mux.</description>
+  <maintainer email="amer.ghazal@micropolis.ae">Amer Ghazal</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+
+  <!-- visual_renderer (micropilot::visualization, clang/libc++) is NOT a ROS
+       package and is not resolved via find_package/CMAKE_PREFIX_PATH: it has
+       no install/export (nothing consumed it before this node) and cannot be
+       add_subdirectory'd into this gcc/libstdc++ build (spec §2). This
+       package's CMakeLists.txt imports its prebuilt static lib directly from
+       cuda/src/libs/visual_renderer/build/ (built per that directory's
+       README.md); no rosdep entry applies. -->
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
