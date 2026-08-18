@@ -319,6 +319,12 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
                 return;
             }
             active_mode_ = msg->data;
+            // 1|2 also select the local render mode (bowl/pointcloud), matching
+            // spec §3.1 / plan Task 4: "on 1|2 identical to today's
+            // ~/set_render_mode". 3 (visualization owns the stream) leaves
+            // render_mode_ untouched so the next 1|2 resumes the prior view.
+            if (msg->data != 3)
+                render_mode_ = msg->data;
             RCLCPP_INFO(get_logger(), "rendering_node: mode -> %d", active_mode_);
         });
 
