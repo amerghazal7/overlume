@@ -13,63 +13,64 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# No clang-14/libc++-14 package exists on this project's Ubuntu 22.04 dev/
-# robot images and there's no root to `apt install` one -- see plan Task 1
-# Step 5's fix-up note (docs/superpowers/plans/2026-08-18-visual-mode.md) for
-# the root-less acquisition recipe (apt-get download + dpkg-deb -x into a
-# local prefix). That prefix's bin/ has to be resolvable as CMAKE_CXX_COMPILER
-# (on PATH, or passed as an absolute path) -- CMake can't discover it on its
-# own. On this dev box it currently lives at
-# ~/.local/opt/clang14-toolchain/bin; the plan doc's Task 1 Step 5 records the
-# exact PATH-independent configure command (absolute -DCMAKE_CXX_COMPILER=)
-# verified clean-shell-reproducible.
+# Configure with `cmake --toolchain cmake/toolchain-clang-libcxx.cmake` (see
+# that file + scripts/setup_toolchain.sh + README.md) — it selects a working
+# clang++/libc++ and bakes in -stdlib=libc++. These are defensive checks in
+# case someone configures by hand instead.
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     message(FATAL_ERROR
         "visual_renderer must be built with clang++ (got CMAKE_CXX_COMPILER_ID="
-        "'${CMAKE_CXX_COMPILER_ID}'). Configure with e.g.:\n"
-        "  cmake -DCMAKE_CXX_COMPILER=/path/to/clang14/bin/clang++ "
-        "-DCMAKE_CXX_FLAGS=-stdlib=libc++ -DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++ .. \n"
-        "See the plan doc (Task 1 Step 5 fix-up) for how to obtain such a "
-        "toolchain root-lessly and this dev box's current path.")
+        "'${CMAKE_CXX_COMPILER_ID}'). Configure with:\n"
+        "  cmake --toolchain cmake/toolchain-clang-libcxx.cmake -B build -S . \n"
+        "(run scripts/setup_toolchain.sh first if you have no system clang++/libc++). "
+        "See README.md.")
 endif()
 if(NOT CMAKE_CXX_FLAGS MATCHES "-stdlib=libc\\+\\+")
     message(FATAL_ERROR
         "visual_renderer must be built against libc++ (pass "
-        "-DCMAKE_CXX_FLAGS=-stdlib=libc++ -DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++). "
-        "See spec §2 for why gcc/libstdc++ and clang/libc++ must not mix.")
+        "-DCMAKE_CXX_FLAGS=-stdlib=libc++), which the toolchain file above "
+        "already does. See spec §2 for why gcc/libstdc++ and clang/libc++ "
+        "must not mix.")
 endif()
 
-# This clang++'s libc++.so.1/libunwind.so.1 live next to it, not on the
-# system loader path (ldconfig only knows the system's libunwind.so.8) --
-# without this, every binary built here needs LD_LIBRARY_PATH exported by
-# hand to run (this bit us: `filament_link_probe` failed with "libc++.so.1:
-# cannot open shared object file" under plain ctest). Resolve the runtime dir
-# from the compiler itself (never hardcode it -- it's a root-less local
-# prefix, not a fixed install path) and bake it in as an rpath so build-tree
-# binaries (ctest included) are self-sufficient.
+# visual_renderer links libc++/libc++abi/libunwind as explicit static
+# archives (below) rather than the driver's default dynamic -lc++, so the
+# result runs with no LD_LIBRARY_PATH/rpath needed (this used to bite us:
+# `filament_link_probe` failed at runtime with "libc++.so.1: cannot open
+# shared object file" under a plain ctest with nothing hand-exported).
+#
+# Resolve the runtime lib dir from the compiler itself (never hardcode it —
+# it may be a root-less local prefix, not a fixed install path) via
+# -print-file-name, the same mechanism CMake itself uses. libc++abi.a and
+# libunwind.a are then required as siblings of libc++.a in that same
+# directory rather than resolved independently via -print-file-name/-l:
+# this box also has an unrelated, ABI-incompatible system package that is
+# ALSO named libunwind (the nongnu libunwind used for backtraces, not
+# LLVM's compiler-rt libunwind that libc++abi needs) and clang's default
+# search path resolves a bare `-lunwind`/-print-file-name=libunwind.a to
+# THAT one (confirmed) — sibling-of-libc++.a is the only reliable way to
+# get the matching one.
 execute_process(
-    COMMAND "${CMAKE_CXX_COMPILER}" -print-file-name=libc++.so
-    OUTPUT_VARIABLE _libcxx_so
+    COMMAND "${CMAKE_CXX_COMPILER}" -stdlib=libc++ -print-file-name=libc++.a
+    OUTPUT_VARIABLE _libcxx_a
     OUTPUT_STRIP_TRAILING_WHITESPACE)
-get_filename_component(_libcxx_so "${_libcxx_so}" REALPATH)
-get_filename_component(_libcxx_runtime_dir "${_libcxx_so}" DIRECTORY)
-if(NOT EXISTS "${_libcxx_runtime_dir}/libc++.so.1")
+get_filename_component(_libcxx_a "${_libcxx_a}" REALPATH)
+if(NOT EXISTS "${_libcxx_a}")
     message(FATAL_ERROR
-        "visual_renderer: could not resolve the libc++ runtime dir from "
-        "compiler '${CMAKE_CXX_COMPILER}' (looked in '${_libcxx_runtime_dir}' "
-        "for libc++.so.1). Is CMAKE_CXX_COMPILER a real clang++ with a "
-        "co-located libc++?")
+        "visual_renderer: could not resolve a static libc++.a from compiler "
+        "'${CMAKE_CXX_COMPILER}' (looked at '${_libcxx_a}'). Is "
+        "CMAKE_CXX_COMPILER a real clang++ with a co-located libc++-dev?")
 endif()
-set(CMAKE_BUILD_RPATH "${_libcxx_runtime_dir}")
-
-# GNU ld defaults to DT_RUNPATH (--enable-new-dtags), which only applies to
-# an executable's own *direct* NEEDED entries -- it is NOT consulted while
-# resolving libc++.so.1's own NEEDED entry on libunwind.so.1, so the rpath
-# above alone still 404s on libunwind.so.1 at runtime (confirmed). The old
-# DT_RPATH form is consulted for the whole transitive resolution, which is
-# what we actually need here since libunwind.so.1 is never a *direct*
-# dependency of anything we build.
-add_link_options(-Wl,--disable-new-dtags)
+get_filename_component(_libcxx_lib_dir "${_libcxx_a}" DIRECTORY)
+set(_libcxxabi_a "${_libcxx_lib_dir}/libc++abi.a")
+set(_libunwind_a "${_libcxx_lib_dir}/libunwind.a")
+foreach(_rt_lib "${_libcxxabi_a}" "${_libunwind_a}")
+    if(NOT EXISTS "${_rt_lib}")
+        message(FATAL_ERROR
+            "visual_renderer: expected static runtime lib not found: "
+            "${_rt_lib} (sibling of ${_libcxx_a}). Toolchain layout mismatch?")
+    endif()
+endforeach()
 
 include(cmake/GetFilament.cmake)
 
@@ -84,7 +85,17 @@ add_library(micropilot_visualization::visual_renderer ALIAS visual_renderer)
 target_include_directories(visual_renderer PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
-target_link_libraries(visual_renderer PUBLIC Filament::filament)
+# PRIVATE: Filament::filament's headers (and the raw static archives are
+# still forwarded to any final executable regardless — that's how CMake
+# handles static-lib link dependencies) must never leak to the gcc/
+# libstdc++ ROS node that links this library — it only ever sees the POD
+# api.h include/ dir above. See spec §2 / api.h's header comment.
+target_link_libraries(visual_renderer PRIVATE
+    Filament::filament
+    "${_libcxx_a}"
+    "${_libcxxabi_a}"
+    "${_libunwind_a}"
+)
 
 enable_testing()
 
@@ -99,6 +110,12 @@ add_test(NAME check_pod_header
 # static-lib-only build above nor the header check ever invokes the linker
 # against Filament's archives. See smoke/filament_link_probe.cpp.
 add_executable(filament_link_probe smoke/filament_link_probe.cpp)
+# This probe deliberately calls Filament directly (see file header comment)
+# to prove the archive-link-order fix, so it needs Filament's headers itself
+# — granted explicitly here, NOT inherited from visual_renderer (whose
+# Filament dependency is PRIVATE precisely so ordinary consumers, i.e. the
+# eventual gcc ROS node, never see them).
+target_include_directories(filament_link_probe PRIVATE "${FILAMENT_ROOT}/include")
 target_link_libraries(filament_link_probe PRIVATE visual_renderer)
 add_test(NAME filament_link_probe COMMAND filament_link_probe)
 

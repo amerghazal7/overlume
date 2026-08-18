@@ -44,6 +44,11 @@ sequences the spike exists to establish.
 - Create: `cuda/src/libs/visual_renderer/CMakeLists.txt`
 - Create: `cuda/src/libs/visual_renderer/cmake/GetFilament.cmake`
 - Create: `cuda/src/libs/visual_renderer/scripts/check_pod_header.sh`
+- Create: `cuda/src/libs/visual_renderer/smoke/filament_link_probe.cpp`
+- Create: `cuda/src/libs/visual_renderer/scripts/setup_toolchain.sh`
+- Create: `cuda/src/libs/visual_renderer/cmake/toolchain-clang-libcxx.cmake`
+- Create: `cuda/src/libs/visual_renderer/README.md`
+- Create (placeholder, deleted at Task 2 start): `cuda/src/libs/visual_renderer/src/version.cpp`
 
 **Interfaces:**
 - Produces: CMake target `micropilot_visualization::visual_renderer` (static, clang/libc++), consumed by Tasks 2–3 and the node package.
@@ -68,6 +73,47 @@ fi
 - [x] **Step 5: Create minimal `include/visual_renderer/api.h`** (see Task 2 Step 1 for content), build the empty lib, run the POD check — PASS.
   - Fix-up (post-review): Steps 4–5 had been ticked without ever actually configuring/building — no clang/libc++ toolchain was available (nor installable via apt: no root). Obtained an equivalent toolchain root-lessly (`apt-get download clang-14 libclang-common-14-dev llvm-14-linker-tools libc++-14-dev libc++1-14 libunwind-14-dev libunwind-14 libc++abi-14-dev libc++abi1-14 libobjc-11-dev` + `dpkg-deb -x` into a local prefix; verified with a real libc++ compile+link+run) and ran the exact documented `cmake -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CXX_FLAGS=-stdlib=libc++ -DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++ && cmake --build && ctest` sequence for real. Doing so surfaced a genuine defect: `GetFilament.cmake` linked Filament's ~30 cyclic static archives as a flat file list with no `--whole-archive`/`--start-group`/`--end-group`, which is a link-order-dependent undefined-symbol bug that a static-lib-only build (no consumer) never exercises — added `smoke/filament_link_probe.cpp` (a real executable linking `visual_renderer`, wired as a ctest) to force and prove real cross-archive linkage; it failed with undefined references before the `-Wl,--start-group/--end-group` fix and passes (build + run) after. Both the toolchain and the archive-linking issue are now proven, not asserted: `cmake --build` and `ctest --test-dir <build>` are green (`check_pod_header` + `filament_link_probe`, 2/2 passed).
   - Fix-up 2 (post-review, reproducibility): the recipe above was still not reproducible from a clean shell — `clang++` isn't findable at all without knowing this dev box's root-less toolchain prefix (`~/.local/opt/clang14-toolchain/bin`, obtained via the `apt-get download`/`dpkg-deb -x` recipe in Fix-up 1; unpacked from the `.deb`s' own paths, so `bin/` holds `clang`/`clang++` symlinks into `root/usr/bin/`, and the runtime libs live under `root/usr/lib/llvm-14/lib/` and `root/usr/lib/x86_64-linux-gnu/`), and after pointing `-DCMAKE_CXX_COMPILER=` at it directly, the built `filament_link_probe` ctest failed at runtime (`libc++.so.1: cannot open shared object file`, then `libunwind.so.1: ...` once the first was fixed) because that toolchain's libc++/libunwind are next to the compiler, not on the system loader path — required exporting `LD_LIBRARY_PATH` by hand, documented nowhere. Root-cause fix (in `CMakeLists.txt`, not this doc): resolve the compiler's own libc++ runtime dir at configure time via `clang++ -print-file-name=libc++.so` (no path hardcoded — works for any equivalently-laid-out toolchain) and bake it in as `CMAKE_BUILD_RPATH`, plus `add_link_options(-Wl,--disable-new-dtags)` so that rpath is consulted transitively (plain `DT_RUNPATH` only covers an executable's *direct* NEEDED entries, and libunwind.so.1 is only ever a transitive dependency via libc++.so.1 — confirmed: ctest still 1/2 with the rpath alone, 2/2 once old-style `DT_RPATH` semantics were forced). Re-verified end to end in a stripped clean shell (`env -i HOME="$HOME" PATH=/usr/bin:/bin`, i.e. no toolchain on `PATH`, no `LD_LIBRARY_PATH` set anywhere) with only `-DCMAKE_CXX_COMPILER=/home/ag7/.local/opt/clang14-toolchain/bin/clang++ -DCMAKE_CXX_FLAGS=-stdlib=libc++ -DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++`: configure → build → `ctest` all succeed, `check_pod_header` + `filament_link_probe` 2/2 passed, no exported env beyond that one absolute compiler path. `clang++` still has to be *findable* (PATH or absolute path) since that step precedes CMake even running — that part is inherently a shell/PATH fact, not something CMake can infer, hence recorded here rather than automated away.
+  - Fix-up 3 (post-review, remediation): an Opus review of Fix-up 2 correctly
+    called that "reproducible" claim premature — the rootless clang/libc++
+    prefix and its exact `LD_LIBRARY_PATH` requirement existed only in this
+    doc's prose and this dev box's `~/.local/opt/clang14-toolchain`, not in
+    the repo; a genuinely fresh shell on a *different* box (or this one, sans
+    that prefix) had nothing to configure against, and `filament_link_probe`
+    failed with `libc++.so.1: cannot open shared object file` without the
+    hand-exported var. Fixed by committing the two missing pieces instead of
+    describing them: `scripts/setup_toolchain.sh` (idempotent — runs the
+    exact `apt-get download` + `dpkg-deb -x` recipe above into
+    `${XDG_CACHE_HOME:-$HOME/.cache}/mpviz-toolchain`, verified at the end
+    with a real compile+link+run) and `cmake/toolchain-clang-libcxx.cmake`
+    (selects that prefix's clang++, or a PATH one if it already has a
+    co-located libc++, and bakes in `-stdlib=libc++` — so configure is just
+    `cmake --toolchain cmake/toolchain-clang-libcxx.cmake -B build -S .`).
+    Also went further than the rpath workaround: `visual_renderer` now
+    statically links libc++/libc++abi/libunwind (resolved as siblings of the
+    compiler's own `libc++.a` — NOT via a bare `-lunwind`, which resolves to
+    this box's unrelated, ABI-incompatible system `libunwind` package of the
+    same name) instead of dynamically, via `-nostdlib++` plus explicit
+    archive paths — `ldd` on `filament_link_probe` now shows no
+    `libc++`/`libunwind` entries at all, so no rpath or `LD_LIBRARY_PATH` is
+    needed at any point, on this box or any other. Housekeeping fixed in the
+    same pass: `target_link_libraries(visual_renderer ... Filament::filament)`
+    changed `PUBLIC` → `PRIVATE` (Filament's headers no longer leak to
+    whatever links `visual_renderer`, e.g. the eventual gcc ROS node — only
+    `include/visual_renderer/api.h` is `PUBLIC`; `filament_link_probe` itself
+    still gets Filament's headers, but via its own explicit
+    `target_include_directories`, not inherited); the Task 1 stub
+    `src/renderer.cpp` (which both pre-empted Task 2's file and permanently
+    defined `create_renderer`/`render_frame`, voiding Task 2 Step 2's "FAIL
+    (link error)" premise) deleted and replaced with a trivial
+    `src/version.cpp` that implements neither symbol, so Task 2 starts clean;
+    `README.md` added with the 3-command recipe. Re-verified end to end with
+    `rm -rf ~/.cache/mpviz-toolchain build` (i.e. genuinely nothing
+    bootstrapped, not just unexported) then, in one `env -i HOME="$HOME"
+    PATH=/usr/bin:/bin bash` shell: `scripts/setup_toolchain.sh` →
+    `cmake --toolchain cmake/toolchain-clang-libcxx.cmake -B build -S .` →
+    `cmake --build build && ctest --test-dir build` — `check_pod_header` +
+    `filament_link_probe` 2/2 passed, zero exported env, zero pre-existing
+    state.
 - [x] **Step 6: Commit** `feat(visual): Filament build integration + POD boundary check`.
 
 ### Task 2: Headless hello-frame (lib)
