@@ -98,9 +98,26 @@ impl Sonnet / review Opus) per project directive.
 - **VM-052 Runtime chunk loading + culling.** Index → distance-enabled
   chunks, theme building material.
   AC: golden with baked town; frame-time delta < 2 ms at target preset.
-- **VM-053 (Future) 3D Tiles streaming adapter.** cesium-native behind the
-  `EnvironmentSource` seam (Cesium OSM Buildings). Not scheduled; recorded
-  here as the upgrade path.
+- **VM-053 → promoted to Epic 6 (v1.1).** See below.
+
+## Epic 6 — v1.1: 3D Tiles streaming (committed, starts immediately after v1.0)
+
+- **VM-060 Cesium ion registration + tileset access.** User performs the
+  registration (offered 2026-08-18); obtain a Cesium OSM Buildings token,
+  store like the Mapbox token (env var, never committed).
+  AC: token retrieves tileset.json for the operating area.
+- **VM-061 cesium-native build integration.** Pin a cesium-native release
+  behind the same clang/libc++ + POD-boundary rules as Filament.
+  AC: builds in CI alongside Filament; POD header check still passes.
+- **VM-062 3D Tiles streaming EnvironmentSource.** cesium-native tile
+  selection/loading behind the `EnvironmentSource` seam (VM-052); glTF tile
+  payloads re-materialized with the theme's clay building material; geo
+  placement via the VM-050 anchor; disk tile cache for offline robustness.
+  AC: baked-source goldens still pass with the streaming source swapped in
+  over the same area; frame-time budget held while streaming.
+- **VM-063 Source selection + fallback.** Profile/param chooses
+  `baked | streamed`; streamed falls back to baked chunks on network loss.
+  AC: fallback e2e test (kill network mid-run → baked chunks appear, WARN).
 
 ## Epic 5 — Hardening & delivery
 
@@ -118,7 +135,7 @@ impl Sonnet / review Opus) per project directive.
 
 ## Future (explicitly deferred)
 
-- 3D Tiles runtime streaming (VM-053); minimap inset (can reuse bake data);
+- Minimap inset (can reuse bake data);
   typed perception-topic adapter; hybrid mode (camera-imagery ground +
   synthetic overlays); interactive picking over WS; async readback; wheel/
   turn animations on clay models; `cuda/` directory rename.

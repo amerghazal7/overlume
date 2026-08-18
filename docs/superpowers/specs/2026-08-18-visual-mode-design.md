@@ -239,10 +239,13 @@ instead of runtime tile streaming:
   map-frame origin) is a manual override for GPS-denied replays. No anchor
   from either source → environment layer disabled with one WARN, everything
   else unaffected.
-- The layer sits behind an `EnvironmentSource` seam: a future
-  cesium-native-based OGC 3D Tiles streaming adapter (e.g. Cesium OSM
-  Buildings) can replace the baked source if operating areas become
-  unbounded — renderer code unchanged.
+- The layer sits behind an `EnvironmentSource` seam. **v1.1 (committed,
+  starts immediately after v1.0):** a cesium-native-based OGC 3D Tiles
+  streaming adapter (Cesium OSM Buildings via Cesium ion — user handles
+  registration) replaces/augments the baked source, with clay
+  re-materialization, geo placement via the same anchor, a disk tile cache,
+  and automatic fallback to baked chunks on network loss — renderer code
+  unchanged. Backlog Epic 6 (VM-060…VM-063).
 
 ## 5. Ingest adapters (ROS node side)
 
@@ -376,9 +379,9 @@ Following the repo's TDD convention:
 
 ## 11. Out of scope (v1) — explicit
 
-- Runtime-streamed global 3D Tiles (cesium-native adapter) and
-  photorealistic tiles — buildings ship v1 as the baked clay
-  EnvironmentLayer (§4.5); streaming is the future upgrade path.
+- Runtime-streamed 3D Tiles are out of **v1.0** only — they are the
+  committed v1.1 scope (§4.5, backlog Epic 6), starting immediately after
+  v1.0. Photorealistic tiles stay out entirely (clay style is the product).
 - Minimap inset (needs a 2D map raster source; the bake pipeline's data
   could feed this later).
 - Real camera imagery composited into Visual mode (modes 1–2 cover
