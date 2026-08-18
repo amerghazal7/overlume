@@ -54,6 +54,20 @@ endif()
 set(CMAKE_CXX_COMPILER "${_mpviz_chosen_clangxx}" CACHE FILEPATH
     "clang++ (libc++) for visual_renderer" FORCE)
 
+# CMAKE_EXE_LINKER_FLAGS_INIT below (-stdlib=libc++ -nostdlib++) is global —
+# it applies to every target CMake configures in this build, including any
+# plain-C dependency that enables LANGUAGES C (e.g. googletest's
+# CMakeLists.txt). If CMAKE_C_COMPILER were left at its default (system
+# gcc), CMake's C-compiler try_compile sanity check would hand those
+# clang-only flags to gcc and fail immediately ("unrecognized command-line
+# option") before any of our own targets are even configured — confirmed by
+# hitting exactly that. Pointing the C compiler at this same toolchain's
+# clang (sibling of clang++) sidesteps it entirely: nothing in this
+# directory or its fetched C dependencies needs gcc.
+get_filename_component(_mpviz_toolchain_bindir "${_mpviz_chosen_clangxx}" DIRECTORY)
+set(CMAKE_C_COMPILER "${_mpviz_toolchain_bindir}/clang" CACHE FILEPATH
+    "clang (matching CMAKE_CXX_COMPILER) for visual_renderer's C deps" FORCE)
+
 set(CMAKE_CXX_FLAGS_INIT "-stdlib=libc++")
 # -nostdlib++: visual_renderer links libc++/libc++abi/libunwind as explicit
 # static archives (see CMakeLists.txt) instead of the driver's default
