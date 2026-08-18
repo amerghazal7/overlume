@@ -211,6 +211,19 @@ structure now. Interfaces marked ➤ are frozen upon that epic's review.
 | Docs + profile-authoring + bake runbooks | VM-042 | `README.md` section, `docs/visual_mode/*.md` |
 | Live validation: CARLA + real bag, rviz side-by-side parity sign-off | VM-043 | checklist in `docs/visual_mode/signoff.md` |
 
+### Epic 6 — v1.1: 3D Tiles streaming (committed; starts immediately after v1.0 ships)
+Backlog VM-060…VM-063. Its bite-sized plan (`2026-08-18-visual-mode-epic6.md`)
+is authored at v1.0 sign-off (VM-043) with the same Fable/Sonnet/Opus workflow.
+Prerequisite to schedule at v1.0 sign-off: user performs Cesium ion
+registration (offered 2026-08-18); token handled like the Mapbox token
+(env var, never committed).
+| Task | Backlog | Files |
+|---|---|---|
+| Cesium ion registration + tileset access | VM-060 | runbook in `docs/visual_mode/cesium.md` |
+| cesium-native pinned build (clang/libc++, POD rules) | VM-061 | `visual_renderer/cmake/GetCesiumNative.cmake` |
+| Streaming `EnvironmentSource` (clay re-materialize, disk cache) | VM-062 | lib `src/environment_stream.cpp` |
+| Source selection + baked fallback on network loss | VM-063 | node param plumbing, fallback e2e test |
+
 ## Self-review (done)
 
 - Spec coverage: §2→T1/T2, §3.1→T3/T4, §3.2→T1/T3, §4.1→E1, §4.2→T2+E1–E3, §4.3→VM-011/014, §4.4→VM-012/022/030, §4.5→E4, §5→E2, §6→T5/VM-013, §7→VM-027 + parity sign-off VM-043, §8→T6/VM-040/041, §9→VM-021/034 + T3 lifecycle, §10→every task's test steps. No gaps.
