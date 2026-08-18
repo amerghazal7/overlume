@@ -319,6 +319,19 @@ def test_mode_mux(test_node: "SmokeTestNode", viz_out_w: int, viz_out_h: int) ->
             if err is not None:
                 print(f"FAIL: {err}", file=sys.stderr)
                 return False
+            # frame_id alone can't distinguish mode 1 (bowl) from mode 2
+            # (pointcloud hybrid) -- both are rendering_node local views and
+            # both stamp RENDER_FRAME_ID. Cross-check the render_mode carried
+            # in vcam_state (index 7 of [eye xyz|target xyz|preset|mode]) so a
+            # /rendering/set_mode handler that forgets to update render_mode_
+            # (only active_mode_) is caught.
+            if mode in (1, 2):
+                state = test_node.vcam_state
+                if state is None or len(state) < 8 or int(state[7]) != mode:
+                    print(f"FAIL: mode {mode}: vcam_state[7] (render_mode) = "
+                          f"{state[7] if state and len(state) >= 8 else state}, "
+                          f"expected {mode}", file=sys.stderr)
+                    return False
             print(f"INFO: mode {mode} -> {active_id} exclusive, no gap > 0.5s -- OK.")
 
         print("PASS: mode mux verified (exactly-one-publisher, no gap > 0.5s).")
