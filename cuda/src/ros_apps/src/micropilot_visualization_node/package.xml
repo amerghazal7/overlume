@@ -13,6 +13,9 @@
   <depend>rclcpp_lifecycle</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
+  <!-- SetVirtualCam.srv (plan Task 5 / spec §6) — existing srv package,
+       a dependency not a copy. -->
+  <depend>micropilot_rendering_node</depend>
 
   <!-- visual_renderer (micropilot::visualization, clang/libc++) is NOT a ROS
        package and is not resolved via find_package/CMAKE_PREFIX_PATH: it has

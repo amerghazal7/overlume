@@ -26,7 +26,7 @@ def test_set_preset_valid():
 
 
 @pytest.mark.parametrize("mode,expect", [
-    ("bowl", 1), ("pointcloud", 2), (1, 1), (2, 2),
+    ("bowl", 1), ("pointcloud", 2), ("visual", 3), (1, 1), (2, 2), (3, 3),
 ])
 def test_set_render_mode_valid(mode, expect):
     assert parse_cmd(json.dumps({"cmd": "set_render_mode", "mode": mode})) == \
@@ -44,7 +44,7 @@ def test_set_render_mode_valid(mode, expect):
     '{"cmd": "set_preset", "preset": 6}',
     '{"cmd": "set_preset", "preset": true}',              # bool is not an index
     '{"cmd": "set_preset", "preset": "2"}',
-    '{"cmd": "set_render_mode", "mode": 3}',              # unknown mode
+    '{"cmd": "set_render_mode", "mode": 4}',              # unknown mode
     '{"cmd": "set_render_mode", "mode": "depth"}',
     '{"cmd": "set_render_mode", "mode": true}',           # bool is not a mode
     '{"cmd": "set_param", "name": "nope", "value": 1}',   # untunable param
@@ -105,6 +105,177 @@ def test_patch_yaml_scalar_and_list():
 def test_patch_yaml_appends_missing_key():
     out = patch_yaml_text(YAML, {"exposure_match": True})
     assert "    exposure_match: true\n" in out
+
+
+# ── Bridge E2E: mode-3 switch + orbit while streaming (plan Task 5 Step 5) ───
+# Full-stack integration: bridge <-> both ROS nodes <-> a real websocket
+# client. Skips cleanly (not a failure) when the ROS install this repo
+# builds isn't present — same spirit as the C++ GL tests skipping without a
+# GPU: this test needs `colcon_build.sh` to have run first.
+import asyncio
+import subprocess
+import time
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+INSTALL_DIR = os.path.join(REPO_ROOT, "cuda", "install", "ros_apps")
+RENDERING_LIBS = os.path.join(
+    REPO_ROOT, "cuda", "install", "libs", "rendering_reprojector", "libs")
+BRIDGE_SCRIPT = os.path.join(os.path.dirname(__file__), "vcam_ws_bridge.py")
+E2E_OUT_W, E2E_OUT_H = 160, 120
+
+
+def _ros_env():
+    env = os.environ.copy()
+    env["LD_LIBRARY_PATH"] = RENDERING_LIBS + ":" + env.get("LD_LIBRARY_PATH", "")
+    return env
+
+
+def _popen(cmd: str) -> subprocess.Popen:
+    return subprocess.Popen(["bash", "-c", cmd], env=_ros_env(),
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            start_new_session=True)
+
+
+def _kill(proc: subprocess.Popen):
+    try:
+        os.killpg(os.getpgid(proc.pid), 15)
+    except ProcessLookupError:
+        pass
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), 9)
+        except ProcessLookupError:
+            pass
+        proc.wait()
+
+
+def _lifecycle(node_name: str, transition: str) -> bool:
+    cmd = f"source /opt/ros/humble/setup.bash && ros2 lifecycle set {node_name} {transition}"
+    result = subprocess.run(["bash", "-c", cmd], env=_ros_env(), capture_output=True,
+                            text=True, timeout=15.0)
+    return result.returncode == 0
+
+
+def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        time.sleep(0.2)
+        if proc.poll() is not None:
+            return False
+    return True
+
+
+@pytest.mark.skipif(not os.path.isdir(INSTALL_DIR), reason="cuda/install/ros_apps not built")
+def test_bridge_e2e_mode3_orbit_and_frames():
+    """set_render_mode 3 over WS -> orbit via set_look -> frames keep flowing
+    and vcam_state.mode == 3, with BOTH nodes and the real bridge process."""
+    rclpy = pytest.importorskip("rclpy")
+    from rclpy.node import Node as RclpyNode
+    from sensor_msgs.msg import Image
+    import websockets
+
+    port = 18765  # fixed test port; distinct from the default 8765
+    rendering_cmd = (
+        f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
+        f"ros2 run micropilot_rendering_node rendering_node --ros-args "
+        f"-p out_width:={E2E_OUT_W} -p out_height:={E2E_OUT_H} -p initial_mode:=1")
+    viz_cmd = (
+        f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
+        f"ros2 run micropilot_visualization_node visualization_node --ros-args "
+        f"-p out_width:={E2E_OUT_W} -p out_height:={E2E_OUT_H} -p initial_mode:=1")
+    bridge_cmd = (
+        f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
+        f"python3 {BRIDGE_SCRIPT} --port {port}")
+
+    rendering_proc = _popen(rendering_cmd)
+    viz_proc = _popen(viz_cmd)
+
+    rclpy.init()
+
+    class FrameCounter(RclpyNode):
+        def __init__(self):
+            super().__init__("e2e_frame_counter")
+            self.frames: list[tuple[float, str]] = []
+            self.create_subscription(Image, "/rendering/image", self._on_image, 10)
+
+        def _on_image(self, msg: Image):
+            self.frames.append((time.time(), msg.header.frame_id))
+
+    counter = FrameCounter()
+    bridge_proc = None
+    try:
+        for proc, name in ((rendering_proc, "rendering_node"), (viz_proc, "visualization_node")):
+            assert _wait_running(proc), (
+                f"{name} exited early:\n"
+                f"{proc.stderr.read().decode(errors='replace')[-2000:]}")
+        assert _lifecycle("/rendering_node", "configure")
+        assert _lifecycle("/rendering_node", "activate")
+        assert _lifecycle("/visualization_node", "configure")
+        assert _lifecycle("/visualization_node", "activate")
+
+        bridge_proc = _popen(bridge_cmd)
+        # Give the bridge's rclpy node + websocket server time to come up.
+        deadline = time.time() + 12.0
+        connected = None
+        last_err = None
+
+        async def run_client():
+            nonlocal connected
+            uri = f"ws://127.0.0.1:{port}"
+            while time.time() < deadline and connected is None:
+                try:
+                    connected = await websockets.connect(uri, open_timeout=1.0)
+                except OSError as e:
+                    last_err = e
+                    await asyncio.sleep(0.3)
+            assert connected is not None, f"could not connect to bridge: {last_err}"
+            ws = connected
+            try:
+                # rendering_node's own frame-sync gate needs real per-camera
+                # images before it ever renders (not this test's concern —
+                # covered by rendering_node's own smoke test); this test only
+                # needs both nodes ALIVE so the mux + WS fan-out are real.
+                await ws.send(json.dumps({"cmd": "set_render_mode", "mode": 3}))
+                # Orbit a couple of steps via set_look while mode 3 is active.
+                for eye, target in (([1.0, 2.0, 3.0], [0.0, 0.0, 0.5]),
+                                    ([-1.0, -2.0, 3.5], [0.0, 0.0, 0.3])):
+                    await ws.send(json.dumps(
+                        {"cmd": "set_look", "eye": eye, "target": target}))
+                    await asyncio.sleep(0.3)
+
+                # Frames must keep flowing (now from visualization_node).
+                counter.frames.clear()
+                t0 = time.time()
+                mode3_state = None
+                while time.time() - t0 < 3.0:
+                    rclpy.spin_once(counter, timeout_sec=0.02)
+                    try:
+                        frame = json.loads(await asyncio.wait_for(ws.recv(), timeout=0.05))
+                        if frame.get("type") == "state":
+                            mode3_state = frame
+                    except asyncio.TimeoutError:
+                        pass
+                assert len(counter.frames) >= 3, (
+                    f"frames did not keep flowing after set_render_mode 3: "
+                    f"{len(counter.frames)} in 3s")
+                assert all(fid == "visualization_virtual_cam" for _, fid in counter.frames), (
+                    "expected only visualization_node frames while mode == 3")
+                assert mode3_state is not None, "no {'type':'state'} frame observed"
+                assert mode3_state["render_mode"] == 3, (
+                    f"vcam_state.mode != 3: {mode3_state}")
+            finally:
+                await ws.close()
+
+        asyncio.run(run_client())
+    finally:
+        counter.destroy_node()
+        rclpy.shutdown()
+        if bridge_proc is not None:
+            _kill(bridge_proc)
+        _kill(rendering_proc)
+        _kill(viz_proc)
 
 
 def test_pose_roundtrip():

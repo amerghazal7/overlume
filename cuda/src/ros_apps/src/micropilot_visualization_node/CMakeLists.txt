@@ -9,12 +9,18 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+# SetVirtualCam.srv (plan Task 5 / spec §6) — existing srv package, a
+# dependency not a copy; micropilot_rendering_node is a
+# rosidl_interface_packages member so find_package resolves its generated
+# C++ headers (micropilot_rendering_node/srv/set_virtual_cam.hpp).
+find_package(micropilot_rendering_node REQUIRED)
 
 set(THIS_PACKAGE_DEPS
   rclcpp
   rclcpp_lifecycle
   sensor_msgs
-  std_msgs)
+  std_msgs
+  micropilot_rendering_node)
 
 # ── visual_renderer (clang/libc++ static lib) — cross-toolchain import ──────
 # visual_renderer (docs/superpowers/plans/2026-08-18-visual-mode.md Epic 0

@@ -38,7 +38,7 @@ import threading
 
 STATE_HZ = 15.0
 PRESET_RANGE = (1, 5)
-RENDER_MODES = {"bowl": 1, "pointcloud": 2, 1: 1, 2: 2}
+RENDER_MODES = {"bowl": 1, "pointcloud": 2, "visual": 3, 1: 1, 2: 2, 3: 3}
 
 # Params the GUI tuning panel may read/write, with their declared ROS types.
 TUNABLE_PARAMS = {
@@ -130,7 +130,8 @@ def parse_cmd(text: str):
     if cmd == "set_render_mode":
         m = msg.get("mode")
         if isinstance(m, bool) or m not in RENDER_MODES:
-            raise ValueError('set_render_mode: mode must be "bowl", "pointcloud", 1 or 2')
+            raise ValueError(
+                'set_render_mode: mode must be "bowl", "pointcloud", "visual", 1, 2 or 3')
         return "set_render_mode", RENDER_MODES[m]
     if cmd == "get_params":
         return "get_params", None
@@ -179,43 +180,77 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=8765)
     args = ap.parse_args()
 
+    # Both the CUDA node (modes 1-2) and the visualization node (mode 3)
+    # implement an identical vcam surface under their own namespaces (spec
+    # §6) — camera commands fan out to BOTH; the inactive one just updates
+    # state, so a client orbiting in one mode keeps its viewpoint after
+    # switching modes.
+    VCAM_NAMESPACES = ["/rendering_node", "/visualization_node"]
+
     class BridgeNode(Node):
         def __init__(self):
             super().__init__("vcam_ws_bridge")
-            self.state: list[float] | None = None  # [eye3, target3, preset]
-            self._pub_look = self.create_publisher(
-                Float64MultiArray, "/rendering_node/set_look", 10)
-            self._pub_mode = self.create_publisher(
-                Int32, "/rendering_node/set_render_mode", 10)
-            self._cli = self.create_client(
-                SetVirtualCam, "/rendering_node/set_virtual_cam")
+            self.state: list[float] | None = None  # [eye3, target3, preset, mode]
+            # Both nodes publish ~/vcam_state continuously regardless of which
+            # one is actually active (spec §9 telemetry-always-flows), so
+            # picking "whichever arrived last" flickers between them. Track
+            # the last commanded global mode and only accept a node's state
+            # once ITS OWN reported mode (index 7) agrees with it — i.e. the
+            # currently-active node's state, once it has caught up.
+            self._last_mode = 1
+            self._pub_look = [
+                self.create_publisher(Float64MultiArray, f"{ns}/set_look", 10)
+                for ns in VCAM_NAMESPACES]
+            # Global mux topic (plan Task 4/5): 1|2|3, shared by both nodes —
+            # switches which one owns /rendering/image AND (for 1|2) the CUDA
+            # node's bowl/pointcloud view, same semantics as the old
+            # per-node "~/set_render_mode" it replaces here.
+            self._pub_mode = self.create_publisher(Int32, "/rendering/set_mode", 10)
+            self._cli = [
+                self.create_client(SetVirtualCam, f"{ns}/set_virtual_cam")
+                for ns in VCAM_NAMESPACES]
             self._cli_getp = self.create_client(
                 GetParameters, "/rendering_node/get_parameters")
             self._cli_setp = self.create_client(
                 SetParameters, "/rendering_node/set_parameters")
-            self.create_subscription(
-                Float64MultiArray, "/rendering_node/vcam_state", self._on_state, 10)
+            # State telemetry is only meaningful from whichever node is
+            # currently active; both publish the same [eye|target|preset|mode]
+            # layout, so the GUI/WS clients don't care which one it came from.
+            for ns in VCAM_NAMESPACES:
+                self.create_subscription(
+                    Float64MultiArray, f"{ns}/vcam_state", self._on_state, 10)
 
         def _on_state(self, msg):
-            self.state = list(msg.data)
+            data = list(msg.data)
+            if len(data) >= 8 and int(data[7]) != self._last_mode:
+                return  # stale/inactive node hasn't caught up to the last switch yet
+            self.state = data
 
         def set_look(self, eye, target):
             m = Float64MultiArray()
             m.data = [*eye, *target]
-            self._pub_look.publish(m)
+            for pub in self._pub_look:
+                pub.publish(m)
 
         def set_render_mode(self, mode: int):
+            self._last_mode = mode
             m = Int32()
             m.data = mode
             self._pub_mode.publish(m)
 
         def set_preset_async(self, preset: int):
-            """Returns an rclpy Future, or None if the service is unavailable."""
-            if not self._cli.service_is_ready():
-                return None
-            req = SetVirtualCam.Request()
-            req.preset = preset
-            return self._cli.call_async(req)
+            """Calls ~/set_virtual_cam on every node whose service is ready.
+
+            Returns a list of (namespace, Future) pairs — empty if neither
+            node's service is up.
+            """
+            futs = []
+            for ns, cli in zip(VCAM_NAMESPACES, self._cli):
+                if cli.service_is_ready():
+                    req = SetVirtualCam.Request()
+                    req.preset = preset
+                    futs.append((ns, cli.call_async(req)))
+            return futs
 
         def get_params_async(self, names):
             if not self._cli_getp.service_is_ready():
@@ -333,25 +368,27 @@ def main() -> int:
                         await ws.send(json.dumps({"type": "ack", "cmd": "save_params",
                                                   "success": False, "path": str(e)}))
                 else:  # set_preset
-                    fut = node.set_preset_async(payload)
-                    if fut is None:
+                    futs = node.set_preset_async(payload)
+                    if not futs:
                         await ws.send(json.dumps({
                             "type": "error",
                             "message": "set_virtual_cam service unavailable"}))
                         continue
-                    loop = asyncio.get_running_loop()
-                    afut = loop.create_future()
-                    fut.add_done_callback(
-                        lambda f: loop.call_soon_threadsafe(
-                            lambda: afut.done() or afut.set_result(f.result())))
-                    try:
-                        res = await asyncio.wait_for(afut, timeout=5.0)
-                        await ws.send(json.dumps({
-                            "type": "ack", "cmd": "set_preset",
-                            "success": res.success, "active": res.active}))
-                    except asyncio.TimeoutError:
+                    # Fan out to every node whose service is ready (both node
+                    # namespaces share the preset table — spec §6); ack from
+                    # whichever answers first (VCAM_NAMESPACES order), since
+                    # both report the same success/active for the same preset.
+                    responses = await asyncio.gather(
+                        *(await_ros(fut, timeout=5.0) for _, fut in futs),
+                        return_exceptions=True)
+                    ok = next((r for r in responses if not isinstance(r, Exception)), None)
+                    if ok is None:
                         await ws.send(json.dumps({
                             "type": "error", "message": "set_virtual_cam timed out"}))
+                    else:
+                        await ws.send(json.dumps({
+                            "type": "ack", "cmd": "set_preset",
+                            "success": ok.success, "active": ok.active}))
         finally:
             clients.discard(ws)
             node.get_logger().info(f"client disconnected ({len(clients)} total)")

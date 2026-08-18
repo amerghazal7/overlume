@@ -12,6 +12,19 @@
 namespace micropilot::visualization_app
 {
 
+// ── Virtual-camera presets / eased switching (plan Task 5) ──────────────────
+// Ported verbatim from micropilot_rendering_node/src/rendering_node.cpp's
+// smoothstep()/advance_tween() (float precision preserved — see LookPoint's
+// doc comment in the header for why).
+namespace
+{
+float smoothstep(float s)
+{
+    s = std::min(1.0f, std::max(0.0f, s));
+    return s * s * (3.0f - 2.0f * s);
+}
+}  // namespace
+
 VisualizationNode::VisualizationNode(const rclcpp::NodeOptions& options)
     : rclcpp_lifecycle::LifecycleNode("visualization_node", options)
 {
@@ -73,6 +86,24 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // pitch, 60° puts no sky above the horizon (Task 2 Deviation 3).
     pose_.vfov_deg = declare_parameter<double>("virtual_vfov_deg", 80.0);
 
+    // ── virtual-camera presets (plan Task 5) ─────────────────────────────────
+    // Preset 1 ("config") is the just-declared virtual_pose, expressed
+    // directly as a look-point (no R/t derivation needed here — unlike
+    // rendering_node's CUDA camera, mpviz::CameraPose already IS eye/target).
+    for (int i = 0; i < 3; ++i) presets_[0].eye[i] = static_cast<float>(pose_.eye[i]);
+    for (int i = 0; i < 3; ++i) presets_[0].target[i] = static_cast<float>(pose_.target[i]);
+    // Presets 2-5: identical formulas/constants to rendering_node's table
+    // (spec §6 — same framing in both worlds).
+    presets_[1] = LookPoint{
+        {-presets_[0].eye[0], -presets_[0].eye[1], presets_[0].eye[2]},
+        {-presets_[0].target[0], -presets_[0].target[1], presets_[0].target[2]}};
+    presets_[2] = LookPoint{{0.0f, 4.0f, 2.5f}, {0.0f, 0.0f, 0.5f}};    // left_side
+    presets_[3] = LookPoint{{0.0f, -4.0f, 2.5f}, {0.0f, 0.0f, 0.5f}};   // right_side
+    presets_[4] = LookPoint{{0.0f, 0.0f, 8.0f}, {0.0f, 0.001f, 0.0f}};  // top_down
+    cur_ = src_ = dst_ = presets_[0];
+    tween_t_ = 1.0;  // start settled on the config preset
+    active_preset_ = 1;
+
     // ── renderer ──────────────────────────────────────────────────────────────
     mpviz::RenderConfig config{};
     config.width = static_cast<uint32_t>(out_width_);
@@ -91,6 +122,18 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // at a time (mode mux, spec §3.1); consumers never re-subscribe.
     pub_image_ = create_publisher<sensor_msgs::msg::Image>("/rendering/image", 1);
     pub_info_ = create_publisher<sensor_msgs::msg::CameraInfo>("/rendering/camera_info", 1);
+    pub_vcam_state_ = create_publisher<std_msgs::msg::Float64MultiArray>("~/vcam_state", 1);
+
+    // ── vcam control surface (plan Task 5 / spec §6) ─────────────────────────
+    // Same message/service contracts as rendering_node's, under this node's
+    // own namespace — the WS bridge fans commands out to both.
+    set_vcam_srv_ = create_service<SetVirtualCam>(
+        "~/set_virtual_cam",
+        std::bind(&VisualizationNode::on_set_virtual_cam, this, std::placeholders::_1,
+                  std::placeholders::_2));
+    set_look_sub_ = create_subscription<std_msgs::msg::Float64MultiArray>(
+        "~/set_look", 10,
+        std::bind(&VisualizationNode::on_set_look, this, std::placeholders::_1));
 
     // ── mode mux subscription (global, not "~/...") ──────────────────────────
     set_mode_sub_ = create_subscription<std_msgs::msg::Int32>(
@@ -118,6 +161,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
     RCLCPP_INFO(get_logger(), "on_activate() called.");
     pub_image_->on_activate();
     pub_info_->on_activate();
+    pub_vcam_state_->on_activate();
 
     using namespace std::chrono_literals;
     timer_ = create_wall_timer(33ms, [this]() { timer_callback(); });
@@ -129,6 +173,19 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
 // ── Timer callback ───────────────────────────────────────────────────────────
 void VisualizationNode::timer_callback()
 {
+    // Ease the virtual camera toward the selected preset (no-op once settled)
+    // and publish vcam telemetry BEFORE the mode gate below, mirroring
+    // rendering_node: external UIs keep receiving pose updates (and can
+    // pre-orbit) even while this node isn't the active mux output.
+    advance_tween();
+
+    std_msgs::msg::Float64MultiArray state;
+    state.data = {cur_.eye[0],    cur_.eye[1],    cur_.eye[2],
+                  cur_.target[0], cur_.target[1], cur_.target[2],
+                  static_cast<double>(active_preset_),
+                  static_cast<double>(active_mode_)};
+    pub_vcam_state_->publish(state);
+
     // Ingest adapters (Epic 2+) would update cheap CPU-side scene state here
     // regardless of mode; Task 3 has none yet. Render/readback/publish only
     // while this node is the active mux output (spec §3.1) — costs ~zero GPU
@@ -168,6 +225,69 @@ void VisualizationNode::timer_callback()
     pub_info_->publish(info_msg);
 }
 
+// ── Virtual-camera presets / eased switching (plan Task 5) ──────────────────
+// Ported verbatim from rendering_node.cpp's advance_tween()/on_set_virtual_cam()/
+// on_set_look() — the only difference is applying the result directly as
+// mpviz::CameraPose eye/target instead of rebuilding an R/t rotation (Filament's
+// camera already takes eye/target, unlike the CUDA reprojector's).
+void VisualizationNode::advance_tween()
+{
+    if (tween_t_ < 1.0)
+    {
+        // Timer fires at 33 ms; ~0.5 s transition -> step 0.033/0.5 per tick.
+        tween_t_ = std::min(1.0, tween_t_ + 0.033 / 0.5);
+        float w = smoothstep(static_cast<float>(tween_t_));
+        for (int i = 0; i < 3; ++i)
+        {
+            cur_.eye[i] = src_.eye[i] + (dst_.eye[i] - src_.eye[i]) * w;
+            cur_.target[i] = src_.target[i] + (dst_.target[i] - src_.target[i]) * w;
+        }
+    }
+    for (int i = 0; i < 3; ++i) pose_.eye[i] = static_cast<double>(cur_.eye[i]);
+    for (int i = 0; i < 3; ++i) pose_.target[i] = static_cast<double>(cur_.target[i]);
+}
+
+void VisualizationNode::on_set_virtual_cam(const std::shared_ptr<SetVirtualCam::Request> req,
+                                           std::shared_ptr<SetVirtualCam::Response> res)
+{
+    // ponytail: no lock — single-threaded executor (rclcpp::spin in main.cpp),
+    // so this callback and timer_callback() never overlap.
+    const int p = req->preset;
+    if (p < 1 || p > static_cast<int>(presets_.size()))
+    {
+        res->success = false;
+        res->active = "invalid preset (expected 1.." + std::to_string(presets_.size()) + ")";
+        RCLCPP_WARN(get_logger(), "set_virtual_cam: rejected preset %d", p);
+        return;
+    }
+    src_ = cur_;
+    dst_ = presets_[p - 1];
+    tween_t_ = 0.0;  // begin the eased transition
+    active_preset_ = p;
+    res->success = true;
+    res->active = kPresetNames[p - 1];
+    RCLCPP_INFO(get_logger(), "set_virtual_cam: -> preset %d (%s)", p, kPresetNames[p - 1]);
+}
+
+void VisualizationNode::on_set_look(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+{
+    if (msg->data.size() != 6)
+    {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                             "set_look expects 6 floats [eye xyz | target xyz], got %zu",
+                             msg->data.size());
+        return;
+    }
+    LookPoint lp;
+    for (int i = 0; i < 3; ++i) lp.eye[i] = static_cast<float>(msg->data[i]);
+    for (int i = 0; i < 3; ++i) lp.target[i] = static_cast<float>(msg->data[3 + i]);
+    cur_ = src_ = dst_ = lp;
+    tween_t_ = 1.0;  // cancel any in-flight preset tween
+    for (int i = 0; i < 3; ++i) pose_.eye[i] = static_cast<double>(cur_.eye[i]);
+    for (int i = 0; i < 3; ++i) pose_.target[i] = static_cast<double>(cur_.target[i]);
+    active_preset_ = 0;  // free look
+}
+
 // ── Lifecycle: teardown ──────────────────────────────────────────────────────
 void VisualizationNode::teardown_active() { timer_.reset(); }
 
@@ -178,6 +298,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_deactivate(
     teardown_active();
     pub_image_->on_deactivate();
     pub_info_->on_deactivate();
+    pub_vcam_state_->on_deactivate();
     return CallbackReturn::SUCCESS;
 }
 
@@ -190,7 +311,10 @@ VisualizationNode::CallbackReturn VisualizationNode::on_cleanup(
     frame_buf_.clear();
     pub_image_.reset();
     pub_info_.reset();
+    pub_vcam_state_.reset();
     set_mode_sub_.reset();
+    set_vcam_srv_.reset();
+    set_look_sub_.reset();
     return CallbackReturn::SUCCESS;
 }
 
@@ -201,6 +325,8 @@ VisualizationNode::CallbackReturn VisualizationNode::on_shutdown(
     teardown_active();
     destroy_renderer_if_any();
     set_mode_sub_.reset();
+    set_vcam_srv_.reset();
+    set_look_sub_.reset();
     return CallbackReturn::SUCCESS;
 }
 
