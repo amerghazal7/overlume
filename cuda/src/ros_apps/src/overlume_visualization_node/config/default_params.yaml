@@ -1,0 +1,19 @@
+/**:
+  ros__parameters:
+    out_width: 1280
+    out_height: 720
+    quality: 2
+    # 1 = rendering_node bowl, 2 = hybrid, 3 = this node (visual). Both nodes
+    # must agree on the same value at startup (spec §3.1 "race handling") so
+    # exactly one publisher is active on /rendering/image from the first frame.
+    initial_mode: 1
+    # Static hello-frame camera pose [eye xyz | target xyz] (no scene
+    # ingestion until Epic 1+ — see visualization_node.cpp).
+    virtual_pose:
+    - -4.0
+    - 0.0
+    - 3.5
+    - 2.0
+    - 0.0
+    - -0.5
+    virtual_vfov_deg: 80.0
