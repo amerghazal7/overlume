@@ -31,6 +31,17 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
     RCLCPP_INFO(get_logger(), "on_configure() called.");
 
     // ── declare + read parameters ────────────────────────────────────────────
+    // Global mux mode this node starts in (spec §3.1 "race handling"): both
+    // this node and visualization_node default to the same last-configured
+    // value so exactly one publisher is active from the first frame.
+    initial_mode_ = declare_parameter<int>("initial_mode", 1);
+    if (initial_mode_ < 1 || initial_mode_ > 3)
+    {
+        RCLCPP_ERROR(get_logger(), "initial_mode must be 1, 2, or 3, got %d", initial_mode_);
+        return CallbackReturn::FAILURE;
+    }
+    active_mode_ = initial_mode_;
+
     n_cameras_ = declare_parameter<int>("n_cameras", 4);
     out_width_ = declare_parameter<int>("out_width", 640);
     out_height_ = declare_parameter<int>("out_height", 480);
@@ -286,8 +297,29 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
                 return;
             }
             render_mode_ = msg->data;
+            // Selecting a local view also leaves the global mux's mode 3
+            // (visualization) — this node resumes render+publish immediately
+            // rather than waiting for a separate /rendering/set_mode message.
+            active_mode_ = msg->data;
             RCLCPP_INFO(get_logger(), "render mode -> %s",
                         render_mode_ == 1 ? "bowl" : "pointcloud");
+        });
+
+    // ── global mode mux (spec §3.1, plan Task 4) ─────────────────────────────
+    // /rendering/set_mode: 1|2 = this node renders+publishes; 3 =
+    // micropilot_visualization_node owns the stream instead. Shared, global
+    // topic name (not "~/...") so a single publisher drives both nodes.
+    mux_mode_sub_ = create_subscription<std_msgs::msg::Int32>(
+        "/rendering/set_mode", 10,
+        [this](const std_msgs::msg::Int32::SharedPtr msg)
+        {
+            if (msg->data != 1 && msg->data != 2 && msg->data != 3)
+            {
+                RCLCPP_WARN(get_logger(), "set_mode: expected 1|2|3, got %d", msg->data);
+                return;
+            }
+            active_mode_ = msg->data;
+            RCLCPP_INFO(get_logger(), "rendering_node: mode -> %d", active_mode_);
         });
 
     // ── per-camera state ─────────────────────────────────────────────────────
@@ -596,6 +628,12 @@ void RenderingNode::timer_callback()
                   static_cast<double>(active_preset_),
                   static_cast<double>(render_mode_)};
     pub_vcam_state_->publish(state);
+
+    // Global mode mux (spec §3.1): while visualization_node (mode 3) owns the
+    // stream, skip render+publish (no GPU render pass / readback) — the
+    // per-camera subscription callbacks above keep filling per_cam_ / have_set_
+    // regardless, so switching back to 1|2 resumes instantly from a warm state.
+    if (active_mode_ == 3) return;
 
     // ── frame-sync gate ───────────────────────────────────────────────────────
     // Render only when EVERY camera has delivered a NEW frame since the last
@@ -1027,6 +1065,7 @@ RenderingNode::CallbackReturn RenderingNode::on_cleanup(const rclcpp_lifecycle::
     set_vcam_srv_.reset();
     set_look_sub_.reset();
     set_mode_sub_.reset();
+    mux_mode_sub_.reset();
     return CallbackReturn::SUCCESS;
 }
 
@@ -1038,6 +1077,7 @@ RenderingNode::CallbackReturn RenderingNode::on_shutdown(const rclcpp_lifecycle:
     set_vcam_srv_.reset();
     set_look_sub_.reset();
     set_mode_sub_.reset();
+    mux_mode_sub_.reset();
     return CallbackReturn::SUCCESS;
 }
 

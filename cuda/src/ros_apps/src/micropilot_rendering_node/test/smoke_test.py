@@ -30,7 +30,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CameraInfo, Image
-from std_msgs.msg import Float64MultiArray
+from std_msgs.msg import Float64MultiArray, Int32
 
 # ── constants ─────────────────────────────────────────────────────────────────
 # Golden fixture params — identical to cuda/tests/golden/ (proven to render).
@@ -173,16 +173,22 @@ class SmokeTestNode(Node):
         super().__init__("smoke_test_node")
         self.received_frame: Image | None = None
         self.vcam_state: list | None = None
+        # (recv_time, frame_id) for every /rendering/image frame — used by the
+        # mode-mux test (Task 4) to tell which node produced each frame and
+        # measure switch latency / inter-frame gaps.
+        self.frame_log: list[tuple[float, str]] = []
         self._sub = self.create_subscription(
             Image, "/rendering/image", self._on_image, 10)
         self._state_sub = self.create_subscription(
             Float64MultiArray, "/rendering_node/vcam_state", self._on_state, 10)
         self.look_pub = self.create_publisher(
             Float64MultiArray, "/rendering_node/set_look", 10)
+        self.mode_pub = self.create_publisher(Int32, "/rendering/set_mode", 10)
 
     def _on_image(self, msg: Image):
         if self.received_frame is None:
             self.received_frame = msg
+        self.frame_log.append((time.time(), msg.header.frame_id))
 
     def _on_state(self, msg: Float64MultiArray):
         self.vcam_state = list(msg.data)
@@ -207,7 +213,8 @@ def call_set_virtual_cam(preset: int, timeout: float = 15.0):
     return result.returncode == 0, out
 
 
-def call_lifecycle_subprocess(transition_name: str, timeout: float = 15.0) -> bool:
+def call_lifecycle_subprocess(transition_name: str, timeout: float = 15.0,
+                              node_name: str = "/rendering_node") -> bool:
     """Send a lifecycle transition via `ros2 lifecycle set` subprocess.
 
     This avoids any rclpy threading conflicts with the main executor.
@@ -215,7 +222,7 @@ def call_lifecycle_subprocess(transition_name: str, timeout: float = 15.0) -> bo
     env = os.environ.copy()
     env["LD_LIBRARY_PATH"] = RENDERING_LIBS + ":" + env.get("LD_LIBRARY_PATH", "")
     cmd = (f"source /opt/ros/humble/setup.bash && "
-           f"ros2 lifecycle set /rendering_node {transition_name}")
+           f"ros2 lifecycle set {node_name} {transition_name}")
     result = subprocess.run(
         ["bash", "-c", cmd],
         env=env,
@@ -227,6 +234,112 @@ def call_lifecycle_subprocess(transition_name: str, timeout: float = 15.0) -> bo
     if result.returncode != 0:
         print(f"  [lifecycle] stderr: {result.stderr.strip()}", file=sys.stderr)
     return result.returncode == 0
+
+
+# ── mode-mux test (Task 4) ───────────────────────────────────────────────────
+RENDER_FRAME_ID = "rendering_virtual_cam"
+VIZ_FRAME_ID = "visualization_virtual_cam"
+
+
+def _launch_visualization_node(out_w: int, out_h: int) -> subprocess.Popen:
+    cmd = (
+        f"source /opt/ros/humble/setup.bash && "
+        f"source {INSTALL_DIR}/setup.bash && "
+        f"ros2 run micropilot_visualization_node visualization_node "
+        f"--ros-args -p out_width:={out_w} -p out_height:={out_h} "
+        f"-p initial_mode:=1"
+    )
+    return subprocess.Popen(
+        ["bash", "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=True)
+
+
+def test_mode_mux(test_node: "SmokeTestNode", viz_out_w: int, viz_out_h: int) -> bool:
+    """Drive the global /rendering/set_mode mux with both nodes running.
+
+    rendering_node is already configured+active (its have_set_ is warm from
+    earlier steps, so it re-renders+publishes every tick with no need for
+    fresh synthetic camera frames). visualization_node is launched here.
+    """
+    print("INFO: starting visualization_node for mode-mux test …")
+    viz_proc = _launch_visualization_node(viz_out_w, viz_out_h)
+    try:
+        t0 = time.time()
+        while time.time() - t0 < 12.0:
+            time.sleep(0.2)
+            if viz_proc.poll() is not None:
+                stderr = viz_proc.stderr.read().decode(errors="replace")
+                print(f"FAIL: visualization_node exited early (code {viz_proc.returncode}):\n"
+                      f"{stderr[-2000:]}", file=sys.stderr)
+                return False
+
+        if not call_lifecycle_subprocess("configure", node_name="/visualization_node"):
+            print("FAIL: visualization_node configure transition failed", file=sys.stderr)
+            return False
+        if not call_lifecycle_subprocess("activate", node_name="/visualization_node"):
+            print("FAIL: visualization_node activate transition failed", file=sys.stderr)
+            return False
+
+        test_node.frame_log.clear()
+
+        def drive(mode: int, settle_s: float = 1.2) -> float:
+            switch_t = time.time()
+            msg = Int32()
+            msg.data = mode
+            test_node.mode_pub.publish(msg)
+            time.sleep(settle_s)
+            return switch_t
+
+        def check_exclusive(switch_t: float, active_id: str, idle_id: str, label: str) -> str | None:
+            log = [(t, fid) for t, fid in test_node.frame_log if t >= switch_t]
+            active_times = sorted(t for t, fid in log if fid == active_id)
+            idle_after = [t for t, fid in log if fid == idle_id and t - switch_t > 0.5]
+            if not active_times or active_times[0] - switch_t > 0.5:
+                return (f"mode {label}: {active_id} did not publish within 0.5s of switch "
+                        f"(first at {active_times[0] - switch_t if active_times else None})")
+            if idle_after:
+                return (f"mode {label}: {idle_id} still publishing "
+                        f"{idle_after[0] - switch_t:.2f}s after switch")
+            settled = [t for t in active_times if t - switch_t > 0.5]
+            for a, b in zip(settled, settled[1:]):
+                if b - a > 0.5:
+                    return f"mode {label}: gap {b - a:.2f}s in {active_id} stream"
+            return None
+
+        print("INFO: driving /rendering/set_mode 3 -> 2 -> 3 -> 1 …")
+        steps = [
+            (3, VIZ_FRAME_ID, RENDER_FRAME_ID),
+            (2, RENDER_FRAME_ID, VIZ_FRAME_ID),
+            (3, VIZ_FRAME_ID, RENDER_FRAME_ID),
+            (1, RENDER_FRAME_ID, VIZ_FRAME_ID),
+        ]
+        for mode, active_id, idle_id in steps:
+            switch_t = drive(mode)
+            err = check_exclusive(switch_t, active_id, idle_id, str(mode))
+            if err is not None:
+                print(f"FAIL: {err}", file=sys.stderr)
+                return False
+            print(f"INFO: mode {mode} -> {active_id} exclusive, no gap > 0.5s -- OK.")
+
+        print("PASS: mode mux verified (exactly-one-publisher, no gap > 0.5s).")
+        return True
+    finally:
+        kill_process_group(viz_proc)
+
+
+def kill_process_group(proc: subprocess.Popen):
+    try:
+        os.killpg(os.getpgid(proc.pid), 15)
+    except ProcessLookupError:
+        pass
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), 9)
+        except ProcessLookupError:
+            pass
+        proc.wait()
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -366,8 +479,12 @@ def main() -> int:
             test_node.look_pub.publish(msg)
             pub_node.publish_once()  # keep the render timer publishing state
             time.sleep(0.2)
+            # vcam_state is [eye xyz | target xyz | active_preset | render_mode]
+            # (8 floats) — render_mode was added to this telemetry array by
+            # already-committed history without updating this assertion
+            # (flagged in Epic 0 Task 3); fixed here as Task 4 territory.
             s = test_node.vcam_state
-            if (s is not None and len(s) == 7 and s[6] == 0.0
+            if (s is not None and len(s) == 8 and s[6] == 0.0
                     and all(abs(s[i] - look[i]) < 1e-4 for i in range(6))):
                 ok_look = True
                 break
@@ -376,6 +493,14 @@ def main() -> int:
                   f"{test_node.vcam_state}", file=sys.stderr)
             return 1
         print("INFO: set_look applied and echoed by vcam_state (preset=0 free look).")
+
+        # 8. Mode mux (Task 4): launch visualization_node alongside, drive the
+        #    global /rendering/set_mode 3->2->3->1, assert exactly-one-publisher
+        #    (by header.frame_id) with no switch taking longer than 0.5s and no
+        #    gap > 0.5s once settled — spec §10 / plan Task 4 step 1.
+        ok = test_mode_mux(test_node, viz_out_w=OUT_W, viz_out_h=OUT_H)
+        if not ok:
+            return 1
 
         print("PASS: smoke test passed — non-blank frame received and verified.")
         success = True

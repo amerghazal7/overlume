@@ -189,6 +189,18 @@ private:
     int render_mode_{2};
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr set_mode_sub_;
 
+    // ── global mode mux (spec §3.1, plan Task 4) ─────────────────────────────
+    // Shared with micropilot_visualization_node via /rendering/set_mode: 1|2 =
+    // this node renders+publishes (view chosen by render_mode_, above); 3 =
+    // visualization_node owns /rendering/image instead — timer_callback()
+    // skips render+publish (per-camera subscriptions keep filling buffers so
+    // resuming to 1|2 is instant, from a warm state). initial_mode mirrors
+    // the same param on visualization_node so exactly one publisher is active
+    // from the first tick regardless of launch order.
+    int initial_mode_{1};
+    int active_mode_{1};
+    rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr mux_mode_sub_;
+
     rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::Image>::SharedPtr pub_image_;
     rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::CameraInfo>::SharedPtr pub_info_;
     rclcpp::TimerBase::SharedPtr timer_;
