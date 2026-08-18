@@ -193,11 +193,17 @@ def main() -> int:
             self.state: list[float] | None = None  # [eye3, target3, preset, mode]
             # Both nodes publish ~/vcam_state continuously regardless of which
             # one is actually active (spec §9 telemetry-always-flows), so
-            # picking "whichever arrived last" flickers between them. Track
-            # the last commanded global mode and only accept a node's state
-            # once ITS OWN reported mode (index 7) agrees with it — i.e. the
-            # currently-active node's state, once it has caught up.
-            self._last_mode = 1
+            # picking "whichever arrived last" flickers between them. index 7
+            # of that message means something different per publisher —
+            # rendering_node reports render_mode_ (1|2 only, its bowl/
+            # pointcloud choice, independent of whether it's even the active
+            # renderer) while visualization_node reports active_mode_ (1|2|3)
+            # — so it can't be used as a filter value shared across nodes.
+            # Instead, track which NAMESPACE is authoritative for the last
+            # commanded mode and only accept state from that one. Starts
+            # pointed at rendering_node, matching its default render_mode_
+            # (2) so state flows before any set_render_mode is ever sent.
+            self._active_ns = VCAM_NAMESPACES[0]
             self._pub_look = [
                 self.create_publisher(Float64MultiArray, f"{ns}/set_look", 10)
                 for ns in VCAM_NAMESPACES]
@@ -218,13 +224,12 @@ def main() -> int:
             # layout, so the GUI/WS clients don't care which one it came from.
             for ns in VCAM_NAMESPACES:
                 self.create_subscription(
-                    Float64MultiArray, f"{ns}/vcam_state", self._on_state, 10)
+                    Float64MultiArray, f"{ns}/vcam_state",
+                    lambda msg, ns=ns: self._on_state(ns, msg), 10)
 
-        def _on_state(self, msg):
-            data = list(msg.data)
-            if len(data) >= 8 and int(data[7]) != self._last_mode:
-                return  # stale/inactive node hasn't caught up to the last switch yet
-            self.state = data
+        def _on_state(self, ns, msg):
+            if ns == self._active_ns:
+                self.state = list(msg.data)
 
         def set_look(self, eye, target):
             m = Float64MultiArray()
@@ -233,7 +238,7 @@ def main() -> int:
                 pub.publish(m)
 
         def set_render_mode(self, mode: int):
-            self._last_mode = mode
+            self._active_ns = "/visualization_node" if mode == 3 else "/rendering_node"
             m = Int32()
             m.data = mode
             self._pub_mode.publish(m)

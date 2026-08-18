@@ -232,11 +232,53 @@ def test_bridge_e2e_mode3_orbit_and_frames():
                     await asyncio.sleep(0.3)
             assert connected is not None, f"could not connect to bridge: {last_err}"
             ws = connected
+
+            async def collect_states(duration):
+                frames = []
+                t0 = time.time()
+                while time.time() - t0 < duration:
+                    try:
+                        frame = json.loads(await asyncio.wait_for(ws.recv(), timeout=0.1))
+                        if frame.get("type") == "state":
+                            frames.append(frame)
+                    except asyncio.TimeoutError:
+                        pass
+                return frames
+
             try:
                 # rendering_node's own frame-sync gate needs real per-camera
                 # images before it ever renders (not this test's concern —
                 # covered by rendering_node's own smoke test); this test only
                 # needs both nodes ALIVE so the mux + WS fan-out are real.
+
+                # --- Regression: default config (no set_render_mode sent
+                # yet) must still emit state, sourced from rendering_node
+                # (the only node an un-configured client can mean) whose own
+                # default render_mode_ is 2 — bug: a stale `_last_mode`
+                # filter initialized to 1 rejected this forever. ---
+                default_states = await collect_states(3.0)
+                assert default_states, (
+                    "no vcam_state telemetry in the default configuration "
+                    "(before any set_render_mode) — regression of shipped "
+                    "GUI behavior")
+                assert all(s["render_mode"] == 2 for s in default_states), (
+                    f"default-config state should read rendering_node's own "
+                    f"default render_mode (2): {default_states}")
+
+                # --- Regression: modes 1/2 must show ONLY rendering_node's
+                # pose, never flicker with visualization_node's (different)
+                # default pose — bug: filtering on vcam_state[7] passed both
+                # nodes' messages through in modes 1/2 since rendering_node
+                # reports render_mode_ and visualization_node reports
+                # active_mode_, which read the same (1) while both are
+                # configured with initial_mode:=1. ---
+                await ws.send(json.dumps({"cmd": "set_render_mode", "mode": 1}))
+                mode1_states = await collect_states(2.0)
+                assert mode1_states, "no state frames after set_render_mode 1"
+                poses = {(tuple(s["eye"]), tuple(s["target"])) for s in mode1_states}
+                assert len(poses) == 1, (
+                    f"vcam_state pose oscillated between nodes while mode == 1: {poses}")
+
                 await ws.send(json.dumps({"cmd": "set_render_mode", "mode": 3}))
                 # Orbit a couple of steps via set_look while mode 3 is active.
                 for eye, target in (([1.0, 2.0, 3.0], [0.0, 0.0, 0.5]),
