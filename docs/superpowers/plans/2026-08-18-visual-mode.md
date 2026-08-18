@@ -48,7 +48,7 @@ sequences the spike exists to establish.
 **Interfaces:**
 - Produces: CMake target `micropilot_visualization::visual_renderer` (static, clang/libc++), consumed by Tasks 2–3 and the node package.
 
-- [ ] **Step 1: Write the failing build check.** `check_pod_header.sh`:
+- [x] **Step 1: Write the failing build check.** `check_pod_header.sh`:
 
 ```bash
 #!/usr/bin/env bash
@@ -61,11 +61,11 @@ if grep -nE '#include <(string|vector|memory|functional|optional|map|span)>|std:
 fi
 ```
 
-- [ ] **Step 2: Run it — expect FAIL (api.h missing).**
-- [ ] **Step 3: `GetFilament.cmake`** — download the pinned Filament Linux release tarball (record the chosen version here on completion: `FILAMENT_VERSION = ____`), verify sha256, expose imported targets; document the source-build fallback path in a comment.
-- [ ] **Step 4: `CMakeLists.txt`** — static lib `visual_renderer`, `CMAKE_CXX_COMPILER=clang++` + `-stdlib=libc++` enforced for this directory only (error out otherwise), links Filament + headless backend deps (EGL), runs `check_pod_header.sh` as a test.
-- [ ] **Step 5: Create minimal `include/visual_renderer/api.h`** (see Task 2 Step 1 for content), build the empty lib, run the POD check — PASS.
-- [ ] **Step 6: Commit** `feat(visual): Filament build integration + POD boundary check`.
+- [x] **Step 2: Run it — expect FAIL (api.h missing).**
+- [x] **Step 3: `GetFilament.cmake`** — download the pinned Filament Linux release tarball (record the chosen version here on completion: `FILAMENT_VERSION = 1.75.0`, sha256 `c5d2e0f692e5fb98ed029a5a3a52c8174660d02844d5db5a804dc5264bbab6d1`), verify sha256, expose imported targets; document the source-build fallback path in a comment.
+- [x] **Step 4: `CMakeLists.txt`** — static lib `visual_renderer`, `CMAKE_CXX_COMPILER=clang++` + `-stdlib=libc++` enforced for this directory only (error out otherwise), links Filament + headless backend deps (EGL), runs `check_pod_header.sh` as a test.
+- [x] **Step 5: Create minimal `include/visual_renderer/api.h`** (see Task 2 Step 1 for content), build the empty lib, run the POD check — PASS.
+- [x] **Step 6: Commit** `feat(visual): Filament build integration + POD boundary check`.
 
 ### Task 2: Headless hello-frame (lib)
 
