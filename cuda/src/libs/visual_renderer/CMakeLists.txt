@@ -47,6 +47,17 @@ enable_testing()
 add_test(NAME check_pod_header
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_pod_header.sh)
 
+# Build-integration proof (Epic 0 Task 1): actually links `visual_renderer`
+# (and therefore the ~30 cross-referencing Filament static archives pulled in
+# by cmake/GetFilament.cmake) into a real executable and exercises a call
+# that spans that archive graph. check_pod_header.sh proves the header is
+# POD-clean; this proves the link recipe itself is sound — neither the
+# static-lib-only build above nor the header check ever invokes the linker
+# against Filament's archives. See smoke/filament_link_probe.cpp.
+add_executable(filament_link_probe smoke/filament_link_probe.cpp)
+target_link_libraries(filament_link_probe PRIVATE visual_renderer)
+add_test(NAME filament_link_probe COMMAND filament_link_probe)
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     find_package(GTest QUIET)
     if(GTest_FOUND)
