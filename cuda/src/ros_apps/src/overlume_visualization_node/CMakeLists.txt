@@ -131,6 +131,7 @@ set_target_properties(visual_renderer_prebuilt PROPERTIES
 # ── Node library ─────────────────────────────────────────────────────────────
 add_library(visualization_node_lib SHARED
   src/visualization_node.cpp
+  src/vcam.cpp
   src/tf_adapter.cpp)
 
 target_include_directories(visualization_node_lib PUBLIC
