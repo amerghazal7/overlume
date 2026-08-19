@@ -16,7 +16,7 @@
 
 ## Conservative perf assumptions
 
-Epic 0 Task 6 (on-robot GPU budget measurement) has not run yet. Per project direction: default quality preset = **medium**, target resolution 1280×720@30. Nothing in this epic should be tuned against unmeasured numbers — goldens render at the **low** preset (smallest, most deterministic) purely for CI speed/determinism, not as a statement about the shipped default. Do not gold-plate perf work here; Epic 5 (VM-040/041) owns hysteresis/auto-drop/benchmarking.
+Epic 0 Task 6 (on-robot GPU budget measurement) has not run yet. Per project direction: default quality preset = **medium**, target resolution 1280×720@30. Nothing in this epic should be tuned against unmeasured numbers — goldens render at a fixed 320×240 purely for CI speed/determinism, not as a statement about the shipped default. **Stated precisely, not aspirationally: `RenderConfig::quality` is not consumed by the renderer at all as of this epic** (Epic 0 never read it; Task 2 does not add that mapping either — see Task 2 Step 7a). Passing `quality=0` in every golden test's `RenderConfig` therefore selects nothing today; it is not a "low preset" being honored, just a field set to its zero value. Mapping `quality` to concrete SSAO/AA/shadow-resolution/render-resolution toggles is VM-032's job (Epic 3, "quality presets end to end"). Do not gold-plate perf work here; Epic 5 (VM-040/041) owns hysteresis/auto-drop/benchmarking.
 
 ---
 
@@ -145,15 +145,28 @@ struct SceneGraph {
 };
 
 // Deep-copies `scene` (and everything its pointers reach) into the renderer's
-// internal staging buffer (mpviz::detail::SceneBuffer) and atomically
-// publishes it as the active scene. This call touches ONLY that internal
-// buffer — no Filament::Engine/Scene/TransformManager/RenderableManager call
-// happens here, which is what makes it safe to call from a different thread
-// than the one that owns the Filament Engine (today's single-threaded
-// executor calls it from the same thread as render_frame(); a later ingest
-// thread may call it from elsewhere without new locking — SceneBuffer's
-// mutex already covers the publish/read race, Task 1). `scene`'s arrays may
-// be freed/reused the instant this call returns.
+// internal staging buffer (mpviz::detail::SceneBuffer) and atomically swaps
+// which slot is "active". This call touches ONLY that internal buffer — no
+// Filament::Engine/Scene/TransformManager/RenderableManager call happens
+// here. `scene`'s arrays may be freed/reused the instant this call returns.
+//
+// Threading (stated precisely, not aspirationally): TODAY THIS IS
+// SINGLE-THREADED END TO END — the same single-threaded executor calls both
+// set_scene() and render_frame(), from the same thread. SceneBuffer's mutex
+// (Task 1) only serializes the active-slot-INDEX read/write; it does NOT
+// make set_scene() safe to call from a second thread while render_frame()
+// holds a reference from active() across a frame. active() hands back a
+// bare `const SceneGraph&` aliased directly into slot storage — a second
+// publisher calling set_scene() while a reader still holds that reference
+// would overwrite the very slot being read (two publishes between a
+// reader's first and last touch of the reference is enough). Do not call
+// set_scene() from any thread other than the one calling render_frame()
+// until that changes. A future multi-threaded ingest path needs
+// SceneBuffer::active() to hand back an owned/refcounted snapshot instead
+// (or an equivalent lifetime guarantee) — that is a SceneBuffer design
+// change, not a locking tweak, and is out of scope for this epic; the mutex
+// here is a cheap hook for that future work, not a guarantee it already
+// provides.
 // Does NOT render, and does NOT touch Filament: render_frame() always
 // re-derives everything Filament-side (ego transform, material params,
 // theme blend) from the last-published active() scene, on whichever thread
@@ -185,12 +198,18 @@ bool set_theme(VisualRenderer*, const char* theme_name, double at_sec,
 
 ### `RenderConfig` gains two optional fields (`api.h`, additive — existing callers using aggregate-init with named fields are unaffected; positional-init callers must add trailing zeros, there are none yet outside Epic 0's own tests, which Task 2 updates)
 
+**Lifetime (stated explicitly — this is the same rule every other `const char*` this plan adds across the POD boundary already needs, but `RenderConfig` didn't have it written down):** both new fields are caller-owned and borrowed only for the duration of the `create_renderer(const RenderConfig&)` call they're passed to. `create_renderer` must copy each into internal `std::string` storage on `VisualRenderer` before returning, and must never retain the raw pointer past that call. This isn't academic: `set_theme` (Task 3) calls `load_theme(theme_assets_dir, name)` again at runtime on every future `~/set_theme` request, long after `create_renderer` returned, and the node (Task 3 Step 9 / Task 4) will construct `theme_assets_dir` from a ROS parameter's `std::string::c_str()` — a temporary whose backing storage does not outlive the `create_renderer` call. Task 2 Step 7 implements the copy-in. (Contrast `scene.h`'s `set_scene`, which already states its deep-copy contract for `const char*` fields like `label`/`text`/`mesh_path`; `RenderConfig` gets the same rule here, spelled out for the first time.)
+
 ```c
 struct RenderConfig {
     uint32_t width, height;
     uint8_t quality;             // 0=low, 1=med, 2=high
-    const char* theme_assets_dir;  // nullable: dir containing *.yaml theme files
-    const char* initial_theme;     // nullable: default "dark_adas"
+    const char* theme_assets_dir;  // nullable: dir containing *.yaml theme files;
+                                    // caller-owned, borrowed only for this call —
+                                    // create_renderer copies it into internal
+                                    // std::string storage (Task 2 Step 7)
+    const char* initial_theme;     // nullable: default "dark_adas"; same
+                                    // borrow-then-copy rule as theme_assets_dir
 };
 ```
 
@@ -379,18 +398,26 @@ public:
 
 private:
     mutable std::mutex mutex_;   // ponytail: cheap at this call rate (<=30 Hz);
-                                  // today's single-threaded executor never
-                                  // contends it, but it's what makes a future
-                                  // multi-threaded ingest safe without a
-                                  // SceneBuffer redesign — matches the
-                                  // architecture the spec (§4.1) already commits to.
+                                  // serializes active_idx_ only. Today's
+                                  // single-threaded executor never contends
+                                  // it. It does NOT by itself make
+                                  // multi-threaded ingest safe — active()
+                                  // still hands back a bare reference aliased
+                                  // into slot storage, so a second publisher
+                                  // could overwrite a slot a reader still
+                                  // holds. See set_scene()'s corrected
+                                  // threading contract in scene.h: real
+                                  // multi-threaded ingest needs active() to
+                                  // return an owned/refcounted snapshot, a
+                                  // SceneBuffer redesign this epic does not
+                                  // attempt.
     OwnedScene slots_[2];
     int active_idx_{0};
 };
 
 }  // namespace mpviz::detail
 ```
-  `publish()`: `assign()` into `slots_[1 - active_idx_]`, then swap `active_idx_` under `mutex_`. `active()`: lock, read `active_idx_`, return `slots_[active_idx_].view` (the lock only protects the index read/write, not the whole render — fine, since nothing mutates a slot while it's the active one; the *other* slot is always the one being written).
+  `publish()`: `assign()` into `slots_[1 - active_idx_]`, then swap `active_idx_` under `mutex_`. `active()`: lock, read `active_idx_`, return `slots_[active_idx_].view` (the lock only protects the index read/write, not the whole render — safe ONLY because today's single-threaded executor is both the sole publisher and the sole reader, so nothing mutates a slot while it's active; this stops holding the moment a second thread calls `publish()` while a reader still holds an `active()` reference across a frame — see the corrected threading note on `set_scene()` above, and treat that as a future redesign, not something to silently patch here).
 - [ ] **Step 5: Run — PASS.**
 - [ ] **Step 6: Failing test — staleness math**, table-driven:
 
@@ -439,6 +466,7 @@ cmake --build build && ctest --test-dir build --output-on-failure
 - Create: `cuda/src/libs/visual_renderer/assets/themes/dark_adas.yaml`
 - Create: `cuda/src/libs/visual_renderer/assets/themes/light_clay.yaml`
 - Create: `cuda/src/libs/visual_renderer/src/theme.hpp`, `src/theme.cpp` (YAML → internal `Theme` struct; NOT POD, internal-only)
+- Create: `cuda/src/libs/visual_renderer/src/renderer_internal.hpp` (internal-only, `-I src` visibility, not installed, not POD — the `VisualRenderer` class definition extracted out of `renderer.cpp`, Step 7e, so `src/ego.cpp` and `tests/test_ego.cpp` — separate translation units, Task 4 — can see it and `render_frame`'s ego-transform hook)
 - Create: `cuda/src/libs/visual_renderer/tests/test_theme.cpp`
 - Create: `cuda/src/libs/visual_renderer/tests/test_paths.hpp` (defines `kThemeDir` and documents the `MPVIZ_TEST_DATA_DIR`-prefix convention for golden/fixture paths — see Step 5a; included by every test file in this and later tasks that references either)
 - Create: `cuda/src/libs/visual_renderer/tests/golden.cpp`, `tests/golden.hpp` (shared render+compare harness, linked into gtest binaries)
@@ -601,7 +629,7 @@ fog: { density: 0.008 }
 FetchContent_Declare(
     yamlcpp
     URL "https://github.com/jbeder/yaml-cpp/archive/refs/tags/0.8.0.tar.gz"
-    URL_HASH SHA256=<compute-and-record-on-first-fetch>)
+    URL_HASH SHA256=fbe74bbdcee21d656715688706da3c8becfd946d92cd44705cc6098bb23b3a16)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(yamlcpp)
 # link `yaml-cpp` PRIVATE into visual_renderer, same as Filament — never
@@ -627,7 +655,7 @@ set_target_properties(visual_renderer_prebuilt PROPERTIES
     set(STB_IMAGE_WRITE_COMMIT "2c980bb59875b0d32144a71867fbdebb2f77cd20")
     set(STB_IMAGE_WRITE_SHA256 "cbd5f0ad7a9cf4468affb36354a1d2338034f2c12473cf1a8e32053cb6914a05")
     set(STB_IMAGE_COMMIT "${STB_IMAGE_WRITE_COMMIT}")  # same stb tree, both headers
-    set(STB_IMAGE_SHA256 "<compute-and-record-on-first-fetch>")
+    set(STB_IMAGE_SHA256 "594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3")
     set(STB_DIR "${CMAKE_BINARY_DIR}/_deps/stb")
     set(STB_IMAGE_WRITE_H "${STB_DIR}/stb_image_write.h")
     set(STB_IMAGE_H "${STB_DIR}/stb_image.h")
@@ -669,7 +697,7 @@ set_target_properties(visual_renderer_prebuilt PROPERTIES
 
 - [ ] **Step 7:** Replace the Epic 0 scene construction:
   - Drop `simple_color.mat`/`colorMaterial`/the cube entirely (dead spike geometry).
-  - `create_renderer`: resolve `theme_assets_dir`/`initial_theme` from `RenderConfig` (default dir = compiled-in `DEFAULT_THEME_ASSETS_DIR`, default theme = `"dark_adas"`), `load_theme()` (see Step 7a below for the failure path — must NOT make `create_renderer` fail), build one `clay.mat` (opaque) `MaterialInstance` for `ground` (flat `baseColor`/`roughness`/`metallic`, no per-vertex color — see Step 2's material split) and one `clay_faded.mat` `MaterialInstance` for `grid`, whose dedicated vertex buffer gets a COLOR attribute added (only that buffer — ground/ego are unaffected) carrying per-vertex alpha baked from radial distance vs. `grid.fade_start_m/fade_end_m` — the "fading with distance" AC from spec §7, computed once at grid-build time since the grid is static geometry, not per-frame.
+  - `create_renderer`: `theme_assets_dir`/`initial_theme` are caller-owned `const char*`, borrowed only for this call (Interfaces block above) — the FIRST thing done with each is copy it into a `std::string` member on `VisualRenderer` (default dir = compiled-in `DEFAULT_THEME_ASSETS_DIR` when null, default theme = `"dark_adas"` when null), since `set_theme` (Task 3) re-reads the retained `theme_assets_dir` string on every future call, long after this call's raw pointer is gone. Only then `load_theme()` (see Step 7a below for the failure path — must NOT make `create_renderer` fail), build one `clay.mat` (opaque) `MaterialInstance` for `ground` (flat `baseColor`/`roughness`/`metallic`, no per-vertex color — see Step 2's material split) and one `clay_faded.mat` `MaterialInstance` for `grid`, whose dedicated vertex buffer gets a COLOR attribute added (only that buffer — ground/ego are unaffected) carrying per-vertex alpha baked from radial distance vs. `grid.fade_start_m/fade_end_m` — the "fading with distance" AC from spec §7, computed once at grid-build time since the grid is static geometry, not per-frame.
   - Sun: reuse Epic 0's already-built `LightManager::Type::SUN` entity, but now actually theme-driven: `direction`/`color`/`intensity` from the loaded theme instead of Epic 0's hardcoded constants.
   - IBL: replace Epic 0's flat single-SH-band "ambient" with a real (if deliberately low-frequency) 2-band irradiance IBL, analytically derived from the theme's `ibl.sky_color`/`ibl.ground_color` — a closed-form hemisphere-gradient-to-SH conversion (well-known constants; the "Stupid Spherical Harmonics Tricks" L0/L1 hemisphere gradient), NOT a full prefiltered specular cubemap:
     ```cpp
@@ -693,6 +721,7 @@ set_target_properties(visual_renderer_prebuilt PROPERTIES
   - `r->view->setPostProcessingEnabled(true);`
   - Build and set a `filament::ColorGrading` with ACES tone mapping (spec §4.2): `r->view->setColorGrading(filament::ColorGrading::Builder().toneMapping(filament::ColorGrading::ToneMapping::ACES).build(*engine));`
   - Enable bloom so the emissive path exists before Epic 2 needs it (the theme YAMLs already ship `emissive.ribbon_strength`, which presupposes bloom, even though Epic 1 has no emissive ribbon geometry yet): `r->view->setBloomOptions({.strength = 0.5f /* tuned against goldens, not a spec number */, .enabled = true});` — note the designator order: `BloomOptions::strength` is declared before `enabled` in `include/filament/Options.h`, and clang rejects a designated-initializer list whose order doesn't match declaration order, so `{.enabled = ..., .strength = ...}` (declared the other way round) fails to compile.
+  - **SSAO and anti-aliasing (FXAA/TAA): explicitly deferred, not silently dropped.** Spec §4.2/§8 lists both in the post chain alongside ACES/bloom, which this step DOES enable — so this needs its own decision, made now, for the same reason the shadow flags below get one: whatever this task's goldens capture is what Epics 2-4 build on top of, and turning either on afterward invalidates every golden committed between now and then. Unlike the ego's shadow flags, though, neither SSAO nor AA is needed for anything in THIS epic's scene to read as correct (a flat-shaded floating ego is visibly wrong without a shadow; a slightly-aliased edge or a missing contact-occlusion darkening is not) — and turning them on is squarely VM-032's job ("Layer visibility + quality presets end to end", Epic 3, backlog), which no earlier epic currently owns. Decision: leave both OFF at Filament's engine defaults for the whole span of Epics 1-4 — do NOT call `View::setAmbientOcclusionOptions`/`setAntiAliasing` in this task. Record this here as an explicit, accepted cost: when VM-032 (Epic 3) turns quality presets on for real, EVERY golden committed by Epics 1-4 will need regeneration in that same change, not as a surprise regression discovered later. Do not have some later epic before VM-032 enable either "as a nice to have" — that would split one golden-invalidation event into several.
   - Set a fixed `Camera::setExposure(aperture, shutterSpeed, sensitivity)` on the render camera — physically-based lighting with the default `getExposure()` (calibrated for a normal 1–10k lux daylight scene) will over/under-expose against the theme's much higher sun/IBL numbers otherwise. Pick values by rendering a golden and tuning until the clay surfaces read as mid-gray-ish, not clipped white or crushed black — this is a one-time calibration captured in the golden, not a per-theme knob.
   - State the color space explicitly (this was previously unstated): every theme palette RGB triple (`ground`/`sky`/`fog`/`lane_paint`/`ribbon_*`/`object_tints`/`alert`/`grid.line_color`/`hud` colors, and `ibl.sky_color`/`ibl.ground_color`) is authored in LINEAR space and fed straight into `materialParams`/`setFogOptions`/`IndirectLight::Builder` with no sRGB decode — matching Filament's own convention that `baseColor`/light/fog colors are linear, and consistent with the sun/IBL `intensity` fields already being physical units (lux), not colors. `theme.cpp`'s loader does no color-space conversion; document this assumption in a comment at the top of `theme.hpp`.
   - This step must land BEFORE Task 2 Step 11 generates the committed goldens — the goldens should capture the real ACES/exposure/bloom output, not the clipped-linear look the Epic 0 deviation would otherwise bake in.
@@ -719,6 +748,7 @@ TEST(ThemeLoad, MissingThemeDir_FallsBackToBuiltinTheme) {
 ```
   Run — FAIL (`create_renderer` currently returns nullptr on a bad theme dir, since `load_theme()` failure isn't handled yet).
 - [ ] **Step 7d: Run — PASS** (after Step 7b's fallback is implemented).
+- [ ] **Step 7e: Extract `VisualRenderer` into `src/renderer_internal.hpp`.** Task 4's `src/ego.cpp` (a separate translation unit) and `tests/test_ego.cpp` (via the `-I src` Task 1 already added to test binaries) both need to see the `class VisualRenderer` definition Step 7 above builds out — including the ego-entity fields Task 4 adds to it and the transform-update hook `render_frame` needs to call — and neither can while that class stays defined inside `renderer.cpp` itself. Move the class definition (unchanged; every field from Epic 0 plus whatever Step 7/Task 3/Task 4 add to it) out of `renderer.cpp` into a new `src/renderer_internal.hpp` (`#pragma once`; internal-only, same category as `scene_buffer.hpp` — never installed, not POD), and `#include "renderer_internal.hpp"` from `renderer.cpp` in its place. Purely mechanical — a `class`-body relocation, not a redesign: `create_renderer`/`render_frame`/`destroy_renderer`'s function bodies and every Filament call inside them stay exactly where Step 7 already puts them, in `renderer.cpp`.
 - [ ] **Step 8: Run — PASS** (`ClayMaterial.RespondsToLightDirection` and any ground/fog assertions).
 
 ### 2e. Golden-image harness (used by every later epic — build it right once)
@@ -869,7 +899,11 @@ TEST(ThemeTransition, RetargetMidFlight_StartsFromCurrentBlendNotEndpoint) {
 - [ ] **Step 6: Implement `set_theme`** in `renderer.cpp`: stores `{from: current_blended_theme(), to: load_theme(theme_name), start_sec: at_sec, duration_sec: transition_sec > 0 ? transition_sec : 0.8}` on the `VisualRenderer`. `render_frame` (or a new internal `apply_current_theme()` called at its top, before touching materials) computes `t = clamp((active_scene.sim_time_sec - start_sec) / duration_sec, 0, 1)`, calls `blend(from, to, t)`, and pushes the result's tokens into the existing material instances/sun/IBL/fog **every call** (cheap — `setParameter` calls, no reloads) — once `t >= 1.0` the transition struct is cleared (idempotent no-op blend after that, avoids recomputing forever). "No frame drop > 1 during switch" (AC) falls out for free: nothing here allocates, blocks, or reloads assets mid-transition, it's pure arithmetic + existing `setParameter` calls that already run every frame.
 - [ ] **Step 7: Generate + commit the 3 transition goldens** (same human-look-then-commit flow as Task 2 Step 11).
 - [ ] **Step 8: Run — PASS.**
-- [ ] **Step 9: Node wiring.** `visualization_node`: maintain `double sim_clock_sec_` (monotonic, incremented by the timer's own period each tick — `33ms` — rather than reading wall-clock, so the deterministic-clock contract holds all the way to the node too); feed it into every `SceneGraph.sim_time_sec` (Task 4 wires the rest of the struct). Add:
+- [ ] **Step 9: Node wiring.** `visualization_node`: maintain `double sim_clock_sec_` (monotonic, incremented by the timer's own period each tick — `33ms` — rather than reading wall-clock, so the deterministic-clock contract holds all the way to the node too).
+
+  **The call this whole task depends on, made explicit:** in `timer_callback`, EVERY tick, regardless of mode (ingest continues regardless of mode — same philosophy as the mux), build `mpviz::SceneGraph scene{}; scene.sim_time_sec = sim_clock_sec_;` (Task 4 fills in `scene.ego` from the TF adapter here too; nothing else is populated until Epic 2) and call `mpviz::set_scene(renderer_, scene);` — BEFORE the mode gate that decides whether this tick actually renders/publishes an image. Without this call, `SceneBuffer::active().sim_time_sec` never advances, `render_frame`'s `t = clamp((sim_time_sec - start_sec) / duration_sec, 0, 1)` clock is permanently stuck at `t=0`, and a `~/set_theme` request would never visibly finish outside a unit test that drives `set_scene` directly — the animated transition this task builds would be dead code in the running node. This is the node-side counterpart to Task 1/Task 2's `set_scene`/`render_frame` split: the node is the one thing that has to actually call `set_scene` every tick for any of it to matter.
+
+  Then add the theme subscription:
 ```cpp
 theme_sub_ = create_subscription<std_msgs::msg::String>(
     "~/set_theme", 10,
@@ -881,7 +915,7 @@ theme_sub_ = create_subscription<std_msgs::msg::String>(
 ```
 - [ ] **Step 10: WS bridge command.** `tools/vcam_ws_bridge.py`: `{"cmd": "set_theme", "theme": "dark_adas"|"light_clay"}` → publish `std_msgs/String` to `/visualization_node/set_theme` (node-private, mode-3-only concept — no mux needed, harmless if published while mode 1/2 is active, matches the "ingest continues regardless of mode" philosophy).
 - [ ] **Step 11: GUI toggle.** `tools/vcam_gui.py`: a day/night button next to the existing mode button (same `Gtk.Button` pattern as `_mode_btn`/`_on_mode_toggle`), sending the WS command above; label reflects last-known theme the way `_mode_btn`'s label already tracks `render_mode` from telemetry (Epic 3's `~/diagnostics`, VM-034, is the eventual place a theme-name echo would live end-to-end — for now the GUI just optimistically flips its own label on click, same as how it doesn't wait for confirmation on preset buttons today).
-- [ ] **Step 12: WS E2E test.** `test_theme_ws.py`: launch node + bridge, send `set_theme light_clay`, assert no gap in `/rendering/image` frames > 1 tick across the switch (reuses the existing bridge E2E harness pattern from Epic 0 Task 5).
+- [ ] **Step 12: WS E2E test.** `test_theme_ws.py`: launch node + bridge; capture a frame from `/rendering/image` before sending `set_theme light_clay`, send it, wait past `transition_sec` (0.8s + margin), capture a frame after. Assert BOTH (a) no gap in `/rendering/image` frames > 1 tick across the switch, AND (b) the before/after frames actually differ (e.g. mean absolute pixel difference above a small noise-floor threshold). (a) alone passes trivially on a node whose theme never advances (the Step 9 gap this task closes) — a broken `set_scene` wire would never break frame cadence, only the picture. (b) is what actually exercises the Step 9 wiring end to end (reuses the existing bridge E2E harness pattern from Epic 0 Task 5).
 ```bash
 source /opt/ros/humble/setup.bash && source cuda/install/setup.bash
 python3 cuda/src/ros_apps/src/micropilot_visualization_node/test/test_theme_ws.py
@@ -903,9 +937,12 @@ cd cuda/scripts/ros_apps_build && ./colcon_build.sh
 - Create: `cuda/src/libs/visual_renderer/src/ego.hpp`, `src/ego.cpp` (glTF/GLB load via Filament gltfio + clay-box fallback)
 - Create: `cuda/src/libs/visual_renderer/tests/test_ego.cpp`
 - Create: `cuda/src/libs/visual_renderer/tests/fixtures/test_cube.glb` (tiny, git-trackable glTF fixture — see Step 1/Step 4)
+- Modify: `cuda/src/libs/visual_renderer/src/renderer.cpp` (`VisualRenderer`, now declared in Task 2 Step 7e's `renderer_internal.hpp`, gains the ego entity/state fields Step 5 below stores; `render_frame` updates the ego entity's `TransformManager` transform from `SceneBuffer::active().ego.position/heading_rad` at the top of every call, alongside Task 3's theme-blend apply — `set_scene()` itself is untouched)
 - Create: `cuda/src/ros_apps/src/micropilot_visualization_node/src/tf_adapter.cpp`, `include/.../tf_adapter.hpp`
 - Create: `cuda/src/ros_apps/src/micropilot_visualization_node/test/test_tf_adapter.py` (recorded TF fixture → expected speed)
-- Modify: node `CMakeLists.txt` (`find_package(tf2_ros)`), `visualization_node.{hpp,cpp}` (own `tf2_ros::Buffer`/`TransformListener`, `ego_model_path`/`ego_fallback_dims` params, build `SceneGraph.ego` each tick)
+- Modify: node `CMakeLists.txt` — `find_package(tf2_ros)`, AND add `src/tf_adapter.cpp` to `visualization_node_lib`'s explicit source list (`add_library(visualization_node_lib SHARED src/visualization_node.cpp)` is a hand-written file list, not a glob — a new `.cpp` is invisible to the build until named here; forgetting this step is a silent no-op, not a build error, since `tf_adapter.hpp` can still be included and declared without its `.cpp` ever being compiled in)
+- Modify: node `package.xml` — add `<depend>tf2_ros</depend>` (the CMakeLists' `find_package(tf2_ros)` alone does not satisfy `ament`'s package-dependency declaration; a missing `<depend>` is a hard `colcon_build.sh` failure the first time this package is built clean, e.g. in CI or on a fresh workspace, even though it may spuriously succeed on a dev box that already has `tf2_ros` on `CMAKE_PREFIX_PATH` from a prior build)
+- Modify: `visualization_node.{hpp,cpp}` (own `tf2_ros::Buffer`/`TransformListener`, `ego_model_path`/`ego_fallback_dims` params, build `SceneGraph.ego` each tick)
 - Modify: node `config/default_params.yaml` (`ego_model_path: /home/ag7/Downloads/M02P.glb` — mirrors `micropilot_rendering_node`'s existing `robot_model_path` convention exactly; code default stays `""`)
 
 **Interfaces:** `mpviz::set_ego_model` (frozen above).
@@ -956,7 +993,7 @@ python3 cuda/src/libs/visual_renderer/scripts/obj2gltf_m02p.py /home/ag7/Downloa
 nm cuda/src/libs/visual_renderer/build/_deps/filament-1.56.5/filament/lib/x86_64/libgltfio.a 2>&1 | grep -c AssetLoader
 ```
   If it's there (expected — gltfio is a headline Filament feature, unlike the backend-internal `PlatformEGLHeadless` Epic 0 found missing), proceed with Step 4. **If not**, the fallback (document which one was needed, don't silently pick): a minimal hand-rolled GLB parser reading only POSITION/NORMAL/indices from the binary chunk (glTF's JSON+binary layout is well-documented and small for a single static mesh with no skinning/animation) — smaller than vendoring gltfio's own dependency tree (cgltf, draco, ktx) for one asset.
-- [ ] **Step 4: Failing test.** `Ego.LoadValidGltf_RendersNonEmptyBoundingBox` loads the fixture committed in Step 1 (`tests/fixtures/test_cube.glb`) — not `{ /* ... */ }`, and not the user's non-git M02P asset. `#include "test_paths.hpp"` for `kThemeDir`; the fixture path uses the same `MPVIZ_TEST_DATA_DIR`-prefix convention as Task 2 Step 10:
+- [ ] **Step 4: Failing test.** `Ego.LoadValidGltf_RendersNonEmptyBoundingBox` loads the fixture committed in Step 1 (`tests/fixtures/test_cube.glb`) — not `{ /* ... */ }`, and not the user's non-git M02P asset. `#include "test_paths.hpp"` for `kThemeDir` and `#include "renderer_internal.hpp"` (Task 2 Step 7e, via the `-I src` Task 1 already gives test binaries) for `mpviz::testing::rendered_bounding_box_diagonal` to have a `VisualRenderer` definition to introspect; the fixture path uses the same `MPVIZ_TEST_DATA_DIR`-prefix convention as Task 2 Step 10:
 ```cpp
 TEST(Ego, LoadValidGltf_RendersNonEmptyBoundingBox) {
     mpviz::RenderConfig cfg{320, 240, 0, kThemeDir, "dark_adas"};
@@ -983,7 +1020,7 @@ TEST(Ego, LoadMissingFile_FallsBackToClayBoxNonFatally) {
 }
 ```
   Run — FAIL.
-- [ ] **Step 5: Implement `ego.cpp`.** Two Filament gltfio pieces are required for a loaded asset to actually render anything (both easy to miss — exactly the class of gotcha Epic 0 kept hitting), plus a material-remap decision:
+- [ ] **Step 5: Implement `ego.cpp`.** `#include "renderer_internal.hpp"` (Task 2 Step 7e, visible via the `-I src` Task 1 already added) to see `class VisualRenderer` — `ego.cpp` is a separate translation unit from `renderer.cpp` and cannot add fields to or read fields off a class it can't see otherwise. Two Filament gltfio pieces are required for a loaded asset to actually render anything (both easy to miss — exactly the class of gotcha Epic 0 kept hitting), plus a material-remap decision:
   - `gltfio::AssetLoader::create()` needs a `MaterialProvider`. The pinned 1.56.5 SDK ships `gltfio/materials/uberarchive.h` + `libuberarchive.a` (glob-included already, see Task 2 Step 5's note) — use `gltfio::createUbershaderProvider(engine, UBERARCHIVE_DEFAULT_DATA, UBERARCHIVE_DEFAULT_SIZE)` as the `MaterialProvider` passed to `AssetLoader::create()`.
   - After `AssetLoader::create...FromBinary()`/`...FromJson()` returns a non-null `FilamentAsset*`, its geometry is NOT yet uploaded — `gltfio::ResourceLoader::loadResources(asset)` must run (synchronously; the GLB's buffers are embedded so there's no external URI to resolve asynchronously) before the asset has any visible geometry. Skipping this is the "silently renders nothing" trap the finding calls out.
   - Material remap (spec §4.2 says the ego should read as clay, matching the rest of the scene, not keep whatever materials came out of the OBJ→glTF conversion): after `loadResources`, walk `asset->getRenderableEntities()` and call `RenderableManager::setMaterialInstanceAt(entity, primitiveIndex, clay_instance)` for every primitive, pointing at the SAME opaque `clay.mat` `MaterialInstance` (or a per-entity instance of it) Step 2 already builds for the ground/ego-fallback box. This remap is only safe to do blind because Task 2's `clay.mat` fix dropped `requires: [color]` — the gltfio-loaded mesh has POSITION/NORMAL/UV attributes but no vertex COLOR, so remapping it to the OLD `clay.mat` (which required COLOR) would have failed; remapping to the current opaque `clay.mat` does not.
@@ -1051,6 +1088,6 @@ Opus reviewer signs off against:
 - Spec §4.1 (all 8 SceneGraph categories present as POD, Ego populated), §4.2 (lit pipeline replacing the Epic 0 unlit deviation — sun + IBL both visibly doing something, not dead code), §4.3 (both themes, `set_theme` animated per the 0.8s/Oklab/smoothstep contract), §4.4 (ego glTF + non-fatal fallback), §9 (asset-load-failure and no-TF-yet paths both non-fatal), §10 (golden-image harness exists and is GPU-skip-clean).
 - Global Constraints: existing Epic 0 tests (`test_hello_frame`, `smoke_test.py` ×2 nodes, `test_vcam_contract.py`, the WS bridge E2E) all still green.
 - The "Frozen after Epic 1" interfaces (Interfaces block above) match what actually shipped, byte-for-byte — if a reviewer finds a field renamed/reordered mid-epic, that's a blocking finding, not a nit (Epic 2 is scheduled from this doc's frozen signatures).
-- No task exceeded its stated scope (e.g., Task 5 stayed a pure refactor; Task 2's IBL simplification is documented, not silently narrower than spec).
+- No task exceeded its stated scope (e.g., Task 5 stayed a pure refactor; Task 2's IBL simplification is documented, not silently narrower than spec; Task 2's SSAO/FXAA/TAA deferral to Epic 3's VM-032 is an explicit, named decision with an accepted golden-regeneration cost, not a silent scope drop).
 
 **Epic 1 results (fill on completion):** golden SSIM thresholds actually used = `____`, gltfio-in-prebuilt-SDK outcome (Task 4 Step 3) = `____`, any perf numbers incidentally observed (informational only — Task 6 is still the gate) = `____`.
