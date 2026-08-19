@@ -46,7 +46,7 @@ struct FrameStats {
     // backdrop, above any horizon effect, for this epic's fixed 320x240 /
     // CameraPose{{0,-8,4},{0,0,0},60} test setup (same "not scene-aware,
     // just matches this fixed pose" caveat as top/bottom_third_mean above).
-    // horizon_row_mean: rows [48,60) -- the far edge of the ground plane
+    // horizon_row_mean: rows [50,60) -- the far edge of the ground plane
     // (kGroundHalfExtent, only 40m across) as it meets the sky, where
     // distance-fog opacity is at its highest for any on-plane ray (though,
     // being a *finite* plane, never near-total extinction the way a true

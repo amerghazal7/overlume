@@ -592,7 +592,11 @@ ibl:  # analytic 2-band hemisphere gradient (Step 7) — NOT raw SH coefficients
   sky_color:    [0.05, 0.06, 0.12]
   ground_color: [0.02, 0.02, 0.03]
   intensity: 8000.0
-fog: { density: 0.015 }
+fog: { density: 0.03 }  # 2x the originally-authored 0.015 (review round 6: the
+# fog color-scale bug that made 0.015 look non-convergent is fixed in
+# renderer.cpp instead — see assets/themes/dark_adas.yaml's own comment —
+# and 0.03 gives the horizon/sky convergence guard real headroom without
+# 0.10's measured legibility cost at Task 4's ego-mesh distances).
 ```
 ```yaml
 # light_clay.yaml — same key set, no exceptions (that's the "no per-theme
