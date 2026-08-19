@@ -103,6 +103,10 @@ using filament::math::quatf;
 
 namespace {
 float3 to_filament(const detail::Float3& c) { return float3{c.r, c.g, c.b}; }
+
+// See the comment at the setFogOptions() call site for what this is and why
+// it isn't derived from a formula.
+constexpr float kFogRadianceScale = 50.0f;
 }  // namespace
 
 // HeadlessEglPlatform — a minimal from-scratch filament::backend::
@@ -606,7 +610,49 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // skybox mesh). `enabled` defaults to false (FogOptions' last member);
     // omitting it here would silently render neither theme's `fog:` token.
     filament::FogOptions fogOptions{};
-    fogOptions.color = to_filament(theme.palette.fog);
+    // FogOptions::color is in-scattering RADIANCE (Options.h: "a good value
+    // is to use the average of the ambient light"), evaluated in the same
+    // pre-exposure HDR domain as the sun/IBL -- not a 0-1 display color like
+    // palette.ground/palette.sky. palette.fog, though, IS authored as a 0-1
+    // display-ish hue (dark_adas ~0.02-0.05, light_clay ~0.8-0.92), same
+    // convention as every other palette.* token, and it needs to STAY in
+    // that domain relative to itself (dark_adas near-black, light_clay
+    // near-white) -- only its overall magnitude was wrong. Feeding it in
+    // completely unscaled made it ~5-6 orders of magnitude dimmer than this
+    // scene's actual sun/IBL and thus effectively inert: measured, forcing
+    // light_clay's fog to pure red moved a golden's far-field row by
+    // <=2/255 (epic1 Task 2 review).
+    //
+    // ponytail: two more-"principled" scalings were tried and rejected
+    // empirically (rendered + inspected, not just hand-derived) before
+    // this one:
+    //  - dividing by camera exposure (so setExposure()'s multiply cancels
+    //    back out to the authored hue, the way palette.sky's clear color
+    //    already reads at roughly its authored value): wrong, because fog
+    //    color isn't a display color like the clear color -- it's inserted
+    //    at the same pipeline stage as the sun/IBL-lit surface radiance.
+    //    1/exposure (~153600x here) overshot every surface in the scene
+    //    and clipped both themes to solid white, even erasing the sun's
+    //    directionality (ClayMaterial.RespondsToLightDirection started
+    //    failing).
+    //  - theme.ibl.intensity/pi (the literal "average of the ambient
+    //    light" reading): wrong scale to use PER THEME, because dark_adas/
+    //    light_clay's ibl.intensity are ~29x apart *on purpose* (the
+    //    lux-rebalance comments below) to land their very differently-
+    //    albedo'd surfaces at similar screen brightness -- multiplying
+    //    fog by ibl.intensity directly reproduces that 29x gap instead,
+    //    so no single divisor made light_clay's haze visible without
+    //    clipping dark_adas to white.
+    // What actually works: the authored hue already encodes each theme's
+    // intended relative fog brightness correctly (that's not the bug) --
+    // it just needs to be loud enough, in absolute terms, to compete with
+    // the surface radiance it's blending against at long range. A flat
+    // multiplier preserves the authored ratio between themes exactly.
+    // kFogRadianceScale is that one knob, in the same spirit as
+    // bloom.strength above: hand-tuned once against both committed
+    // goldens' legibility floor (tests/test_theme.cpp's FrameStats checks)
+    // by actually rendering and inspecting pixels.
+    fogOptions.color = to_filament(theme.palette.fog) * kFogRadianceScale;
     fogOptions.density = theme.fog.density;
     // heightFalloff defaults to 1.0/m (Filament models fog as a height-
     // stratified layer, densest at `height`, which itself defaults to 0 —

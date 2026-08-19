@@ -65,6 +65,58 @@ TEST(ClayMaterial, RespondsToLightDirection) {
     mpviz::destroy_renderer(rB);
 }
 
+TEST(Fog, ColorAffectsRenderedOutput) {
+    // Regression test for the epic1 Task 2 review finding: setFogOptions()
+    // fed the raw 0-1 authored `palette.fog` straight in as `FogOptions::
+    // color`, but that field is scene radiance (Options.h: "a good value is
+    // to use the average of the ambient light"), ~5-6 orders of magnitude
+    // brighter than 0-1 in this scene's photometric units -- making the
+    // token effectively inert (measured: forcing light_clay's fog to pure
+    // red moved a golden's far-field row by <=2/255).
+    //
+    // Two fixtures identical to light_clay -- including its shipped
+    // fog.density (0.008); an inflated density would swamp the domain-scale
+    // bug with sheer extinction and mask a regression -- except `palette.
+    // fog` (black vs. white) must render visibly different mean brightness
+    // once the fog color actually reaches the screen. Measured: unfixed
+    // code moves the mean by <1/255 here; fixed code moves it by ~90/255.
+    // Same "byte-for-byte identical except one field" isolation technique
+    // as ClayMaterial.RespondsToLightDirection above.
+    constexpr uint32_t kWidth = 320, kHeight = 240;
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    mpviz::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "fog_color_black"};
+    mpviz::RenderConfig cfgB{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "fog_color_white"};
+
+    mpviz::VisualRenderer* rA = mpviz::create_renderer(cfgA);
+    if (rA == nullptr) {
+        GTEST_SKIP() << "no GPU/EGL";
+    }
+    mpviz::VisualRenderer* rB = mpviz::create_renderer(cfgB);
+    ASSERT_NE(rB, nullptr);
+
+    mpviz::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
+    // golden_png_path deliberately doesn't exist -- render_and_compare
+    // writes out_png_path unconditionally before checking it, and this test
+    // only wants the render, not the (meaningless-here) SSIM return value.
+    mpviz::testing::render_and_compare(rA, pose, "/nonexistent/no_such_golden.png",
+                                        "/tmp/fog_color_black_actual.png");
+    mpviz::testing::render_and_compare(rB, pose, "/nonexistent/no_such_golden.png",
+                                        "/tmp/fog_color_white_actual.png");
+
+    mpviz::testing::FrameStats statsA =
+        mpviz::testing::analyze_png("/tmp/fog_color_black_actual.png");
+    mpviz::testing::FrameStats statsB =
+        mpviz::testing::analyze_png("/tmp/fog_color_white_actual.png");
+
+    EXPECT_GT(statsB.mean - statsA.mean, 15.0)
+        << "black-fog vs white-fog fixtures (identical otherwise) rendered "
+           "near-identical mean brightness (" << statsA.mean
+        << " vs " << statsB.mean << ") -- FogOptions::color isn't reaching the screen.";
+
+    mpviz::destroy_renderer(rA);
+    mpviz::destroy_renderer(rB);
+}
+
 TEST(ThemeLoad, MissingThemeDir_FallsBackToBuiltinTheme) {
     mpviz::RenderConfig cfg{320, 240, 0, "/nonexistent/theme/dir", "dark_adas"};
     mpviz::VisualRenderer* r = mpviz::create_renderer(cfg);
