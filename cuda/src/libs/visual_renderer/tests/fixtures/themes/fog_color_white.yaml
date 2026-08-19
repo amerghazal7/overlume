@@ -1,0 +1,41 @@
+# fog_color_white.yaml — test fixture for test_theme.cpp's
+# Fog.ColorAffectsRenderedOutput. Byte-for-byte identical to
+# fog_color_black.yaml except `palette.fog` -- the only thing that can make
+# the two renders differ is FogOptions::color actually reaching the screen.
+# Deliberately reuses light_clay.yaml's own shipped fog.density (0.008), not
+# an inflated one: the bug this guards (epic1 Task 2 review) was a domain
+# mismatch (raw 0-1 hue fed in as scene radiance, ~5-6 orders of magnitude
+# dimmer than the sun/IBL), and an artificially high density would swamp
+# that with sheer extinction and mask a domain-scale regression. At this
+# real density, unfixed code moves the mean by <1/255 between black and
+# white fog (measured); fixed code moves it by ~90/255. Values otherwise
+# copied from assets/themes/light_clay.yaml.
+name: fog_color_white
+palette:
+  ground:      [0.82, 0.80, 0.76]
+  sky:         [0.78, 0.85, 0.92]
+  fog:         [1.0, 1.0, 1.0]
+  lane_paint:  [0.95, 0.95, 0.92]
+  ribbon_core: [0.15, 0.55, 0.95]
+  ribbon_glow: [0.15, 0.55, 0.95]
+  object_tints:
+    car: [0.2, 0.4, 0.85]
+    truck_van: [0.35, 0.45, 0.6]
+    bus: [0.9, 0.65, 0.2]
+    pedestrian: [0.85, 0.25, 0.25]
+    cyclist: [0.85, 0.55, 0.15]
+    unknown: [0.6, 0.6, 0.6]
+  alert:
+    info: [0.15, 0.5, 0.9]
+    warning: [0.95, 0.6, 0.05]
+    critical: [0.9, 0.1, 0.1]
+material: { roughness: 0.75, metallic: 0.0 }
+emissive: { ribbon_strength: 1.5 }
+grid: { line_color: [0.35, 0.33, 0.30], fade_start_m: 15.0, fade_end_m: 40.0 }
+hud: { text_color: [0.1, 0.12, 0.15], accent_color: [0.15, 0.55, 0.95], scale: 1.0 }
+sun: { direction: [-0.4, -0.2, -1.0], color: [1.0, 0.98, 0.92], intensity: 25000.0 }
+ibl:
+  sky_color:    [0.75, 0.82, 0.9]
+  ground_color: [0.5, 0.48, 0.44]
+  intensity: 8750.0
+fog: { density: 0.008 }
