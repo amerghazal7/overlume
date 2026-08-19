@@ -30,27 +30,11 @@
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
 
-// Existing srv package (spec §6 / plan Task 5) — dependency, not a copy:
-// this node re-implements the CUDA node's vcam surface under its own
-// namespace but shares the exact same service type.
-#include "micropilot_rendering_node/srv/set_virtual_cam.hpp"
 #include "micropilot_visualization_node/tf_adapter.hpp"
+#include "micropilot_visualization_node/vcam.hpp"
 
 namespace micropilot::visualization_app
 {
-
-/// A virtual-camera placement as look-points in the rig frame (x-fwd, y-left,
-/// z-up) — mirrors micropilot_rendering_node's LookPoint exactly (plan Task 5:
-/// "port the tween math verbatim"). float precision is kept (not double, like
-/// mpviz::CameraPose) so that presets shared numerically with the CUDA node
-/// (spec §6: "presets/orbits produce the same framing in both worlds") tween
-/// to bit-identical results — the contract test's 1e-9 tolerance would not be
-/// safely met if the two nodes rounded the same constants differently.
-struct LookPoint
-{
-    float eye[3];
-    float target[3];
-};
 
 class VisualizationNode : public rclcpp_lifecycle::LifecycleNode
 {
@@ -71,29 +55,14 @@ private:
     void teardown_active();
     void destroy_renderer_if_any();
 
-    // ── virtual-camera presets / eased switching (plan Task 5) ───────────────
-    using SetVirtualCam = micropilot_rendering_node::srv::SetVirtualCam;
-    /// Advance the smoothstep tween one timer tick and update cur_ + pose_.
-    void advance_tween();
-    void on_set_virtual_cam(const std::shared_ptr<SetVirtualCam::Request> req,
-                            std::shared_ptr<SetVirtualCam::Response> res);
-    /// Handle ~/set_look: 6 floats [eye xyz | target xyz] applied immediately
-    /// (no tween) — the generic runtime pose input used for free-look orbiting.
-    void on_set_look(const std_msgs::msg::Float64MultiArray::SharedPtr msg);
+    // ── virtual-camera presets / eased switching (plan Task 5 / VM-013) ──────
+    // Extracted into its own class (vcam.hpp/vcam.cpp) — owns the preset
+    // table, the src_/dst_ tween, and the ~/set_virtual_cam service +
+    // ~/set_look subscription. Still the same EGO-RELATIVE OFFSET frame;
+    // ego-anchored composition happens in timer_callback, not here (plan
+    // Task 5 Scope-addition block).
+    std::unique_ptr<Vcam> vcam_;
 
-    // Preset table: [0]=config [1]=reverse_follow [2]=left_side [3]=right_side
-    // [4]=top_down. Index i is preset (i+1) in the service request. Identical
-    // names/formulas to micropilot_rendering_node so the two nodes' presets
-    // frame the world the same way (spec §6).
-    std::array<LookPoint, 5> presets_{};
-    static constexpr std::array<const char*, 5> kPresetNames{
-        "config", "reverse_follow", "left_side", "right_side", "top_down"};
-    LookPoint cur_{}, src_{}, dst_{};
-    double tween_t_{1.0};  // [0,1]; 1.0 = settled on dst_. Eased per timer tick.
-    int active_preset_{1};  // 1-5 = preset in service numbering; 0 = free look
-
-    rclcpp::Service<SetVirtualCam>::SharedPtr set_vcam_srv_;
-    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr set_look_sub_;
     // vcam telemetry: [eye xyz | target xyz | active_preset | active_mode],
     // one per timer tick — identical layout to rendering_node's ~/vcam_state.
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr
@@ -104,7 +73,10 @@ private:
     int out_height_{720};
     int quality_{2};       // 0=low, 1=med, 2=high (mpviz::RenderConfig::quality)
     int initial_mode_{1};  // last-configured global mux mode; matches rendering_node's default
-    mpviz::CameraPose pose_{};  // current (possibly tweening) pose; virtual_pose + virtual_vfov_deg params seed presets_[0]
+    // Current (possibly tweening) pose -- mirrors vcam_->pose() each tick
+    // (timer_callback); virtual_pose + virtual_vfov_deg params seed vcam_'s
+    // own preset table at construction (on_configure).
+    mpviz::CameraPose pose_{};
 
     // ── mode mux ──────────────────────────────────────────────────────────────
     // Global (not "~/...") — both this node and rendering_node subscribe the
