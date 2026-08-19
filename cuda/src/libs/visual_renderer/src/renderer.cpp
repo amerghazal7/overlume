@@ -1,15 +1,18 @@
-// renderer.cpp — Epic 0 Task 2: headless Filament hello-frame behind the POD
-// api.h boundary (docs/superpowers/plans/2026-08-18-visual-mode.md).
+// renderer.cpp — Epic 1 Task 2 (VM-011): real lit clay pipeline + theme
+// system, replacing Epic 0's throwaway unlit hello-frame scene (docs/
+// superpowers/plans/2026-08-18-visual-mode-epic1.md, "Known Epic 0 deviation
+// this epic must fix").
 //
-// Scene: one directional sun + a gray ground plane + a sparse reference grid
-// + a lit cube at the origin, per the plan's Task 2 Step 3. Geometry is
-// baked directly in world space (no TransformManager use) — deliberately
-// minimal for a spike; later epics (SceneGraph, Epic 1) replace this whole
-// scene-construction path.
+// Scene: one directional sun + a themed clay ground plane + a distance-faded
+// reference grid, lit for real (clay.mat/clay_faded.mat, both `shadingModel:
+// lit`) with a theme-driven sun + analytic 2-band IBL + distance fog.
+// Geometry is baked directly in world space (no TransformManager use) —
+// Epic 2 (SceneGraph population) and Task 4 (ego from TF) are what start
+// needing per-frame transforms.
 //
 // This file is internal to visual_renderer's clang/libc++ build, so (unlike
-// api.h) ordinary std:: usage is fine here — nothing here crosses the ABI
-// boundary with the gcc/libstdc++ ROS node.
+// api.h/scene.h) ordinary std:: usage is fine here — nothing here crosses
+// the ABI boundary with the gcc/libstdc++ ROS node.
 //
 // Epic 1 Task 2 Step 7e: `VisualRenderer` (plus the `Mesh`/`HeadlessEglPlatform`/
 // `Vertex`/`add_mesh` helper types it needs) is extracted into
@@ -19,9 +22,12 @@
 // (just no longer inside an anonymous namespace) — only forward-declared in
 // the header.
 #include "visual_renderer/api.h"
+#include "visual_renderer/scene.h"
 #include "renderer_internal.hpp"
+#include "theme.hpp"
 
 #include <filament/Camera.h>
+#include <filament/ColorGrading.h>
 #include <filament/Engine.h>
 #include <filament/IndexBuffer.h>
 #include <filament/IndirectLight.h>
@@ -29,6 +35,7 @@
 #include <filament/Material.h>
 #include <filament/MaterialEnums.h>
 #include <filament/MaterialInstance.h>
+#include <filament/Options.h>
 #include <filament/RenderableManager.h>
 #include <filament/Renderer.h>
 #include <filament/Scene.h>
@@ -50,12 +57,17 @@
 #include <utils/Entity.h>
 #include <utils/EntityManager.h>
 
-#include "simple_color_filamat.h"  // matc-generated (CMakeLists.txt); see that file's mat source
+#include "clay_filamat.h"        // matc-generated (CMakeLists.txt); see assets/materials/clay.mat
+#include "clay_faded_filamat.h"  // matc-generated; see assets/materials/clay_faded.mat
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cmath>
+#include <optional>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -76,11 +88,22 @@ int bind();
 void unbind();
 }  // namespace bluegl
 
+// Compiled-in default theme-assets dir (CMakeLists.txt target_compile_
+// definitions on the visual_renderer target, Task 2 Step 5a) — used
+// whenever RenderConfig::theme_assets_dir is null.
+#ifndef DEFAULT_THEME_ASSETS_DIR
+#error "DEFAULT_THEME_ASSETS_DIR must be defined by CMakeLists.txt"
+#endif
+
 namespace mpviz {
 
 using filament::math::float3;
 using filament::math::float4;
 using filament::math::quatf;
+
+namespace {
+float3 to_filament(const detail::Float3& c) { return float3{c.r, c.g, c.b}; }
+}  // namespace
 
 // HeadlessEglPlatform — a minimal from-scratch filament::backend::
 // OpenGLPlatform, standing in for Filament's own PlatformEGLHeadless.
@@ -257,60 +280,66 @@ void build_ground_plane(std::vector<Vertex>& verts, std::vector<uint16_t>& indic
     fill_tangent_frames(verts, std::vector<float3>(4, float3{0, 0, 1}));
 }
 
+// One grid-line vertex: same position+tangentFrame layout as the shared
+// `Vertex` type, plus a COLOR attribute carrying the per-vertex distance
+// fade alpha (Task 2 Step 2/7). Extending JUST this dedicated vertex buffer
+// — not the shared `Vertex` type in renderer_internal.hpp — keeps the
+// ground/ego/every future opaque clay surface out of a COLOR-attribute
+// requirement they don't need.
+struct GridVertex {
+    float3 position;
+    float4 tangentFrame;
+    float4 color;  // rgb unused by clay_faded.mat's fragment shader; only .a read
+};
+
+// Linear falloff from 1.0 (at/inside fade_start_m) to 0.0 (at/beyond
+// fade_end_m) — the "grid fades with distance" AC (spec §7). Deliberately
+// linear, not smoothstep: this is a per-vertex bake done once at
+// grid-build time on static geometry, not a per-frame shader term, and a
+// straight line has one less thing to get subtly wrong for a purely
+// cosmetic distance cue.
+float grid_fade_alpha(float dist_m, float fade_start_m, float fade_end_m) {
+    if (fade_end_m <= fade_start_m) return dist_m <= fade_start_m ? 1.0f : 0.0f;
+    const float t = (dist_m - fade_start_m) / (fade_end_m - fade_start_m);
+    return 1.0f - std::clamp(t, 0.0f, 1.0f);
+}
+
 // A sparse reference grid drawn as line segments resting just above the
 // ground plane (avoids z-fighting), spaced 2 units apart across the ground.
-void build_grid_lines(std::vector<Vertex>& verts, std::vector<uint16_t>& indices) {
+// Distance-faded per vertex from theme.grid.fade_start_m/fade_end_m
+// (radial distance from the world origin — the grid is static geometry, so
+// this is baked once here rather than recomputed per frame).
+void build_grid_lines(std::vector<GridVertex>& verts, std::vector<uint16_t>& indices,
+                       float fade_start_m, float fade_end_m) {
     const float h = kGroundHalfExtent;
     const float step = 2.0f;
     const float z = 0.001f;
     std::vector<float3> normals;
+    std::vector<Vertex> plainVerts;  // reused only to drive fill_tangent_frames
+    auto push = [&](float x, float y) {
+        verts.push_back(GridVertex{{x, y, z}, {}, {}});
+        plainVerts.push_back(Vertex{{x, y, z}, {}});
+        normals.push_back(float3{0, 0, 1});
+    };
     for (float x = -h; x <= h + 1e-3f; x += step) {
-        verts.push_back({{x, -h, z}, {}});
-        verts.push_back({{x, h, z}, {}});
+        push(x, -h);
+        push(x, h);
     }
     for (float y = -h; y <= h + 1e-3f; y += step) {
-        verts.push_back({{-h, y, z}, {}});
-        verts.push_back({{h, y, z}, {}});
+        push(-h, y);
+        push(h, y);
     }
     indices.resize(verts.size());
     for (uint16_t i = 0; i < verts.size(); ++i) indices[i] = i;
-    fill_tangent_frames(verts, std::vector<float3>(verts.size(), float3{0, 0, 1}));
-}
 
-// Unit cube resting on the ground, centered on the origin in X/Y (half-extent
-// 0.5), spanning Z in [0, 1]. 24 vertices (4 per face, distinct normals) +
-// 36 indices (2 triangles per face), wound CCW as seen from outside.
-void build_cube(std::vector<Vertex>& verts, std::vector<uint16_t>& indices) {
-    const float h = 0.5f;
-    const float3 center{0.0f, 0.0f, 0.5f};
-    struct Face {
-        float3 normal;
-        float3 corners[4];
-    };
-    const Face faces[6] = {
-        {{1, 0, 0}, {{h, -h, -h}, {h, h, -h}, {h, h, h}, {h, -h, h}}},
-        {{-1, 0, 0}, {{-h, h, -h}, {-h, -h, -h}, {-h, -h, h}, {-h, h, h}}},
-        {{0, 1, 0}, {{h, h, -h}, {-h, h, -h}, {-h, h, h}, {h, h, h}}},
-        {{0, -1, 0}, {{-h, -h, -h}, {h, -h, -h}, {h, -h, h}, {-h, -h, h}}},
-        {{0, 0, 1}, {{-h, -h, h}, {h, -h, h}, {h, h, h}, {-h, h, h}}},
-        {{0, 0, -1}, {{-h, h, -h}, {h, h, -h}, {h, -h, -h}, {-h, -h, -h}}},
-    };
-
-    std::vector<float3> normals;
-    for (const Face& f : faces) {
-        const uint16_t base = static_cast<uint16_t>(verts.size());
-        for (const float3& c : f.corners) {
-            verts.push_back({center + c, {}});
-            normals.push_back(f.normal);
-        }
-        indices.push_back(base + 0);
-        indices.push_back(base + 1);
-        indices.push_back(base + 2);
-        indices.push_back(base + 0);
-        indices.push_back(base + 2);
-        indices.push_back(base + 3);
+    fill_tangent_frames(plainVerts, std::vector<float3>(verts.size(), float3{0, 0, 1}));
+    for (size_t i = 0; i < verts.size(); ++i) {
+        verts[i].tangentFrame = plainVerts[i].tangentFrame;
+        const float dist = std::sqrt(verts[i].position.x * verts[i].position.x +
+                                      verts[i].position.y * verts[i].position.y);
+        const float alpha = grid_fade_alpha(dist, fade_start_m, fade_end_m);
+        verts[i].color = float4{1.0f, 1.0f, 1.0f, alpha};
     }
-    fill_tangent_frames(verts, normals);
 }
 
 void destroy_mesh(filament::Engine& engine, filament::Scene& scene, Mesh& mesh) {
@@ -321,6 +350,90 @@ void destroy_mesh(filament::Engine& engine, filament::Scene& scene, Mesh& mesh) 
     }
     if (mesh.vb) engine.destroy(mesh.vb);
     if (mesh.ib) engine.destroy(mesh.ib);
+}
+
+// Grid-only vertex buffer builder (POSITION+TANGENTS+COLOR) — parallels
+// make_vertex_buffer()/make_index_buffer() in renderer_internal.hpp, but
+// local to this .cpp since only the grid needs a COLOR attribute.
+filament::VertexBuffer* make_grid_vertex_buffer(filament::Engine& engine,
+                                                 std::vector<GridVertex> verts) {
+    auto* heapVerts = new std::vector<GridVertex>(std::move(verts));
+    filament::VertexBuffer* vb =
+        filament::VertexBuffer::Builder()
+            .vertexCount(static_cast<uint32_t>(heapVerts->size()))
+            .bufferCount(1)
+            .attribute(filament::VertexAttribute::POSITION, 0,
+                       filament::VertexBuffer::AttributeType::FLOAT3,
+                       offsetof(GridVertex, position), sizeof(GridVertex))
+            .attribute(filament::VertexAttribute::TANGENTS, 0,
+                       filament::VertexBuffer::AttributeType::FLOAT4,
+                       offsetof(GridVertex, tangentFrame), sizeof(GridVertex))
+            .attribute(filament::VertexAttribute::COLOR, 0,
+                       filament::VertexBuffer::AttributeType::FLOAT4,
+                       offsetof(GridVertex, color), sizeof(GridVertex))
+            .build(engine);
+    vb->setBufferAt(
+        engine, 0,
+        filament::VertexBuffer::BufferDescriptor(
+            heapVerts->data(), heapVerts->size() * sizeof(GridVertex),
+            [](void*, size_t, void* user) { delete static_cast<std::vector<GridVertex>*>(user); },
+            heapVerts));
+    return vb;
+}
+
+// Builds the grid's renderable directly (not through the shared add_mesh()
+// free function in renderer_internal.hpp, which is typed for the plain
+// position+tangent `Vertex` layout that Task 4's ego reuse also needs —
+// the grid's COLOR-attribute vertex layout is unique to this one mesh, so
+// it gets its own small builder instead of a generic-vertex-type add_mesh).
+void add_grid_mesh(VisualRenderer& r, Mesh& mesh, std::vector<GridVertex> verts,
+                    std::vector<uint16_t> indices, filament::MaterialInstance* material) {
+    mesh.vb = make_grid_vertex_buffer(*r.engine, std::move(verts));
+    mesh.ib = make_index_buffer(*r.engine, std::move(indices));
+    mesh.entity = utils::EntityManager::get().create();
+    filament::RenderableManager::Builder(1)
+        .boundingBox({{0, 0, 0}, {kGroundHalfExtent, kGroundHalfExtent, 1.0f}})
+        .geometry(0, filament::RenderableManager::PrimitiveType::LINES, mesh.vb, mesh.ib)
+        .material(0, material)
+        .culling(false)
+        .castShadows(false)
+        .receiveShadows(false)  // alpha-blended: doesn't meaningfully receive shadows (Step 7)
+        .build(*r.engine, mesh.entity);
+    r.scene->addEntity(mesh.entity);
+}
+
+// Analytic 2-band (L0 + L1, 4 coefficients) irradiance SH for a two-color
+// hemisphere gradient environment (`sky` above, `ground` below the world
+// XY plane) — the "Stupid Spherical Harmonics Tricks" hemisphere-light
+// closed form (Task 2 Step 7):
+//
+//   c_00 = Y00 * 2*pi * (sky + ground)              [[whole-sphere Y00 projection]]
+//   c_10 = Y1  * pi   * (sky - ground)               [[z-axis Y10 projection; no
+//                                                        horizontal (x/y) component
+//                                                        since the field only varies
+//                                                        with world Z]]
+//   L_lm (irradiance) = A_l * c_lm, with A0 = pi, A1 = 2*pi/3 (Ramamoorthi &
+//   Hanrahan's clamped-cosine convolution constants) — folded into the
+//   closed-form constants below. Verified against the exact case sky==ground
+//   (must reduce to the uniform-environment irradiance E = pi*C for every
+//   normal) and the cardinal case (a normal facing straight along +Z must
+//   receive irradiance == pi*sky, matching an unoccluded upper hemisphere).
+//
+// ponytail: clay materials in both reference images are matte/non-
+// reflective — a full cmgen-baked prefiltered specular cubemap buys nothing
+// here (see the plan's own note); this 4-coefficient analytic field is the
+// whole IBL. Upgrade path if a future epic needs glossy reflections: swap
+// this for cmgen-prefiltered per-theme cubemaps behind the same
+// IndirectLight::Builder call site.
+void sh_from_hemisphere(const float3& sky, const float3& ground, float3 sh[4]) {
+    constexpr float kPi = 3.14159265358979323846f;
+    constexpr float kY0 = 0.282095f;   // sqrt(1/(4*pi))
+    constexpr float kY1 = 0.488603f;   // sqrt(3/(4*pi))
+    const float kTwoPiSq = 2.0f * kPi * kPi;
+    sh[0] = kTwoPiSq * kY0 * (sky + ground);         // L0,0
+    sh[1] = float3{0.0f, 0.0f, 0.0f};                // L1,-1 (y) — no horizontal gradient
+    sh[2] = (kTwoPiSq / 3.0f) * kY1 * (sky - ground);  // L1,0  (z, world "up")
+    sh[3] = float3{0.0f, 0.0f, 0.0f};                // L1,1 (x) — no horizontal gradient
 }
 
 // Payload handed to the readPixels callback: where to signal completion.
@@ -388,11 +501,7 @@ filament::IndexBuffer* make_index_buffer(filament::Engine& engine,
 // Step 5 needs to do for the ego's clay-box fallback. `r.engine`/
 // `utils::EntityManager::get()` replace the old `&engine`/`&em` captures
 // (`em` was always just that singleton accessor, nothing stateful worth
-// threading through). `cast_shadows`/`receive_shadows` are new parameters —
-// every call site in create_renderer() below passes `false, false`,
-// identical to the hardcoded values the old lambda body used, so this is
-// behavior-preserving for Epic 0's spike scene; Task 4's ego fallback box is
-// the first caller that needs `true` for cast_shadows.
+// threading through).
 void add_mesh(VisualRenderer& r, Mesh& mesh, std::vector<Vertex> verts,
               std::vector<uint16_t> indices,
               filament::RenderableManager::PrimitiveType primitive,
@@ -414,6 +523,18 @@ void add_mesh(VisualRenderer& r, Mesh& mesh, std::vector<Vertex> verts,
 VisualRenderer* create_renderer(const RenderConfig& config) {
     if (config.width == 0 || config.height == 0) return nullptr;
 
+    // Theme resolution (Step 7/7b): both RenderConfig pointers are
+    // caller-owned and borrowed only for this call (api.h) — copy into
+    // owned std::string storage FIRST, before doing anything else with
+    // them. load_theme() failure (missing dir, missing file, malformed
+    // YAML) is non-fatal (spec §9): fall back to the compiled-in
+    // kFallbackTheme() rather than letting create_renderer() fail.
+    const std::string themeDir =
+        config.theme_assets_dir ? std::string(config.theme_assets_dir) : std::string(DEFAULT_THEME_ASSETS_DIR);
+    const std::string themeName = config.initial_theme ? std::string(config.initial_theme) : std::string("dark_adas");
+    std::optional<detail::Theme> loaded = detail::load_theme(themeDir, themeName);
+    const detail::Theme theme = loaded ? *loaded : detail::kFallbackTheme();
+
     auto* platform = new HeadlessEglPlatform();
     filament::Engine* engine = filament::Engine::Builder()
                                     .backend(filament::Engine::Backend::OPENGL)
@@ -429,6 +550,8 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     r->engine = engine;
     r->width = config.width;
     r->height = config.height;
+    r->theme_dir = themeDir;
+    r->active_theme = theme;
 
     r->swapChain = engine->createSwapChain(config.width, config.height,
                                             filament::SwapChain::CONFIG_READABLE);
@@ -437,10 +560,72 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     r->view = engine->createView();
     r->view->setScene(r->scene);
     r->view->setViewport({0, 0, config.width, config.height});
-    r->view->setPostProcessingEnabled(false);
+
+    // Step 7a: post-processing back on (Epic 0 turned it off, which made
+    // setFogOptions below a silent no-op and left no tone mapping / gamma
+    // encoding at all — the themes' photometric sun/IBL would otherwise
+    // clip to flat white instead of rendering as lit).
+    r->view->setPostProcessingEnabled(true);
+    r->colorGrading = filament::ColorGrading::Builder()
+                           .toneMapping(filament::ColorGrading::ToneMapping::ACES)
+                           .build(*engine);
+    r->view->setColorGrading(r->colorGrading);
+
+    // Bloom: the theme YAMLs already ship emissive.ribbon_strength, which
+    // presupposes bloom, even though Epic 1 has no emissive ribbon geometry
+    // yet — enabling it now means Epic 2's ribbons don't need a renderer
+    // change to glow. BloomOptions::strength is declared before `enabled`
+    // in include/filament/Options.h; clang requires designated
+    // initializers to follow declaration order.
+    filament::BloomOptions bloom{};
+    bloom.strength = 0.5f;  // tuned against goldens, not a spec number
+    bloom.enabled = true;
+    r->view->setBloomOptions(bloom);
+
+    // SSAO + anti-aliasing, driven by config.quality (0=low, 1=med, 2=high;
+    // spec §8 preset table) — decided now, not deferred, because both move
+    // pixels in this task's own committed goldens (Step 7a rationale).
+    filament::AmbientOcclusionOptions ao{};
+    ao.enabled = config.quality >= 1;
+    ao.resolution = config.quality >= 2 ? 1.0f : 0.5f;  // Options.h: must be 0.5 or 1.0
+    r->view->setAmbientOcclusionOptions(ao);
+
+    if (config.quality >= 2) {
+        // high: TAA replaces FXAA (spec §8) — NONE here, TAA enabled separately.
+        r->view->setAntiAliasing(filament::AntiAliasing::NONE);
+        filament::TemporalAntiAliasingOptions taa{};
+        taa.enabled = true;
+        r->view->setTemporalAntiAliasingOptions(taa);
+    } else {
+        // low and medium both use FXAA (spec §8); this is also Filament's own
+        // default, so this call is one line of explicitness, not new behavior.
+        r->view->setAntiAliasing(filament::AntiAliasing::FXAA);
+    }
+
+    // Fog (Filament's built-in distance fog — native feature, no custom
+    // skybox mesh). `enabled` defaults to false (FogOptions' last member);
+    // omitting it here would silently render neither theme's `fog:` token.
+    filament::FogOptions fogOptions{};
+    fogOptions.color = to_filament(theme.palette.fog);
+    fogOptions.density = theme.fog.density;
+    // heightFalloff defaults to 1.0/m (Filament models fog as a height-
+    // stratified layer, densest at `height`, which itself defaults to 0 —
+    // i.e. our own ground plane). Our theme schema only exposes ONE fog
+    // knob (fog.density, a flat extinction coefficient — see theme.hpp/the
+    // YAML files) with no height concept at all, so leaving Filament's
+    // real-world height-fog default active silently multiplies density
+    // near ground level far beyond the authored value: confirmed
+    // empirically (a grazing camera pose at exactly this density erased
+    // the entire grid to nothing; forcing heightFalloff to 0 — uniform,
+    // non-height-stratified exponential distance fog, the model our single-
+    // scalar theme.fog.density actually represents — restored the expected
+    // gentle distance fade with the grid still clearly visible).
+    fogOptions.heightFalloff = 0.0f;
+    fogOptions.enabled = true;
+    r->view->setFogOptions(fogOptions);
 
     filament::Renderer::ClearOptions clearOptions;
-    clearOptions.clearColor = {0.45f, 0.65f, 0.9f, 1.0f};  // sky blue
+    clearOptions.clearColor = {theme.palette.sky.r, theme.palette.sky.g, theme.palette.sky.b, 1.0f};
     clearOptions.clear = true;
     r->renderer->setClearOptions(clearOptions);
 
@@ -449,66 +634,100 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     r->cameraEntity = em.create();
     r->camera = engine->createCamera(r->cameraEntity);
     r->view->setCamera(r->camera);
+    // Physically-based lighting with Filament's default getExposure() (tuned
+    // for a normal 1-10k lux daylight scene) would over/under-expose against
+    // these themes' much higher sun/IBL numbers. Fixed exposure, calibrated
+    // once against the committed goldens (Step 7a) by actually rendering
+    // both and inspecting pixels (not just picking a textbook "sunny 16"
+    // triple and assuming it works) — see the finding below.
+    //
+    // ponytail: a single exposure genuinely cannot put both themes at a
+    // clean "mid-gray-ish" reading. dark_adas' ground+grid combine to ~21k
+    // lux at ~0.06-0.12 albedo; light_clay's combine to ~126k lux at
+    // ~0.6-0.82 albedo — an ~80x (~6.3-stop) gap in reflected radiance
+    // between the two themes BEFORE any exposure is chosen (confirmed
+    // empirically: darkening enough to pull light_clay's ~250/255 clip down
+    // to a true mid-gray ~128 crushes dark_adas' already-low ground+grid to
+    // indistinguishable near-black well before that point — verified with a
+    // debug override that force-brightened the grid material alone, which
+    // confirmed the grid geometry/blend/projection are all correct and it's
+    // genuinely an exposure/albedo-contrast tradeoff, not a rendering bug).
+    // 1/500s (vs. a "sunny 16" 1/125s) is the calibrated compromise: it
+    // pulls light_clay off its ~250/255 near-full-clip (indistinguishable
+    // from solid white) down to a legible ~220/255 "bright clay" look,
+    // while dark_adas keeps a clearly visible grid-vs-ground contrast (down
+    // from a wider margin at 1/125, but still well above the noise floor —
+    // confirmed by inspecting the rendered goldens below, not asserted).
+    // Upgrade path if a future epic needs both themes truly mid-gray
+    // simultaneously: narrow the two themes' authored albedo/lux gap
+    // (theme-data change, out of scope here — scene.h/theme tokens are
+    // frozen this epic) or move to a non-fixed (auto-)exposure model, which
+    // Step 7a's own text explicitly rules out for this epic ("this is a
+    // one-time calibration ... not a per-theme knob").
+    r->camera->setExposure(16.0f, 1.0f / 500.0f, 100.0f);
 
     r->sunEntity = em.create();
+    const float3 sunDir = to_filament(theme.sun.direction);
     filament::LightManager::Builder(filament::LightManager::Type::SUN)
-        .direction({-0.5f, -0.3f, -1.0f})
-        .color({1.0f, 1.0f, 0.98f})
-        .intensity(110000.0f)
+        .direction(sunDir)
+        .color(to_filament(theme.sun.color))
+        .intensity(theme.sun.intensity)
         .sunAngularRadius(1.9f)
         .castShadows(true)
         .build(*engine, r->sunEntity);
     r->scene->addEntity(r->sunEntity);
 
-    // Flat ambient term so faces not directly facing the sun aren't pitch
-    // black; a single spherical-harmonics band is a constant "sky color".
-    const float3 ambientSh[1] = {float3{0.35f, 0.35f, 0.35f}};
+    // Analytic 2-band hemisphere IBL from the theme's ibl.sky_color/
+    // ibl.ground_color (see sh_from_hemisphere()'s own comment) — replaces
+    // Epic 0's flat single-SH-band "ambient" constant.
+    float3 sh[4];
+    sh_from_hemisphere(to_filament(theme.ibl.sky_color), to_filament(theme.ibl.ground_color), sh);
     r->ambient = filament::IndirectLight::Builder()
-                     .irradiance(1, ambientSh)
-                     .intensity(30000.0f)
+                     .irradiance(2, sh)
+                     .intensity(theme.ibl.intensity)
                      .build(*engine);
     r->scene->setIndirectLight(r->ambient);
 
-    // Engine::getDefaultMaterial() was tried first and rejected: it renders
-    // as a flat, fixed "80% white" regardless of scene lighting — confirmed
-    // empirically (zeroing every light in the scene produced pixel-
-    // identical output, and an enormous test cube filled the frame with the
-    // *exact same* shade the ground already renders as). Useless for
-    // telling ground/grid/cube apart. materials/simple_color.mat (matc-
-    // compiled at configure time, see CMakeLists.txt) is a minimal unlit
-    // material with one settable baseColor parameter instead — one
-    // Material, three MaterialInstances (one solid color each).
-    r->colorMaterial =
+    // clay.mat (shared, opaque — ground here, ego clay-box fallback + glTF
+    // remap in Task 4) and clay_faded.mat (grid-only, per-vertex alpha)
+    // replace Epic 0's unlit simple_color.mat — see those .mat files' own
+    // comments for why two materials, not one.
+    r->clayMaterial = filament::Material::Builder()
+                          .package(mpviz::materials::kclayFilamat, mpviz::materials::kclayFilamatSize)
+                          .build(*engine);
+    r->clayFadedMaterial =
         filament::Material::Builder()
-            .package(mpviz::materials::ksimple_colorFilamat, mpviz::materials::ksimple_colorFilamatSize)
+            .package(mpviz::materials::kclay_fadedFilamat, mpviz::materials::kclay_fadedFilamatSize)
             .build(*engine);
-    r->groundMaterial = r->colorMaterial->createInstance();
-    r->groundMaterial->setParameter("baseColor", float3{0.6f, 0.6f, 0.62f});
-    r->gridMaterial = r->colorMaterial->createInstance();
-    r->gridMaterial->setParameter("baseColor", float3{0.15f, 0.15f, 0.17f});
-    r->cubeMaterial = r->colorMaterial->createInstance();
-    r->cubeMaterial->setParameter("baseColor", float3{0.85f, 0.32f, 0.1f});
-    // ponytail: don't chase hand-derived cube-face winding correctness for a
-    // spike scene — CullingMode::NONE sidesteps backface culling entirely so
-    // a winding mistake shows as a face colored the same regardless of which
-    // side is "front", not a silently invisible one.
-    for (auto* mat : {r->groundMaterial, r->gridMaterial, r->cubeMaterial}) {
-        mat->setCullingMode(filament::backend::CullingMode::NONE);
-    }
 
-    std::vector<Vertex> groundVerts, gridVerts, cubeVerts;
-    std::vector<uint16_t> groundIdx, gridIdx, cubeIdx;
+    r->groundMaterial = r->clayMaterial->createInstance();
+    r->groundMaterial->setParameter("baseColor", to_filament(theme.palette.ground));
+    r->groundMaterial->setParameter("roughness", theme.material.roughness);
+    r->groundMaterial->setParameter("metallic", theme.material.metallic);
+
+    r->gridMaterial = r->clayFadedMaterial->createInstance();
+    r->gridMaterial->setParameter("baseColor", to_filament(theme.grid.line_color));
+    r->gridMaterial->setParameter("roughness", theme.material.roughness);
+    r->gridMaterial->setParameter("metallic", theme.material.metallic);
+
+    // ponytail: don't chase hand-derived winding correctness for a large
+    // flat quad / line list — CullingMode::NONE sidesteps backface culling
+    // entirely so a winding mistake shows as visible-from-both-sides, not a
+    // silently invisible surface.
+    r->groundMaterial->setCullingMode(filament::backend::CullingMode::NONE);
+    r->gridMaterial->setCullingMode(filament::backend::CullingMode::NONE);
+
+    std::vector<Vertex> groundVerts;
+    std::vector<uint16_t> groundIdx;
     build_ground_plane(groundVerts, groundIdx);
-    build_grid_lines(gridVerts, gridIdx);
-    build_cube(cubeVerts, cubeIdx);
-
     add_mesh(*r, r->ground, groundVerts, groundIdx,
              filament::RenderableManager::PrimitiveType::TRIANGLES, r->groundMaterial,
-             /*cast_shadows=*/false, /*receive_shadows=*/false);
-    add_mesh(*r, r->grid, gridVerts, gridIdx, filament::RenderableManager::PrimitiveType::LINES,
-             r->gridMaterial, /*cast_shadows=*/false, /*receive_shadows=*/false);
-    add_mesh(*r, r->cube, cubeVerts, cubeIdx, filament::RenderableManager::PrimitiveType::TRIANGLES,
-             r->cubeMaterial, /*cast_shadows=*/false, /*receive_shadows=*/false);
+             /*cast_shadows=*/false, /*receive_shadows=*/true);
+
+    std::vector<GridVertex> gridVerts;
+    std::vector<uint16_t> gridIdx;
+    build_grid_lines(gridVerts, gridIdx, theme.grid.fade_start_m, theme.grid.fade_end_m);
+    add_grid_mesh(*r, r->grid, gridVerts, gridIdx, r->gridMaterial);
 
     return r;
 }
@@ -517,12 +736,12 @@ void destroy_renderer(VisualRenderer* r) {
     if (r == nullptr) return;
     destroy_mesh(*r->engine, *r->scene, r->ground);
     destroy_mesh(*r->engine, *r->scene, r->grid);
-    destroy_mesh(*r->engine, *r->scene, r->cube);
     if (r->groundMaterial) r->engine->destroy(r->groundMaterial);
     if (r->gridMaterial) r->engine->destroy(r->gridMaterial);
-    if (r->cubeMaterial) r->engine->destroy(r->cubeMaterial);
-    if (r->colorMaterial) r->engine->destroy(r->colorMaterial);
+    if (r->clayMaterial) r->engine->destroy(r->clayMaterial);
+    if (r->clayFadedMaterial) r->engine->destroy(r->clayFadedMaterial);
     if (r->ambient) r->engine->destroy(r->ambient);
+    if (r->colorGrading) r->engine->destroy(r->colorGrading);
     if (r->sunEntity) {
         r->scene->remove(r->sunEntity);
         r->engine->destroy(r->sunEntity);
@@ -590,6 +809,15 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     if (!state.done.load(std::memory_order_acquire)) return false;
 
     return true;
+}
+
+// Task 2 Step 7: exactly one line, per scene.h's frozen contract comment —
+// no Filament::Engine/Scene/TransformManager call happens here. render_frame
+// (this task's sun/IBL/fog/theme-driven material params) and the future
+// ego-transform hook (Task 4) both read scene_buffer.active() back out
+// instead — set_scene() itself only ever touches the staging buffer.
+void set_scene(VisualRenderer* r, const SceneGraph& scene) {
+    r->scene_buffer.publish(scene);
 }
 
 }  // namespace mpviz

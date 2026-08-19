@@ -1,0 +1,35 @@
+// clay_faded.mat — Epic 1 Task 2 (VM-011). Grid-only LIT material: same
+// baseColor/roughness/metallic parameters as clay.mat, plus a per-vertex
+// alpha (`requires: [color]`) baked once at grid-build time from radial
+// distance vs. the theme's grid.fade_start_m/fade_end_m — the "grid fades
+// with distance" AC (spec §7). See
+// docs/superpowers/plans/2026-08-18-visual-mode-epic1.md Task 2 Step 2.
+//
+// `fade` (not `transparent`): Filament's `transparent` blend mode expects
+// premultiplied alpha and targets glass-like surfaces; `fade` dithers the
+// whole surface toward invisible using straight (non-premultiplied) alpha,
+// which is what the vertex-color alpha baked in at grid-build time already
+// is. Both blend modes place their renderables in the blended queue (no
+// depth write, no SSAO, back-to-front sort) — confining that to the grid
+// alone (not the ground/ego/every future opaque clay surface) is exactly why
+// this is a second material instead of a `blending` flag on clay.mat.
+material {
+    name : clay_faded,
+    shadingModel : lit,
+    parameters : [
+        { type : float3, name : baseColor },
+        { type : float, name : roughness },
+        { type : float, name : metallic }
+    ],
+    requires : [ color ],
+    blending : fade
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        material.baseColor.rgb = materialParams.baseColor;
+        material.roughness = materialParams.roughness;
+        material.metallic = materialParams.metallic;
+        material.baseColor.a = getColor().a;  // per-vertex distance fade (grid-build time)
+    }
+}

@@ -23,6 +23,18 @@ struct RenderConfig {
     uint32_t width;
     uint32_t height;
     uint8_t quality;  // 0=low, 1=med, 2=high
+    // Both fields below are nullable, caller-owned, and borrowed ONLY for
+    // the duration of the create_renderer() call they're passed to —
+    // create_renderer copies each into internal owned string storage on
+    // VisualRenderer before returning, and never retains the raw pointer
+    // past that call (Epic 1 Task 2 Step 7 /
+    // docs/superpowers/plans/2026-08-18-visual-mode-epic1.md "Interfaces
+    // frozen this epic"). This matters because set_theme() (Epic 1 Task 3)
+    // re-reads the retained copy on every future call, long after this
+    // call's raw pointer is gone.
+    const char* theme_assets_dir;  // dir containing *.yaml theme files;
+                                    // null -> compiled-in default dir
+    const char* initial_theme;     // theme name (yaml stem); null -> "dark_adas"
 };
 
 struct FrameView {

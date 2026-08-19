@@ -74,11 +74,50 @@ endforeach()
 
 include(cmake/GetFilament.cmake)
 
+# yaml-cpp (Epic 1 Task 2 / VM-011): theme.cpp parses assets/themes/*.yaml.
+# FetchContent'd and built with this project's own clang/libc++ toolchain for
+# the same ABI-safety reason as GoogleTest below (a prebuilt system
+# libyaml-cpp would be gcc/libstdc++). Linked PRIVATE into visual_renderer —
+# never leaks past the POD api.h/scene.h boundary.
+include(FetchContent)
+FetchContent_Declare(
+    yamlcpp
+    URL "https://github.com/jbeder/yaml-cpp/archive/refs/tags/0.8.0.tar.gz"
+    URL_HASH SHA256=fbe74bbdcee21d656715688706da3c8becfd946d92cd44705cc6098bb23b3a16)
+set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+# Without this, yaml-cpp also configures util/yaml-cpp-parse, a standalone
+# tool executable that links straight against system defaults (no
+# -stdlib=libc++/static-runtime wiring) and fails to link on this box —
+# confirmed the hard way. We only need the library.
+set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(yamlcpp)
+
+# stb_image.h / stb_image_write.h (Epic 1 Task 2 Step 5a): hoisted above both
+# the tests/ and examples/ blocks below so test binaries (golden.cpp, PNG
+# decode+encode) and examples/hello_frame.cpp (PNG encode) can both see them.
+# Single-header public-domain libraries with no versioned release, so pinned
+# to an immutable commit URL + sha256, same pattern as GetFilament.cmake.
+set(STB_IMAGE_WRITE_COMMIT "2c980bb59875b0d32144a71867fbdebb2f77cd20")
+set(STB_IMAGE_WRITE_SHA256 "cbd5f0ad7a9cf4468affb36354a1d2338034f2c12473cf1a8e32053cb6914a05")
+set(STB_IMAGE_COMMIT "${STB_IMAGE_WRITE_COMMIT}")  # same stb tree, both headers
+set(STB_IMAGE_SHA256 "594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3")
+set(STB_DIR "${CMAKE_BINARY_DIR}/_deps/stb")
+set(STB_IMAGE_WRITE_H "${STB_DIR}/stb_image_write.h")
+set(STB_IMAGE_H "${STB_DIR}/stb_image.h")
+if(NOT EXISTS "${STB_IMAGE_WRITE_H}")
+    file(DOWNLOAD "https://raw.githubusercontent.com/nothings/stb/${STB_IMAGE_WRITE_COMMIT}/stb_image_write.h"
+         "${STB_IMAGE_WRITE_H}" EXPECTED_HASH SHA256=${STB_IMAGE_WRITE_SHA256})
+endif()
+if(NOT EXISTS "${STB_IMAGE_H}")
+    file(DOWNLOAD "https://raw.githubusercontent.com/nothings/stb/${STB_IMAGE_COMMIT}/stb_image.h"
+         "${STB_IMAGE_H}" EXPECTED_HASH SHA256=${STB_IMAGE_SHA256})
+endif()
+
 # Compile assets/materials/*.mat -> embeddable C++ headers via matc (shipped
 # in the Filament SDK fetched above, ${FILAMENT_ROOT}/bin/matc) — see
-# assets/materials/simple_color.mat's header comment for why a real material
-# is needed at all (Engine::getDefaultMaterial() renders lighting-
-# independent flat output, confirmed empirically in Task 2). Run once at
+# assets/materials/clay.mat's header comment for why a real material is
+# needed at all (Engine::getDefaultMaterial() renders lighting-independent
+# flat output, confirmed empirically in Epic 0/fixed in Task 2). Run once at
 # configure time, like GetFilament.cmake's own file(DOWNLOAD): these .mat
 # sources aren't expected to change mid-build, and this keeps the generated
 # header available before target sources are even enumerated below.
@@ -133,10 +172,16 @@ target_include_directories(visual_renderer PRIVATE "${CMAKE_BINARY_DIR}/generate
 # api.h include/ dir above. See spec §2 / api.h's header comment.
 target_link_libraries(visual_renderer PRIVATE
     Filament::filament
+    yaml-cpp::yaml-cpp
     "${_libcxx_a}"
     "${_libcxxabi_a}"
     "${_libunwind_a}"
 )
+
+# Default theme-assets dir baked into the library, used by create_renderer()
+# whenever RenderConfig::theme_assets_dir is null (Task 2 Step 5a/7).
+target_compile_definitions(visual_renderer PRIVATE
+    DEFAULT_THEME_ASSETS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets/themes")
 
 enable_testing()
 
@@ -183,45 +228,48 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(googletest)
 
+    # golden.cpp (Task 2 Step 9) is a shared render+compare helper, not a
+    # gtest file itself — excluded from the auto-glob-as-gtest-binary loop
+    # below by name, and instead compiled as a plain extra source into every
+    # other test binary (same pattern as scene_buffer.cpp already is, just
+    # explicit here since it lives under tests/ instead of src/).
+    set(_golden_cpp "${CMAKE_CURRENT_SOURCE_DIR}/tests/golden.cpp")
     file(GLOB _visual_renderer_test_srcs CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp")
+    list(REMOVE_ITEM _visual_renderer_test_srcs "${_golden_cpp}")
     foreach(_test_src ${_visual_renderer_test_srcs})
         get_filename_component(_test_name "${_test_src}" NAME_WE)
-        add_executable(${_test_name} "${_test_src}")
+        set(_test_extra_srcs "")
+        if(EXISTS "${_golden_cpp}")
+            set(_test_extra_srcs "${_golden_cpp}")
+        endif()
+        add_executable(${_test_name} "${_test_src}" ${_test_extra_srcs})
         # -I src: lets test TUs include internal-only headers like
         # scene_buffer.hpp (Task 1/VM-010). Deliberately NOT the Filament
         # include dir (that stays visual_renderer's PRIVATE-only) — internal
         # headers that pull in <filament/...> (e.g. renderer_internal.hpp)
         # are still off-limits to tests for that reason; see that header's
         # own comment.
-        target_include_directories(${_test_name} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+        target_include_directories(${_test_name} PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/src" "${STB_DIR}")
         target_link_libraries(${_test_name} PRIVATE visual_renderer gtest gtest_main EGL)
+        # MPVIZ_TEST_DATA_DIR: resolvable-path prefix for golden/fixture
+        # literals (gtest_discover_tests' WORKING_DIRECTORY is the build
+        # dir, not this source dir). MPVIZ_DEFAULT_THEME_DIR: kThemeDir's
+        # backing macro (tests/test_paths.hpp) — Task 2 Step 5a.
+        target_compile_definitions(${_test_name} PRIVATE
+            MPVIZ_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+            MPVIZ_DEFAULT_THEME_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets/themes")
         include(GoogleTest)
         gtest_discover_tests(${_test_name} DISCOVERY_TIMEOUT 30)
     endforeach()
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples")
-    # stb_image_write.h (Task 2's examples/hello_frame.cpp PNG dump): a
-    # single-header public-domain library, not packaged anywhere with a bare
-    # includeable path on this box. Fetched like Filament above (file(DOWNLOAD)
-    # + sha256 pin), but from an immutable commit URL rather than a release
-    # tarball, since upstream has no versioned release for this file.
-    set(STB_IMAGE_WRITE_COMMIT "2c980bb59875b0d32144a71867fbdebb2f77cd20")
-    set(STB_IMAGE_WRITE_SHA256 "cbd5f0ad7a9cf4468affb36354a1d2338034f2c12473cf1a8e32053cb6914a05")
-    set(STB_IMAGE_WRITE_DIR "${CMAKE_BINARY_DIR}/_deps/stb")
-    set(STB_IMAGE_WRITE_H "${STB_IMAGE_WRITE_DIR}/stb_image_write.h")
-    if(NOT EXISTS "${STB_IMAGE_WRITE_H}")
-        file(DOWNLOAD
-             "https://raw.githubusercontent.com/nothings/stb/${STB_IMAGE_WRITE_COMMIT}/stb_image_write.h"
-             "${STB_IMAGE_WRITE_H}"
-             EXPECTED_HASH SHA256=${STB_IMAGE_WRITE_SHA256})
-    endif()
-
     file(GLOB _visual_renderer_example_srcs CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/examples/*.cpp")
     foreach(_example_src ${_visual_renderer_example_srcs})
         get_filename_component(_example_name "${_example_src}" NAME_WE)
         add_executable(${_example_name} "${_example_src}")
-        target_include_directories(${_example_name} PRIVATE "${STB_IMAGE_WRITE_DIR}")
+        target_include_directories(${_example_name} PRIVATE "${STB_DIR}")
         target_link_libraries(${_example_name} PRIVATE visual_renderer)
     endforeach()
 endif()

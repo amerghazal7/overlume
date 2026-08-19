@@ -103,11 +103,24 @@ foreach(_rt_lib "${_libcxxabi_a}" "${_libunwind_a}")
     endif()
 endforeach()
 
+# yaml-cpp (Epic 1 Task 2 / VM-011): visual_renderer's theme.cpp links
+# yaml-cpp PRIVATE, so libvisual_renderer.a now carries undefined YAML::*
+# symbols that nothing else here resolves — this package doesn't
+# add_subdirectory/find_package visual_renderer's own build, so it has no
+# automatic visibility into what that build links (same reason Filament's
+# own archives are re-resolved via GetFilament.cmake above instead of
+# inherited). Resolve the FetchContent-built static archive the same way
+# VISUAL_RENDERER_LIB is resolved above.
+set(_yamlcpp_a "${VISUAL_RENDERER_DIR}/build/_deps/yamlcpp-build/libyaml-cpp.a")
+if(NOT EXISTS "${_yamlcpp_a}")
+    message(FATAL_ERROR "yaml-cpp static lib not found at ${_yamlcpp_a} — build visual_renderer first.")
+endif()
+
 add_library(visual_renderer_prebuilt STATIC IMPORTED)
 set_target_properties(visual_renderer_prebuilt PROPERTIES
     IMPORTED_LOCATION "${VISUAL_RENDERER_LIB}"
     INTERFACE_INCLUDE_DIRECTORIES "${VISUAL_RENDERER_DIR}/include"
-    INTERFACE_LINK_LIBRARIES "Filament::filament;${_libcxx_a};${_libcxxabi_a};${_libunwind_a}")
+    INTERFACE_LINK_LIBRARIES "Filament::filament;${_yamlcpp_a};${_libcxx_a};${_libcxxabi_a};${_libunwind_a}")
 
 # ── Node library ─────────────────────────────────────────────────────────────
 add_library(visualization_node_lib SHARED

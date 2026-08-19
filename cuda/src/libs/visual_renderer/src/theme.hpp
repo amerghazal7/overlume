@@ -1,0 +1,95 @@
+// theme.hpp — internal-only (not installed, not POD). YAML -> Theme token
+// set consumed generically by renderer.cpp; no per-theme branch anywhere in
+// the renderer (Epic 1 Task 2 / VM-011). std:: usage is fine here — it's a
+// `.hpp` under `src/`, never crosses the api.h/scene.h POD boundary.
+//
+// Color-space note (stated once, here, per
+// docs/superpowers/plans/2026-08-18-visual-mode-epic1.md Task 2 Step 7a):
+// every color field below is authored in LINEAR space in the YAML files and
+// consumed as-is by materialParams/setFogOptions/IndirectLight::Builder —
+// no sRGB decode happens anywhere in this loader. This matches Filament's
+// own convention that baseColor/light/fog colors are linear, and is
+// consistent with sun/ibl `intensity` already being physical units (lux),
+// not colors.
+#pragma once
+
+#include <optional>
+#include <string>
+
+namespace mpviz::detail {
+
+struct Float3 {
+    float r = 0.0f, g = 0.0f, b = 0.0f;
+};
+
+// Mirrors assets/themes/*.yaml 1:1 — every field here is consumed
+// generically by renderer.cpp, so both shipped themes (and any future one)
+// must populate the same key set; see the YAML files' own header comments.
+struct Theme {
+    std::string name;
+
+    struct Palette {
+        Float3 ground;
+        Float3 sky;
+        Float3 fog;
+        Float3 lane_paint;
+        Float3 ribbon_core;
+        Float3 ribbon_glow;
+        struct ObjectTints {
+            Float3 car, truck_van, bus, pedestrian, cyclist, unknown;
+        } object_tints;
+        struct Alert {
+            Float3 info, warning, critical;
+        } alert;
+    } palette;
+
+    struct Material {
+        float roughness = 0.0f;
+        float metallic = 0.0f;
+    } material;
+
+    struct Emissive {
+        float ribbon_strength = 0.0f;
+    } emissive;
+
+    struct Grid {
+        Float3 line_color;
+        float fade_start_m = 0.0f;
+        float fade_end_m = 0.0f;
+    } grid;
+
+    struct Hud {
+        Float3 text_color;
+        Float3 accent_color;
+        float scale = 1.0f;
+    } hud;
+
+    struct Sun {
+        Float3 direction;
+        Float3 color;
+        float intensity = 0.0f;
+    } sun;
+
+    struct Ibl {
+        Float3 sky_color;
+        Float3 ground_color;
+        float intensity = 0.0f;
+    } ibl;
+
+    struct Fog {
+        float density = 0.0f;
+    } fog;
+};
+
+// Loads `dir/<name>.yaml`. Returns std::nullopt (never throws) on any
+// failure: dir null/missing/unreadable, the file missing, or malformed
+// YAML/missing keys — the caller (create_renderer, Step 7b) decides the
+// non-fatal fallback; this function itself has no fallback behavior.
+std::optional<Theme> load_theme(const std::string& dir, const std::string& name);
+
+// Compiled-in fallback (Step 7b) — same values as dark_adas.yaml, never read
+// from disk. Used by create_renderer() whenever load_theme() fails, so a
+// broken/missing theme-asset install never takes rendering down (spec §9).
+const Theme& kFallbackTheme();
+
+}  // namespace mpviz::detail
