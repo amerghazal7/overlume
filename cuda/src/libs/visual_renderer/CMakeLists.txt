@@ -187,6 +187,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     foreach(_test_src ${_visual_renderer_test_srcs})
         get_filename_component(_test_name "${_test_src}" NAME_WE)
         add_executable(${_test_name} "${_test_src}")
+        # -I src: lets test TUs include internal-only headers like
+        # scene_buffer.hpp (Task 1/VM-010). Deliberately NOT the Filament
+        # include dir (that stays visual_renderer's PRIVATE-only) — internal
+        # headers that pull in <filament/...> (e.g. renderer_internal.hpp)
+        # are still off-limits to tests for that reason; see that header's
+        # own comment.
+        target_include_directories(${_test_name} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
         target_link_libraries(${_test_name} PRIVATE visual_renderer gtest gtest_main EGL)
         include(GoogleTest)
         gtest_discover_tests(${_test_name} DISCOVERY_TIMEOUT 30)
