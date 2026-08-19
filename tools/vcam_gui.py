@@ -7,7 +7,7 @@ Control: pure WebSocket client of tools/vcam_ws_bridge.py — this GUI is the
 
 Interaction (mirrors the pygame prototype in tpsprojector/app.py):
   - preset buttons 1-5      eased preset switch (via the node's tween)
-  - view toggle button      bowl-only <-> pointcloud hybrid render mode
+  - view cycle button       bowl -> pointcloud -> visual render mode
   - left-drag on the video  orbit: azimuth/elevation around the robot origin
                             (fixed target [0,0,0.3], eye sphere centred z=+0.5
                             — exactly the prototype's orbit_shot geometry)
@@ -227,8 +227,8 @@ class VcamWindow(Gtk.Window):
             b.connect("clicked", self._on_preset, i)
             btns.pack_start(b, False, False, 0)
 
-        # view switch: bowl-only <-> pointcloud hybrid (label shows CURRENT
-        # mode as reported by the node's telemetry; click sends the other one)
+        # view switch: bowl -> pointcloud -> visual cycle (label shows CURRENT
+        # mode as reported by the node's telemetry; click sends the next one)
         self._render_mode = 2
         self._mode_btn = Gtk.Button(label="view: pointcloud")
         self._mode_btn.connect("clicked", self._on_mode_toggle)
@@ -464,7 +464,8 @@ class VcamWindow(Gtk.Window):
         if mode != self._render_mode:
             self._render_mode = mode
             self._mode_btn.set_label(
-                "view: bowl" if mode == 1 else "view: pointcloud")
+                {1: "view: bowl", 2: "view: pointcloud",
+                 3: "view: visual"}.get(mode, f"view: {mode}"))
         p = s.get("preset", 0)
         name = PRESETS[p - 1] if 1 <= p <= len(PRESETS) else "free look"
         eye, tgt = s["eye"], s["target"]
@@ -546,9 +547,13 @@ class VcamWindow(Gtk.Window):
         self._ws.send({"cmd": "set_preset", "preset": preset})
 
     def _on_mode_toggle(self, _btn):
-        target = 1 if self._render_mode == 2 else 2
+        target = {1: 2, 2: 3, 3: 1}.get(self._render_mode, 3)
+        # Optimistic: telemetry echoes correct this when frames flow, but
+        # without it a dead node freezes self._render_mode and every click
+        # re-sends the same mode forever (review finding).
+        self._render_mode = target
         self._ws.send({"cmd": "set_render_mode",
-                       "mode": "bowl" if target == 1 else "pointcloud"})
+                       "mode": {1: "bowl", 2: "pointcloud", 3: "visual"}[target]})
 
     def _on_theme_toggle(self, _btn):
         self._theme = "light_clay" if self._theme == "dark_adas" else "dark_adas"

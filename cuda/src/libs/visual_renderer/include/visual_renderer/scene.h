@@ -168,4 +168,19 @@ void set_scene(VisualRenderer*, const SceneGraph& scene);
 bool set_theme(VisualRenderer*, const char* theme_name, double at_sec,
                 double transition_sec);
 
+// Loads a glTF/GLB ego mesh from `gltf_path` for use whenever
+// SceneGraph::ego.valid is true. Non-fatal on failure (bad path, unsupported
+// glTF feature, missing file): logs nothing itself (POD boundary — no
+// logging crosses it), returns false, and rendering falls back to a clay
+// box sized by `fallback_dims` (meters, length/width/height). Call once,
+// typically from on_configure(), before the first render_frame() (Epic 1
+// Task 4 / VM-012 — see the master plan's "Interfaces frozen this epic",
+// which names this as "new in scene.h": this Files list doesn't separately
+// list a scene.h modification, only "Create ego.hpp/ego.cpp" — Vec3 is a
+// scene.h type and set_ego_model must be reachable from the gcc/libstdc++
+// ROS node through a POD public header, same reasoning set_theme's own
+// declaration here already established in Task 3, so this is the one
+// place it can live).
+bool set_ego_model(VisualRenderer*, const char* gltf_path, Vec3 fallback_dims);
+
 }  // namespace mpviz

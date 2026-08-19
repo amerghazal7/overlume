@@ -23,6 +23,7 @@
 // the header.
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
+#include "ego.hpp"
 #include "renderer_internal.hpp"
 #include "theme.hpp"
 #include "theme_transition.hpp"
@@ -859,6 +860,18 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
 
 void destroy_renderer(VisualRenderer* r) {
     if (r == nullptr) return;
+    // Ego (Epic 1 Task 4 / VM-012): tear down whichever path set_ego_model()
+    // actually populated. Order matters — destroyAsset() before destroying
+    // the loader/materials that created it (mirrors AssetLoader.h's own
+    // documented teardown order).
+    if (r->egoAsset) r->egoAssetLoader->destroyAsset(r->egoAsset);
+    if (r->egoResourceLoader) delete r->egoResourceLoader;
+    if (r->egoAssetLoader) filament::gltfio::AssetLoader::destroy(&r->egoAssetLoader);
+    if (r->egoMaterialProvider) {
+        r->egoMaterialProvider->destroyMaterials();
+        delete r->egoMaterialProvider;
+    }
+    destroy_mesh(*r->engine, *r->scene, r->egoFallback);
     destroy_mesh(*r->engine, *r->scene, r->ground);
     destroy_mesh(*r->engine, *r->scene, r->grid);
     if (r->groundMaterial) r->engine->destroy(r->groundMaterial);
@@ -914,6 +927,12 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     if (r == nullptr || out.rgb == nullptr || out.width == 0 || out.height == 0) return false;
 
     apply_current_theme(*r, r->scene_buffer.active().sim_time_sec);
+    // Epic 1 Task 4 (VM-012): the ego's TransformManager transform is
+    // re-derived from the last-published active() scene every call, same
+    // split as set_scene()/render_frame() (Task 1) and set_theme()/
+    // apply_current_theme() (Task 3) — set_ego_model() builds/loads the
+    // entity once and never touches its transform itself.
+    update_ego_transform(*r, r->scene_buffer.active().ego);
 
     r->camera->lookAt({pose.eye[0], pose.eye[1], pose.eye[2]},
                        {pose.target[0], pose.target[1], pose.target[2]},

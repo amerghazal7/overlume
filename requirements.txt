@@ -2,3 +2,4 @@ numpy>=1.20
 pygame>=2.0
 pytest>=6.0
 moderngl>=5.8
+trimesh>=4.0
