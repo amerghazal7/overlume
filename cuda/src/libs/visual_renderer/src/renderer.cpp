@@ -10,7 +10,16 @@
 // This file is internal to visual_renderer's clang/libc++ build, so (unlike
 // api.h) ordinary std:: usage is fine here — nothing here crosses the ABI
 // boundary with the gcc/libstdc++ ROS node.
+//
+// Epic 1 Task 2 Step 7e: `VisualRenderer` (plus the `Mesh`/`HeadlessEglPlatform`/
+// `Vertex`/`add_mesh` helper types it needs) is extracted into
+// renderer_internal.hpp so a future separate translation unit (Task 4's
+// src/ego.cpp) compiled into the same library target can see the class and
+// reuse add_mesh. HeadlessEglPlatform's full body stays defined in THIS .cpp
+// (just no longer inside an anonymous namespace) — only forward-declared in
+// the header.
 #include "visual_renderer/api.h"
+#include "renderer_internal.hpp"
 
 #include <filament/Camera.h>
 #include <filament/Engine.h>
@@ -68,7 +77,6 @@ void unbind();
 }  // namespace bluegl
 
 namespace mpviz {
-namespace {
 
 using filament::math::float3;
 using filament::math::float4;
@@ -94,6 +102,11 @@ using filament::math::quatf;
 // functional — so a small custom Platform using only raw EGL calls plus
 // those two bluegl calls is sufficient, and stays genuinely headless
 // (verified below with $DISPLAY unset).
+//
+// Epic 1 Task 2 Step 7e: moved out of the anonymous namespace to plain
+// `namespace mpviz` scope (still defined here in the .cpp, not in the
+// header) — renderer_internal.hpp forward-declares this same type so
+// VisualRenderer::platform can name it.
 class HeadlessEglPlatform : public filament::backend::OpenGLPlatform {
 public:
     struct EglSwapChain : public filament::backend::Platform::SwapChain {
@@ -210,13 +223,7 @@ private:
     bool blueglBound_ = false;
 };
 
-// One interleaved vertex: world-space position + the Filament "TANGENTS"
-// quaternion that encodes the surface normal (see VertexBuffer::Builder::
-// attribute()'s warning: TANGENTS is how normals are specified).
-struct Vertex {
-    float3 position;
-    float4 tangentFrame;
-};
+namespace {
 
 float4 quat_to_float4(const quatf& q) { return float4{q.x, q.y, q.z, q.w}; }
 
@@ -233,51 +240,6 @@ void fill_tangent_frames(std::vector<Vertex>& verts, const std::vector<float3>& 
     for (size_t i = 0; i < verts.size(); ++i) {
         verts[i].tangentFrame = quat_to_float4(quats[i]);
     }
-}
-
-filament::VertexBuffer* make_vertex_buffer(filament::Engine& engine,
-                                            std::vector<Vertex> verts) {
-    // BufferDescriptor only *references* client memory; Filament's driver
-    // thread consumes it asynchronously, so the backing storage must outlive
-    // this call. Heap-allocate and free it from the descriptor's own
-    // release callback rather than the (stack-local) caller's vector.
-    auto* heapVerts = new std::vector<Vertex>(std::move(verts));
-    filament::VertexBuffer* vb =
-        filament::VertexBuffer::Builder()
-            .vertexCount(static_cast<uint32_t>(heapVerts->size()))
-            .bufferCount(1)
-            .attribute(filament::VertexAttribute::POSITION, 0,
-                       filament::VertexBuffer::AttributeType::FLOAT3, offsetof(Vertex, position),
-                       sizeof(Vertex))
-            .attribute(filament::VertexAttribute::TANGENTS, 0,
-                       filament::VertexBuffer::AttributeType::FLOAT4,
-                       offsetof(Vertex, tangentFrame), sizeof(Vertex))
-            .build(engine);
-    vb->setBufferAt(
-        engine, 0,
-        filament::VertexBuffer::BufferDescriptor(
-            heapVerts->data(), heapVerts->size() * sizeof(Vertex),
-            [](void*, size_t, void* user) { delete static_cast<std::vector<Vertex>*>(user); },
-            heapVerts));
-    return vb;
-}
-
-filament::IndexBuffer* make_index_buffer(filament::Engine& engine,
-                                          std::vector<uint16_t> indices) {
-    auto* heapIndices = new std::vector<uint16_t>(std::move(indices));
-    filament::IndexBuffer* ib =
-        filament::IndexBuffer::Builder()
-            .indexCount(static_cast<uint32_t>(heapIndices->size()))
-            .bufferType(filament::IndexBuffer::IndexType::USHORT)
-            .build(engine);
-    ib->setBuffer(
-        engine, filament::IndexBuffer::BufferDescriptor(
-                    heapIndices->data(), heapIndices->size() * sizeof(uint16_t),
-                    [](void*, size_t, void* user) {
-                        delete static_cast<std::vector<uint16_t>*>(user);
-                    },
-                    heapIndices));
-    return ib;
 }
 
 // Large ground quad in the XY plane at Z=0, facing +Z (up).
@@ -351,12 +313,6 @@ void build_cube(std::vector<Vertex>& verts, std::vector<uint16_t>& indices) {
     fill_tangent_frames(verts, normals);
 }
 
-struct Mesh {
-    filament::VertexBuffer* vb = nullptr;
-    filament::IndexBuffer* ib = nullptr;
-    utils::Entity entity;
-};
-
 void destroy_mesh(filament::Engine& engine, filament::Scene& scene, Mesh& mesh) {
     if (mesh.entity) {
         scene.remove(mesh.entity);
@@ -378,28 +334,82 @@ void on_readback_complete(void* /*buffer*/, size_t /*size*/, void* user) {
 
 }  // namespace
 
-class VisualRenderer {
-public:
-    HeadlessEglPlatform* platform = nullptr;
-    filament::Engine* engine = nullptr;
-    filament::SwapChain* swapChain = nullptr;
-    filament::Renderer* renderer = nullptr;
-    filament::Scene* scene = nullptr;
-    filament::View* view = nullptr;
-    filament::Camera* camera = nullptr;
-    utils::Entity cameraEntity;
-    utils::Entity sunEntity;
-    filament::IndirectLight* ambient = nullptr;
-    filament::Material* colorMaterial = nullptr;
-    filament::MaterialInstance* groundMaterial = nullptr;
-    filament::MaterialInstance* gridMaterial = nullptr;
-    filament::MaterialInstance* cubeMaterial = nullptr;
-    Mesh ground;
-    Mesh grid;
-    Mesh cube;
-    uint32_t width = 0;
-    uint32_t height = 0;
-};
+// Namespace-scope definitions of the two functions renderer_internal.hpp
+// declares (Step 7e) — bodies unchanged from their former anonymous-
+// namespace versions.
+filament::VertexBuffer* make_vertex_buffer(filament::Engine& engine,
+                                            std::vector<Vertex> verts) {
+    // BufferDescriptor only *references* client memory; Filament's driver
+    // thread consumes it asynchronously, so the backing storage must outlive
+    // this call. Heap-allocate and free it from the descriptor's own
+    // release callback rather than the (stack-local) caller's vector.
+    auto* heapVerts = new std::vector<Vertex>(std::move(verts));
+    filament::VertexBuffer* vb =
+        filament::VertexBuffer::Builder()
+            .vertexCount(static_cast<uint32_t>(heapVerts->size()))
+            .bufferCount(1)
+            .attribute(filament::VertexAttribute::POSITION, 0,
+                       filament::VertexBuffer::AttributeType::FLOAT3, offsetof(Vertex, position),
+                       sizeof(Vertex))
+            .attribute(filament::VertexAttribute::TANGENTS, 0,
+                       filament::VertexBuffer::AttributeType::FLOAT4,
+                       offsetof(Vertex, tangentFrame), sizeof(Vertex))
+            .build(engine);
+    vb->setBufferAt(
+        engine, 0,
+        filament::VertexBuffer::BufferDescriptor(
+            heapVerts->data(), heapVerts->size() * sizeof(Vertex),
+            [](void*, size_t, void* user) { delete static_cast<std::vector<Vertex>*>(user); },
+            heapVerts));
+    return vb;
+}
+
+filament::IndexBuffer* make_index_buffer(filament::Engine& engine,
+                                          std::vector<uint16_t> indices) {
+    auto* heapIndices = new std::vector<uint16_t>(std::move(indices));
+    filament::IndexBuffer* ib =
+        filament::IndexBuffer::Builder()
+            .indexCount(static_cast<uint32_t>(heapIndices->size()))
+            .bufferType(filament::IndexBuffer::IndexType::USHORT)
+            .build(engine);
+    ib->setBuffer(
+        engine, filament::IndexBuffer::BufferDescriptor(
+                    heapIndices->data(), heapIndices->size() * sizeof(uint16_t),
+                    [](void*, size_t, void* user) {
+                        delete static_cast<std::vector<uint16_t>*>(user);
+                    },
+                    heapIndices));
+    return ib;
+}
+
+// Namespace-scope free function (Step 7e) — was a lambda local to
+// create_renderer() capturing `&engine`/`&em`/`&r`. A lambda can't be called
+// from ego.cpp, a different translation unit, which is exactly what Task 4
+// Step 5 needs to do for the ego's clay-box fallback. `r.engine`/
+// `utils::EntityManager::get()` replace the old `&engine`/`&em` captures
+// (`em` was always just that singleton accessor, nothing stateful worth
+// threading through). `cast_shadows`/`receive_shadows` are new parameters —
+// every call site in create_renderer() below passes `false, false`,
+// identical to the hardcoded values the old lambda body used, so this is
+// behavior-preserving for Epic 0's spike scene; Task 4's ego fallback box is
+// the first caller that needs `true` for cast_shadows.
+void add_mesh(VisualRenderer& r, Mesh& mesh, std::vector<Vertex> verts,
+              std::vector<uint16_t> indices,
+              filament::RenderableManager::PrimitiveType primitive,
+              filament::MaterialInstance* material, bool cast_shadows, bool receive_shadows) {
+    mesh.vb = make_vertex_buffer(*r.engine, std::move(verts));
+    mesh.ib = make_index_buffer(*r.engine, std::move(indices));
+    mesh.entity = utils::EntityManager::get().create();
+    filament::RenderableManager::Builder(1)
+        .boundingBox({{0, 0, 0}, {kGroundHalfExtent, kGroundHalfExtent, 1.0f}})
+        .geometry(0, primitive, mesh.vb, mesh.ib)
+        .material(0, material)
+        .culling(false)
+        .castShadows(cast_shadows)
+        .receiveShadows(receive_shadows)
+        .build(*r.engine, mesh.entity);
+    r.scene->addEntity(mesh.entity);
+}
 
 VisualRenderer* create_renderer(const RenderConfig& config) {
     if (config.width == 0 || config.height == 0) return nullptr;
@@ -486,35 +496,19 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
         mat->setCullingMode(filament::backend::CullingMode::NONE);
     }
 
-    auto add_mesh = [&](Mesh& mesh, std::vector<Vertex> verts, std::vector<uint16_t> indices,
-                         filament::RenderableManager::PrimitiveType primitive,
-                         filament::MaterialInstance* material) {
-        mesh.vb = make_vertex_buffer(*engine, std::move(verts));
-        mesh.ib = make_index_buffer(*engine, std::move(indices));
-        mesh.entity = em.create();
-        filament::RenderableManager::Builder(1)
-            .boundingBox({{0, 0, 0}, {kGroundHalfExtent, kGroundHalfExtent, 1.0f}})
-            .geometry(0, primitive, mesh.vb, mesh.ib)
-            .material(0, material)
-            .culling(false)
-            .castShadows(false)
-            .receiveShadows(false)
-            .build(*engine, mesh.entity);
-        r->scene->addEntity(mesh.entity);
-    };
-
     std::vector<Vertex> groundVerts, gridVerts, cubeVerts;
     std::vector<uint16_t> groundIdx, gridIdx, cubeIdx;
     build_ground_plane(groundVerts, groundIdx);
     build_grid_lines(gridVerts, gridIdx);
     build_cube(cubeVerts, cubeIdx);
 
-    add_mesh(r->ground, groundVerts, groundIdx,
-             filament::RenderableManager::PrimitiveType::TRIANGLES, r->groundMaterial);
-    add_mesh(r->grid, gridVerts, gridIdx, filament::RenderableManager::PrimitiveType::LINES,
-             r->gridMaterial);
-    add_mesh(r->cube, cubeVerts, cubeIdx, filament::RenderableManager::PrimitiveType::TRIANGLES,
-             r->cubeMaterial);
+    add_mesh(*r, r->ground, groundVerts, groundIdx,
+             filament::RenderableManager::PrimitiveType::TRIANGLES, r->groundMaterial,
+             /*cast_shadows=*/false, /*receive_shadows=*/false);
+    add_mesh(*r, r->grid, gridVerts, gridIdx, filament::RenderableManager::PrimitiveType::LINES,
+             r->gridMaterial, /*cast_shadows=*/false, /*receive_shadows=*/false);
+    add_mesh(*r, r->cube, cubeVerts, cubeIdx, filament::RenderableManager::PrimitiveType::TRIANGLES,
+             r->cubeMaterial, /*cast_shadows=*/false, /*receive_shadows=*/false);
 
     return r;
 }
