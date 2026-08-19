@@ -106,8 +106,13 @@ float3 to_filament(const detail::Float3& c) { return float3{c.r, c.g, c.b}; }
 
 // See the comment at the setFogOptions() call site for what this is and how
 // it was measured. Derived (not guessed) from light_clay's already-proven-
-// good effective fog scale of 50 at its ibl.intensity of 8750: 50 * 8750^2.
-constexpr float kFogAmbientReferenceIntensitySq = 50.0f * 8750.0f * 8750.0f;
+// good effective fog scale of 50 at its ibl.intensity of 8750: 50 * 8750.
+// One calibrated constant, one real constraint (reproduce light_clay's 50
+// exactly) -- unlike the inverse-SQUARE formula this replaces (epic1 Task 2
+// review round 4), which fit two free parameters (coefficient + exponent)
+// through the same single data point and was anti-physical besides (see
+// setFogOptions()'s comment).
+constexpr float kFogRadianceReferenceIntensity = 50.0f * 8750.0f;
 }  // namespace
 
 // HeadlessEglPlatform — a minimal from-scratch filament::backend::
@@ -663,40 +668,82 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // backdrop they're authored to match (palette.fog == palette.sky, spec
     // §4.3) instead of within a few.
     //
-    // Fix: derive the multiplier from each theme's own ibl.intensity
-    // instead of hand-tuning one flat number on one theme. Measured (same
-    // method as kFogRadianceScale itself: rendering both themes and reading
-    // back tests/test_theme.cpp's new horizon_row_mean/sky_row_mean gap,
-    // not hand-derived) that a plain inverse (kRef/ibl.intensity) still
-    // overshoots dark_adas by ~4x once tuned to reproduce light_clay's
-    // proven-good 50 -- rejected for the same reason as the flat constant,
-    // just less badly. What converges both: kRef/ibl.intensity^2. Also
-    // rejected: fogColorFromIbl=true (Options.h's other suggested
-    // approach) -- it samples/tints the theme's ambient IBL itself, which
-    // is a *different*, brighter-scaled token than palette.fog/palette.sky
-    // (ibl.sky_color != palette.sky in both YAMLs), so it doesn't actually
-    // target "converge on the theme's rendered sky" any better; would also
-    // need re-authoring every theme's fog color as a multiplicative tint
-    // instead of the spec §4.3 "one sky/fog token" it's an alias of today.
+    // Fix (epic1 Task 2 review round 5): the round-4 fix above
+    // (kFogAmbientReferenceIntensitySq / ibl.intensity^2) was itself a
+    // regression -- an inverse-SQUARE curve fit through ONE real data point
+    // (light_clay) with two free parameters (coefficient + exponent) is
+    // underdetermined, and it fell on the wrong side: dark_adas's scale came
+    // out ~0.058, an 860x cut from the flat 50 that made dark_adas's near-
+    // black fog hue ~17x TOO DIM to be visible at all -- reproducing the
+    // exact "effectively inert" failure mode this whole mechanism exists to
+    // avoid (measured directly, applying the Fog test's own black-vs-white
+    // fixture technique to dark_adas: the round-4 formula moved the
+    // rendered mean by only 5.33 -- black=41.37, white=46.70 -- well under
+    // the same test's own >15.0 liveness bar it applies to light_clay; that
+    // bar is now extended to cover dark_adas too -- see
+    // fog_color_{black,white}_dark.yaml below).
     //
-    // kFogAmbientReferenceIntensitySq is the one hand-tuned knob (same
-    // spirit as bloom.strength above, and as kFogRadianceScale was): picked
-    // so light_clay's ratio reproduces its already-proven-good scale of 50
-    // exactly (50 * 8750^2, unchanged rendering, unchanged golden);
-    // dark_adas falls out of the SAME formula at ~0.058, landing its
-    // far-field ground within tests/test_theme.cpp's ThemeGolden
-    // horizon_row_mean/sky_row_mean guard (added this round because the
-    // prior mean-band check couldn't express "the ground fades into the
-    // sky" at all) instead of ~139 levels off it. Full convergence to
-    // sky-row-exact isn't reachable by color alone at either scale --
-    // dark_adas's ground plane is only 40m across (kGroundHalfExtent), so
-    // even the farthest on-plane ray never reaches near-total fog
-    // extinction the way a true infinite-ground horizon would -- but this
-    // removes the over-scaled *overshoot* (the actual reported bug: fog
-    // brighter than the sunlit ground itself) and gets within the guard's
-    // band using the theme's own data, no per-theme branch.
-    const float fogScale =
-        kFogAmbientReferenceIntensitySq / (theme.ibl.intensity * theme.ibl.intensity);
+    // Root cause: this reference formula was carrying ALL the weight of
+    // both liveness (a color multiplier big enough to register) AND
+    // convergence (the far-field ground fading to the sky), and no single
+    // formula in one variable (ibl.intensity) can satisfy both at once for
+    // dark_adas at its SHIPPED fog.density of 0.015 -- there just isn't
+    // enough fog mass at that density for color to matter without also
+    // overshooting the gap. Measured directly (same linear color-scale
+    // formula below, density held at the shipped 0.015): fog forced to
+    // pure black gives a horizon/sky gap of 26.21 -- already close to the
+    // guard's 30.0 -- the SHIPPED near-black hue gives 34.32 (already
+    // failing), and fog forced to pure white gives 158.15. The gap gets
+    // WORSE as the color gets louder, never better, at this density: there
+    // is no color choice here that is simultaneously live (moves the
+    // rendered mean enough to matter) and convergent (stays under the
+    // guard) -- density 0.015 forces a choice between the two, and round 4
+    // picked convergence by making color too dim to be live at all.
+    //
+    // Fix: split the two jobs onto the two knobs that actually govern them.
+    // Liveness is a COLOR problem -> kFogRadianceReferenceIntensity /
+    // ibl.intensity, a plain (linear, one free constant) inverse calibrated
+    // to reproduce light_clay's proven-good flat scale of 50 exactly at its
+    // ibl.intensity of 8750 (unchanged rendering, unchanged golden for that
+    // theme) and falling out at ~1.7 for dark_adas. Convergence is a
+    // DENSITY problem -> dark_adas's own fog.density (the theme YAML, not
+    // code -- a real per-theme knob the schema already exposes), raised
+    // from 0.015 to 0.10. Measured together at the new color scale: black/
+    // white fog fixtures at density 0.10 move the mean 22.70 -> 188.20 (a
+    // ~166-level swing, comfortably over the Fog test's 15.0 liveness bar)
+    // while the shipped hue's horizon/sky gap is 21.03 -- comfortably under
+    // the 30.0 guard, not sitting on its edge the way the round-4 fix did
+    // (density swept 0.015/0.05/0.10/0.15 -> gaps 34.3/25.2/21.0/19.8; 0.10
+    // was picked as the first with real headroom on both metrics, without
+    // pushing distinct_levels below the Step 7a legibility floor). Full
+    // convergence to sky-row-exact still isn't reachable by either knob
+    // alone -- dark_adas's ground plane is only 40m across
+    // (kGroundHalfExtent), so even the farthest on-plane ray never reaches
+    // the near-total fog extinction a true infinite-ground horizon would
+    // give -- but 21.0 with real headroom is a materially different claim
+    // than a token sitting 3.5 levels from the guard's edge.
+    //
+    // Two more approaches considered and rejected the same way as the
+    // round-4 comment above rejected its own alternatives: (1) a flat,
+    // theme-independent scale (the original kFogRadianceScale=50) -- tried
+    // again here at increased density and got WORSE, not better (measured:
+    // gap widens to 169-178 as density rises, because at scale 50 dark_adas's
+    // fog color is already brighter than the sunlit ground, so more fog
+    // mass pulls the horizon further from the near-black sky, not closer);
+    // (2) fogColorFromIbl=true, rejected for the reason already on file
+    // below (samples a differently-scaled token, ibl.sky_color, not
+    // palette.fog/palette.sky).
+    //
+    // Known follow-up (not fixed here, flagged by review): palette.sky goes
+    // straight to Renderer::ClearOptions::clearColor below as a display-
+    // domain 0-1 value, while palette.fog goes through fogOptions.color as
+    // pre-tonemap scene radiance -- the same authored token (spec §4.3)
+    // living in two different color domains by construction. That's why
+    // "converge exactly" isn't achievable by tuning either knob alone; this
+    // fix narrows the gap using the tools available today (color-scale
+    // calibration + density) rather than unifying the two domains, which
+    // would be a bigger, cross-cutting change.
+    const float fogScale = kFogRadianceReferenceIntensity / theme.ibl.intensity;
     fogOptions.color = to_filament(theme.palette.fog) * fogScale;
     fogOptions.density = theme.fog.density;
     // heightFalloff defaults to 1.0/m (Filament models fog as a height-

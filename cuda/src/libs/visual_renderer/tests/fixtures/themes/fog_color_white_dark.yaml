@@ -1,11 +1,19 @@
-# dark_adas.yaml — Epic 1 Task 2 (VM-011) shipped default theme.
-# All colors are LINEAR RGB (no sRGB decode applied by theme.cpp) — see
-# src/theme.hpp's header comment.
-name: dark_adas
+# fog_color_white_dark.yaml — test fixture for test_theme.cpp's Fog.ColorAffectsRenderedOutput
+# (dark_adas branch, epic1 Task 2 review round 5). Byte-for-byte identical
+# to assets/themes/dark_adas.yaml (including its fog.density) except
+# `palette.fog` -- the only thing that can make the two renders differ is
+# FogOptions::color actually reaching the screen for THIS theme's own
+# ibl.intensity, not just light_clay's (see fog_color_{black,white}.yaml
+# above, which only exercised light_clay's branch of the color-scale
+# formula and missed a dead dark_adas token in review round 4). Measured:
+# unfixed round-4 code (kFogAmbientReferenceIntensitySq/ibl.intensity^2)
+# moves the mean by 5.33 between black and white fog here -- below the
+# >15.0 liveness bar; the round-5 fix moves it by ~166.
+name: fog_color_white_dark
 palette:
   ground:      [0.05, 0.06, 0.08]
   sky:         [0.02, 0.02, 0.05]
-  fog:         [0.02, 0.02, 0.05]
+  fog:         [1.0, 1.0, 1.0]
   lane_paint:  [0.45, 0.5, 0.55]
   ribbon_core: [0.10, 1.00, 0.40]
   ribbon_glow: [0.10, 1.00, 0.40]

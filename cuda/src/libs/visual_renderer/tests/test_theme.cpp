@@ -118,6 +118,53 @@ TEST(Fog, ColorAffectsRenderedOutput) {
     mpviz::destroy_renderer(rB);
 }
 
+TEST(Fog, ColorAffectsRenderedOutput_DarkAdas) {
+    // Regression test for the epic1 Task 2 review round 5 finding: the
+    // fixtures above are both derived from light_clay (ibl.intensity 8750)
+    // and so only ever exercised ONE branch of setFogOptions()'s per-theme
+    // color-scale formula. Round 4's kFogAmbientReferenceIntensitySq/
+    // ibl.intensity^2 formula passed the light_clay-only test above while
+    // being dead on dark_adas's own branch (ibl.intensity 256000): measured
+    // directly, applying the exact same technique as the light_clay test to
+    // dark_adas-derived fixtures, round 4's formula moved the mean by only
+    // 5.33 (black=41.37, white=46.70) -- below this same test's own >15.0
+    // liveness bar. This test closes that coverage gap so the shipped
+    // default theme's fog token is actually guarded, not just light_clay's.
+    constexpr uint32_t kWidth = 320, kHeight = 240;
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    mpviz::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(),
+                             "fog_color_black_dark"};
+    mpviz::RenderConfig cfgB{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(),
+                             "fog_color_white_dark"};
+
+    mpviz::VisualRenderer* rA = mpviz::create_renderer(cfgA);
+    if (rA == nullptr) {
+        GTEST_SKIP() << "no GPU/EGL";
+    }
+    mpviz::VisualRenderer* rB = mpviz::create_renderer(cfgB);
+    ASSERT_NE(rB, nullptr);
+
+    mpviz::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
+    mpviz::testing::render_and_compare(rA, pose, "/nonexistent/no_such_golden.png",
+                                        "/tmp/fog_color_black_dark_actual.png");
+    mpviz::testing::render_and_compare(rB, pose, "/nonexistent/no_such_golden.png",
+                                        "/tmp/fog_color_white_dark_actual.png");
+
+    mpviz::testing::FrameStats statsA =
+        mpviz::testing::analyze_png("/tmp/fog_color_black_dark_actual.png");
+    mpviz::testing::FrameStats statsB =
+        mpviz::testing::analyze_png("/tmp/fog_color_white_dark_actual.png");
+
+    EXPECT_GT(statsB.mean - statsA.mean, 15.0)
+        << "black-fog vs white-fog dark_adas-derived fixtures (identical otherwise) "
+           "rendered near-identical mean brightness (" << statsA.mean
+        << " vs " << statsB.mean << ") -- FogOptions::color isn't reaching the screen "
+           "on dark_adas's branch of the color-scale formula.";
+
+    mpviz::destroy_renderer(rA);
+    mpviz::destroy_renderer(rB);
+}
+
 TEST(ThemeLoad, MissingThemeDir_FallsBackToBuiltinTheme) {
     mpviz::RenderConfig cfg{320, 240, 0, "/nonexistent/theme/dir", "dark_adas"};
     mpviz::VisualRenderer* r = mpviz::create_renderer(cfg);
