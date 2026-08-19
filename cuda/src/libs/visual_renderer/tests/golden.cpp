@@ -108,6 +108,13 @@ FrameStats analyze_png(const char* png_path) {
     size_t topN = 0, bottomN = 0;
     const int topEnd = height / 3;
     const int bottomStart = (2 * height) / 3;
+    // sky_row_mean/horizon_row_mean row bands -- see golden.hpp's comment on
+    // FrameStats for why these specific rows (fixed to this epic's fixed
+    // 320x240 / CameraPose test setup).
+    constexpr int kSkyRowStart = 10, kSkyRowEnd = 40;
+    constexpr int kHorizonRowStart = 48, kHorizonRowEnd = 60;
+    double skySum = 0.0, horizonSum = 0.0;
+    size_t skyN = 0, horizonN = 0;
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             const size_t idx = (static_cast<size_t>(y) * width + x) * 3;
@@ -122,6 +129,13 @@ FrameStats analyze_png(const char* png_path) {
                 bottomSum += l;
                 ++bottomN;
             }
+            if (y >= kSkyRowStart && y < kSkyRowEnd) {
+                skySum += l;
+                ++skyN;
+            } else if (y >= kHorizonRowStart && y < kHorizonRowEnd) {
+                horizonSum += l;
+                ++horizonN;
+            }
         }
     }
     stbi_image_free(img);
@@ -130,6 +144,8 @@ FrameStats analyze_png(const char* png_path) {
     for (bool seen : seenLevel) stats.distinct_levels += seen ? 1 : 0;
     stats.top_third_mean = topN > 0 ? topSum / static_cast<double>(topN) : 0.0;
     stats.bottom_third_mean = bottomN > 0 ? bottomSum / static_cast<double>(bottomN) : 0.0;
+    stats.sky_row_mean = skyN > 0 ? skySum / static_cast<double>(skyN) : 0.0;
+    stats.horizon_row_mean = horizonN > 0 ? horizonSum / static_cast<double>(horizonN) : 0.0;
     return stats;
 }
 

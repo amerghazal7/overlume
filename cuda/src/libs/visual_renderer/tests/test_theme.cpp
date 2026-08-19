@@ -9,6 +9,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -174,6 +175,17 @@ TEST(ThemeGolden, EmptyWorld_DarkAdas) {
     // backdrop -- regression guard for "sky 10x brighter than ground".
     EXPECT_GT(stats.bottom_third_mean, stats.top_third_mean)
         << "sky backdrop is brighter than the sunlit ground";
+    // dark_adas authors palette.fog == palette.sky (spec §4.3: one 'sky/fog'
+    // token) -- the far-field ground just below the horizon should
+    // therefore read close to the flat sky backdrop, i.e. the ground fades
+    // toward the sky, not into a hard bright band against it (golden.hpp's
+    // FrameStats comment has the "why not exact" caveat). The mean-band
+    // check above (20 < mean < 200) can't express this: a fog scale that's
+    // right for one theme and ~10-15x too hot for this one still lands
+    // inside that band (epic1 Task 2 fog-scale review round).
+    EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 30.0)
+        << "far-field ground (" << stats.horizon_row_mean << ") doesn't fade "
+           "into the sky (" << stats.sky_row_mean << ") -- fog is over/under-scaled";
     mpviz::destroy_renderer(r);
 }
 
@@ -200,5 +212,10 @@ TEST(ThemeGolden, EmptyWorld_LightClay) {
     EXPECT_GT(stats.distinct_levels, 40)
         << "too few distinct luminance levels -- grid-vs-ground contrast and "
            "distance fade aren't visible";
+    // Same "fog == sky" convergence guard as EmptyWorld_DarkAdas above --
+    // light_clay also authors palette.fog ~= palette.sky.
+    EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 30.0)
+        << "far-field ground (" << stats.horizon_row_mean << ") doesn't fade "
+           "into the sky (" << stats.sky_row_mean << ") -- fog is over/under-scaled";
     mpviz::destroy_renderer(r);
 }
