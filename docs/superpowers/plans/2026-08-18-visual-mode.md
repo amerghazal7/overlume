@@ -238,7 +238,7 @@ structure now. Interfaces marked ➤ are frozen upon that epic's review.
 | the robot's ego model→glTF script + ego rendering + TF speed | VM-012 | `scripts/obj2gltf.py`, `src/ego.cpp`, node `src/tf_adapter.cpp`, fixtures |
 | Preset/tween port shared with Task 5 code | VM-013 | node `src/vcam.cpp` refactor |
 
-➤ Frozen after Epic 1: `mpviz::SceneGraph` POD layout, `set_scene(VisualRenderer*, const SceneGraph*)` entry point, golden-test harness CLI.
+➤ Frozen after Epic 1: `mpviz::SceneGraph` POD layout, `set_scene(VisualRenderer*, const SceneGraph&)` entry point, golden-test harness CLI.
 
 ### Epic 2 — Autonomy data ingestion
 | Task | Backlog | Files |
