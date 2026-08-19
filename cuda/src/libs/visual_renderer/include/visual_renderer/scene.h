@@ -151,4 +151,21 @@ struct SceneGraph {
 // Filament requires.
 void set_scene(VisualRenderer*, const SceneGraph& scene);
 
+// Eases every themed token (palette, material roughness/metallic, sun/IBL,
+// HUD colors) from whatever is currently active toward `theme_name`,
+// starting at `at_sec` (a SceneGraph::sim_time_sec value — the caller's
+// clock, never wall-clock) and completing after `transition_sec` seconds
+// (0.0 -> use the spec default, 0.8s). Smoothstep-eased, Oklab-space color
+// lerp (Task 3). A transition retargeted mid-flight (set_theme called again
+// before the first finishes) starts a new ease from the CURRENT blended
+// state, not from either endpoint — no visible snap.
+// Exception: grid fade distances (fade_start_m/fade_end_m) are NOT animated
+// by set_theme — they're baked into the grid's vertex buffer once at
+// create_renderer() time and take effect only on the next renderer creation
+// with a different theme, not on a live set_theme() switch.
+// Returns false (no-op) if theme_name doesn't match a loaded
+// assets/themes/<name>.yaml stem; the active theme is unchanged.
+bool set_theme(VisualRenderer*, const char* theme_name, double at_sec,
+                double transition_sec);
+
 }  // namespace mpviz

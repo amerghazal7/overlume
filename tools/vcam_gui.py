@@ -234,6 +234,17 @@ class VcamWindow(Gtk.Window):
         self._mode_btn.connect("clicked", self._on_mode_toggle)
         btns.pack_end(self._mode_btn, False, False, 6)
 
+        # day/night theme toggle (Epic 1 Task 3 / VM-014, visual mode only).
+        # Unlike _mode_btn above, there's no telemetry echo of the active
+        # theme yet (that's Epic 3's ~/diagnostics, VM-034) -- the label just
+        # optimistically flips on click, same as how preset buttons don't
+        # wait for confirmation today. Starts on "dark_adas", the shipped
+        # default (visualization_node's initial_theme).
+        self._theme = "dark_adas"
+        self._theme_btn = Gtk.Button(label="theme: dark_adas")
+        self._theme_btn.connect("clicked", self._on_theme_toggle)
+        btns.pack_end(self._theme_btn, False, False, 6)
+
         self._status = Gtk.Label(label="connecting…", xalign=0.0)
         self._status.set_margin_start(8)
         self._status.set_margin_bottom(4)
@@ -538,6 +549,11 @@ class VcamWindow(Gtk.Window):
         target = 1 if self._render_mode == 2 else 2
         self._ws.send({"cmd": "set_render_mode",
                        "mode": "bowl" if target == 1 else "pointcloud"})
+
+    def _on_theme_toggle(self, _btn):
+        self._theme = "light_clay" if self._theme == "dark_adas" else "dark_adas"
+        self._theme_btn.set_label(f"theme: {self._theme}")
+        self._ws.send({"cmd": "set_theme", "theme": self._theme})
 
     def _quit(self, *_a):
         self._pipeline.set_state(Gst.State.NULL)
