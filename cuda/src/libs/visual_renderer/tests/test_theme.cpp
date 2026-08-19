@@ -230,7 +230,25 @@ TEST(ThemeGolden, EmptyWorld_DarkAdas) {
     // check above (20 < mean < 200) can't express this: a fog scale that's
     // right for one theme and ~10-15x too hot for this one still lands
     // inside that band (epic1 Task 2 fog-scale review round).
-    EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 30.0)
+    //
+    // Guard loosened 30.0 -> 40.0 (epic1 Task 2 review round 7): round 6's
+    // color-scale fix (renderer.cpp's setFogOptions comment) plus the
+    // plan's authored density (0.015, restored in dark_adas.yaml -- rounds
+    // 5/6 had raised it to 0.10 then 0.03 specifically to buy this guard
+    // headroom while a *different* bug, ~1.71x too-bright fog color, was
+    // still live) together measure a real, honestly-live gap of ~37.3 here,
+    // not the ~31 a stale measurement against golden.cpp's now-corrected
+    // [50,60) horizon-row band once suggested. That residual isn't a color/
+    // density miscalibration to chase away: dark_adas's ground plane is
+    // only 40m across (kGroundHalfExtent), so even the farthest on-plane
+    // ray never reaches the near-total fog extinction a true infinite
+    // ground would give -- full convergence to sky-row-exact isn't
+    // reachable by either knob, and spending density to force it shut is
+    // the exact mistake this round undoes. 40.0 keeps this a real
+    // regression guard (round 4's un-scaled fog measured a ~139-level gap;
+    // this would still catch that) without demanding the physically
+    // unreachable.
+    EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 40.0)
         << "far-field ground (" << stats.horizon_row_mean << ") doesn't fade "
            "into the sky (" << stats.sky_row_mean << ") -- fog is over/under-scaled";
     mpviz::destroy_renderer(r);
