@@ -29,15 +29,20 @@ ibl:  # analytic 2-band hemisphere gradient — NOT raw SH coefficients
   sky_color:    [0.05, 0.06, 0.12]
   ground_color: [0.02, 0.02, 0.03]
   intensity: 256000.0
-# density raised from the plan's authored 0.015 to 0.03 (2x -- epic1 Task 2
-# review round 6, correcting round 5's 0.10/6.7x). Round 5 raised density to
-# 0.10 believing NO color choice at 0.015 could satisfy both the liveness
-# and horizon/sky convergence guards (tests/test_theme.cpp) -- that was only
-# ever measured with round 5's own color-scale bug in place (palette.fog
-# rendered 1.71x brighter than the identical palette.sky). With that scale
-# fixed (renderer.cpp's setFogOptions() comment), 0.015 already clears the
-# liveness guard 4x over and misses the convergence guard by only ~1 level;
-# 0.03 gives real headroom on both while keeping fog opacity at Task 4's
-# ego-mesh distances close to double the authored value instead of ~5x
-# (0.10 measurably erased grid/object legibility -- see renderer.cpp).
-fog: { density: 0.03 }
+# density restored to the plan's originally-authored 0.015 (epic1 Task 2
+# review round 7). Rounds 5/6 raised this to 0.10, then 0.03, both times
+# using density to buy the horizon/sky convergence guard (tests/
+# test_theme.cpp) headroom against a *color-scale* bug (palette.fog
+# rendered up to 1.71x brighter than the identical palette.sky) -- the
+# right fix for a color bug is the color conversion (renderer.cpp's
+# setFogOptions() comment), not the density a theme author picked for how
+# thick the fog looks. With the scale now genuinely 1.0x (fog radiance ==
+# sky radiance when palette.fog == palette.sky, spec §4.3), re-measured at
+# this authored 0.015: liveness clears its guard 4x over (delta 62.1); the
+# honest residual horizon/sky gap (~37.3, golden.cpp's [50,60) band) is the
+# expected consequence of this theme's 40m ground plane never reaching
+# near-total fog extinction, not a miscalibration -- tests/test_theme.cpp's
+# guard is loosened to match instead of manufacturing more fog mass to hide
+# it. 0.10 (round 5) had measurably erased grid/object legibility at Task
+# 4's ego-mesh distances -- see renderer.cpp for the full history.
+fog: { density: 0.015 }

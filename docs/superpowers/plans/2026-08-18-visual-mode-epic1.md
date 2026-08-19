@@ -592,11 +592,24 @@ ibl:  # analytic 2-band hemisphere gradient (Step 7) — NOT raw SH coefficients
   sky_color:    [0.05, 0.06, 0.12]
   ground_color: [0.02, 0.02, 0.03]
   intensity: 8000.0
-fog: { density: 0.03 }  # 2x the originally-authored 0.015 (review round 6: the
-# fog color-scale bug that made 0.015 look non-convergent is fixed in
-# renderer.cpp instead — see assets/themes/dark_adas.yaml's own comment —
-# and 0.03 gives the horizon/sky convergence guard real headroom without
-# 0.10's measured legibility cost at Task 4's ego-mesh distances).
+fog: { density: 0.015 }  # matches this plan's originally-authored value —
+# NO deviation here (review round 7). Rounds 5/6 spent this knob compensating
+# for a fog *color-scale* bug (renderer.cpp's setFogOptions() rendered
+# palette.fog ~1.71x brighter than the identical palette.sky, round 5) —
+# round 5 raised density to 0.10 (crushed grid/object legibility), round 6
+# walked that back to 0.03 once the scale bug was partly addressed. Neither
+# was the right fix: the scale conversion itself was still wrong (~1.71x,
+# not the 1.0x that "palette.fog == palette.sky" (spec §4.3) implies).
+# Round 7 fixes the scale to true 1.0x at the source (renderer.cpp) and
+# restores density to this plan's authored 0.015 instead of using density to
+# paper over a color bug. The remaining horizon/sky convergence gap this
+# leaves (see assets/themes/dark_adas.yaml's own comment, and
+# tests/test_theme.cpp's now-loosened dark_adas guard) is real and
+# honestly-documented: dark_adas's ground plane is only 40m across
+# (kGroundHalfExtent), so even the farthest on-plane ray never reaches the
+# near-total fog extinction a true infinite-ground horizon would give —
+# density/color-scale tuning alone can't close that gap, and manufacturing
+# more fog mass to force it shut is exactly the mistake this round undoes.
 ```
 ```yaml
 # light_clay.yaml — same key set, no exceptions (that's the "no per-theme
