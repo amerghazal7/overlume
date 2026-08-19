@@ -641,29 +641,24 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // both and inspecting pixels (not just picking a textbook "sunny 16"
     // triple and assuming it works) — see the finding below.
     //
-    // ponytail: a single exposure genuinely cannot put both themes at a
-    // clean "mid-gray-ish" reading. dark_adas' ground+grid combine to ~21k
-    // lux at ~0.06-0.12 albedo; light_clay's combine to ~126k lux at
-    // ~0.6-0.82 albedo — an ~80x (~6.3-stop) gap in reflected radiance
-    // between the two themes BEFORE any exposure is chosen (confirmed
-    // empirically: darkening enough to pull light_clay's ~250/255 clip down
-    // to a true mid-gray ~128 crushes dark_adas' already-low ground+grid to
-    // indistinguishable near-black well before that point — verified with a
-    // debug override that force-brightened the grid material alone, which
-    // confirmed the grid geometry/blend/projection are all correct and it's
-    // genuinely an exposure/albedo-contrast tradeoff, not a rendering bug).
-    // 1/500s (vs. a "sunny 16" 1/125s) is the calibrated compromise: it
-    // pulls light_clay off its ~250/255 near-full-clip (indistinguishable
-    // from solid white) down to a legible ~220/255 "bright clay" look,
-    // while dark_adas keeps a clearly visible grid-vs-ground contrast (down
-    // from a wider margin at 1/125, but still well above the noise floor —
-    // confirmed by inspecting the rendered goldens below, not asserted).
-    // Upgrade path if a future epic needs both themes truly mid-gray
-    // simultaneously: narrow the two themes' authored albedo/lux gap
-    // (theme-data change, out of scope here — scene.h/theme tokens are
-    // frozen this epic) or move to a non-fixed (auto-)exposure model, which
-    // Step 7a's own text explicitly rules out for this epic ("this is a
-    // one-time calibration ... not a per-theme knob").
+    // ponytail: an EARLIER version of dark_adas/light_clay's authored lux
+    // put an ~80x (~6.3-stop) gap in reflected radiance between the two
+    // themes -- no single fixed exposure could put both at a legible
+    // reading simultaneously (confirmed empirically at the time: darkening
+    // enough to pull light_clay off its clip crushed dark_adas to
+    // indistinguishable near-black first). Root-caused and fixed at the
+    // theme-data layer instead of here (review finding, epic1 Task 2):
+    // dark_adas' sun/ibl intensity raised ~5 stops and light_clay's grid
+    // line_color darkened for contrast + its sun/ibl lowered ~2 stops (see
+    // assets/themes/*.yaml) -- this narrowed the gap enough that the SAME
+    // fixed exposure below (unchanged) now renders both themes legibly:
+    // dark_adas ~43/255 mean with the sunlit ground clearly brighter than
+    // the sky backdrop, light_clay ~151/255 mean with the grid visibly
+    // fading with distance, neither clipped nor crushed. Regression-guarded
+    // by tests/test_theme.cpp's FrameStats checks (mean band, distinct
+    // luminance levels, ground-vs-sky ordering), not just SSIM-against-
+    // golden, so a future exposure/lux change that re-breaks legibility
+    // fails loudly instead of only "looking wrong" in a diff nobody opens.
     r->camera->setExposure(16.0f, 1.0f / 500.0f, 100.0f);
 
     r->sunEntity = em.create();

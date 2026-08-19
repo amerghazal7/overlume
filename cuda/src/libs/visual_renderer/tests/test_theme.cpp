@@ -93,6 +93,24 @@ TEST(ThemeGolden, EmptyWorld_DarkAdas) {
         MPVIZ_TEST_DATA_DIR "/tests/goldens/empty_world_dark_adas.png",
         "/tmp/empty_world_dark_adas_actual.png");
     EXPECT_GT(ssim, 0.98);
+
+    // Legibility ACs from Task 2 Step 7a ("clay surfaces read as mid-gray-
+    // ish, not clipped white or crushed black") -- catches the exposure/lux
+    // miscalibration that shipped this theme as an effectively-black frame
+    // (see epic1 review). Bounds are deliberately loose (this is a
+    // legibility floor, not a look-lock -- SSIM above already pins the
+    // exact look).
+    mpviz::testing::FrameStats stats =
+        mpviz::testing::analyze_png("/tmp/empty_world_dark_adas_actual.png");
+    EXPECT_GT(stats.mean, 20.0) << "frame reads as crushed black";
+    EXPECT_LT(stats.mean, 200.0) << "frame reads as clipped white";
+    EXPECT_GT(stats.distinct_levels, 40)
+        << "too few distinct luminance levels -- grid-vs-ground contrast and "
+           "distance fade aren't visible";
+    // The sunlit ground must read brighter than the flat ambient sky
+    // backdrop -- regression guard for "sky 10x brighter than ground".
+    EXPECT_GT(stats.bottom_third_mean, stats.top_third_mean)
+        << "sky backdrop is brighter than the sunlit ground";
     mpviz::destroy_renderer(r);
 }
 
@@ -110,5 +128,14 @@ TEST(ThemeGolden, EmptyWorld_LightClay) {
         r, pose, MPVIZ_TEST_DATA_DIR "/tests/goldens/empty_world_light_clay.png",
         "/tmp/empty_world_light_clay_actual.png");
     EXPECT_GT(ssim, 0.98);
+
+    // Same legibility floor as the dark_adas golden above.
+    mpviz::testing::FrameStats stats =
+        mpviz::testing::analyze_png("/tmp/empty_world_light_clay_actual.png");
+    EXPECT_GT(stats.mean, 60.0) << "frame reads as crushed black";
+    EXPECT_LT(stats.mean, 235.0) << "frame reads as clipped white";
+    EXPECT_GT(stats.distinct_levels, 40)
+        << "too few distinct luminance levels -- grid-vs-ground contrast and "
+           "distance fade aren't visible";
     mpviz::destroy_renderer(r);
 }

@@ -96,4 +96,41 @@ double render_and_compare(mpviz::VisualRenderer* r, const mpviz::CameraPose& pos
     return block_ssim(rgb, goldenPixels, kWidth, kHeight);
 }
 
+FrameStats analyze_png(const char* png_path) {
+    int width = 0, height = 0, channels = 0;
+    uint8_t* img = stbi_load(png_path, &width, &height, &channels, 3);
+    if (img == nullptr) return {};
+
+    FrameStats stats{};
+    const size_t n = static_cast<size_t>(width) * height;
+    bool seenLevel[256] = {};
+    double topSum = 0.0, bottomSum = 0.0;
+    size_t topN = 0, bottomN = 0;
+    const int topEnd = height / 3;
+    const int bottomStart = (2 * height) / 3;
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const size_t idx = (static_cast<size_t>(y) * width + x) * 3;
+            const double l = luminance(img[idx], img[idx + 1], img[idx + 2]);
+            stats.mean += l;
+            const int level = static_cast<int>(l + 0.5);
+            if (level >= 0 && level < 256) seenLevel[level] = true;
+            if (y < topEnd) {
+                topSum += l;
+                ++topN;
+            } else if (y >= bottomStart) {
+                bottomSum += l;
+                ++bottomN;
+            }
+        }
+    }
+    stbi_image_free(img);
+
+    stats.mean /= static_cast<double>(n);
+    for (bool seen : seenLevel) stats.distinct_levels += seen ? 1 : 0;
+    stats.top_third_mean = topN > 0 ? topSum / static_cast<double>(topN) : 0.0;
+    stats.bottom_third_mean = bottomN > 0 ? bottomSum / static_cast<double>(bottomN) : 0.0;
+    return stats;
+}
+
 }  // namespace mpviz::testing

@@ -120,10 +120,10 @@ const Theme& kFallbackTheme() {
         t.hud.scale = 1.0f;
         t.sun.direction = {-0.5f, -0.3f, -1.0f};
         t.sun.color = {0.55f, 0.6f, 0.75f};
-        t.sun.intensity = 15000.0f;
+        t.sun.intensity = 480000.0f;
         t.ibl.sky_color = {0.05f, 0.06f, 0.12f};
         t.ibl.ground_color = {0.02f, 0.02f, 0.03f};
-        t.ibl.intensity = 8000.0f;
+        t.ibl.intensity = 256000.0f;
         t.fog.density = 0.015f;
         return t;
     }();

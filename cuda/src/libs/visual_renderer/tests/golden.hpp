@@ -29,4 +29,20 @@ namespace mpviz::testing {
 double render_and_compare(mpviz::VisualRenderer* r, const mpviz::CameraPose& pose,
                            const char* golden_png_path, const char* out_png_path);
 
+// Legibility stats for a rendered frame -- the numeric form of the plan's
+// Step 7a AC ("clay surfaces read as mid-gray-ish, not clipped white or
+// crushed black"). `top_third_mean`/`bottom_third_mean` are luminance means
+// of the top/bottom thirds of the frame (sky-ish vs. ground-ish for this
+// epic's fixed camera pose looking at the horizon) -- not a scene-aware
+// segmentation, just enough to catch "the flat sky backdrop is brighter
+// than the supposedly sunlit ground" the way a human glancing at the image
+// would. Returns all-zero stats if the PNG can't be loaded.
+struct FrameStats {
+    double mean = 0.0;
+    int distinct_levels = 0;
+    double top_third_mean = 0.0;
+    double bottom_third_mean = 0.0;
+};
+FrameStats analyze_png(const char* png_path);
+
 }  // namespace mpviz::testing
