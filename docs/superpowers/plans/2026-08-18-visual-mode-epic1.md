@@ -145,13 +145,22 @@ struct SceneGraph {
 };
 
 // Deep-copies `scene` (and everything its pointers reach) into the renderer's
-// internal staging buffer and atomically publishes it as the active scene —
-// safe to call from the same thread as render_frame() (today's single-
-// threaded executor) or, later, from a different ingest thread. `scene`'s
-// arrays may be freed/reused the instant this call returns. Does NOT render;
-// render_frame() always renders the last-published active scene, so a tick
-// with no set_scene() call re-renders the previous one (freeze-frame, same
-// philosophy as micropilot_rendering_node).
+// internal staging buffer (mpviz::detail::SceneBuffer) and atomically
+// publishes it as the active scene. This call touches ONLY that internal
+// buffer — no Filament::Engine/Scene/TransformManager/RenderableManager call
+// happens here, which is what makes it safe to call from a different thread
+// than the one that owns the Filament Engine (today's single-threaded
+// executor calls it from the same thread as render_frame(); a later ingest
+// thread may call it from elsewhere without new locking — SceneBuffer's
+// mutex already covers the publish/read race, Task 1). `scene`'s arrays may
+// be freed/reused the instant this call returns.
+// Does NOT render, and does NOT touch Filament: render_frame() always
+// re-derives everything Filament-side (ego transform, material params,
+// theme blend) from the last-published active() scene, on whichever thread
+// owns the Engine — so a tick with no set_scene() call re-renders the
+// previous one (freeze-frame, same philosophy as micropilot_rendering_node),
+// and all Engine/component calls still happen from a single thread as
+// Filament requires.
 void set_scene(VisualRenderer*, const SceneGraph& scene);
 
 }  // namespace mpviz
@@ -242,6 +251,38 @@ TEST(SceneBuffer, DeepCopy_SurvivesCallerBufferReuse) {
     EXPECT_EQ(buf.active().objects[0].id, 7u);  // must have been deep-copied
 }
 
+TEST(SceneBuffer, DeepCopy_SurvivesCallerNestedBufferReuse) {
+    // The shallow-copy trap: objs[0].id above lives directly in the
+    // TrackedObject struct, so even a flat memcpy-style copy passes the test
+    // above. predicted_path/label are pointers INTO caller-owned storage the
+    // struct doesn't own — this is the case that actually exercises "deep".
+    mpviz::detail::SceneBuffer buf;
+    std::vector<mpviz::Vec3> path = {{1, 1, 0}, {2, 2, 0}};
+    std::string label = "car-42";
+    std::vector<mpviz::TrackedObject> objs(1);
+    objs[0].id = 7;
+    objs[0].predicted_path = path.data();
+    objs[0].predicted_path_count = static_cast<uint32_t>(path.size());
+    objs[0].label = label.c_str();
+    mpviz::SceneGraph g{};
+    g.objects = objs.data();
+    g.object_count = 1;
+    buf.publish(g);
+
+    // Caller frees/overwrites its nested buffers after publish() returns —
+    // set_scene's frozen contract requires the copy to have taken its own
+    // storage for these, not just for the flat TrackedObject array.
+    path.assign(2, mpviz::Vec3{-9, -9, -9});
+    label.assign("OVERWRITTEN");
+
+    const mpviz::TrackedObject& active_obj = buf.active().objects[0];
+    ASSERT_EQ(active_obj.predicted_path_count, 2u);
+    EXPECT_DOUBLE_EQ(active_obj.predicted_path[0].x, 1.0);
+    EXPECT_DOUBLE_EQ(active_obj.predicted_path[1].x, 2.0);
+    ASSERT_NE(active_obj.label, nullptr);
+    EXPECT_STREQ(active_obj.label, "car-42");
+}
+
 TEST(SceneBuffer, NoNewPublish_KeepsPreviousActiveScene) {
     mpviz::detail::SceneBuffer buf;
     mpviz::SceneGraph g{};
@@ -258,6 +299,7 @@ TEST(SceneBuffer, NoNewPublish_KeepsPreviousActiveScene) {
 // scene_buffer.hpp
 #pragma once
 #include <mutex>
+#include <string>
 #include <vector>
 #include "visual_renderer/scene.h"
 
@@ -267,18 +309,59 @@ namespace mpviz::detail {
 // mpviz::SceneGraph handed out by active() has valid pointers for as long as
 // this object isn't republished. NOT itself passed across the POD boundary —
 // internal only.
+//
+// Every category struct in scene.h has, in addition to its own flat array,
+// pointers into further caller-owned buffers (TrackedObject::predicted_path/
+// label, PathRibbon::points, MapElement::points, GroundGridLayer::cells,
+// AlertPolygon::points, GenericMarker::points/text/mesh_path,
+// AlertChip::text). A flat std::vector<TrackedObject> copy alone still
+// leaves those inner pointers aimed at the CALLER's memory — exactly the use-
+// after-free the frozen set_scene contract ("scene's arrays may be freed/
+// reused the instant this call returns") promises can't happen. So each
+// category gets one parallel "nested storage" vector alongside its flat
+// vector, and assign() repoints every entry's pointer fields at its own copy
+// after copying.
 struct OwnedScene {
     mpviz::SceneGraph view{};  // pointers below point into this object's own vectors
     std::vector<TrackedObject> objects;
+    std::vector<std::vector<Vec3>> object_paths;   // objects[i].predicted_path storage
+    std::vector<std::string> object_labels;        // objects[i].label storage
     std::vector<PathRibbon> paths;
+    std::vector<std::vector<Vec3>> path_points;    // paths[i].points storage
     std::vector<MapElement> map_elements;
+    std::vector<std::vector<Vec3>> map_element_points;
     std::vector<GroundGridLayer> grids;
+    std::vector<std::vector<uint8_t>> grid_cells;  // grids[i].cells storage
     std::vector<AlertPolygon> alerts;
+    std::vector<std::vector<Vec3>> alert_points;
     std::vector<GenericMarker> markers;
+    std::vector<std::vector<Vec3>> marker_points;
+    std::vector<std::string> marker_texts;         // "" stored for a nullptr text
+    std::vector<std::string> marker_mesh_paths;    // "" stored for a nullptr mesh_path
     std::vector<AlertChip> chips;
-    // Deep-copies `src` (including nested Vec3[]/char* payloads reached by
-    // the arrays above) into this object's vectors and repoints view's
-    // pointers at them.
+    std::vector<std::string> chip_texts;
+    // Deep-copies `src` — including every nested Vec3[]/uint8_t[]/char*
+    // payload reached by the arrays above — into this object's vectors, and
+    // repoints view's pointers (both the top-level array pointers AND each
+    // entry's own nested pointer fields) at the copies. Pattern, shown once
+    // for objects[]/predicted_path — every other category follows the same
+    // shape (resize the nested-storage vector to match count, copy element-
+    // by-element, repoint):
+    //
+    //   objects.assign(src.objects, src.objects + src.object_count);
+    //   object_paths.resize(src.object_count);
+    //   object_labels.resize(src.object_count);
+    //   for (uint32_t i = 0; i < src.object_count; ++i) {
+    //       const TrackedObject& s = src.objects[i];
+    //       object_paths[i].assign(s.predicted_path, s.predicted_path + s.predicted_path_count);
+    //       objects[i].predicted_path = object_paths[i].data();
+    //       object_labels[i] = s.label ? s.label : "";
+    //       objects[i].label = s.label ? object_labels[i].c_str() : nullptr;
+    //   }
+    //   view.objects = objects.data();
+    //   // ... repeat for paths[].points, map_elements[].points,
+    //   // grids[].cells, alerts[].points, markers[].points/text/mesh_path,
+    //   // chips[].text.
     void assign(const mpviz::SceneGraph& src);
 };
 
@@ -351,7 +434,8 @@ cmake --build build && ctest --test-dir build --output-on-failure
 ## Task 2 (VM-011): Theme system on a real lit pipeline + golden-image harness
 
 **Files:**
-- Create: `cuda/src/libs/visual_renderer/assets/materials/clay.mat` (lit, replaces `simple_color.mat` for themed surfaces)
+- Create: `cuda/src/libs/visual_renderer/assets/materials/clay.mat` (lit, opaque, replaces `simple_color.mat` for themed solid surfaces: ground, ego clay-box fallback, ego glTF remap)
+- Create: `cuda/src/libs/visual_renderer/assets/materials/clay_faded.mat` (lit, per-vertex-alpha variant, grid-only — see Step 2)
 - Create: `cuda/src/libs/visual_renderer/assets/themes/dark_adas.yaml`
 - Create: `cuda/src/libs/visual_renderer/assets/themes/light_clay.yaml`
 - Create: `cuda/src/libs/visual_renderer/src/theme.hpp`, `src/theme.cpp` (YAML → internal `Theme` struct; NOT POD, internal-only)
@@ -362,6 +446,7 @@ cmake --build build && ctest --test-dir build --output-on-failure
 - Modify: `cuda/src/libs/visual_renderer/src/renderer.cpp` (drop the Epic 0 spike scene: unlit cube/`simple_color.mat` ground+grid; replace with themed ground+grid+fog on `clay.mat`, sun + analytic-IBL wired for real)
 - Modify: `cuda/src/libs/visual_renderer/CMakeLists.txt` (FetchContent yaml-cpp; exclude `tests/golden.cpp` from the auto-gtest glob, compile it as a plain object linked into the other test binaries instead)
 - Modify: `cuda/src/libs/visual_renderer/tests/test_hello_frame.cpp` (delete or repoint — Epic 0's cube-scene assertions no longer hold once Task 2 replaces the scene; see Step 1)
+- Modify: `cuda/src/ros_apps/src/micropilot_visualization_node/CMakeLists.txt` (teach the prebuilt-archive import about `libyaml-cpp.a` — see Step 5; this is a hard link-error blocker for `colcon_build.sh` the moment `theme.cpp` calls into yaml-cpp, unlike gltfio, see Task 4's Files list note)
 
 **Interfaces:** internal `mpviz::detail::Theme` struct and `Theme load_theme(const char* dir, const char* name)` (used by Task 3's transition code too); no new public POD (theme *names* cross the boundary as `const char*` via `set_theme`/`RenderConfig`, nothing else needs to).
 
@@ -371,7 +456,9 @@ cmake --build build && ctest --test-dir build --output-on-failure
 
 ### 2b. The lit material
 
-- [ ] **Step 2:** Write `clay.mat`:
+- [ ] **Step 2:** Write TWO materials, not one. A single shared "clay" material can't honestly be both (a) opaque, depth-writing, SSAO-participating, no-vertex-color-required — which every solid clay surface needs, including Task 4's gltfio-loaded ego mesh, which has no COLOR vertex attribute and shouldn't be forced to grow one — and (b) alpha-blended with a per-vertex fade, which only the grid actually needs. So: `clay.mat` is the shared solid material (ground, ego clay-box fallback, ego glTF remap all use it), and `clay_faded.mat` is a grid-only variant.
+
+  `clay.mat` — opaque, no vertex-color requirement, usable on ANY renderable in the scene including gltfio-loaded meshes:
 ```
 material {
     name : clay,
@@ -379,11 +466,13 @@ material {
     parameters : [
         { type : float3, name : baseColor },
         { type : float, name : roughness },
-        { type : float, name : metallic },
-        { type : float4, name : vertexAlpha, precision: high }
-    ],
-    requires : [ color ],
-    blending : transparent
+        { type : float, name : metallic }
+    ]
+    // blending: opaque is Filament's default — no `blending` line needed.
+    // No `requires: [color]` — this material never reads a vertex color, so
+    // it places zero constraints on the vertex layout of whatever it's
+    // bound to (Epic 0's ground/grid Vertex struct, a future gltfio asset,
+    // anything).
 }
 fragment {
     void material(inout MaterialInputs material) {
@@ -391,11 +480,42 @@ fragment {
         material.baseColor.rgb = materialParams.baseColor;
         material.roughness = materialParams.roughness;
         material.metallic = materialParams.metallic;
-        material.baseColor.a = getColor().a;  // per-vertex fade (grid distance fade, Step 6)
     }
 }
 ```
-  (`blending: transparent` + per-vertex color alpha is how the grid's distance fade (Step 6) and later staleness fade (Task 1's `staleness_alpha`, consumed starting Epic 2) both flow through one material — no second "faded" material variant.) matc-compiles via the same `CMakeLists.txt` configure-time block Epic 0 already added for `simple_color.mat` (glob picks it up automatically).
+  `clay_faded.mat` — the grid's own material; the ONLY renderable that needs a COLOR vertex attribute is the grid's own dedicated vertex buffer (built once, at grid-construction time, already a distinct `make_vertex_buffer` call from the ground plane's — extending just that one buffer's layout doesn't touch the ground, the ego, or gltfio meshes at all):
+```
+material {
+    name : clay_faded,
+    shadingModel : lit,
+    parameters : [
+        { type : float3, name : baseColor },
+        { type : float, name : roughness },
+        { type : float, name : metallic }
+    ],
+    requires : [ color ],
+    blending : fade
+    // `fade` (not `transparent`): Filament's `transparent` blend mode
+    // expects premultiplied alpha and is meant for glass-like surfaces;
+    // `fade` is the non-premultiplied "dither this whole surface toward
+    // invisible" mode, which is what a distance-faded grid line actually
+    // wants, and matches straight (non-premultiplied) alpha values baked
+    // into vertex color at grid-build time (Step 7). Both modes put their
+    // renderables in the blended queue (no depth write, no SSAO, back-to-
+    // front sort) — confining that to the grid alone, instead of every clay
+    // surface, keeps the ground/ego/every future opaque object out of it.
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        material.baseColor.rgb = materialParams.baseColor;
+        material.roughness = materialParams.roughness;
+        material.metallic = materialParams.metallic;
+        material.baseColor.a = getColor().a;  // per-vertex distance fade, baked once at grid-build time (Step 7)
+    }
+}
+```
+  Both matc-compile via the same `CMakeLists.txt` configure-time block Epic 0 already added for `simple_color.mat` (glob picks up both new `.mat` files automatically). Staleness fade (Task 1's `staleness_alpha`, consumed starting Epic 2 for tracked objects/paths/alerts/markers) is a separate, later decision — Epic 2 picks whichever of these two patterns (or a third: scalar per-`MaterialInstance` alpha) fits fading a whole dynamic object, and is free to add a `clay_alpha.mat` scalar-alpha variant then; Epic 1 does not need to solve that now.
 - [ ] **Step 3: Failing test.** `test_theme.cpp`, first case just proves the material loads and differs visibly from flat unlit output under two different light directions (proves it's actually *lit*, not a copy of the unlit bug):
 ```cpp
 TEST(ClayMaterial, RespondsToLightDirection) {
@@ -486,13 +606,25 @@ FetchContent_MakeAvailable(yamlcpp)
 # link `yaml-cpp` PRIVATE into visual_renderer, same as Filament — never
 # leaks past the POD api.h/scene.h boundary.
 ```
+  **This alone is not enough to keep the ROS build green.** `libvisual_renderer.a` will now carry undefined `YAML::*` symbols, and `micropilot_visualization_node/CMakeLists.txt` links it via a hand-written
+  `INTERFACE_LINK_LIBRARIES "Filament::filament;${_libcxx_a};${_libcxxabi_a};${_libunwind_a}"`
+  on `visual_renderer_prebuilt` (it does not `add_subdirectory`/`find_package` visual_renderer's own build, so it has no automatic visibility into what that build links) — nothing there resolves `YAML::*`, so `colcon_build.sh` (Task 3 Step 13, Task 4 Step 11) fails to link `visualization_node` the first time `theme.cpp` is pulled in. Fix it there too, in the same CMakeLists.txt: resolve the FetchContent-built static archive's path (`${VISUAL_RENDERER_DIR}/build/_deps/yamlcpp-build/libyaml-cpp.a`, matching the existing `VISUAL_RENDERER_LIB` path-construction style a few lines above) and append it to `visual_renderer_prebuilt`'s `INTERFACE_LINK_LIBRARIES`:
+```cmake
+set(_yamlcpp_a "${VISUAL_RENDERER_DIR}/build/_deps/yamlcpp-build/libyaml-cpp.a")
+if(NOT EXISTS "${_yamlcpp_a}")
+    message(FATAL_ERROR "yaml-cpp static lib not found at ${_yamlcpp_a} — build visual_renderer first.")
+endif()
+set_target_properties(visual_renderer_prebuilt PROPERTIES
+    INTERFACE_LINK_LIBRARIES "Filament::filament;${_yamlcpp_a};${_libcxx_a};${_libcxxabi_a};${_libunwind_a}")
+```
+  (Confirm the actual archive path/name once yaml-cpp is first fetched — `FetchContent`'s build-dir naming is deterministic from the `FetchContent_Declare` name (`yamlcpp` → `yamlcpp-build`) but write down what the build actually produced rather than assuming.) For contrast, gltfio needs no equivalent fix: `GetFilament.cmake`'s `file(GLOB _filament_static_libs "${FILAMENT_ROOT}/lib/x86_64/*.a")` already picks up `libgltfio.a`/`libgltfio_core.a`/`libuberarchive.a` (verified present in the pinned 1.56.5 SDK) into the one `Filament::filament` target the node already links — no separate `Filament::gltfio` target or node CMakeLists change is needed for Task 4 (see that task's Files list).
 - [ ] **Step 6:** Run test_theme.cpp's material test again — still needs `renderer.cpp` wiring (next).
 
 ### 2d. Wire it into `renderer.cpp`
 
 - [ ] **Step 7:** Replace the Epic 0 scene construction:
   - Drop `simple_color.mat`/`colorMaterial`/the cube entirely (dead spike geometry).
-  - `create_renderer`: resolve `theme_assets_dir`/`initial_theme` from `RenderConfig` (default dir = compiled-in `DEFAULT_THEME_ASSETS_DIR`, default theme = `"dark_adas"`), `load_theme()`, build one `clay.mat` `MaterialInstance` for `ground` (flat, `vertexAlpha=1` everywhere) and one for `grid` (per-vertex alpha baked from radial distance vs. `grid.fade_start_m/fade_end_m` — the "fading with distance" AC from spec §7, computed once at grid-build time since the grid is static geometry, not per-frame).
+  - `create_renderer`: resolve `theme_assets_dir`/`initial_theme` from `RenderConfig` (default dir = compiled-in `DEFAULT_THEME_ASSETS_DIR`, default theme = `"dark_adas"`), `load_theme()` (see Step 7a below for the failure path — must NOT make `create_renderer` fail), build one `clay.mat` (opaque) `MaterialInstance` for `ground` (flat `baseColor`/`roughness`/`metallic`, no per-vertex color — see Step 2's material split) and one `clay_faded.mat` `MaterialInstance` for `grid`, whose dedicated vertex buffer gets a COLOR attribute added (only that buffer — ground/ego are unaffected) carrying per-vertex alpha baked from radial distance vs. `grid.fade_start_m/fade_end_m` — the "fading with distance" AC from spec §7, computed once at grid-build time since the grid is static geometry, not per-frame.
   - Sun: reuse Epic 0's already-built `LightManager::Type::SUN` entity, but now actually theme-driven: `direction`/`color`/`intensity` from the loaded theme instead of Epic 0's hardcoded constants.
   - IBL: replace Epic 0's flat single-SH-band "ambient" with a real (if deliberately low-frequency) 2-band irradiance IBL, analytically derived from the theme's `ibl.sky_color`/`ibl.ground_color` — a closed-form hemisphere-gradient-to-SH conversion (well-known constants; the "Stupid Spherical Harmonics Tricks" L0/L1 hemisphere gradient), NOT a full prefiltered specular cubemap:
     ```cpp
@@ -511,6 +643,36 @@ FetchContent_MakeAvailable(yamlcpp)
     ```
   - Fog: `filament::View::setFogOptions({.color = theme.palette.fog, .density = theme.fog.density, ...})` (Filament's built-in distance fog — native feature, no custom skybox mesh) and clear color set to `theme.palette.sky` (flat "sky" backdrop, matching the clay/flat aesthetic of both references — no skydome geometry).
   - `set_scene`/ego rendering plug in here too (Task 4) but Task 2 only needs `SceneGraph.sim_time_sec` piped through so Task 3's transition math (next) has a clock — no ego yet.
+- [ ] **Step 7a: Re-enable post-processing (Epic 0 turned it off; this epic needs it back).** Epic 0's `create_renderer` calls `r->view->setPostProcessingEnabled(false)` — with post-processing off, `setFogOptions` above is a silent no-op (Filament applies fog in the post-process chain) and there is no tone mapping/color grading/gamma encoding at all, so the themes' photometric sun (15,000–100,000 lux) and IBL (8,000–35,000) would clip to flat white instead of rendering as lit. Fix, in `create_renderer`:
+  - `r->view->setPostProcessingEnabled(true);`
+  - Build and set a `filament::ColorGrading` with ACES tone mapping (spec §4.2): `r->view->setColorGrading(filament::ColorGrading::Builder().toneMapping(filament::ColorGrading::ToneMapping::ACES).build(*engine));`
+  - Enable bloom so the emissive path exists before Epic 2 needs it (the theme YAMLs already ship `emissive.ribbon_strength`, which presupposes bloom, even though Epic 1 has no emissive ribbon geometry yet): `r->view->setBloomOptions({.enabled = true, .strength = 0.5f /* tuned against goldens, not a spec number */});`
+  - Set a fixed `Camera::setExposure(aperture, shutterSpeed, sensitivity)` on the render camera — physically-based lighting with the default `getExposure()` (calibrated for a normal 1–10k lux daylight scene) will over/under-expose against the theme's much higher sun/IBL numbers otherwise. Pick values by rendering a golden and tuning until the clay surfaces read as mid-gray-ish, not clipped white or crushed black — this is a one-time calibration captured in the golden, not a per-theme knob.
+  - State the color space explicitly (this was previously unstated): every theme palette RGB triple (`ground`/`sky`/`fog`/`lane_paint`/`ribbon_*`/`object_tints`/`alert`/`grid.line_color`/`hud` colors, and `ibl.sky_color`/`ibl.ground_color`) is authored in LINEAR space and fed straight into `materialParams`/`setFogOptions`/`IndirectLight::Builder` with no sRGB decode — matching Filament's own convention that `baseColor`/light/fog colors are linear, and consistent with the sun/IBL `intensity` fields already being physical units (lux), not colors. `theme.cpp`'s loader does no color-space conversion; document this assumption in a comment at the top of `theme.hpp`.
+  - This step must land BEFORE Task 2 Step 11 generates the committed goldens — the goldens should capture the real ACES/exposure/bloom output, not the clipped-linear look the Epic 0 deviation would otherwise bake in.
+- [ ] **Step 7b: Theme-load failure must be non-fatal (spec §9).** `load_theme()` can fail three ways: `theme_assets_dir` is null/missing/unreadable, the resolved `<name>.yaml` file is missing, or a present file is malformed YAML. In every case `create_renderer` must still succeed — a broken theme-asset install must never take rendering down, mirroring `set_ego_model`'s own non-fatal design elsewhere in this plan. Add a small compiled-in `kFallbackTheme` (a `Theme` struct literal with the same values as `dark_adas.yaml`, kept in `theme.cpp`, never read from disk) and have `create_renderer` use it whenever `load_theme()` fails, instead of propagating failure up to the caller. `load_theme()` itself returns `std::optional<Theme>` (or a bool + out-param — internal-only type, not POD) rather than throwing, so `create_renderer` can make this decision inline. (`set_theme`'s existing "unknown name → return false, no-op" contract is unrelated and unchanged — that's normal runtime behavior for a bad `~/set_theme` request, not an asset-install failure at startup.)
+- [ ] **Step 7c: Failing test for the Step 7b fallback**, in `test_theme.cpp`:
+```cpp
+TEST(ThemeLoad, MissingThemeDir_FallsBackToBuiltinTheme) {
+    mpviz::RenderConfig cfg{320, 240, 0, "/nonexistent/theme/dir", "dark_adas"};
+    mpviz::VisualRenderer* r = mpviz::create_renderer(cfg);
+    if (r == nullptr) {
+        // Only acceptable reason for null here is no GPU/EGL, same skip
+        // convention as every other renderer test — NOT a missing theme dir.
+        GTEST_SKIP() << "no GPU/EGL";
+    }
+    // create_renderer must have succeeded despite the bad theme_assets_dir —
+    // rendering one frame with the built-in fallback theme must not crash.
+    mpviz::SceneGraph scene{};
+    mpviz::set_scene(r, scene);
+    mpviz::CameraPose pose{{0,-8,4}, {0,0,0}, 60.0};
+    mpviz::FrameView view{/*...*/};
+    EXPECT_TRUE(mpviz::render_frame(r, pose, view));
+    mpviz::destroy_renderer(r);
+}
+```
+  Run — FAIL (`create_renderer` currently returns nullptr on a bad theme dir, since `load_theme()` failure isn't handled yet).
+- [ ] **Step 7d: Run — PASS** (after Step 7b's fallback is implemented).
 - [ ] **Step 8: Run — PASS** (`ClayMaterial.RespondsToLightDirection` and any ground/fog assertions).
 
 ### 2e. Golden-image harness (used by every later epic — build it right once)
@@ -519,15 +681,28 @@ FetchContent_MakeAvailable(yamlcpp)
 ```cpp
 // tests/golden.hpp
 namespace mpviz::testing {
-// Renders one frame of `scene` under `theme_name` at `cfg`/`pose`, writes it
-// to `out_png_path` (stb_image_write, already vendored for examples/), and
-// returns a block-SSIM score in [0,1] against `golden_png_path` (0 if the
-// golden doesn't exist yet — first run of a new golden always fails loudly,
-// never silently "passes" with nothing to compare against).
-// Returns -1.0 (caller must GTEST_SKIP()) if create_renderer() fails, i.e.
-// no GPU/EGL device — identical convention to test_hello_frame.cpp.
-double render_and_compare(const mpviz::RenderConfig& cfg, const char* theme_name,
-                           const mpviz::SceneGraph& scene, const mpviz::CameraPose& pose,
+// Renders ONE frame of `r`'s current active scene/theme state from `pose`,
+// writes it to `out_png_path` (stb_image_write, already vendored for
+// examples/), and returns a block-SSIM score in [0,1] against
+// `golden_png_path` (0 if the golden doesn't exist yet — first run of a new
+// golden always fails loudly, never silently "passes" with nothing to
+// compare against).
+//
+// The harness does NOT create a renderer, and does NOT call set_scene/
+// set_theme — it only calls render_frame(r, pose, ...) and compares the
+// result. The caller owns create_renderer()/destroy_renderer(), and must
+// have already driven `r` into whatever scene/theme/transition state it
+// wants a golden of via set_scene()/set_theme() BEFORE calling this. This is
+// what lets Task 3's mid-transition goldens (a `VisualRenderer` sitting in
+// the middle of a set_theme() ease) be captured at all — a harness that
+// created its own renderer from a theme *name* could never observe
+// transition state, and "midpoint" isn't a loadable
+// assets/themes/midpoint.yaml stem anyway.
+//
+// Returns -1.0 (caller must GTEST_SKIP()) if `r` is null — same
+// no-GPU/EGL convention as test_hello_frame.cpp, just checked by the caller
+// before create_renderer() rather than inside this function.
+double render_and_compare(mpviz::VisualRenderer* r, const mpviz::CameraPose& pose,
                            const char* golden_png_path, const char* out_png_path);
 }
 ```
@@ -540,15 +715,20 @@ TEST(ThemeGolden, EmptyWorld_DarkAdas) {
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     mpviz::SceneGraph scene{};  // empty: ego.valid=0, every count=0
     scene.sim_time_sec = 0.0;
-    mpviz::set_scene(r, scene);
+    mpviz::set_scene(r, scene);           // caller drives scene state...
+    // initial_theme is already "dark_adas" from cfg, so no set_theme() call
+    // needed here — Task 3's transition tests are what exercise mid-blend.
     mpviz::CameraPose pose{{0,-8,4}, {0,0,0}, 60.0};
     double ssim = mpviz::testing::render_and_compare(
-        cfg, "dark_adas", scene, pose,
+        r, pose,                          // ...harness only renders + SSIMs `r` as-is
         "tests/goldens/empty_world_dark_adas.png", "/tmp/empty_world_dark_adas_actual.png");
     EXPECT_GT(ssim, 0.98);
     mpviz::destroy_renderer(r);
 }
-TEST(ThemeGolden, EmptyWorld_LightClay) { /* identical, theme="light_clay" */ }
+TEST(ThemeGolden, EmptyWorld_LightClay) {
+    // identical, except cfg.initial_theme = "light_clay" and the golden/out
+    // paths point at empty_world_light_clay.png.
+}
 ```
   Run — FAIL (no committed golden PNG yet: `render_and_compare` returns 0 by contract, `EXPECT_GT(0, 0.98)` fails loudly, which is the correct first-run behavior, not a harness bug).
 - [ ] **Step 11:** Generate the initial goldens deliberately (not silently from a passing test): run the same binary with an env var/flag that skips the comparison and just writes the PNG (`golden.cpp`'s `render_and_compare` already writes `out_png_path` unconditionally — copy that file to `tests/goldens/...png` after a **human looks at it**, matching the reference images' clay/matte look). `tests/golden.py` is the developer-facing wrapper for this (`python3 tests/golden.py --show /tmp/empty_world_dark_adas_actual.png` opens/prints it for a visual sanity check before committing — this project's stated working style is "user judges by visuals"). Commit the two PNGs.
@@ -610,21 +790,26 @@ TEST(ThemeTransition, DeterministicClock_MatchesTargetAtDuration) {
     mpviz::set_theme(r, "light_clay", 0.0, 0.8); // begin transition at t=0
 
     scene.sim_time_sec = 0.0;
-    // golden at t=0.0 (still ~dark_adas — first tick of the transition)
-    EXPECT_GT(mpviz::testing::render_and_compare(cfg, "dark_adas", scene,
+    mpviz::set_scene(r, scene);
+    // golden at t=0.0 (still ~dark_adas — first tick of the transition).
+    // render_and_compare takes `r` directly and renders whatever blended
+    // state set_theme()/set_scene() already put it in — it never loads a
+    // theme by name itself, so there's no "midpoint" theme file to resolve.
+    EXPECT_GT(mpviz::testing::render_and_compare(r,
         kFixedPose, "tests/goldens/transition_t0.png", "/tmp/t0.png"), 0.98);
 
     scene.sim_time_sec = 0.4;
     mpviz::set_scene(r, scene);
     // golden at t=0.4s (~50% blended — its own committed midpoint golden,
-    // not compared against either endpoint)
-    EXPECT_GT(mpviz::testing::render_and_compare(cfg, "midpoint", scene,
+    // not compared against either endpoint; `r` itself is mid-ease, which is
+    // exactly the state a name-based harness could never reach)
+    EXPECT_GT(mpviz::testing::render_and_compare(r,
         kFixedPose, "tests/goldens/transition_t0_4.png", "/tmp/t0_4.png"), 0.98);
 
     scene.sim_time_sec = 0.8;
     mpviz::set_scene(r, scene);
     // golden at t=0.8s (fully light_clay — transition_sec elapsed)
-    EXPECT_GT(mpviz::testing::render_and_compare(cfg, "light_clay", scene,
+    EXPECT_GT(mpviz::testing::render_and_compare(r,
         kFixedPose, "tests/goldens/transition_t0_8.png", "/tmp/t0_8.png"), 0.98);
     mpviz::destroy_renderer(r);
 }
@@ -670,8 +855,8 @@ cd cuda/scripts/ros_apps_build && ./colcon_build.sh
 - Create: `cuda/src/libs/visual_renderer/scripts/obj2gltf_m02p.py`
 - Modify: `requirements.txt` (`trimesh>=4.0` — pure-Python OBJ/glTF conversion; no Blender/Node toolchain needed, matches this repo's plain-pip convention. `pygltflib`/npm `obj2gltf` considered and rejected: this box has no root-installed Blender, and shelling out to npm's `obj2gltf` would add a Node runtime dependency to a C++/Python/ROS repo for a one-time conversion script trimesh already covers.)
 - Create: `cuda/src/libs/visual_renderer/src/ego.hpp`, `src/ego.cpp` (glTF/GLB load via Filament gltfio + clay-box fallback)
-- Modify: `cuda/src/libs/visual_renderer/cmake/GetFilament.cmake` (add `Filament::gltfio` imported target — **Step 1 verifies the prebuilt 1.56.5 SDK actually ships it before assuming so**, mirroring how Epic 0 discovered headless EGL wasn't shipped either)
 - Create: `cuda/src/libs/visual_renderer/tests/test_ego.cpp`
+- Create: `cuda/src/libs/visual_renderer/tests/fixtures/test_cube.glb` (tiny, git-trackable glTF fixture — see Step 1/Step 4)
 - Create: `cuda/src/ros_apps/src/micropilot_visualization_node/src/tf_adapter.cpp`, `include/.../tf_adapter.hpp`
 - Create: `cuda/src/ros_apps/src/micropilot_visualization_node/test/test_tf_adapter.py` (recorded TF fixture → expected speed)
 - Modify: node `CMakeLists.txt` (`find_package(tf2_ros)`), `visualization_node.{hpp,cpp}` (own `tf2_ros::Buffer`/`TransformListener`, `ego_model_path`/`ego_fallback_dims` params, build `SceneGraph.ego` each tick)
@@ -711,7 +896,7 @@ def main() -> int:
 if __name__ == "__main__":
     raise SystemExit(main())
 ```
-  Test (`demo()`-style, per the smallest-check rule — this is a thin CLI wrapper, not business logic, so one manual run stands in for a unit test): run it against a small throwaway test OBJ (a unit cube written inline, NOT the real 143MB M02P.obj — that's a one-time manual step against the user's actual Downloads file, not a CI fixture) and assert the output `.glb` parses back via `trimesh.load` with the same vertex count.
+  Test (`demo()`-style, per the smallest-check rule — this is a thin CLI wrapper, not business logic, so one manual run stands in for a unit test): run it against a small throwaway test OBJ (a unit cube written inline, NOT the real 143MB M02P.obj — that's a one-time manual step against the user's actual Downloads file, not a CI fixture) and assert the output `.glb` parses back via `trimesh.load` with the same vertex count. **Commit this cube's `.glb` output** as `cuda/src/libs/visual_renderer/tests/fixtures/test_cube.glb` (a few KB, unlike the 143MB M02P asset) — Step 4's `Ego.LoadValidGltf_RendersNonEmptyBoundingBox` test needs a real, always-in-git glTF asset to load, and this self-check already produces exactly that as a side effect.
 - [ ] **Step 2:** Run for real against the user's file (manual, one-time, not part of any test suite — the output is a large binary that stays out of git, same as the source OBJ):
 ```bash
 python3 cuda/src/libs/visual_renderer/scripts/obj2gltf_m02p.py /home/ag7/Downloads/M02P.obj
@@ -725,23 +910,40 @@ python3 cuda/src/libs/visual_renderer/scripts/obj2gltf_m02p.py /home/ag7/Downloa
 nm cuda/src/libs/visual_renderer/build/_deps/filament-1.56.5/filament/lib/x86_64/libgltfio.a 2>&1 | grep -c AssetLoader
 ```
   If it's there (expected — gltfio is a headline Filament feature, unlike the backend-internal `PlatformEGLHeadless` Epic 0 found missing), proceed with Step 4. **If not**, the fallback (document which one was needed, don't silently pick): a minimal hand-rolled GLB parser reading only POSITION/NORMAL/indices from the binary chunk (glTF's JSON+binary layout is well-documented and small for a single static mesh with no skinning/animation) — smaller than vendoring gltfio's own dependency tree (cgltf, draco, ktx) for one asset.
-- [ ] **Step 4: Failing test.**
+- [ ] **Step 4: Failing test.** `Ego.LoadValidGltf_RendersNonEmptyBoundingBox` loads the fixture committed in Step 1 (`tests/fixtures/test_cube.glb`) — not `{ /* ... */ }`, and not the user's non-git M02P asset:
 ```cpp
-TEST(Ego, LoadValidGltf_RendersNonEmptyBoundingBox) { /* ... */ }
+TEST(Ego, LoadValidGltf_RendersNonEmptyBoundingBox) {
+    mpviz::RenderConfig cfg{320, 240, 0, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP();
+    EXPECT_TRUE(mpviz::set_ego_model(r, "tests/fixtures/test_cube.glb", {4.5, 2.0, 1.8}));
+    mpviz::SceneGraph scene{}; scene.ego = {{0,0,0}, 0, 0, /*valid=*/1};
+    mpviz::set_scene(r, scene);
+    mpviz::CameraPose pose{{0,-8,3}, {0,0,0.5}, 60};
+    mpviz::FrameView view{/*...*/};
+    EXPECT_TRUE(mpviz::render_frame(r, pose, view));
+    EXPECT_GT(mpviz::testing::rendered_bounding_box_diagonal(r), 0.0);  // ego.cpp exposes this test-only introspection hook; not part of api.h/scene.h
+}
 TEST(Ego, LoadMissingFile_FallsBackToClayBoxNonFatally) {
     mpviz::RenderConfig cfg{320, 240, 0, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP();
     EXPECT_FALSE(mpviz::set_ego_model(r, "/nonexistent/path.glb", {4.5, 2.0, 1.8}));
     mpviz::SceneGraph scene{}; scene.ego = {{0,0,0}, 0, 0, /*valid=*/1};
+    mpviz::set_scene(r, scene);
     mpviz::CameraPose pose{{0,-8,3}, {0,0,0.5}, 60};
     mpviz::FrameView view{/*...*/};
     EXPECT_TRUE(mpviz::render_frame(r, pose, view));  // must not crash/fail — clay box instead
 }
 ```
   Run — FAIL.
-- [ ] **Step 5: Implement `ego.cpp`.** `set_ego_model`: `gltfio::AssetLoader` loads `gltf_path`; on any failure (file missing, parse error, `loadFilamentAsset` returns null), build a themed clay box (reuse Task 2's `clay.mat` ground/grid instance-creation pattern, sized to `fallback_dims`) via the same `add_mesh`-style helper Epic 0 already has for the ground/grid/cube — generalize that lambda rather than duplicating it. Store whichever entity got created on `VisualRenderer` so per-frame `set_scene` can update its `TransformManager` transform from `SceneGraph.ego.position/heading_rad` without reloading anything.
-- [ ] **Step 6: Run — PASS.** Golden: `tests/test_ego.cpp` `EgoGolden_ClayBoxFallback_DarkAdas` (ego at a fixed pose, no real glTF asset committed to the repo — the golden exercises the fallback box path, which is the only ego rendering path CI can exercise without the (non-git) M02P asset present).
+- [ ] **Step 5: Implement `ego.cpp`.** Two Filament gltfio pieces are required for a loaded asset to actually render anything (both easy to miss — exactly the class of gotcha Epic 0 kept hitting), plus a material-remap decision:
+  - `gltfio::AssetLoader::create()` needs a `MaterialProvider`. The pinned 1.56.5 SDK ships `gltfio/materials/uberarchive.h` + `libuberarchive.a` (glob-included already, see Task 2 Step 5's note) — use `gltfio::createUbershaderProvider(engine, UBERARCHIVE_DEFAULT_DATA, UBERARCHIVE_DEFAULT_SIZE)` as the `MaterialProvider` passed to `AssetLoader::create()`.
+  - After `AssetLoader::create...FromBinary()`/`...FromJson()` returns a non-null `FilamentAsset*`, its geometry is NOT yet uploaded — `gltfio::ResourceLoader::loadResources(asset)` must run (synchronously; the GLB's buffers are embedded so there's no external URI to resolve asynchronously) before the asset has any visible geometry. Skipping this is the "silently renders nothing" trap the finding calls out.
+  - Material remap (spec §4.2 says the ego should read as clay, matching the rest of the scene, not keep whatever materials came out of the OBJ→glTF conversion): after `loadResources`, walk `asset->getRenderableEntities()` and call `RenderableManager::setMaterialInstanceAt(entity, primitiveIndex, clay_instance)` for every primitive, pointing at the SAME opaque `clay.mat` `MaterialInstance` (or a per-entity instance of it) Step 2 already builds for the ground/ego-fallback box. This remap is only safe to do blind because Task 2's `clay.mat` fix dropped `requires: [color]` — the gltfio-loaded mesh has POSITION/NORMAL/UV attributes but no vertex COLOR, so remapping it to the OLD `clay.mat` (which required COLOR) would have failed; remapping to the current opaque `clay.mat` does not.
+  - On any failure (file missing, parse error, `loadFilamentAsset` returns null), build a themed clay box (reuse Task 2's `clay.mat` ground-instance-creation pattern, sized to `fallback_dims`) via the same `add_mesh`-style helper Epic 0 already has for the ground/grid/cube — generalize that lambda rather than duplicating it.
+  - Store whichever entity got created on `VisualRenderer`. Per the Finding-3 fix to `set_scene`'s contract, `set_scene` itself must NOT touch this entity's `TransformManager` transform (that would be a Filament/Engine call from what may not be the render thread) — instead, `render_frame` updates the ego transform from `SceneBuffer::active().ego.position/heading_rad` at the top of every call, the same place Task 3's theme blend gets applied. No reloading either way.
+- [ ] **Step 6: Run — PASS** for both `Ego` tests above. Golden: `tests/test_ego.cpp` `EgoGolden_ClayBoxFallback_DarkAdas` (ego at a fixed pose using the clay-box fallback path — no glTF asset — since the CI-committed golden must not depend on the user's non-git M02P asset; `test_cube.glb` is exercised by the correctness test above, not by a committed golden).
 
 ### 4c. TF adapter (node side)
 
