@@ -257,16 +257,18 @@ accordingly. Adding a topic for the autonomy team = one YAML row, not code.
 | Adapter | Input | Produces |
 |---|---|---|
 | `DynamicObjectsAdapter` | `/perception/dynamic_objects_list` (MarkerArray; namespaces `*_bbox`, `*_arrow`, `*_text`, `*_hd_map_path`, `*_hd_map_path_dots`) | `TrackedObject[]` — bbox marker → pose/dims; text marker → label + **class inference**; arrow → velocity; hd_map_path → predicted path |
-| `HdMapAdapter` | `/hd_map_global_elements` (MarkerArray, latched-ish) | `MapElement[]`, cached until a new message arrives |
+| `HdMapAdapter` | **`/hd_map_local_elements` (primary — live-sim finding 2026-08-19: continuous ~10 Hz stream, always joinable)**; `/hd_map_global_elements` best-effort only (its publisher is VOLATILE publish-once-at-startup — late joiners get nothing); sim profile may also use latched `/sim/hd_map/markers` (TRANSIENT_LOCAL) | `MapElement[]`, cached until a new message arrives |
 | `PathAdapter` ×3 | `/behavior_path_planner/output_path_visualization`, `/navigation/global_path`, `/local_path` (nav_msgs/Path) | `PathRibbon` per role |
 | `OgmAdapter` ×2 | `/perception/dynamic_ogm`, `/perception/gradient_ogm` (+`_updates`) (OccupancyGrid + updates) | `GroundGrid` textures |
 | `CollisionAdapter` | the 5 collision-checker MarkerArray topics | `AlertPolygon[]` |
-| `TfAdapter` | TF (`map → base_link`) | `Ego` pose + speed |
+| `TfAdapter` | TF (`map → base_link`); speed prefers `/robot/feedback/robot_speed_mps` (Float32, live-sim finding 2026-08-19) with TF finite-difference as fallback | `Ego` pose + speed |
 | `GenericMarkerAdapter` | any additional MarkerArray topic named in the profile | `GenericMarker[]` (§7 fallback) |
 
 **Class inference** (until a typed perception topic exists — the adapter
-seam accepts one later without touching the renderer): parse the text-marker
-label for class keywords; if inconclusive, classify by bbox footprint
+seam accepts one later without touching the renderer): live-sim sampling
+(2026-08-19) shows text labels are `<prefix>_<track_id>` (e.g. `V_1105`),
+so the config map keys on the label PREFIX (V=vehicle, …; table completed
+from fixture data); if inconclusive, classify by bbox footprint
 (length/width/height thresholds: pedestrian < ~1 m² tall-thin; cyclist
 elongated-narrow; car/van/bus by length bands). Misclassification degrades
 to a *differently shaped clay model of the right size* — cosmetic, not
