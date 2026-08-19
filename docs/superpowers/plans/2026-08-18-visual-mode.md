@@ -142,6 +142,12 @@ bool render_frame(VisualRenderer*, const CameraPose&, FrameView out);
 }
 ```
 
+Epic 1 appends two nullable `const char* ` fields to `RenderConfig` (`theme_assets_dir`,
+`initial_theme`) under a borrow-then-copy lifetime rule — additive only, since every
+current caller uses `RenderConfig config{}` (verified: `tests/test_hello_frame.cpp:42`,
+`examples/hello_frame.cpp:18`, `visualization_node.cpp:108`), so no positional-init
+caller breaks.
+
 - [x] **Step 1: Failing gtest** — create renderer 320×240, render one frame with eye [-4,0,3.5] target [2,0,-0.5] (the node's default pose), assert: returns true, buffer not all-zero, sky pixels (top rows) differ from ground pixels (bottom rows). Skip test with `GTEST_SKIP()` when `create_renderer` returns nullptr AND no GPU/EGL device present.
 - [x] **Step 2: Run — FAIL (link error).** Confirmed for real: staged `src/renderer.cpp` aside (Task 1's `version.cpp` stub back in place), reconfigured from scratch, and `test_hello_frame` failed to *link* on undefined `mpviz::create_renderer/render_frame/destroy_renderer` — exactly this step's premise. Restored `renderer.cpp` and deleted `version.cpp` afterward (Task 1's stub said Task 2 would do this).
 - [x] **Step 3: Implement** `renderer.cpp`: Filament Engine (OpenGL backend, headless EGL), SwapChain `CONFIG_READABLE`, Scene with one directional sun + gray ground plane + grid lines + a lit cube at origin; `render_frame` = set camera lookAt/projection → `renderer->render(view)` → `readPixels` → RGB8 into `out.rgb`.
