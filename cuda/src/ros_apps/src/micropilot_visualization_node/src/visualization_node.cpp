@@ -50,7 +50,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
 
     out_width_ = declare_parameter<int>("out_width", 1280);
     out_height_ = declare_parameter<int>("out_height", 720);
-    quality_ = declare_parameter<int>("quality", 2);
+    quality_ = declare_parameter<int>("quality", 1);
     if (quality_ < 0 || quality_ > 2)
     {
         RCLCPP_ERROR(get_logger(), "quality must be 0 (low), 1 (med), or 2 (high), got %d",

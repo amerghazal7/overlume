@@ -1,0 +1,27 @@
+// clay.mat — Epic 1 Task 2 (VM-011). Shared LIT solid material for every
+// opaque clay surface: the ground plane, the ego clay-box fallback (Task 4),
+// and the ego glTF remap (Task 4) — including gltfio-loaded meshes, which
+// have no COLOR vertex attribute and must not be forced to grow one. See
+// docs/superpowers/plans/2026-08-18-visual-mode-epic1.md Task 2 Step 2.
+//
+// Opaque (Filament's default — no `blending` line needed) and `requires`
+// nothing, so it places zero constraints on the vertex layout of whatever
+// it's bound to. The grid needs a distance-faded ALPHA-blended variant
+// instead — that's clay_faded.mat, not this file.
+material {
+    name : clay,
+    shadingModel : lit,
+    parameters : [
+        { type : float3, name : baseColor },
+        { type : float, name : roughness },
+        { type : float, name : metallic }
+    ]
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        material.baseColor.rgb = materialParams.baseColor;
+        material.roughness = materialParams.roughness;
+        material.metallic = materialParams.metallic;
+    }
+}

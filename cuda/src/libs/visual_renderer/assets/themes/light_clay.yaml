@@ -1,0 +1,32 @@
+# light_clay.yaml — Epic 1 Task 2 (VM-011). Same key set as dark_adas.yaml,
+# no exceptions (that's the "no per-theme code branches" AC: if a theme
+# needs a key the other doesn't, the schema is wrong, not the loader).
+name: light_clay
+palette:
+  ground:      [0.82, 0.80, 0.76]
+  sky:         [0.78, 0.85, 0.92]
+  fog:         [0.80, 0.86, 0.92]
+  lane_paint:  [0.95, 0.95, 0.92]
+  ribbon_core: [0.15, 0.55, 0.95]
+  ribbon_glow: [0.15, 0.55, 0.95]
+  object_tints:
+    car: [0.2, 0.4, 0.85]
+    truck_van: [0.35, 0.45, 0.6]
+    bus: [0.9, 0.65, 0.2]
+    pedestrian: [0.85, 0.25, 0.25]
+    cyclist: [0.85, 0.55, 0.15]
+    unknown: [0.6, 0.6, 0.6]
+  alert:
+    info: [0.15, 0.5, 0.9]
+    warning: [0.95, 0.6, 0.05]
+    critical: [0.9, 0.1, 0.1]
+material: { roughness: 0.75, metallic: 0.0 }
+emissive: { ribbon_strength: 1.5 }
+grid: { line_color: [0.6, 0.58, 0.55], fade_start_m: 15.0, fade_end_m: 40.0 }
+hud: { text_color: [0.1, 0.12, 0.15], accent_color: [0.15, 0.55, 0.95], scale: 1.0 }
+sun: { direction: [-0.4, -0.2, -1.0], color: [1.0, 0.98, 0.92], intensity: 100000.0 }
+ibl:
+  sky_color:    [0.75, 0.82, 0.9]
+  ground_color: [0.5, 0.48, 0.44]
+  intensity: 35000.0
+fog: { density: 0.008 }

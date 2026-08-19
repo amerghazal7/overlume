@@ -2,7 +2,7 @@
   ros__parameters:
     out_width: 1280
     out_height: 720
-    quality: 2
+    quality: 1
     # 1 = rendering_node bowl, 2 = hybrid, 3 = this node (visual). Both nodes
     # must agree on the same value at startup (spec §3.1 "race handling") so
     # exactly one publisher is active on /rendering/image from the first frame.
