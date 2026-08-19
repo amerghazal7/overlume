@@ -9,6 +9,7 @@
 
 #include <gtest/gtest.h>
 
+#include <string>
 #include <vector>
 
 namespace {
@@ -20,38 +21,48 @@ bool AnyDiffer(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
 }  // namespace
 
 TEST(ClayMaterial, RespondsToLightDirection) {
-    // Two renderers with different themes (different sun direction/color/
-    // intensity, different IBL) rendering the same static ground+grid scene
-    // from the same pose must NOT produce identical pixels -- proves
-    // clay.mat actually responds to scene lighting, unlike
-    // Engine::getDefaultMaterial() and Epic 0's simple_color.mat (both
-    // confirmed lighting-independent, "Known Epic 0 deviation" in the plan).
+    // Two renderers loaded from fixture themes that are byte-for-byte
+    // identical except `sun.direction` (tests/fixtures/themes/sun_dir_{a,b}
+    // .yaml), rendering the same static ground+grid scene from the same
+    // pose, must NOT produce identical pixels -- proves clay.mat actually
+    // responds to the sun's direction, unlike Engine::getDefaultMaterial()
+    // and Epic 0's simple_color.mat (both confirmed lighting-independent,
+    // "Known Epic 0 deviation" in the plan).
+    //
+    // This deliberately does NOT compare two different shipped themes
+    // (dark_adas vs light_clay): those also differ in palette/fog/IBL, so a
+    // completely unlit material rendering two different baseColors would
+    // pass that comparison trivially and prove nothing about lighting (see
+    // epic1 review). Isolating sun.direction as the only variable is what
+    // the plan's Task 2 Step 3 AC actually specifies.
     constexpr uint32_t kWidth = 320, kHeight = 240;
-    mpviz::RenderConfig cfgDark{kWidth, kHeight, /*quality=*/1, kThemeDir, "dark_adas"};
-    mpviz::RenderConfig cfgLight{kWidth, kHeight, /*quality=*/1, kThemeDir, "light_clay"};
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    mpviz::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "sun_dir_a"};
+    mpviz::RenderConfig cfgB{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "sun_dir_b"};
 
-    mpviz::VisualRenderer* darkR = mpviz::create_renderer(cfgDark);
-    if (darkR == nullptr) {
+    mpviz::VisualRenderer* rA = mpviz::create_renderer(cfgA);
+    if (rA == nullptr) {
         GTEST_SKIP() << "no GPU/EGL";
     }
-    mpviz::VisualRenderer* lightR = mpviz::create_renderer(cfgLight);
-    ASSERT_NE(lightR, nullptr);
+    mpviz::VisualRenderer* rB = mpviz::create_renderer(cfgB);
+    ASSERT_NE(rB, nullptr);
 
     mpviz::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
-    std::vector<uint8_t> darkPixels(static_cast<size_t>(kWidth) * kHeight * 3);
-    std::vector<uint8_t> lightPixels(static_cast<size_t>(kWidth) * kHeight * 3);
-    mpviz::FrameView darkView{darkPixels.data(), kWidth, kHeight};
-    mpviz::FrameView lightView{lightPixels.data(), kWidth, kHeight};
+    std::vector<uint8_t> pixelsA(static_cast<size_t>(kWidth) * kHeight * 3);
+    std::vector<uint8_t> pixelsB(static_cast<size_t>(kWidth) * kHeight * 3);
+    mpviz::FrameView viewA{pixelsA.data(), kWidth, kHeight};
+    mpviz::FrameView viewB{pixelsB.data(), kWidth, kHeight};
 
-    ASSERT_TRUE(mpviz::render_frame(darkR, pose, darkView));
-    ASSERT_TRUE(mpviz::render_frame(lightR, pose, lightView));
+    ASSERT_TRUE(mpviz::render_frame(rA, pose, viewA));
+    ASSERT_TRUE(mpviz::render_frame(rB, pose, viewB));
 
-    EXPECT_TRUE(AnyDiffer(darkPixels, lightPixels))
-        << "dark_adas and light_clay rendered identical pixels -- clay.mat "
-           "isn't actually responding to theme-driven lighting.";
+    EXPECT_TRUE(AnyDiffer(pixelsA, pixelsB))
+        << "sun_dir_a and sun_dir_b (identical themes except sun.direction) "
+           "rendered identical pixels -- clay.mat isn't actually responding "
+           "to the sun's direction.";
 
-    mpviz::destroy_renderer(darkR);
-    mpviz::destroy_renderer(lightR);
+    mpviz::destroy_renderer(rA);
+    mpviz::destroy_renderer(rB);
 }
 
 TEST(ThemeLoad, MissingThemeDir_FallsBackToBuiltinTheme) {
