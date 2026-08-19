@@ -16,6 +16,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -40,6 +41,7 @@
 
 #include "scene_buffer.hpp"
 #include "theme.hpp"
+#include "theme_transition.hpp"
 
 namespace mpviz {
 
@@ -104,6 +106,12 @@ public:
     // kFallbackTheme()); Task 3 is what makes it change after creation.
     std::string theme_dir;
     detail::Theme active_theme;
+
+    // Epic 1 Task 3 (VM-014): set() when set_theme() is called, cleared
+    // (nullopt) once the eased blend reaches t>=1.0 -- render_frame()'s
+    // apply_current_theme() is then a no-op every subsequent call (steady
+    // state), not a recomputation of an already-finished blend every frame.
+    std::optional<detail::ThemeTransition> theme_transition;
 
     // Task 1's double-buffered scene ingest (VM-010). set_scene() (Task 2
     // Step 7) is exactly `r->scene_buffer.publish(scene);` — no Filament

@@ -25,6 +25,7 @@
 #include "visual_renderer/scene.h"
 #include "renderer_internal.hpp"
 #include "theme.hpp"
+#include "theme_transition.hpp"
 
 #include <cmath>
 
@@ -454,6 +455,147 @@ void sh_from_hemisphere(const float3& sky, const float3& ground, float3 sh[4]) {
     sh[3] = float3{0.0f, 0.0f, 0.0f};                // L1,1 (x) — no horizontal gradient
 }
 
+// Pushes every theme-driven Filament token (ground/grid material params, sun
+// direction/color/intensity, IBL, fog, clear color) into the live scene.
+// Epic 1 Task 3 (VM-014): the single place that decides what a `Theme`
+// actually looks like on screen, called from TWO sites --
+// create_renderer() once at startup, and apply_current_theme() (below,
+// mpviz-namespace scope) every render_frame() call WHILE a set_theme()
+// transition is animating (never in steady state -- see that function). All
+// of `r`'s scene/view/renderer/sunEntity(component)/groundMaterial/
+// gridMaterial must already exist before this is called.
+//
+// ponytail ceiling, stated once here (ambient rebuild): every field pushed
+// below has a real runtime setter (MaterialInstance::setParameter,
+// LightManager::setDirection/setColor/setIntensity, View::setFogOptions,
+// Renderer::setClearOptions) EXCEPT IndirectLight -- the pinned Filament
+// 1.56.5 SDK's IndirectLight only exposes setIntensity()/setRotation() at
+// runtime (confirmed against its public header), not a way to feed new SH
+// coefficients into an already-built instance. Animating theme.ibl.sky_
+// color/ground_color therefore means destroying and rebuilding the small
+// (4-coefficient, no cubemap) IndirectLight object on every call this
+// function makes DURING an active transition -- bounded to the ~24-30
+// frames of a default 0.8s transition, never in steady state (this
+// function isn't called at all once a transition finishes). Upgrade path if
+// this ever shows up in a profile: only rebuild when ibl.sky_color/
+// ground_color actually changed since the last call (they're the only
+// inputs to sh_from_hemisphere), skip it otherwise.
+void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
+    r.groundMaterial->setParameter("baseColor", to_filament(theme.palette.ground));
+    r.groundMaterial->setParameter("roughness", theme.material.roughness);
+    r.groundMaterial->setParameter("metallic", theme.material.metallic);
+
+    r.gridMaterial->setParameter("baseColor", to_filament(theme.grid.line_color));
+    r.gridMaterial->setParameter("roughness", theme.material.roughness);
+    r.gridMaterial->setParameter("metallic", theme.material.metallic);
+
+    filament::LightManager& lm = r.engine->getLightManager();
+    const filament::LightManager::Instance sunInst = lm.getInstance(r.sunEntity);
+    lm.setDirection(sunInst, to_filament(theme.sun.direction));
+    lm.setColor(sunInst, to_filament(theme.sun.color));
+    lm.setIntensity(sunInst, theme.sun.intensity);
+
+    // Analytic 2-band hemisphere IBL from the theme's ibl.sky_color/
+    // ibl.ground_color (see sh_from_hemisphere()'s own comment) — see this
+    // function's header comment for why this is a rebuild, not a setter.
+    float3 sh[4];
+    sh_from_hemisphere(to_filament(theme.ibl.sky_color), to_filament(theme.ibl.ground_color), sh);
+    filament::IndirectLight* newAmbient = filament::IndirectLight::Builder()
+                                               .irradiance(2, sh)
+                                               .intensity(theme.ibl.intensity)
+                                               .build(*r.engine);
+    r.scene->setIndirectLight(newAmbient);
+    if (r.ambient) r.engine->destroy(r.ambient);
+    r.ambient = newAmbient;
+
+    // Fog (Filament's built-in distance fog — native feature, no custom
+    // skybox mesh). `enabled` defaults to false (FogOptions' last member);
+    // omitting it here would silently render neither theme's `fog:` token.
+    filament::FogOptions fogOptions{};
+    // FogOptions::color is in-scattering RADIANCE (Options.h: "a good value
+    // is to use the average of the ambient light"), evaluated in the same
+    // pre-exposure HDR domain as the sun/IBL -- not a 0-1 display color like
+    // palette.ground/palette.sky. palette.fog, though, IS authored as a 0-1
+    // display-ish hue (dark_adas ~0.02-0.05, light_clay ~0.8-0.92), same
+    // convention as every other palette.* token, and it needs to STAY in
+    // that domain relative to itself (dark_adas near-black, light_clay
+    // near-white) -- only its overall magnitude was wrong. Feeding it in
+    // completely unscaled made it ~5-6 orders of magnitude dimmer than this
+    // scene's actual sun/IBL and thus effectively inert: measured, forcing
+    // light_clay's fog to pure red moved a golden's far-field row by
+    // <=2/255 (epic1 Task 2 review).
+    //
+    // ponytail: two more-"principled" scalings were tried and rejected
+    // empirically (rendered + inspected, not just hand-derived) before
+    // this one:
+    //  - dividing by camera exposure (so setExposure()'s multiply cancels
+    //    back out to the authored hue, the way palette.sky's clear color
+    //    already reads at roughly its authored value): wrong, because fog
+    //    color isn't a display color like the clear color -- it's inserted
+    //    at the same pipeline stage as the sun/IBL-lit surface radiance.
+    //    1/exposure (~153600x here) overshot every surface in the scene
+    //    and clipped both themes to solid white, even erasing the sun's
+    //    directionality (ClayMaterial.RespondsToLightDirection started
+    //    failing).
+    //  - theme.ibl.intensity/pi (the literal "average of the ambient
+    //    light" reading): wrong scale to use PER THEME, because dark_adas/
+    //    light_clay's ibl.intensity are ~29x apart *on purpose* (the
+    //    lux-rebalance comments below) to land their very differently-
+    //    albedo'd surfaces at similar screen brightness -- multiplying
+    //    fog by ibl.intensity directly reproduces that 29x gap instead,
+    //    so no single divisor made light_clay's haze visible without
+    //    clipping dark_adas to white.
+    // What actually works: the authored hue already encodes each theme's
+    // intended relative fog brightness correctly (that's not the bug) --
+    // it just needs to be loud enough, in absolute terms, to compete with
+    // the surface radiance it's blending against at long range. A flat
+    // multiplier preserves the authored ratio *between themes* exactly --
+    // which is exactly the problem: dark_adas/light_clay's ibl.intensity
+    // (the "average ambient light" Options.h itself points at) are ~29x
+    // apart *on purpose* (the lux-rebalance comment below), so how loud
+    // "loud enough to compete with the surface radiance" needs to be is
+    // *itself* wildly different between the two themes. A flat multiplier
+    // (kFogRadianceScale = 50, tuned only against light_clay) can only get
+    // this right for the one theme it was tuned on -- fed dark_adas's much
+    // higher ibl.intensity, the same 50x turns its correct-magnitude
+    // near-black fog hue into a bright lavender wall at the horizon
+    // (epic1 Task 2 review, round 4): measured on a fresh build, far-field
+    // ground rows 48-59 landed ~139 luminance levels away from the sky
+    // backdrop they're authored to match (palette.fog == palette.sky, spec
+    // §4.3) instead of within a few.
+    //
+    // (rounds 5/6/7 of this history live in git log / this same comment as
+    // it stood before Task 3 -- unchanged reasoning, just relocated here
+    // alongside the code it explains, since Task 3 made this a
+    // callable-more-than-once function instead of create_renderer()'s own
+    // inline setup.)
+    const float fogScale = kFogScaleReferenceValue *
+                            std::pow(kFogScaleReferenceIntensity / theme.ibl.intensity,
+                                     kFogScaleExponent);
+    fogOptions.color = to_filament(theme.palette.fog) * fogScale;
+    fogOptions.density = theme.fog.density;
+    // heightFalloff defaults to 1.0/m (Filament models fog as a height-
+    // stratified layer, densest at `height`, which itself defaults to 0 —
+    // i.e. our own ground plane). Our theme schema only exposes ONE fog
+    // knob (fog.density, a flat extinction coefficient — see theme.hpp/the
+    // YAML files) with no height concept at all, so leaving Filament's
+    // real-world height-fog default active silently multiplies density
+    // near ground level far beyond the authored value: confirmed
+    // empirically (a grazing camera pose at exactly this density erased
+    // the entire grid to nothing; forcing heightFalloff to 0 — uniform,
+    // non-height-stratified exponential distance fog, the model our single-
+    // scalar theme.fog.density actually represents — restored the expected
+    // gentle distance fade with the grid still clearly visible).
+    fogOptions.heightFalloff = 0.0f;
+    fogOptions.enabled = true;
+    r.view->setFogOptions(fogOptions);
+
+    filament::Renderer::ClearOptions clearOptions;
+    clearOptions.clearColor = {theme.palette.sky.r, theme.palette.sky.g, theme.palette.sky.b, 1.0f};
+    clearOptions.clear = true;
+    r.renderer->setClearOptions(clearOptions);
+}
+
 // Payload handed to the readPixels callback: where to signal completion.
 struct ReadbackState {
     std::atomic<bool> done{false};
@@ -620,183 +762,6 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
         r->view->setAntiAliasing(filament::AntiAliasing::FXAA);
     }
 
-    // Fog (Filament's built-in distance fog — native feature, no custom
-    // skybox mesh). `enabled` defaults to false (FogOptions' last member);
-    // omitting it here would silently render neither theme's `fog:` token.
-    filament::FogOptions fogOptions{};
-    // FogOptions::color is in-scattering RADIANCE (Options.h: "a good value
-    // is to use the average of the ambient light"), evaluated in the same
-    // pre-exposure HDR domain as the sun/IBL -- not a 0-1 display color like
-    // palette.ground/palette.sky. palette.fog, though, IS authored as a 0-1
-    // display-ish hue (dark_adas ~0.02-0.05, light_clay ~0.8-0.92), same
-    // convention as every other palette.* token, and it needs to STAY in
-    // that domain relative to itself (dark_adas near-black, light_clay
-    // near-white) -- only its overall magnitude was wrong. Feeding it in
-    // completely unscaled made it ~5-6 orders of magnitude dimmer than this
-    // scene's actual sun/IBL and thus effectively inert: measured, forcing
-    // light_clay's fog to pure red moved a golden's far-field row by
-    // <=2/255 (epic1 Task 2 review).
-    //
-    // ponytail: two more-"principled" scalings were tried and rejected
-    // empirically (rendered + inspected, not just hand-derived) before
-    // this one:
-    //  - dividing by camera exposure (so setExposure()'s multiply cancels
-    //    back out to the authored hue, the way palette.sky's clear color
-    //    already reads at roughly its authored value): wrong, because fog
-    //    color isn't a display color like the clear color -- it's inserted
-    //    at the same pipeline stage as the sun/IBL-lit surface radiance.
-    //    1/exposure (~153600x here) overshot every surface in the scene
-    //    and clipped both themes to solid white, even erasing the sun's
-    //    directionality (ClayMaterial.RespondsToLightDirection started
-    //    failing).
-    //  - theme.ibl.intensity/pi (the literal "average of the ambient
-    //    light" reading): wrong scale to use PER THEME, because dark_adas/
-    //    light_clay's ibl.intensity are ~29x apart *on purpose* (the
-    //    lux-rebalance comments below) to land their very differently-
-    //    albedo'd surfaces at similar screen brightness -- multiplying
-    //    fog by ibl.intensity directly reproduces that 29x gap instead,
-    //    so no single divisor made light_clay's haze visible without
-    //    clipping dark_adas to white.
-    // What actually works: the authored hue already encodes each theme's
-    // intended relative fog brightness correctly (that's not the bug) --
-    // it just needs to be loud enough, in absolute terms, to compete with
-    // the surface radiance it's blending against at long range. A flat
-    // multiplier preserves the authored ratio *between themes* exactly --
-    // which is exactly the problem: dark_adas/light_clay's ibl.intensity
-    // (the "average ambient light" Options.h itself points at) are ~29x
-    // apart *on purpose* (the lux-rebalance comment below), so how loud
-    // "loud enough to compete with the surface radiance" needs to be is
-    // *itself* wildly different between the two themes. A flat multiplier
-    // (kFogRadianceScale = 50, tuned only against light_clay) can only get
-    // this right for the one theme it was tuned on -- fed dark_adas's much
-    // higher ibl.intensity, the same 50x turns its correct-magnitude
-    // near-black fog hue into a bright lavender wall at the horizon
-    // (epic1 Task 2 review, round 4): measured on a fresh build, far-field
-    // ground rows 48-59 landed ~139 luminance levels away from the sky
-    // backdrop they're authored to match (palette.fog == palette.sky, spec
-    // §4.3) instead of within a few.
-    //
-    // Fix (epic1 Task 2 review round 5) -- LATER FOUND WRONG, see round 6
-    // below: the round-4 fix above (kFogAmbientReferenceIntensitySq /
-    // ibl.intensity^2) was itself a regression -- an inverse-SQUARE curve
-    // fit through ONE real data point (light_clay) with two free parameters
-    // is underdetermined, and it fell on the wrong side: dark_adas's scale
-    // came out ~0.058, an 860x cut from the flat 50 that made dark_adas's
-    // near-black fog hue ~17x TOO DIM to be visible at all (measured:
-    // black=41.37, white=46.70 -- well under the >15.0 liveness bar; that
-    // bar is now extended to cover dark_adas too -- see
-    // fog_color_{black,white}_dark.yaml below).
-    //
-    // Round 5 then concluded that dark_adas's SHIPPED fog.density of 0.015
-    // couldn't satisfy both liveness and convergence with ANY color choice,
-    // and "fixed" it by raising fog.density to 0.10 (6.7x) instead. That
-    // conclusion was WRONG -- it was only ever measured with round 5's own
-    // inverse-linear color scale in place (~1.71 for dark_adas), which
-    // itself renders palette.fog 1.71x brighter than the identical
-    // palette.sky value fed to the clear color, manufacturing the very
-    // fog/sky mismatch it then spent density to close. Re-measured with the
-    // scale cancelled to 1 (palette.fog == palette.sky exactly, spec §4.3's
-    // intent) at the SHIPPED density 0.015: liveness delta is 62.1 (black
-    // 41.37 -> white 103.49, 4x the 15.0 bar) and the horizon/sky gap is
-    // 31.08 -- missing the 30.0 guard by only 1.08, not "no color choice is
-    // live" by any margin. At density 0.03 (2x, not 6.7x) with the same
-    // unit scale the gap is 23.55 (measured against the round-5 horizon row
-    // band, [48,60) -- see golden.cpp's own fix, this same round, to
-    // [50,60): rows 48-49 are pure sky at this pose, so the wider band's
-    // gap reads a few levels better than the true ground-only gap) with
-    // even more liveness headroom. 0.10 also measurably erases the epic's
-    // own object/ego legibility AC: fog
-    // opacity (1-exp(-density*d)) at the Task 4 ego mesh's ~8.9m golden-pose
-    // distance is 59% at density 0.10 vs 23% at 0.03 and 12% at the
-    // authored 0.015; per-row grid contrast collapses correspondingly on
-    // the regenerated golden (distinct_levels 74 -> 61).
-    //
-    // Root cause (round 6): the color-scale formula, not the density.
-    // Liveness is a COLOR problem -> kFogScaleReferenceValue *
-    // (kFogScaleReferenceIntensity / ibl.intensity)^kFogScaleExponent, a
-    // two-anchor power-law fit (see the constants' own comment above) that
-    // still reproduces light_clay's proven-good flat scale of 50 exactly
-    // (unchanged rendering, unchanged golden for that theme) but now lands
-    // dark_adas at ~1.0 instead of round 5's ~1.71 -- palette.fog rendered
-    // at the SAME radiance as palette.sky, not manufactured brighter.
-    // Convergence gets a small, honestly-justified density bump -> 0.03 (2x
-    // the plan's authored 0.015, not round 5's 6.7x). Measured together,
-    // against the corrected [50,60) horizon band: gap 28.28 vs sky 15.95,
-    // headroom under the 30.0 guard (not 31.08, the shipped hue's gap at
-    // the un-bumped 0.015), while keeping fog opacity at Task 4's ego-mesh
-    // distances close to double the authored value instead of ~5x. Full
-    // convergence to sky-row-exact still isn't
-    // reachable by either knob alone -- dark_adas's ground plane is only
-    // 40m across (kGroundHalfExtent), so even the farthest on-plane ray
-    // never reaches the near-total fog extinction a true infinite-ground
-    // horizon would give.
-    //
-    // Two more approaches considered and rejected the same way as the
-    // round-4 comment above rejected its own alternatives: (1) a flat,
-    // theme-independent scale (the original kFogRadianceScale=50) -- gets
-    // WORSE, not better, as density rises (measured: gap widens to 169-178,
-    // because at scale 50 dark_adas's fog color is already brighter than
-    // the sunlit ground, so more fog mass pulls the horizon further from
-    // the near-black sky, not closer); (2) fogColorFromIbl=true, rejected
-    // for the reason already on file below (samples a differently-scaled
-    // token, ibl.sky_color, not palette.fog/palette.sky).
-    //
-    // Known follow-up (not fixed here, flagged by review): palette.sky goes
-    // straight to Renderer::ClearOptions::clearColor below as a display-
-    // domain 0-1 value, while palette.fog goes through fogOptions.color as
-    // pre-tonemap scene radiance -- the same authored token (spec §4.3)
-    // living in two different color domains by construction. That's why
-    // "converge exactly" isn't achievable by tuning either knob alone; this
-    // fix narrows the gap using the tools available today (color-scale
-    // calibration + density) rather than unifying the two domains, which
-    // would be a bigger, cross-cutting change.
-    //
-    // Round 7 (this fix): round 6 above got the color-scale formula right
-    // (dark_adas ~1.0x, matching palette.fog == palette.sky, spec §4.3) but
-    // then still spent fog.density as a SECOND knob (0.015 -> 0.03) to buy
-    // the horizon/sky convergence guard some headroom -- density compensating
-    // for a color bug that round 6's own formula had already fixed. That's
-    // the same mistake round 5 made with density 0.10, just smaller. Density
-    // is restored to the plan's originally-authored 0.015 (assets/themes/
-    // dark_adas.yaml) -- it's not a knob for this test to pass, it's a
-    // theme author's choice. Re-measured at 0.015 with this round's
-    // unchanged 1.0x-equivalent scale: liveness delta 62.1 (black 41.37 ->
-    // white 103.58, 4x the 15.0 bar -- tests/fixtures/themes/fog_color_
-    // {black,white}_dark.yaml updated to track 0.015), and the real
-    // horizon/sky gap (against golden.cpp's [50,60) band) is ~37.3, not
-    // round 6's stale ~31 estimate (that number was against the wider,
-    // now-corrected [48,60) band, which reads a few levels better than the
-    // true ground-only gap -- see golden.cpp's own comment). tests/
-    // test_theme.cpp's dark_adas convergence guard is loosened 30.0 -> 40.0
-    // to match: the residual gap is the physically-expected consequence of
-    // dark_adas's 40m ground plane (see two paragraphs up), not a
-    // regression to chase with more fog mass.
-    const float fogScale = kFogScaleReferenceValue *
-                            std::pow(kFogScaleReferenceIntensity / theme.ibl.intensity,
-                                     kFogScaleExponent);
-    fogOptions.color = to_filament(theme.palette.fog) * fogScale;
-    fogOptions.density = theme.fog.density;
-    // heightFalloff defaults to 1.0/m (Filament models fog as a height-
-    // stratified layer, densest at `height`, which itself defaults to 0 —
-    // i.e. our own ground plane). Our theme schema only exposes ONE fog
-    // knob (fog.density, a flat extinction coefficient — see theme.hpp/the
-    // YAML files) with no height concept at all, so leaving Filament's
-    // real-world height-fog default active silently multiplies density
-    // near ground level far beyond the authored value: confirmed
-    // empirically (a grazing camera pose at exactly this density erased
-    // the entire grid to nothing; forcing heightFalloff to 0 — uniform,
-    // non-height-stratified exponential distance fog, the model our single-
-    // scalar theme.fog.density actually represents — restored the expected
-    // gentle distance fade with the grid still clearly visible).
-    fogOptions.heightFalloff = 0.0f;
-    fogOptions.enabled = true;
-    r->view->setFogOptions(fogOptions);
-
-    filament::Renderer::ClearOptions clearOptions;
-    clearOptions.clearColor = {theme.palette.sky.r, theme.palette.sky.g, theme.palette.sky.b, 1.0f};
-    clearOptions.clear = true;
-    r->renderer->setClearOptions(clearOptions);
-
     utils::EntityManager& em = utils::EntityManager::get();
 
     r->cameraEntity = em.create();
@@ -829,27 +794,24 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // fails loudly instead of only "looking wrong" in a diff nobody opens.
     r->camera->setExposure(16.0f, 1.0f / 500.0f, 100.0f);
 
+    // Sun: the LightManager COMPONENT is created here (angular radius/
+    // shadow-casting are creation-time-only properties this renderer never
+    // changes at runtime); its direction/color/intensity — and the IBL's
+    // SH/intensity, and the fog/clear-color tokens — are all theme-DRIVEN
+    // values, pushed by the shared push_theme_to_scene() helper (Epic 1
+    // Task 3 / VM-014, defined above create_renderer()) immediately below,
+    // and re-pushed every render_frame() call while a set_theme()
+    // transition is animating (apply_current_theme(), this same .cpp,
+    // below create_renderer()). Builder() below is seeded with Filament's
+    // own defaults for direction/color/intensity — push_theme_to_scene()
+    // overwrites them immediately after, so there is exactly one place
+    // that ever decides what a theme's sun/ibl/fog/clear-color actually is.
     r->sunEntity = em.create();
-    const float3 sunDir = to_filament(theme.sun.direction);
     filament::LightManager::Builder(filament::LightManager::Type::SUN)
-        .direction(sunDir)
-        .color(to_filament(theme.sun.color))
-        .intensity(theme.sun.intensity)
         .sunAngularRadius(1.9f)
         .castShadows(true)
         .build(*engine, r->sunEntity);
     r->scene->addEntity(r->sunEntity);
-
-    // Analytic 2-band hemisphere IBL from the theme's ibl.sky_color/
-    // ibl.ground_color (see sh_from_hemisphere()'s own comment) — replaces
-    // Epic 0's flat single-SH-band "ambient" constant.
-    float3 sh[4];
-    sh_from_hemisphere(to_filament(theme.ibl.sky_color), to_filament(theme.ibl.ground_color), sh);
-    r->ambient = filament::IndirectLight::Builder()
-                     .irradiance(2, sh)
-                     .intensity(theme.ibl.intensity)
-                     .build(*engine);
-    r->scene->setIndirectLight(r->ambient);
 
     // clay.mat (shared, opaque — ground here, ego clay-box fallback + glTF
     // remap in Task 4) and clay_faded.mat (grid-only, per-vertex alpha)
@@ -864,14 +826,7 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
             .build(*engine);
 
     r->groundMaterial = r->clayMaterial->createInstance();
-    r->groundMaterial->setParameter("baseColor", to_filament(theme.palette.ground));
-    r->groundMaterial->setParameter("roughness", theme.material.roughness);
-    r->groundMaterial->setParameter("metallic", theme.material.metallic);
-
     r->gridMaterial = r->clayFadedMaterial->createInstance();
-    r->gridMaterial->setParameter("baseColor", to_filament(theme.grid.line_color));
-    r->gridMaterial->setParameter("roughness", theme.material.roughness);
-    r->gridMaterial->setParameter("metallic", theme.material.metallic);
 
     // ponytail: don't chase hand-derived winding correctness for a large
     // flat quad / line list — CullingMode::NONE sidesteps backface culling
@@ -879,6 +834,13 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // silently invisible surface.
     r->groundMaterial->setCullingMode(filament::backend::CullingMode::NONE);
     r->gridMaterial->setCullingMode(filament::backend::CullingMode::NONE);
+
+    // Epic 1 Task 3 (VM-014): pushes theme.{palette,material,sun,ibl,fog}
+    // into everything created above — the single call site create_renderer()
+    // and apply_current_theme() (below) both use; see push_theme_to_scene()'s
+    // own header comment (above, before create_renderer()) for the full
+    // fog-color-scale history that used to live inline here.
+    push_theme_to_scene(*r, theme);
 
     std::vector<Vertex> groundVerts;
     std::vector<uint16_t> groundIdx;
@@ -923,8 +885,35 @@ void destroy_renderer(VisualRenderer* r) {
     delete r;
 }
 
+// Epic 1 Task 3 (VM-014): recomputes the blended Theme from `sim_time_sec`
+// (the active SceneGraph's own clock -- never wall-clock, per scene.h's
+// frozen SceneGraph::sim_time_sec contract) on every render_frame() call.
+// No-op (touches no Filament state at all) whenever no set_theme()
+// transition is in flight -- once a transition's `t` reaches 1.0 this
+// clears r->theme_transition, so every call after that (until the next
+// set_theme()) is this early return, not a from==to blend recomputed
+// forever (Step 6's "idempotent no-op blend" AC).
+void apply_current_theme(VisualRenderer& r, double sim_time_sec) {
+    if (!r.theme_transition) return;
+    const detail::ThemeTransition& tr = *r.theme_transition;
+    const double t = tr.duration_sec > 0.0
+                          ? std::clamp((sim_time_sec - tr.start_sec) / tr.duration_sec, 0.0, 1.0)
+                          : 1.0;
+    const detail::Theme blended = detail::blend(tr.from, tr.to, static_cast<float>(t));
+    push_theme_to_scene(r, blended);
+    // Kept up to date every call a transition is in flight, so a mid-flight
+    // set_theme() retarget (see that function, below) snapshots the CURRENT
+    // blend as its new `from`, not either endpoint -- no visible snap.
+    r.active_theme = blended;
+    if (t >= 1.0) {
+        r.theme_transition.reset();
+    }
+}
+
 bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     if (r == nullptr || out.rgb == nullptr || out.width == 0 || out.height == 0) return false;
+
+    apply_current_theme(*r, r->scene_buffer.active().sim_time_sec);
 
     r->camera->lookAt({pose.eye[0], pose.eye[1], pose.eye[2]},
                        {pose.target[0], pose.target[1], pose.target[2]},
@@ -981,6 +970,29 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
 // instead — set_scene() itself only ever touches the staging buffer.
 void set_scene(VisualRenderer* r, const SceneGraph& scene) {
     r->scene_buffer.publish(scene);
+}
+
+// Epic 1 Task 3 (VM-014): see scene.h's frozen contract comment. Snapshots
+// the CURRENTLY-blended theme (r->active_theme -- kept live by
+// apply_current_theme() above on every render_frame() call while a
+// transition is in flight, and left holding the final settled theme once
+// one finishes) as the new transition's `from`, so retargeting mid-flight
+// (calling this again before the previous transition finishes) starts the
+// new ease from that blend, not from either endpoint. Does NOT touch
+// Filament state itself -- render_frame()'s apply_current_theme() is what
+// actually pushes anything, on whichever thread owns the Engine, same
+// split as set_scene()/render_frame() (Task 1).
+bool set_theme(VisualRenderer* r, const char* theme_name, double at_sec, double transition_sec) {
+    if (r == nullptr || theme_name == nullptr) return false;
+    const std::optional<detail::Theme> target = detail::load_theme(r->theme_dir, theme_name);
+    if (!target) return false;  // unknown theme_name -- active theme unchanged
+    r->theme_transition = detail::ThemeTransition{
+        r->active_theme,
+        *target,
+        at_sec,
+        transition_sec > 0.0 ? transition_sec : 0.8,
+    };
+    return true;
 }
 
 }  // namespace mpviz

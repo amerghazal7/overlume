@@ -33,6 +33,12 @@ def test_set_render_mode_valid(mode, expect):
         ("set_render_mode", expect)
 
 
+@pytest.mark.parametrize("theme", ["dark_adas", "light_clay"])
+def test_set_theme_valid(theme):
+    assert parse_cmd(json.dumps({"cmd": "set_theme", "theme": theme})) == \
+        ("set_theme", theme)
+
+
 @pytest.mark.parametrize("text", [
     "not json",
     "[1,2,3]",                                            # not an object
@@ -47,6 +53,9 @@ def test_set_render_mode_valid(mode, expect):
     '{"cmd": "set_render_mode", "mode": 4}',              # unknown mode
     '{"cmd": "set_render_mode", "mode": "depth"}',
     '{"cmd": "set_render_mode", "mode": true}',           # bool is not a mode
+    '{"cmd": "set_theme"}',                               # missing theme
+    '{"cmd": "set_theme", "theme": ""}',                  # empty string
+    '{"cmd": "set_theme", "theme": 1}',                   # non-string
     '{"cmd": "set_param", "name": "nope", "value": 1}',   # untunable param
     '{"cmd": "set_param", "name": "bowl_R0", "value": "6"}',
     '{"cmd": "set_param", "name": "splat_radius", "value": 2.5}',

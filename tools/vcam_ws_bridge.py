@@ -9,6 +9,7 @@ third-party client — can drive the virtual camera:
     {"cmd": "set_look", "eye": [x,y,z], "target": [x,y,z]}   (rig frame, m)
     {"cmd": "set_preset", "preset": 1..5}
     {"cmd": "set_render_mode", "mode": "bowl" | "pointcloud"}  (also 1 | 2)
+    {"cmd": "set_theme", "theme": "dark_adas" | "light_clay"}  (visual mode only)
     {"cmd": "get_params"}                                (tunable param values)
     {"cmd": "set_param", "name": str, "value": num|bool|[floats]}
     {"cmd": "save_params"}                  (update the node's launch config yaml)
@@ -133,6 +134,11 @@ def parse_cmd(text: str):
             raise ValueError(
                 'set_render_mode: mode must be "bowl", "pointcloud", "visual", 1, 2 or 3')
         return "set_render_mode", RENDER_MODES[m]
+    if cmd == "set_theme":
+        theme = msg.get("theme")
+        if not isinstance(theme, str) or not theme:
+            raise ValueError("set_theme: theme must be a non-empty string")
+        return "set_theme", theme
     if cmd == "get_params":
         return "get_params", None
     if cmd == "set_param":
@@ -169,7 +175,7 @@ def parse_cmd(text: str):
 def main() -> int:
     import rclpy
     from rclpy.node import Node
-    from std_msgs.msg import Float64MultiArray, Int32
+    from std_msgs.msg import Float64MultiArray, Int32, String
     from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
     from rcl_interfaces.srv import GetParameters, SetParameters
     from micropilot_rendering_node.srv import SetVirtualCam
@@ -212,6 +218,12 @@ def main() -> int:
             # node's bowl/pointcloud view, same semantics as the old
             # per-node "~/set_render_mode" it replaces here.
             self._pub_mode = self.create_publisher(Int32, "/rendering/set_mode", 10)
+            # Epic 1 Task 3 (VM-014): node-private, mode-3-only concept -- no
+            # mux needed, harmless if published while mode 1/2 is active
+            # (same "ingest continues regardless of mode" philosophy as
+            # /rendering/set_mode above).
+            self._pub_theme = self.create_publisher(
+                String, "/visualization_node/set_theme", 10)
             self._cli = [
                 self.create_client(SetVirtualCam, f"{ns}/set_virtual_cam")
                 for ns in VCAM_NAMESPACES]
@@ -242,6 +254,11 @@ def main() -> int:
             m = Int32()
             m.data = mode
             self._pub_mode.publish(m)
+
+        def set_theme(self, name: str):
+            m = String()
+            m.data = name
+            self._pub_theme.publish(m)
 
         def set_preset_async(self, preset: int):
             """Calls ~/set_virtual_cam on every node whose service is ready.
@@ -351,6 +368,8 @@ def main() -> int:
                     node.set_look(*payload)
                 elif cmd == "set_render_mode":
                     node.set_render_mode(payload)
+                elif cmd == "set_theme":
+                    node.set_theme(payload)
                 elif cmd == "set_param":
                     # fire-and-forget: slider drags stream updates
                     if node.set_param_async(*payload) is None:

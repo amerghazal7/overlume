@@ -22,8 +22,10 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/int32.hpp>
+#include <std_msgs/msg/string.hpp>
 
 #include "visual_renderer/api.h"
+#include "visual_renderer/scene.h"
 
 // Existing srv package (spec §6 / plan Task 5) — dependency, not a copy:
 // this node re-implements the CUDA node's vcam surface under its own
@@ -105,6 +107,22 @@ private:
     // same topic (spec §3.1). Renders+publishes only while == 3.
     int active_mode_{1};
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr set_mode_sub_;
+
+    // ── theme (Epic 1 Task 3 / VM-014) ───────────────────────────────────────
+    // Node-private (not global like set_mode_sub_ above) -- a mode-3-only
+    // concept, harmless if published while mode 1/2 is active (same
+    // "ingest continues regardless of mode" philosophy as sim_clock_sec_
+    // below). ~/set_theme -> mpviz::set_theme(renderer_, name, sim_clock_sec_, 0.0)
+    // (0.0 -> library default transition duration, 0.8s).
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr theme_sub_;
+    // Monotonic node clock driving SceneGraph::sim_time_sec (and therefore
+    // every staleness-fade/theme-transition computation downstream) --
+    // incremented by the timer's own period (kTimerPeriodSec) each tick,
+    // NEVER read from wall-clock, so the deterministic-clock contract
+    // (scene.h) holds all the way out to the running node, not just in
+    // tests that drive set_scene()/render_frame() directly.
+    static constexpr double kTimerPeriodSec = 0.033;  // matches the 33ms create_wall_timer below
+    double sim_clock_sec_{0.0};
 
     // ── renderer + preallocated output buffer ────────────────────────────────
     mpviz::VisualRenderer* renderer_{nullptr};
