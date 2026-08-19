@@ -20,9 +20,12 @@
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/int32.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
@@ -31,6 +34,7 @@
 // this node re-implements the CUDA node's vcam surface under its own
 // namespace but shares the exact same service type.
 #include "micropilot_rendering_node/srv/set_virtual_cam.hpp"
+#include "micropilot_visualization_node/tf_adapter.hpp"
 
 namespace micropilot::visualization_app
 {
@@ -115,6 +119,27 @@ private:
     // below). ~/set_theme -> mpviz::set_theme(renderer_, name, sim_clock_sec_, 0.0)
     // (0.0 -> library default transition duration, 0.8s).
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr theme_sub_;
+
+    // ── ego (Epic 1 Task 4 / VM-012) ─────────────────────────────────────────
+    // map->base_link TF -> mpviz::SceneGraph::ego (position/heading/smoothed
+    // speed), rebuilt every timer tick before set_scene(), same "ingest
+    // continues regardless of mode" philosophy as sim_clock_sec_ above. This
+    // node owns the Buffer/TransformListener (constructing a
+    // TransformListener needs the node's own NodeInterfaces); tf_adapter_
+    // just holds the small bit of finite-difference/EMA state on top of it.
+    std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+    std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+    std::unique_ptr<micropilot::visualization_app::TfAdapter> tf_adapter_;
+    // Global (not "~/...", same reasoning as set_mode_sub_ above -- this is
+    // the robot's own feedback, not a per-node control): spec §7 preferred
+    // speed source. Forwards each sample into tf_adapter_ (see its header).
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr robot_speed_sub_;
+    // ~/ego_state debug telemetry, one Float64MultiArray per timer tick --
+    // [x, y, z, heading_rad, speed_mps, valid] -- same per-tick publish
+    // pattern as ~/vcam_state above; exists so tests (and any external
+    // debugging UI) can observe the TF-driven ego without a GPU/render path.
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr
+        pub_ego_state_;
     // Monotonic node clock driving SceneGraph::sim_time_sec (and therefore
     // every staleness-fade/theme-transition computation downstream) --
     // incremented by the timer's own period (kTimerPeriodSec) each tick,

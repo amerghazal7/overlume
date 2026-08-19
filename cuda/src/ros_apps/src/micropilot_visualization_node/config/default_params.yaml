@@ -17,3 +17,12 @@
     - 0.0
     - -0.5
     virtual_vfov_deg: 80.0
+    # Ego robot mesh (Epic 1 Task 4 / VM-012) -- mirrors
+    # micropilot_rendering_node's robot_model_path convention exactly.
+    # "" (the code default) disables nothing here: mpviz::set_ego_model
+    # always renders *something* (a themed clay box at ego_fallback_dims on
+    # load failure) -- this path just swaps in the real M02P mesh once
+    # converted (scripts/obj2gltf_m02p.py in visual_renderer).
+    ego_model_path: /home/ag7/Downloads/M02P.glb
+    ego_fallback_dims: [4.5, 2.0, 1.8]
+    ego_speed_smoothing_alpha: 0.2

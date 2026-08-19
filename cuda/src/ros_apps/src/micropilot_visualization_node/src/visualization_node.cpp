@@ -9,6 +9,8 @@
 
 #include <std_msgs/msg/header.hpp>
 
+#include "micropilot_visualization_node/ego_anchor.hpp"
+
 namespace micropilot::visualization_app
 {
 
@@ -117,6 +119,48 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     }
     frame_buf_.assign(static_cast<size_t>(out_width_) * out_height_ * 3, 0);
 
+    // ── ego model (Epic 1 Task 4 / VM-012) ───────────────────────────────────
+    // Mirrors micropilot_rendering_node's robot_model_path convention
+    // exactly: "" is a legal default, load failure (missing file, bad
+    // asset) is non-fatal (mpviz::set_ego_model's own contract already
+    // falls back to a themed clay box at fallback_dims -- this WARN is
+    // purely informational, not a gate).
+    auto ego_model_path = declare_parameter<std::string>("ego_model_path", "");
+    auto ego_dims = declare_parameter<std::vector<double>>("ego_fallback_dims", {4.5, 2.0, 1.8});
+    if (ego_dims.size() != 3)
+    {
+        RCLCPP_ERROR(get_logger(), "ego_fallback_dims must be 3 floats [len, width, height], got %zu",
+                     ego_dims.size());
+        return CallbackReturn::FAILURE;
+    }
+    mpviz::Vec3 ego_fallback_dims{ego_dims[0], ego_dims[1], ego_dims[2]};
+    if (!mpviz::set_ego_model(renderer_, ego_model_path.c_str(), ego_fallback_dims))
+    {
+        RCLCPP_WARN(get_logger(), "set_ego_model: failed to load '%s' -- using clay-box fallback",
+                    ego_model_path.c_str());
+    }
+
+    // ── TF adapter (Epic 1 Task 4 / VM-012) ──────────────────────────────────
+    // map->base_link -> SceneGraph.ego, finite-differenced + EMA-smoothed
+    // speed. Buffer/TransformListener live on the node (need its
+    // NodeInterfaces to construct); TfAdapter just wraps the lookup +
+    // smoothing math on top.
+    auto ego_speed_smoothing_alpha = declare_parameter<double>("ego_speed_smoothing_alpha", 0.2);
+    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_, this);
+    tf_adapter_ = std::make_unique<TfAdapter>(*tf_buffer_, "map", "base_link",
+                                              ego_speed_smoothing_alpha);
+    pub_ego_state_ = create_publisher<std_msgs::msg::Float64MultiArray>("~/ego_state", 1);
+
+    // Spec §7 (docs/superpowers/specs/2026-08-18-visual-mode-design.md:264):
+    // ego speed PREFERS this topic over the TF finite-difference fallback
+    // tf_adapter_ computes above. Global (not "~/..."): it's the robot's own
+    // feedback, published once regardless of which mux mode/node is active.
+    robot_speed_sub_ = create_subscription<std_msgs::msg::Float32>(
+        "/robot/feedback/robot_speed_mps", 10,
+        [this](const std_msgs::msg::Float32::SharedPtr msg)
+        { tf_adapter_->set_robot_speed_mps(msg->data); });
+
     // ── publishers (created here, activated in on_activate) ─────────────────
     // Same global topic names as rendering_node — exactly one node publishes
     // at a time (mode mux, spec §3.1); consumers never re-subscribe.
@@ -173,6 +217,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
     pub_image_->on_activate();
     pub_info_->on_activate();
     pub_vcam_state_->on_activate();
+    pub_ego_state_->on_activate();
 
     using namespace std::chrono_literals;
     timer_ = create_wall_timer(33ms, [this]() { timer_callback(); });
@@ -211,15 +256,36 @@ void VisualizationNode::timer_callback()
     sim_clock_sec_ += kTimerPeriodSec;
     mpviz::SceneGraph scene{};
     scene.sim_time_sec = sim_clock_sec_;
+    scene.ego = tf_adapter_->update();
     mpviz::set_scene(renderer_, scene);
+
+    std_msgs::msg::Float64MultiArray ego_state;
+    ego_state.data = {scene.ego.position.x,   scene.ego.position.y, scene.ego.position.z,
+                      scene.ego.heading_rad,  scene.ego.speed_mps,
+                      static_cast<double>(scene.ego.valid)};
+    pub_ego_state_->publish(ego_state);
 
     // Render/readback/publish only while this node is the active mux output
     // (spec §3.1) — costs ~zero GPU otherwise.
     if (active_mode_ != 3) return;
 
+    // Ego-anchored camera composition (2026-08-19 user directive, plan Task 5
+    // scope addition): compose HERE ONLY, right before handing the pose to
+    // the renderer -- pose_/cur_/telemetry above are never touched, so an
+    // unchanged offset + a moving ego composes into a smooth follow with no
+    // drift or feedback, and orbits/presets keep adjusting the offset only.
+    mpviz::CameraPose render_pose = pose_;
+    if (scene.ego.valid)
+    {
+        render_pose = compose_ego_anchored_pose(pose_, scene.ego);
+    }
+    // else: no TF yet -- offset pose used as an absolute world pose, exactly
+    // today's behavior (keeps test_vcam_contract.py and every no-TF test
+    // bit-identical).
+
     mpviz::FrameView view{frame_buf_.data(), static_cast<uint32_t>(out_width_),
                           static_cast<uint32_t>(out_height_)};
-    if (!mpviz::render_frame(renderer_, pose_, view))
+    if (!mpviz::render_frame(renderer_, render_pose, view))
     {
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "render_frame() failed");
         return;
@@ -324,6 +390,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_deactivate(
     pub_image_->on_deactivate();
     pub_info_->on_deactivate();
     pub_vcam_state_->on_deactivate();
+    pub_ego_state_->on_deactivate();
     return CallbackReturn::SUCCESS;
 }
 
@@ -337,10 +404,15 @@ VisualizationNode::CallbackReturn VisualizationNode::on_cleanup(
     pub_image_.reset();
     pub_info_.reset();
     pub_vcam_state_.reset();
+    pub_ego_state_.reset();
     set_mode_sub_.reset();
     set_vcam_srv_.reset();
     set_look_sub_.reset();
     theme_sub_.reset();
+    robot_speed_sub_.reset();
+    tf_adapter_.reset();
+    tf_listener_.reset();
+    tf_buffer_.reset();
     return CallbackReturn::SUCCESS;
 }
 
@@ -354,6 +426,10 @@ VisualizationNode::CallbackReturn VisualizationNode::on_shutdown(
     set_vcam_srv_.reset();
     set_look_sub_.reset();
     theme_sub_.reset();
+    robot_speed_sub_.reset();
+    tf_adapter_.reset();
+    tf_listener_.reset();
+    tf_buffer_.reset();
     return CallbackReturn::SUCCESS;
 }
 

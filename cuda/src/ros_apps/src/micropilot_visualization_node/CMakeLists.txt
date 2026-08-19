@@ -9,6 +9,9 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
 # SetVirtualCam.srv (plan Task 5 / spec §6) — existing srv package, a
 # dependency not a copy; micropilot_rendering_node is a
 # rosidl_interface_packages member so find_package resolves its generated
@@ -20,6 +23,9 @@ set(THIS_PACKAGE_DEPS
   rclcpp_lifecycle
   sensor_msgs
   std_msgs
+  geometry_msgs
+  tf2
+  tf2_ros
   micropilot_rendering_node)
 
 # ── visual_renderer (clang/libc++ static lib) — cross-toolchain import ──────
@@ -124,7 +130,8 @@ set_target_properties(visual_renderer_prebuilt PROPERTIES
 
 # ── Node library ─────────────────────────────────────────────────────────────
 add_library(visualization_node_lib SHARED
-  src/visualization_node.cpp)
+  src/visualization_node.cpp
+  src/tf_adapter.cpp)
 
 target_include_directories(visualization_node_lib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -148,5 +155,18 @@ install(DIRECTORY include/
 
 install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME})
+
+# ── Tests ────────────────────────────────────────────────────────────────────
+# compose_ego_anchored_pose/kEgoForwardYaw (ego_anchor.hpp) unit coverage
+# (review finding: the yaw convention already regressed once with zero
+# automated coverage). Header-only + POD types only -- no need to link the
+# visual_renderer static archive, just its headers.
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_ego_anchor test/test_ego_anchor.cpp)
+  target_include_directories(test_ego_anchor PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${VISUAL_RENDERER_DIR}/include)
+endif()
 
 ament_package()

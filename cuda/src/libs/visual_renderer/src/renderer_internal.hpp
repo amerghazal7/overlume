@@ -39,6 +39,18 @@
 
 #include <utils/Entity.h>
 
+// Ego (Epic 1 Task 4 / VM-012): gltfio's asset/loader/resource types, only
+// needed for the handful of VisualRenderer member pointers below (the
+// class body they populate stays in ego.cpp, a separate translation unit —
+// see that file). Sourced from the same Filament::filament PRIVATE include
+// dir every other <filament/...> header above already comes from (Task 2
+// Step 3's GetFilament.cmake glob sweeps gltfio's headers/archives in too,
+// no separate CMake target needed).
+#include <gltfio/AssetLoader.h>
+#include <gltfio/FilamentAsset.h>
+#include <gltfio/MaterialProvider.h>
+#include <gltfio/ResourceLoader.h>
+
 #include "scene_buffer.hpp"
 #include "theme.hpp"
 #include "theme_transition.hpp"
@@ -118,6 +130,30 @@ public:
     // call happens there; render_frame()/future ego-transform code reads
     // scene_buffer.active() instead.
     detail::SceneBuffer scene_buffer;
+
+    // Ego (Epic 1 Task 4 / VM-012), built/loaded ONCE by set_ego_model()
+    // (ego.cpp) and never rebuilt/reloaded afterward (Step 5's "No
+    // reloading either way"). Exactly one of `egoAsset` (gltfio path) or
+    // `egoFallback.entity` (clay-box path) ends up populated per call;
+    // `egoTransformEntity` is whichever one render_frame()'s per-frame
+    // update_ego_transform() (ego.cpp/ego.hpp) actually drives — the glTF
+    // asset's transform root (already has a TransformManager component,
+    // built by gltfio itself) or the fallback box's own mesh entity (given
+    // one explicitly, since add_mesh()-built entities don't get a
+    // TransformManager component automatically — ground/grid never move,
+    // so Task 2 never needed one).
+    filament::gltfio::AssetLoader* egoAssetLoader = nullptr;
+    filament::gltfio::MaterialProvider* egoMaterialProvider = nullptr;
+    filament::gltfio::ResourceLoader* egoResourceLoader = nullptr;
+    filament::gltfio::FilamentAsset* egoAsset = nullptr;
+    Mesh egoFallback;
+    utils::Entity egoTransformEntity;
+    // The actual dims build_ego_box() used for egoFallback (Task 4 review
+    // round 8): NOT the same as querying egoFallback's RenderableManager
+    // AABB, which reports add_mesh()'s hard-coded declared culling box
+    // (renderer.cpp's kGroundHalfExtent), unrelated to the ego's real
+    // geometry. {0,0,0} until build_ego_fallback() runs.
+    Vec3 egoFallbackDims{0.0, 0.0, 0.0};
 };
 
 // Namespace-scope free function (Step 7e) — was a lambda local to

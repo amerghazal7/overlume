@@ -13,6 +13,15 @@
   <depend>rclcpp_lifecycle</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <!-- Ego TF adapter (Epic 1 Task 4 / VM-012): map to base_link lookup. The
+       CMakeLists' find_package(tf2_ros) alone does not satisfy ament's
+       package-dependency declaration, a missing depend tag here is a hard
+       colcon_build.sh failure on a fresh/clean workspace even though a dev
+       box that already has tf2_ros on CMAKE_PREFIX_PATH from a prior build
+       may spuriously succeed without it. -->
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
   <!-- SetVirtualCam.srv (plan Task 5 / spec §6) — existing srv package,
        a dependency not a copy. -->
   <depend>micropilot_rendering_node</depend>
@@ -27,6 +36,8 @@
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
+  <!-- test_ego_anchor.cpp (compose_ego_anchored_pose unit coverage). -->
+  <test_depend>ament_cmake_gtest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
