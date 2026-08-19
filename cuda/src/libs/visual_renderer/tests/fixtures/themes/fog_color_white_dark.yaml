@@ -37,11 +37,10 @@ ibl:  # analytic 2-band hemisphere gradient — NOT raw SH coefficients
   sky_color:    [0.05, 0.06, 0.12]
   ground_color: [0.02, 0.02, 0.03]
   intensity: 256000.0
-# density raised from the original 0.015 (epic1 Task 2 review round 5):
-# at 0.015 there wasn't enough fog mass for palette.fog to have any live
-# effect on the rendered frame without also overshooting the horizon/sky
-# convergence guard (tests/test_theme.cpp) -- see renderer.cpp's
-# setFogOptions() comment for the measured sweep. 0.10 is the first value
-# with real headroom on both the liveness (Fog.ColorAffectsRenderedOutput)
-# and convergence (ThemeGolden horizon_row_mean/sky_row_mean) guards.
-fog: { density: 0.10 }
+# Tracks assets/themes/dark_adas.yaml's own shipped fog.density (0.03, as
+# of epic1 Task 2 review round 6) -- same convention as fog_color_white.yaml
+# above tracking light_clay's shipped density, so this fixture doesn't
+# silently drift from the theme it's meant to exercise if the density
+# changes again. See dark_adas.yaml's own comment for why 0.03, not round
+# 5's 0.10.
+fog: { density: 0.03 }

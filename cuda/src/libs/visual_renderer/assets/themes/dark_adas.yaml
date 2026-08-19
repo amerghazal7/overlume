@@ -29,11 +29,15 @@ ibl:  # analytic 2-band hemisphere gradient — NOT raw SH coefficients
   sky_color:    [0.05, 0.06, 0.12]
   ground_color: [0.02, 0.02, 0.03]
   intensity: 256000.0
-# density raised from the original 0.015 (epic1 Task 2 review round 5):
-# at 0.015 there wasn't enough fog mass for palette.fog to have any live
-# effect on the rendered frame without also overshooting the horizon/sky
-# convergence guard (tests/test_theme.cpp) -- see renderer.cpp's
-# setFogOptions() comment for the measured sweep. 0.10 is the first value
-# with real headroom on both the liveness (Fog.ColorAffectsRenderedOutput)
-# and convergence (ThemeGolden horizon_row_mean/sky_row_mean) guards.
-fog: { density: 0.10 }
+# density raised from the plan's authored 0.015 to 0.03 (2x -- epic1 Task 2
+# review round 6, correcting round 5's 0.10/6.7x). Round 5 raised density to
+# 0.10 believing NO color choice at 0.015 could satisfy both the liveness
+# and horizon/sky convergence guards (tests/test_theme.cpp) -- that was only
+# ever measured with round 5's own color-scale bug in place (palette.fog
+# rendered 1.71x brighter than the identical palette.sky). With that scale
+# fixed (renderer.cpp's setFogOptions() comment), 0.015 already clears the
+# liveness guard 4x over and misses the convergence guard by only ~1 level;
+# 0.03 gives real headroom on both while keeping fog opacity at Task 4's
+# ego-mesh distances close to double the authored value instead of ~5x
+# (0.10 measurably erased grid/object legibility -- see renderer.cpp).
+fog: { density: 0.03 }

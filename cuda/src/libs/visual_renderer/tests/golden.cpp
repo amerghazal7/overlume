@@ -112,7 +112,11 @@ FrameStats analyze_png(const char* png_path) {
     // FrameStats for why these specific rows (fixed to this epic's fixed
     // 320x240 / CameraPose test setup).
     constexpr int kSkyRowStart = 10, kSkyRowEnd = 40;
-    constexpr int kHorizonRowStart = 48, kHorizonRowEnd = 60;
+    // Starts at 50, not 48: rows 48-49 are pure sky at this fixed pose (the
+    // first ground row is 50) -- including them let ~2/12 of this band read
+    // as sky, understating the true ground/sky gap by ~4 levels (epic1
+    // Task 2 review round 6). See golden.hpp's FrameStats comment.
+    constexpr int kHorizonRowStart = 50, kHorizonRowEnd = 60;
     double skySum = 0.0, horizonSum = 0.0;
     size_t skyN = 0, horizonN = 0;
     for (int y = 0; y < height; ++y) {
