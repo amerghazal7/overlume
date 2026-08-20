@@ -91,6 +91,7 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.palette.lane_paint = blend_color(a.palette.lane_paint, b.palette.lane_paint, w);
     out.palette.ribbon_core = blend_color(a.palette.ribbon_core, b.palette.ribbon_core, w);
     out.palette.ribbon_glow = blend_color(a.palette.ribbon_glow, b.palette.ribbon_glow, w);
+    out.palette.ego = blend_color(a.palette.ego, b.palette.ego, w);
     out.palette.object_tints.car =
         blend_color(a.palette.object_tints.car, b.palette.object_tints.car, w);
     out.palette.object_tints.truck_van =

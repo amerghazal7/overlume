@@ -1,0 +1,51 @@
+// ribbon_emissive.mat — Epic 2 Task 5 (VM-023). The BEHAVIOR path ribbon's
+// material: the ref-1 "green hero glow" bloom, fed by palette.ribbon_core/
+// ribbon_glow + emissive.ribbon_strength. Bloom is already enabled in
+// renderer.cpp (BloomOptions, set up in Epic 1 precisely so this task needs
+// no renderer change to glow) -- this material only has to emit above the
+// bloom threshold.
+//
+// Two constraints this file exists to satisfy (see the plan's "…and the
+// material that can actually do it"), copied here because a reviewer will
+// look for both:
+//  1. SETTABLE ALPHA: the BEHAVIOR ribbon fades via staleness_alpha() by
+//     setting THIS instance's own alpha (unlike GLOBAL/LOCAL, which swap to
+//     a separate clay_translucent.mat instance) -- clay.mat's baseColor is
+//     float3 and cannot carry one, so this material needs its own float4
+//     baseColor + `blending : fade`, same shape as clay_translucent.mat.
+//  2. NO COLOR VERTEX ATTRIBUTE DEMANDED: this epic's ribbon geometry comes
+//     from extrude_polyline() (polyline.hpp), which emits position +
+//     tangent-frame only -- no COLOR attribute, and must not grow one just
+//     to satisfy a material's `requires:` line (clay_faded.mat's mistake,
+//     documented on that file). So: no `requires:` line at all, exactly
+//     like clay_translucent.mat.
+//
+// LIT (not unlit): the glow reads as an EMISSIVE surface catching bloom, not
+// a flat self-lit decal -- `emissive.rgb` here is what Filament's bloom pass
+// actually keys off of (values driven above the tonemapper's 1.0 by
+// ribbonStrength read as a multiplier, not a fixed unlit color), and LIT
+// still gets a baseColor contribution from the scene's own lighting so the
+// ribbon doesn't go pitch-black if bloom/bloomStrength were ever tuned to
+// zero.
+material {
+    name : ribbon_emissive,
+    shadingModel : lit,
+    parameters : [
+        { type : float4, name : baseColor },
+        { type : float, name : roughness },
+        { type : float, name : metallic },
+        { type : float3, name : emissiveColor },
+        { type : float, name : emissiveStrength }
+    ],
+    blending : fade
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        material.baseColor = materialParams.baseColor;
+        material.roughness = materialParams.roughness;
+        material.metallic = materialParams.metallic;
+        material.emissive.rgb = materialParams.emissiveColor * materialParams.emissiveStrength;
+        material.emissive.a = 0.0;  // Filament convention: emissive.a is NOT an alpha multiplier
+    }
+}

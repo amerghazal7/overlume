@@ -20,9 +20,6 @@
 
 #include <gltfio/AssetLoader.h>
 #include <gltfio/FilamentAsset.h>
-#include <gltfio/MaterialProvider.h>
-#include <gltfio/ResourceLoader.h>
-#include <gltfio/materials/uberarchive.h>
 
 #include <math/mat4.h>
 #include <math/quat.h>
@@ -46,23 +43,14 @@ using filament::math::float4;
 using filament::math::mat4f;
 using filament::math::quatf;
 
-// Duplicated (not promoted to renderer_internal.hpp) from renderer.cpp's
-// anonymous-namespace helper of the same name (Task 2): this is the only
-// other translation unit that needs it, and it's a small, self-contained
-// SurfaceOrientation call — not worth widening the Step 7e extraction's
-// surface for one more helper just for this one box builder.
-void fill_tangent_frames(std::vector<Vertex>& verts, const std::vector<float3>& normals) {
-    filament::geometry::SurfaceOrientation::Builder builder;
-    builder.vertexCount(normals.size());
-    builder.normals(normals.data());
-    filament::geometry::SurfaceOrientation* orientation = builder.build();
-    std::vector<quatf> quats(normals.size());
-    orientation->getQuats(quats.data(), quats.size());
-    delete orientation;
-    for (size_t i = 0; i < verts.size(); ++i) {
-        verts[i].tangentFrame = float4{quats[i].x, quats[i].y, quats[i].z, quats[i].w};
-    }
-}
+// fill_tangent_frames() used to be duplicated here rather than promoted to
+// renderer_internal.hpp ("not worth widening the Step 7e extraction's
+// surface for one more helper just for this one box builder"). Epic 2 Task
+// 2 (VM-024) needed the same helper from a SECOND new translation unit
+// (map_elements.cpp) and promoted it there instead — see that header's
+// comment. Using the promoted mpviz::fill_tangent_frames here now (this
+// file already includes renderer_internal.hpp) rather than keeping two
+// copies that would have to be kept behaviorally identical by hand.
 
 // A box centered on X/Y, resting on the ground plane (Z in [0, dims.z]) —
 // the ego's origin is its ground-contact point, matching how the TF
@@ -104,18 +92,21 @@ void build_ego_box(std::vector<Vertex>& verts, std::vector<uint16_t>& indices,
 }
 
 // Builds the themed clay-box fallback — the non-fatal path for a missing/
-// unparseable glTF (spec §9). Reuses r.groundMaterial (Task 2's clay.mat
-// instance) rather than a dedicated ego MaterialInstance: Step 5's remap
-// comment explicitly allows "the SAME opaque clay.mat MaterialInstance (or
-// a per-entity instance of it)" — reusing the ground's instance is the
-// smaller diff (no second theme-push wiring needed) and is exactly as
-// correct, since the ego should read as the same clay as everything else.
+// unparseable glTF (spec §9). Binds r.egoMaterial, a DEDICATED clay.mat
+// instance (user contrast directive 2026-08-20) — Task 4 originally reused
+// r.groundMaterial here (Step 5's remap comment allowed "the SAME opaque
+// clay.mat MaterialInstance"), but that made the ego render as
+// palette.ground, i.e. the exact color of the ground plane it stands on,
+// invisible against it in both shipped themes. egoMaterial is themed with
+// its own palette.ego token (a deliberate cross-theme swap — see
+// theme.hpp's Palette::ego comment) instead, created eagerly and pushed by
+// push_theme_to_scene() the same way groundMaterial/laneMaterial are.
 void build_ego_fallback(VisualRenderer& r, const Vec3& dims) {
     std::vector<Vertex> verts;
     std::vector<uint16_t> indices;
     build_ego_box(verts, indices, dims);
     add_mesh(r, r.egoFallback, std::move(verts), std::move(indices),
-             filament::RenderableManager::PrimitiveType::TRIANGLES, r.groundMaterial,
+             filament::RenderableManager::PrimitiveType::TRIANGLES, r.egoMaterial,
              /*cast_shadows=*/true, /*receive_shadows=*/false);
     // Recorded for rendered_bounding_box_diagonal() (testing-only): the
     // actual box built here, not add_mesh()'s unrelated declared culling
@@ -152,23 +143,24 @@ bool set_ego_model(VisualRenderer* r, const char* gltf_path, Vec3 fallback_dims)
 
     namespace gltfio = filament::gltfio;
 
-    // MaterialProvider (Step 5): the pinned 1.56.5 SDK ships a small set of
-    // precompiled ubershader materials (gltfio/materials/uberarchive.h +
-    // libuberarchive.a, already glob-included by GetFilament.cmake) — no
-    // filamat run-time compilation needed.
-    auto* materials = gltfio::createUbershaderProvider(
-        r->engine, UBERARCHIVE_DEFAULT_DATA, static_cast<size_t>(UBERARCHIVE_DEFAULT_SIZE));
-
-    gltfio::AssetConfiguration assetConfig{};
-    assetConfig.engine = r->engine;
-    assetConfig.materials = materials;
-    auto* loader = gltfio::AssetLoader::create(assetConfig);
+    // Shared gltfio machinery (Epic 2 Task 4 / VM-022): hoisted out of this
+    // function's former per-call AssetLoader + ubershader MaterialProvider +
+    // ResourceLoader (Step 5's original comment on MaterialProvider/
+    // ResourceLoader construction now lives in ensure_gltf_loader(),
+    // renderer_internal.hpp/objects.cpp) -- objects.cpp's
+    // set_object_model_dir() needs the exact same machinery, and a second
+    // AssetLoader in this library is a blocking duplication finding (see
+    // the plan). ensure_gltf_loader() is a no-op if either this function or
+    // set_object_model_dir() already built it; behavior here is otherwise
+    // unchanged (still createAsset()+releaseSourceData(), not the
+    // instanced path objects.cpp uses).
+    if (!ensure_gltf_loader(*r)) {
+        build_ego_fallback(*r, fallback_dims);
+        return false;
+    }
     gltfio::FilamentAsset* asset =
-        loader ? loader->createAsset(bytes.data(), static_cast<uint32_t>(bytes.size())) : nullptr;
+        r->sharedAssetLoader->createAsset(bytes.data(), static_cast<uint32_t>(bytes.size()));
     if (asset == nullptr) {
-        if (loader) gltfio::AssetLoader::destroy(&loader);
-        materials->destroyMaterials();
-        delete materials;
         build_ego_fallback(*r, fallback_dims);
         return false;
     }
@@ -178,17 +170,8 @@ bool set_ego_model(VisualRenderer* r, const char* gltf_path, Vec3 fallback_dims)
     // nothing" trap the finding calls out. Synchronous: the GLB's buffers
     // are embedded (obj2gltf_m02p.py's trimesh export embeds them), so
     // there's no external URI to resolve asynchronously.
-    gltfio::ResourceConfiguration resConfig{};
-    resConfig.engine = r->engine;
-    resConfig.gltfPath = nullptr;
-    resConfig.normalizeSkinningWeights = true;
-    auto* resourceLoader = new gltfio::ResourceLoader(resConfig);
-    if (!resourceLoader->loadResources(asset)) {
-        loader->destroyAsset(asset);
-        gltfio::AssetLoader::destroy(&loader);
-        materials->destroyMaterials();
-        delete materials;
-        delete resourceLoader;
+    if (!r->sharedResourceLoader->loadResources(asset)) {
+        r->sharedAssetLoader->destroyAsset(asset);
         build_ego_fallback(*r, fallback_dims);
         return false;
     }
@@ -199,7 +182,11 @@ bool set_ego_model(VisualRenderer* r, const char* gltf_path, Vec3 fallback_dims)
     // produced. Safe against the current opaque clay.mat (Task 2 dropped
     // its old `requires: [color]`) — the gltfio-loaded mesh has no vertex
     // COLOR attribute, and would have failed this remap against the old
-    // material.
+    // material. Remaps to r->egoMaterial, NOT r->groundMaterial (user
+    // contrast directive 2026-08-20): the ego needs its own themed instance
+    // (palette.ego, a cross-theme swap against the ground it stands on —
+    // see build_ego_fallback()'s comment above and theme.hpp's Palette::ego
+    // comment) so it doesn't render as the same color as the ground plane.
     filament::RenderableManager& rm = r->engine->getRenderableManager();
     const utils::Entity* renderables = asset->getRenderableEntities();
     const size_t renderableCount = asset->getRenderableEntityCount();
@@ -208,7 +195,7 @@ bool set_ego_model(VisualRenderer* r, const char* gltf_path, Vec3 fallback_dims)
         if (!inst.isValid()) continue;
         const size_t primCount = rm.getPrimitiveCount(inst);
         for (size_t p = 0; p < primCount; ++p) {
-            rm.setMaterialInstanceAt(inst, p, r->groundMaterial);
+            rm.setMaterialInstanceAt(inst, p, r->egoMaterial);
         }
         // The ego is the one thing in this epic's scene that should
         // actually darken the ground it stands on; nothing casts onto the
@@ -219,9 +206,6 @@ bool set_ego_model(VisualRenderer* r, const char* gltf_path, Vec3 fallback_dims)
 
     r->scene->addEntities(asset->getEntities(), asset->getEntityCount());
 
-    r->egoAssetLoader = loader;
-    r->egoMaterialProvider = materials;
-    r->egoResourceLoader = resourceLoader;
     r->egoAsset = asset;
     // The asset's transform root already has a TransformManager component
     // (built by gltfio's own node hierarchy) — no explicit create() needed,

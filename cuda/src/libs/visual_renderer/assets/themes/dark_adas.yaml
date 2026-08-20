@@ -9,6 +9,7 @@ palette:
   lane_paint:  [0.45, 0.5, 0.55]
   ribbon_core: [0.10, 1.00, 0.40]
   ribbon_glow: [0.10, 1.00, 0.40]
+  ego: [0.82, 0.80, 0.76]  # cross-theme swap: light_clay's ground/clay, so the ego pops on dark
   object_tints:
     car: [0.25, 0.35, 0.9]
     truck_van: [0.30, 0.35, 0.85]
