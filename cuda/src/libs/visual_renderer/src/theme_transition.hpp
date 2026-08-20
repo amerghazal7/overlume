@@ -30,9 +30,16 @@ Float3 blend_color(const Float3& a, const Float3& b, float t);
 
 // Blends every themed token from `a` toward `b`: `w = smoothstep01(t)`;
 // every float3 PALETTE/grid/hud color -> blend_color(w); every scalar
-// (roughness, metallic, ribbon_strength, hud scale, sun/ibl intensity, fog
-// density) -> linear lerp by w. One function, no per-field branch beyond
-// "is this a color or a scalar" (Task 3 Step 3).
+// (roughness, metallic, ribbon_strength, hud scale, fog density) -> linear
+// lerp by w. One function, no per-field branch beyond "is this a color or a
+// scalar" -- EXCEPT sun.intensity/ibl.intensity, which use a geometric
+// (log-space) lerp instead of linear (see lerpf_geometric() in the .cpp and
+// the plan's Task 3 Step 3 "geometric-intensity deviation" block): those two
+// are physical lux values ~19-29x apart between the shipped themes, and
+// illumination x albedo is a product, so a linear lerp of illumination
+// blended against simultaneously-brightening albedo overshoots both
+// endpoints mid-transition. Geometric lerp is monotonic between endpoints by
+// construction, so it can't.
 //
 // Exception: grid.fade_start_m/fade_end_m are carried through from `b`
 // unchanged, NOT lerped -- they're baked into the grid vertex buffer once at

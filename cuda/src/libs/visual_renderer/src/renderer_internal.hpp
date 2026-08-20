@@ -118,6 +118,12 @@ public:
     // kFallbackTheme()); Task 3 is what makes it change after creation.
     std::string theme_dir;
     detail::Theme active_theme;
+    // Gate-review addition (2026-08-20, spec §9 minor): true iff the theme
+    // active right after create_renderer() actually came from disk
+    // (load_theme() succeeded), false if create_renderer() had to substitute
+    // detail::kFallbackTheme(). Set once at create_renderer() time, read
+    // back by the theme_assets_loaded() free function in scene.h.
+    bool theme_assets_loaded = false;
 
     // Epic 1 Task 3 (VM-014): set() when set_theme() is called, cleared
     // (nullopt) once the eased blend reaches t>=1.0 -- render_frame()'s

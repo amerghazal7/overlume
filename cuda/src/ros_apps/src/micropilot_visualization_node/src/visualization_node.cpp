@@ -88,6 +88,22 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     }
     frame_buf_.assign(static_cast<size_t>(out_width_) * out_height_ * 3, 0);
 
+    // Gate-review addition (2026-08-20, spec §9 minor): create_renderer()
+    // silently substitutes its compiled-in fallback theme whenever the
+    // requested theme_assets_dir/initial_theme fails to load -- non-fatal by
+    // design (rendering still comes up), but until now gave this node no way
+    // to WARN that it happened. config.theme_assets_dir is null here (this
+    // node doesn't expose a parameter for it yet), so the dir actually tried
+    // is the library's own compiled-in default.
+    if (!mpviz::theme_assets_loaded(renderer_))
+    {
+        RCLCPP_WARN(get_logger(),
+                    "theme assets failed to load from '%s' -- rendering with the "
+                    "compiled-in fallback theme instead",
+                    config.theme_assets_dir ? config.theme_assets_dir
+                                             : "<compiled-in default theme dir>");
+    }
+
     // ── ego model (Epic 1 Task 4 / VM-012) ───────────────────────────────────
     // Mirrors micropilot_rendering_node's robot_model_path convention
     // exactly: "" is a legal default, load failure (missing file, bad
