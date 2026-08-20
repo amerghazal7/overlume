@@ -183,6 +183,38 @@ target_link_libraries(visual_renderer PRIVATE
 target_compile_definitions(visual_renderer PRIVATE
     DEFAULT_THEME_ASSETS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets/themes")
 
+# Epic 2 Task 1 / VM-020 Step 0.2: ld -r visual_renderer's own objects and
+# yaml-cpp's into one relocatable object (so theme.cpp's `YAML::` references
+# resolve INSIDE it), then RENAME every remaining YAML::-namespaced defined
+# symbol so it can never collide with the node's own, separately-built
+# gcc/libstdc++ yaml-cpp (yaml_cpp_vendor) -- then rebuild libvisual_renderer.a
+# FRESH from that merged+renamed object alone.
+#
+# --- THIRD recorded deviation from the plan's literal recipe (two earlier
+# attempts -- merge+localize-by-visibility, then merge+localize-by-name --
+# are recorded, with concrete failing evidence for each, in
+# scripts/merge_yamlcpp.sh's header comment; read it before touching this
+# again. Short version: localizing (changing binding, keeping the same
+# name) is not enough -- the plan's own explicitly-sanctioned fallback of
+# NOT localizing at all ("hidden-but-global ... link order decides") was
+# also tried and empirically corrupted node-side YAML parsing (right error
+# count, wrong row count, then a segfault) the first time real node code
+# called the same yaml-cpp template accessor this archive's theme.cpp also
+# calls. The fix that actually holds is renaming this archive's copy so the
+# two never share a symbol name at all, which scripts/merge_yamlcpp.sh now
+# does via `objcopy --redefine-syms` in place of `--localize-symbols`/
+# `--localize-hidden`. ---
+add_custom_command(TARGET visual_renderer POST_BUILD
+    COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/merge_yamlcpp.sh"
+            "${CMAKE_AR}" "${CMAKE_LINKER}" "${CMAKE_OBJCOPY}" "${CMAKE_NM}"
+            "${CMAKE_BINARY_DIR}/_yamlmerge"
+            "${CMAKE_BINARY_DIR}/visual_renderer_merged.o"
+            "$<TARGET_FILE:yaml-cpp>"
+            "$<TARGET_FILE:visual_renderer>"
+            $<TARGET_OBJECTS:visual_renderer>
+    COMMAND_EXPAND_LISTS VERBATIM
+    COMMENT "visual_renderer: merging yaml-cpp + renaming its YAML:: symbols (Epic 2 Task 1 Step 0.2)")
+
 enable_testing()
 
 add_test(NAME check_pod_header

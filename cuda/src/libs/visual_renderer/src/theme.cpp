@@ -4,6 +4,8 @@
 
 #include <stdexcept>
 
+#include "visual_renderer/scene.h"
+
 namespace mpviz::detail {
 namespace {
 
@@ -131,3 +133,16 @@ const Theme& kFallbackTheme() {
 }
 
 }  // namespace mpviz::detail
+
+namespace mpviz {
+
+// Epic 2 Task 1 (VM-020) Step 0.3 -- see scene.h for the full rationale.
+// Two lines over the existing GPU-free detail::load_theme(): guard against
+// null (std::string's ctor is UB on nullptr; detail::load_theme already
+// treats an EMPTY dir/name as a non-fatal std::nullopt) and report success.
+bool theme_parses(const char* dir, const char* theme_name) {
+    if (dir == nullptr || theme_name == nullptr) return false;
+    return detail::load_theme(dir, theme_name).has_value();
+}
+
+}  // namespace mpviz

@@ -30,6 +30,7 @@
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
 
+#include "overlume_visualization_node/profile.hpp"
 #include "overlume_visualization_node/tf_adapter.hpp"
 #include "overlume_visualization_node/vcam.hpp"
 
