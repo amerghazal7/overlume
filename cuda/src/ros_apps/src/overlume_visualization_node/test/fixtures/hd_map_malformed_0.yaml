@@ -1,0 +1,41 @@
+# Hand-edited fixture (Epic 2 Task 2 / VM-024, "Fixture strategy": "one
+# deliberately malformed hand-edited variant is enough"). All four
+# namespaces below start with "centerline_" so urban_profile.yaml's
+# {prefix: centerline_, render: polyline} rule keeps every one of them --
+# these markers are dropped for being MALFORMED, never for classify()
+# saying kDrop, so HdMapAdapter.MalformedMarkersAreDroppedAndCounted can
+# assert dropped_malformed == 3 and dropped_by_rule == 0.
+markers:
+- header:
+    frame_id: map
+  ns: centerline_ok
+  id: 1
+  type: 4
+  action: 0
+  points:
+  - {x: 0.0, y: 0.0, z: 0.0}
+  - {x: 10.0, y: 0.0, z: 0.0}
+- header:
+    frame_id: map
+  ns: centerline_short
+  id: 2
+  type: 4
+  action: 0
+  points:
+  - {x: 0.0, y: 0.0, z: 0.0}
+- header:
+    frame_id: map
+  ns: centerline_nan
+  id: 3
+  type: 4
+  action: 0
+  points:
+  - {x: .nan, y: 0.0, z: 0.0}
+  - {x: 1.0, y: 1.0, z: 0.0}
+- header:
+    frame_id: map
+  ns: centerline_empty
+  id: 4
+  type: 4
+  action: 0
+  points: []

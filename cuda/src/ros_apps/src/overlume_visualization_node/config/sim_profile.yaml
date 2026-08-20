@@ -36,11 +36,11 @@ rows:
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 2.0,
      ns_default: drop,
      namespaces: [
-       {prefix: centerline_,         render: polyline},
+       {prefix: centerline_,         render: polyline, dashed: true},
        {prefix: centerline_arrows_,  render: drop},
        {prefix: left_boundary_,      render: polyline},
        {prefix: right_boundary_,     render: polyline},
-       {prefix: crosswalk_,          render: polygon},
+       {prefix: crosswalk,           render: polygon},
        {prefix: crosswalk_stopline_, render: polyline}]}
 
   # FIXTURE GAP: /hd_map_global_elements was silent in the recorded bag
@@ -62,11 +62,11 @@ rows:
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 0.5,
      ns_default: drop,
      namespaces: [
-       {prefix: centerline_,         render: polyline},
+       {prefix: centerline_,         render: polyline, dashed: true},
        {prefix: centerline_arrows_,  render: drop},
        {prefix: left_boundary_,      render: polyline},
        {prefix: right_boundary_,     render: polyline},
-       {prefix: crosswalk_,          render: polygon},
+       {prefix: crosswalk,           render: polygon},
        {prefix: crosswalk_stopline_, render: polyline}]}
 
   # /road_markers: live in the bag (1921 msgs, RELIABLE, frame map). NOT in
@@ -86,12 +86,15 @@ rows:
   # means the day this publisher adds a TEXT or ARROW namespace -- exactly
   # what /sim/hd_map/markers did -- it silently becomes dropped_malformed
   # noise instead of a rule decision.
-  - {topic: /road_markers, type: visualization_msgs/msg/MarkerArray,
-     adapter: hd_map, role: lane, timeout_sec: 2.0,
-     ns_default: drop,
-     namespaces: [
-       {prefix: road_lane_left_boundary,  render: polyline},
-       {prefix: road_lane_right_boundary, render: polyline}]}
+  # DISABLED 2026-08-20 — upstream /road_markers publisher output is wrong
+  # (user-verified in rviz: same broken view there). See urban_profile.yaml's
+  # /road_markers block for the full story and the re-enable checklist.
+  # - {topic: /road_markers, type: visualization_msgs/msg/MarkerArray,
+  #    adapter: hd_map, role: lane, timeout_sec: 2.0,
+  #    ns_default: drop,
+  #    namespaces: [
+  #      {prefix: road_lane_left_boundary,  render: polyline},
+  #      {prefix: road_lane_right_boundary, render: polyline}]}
 
   - {topic: /behavior_path_planner/output_path_visualization, type: nav_msgs/msg/Path,
      adapter: path, role: behavior, timeout_sec: 2.0}
@@ -190,7 +193,10 @@ rows:
   #     WARN flood from ONE latched message (and the 93%-decimation story does
   #     not apply here at all -- these are dropped by RULE, counted in
   #     dropped_by_rule, which is the honest counter for a deliberate drop);
-  # (b) "crosswalks" is not matched by urban's "crosswalk_" prefix ('s' != '_')
+  # (b) "crosswalks" (plural) was not matched by the original "crosswalk_"
+#     prefix ('s' != '_'); the shipped rule is now the bare prefix
+#     "crosswalk", which matches BOTH the urban publisher's crosswalk_<id>
+#     and this publisher's plural form (marker convention, user 2026-08-20)
   #     so is_polygon would never be set and §7 crosswalk hatching would never
   #     render on the only full-extent map source -- the exact defect Task 2's
   #     urban-only assertion cannot see;
@@ -203,11 +209,11 @@ rows:
      adapter: hd_map, role: lane, timeout_sec: 5.0, transient_local: true,
      ns_default: drop,
      namespaces: [
-       {prefix: centerline_,        render: polyline},
+       {prefix: centerline_,        render: polyline, dashed: true},
        {prefix: centerline_arrows_, render: drop},
        {prefix: left_boundary_,     render: polyline},
        {prefix: right_boundary_,    render: polyline},
-       {prefix: crosswalks,         render: polygon},
+       {prefix: crosswalk,          render: polygon},
        {prefix: junction,           render: polyline},
        {prefix: landmark,           render: drop}]}
 

@@ -167,7 +167,11 @@ add_library(visualization_node_lib SHARED
   src/tf_adapter.cpp
   src/profile.cpp
   src/frame_transform.cpp
-  src/scene_assembly.cpp)
+  src/scene_assembly.cpp
+  src/adapters/hd_map.cpp
+  src/adapters/dynamic_objects.cpp
+  src/adapters/path.cpp
+  src/adapters/ogm.cpp)
 
 target_include_directories(visualization_node_lib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -217,7 +221,8 @@ if(BUILD_TESTING)
     MPVIZ_THEME_DIR="${VISUAL_RENDERER_DIR}/assets/themes"
     MPVIZ_NODE_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures")
 
-  ament_add_gtest(test_profile test/test_profile.cpp src/profile.cpp test/fixture_msgs.cpp)
+  ament_add_gtest(test_profile test/test_profile.cpp src/profile.cpp
+    src/adapters/dynamic_objects.cpp src/frame_transform.cpp test/fixture_msgs.cpp)
   target_include_directories(test_profile PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/test
@@ -243,6 +248,78 @@ if(BUILD_TESTING)
     ${VISUAL_RENDERER_DIR}/include)
   ament_target_dependencies(test_scene_assembly ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_scene_assembly ${yaml_cpp_vendor_TARGETS})
+
+  # Epic 2 Task 2 (VM-020): HdMapAdapter. Needs profile.cpp (ProfileRow/
+  # classify/load_profile), frame_transform.cpp (FrameTransformer) and
+  # fixture_msgs.cpp (load_marker_array/urban_row/sim_row) -- same
+  # mpviz_node_test_paths INTERFACE target every fixture-backed adapter
+  # gtest uses. No visual_renderer_prebuilt link: scene.h's MapElement/Vec3
+  # are POD-only, header visibility is enough (test_scene_assembly's own
+  # precedent).
+  ament_add_gtest(test_hd_map_adapter
+    test/test_hd_map_adapter.cpp
+    src/adapters/hd_map.cpp
+    src/adapters/dynamic_objects.cpp
+    src/profile.cpp
+    src/frame_transform.cpp
+    test/fixture_msgs.cpp)
+  target_include_directories(test_hd_map_adapter PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test
+    ${VISUAL_RENDERER_DIR}/include)
+  ament_target_dependencies(test_hd_map_adapter ${THIS_PACKAGE_DEPS})
+  target_link_libraries(test_hd_map_adapter ${yaml_cpp_vendor_TARGETS} mpviz_node_test_paths)
+
+  # Epic 2 Task 3 (VM-021): DynamicObjectsAdapter + class inference. Same
+  # shape as test_hd_map_adapter above -- no visual_renderer_prebuilt link,
+  # scene.h's TrackedObject/Vec3 are POD-only.
+  ament_add_gtest(test_dynamic_objects_adapter
+    test/test_dynamic_objects_adapter.cpp
+    src/adapters/dynamic_objects.cpp
+    src/profile.cpp
+    src/frame_transform.cpp
+    test/fixture_msgs.cpp)
+  target_include_directories(test_dynamic_objects_adapter PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test
+    ${VISUAL_RENDERER_DIR}/include)
+  ament_target_dependencies(test_dynamic_objects_adapter ${THIS_PACKAGE_DEPS})
+  target_link_libraries(test_dynamic_objects_adapter ${yaml_cpp_vendor_TARGETS} mpviz_node_test_paths)
+
+  # Epic 2 Task 5 (VM-023): PathAdapter. Same shape as test_hd_map_adapter/
+  # test_dynamic_objects_adapter above -- no visual_renderer_prebuilt link,
+  # scene.h's PathRibbon/Vec3 are POD-only.
+  ament_add_gtest(test_path_adapter
+    test/test_path_adapter.cpp
+    src/adapters/path.cpp
+    src/profile.cpp
+    src/frame_transform.cpp
+    src/adapters/dynamic_objects.cpp
+    test/fixture_msgs.cpp)
+  target_include_directories(test_path_adapter PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test
+    ${VISUAL_RENDERER_DIR}/include)
+  ament_target_dependencies(test_path_adapter ${THIS_PACKAGE_DEPS})
+  target_link_libraries(test_path_adapter ${yaml_cpp_vendor_TARGETS} mpviz_node_test_paths)
+
+  # Epic 2 Task 6 (VM-025): OgmAdapter. Same shape as test_hd_map_adapter/
+  # test_dynamic_objects_adapter/test_path_adapter above -- no
+  # visual_renderer_prebuilt link, scene.h's GroundGridLayer/Vec3 are
+  # POD-only.
+  ament_add_gtest(test_ogm_adapter
+    test/test_ogm_adapter.cpp
+    src/adapters/ogm.cpp
+    src/profile.cpp
+    src/frame_transform.cpp
+    src/adapters/dynamic_objects.cpp
+    test/fixture_msgs.cpp)
+  target_include_directories(test_ogm_adapter PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test
+    ${VISUAL_RENDERER_DIR}/include)
+  ament_target_dependencies(test_ogm_adapter ${THIS_PACKAGE_DEPS})
+  target_link_libraries(test_ogm_adapter ${yaml_cpp_vendor_TARGETS} mpviz_node_test_paths)
 endif()
 
 ament_package()
