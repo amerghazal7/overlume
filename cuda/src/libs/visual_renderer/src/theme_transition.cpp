@@ -13,6 +13,23 @@ Float3 lerp_vec3(const Float3& a, const Float3& b, float w) {
     return Float3{lerpf(a.r, b.r, w), lerpf(a.g, b.g, w), lerpf(a.b, b.b, w)};
 }
 
+// Geometric (log-space) lerp for PHOTOMETRIC INTENSITY SCALARS ONLY
+// (sun.intensity, ibl.intensity) -- review finding (Epic1 Task2/3 gate,
+// MAJOR 1). Illumination x albedo is a product: a plain linear lerp of two
+// values ~19-29x apart (dark_adas 480000/256000 lux -> light_clay
+// 25000/8750 lux) blended against palette albedo brightening at the same
+// time overshoots BOTH endpoints around w~0.5-0.65 (measured: frame-mean
+// luminance 43 -> peak ~205 -> settles ~175 under the old linear lerp). A
+// geometric lerp (out = a * pow(b/a, w)) is monotonic between the two
+// endpoints by construction -- it can't overshoot either one. Falls back to
+// a linear lerp if either endpoint is <= 0 (log/pow undefined there); every
+// shipped theme's intensities are positive physical lux, so this is a
+// defensive guard, not a code path either theme actually takes.
+float lerpf_geometric(float a, float b, float w) {
+    if (a <= 0.0f || b <= 0.0f) return lerpf(a, b, w);
+    return a * std::pow(b / a, w);
+}
+
 }  // namespace
 
 Oklab linear_srgb_to_oklab(const Float3& c) {
@@ -116,11 +133,11 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     // existing static-theme convention already in renderer.cpp).
     out.sun.direction = lerp_vec3(a.sun.direction, b.sun.direction, w);
     out.sun.color = blend_color(a.sun.color, b.sun.color, w);
-    out.sun.intensity = lerpf(a.sun.intensity, b.sun.intensity, w);
+    out.sun.intensity = lerpf_geometric(a.sun.intensity, b.sun.intensity, w);
 
     out.ibl.sky_color = blend_color(a.ibl.sky_color, b.ibl.sky_color, w);
     out.ibl.ground_color = blend_color(a.ibl.ground_color, b.ibl.ground_color, w);
-    out.ibl.intensity = lerpf(a.ibl.intensity, b.ibl.intensity, w);
+    out.ibl.intensity = lerpf_geometric(a.ibl.intensity, b.ibl.intensity, w);
 
     out.fog.density = lerpf(a.fog.density, b.fog.density, w);
 

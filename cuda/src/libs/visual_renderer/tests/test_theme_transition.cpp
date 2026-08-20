@@ -13,6 +13,7 @@
 
 #include <cmath>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace {
@@ -181,15 +182,87 @@ TEST(ThemeTransition, RetargetMidFlight_StartsFromCurrentBlendNotEndpoint) {
     // from)), not literally `from`) — OklabHelpers.RoundTripIsIdentity above
     // bounds that round trip to ~1e-4 in linear color space, which the ACES
     // tonemap + 8-bit quantization can turn into a few discrete levels here
-    // and there (measured: mean abs diff ~0.46/255, max 2/255, on this
-    // build) — real, but nowhere near what a genuine snap-to-endpoint bug
-    // would produce (dark_adas vs. light_clay differ by ~100+ mean luminance
-    // levels, spread across nearly every pixel, not a handful of ±1-2
-    // rounding blips). 8.0 catches a real snap with wide margin while not
-    // being a hand-tuned exact match to this build's noise floor.
-    EXPECT_LT(MaxAbsDiff(beforeRetarget, afterRetarget), 8.0)
+    // and there. sun.intensity/ibl.intensity themselves are NOT a source of
+    // extra noise here (Task 3 Step 3's geometric-intensity fix): lerpf_
+    // geometric(a, b, 0) == a exactly (pow(x, 0) == 1 for any finite x>0),
+    // bit-for-bit identical to the pre-retarget value, same as the old
+    // linear lerp was at w=0. What DID move is the mid-transition operating
+    // point the geometric fix targets on purpose (dimmer than the old
+    // linear blend's overshoot -- that's the whole point), which shifts
+    // where on the ACES tonemap curve this round trip's ~1e-4 color noise
+    // lands: mean abs diff is essentially unchanged (0.465/255, was
+    // ~0.46/255 under the linear intensity lerp), but the single worst
+    // pixel now lands 11/255 instead of ~2/255 (measured on this build) --
+    // real, but nowhere near what a genuine snap-to-endpoint bug would
+    // produce (dark_adas vs. light_clay differ by ~100+ mean luminance
+    // levels, spread across nearly every pixel, not one outlier pixel).
+    // 24.0 keeps comfortable margin above the measured 11 while still
+    // catching a real snap with wide margin.
+    EXPECT_LT(MaxAbsDiff(beforeRetarget, afterRetarget), 24.0)
         << "retargeting set_theme() mid-flight visibly snapped the frame -- "
            "the new transition's `from` isn't the current blend.";
+
+    mpviz::destroy_renderer(r);
+}
+
+TEST(ThemeTransition, MidTransition_LuminanceDoesNotOvershootEndpoints) {
+    // Review finding (Epic1 Task2/3 gate, MAJOR 1): sun.intensity/ibl.
+    // intensity were plain linearly lerped across ~19-29x ranges (dark_adas
+    // 480000/256000 lux -> light_clay 25000/8750 lux) while palette albedo
+    // brightens at the same time -- illumination x albedo is a PRODUCT, so a
+    // linear-lerp-of-illumination blend overshoots past both endpoints
+    // around t~0.5-0.65 (measured: frame-mean luminance 43 -> peak 205 ->
+    // settles at 175 -- a "dim to night" toggle visibly flashes brighter
+    // than day mid-transition). The fix interpolates intensity scalars
+    // GEOMETRICALLY (log-space) instead, which by construction can't
+    // overshoot either endpoint. This test renders t=0.5 and t=0.6 (of the
+    // 0.8s transition, i.e. sim_time_sec 0.4/0.48) and asserts each stays
+    // within [min(endpoint means)-3, max(endpoint means)+3] -- must FAIL
+    // against a linear intensity lerp (peak ~205 vs endpoint max ~175), PASS
+    // once the lerp is geometric.
+    constexpr uint32_t kWidth = 320, kHeight = 240;
+    mpviz::RenderConfig cfg{kWidth, kHeight, /*quality=*/1, kThemeDir, "dark_adas"};
+    mpviz::VisualRenderer* r = mpviz::create_renderer(cfg);
+    if (r == nullptr) {
+        GTEST_SKIP() << "no GPU/EGL";
+    }
+    mpviz::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
+
+    // Endpoint means come straight from the already-committed t0/t0_8
+    // goldens (t=0.0 == still dark_adas, t=0.8 == fully settled light_clay)
+    // -- no re-render needed, and this stays correct even if those two
+    // goldens are regenerated later for an unrelated reason.
+    const mpviz::testing::FrameStats endpointA = mpviz::testing::analyze_png(
+        MPVIZ_TEST_DATA_DIR "/tests/goldens/transition_t0.png");
+    const mpviz::testing::FrameStats endpointB = mpviz::testing::analyze_png(
+        MPVIZ_TEST_DATA_DIR "/tests/goldens/transition_t0_8.png");
+    ASSERT_GT(endpointA.mean, 0.0) << "couldn't load transition_t0.png golden";
+    ASSERT_GT(endpointB.mean, 0.0) << "couldn't load transition_t0_8.png golden";
+    const double loBound = std::min(endpointA.mean, endpointB.mean) - 3.0;
+    const double hiBound = std::max(endpointA.mean, endpointB.mean) + 3.0;
+
+    mpviz::SceneGraph scene{};
+    scene.sim_time_sec = 0.0;
+    mpviz::set_scene(r, scene);
+    mpviz::set_theme(r, "light_clay", 0.0, 0.8);
+
+    const double sampleTsOfDuration[] = {0.5, 0.6};  // t=0.5, t=0.6 of the 0.8s transition
+    for (double tOfDuration : sampleTsOfDuration) {
+        scene.sim_time_sec = tOfDuration * 0.8;
+        mpviz::set_scene(r, scene);
+        const std::string outPath =
+            "/tmp/transition_mid_t" + std::to_string(tOfDuration) + "_actual.png";
+        mpviz::testing::render_and_compare(r, pose, "/nonexistent/no_such_golden.png",
+                                            outPath.c_str());
+        const mpviz::testing::FrameStats stats = mpviz::testing::analyze_png(outPath.c_str());
+        EXPECT_GE(stats.mean, loBound)
+            << "t=" << tOfDuration << " mean " << stats.mean << " undershot endpoints ["
+            << endpointA.mean << ", " << endpointB.mean << "]";
+        EXPECT_LE(stats.mean, hiBound)
+            << "t=" << tOfDuration << " mean " << stats.mean << " overshot endpoints ["
+            << endpointA.mean << ", " << endpointB.mean
+            << "] -- illumination x albedo blew out mid-transition (linear intensity lerp?)";
+    }
 
     mpviz::destroy_renderer(r);
 }

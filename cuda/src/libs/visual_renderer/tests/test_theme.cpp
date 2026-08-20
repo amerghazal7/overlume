@@ -181,6 +181,21 @@ TEST(ThemeLoad, MissingThemeDir_FallsBackToBuiltinTheme) {
     std::vector<uint8_t> pixels(320u * 240u * 3u);
     mpviz::FrameView view{pixels.data(), 320, 240};
     EXPECT_TRUE(mpviz::render_frame(r, pose, view));
+    // Gate-review addition (2026-08-20, spec §9 minor): false here is the
+    // whole point of theme_assets_loaded() -- a caller-visible signal that
+    // create_renderer() had to substitute the compiled-in fallback, so
+    // callers (visualization_node.cpp's on_configure()) can WARN.
+    EXPECT_FALSE(mpviz::theme_assets_loaded(r));
+    mpviz::destroy_renderer(r);
+}
+
+TEST(ThemeLoad, RealAssetsDir_ThemeAssetsLoadedIsTrue) {
+    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    mpviz::VisualRenderer* r = mpviz::create_renderer(cfg);
+    if (r == nullptr) {
+        GTEST_SKIP() << "no GPU/EGL";
+    }
+    EXPECT_TRUE(mpviz::theme_assets_loaded(r));
     mpviz::destroy_renderer(r);
 }
 

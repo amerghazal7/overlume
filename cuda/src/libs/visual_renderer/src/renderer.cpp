@@ -713,6 +713,7 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     r->height = config.height;
     r->theme_dir = themeDir;
     r->active_theme = theme;
+    r->theme_assets_loaded = loaded.has_value();
 
     r->swapChain = engine->createSwapChain(config.width, config.height,
                                             filament::SwapChain::CONFIG_READABLE);
@@ -1012,6 +1013,11 @@ bool set_theme(VisualRenderer* r, const char* theme_name, double at_sec, double 
         transition_sec > 0.0 ? transition_sec : 0.8,
     };
     return true;
+}
+
+// Gate-review addition (2026-08-20, spec §9 minor) — see scene.h's comment.
+bool theme_assets_loaded(VisualRenderer* r) {
+    return r != nullptr && r->theme_assets_loaded;
 }
 
 }  // namespace mpviz

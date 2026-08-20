@@ -183,4 +183,16 @@ bool set_theme(VisualRenderer*, const char* theme_name, double at_sec,
 // place it can live).
 bool set_ego_model(VisualRenderer*, const char* gltf_path, Vec3 fallback_dims);
 
+// Gate-review addition (2026-08-20, spec §9 minor): create_renderer()
+// silently substitutes the compiled-in kFallbackTheme() whenever
+// RenderConfig::theme_assets_dir/initial_theme fails to load (missing dir,
+// missing file, malformed YAML) -- non-fatal by design, but until now gave
+// the caller no way to know it happened and WARN. Returns true iff the
+// theme active right after create_renderer() was actually loaded from disk;
+// false if it's the compiled-in fallback. Reflects only the INITIAL load at
+// create_renderer() time, not any later set_theme() call (which has its own
+// bool return for the same purpose). An additive entry point -- legal under
+// the scene.h freeze (see this header's own top comment).
+bool theme_assets_loaded(VisualRenderer*);
+
 }  // namespace mpviz
