@@ -182,6 +182,25 @@ nav_msgs::msg::OccupancyGrid load_occupancy_grid(const std::string& fixture_name
     return grid;
 }
 
+// Epic 2 Task 6 (VM-025): see fixture_msgs.hpp. Same shape as
+// load_occupancy_grid() just above -- x/y/width/height are plain scalars,
+// data is int8[] (msg's own on-wire type; OgmAdapter's ConvertCell(), not
+// this loader, does the -1/0..100/malformed conversion).
+map_msgs::msg::OccupancyGridUpdate load_occupancy_grid_update(const std::string& fixture_name)
+{
+    const YAML::Node root = LoadFixtureYaml(fixture_name);
+    map_msgs::msg::OccupancyGridUpdate update;
+    FillHeader(root["header"], update.header);
+    update.x = static_cast<int32_t>(GetI(root, "x"));
+    update.y = static_cast<int32_t>(GetI(root, "y"));
+    update.width = static_cast<uint32_t>(GetI(root, "width"));
+    update.height = static_cast<uint32_t>(GetI(root, "height"));
+    if (const auto data = root["data"]) {
+        for (const auto& v : data) update.data.push_back(static_cast<int8_t>(v.as<int>()));
+    }
+    return update;
+}
+
 namespace
 {
 
@@ -211,5 +230,20 @@ ProfileRow RowFromProfile(const char* profile_stem, const std::string& topic)
 
 ProfileRow urban_row(const std::string& topic) { return RowFromProfile("urban", topic); }
 ProfileRow sim_row(const std::string& topic) { return RowFromProfile("sim", topic); }
+
+ClassInferenceTable inference_table()
+{
+    const std::string path = std::string(TEST_CONFIG_DIR) + "/class_inference.yaml";
+    std::vector<std::string> errs;
+    auto table = load_class_inference(path, errs);
+    if (!table)
+    {
+        std::ostringstream os;
+        os << "fixture_msgs: shipped class inference table '" << path << "' failed to load:";
+        for (const auto& e : errs) os << "\n  " << e;
+        throw std::runtime_error(os.str());
+    }
+    return *table;
+}
 
 }  // namespace mpviz_node::testing

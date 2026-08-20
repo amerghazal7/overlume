@@ -29,6 +29,15 @@ struct NsRule
 {
     std::string prefix;
     NsRender render{NsRender::kDrop};
+    // Optional, default false; legal ONLY on render: polyline rules (the
+    // validator rejects it on polygon/drop -- see profile.cpp's
+    // ValidateRow). HdMapAdapter chops a dashed rule's polylines into
+    // alternating keep/skip runs by arc length at ingest time (user
+    // directive 2026-08-20: undifferentiated lane paint reads as "a
+    // repeated mess"); this is pure geometry, decided before a MapElement
+    // is ever built, so the frozen {points, point_count, is_polygon} shape
+    // never needs to know.
+    bool dashed{false};
 };
 
 struct ProfileRow
@@ -83,6 +92,13 @@ const ProfileRow* find_row(const Profile& profile, std::string_view topic);
 
 // Longest matching prefix in `row.namespaces` wins; no match -> row.ns_default.
 NsRender classify(const ProfileRow& row, std::string_view ns);
+
+// The matched rule itself (classify()'s same longest-prefix-wins search),
+// or nullptr when nothing matches -- callers needing more than the render
+// verdict (HdMapAdapter wants `dashed`) use this instead of classify().
+// No match means "row.ns_default applies", and ns_default carries no
+// dashed flag (dashed is only ever set on an explicit namespace rule).
+const NsRule* match_rule(const ProfileRow& row, std::string_view ns);
 
 // subscriptions_for() is the pure function the node walks to build every
 // create_subscription() call -- see profile.cpp for the ogm/tf_axes special

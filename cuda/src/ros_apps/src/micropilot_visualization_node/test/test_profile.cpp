@@ -12,6 +12,7 @@ using mpviz_node::classify;
 using mpviz_node::find_row;
 using mpviz_node::load_profile;
 using mpviz_node::load_profile_string;
+using mpviz_node::match_rule;
 using mpviz_node::NsRender;
 using mpviz_node::subscriptions_for;
 
@@ -68,6 +69,70 @@ TEST(Profile, NamespaceRuleIsLongestPrefixWins)
     EXPECT_EQ(classify(r, "traffic_light_2"), NsRender::kDrop);  // ns_default
 }
 
+TEST(Profile, DashedFlagParsesOnPolylineRules)
+{
+    // VM-036-adjacent (user directive 2026-08-20): dashed defaults false and
+    // is per-rule, not inherited by a sibling rule in the same row.
+    std::vector<std::string> errs;
+    auto p = load_profile_string(
+        "name: t\nrows:\n  - {topic: /m, type: visualization_msgs/msg/MarkerArray,"
+        " adapter: hd_map, role: lane, namespaces:"
+        " [{prefix: centerline_,    render: polyline, dashed: true},"
+        "  {prefix: left_boundary_, render: polyline}]}\n", errs);
+    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
+    ASSERT_EQ(p->rows[0].namespaces.size(), 2u);
+    EXPECT_TRUE(p->rows[0].namespaces[0].dashed);
+    EXPECT_FALSE(p->rows[0].namespaces[1].dashed);
+}
+
+TEST(Profile, DashedIsRejectedOnANonPolylineRule)
+{
+    // dashed is pure geometry chopping, meaningless for a polygon
+    // (crosswalk) and moot for a dropped namespace -- the validator
+    // rejects both, same error-collection convention as every other
+    // ValidateRow check.
+    std::vector<std::string> polygon_errs;
+    auto polygon = load_profile_string(
+        "name: t\nrows:\n  - {topic: /m, type: visualization_msgs/msg/MarkerArray,"
+        " adapter: hd_map, role: lane, namespaces:"
+        " [{prefix: crosswalk_, render: polygon, dashed: true}]}\n", polygon_errs);
+    EXPECT_FALSE(polygon.has_value());
+    ASSERT_EQ(polygon_errs.size(), 1u);
+    EXPECT_NE(polygon_errs[0].find("dashed"), std::string::npos);
+    EXPECT_NE(polygon_errs[0].find("crosswalk_"), std::string::npos);
+
+    std::vector<std::string> drop_errs;
+    auto drop = load_profile_string(
+        "name: t\nrows:\n  - {topic: /m, type: visualization_msgs/msg/MarkerArray,"
+        " adapter: hd_map, role: lane, namespaces:"
+        " [{prefix: centerline_arrows_, render: drop, dashed: true}]}\n", drop_errs);
+    EXPECT_FALSE(drop.has_value());
+    ASSERT_EQ(drop_errs.size(), 1u);
+    EXPECT_NE(drop_errs[0].find("dashed"), std::string::npos);
+}
+
+TEST(Profile, ShippedUrbanLocalRowMarksCenterlineDashedButNotBoundary)
+{
+    // config/urban_profile.yaml (user directive 2026-08-20): centerline_
+    // ships dashed: true so it visually reads apart from the two solid
+    // boundary stripes either side of it.
+    std::vector<std::string> errs;
+    auto p = load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
+    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
+    const auto* row = find_row(*p, "/hd_map_local_elements");
+    ASSERT_NE(row, nullptr);
+
+    const auto* centerline_rule = match_rule(*row, "centerline_0");
+    ASSERT_NE(centerline_rule, nullptr);
+    EXPECT_EQ(centerline_rule->render, NsRender::kPolyline);
+    EXPECT_TRUE(centerline_rule->dashed);
+
+    const auto* boundary_rule = match_rule(*row, "left_boundary_0");
+    ASSERT_NE(boundary_rule, nullptr);
+    EXPECT_EQ(boundary_rule->render, NsRender::kPolyline);
+    EXPECT_FALSE(boundary_rule->dashed);
+}
+
 TEST(Profile, DuplicateNamespacePrefixIsRejected)
 {
     // two rules with the same prefix have no defined winner -> bad row
@@ -95,11 +160,12 @@ TEST(Profile, ShippedProfilesRouteEveryKnownNamespaceOfEveryShippedTopic)
     auto sim = mpviz_node::load_profile(std::string(TEST_CONFIG_DIR) + "/sim_profile.yaml", errs);
     ASSERT_TRUE(sim.has_value());
 
-    const auto* road_markers = find_row(*urban, "/road_markers");
-    ASSERT_NE(road_markers, nullptr);
-    EXPECT_EQ(classify(*road_markers, "road_lane_left_boundary"), NsRender::kPolyline);
-    EXPECT_EQ(classify(*road_markers, "road_lane_right_boundary"), NsRender::kPolyline);
-    EXPECT_EQ(classify(*road_markers, "some_unknown_ns"), NsRender::kDrop);  // ns_default
+    // /road_markers row DISABLED 2026-08-20: the upstream publisher's output
+    // is wrong (user-verified in rviz — same broken geometry there, so the
+    // source is at fault, not the renderer). Row ships commented out until
+    // the owning team fixes the topic; on re-enable, restore the three
+    // classify() assertions from git history and bump the row count below.
+    EXPECT_EQ(find_row(*urban, "/road_markers"), nullptr);
 
     const auto* hd_map_global = find_row(*urban, "/hd_map_global_elements");
     ASSERT_NE(hd_map_global, nullptr);
@@ -114,6 +180,11 @@ TEST(Profile, ShippedProfilesRouteEveryKnownNamespaceOfEveryShippedTopic)
     EXPECT_EQ(classify(*hd_map_local, "right_boundary_0"), NsRender::kPolyline);
     EXPECT_EQ(classify(*hd_map_local, "crosswalk_7"), NsRender::kPolygon);
     EXPECT_EQ(classify(*hd_map_local, "crosswalk_stopline_7"), NsRender::kPolyline);
+    // Marker convention (user, 2026-08-20): the sim publisher's namespace is
+    // the PLURAL "crosswalks" with no numeric suffix; the shipped rule is the
+    // bare prefix "crosswalk" so BOTH spellings classify as polygon on every
+    // hd_map row, while the longer crosswalk_stopline_ rule still wins.
+    EXPECT_EQ(classify(*hd_map_local, "crosswalks"), NsRender::kPolygon);
 
     const auto* dyn_objects = find_row(*urban, "/perception/dynamic_objects_list");
     ASSERT_NE(dyn_objects, nullptr);
@@ -419,10 +490,13 @@ TEST(Profile, CoexistsWithTheRendererLibrarysOwnYamlCpp)
     ASSERT_TRUE(p.has_value());
     // Row COUNT, not just has_value(): merge_yamlcpp.sh recipe 3 (see that
     // script's header) LINKED fine and still returned a Profile with the
-    // right error count (0) but the WRONG row count (0 instead of 16) --
-    // an ABI-mismatched YAML::Node silently corrupting data, not crashing.
-    // has_value() alone would pass on that broken build.
-    EXPECT_EQ(p->rows.size(), 16u);
+    // right error count (0) but the WRONG row count (0 instead of the full
+    // count) -- an ABI-mismatched YAML::Node silently corrupting data, not
+    // crashing. has_value() alone would pass on that broken build.
+    // 15, not 16, since 2026-08-20: the /road_markers row ships commented
+    // out (upstream data defect — see urban_profile.yaml). Bump back to 16
+    // when that row is re-enabled.
+    EXPECT_EQ(p->rows.size(), 15u);
     // ...and the bundled yaml-cpp (clang/libc++), inside libvisual_renderer.a,
     // parses a theme in the SAME process. If the two ever get relinked into
     // one, this is where it shows up -- not in a field crash three epics later.

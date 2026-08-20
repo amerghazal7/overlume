@@ -40,8 +40,14 @@ public:
     /// kills single-sample TF noise without adding latency-tuning
     /// complexity (a Kalman filter would be gold-plating for a HUD speed
     /// readout, not a control input).
+    /// flatten_z (default ON -- user directive 2026-08-20): zeroes the ego's
+    /// map-frame z so it sits on the 2D HD-map plane every other flattened
+    /// layer renders on (live TF carries real altitude, ~11 m on the sim).
+    /// See frame_transform.hpp; flips off together with the node's
+    /// `flatten_z` parameter when the HD-map layer grows 3D coordinates.
     explicit TfAdapter(tf2_ros::Buffer& buffer, std::string map_frame = "map",
-                       std::string base_frame = "base_link", double alpha = 0.2);
+                       std::string base_frame = "base_link", double alpha = 0.2,
+                       bool flatten_z = true);
 
     /// Look up map->base_link "now" (tf2::TimePointZero -- latest available),
     /// finite-difference against the previous successful lookup, and
@@ -61,6 +67,7 @@ private:
     std::string map_frame_;
     std::string base_frame_;
     double alpha_;
+    bool flatten_z_ = true;  // see ctor doc / frame_transform.hpp
 
     bool have_prev_{false};
     mpviz::Vec3 prev_pos_{};

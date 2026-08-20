@@ -49,11 +49,11 @@ rows:
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 2.0,
      ns_default: drop,
      namespaces: [
-       {prefix: centerline_,         render: polyline},
+       {prefix: centerline_,         render: polyline, dashed: true},
        {prefix: centerline_arrows_,  render: drop},
        {prefix: left_boundary_,      render: polyline},
        {prefix: right_boundary_,     render: polyline},
-       {prefix: crosswalk_,          render: polygon},
+       {prefix: crosswalk,           render: polygon},
        {prefix: crosswalk_stopline_, render: polyline}]}
 
   # FIXTURE GAP: /hd_map_global_elements was silent in the recorded bag
@@ -75,11 +75,11 @@ rows:
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 0.5,
      ns_default: drop,
      namespaces: [
-       {prefix: centerline_,         render: polyline},
+       {prefix: centerline_,         render: polyline, dashed: true},
        {prefix: centerline_arrows_,  render: drop},
        {prefix: left_boundary_,      render: polyline},
        {prefix: right_boundary_,     render: polyline},
-       {prefix: crosswalk_,          render: polygon},
+       {prefix: crosswalk,           render: polygon},
        {prefix: crosswalk_stopline_, render: polyline}]}
 
   # /road_markers: live in the bag (1921 msgs, RELIABLE, frame map). NOT in
@@ -99,12 +99,23 @@ rows:
   # means the day this publisher adds a TEXT or ARROW namespace -- exactly
   # what /sim/hd_map/markers did -- it silently becomes dropped_malformed
   # noise instead of a rule decision.
-  - {topic: /road_markers, type: visualization_msgs/msg/MarkerArray,
-     adapter: hd_map, role: lane, timeout_sec: 2.0,
-     ns_default: drop,
-     namespaces: [
-       {prefix: road_lane_left_boundary,  render: polyline},
-       {prefix: road_lane_right_boundary, render: polyline}]}
+  # DISABLED 2026-08-20 — UPSTREAM DATA DEFECT, NOT A RENDERER ISSUE.
+  # Verified by the user: adding /road_markers to rviz shows the SAME wrong
+  # left/right boundary geometry, so the publisher's output itself is off
+  # (its lines do not sit on the road the HD map describes). Rendering it
+  # meanwhile just paints wrong lines over correct ones.
+  # >>> RE-ENABLE by uncommenting this row once the team owning the
+  # >>> /road_markers publisher fixes its output. No code change needed —
+  # >>> the HdMapAdapter path is fully wired and tested; also flip the two
+  # >>> /road_markers assertions in test_profile.cpp back (marked with the
+  # >>> same date), and consider VM-036's `road_edge` kind so it renders
+  # >>> visually distinct from surveyed lane boundaries.
+  # - {topic: /road_markers, type: visualization_msgs/msg/MarkerArray,
+  #    adapter: hd_map, role: lane, timeout_sec: 2.0,
+  #    ns_default: drop,
+  #    namespaces: [
+  #      {prefix: road_lane_left_boundary,  render: polyline},
+  #      {prefix: road_lane_right_boundary, render: polyline}]}
 
   - {topic: /behavior_path_planner/output_path_visualization, type: nav_msgs/msg/Path,
      adapter: path, role: behavior, timeout_sec: 2.0}

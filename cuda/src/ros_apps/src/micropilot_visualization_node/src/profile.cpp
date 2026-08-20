@@ -142,9 +142,12 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
                 ok = false;
                 continue;
             }
+            rule.dashed = item["dashed"] ? item["dashed"].as<bool>() : false;
+            // dashed vs. render is a cross-field semantic check, not a
+            // can't-represent-it-at-all parse failure -- see ValidateRow.
             for (auto it = item.begin(); it != item.end(); ++it) {
                 const std::string key = it->first.as<std::string>();
-                if (key != "prefix" && key != "render") {
+                if (key != "prefix" && key != "render" && key != "dashed") {
                     errors.push_back(RowTag(file, idx, out.topic) +
                                       "namespaces[] unknown key '" + key + "' (ignored)");
                 }
@@ -206,6 +209,10 @@ bool ValidateRow(const ProfileRow& row, const std::string& file, size_t idx,
     for (const auto& rule : row.namespaces) {
         if (!seen.insert(rule.prefix).second)
             return fail("duplicate namespace prefix '" + rule.prefix + "'");
+        if (rule.dashed && rule.render != NsRender::kPolyline)
+            return fail("namespaces[] prefix '" + rule.prefix +
+                        "': dashed: true is only legal on render: polyline (got '" +
+                        (rule.render == NsRender::kPolygon ? "polygon" : "drop") + "')");
     }
 
     return true;
@@ -306,7 +313,7 @@ const ProfileRow* find_row(const Profile& profile, std::string_view topic)
     return nullptr;
 }
 
-NsRender classify(const ProfileRow& row, std::string_view ns)
+const NsRule* match_rule(const ProfileRow& row, std::string_view ns)
 {
     const NsRule* best = nullptr;
     for (const auto& rule : row.namespaces) {
@@ -314,6 +321,12 @@ NsRender classify(const ProfileRow& row, std::string_view ns)
         if (ns.compare(0, rule.prefix.size(), rule.prefix) != 0) continue;
         if (best == nullptr || rule.prefix.size() > best->prefix.size()) best = &rule;
     }
+    return best;
+}
+
+NsRender classify(const ProfileRow& row, std::string_view ns)
+{
+    const NsRule* best = match_rule(row, ns);
     return best != nullptr ? best->render : row.ns_default;
 }
 

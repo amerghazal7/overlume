@@ -9,9 +9,9 @@ namespace micropilot::visualization_app
 {
 
 TfAdapter::TfAdapter(tf2_ros::Buffer& buffer, std::string map_frame, std::string base_frame,
-                     double alpha)
+                     double alpha, bool flatten_z)
     : buffer_(buffer), map_frame_(std::move(map_frame)), base_frame_(std::move(base_frame)),
-      alpha_(alpha)
+      alpha_(alpha), flatten_z_(flatten_z)
 {
 }
 
@@ -66,6 +66,10 @@ mpviz::EgoState TfAdapter::update()
     prev_stamp_ = stamp;
 
     ego.position = pos;
+    // flatten_z: 2D HD-map plane (see frame_transform.hpp) -- live TF
+    // carries real altitude and the ego would float above every flattened
+    // layer otherwise.
+    if (flatten_z_) ego.position.z = 0.0;
     ego.heading_rad = heading;
     // Spec §7: prefer /robot/feedback/robot_speed_mps over the TF-diff/EMA
     // once the node has forwarded at least one sample (set_robot_speed_mps).

@@ -188,6 +188,142 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
                                               ego_speed_smoothing_alpha);
     pub_ego_state_ = create_publisher<std_msgs::msg::Float64MultiArray>("~/ego_state", 1);
 
+    // ── HD-map adapters (Epic 2 Task 2 / VM-024) ─────────────────────────────
+    // One HdMapAdapter per profile row with adapter: hd_map, subscribed via
+    // subscriptions_for(row) -- the pure function Task 1 built specifically
+    // so this loop never hand-rolls QoS logic. fill() APPENDS into
+    // scene_asm_ every tick (timer_callback), never assigns it, so all of
+    // urban's 3 rows (and sim's 4th, latched) render together.
+    frame_transformer_ = std::make_unique<FrameTransformer>(*tf_buffer_);
+    for (const auto& row : profile->rows)
+    {
+        if (row.adapter != "hd_map") continue;
+        const auto specs = mpviz_node::subscriptions_for(row);
+        if (specs.empty()) continue;
+        const auto& spec = specs.front();
+
+        auto adapter = std::make_unique<mpviz_node::HdMapAdapter>(row, *frame_transformer_);
+        mpviz_node::HdMapAdapter* adapter_ptr = adapter.get();
+        rclcpp::QoS qos(10);
+        if (spec.best_effort) qos.best_effort();
+        if (spec.transient_local) qos.transient_local();
+        hd_map_subs_.push_back(create_subscription<visualization_msgs::msg::MarkerArray>(
+            spec.topic, qos,
+            [this, adapter_ptr](const visualization_msgs::msg::MarkerArray::SharedPtr msg)
+            { adapter_ptr->ingest(*msg, sim_clock_sec_); }));
+        hd_map_rows_.push_back(HdMapRow{std::move(adapter), row.timeout_sec, row.topic});
+    }
+    RCLCPP_INFO(get_logger(), "hd_map: %zu row(s) subscribed", hd_map_rows_.size());
+
+    // ── Dynamic objects (Epic 2 Task 3 / VM-021) ─────────────────────────────
+    // class_inference.yaml lives next to the profile YAMLs (same share/config
+    // directory, same profile_dir override) -- loaded once, before any
+    // DynamicObjectsAdapter is constructed, since every adapter holds a
+    // reference to it for the lifetime of this configure/activate cycle.
+    // Failure to load is fatal for the same reason a bad profile is: a
+    // config file this node depends on to classify every tracked object.
+    const std::string class_inference_path = profile_dir + "/class_inference.yaml";
+    std::vector<std::string> class_inference_errors;
+    if (auto table = mpviz_node::load_class_inference(class_inference_path, class_inference_errors))
+    {
+        class_inference_ = std::move(*table);
+    }
+    else
+    {
+        RCLCPP_ERROR(get_logger(), "failed to load class inference table '%s':",
+                    class_inference_path.c_str());
+        for (const auto& err : class_inference_errors) RCLCPP_ERROR(get_logger(), "  %s", err.c_str());
+        return CallbackReturn::FAILURE;
+    }
+
+    // One DynamicObjectsAdapter per profile row with adapter: dynamic_objects
+    // -- same subscriptions_for(row)/QoS pattern as the hd_map loop above.
+    for (const auto& row : profile->rows)
+    {
+        if (row.adapter != "dynamic_objects") continue;
+        const auto specs = mpviz_node::subscriptions_for(row);
+        if (specs.empty()) continue;
+        const auto& spec = specs.front();
+
+        auto adapter = std::make_unique<mpviz_node::DynamicObjectsAdapter>(
+            row, *frame_transformer_, class_inference_);
+        mpviz_node::DynamicObjectsAdapter* adapter_ptr = adapter.get();
+        rclcpp::QoS qos(10);
+        if (spec.best_effort) qos.best_effort();
+        if (spec.transient_local) qos.transient_local();
+        dynamic_objects_subs_.push_back(create_subscription<visualization_msgs::msg::MarkerArray>(
+            spec.topic, qos,
+            [this, adapter_ptr](const visualization_msgs::msg::MarkerArray::SharedPtr msg)
+            { adapter_ptr->ingest(*msg, sim_clock_sec_); }));
+        dynamic_objects_rows_.push_back(
+            DynamicObjectsRow{std::move(adapter), row.timeout_sec, row.topic});
+    }
+    RCLCPP_INFO(get_logger(), "dynamic_objects: %zu row(s) subscribed",
+                dynamic_objects_rows_.size());
+
+    // ── Path ribbons (Epic 2 Task 5 / VM-023) ────────────────────────────────
+    // One PathAdapter per profile row with adapter: path -- same
+    // subscriptions_for(row)/QoS pattern as the hd_map/dynamic_objects loops
+    // above. Both shipped profiles ship FOUR rows over THREE roles.
+    for (const auto& row : profile->rows)
+    {
+        if (row.adapter != "path") continue;
+        const auto specs = mpviz_node::subscriptions_for(row);
+        if (specs.empty()) continue;
+        const auto& spec = specs.front();
+
+        auto adapter = std::make_unique<mpviz_node::PathAdapter>(row, *frame_transformer_);
+        mpviz_node::PathAdapter* adapter_ptr = adapter.get();
+        rclcpp::QoS qos(10);
+        if (spec.best_effort) qos.best_effort();
+        if (spec.transient_local) qos.transient_local();
+        path_subs_.push_back(create_subscription<nav_msgs::msg::Path>(
+            spec.topic, qos,
+            [this, adapter_ptr](const nav_msgs::msg::Path::SharedPtr msg)
+            { adapter_ptr->ingest(*msg, sim_clock_sec_); }));
+        path_rows_.push_back(PathRow{std::move(adapter), row.timeout_sec, row.topic});
+    }
+    RCLCPP_INFO(get_logger(), "path: %zu row(s) subscribed", path_rows_.size());
+
+    // ── OGM ground grids (Epic 2 Task 6 / VM-025) ────────────────────────────
+    // One OgmAdapter per profile row with adapter: ogm -- UNLIKE every other
+    // loop above, subscriptions_for(row) returns TWO SubSpecs for this one
+    // row (the base topic + row.update_topic), so this creates TWO
+    // subscriptions, binding each spec's `type` to the matching ingest()
+    // overload on the SAME adapter instance (profile.cpp's own comment:
+    // best_effort propagates to the update stream, transient_local never
+    // does -- an update stream is inherently VOLATILE).
+    for (const auto& row : profile->rows)
+    {
+        if (row.adapter != "ogm") continue;
+        const auto specs = mpviz_node::subscriptions_for(row);
+        if (specs.size() != 2) continue;  // profile.cpp always returns 2 for adapter: ogm
+        const auto& gridSpec = specs[0];
+        const auto& updateSpec = specs[1];
+
+        auto adapter = std::make_unique<mpviz_node::OgmAdapter>(row, *frame_transformer_);
+        mpviz_node::OgmAdapter* adapter_ptr = adapter.get();
+
+        rclcpp::QoS gridQos(10);
+        if (gridSpec.best_effort) gridQos.best_effort();
+        if (gridSpec.transient_local) gridQos.transient_local();
+        ogm_grid_subs_.push_back(create_subscription<nav_msgs::msg::OccupancyGrid>(
+            gridSpec.topic, gridQos,
+            [this, adapter_ptr](const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
+            { adapter_ptr->ingest(*msg, sim_clock_sec_); }));
+
+        rclcpp::QoS updateQos(10);
+        if (updateSpec.best_effort) updateQos.best_effort();
+        if (updateSpec.transient_local) updateQos.transient_local();
+        ogm_update_subs_.push_back(create_subscription<map_msgs::msg::OccupancyGridUpdate>(
+            updateSpec.topic, updateQos,
+            [this, adapter_ptr](const map_msgs::msg::OccupancyGridUpdate::SharedPtr msg)
+            { adapter_ptr->ingest_update(*msg, sim_clock_sec_); }));
+
+        ogm_rows_.push_back(OgmRow{std::move(adapter), row.timeout_sec, row.topic});
+    }
+    RCLCPP_INFO(get_logger(), "ogm: %zu row(s) subscribed", ogm_rows_.size());
+
     // Spec §7 (docs/superpowers/specs/2026-08-18-visual-mode-design.md:264):
     // ego speed PREFERS this topic over the TF finite-difference fallback
     // tf_adapter_ computes above. Global (not "~/..."): it's the robot's own
@@ -269,6 +405,31 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
 }
 
 // ── Timer callback ───────────────────────────────────────────────────────────
+namespace
+{
+// Epic 2 plan, "Diagnostics counters": WARN_THROTTLE (5 s) per adapter when
+// dropped_malformed or dropped_no_tf GROWS. Rule drops (dropped_by_rule) are
+// the designed steady state and never warn. One helper shared by every
+// adapter row so later Epic 2 adapters get identical wording for free.
+// Watermarks advance even while the throttle suppresses the print — the
+// counters are cumulative, so the next growth after the window still warns.
+void warn_on_drop_growth(const rclcpp::Logger& logger, rclcpp::Clock& clock,
+                         const std::string& topic, const mpviz_node::AdapterStats& s,
+                         uint64_t& warned_malformed, uint64_t& warned_no_tf)
+{
+    if (s.dropped_malformed > warned_malformed || s.dropped_no_tf > warned_no_tf)
+    {
+        RCLCPP_WARN_THROTTLE(logger, clock, 5000,
+                             "%s: dropped %llu malformed, %llu without TF (cumulative)",
+                             topic.c_str(),
+                             static_cast<unsigned long long>(s.dropped_malformed),
+                             static_cast<unsigned long long>(s.dropped_no_tf));
+        warned_malformed = s.dropped_malformed;
+        warned_no_tf = s.dropped_no_tf;
+    }
+}
+}  // namespace
+
 void VisualizationNode::timer_callback()
 {
     // Ease the virtual camera toward the selected preset (no-op once settled)
@@ -297,9 +458,92 @@ void VisualizationNode::timer_callback()
     // Task 4 fills in scene.ego from the TF adapter here too; nothing else
     // is populated until Epic 2.
     sim_clock_sec_ += kTimerPeriodSec;
+
+    // Epic 2 Task 2 (VM-024): merge every hd_map adapter's current geometry
+    // into one SceneAssembly, THEN point the frozen SceneGraph at it --
+    // scene_asm_.clear() must run before any adapter's fill(), or last
+    // tick's elements pile up on top of this tick's (SceneAssembly's own
+    // header, "ClearBetweenTicksDoesNotAccumulate"). STATED DEVIATION
+    // (epic2 plan, "Staleness"): MapElement carries no last_update_sec, so
+    // the library can't fade this category -- past a row's timeout_sec the
+    // node just stops calling fill() for it, a pop rather than a fade (see
+    // adapters/hd_map.hpp's own header comment).
+    scene_asm_.clear();
+    for (auto& hr : hd_map_rows_)
+    {
+        warn_on_drop_growth(get_logger(), *get_clock(), hr.topic, hr.adapter->stats(),
+                            hr.warned_malformed, hr.warned_no_tf);
+        if (sim_clock_sec_ - hr.adapter->stats().last_msg_sec > hr.timeout_sec) continue;
+        hr.adapter->fill(scene_asm_);
+    }
+
+    // Epic 2 Task 3 (VM-021): same "stop filling past timeout_sec" rule as
+    // hd_map above, except TrackedObject DOES carry last_update_sec (unlike
+    // MapElement), so this category gets the library's staleness FADE
+    // instead of hd_map's pop -- Task 4 wires clay_translucent.mat to it,
+    // this adapter just has to keep publishing right up to timeout_sec.
+    for (auto& dr : dynamic_objects_rows_)
+    {
+        // Review fix (VM-021 gate): a topic that has NEVER published is
+        // absent, not stale -- without this, last_msg_sec==0 makes
+        // dropped_stale tick at ~30 Hz from startup on a silent topic and
+        // VM-034 would report data loss on data that never existed.
+        if (dr.adapter->stats().msgs == 0) continue;
+        warn_on_drop_growth(get_logger(), *get_clock(), dr.topic, dr.adapter->stats(),
+                            dr.warned_malformed, dr.warned_no_tf);
+        if (sim_clock_sec_ - dr.adapter->stats().last_msg_sec > dr.timeout_sec)
+        {
+            dr.adapter->mark_stale_tick();
+            continue;
+        }
+        dr.adapter->fill(scene_asm_);
+    }
+
+    // Epic 2 Task 5 (VM-023): same "absent row never counts as stale" /
+    // "stop filling past timeout_sec, mark_stale_tick() instead" shape as
+    // dynamic_objects above -- PathRibbon carries last_update_sec, so the
+    // library fades it rather than popping.
+    for (auto& pr : path_rows_)
+    {
+        if (pr.adapter->stats().msgs == 0) continue;
+        warn_on_drop_growth(get_logger(), *get_clock(), pr.topic, pr.adapter->stats(),
+                            pr.warned_malformed, pr.warned_no_tf);
+        if (sim_clock_sec_ - pr.adapter->stats().last_msg_sec > pr.timeout_sec)
+        {
+            pr.adapter->mark_stale_tick();
+            continue;
+        }
+        pr.adapter->fill(scene_asm_);
+    }
+
+    // Epic 2 Task 6 (VM-025): same "absent row never counts as stale" /
+    // "stop filling past timeout_sec, mark_stale_tick() instead" shape as
+    // dynamic_objects/path above -- GroundGridLayer carries last_update_sec,
+    // so the library fades it (ground_grid.mat's own alpha) rather than
+    // popping. stats().msgs counts BOTH ingest()/ingest_update() overloads'
+    // accepted messages (ogm.hpp's own stated decision), so a row that has
+    // only ever received _updates patches (impossible in practice --
+    // ingest_update() before any ingest() is a no-op, see
+    // UpdateBeforeAnyFullGridIsDroppedAndCounted) would still correctly
+    // read as "never produced a renderable grid" via fill() emitting
+    // nothing, not via this msgs==0 gate.
+    for (auto& gr : ogm_rows_)
+    {
+        if (gr.adapter->stats().msgs == 0) continue;
+        warn_on_drop_growth(get_logger(), *get_clock(), gr.topic, gr.adapter->stats(),
+                            gr.warned_malformed, gr.warned_no_tf);
+        if (sim_clock_sec_ - gr.adapter->stats().last_msg_sec > gr.timeout_sec)
+        {
+            gr.adapter->mark_stale_tick();
+            continue;
+        }
+        gr.adapter->fill(scene_asm_);
+    }
+
     mpviz::SceneGraph scene{};
     scene.sim_time_sec = sim_clock_sec_;
     scene.ego = tf_adapter_->update();
+    scene_asm_.point_at(scene);
     mpviz::set_scene(renderer_, scene);
 
     std_msgs::msg::Float64MultiArray ego_state;
@@ -389,6 +633,16 @@ VisualizationNode::CallbackReturn VisualizationNode::on_cleanup(
     vcam_.reset();
     theme_sub_.reset();
     robot_speed_sub_.reset();
+    hd_map_subs_.clear();
+    hd_map_rows_.clear();
+    dynamic_objects_subs_.clear();
+    dynamic_objects_rows_.clear();
+    path_subs_.clear();
+    path_rows_.clear();
+    ogm_grid_subs_.clear();
+    ogm_update_subs_.clear();
+    ogm_rows_.clear();
+    frame_transformer_.reset();
     tf_adapter_.reset();
     tf_listener_.reset();
     tf_buffer_.reset();
@@ -405,6 +659,16 @@ VisualizationNode::CallbackReturn VisualizationNode::on_shutdown(
     vcam_.reset();
     theme_sub_.reset();
     robot_speed_sub_.reset();
+    hd_map_subs_.clear();
+    hd_map_rows_.clear();
+    dynamic_objects_subs_.clear();
+    dynamic_objects_rows_.clear();
+    path_subs_.clear();
+    path_rows_.clear();
+    ogm_grid_subs_.clear();
+    ogm_update_subs_.clear();
+    ogm_rows_.clear();
+    frame_transformer_.reset();
     tf_adapter_.reset();
     tf_listener_.reset();
     tf_buffer_.reset();

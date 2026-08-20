@@ -22,15 +22,25 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
+#include <map_msgs/msg/occupancy_grid_update.hpp>
+#include <nav_msgs/msg/occupancy_grid.hpp>
+#include <nav_msgs/msg/path.hpp>
 #include <std_msgs/msg/int32.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
+#include <visualization_msgs/msg/marker_array.hpp>
 
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
 
+#include "micropilot_visualization_node/adapters/dynamic_objects.hpp"
+#include "micropilot_visualization_node/adapters/hd_map.hpp"
+#include "micropilot_visualization_node/adapters/ogm.hpp"
+#include "micropilot_visualization_node/adapters/path.hpp"
+#include "micropilot_visualization_node/frame_transform.hpp"
 #include "micropilot_visualization_node/profile.hpp"
+#include "micropilot_visualization_node/scene_assembly.hpp"
 #include "micropilot_visualization_node/tf_adapter.hpp"
 #include "micropilot_visualization_node/vcam.hpp"
 
@@ -121,6 +131,93 @@ private:
     // tests that drive set_scene()/render_frame() directly.
     static constexpr double kTimerPeriodSec = 0.033;  // matches the 33ms create_wall_timer below
     double sim_clock_sec_{0.0};
+
+    // ── HD-map lanes/crosswalks (Epic 2 Task 2 / VM-024) ─────────────────────
+    // One HdMapAdapter per profile row with adapter: hd_map (urban ships 3;
+    // sim adds a 4th, latched /sim/hd_map/markers) -- every instance's
+    // fill() APPENDS into scene_asm_.map_elements (SceneAssembly's own
+    // header: the last adapter to run must not erase what the others
+    // already appended). frame_transformer_ is heap-allocated because
+    // FrameTransformer holds a `const tf2_ros::Buffer&` that can only bind
+    // once tf_buffer_ exists (on_configure, not construction).
+    struct HdMapRow
+    {
+        std::unique_ptr<mpviz_node::HdMapAdapter> adapter;
+        double timeout_sec;
+        std::string topic;              // named in drop-growth WARNs
+        uint64_t warned_malformed = 0;  // counts already reported by
+        uint64_t warned_no_tf = 0;      // warn_on_drop_growth()
+    };
+    std::unique_ptr<FrameTransformer> frame_transformer_;
+    std::vector<HdMapRow> hd_map_rows_;
+    std::vector<rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr>
+        hd_map_subs_;
+
+    // ── Dynamic objects (Epic 2 Task 3 / VM-021) ─────────────────────────────
+    // One DynamicObjectsAdapter per profile row with adapter: dynamic_objects
+    // (urban/offroad/sim ship exactly one: /perception/dynamic_objects_list).
+    // class_inference_ is loaded once in on_configure and must outlive every
+    // adapter, which holds a `const ClassInferenceTable&` (same reference-
+    // member shape as FrameTransformer above).
+    struct DynamicObjectsRow
+    {
+        std::unique_ptr<mpviz_node::DynamicObjectsAdapter> adapter;
+        double timeout_sec;
+        std::string topic;              // named in drop-growth WARNs
+        uint64_t warned_malformed = 0;
+        uint64_t warned_no_tf = 0;
+    };
+    mpviz_node::ClassInferenceTable class_inference_;
+    std::vector<DynamicObjectsRow> dynamic_objects_rows_;
+    std::vector<rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr>
+        dynamic_objects_subs_;
+
+    // ── Path ribbons (Epic 2 Task 5 / VM-023) ────────────────────────────────
+    // One PathAdapter per profile row with adapter: path -- both shipped
+    // profiles ship FOUR rows over THREE roles (BEHAVIOR, LOCAL x2, GLOBAL;
+    // fixture gap 2). Same fill()-appends/timeout_sec/warn_on_drop_growth
+    // shape as hd_map/dynamic_objects above. PathRibbon DOES carry
+    // last_update_sec (unlike MapElement), so this category gets the
+    // library's staleness FADE, not hd_map's pop -- mark_stale_tick() past
+    // timeout_sec, same as the dynamic_objects loop.
+    struct PathRow
+    {
+        std::unique_ptr<mpviz_node::PathAdapter> adapter;
+        double timeout_sec;
+        std::string topic;              // named in drop-growth WARNs
+        uint64_t warned_malformed = 0;  // counts already reported by
+        uint64_t warned_no_tf = 0;      // warn_on_drop_growth()
+    };
+    std::vector<PathRow> path_rows_;
+    std::vector<rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr> path_subs_;
+
+    // ── OGM ground grids (Epic 2 Task 6 / VM-025) ────────────────────────────
+    // One OgmAdapter per profile row with adapter: ogm (both shipped
+    // profiles ship exactly two: dynamic_ogm/gradient_ogm). UNLIKE every
+    // other category, subscriptions_for(row) returns TWO SubSpecs for one
+    // row (the base topic + row.update_topic), so this loop creates TWO
+    // subscriptions per row -- ogm_grid_subs_/ogm_update_subs_ stay
+    // index-aligned with ogm_rows_ (slot i's two subscriptions both bind
+    // the SAME adapter instance, via ingest()/ingest_update() respectively).
+    // FIXTURE GAP 3: no OccupancyGrid topic exists in the recorded bag --
+    // unvalidated against a live publisher. GroundGridLayer DOES carry
+    // last_update_sec, so this category gets the library's staleness FADE
+    // (ground_grid.mat's own alpha), same "stop filling past timeout_sec,
+    // mark_stale_tick() instead" shape as dynamic_objects/path above.
+    struct OgmRow
+    {
+        std::unique_ptr<mpviz_node::OgmAdapter> adapter;
+        double timeout_sec;
+        std::string topic;              // named in drop-growth WARNs (the base topic)
+        uint64_t warned_malformed = 0;  // counts already reported by
+        uint64_t warned_no_tf = 0;      // warn_on_drop_growth()
+    };
+    std::vector<OgmRow> ogm_rows_;
+    std::vector<rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr> ogm_grid_subs_;
+    std::vector<rclcpp::Subscription<map_msgs::msg::OccupancyGridUpdate>::SharedPtr>
+        ogm_update_subs_;
+
+    SceneAssembly scene_asm_;
 
     // ── renderer + preallocated output buffer ────────────────────────────────
     mpviz::VisualRenderer* renderer_{nullptr};

@@ -25,10 +25,19 @@ namespace micropilot::visualization_app
 class FrameTransformer
 {
 public:
-    explicit FrameTransformer(const tf2_ros::Buffer& buffer, std::string target_frame = "map")
-        : buffer_(buffer), target_frame_(std::move(target_frame))
+    // flatten_z (default ON -- user directive 2026-08-20): the HD map is a
+    // 2D plane today, so publisher-supplied z (dynamic-object bbox centers,
+    // live TF altitude) renders as floating geometry. Every adapter zeroes
+    // the z of the points it STORES while this is true (the transform math
+    // itself is untouched). Flip to false when the HD-map layer grows real
+    // 3D coordinates -- exposed as the node's `flatten_z` parameter.
+    explicit FrameTransformer(const tf2_ros::Buffer& buffer, std::string target_frame = "map",
+                              bool flatten_z = true)
+        : buffer_(buffer), target_frame_(std::move(target_frame)), flatten_z_(flatten_z)
     {
     }
+
+    bool flatten_z() const { return flatten_z_; }
 
     // map <- header.frame_id at the message stamp; falls back to
     // tf2::TimePointZero (latest available) if the exact stamp isn't in the
@@ -40,6 +49,7 @@ public:
 private:
     const tf2_ros::Buffer& buffer_;
     std::string target_frame_;
+    bool flatten_z_ = true;
 };
 
 }  // namespace micropilot::visualization_app
