@@ -4,7 +4,22 @@
 # bridge/GUI) against the recorded fixture bag, and report PASS/FAIL.
 #
 # Usage: tools/validate_visual_mode.sh [--bag PATH] [--qos PATH] [--no-gui]
-#                                       [--build] [--profile NAME]
+#                                       [--build] [--profile NAME] [--live]
+#
+# --live: validate against the LIVE autonomy stack instead of the fixture
+#         bag -- skips bag playback and the tf flattener (a live stack
+#         publishes /tf itself), runs the node on wall time (override with
+#         LIVE_SIM_TIME=true when the live source, e.g. CARLA, publishes
+#         /clock), and relaxes the ego z==0.0 health check (that asserts
+#         the flattener's output, a bag-rig invariant). A FAIL in live mode
+#         can also mean "the stack just isn't publishing yet" -- the rig
+#         stays up for inspection either way.
+#
+# BAG MODE vs A RUNNING LIVE STACK (seen live 2026-08-20): if a live sim is
+# up on the same ROS domain, its real /tf (z != 0) fights the flattener and
+# the bag-mode health gate FAILs on z==0.0 with a nonsense z. Either stop
+# the live stack, use --live, or isolate bag mode: ROS_DOMAIN_ID=<n> on
+# BOTH this script and anything that needs to see its topics.
 #
 # ==========================================================================
 # MILESTONE UPDATE LOG (Epic 2 — append one line per task as it lands; this
@@ -20,6 +35,21 @@
 #               on the node side; a bad/missing name is a fatal on_configure
 #               (node stays unconfigured, script reports CONFIGURE failed).
 #               Nothing new is visually checkable yet -- no adapter subscribes.
+#   2026-08-20  --live added (user directive): same rig + health gate against
+#               live topics, no bag, no tf flattener, wall clock by default.
+#   2026-08-20  Task 2/VM-024: HD-map lanes/crosswalks are now visible.
+#               HdMapAdapter (urban profile: /hd_map_local_elements,
+#               /hd_map_global_elements, /road_markers) subscribes per the
+#               profile's namespace rules, and the placeholder 40m
+#               origin-locked ground+grid now follows the ego (quantized to
+#               the 2m grid pitch) instead of leaving it driving over a
+#               void. Visually checkable in mode 3: lane paint + crosswalk
+#               hatching travel with the ego as the bag plays. Health gate
+#               now also samples /hd_map_local_elements' publish rate (the
+#               bag's own map feed) as a precondition check -- a silent map
+#               topic would otherwise look identical to a silently-broken
+#               HdMapAdapter subscription, and this at least rules the
+#               former out before anyone goes looking in the latter.
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its
@@ -37,20 +67,28 @@ QOS="${HOME}/TPSProjector-fixtures/qos_full.yaml"
 NO_GUI=0
 DO_BUILD=0
 PROFILE=""
+LIVE=0
+BAG_SET=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --bag) BAG="$2"; shift 2 ;;
+        --bag) BAG="$2"; BAG_SET=1; shift 2 ;;
         --qos) QOS="$2"; shift 2 ;;
         --no-gui) NO_GUI=1; shift ;;
         --build) DO_BUILD=1; shift ;;
         --profile) PROFILE="$2"; shift 2 ;;
+        --live) LIVE=1; shift ;;
         -h|--help)
             grep '^# ' "${BASH_SOURCE[0]}" | head -6 | sed 's/^# //'
             exit 0 ;;
         *) echo "unknown arg: $1" >&2; exit 1 ;;
     esac
 done
+
+if [[ "${LIVE}" == "1" && "${BAG_SET}" == "1" ]]; then
+    echo "--live and --bag are mutually exclusive (live mode plays no bag)" >&2
+    exit 1
+fi
 
 LOG_DIR=/tmp/mpviz_validate
 mkdir -p "${LOG_DIR}"
@@ -127,13 +165,15 @@ if [[ "${DO_BUILD}" == "1" ]]; then
     ( cd "${REPO_ROOT}/cuda/scripts/ros_apps_build" && ./colcon_build.sh )
 fi
 
-if [[ ! -e "${BAG}" ]]; then
-    echo "bag not found: ${BAG}" >&2
-    exit 1
-fi
-if [[ ! -e "${QOS}" ]]; then
-    echo "qos override file not found: ${QOS}" >&2
-    exit 1
+if [[ "${LIVE}" != "1" ]]; then
+    if [[ ! -e "${BAG}" ]]; then
+        echo "bag not found: ${BAG}" >&2
+        exit 1
+    fi
+    if [[ ! -e "${QOS}" ]]; then
+        echo "qos override file not found: ${QOS}" >&2
+        exit 1
+    fi
 fi
 
 # ------------------------------------------------------------------- ROS env
@@ -189,8 +229,22 @@ PROFILE_ARGS=()
 if [[ -n "${PROFILE}" ]]; then
     PROFILE_ARGS=(-p "profile:=${PROFILE}")
 fi
+# --params-file: without it the node runs on built-in defaults and
+# ego_model_path arrives EMPTY -> clay-box ego with a "failed to load ''"
+# WARN even though default_params.yaml points at the converted M02P.glb
+# (user report 2026-08-20). CLI -p overrides still win over the file.
+# use_sim_time: the bag publishes /clock (played with --clock), so bag mode
+# runs on sim time. A live stack usually does NOT publish /clock -- sim time
+# there freezes the node's clock at 0 and breaks staleness gating (seen live
+# 2026-08-20) -- so live mode defaults to wall time; set LIVE_SIM_TIME=true
+# when the live source (e.g. CARLA) does publish /clock.
+USE_SIM_TIME=true
+if [[ "${LIVE}" == "1" ]]; then
+    USE_SIM_TIME="${LIVE_SIM_TIME:-false}"
+fi
 ros2 run micropilot_visualization_node visualization_node --ros-args \
-    -p initial_mode:=3 -p use_sim_time:=true "${PROFILE_ARGS[@]}" \
+    --params-file "$(ros2 pkg prefix micropilot_visualization_node)/share/micropilot_visualization_node/config/default_params.yaml" \
+    -p initial_mode:=3 -p use_sim_time:="${USE_SIM_TIME}" "${PROFILE_ARGS[@]}" \
     > "${LOG_DIR}/visualization_node.log" 2>&1 &
 track_child "$!"
 
@@ -227,16 +281,27 @@ lifecycle_set_retry() {
 lifecycle_set_retry configure
 lifecycle_set_retry activate
 
-echo "[launch] tf_flatten_fixture.py (log: ${LOG_DIR}/tf_flatten.log)"
-python3 "${REPO_ROOT}/tools/tf_flatten_fixture.py" \
-    > "${LOG_DIR}/tf_flatten.log" 2>&1 &
-track_child "$!"
+if [[ "${LIVE}" == "1" ]]; then
+    # Live mode: the stack publishes /tf itself (no /tf_raw remap to bridge,
+    # and flattening z would be WRONG against real TF), and there is no bag.
+    echo "[live] skipping tf_flatten_fixture.py and bag playback -- reading live topics"
+else
+    echo "[launch] tf_flatten_fixture.py (log: ${LOG_DIR}/tf_flatten.log)"
+    python3 "${REPO_ROOT}/tools/tf_flatten_fixture.py" \
+        > "${LOG_DIR}/tf_flatten.log" 2>&1 &
+    track_child "$!"
 
-echo "[launch] ros2 bag play --loop (log: ${LOG_DIR}/bag_play.log)"
-ros2 bag play "${BAG}" --loop --clock \
-    --qos-profile-overrides-path "${QOS}" --remap /tf:=/tf_raw \
-    > "${LOG_DIR}/bag_play.log" 2>&1 &
-track_child "$!"
+    echo "[launch] ros2 bag play --loop (log: ${LOG_DIR}/bag_play.log)"
+    # stdin MUST be /dev/null: `set -m` (line 38) puts this job in its own
+    # BACKGROUND process group, and rosbag2 with a TTY on stdin enables keyboard
+    # controls and reads the terminal -- which SIGTTIN-stops a background group
+    # before it prints a single byte. Symptom: 0-byte bag_play.log, no /clock,
+    # no ego/map, only when launched from an interactive terminal (2026-08-20).
+    ros2 bag play "${BAG}" --loop --clock \
+        --qos-profile-overrides-path "${QOS}" --remap /tf:=/tf_raw \
+        < /dev/null > "${LOG_DIR}/bag_play.log" 2>&1 &
+    track_child "$!"
+fi
 
 echo "[launch] vcam_ws_bridge.py (log: ${LOG_DIR}/vcam_ws_bridge.log)"
 python3 "${REPO_ROOT}/tools/vcam_ws_bridge.py" \
@@ -254,8 +319,13 @@ else
 fi
 
 # -------------------------------------------------------------- health gate
-echo "[health] waiting up to 20s for >=25 Hz on /rendering/image and" \
-     "valid ego_state with z==0.0 ..."
+if [[ "${LIVE}" == "1" ]]; then
+    echo "[health] waiting up to 20s for >=25 Hz on /rendering/image," \
+         "valid ego_state, and a live /hd_map_local_elements feed ..."
+else
+    echo "[health] waiting up to 20s for >=25 Hz on /rendering/image," \
+         "valid ego_state with z==0.0, and a live /hd_map_local_elements feed ..."
+fi
 
 read_hz() {
     timeout 4 ros2 topic hz /rendering/image 2>/dev/null \
@@ -271,23 +341,48 @@ read_ego_z_valid() {
     printf '%s %s\n' "${z:-}" "${valid:-}"
 }
 
+# Task 2/VM-024: this is a precondition check on the BAG's own feed, not on
+# HdMapAdapter -- it only rules out "the map topic itself is silent" (bag
+# not playing, wrong topic name, QoS mismatch upstream) before anyone goes
+# looking for a broken subscription. It intentionally does NOT prove the
+# node is rendering lanes (that needs a human looking at the stream, Task 2
+# Step 12) -- `ros2 topic hz` counts publishes regardless of who, if
+# anyone, is subscribed.
+read_hd_map_hz() {
+    timeout 4 ros2 topic hz /hd_map_local_elements 2>/dev/null \
+        | grep -o "average rate: [0-9.]*" | tail -1 | awk '{print $3}'
+}
+
 DEADLINE=$((SECONDS + 20))
 HZ=""
 EGO_Z=""
 EGO_VALID=""
+HD_MAP_HZ=""
 PASS=0
 while [[ "${SECONDS}" -lt "${DEADLINE}" ]]; do
     HZ="$(read_hz || true)"
     read -r EGO_Z EGO_VALID < <(read_ego_z_valid)
+    HD_MAP_HZ="$(read_hd_map_hz || true)"
     HZ_OK=0
     if [[ -n "${HZ}" ]] && awk -v h="${HZ}" 'BEGIN{exit !(h>=25)}'; then
         HZ_OK=1
     fi
     EGO_OK=0
-    if [[ "${EGO_VALID}" == "1.0" && "${EGO_Z}" == "0.0" ]]; then
+    # z==0.0 asserts the tf flattener's output -- a bag-rig invariant. Live
+    # TF carries real z, so live mode checks validity only.
+    if [[ "${LIVE}" == "1" ]]; then
+        [[ "${EGO_VALID}" == "1.0" ]] && EGO_OK=1
+    elif [[ "${EGO_VALID}" == "1.0" && "${EGO_Z}" == "0.0" ]]; then
         EGO_OK=1
     fi
-    if [[ "${HZ_OK}" == "1" && "${EGO_OK}" == "1" ]]; then
+    # Lenient threshold (>=1 Hz, not the bag's real ~18 Hz): this is a
+    # liveness check, not a rate assertion -- the bag loops and this gate
+    # must not flake on a loop-wrap gap.
+    HD_MAP_OK=0
+    if [[ -n "${HD_MAP_HZ}" ]] && awk -v h="${HD_MAP_HZ}" 'BEGIN{exit !(h>=1)}'; then
+        HD_MAP_OK=1
+    fi
+    if [[ "${HZ_OK}" == "1" && "${EGO_OK}" == "1" && "${HD_MAP_OK}" == "1" ]]; then
         PASS=1
         break
     fi
@@ -295,9 +390,15 @@ done
 
 echo "=============================================================="
 if [[ "${PASS}" == "1" ]]; then
-    echo "PASS  /rendering/image @ ${HZ} Hz  |  ego_state valid=${EGO_VALID} z=${EGO_Z}"
+    echo "PASS  /rendering/image @ ${HZ} Hz  |  ego_state valid=${EGO_VALID} z=${EGO_Z}" \
+         " |  /hd_map_local_elements @ ${HD_MAP_HZ} Hz"
 else
-    echo "FAIL  /rendering/image @ ${HZ:-no-data} Hz  |  ego_state valid=${EGO_VALID:-?} z=${EGO_Z:-?}"
+    echo "FAIL  /rendering/image @ ${HZ:-no-data} Hz  |  ego_state valid=${EGO_VALID:-?} z=${EGO_Z:-?}" \
+         " |  /hd_map_local_elements @ ${HD_MAP_HZ:-no-data} Hz"
+    if [[ "${LIVE}" == "1" ]]; then
+        echo "  live mode: a FAIL can also mean the autonomy stack is not" \
+             "publishing (yet) -- check TF and /hd_map_local_elements on the stack side."
+    fi
     echo "  logs: ${LOG_DIR}/"
 fi
 echo "=============================================================="
