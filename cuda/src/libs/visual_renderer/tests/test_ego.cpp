@@ -176,3 +176,39 @@ TEST(EgoGolden, ClayBoxFallback_DarkAdas) {
 
     mpviz::destroy_renderer(r);
 }
+
+// Regression guard (user contrast directive 2026-08-20), mirrors
+// MapElements.LaneMaterialIsThemedOnFirstDataWithNoTransition (test_map_
+// elements.cpp): egoMaterial is created EAGERLY in create_renderer() and
+// registered by push_theme_to_scene() at that same call, BEFORE
+// set_ego_model() is ever invoked -- so it must already read as
+// theme.palette.ego on the very first render, with no set_theme() call
+// anywhere in this test. Catches the exact bug this task fixes: binding
+// r.egoMaterial's baseColor from theme.palette.ground instead of
+// theme.palette.ego (or never wiring it up at all, in which case this
+// reads clay.mat's compiled-in zero default).
+TEST(Ego, EgoMaterialIsThemedOnFirstRenderWithNoTransition) {
+    const auto theme = mpviz::detail::load_theme(kThemeDir, "dark_adas");
+    ASSERT_TRUE(theme.has_value());
+
+    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    mpviz::VisualRenderer* r = mpviz::create_renderer(cfg);
+    if (r == nullptr) {
+        GTEST_SKIP() << "no GPU/EGL";
+    }
+
+    mpviz::SceneGraph scene{};
+    scene.sim_time_sec = 0.0;
+    mpviz::set_scene(r, scene);
+    mpviz::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
+    std::vector<uint8_t> pixels(320u * 240u * 3u);
+    mpviz::FrameView view{pixels.data(), 320, 240};
+    EXPECT_TRUE(mpviz::render_frame(r, pose, view));
+
+    const auto p = mpviz::testing::ego_material_base_color(r);
+    EXPECT_NEAR(p.r, theme->palette.ego.r, 1e-4);
+    EXPECT_NEAR(p.g, theme->palette.ego.g, 1e-4);
+    EXPECT_NEAR(p.b, theme->palette.ego.b, 1e-4);
+
+    mpviz::destroy_renderer(r);
+}

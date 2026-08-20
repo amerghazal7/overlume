@@ -1,0 +1,38 @@
+// clay_translucent.mat — Epic 2 Task 4 (VM-022). The epic's ONE material
+// with a settable alpha, reused by Tasks 5/7/8. See the plan's "…and the
+// material that can actually do it" for the full argument this file's
+// existence rests on; short version:
+//
+//  - clay.mat (opaque) has NO alpha at all -- baseColor is float3.
+//  - clay_faded.mat's alpha is per-VERTEX, baked once at grid-build time
+//    from radial distance, and its `requires : [ color ]` is a hard
+//    vertex-layout constraint this epic's geometry (extruded polylines,
+//    gltfio object meshes) does not and must not grow a COLOR attribute
+//    to satisfy.
+//
+// So: same LIT shading model as the other two, `float4 baseColor` (alpha in
+// `.a`) instead of float3, `blending : fade`, and deliberately NO
+// `requires:` line at all -- it must bind to BOTH gltfio-loaded meshes
+// (position + tangents only) and this epic's extruded-ribbon geometry
+// (same layout) with zero vertex-layout constraint either way. A reviewer
+// must not read this as duplicating clay.mat/clay_faded.mat: it has a
+// different vertex-layout contract (none) and a different blend mode
+// (blended, not opaque) — each of the three materials has exactly one job.
+material {
+    name : clay_translucent,
+    shadingModel : lit,
+    parameters : [
+        { type : float4, name : baseColor },
+        { type : float, name : roughness },
+        { type : float, name : metallic }
+    ],
+    blending : fade
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        material.baseColor = materialParams.baseColor;
+        material.roughness = materialParams.roughness;
+        material.metallic = materialParams.metallic;
+    }
+}

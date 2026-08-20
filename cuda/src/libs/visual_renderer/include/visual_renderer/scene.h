@@ -183,6 +183,22 @@ bool set_theme(VisualRenderer*, const char* theme_name, double at_sec,
 // place it can live).
 bool set_ego_model(VisualRenderer*, const char* gltf_path, Vec3 fallback_dims);
 
+// Points the object renderer at a directory of normalized per-class glTF/GLB
+// clay models (VM-022). Expected stems: car.glb, truck_van.glb, bus.glb,
+// pedestrian.glb, cyclist.glb — one per ObjectClass except UNKNOWN, which is
+// always the procedural clay box. Any stem that is missing or fails
+// to load is non-fatal: that class falls back to the same procedural clay
+// box (a plain unit box today — the fillet was skipped, see
+// build_unit_box's ponytail note in objects.cpp),
+// scaled to the object's measured bbox exactly as a loaded model would be
+// (spec §9, "asset load failure -> clay-box fallback, WARN once"). Returns
+// the number of class models successfully loaded (0 is a legal, fully
+// functional configuration — see Task 4 Step 0). Call once, from
+// on_configure(), before the first render_frame(); `dir` is caller-owned and
+// borrowed only for the duration of this call, same rule as
+// RenderConfig::theme_assets_dir.
+uint32_t set_object_model_dir(VisualRenderer*, const char* dir);
+
 // Gate-review addition (2026-08-20, spec §9 minor): create_renderer()
 // silently substitutes the compiled-in kFallbackTheme() whenever
 // RenderConfig::theme_assets_dir/initial_theme fails to load (missing dir,

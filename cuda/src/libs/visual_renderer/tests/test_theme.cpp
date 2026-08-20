@@ -6,10 +6,14 @@
 
 #include "golden.hpp"
 #include "test_paths.hpp"
+#include "theme.hpp"
+#include "theme_transition.hpp"
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -20,6 +24,74 @@ bool AnyDiffer(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
 }
 
 }  // namespace
+
+// ── palette.ego (user contrast directive 2026-08-20) ────────────────────
+// A cross-theme swap, not a new color: dark_adas.yaml's `ego` key authors
+// light_clay's ground color and vice versa (see theme.hpp's Palette::ego
+// comment and the .yaml files' own comments), so the ego always reads
+// against whichever ground it's standing on.
+
+TEST(ThemePalette, EgoParsesFromYamlAsCrossThemeSwap) {
+    const std::optional<mpviz::detail::Theme> dark =
+        mpviz::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<mpviz::detail::Theme> light =
+        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    ASSERT_TRUE(dark.has_value());
+    ASSERT_TRUE(light.has_value());
+
+    // dark_adas.ego == light_clay.ground (both authored [0.82, 0.80, 0.76]).
+    EXPECT_NEAR(dark->palette.ego.r, light->palette.ground.r, 1e-4f);
+    EXPECT_NEAR(dark->palette.ego.g, light->palette.ground.g, 1e-4f);
+    EXPECT_NEAR(dark->palette.ego.b, light->palette.ground.b, 1e-4f);
+
+    // light_clay.ego == dark_adas.ground (both authored [0.05, 0.06, 0.08]).
+    EXPECT_NEAR(light->palette.ego.r, dark->palette.ground.r, 1e-4f);
+    EXPECT_NEAR(light->palette.ego.g, dark->palette.ground.g, 1e-4f);
+    EXPECT_NEAR(light->palette.ego.b, dark->palette.ground.b, 1e-4f);
+}
+
+TEST(ThemePalette, EgoFallsBackToBuiltinDefaultWhenMissingFromYaml) {
+    // tests/fixtures/themes/sun_dir_a.yaml predates palette.ego and was
+    // deliberately NOT updated to add it (this task's scope) -- proving
+    // `ego` is the one OPTIONAL palette key (theme.cpp's parse(), unlike
+    // every required field which would instead throw and fall the whole
+    // theme back to kFallbackTheme() -- see this test's own has_value()
+    // assertion below, which would fail if it still threw).
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<mpviz::detail::Theme> theme =
+        mpviz::detail::load_theme(fixtureDir, "sun_dir_a");
+    ASSERT_TRUE(theme.has_value())
+        << "a theme file missing only the optional `ego` key must still parse";
+    EXPECT_NEAR(theme->palette.ego.r, 0.82f, 1e-4f);
+    EXPECT_NEAR(theme->palette.ego.g, 0.80f, 1e-4f);
+    EXPECT_NEAR(theme->palette.ego.b, 0.76f, 1e-4f);
+}
+
+TEST(ThemePalette, EgoBlendsInOklabAcrossTransition) {
+    const std::optional<mpviz::detail::Theme> dark =
+        mpviz::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<mpviz::detail::Theme> light =
+        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    ASSERT_TRUE(dark.has_value());
+    ASSERT_TRUE(light.has_value());
+
+    const mpviz::detail::Theme mid = mpviz::detail::blend(*dark, *light, 0.5f);
+
+    // Self-consistency, same technique as ThemeTransition.MidpointBlend_
+    // IsBetweenEndpointsInOklab (test_theme_transition.cpp): the blended
+    // ego's Oklab lightness must sit between the two endpoints'.
+    const float La = mpviz::detail::linear_srgb_to_oklab(dark->palette.ego).L;
+    const float Lb = mpviz::detail::linear_srgb_to_oklab(light->palette.ego).L;
+    const float Lmid = mpviz::detail::linear_srgb_to_oklab(mid.palette.ego).L;
+    EXPECT_GE(Lmid, std::min(La, Lb) - 1e-4f);
+    EXPECT_LE(Lmid, std::max(La, Lb) + 1e-4f);
+
+    // And it must actually have moved off both endpoints -- guards against
+    // blend() silently skipping palette.ego (e.g. a copy-paste that left
+    // `out.palette.ego` default-constructed / equal to `a`'s value).
+    EXPECT_GT(std::abs(Lmid - La), 1e-4f);
+    EXPECT_GT(std::abs(Lmid - Lb), 1e-4f);
+}
 
 TEST(ClayMaterial, RespondsToLightDirection) {
     // Two renderers loaded from fixture themes that are byte-for-byte
@@ -230,7 +302,13 @@ TEST(ThemeGolden, EmptyWorld_DarkAdas) {
         mpviz::testing::analyze_png("/tmp/empty_world_dark_adas_actual.png");
     EXPECT_GT(stats.mean, 20.0) << "frame reads as crushed black";
     EXPECT_LT(stats.mean, 200.0) << "frame reads as clipped white";
-    EXPECT_GT(stats.distinct_levels, 40)
+    // 15, re-measured 2026-08-20: the ground patch widened 20m -> 60m (map
+    // horizon fix), so most of the frame is now uniform far-ground past the
+    // 40m grid-fade end and the user-approved golden legitimately carries 22
+    // distinct levels (was >40 with the 40m patch filling the frame with
+    // fade gradient). A genuinely lost fade/grid collapses to ~2-5 levels,
+    // so the tripwire still fires for the failure it was built to catch.
+    EXPECT_GT(stats.distinct_levels, 15)
         << "too few distinct luminance levels -- grid-vs-ground contrast and "
            "distance fade aren't visible";
     // The sunlit ground must read brighter than the flat ambient sky

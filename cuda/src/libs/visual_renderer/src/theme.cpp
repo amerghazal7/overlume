@@ -17,8 +17,9 @@ Float3 to_float3(const YAML::Node& node) {
 }
 
 // Throws (caught by load_theme) on any missing/malformed key — every field
-// in the schema is required, no per-theme optional keys (see the YAML
-// files' own "no per-theme code branches" comment).
+// in the schema is required EXCEPT palette.ego, which is soft-defaulted
+// (see its inline comment below). No other per-theme optional keys (see the
+// YAML files' own "no per-theme code branches" comment).
 Theme parse(const YAML::Node& root) {
     Theme t;
     t.name = root["name"].as<std::string>();
@@ -30,6 +31,15 @@ Theme parse(const YAML::Node& root) {
     t.palette.lane_paint = to_float3(palette["lane_paint"]);
     t.palette.ribbon_core = to_float3(palette["ribbon_core"]);
     t.palette.ribbon_glow = to_float3(palette["ribbon_glow"]);
+    // ego (user directive 2026-08-20): the one OPTIONAL palette key, unlike
+    // every required field above/below -- soft-defaulted rather than thrown
+    // on absence (profile.cpp's `node[key] ? node[key].as<T>() : def`
+    // convention, ros_apps/.../profile.cpp), so shipped/fixture theme YAMLs
+    // written before this field existed (tests/fixtures/themes/*.yaml) keep
+    // parsing instead of falling back to the whole compiled-in
+    // kFallbackTheme() over one missing key. Default matches kFallbackTheme
+    // ()'s own palette.ego below.
+    t.palette.ego = palette["ego"] ? to_float3(palette["ego"]) : Float3{0.82f, 0.80f, 0.76f};
 
     const YAML::Node tints = palette["object_tints"];
     t.palette.object_tints.car = to_float3(tints["car"]);
@@ -102,6 +112,10 @@ const Theme& kFallbackTheme() {
         t.palette.lane_paint = {0.45f, 0.5f, 0.55f};
         t.palette.ribbon_core = {0.10f, 1.00f, 0.40f};
         t.palette.ribbon_glow = {0.10f, 1.00f, 0.40f};
+        // Cross-theme swap (user directive 2026-08-20): light_clay's ground
+        // color, same value dark_adas.yaml's `ego` key authors on disk --
+        // see this struct's own header comment in theme.hpp.
+        t.palette.ego = {0.82f, 0.80f, 0.76f};
         t.palette.object_tints.car = {0.25f, 0.35f, 0.9f};
         t.palette.object_tints.truck_van = {0.30f, 0.35f, 0.85f};
         t.palette.object_tints.bus = {0.85f, 0.6f, 0.15f};

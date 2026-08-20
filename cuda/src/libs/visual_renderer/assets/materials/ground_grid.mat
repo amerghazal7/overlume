@@ -1,0 +1,73 @@
+// ground_grid.mat — Epic 2 Task 6 (VM-025): OGM occupancy grids as
+// theme-colored ground textures. One textured quad per GroundGridLayer
+// (dynamic OGM / gradient OGM), sampled from an R8 texture whose byte value
+// IS the wire encoding OgmAdapter (node-side, ogm.hpp) already produces:
+//   0..100   -> occupancy percent
+//   255      -> kUnknownCell (the sentinel for nav_msgs/OccupancyGrid's -1
+//               "unknown", and for the frozen POD boundary's own kUnknownCell
+//               constant -- scene.h's GroundGridLayer::cells cannot carry a
+//               shared enum/constant across the ABI, so this number, 255, is
+//               mirrored by comment in THREE places: ogm.hpp (source of
+//               truth), ground_grid.cpp (this material's C++ caller), and
+//               here.
+//
+// THE TRANSFER FUNCTION HAS TWO INPUTS, not one -- occupancy AND unknown:
+//   v in [0,100]  -> clamp(v,0,100)/100 ramped between freeColor/occupiedColor
+//   v > 100 (255) -> alpha 0 (unobserved ground shows the Task 2 ground patch
+//                    through it -- NEVER rendered as "very occupied", which
+//                    is what a naive v/255 ramp would do to an unknown cell).
+//
+// Theme-colored: freeColor/occupiedColor are the ramp endpoints, pushed from
+// palette tokens in renderer.cpp's push_theme_to_scene() (see that call
+// site's own comment for the token-reuse decision -- theme.hpp has no
+// dedicated OGM ramp token, the epic's "zero theme fields added" rule).
+// Staleness: `alpha` is the ONE settable knob update_ground_grids()
+// (ground_grid.cpp) drives from SceneBuffer::staleness_alpha() every frame --
+// same "one material, one alpha, no instance swap" shape as
+// ribbon_emissive.mat's BEHAVIOR role, chosen for the identical reason: this
+// quad's own geometry never needs an opaque/translucent variant, only a
+// fading one.
+//
+// LIT (not unlit) -- consistent with every other clay surface (clay.mat/
+// clay_translucent.mat/ribbon_emissive.mat all `lit`): the plan's own AC is
+// "the occupancy reads as ground shading, not a floating poster", i.e. it
+// should sit in the scene's lighting like the ground patch it's texturing,
+// not read as an unlit HUD decal.
+//
+// `requires : [ uv0 ]` -- this quad is the first geometry in this library to
+// need a UV attribute at all (ground_grid.cpp builds its own dedicated
+// vertex layout for it, same "extend a dedicated vertex struct rather than
+// grow the shared position+tangent Vertex type" pattern as renderer.cpp's
+// grid-line GridVertex/COLOR).
+material {
+    name : ground_grid,
+    shadingModel : lit,
+    parameters : [
+        { type : sampler2d, name : occupancyTexture },
+        { type : float3, name : freeColor },
+        { type : float3, name : occupiedColor },
+        { type : float, name : roughness },
+        { type : float, name : metallic },
+        { type : float, name : alpha }
+    ],
+    requires : [ uv0 ],
+    blending : fade
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        float v = texture(materialParams_occupancyTexture, getUV0()).r * 255.0;
+        float occ = clamp(v, 0.0, 100.0) / 100.0;
+        material.baseColor.rgb = mix(materialParams.freeColor, materialParams.occupiedColor, occ);
+        material.roughness = materialParams.roughness;
+        material.metallic = materialParams.metallic;
+        // v > 100.5 -> the 255 sentinel (unknown): alpha 0, ground patch
+        // shows through. Otherwise the staleness knob is the only alpha
+        // driver. 100.5, not 100.0: byte 100 dequantizes to ~100.0000076 on
+        // drivers with a rounded-up 1/255 constant, which would make fully-
+        // occupied cells vanish as "unknown"; bytes 101..254 are unreachable
+        // from a legal message, so 100.5 separates identically with no
+        // float-boundary exposure (review 2026-08-20).
+        material.baseColor.a = (v > 100.5) ? 0.0 : materialParams.alpha;
+    }
+}

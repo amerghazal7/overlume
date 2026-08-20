@@ -10,6 +10,7 @@
 // holds the pointer, never dereferences the class.
 #pragma once
 
+#include "theme.hpp"
 #include "visual_renderer/api.h"
 
 namespace mpviz::testing {
@@ -22,5 +23,13 @@ namespace mpviz::testing {
 // where the full VisualRenderer/Mesh/FilamentAsset types it needs to
 // compute anything are visible.
 double rendered_bounding_box_diagonal(mpviz::VisualRenderer* r);
+
+// The color value last actually passed to the ego MaterialInstance's
+// "baseColor" setParameter call (user directive 2026-08-20) — same
+// mirrored-CPU-copy pattern as map_elements_test_hooks.hpp's
+// lane_material_base_color() (Filament's MaterialInstance has no getter);
+// defined in renderer.cpp, where egoMaterial is created and themed
+// (push_theme_to_scene()), not ego.cpp. {0,0,0} if `r` is null.
+mpviz::detail::Float3 ego_material_base_color(mpviz::VisualRenderer* r);
 
 }  // namespace mpviz::testing

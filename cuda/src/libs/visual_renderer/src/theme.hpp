@@ -35,6 +35,17 @@ struct Theme {
         Float3 lane_paint;
         Float3 ribbon_core;
         Float3 ribbon_glow;
+        // Ego contrast color (user directive 2026-08-20): NOT reused from
+        // `ground` — the ego used to bind groundMaterial directly and so
+        // rendered as palette.ground, blending into the ground plane it
+        // stands on in both shipped themes. This is deliberately a
+        // CROSS-theme swap (dark_adas.yaml's `ego` is light_clay's `ground`
+        // and vice versa, see those files' own comments), not a new color
+        // invented from scratch, so the ego always pops against whichever
+        // ground it's standing on. Optional key (see theme.cpp's parse()):
+        // absence doesn't invalidate an otherwise-valid theme file, unlike
+        // every other palette.* field above.
+        Float3 ego;
         struct ObjectTints {
             Float3 car, truck_van, bus, pedestrian, cyclist, unknown;
         } object_tints;
