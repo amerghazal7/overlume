@@ -265,6 +265,7 @@ structure now. Interfaces marked ➤ are frozen upon that epic's review.
 | Leader-line alert callouts | VM-031 | lib `src/callouts.cpp`, goldens |
 | Layers/quality: params + WS + GUI panel (theme toggle shipped in VM-014) | VM-032 | node param plumbing, `tools/vcam_ws_bridge.py`, `tools/vcam_gui.py`, WS E2E |
 | Staleness fades + diagnostics topic in GUI | VM-034 | node `src/diagnostics.cpp`, GUI |
+| PointCloudLayer: PointCloud2 → colored points, per-row `color_mode: auto\|rgb\|intensity\|height\|flat` (auto = rgb → intensity ramp → height ramp) | VM-035 | lib `src/point_cloud.cpp` + `SceneGraph` category (freeze lift), node `src/adapters/point_cloud.cpp`, goldens |
 
 ### Epic 4 — Clay buildings (EnvironmentLayer)
 | Task | Backlog | Files |

@@ -158,6 +158,11 @@ TF (`map → base_link`).
 - `AlertPolygon[]` — collision-checker footprint sweeps / predicted
   polygons / merged polygons, translucent warning materials.
 - `GenericMarker[]` — pass-through primitives for the fallback renderer (§7).
+- `PointCloud[]` — decimated `PointCloud2` layers as colored points; colors
+  baked node-side per the profile row's `color_mode` (`auto` = rgb when the
+  cloud carries it → intensity ramp when it carries that → height ramp;
+  or forced `rgb`/`intensity`/`height`/`flat`). **Added at the Epic-3 freeze
+  lift (VM-035) — deliberately absent from the Epic-2 frozen header.**
 - `Hud` — speed value, active mode, alert chips (text + 3D anchor for
   leader-line callouts, e.g. distance-to-obstacle).
 
@@ -263,6 +268,7 @@ accordingly. Adding a topic for the autonomy team = one YAML row, not code.
 | `CollisionAdapter` | the 5 collision-checker MarkerArray topics | `AlertPolygon[]` |
 | `TfAdapter` | TF (`map → base_link`); speed prefers `/robot/feedback/robot_speed_mps` (Float32, live-sim finding 2026-08-19) with TF finite-difference as fallback | `Ego` pose + speed |
 | `GenericMarkerAdapter` | any additional MarkerArray topic named in the profile | `GenericMarker[]` (§7 fallback) |
+| `PointCloudAdapter` (VM-035, Epic 3) | any `sensor_msgs/PointCloud2` row in the profile; ingest-decimated (`max_points`, `stride`, `max_rate_hz`) | `PointCloud` — rgba8 baked per `color_mode: auto\|rgb\|intensity\|height\|flat`; `auto` falls back rgb → intensity (normalized over `intensity_range`, auto-ranged when unset) → height |
 
 **Class inference** (until a typed perception topic exists — the adapter
 seam accepts one later without touching the renderer): live-sim sampling

@@ -82,6 +82,61 @@ impl Sonnet / review Opus) per project directive.
   in Epic 1.)**
 - **VM-034 Staleness fades + diagnostics topic** surfaced in GUI.
   AC: silencing a topic fades its layer; diagnostics shows per-topic age.
+- **VM-035 PointCloudLayer** (user request 2026-08-20). `sensor_msgs/PointCloud2`
+  ingestion + point rendering. Rides the Epic-3 freeze lift: adds a `PointCloud`
+  category to `SceneGraph` (the Epic 2 freeze forbade new categories) in the same
+  header-opening pass as `MapElement.kind`. Node side: `PointCloudAdapter`, one
+  profile row per cloud topic with ingest decimation knobs (`max_points`,
+  `stride`, `max_rate_hz`) — full-rate lidar is never drawn raw. **Coloring is
+  per-row config: `color_mode: auto | rgb | intensity | height | flat` (default
+  `auto`)** — the adapter inspects the cloud's actual fields per message: `rgb`/
+  `rgba` used directly when present; else `intensity` normalized over the row's
+  `intensity_range` (auto-ranged when unset) through a theme color ramp; else
+  height through the same ramp; `flat` = single theme point color. The adapter
+  bakes rgba8 per point node-side, so the renderer keeps ONE points path:
+  per-vertex COLOR, layer-wide fade via the shared `staleness_alpha`, chunked
+  under the uint16 index ceiling like every polyline.
+  AC: goldens from three synthetic clouds (rgb, intensity-only, bare XYZ)
+  proving each `auto` tier; adapter test proves field detection + decimation
+  counts; one YAML row displays any PointCloud2 (§7 parity extended to clouds).
+
+- **VM-036 MapElement.kind — per-kind lane styling** (user request 2026-08-20).
+  Epic 2 renders every HD-map polyline in one `palette.lane_paint` style, so a
+  lane reads as three identical stripes (centerline + left/right boundary) —
+  live feedback called it "repeated, shifted, a mess". The wire already
+  carries the semantics; the frozen `MapElement {points, point_count,
+  is_polygon}` just cannot cross them to the renderer. Marker-array
+  convention (authoritative, from the autonomy stack, 2026-08-20):
+  - lane centerline: one marker per lane, LINE_STRIP, ns `centerline_{lane_id}`, id `{lane_id}`
+  - lane boundaries: one marker per side, LINE_STRIP, ns `left_boundary_{lane_id}` / `right_boundary_{lane_id}`, id `{lane_id}`
+  - centerline arrows: one marker per point, ARROW, ns `centerline_arrows_{lane_id}`, id `{point_index}` (dropped by rule in Epic 2 — 93% of map volume; direction is derivable from centerline point order)
+  - crosswalks: one marker each, LINE_STRIP, ns `crosswalks` (sim, plural, no suffix) or `crosswalk_{id}` (urban publisher) — both matched by the shipped bare `crosswalk` prefix rule since 2026-08-20
+  At the Epic-3 freeze lift (same header-opening pass as VM-035's category):
+  `MapElement` gains `kind` (CENTERLINE, LEFT_BOUNDARY, RIGHT_BOUNDARY,
+  CROSSWALK, STOPLINE, JUNCTION, OTHER), populated by `HdMapAdapter` from the
+  row's namespace rules (`classify()` already knows; today it collapses to
+  polyline/polygon). Renderer: per-kind theme tokens (e.g. `palette.lane_centerline`,
+  `palette.lane_boundary`, `palette.crosswalk`) + per-kind width/z-lift so
+  boundaries read thin, centerlines read as the lane spine, and coplanar
+  strips stop z-fighting. AC: golden with all kinds visually distinct in both
+  themes; adapter test proves ns→kind mapping for both crosswalk spellings.
+  **STYLING GROUND TRUTH (user directive 2026-08-20, binding for every theme/
+  styling task):** `assets/visualization-reference-1.jpg` is THE dark-theme
+  target and `assets/visualization-reference-2.jpg` THE light-theme target —
+  compare colors, value separation, and accent saturation against them, not
+  against taste. What they teach that the shipped `light_clay` currently
+  gets wrong: ref-2 separates VALUES (road visibly darker than buildings/
+  ground; sky a real blue, not fog-white), keeps lane paint semantic
+  (yellow centerlines vs white dashes), and spends saturation only on
+  meaning (blue hero ribbon, coral alert vehicle, dark navy ego) while
+  everything inert stays clay. Ref-1's dark world does the same with a
+  near-black blue base, white lane paint, and the green emissive hero.
+  **Already shipped in Epic 2 (2026-08-20, do not redo):** centerlines render
+  DASHED — the adapter chops them into per-dash `MapElement`s at ingest
+  (profile rule flag `dashed: true`, 1.5 m dash / 1.5 m gap constants), the
+  one differentiation expressible without the `kind` field. VM-036's color/
+  width tokens layer on top; when `kind` lands, consider moving dashing
+  renderer-side (one element per centerline again) and retiring the chop.
 
 ## Epic 4 — Clay buildings (EnvironmentLayer, §4.5)
 
