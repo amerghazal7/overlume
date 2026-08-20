@@ -26,6 +26,17 @@
        a dependency not a copy. -->
   <depend>micropilot_rendering_node</depend>
 
+  <!-- Epic 2 Task 1 (VM-020): profile YAML loader + the message types every
+       profile row's `type:` and every later adapter need. Every
+       find_package in CMakeLists.txt needs a matching depend tag here, per
+       the hard-failure lesson already recorded on tf2/tf2_ros above. -->
+  <depend>yaml_cpp_vendor</depend>
+  <depend>visualization_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>map_msgs</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>ament_index_cpp</depend>
+
   <!-- visual_renderer (micropilot::visualization, clang/libc++) is NOT a ROS
        package and is not resolved via find_package/CMAKE_PREFIX_PATH: it has
        no install/export (nothing consumed it before this node) and cannot be

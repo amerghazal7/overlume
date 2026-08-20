@@ -1,0 +1,65 @@
+name: offroad
+# Same shape as urban_profile.yaml -- see that file for the full rationale
+# behind every row kept here. This file only comments the DIFFERENCES.
+rows:
+  - {topic: /perception/dynamic_objects_list, type: visualization_msgs/msg/MarkerArray,
+     adapter: dynamic_objects, role: tracked, timeout_sec: 2.0,
+     ns_default: drop,
+     namespaces: [
+       {prefix: dynamic_objects_bbox,              render: polyline},
+       {prefix: dynamic_objects_text,               render: polyline},
+       {prefix: dynamic_objects_arrow,              render: polyline},
+       {prefix: dynamic_objects_hd_map_path,        render: polyline},
+       {prefix: dynamic_objects_hd_map_path_dots,   render: drop}]}
+
+  # OMITTED (deliberately): /hd_map_local_elements, /hd_map_global_elements,
+  # /road_markers. There is no HD map offroad -- the real robot's only map
+  # source anywhere is the rolling local window, which itself is an on-road
+  # concept (painted lane centerlines/boundaries/crosswalks). The offroad
+  # deployment's ground truth is the OGM layers below, not lane paint. This
+  # is also WHY the ego-following ground+grid exists (epic2 plan, "How the
+  # placeholder ground/grid is retired") -- offroad has no map to render a
+  # world against at all.
+
+  - {topic: /behavior_path_planner/output_path_visualization, type: nav_msgs/msg/Path,
+     adapter: path, role: behavior, timeout_sec: 2.0}
+  - {topic: /local_vel_path, type: nav_msgs/msg/Path, adapter: path, role: local}
+  # All FOUR path rows are kept, /local_path INCLUDED (unlike the HD-map
+  # rows above): assets/offroad_config.rviz enables Path displays on BOTH
+  # /navigation/global_path and /local_path, and offroad is exactly the
+  # deployment where /local_path is the live local-planner output (fixture
+  # gap 2 in the epic2 plan -- silent in the recorded bag, not silent in a
+  # real offroad stack).
+  - {topic: /navigation/global_path, type: nav_msgs/msg/Path, adapter: path, role: global}
+  - {topic: /local_path, type: nav_msgs/msg/Path, adapter: path, role: local}
+
+  # Both OGM rows kept -- offroad is exactly where OGM ground carries the
+  # scene (no HD map, see above). Fixture gap: no OccupancyGrid publisher in
+  # the recorded stack; see urban_profile.yaml's identical rows for why this
+  # is one row per grid, not a separate *_updates row.
+  - {topic: /perception/dynamic_ogm, type: nav_msgs/msg/OccupancyGrid,
+     adapter: ogm, role: dynamic_ogm, update_topic: /perception/dynamic_ogm_updates}
+  - {topic: /perception/gradient_ogm, type: nav_msgs/msg/OccupancyGrid,
+     adapter: ogm, role: gradient_ogm, update_topic: /perception/gradient_ogm_updates}
+
+  # Collision checker rows -- identical to urban_profile.yaml (see there for
+  # the full rationale). Unvalidated against a live publisher (fixture gap
+  # 4 in the epic2 plan).
+  - {topic: /navigation_urban_collision_checker_testing_node/collision_markers,
+     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: collision}
+  - {topic: /navigation_urban_collision_checker_testing_node/object_predicted_polygons,
+     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: predicted}
+  - {topic: /navigation_urban_collision_checker_testing_node/ego_footprint_sweep,
+     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: sweep}
+  - {topic: /navigation_urban_collision_checker_testing_node/ego_merged_polygon,
+     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_ego}
+  - {topic: /navigation_urban_collision_checker_testing_node/object_merged_polygons,
+     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_object}
+
+  # Parity fallback (VM-027) -- identical to urban_profile.yaml. best_effort:
+  # true is LOAD-BEARING (see that file's NOTE 2); do not drop it.
+  - {topic: /sim/ground_truth/boxes, type: visualization_msgs/msg/MarkerArray,
+     adapter: generic, role: neutral, best_effort: true}
+
+  # Debug layer, OFF by default -- see urban_profile.yaml's identical row.
+  # - {adapter: tf_axes, role: debug, timeout_sec: 1.0}

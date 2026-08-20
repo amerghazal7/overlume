@@ -30,6 +30,7 @@
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
 
+#include "micropilot_visualization_node/profile.hpp"
 #include "micropilot_visualization_node/tf_adapter.hpp"
 #include "micropilot_visualization_node/vcam.hpp"
 

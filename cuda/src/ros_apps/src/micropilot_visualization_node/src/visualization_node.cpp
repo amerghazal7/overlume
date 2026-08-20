@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstring>
 
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <std_msgs/msg/header.hpp>
 
 #include "micropilot_visualization_node/ego_anchor.hpp"
@@ -104,6 +105,56 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
                                              : "<compiled-in default theme dir>");
     }
 
+    // ── profile YAML loader (Epic 2 Task 1 / VM-020) ─────────────────────────
+    // Drives which adapters subscribe to what (Tasks 2-8 add the actual
+    // create_subscription() calls, one adapter at a time, by walking
+    // mpviz_node::subscriptions_for(row) over profile->rows -- nothing here
+    // subscribes to anything yet). Failure to load is fatal (matches the
+    // existing virtual_pose validation convention): every collected error
+    // is logged, not just the first, because a config file with three
+    // mistakes should take one edit pass, not three.
+    auto profile_name = declare_parameter<std::string>("profile", "urban");
+    auto profile_dir_param = declare_parameter<std::string>("profile_dir", "");
+    std::string profile_dir = profile_dir_param;
+    if (profile_dir.empty())
+    {
+        profile_dir = ament_index_cpp::get_package_share_directory("micropilot_visualization_node") +
+                      "/config";
+    }
+    const std::string profile_path = profile_dir + "/" + profile_name + "_profile.yaml";
+    std::vector<std::string> profile_errors;
+    auto profile = mpviz_node::load_profile(profile_path, profile_errors);
+    if (!profile.has_value())
+    {
+        RCLCPP_ERROR(get_logger(), "failed to load profile '%s':", profile_path.c_str());
+        for (const auto& err : profile_errors) RCLCPP_ERROR(get_logger(), "  %s", err.c_str());
+        return CallbackReturn::FAILURE;
+    }
+    RCLCPP_INFO(get_logger(), "profile '%s' loaded (%zu rows) from '%s'", profile->name.c_str(),
+                profile->rows.size(), profile_path.c_str());
+    // load_profile() can return a valid profile AND non-fatal warnings (e.g.
+    // "unknown key 'best_efort' (ignored)") -- the ERROR branch above logs
+    // profile_errors on failure, but a successful load must too, or the one
+    // diagnostic naming a config typo is computed and silently dropped.
+    for (const auto& err : profile_errors) RCLCPP_WARN(get_logger(), "  %s", err.c_str());
+    for (const auto& row : profile->rows)
+    {
+        const auto specs = mpviz_node::subscriptions_for(row);
+        if (specs.empty())
+        {
+            RCLCPP_INFO(get_logger(), "  (no subscription) -> %s/%s", row.adapter.c_str(),
+                        row.role.c_str());
+            continue;
+        }
+        for (const auto& spec : specs)
+        {
+            RCLCPP_INFO(get_logger(), "  %s -> %s/%s (qos: %s%s)", spec.topic.c_str(),
+                        row.adapter.c_str(), row.role.c_str(),
+                        spec.best_effort ? "best_effort" : "reliable",
+                        spec.transient_local ? "+transient_local" : "");
+        }
+    }
+
     // ── ego model (Epic 1 Task 4 / VM-012) ───────────────────────────────────
     // Mirrors micropilot_rendering_node's robot_model_path convention
     // exactly: "" is a legal default, load failure (missing file, bad
@@ -141,8 +192,16 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // ego speed PREFERS this topic over the TF finite-difference fallback
     // tf_adapter_ computes above. Global (not "~/..."): it's the robot's own
     // feedback, published once regardless of which mux mode/node is active.
+    // QoS fix (Epic 2 Task 1 / VM-020 Step 4): the bag's metadata.yaml
+    // records this publisher's offered `reliability: 2` (BEST_EFFORT). A
+    // bare `10` here defaults to RELIABLE, which NEVER matches a
+    // BEST_EFFORT publisher -- no error, no warning, a permanently silent
+    // topic, with the TF finite-difference fallback quietly covering for
+    // it. Same root cause as the profile `best_effort` field (see
+    // urban_profile.yaml's /sim/ground_truth/boxes row); this subscription
+    // isn't a profile row, so it's fixed here directly.
     robot_speed_sub_ = create_subscription<std_msgs::msg::Float32>(
-        "/robot/feedback/robot_speed_mps", 10,
+        "/robot/feedback/robot_speed_mps", rclcpp::QoS(10).best_effort(),
         [this](const std_msgs::msg::Float32::SharedPtr msg)
         { tf_adapter_->set_robot_speed_mps(msg->data); });
 

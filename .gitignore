@@ -14,3 +14,10 @@ cuda/logs/
 .vscode/
 graphify-out/
 **/build/
+# colcon run-from-anywhere artifacts (agents/tests)
+log/
+install/
+cuda/scripts/ros_apps_build/log/
+cuda/scripts/ros_apps_build/install/
+cuda/src/ros_apps/log/
+cuda/src/ros_apps/install/

@@ -17,6 +17,17 @@ find_package(tf2_ros REQUIRED)
 # rosidl_interface_packages member so find_package resolves its generated
 # C++ headers (micropilot_rendering_node/srv/set_virtual_cam.hpp).
 find_package(micropilot_rendering_node REQUIRED)
+# Epic 2 Task 1 (VM-020): profile loader (yaml_cpp_vendor -- NOT
+# find_package(yaml-cpp) directly, see the long comment on _yamlcpp_a below
+# for why that distinction matters) + the message types the profile's
+# `type:` rows and every later adapter need.
+find_package(yaml_cpp_vendor REQUIRED)
+find_package(visualization_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(map_msgs REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+# profile_dir: "" -> this package's own installed share/config (on_configure).
+find_package(ament_index_cpp REQUIRED)
 
 set(THIS_PACKAGE_DEPS
   rclcpp
@@ -26,7 +37,13 @@ set(THIS_PACKAGE_DEPS
   geometry_msgs
   tf2
   tf2_ros
-  micropilot_rendering_node)
+  micropilot_rendering_node
+  yaml_cpp_vendor
+  visualization_msgs
+  nav_msgs
+  map_msgs
+  tf2_geometry_msgs
+  ament_index_cpp)
 
 # ── visual_renderer (clang/libc++ static lib) — cross-toolchain import ──────
 # visual_renderer (docs/superpowers/plans/2026-08-18-visual-mode.md Epic 0
@@ -109,30 +126,48 @@ foreach(_rt_lib "${_libcxxabi_a}" "${_libunwind_a}")
     endif()
 endforeach()
 
-# yaml-cpp (Epic 1 Task 2 / VM-011): visual_renderer's theme.cpp links
-# yaml-cpp PRIVATE, so libvisual_renderer.a now carries undefined YAML::*
-# symbols that nothing else here resolves — this package doesn't
-# add_subdirectory/find_package visual_renderer's own build, so it has no
-# automatic visibility into what that build links (same reason Filament's
-# own archives are re-resolved via GetFilament.cmake above instead of
-# inherited). Resolve the FetchContent-built static archive the same way
-# VISUAL_RENDERER_LIB is resolved above.
-set(_yamlcpp_a "${VISUAL_RENDERER_DIR}/build/_deps/yamlcpp-build/libyaml-cpp.a")
-if(NOT EXISTS "${_yamlcpp_a}")
-    message(FATAL_ERROR "yaml-cpp static lib not found at ${_yamlcpp_a} — build visual_renderer first.")
-endif()
+# yaml-cpp (Epic 1 Task 2 / VM-011) -- WAS resolved here as a second,
+# clang/libc++ static archive (${VISUAL_RENDERER_DIR}/build/_deps/
+# yamlcpp-build/libyaml-cpp.a) so the node's link could satisfy
+# libvisual_renderer.a's undefined YAML::* symbols. Epic 2 Task 1 (VM-020)
+# Step 0.2 removed the need for that: visual_renderer's own CMakeLists.txt
+# now `ld -r`s that archive's objects into libvisual_renderer.a and RENAMES
+# every YAML::-namespaced symbol (see that file's POST_BUILD comment and
+# scripts/merge_yamlcpp.sh for the full history -- two earlier variants of
+# this fix, localize-by-visibility and localize-by-name, both failed for
+# concretely different reasons, one of them ONLY once real node-side yaml
+# usage existed to expose it), so the members this node used to need to
+# supply now live INSIDE libvisual_renderer.a under renamed symbol names --
+# nothing here resolves the ORIGINAL YAML:: names anymore, and nothing here
+# may reference that clang/libc++ archive's headers or symbols directly
+# (spec §2: mixing libc++ and libstdc++ at a std:: boundary is UB). This
+# node's OWN yaml-cpp need (profile.cpp, fixture_msgs.cpp) is
+# `yaml_cpp_vendor` above -- the distro's gcc/libstdc++ copy, a completely
+# separate archive from the one that used to live here. Do NOT
+# "helpfully" re-add a libyaml-cpp.a reference here: that reintroduces the
+# exact two-copies-of-the-same-symbol-name hazard this rename exists to
+# rule out (test_profile.cpp's CoexistsWithTheRendererLibrarysOwnYamlCpp
+# is the regression test for it, and it needs a CORRECT row count out of
+# load_profile(), not just "doesn't crash" -- a prior, since-abandoned fix
+# attempt linked fine and still returned the wrong data).
 
 add_library(visual_renderer_prebuilt STATIC IMPORTED)
 set_target_properties(visual_renderer_prebuilt PROPERTIES
     IMPORTED_LOCATION "${VISUAL_RENDERER_LIB}"
     INTERFACE_INCLUDE_DIRECTORIES "${VISUAL_RENDERER_DIR}/include"
-    INTERFACE_LINK_LIBRARIES "Filament::filament;${_yamlcpp_a};${_libcxx_a};${_libcxxabi_a};${_libunwind_a}")
+    INTERFACE_LINK_LIBRARIES "Filament::filament;${_libcxx_a};${_libcxxabi_a};${_libunwind_a}")
 
 # ── Node library ─────────────────────────────────────────────────────────────
+# Hand-written list, NOT a glob (CONFIGURE_DEPENDS globs are used for the
+# library's tests, not here) -- a source added to this package and left off
+# this list is a silent no-op, not a build error.
 add_library(visualization_node_lib SHARED
   src/visualization_node.cpp
   src/vcam.cpp
-  src/tf_adapter.cpp)
+  src/tf_adapter.cpp
+  src/profile.cpp
+  src/frame_transform.cpp
+  src/scene_assembly.cpp)
 
 target_include_directories(visualization_node_lib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -168,6 +203,46 @@ if(BUILD_TESTING)
   target_include_directories(test_ego_anchor PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${VISUAL_RENDERER_DIR}/include)
+
+  # Epic 2 Task 1 (VM-020) Step 1 item 6: every gtest target that compiles
+  # test/fixture_msgs.cpp needs these three -- fixture_msgs.cpp's
+  # urban_row()/sim_row() use TEST_CONFIG_DIR unconditionally, and
+  # load_marker_array()-style relative fixture paths resolve against
+  # MPVIZ_NODE_FIXTURES_DIR. Factored ONCE as an INTERFACE target instead of
+  # copy-pasting three target_compile_definitions calls per adapter gtest
+  # (Tasks 2-8 add more of those; this is the one place to look).
+  add_library(mpviz_node_test_paths INTERFACE)
+  target_compile_definitions(mpviz_node_test_paths INTERFACE
+    TEST_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config"
+    MPVIZ_THEME_DIR="${VISUAL_RENDERER_DIR}/assets/themes"
+    MPVIZ_NODE_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures")
+
+  ament_add_gtest(test_profile test/test_profile.cpp src/profile.cpp test/fixture_msgs.cpp)
+  target_include_directories(test_profile PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test
+    ${VISUAL_RENDERER_DIR}/include)
+  ament_target_dependencies(test_profile ${THIS_PACKAGE_DEPS})
+  target_link_libraries(test_profile ${yaml_cpp_vendor_TARGETS} mpviz_node_test_paths)
+  # The ONE node gtest that links visual_renderer_prebuilt -- Step 0.3's
+  # coexistence test calls mpviz::theme_parses, a symbol in
+  # libvisual_renderer.a, which drags in Filament and static libc++.
+  # test_ego_anchor deliberately links headers only (above) precisely to
+  # avoid that; this target is the documented exception.
+  target_link_libraries(test_profile visual_renderer_prebuilt)
+
+  ament_add_gtest(test_frame_transform test/test_frame_transform.cpp src/frame_transform.cpp)
+  target_include_directories(test_frame_transform PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  ament_target_dependencies(test_frame_transform ${THIS_PACKAGE_DEPS})
+  target_link_libraries(test_frame_transform ${yaml_cpp_vendor_TARGETS})
+
+  ament_add_gtest(test_scene_assembly test/test_scene_assembly.cpp src/scene_assembly.cpp)
+  target_include_directories(test_scene_assembly PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${VISUAL_RENDERER_DIR}/include)
+  ament_target_dependencies(test_scene_assembly ${THIS_PACKAGE_DEPS})
+  target_link_libraries(test_scene_assembly ${yaml_cpp_vendor_TARGETS})
 endif()
 
 ament_package()

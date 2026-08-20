@@ -195,4 +195,20 @@ bool set_ego_model(VisualRenderer*, const char* gltf_path, Vec3 fallback_dims);
 // the scene.h freeze (see this header's own top comment).
 bool theme_assets_loaded(VisualRenderer*);
 
+// Epic 2 Task 1 (VM-020) Step 0.3: parses `<dir>/<theme_name>.yaml` with the
+// library's OWN bundled yaml-cpp and returns true iff it loaded. Creates no
+// Engine, no EGL context, no swapchain -- it is
+// `detail::load_theme(dir, name).has_value()` and nothing else
+// (renderer.cpp's create_renderer() already calls load_theme() before the
+// engine is built, so this wraps an existing GPU-free code path rather than
+// adding one). It exists for exactly one reason: proving, in one process,
+// that this archive's bundled yaml-cpp and a second, independently-built
+// yaml-cpp (the node's gcc/libstdc++ yaml_cpp_vendor) can coexist without a
+// GPU -- every other entry point here needs a live VisualRenderer*, which a
+// headless CI box cannot provide, so that check would GTEST_SKIP forever
+// and the ABI boundary Step 0.2 protects would go untested.
+// Null/empty `dir` or `theme_name` -> false. Cheap enough to call from a
+// test; not intended for the render loop.
+bool theme_parses(const char* dir, const char* theme_name);
+
 }  // namespace mpviz
