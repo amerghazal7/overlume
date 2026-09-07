@@ -82,7 +82,7 @@ Status per task: the **Status ledger** at the top of each epic plan.
   text onto the RGB8 buffer after readback (stb_truetype, vendored like
   stb_image_write) instead of an SDF atlas + Filament overlay pass inside the
   lib — identical pixels for screen-space chips, no font pipeline in the
-  clang/libc++ archive, no new public entry point. The SDF/in-scene path is
+  clang/libc++ archive, no new public entry point **(amended, user 2026-09-07: `get_hud_colors()` accepted as the one exception — see Epic 3 plan's Task 3 for the rationale; P2's substance otherwise stands)**. The SDF/in-scene path is
   kept only for 3D-anchored text (VM-031). Re-entry trigger: HUD text must
   be depth-tested, lit, or fogged.
   Prerequisite (`[review 2026-09-07]`): the node never populates `SceneGraph::hud` today — add `scene.hud.speed_mps = ego.speed_mps; scene.hud.active_mode = active_mode_` next to the `~/ego_state` publish.
@@ -177,6 +177,7 @@ Status per task: the **Status ledger** at the top of each epic plan.
 - **VM-037 Epic-0 debt: mux hardening + build hygiene** (`[review 2026-09-07]`, small, do first in Epic 3).
   (a) `/rendering/set_mode` QoS → `transient_local, depth 1, reliable` on every publisher/subscriber (restart/late-join rejoins the live mode); (b) legacy `~/set_render_mode` re-publishes on the global topic (no one-sided exit from mode 3); (c) `initial_mode:=1` also sets `render_mode_` (today starts hybrid); (d) append `vcam_state[8] = mux_mode` on both nodes, index 7 unchanged; (e) `kSceneVersion` constant in `scene.h` + a node-side gtest mirroring the sizeof/offsetof table (ADR-0004); (f) `check_pod_header.sh` as an `ament_add_test` in the node package, glob widened to `*.h*`; (g) `FILAMENT_VERSION` single-sourced (node CMake reads it from `GetFilament.cmake`); (h) log `GL_VENDOR/GL_RENDERER/GL_VERSION` once at `create_renderer()` and make `test_hello_frame` skip (not fail) when no hardware GL device is found; (i) link-probe assertion on the hand-declared `bluegl::bind()` signature.
   AC: smoke test drives restart-in-mode-3 and legacy-topic exit with exactly-one-publisher; `colcon_build.sh` runs the POD check; a deliberate `scene.h` layout change fails the node build; hello-frame log names the GPU.
+  Scheduled: Epic 3 Task 7 (user decision 2026-09-07); item (e) ships earlier, inside Epic 3 Task 1.
 
 ## Epic 4 — Clay buildings (EnvironmentLayer, §4.5)
 
