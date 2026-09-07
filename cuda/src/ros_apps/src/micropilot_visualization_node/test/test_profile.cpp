@@ -230,10 +230,25 @@ TEST(Profile, GroundTruthBoxesRowIsBestEffortBecauseItsPublisherIs)
     // warning, a permanently silent topic. This row is the epic's only
     // base_link row and the subject of Task 8's parity E2E, whose own rclpy
     // publisher is RELIABLE, so nothing else in this epic can catch it.
+    // The row ships COMMENTED OUT since 2026-08-20 (user report: the ego's
+    // own gt box sits at base_link origin = ON the robot proxy, flickering;
+    // one shared namespace means no rule can drop just the ego's). Pin the
+    // absent-by-default state...
     std::vector<std::string> errs;
     auto p = load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
     ASSERT_TRUE(p.has_value());
-    const auto* row = find_row(*p, "/sim/ground_truth/boxes");
+    EXPECT_EQ(find_row(*p, "/sim/ground_truth/boxes"), nullptr);
+    // ...and keep the QoS knowledge alive against the CANONICAL row text
+    // (the same text the parity E2E appends and a re-enabler uncomments):
+    // best_effort is load-bearing, an rclcpp default-RELIABLE subscription
+    // never matches this topic's BEST_EFFORT publisher.
+    std::vector<std::string> errs2;
+    auto p2 = load_profile_string(
+        "name: t\nrows:\n"
+        "  - {topic: /sim/ground_truth/boxes, type: visualization_msgs/msg/MarkerArray,"
+        " adapter: generic, role: neutral, best_effort: true}\n", errs2);
+    ASSERT_TRUE(p2.has_value());
+    const auto* row = find_row(*p2, "/sim/ground_truth/boxes");
     ASSERT_NE(row, nullptr);
     EXPECT_TRUE(row->best_effort);
 }
@@ -493,10 +508,11 @@ TEST(Profile, CoexistsWithTheRendererLibrarysOwnYamlCpp)
     // right error count (0) but the WRONG row count (0 instead of the full
     // count) -- an ABI-mismatched YAML::Node silently corrupting data, not
     // crashing. has_value() alone would pass on that broken build.
-    // 15, not 16, since 2026-08-20: the /road_markers row ships commented
-    // out (upstream data defect — see urban_profile.yaml). Bump back to 16
-    // when that row is re-enabled.
-    EXPECT_EQ(p->rows.size(), 15u);
+    // 14, not 16, since 2026-08-20: TWO rows ship commented out --
+    // /road_markers (upstream data defect) and /sim/ground_truth/boxes (the
+    // ego's own gt box flickers on the robot proxy); see urban_profile.yaml.
+    // Bump when either is re-enabled.
+    EXPECT_EQ(p->rows.size(), 14u);
     // ...and the bundled yaml-cpp (clang/libc++), inside libvisual_renderer.a,
     // parses a theme in the SAME process. If the two ever get relinked into
     // one, this is where it shows up -- not in a field crash three epics later.

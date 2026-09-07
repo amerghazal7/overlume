@@ -159,8 +159,12 @@ rows:
   # and every test in this epic still passes, because the Task 8 E2E's own
   # rclpy publisher is RELIABLE. `ros2 topic info -v /sim/ground_truth/boxes`
   # (or grep the bag metadata) before changing it.
-  - {topic: /sim/ground_truth/boxes, type: visualization_msgs/msg/MarkerArray,
-     adapter: generic, role: neutral, best_effort: true}
+  # DISABLED BY DEFAULT (user report 2026-08-20): the ego's own gt box sits
+  # at base_link (0,0) = ON the robot proxy and flickers -- see
+  # urban_profile.yaml's identical block for the full story. Uncomment to
+  # overlay sim ground truth (NOTE 2 / best_effort still applies).
+  # - {topic: /sim/ground_truth/boxes, type: visualization_msgs/msg/MarkerArray,
+  #    adapter: generic, role: neutral, best_effort: true}
 
   # Debug layer, OFF by default (spec §7 row 2). No topic and no type: nothing
   # in this stack publishes TF as markers, so TfAxesAdapter GENERATES three

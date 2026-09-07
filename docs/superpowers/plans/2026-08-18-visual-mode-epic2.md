@@ -1829,7 +1829,25 @@ Opus reviewer signs off against:
 - **Every named gap is named in the artifact, not just here** — fixture gaps 1–5 appear as comments in the profile/inference YAMLs and in the relevant commit messages; the CC0-pack decision (Task 4 Step 0) is recorded as taken-or-defaulted.
 - **No task exceeded scope.** In particular: no layer-visibility toggles (VM-032), no diagnostics topic (VM-034), no SDF text (VM-030), no auto-drop/benchmark (VM-040/041), no environment layer (Epic 4). Adapters *produce* diagnostics counters; they do not publish them.
 
-**Epic 2 results (fill on completion):** golden SSIM threshold used = ____; 50-object scene-update median = ____ ms on ____; CC0 model pack = ____ (or "empty `assets/models/`, procedural boxes — Task 4 Step 0 default"); map-element rebuild rate observed over the fixture bag = ____ elements/s; fixture gaps still open at close = ____.
+**Epic 2 results (filled at close, 2026-08-20):** golden SSIM threshold used = **0.98** (every category); 50-object scene-update median = **0.678 ms** on the dev **RTX 3090** (quality 0, 320×240, possible CARLA contention — tripwire, not a robot claim); CC0 model pack = **Kenney Car Kit (car, truck_van) + Kenney Blocky Characters (pedestrian)** — bus.glb/cyclist.glb absent, procedural clay-box fallback per Task 4 Step 0, attribution in `assets/models/ATTRIBUTION.md`; map-element rebuild rate over the fixture bag = steady-state near-zero (diff-cache adopts unchanged signatures; edge-of-window elements only); fixture gaps still open at close = **all five** (1: non-`V` class prefixes, 2: global/reference paths, 3: OGM topics, 4: collision topics, 5: seven marker types) — each waits on a recording, none blocked the ACs.
+
+**EPIC 2 REVIEW GATE: PASSED (2026-08-20, HEAD 37d41fe).** Opus gate executed
+this section's checklist literally: 30+ bullets PASS (incl. the live one-row
+parity run — diff centroid at the ego, BEST_EFFORT/base_link — the frozen-
+header diff vs `e47b057` showing exactly the two sanctioned free functions,
+an independent 280 m void-retirement render, both full suites 88/88 + 11
+node binaries, and the Epic 0/1 E2Es). Two DEVIATION-DOCUMENTED verdicts,
+both user-authorized: the four soft-defaulted theme tokens (palette.ego,
+ribbon_global/local, ribbon.width_m — user directives 2026-08-20) and the
+commented-out /road_markers row (upstream publisher defect, user-verified
+in rviz; re-enable checklist in urban_profile.yaml). Minor findings logged,
+none blocking: (a) KNOWN COSMETIC for Epic 3 — after rendering map elements
+far from origin, an empty scene with ego.valid==0 can leave two faint stale
+lane lines in the void frame (repro in the gate transcript,
+wf_0ff03eb8-5ec); (b) the pytest E2E scripts are vulnerable to user-site
+pytest plugins (run with PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 if they fail to
+collect); (c) the committed map golden sits at 48.5 m (gate independently
+verified 280 m; optional re-shoot noted).
 
 ## Results
 

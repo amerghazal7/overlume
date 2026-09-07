@@ -164,16 +164,41 @@ def _make_norow_profile(tmpdir: str) -> str:
     src = os.path.join(VIZ_SHARE_CONFIG, "urban_profile.yaml")
     with open(src) as f:
         profile = yaml.safe_load(f)
-    before = len(profile["rows"])
-    profile["rows"] = [r for r in profile["rows"] if r.get("topic") != "/sim/ground_truth/boxes"]
-    after = len(profile["rows"])
-    assert after == before - 1, (
-        f"expected exactly one /sim/ground_truth/boxes row to drop, removed {before - after}")
+    # Since 2026-08-20 the shipped profile carries NO /sim/ground_truth/boxes
+    # row (the ego's own gt box flickered on the robot proxy; see the profile's
+    # comment block). Phase 1 therefore uses the shipped rows as-is -- assert
+    # that stays true, or this test's premise silently rots:
+    assert not any(r.get("topic") == "/sim/ground_truth/boxes" for r in profile["rows"]), (
+        "shipped urban_profile.yaml has a /sim/ground_truth/boxes row again -- "
+        "phase 1 is no longer a no-row baseline; update this test")
 
     dst = os.path.join(tmpdir, "e2e_norow_profile.yaml")
     with open(dst, "w") as f:
         yaml.safe_dump(profile, f)
     return "e2e_norow"
+
+
+def _make_withrow_profile(tmpdir: str) -> str:
+    """The parity guarantee, literally: the SAME shipped profile plus ONE
+    added YAML row (the canonical /sim/ground_truth/boxes row -- best_effort
+    is LOAD-BEARING, matching the real publisher's BEST_EFFORT offer; a
+    RELIABLE subscription would never connect to it)."""
+    import yaml
+
+    src = os.path.join(VIZ_SHARE_CONFIG, "urban_profile.yaml")
+    with open(src) as f:
+        profile = yaml.safe_load(f)
+    profile["rows"].append({
+        "topic": "/sim/ground_truth/boxes",
+        "type": "visualization_msgs/msg/MarkerArray",
+        "adapter": "generic",
+        "role": "neutral",
+        "best_effort": True,
+    })
+    dst = os.path.join(tmpdir, "e2e_withrow_profile.yaml")
+    with open(dst, "w") as f:
+        yaml.safe_dump(profile, f)
+    return "e2e_withrow"
 
 
 def _launch_node(env: dict, profile_name: str, profile_dir: str) -> subprocess.Popen:
@@ -368,8 +393,9 @@ def main() -> int:
                   f"something rendered it anyway.", file=sys.stderr)
             return 1
 
-        print("== Phase 2: the REAL urban_profile.yaml (row ships there) ==")
-        _, withrow_after = _run_phase(env, "urban", VIZ_SHARE_CONFIG)
+        print("== Phase 2: the shipped profile plus ONE added YAML row ==")
+        withrow_name = _make_withrow_profile(tmpdir)
+        _, withrow_after = _run_phase(env, withrow_name, tmpdir)
         mean_diff_row, centroid = _diff_stats(norow_after, withrow_after)
         print(f"  with-row vs no-row: mean-abs-diff = {mean_diff_row:.3f}, centroid={centroid}")
         if mean_diff_row <= DIFF_FLOOR:
