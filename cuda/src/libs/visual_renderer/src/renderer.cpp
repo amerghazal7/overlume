@@ -23,6 +23,8 @@
 // the header.
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
+#include "alert_polygons.hpp"
+#include "alert_polygons_test_hooks.hpp"
 #include "ego.hpp"
 #include "ego_test_hooks.hpp"
 #include "ground_grid.hpp"
@@ -635,6 +637,47 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     r.groundGridFreeColor = theme.palette.ground;
     r.groundGridOccupiedColor = theme.palette.alert.warning;
 
+    // Alert polygons (Epic 2 Task 7 / VM-026): three eager
+    // clay_translucent.mat instances, created EAGERLY in create_renderer()
+    // (same "lazy creation is a known trap" reasoning as laneMaterial/
+    // objectClassMaterial/ribbonMaterial/groundGridMaterialInstance above)
+    // and themed here on every call -- the very first frame any
+    // AlertPolygon arrives, whether or not set_theme() has ever run
+    // (Alerts.MaterialIsThemedOnFirstDataWithNoTransition, this task's own
+    // copy of Step 8a's exemplar). rgb from palette.alert.{info,warning,
+    // critical}; alpha is the FIXED kAlertSeverityAlpha constant
+    // (renderer_internal.hpp) -- NOT a theme field (the epic's "zero new
+    // theme fields" rule) and reset to that same constant on every push,
+    // exactly like ribbonMaterial[BEHAVIOR]'s alpha=1.0 reset just above:
+    // update_alert_polygons() (alert_polygons.cpp) runs immediately after
+    // apply_current_theme() in render_frame(), so a live per-slot
+    // fadeInstance's correct (possibly-faded) alpha always wins by frame's
+    // end even when a push and a fade land the same tick.
+    const detail::Float3 alertTints[VisualRenderer::kAlertSeverityCount] = {
+        theme.palette.alert.info,
+        theme.palette.alert.warning,
+        theme.palette.alert.critical,
+    };
+    for (size_t i = 0; i < VisualRenderer::kAlertSeverityCount; ++i) {
+        r.alertMaterial[i]->setParameter(
+            "baseColor", float4{alertTints[i].r, alertTints[i].g, alertTints[i].b,
+                                kAlertSeverityAlpha[i]});
+        r.alertMaterial[i]->setParameter("roughness", theme.material.roughness);
+        r.alertMaterial[i]->setParameter("metallic", theme.material.metallic);
+        r.alertTint[i] = alertTints[i];
+    }
+    // Re-push any LIVE per-slot translucent fade instance's tint too --
+    // same "animate color without resetting the fade" reasoning as the
+    // object/ribbon staleness loops above.
+    for (auto& slot : r.alertSlots) {
+        if (slot.fadeInstance == nullptr) continue;
+        const detail::Float3& tint = r.alertTint[slot.severity];
+        slot.fadeInstance->setParameter("baseColor",
+                                        float4{tint.r, tint.g, tint.b, slot.fadeAlpha});
+        slot.fadeInstance->setParameter("roughness", theme.material.roughness);
+        slot.fadeInstance->setParameter("metallic", theme.material.metallic);
+    }
+
     filament::LightManager& lm = r.engine->getLightManager();
     const filament::LightManager::Instance sunInst = lm.getInstance(r.sunEntity);
     lm.setDirection(sunInst, to_filament(theme.sun.direction));
@@ -1070,6 +1113,18 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
         inst = r->groundGridMaterial->createInstance();
     }
 
+    // Alert polygons (Epic 2 Task 7 / VM-026): THREE eager
+    // clay_translucent.mat instances (0 info/1 warning/2 critical) on the
+    // SAME clayTranslucentMaterial objects.cpp/ribbon.cpp already built
+    // above -- no fourth Material, per the plan ("no fourth material and
+    // no per-topic branch"). Created EAGERLY for the exact same reason
+    // laneMaterial/objectClassMaterial/ribbonMaterial/
+    // groundGridMaterialInstance above are -- themed (rgb + the fixed
+    // per-severity alpha constant) below by push_theme_to_scene().
+    for (size_t i = 0; i < VisualRenderer::kAlertSeverityCount; ++i) {
+        r->alertMaterial[i] = r->clayTranslucentMaterial->createInstance();
+    }
+
     // ponytail: don't chase hand-derived winding correctness for a large
     // flat quad / line list — CullingMode::NONE sidesteps backface culling
     // entirely so a winding mistake shows as visible-from-both-sides, not a
@@ -1090,6 +1145,9 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
         m->setCullingMode(filament::backend::CullingMode::NONE);
     }
     for (auto* m : r->groundGridMaterialInstance) {
+        m->setCullingMode(filament::backend::CullingMode::NONE);
+    }
+    for (auto* m : r->alertMaterial) {
         m->setCullingMode(filament::backend::CullingMode::NONE);
     }
 
@@ -1165,6 +1223,20 @@ void destroy_renderer(VisualRenderer* r) {
         if (slot.fadeInstance) r->engine->destroy(slot.fadeInstance);
     }
     r->ribbonSlots.clear();
+
+    // Epic 2 Task 7 (VM-026): every live alert slot -- mesh + any live
+    // per-slot fadeInstance -- MUST run before clayTranslucentMaterial is
+    // destroyed just below (same "instance before its Material" ordering
+    // as ribbonSlots/objectEntities above): every alertMaterial[severity]
+    // TEMPLATE and every live fadeInstance are both instances of it.
+    for (auto& slot : r->alertSlots) {
+        if (slot.mesh.vb) destroy_mesh(*r->engine, *r->scene, slot.mesh);
+        if (slot.fadeInstance) r->engine->destroy(slot.fadeInstance);
+    }
+    r->alertSlots.clear();
+    for (auto* m : r->alertMaterial) {
+        if (m) r->engine->destroy(m);
+    }
 
     if (r->clayTranslucentMaterial) r->engine->destroy(r->clayTranslucentMaterial);
 
@@ -1327,6 +1399,11 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     // per-slot quad+texture cache (keyed by slot index -- see that file's
     // own comment) — see ground_grid.cpp.
     update_ground_grids(*r, r->scene_buffer.active());
+    // Epic 2 Task 7 (VM-026): diffs alert polygons against the live
+    // per-slot mesh+material cache (keyed by slot index -- see that file's
+    // own comment) — see alert_polygons.cpp. Overlays every category
+    // above it (z-lift 0.06, the topmost layer of the epic's z-stack).
+    update_alert_polygons(*r, r->scene_buffer.active());
 
     r->camera->lookAt({pose.eye[0], pose.eye[1], pose.eye[2]},
                        {pose.target[0], pose.target[1], pose.target[2]},

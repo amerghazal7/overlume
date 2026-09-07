@@ -171,7 +171,8 @@ add_library(visualization_node_lib SHARED
   src/adapters/hd_map.cpp
   src/adapters/dynamic_objects.cpp
   src/adapters/path.cpp
-  src/adapters/ogm.cpp)
+  src/adapters/ogm.cpp
+  src/adapters/collision.cpp)
 
 target_include_directories(visualization_node_lib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -320,6 +321,24 @@ if(BUILD_TESTING)
     ${VISUAL_RENDERER_DIR}/include)
   ament_target_dependencies(test_ogm_adapter ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_ogm_adapter ${yaml_cpp_vendor_TARGETS} mpviz_node_test_paths)
+
+  # Epic 2 Task 7 (VM-026): CollisionAdapter. Same shape as
+  # test_hd_map_adapter/test_dynamic_objects_adapter/test_path_adapter/
+  # test_ogm_adapter above -- no visual_renderer_prebuilt link, scene.h's
+  # AlertPolygon/Vec3 are POD-only.
+  ament_add_gtest(test_collision_adapter
+    test/test_collision_adapter.cpp
+    src/adapters/collision.cpp
+    src/profile.cpp
+    src/frame_transform.cpp
+    src/adapters/dynamic_objects.cpp
+    test/fixture_msgs.cpp)
+  target_include_directories(test_collision_adapter PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test
+    ${VISUAL_RENDERER_DIR}/include)
+  ament_target_dependencies(test_collision_adapter ${THIS_PACKAGE_DEPS})
+  target_link_libraries(test_collision_adapter ${yaml_cpp_vendor_TARGETS} mpviz_node_test_paths)
 endif()
 
 ament_package()

@@ -323,6 +323,51 @@ RibbonScene make_three_role_ribbons(double now)
     return s;
 }
 
+// Epic 2 Task 7 (VM-026) Step 3: see golden.hpp. Synthetic (FIXTURE GAP 4 --
+// the five collision-checker topics were silent in the recorded bag).
+AlertScene make_sweep_and_predicted_alerts(double now)
+{
+    struct Spec
+    {
+        uint8_t severity;
+        std::vector<mpviz::Vec3> points;
+        double age_sec;  // last_update_sec = now - age_sec
+    };
+    const std::vector<Spec> specs = {
+        // Ego footprint sweep: severity 0 (info -- the ghost trail, see the
+        // plan's "the ego sweep gets a ghost alpha" -- that's a property of
+        // severity 0 itself, not a topic/role AlertPolygon has no field
+        // for). Aged 0.75s stale (kStaleFadeStartSec=0.5/
+        // kStaleFadeTimeoutSec=1.0 -- solidly mid-fade) so the golden shows
+        // the fade actually applied, not just the constant's already-low
+        // alpha.
+        {0, {{-3.0, -2.0, 0.0}, {3.0, -2.0, 0.0}, {3.0, 2.0, 0.0}, {-3.0, 2.0, 0.0}}, 0.75},
+        // Object predicted polygon: severity 1 (warning), fresh, off to one
+        // side so a human sees both shapes distinctly.
+        {1, {{5.0, 4.0, 0.0}, {8.0, 4.0, 0.0}, {8.0, 7.0, 0.0}, {5.0, 7.0, 0.0}}, 0.0},
+    };
+
+    AlertScene s;
+    size_t totalPoints = 0;
+    for (const auto& sp : specs) totalPoints += sp.points.size();
+    s.point_storage.reserve(totalPoints);  // fixed capacity FIRST -- see golden.hpp's own
+                                            // comment on why this must not reallocate mid-loop
+    s.alerts.reserve(specs.size());
+
+    for (const auto& sp : specs)
+    {
+        const size_t offset = s.point_storage.size();
+        for (const auto& p : sp.points) s.point_storage.push_back(p);
+        mpviz::AlertPolygon a{};
+        a.points = s.point_storage.data() + offset;
+        a.point_count = static_cast<uint32_t>(sp.points.size());
+        a.severity = sp.severity;
+        a.last_update_sec = now - sp.age_sec;
+        s.alerts.push_back(a);
+    }
+    return s;
+}
+
 // Epic 2 Task 6 (VM-025) Step 3: see golden.hpp. Synthetic (FIXTURE GAP 3 --
 // no OccupancyGrid topic exists in the recorded bag/stack).
 GridScene make_two_layer_grids(double now) {

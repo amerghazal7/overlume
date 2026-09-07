@@ -1,0 +1,39 @@
+# Hand-edited fixture (Epic 2 Task 7 / VM-026, "Fixture strategy": "one
+# deliberately malformed hand-edited variant is enough"). Three markers: a
+# NaN point, a degenerate ring (only 2 DISTINCT points -- the third point
+# duplicates the first, same as CollisionAdapter's own producer-closed-ring
+# case, so after dedup only 2 distinct vertices survive), and one valid
+# polygon in between them -- CollisionAdapter.
+# DegenerateAndNaNPolygonsDroppedAndCounted asserts both bad markers are
+# dropped and counted while the valid neighbour still comes through.
+markers:
+- header:
+    frame_id: map
+  ns: merged_object
+  id: 1
+  type: 4
+  action: 0
+  points:
+  - {x: .nan, y: 0.0, z: 0.0}
+  - {x: 1.0, y: 1.0, z: 0.0}
+  - {x: 2.0, y: 0.0, z: 0.0}
+- header:
+    frame_id: map
+  ns: merged_object
+  id: 2
+  type: 4
+  action: 0
+  points:
+  - {x: 0.0, y: 0.0, z: 0.0}
+  - {x: 3.0, y: 0.0, z: 0.0}
+  - {x: 0.0, y: 0.0, z: 0.0}
+- header:
+    frame_id: map
+  ns: merged_object
+  id: 3
+  type: 4
+  action: 0
+  points:
+  - {x: 10.0, y: 10.0, z: 0.0}
+  - {x: 13.0, y: 10.0, z: 0.0}
+  - {x: 13.0, y: 13.0, z: 0.0}

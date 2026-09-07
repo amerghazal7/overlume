@@ -330,6 +330,31 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     }
     RCLCPP_INFO(get_logger(), "ogm: %zu row(s) subscribed", ogm_rows_.size());
 
+    // ── Collision alert polygons (Epic 2 Task 7 / VM-026) ────────────────────
+    // One CollisionAdapter per profile row with adapter: collision -- urban
+    // ships all FIVE (Task 1 Step 3) -- same subscriptions_for(row)/QoS
+    // pattern as every loop above. FIXTURE GAP 4: all five topics were
+    // silent in the recorded bag -- unvalidated against a live publisher.
+    for (const auto& row : profile->rows)
+    {
+        if (row.adapter != "collision") continue;
+        const auto specs = mpviz_node::subscriptions_for(row);
+        if (specs.empty()) continue;
+        const auto& spec = specs.front();
+
+        auto adapter = std::make_unique<mpviz_node::CollisionAdapter>(row, *frame_transformer_);
+        mpviz_node::CollisionAdapter* adapter_ptr = adapter.get();
+        rclcpp::QoS qos(10);
+        if (spec.best_effort) qos.best_effort();
+        if (spec.transient_local) qos.transient_local();
+        collision_subs_.push_back(create_subscription<visualization_msgs::msg::MarkerArray>(
+            spec.topic, qos,
+            [this, adapter_ptr](const visualization_msgs::msg::MarkerArray::SharedPtr msg)
+            { adapter_ptr->ingest(*msg, sim_clock_sec_); }));
+        collision_rows_.push_back(CollisionRow{std::move(adapter), row.timeout_sec, row.topic});
+    }
+    RCLCPP_INFO(get_logger(), "collision: %zu row(s) subscribed", collision_rows_.size());
+
     // Spec §7 (docs/superpowers/specs/2026-08-18-visual-mode-design.md:264):
     // ego speed PREFERS this topic over the TF finite-difference fallback
     // tf_adapter_ computes above. Global (not "~/..."): it's the robot's own
@@ -547,6 +572,27 @@ void VisualizationNode::timer_callback()
         gr.adapter->fill(scene_asm_);
     }
 
+    // Epic 2 Task 7 (VM-026): same "absent row never counts as stale" /
+    // "stop filling past timeout_sec, mark_stale_tick() instead" shape as
+    // dynamic_objects/path/ogm above -- AlertPolygon carries
+    // last_update_sec, so this category gets the library's staleness FADE
+    // (its severity's constant alpha, multiplied down) rather than
+    // popping. FIXTURE GAP 4: all five collision topics were silent in the
+    // recorded bag -- msgs==0 is the expected steady state here, not an
+    // error path (CollisionAdapter.SilentTopicYieldsZeroAlertsAndDoesNotWedge).
+    for (auto& cr : collision_rows_)
+    {
+        if (cr.adapter->stats().msgs == 0) continue;
+        warn_on_drop_growth(get_logger(), *get_clock(), cr.topic, cr.adapter->stats(),
+                            cr.warned_malformed, cr.warned_no_tf);
+        if (sim_clock_sec_ - cr.adapter->stats().last_msg_sec > cr.timeout_sec)
+        {
+            cr.adapter->mark_stale_tick();
+            continue;
+        }
+        cr.adapter->fill(scene_asm_);
+    }
+
     mpviz::SceneGraph scene{};
     scene.sim_time_sec = sim_clock_sec_;
     scene.ego = tf_adapter_->update();
@@ -649,6 +695,8 @@ VisualizationNode::CallbackReturn VisualizationNode::on_cleanup(
     ogm_grid_subs_.clear();
     ogm_update_subs_.clear();
     ogm_rows_.clear();
+    collision_subs_.clear();
+    collision_rows_.clear();
     frame_transformer_.reset();
     tf_adapter_.reset();
     tf_listener_.reset();
@@ -675,6 +723,8 @@ VisualizationNode::CallbackReturn VisualizationNode::on_shutdown(
     ogm_grid_subs_.clear();
     ogm_update_subs_.clear();
     ogm_rows_.clear();
+    collision_subs_.clear();
+    collision_rows_.clear();
     frame_transformer_.reset();
     tf_adapter_.reset();
     tf_listener_.reset();
