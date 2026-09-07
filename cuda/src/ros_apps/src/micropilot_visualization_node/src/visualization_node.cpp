@@ -182,10 +182,16 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // NodeInterfaces to construct); TfAdapter just wraps the lookup +
     // smoothing math on top.
     auto ego_speed_smoothing_alpha = declare_parameter<double>("ego_speed_smoothing_alpha", 0.2);
+    // flatten_z (user directive 2026-08-20): the HD-map layer is a 2D plane
+    // today, so real z (live TF altitude, dynamic-object bbox centers) would
+    // otherwise render as floating geometry -- see frame_transform.hpp/
+    // tf_adapter.hpp's own ctor docs. Set false once the HD-map layer grows
+    // real 3D coordinates.
+    auto flatten_z = declare_parameter<bool>("flatten_z", true);
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_, this);
     tf_adapter_ = std::make_unique<TfAdapter>(*tf_buffer_, "map", "base_link",
-                                              ego_speed_smoothing_alpha);
+                                              ego_speed_smoothing_alpha, flatten_z);
     pub_ego_state_ = create_publisher<std_msgs::msg::Float64MultiArray>("~/ego_state", 1);
 
     // ── HD-map adapters (Epic 2 Task 2 / VM-024) ─────────────────────────────
@@ -194,7 +200,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // so this loop never hand-rolls QoS logic. fill() APPENDS into
     // scene_asm_ every tick (timer_callback), never assigns it, so all of
     // urban's 3 rows (and sim's 4th, latched) render together.
-    frame_transformer_ = std::make_unique<FrameTransformer>(*tf_buffer_);
+    frame_transformer_ = std::make_unique<FrameTransformer>(*tf_buffer_, "map", flatten_z);
     for (const auto& row : profile->rows)
     {
         if (row.adapter != "hd_map") continue;
@@ -382,8 +388,9 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
             }
         });
 
-    RCLCPP_INFO(get_logger(), "on_configure() succeeded. out=%dx%d quality=%d initial_mode=%d",
-                out_width_, out_height_, quality_, initial_mode_);
+    RCLCPP_INFO(get_logger(), "on_configure() succeeded. out=%dx%d quality=%d initial_mode=%d "
+                "flatten_z=%s",
+                out_width_, out_height_, quality_, initial_mode_, flatten_z ? "true" : "false");
     return CallbackReturn::SUCCESS;
 }
 

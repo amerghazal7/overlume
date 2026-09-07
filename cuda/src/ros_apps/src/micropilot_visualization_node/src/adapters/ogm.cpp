@@ -99,7 +99,8 @@ void OgmAdapter::ingest(const nav_msgs::msg::OccupancyGrid& msg, double sim_time
     // cell (a fresh full grid is the only way real OGM dims ever change;
     // see ingest_update()'s "never resizes" contract below).
     cells_ = std::move(next);
-    origin_ = {originTf.x(), originTf.y(), originTf.z()};
+    // flatten_z: 2D HD-map plane -- see frame_transform.hpp.
+    origin_ = {originTf.x(), originTf.y(), tf_.flatten_z() ? 0.0 : originTf.z()};
     resolution_m_ = msg.info.resolution;
     width_cells_ = msg.info.width;
     height_cells_ = msg.info.height;

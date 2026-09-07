@@ -26,6 +26,12 @@
     ego_model_path: /home/ag7/Downloads/M02P.glb
     ego_fallback_dims: [4.5, 2.0, 1.8]
     ego_speed_smoothing_alpha: 0.2
+    # flatten_z (user directive 2026-08-20): the HD-map layer is a 2D plane
+    # today, so real z (live TF altitude, dynamic-object bbox centers) would
+    # otherwise render as floating geometry above it -- every adapter zeroes
+    # the z it stores while this is true (frame_transform.hpp/tf_adapter.hpp).
+    # Set false once the HD-map layer grows real 3D coordinates.
+    flatten_z: true
     # Epic 2 Task 1 (VM-020): which shipped profile to load
     # (urban|offroad|sim -> <profile>_profile.yaml). profile_dir: "" means
     # "this package's own installed share/config" (on_configure resolves it
