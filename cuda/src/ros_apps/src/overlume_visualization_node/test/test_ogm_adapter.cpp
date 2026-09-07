@@ -68,6 +68,24 @@ TEST(OgmAdapter, FullGridPopulatesLayerGeometryAndCells)
     EXPECT_EQ(a.stats().msgs, 1u);
 }
 
+// ── flatten_z (user directive 2026-08-20): origin z zeroed by default ──────
+
+TEST(OgmAdapter, OriginZFlattenedToZeroByDefault)
+{
+    auto msg = mpviz_node::testing::load_occupancy_grid("ogm_synthetic.yaml");
+    msg.info.origin.position.z = 2.5;  // real altitude a live TF/publisher could carry
+    TfFixture kTf;  // FrameTransformer defaults flatten_z=true, same as the node's own default
+    mpviz_node::OgmAdapter a(mpviz_node::testing::urban_row("/perception/dynamic_ogm"), kTf.tf);
+    a.ingest(msg, /*sim_time_sec=*/1.0);
+
+    SceneAssembly asm_;
+    a.fill(asm_);
+    const mpviz::GroundGridLayer* g = OnlyGrid(asm_);
+    ASSERT_NE(g, nullptr);
+    EXPECT_DOUBLE_EQ(g->origin.z, 0.0)
+        << "flatten_z (default true) must zero the stored grid origin z";
+}
+
 // ── Step 1: -1/0/50/100/127 -> 255/0/50/100/255, one dropped_malformed ──────
 
 TEST(OgmAdapter, UnknownCellsBecomeTheSentinelNotTwoFiftyFive)
