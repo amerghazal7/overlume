@@ -62,12 +62,11 @@ palette:
     warning: [0.95, 0.6, 0.05]
     critical: [0.90, 0.35, 0.30]
 material: { roughness: 0.75, metallic: 0.0 }
-# Bumped 1.5 -> 2.5 (ITEM 2d): bloom reads differently on a bright scene --
-# the same absolute emissive strength that pops against dark_adas's near-
-# black backdrop barely differs from ordinary bright clay surfaces here, so
-# the hero ribbon needs more headroom to still read as the glowing guidance
-# ribbon ref-2 shows against a genuinely light background.
-emissive: { ribbon_strength: 1.1 }  # 2.5 blew the blue hero out to white on the bright scene (iter 2026-08-20)
+# ribbon_strength 1.1 (iterated 2026-08-20: 1.5 -> 2.5 -> 1.1). Bloom reads
+# differently on a bright scene, but 2.5 blew the blue hero ribbon out to white
+# against the new light ground; 1.1 keeps it reading as a glowing guidance
+# ribbon without clipping. Compare dark_adas's 4.0 against a near-black backdrop.
+emissive: { ribbon_strength: 1.1 }
 # grid.line_color (ITEM 2a hard coupling): must keep reading as darker lines
 # against the NEW ground (0.58-0.64) -- re-picked relatively darker than the
 # new ground by roughly the same proportion the old value was darker than

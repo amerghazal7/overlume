@@ -15,7 +15,7 @@ palette:
   # (ribbon_core/glow), which stays ref-1's committed green.
   ribbon_global: [0.25, 0.55, 0.95]
   ribbon_local: [0.95, 0.70, 0.15]
-  ego: [0.82, 0.80, 0.76]  # cross-theme swap: light_clay's ground/clay, so the ego pops on dark
+  ego: [0.82, 0.80, 0.76]  # warm near-white clay so the ego pops on dark (was light_clay's ORIGINAL ground before its 2026-08-20 re-authoring to a road-gray; no longer an exact cross-theme swap)
   object_tints:
     car: [0.25, 0.35, 0.9]
     truck_van: [0.30, 0.35, 0.85]
