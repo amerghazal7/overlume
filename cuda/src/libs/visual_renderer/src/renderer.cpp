@@ -569,28 +569,29 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     r.ribbonTint[static_cast<uint8_t>(PathRole::BEHAVIOR)] = theme.palette.ribbon_core;
 
     // GLOBAL/LOCAL are plain clay.mat instances, each in its own theme role
-    // tint -- theme.hpp has no dedicated GLOBAL/LOCAL palette token (the
-    // epic's "zero theme fields added" rule stands), so this reuses the two
-    // existing ribbon-named tokens: GLOBAL on palette.ribbon_core, LOCAL on
-    // palette.ribbon_glow (both already exist and already blend). STATED
-    // DECISION: in both shipped themes today ribbon_core == ribbon_glow, so
-    // GLOBAL and LOCAL render the same flat tint until a theme author gives
-    // them distinct values -- an authoring choice, not a code gap.
+    // tint. User directive 2026-08-20 (ITEM 1) gave them their own dedicated
+    // palette tokens (ribbon_global/ribbon_local, theme.hpp) instead of
+    // reusing the BEHAVIOR/hero ribbon's ribbon_core/ribbon_glow -- the old
+    // reuse was an authoring gap (both shipped themes happened to author
+    // ribbon_core == ribbon_glow, so GLOBAL/LOCAL rendered the same flat
+    // tint until a theme author gave them distinct values); soft-defaulted
+    // in theme.cpp's parse() to exactly the old reused values, so a theme
+    // file that predates these tokens still renders identically.
     r.ribbonMaterial[static_cast<uint8_t>(PathRole::GLOBAL)]->setParameter(
-        "baseColor", to_filament(theme.palette.ribbon_core));
+        "baseColor", to_filament(theme.palette.ribbon_global));
     r.ribbonMaterial[static_cast<uint8_t>(PathRole::GLOBAL)]->setParameter(
         "roughness", theme.material.roughness);
     r.ribbonMaterial[static_cast<uint8_t>(PathRole::GLOBAL)]->setParameter(
         "metallic", theme.material.metallic);
-    r.ribbonTint[static_cast<uint8_t>(PathRole::GLOBAL)] = theme.palette.ribbon_core;
+    r.ribbonTint[static_cast<uint8_t>(PathRole::GLOBAL)] = theme.palette.ribbon_global;
 
     r.ribbonMaterial[static_cast<uint8_t>(PathRole::LOCAL)]->setParameter(
-        "baseColor", to_filament(theme.palette.ribbon_glow));
+        "baseColor", to_filament(theme.palette.ribbon_local));
     r.ribbonMaterial[static_cast<uint8_t>(PathRole::LOCAL)]->setParameter(
         "roughness", theme.material.roughness);
     r.ribbonMaterial[static_cast<uint8_t>(PathRole::LOCAL)]->setParameter(
         "metallic", theme.material.metallic);
-    r.ribbonTint[static_cast<uint8_t>(PathRole::LOCAL)] = theme.palette.ribbon_glow;
+    r.ribbonTint[static_cast<uint8_t>(PathRole::LOCAL)] = theme.palette.ribbon_local;
 
     // Re-push any LIVE GLOBAL/LOCAL translucent fade instance's tint too --
     // same "animate color without resetting the fade" reasoning as the

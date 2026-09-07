@@ -13,6 +13,7 @@
 #include "test_paths.hpp"
 #include "theme.hpp"
 
+#include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -87,6 +88,60 @@ TEST(Ribbon, PathChangeRebuildsGeometry) {
     render_once(r, pose);
     EXPECT_EQ(mpviz::testing::ribbon_vertex_count(r, 0), 2u * 2)
         << "publishing a shorter path did not shrink slot 0's geometry -- a stale-cache bug";
+    mpviz::destroy_renderer(r);
+}
+
+// ── ITEM 1 (user directive 2026-08-20): theme.ribbon.width_m joins the slot
+//    content signature ─────────────────────────────────────────────────────
+
+TEST(Ribbon, WidthChangeRebuildsGeometry) {
+    // ribbon_width_a.yaml/ribbon_width_b.yaml are byte-for-byte identical
+    // except `ribbon.width_m` (0.24 vs 0.60) -- same fixture-dir convention
+    // as test_theme.cpp's sun_dir_a/b. The PathRibbon's own point data is
+    // NEVER touched across the set_theme() call below: if width didn't
+    // join the slot's content signature (ribbon.cpp's ribbon_signature()),
+    // the slot would consider itself unchanged and silently keep rendering
+    // the OLD width forever.
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, fixtureDir.c_str(), "ribbon_width_a"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    const mpviz::Vec3 pts[] = {{-5, 0, 0}, {-3, 0, 0}, {-1, 0, 0}, {1, 0, 0}, {3, 0, 0}};
+    mpviz::PathRibbon ribbon{};
+    ribbon.role = mpviz::PathRole::LOCAL;
+    ribbon.points = pts;
+    ribbon.point_count = 5;
+    ribbon.last_update_sec = 0.0;
+    mpviz::SceneGraph s{};
+    s.sim_time_sec = 0.0;
+    s.paths = &ribbon;
+    s.path_count = 1;
+    mpviz::set_scene(r, s);
+    mpviz::CameraPose pose{{0, -8, 6}, {0, 0, 0}, 60.0};
+    render_once(r, pose);
+    EXPECT_NEAR(mpviz::testing::ribbon_slot_half_width_m(r, 0), 0.12f, 1e-4f);
+    const size_t vertsBefore = mpviz::testing::ribbon_vertex_count(r, 0);
+
+    // set_theme() to the wider fixture, then advance sim_time_sec past the
+    // transition's own duration (deterministic-clock pattern, test_theme_
+    // transition.cpp's DeterministicClock_MatchesTargetAtDuration) so the
+    // blend has fully settled on ribbon_width_b's 0.60 width_m, not some
+    // partially-blended value.
+    ASSERT_TRUE(mpviz::set_theme(r, "ribbon_width_b", /*at_sec=*/0.0, /*transition_sec=*/0.2));
+    s.sim_time_sec = 0.2;
+    mpviz::set_scene(r, s);
+    render_once(r, pose);
+
+    EXPECT_NEAR(mpviz::testing::ribbon_slot_half_width_m(r, 0), 0.30f, 1e-4f)
+        << "a width-only theme change (no PathRibbon point data touched) did not rebuild "
+           "slot 0's geometry at the new width -- width isn't part of the slot signature";
+    // Vertex COUNT is width-independent (2 per point, always) -- unchanged
+    // here is the EXPECTED, correct outcome, not evidence either way about
+    // whether a rebuild happened (see ribbon_slot_half_width_m()'s own
+    // comment for why that hook, not this count, is the real signal).
+    EXPECT_EQ(mpviz::testing::ribbon_vertex_count(r, 0), vertsBefore);
+
     mpviz::destroy_renderer(r);
 }
 
@@ -246,18 +301,19 @@ TEST(Ribbon, MaterialIsThemedOnFirstDataWithNoTransition) {
     EXPECT_NEAR(beh.g, theme->palette.ribbon_core.g, 1e-4);
     EXPECT_NEAR(beh.b, theme->palette.ribbon_core.b, 1e-4);
 
-    // GLOBAL/LOCAL have no dedicated theme token (the epic's "zero theme
-    // fields added" rule) -- this task's decision: GLOBAL reuses
-    // ribbon_core, LOCAL reuses ribbon_glow (see push_theme_to_scene()'s
-    // own comment in renderer.cpp).
+    // GLOBAL/LOCAL each have their OWN dedicated theme token as of user
+    // directive 2026-08-20 (ITEM 1) -- ribbon_global/ribbon_local
+    // (theme.hpp), no longer a reuse of the BEHAVIOR/hero ribbon's own
+    // ribbon_core/ribbon_glow (see push_theme_to_scene()'s own comment in
+    // renderer.cpp).
     const auto glob = mpviz::testing::ribbon_role_base_color(r, mpviz::PathRole::GLOBAL);
-    EXPECT_NEAR(glob.r, theme->palette.ribbon_core.r, 1e-4);
-    EXPECT_NEAR(glob.g, theme->palette.ribbon_core.g, 1e-4);
-    EXPECT_NEAR(glob.b, theme->palette.ribbon_core.b, 1e-4);
+    EXPECT_NEAR(glob.r, theme->palette.ribbon_global.r, 1e-4);
+    EXPECT_NEAR(glob.g, theme->palette.ribbon_global.g, 1e-4);
+    EXPECT_NEAR(glob.b, theme->palette.ribbon_global.b, 1e-4);
 
     const auto loc = mpviz::testing::ribbon_role_base_color(r, mpviz::PathRole::LOCAL);
-    EXPECT_NEAR(loc.r, theme->palette.ribbon_glow.r, 1e-4);
-    EXPECT_NEAR(loc.g, theme->palette.ribbon_glow.g, 1e-4);
-    EXPECT_NEAR(loc.b, theme->palette.ribbon_glow.b, 1e-4);
+    EXPECT_NEAR(loc.r, theme->palette.ribbon_local.r, 1e-4);
+    EXPECT_NEAR(loc.g, theme->palette.ribbon_local.g, 1e-4);
+    EXPECT_NEAR(loc.b, theme->palette.ribbon_local.b, 1e-4);
     mpviz::destroy_renderer(r);
 }

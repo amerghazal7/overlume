@@ -92,6 +92,9 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.palette.ribbon_core = blend_color(a.palette.ribbon_core, b.palette.ribbon_core, w);
     out.palette.ribbon_glow = blend_color(a.palette.ribbon_glow, b.palette.ribbon_glow, w);
     out.palette.ego = blend_color(a.palette.ego, b.palette.ego, w);
+    out.palette.ribbon_global =
+        blend_color(a.palette.ribbon_global, b.palette.ribbon_global, w);
+    out.palette.ribbon_local = blend_color(a.palette.ribbon_local, b.palette.ribbon_local, w);
     out.palette.object_tints.car =
         blend_color(a.palette.object_tints.car, b.palette.object_tints.car, w);
     out.palette.object_tints.truck_van =
@@ -141,6 +144,11 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.ibl.intensity = lerpf_geometric(a.ibl.intensity, b.ibl.intensity, w);
 
     out.fog.density = lerpf(a.fog.density, b.fog.density, w);
+
+    // ribbon.width_m (user directive 2026-08-20, ITEM 1): a plain scalar
+    // lerp, same as roughness/metallic/hud.scale above -- not a color, no
+    // Oklab involved.
+    out.ribbon.width_m = lerpf(a.ribbon.width_m, b.ribbon.width_m, w);
 
     return out;
 }
