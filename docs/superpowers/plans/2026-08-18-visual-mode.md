@@ -347,7 +347,7 @@ user performs Cesium ion registration; token handled like the Mapbox token
 ## Review 2026-09-07 — self-review
 
 - Status now has one trustworthy home per epic (the ledgers); checkboxes were ticked only where a commit proves the step.
-- Every finding from the Opus audit that survived adversarial verification is either applied inline (`[review 2026-09-07]` markers), scheduled under a backlog ID (VM-037, VM-044, VM-036 additions), or listed as PROPOSED in the changelog above.
+- Every finding from the Opus audit that survived adversarial verification is either applied inline (`[review 2026-09-07]` markers), scheduled under a backlog ID (VM-037, VM-044, VM-036 additions), or was decided by the user on 2026-09-07 (Decisions in the changelog above).
 - Refuted findings (11) are not applied; the refutations are in the review workflow transcript.
 
 ## Self-review (done)
