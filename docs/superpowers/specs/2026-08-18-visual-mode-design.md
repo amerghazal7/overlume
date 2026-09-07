@@ -1,7 +1,7 @@
 # Visual Mode — Stylized Autonomy Data Visualization (Design)
 
 **Date:** 2026-08-18
-**Status:** Draft for review
+**Status:** Accepted (Epics 0–2 implemented against it); amended by the plan review of 2026-09-07 — see `[review 2026-09-07]` markers and the changelog in `docs/superpowers/plans/2026-08-18-visual-mode.md`. Load-bearing decisions: `docs/adr/0001`–`0004`.
 **Reference assets:** `assets/visualization-reference-1.jpg` (dark ADAS style),
 `assets/visualization-reference-2.jpg` (light clay style), `assets/urban_config.rviz`,
 `assets/offroad_config.rviz`
@@ -59,7 +59,7 @@ one binary is undefined-behavior territory at any std-type boundary.
 Mitigation: the visualization library compiles as a self-contained
 clang/libc++ static unit whose public header exposes **only POD structs,
 fixed-width types, and raw pointers/spans** (no std:: types cross the ABI).
-The ROS node stays on the stock gcc toolchain. A CI check asserts the public
+The ROS node stays on the stock gcc toolchain. A header check (`scripts/check_pod_header.sh`, a ctest of the lib project; wired into the colcon build by VM-037 — there is no hosted CI, `[review 2026-09-07]`) asserts the public
 header includes nothing from the standard library beyond `<cstdint>`/
 `<cstddef>`. If the clang/libc++ static-link route proves brittle in practice,
 fallback is building Filament from source with gcc (supported but less
@@ -105,7 +105,7 @@ experience is preserved by a mux protocol:
     on 3 it stops publishing (subscriptions stay alive, buffers keep
     filling, so switching back is instant). The node-private
     `~/set_render_mode` topic remains for backward compatibility and
-    implies leaving mode 3.
+    implies leaving mode 3. `[review 2026-09-07]` As shipped this is one-sided: the CUDA node leaves idle locally but never announces it, so visualization_node keeps publishing (two publishers). Target (VM-037): the legacy handler re-publishes the value on `/rendering/set_mode`.
   - `visualization_node`: renders + publishes only while mode == 3;
     otherwise it keeps ingesting (cheap CPU-side scene updates) but skips
     the render/readback/publish, so it costs ~zero GPU when inactive.
@@ -115,7 +115,7 @@ experience is preserved by a mux protocol:
   render_mode today) from whichever node is active.
 - Race handling: on startup both nodes default to the last configured mode
   parameter (`initial_mode`, default 1) so exactly one publisher is active
-  from the first frame.
+  from the first frame. `[review 2026-09-07]` This only holds while the mode never changes at runtime: `/rendering/set_mode` is VOLATILE as shipped, so a restarted or late-joining node rejoins at `initial_mode`, not the live mode. Target (VM-037): `transient_local, depth 1, reliable` on every publisher and subscriber of the topic, so the last command is retained. Also as shipped, `initial_mode:=1` leaves the CUDA node's `render_mode_` at 2 (hybrid) — same item.
 
 ### 3.2 Repository layout
 
@@ -144,6 +144,8 @@ Plain-data description of one displayable moment; the node writes it, the
 renderer reads it. All poses in the **map frame**; the ego pose comes from
 TF (`map → base_link`).
 
+`[review 2026-09-07]` Categories: 8 shipped through Epic 2; `PointCloud[]` is appended in Epic 3 (VM-035, ADR-0004).
+
 - `Ego` — pose, speed (finite-differenced from TF, smoothed), the robot's
   own glTF model.
 - `TrackedObject[]` — id, class enum {CAR, TRUCK_VAN, BUS, PEDESTRIAN,
@@ -153,6 +155,10 @@ TF (`map → base_link`).
   theme (the behavior path is the hero emissive ribbon of reference 1).
 - `MapElement[]` — lane polylines/polygons/crosswalks from the HD-map
   MarkerArray, cached (static per session, rebuilt only on new latched data).
+  `[review 2026-09-07]` Carries `kind`, `lane_id` and `last_update_sec`
+  (VM-036); paired left/right boundaries also produce a filled **road
+  surface** in `palette.road`, so the road reads darker than the clay ground
+  as in reference 2.
 - `GroundGrid` — occupancy-grid raster layers (dynamic OGM, gradient OGM)
   as ground-projected textures with theme-colored transfer functions.
 - `AlertPolygon[]` — collision-checker footprint sweeps / predicted
@@ -161,13 +167,13 @@ TF (`map → base_link`).
 - `PointCloud[]` — decimated `PointCloud2` layers as colored points; colors
   baked node-side per the profile row's `color_mode` (`auto` = rgb when the
   cloud carries it → intensity ramp when it carries that → height ramp;
-  or forced `rgb`/`intensity`/`height`/`flat`). **Added at the Epic-3 freeze
-  lift (VM-035) — deliberately absent from the Epic-2 frozen header.**
+  or forced `rgb`/`intensity`/`height`/`flat`). Added in Epic 3 (VM-035) by
+  appending a category — `[review 2026-09-07]` the scene header is
+  additive-only and versioned (ADR-0004), not frozen.
 - `Hud` — speed value, active mode, alert chips (text + 3D anchor for
   leader-line callouts, e.g. distance-to-obstacle).
 
-Double-buffered: ingest thread writes a staging copy, render tick swaps
-under a mutex — same freeze-frame philosophy as the existing node (render
+Double-buffered: the publisher deep-copies into a staging slot and the active index swaps under a mutex. **Single-threaded as shipped (`[review 2026-09-07]`):** the same thread must call `set_scene()` and `render_frame()` — `SceneBuffer::active()` returns a reference aliased into slot storage, so cross-thread ingest needs an owned snapshot first (a SceneBuffer design change, not a locking tweak). Ingest-thread writes are the intended future shape, not today's contract. The freeze-frame property holds either way — same freeze-frame philosophy as the existing node (render
 every tick from the latest cached data; stale data keeps rendering so the
 stream never freezes with the sim paused).
 
@@ -191,6 +197,8 @@ stream never freezes with the sim paused).
   (the node wraps it in a `sensor_msgs/Image` without copy where possible).
 
 ### 4.3 ThemeSystem
+
+`[review 2026-09-07]` Hidden coupling to know about: `fog.density` is the only authored fog knob; the renderer also scales `palette.fog` radiance by an empirical fit on `ibl.intensity` (`50·(8750/I)^1.159`, `renderer.cpp`) calibrated on the two shipped themes, so retuning a theme's IBL intensity changes its horizon fog brightness. Revisit when a third theme ships.
 
 A theme is a YAML token file (committed under `assets/themes/`):
 palette (ground, sky/fog, lane paint, ribbon core/glow, per-class object
@@ -216,9 +224,12 @@ command drives the same transition.
 - Ego robot: the M02P OBJ converted to glTF (one-time script), path via
   param like today's `robot_model_path`, load failure non-fatal (falls back
   to clay box, warns).
-- SDF font atlas for in-scene text and callouts; HUD text uses the same
-  atlas rendered in an overlay pass (screen-space quads through Filament —
-  no second 2D library).
+- SDF font atlas for in-scene (3D-anchored) text and callouts.
+  `[review 2026-09-07]` **PROPOSED:** the screen-space HUD (speed chip, mode)
+  is composited node-side onto the RGB8 buffer after readback with
+  stb_truetype instead of an SDF overlay pass through Filament — same pixels,
+  no font pipeline in the lib (VM-030). Re-entry trigger: HUD text must be
+  depth-tested, lit or fogged.
 
 ### 4.5 EnvironmentLayer (clay buildings — 3D-tiles-style)
 
@@ -244,8 +255,11 @@ instead of runtime tile streaming:
   map-frame origin) is a manual override for GPS-denied replays. No anchor
   from either source → environment layer disabled with one WARN, everything
   else unaffected.
-- The layer sits behind an `EnvironmentSource` seam. **v1.1 (committed,
-  starts immediately after v1.0):** a cesium-native-based OGC 3D Tiles
+- The layer sits behind an `EnvironmentSource` seam. **`[review 2026-09-07]`
+  PROPOSED: the following is moved to Future (no external commitment
+  identified; Epic 4 covers the bounded operating area; re-entry trigger:
+  area exceeds one baked extract or re-baking is too slow).** Was "v1.1
+  (committed, starts immediately after v1.0)": a cesium-native-based OGC 3D Tiles
   streaming adapter (Cesium OSM Buildings via Cesium ion — user handles
   registration) replaces/augments the baked source, with clay
   re-materialization, geo placement via the same anchor, a disk tile cache,
@@ -255,7 +269,7 @@ instead of runtime tile streaming:
 ## 5. Ingest adapters (ROS node side)
 
 Config-driven, mirroring the rviz configs as **profiles**. A profile YAML
-(`config/urban_profile.yaml`, `config/offroad_profile.yaml`) lists
+(`config/urban_profile.yaml`, `config/offroad_profile.yaml`, `config/sim_profile.yaml` — the sim profile adds the latched full-extent map row; `[review 2026-09-07]` three ship, not two) lists
 `(topic, msg type, adapter, style role)` rows; the node subscribes
 accordingly. Adding a topic for the autonomy team = one YAML row, not code.
 
@@ -263,7 +277,7 @@ accordingly. Adding a topic for the autonomy team = one YAML row, not code.
 |---|---|---|
 | `DynamicObjectsAdapter` | `/perception/dynamic_objects_list` (MarkerArray; namespaces `*_bbox`, `*_arrow`, `*_text`, `*_hd_map_path`, `*_hd_map_path_dots`) | `TrackedObject[]` — bbox marker → pose/dims; text marker → label + **class inference**; arrow → velocity; hd_map_path → predicted path |
 | `HdMapAdapter` | **`/hd_map_local_elements` (primary — live-sim finding 2026-08-19: continuous ~10 Hz stream, always joinable)**; `/hd_map_global_elements` best-effort only (its publisher is VOLATILE publish-once-at-startup — late joiners get nothing); sim profile may also use latched `/sim/hd_map/markers` (TRANSIENT_LOCAL) | `MapElement[]`, cached until a new message arrives |
-| `PathAdapter` ×3 | `/behavior_path_planner/output_path_visualization`, `/navigation/global_path`, `/local_path` (nav_msgs/Path) | `PathRibbon` per role |
+| `PathAdapter` ×N (3 roles, 4 shipped rows) | `/behavior_path_planner/output_path_visualization` (BEHAVIOR), `/local_vel_path` (LOCAL — the only local output live in the 2026-08-19 recording, `[review 2026-09-07]`), `/local_path` (LOCAL, offroad display, silent in the recording), `/navigation/global_path` (GLOBAL, silent) (nav_msgs/Path) | `PathRibbon` per row slot (not per role) |
 | `OgmAdapter` ×2 | `/perception/dynamic_ogm`, `/perception/gradient_ogm` (+`_updates`) (OccupancyGrid + updates) | `GroundGrid` textures |
 | `CollisionAdapter` | the 5 collision-checker MarkerArray topics | `AlertPolygon[]` |
 | `TfAdapter` | TF (`map → base_link`); speed prefers `/robot/feedback/robot_speed_mps` (Float32, live-sim finding 2026-08-19) with TF finite-difference as fallback | `Ego` pose + speed |
@@ -291,7 +305,7 @@ identical message/service contracts under its own namespace:
 
 - `~/set_virtual_cam` (SetVirtualCam srv, presets 1–5 with eased tween)
 - `~/set_look` (Float64MultiArray[6] `[eye|target]`, immediate, cancels tween)
-- `~/vcam_state` (Float64MultiArray telemetry incl. active preset + mode)
+- `~/vcam_state` (Float64MultiArray[8] telemetry incl. active preset + mode). `[review 2026-09-07]` Index 7 is NOT comparable across nodes as shipped: rendering_node publishes its bowl/hybrid `render_mode_` (1|2), visualization_node its `active_mode_` (1|2|3); the WS bridge works around it by trusting one namespace per commanded mode. VM-037 appends index 8 `mux_mode` (identical on both nodes) and leaves index 7 unchanged for compatibility.
 - `virtual_pose` / `virtual_vfov_deg` params, live-settable like today.
 
 The pose→Filament camera mapping reuses the same look_at/[R|t] convention as
@@ -316,7 +330,7 @@ construction. Within Visual mode, every rviz display maps as:
 |---|---|
 | Grid | Themed ground grid (fading with distance) |
 | TF frames | Ego pose consumed always; full TF axes as a **debug layer** (off by default, generic renderer) |
-| `/hd_map_global_elements` | Stylized lane geometry (lane paint material, crosswalk hatching) |
+| `/hd_map_local_elements` (primary, ~10 Hz) + `/hd_map_global_elements` (best-effort, publish-once) | Stylized lane geometry (lane paint material, crosswalk hatching — `[review 2026-09-07]` hatching is dead code on recorded 5-point closed crosswalks until VM-036) |
 | `/perception/dynamic_objects_list` | Clay 3D models + velocity arrows + predicted-path ribbons + optional labels |
 | 5 collision-checker topics | Translucent alert polygons (theme warning colors), ego sweep as ghost trail |
 | `/behavior_path_planner/output_path_visualization` | Hero emissive ribbon (ref-1 green glow) |
@@ -335,7 +349,10 @@ authoring tool. Interactive selection/click-to-inspect is future work
 ## 8. Performance budget & degradation
 
 - Target: 1280×720 @ 30 fps on the onboard GPU with perception + the CUDA
-  node co-resident. Scene scale is small (tens of objects, few-thousand map
+  node co-resident. `[review 2026-09-07]` This is an assumption; it was never
+  measured on the robot. Proxy numbers (dev box, bag replay) are in
+  `cuda/src/libs/visual_renderer/tools/budget_probe.md`; the on-robot table is
+  a blocking item of VM-043. Scene scale is small (tens of objects, few-thousand map
   segments, 2 grid textures) — well inside Filament's envelope; the risks
   are readback latency and GPU contention, both bounded by:
 - Quality presets (`quality` param + WS command): `high` (TAA, SSAO, bloom,
@@ -373,7 +390,7 @@ Following the repo's TDD convention:
 - **Adapter unit tests** (gtest): recorded-message fixtures (captured from
   bags into headers/json) → SceneGraph assertions, incl. class-inference
   table tests and malformed-input tests.
-- **Golden-image tests**: deterministic synthetic SceneGraph → Filament
+- **Golden-image tests** — `[review 2026-09-07]` as shipped: block-SSIM 0.98 at 320×240, `quality=1` (medium, the shipped default — not the "low preset" below), single-theme for every geometry golden except empty-world and map. **PROPOSED:** require per-theme pairs only for goldens whose subject is theming (empty world, map/lane paint, one lit-geometry reference); other categories keep one golden. Trigger back: a theme-only regression escapes. Original text: deterministic synthetic SceneGraph → Filament
   headless render → perceptual-diff (SSIM threshold) against committed
   goldens, per theme, low preset, fixed seeds. Skip without GPU (same
   pattern as the GL tests).
@@ -387,14 +404,13 @@ Following the repo's TDD convention:
 
 ## 11. Out of scope (v1) — explicit
 
-- Runtime-streamed 3D Tiles are out of **v1.0** only — they are the
-  committed v1.1 scope (§4.5, backlog Epic 6), starting immediately after
-  v1.0. Photorealistic tiles stay out entirely (clay style is the product).
+- Runtime-streamed 3D Tiles: `[review 2026-09-07]` PROPOSED Future (was
+  "committed v1.1"; see §4.5 and backlog Epic 6 for the re-entry trigger). Photorealistic tiles stay out entirely (clay style is the product).
 - Minimap inset (needs a 2D map raster source; the bake pipeline's data
   could feed this later).
 - Real camera imagery composited into Visual mode (modes 1–2 cover
   photographic needs; a hybrid "surround ground + synthetic overlays" mode
-  is a listed future epic).
+  is deferred, not scheduled — backlog Future VM-072, no epic assigned; `[review 2026-09-07]`).
 - Interactive picking / click-to-inspect via WS.
 - rviz authoring tools (goal/initialpose publishing).
 - Renaming the historical `cuda/` directory.

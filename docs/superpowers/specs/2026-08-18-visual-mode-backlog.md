@@ -2,7 +2,9 @@
 
 Companion to `2026-08-18-visual-mode-design.md`. Ordered by phase; each story
 lists acceptance criteria (AC). Execution: dynamic workflows (orch Fable /
-impl Sonnet / review Opus) per project directive.
+impl Sonnet / review Opus) per project directive. Load-bearing decisions live in
+`docs/adr/0001`–`0004`; interface changes follow ADR-0004 (additive-only, versioned).
+Status per task: the **Status ledger** at the top of each epic plan.
 
 ## Epic 0 — Contract spike (de-risk everything first)
 
@@ -10,19 +12,24 @@ impl Sonnet / review Opus) per project directive.
   static `visual_renderer` lib (POD API) that renders a lit cube on a grid
   to a readable headless swapchain and returns RGB8.
   AC: standalone example writes a PNG on the dev box; no X server; header
-  passes the POD-only check.
+  passes the POD-only check. **DONE** (66c1340, bc2007c, 76ce179, acd26a8, 73f100c).
 - **VM-002 Skeleton visualization node + mode mux.** Lifecycle node
   publishing VM-001's frame to `/rendering/image` at 30 Hz; global
   `/rendering/set_mode` handling in BOTH nodes (CUDA node idles on 3).
   AC: smoke test drives 1→3→2 with exactly-one-publisher and no consumer
-  re-subscribe; existing node tests still green.
+  re-subscribe; existing node tests still green. **DONE** (dfab33b, 2968ebc); residual mux defects → VM-037.
 - **VM-003 vcam parity.** `~/set_virtual_cam` / `~/set_look` / `~/vcam_state`
   on the new node; WS bridge fan-out.
   AC: contract test proves identical framing math vs CUDA node for the 5
-  presets; GUI orbit works against mode 3 unmodified.
-- **VM-004 On-robot GPU budget measurement.** Run the spike beside the CUDA
-  node + perception on robot hardware; record frame time & contention.
-  AC: measured numbers recorded in the plan doc; go/no-go on 720p30 target.
+  presets; GUI orbit (`set_look`) works against mode 3 with no GUI change (the GUI later gained a mode button/3-way view cycle by directive). **DONE** (6a43f55, e619d41).
+- **VM-004 GPU budget measurement.** `[review 2026-09-07]` Split: (a) PROXY on
+  the dev box (same CPU/GPU class), bag replay, alone and beside the CUDA node
+  — DONE 2026-09-07, `cuda/src/libs/visual_renderer/tools/budget_probe.md`;
+  (b) ON-ROBOT beside CUDA node + perception with real camera input, frame
+  time p50/p99 via the `render_ms` instrumentation from VM-034 — OPEN,
+  blocks VM-043 sign-off. The original "gate for Epic 1+" was overridden in
+  practice (Epic 1 proceeded on assumptions); the docs now say so.
+  AC: proxy table recorded; on-robot table recorded; go/adjust on 720p30.
 
 ## Epic 1 — Core scene & dark theme
 
@@ -40,14 +47,14 @@ impl Sonnet / review Opus) per project directive.
 - **VM-012 Ego robot.** M02P→glTF conversion script; TF-driven ego pose +
   speed; clay-box fallback.
   AC: golden image with ego; speed matches TF finite difference on a
-  recorded fixture.
+  recorded fixture. **Partial `[review 2026-09-07]`:** conversion ran (`~/Downloads/M02P.glb`, 2026-08-20) but the asset is outside git and `default_params.yaml` carries a per-user absolute path; the only committed ego golden is the clay-box fallback. Closes via VM-044 (install the asset, re-shoot the ego golden). Blocks VM-043 sign-off.
 - **VM-013 Camera presets/tween port.** Eased tween identical to CUDA node.
   AC: contract test vectors pass.
 
 ## Epic 2 — Autonomy data ingestion
 
-- **VM-020 Profile YAML loader** (urban/offroad topic rows → subscriptions).
-  AC: bad rows rejected with clear errors; both shipped profiles load.
+- **VM-020 Profile YAML loader** (urban/offroad/sim topic rows → subscriptions; `[review 2026-09-07]` three profiles ship — sim adds the latched `/sim/hd_map/markers` row).
+  AC: bad rows rejected with clear errors; all three shipped profiles load.
 - **VM-021 DynamicObjectsAdapter + class inference.** MarkerArray →
   TrackedObjects; label keywords + bbox-dims fallback table (config-driven).
   AC: fixture tests from a recorded bag; inference table test; malformed
@@ -70,22 +77,37 @@ impl Sonnet / review Opus) per project directive.
 
 ## Epic 3 — HUD, polish, controls
 
-- **VM-030 SDF text + HUD overlay.** Speed chip, mode indicator.
-  AC: golden; text legible at 720p low preset.
+- **VM-030 HUD overlay.** Speed chip, mode indicator.
+  **PROPOSED `[review 2026-09-07]`:** draw the 2D HUD node-side by compositing
+  text onto the RGB8 buffer after readback (stb_truetype, vendored like
+  stb_image_write) instead of an SDF atlas + Filament overlay pass inside the
+  lib — identical pixels for screen-space chips, no font pipeline in the
+  clang/libc++ archive, no new public entry point. The SDF/in-scene path is
+  kept only for 3D-anchored text (VM-031). Re-entry trigger: HUD text must
+  be depth-tested, lit, or fogged.
+  Prerequisite (`[review 2026-09-07]`): the node never populates `SceneGraph::hud` today — add `scene.hud.speed_mps = ego.speed_mps; scene.hud.active_mode = active_mode_` next to the `~/ego_state` publish.
+  AC: node-side test renders a known frame + HUD; HUD reads `SceneGraph::hud`; text legible at 720p low preset.
 - **VM-031 Alert callouts.** Leader-line chips anchored to 3D objects
   (e.g. nearest-obstacle distance from collision topics).
   AC: golden; callout tracks object across camera moves.
 - **VM-032 Layer visibility + quality presets** end to end (params + WS
   commands + GUI panel; theme toggle already shipped in VM-014).
-  AC: WS E2E test toggles each layer and preset.
+  `[review 2026-09-07]` `RenderConfig::quality` today drives only SSAO enable+resolution and FXAA-vs-TAA. This item must also map spec §8's three deferred knobs: shadow-map resolution (2048 high / 1024 medium), shadow enable (low = none), and the 960×540 render-scale upscale for `low`. Live switching needs an appended `set_quality()` entry point or a renderer re-create (see VM-040, PROPOSED P4).
+  AC: WS E2E test toggles each layer and preset; each preset measurably changes frame cost (`render_ms`).
 - **VM-033 (moved into VM-011/VM-014 — both themes + animated toggle ship
   in Epic 1.)**
 - **VM-034 Staleness fades + diagnostics topic** surfaced in GUI.
-  AC: silencing a topic fades its layer; diagnostics shows per-topic age.
+  `[review 2026-09-07]` Also: (1) HD-map layer fade — needs
+  `MapElement.last_update_sec` (appended under ADR-0004; closes the recorded
+  "pops, does not fade" deviation); (2) **`render_ms`**: time `render_frame()`
+  in the node tick and publish it in the diagnostics message — prerequisite
+  for VM-040's governor and for the on-robot VM-004(b) table.
+  AC: silencing a topic fades its layer (map included); diagnostics shows
+  per-topic age, dropped-primitive counts and render_ms.
 - **VM-035 PointCloudLayer** (user request 2026-08-20). `sensor_msgs/PointCloud2`
-  ingestion + point rendering. Rides the Epic-3 freeze lift: adds a `PointCloud`
-  category to `SceneGraph` (the Epic 2 freeze forbade new categories) in the same
-  header-opening pass as `MapElement.kind`. Node side: `PointCloudAdapter`, one
+  ingestion + point rendering. Adds a `PointCloud` category to `SceneGraph`
+  (appended, `kSceneVersion` bump — ADR-0004; `[review 2026-09-07]` the former
+  "Epic-3 freeze lift" wording is superseded). Node side: `PointCloudAdapter`, one
   profile row per cloud topic with ingest decimation knobs (`max_points`,
   `stride`, `max_rate_hz`) — full-rate lidar is never drawn raw. **Coloring is
   per-row config: `color_mode: auto | rgb | intensity | height | flat` (default
@@ -111,15 +133,24 @@ impl Sonnet / review Opus) per project directive.
   - lane boundaries: one marker per side, LINE_STRIP, ns `left_boundary_{lane_id}` / `right_boundary_{lane_id}`, id `{lane_id}`
   - centerline arrows: one marker per point, ARROW, ns `centerline_arrows_{lane_id}`, id `{point_index}` (dropped by rule in Epic 2 — 93% of map volume; direction is derivable from centerline point order)
   - crosswalks: one marker each, LINE_STRIP, ns `crosswalks` (sim, plural, no suffix) or `crosswalk_{id}` (urban publisher) — both matched by the shipped bare `crosswalk` prefix rule since 2026-08-20
-  At the Epic-3 freeze lift (same header-opening pass as VM-035's category):
-  `MapElement` gains `kind` (CENTERLINE, LEFT_BOUNDARY, RIGHT_BOUNDARY,
-  CROSSWALK, STOPLINE, JUNCTION, OTHER), populated by `HdMapAdapter` from the
-  row's namespace rules (`classify()` already knows; today it collapses to
-  polyline/polygon). Renderer: per-kind theme tokens (e.g. `palette.lane_centerline`,
-  `palette.lane_boundary`, `palette.crosswalk`) + per-kind width/z-lift so
-  boundaries read thin, centerlines read as the lane spine, and coplanar
-  strips stop z-fighting. AC: golden with all kinds visually distinct in both
-  themes; adapter test proves ns→kind mapping for both crosswalk spellings.
+  `[review 2026-09-07]` `MapElement` gains `kind` (CENTERLINE, LEFT_BOUNDARY,
+  RIGHT_BOUNDARY, CROSSWALK, STOPLINE, JUNCTION, OTHER), `lane_id` (uint32,
+  0 = none) and `last_update_sec` — all appended (ADR-0004). `HdMapAdapter`
+  fills them from the row's namespace rules (`classify()` already knows; today
+  it collapses to polyline/polygon). Renderer: per-kind theme tokens
+  (`palette.lane_centerline`, `palette.lane_boundary`, `palette.crosswalk`) +
+  per-kind width/z-lift so boundaries read thin, centerlines read as the lane
+  spine, and coplanar strips stop z-fighting. **Road surface:** pair
+  `left_boundary_{id}`/`right_boundary_{id}` by `lane_id` and fill the strip
+  between them in a new `palette.road` token — ref-2's primary value
+  separation (road darker than the clay ground) is unexpressible today because
+  every map element is a stroke and the whole ground plane carries the road
+  tone (`light_clay.yaml` `palette.ground` comment). Ground returns to a light
+  clay value once the road is its own surface. Move centerline dashing
+  renderer-side (one element per centerline) and retire the ingest chop.
+  AC: golden per theme with all kinds visually distinct AND road darker than
+  ground; adapter test proves ns→kind+lane_id mapping for both crosswalk
+  spellings; dashed-centerline golden unchanged after the chop is retired.
   **STYLING GROUND TRUTH (user directive 2026-08-20, binding for every theme/
   styling task):** `assets/visualization-reference-1.jpg` is THE dark-theme
   target and `assets/visualization-reference-2.jpg` THE light-theme target —
@@ -131,12 +162,21 @@ impl Sonnet / review Opus) per project directive.
   meaning (blue hero ribbon, coral alert vehicle, dark navy ego) while
   everything inert stays clay. Ref-1's dark world does the same with a
   near-black blue base, white lane paint, and the green emissive hero.
+  **Debt found by the 2026-09-07 review (fix inside VM-036, one re-authoring pass, goldens re-promoted):**
+  1. **Crosswalk hatch is dead code**: recorded crosswalks arrive as closed 5-point polylines; `build_crosswalk_hatch()` guards `n != 4`. Drop the duplicate closing vertex in `hd_map.cpp` (mirror `collision.cpp`'s dedupe) + a test on the recorded geometry. Do this first; it is the only pure defect here.
+  2. **Dash assignment must FLIP, not just gain colour**: Epic 2 dashes `centerline_` (the lane spine, no painted analogue) and leaves boundaries solid — the inverse of ref-2's "yellow centerlines vs white dashes". Target: CENTERLINE solid, semantic yellow-family; BOUNDARY dashed white (or solid at road edge once `kind` distinguishes them).
+  3. **Token debt**: (a) `dark_adas.palette.lane_paint` [0.45,0.5,0.55] is mid-gray; ref-1 wants near-white (light_clay already ships [0.92,0.92,0.90]); (b) both themes saturate every inert object class — re-author car/truck_van/unknown toward clay, keep saturation for pedestrian/cyclist and alerts; (c) `dark_adas.ribbon_local` [0.95,0.70,0.15] is within 0.05/channel of `alert.warning` — move ribbon_local to a cool hue and reserve amber for alerts.
+  4. **Guards**: split the horizon/sky convergence bound per theme (dark ~37 → <45, light ~45 → <55) instead of one shared 55; add `ThemeLoad.BuiltinFallbackMatchesDarkAdasYaml`; add a `blend()` field-count static_assert so an appended token cannot silently blend to black; add a `map_element_rebuild_count` hook + test for the "cached, no per-frame rebuild" AC.
   **Already shipped in Epic 2 (2026-08-20, do not redo):** centerlines render
   DASHED — the adapter chops them into per-dash `MapElement`s at ingest
   (profile rule flag `dashed: true`, 1.5 m dash / 1.5 m gap constants), the
   one differentiation expressible without the `kind` field. VM-036's color/
   width tokens layer on top; when `kind` lands, consider moving dashing
   renderer-side (one element per centerline again) and retiring the chop.
+
+- **VM-037 Epic-0 debt: mux hardening + build hygiene** (`[review 2026-09-07]`, small, do first in Epic 3).
+  (a) `/rendering/set_mode` QoS → `transient_local, depth 1, reliable` on every publisher/subscriber (restart/late-join rejoins the live mode); (b) legacy `~/set_render_mode` re-publishes on the global topic (no one-sided exit from mode 3); (c) `initial_mode:=1` also sets `render_mode_` (today starts hybrid); (d) append `vcam_state[8] = mux_mode` on both nodes, index 7 unchanged; (e) `kSceneVersion` constant in `scene.h` + a node-side gtest mirroring the sizeof/offsetof table (ADR-0004); (f) `check_pod_header.sh` as an `ament_add_test` in the node package, glob widened to `*.h*`; (g) `FILAMENT_VERSION` single-sourced (node CMake reads it from `GetFilament.cmake`); (h) log `GL_VENDOR/GL_RENDERER/GL_VERSION` once at `create_renderer()` and make `test_hello_frame` skip (not fail) when no hardware GL device is found; (i) link-probe assertion on the hand-declared `bluegl::bind()` signature.
+  AC: smoke test drives restart-in-mode-3 and legacy-topic exit with exactly-one-publisher; `colcon_build.sh` runs the POD check; a deliberate `scene.h` layout change fails the node build; hello-frame log names the GPU.
 
 ## Epic 4 — Clay buildings (EnvironmentLayer, §4.5)
 
@@ -153,9 +193,50 @@ impl Sonnet / review Opus) per project directive.
 - **VM-052 Runtime chunk loading + culling.** Index → distance-enabled
   chunks, theme building material.
   AC: golden with baked town; frame-time delta < 2 ms at target preset.
-- **VM-053 → promoted to Epic 6 (v1.1).** See below.
+- **VM-053 → folded into the deferred 3D Tiles item (Future, PROPOSED).** See below.
 
-## Epic 6 — v1.1: 3D Tiles streaming (committed, starts immediately after v1.0)
+## Epic 5 — Hardening & delivery
+
+- **VM-040 Quality auto-drop with hysteresis.** `[review 2026-09-07]` Depends
+  on VM-034's `render_ms`; the governor lives node-side (it already owns
+  `quality` as a parameter and the lib's `RenderConfig` is create-time only —
+  a live preset change needs either a `set_quality()` entry point (appended,
+  ADR-0004) or a renderer re-create; decide in the Epic 5 plan).
+  AC: synthetic-load test triggers drop + log; recovers.
+- **VM-041 Perf benchmark + repo-local CI gate.** `[review 2026-09-07]` The
+  repo has no hosted CI (no `.github/workflows`, no `.gitlab-ci.yml`). "CI
+  wiring" means one `tools/ci_visual_mode.sh` running POD check, lib ctest,
+  node gtests, WS bridge pytest and goldens with GPU-skip, documented as the
+  pre-merge gate; hosted CI follows when a platform exists.
+  AC: clean-checkout build + `ci_visual_mode.sh` green, documented and reproducible.
+- **VM-042 Docs + runbook.** README section, profile-authoring guide for the
+  autonomy team, environment-bake guide, deployment notes.
+  AC: autonomy-team member can add a topic via profile YAML using only docs.
+- **VM-044 Package theme + ego assets for a real install** (`[review 2026-09-07]`). Today `DEFAULT_THEME_ASSETS_DIR` compiles in this checkout's path, the node leaves `RenderConfig::theme_assets_dir` null, no ROS param selects the initial theme (always dark_adas at launch), and `ego_model_path` defaults to a per-user `~/Downloads` path — off this dev box the node silently runs the compiled-in fallback theme with a clay-box ego (WARN only). Install `assets/themes` and the converted ego `.glb` (Git LFS or a fetch script), resolve them via `ament_index`, add an `initial_theme` param.
+  AC: clean clone + build on another machine shows both themes and the ego mesh; `ros2 param get` shows the resolved paths. Blocks VM-043.
+- **VM-043 Live validation.** Full stack on CARLA bridge + a real-robot bag;
+  side-by-side review vs rviz for parity sign-off. `[review 2026-09-07]`
+  Includes the on-robot budget table (VM-004(b)) as a blocking checklist item.
+  AC: product + autonomy sign-off checklist complete, budget table recorded.
+
+## Future (explicitly deferred)
+
+`[review 2026-09-07]` IDs and re-entry triggers so other docs can cite them:
+
+- **VM-070 Minimap inset** (can reuse bake data) — trigger: product asks for orientation context the 3D view cannot give.
+- **VM-071 Typed perception-topic adapter** — trigger: the autonomy stack publishes a typed object list (the `DynamicObjectsAdapter` seam already accepts one).
+- **VM-072 Hybrid mode** (camera-imagery ground + synthetic overlays) — trigger: a product request for photographic ground that modes 1–2 cannot serve.
+- **VM-073 Interactive picking over WS** — trigger: a client needs click-to-inspect.
+- **VM-074 Async readback** — trigger: on-robot `render_ms` p99 shows readback dominating.
+- **VM-075 Wheel/turn animations on clay models**; **VM-076 `cuda/` directory rename** — cosmetic, no trigger.
+
+### 3D Tiles streaming (VM-060…VM-063) — **PROPOSED `[review 2026-09-07]`: deferred to Future**
+
+Was "v1.1, committed, starts immediately after v1.0". No external commitment
+was identified; Epic 4's baked EnvironmentLayer covers the bounded operating
+area. Re-entry trigger: operating area exceeds one baked extract, or re-baking
+proves too slow when the area changes. Rows kept for reference; nothing is
+scheduled until the user accepts or rejects this proposal.
 
 - **VM-060 Cesium ion registration + tileset access.** User performs the
   registration (offered 2026-08-18); obtain a Cesium OSM Buildings token,
@@ -174,23 +255,3 @@ impl Sonnet / review Opus) per project directive.
   `baked | streamed`; streamed falls back to baked chunks on network loss.
   AC: fallback e2e test (kill network mid-run → baked chunks appear, WARN).
 
-## Epic 5 — Hardening & delivery
-
-- **VM-040 Quality auto-drop with hysteresis.**
-  AC: synthetic-load test triggers drop + log; recovers.
-- **VM-041 Perf benchmark + CI wiring.** Golden/adapter/contract suites in
-  CI (GPU tests skip cleanly without GPU), Filament build pinned + cached.
-  AC: clean-checkout build documented and reproducible.
-- **VM-042 Docs + runbook.** README section, profile-authoring guide for the
-  autonomy team, environment-bake guide, deployment notes.
-  AC: autonomy-team member can add a topic via profile YAML using only docs.
-- **VM-043 Live validation.** Full stack on CARLA bridge + a real-robot bag;
-  side-by-side review vs rviz for parity sign-off.
-  AC: product + autonomy sign-off checklist complete.
-
-## Future (explicitly deferred)
-
-- Minimap inset (can reuse bake data);
-  typed perception-topic adapter; hybrid mode (camera-imagery ground +
-  synthetic overlays); interactive picking over WS; async readback; wheel/
-  turn animations on clay models; `cuda/` directory rename.
