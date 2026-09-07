@@ -225,7 +225,7 @@ command drives the same transition.
   param like today's `robot_model_path`, load failure non-fatal (falls back
   to clay box, warns).
 - SDF font atlas for in-scene (3D-anchored) text and callouts.
-  `[review 2026-09-07]` **PROPOSED:** the screen-space HUD (speed chip, mode)
+  `[review 2026-09-07]` **Accepted (user 2026-09-07):** the screen-space HUD (speed chip, mode)
   is composited node-side onto the RGB8 buffer after readback with
   stb_truetype instead of an SDF overlay pass through Filament — same pixels,
   no font pipeline in the lib (VM-030). Re-entry trigger: HUD text must be
@@ -255,11 +255,9 @@ instead of runtime tile streaming:
   map-frame origin) is a manual override for GPS-denied replays. No anchor
   from either source → environment layer disabled with one WARN, everything
   else unaffected.
-- The layer sits behind an `EnvironmentSource` seam. **`[review 2026-09-07]`
-  PROPOSED: the following is moved to Future (no external commitment
-  identified; Epic 4 covers the bounded operating area; re-entry trigger:
-  area exceeds one baked extract or re-baking is too slow).** Was "v1.1
-  (committed, starts immediately after v1.0)": a cesium-native-based OGC 3D Tiles
+- The layer sits behind an `EnvironmentSource` seam. **v1.1 (committed,
+  starts immediately after v1.0; `[review 2026-09-07]` deferral was proposed
+  and rejected by the user):** a cesium-native-based OGC 3D Tiles
   streaming adapter (Cesium OSM Buildings via Cesium ion — user handles
   registration) replaces/augments the baked source, with clay
   re-materialization, geo placement via the same anchor, a disk tile cache,
@@ -390,7 +388,7 @@ Following the repo's TDD convention:
 - **Adapter unit tests** (gtest): recorded-message fixtures (captured from
   bags into headers/json) → SceneGraph assertions, incl. class-inference
   table tests and malformed-input tests.
-- **Golden-image tests** — `[review 2026-09-07]` as shipped: block-SSIM 0.98 at 320×240, `quality=1` (medium, the shipped default — not the "low preset" below), single-theme for every geometry golden except empty-world and map. **PROPOSED:** require per-theme pairs only for goldens whose subject is theming (empty world, map/lane paint, one lit-geometry reference); other categories keep one golden. Trigger back: a theme-only regression escapes. Original text: deterministic synthetic SceneGraph → Filament
+- **Golden-image tests** — `[review 2026-09-07]` as shipped: block-SSIM 0.98 at 320×240, `quality=1` (medium, the shipped default — not the "low preset" below), single-theme for every geometry golden except empty-world and map. **Accepted (user 2026-09-07):** require per-theme pairs only for goldens whose subject is theming (empty world, map/lane paint, one lit-geometry reference); other categories keep one golden. Trigger back: a theme-only regression escapes. Original text: deterministic synthetic SceneGraph → Filament
   headless render → perceptual-diff (SSIM threshold) against committed
   goldens, per theme, low preset, fixed seeds. Skip without GPU (same
   pattern as the GL tests).
@@ -404,8 +402,9 @@ Following the repo's TDD convention:
 
 ## 11. Out of scope (v1) — explicit
 
-- Runtime-streamed 3D Tiles: `[review 2026-09-07]` PROPOSED Future (was
-  "committed v1.1"; see §4.5 and backlog Epic 6 for the re-entry trigger). Photorealistic tiles stay out entirely (clay style is the product).
+- Runtime-streamed 3D Tiles are out of **v1.0** only — they are the
+  committed v1.1 scope (§4.5, backlog Epic 6), starting immediately after
+  v1.0 (`[review 2026-09-07]` deferral was proposed and rejected by the user). Photorealistic tiles stay out entirely (clay style is the product).
 - Minimap inset (needs a 2D map raster source; the bake pipeline's data
   could feed this later).
 - Real camera imagery composited into Visual mode (modes 1–2 cover

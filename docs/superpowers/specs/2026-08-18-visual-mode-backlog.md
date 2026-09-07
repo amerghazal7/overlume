@@ -78,7 +78,7 @@ Status per task: the **Status ledger** at the top of each epic plan.
 ## Epic 3 — HUD, polish, controls
 
 - **VM-030 HUD overlay.** Speed chip, mode indicator.
-  **PROPOSED `[review 2026-09-07]`:** draw the 2D HUD node-side by compositing
+  **Accepted (user 2026-09-07) `[review 2026-09-07]`:** draw the 2D HUD node-side by compositing
   text onto the RGB8 buffer after readback (stb_truetype, vendored like
   stb_image_write) instead of an SDF atlas + Filament overlay pass inside the
   lib — identical pixels for screen-space chips, no font pipeline in the
@@ -92,7 +92,7 @@ Status per task: the **Status ledger** at the top of each epic plan.
   AC: golden; callout tracks object across camera moves.
 - **VM-032 Layer visibility + quality presets** end to end (params + WS
   commands + GUI panel; theme toggle already shipped in VM-014).
-  `[review 2026-09-07]` `RenderConfig::quality` today drives only SSAO enable+resolution and FXAA-vs-TAA. This item must also map spec §8's three deferred knobs: shadow-map resolution (2048 high / 1024 medium), shadow enable (low = none), and the 960×540 render-scale upscale for `low`. Live switching needs an appended `set_quality()` entry point or a renderer re-create (see VM-040, PROPOSED P4).
+  `[review 2026-09-07]` `RenderConfig::quality` today drives only SSAO enable+resolution and FXAA-vs-TAA. This item must also map spec §8's three deferred knobs: shadow-map resolution (2048 high / 1024 medium), shadow enable (low = none), and the 960×540 render-scale upscale for `low`. Live switching needs an appended `set_quality()` entry point or a renderer re-create (see VM-040, decision P4 accepted: settle it in the Epic 5 plan).
   AC: WS E2E test toggles each layer and preset; each preset measurably changes frame cost (`render_ms`).
 - **VM-033 (moved into VM-011/VM-014 — both themes + animated toggle ship
   in Epic 1.)**
@@ -193,7 +193,29 @@ Status per task: the **Status ledger** at the top of each epic plan.
 - **VM-052 Runtime chunk loading + culling.** Index → distance-enabled
   chunks, theme building material.
   AC: golden with baked town; frame-time delta < 2 ms at target preset.
-- **VM-053 → folded into the deferred 3D Tiles item (Future, PROPOSED).** See below.
+- **VM-053 → promoted to Epic 6 (v1.1).** See below.
+
+## Epic 6 — v1.1: 3D Tiles streaming (committed, starts immediately after v1.0)
+
+`[review 2026-09-07]` The review proposed deferring this epic; the user rejected
+that on 2026-09-07 — it stays committed v1.1.
+
+- **VM-060 Cesium ion registration + tileset access.** User performs the
+  registration (offered 2026-08-18); obtain a Cesium OSM Buildings token,
+  store like the Mapbox token (env var, never committed).
+  AC: token retrieves tileset.json for the operating area.
+- **VM-061 cesium-native build integration.** Pin a cesium-native release
+  behind the same clang/libc++ + POD-boundary rules as Filament.
+  AC: builds in CI alongside Filament; POD header check still passes.
+- **VM-062 3D Tiles streaming EnvironmentSource.** cesium-native tile
+  selection/loading behind the `EnvironmentSource` seam (VM-052); glTF tile
+  payloads re-materialized with the theme's clay building material; geo
+  placement via the VM-050 anchor; disk tile cache for offline robustness.
+  AC: baked-source goldens still pass with the streaming source swapped in
+  over the same area; frame-time budget held while streaming.
+- **VM-063 Source selection + fallback.** Profile/param chooses
+  `baked | streamed`; streamed falls back to baked chunks on network loss.
+  AC: fallback e2e test (kill network mid-run → baked chunks appear, WARN).
 
 ## Epic 5 — Hardening & delivery
 
@@ -229,29 +251,3 @@ Status per task: the **Status ledger** at the top of each epic plan.
 - **VM-073 Interactive picking over WS** — trigger: a client needs click-to-inspect.
 - **VM-074 Async readback** — trigger: on-robot `render_ms` p99 shows readback dominating.
 - **VM-075 Wheel/turn animations on clay models**; **VM-076 `cuda/` directory rename** — cosmetic, no trigger.
-
-### 3D Tiles streaming (VM-060…VM-063) — **PROPOSED `[review 2026-09-07]`: deferred to Future**
-
-Was "v1.1, committed, starts immediately after v1.0". No external commitment
-was identified; Epic 4's baked EnvironmentLayer covers the bounded operating
-area. Re-entry trigger: operating area exceeds one baked extract, or re-baking
-proves too slow when the area changes. Rows kept for reference; nothing is
-scheduled until the user accepts or rejects this proposal.
-
-- **VM-060 Cesium ion registration + tileset access.** User performs the
-  registration (offered 2026-08-18); obtain a Cesium OSM Buildings token,
-  store like the Mapbox token (env var, never committed).
-  AC: token retrieves tileset.json for the operating area.
-- **VM-061 cesium-native build integration.** Pin a cesium-native release
-  behind the same clang/libc++ + POD-boundary rules as Filament.
-  AC: builds in CI alongside Filament; POD header check still passes.
-- **VM-062 3D Tiles streaming EnvironmentSource.** cesium-native tile
-  selection/loading behind the `EnvironmentSource` seam (VM-052); glTF tile
-  payloads re-materialized with the theme's clay building material; geo
-  placement via the VM-050 anchor; disk tile cache for offline robustness.
-  AC: baked-source goldens still pass with the streaming source swapped in
-  over the same area; frame-time budget held while streaming.
-- **VM-063 Source selection + fallback.** Profile/param chooses
-  `baked | streamed`; streamed falls back to baked chunks on network loss.
-  AC: fallback e2e test (kill network mid-run → baked chunks appear, WARN).
-

@@ -15,8 +15,8 @@
 
 Plan review (Fable orchestrating; Opus auditors on Epics 0–2 + one cross-epic
 consistency reviewer; two Opus refuters per blocker/high finding; 67 findings,
-11 refuted). Everything below is applied unless marked **PROPOSED**, which needs
-the user's yes/no. Markers `[review 2026-09-07]` sit on every amended paragraph.
+11 refuted). Everything below is applied; the four items that were PROPOSED were decided
+by the user on 2026-09-07 (see Decisions). Markers `[review 2026-09-07]` sit on every amended paragraph.
 
 **Applied**
 1. **Status truth.** Epic 1 (0/62 ticked though closed) and Epic 2 (23 done steps unticked, 4 steps missing, stale gate bullets) reconciled from git; a **Status ledger** table heads each epic plan. Three bag-validation steps stay open.
@@ -29,11 +29,11 @@ the user's yes/no. Markers `[review 2026-09-07]` sit on every amended paragraph.
 8. **CI reality**: no hosted CI exists; VM-041 becomes a repo-local gate script.
 9. **Epic 2 as-built** files and closure recorded in the master table; `flatten_z` documented as a stated deviation.
 
-**PROPOSED (user decides)**
-- P1. Move Epic 6 (3D Tiles streaming) to Future; trigger: operating area exceeds one baked extract or re-baking is too slow. (master, backlog, spec §4.5/§11)
-- P2. VM-030 HUD composited node-side onto the RGB8 buffer (stb_truetype) instead of an SDF atlas + Filament overlay pass; trigger back: HUD text must be depth-tested/lit/fogged. (master, backlog, spec §4.4)
-- P3. Spec §10 "goldens per theme" scoped to theming-sensitive goldens only (empty world, map, one lit-geometry reference); other categories keep one golden. Trigger back: a theme-only regression escapes. (spec §10)
-- P4. VM-040's live preset switch via an appended `set_quality()` entry point vs renderer re-create — decide in the Epic 5 plan. (backlog)
+**Decisions (user, 2026-09-07)**
+- P1. **REJECTED — Epic 6 stays committed v1.1.** The review proposed moving 3D Tiles streaming to Future; the user kept it. All docs restored to "committed, starts immediately after v1.0".
+- P2. **ACCEPTED.** VM-030 HUD composited node-side onto the RGB8 buffer (stb_truetype) instead of an SDF atlas + Filament overlay pass; trigger back: HUD text must be depth-tested/lit/fogged. (master, backlog, spec §4.4)
+- P3. **ACCEPTED.** Spec §10 "goldens per theme" scoped to theming-sensitive goldens only (empty world, map, one lit-geometry reference); other categories keep one golden. Trigger back: a theme-only regression escapes. (spec §10)
+- P4. **ACCEPTED.** VM-040's live preset switch via an appended `set_quality()` entry point vs renderer re-create — decided in the Epic 5 plan. (backlog)
 
 **Refuted by verification (not applied)**: E0-01/02/03, VME1-002, E2-03, E2-07, XE-01/02/03/06/10 — mostly claims already handled by this review's own edits, or severity inflated.
 
@@ -306,8 +306,8 @@ backlog scheduled it in Epic 3.
 |---|---|---|
 | `MapElement.kind` + `last_update_sec` (additive, ADR-0004); per-kind theme tokens/width/z-lift; **road-surface fill** between paired `left_boundary_{id}`/`right_boundary_{id}` in a `palette.road` token so the road reads darker than the surrounding clay ground (ref-2's primary value separation, unexpressible today because every map element is a stroke); move centerline dashing renderer-side and retire the ingest chop | VM-036 | lib `scene.h` (append), `src/map_elements.cpp`, themes `*.yaml` (+`road`, `lane_centerline`, `lane_boundary`, `crosswalk` tokens), node `src/adapters/hd_map.cpp`, goldens per theme |
 | Staleness fades for map layer (needs `last_update_sec` above) + diagnostics topic (per-topic age, dropped counts) + **`render_ms` per frame** (time `render_frame()` in the node tick, publish in diagnostics; prerequisite for VM-040 and for the on-robot Task 6 rerun) | VM-034 | node `src/diagnostics.cpp`, GUI |
-| HUD overlay (speed chip, mode indicator). **PROPOSED `[review 2026-09-07]`:** composite text CPU-side onto the RGB8 buffer after readback in the node (stb_truetype, vendored like stb_image_write) instead of an SDF atlas + Filament overlay pass in the lib. Same pixels for a 2D HUD, no font pipeline, no new public entry point, theme colors via the existing HUD tokens; the SDF path stays the plan only for 3D-anchored in-scene text (VM-031 leader lines). Re-entry trigger: HUD text must be depth-tested or lit. | VM-030 | node `src/hud_overlay.cpp`, `assets/fonts/`, goldens (node-side test renders a known scene + HUD) |
-| Leader-line alert callouts (3D anchor → screen-space chip; if VM-030's PROPOSED CPU composite is accepted, the lib exposes only `project_to_screen()` for the anchor and the chip is drawn node-side) | VM-031 | lib `src/callouts.cpp` or `api.h` projection helper, goldens |
+| HUD overlay (speed chip, mode indicator). **Accepted (user 2026-09-07) `[review 2026-09-07]`:** composite text CPU-side onto the RGB8 buffer after readback in the node (stb_truetype, vendored like stb_image_write) instead of an SDF atlas + Filament overlay pass in the lib. Same pixels for a 2D HUD, no font pipeline, no new public entry point, theme colors via the existing HUD tokens; the SDF path stays the plan only for 3D-anchored in-scene text (VM-031 leader lines). Re-entry trigger: HUD text must be depth-tested or lit. | VM-030 | node `src/hud_overlay.cpp`, `assets/fonts/`, goldens (node-side test renders a known scene + HUD) |
+| Leader-line alert callouts (3D anchor → screen-space chip; since VM-030's CPU composite is accepted, the lib exposes only `project_to_screen()` for the anchor and the chip is drawn node-side) | VM-031 | lib `src/callouts.cpp` or `api.h` projection helper, goldens |
 | Layers/quality: params + WS + GUI panel (theme toggle shipped in VM-014) | VM-032 | node param plumbing, `tools/vcam_ws_bridge.py`, `tools/vcam_gui.py`, WS E2E |
 | PointCloudLayer: PointCloud2 → colored points, per-row `color_mode: auto\|rgb\|intensity\|height\|flat` (auto = rgb → intensity ramp → height ramp) | VM-035 | lib `src/point_cloud.cpp` + `SceneGraph` category (appended, ADR-0004), node `src/adapters/point_cloud.cpp`, goldens |
 
@@ -330,15 +330,13 @@ bag, so VM-050 has real fixture data. A Mapbox token is available to the user
 | Docs + profile-authoring + bake runbooks | VM-042 | `README.md` section, `docs/visual_mode/*.md` (directory created by this task; ADRs stay in `docs/adr/`) |
 | Live validation: CARLA + real bag, rviz side-by-side parity sign-off; **on-robot budget rerun (Epic 0 Task 6 Step 3) is a checklist item and blocks sign-off** | VM-043 | checklist in `docs/visual_mode/signoff.md`, `budget_probe.md` |
 
-### Epic 6 — 3D Tiles streaming — **PROPOSED `[review 2026-09-07]`: move to Future**
-Was: "v1.1, committed; starts immediately after v1.0 ships". No external
-commitment was identified for it; the baked EnvironmentLayer (Epic 4) covers
-the product need (bounded operating area, clay style). Proposed re-entry
-trigger: the operating area exceeds what one baked extract covers, or the bake
-pipeline proves too slow to redeploy when the area changes. Until the user
-accepts or rejects this proposal the rows below stay as reference; no work is
-scheduled. Cesium ion registration is not a prerequisite for anything in v1.0.
-Backlog VM-060…VM-063.
+### Epic 6 — v1.1: 3D Tiles streaming (committed; starts immediately after v1.0 ships)
+`[review 2026-09-07]` The review proposed deferring this epic to Future; the
+user rejected that on 2026-09-07 — it stays committed. Its bite-sized plan
+(`2026-08-18-visual-mode-epic6.md`) is authored at v1.0 sign-off (VM-043) with
+the same Fable/Sonnet/Opus workflow. Prerequisite to schedule at v1.0 sign-off:
+user performs Cesium ion registration; token handled like the Mapbox token
+(env var, never committed). Backlog VM-060…VM-063.
 | Task | Backlog | Files |
 |---|---|---|
 | Cesium ion registration + tileset access | VM-060 | runbook in `docs/visual_mode/cesium.md` |
