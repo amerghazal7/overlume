@@ -122,6 +122,44 @@ struct AlertScene {
 // — AlertGolden.SweepPlusPredicted_DarkAdas's synthetic scene.
 AlertScene make_sweep_and_predicted_alerts(double now);
 
+// Epic 2 Task 8 (VM-027) Step 1: move-only owner of a synthetic
+// one-of-every-primitive-type scene's point storage AND the
+// `GenericMarker`s that point into it -- same move-only-not-copyable
+// reasoning as MapGeom/ObjectScene/RibbonScene/AlertScene above
+// (`GenericMarker::points` is a raw pointer into `point_storage`; a copy
+// would leave the copy's markers aimed at the ORIGINAL's buffer). TEXT's
+// `text` and MESH's `mesh_path` are plain string literals (static storage
+// duration), so — unlike `points` — they need no owned storage here.
+//
+// FIXTURE GAP 5: 7 of the 12 ROS marker types never appear in the recorded
+// bag -- this scene is entirely synthetic BY DESIGN (the backlog AC itself
+// asks for one of every primitive type, which real traffic never
+// exercises).
+struct GenericMarkerScene {
+    std::vector<mpviz::Vec3> point_storage;
+    std::vector<mpviz::GenericMarker> markers;
+
+    GenericMarkerScene() = default;
+    GenericMarkerScene(const GenericMarkerScene&) = delete;
+    GenericMarkerScene& operator=(const GenericMarkerScene&) = delete;
+    GenericMarkerScene(GenericMarkerScene&&) = default;
+    GenericMarkerScene& operator=(GenericMarkerScene&&) = default;
+};
+
+// One of every FROZEN MarkerPrimitive (all 10 scene.h enum values) laid
+// out in a row along +X so a human can count shapes at a glance, PLUS the
+// adapter's CUBE_LIST/SPHERE_LIST fan-out result (a 3-point CUBE_LIST and
+// a 3-point SPHERE_LIST both fan out into one GenericMarker CUBE/SPHERE
+// per point, Task 8 Step 4's adapter contract) -- hand-built here exactly
+// as GenericMarkerAdapter would emit them, since this is a LIBRARY test
+// (the node-side fan-out itself is proven by GenericMarkerAdapter.
+// CubeListFansOutIntoOneMarkerPerPoint). `mesh_glb_path` is a caller-owned
+// string (MPVIZ_TEST_DATA_DIR-prefixed, a compile-time-stable literal at
+// every call site) borrowed only for this call -- GenericMarker::mesh_path
+// itself is stored as the same pointer, so it must outlive `markers`' use
+// exactly like every other GenericMarker string field.
+GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_path);
+
 // Mean of every point across every element -- used to place the golden's
 // ego/camera FROM the recorded data (see test_map_elements.cpp) rather than
 // at a hand-picked coordinate. {0,0,0} if `elems` has no points at all.

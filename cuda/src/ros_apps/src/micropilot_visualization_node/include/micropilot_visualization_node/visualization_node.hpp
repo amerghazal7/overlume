@@ -36,9 +36,11 @@
 
 #include "micropilot_visualization_node/adapters/collision.hpp"
 #include "micropilot_visualization_node/adapters/dynamic_objects.hpp"
+#include "micropilot_visualization_node/adapters/generic_marker.hpp"
 #include "micropilot_visualization_node/adapters/hd_map.hpp"
 #include "micropilot_visualization_node/adapters/ogm.hpp"
 #include "micropilot_visualization_node/adapters/path.hpp"
+#include "micropilot_visualization_node/adapters/tf_axes.hpp"
 #include "micropilot_visualization_node/frame_transform.hpp"
 #include "micropilot_visualization_node/profile.hpp"
 #include "micropilot_visualization_node/scene_assembly.hpp"
@@ -241,6 +243,37 @@ private:
     std::vector<CollisionRow> collision_rows_;
     std::vector<rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr>
         collision_subs_;
+
+    // ── Generic marker fallback (Epic 2 Task 8 / VM-027) ─────────────────────
+    // One GenericMarkerAdapter per profile row with adapter: generic -- the
+    // spec §7 parity guarantee (ANY MarkerArray topic renders via one YAML
+    // row). Today's shipped profiles carry exactly one:
+    // /sim/ground_truth/boxes (role neutral, best_effort: true, the bag's
+    // only non-map-frame, only lifetime-expiring topic). Same fill()-
+    // appends/timeout_sec/warn_on_drop_growth shape as every category
+    // above -- GenericMarker DOES carry last_update_sec, so this category
+    // gets the library's staleness FADE, not hd_map's pop.
+    struct GenericMarkerRow
+    {
+        std::unique_ptr<mpviz_node::GenericMarkerAdapter> adapter;
+        double timeout_sec;
+        std::string topic;              // named in drop-growth WARNs
+        uint64_t warned_malformed = 0;  // counts already reported by
+        uint64_t warned_no_tf = 0;      // warn_on_drop_growth()
+    };
+    std::vector<GenericMarkerRow> generic_marker_rows_;
+    std::vector<rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr>
+        generic_marker_subs_;
+
+    // ── TF-axes debug layer (Epic 2 Task 8 Step 7 / VM-027) ──────────────────
+    // One TfAxesAdapter per profile row with adapter: tf_axes -- a
+    // PRODUCER, not a subscriber (see that adapter's own header comment for
+    // why). Both shipped profiles carry the row COMMENTED (Task 1 Step 3);
+    // uncommenting it is the only way this vector is ever non-empty. No
+    // subscription branch, no timeout/staleness gating (a live tf2 buffer
+    // walk has no "message" to go stale) -- fill() runs every tick,
+    // unconditionally, for every row here.
+    std::vector<std::unique_ptr<mpviz_node::TfAxesAdapter>> tf_axes_rows_;
 
     SceneAssembly scene_asm_;
 

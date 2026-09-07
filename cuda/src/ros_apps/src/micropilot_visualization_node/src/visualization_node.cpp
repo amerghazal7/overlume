@@ -355,6 +355,45 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     }
     RCLCPP_INFO(get_logger(), "collision: %zu row(s) subscribed", collision_rows_.size());
 
+    // ── Generic marker fallback (Epic 2 Task 8 / VM-027) ─────────────────────
+    // One GenericMarkerAdapter per profile row with adapter: generic -- the
+    // spec §7 parity guarantee: adding a topic is one YAML row and no code.
+    // Same subscriptions_for(row)/QoS pattern as every loop above.
+    for (const auto& row : profile->rows)
+    {
+        if (row.adapter != "generic") continue;
+        const auto specs = mpviz_node::subscriptions_for(row);
+        if (specs.empty()) continue;
+        const auto& spec = specs.front();
+
+        auto adapter = std::make_unique<mpviz_node::GenericMarkerAdapter>(row, *frame_transformer_);
+        mpviz_node::GenericMarkerAdapter* adapter_ptr = adapter.get();
+        rclcpp::QoS qos(10);
+        if (spec.best_effort) qos.best_effort();
+        if (spec.transient_local) qos.transient_local();
+        generic_marker_subs_.push_back(create_subscription<visualization_msgs::msg::MarkerArray>(
+            spec.topic, qos,
+            [this, adapter_ptr](const visualization_msgs::msg::MarkerArray::SharedPtr msg)
+            { adapter_ptr->ingest(*msg, sim_clock_sec_); }));
+        generic_marker_rows_.push_back(GenericMarkerRow{std::move(adapter), row.timeout_sec, row.topic});
+    }
+    RCLCPP_INFO(get_logger(), "generic: %zu row(s) subscribed", generic_marker_rows_.size());
+
+    // ── TF-axes debug layer (Epic 2 Task 8 Step 7 / VM-027) ──────────────────
+    // One TfAxesAdapter per profile row with adapter: tf_axes -- a
+    // PRODUCER (no subscription branch: subscriptions_for() returns {} for
+    // this adapter, see profile.cpp). Both shipped profiles carry the row
+    // COMMENTED (Task 1 Step 3) -- uncommenting it is the only way this
+    // loop ever constructs one. Takes the node's own tf_buffer_ directly
+    // (this adapter's own header comment explains why, not
+    // frame_transformer_).
+    for (const auto& row : profile->rows)
+    {
+        if (row.adapter != "tf_axes") continue;
+        tf_axes_rows_.push_back(std::make_unique<mpviz_node::TfAxesAdapter>(row, *tf_buffer_));
+    }
+    RCLCPP_INFO(get_logger(), "tf_axes: %zu row(s) configured", tf_axes_rows_.size());
+
     // Spec §7 (docs/superpowers/specs/2026-08-18-visual-mode-design.md:264):
     // ego speed PREFERS this topic over the TF finite-difference fallback
     // tf_adapter_ computes above. Global (not "~/..."): it's the robot's own
@@ -593,6 +632,33 @@ void VisualizationNode::timer_callback()
         cr.adapter->fill(scene_asm_);
     }
 
+    // Epic 2 Task 8 (VM-027): same "absent row never counts as stale" /
+    // "stop filling past timeout_sec, mark_stale_tick() instead" shape as
+    // dynamic_objects/path/ogm/collision above -- GenericMarker carries
+    // last_update_sec, so this category gets the library's staleness
+    // FADE, not hd_map's pop.
+    for (auto& gmr : generic_marker_rows_)
+    {
+        if (gmr.adapter->stats().msgs == 0) continue;
+        warn_on_drop_growth(get_logger(), *get_clock(), gmr.topic, gmr.adapter->stats(),
+                            gmr.warned_malformed, gmr.warned_no_tf);
+        if (sim_clock_sec_ - gmr.adapter->stats().last_msg_sec > gmr.timeout_sec)
+        {
+            gmr.adapter->mark_stale_tick();
+            continue;
+        }
+        gmr.adapter->fill(scene_asm_);
+    }
+
+    // Epic 2 Task 8 Step 7 (VM-027): a live tf2 buffer walk, not a
+    // message-driven category -- no timeout/staleness gate, runs every
+    // tick unconditionally (this adapter's own header comment: it stamps
+    // "now" onto every marker it emits, so it can never itself go stale).
+    for (auto& axes : tf_axes_rows_)
+    {
+        axes->fill(scene_asm_, sim_clock_sec_);
+    }
+
     mpviz::SceneGraph scene{};
     scene.sim_time_sec = sim_clock_sec_;
     scene.ego = tf_adapter_->update();
@@ -697,6 +763,9 @@ VisualizationNode::CallbackReturn VisualizationNode::on_cleanup(
     ogm_rows_.clear();
     collision_subs_.clear();
     collision_rows_.clear();
+    generic_marker_subs_.clear();
+    generic_marker_rows_.clear();
+    tf_axes_rows_.clear();
     frame_transformer_.reset();
     tf_adapter_.reset();
     tf_listener_.reset();
@@ -725,6 +794,9 @@ VisualizationNode::CallbackReturn VisualizationNode::on_shutdown(
     ogm_rows_.clear();
     collision_subs_.clear();
     collision_rows_.clear();
+    generic_marker_subs_.clear();
+    generic_marker_rows_.clear();
+    tf_axes_rows_.clear();
     frame_transformer_.reset();
     tf_adapter_.reset();
     tf_listener_.reset();

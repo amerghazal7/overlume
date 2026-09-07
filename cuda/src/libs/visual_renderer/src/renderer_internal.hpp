@@ -19,6 +19,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <filament/Camera.h>
@@ -122,6 +123,13 @@ inline constexpr float kAlertSeverityAlpha[3] = {0.18f, 0.35f, 0.45f};  // info,
 // (Step 7e's promotion pattern) so a second translation unit can call it;
 // defined once in renderer.cpp.
 void fill_tangent_frames(std::vector<Vertex>& verts, const std::vector<filament::math::float3>& normals);
+// One flat unit arrow (shaft+head, +X, tail x=0, tip x=1) shared by
+// objects.cpp's velocity arrows AND generic_markers.cpp's ARROW primitive --
+// promoted here (defined once in renderer.cpp, same pattern as
+// fill_tangent_frames) when the marker fallback became a second caller and
+// a verbatim copy shipped (review 2026-08-20). Both call sites fill
+// r.sharedArrowMesh; there is exactly one GPU copy of this geometry.
+void build_unit_arrow(std::vector<Vertex>& verts, std::vector<uint16_t>& indices);
 
 // Tears down one Mesh's GPU resources and removes its entity from the
 // scene. Promoted out of renderer.cpp's anonymous namespace (Task 2 /
@@ -531,6 +539,126 @@ public:
         float fadeAlpha = 0.0f;
     };
     std::vector<AlertSlot> alertSlots;
+
+    // Generic markers (Epic 2 Task 8 / VM-027, the §7 parity-guarantee
+    // fallback). genericMarkerMaterial is ONE eager clay.mat instance (the
+    // theme-neutral default -- GenericMarker::color alpha==0, "no colour
+    // supplied" -- reusing palette.object_tints.unknown, the existing
+    // "unclassified" tint token, per the epic's "zero new theme fields"
+    // rule), created EAGERLY in create_renderer() and registered in
+    // push_theme_to_scene(), same "lazy creation is a known trap" reasoning
+    // as every other per-category template above. genericMarkerNeutralTint
+    // mirrors its last-pushed baseColor rgb (MaterialInstance has no
+    // getter) -- the staleness fade needs that color back, same pattern as
+    // objectClassTint/ribbonTint/alertTint.
+    filament::MaterialInstance* genericMarkerMaterial = nullptr;
+    detail::Float3 genericMarkerNeutralTint{};
+
+    // Per-supplied-color clay.mat instances (GenericMarker::color, alpha !=
+    // 0), keyed by an 8-bit-per-channel quantized rgb packed into a
+    // uint32_t (generic_markers.cpp's quantize_color()) -- created LAZILY
+    // the first time a marker asks for that exact quantized color, unlike
+    // every other per-category template above (the set of colors isn't
+    // known until data arrives). ponytail: no eviction/cap -- a publisher
+    // that churns a new color every frame would leak one instance per
+    // distinct color forever; add an LRU cap if that ever shows up in
+    // practice (no shipped profile does today).
+    std::unordered_map<uint32_t, filament::MaterialInstance*> genericMarkerColorInstances;
+
+    // Shared unit geometry for the primitive types that don't carry their
+    // own point data (CUBE/SPHERE/CYLINDER/ARROW/TEXT -- see scene.h's
+    // GenericMarker comment: `points` is LINE_*/POINTS/TRIANGLE_LIST-only),
+    // built ONCE, lazily, the first time each is actually needed (same
+    // "build lazily on first use" shape as objects.cpp's
+    // ensure_shared_arrow_mesh() for the velocity arrow). Every marker of
+    // that primitive gets its OWN entity (GenericMarkerSlot::
+    // sharedGeomEntity below) bound to the SAME vb/ib, posed by its own
+    // TransformManager transform -- the geometry itself is never rebuilt
+    // per marker. `entity` on each of these is unused (template geometry,
+    // never itself added to the scene, exactly sharedArrowMesh's
+    // convention).
+    // ARROW markers reuse sharedArrowMesh (objects.cpp's velocity arrow) --
+    // no genericArrowMesh (review 2026-08-20, duplicate geometry).
+    Mesh genericCubeMesh, genericSphereMesh, genericCylinderMesh, genericTextMesh;
+
+    // Epic 2 Task 8 (VM-027): one live renderable per GenericMarker SLOT
+    // INDEX into active().markers (GenericMarker is frozen with no id, same
+    // "index is the only stable key one publish's array offers" reasoning
+    // as RibbonSlot/AlertSlot above). Exactly one of three geometry shapes
+    // is populated at a time, keyed by `primitive`:
+    //  - CUBE/SPHERE/CYLINDER/ARROW/TEXT: `sharedGeomEntity`, bound to one
+    //    of VisualRenderer's shared unit meshes above, posed every frame by
+    //    a TransformManager transform from the marker's
+    //    position/heading_rad/scale -- geometry is never rebuilt, only
+    //    re-posed. TEXT is translation-only (a fixed-size placeholder
+    //    billboard, see generic_markers.cpp Step 3 -- VM-030 owns real
+    //    orientation/scale for text).
+    //  - LINE_STRIP/LINE_LIST/POINTS/TRIANGLE_LIST: `ownMesh`, this slot's
+    //    OWN geometry baked directly from the marker's already-world-space
+    //    `points` (same convention as AlertPolygon/MapElement -- no
+    //    TransformManager transform at all), rebuilt only when
+    //    `geomSignature` changes. `ownMesh` doubles as the MESH
+    //    load-failure clay-box fallback (same "own procedural triangle
+    //    mesh" shape, see generic_markers.cpp).
+    //  - MESH: `meshAsset`, this slot's OWN glTF asset (one createAsset()
+    //    per slot, gltfio's simple non-instanced path -- ponytail: two
+    //    MESH markers sharing the same mesh_path each get their OWN parse,
+    //    not a shared/pooled asset the way ObjectClassPool shares one glTF
+    //    parse across many TrackedObjects; upgrade to a path-keyed shared
+    //    pool, objects.cpp's pattern, if a publisher ever spams many
+    //    identical MESH markers), posed by a TransformManager transform
+    //    exactly like the shared-geometry primitives above (ROS
+    //    Marker::MESH_RESOURCE convention: `scale` multiplies the mesh's
+    //    OWN native units directly -- there is no "measured bbox" for an
+    //    arbitrary user mesh the way ObjectEntity's dims/unitFootprint
+    //    scale has).
+    struct GenericMarkerSlot {
+        bool active = false;
+        MarkerPrimitive primitive = MarkerPrimitive::CUBE;
+        utils::Entity sharedGeomEntity;   // CUBE/SPHERE/CYLINDER/ARROW/TEXT: never owns a vb/ib
+        Mesh ownMesh;                     // LINE_*/POINTS/TRIANGLE_LIST, and the MESH fallback box
+        uint64_t geomSignature = 0;
+        bool hasGeomSignature = false;
+        filament::gltfio::FilamentAsset* meshAsset = nullptr;  // MESH, successful load only
+        std::string meshPathLoaded;
+        bool meshIsFallback = false;
+        // Material bookkeeping -- same fresh<->stale swap shape as
+        // ObjectEntity/RibbonSlot/AlertSlot above: `fadeInstance` is
+        // non-null ONLY while staleness_alpha < 1.0 (a per-slot
+        // clay_translucent.mat instance, created from
+        // clayTranslucentMaterial, NEVER MaterialInstance::duplicate() of
+        // the opaque template); nullptr means every one of this slot's
+        // renderable entities is bound directly to the shared
+        // genericMarkerMaterial template or this marker's own
+        // quantized-color instance. `tint` mirrors whichever rgb is
+        // currently applied (MaterialInstance has no getter) -- the fade
+        // needs that color back, same pattern as
+        // objectClassTint/ribbonTint/alertTint.
+        detail::Float3 tint{};
+        filament::MaterialInstance* fadeInstance = nullptr;
+        float fadeAlpha = 1.0f;
+    };
+    std::vector<GenericMarkerSlot> genericMarkerSlots;
+
+    // Bumped every time update_generic_markers() actually allocates a NEW
+    // GPU/ECS resource for a slot (a shared-geometry entity, a per-slot
+    // LINE_*/POINTS/TRIANGLE_LIST mesh, or a MESH marker's glTF asset/
+    // fallback box) -- NEVER on a transform-only or material-swap-only
+    // update. generic_markers_test_hooks.hpp's
+    // PooledRenderablesNoPerFrameAllocation reads this: 30 renders of an
+    // unchanged marker set must freeze it after frame 1.
+    uint32_t genericMarkerAllocCount = 0;
+    // Bumped once per marker whose primitive value isn't one of the ten
+    // scene.h enum values this library handles (a caller passing a raw
+    // out-of-range uint8_t -- the adapter itself never emits one, see
+    // generic_marker.cpp's own ROS-type table -- this is the library's own
+    // defensive floor). UnknownOrUnsupportedPrimitiveIsSkippedAndCounted.
+    uint32_t genericMarkerUnknownCount = 0;
+    // Distinct MESH mesh_path strings that have already WARNed once on
+    // load failure (spec §9 "asset load failure -> clay-box fallback, WARN
+    // once") -- same shape as objectClassMissingWarned but keyed by path
+    // string since MESH markers aren't grouped into a fixed class set.
+    std::unordered_set<std::string> genericMarkerMeshWarned;
 };
 
 // Namespace-scope free function (Step 7e) — was a lambda local to
