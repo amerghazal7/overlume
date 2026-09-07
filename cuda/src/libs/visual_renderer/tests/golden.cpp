@@ -368,6 +368,106 @@ AlertScene make_sweep_and_predicted_alerts(double now)
     return s;
 }
 
+// Epic 2 Task 8 (VM-027) Step 1: see golden.hpp. Synthetic (FIXTURE GAP 5 --
+// 7 of the 12 marker types never appear in the recorded bag).
+GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_path) {
+    GenericMarkerScene s;
+    // LINE_STRIP(4) + LINE_LIST(4) + POINTS(5) + TRIANGLE_LIST(3) -- fixed
+    // capacity FIRST, same reasoning as AlertScene's own comment: every
+    // GenericMarker::points below is a raw pointer into this buffer, so it
+    // must never reallocate mid-loop.
+    s.point_storage.reserve(4 + 4 + 5 + 3);
+    s.markers.reserve(16);
+
+    auto push_posed = [&](mpviz::MarkerPrimitive prim, double x, mpviz::Vec3 scale) {
+        mpviz::GenericMarker m{};
+        m.primitive = prim;
+        m.position = {x, 0.0, 0.5};
+        m.heading_rad = 0.3;  // nonzero -- proves heading is actually applied, not just position
+        m.scale = scale;
+        m.last_update_sec = now;  // fresh -- ZeroAlphaColorUsesThemeNeutralDefault's color[3]==0 default
+        s.markers.push_back(m);
+    };
+    auto push_points = [&](mpviz::MarkerPrimitive prim, const mpviz::Vec3* pts, uint32_t n,
+                            bool colored) {
+        const size_t offset = s.point_storage.size();
+        for (uint32_t i = 0; i < n; ++i) s.point_storage.push_back(pts[i]);
+        mpviz::GenericMarker m{};
+        m.primitive = prim;
+        m.points = s.point_storage.data() + offset;
+        m.point_count = n;
+        if (colored) {
+            m.color[0] = 1.0f;
+            m.color[1] = 1.0f;
+            m.color[2] = 1.0f;
+            m.color[3] = 1.0f;  // supplied color -- exercises the quantized-color instance pool too
+        }
+        m.last_update_sec = now;
+        s.markers.push_back(m);
+    };
+
+    push_posed(mpviz::MarkerPrimitive::CUBE, 0.0, {1.0, 1.0, 1.0});
+    push_posed(mpviz::MarkerPrimitive::SPHERE, 2.0, {1.0, 1.0, 1.0});
+    push_posed(mpviz::MarkerPrimitive::CYLINDER, 4.0, {1.0, 1.0, 1.0});
+    push_posed(mpviz::MarkerPrimitive::ARROW, 6.0, {1.5, 1.0, 1.0});
+
+    const mpviz::Vec3 lineStrip[] = {
+        {7.5, -0.5, 0.2}, {8.0, 0.5, 0.2}, {8.5, -0.5, 0.2}, {9.0, 0.5, 0.2}};
+    push_points(mpviz::MarkerPrimitive::LINE_STRIP, lineStrip, 4, /*colored=*/true);
+
+    const mpviz::Vec3 lineList[] = {
+        {9.5, -0.5, 0.2}, {10.5, 0.5, 0.2}, {9.5, 0.5, 0.2}, {10.5, -0.5, 0.2}};
+    push_points(mpviz::MarkerPrimitive::LINE_LIST, lineList, 4, /*colored=*/false);
+
+    const mpviz::Vec3 points[] = {{11.0, 0.0, 0.3},
+                                   {11.5, 0.3, 0.3},
+                                   {12.0, -0.3, 0.3},
+                                   {12.5, 0.2, 0.3},
+                                   {13.0, -0.2, 0.3}};
+    push_points(mpviz::MarkerPrimitive::POINTS, points, 5, /*colored=*/false);
+
+    // TEXT: placeholder billboard (VM-030/Epic 3 owns real glyphs) --
+    // translation-only, a plain string literal needs no owned storage.
+    {
+        mpviz::GenericMarker m{};
+        m.primitive = mpviz::MarkerPrimitive::TEXT;
+        m.position = {14.0, 0.0, 1.0};
+        m.text = "marker";
+        m.last_update_sec = now;
+        s.markers.push_back(m);
+    }
+
+    const mpviz::Vec3 triangle[] = {{15.5, -0.5, 0.0}, {16.5, -0.5, 0.0}, {16.0, 0.5, 0.0}};
+    push_points(mpviz::MarkerPrimitive::TRIANGLE_LIST, triangle, 3, /*colored=*/true);
+
+    // MESH: the shared test asset (Epic 1 Task 4's committed fixture) --
+    // `mesh_glb_path` is caller-owned, borrowed only for this call.
+    {
+        mpviz::GenericMarker m{};
+        m.primitive = mpviz::MarkerPrimitive::MESH;
+        m.position = {18.0, 0.0, 0.5};
+        m.scale = {1.0, 1.0, 1.0};
+        m.mesh_path = mesh_glb_path;
+        m.last_update_sec = now;
+        s.markers.push_back(m);
+    }
+
+    // CUBE_LIST(6)/SPHERE_LIST(7) fan-out (Task 8 Step 4's adapter
+    // contract): a 3-point CUBE_LIST and a 3-point SPHERE_LIST each fan out
+    // into one GenericMarker per point, all sharing the source marker's
+    // scale -- hand-built here exactly as GenericMarkerAdapter would emit
+    // them (the node-side fan-out mechanism itself is a separate,
+    // node-side test).
+    for (int i = 0; i < 3; ++i) {
+        push_posed(mpviz::MarkerPrimitive::CUBE, 20.0 + i * 1.2, {0.6, 0.6, 0.6});
+    }
+    for (int i = 0; i < 3; ++i) {
+        push_posed(mpviz::MarkerPrimitive::SPHERE, 24.0 + i * 1.2, {0.6, 0.6, 0.6});
+    }
+
+    return s;
+}
+
 // Epic 2 Task 6 (VM-025) Step 3: see golden.hpp. Synthetic (FIXTURE GAP 3 --
 // no OccupancyGrid topic exists in the recorded bag/stack).
 GridScene make_two_layer_grids(double now) {

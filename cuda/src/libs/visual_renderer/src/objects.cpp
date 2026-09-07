@@ -101,23 +101,9 @@ void build_unit_box(std::vector<Vertex>& verts, std::vector<uint16_t>& indices) 
     fill_tangent_frames(verts, normals);
 }
 
-// One shared unit-arrow mesh (velocity arrows, spec §4.1): flat (drawn in
-// the XY plane, no separate 3D fin geometry — legible from the golden's
-// overhead-ish camera angle with far less geometry than a real 3D arrowhead)
-// shaft+head pointing +X, tail at x=0, tip at x=1.
-void build_unit_arrow(std::vector<Vertex>& verts, std::vector<uint16_t>& indices) {
-    constexpr float kShaftHalfW = 0.06f;
-    constexpr float kHeadHalfW = 0.15f;
-    constexpr float kShaftEndX = 0.7f;
-    const float3 p[7] = {
-        {0.0f, -kShaftHalfW, 0.0f}, {kShaftEndX, -kShaftHalfW, 0.0f},
-        {kShaftEndX, kShaftHalfW, 0.0f}, {0.0f, kShaftHalfW, 0.0f},
-        {kShaftEndX, -kHeadHalfW, 0.0f}, {1.0f, 0.0f, 0.0f}, {kShaftEndX, kHeadHalfW, 0.0f},
-    };
-    for (const float3& v : p) verts.push_back(Vertex{v, {}});
-    indices = {0, 1, 2, 0, 2, 3, 4, 5, 6};
-    fill_tangent_frames(verts, std::vector<float3>(verts.size(), float3{0, 0, 1}));
-}
+// The unit velocity-arrow geometry is the promoted shared build_unit_arrow()
+// (renderer_internal.hpp / renderer.cpp) -- generic_markers.cpp's ARROW
+// primitive draws the same mesh (review 2026-08-20).
 
 void remap_to_material(filament::RenderableManager& rm, const utils::Entity* ents, size_t n,
                         filament::MaterialInstance* material) {

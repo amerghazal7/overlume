@@ -27,6 +27,8 @@
 #include "alert_polygons_test_hooks.hpp"
 #include "ego.hpp"
 #include "ego_test_hooks.hpp"
+#include "generic_markers.hpp"
+#include "generic_markers_test_hooks.hpp"
 #include "ground_grid.hpp"
 #include "ground_grid_test_hooks.hpp"
 #include "map_elements.hpp"
@@ -678,6 +680,38 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
         slot.fadeInstance->setParameter("metallic", theme.material.metallic);
     }
 
+    // Generic markers (Epic 2 Task 8 / VM-027): genericMarkerMaterial is the
+    // theme-neutral default (GenericMarker::color alpha==0, "no colour
+    // supplied") -- reuses palette.object_tints.unknown (the existing
+    // "unclassified" tint token, the epic's "zero new theme fields" rule),
+    // created EAGERLY in create_renderer() and themed here on every call --
+    // the very first frame any GenericMarker arrives, whether or not
+    // set_theme() has ever run, same reasoning as every other per-category
+    // template above. Every LIVE per-marker supplied-color instance
+    // (genericMarkerColorInstances) also gets its roughness/metallic
+    // re-pushed here (never its baseColor -- that's the marker's OWN
+    // supplied color, not a theme token) so a theme switch keeps every
+    // marker's material response consistent with the rest of the scene.
+    r.genericMarkerMaterial->setParameter("baseColor",
+                                           to_filament(theme.palette.object_tints.unknown));
+    r.genericMarkerMaterial->setParameter("roughness", theme.material.roughness);
+    r.genericMarkerMaterial->setParameter("metallic", theme.material.metallic);
+    r.genericMarkerNeutralTint = theme.palette.object_tints.unknown;
+    for (auto& [key, inst] : r.genericMarkerColorInstances) {
+        inst->setParameter("roughness", theme.material.roughness);
+        inst->setParameter("metallic", theme.material.metallic);
+    }
+    // Re-push any LIVE per-slot translucent fade instance's tint too --
+    // same "animate color without resetting the fade" reasoning as the
+    // object/ribbon/alert staleness loops above.
+    for (auto& slot : r.genericMarkerSlots) {
+        if (slot.fadeInstance == nullptr) continue;
+        slot.fadeInstance->setParameter(
+            "baseColor", float4{slot.tint.r, slot.tint.g, slot.tint.b, slot.fadeAlpha});
+        slot.fadeInstance->setParameter("roughness", theme.material.roughness);
+        slot.fadeInstance->setParameter("metallic", theme.material.metallic);
+    }
+
     filament::LightManager& lm = r.engine->getLightManager();
     const filament::LightManager::Instance sunInst = lm.getInstance(r.sunEntity);
     lm.setDirection(sunInst, to_filament(theme.sun.direction));
@@ -819,6 +853,24 @@ void fill_tangent_frames(std::vector<Vertex>& verts, const std::vector<float3>& 
 // declares it — Task 2's promotion): body unchanged from its former
 // anonymous-namespace version. map_elements.cpp's diff-cache eviction is
 // the second caller this exists for.
+// The one definition of the shared unit arrow -- see renderer_internal.hpp's
+// declaration comment (promoted from objects.cpp when generic_markers.cpp
+// shipped a verbatim copy, review 2026-08-20). Flat shaft+head pointing +X,
+// tail at x=0, tip at x=1, drawn in the XY plane.
+void build_unit_arrow(std::vector<Vertex>& verts, std::vector<uint16_t>& indices) {
+    constexpr float kShaftHalfW = 0.06f;
+    constexpr float kHeadHalfW = 0.15f;
+    constexpr float kShaftEndX = 0.7f;
+    const float3 p[7] = {
+        {0.0f, -kShaftHalfW, 0.0f}, {kShaftEndX, -kShaftHalfW, 0.0f},
+        {kShaftEndX, kShaftHalfW, 0.0f}, {0.0f, kShaftHalfW, 0.0f},
+        {kShaftEndX, -kHeadHalfW, 0.0f}, {1.0f, 0.0f, 0.0f}, {kShaftEndX, kHeadHalfW, 0.0f},
+    };
+    for (const float3& v : p) verts.push_back(Vertex{v, {}});
+    indices = {0, 1, 2, 0, 2, 3, 4, 5, 6};
+    fill_tangent_frames(verts, std::vector<float3>(verts.size(), float3{0, 0, 1}));
+}
+
 void destroy_mesh(filament::Engine& engine, filament::Scene& scene, Mesh& mesh) {
     if (mesh.entity) {
         scene.remove(mesh.entity);
@@ -1125,6 +1177,16 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
         r->alertMaterial[i] = r->clayTranslucentMaterial->createInstance();
     }
 
+    // Generic markers (Epic 2 Task 8 / VM-027): ONE eager clay.mat instance,
+    // the theme-neutral default -- created EAGERLY for the exact same
+    // reason laneMaterial/objectClassMaterial/ribbonMaterial/
+    // groundGridMaterialInstance/alertMaterial above are -- themed below by
+    // push_theme_to_scene(). Per-supplied-color instances
+    // (genericMarkerColorInstances) are created lazily instead (see that
+    // map's own comment) -- the set of colors isn't known until data
+    // arrives, unlike this one shared default.
+    r->genericMarkerMaterial = r->clayMaterial->createInstance();
+
     // ponytail: don't chase hand-derived winding correctness for a large
     // flat quad / line list — CullingMode::NONE sidesteps backface culling
     // entirely so a winding mistake shows as visible-from-both-sides, not a
@@ -1150,6 +1212,7 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     for (auto* m : r->alertMaterial) {
         m->setCullingMode(filament::backend::CullingMode::NONE);
     }
+    r->genericMarkerMaterial->setCullingMode(filament::backend::CullingMode::NONE);
 
     // Epic 1 Task 3 (VM-014): pushes theme.{palette,material,sun,ibl,fog}
     // into everything created above — the single call site create_renderer()
@@ -1237,6 +1300,43 @@ void destroy_renderer(VisualRenderer* r) {
     for (auto* m : r->alertMaterial) {
         if (m) r->engine->destroy(m);
     }
+
+    // Epic 2 Task 8 (VM-027): every live generic-marker slot -- a
+    // shared-geometry entity, an own mesh, OR a glTF asset, any live
+    // per-slot fadeInstance, plus every per-supplied-color instance (both
+    // are instances of clayMaterial/clayTranslucentMaterial -- MUST run
+    // before either is destroyed further below, same "instance before its
+    // Material" ordering as ribbonSlots/alertSlots/objectEntities above).
+    // Also MUST run before sharedAssetLoader is destroyed further below
+    // (alongside egoAsset) -- any live MESH slot's asset is one of its
+    // instances.
+    for (auto& slot : r->genericMarkerSlots) {
+        if (slot.fadeInstance) r->engine->destroy(slot.fadeInstance);
+        if (slot.sharedGeomEntity) {
+            r->scene->remove(slot.sharedGeomEntity);
+            r->engine->destroy(slot.sharedGeomEntity);
+            utils::EntityManager::get().destroy(slot.sharedGeomEntity);
+        }
+        if (slot.ownMesh.vb) destroy_mesh(*r->engine, *r->scene, slot.ownMesh);
+        if (slot.meshAsset) {
+            r->scene->removeEntities(slot.meshAsset->getEntities(), slot.meshAsset->getEntityCount());
+            r->sharedAssetLoader->destroyAsset(slot.meshAsset);
+        }
+    }
+    r->genericMarkerSlots.clear();
+    for (auto& [key, inst] : r->genericMarkerColorInstances) {
+        r->engine->destroy(inst);
+    }
+    r->genericMarkerColorInstances.clear();
+    if (r->genericMarkerMaterial) r->engine->destroy(r->genericMarkerMaterial);
+    if (r->genericCubeMesh.vb) r->engine->destroy(r->genericCubeMesh.vb);
+    if (r->genericCubeMesh.ib) r->engine->destroy(r->genericCubeMesh.ib);
+    if (r->genericSphereMesh.vb) r->engine->destroy(r->genericSphereMesh.vb);
+    if (r->genericSphereMesh.ib) r->engine->destroy(r->genericSphereMesh.ib);
+    if (r->genericCylinderMesh.vb) r->engine->destroy(r->genericCylinderMesh.vb);
+    if (r->genericCylinderMesh.ib) r->engine->destroy(r->genericCylinderMesh.ib);
+    if (r->genericTextMesh.vb) r->engine->destroy(r->genericTextMesh.vb);
+    if (r->genericTextMesh.ib) r->engine->destroy(r->genericTextMesh.ib);
 
     if (r->clayTranslucentMaterial) r->engine->destroy(r->clayTranslucentMaterial);
 
@@ -1404,6 +1504,12 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     // own comment) — see alert_polygons.cpp. Overlays every category
     // above it (z-lift 0.06, the topmost layer of the epic's z-stack).
     update_alert_polygons(*r, r->scene_buffer.active());
+    // Epic 2 Task 8 (VM-027): the §7 parity-guarantee fallback -- diffs
+    // generic markers against the live per-slot pool (keyed by marker
+    // index -- see that file's own comment) — see generic_markers.cpp.
+    // Runs LAST: a debug/parity layer, not meant to hide under anything
+    // else this epic draws.
+    update_generic_markers(*r, r->scene_buffer.active());
 
     r->camera->lookAt({pose.eye[0], pose.eye[1], pose.eye[2]},
                        {pose.target[0], pose.target[1], pose.target[2]},

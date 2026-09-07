@@ -172,7 +172,9 @@ add_library(visualization_node_lib SHARED
   src/adapters/dynamic_objects.cpp
   src/adapters/path.cpp
   src/adapters/ogm.cpp
-  src/adapters/collision.cpp)
+  src/adapters/collision.cpp
+  src/adapters/generic_marker.cpp
+  src/adapters/tf_axes.cpp)
 
 target_include_directories(visualization_node_lib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -339,6 +341,39 @@ if(BUILD_TESTING)
     ${VISUAL_RENDERER_DIR}/include)
   ament_target_dependencies(test_collision_adapter ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_collision_adapter ${yaml_cpp_vendor_TARGETS} mpviz_node_test_paths)
+
+  # Epic 2 Task 8 (VM-027): GenericMarkerAdapter, the spec §7 parity
+  # guarantee. Same shape as test_hd_map_adapter/test_dynamic_objects_
+  # adapter/test_path_adapter/test_ogm_adapter/test_collision_adapter
+  # above -- no visual_renderer_prebuilt link, scene.h's GenericMarker/Vec3
+  # are POD-only.
+  ament_add_gtest(test_generic_marker_adapter
+    test/test_generic_marker_adapter.cpp
+    src/adapters/generic_marker.cpp
+    src/profile.cpp
+    src/frame_transform.cpp
+    src/adapters/dynamic_objects.cpp
+    test/fixture_msgs.cpp)
+  target_include_directories(test_generic_marker_adapter PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test
+    ${VISUAL_RENDERER_DIR}/include)
+  ament_target_dependencies(test_generic_marker_adapter ${THIS_PACKAGE_DEPS})
+  target_link_libraries(test_generic_marker_adapter ${yaml_cpp_vendor_TARGETS} mpviz_node_test_paths)
+
+  # Epic 2 Task 8 Step 7 (VM-027): TfAxesAdapter, the TF-axes debug-layer
+  # PRODUCER. No FrameTransformer/profile.cpp/fixture_msgs.cpp dependency
+  # (this file's own header comment: it takes the raw tf2_ros::Buffer
+  # directly, and its row is hand-built in the test rather than loaded
+  # from a shipped profile -- `adapter: tf_axes` rows carry no topic, so
+  # urban_row()/sim_row()'s by-topic lookup can't name one anyway).
+  ament_add_gtest(test_tf_axes_adapter
+    test/test_tf_axes_adapter.cpp
+    src/adapters/tf_axes.cpp)
+  target_include_directories(test_tf_axes_adapter PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${VISUAL_RENDERER_DIR}/include)
+  ament_target_dependencies(test_tf_axes_adapter ${THIS_PACKAGE_DEPS})
 endif()
 
 ament_package()
