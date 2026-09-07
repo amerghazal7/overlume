@@ -1,0 +1,39 @@
+# ribbon_width_b.yaml — test fixture for test_ribbon.cpp's Ribbon.
+# WidthChangeRebuildsGeometry (user directive 2026-08-20, ITEM 1).
+# Byte-for-byte identical to ribbon_width_a.yaml except `ribbon.width_m` --
+# the only thing that can make a slot's built geometry differ between the
+# two is theme.ribbon.width_m actually reaching build_slot_meshes(). Values
+# otherwise copied from assets/themes/dark_adas.yaml.
+name: ribbon_width_b
+palette:
+  ground:      [0.05, 0.06, 0.08]
+  sky:         [0.02, 0.02, 0.05]
+  fog:         [0.02, 0.02, 0.05]
+  lane_paint:  [0.45, 0.5, 0.55]
+  ribbon_core: [0.10, 1.00, 0.40]
+  ribbon_glow: [0.10, 1.00, 0.40]
+  ribbon_global: [0.25, 0.55, 0.95]
+  ribbon_local: [0.95, 0.70, 0.15]
+  ego: [0.82, 0.80, 0.76]
+  object_tints:
+    car: [0.25, 0.35, 0.9]
+    truck_van: [0.30, 0.35, 0.85]
+    bus: [0.85, 0.6, 0.15]
+    pedestrian: [0.9, 0.2, 0.2]
+    cyclist: [0.9, 0.55, 0.1]
+    unknown: [0.5, 0.5, 0.5]
+  alert:
+    info: [0.2, 0.6, 1.0]
+    warning: [1.0, 0.7, 0.1]
+    critical: [1.0, 0.15, 0.1]
+material: { roughness: 0.85, metallic: 0.0 }
+emissive: { ribbon_strength: 4.0 }
+grid: { line_color: [0.12, 0.14, 0.18], fade_start_m: 15.0, fade_end_m: 40.0 }
+hud: { text_color: [0.9, 0.95, 1.0], accent_color: [0.10, 1.0, 0.4], scale: 1.0 }
+sun: { direction: [-0.5, -0.3, -1.0], color: [0.55, 0.6, 0.75], intensity: 480000.0 }
+ibl:
+  sky_color:    [0.05, 0.06, 0.12]
+  ground_color: [0.02, 0.02, 0.03]
+  intensity: 256000.0
+fog: { density: 0.015 }
+ribbon: { width_m: 0.60 }

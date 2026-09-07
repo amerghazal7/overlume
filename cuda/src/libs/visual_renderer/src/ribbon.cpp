@@ -14,6 +14,7 @@
 #include <math/vec4.h>
 
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <vector>
 
@@ -41,30 +42,51 @@ uint64_t hash_vec3(const Vec3& v) {
 
 // Content signature for one ribbon SLOT (not a chunk-within-the-ribbon --
 // see renderer_internal.hpp's RibbonSlot comment): role + point count +
-// first/last point. Role is included on purpose -- a slot re-homed to a
-// different role (Task 5 Step 4: "role changes re-home the material") must
-// rebuild so its geometry gets re-bound to the new role's material, even if
-// point data happened to be identical (never happens in practice, but the
-// signature must not silently skip it).
-uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n) {
+// first/last point + width. Role is included on purpose -- a slot re-homed
+// to a different role (Task 5 Step 4: "role changes re-home the material")
+// must rebuild so its geometry gets re-bound to the new role's material,
+// even if point data happened to be identical (never happens in practice,
+// but the signature must not silently skip it). Width (user directive
+// 2026-08-20, ITEM 1) is included for the identical reason: a set_theme()
+// call that changes only theme.ribbon.width_m touches no PathRibbon point
+// data at all, so without width in the signature a mid-transition width
+// change would be silently ignored until some UNRELATED content change
+// happened to force a rebuild. Hashed as its bit pattern (not the float
+// value) -- exact reproducibility across calls with the same width matters
+// here, not numeric comparison.
+uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float width_m) {
     uint64_t h = hash_combine(0, static_cast<uint64_t>(role));
     h = hash_combine(h, static_cast<uint64_t>(n));
     if (n > 0) {
         h = hash_combine(h, hash_vec3(pts[0]));
         h = hash_combine(h, hash_vec3(pts[n - 1]));
     }
+    uint32_t widthBits;
+    std::memcpy(&widthBits, &width_m, sizeof(widthBits));
+    h = hash_combine(h, static_cast<uint64_t>(widthBits));
     return h;
 }
 
-// Half-width/z-lift for the extruded ribbon strip -- a stopgap constant,
-// same shape as map_elements.cpp's kLaneHalfWidthM: PathRibbon is frozen
-// without a width field, so per-role/per-topic width crosses the boundary
-// only at a future freeze lift. z-lift 0.04: above BOTH neighbours it can
-// cross -- the 0.02m lane paint AND objects.cpp's 0.03m predicted-path
+// z-lift for the extruded ribbon strip -- a stopgap constant, same shape as
+// map_elements.cpp's kLaneHalfWidthM. z-lift 0.04: above BOTH neighbours it
+// can cross -- the 0.02m lane paint AND objects.cpp's 0.03m predicted-path
 // ribbons (review 2026-08-20: at 0.03 a behavior/local ribbon crossing a
 // tracked object's predicted path was coplanar and z-fought it).
-constexpr float kRibbonHalfWidthM = 0.12f;
-constexpr float kRibbonZLiftM = 0.04f;
+//
+// Half-width (user directive 2026-08-20, ITEM 1) is no longer a fixed
+// constant here -- it now comes from the active theme's ribbon.width_m at
+// BUILD time (build_slot_meshes() below), the same "parameters/theme state
+// pattern already established" renderer.cpp's active_theme already follows
+// for every other themed value. 0.24 (this constant's old doubled value)
+// remains Theme::Ribbon's own soft-default (theme.hpp), so a theme file
+// that predates this field renders identically.
+// Per-role stagger, not one shared plane: BEHAVIOR and LOCAL routinely trace
+// the SAME route (planner output vs velocity path), and at a shared z they
+// z-fight into a patchy interleave (seen live 2026-08-20, light theme).
+// Order: GLOBAL lowest, LOCAL middle, BEHAVIOR (the hero) on top.
+constexpr float kRibbonZLiftByRoleM[3] = {0.05f,   // BEHAVIOR (PathRole 0)
+                                          0.040f,  // GLOBAL   (PathRole 1)
+                                          0.045f}; // LOCAL    (PathRole 2)
 
 // Destroys every mesh in `slot.meshes` (independent of role/fade state --
 // called both on a full content-signature rebuild and on slot release) and
@@ -102,10 +124,23 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::RibbonSlot& slot,
     destroy_slot_meshes(r, slot);
     slot.totalVertexCount = 0;
     filament::MaterialInstance* mat = r.ribbonMaterial[static_cast<uint8_t>(ribbon.role)];
+    // Half-width from the ACTIVE (possibly mid-transition-blended) theme at
+    // build time (user directive 2026-08-20, ITEM 1) -- r.active_theme is
+    // kept live every render_frame() call by apply_current_theme(), which
+    // runs before update_ribbons() (this function's only caller), so this
+    // always reads whatever width a live set_theme() transition has blended
+    // to by THIS frame, not a frozen create_renderer()-time snapshot. Mirrored
+    // onto the slot itself (RibbonSlot::halfWidthM, see its own comment) so
+    // tests can read back what was actually used without a Filament AABB
+    // query (add_mesh() gives every mesh the same hard-coded declared
+    // culling box, unrelated to the strip's real extent).
+    const float halfWidthM = r.active_theme.ribbon.width_m * 0.5f;
+    slot.halfWidthM = halfWidthM;
     for (auto [a, b] : detail::polyline_chunks(ribbon.point_count)) {
         const uint32_t n = b - a;
         std::vector<Vec3> strip =
-            detail::extrude_polyline(ribbon.points + a, n, kRibbonHalfWidthM, kRibbonZLiftM);
+            detail::extrude_polyline(ribbon.points + a, n, halfWidthM,
+                                     kRibbonZLiftByRoleM[static_cast<uint8_t>(ribbon.role)]);
         if (strip.empty()) continue;
         std::vector<uint16_t> idx =
             detail::extrude_polyline_indices(static_cast<uint32_t>(strip.size() / 2));
@@ -154,7 +189,8 @@ void update_ribbons(VisualRenderer& r, const SceneGraph& s) {
         const PathRibbon& ribbon = s.paths[i];
         VisualRenderer::RibbonSlot& slot = r.ribbonSlots[i];
 
-        const uint64_t sig = ribbon_signature(ribbon.role, ribbon.points, ribbon.point_count);
+        const uint64_t sig = ribbon_signature(ribbon.role, ribbon.points, ribbon.point_count,
+                                              r.active_theme.ribbon.width_m);
         if (!slot.has_signature || slot.signature != sig) {
             // Content (or role) changed -- full rebuild. A live translucent
             // fade instance is stale bookkeeping for the OLD geometry; drop
@@ -251,6 +287,11 @@ RibbonMaterialInfo ribbon_slot_material_info(mpviz::VisualRenderer* r, size_t sl
     filament::MaterialInstance* bound = rm.getMaterialInstanceAt(ri, 0);
     info.bound_to_translucent = bound != nullptr && bound->getMaterial() == r->clayTranslucentMaterial;
     return info;
+}
+
+float ribbon_slot_half_width_m(mpviz::VisualRenderer* r, size_t slot) {
+    if (r == nullptr || slot >= r->ribbonSlots.size()) return 0.0f;
+    return r->ribbonSlots[slot].halfWidthM;
 }
 
 }  // namespace mpviz::testing

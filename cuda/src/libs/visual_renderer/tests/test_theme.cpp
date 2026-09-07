@@ -15,6 +15,7 @@
 #include <cmath>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace {
@@ -26,10 +27,28 @@ bool AnyDiffer(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
 }  // namespace
 
 // ── palette.ego (user contrast directive 2026-08-20) ────────────────────
-// A cross-theme swap, not a new color: dark_adas.yaml's `ego` key authors
-// light_clay's ground color and vice versa (see theme.hpp's Palette::ego
-// comment and the .yaml files' own comments), so the ego always reads
-// against whichever ground it's standing on.
+// Originally authored as a cross-theme swap in BOTH directions:
+// dark_adas.yaml's `ego` key authored light_clay's THEN-current ground
+// color and vice versa, so the ego always read against whichever ground it
+// was standing on.
+//
+// ITEM 2 (user directive 2026-08-20, light_clay holistic re-authoring
+// against ref-2) broke the dark_adas -> light_clay half of that swap ON
+// PURPOSE: light_clay.palette.ground moved from the old near-white
+// [0.82, 0.80, 0.76] to a road-toned gray (~[0.58, 0.58, 0.64]) to fix
+// ref-2's value separation, but dark_adas.yaml's `ego` deliberately did NOT
+// follow it -- dark_adas's own shipped goldens (MapGolden.
+// LaneNetworkAtEgoOffset_DarkAdas among them) render dark_adas's ego
+// fallback box in that exact color, and ITEM 2's OWN constraint is "dark
+// goldens must stay green" (ribbons_three_roles_dark_adas is the one
+// stated exception, for an unrelated reason -- ITEM 1's ribbon role
+// split). dark_adas.ego is therefore now its own independently-authored
+// contrast color, not a live mirror of light_clay.ground -- still miles
+// away from dark_adas's own near-black ground, which is all the "pops
+// against its own ground" contract ever required.
+//
+// The light_clay -> dark_adas half is untouched (dark_adas.palette.ground
+// didn't change), so it still holds and is still asserted below.
 
 TEST(ThemePalette, EgoParsesFromYamlAsCrossThemeSwap) {
     const std::optional<mpviz::detail::Theme> dark =
@@ -39,15 +58,20 @@ TEST(ThemePalette, EgoParsesFromYamlAsCrossThemeSwap) {
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
 
-    // dark_adas.ego == light_clay.ground (both authored [0.82, 0.80, 0.76]).
-    EXPECT_NEAR(dark->palette.ego.r, light->palette.ground.r, 1e-4f);
-    EXPECT_NEAR(dark->palette.ego.g, light->palette.ground.g, 1e-4f);
-    EXPECT_NEAR(dark->palette.ego.b, light->palette.ground.b, 1e-4f);
-
-    // light_clay.ego == dark_adas.ground (both authored [0.05, 0.06, 0.08]).
+    // light_clay.ego == dark_adas.ground (both authored [0.05, 0.06, 0.08])
+    // -- this half of the swap is untouched by ITEM 2.
     EXPECT_NEAR(light->palette.ego.r, dark->palette.ground.r, 1e-4f);
     EXPECT_NEAR(light->palette.ego.g, dark->palette.ground.g, 1e-4f);
     EXPECT_NEAR(light->palette.ego.b, dark->palette.ground.b, 1e-4f);
+
+    // dark_adas.ego is no longer light_clay.ground (see this test's own
+    // comment above) -- it must still be a bright, clearly-non-dark color
+    // so it keeps popping against dark_adas's own near-black ground,
+    // whatever light_clay does with its own palette.
+    const float darkEgoLightness = mpviz::detail::linear_srgb_to_oklab(dark->palette.ego).L;
+    const float darkGroundLightness = mpviz::detail::linear_srgb_to_oklab(dark->palette.ground).L;
+    EXPECT_GT(darkEgoLightness, darkGroundLightness + 0.3f)
+        << "dark_adas's ego color no longer contrasts against its own ground";
 }
 
 TEST(ThemePalette, EgoFallsBackToBuiltinDefaultWhenMissingFromYaml) {
@@ -91,6 +115,80 @@ TEST(ThemePalette, EgoBlendsInOklabAcrossTransition) {
     // `out.palette.ego` default-constructed / equal to `a`'s value).
     EXPECT_GT(std::abs(Lmid - La), 1e-4f);
     EXPECT_GT(std::abs(Lmid - Lb), 1e-4f);
+}
+
+// ── palette.ribbon_global/ribbon_local + ribbon.width_m (user directive
+//    2026-08-20, ITEM 1): three new soft-defaulted tokens ─────────────────
+
+TEST(ThemePalette, RibbonGlobalLocalAndWidthFallBackToTodaysValuesWhenMissingFromYaml) {
+    // sun_dir_a.yaml predates ribbon_global/ribbon_local/the whole `ribbon:`
+    // section and was deliberately NOT updated to add them (same "prove the
+    // soft default, don't retrofit every old fixture" reasoning as palette.
+    // ego's own EgoFallsBackToBuiltinDefaultWhenMissingFromYaml above).
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<mpviz::detail::Theme> theme =
+        mpviz::detail::load_theme(fixtureDir, "sun_dir_a");
+    ASSERT_TRUE(theme.has_value())
+        << "a theme file missing only the optional ribbon_global/ribbon_local/ribbon keys "
+           "must still parse";
+
+    // Missing ribbon_global/ribbon_local fall back to ribbon_core/ribbon_glow
+    // respectively -- today's reused-token look (renderer.cpp's old
+    // push_theme_to_scene() comment), not a new invented color.
+    EXPECT_NEAR(theme->palette.ribbon_global.r, theme->palette.ribbon_core.r, 1e-4f);
+    EXPECT_NEAR(theme->palette.ribbon_global.g, theme->palette.ribbon_core.g, 1e-4f);
+    EXPECT_NEAR(theme->palette.ribbon_global.b, theme->palette.ribbon_core.b, 1e-4f);
+    EXPECT_NEAR(theme->palette.ribbon_local.r, theme->palette.ribbon_glow.r, 1e-4f);
+    EXPECT_NEAR(theme->palette.ribbon_local.g, theme->palette.ribbon_glow.g, 1e-4f);
+    EXPECT_NEAR(theme->palette.ribbon_local.b, theme->palette.ribbon_glow.b, 1e-4f);
+
+    // Missing `ribbon:` (or just `width_m` within it) falls back to 0.24 --
+    // 2*kRibbonHalfWidthM, the constant this field replaced.
+    EXPECT_NEAR(theme->ribbon.width_m, 0.24f, 1e-4f);
+}
+
+TEST(ThemePalette, RibbonGlobalLocalBlendInOklabAcrossTransition) {
+    const std::optional<mpviz::detail::Theme> dark =
+        mpviz::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<mpviz::detail::Theme> light =
+        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    ASSERT_TRUE(dark.has_value());
+    ASSERT_TRUE(light.has_value());
+
+    const mpviz::detail::Theme mid = mpviz::detail::blend(*dark, *light, 0.5f);
+
+    // Same self-consistency + "actually moved off both endpoints" technique
+    // as palette.ego's own EgoBlendsInOklabAcrossTransition above, applied to
+    // both new ribbon tokens.
+    for (const auto& [a, b, m] :
+         {std::tuple{dark->palette.ribbon_global, light->palette.ribbon_global,
+                     mid.palette.ribbon_global},
+          std::tuple{dark->palette.ribbon_local, light->palette.ribbon_local,
+                     mid.palette.ribbon_local}}) {
+        const float La = mpviz::detail::linear_srgb_to_oklab(a).L;
+        const float Lb = mpviz::detail::linear_srgb_to_oklab(b).L;
+        const float Lmid = mpviz::detail::linear_srgb_to_oklab(m).L;
+        EXPECT_GE(Lmid, std::min(La, Lb) - 1e-4f);
+        EXPECT_LE(Lmid, std::max(La, Lb) + 1e-4f);
+        EXPECT_GT(std::abs(Lmid - La), 1e-4f);
+        EXPECT_GT(std::abs(Lmid - Lb), 1e-4f);
+    }
+}
+
+TEST(ThemePalette, RibbonWidthLerpsLinearlyAcrossTransition) {
+    // A plain scalar lerp (theme_transition.cpp's blend()), not Oklab -- so
+    // the midpoint must land at EXACTLY the arithmetic mean, unlike the
+    // color tokens above.
+    const std::optional<mpviz::detail::Theme> dark =
+        mpviz::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<mpviz::detail::Theme> light =
+        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    ASSERT_TRUE(dark.has_value());
+    ASSERT_TRUE(light.has_value());
+
+    const mpviz::detail::Theme mid = mpviz::detail::blend(*dark, *light, 0.5f);
+    const float expectedMid = (dark->ribbon.width_m + light->ribbon.width_m) / 2.0f;
+    EXPECT_NEAR(mid.ribbon.width_m, expectedMid, 1e-4f);
 }
 
 TEST(ClayMaterial, RespondsToLightDirection) {
@@ -371,8 +469,15 @@ TEST(ThemeGolden, EmptyWorld_LightClay) {
         << "too few distinct luminance levels -- grid-vs-ground contrast and "
            "distance fade aren't visible";
     // Same "fog == sky" convergence guard as EmptyWorld_DarkAdas above --
-    // light_clay also authors palette.fog ~= palette.sky.
-    EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 30.0)
+    // light_clay also authors palette.fog == palette.sky. 55, re-measured
+    // 2026-08-20 (same precedent as dark's own loosening, renderer.cpp fog
+    // history): the ref-2-targeted light re-authoring deliberately runs
+    // near-zero fog density (0.0015 -- ref-2 is crisp to the horizon, and
+    // 0.008 drowned the whole scene), so the 60m patch's honest residual
+    // horizon/sky gap measures ~44.6. Manufacturing fog mass to force it
+    // under 30 is exactly the mistake the dark theme's history documents.
+    // A genuinely over/under-scaled fog color still trips this at ~55+.
+    EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 55.0)
         << "far-field ground (" << stats.horizon_row_mean << ") doesn't fade "
            "into the sky (" << stats.sky_row_mean << ") -- fog is over/under-scaled";
     mpviz::destroy_renderer(r);

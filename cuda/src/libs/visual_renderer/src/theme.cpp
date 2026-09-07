@@ -41,6 +41,17 @@ Theme parse(const YAML::Node& root) {
     // ()'s own palette.ego below.
     t.palette.ego = palette["ego"] ? to_float3(palette["ego"]) : Float3{0.82f, 0.80f, 0.76f};
 
+    // ribbon_global/ribbon_local (user directive 2026-08-20, ITEM 1): the
+    // other two OPTIONAL palette keys, same soft-default convention as
+    // `ego` just above -- missing either reproduces today's look (GLOBAL
+    // reused ribbon_core, LOCAL reused ribbon_glow; see renderer.cpp's old
+    // push_theme_to_scene() comment), not a fallback to the whole compiled-
+    // in kFallbackTheme().
+    t.palette.ribbon_global =
+        palette["ribbon_global"] ? to_float3(palette["ribbon_global"]) : t.palette.ribbon_core;
+    t.palette.ribbon_local =
+        palette["ribbon_local"] ? to_float3(palette["ribbon_local"]) : t.palette.ribbon_glow;
+
     const YAML::Node tints = palette["object_tints"];
     t.palette.object_tints.car = to_float3(tints["car"]);
     t.palette.object_tints.truck_van = to_float3(tints["truck_van"]);
@@ -81,6 +92,13 @@ Theme parse(const YAML::Node& root) {
 
     t.fog.density = root["fog"]["density"].as<float>();
 
+    // ribbon.width_m (user directive 2026-08-20, ITEM 1): the whole `ribbon:`
+    // section, and width_m within it, are OPTIONAL -- soft-defaulted to
+    // Theme::Ribbon's own 0.24 default (theme.hpp), same convention as
+    // palette.ego/ribbon_global/ribbon_local above.
+    const YAML::Node ribbon = root["ribbon"];
+    t.ribbon.width_m = (ribbon && ribbon["width_m"]) ? ribbon["width_m"].as<float>() : 0.24f;
+
     return t;
 }
 
@@ -116,6 +134,11 @@ const Theme& kFallbackTheme() {
         // color, same value dark_adas.yaml's `ego` key authors on disk --
         // see this struct's own header comment in theme.hpp.
         t.palette.ego = {0.82f, 0.80f, 0.76f};
+        // dark_adas.yaml's own authored values (user directive 2026-08-20,
+        // ITEM 1) -- not a reuse of ribbon_core/glow, unlike the pre-ITEM-1
+        // code this fallback mirrors.
+        t.palette.ribbon_global = {0.25f, 0.55f, 0.95f};
+        t.palette.ribbon_local = {0.95f, 0.70f, 0.15f};
         t.palette.object_tints.car = {0.25f, 0.35f, 0.9f};
         t.palette.object_tints.truck_van = {0.30f, 0.35f, 0.85f};
         t.palette.object_tints.bus = {0.85f, 0.6f, 0.15f};
@@ -141,6 +164,7 @@ const Theme& kFallbackTheme() {
         t.ibl.ground_color = {0.02f, 0.02f, 0.03f};
         t.ibl.intensity = 256000.0f;
         t.fog.density = 0.015f;
+        t.ribbon.width_m = 0.24f;
         return t;
     }();
     return theme;

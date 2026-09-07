@@ -1,33 +1,90 @@
 # light_clay.yaml — Epic 1 Task 2 (VM-011). Same key set as dark_adas.yaml,
 # no exceptions (that's the "no per-theme code branches" AC: if a theme
 # needs a key the other doesn't, the schema is wrong, not the loader).
+#
+# Holistic re-authoring (user directive 2026-08-20, ITEM 2) against
+# assets/visualization-reference-2.jpg (THE light styling ground truth,
+# docs/superpowers/specs/2026-08-18-visual-mode-backlog.md VM-036). The
+# original values below authored ground/fog/sky all near-white with almost
+# no value separation -- ref-2 has a distinctly darker lavender-gray ROAD
+# plane under lighter clay surroundings and a real light-blue sky, so this
+# pass re-grounds the whole palette around that darker road tone. See each
+# field's own comment for its ref-2 justification.
 name: light_clay
 palette:
-  ground:      [0.82, 0.80, 0.76]
-  sky:         [0.78, 0.85, 0.92]
-  fog:         [0.80, 0.86, 0.92]
-  lane_paint:  [0.28, 0.30, 0.34]  # dark slate for contrast on light clay ground; near-white was invisible (mirrors dark theme's light-on-dark lanes)
-  ribbon_core: [0.15, 0.55, 0.95]
-  ribbon_glow: [0.15, 0.55, 0.95]
+  # Road-toned gray, cooler than the old warm near-white [0.82,0.80,0.76]
+  # (ref-2: the "ADAMS ST" road plane reads as a distinctly darker
+  # lavender-gray against the lighter clay buildings/ground around it, not
+  # near-white). B slightly > R/G for the cool/lavender cast ref-2 shows.
+  ground:      [0.58, 0.58, 0.64]
+  # A believable light BLUE sky (ref-2's sky is a real, fairly saturated
+  # blue, not the flat near-white/pale-blue the old [0.78,0.85,0.92]
+  # authored).
+  sky:         [0.55, 0.70, 0.92]
+  # Tinted straight toward sky (== sky, the most "tinted toward" a color can
+  # be) -- keeps the fog==sky convergence guard (tests/test_theme.cpp) as
+  # clean as dark_adas's own exact-match convention, while the ground is now
+  # clearly separated in VALUE from both (0.58-0.64 vs 0.55-0.92).
+  fog:         [0.55, 0.70, 0.92]
+  # Back toward white (ref-2's lane paint is white/near-white): the old dark
+  # slate [0.28,0.30,0.34] was a workaround for the near-white ground this
+  # pass just replaced -- with a genuinely darker road plane, white paint is
+  # legible again without that workaround.
+  lane_paint:  [0.92, 0.92, 0.90]
+  # ribbon_core/ribbon_glow (ITEM 2c): light theme's HERO/BEHAVIOR ribbon is
+  # a committed BLUE in ref-2 (the ego-lane guidance ribbon), not green --
+  # green is dark_adas's hero color, not light_clay's.
+  ribbon_core: [0.15, 0.45, 0.95]
+  ribbon_glow: [0.15, 0.45, 0.95]
+  # ribbon_global/ribbon_local (ITEM 1 + 2c): muted variants, distinct from
+  # the saturated blue hero above -- a desaturated steel-blue for the
+  # coarse GLOBAL route overlay, a desaturated warm tan for the near-field
+  # LOCAL path (same functional blue/amber pairing dark_adas uses for these
+  # two roles, just muted to sit quietly on the light clay scene instead of
+  # competing with the hero ribbon).
+  ribbon_global: [0.45, 0.55, 0.65]
+  ribbon_local: [0.70, 0.55, 0.38]
   ego: [0.05, 0.06, 0.08]  # cross-theme swap: dark_adas's ground/clay, so the ego pops on light
+  # Deepened (ITEM 2c) so every class still reads as "clay but distinct"
+  # against the new, darker road-toned ground -- the old values were tuned
+  # for the near-white ground this pass replaced.
   object_tints:
-    car: [0.2, 0.4, 0.85]
-    truck_van: [0.35, 0.45, 0.6]
-    bus: [0.9, 0.65, 0.2]
-    pedestrian: [0.85, 0.25, 0.25]
-    cyclist: [0.85, 0.55, 0.15]
-    unknown: [0.6, 0.6, 0.6]
+    car: [0.15, 0.35, 0.80]
+    truck_van: [0.30, 0.40, 0.55]
+    bus: [0.85, 0.55, 0.15]
+    pedestrian: [0.80, 0.20, 0.20]
+    cyclist: [0.80, 0.50, 0.10]
+    unknown: [0.45, 0.45, 0.45]
+  # critical: ref-2's coral (the following-vehicle hazard halo/pill is a
+  # soft coral-red, not a harsh pure red).
   alert:
     info: [0.15, 0.5, 0.9]
     warning: [0.95, 0.6, 0.05]
-    critical: [0.9, 0.1, 0.1]
+    critical: [0.90, 0.35, 0.30]
 material: { roughness: 0.75, metallic: 0.0 }
-emissive: { ribbon_strength: 1.5 }
-grid: { line_color: [0.35, 0.33, 0.30], fade_start_m: 15.0, fade_end_m: 40.0 }
-hud: { text_color: [0.1, 0.12, 0.15], accent_color: [0.15, 0.55, 0.95], scale: 1.0 }
+# Bumped 1.5 -> 2.5 (ITEM 2d): bloom reads differently on a bright scene --
+# the same absolute emissive strength that pops against dark_adas's near-
+# black backdrop barely differs from ordinary bright clay surfaces here, so
+# the hero ribbon needs more headroom to still read as the glowing guidance
+# ribbon ref-2 shows against a genuinely light background.
+emissive: { ribbon_strength: 1.1 }  # 2.5 blew the blue hero out to white on the bright scene (iter 2026-08-20)
+# grid.line_color (ITEM 2a hard coupling): must keep reading as darker lines
+# against the NEW ground (0.58-0.64) -- re-picked relatively darker than the
+# new ground by roughly the same proportion the old value was darker than
+# the old (near-white) ground, so the grid-vs-ground contrast this theme's
+# own golden legibility guard checks doesn't regress.
+grid: { line_color: [0.40, 0.38, 0.42], fade_start_m: 15.0, fade_end_m: 40.0 }
+hud: { text_color: [0.1, 0.12, 0.15], accent_color: [0.15, 0.45, 0.95], scale: 1.0 }
 sun: { direction: [-0.4, -0.2, -1.0], color: [1.0, 0.98, 0.92], intensity: 25000.0 }
 ibl:
-  sky_color:    [0.75, 0.82, 0.9]
-  ground_color: [0.5, 0.48, 0.44]
+  # Re-aligned with the new sky/ground above (ITEM 2d "re-checked against
+  # the new ground") -- an analytic 2-band hemisphere gradient, so its own
+  # sky/ground colors should track the palette tokens they're gradients of.
+  sky_color:    [0.55, 0.70, 0.90]
+  ground_color: [0.48, 0.48, 0.54]
   intensity: 8750.0
-fog: { density: 0.008 }
+fog: { density: 0.0015 }  # tuned 2026-08-20: 0.008 = fog-milk, 0.0025 hazed past ~30m, 0.0008 left a hard 48-level horizon step (test_theme.cpp guard: <30) -- 0.0015 keeps the road crisp AND the patch edge blending into sky per spec 4.3
+# ribbon.width_m (ITEM 1): same 0.24 as dark_adas -- no theme-specific width
+# authored yet, an authoring choice, not a code gap (theme.cpp soft-defaults
+# this anyway).
+ribbon: { width_m: 0.24 }

@@ -46,6 +46,17 @@ struct Theme {
         // absence doesn't invalidate an otherwise-valid theme file, unlike
         // every other palette.* field above.
         Float3 ego;
+        // ribbon_global/ribbon_local (user directive 2026-08-20, ITEM 1):
+        // GLOBAL/LOCAL path-ribbon roles used to reuse ribbon_core/
+        // ribbon_glow (the BEHAVIOR/hero ribbon's own tokens) -- an
+        // authoring gap, not a code gap, per renderer.cpp's old comment.
+        // These are the two dedicated tokens that close it. SOFT-DEFAULTED
+        // exactly like `ego` just above (theme.cpp's parse()): a theme file
+        // missing either key still parses, falling back to the value that
+        // reproduces today's reused-token look (ribbon_core for global,
+        // ribbon_glow for local) rather than invalidating the whole theme.
+        Float3 ribbon_global;
+        Float3 ribbon_local;
         struct ObjectTints {
             Float3 car, truck_van, bus, pedestrian, cyclist, unknown;
         } object_tints;
@@ -90,6 +101,17 @@ struct Theme {
     struct Fog {
         float density = 0.0f;
     } fog;
+
+    // Ribbon geometry config (user directive 2026-08-20, ITEM 1): width_m is
+    // the extruded strip's FULL width (not half-width) -- SOFT-DEFAULTED
+    // (theme.cpp's parse(), same convention as palette.ego/ribbon_global/
+    // ribbon_local above) to 0.24, i.e. 2*kRibbonHalfWidthM, the constant
+    // ribbon.cpp used to hard-code before this field existed -- a theme file
+    // missing the whole `ribbon:` section (or just `width_m` in it) parses
+    // unchanged, reproducing today's look exactly.
+    struct Ribbon {
+        float width_m = 0.24f;
+    } ribbon;
 };
 
 // Loads `dir/<name>.yaml`. Returns std::nullopt (never throws) on any

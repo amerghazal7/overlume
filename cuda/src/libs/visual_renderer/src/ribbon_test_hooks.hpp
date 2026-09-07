@@ -55,4 +55,17 @@ struct RibbonMaterialInfo {
 };
 RibbonMaterialInfo ribbon_slot_material_info(mpviz::VisualRenderer* r, size_t slot);
 
+// The half-width (theme.ribbon.width_m * 0.5) slot `slot`'s geometry was
+// actually built with the last time it rebuilt (user directive 2026-08-20,
+// ITEM 1) -- NOT a Filament AABB query, same "mirrors the actual value
+// used, not a bounding-box read-back" reasoning as ego.cpp's
+// egoFallbackDims (add_mesh() gives every mesh the same hard-coded declared
+// culling box, unrelated to the strip's real extent). Ribbon.
+// WidthChangeRebuildsGeometry reads this back to prove a width-only
+// set_theme() (no PathRibbon point data touched) actually rebuilt the
+// strip at the new width -- the vertex COUNT alone can't tell (it's
+// 2*point_count regardless of width). 0.0f if `r` is null or `slot` is out
+// of range.
+float ribbon_slot_half_width_m(mpviz::VisualRenderer* r, size_t slot);
+
 }  // namespace mpviz::testing

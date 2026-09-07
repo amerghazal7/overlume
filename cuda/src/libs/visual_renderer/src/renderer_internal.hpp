@@ -384,6 +384,19 @@ public:
         uint32_t totalVertexCount = 0;
         filament::MaterialInstance* fadeInstance = nullptr;
         float fadeAlpha = 1.0f;
+        // The actual half-width (theme.ribbon.width_m * 0.5) build_slot_
+        // meshes() used for THIS slot's geometry the last time it rebuilt
+        // (user directive 2026-08-20, ITEM 1) -- NOT a Filament AABB query:
+        // add_mesh() gives every mesh the same hard-coded declared culling
+        // box (renderer.cpp's kGroundHalfExtent), unrelated to the strip's
+        // real extent, the identical reason ego.cpp's egoFallbackDims isn't
+        // sourced from a bounding-box getter either (see that field's own
+        // comment). ribbon_test_hooks.hpp's WidthChangeRebuildsGeometry test
+        // reads this back to prove a width-only theme change (no PathRibbon
+        // point data touched at all) actually rebuilt the strip at the new
+        // width, since the vertex COUNT alone (2 per point) can't tell width
+        // apart from any other rebuild -- it's width-independent.
+        float halfWidthM = 0.0f;
     };
     std::vector<RibbonSlot> ribbonSlots;
 

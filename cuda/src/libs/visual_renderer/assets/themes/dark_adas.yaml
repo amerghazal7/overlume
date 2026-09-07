@@ -9,6 +9,12 @@ palette:
   lane_paint:  [0.45, 0.5, 0.55]
   ribbon_core: [0.10, 1.00, 0.40]
   ribbon_glow: [0.10, 1.00, 0.40]
+  # ribbon_global/ribbon_local (user directive 2026-08-20, ITEM 1): GLOBAL
+  # (a coarse route/plan overlay) blue-ish, LOCAL (the near-field planned
+  # path) amber -- both distinct from the green BEHAVIOR/hero ribbon above
+  # (ribbon_core/glow), which stays ref-1's committed green.
+  ribbon_global: [0.25, 0.55, 0.95]
+  ribbon_local: [0.95, 0.70, 0.15]
   ego: [0.82, 0.80, 0.76]  # cross-theme swap: light_clay's ground/clay, so the ego pops on dark
   object_tints:
     car: [0.25, 0.35, 0.9]
@@ -47,3 +53,8 @@ ibl:  # analytic 2-band hemisphere gradient — NOT raw SH coefficients
 # it. 0.10 (round 5) had measurably erased grid/object legibility at Task
 # 4's ego-mesh distances -- see renderer.cpp for the full history.
 fog: { density: 0.015 }
+# ribbon.width_m (user directive 2026-08-20, ITEM 1): the extruded strip's
+# FULL width -- 0.24 is the pre-existing hard-coded value (2*kRibbonHalfWidthM,
+# ribbon.cpp), authored explicitly here so both shipped themes state it
+# rather than relying on theme.cpp's soft-default silently supplying it.
+ribbon: { width_m: 0.24 }
