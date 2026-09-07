@@ -102,6 +102,19 @@ inline constexpr float kGridPitchM = 2.0f;
 inline constexpr double kStaleFadeStartSec = 0.5;
 inline constexpr double kStaleFadeTimeoutSec = 1.0;
 
+// Alert severity constant alphas (Epic 2 Task 7 / VM-026 plan, Task 7 Step
+// 4: "constant alphas -- info GHOSTED low (~0.18), warning ~0.35, critical
+// ~0.45"). This is NOT a fade -- the ghost alpha is a property of the INFO
+// severity ITSELF (AlertPolygon is frozen with no `role`, so "the ego
+// sweep gets a lower constant alpha" is only expressible as "severity 0
+// does" -- see the plan's "…and the material that can actually do it").
+// Shared by alert_polygons.cpp (which MULTIPLIES staleness_alpha into this
+// per-entity, never past it) and renderer.cpp's push_theme_to_scene()
+// (which pushes it into the three eager per-severity TEMPLATE instances
+// every call, alongside their palette.alert.* rgb -- alpha is not a theme
+// field, this array is the whole reason it doesn't need to be).
+inline constexpr float kAlertSeverityAlpha[3] = {0.18f, 0.35f, 0.45f};  // info, warning, critical
+
 // Builds per-vertex orientation quaternions from flat-shaded normals
 // (SurfaceOrientation's "normals only" mode) — shared by renderer.cpp's
 // ground/grid builders and map_elements.cpp's lane/crosswalk builders (both
@@ -470,6 +483,54 @@ public:
         uint32_t uploadCount = 0;
     };
     std::vector<GroundGridSlot> groundGridSlots;
+
+    // Alert polygons (Epic 2 Task 7 / VM-026). alertMaterial[severity] are
+    // THREE eager clay_translucent.mat instances (0 info/1 warning/2
+    // critical, indexed by AlertPolygon::severity directly -- no enum, see
+    // scene.h), each seeded with its FIXED kAlertSeverityAlpha constant --
+    // constant, not a fade, same "created EAGERLY in create_renderer() and
+    // registered in push_theme_to_scene()" reasoning as every other
+    // per-category template (laneMaterial/objectClassMaterial/
+    // ribbonMaterial/groundGridMaterialInstance). alertTint mirrors each
+    // template's last-pushed baseColor rgb (MaterialInstance has no
+    // getter) -- the staleness fade needs that color back, same pattern as
+    // objectClassTint/ribbonTint.
+    static constexpr size_t kAlertSeverityCount = 3;  // info/warning/critical
+    filament::MaterialInstance* alertMaterial[kAlertSeverityCount] = {};
+    detail::Float3 alertTint[kAlertSeverityCount] = {};
+
+    // One triangulated mesh per LIVE AlertPolygon, keyed by SLOT INDEX into
+    // active().alerts -- AlertPolygon is frozen with no id (same as
+    // PathRibbon), so slot index is the only stable key one publish's
+    // array offers (RibbonSlot's exact reasoning, renderer_internal.hpp
+    // above). `signature` (severity + point data, alert_polygons.cpp) is
+    // the content-signature-diff pattern map_elements.cpp/ribbon.cpp both
+    // use, keyed here by slot rather than by content hash because, unlike
+    // the HD-map's rolling window, an alert slot's IDENTITY (not just its
+    // content) is genuinely positional within one publish.
+    //
+    // UNLIKE ObjectEntity/RibbonSlot's opaque<->translucent SWITCH: an
+    // alert polygon lives on clay_translucent.mat from the instant it
+    // exists (its severity's constant alpha) -- there is no opaque state
+    // to switch from. `fadeInstance` is therefore non-null ONLY while
+    // staleness_alpha < 1.0 (a per-slot instance multiplying the
+    // severity's constant down); nullptr means "bound directly to the
+    // shared alertMaterial[severity] template", mirroring objects.cpp's/
+    // ribbon.cpp's exact fadeInstance/fadeAlpha bookkeeping otherwise.
+    // `fadeAlpha` mirrors whatever alpha was last actually applied to this
+    // slot's renderable (constant, or constant*staleness) -- ALWAYS kept
+    // current (even while fresh, where it equals kAlertSeverityAlpha[
+    // severity]) so a theme switch mid-fade (push_theme_to_scene()) can
+    // re-push a live fadeInstance's colour without resetting its alpha.
+    struct AlertSlot {
+        uint8_t severity = 0;
+        uint64_t signature = 0;
+        bool has_signature = false;
+        Mesh mesh;
+        filament::MaterialInstance* fadeInstance = nullptr;
+        float fadeAlpha = 0.0f;
+    };
+    std::vector<AlertSlot> alertSlots;
 };
 
 // Namespace-scope free function (Step 7e) — was a lambda local to

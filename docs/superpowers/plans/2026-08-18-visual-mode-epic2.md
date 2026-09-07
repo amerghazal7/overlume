@@ -1626,7 +1626,7 @@ TEST(GroundGrid, StaleGridFadesViaSharedStalenessAlpha) {
 Why this split: only the checker's actual collision output is *critical*; the object polygons (predicted and merged) are the hazard the ego is being checked against, i.e. the *warning* tier; the ego's own swept and merged footprint is debug geometry showing what the checker *used*, so *info*.
 **And "the ego sweep gets a ghost alpha" has to mean "severity 0 does", because nothing else crosses the boundary.** `AlertPolygon` is frozen as `{points, point_count, severity, last_update_sec}` — **no role**. The renderer cannot tell a sweep from a merged polygon, so the lower ghost alpha is a property of the **info severity instance**, not of a topic; that is the second reason both ego-side rows are severity 0 and neither object-side row is. An implementer looking for "the sweep's material" will not find one. **All of it is unvalidated (gap 4) and all of it is a YAML edit**: `role` → severity is one table in `collision.cpp` and re-mapping a topic is a role change in `urban_profile.yaml`, no rebuild. Say that in the commit body next to the gap.
 
-- [ ] **Step 1: Failing adapter test.**
+- [x] **Step 1: Failing adapter test.**
 ```cpp
 TEST(CollisionAdapter, EveryShippedRoleMapsToItsSeverity) {
     // Table-driven over the five shipped urban rows, loaded from
@@ -1645,8 +1645,31 @@ TEST(CollisionAdapter, SilentTopicYieldsZeroAlertsAndDoesNotWedge) {
     // the recorded-stack reality: this is the normal case, not an error path
 }
 ```
-  Run — FAIL. **Step 2: Implement `collision.cpp`.** Run — PASS.
-- [ ] **Step 3: Failing golden.**
+  Run — FAIL. **Step 2: Implement `collision.cpp`.** Run — PASS. *Done. All
+  four tests, plus `UnknownRoleThrowsRatherThanDefaultingToInfo` (a direct
+  unit test on `severity_for_role()` itself — `EveryShippedRoleMapsToItsSeverity`
+  only proves the five roles Task 1 actually shipped, this one proves the
+  assert-don't-default contract for everything else) and
+  `DeleteAllClearsPreviousPolygons` (HdMapAdapter's own DELETEALL coverage,
+  mirrored). Severity comes straight from `row.role` (no `namespaces:` rules
+  ship on any of the five collision profile rows, unlike HdMapAdapter) via
+  ONE table in `collision.cpp`'s `severity_for_role()` — throws
+  `std::invalid_argument` on anything outside the five shipped roles rather
+  than defaulting to info, per this step's own comment; Task 1's
+  `RoleSets` already keeps a bad role out of a real profile file, so this
+  is a second, defensive line, not the only one. "CLOSED if the producer
+  did not repeat the first point" implemented as: dedupe consecutive
+  points (catches an accidental repeat AND a closed ring's repeated first
+  point, since for a closed ring that repeat sits at the two ends of the
+  array — one more explicit front/back check strips it there), count
+  distinct points (<3 → `dropped_malformed`), then unconditionally push a
+  fresh copy of the front point — so `OpenPolylineIsClosedIntoAPolygon`'s
+  two fixtures (`collision_sweep_0.yaml`, not closed on the wire;
+  `collision_predicted_0.yaml`, closed on the wire) both come out
+  byte-identically shaped. `collision_malformed_0.yaml` pairs a NaN-point
+  marker with a degenerate 2-distinct-point ring (its own closing
+  duplicate stripped) — both counted, the valid neighbour still renders.*
+- [x] **Step 3: Failing golden.**
 ```cpp
 TEST(AlertGolden, SweepPlusPredicted_DarkAdas) {
     // ego footprint sweep as a ghost trail + a predicted polygon, both in
@@ -1659,10 +1682,15 @@ TEST(Alerts, SeverityPicksTheThemeAlertRamp) {
 }
 TEST(Alerts, StaleAlertFadesViaSharedStalenessAlpha) { }
 ```
-  Run — FAIL.
-- [ ] **Step 4: Implement `alert_polygons.cpp`.** `triangulate_convex_polygon` from Task 2's `polyline.hpp` (**no new triangulator**); one translucent material instance per severity on **`clay_translucent.mat`** (Task 4), colours from `palette.alert.*` with the constant alpha in `baseColor.a`, **registered in `push_theme_to_scene()`** (rgb only — alpha is not a theme field). **The ghost alpha belongs to the severity-0 (info) instance**, not to a topic or a role: `AlertPolygon` carries no role, so "the ego sweep reads as a ghost trail" is only expressible as "info polygons are ghosted", which is why both ego-side rows map to info (see the table above). Three severities, three instances, three constant alphas — no fourth material and no per-topic branch. **Not `clay_faded.mat`**: it has no settable alpha (its `float3 baseColor` + per-vertex `requires : [ color ]` bake the fade at grid-build time) and binding it to `triangulate_convex_polygon` output — which carries no COLOR attribute — is a Filament build-time failure, not a soft fallback. An earlier draft of this step routed all of VM-026's translucency through it. Diff by polygon index; teardown in `destroy_renderer`.
-- [ ] **Step 5: Promote the golden** (`golden.py --show`, **human looks**: warning polygons read as translucent warning, not opaque paint), commit PNG, re-run — PASS.
-- [ ] **Step 6: Build lib → colcon → commit** `feat(visual): translucent collision alert polygons (VM-026)` — commit body **names fixture gap 4**.
+  Run — FAIL. *Confirmed FAIL for the reason a fresh test should fail: no
+  `tests/goldens/alerts_warning_dark_adas.png` exists yet, so
+  `render_and_compare()` returns 0.0 — never a build error or a crash.
+  `Alerts.SeverityPicksTheThemeAlertRamp`/`StaleAlertFadesViaSharedStalenessAlpha`
+  compiled but obviously failed too (`alert_polygons.cpp` didn't exist)
+  before Step 4.*
+- [x] **Step 4: Implement `alert_polygons.cpp`.** `triangulate_convex_polygon` from Task 2's `polyline.hpp` (**no new triangulator**); one translucent material instance per severity on **`clay_translucent.mat`** (Task 4), colours from `palette.alert.*` with the constant alpha in `baseColor.a`, **registered in `push_theme_to_scene()`** (rgb only — alpha is not a theme field). **The ghost alpha belongs to the severity-0 (info) instance**, not to a topic or a role: `AlertPolygon` carries no role, so "the ego sweep reads as a ghost trail" is only expressible as "info polygons are ghosted", which is why both ego-side rows map to info (see the table above). Three severities, three instances, three constant alphas — no fourth material and no per-topic branch. **Not `clay_faded.mat`**: it has no settable alpha (its `float3 baseColor` + per-vertex `requires : [ color ]` bake the fade at grid-build time) and binding it to `triangulate_convex_polygon` output — which carries no COLOR attribute — is a Filament build-time failure, not a soft fallback. An earlier draft of this step routed all of VM-026's translucency through it. Diff by polygon index; teardown in `destroy_renderer`. *Done. Named constants `kAlertSeverityAlpha[3] = {0.18, 0.35, 0.45}` (info/warning/critical, `renderer_internal.hpp`, cited to this step) — a CONSTANT, not a fade; staleness_alpha() MULTIPLIES it down per-slot via the exact `clay_translucent.mat` swap mechanism objects.cpp/ribbon.cpp already established (fresh polygons bind straight to the shared per-severity template, no per-entity instance at all — only a stale one gets a private `fadeInstance`). Diffed by SLOT INDEX (not `map_elements.cpp`'s content-hash map) — `AlertPolygon`, like `PathRibbon`, is frozen with no id, so index is the only stable key one publish's array offers; each slot still carries a content signature (severity + point data, `ribbon.cpp`'s exact shape) deciding whether it rebuilds. z-lift 0.06, documented as the full epic z-stack in `alert_polygons.cpp`'s header (ground 0 → OGM .010/.015 → lanes .02 → predicted paths .03 → ribbons .04-.05 → alerts .06). Geometry uses `map_elements.cpp`'s flat-sequential-uint16 guard (not ribbon.cpp's true-indexed pattern) — alert polygons are small (a handful of boundary vertices), never ribbon.cpp's 32000-point scale, so the simpler guarded-flat shape is the correct rung, not a shortcut. Full teardown (mesh + any live fadeInstance + the three per-severity templates) added to `destroy_renderer()`, ordered before `clayTranslucentMaterial`'s own destroy, matching ribbonSlots'/objectEntities' identical ordering constraint. `update_alert_polygons()` wired into `render_frame()` right after `update_ground_grids()` — alerts are the last/topmost category. Library: `cmake --build build && ctest`: 82 tests, 1 red — `AlertGolden.SweepPlusPredicted_DarkAdas` ONLY (unpromoted, by this session's own directive), every pre-existing test (including the four other categories' own goldens) stays green. `/tmp/alerts_warning_dark_adas_actual.png` rendered and ready for human review — visually: a blue-ish translucent quad (info/ghost, 0.75s stale so its fade is visibly on) and a smaller amber/gold translucent quad (warning, fresh) on the dark_adas ground, consistent with the AC. `scripts/check_pod_header.sh` green (ctest's own `check_pod_header` case); `scene.h`/`api.h` byte-identical to HEAD (verified via `git diff --stat`, no output).*
+- [ ] **Step 5: Promote the golden** (`golden.py --show`, **human looks**: warning polygons read as translucent warning, not opaque paint), commit PNG, re-run — PASS. **NOT done this pass** — this session's directive is "do NOT promote goldens"; `AlertGolden.SweepPlusPredicted_DarkAdas` stays red awaiting human promotion.
+- [ ] **Step 6: Build lib → colcon → commit** `feat(visual): translucent collision alert polygons (VM-026)` — commit body **names fixture gap 4**. **Build DONE this pass** (library + colcon, see Step 4's note and below); **commit deliberately NOT run** — this pass's working directive was "no commits". Node: `colcon_build.sh micropilot_visualization_node` builds clean; all NINE gtest binaries run and pass (`test_ego_anchor`, `test_profile`, `test_frame_transform`, `test_scene_assembly`, `test_hd_map_adapter`, `test_dynamic_objects_adapter`, `test_path_adapter`, `test_ogm_adapter`, `test_collision_adapter` — the new one, 6/6 green). The `test_path_adapter` failure a prior pass's own note flagged (`BehaviorPathHeadingDerivedFromPointsNotOrientation` vs. `path.cpp`'s `flatten_z()`) is GONE — fixed by a prior session between then and this one (commits `3b3ce2c`/`02939c3`), not touched by this task.
 
 ---
 

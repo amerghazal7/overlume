@@ -93,6 +93,35 @@ struct RibbonScene {
 // see the plan's fixture gap 2).
 RibbonScene make_three_role_ribbons(double now);
 
+// Epic 2 Task 7 (VM-026) Step 3: move-only owner of a synthetic
+// sweep+predicted alert scene's point arrays AND the `AlertPolygon`s that
+// point into them — same move-only-not-copyable reasoning as MapGeom/
+// ObjectScene/RibbonScene above (`AlertPolygon::points` is a raw pointer
+// into `point_storage`; a copy would leave the copy's polygons aimed at
+// the ORIGINAL's buffer).
+//
+// FIXTURE GAP 4: the five collision-checker topics were silent in the
+// recorded bag (a calm scenario, zero messages) — entirely synthetic, the
+// same "no recording to draw from" shape as RibbonScene's fixture gap 2.
+struct AlertScene {
+    std::vector<mpviz::Vec3> point_storage;
+    std::vector<mpviz::AlertPolygon> alerts;
+
+    AlertScene() = default;
+    AlertScene(const AlertScene&) = delete;
+    AlertScene& operator=(const AlertScene&) = delete;
+    AlertScene(AlertScene&&) = default;
+    AlertScene& operator=(AlertScene&&) = default;
+};
+
+// One ego-footprint SWEEP (severity 0/info — the ghost trail, aged 0.75s
+// stale so its fade is visibly on, not just its already-low constant
+// alpha, same aging convention as Ribbon.StaleRibbonFadesViaSharedStaleness
+// Alpha's 0.75s-stale fixture) and one object PREDICTED polygon (severity
+// 1/warning, fresh), positioned apart so a human sees both shapes distinctly
+// — AlertGolden.SweepPlusPredicted_DarkAdas's synthetic scene.
+AlertScene make_sweep_and_predicted_alerts(double now);
+
 // Mean of every point across every element -- used to place the golden's
 // ego/camera FROM the recorded data (see test_map_elements.cpp) rather than
 // at a hand-picked coordinate. {0,0,0} if `elems` has no points at all.

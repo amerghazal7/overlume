@@ -1,0 +1,20 @@
+# Hand-written synthetic fixture (Epic 2 Task 7 / VM-026, FIXTURE GAP 4:
+# the five collision-checker topics were silent in the recorded bag -- a
+# calm scenario, zero messages -- so every collision fixture is synthetic,
+# unvalidated against a live publisher). Represents one
+# /ego_footprint_sweep MarkerArray message: a single LINE_STRIP polygon
+# tracing the ego's swept footprint, deliberately NOT repeating its first
+# point as its last -- CollisionAdapter.OpenPolylineIsClosedIntoAPolygon
+# asserts the adapter closes it anyway.
+markers:
+- header:
+    frame_id: map
+  ns: sweep
+  id: 1
+  type: 4
+  action: 0
+  points:
+  - {x: -2.0, y: -1.0, z: 0.0}
+  - {x: 2.0, y: -1.0, z: 0.0}
+  - {x: 2.0, y: 1.0, z: 0.0}
+  - {x: -2.0, y: 1.0, z: 0.0}

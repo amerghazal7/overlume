@@ -34,6 +34,7 @@
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
 
+#include "micropilot_visualization_node/adapters/collision.hpp"
 #include "micropilot_visualization_node/adapters/dynamic_objects.hpp"
 #include "micropilot_visualization_node/adapters/hd_map.hpp"
 #include "micropilot_visualization_node/adapters/ogm.hpp"
@@ -216,6 +217,30 @@ private:
     std::vector<rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr> ogm_grid_subs_;
     std::vector<rclcpp::Subscription<map_msgs::msg::OccupancyGridUpdate>::SharedPtr>
         ogm_update_subs_;
+
+    // ── Collision alert polygons (Epic 2 Task 7 / VM-026) ────────────────────
+    // One CollisionAdapter per profile row with adapter: collision -- urban
+    // ships all FIVE (collision_markers/object_predicted_polygons/
+    // ego_footprint_sweep/ego_merged_polygon/object_merged_polygons, Task 1
+    // Step 3). FIXTURE GAP 4: all five topics were silent in the recorded
+    // bag (a calm scenario) -- unvalidated against a live publisher. Same
+    // fill()-appends/timeout_sec/warn_on_drop_growth shape as
+    // dynamic_objects/path/ogm above. AlertPolygon DOES carry
+    // last_update_sec (unlike MapElement), so this category gets the
+    // library's staleness FADE (its severity's constant alpha, multiplied
+    // down), not hd_map's pop -- mark_stale_tick() past timeout_sec, same
+    // as every other faded category.
+    struct CollisionRow
+    {
+        std::unique_ptr<mpviz_node::CollisionAdapter> adapter;
+        double timeout_sec;
+        std::string topic;              // named in drop-growth WARNs
+        uint64_t warned_malformed = 0;  // counts already reported by
+        uint64_t warned_no_tf = 0;      // warn_on_drop_growth()
+    };
+    std::vector<CollisionRow> collision_rows_;
+    std::vector<rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr>
+        collision_subs_;
 
     SceneAssembly scene_asm_;
 

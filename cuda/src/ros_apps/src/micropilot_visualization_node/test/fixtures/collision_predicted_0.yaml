@@ -1,0 +1,20 @@
+# Hand-written synthetic fixture (Epic 2 Task 7 / VM-026, FIXTURE GAP 4 --
+# see collision_sweep_0.yaml's own comment). Represents one
+# /object_predicted_polygons MarkerArray message: a single LINE_STRIP
+# polygon, this time WITH its first point repeated as its last (the other
+# producer convention CollisionAdapter.OpenPolylineIsClosedIntoAPolygon
+# must handle identically -- no doubled closing vertex in storage_ either
+# way).
+markers:
+- header:
+    frame_id: map
+  ns: predicted
+  id: 1
+  type: 4
+  action: 0
+  points:
+  - {x: 5.0, y: 4.0, z: 0.0}
+  - {x: 8.0, y: 4.0, z: 0.0}
+  - {x: 8.0, y: 7.0, z: 0.0}
+  - {x: 5.0, y: 7.0, z: 0.0}
+  - {x: 5.0, y: 4.0, z: 0.0}
