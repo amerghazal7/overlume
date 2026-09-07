@@ -180,8 +180,17 @@ rows:
   # and every test in this epic still passes, because the Task 8 E2E's own
   # rclpy publisher is RELIABLE. `ros2 topic info -v /sim/ground_truth/boxes`
   # (or grep the bag metadata) before changing it.
-  - {topic: /sim/ground_truth/boxes, type: visualization_msgs/msg/MarkerArray,
-     adapter: generic, role: neutral, best_effort: true}
+  # DISABLED BY DEFAULT (user report 2026-08-20): ground truth includes the
+  # EGO'S OWN box -- at base_link (0,0), i.e. exactly ON the robot proxy,
+  # redrawn at ~9 Hz against the 30 Hz camera = a flickering box around the
+  # ego ("visually so inconvenient and feels wrong"). All 29 boxes share ONE
+  # namespace (gt_boxes), so no rule can drop just the ego's. Debug scenery:
+  # uncomment to overlay sim ground truth. The Task 8 parity E2E no longer
+  # depends on this row -- it ADDS its own copy of it to a temp profile
+  # (test_extra_topic_parity.py), which is the purer one-YAML-row story.
+  # NOTE 2 above (best_effort is LOAD-BEARING) still applies on re-enable.
+  # - {topic: /sim/ground_truth/boxes, type: visualization_msgs/msg/MarkerArray,
+  #    adapter: generic, role: neutral, best_effort: true}
 
   # Debug layer, OFF by default (spec §7 row 2). No topic and no type: nothing
   # in this stack publishes TF as markers, so TfAxesAdapter GENERATES three

@@ -58,8 +58,11 @@ rows:
 
   # Parity fallback (VM-027) -- identical to urban_profile.yaml. best_effort:
   # true is LOAD-BEARING (see that file's NOTE 2); do not drop it.
-  - {topic: /sim/ground_truth/boxes, type: visualization_msgs/msg/MarkerArray,
-     adapter: generic, role: neutral, best_effort: true}
+  # DISABLED BY DEFAULT (user report 2026-08-20): the ego's own gt box sits
+  # at base_link (0,0) = ON the robot proxy and flickers -- see
+  # urban_profile.yaml's identical block. Uncomment to overlay ground truth.
+  # - {topic: /sim/ground_truth/boxes, type: visualization_msgs/msg/MarkerArray,
+  #    adapter: generic, role: neutral, best_effort: true}
 
   # Debug layer, OFF by default -- see urban_profile.yaml's identical row.
   # - {adapter: tf_axes, role: debug, timeout_sec: 1.0}
