@@ -34,6 +34,8 @@ by the user on 2026-09-07 (see Decisions). Markers `[review 2026-09-07]` sit on 
 - P2. **ACCEPTED.** VM-030 HUD composited node-side onto the RGB8 buffer (stb_truetype) instead of an SDF atlas + Filament overlay pass; trigger back: HUD text must be depth-tested/lit/fogged. (master, backlog, spec §4.4)
 - P3. **ACCEPTED.** Spec §10 "goldens per theme" scoped to theming-sensitive goldens only (empty world, map, one lit-geometry reference); other categories keep one golden. Trigger back: a theme-only regression escapes. (spec §10)
 - P4. **ACCEPTED.** VM-040's live preset switch via an appended `set_quality()` entry point vs renderer re-create — decided in the Epic 5 plan. (backlog)
+- **2026-09-07 (Epic 3 plan review).** P2 **AMENDED**: `get_hud_colors()` (one new `scene.h` entry point) is ACCEPTED for VM-030's node-side HUD compositor — P2's substance (node-side CPU composite, no font pipeline in `visual_renderer`) stands; only its "no new public entry point" clause is amended. (Epic 3 plan)
+- **2026-09-07 (Epic 3 plan review).** VM-037 ("Epic-0 debt: mux hardening + build hygiene") is scheduled into Epic 3 in full, as its new Task 7 — the plan's earlier slice-only proposal (item (e) alone) was rejected; item (e) still ships inside Task 1 as that task's own prerequisite. (Epic 3 plan)
 
 **Refuted by verification (not applied)**: E0-01/02/03, VME1-002, E2-03, E2-07, XE-01/02/03/06/10 — mostly claims already handled by this review's own edits, or severity inflated.
 
@@ -310,6 +312,7 @@ backlog scheduled it in Epic 3.
 | Leader-line alert callouts (3D anchor → screen-space chip; since VM-030's CPU composite is accepted, the lib exposes only `project_to_screen()` for the anchor and the chip is drawn node-side) | VM-031 | lib `src/callouts.cpp` or `api.h` projection helper, goldens |
 | Layers/quality: params + WS + GUI panel (theme toggle shipped in VM-014) | VM-032 | node param plumbing, `tools/vcam_ws_bridge.py`, `tools/vcam_gui.py`, WS E2E |
 | PointCloudLayer: PointCloud2 → colored points, per-row `color_mode: auto\|rgb\|intensity\|height\|flat` (auto = rgb → intensity ramp → height ramp) | VM-035 | lib `src/point_cloud.cpp` + `SceneGraph` category (appended, ADR-0004), node `src/adapters/point_cloud.cpp`, goldens |
+| Epic-0 debt: mux hardening + build hygiene (mux QoS transient_local, legacy `~/set_render_mode` re-publish, `initial_mode`/`render_mode_` sync, `vcam_state[8] = mux_mode`, `check_pod_header.sh` wired into colcon, `FILAMENT_VERSION` single-sourced, `GL_VENDOR`/`GL_RENDERER`/`GL_VERSION` logging, bluegl link-probe). **Scheduled into this epic in full (user decision 2026-09-07)** — item (e) (`kSceneVersion` + node-side layout asserts) ships earlier, inside this epic's first task. | VM-037 | node `src/visualization_node.cpp`, `src/rendering_node.cpp`/`.hpp`, `micropilot_visualization_node/CMakeLists.txt`, lib `scripts/check_pod_header.sh`, `src/renderer.cpp`, `test/smoke_test.py` |
 
 ### Epic 4 — Clay buildings (EnvironmentLayer)
 `[review 2026-09-07]` Nothing of this epic exists yet (no bake script, no geo
