@@ -18,6 +18,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
+#include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/float32.hpp>
@@ -41,6 +42,7 @@
 #include "micropilot_visualization_node/adapters/ogm.hpp"
 #include "micropilot_visualization_node/adapters/path.hpp"
 #include "micropilot_visualization_node/adapters/tf_axes.hpp"
+#include "micropilot_visualization_node/diagnostics.hpp"
 #include "micropilot_visualization_node/frame_transform.hpp"
 #include "micropilot_visualization_node/profile.hpp"
 #include "micropilot_visualization_node/scene_assembly.hpp"
@@ -68,6 +70,14 @@ private:
     void timer_callback();
     void teardown_active();
     void destroy_renderer_if_any();
+    // Epic 3 Task 2 (VM-034) Step 0: gathers every subscribed row's
+    // AdapterStats (hd_map/dynamic_objects/path/ogm/collision/generic_marker
+    // -- NOT tf_axes_rows_, a PRODUCER with no topic/stats of its own) into
+    // mpviz_node::BuildDiagnostics(), stamps it, and publishes on
+    // ~/diagnostics. Called every tick regardless of mode (Step 0's own AC:
+    // "diagnostics shows per-topic age... and render_ms"), same "ingest
+    // continues regardless of mode" philosophy as sim_clock_sec_.
+    void publish_diagnostics();
 
     // ── virtual-camera presets / eased switching (plan Task 5 / VM-013) ──────
     // Extracted into its own class (vcam.hpp/vcam.cpp) — owns the preset
@@ -179,10 +189,10 @@ private:
     // One PathAdapter per profile row with adapter: path -- both shipped
     // profiles ship FOUR rows over THREE roles (BEHAVIOR, LOCAL x2, GLOBAL;
     // fixture gap 2). Same fill()-appends/timeout_sec/warn_on_drop_growth
-    // shape as hd_map/dynamic_objects above. PathRibbon DOES carry
-    // last_update_sec (unlike MapElement), so this category gets the
-    // library's staleness FADE, not hd_map's pop -- mark_stale_tick() past
-    // timeout_sec, same as the dynamic_objects loop.
+    // shape as hd_map/dynamic_objects above. PathRibbon carries
+    // last_update_sec, so this category gets the library's staleness
+    // FADE -- mark_stale_tick() past timeout_sec, same as the
+    // dynamic_objects loop.
     struct PathRow
     {
         std::unique_ptr<mpviz_node::PathAdapter> adapter;
@@ -227,11 +237,10 @@ private:
     // Step 3). FIXTURE GAP 4: all five topics were silent in the recorded
     // bag (a calm scenario) -- unvalidated against a live publisher. Same
     // fill()-appends/timeout_sec/warn_on_drop_growth shape as
-    // dynamic_objects/path/ogm above. AlertPolygon DOES carry
-    // last_update_sec (unlike MapElement), so this category gets the
-    // library's staleness FADE (its severity's constant alpha, multiplied
-    // down), not hd_map's pop -- mark_stale_tick() past timeout_sec, same
-    // as every other faded category.
+    // dynamic_objects/path/ogm above. AlertPolygon carries
+    // last_update_sec, so this category gets the library's staleness FADE
+    // (its severity's constant alpha, multiplied down) -- mark_stale_tick()
+    // past timeout_sec, same as every other faded category.
     struct CollisionRow
     {
         std::unique_ptr<mpviz_node::CollisionAdapter> adapter;
@@ -251,8 +260,8 @@ private:
     // /sim/ground_truth/boxes (role neutral, best_effort: true, the bag's
     // only non-map-frame, only lifetime-expiring topic). Same fill()-
     // appends/timeout_sec/warn_on_drop_growth shape as every category
-    // above -- GenericMarker DOES carry last_update_sec, so this category
-    // gets the library's staleness FADE, not hd_map's pop.
+    // above -- GenericMarker carries last_update_sec, so this category
+    // gets the library's staleness FADE.
     struct GenericMarkerRow
     {
         std::unique_ptr<mpviz_node::GenericMarkerAdapter> adapter;
@@ -283,6 +292,17 @@ private:
 
     rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::Image>::SharedPtr pub_image_;
     rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::CameraInfo>::SharedPtr pub_info_;
+
+    // ── diagnostics (Epic 3 Task 2 / VM-034) ─────────────────────────────────
+    // render_ms_ is measured around mpviz::render_frame() in timer_callback()
+    // and fed into publish_diagnostics() -- ONLY while active_mode_==3
+    // (spec's own render/readback/publish gate); every other tick explicitly
+    // zeros it rather than leaving the last mode-3 tick's number in place, so
+    // a diagnostics consumer never mistakes a stale number for a live one.
+    double render_ms_{0.0};
+    rclcpp_lifecycle::LifecyclePublisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr
+        pub_diagnostics_;
+
     rclcpp::TimerBase::SharedPtr timer_;
 };
 

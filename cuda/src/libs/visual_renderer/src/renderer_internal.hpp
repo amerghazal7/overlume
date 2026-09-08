@@ -92,6 +92,16 @@ struct Mesh {
     // distinguish a dot-disc-built CENTERLINE mesh from a strip-built one
     // without a full-frame SSIM.
     uint32_t vertexCount = 0;
+    // Epic 3 Task 2 (VM-034): staleness fade per-entity MaterialInstance
+    // swap, same mechanism/fields as ObjectEntity::fadeInstance/fadeAlpha
+    // and AlertSlot::fadeInstance/fadeAlpha below — null while fresh (bound
+    // to the shared opaque per-kind template), a clay_translucent.mat
+    // instance while fading. Lives on Mesh itself (not a parallel map)
+    // because map_elements.cpp's mapElementMeshes cache already IS the
+    // per-content-signature persistent record every fading mesh needs; other
+    // Mesh users (ground/grid/ribbon) simply never populate these fields.
+    filament::MaterialInstance* fadeInstance = nullptr;
+    float fadeAlpha = 1.0f;
 };
 
 // Epic 2 Task 2 (VM-024): the ego-following ground/grid patch, per-element

@@ -74,6 +74,23 @@
 #               dashed white, no centerline strip down the middle of any
 #               lane. Same /hd_map_local_elements rate check covers it;
 #               nothing new to sample.
+#   2026-09-08  Epic 3 Task 2/VM-034: the HD-map layer now FADES on a
+#               silenced topic (was: pops) -- closes Epic 2's stated
+#               deviation -- and a TF dropout (ego.valid==0) now fades map
+#               geometry to invisible instead of leaving it floating,
+#               disconnected, over an origin-snapped ground (the Epic 2 gate
+#               cosmetic finding). New ~/diagnostics topic
+#               (diagnostic_msgs/DiagnosticArray): one status per profile row
+#               (per-topic age + dropped_malformed/dropped_stale/
+#               dropped_no_tf/dropped_by_rule) plus a node-level render_ms
+#               status, published every tick regardless of mode. vcam_gui.py
+#               surfaces render_ms + a per-row staleness indicator (relayed
+#               through vcam_ws_bridge.py, display-only). Health gate now
+#               also samples /visualization_node/diagnostics' publish rate
+#               (same lenient liveness threshold as /hd_map_local_elements)
+#               -- it only rules out "the diagnostics publisher is silent,"
+#               not the render_ms/staleness VALUES (that needs mode 3 active
+#               and a human looking at the GUI panel or the topic echo).
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its
@@ -377,16 +394,34 @@ read_hd_map_hz() {
         | grep -o "average rate: [0-9.]*" | tail -1 | awk '{print $3}'
 }
 
-DEADLINE=$((SECONDS + 20))
+# Epic 3 Task 2 (VM-034): same "topic is alive, rate not asserted" precondition
+# check as read_hd_map_hz above -- this only rules out "the diagnostics
+# publisher itself is silent" (node not configured, wrong topic name) before
+# anyone goes looking for a broken BuildDiagnostics()/timer_callback() wiring.
+# It intentionally does NOT check render_ms's VALUE (that needs mode 3 active
+# and a human/golden looking at the actual number) -- `ros2 topic hz` counts
+# publishes regardless of content.
+read_diagnostics_hz() {
+    timeout 4 ros2 topic hz /visualization_node/diagnostics 2>/dev/null \
+        | grep -o "average rate: [0-9.]*" | tail -1 | awk '{print $3}'
+}
+
+# Each iteration below runs four sequential probes (read_hz timeout 4,
+# read_ego_z_valid timeout 3, read_hd_map_hz timeout 4, read_diagnostics_hz
+# timeout 4) -- ~15s/iteration -- so the deadline must clear at least two
+# iterations with margin, not one.
+DEADLINE=$((SECONDS + 40))
 HZ=""
 EGO_Z=""
 EGO_VALID=""
 HD_MAP_HZ=""
+DIAG_HZ=""
 PASS=0
 while [[ "${SECONDS}" -lt "${DEADLINE}" ]]; do
     HZ="$(read_hz || true)"
     read -r EGO_Z EGO_VALID < <(read_ego_z_valid)
     HD_MAP_HZ="$(read_hd_map_hz || true)"
+    DIAG_HZ="$(read_diagnostics_hz || true)"
     HZ_OK=0
     if [[ -n "${HZ}" ]] && awk -v h="${HZ}" 'BEGIN{exit !(h>=25)}'; then
         HZ_OK=1
@@ -406,7 +441,13 @@ while [[ "${SECONDS}" -lt "${DEADLINE}" ]]; do
     if [[ -n "${HD_MAP_HZ}" ]] && awk -v h="${HD_MAP_HZ}" 'BEGIN{exit !(h>=1)}'; then
         HD_MAP_OK=1
     fi
-    if [[ "${HZ_OK}" == "1" && "${EGO_OK}" == "1" && "${HD_MAP_OK}" == "1" ]]; then
+    # Diagnostics publishes every tick regardless of mode (Step 0's own AC),
+    # same lenient >=1 Hz liveness threshold as hd_map above.
+    DIAG_OK=0
+    if [[ -n "${DIAG_HZ}" ]] && awk -v h="${DIAG_HZ}" 'BEGIN{exit !(h>=1)}'; then
+        DIAG_OK=1
+    fi
+    if [[ "${HZ_OK}" == "1" && "${EGO_OK}" == "1" && "${HD_MAP_OK}" == "1" && "${DIAG_OK}" == "1" ]]; then
         PASS=1
         break
     fi
@@ -415,10 +456,10 @@ done
 echo "=============================================================="
 if [[ "${PASS}" == "1" ]]; then
     echo "PASS  /rendering/image @ ${HZ} Hz  |  ego_state valid=${EGO_VALID} z=${EGO_Z}" \
-         " |  /hd_map_local_elements @ ${HD_MAP_HZ} Hz"
+         " |  /hd_map_local_elements @ ${HD_MAP_HZ} Hz  |  ~/diagnostics @ ${DIAG_HZ} Hz"
 else
     echo "FAIL  /rendering/image @ ${HZ:-no-data} Hz  |  ego_state valid=${EGO_VALID:-?} z=${EGO_Z:-?}" \
-         " |  /hd_map_local_elements @ ${HD_MAP_HZ:-no-data} Hz"
+         " |  /hd_map_local_elements @ ${HD_MAP_HZ:-no-data} Hz  |  ~/diagnostics @ ${DIAG_HZ:-no-data} Hz"
     if [[ "${LIVE}" == "1" ]]; then
         echo "  live mode: a FAIL can also mean the autonomy stack is not" \
              "publishing (yet) -- check TF and /hd_map_local_elements on the stack side."

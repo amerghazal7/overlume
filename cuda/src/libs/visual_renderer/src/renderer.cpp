@@ -911,6 +911,11 @@ void destroy_mesh(filament::Engine& engine, filament::Scene& scene, Mesh& mesh) 
     }
     if (mesh.vb) engine.destroy(mesh.vb);
     if (mesh.ib) engine.destroy(mesh.ib);
+    // Epic 3 Task 2 (VM-034): a mesh torn down mid-fade owns a per-entity
+    // clay_translucent.mat instance (Mesh::fadeInstance) that nothing else
+    // references -- destroy it here too, same "every createInstance() has a
+    // matching destroy()" rule objects.cpp/alert_polygons.cpp already follow.
+    if (mesh.fadeInstance) engine.destroy(mesh.fadeInstance);
     mesh = {};
 }
 
@@ -1387,6 +1392,22 @@ void destroy_renderer(VisualRenderer* r) {
     if (r->genericTextMesh.vb) r->engine->destroy(r->genericTextMesh.vb);
     if (r->genericTextMesh.ib) r->engine->destroy(r->genericTextMesh.ib);
 
+    // Epic 3 Task 2 (VM-034): every live map-element fadeInstance is an
+    // INSTANCE of clayTranslucentMaterial -- MUST run before it is destroyed
+    // just below, same "instance before its Material" ordering as
+    // ribbonSlots/alertSlots/genericMarkerSlots/objectEntities above. The
+    // Mesh itself (vb/ib/entity) is torn down later, alongside every other
+    // map-element mesh (Epic 2 Task 2's own teardown further below) --
+    // only the fadeInstance needs to move earlier; destroy_mesh() there
+    // sees fadeInstance already null and skips it, no double-destroy.
+    for (auto& [key, mesh] : r->mapElementMeshes) {
+        (void)key;
+        if (mesh.fadeInstance) {
+            r->engine->destroy(mesh.fadeInstance);
+            mesh.fadeInstance = nullptr;
+        }
+    }
+
     if (r->clayTranslucentMaterial) r->engine->destroy(r->clayTranslucentMaterial);
 
     // Ego (Epic 1 Task 4 / VM-012): tear down whichever path set_ego_model()
@@ -1730,6 +1751,23 @@ size_t map_element_total_vertex_count(mpviz::VisualRenderer* r) {
         total += mesh.vertexCount;
     }
     return total;
+}
+
+// Epic 3 Task 2 (VM-034): reads "the" live map-element mesh's fade state --
+// see the hook's own header comment (map_elements_test_hooks.hpp) for why
+// this is only meaningful at map_element_mesh_count() == 1.
+MapElementMaterialInfo map_element_material_info(mpviz::VisualRenderer* r) {
+    MapElementMaterialInfo info;
+    if (r == nullptr || r->mapElementMeshes.size() != 1) return info;
+    const mpviz::Mesh& mesh = r->mapElementMeshes.begin()->second;
+    info.alpha = mesh.fadeAlpha;
+    if (!mesh.entity) return info;
+    filament::RenderableManager& rm = r->engine->getRenderableManager();
+    const auto ri = rm.getInstance(mesh.entity);
+    if (!ri.isValid()) return info;
+    filament::MaterialInstance* bound = rm.getMaterialInstanceAt(ri, 0);
+    info.bound_to_translucent = mesh.fadeInstance != nullptr && bound == mesh.fadeInstance;
+    return info;
 }
 
 }  // namespace mpviz::testing

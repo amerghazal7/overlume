@@ -28,6 +28,9 @@ find_package(map_msgs REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 # profile_dir: "" -> this package's own installed share/config (on_configure).
 find_package(ament_index_cpp REQUIRED)
+# Epic 3 Task 2 (VM-034): ~/diagnostics message type -- ROS2 Humble core
+# package, already present in this distro.
+find_package(diagnostic_msgs REQUIRED)
 
 set(THIS_PACKAGE_DEPS
   rclcpp
@@ -43,7 +46,8 @@ set(THIS_PACKAGE_DEPS
   nav_msgs
   map_msgs
   tf2_geometry_msgs
-  ament_index_cpp)
+  ament_index_cpp
+  diagnostic_msgs)
 
 # ── visual_renderer (clang/libc++ static lib) — cross-toolchain import ──────
 # visual_renderer (docs/superpowers/plans/2026-08-18-visual-mode.md Epic 0
@@ -174,7 +178,8 @@ add_library(visualization_node_lib SHARED
   src/adapters/ogm.cpp
   src/adapters/collision.cpp
   src/adapters/generic_marker.cpp
-  src/adapters/tf_axes.cpp)
+  src/adapters/tf_axes.cpp
+  src/diagnostics.cpp)
 
 target_include_directories(visualization_node_lib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -387,6 +392,15 @@ if(BUILD_TESTING)
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${VISUAL_RENDERER_DIR}/include)
   ament_target_dependencies(test_tf_axes_adapter ${THIS_PACKAGE_DEPS})
+
+  # Epic 3 Task 2 (VM-034) Step 0: BuildDiagnostics() is a pure data
+  # transform (diagnostics.hpp's own header comment) -- no fixture_msgs, no
+  # profile.cpp, no visual_renderer_prebuilt link needed, same "header/POD
+  # only" shape as test_ego_anchor/test_scene_layout above.
+  ament_add_gtest(test_diagnostics test/test_diagnostics.cpp src/diagnostics.cpp)
+  target_include_directories(test_diagnostics PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  ament_target_dependencies(test_diagnostics diagnostic_msgs)
 endif()
 
 ament_package()

@@ -4,6 +4,7 @@
 
 #include "micropilot_visualization_node/visualization_node.hpp"
 
+#include <chrono>
 #include <cmath>
 #include <cstring>
 
@@ -417,6 +418,11 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     pub_image_ = create_publisher<sensor_msgs::msg::Image>("/rendering/image", 1);
     pub_info_ = create_publisher<sensor_msgs::msg::CameraInfo>("/rendering/camera_info", 1);
     pub_vcam_state_ = create_publisher<std_msgs::msg::Float64MultiArray>("~/vcam_state", 1);
+    // Epic 3 Task 2 (VM-034): per-topic age/drop counters + render_ms, one
+    // per tick regardless of mode -- design doc §9's "a ~/diagnostics-style
+    // status".
+    pub_diagnostics_ =
+        create_publisher<diagnostic_msgs::msg::DiagnosticArray>("~/diagnostics", 1);
 
     // ── virtual-camera presets / tween (plan Task 5 / VM-013) ────────────────
     // Vcam's constructor seeds presets_[0] ("config") from pose_ with the
@@ -467,6 +473,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
     pub_info_->on_activate();
     pub_vcam_state_->on_activate();
     pub_ego_state_->on_activate();
+    pub_diagnostics_->on_activate();
 
     using namespace std::chrono_literals;
     timer_ = create_wall_timer(33ms, [this]() { timer_callback(); });
@@ -534,11 +541,12 @@ void VisualizationNode::timer_callback()
     // into one SceneAssembly, THEN point the frozen SceneGraph at it --
     // scene_asm_.clear() must run before any adapter's fill(), or last
     // tick's elements pile up on top of this tick's (SceneAssembly's own
-    // header, "ClearBetweenTicksDoesNotAccumulate"). STATED DEVIATION
-    // (epic2 plan, "Staleness"): MapElement carries no last_update_sec, so
-    // the library can't fade this category -- past a row's timeout_sec the
-    // node just stops calling fill() for it, a pop rather than a fade (see
-    // adapters/hd_map.hpp's own header comment).
+    // header, "ClearBetweenTicksDoesNotAccumulate"). MapElement now carries
+    // last_update_sec (VM-034), so this category fades via the library's
+    // shared staleness_alpha() like every other category; the timeout_sec
+    // gate below is the separate hard cutoff, and with timeout_sec 5.0 >
+    // kStaleFadeTimeoutSec 1.0 on both shipped hd_map rows the fade always
+    // completes before the cutoff, so no pop remains.
     scene_asm_.clear();
     for (auto& hr : hd_map_rows_)
     {
@@ -549,10 +557,10 @@ void VisualizationNode::timer_callback()
     }
 
     // Epic 2 Task 3 (VM-021): same "stop filling past timeout_sec" rule as
-    // hd_map above, except TrackedObject DOES carry last_update_sec (unlike
-    // MapElement), so this category gets the library's staleness FADE
-    // instead of hd_map's pop -- Task 4 wires clay_translucent.mat to it,
-    // this adapter just has to keep publishing right up to timeout_sec.
+    // hd_map above -- TrackedObject carries last_update_sec, so this
+    // category gets the library's staleness FADE -- Task 4 wires
+    // clay_translucent.mat to it, this adapter just has to keep publishing
+    // right up to timeout_sec.
     for (auto& dr : dynamic_objects_rows_)
     {
         // Review fix (VM-021 gate): a topic that has NEVER published is
@@ -636,7 +644,7 @@ void VisualizationNode::timer_callback()
     // "stop filling past timeout_sec, mark_stale_tick() instead" shape as
     // dynamic_objects/path/ogm/collision above -- GenericMarker carries
     // last_update_sec, so this category gets the library's staleness
-    // FADE, not hd_map's pop.
+    // FADE.
     for (auto& gmr : generic_marker_rows_)
     {
         if (gmr.adapter->stats().msgs == 0) continue;
@@ -672,8 +680,21 @@ void VisualizationNode::timer_callback()
     pub_ego_state_->publish(ego_state);
 
     // Render/readback/publish only while this node is the active mux output
-    // (spec §3.1) — costs ~zero GPU otherwise.
-    if (active_mode_ != 3) return;
+    // (spec §3.1) — costs ~zero GPU otherwise. Diagnostics still publish
+    // every tick regardless (Step 0's own AC) -- ingest above already ran
+    // unconditionally, same "ingest continues regardless of mode"
+    // philosophy as sim_clock_sec_. render_ms_ is explicitly zeroed here,
+    // not left at whatever the last mode-3 tick measured, so a diagnostics
+    // consumer never mistakes a stale number for a live one (Step 1's own
+    // AC) -- verified by code reading only, no automated test; see the plan
+    // (Task 2 Step 1)'s own note: "No dedicated automated test for the
+    // reads-0-outside-mode-3 behavior."
+    if (active_mode_ != 3)
+    {
+        render_ms_ = 0.0;
+        publish_diagnostics();
+        return;
+    }
 
     // Ego-anchored camera composition (2026-08-19 user directive, plan Task 5
     // scope addition): compose HERE ONLY, right before handing the pose to
@@ -691,11 +712,22 @@ void VisualizationNode::timer_callback()
 
     mpviz::FrameView view{frame_buf_.data(), static_cast<uint32_t>(out_width_),
                           static_cast<uint32_t>(out_height_)};
+    // Epic 3 Task 2 (VM-034) Step 1: render_ms instrumentation -- wraps the
+    // EXISTING render_frame() call (nothing about the call itself changes),
+    // measured only in this branch (active_mode_==3), fed into
+    // publish_diagnostics() below and at every subsequent tick until the
+    // next successful measurement.
+    const auto render_start = std::chrono::steady_clock::now();
     if (!mpviz::render_frame(renderer_, render_pose, view))
     {
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "render_frame() failed");
+        render_ms_ = 0.0;
+        publish_diagnostics();
         return;
     }
+    render_ms_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                             render_start)
+                     .count();
 
     auto stamp = now();
 
@@ -720,6 +752,48 @@ void VisualizationNode::timer_callback()
     info_msg.k[3] = 0;                info_msg.k[4] = fy; info_msg.k[5] = out_height_ / 2.0;
     info_msg.k[6] = 0;                info_msg.k[7] = 0;  info_msg.k[8] = 1;
     pub_info_->publish(info_msg);
+
+    publish_diagnostics();
+}
+
+// Epic 3 Task 2 (VM-034) Step 0: gathers every subscribed row's AdapterStats
+// -- hd_map/dynamic_objects/path/ogm/collision/generic_marker, NOT
+// tf_axes_rows_ (a PRODUCER with no topic/subscription/stats of its own,
+// visualization_node.hpp's own comment on that vector) -- into one
+// DiagnosticArray and publishes it. `last_msg_age_sec` is computed HERE
+// (sim_clock_sec_ - stats().last_msg_sec), not inside diagnostics.hpp, which
+// deliberately takes no ROS clock so it stays a pure, easily unit-tested
+// data transform.
+void VisualizationNode::publish_diagnostics()
+{
+    std::vector<mpviz_node::RowStats> rows;
+    rows.reserve(hd_map_rows_.size() + dynamic_objects_rows_.size() + path_rows_.size() +
+                 ogm_rows_.size() + collision_rows_.size() + generic_marker_rows_.size());
+
+    auto append_row = [&](const std::string& topic, const mpviz_node::AdapterStats& stats,
+                           double timeout_sec)
+    {
+        mpviz_node::RowStats rs;
+        rs.topic = topic;
+        rs.stats = stats;
+        rs.last_msg_age_sec = sim_clock_sec_ - stats.last_msg_sec;
+        rs.timeout_sec = timeout_sec;
+        rows.push_back(std::move(rs));
+    };
+
+    for (const auto& hr : hd_map_rows_) append_row(hr.topic, hr.adapter->stats(), hr.timeout_sec);
+    for (const auto& dr : dynamic_objects_rows_)
+        append_row(dr.topic, dr.adapter->stats(), dr.timeout_sec);
+    for (const auto& pr : path_rows_) append_row(pr.topic, pr.adapter->stats(), pr.timeout_sec);
+    for (const auto& gr : ogm_rows_) append_row(gr.topic, gr.adapter->stats(), gr.timeout_sec);
+    for (const auto& cr : collision_rows_)
+        append_row(cr.topic, cr.adapter->stats(), cr.timeout_sec);
+    for (const auto& gmr : generic_marker_rows_)
+        append_row(gmr.topic, gmr.adapter->stats(), gmr.timeout_sec);
+
+    auto msg = mpviz_node::BuildDiagnostics(rows, render_ms_);
+    msg.header.stamp = now();
+    pub_diagnostics_->publish(msg);
 }
 
 // ── Lifecycle: teardown ──────────────────────────────────────────────────────
@@ -734,6 +808,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_deactivate(
     pub_info_->on_deactivate();
     pub_vcam_state_->on_deactivate();
     pub_ego_state_->on_deactivate();
+    pub_diagnostics_->on_deactivate();
     return CallbackReturn::SUCCESS;
 }
 
@@ -748,6 +823,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_cleanup(
     pub_info_.reset();
     pub_vcam_state_.reset();
     pub_ego_state_.reset();
+    pub_diagnostics_.reset();
     set_mode_sub_.reset();
     vcam_.reset();
     theme_sub_.reset();

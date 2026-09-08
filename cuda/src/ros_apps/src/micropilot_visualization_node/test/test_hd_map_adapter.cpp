@@ -396,6 +396,196 @@ TEST(HdMapAdapter, MalformedMarkersAreDroppedAndCounted)
     for (const auto& e : out.map_elements) EXPECT_EQ(e.point_count, 2u);
 }
 
+TEST(HdMapAdapter, FillStampsLastUpdateSecOnEveryElementIncludingRoadSurface)
+{
+    // Review finding (VM-034 blocking): fill() used to leave
+    // MapElement::last_update_sec at its zero-init default on every emitted
+    // element -- with the library's fade now live (staleness_alpha checks
+    // sim_time_sec against this field), that made the whole HD-map layer
+    // render at alpha 0 shortly after node start. Ingest at a known sim
+    // time, fill(), and assert EVERY element (including the synthesized
+    // ROAD_SURFACE one) carries that time offset into the row's own
+    // timeout_sec (fade-pulse policy round 2, 2026-09-08 -- see
+    // kMapFadeWindowSec in hd_map.cpp), not a bare ingest-time stamp.
+    auto msg = mpviz_node::testing::load_marker_array("hd_map_local_elements_0.yaml");
+    TfFixture kTf;
+    auto row = mpviz_node::testing::urban_row("/hd_map_local_elements");
+    mpviz_node::HdMapAdapter a(row, kTf.tf);
+    constexpr double kSimTime = 42.0;
+    a.ingest(msg, kSimTime);
+    SceneAssembly out;
+    a.fill(out);
+
+    // kMapFadeWindowSec = 1.0 (hd_map.cpp) -- mirrored here, not included,
+    // since it's a private implementation constant.
+    constexpr double kMapFadeWindowSec = 1.0;
+    const double expected_stamp = kSimTime + (row.timeout_sec - kMapFadeWindowSec);
+    ASSERT_GT(out.map_elements.size(), 0u);
+    bool saw_road_surface = false;
+    for (const auto& e : out.map_elements)
+    {
+        EXPECT_DOUBLE_EQ(e.last_update_sec, expected_stamp)
+            << "element kind=" << static_cast<int>(e.kind) << " lane_id=" << e.lane_id
+            << " was not stamped from the ingest sim time offset by (timeout_sec - "
+               "kMapFadeWindowSec)";
+        if (e.kind == mpviz::MapKind::ROAD_SURFACE) saw_road_surface = true;
+    }
+    EXPECT_TRUE(saw_road_surface) << "fixture no longer synthesizes a ROAD_SURFACE element";
+}
+
+TEST(HdMapAdapter, ThrottledRowStaysFreshOnReceiptNotOnAcceptedRebuildCadence)
+{
+    // Review finding (VM-034 blocking, fade-pulse policy): a row throttled
+    // by max_rate_hz (e.g. /hd_map_global_elements: 0.5 -> 2.0s min rebuild
+    // gap) keeps RECEIVING at its real publish rate between accepted
+    // rebuilds -- stamping last_update_sec from the throttled rebuild time
+    // (stats_.last_msg_sec) would blink the whole layer dark for most of
+    // every 2s window even while the topic is genuinely alive. Decided
+    // fix: stamp from last_recv_sec_, set on every TF-lookup-succeeded
+    // ingest() call, BEFORE the rate gate, offset into the row's own
+    // timeout_sec (fade-pulse policy round 2, 2026-09-08 -- see
+    // kMapFadeWindowSec in hd_map.cpp). Pin it at a 0.5 Hz row: ingest
+    // every 0.3s (far faster than the 2.0s cooldown, so every rebuild past
+    // the first is skipped) and assert fill() at t=1.5s reports
+    // 1.5 + (timeout_sec - kMapFadeWindowSec), not the one accepted
+    // rebuild's own time (0.0) offset the same way.
+    TfFixture kTf;
+    auto row = mpviz_node::testing::urban_row("/hd_map_global_elements");
+    ASSERT_DOUBLE_EQ(row.max_rate_hz, 0.5) << "urban_profile.yaml's row no longer matches this test's premise";
+    mpviz_node::HdMapAdapter a(row, kTf.tf);
+
+    // Same one-marker shape as RateLimitHonoursMaxRateHz above, built
+    // inline (its own helper isn't declared until further down this file).
+    visualization_msgs::msg::MarkerArray msg;
+    visualization_msgs::msg::Marker m;
+    m.header.frame_id = "map";
+    m.ns = "left_boundary_x";
+    m.id = 1;
+    m.type = 4;  // LINE_STRIP
+    m.action = 0;
+    geometry_msgs::msg::Point p0, p1;
+    p1.x = 10.0;
+    m.points = {p0, p1};
+    msg.markers = {m};
+
+    for (double t = 0.0; t <= 1.5 + 1e-9; t += 0.3)
+    {
+        a.ingest(msg, t);
+    }
+
+    SceneAssembly out;
+    a.fill(out);
+    // kMapFadeWindowSec = 1.0 (hd_map.cpp) -- mirrored here, not included,
+    // since it's a private implementation constant.
+    constexpr double kMapFadeWindowSec = 1.0;
+    const double expected_stamp = 1.5 + (row.timeout_sec - kMapFadeWindowSec);
+    ASSERT_GT(out.map_elements.size(), 0u);
+    for (const auto& e : out.map_elements)
+    {
+        EXPECT_NEAR(e.last_update_sec, expected_stamp, 1e-9)
+            << "stamp tracked the throttled rebuild cadence instead of topic liveness -- "
+               "the map layer would blink dark between rebuilds";
+    }
+}
+
+TEST(HdMapAdapter, LowRateReceiptDoesNotSawtoothBetweenReceipts)
+{
+    // Review finding (VM-034 blocking, fade-pulse policy round 2,
+    // 2026-09-08): ThrottledRowStaysFreshOnReceiptNotOnAcceptedRebuildCadence
+    // (above) only ever ingests at 0.3s spacing (3.33 Hz) -- it never pins
+    // behaviour in the 1-2 Hz regime the original review criterion named,
+    // and a straight last_update_sec == last_recv_sec_ stamp DOES sawtooth
+    // there: staleness_alpha starts fading at age > kStaleFadeStartSec =
+    // 0.5s (renderer_internal.hpp), so a 1 Hz row (1.0s between receipts)
+    // would ride alpha all the way down to 0.0 just before every next
+    // receipt. Pin the ACTUAL post-fix behaviour instead: ingest once per
+    // second (t = 0, 1, 2, 3, 4) and, just before each next receipt (i.e.
+    // fill() called at t=0.999, 1.999, ...), assert the stamped
+    // last_update_sec still keeps the element's implied age comfortably
+    // under kStaleFadeStartSec -- i.e. it has NOT started fading, unlike
+    // the pre-fix straight stamp.
+    TfFixture kTf;
+    auto row = mpviz_node::testing::urban_row("/hd_map_local_elements");
+    mpviz_node::HdMapAdapter a(row, kTf.tf);
+
+    visualization_msgs::msg::MarkerArray msg;
+    visualization_msgs::msg::Marker m;
+    m.header.frame_id = "map";
+    m.ns = "left_boundary_x";
+    m.id = 1;
+    m.type = 4;  // LINE_STRIP
+    m.action = 0;
+    geometry_msgs::msg::Point p0, p1;
+    p1.x = 10.0;
+    m.points = {p0, p1};
+    msg.markers = {m};
+
+    constexpr double kStaleFadeStartSec = 0.5;  // mirrors renderer_internal.hpp, not included
+    constexpr double kMapFadeWindowSec = 1.0;   // mirrors hd_map.cpp's own constant, not included
+    constexpr double kReceiptPeriodSec = 1.0;    // the 1 Hz regime under test
+    for (int receipt = 0; receipt < 5; ++receipt)
+    {
+        const double t_recv = receipt * kReceiptPeriodSec;
+        a.ingest(msg, t_recv);
+
+        SceneAssembly out;
+        a.fill(out);
+        ASSERT_GT(out.map_elements.size(), 0u);
+
+        // "Just before the next receipt": age is measured against the row's
+        // real publish cadence, not last_recv_sec_'s own stamped value --
+        // this is what a bare straight-stamp implementation would fail.
+        const double now_just_before_next_receipt = t_recv + kReceiptPeriodSec - 1e-3;
+        const double expected_stamp = t_recv + (row.timeout_sec - kMapFadeWindowSec);
+        for (const auto& e : out.map_elements)
+        {
+            EXPECT_DOUBLE_EQ(e.last_update_sec, expected_stamp)
+                << "receipt #" << receipt << ": stamp is not the offset-into-timeout_sec value";
+            const double age = now_just_before_next_receipt - e.last_update_sec;
+            EXPECT_LT(age, kStaleFadeStartSec)
+                << "receipt #" << receipt << ": a 1 Hz-received row has already started "
+                   "fading (age >= kStaleFadeStartSec) just before its next receipt -- "
+                   "the fix does not hold in the 1-2 Hz regime";
+        }
+    }
+}
+
+TEST(HdMapAdapter, PublishOnceTransientLocalRowStaysOpaqueWellPastOldOneSecondFadeFloor)
+{
+    // Review finding (VM-034 blocking, fade-pulse policy round 2,
+    // 2026-09-08): sim_profile.yaml's /sim/hd_map/markers is publish-once/
+    // transient_local (timeout_sec: 5.0) -- last_recv_sec_ freezes at its
+    // one ingest while SceneGraph::sim_time_sec keeps climbing. A straight
+    // last_update_sec == last_recv_sec_ stamp faded this row to alpha 0 by
+    // +1.0s even though visualization_node.cpp keeps calling fill() for it
+    // until +5.0s -- "map never appears" for 4 of its 5 visible seconds.
+    // Ingest once at t=0.0, advance the sim clock to t=2.0 (past the OLD
+    // 1.0s fade floor, nowhere near the row's real timeout_sec=5.0 cutoff),
+    // and assert the row is still FULLY opaque (age comfortably under
+    // kStaleFadeStartSec), not faded.
+    TfFixture kTf;
+    auto row = mpviz_node::testing::sim_row("/sim/hd_map/markers");
+    ASSERT_DOUBLE_EQ(row.timeout_sec, 5.0) << "sim_profile.yaml's row no longer matches this test's premise";
+    mpviz_node::HdMapAdapter a(row, kTf.tf);
+
+    auto msg = mpviz_node::testing::load_marker_array("sim_hd_map_markers_0.yaml");
+    a.ingest(msg, /*sim_time_sec=*/0.0);  // the ONE latched receipt this row ever gets
+
+    SceneAssembly out;
+    a.fill(out);
+    ASSERT_GT(out.map_elements.size(), 0u);
+
+    constexpr double kStaleFadeStartSec = 0.5;  // mirrors renderer_internal.hpp, not included
+    constexpr double kSimTimeNow = 2.0;          // well past the old 1.0s fade floor
+    for (const auto& e : out.map_elements)
+    {
+        const double age = kSimTimeNow - e.last_update_sec;
+        EXPECT_LT(age, kStaleFadeStartSec)
+            << "the publish-once/transient_local row faded before its own timeout_sec cutoff -- "
+               "this is exactly the 'map never appears' regression the fix must close";
+    }
+}
+
 TEST(HdMapAdapter, RateLimitHonoursMaxRateHz)
 {
     // max_rate_hz: 2.0 -> ingesting faster than 2 Hz rebuilds at most
@@ -625,6 +815,76 @@ TEST(HdMapAdapter, LaneWithOnlyOneBoundaryProducesNoRoadSurfaceElement)
                        [](const mpviz::MapElement& m) { return m.kind == mpviz::MapKind::ROAD_SURFACE; });
     EXPECT_EQ(road_count, 0);
     EXPECT_EQ(a.stats().dropped_malformed, 0u);
+}
+
+TEST(HdMapAdapter, MismatchedRailPointCountsResampledStationsSpanRecordedEndpoints)
+{
+    // Named gap, Epic 3 Task 1 Step 5's own SECOND CORRECTION (epic3 plan):
+    // LocalElementsFixtureYieldsLanesAndCrosswalks's aggregate (road_count
+    // ==16, every point_count==32) proves resampling produced the right
+    // SHAPE but never proved the resampled stations actually SPAN the
+    // recorded rail's own endpoints -- a resampler that silently clamped to
+    // a sub-range of the rail (e.g. an off-by-one in ResampleByArcLength's
+    // arc-length walk) would pass that aggregate too. Lane 955 (left 8 /
+    // right 9 recorded points, the real mismatched-count case, verified
+    // against the committed fixture) is the one this gap names directly.
+    auto msg = mpviz_node::testing::load_marker_array("hd_map_local_elements_0.yaml");
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(mpviz_node::testing::urban_row("/hd_map_local_elements"), kTf.tf);
+    a.ingest(msg, /*sim_time_sec=*/1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    // Recorded endpoints straight from the fixture message -- frame "map",
+    // identity pose (verified: pose.position=(0,0,0), pose.orientation=
+    // identity for both markers), so these are exactly what reaches
+    // storage_ too; comparing against the raw message rather than another
+    // emitted MapElement sidesteps the road-edge promotion's kind ambiguity
+    // (a lane-955 boundary may or may not have promoted to ROAD_EDGE; the
+    // raw marker ns is unambiguous either way).
+    const geometry_msgs::msg::Point* left_first = nullptr;
+    const geometry_msgs::msg::Point* left_last = nullptr;
+    const geometry_msgs::msg::Point* right_first = nullptr;
+    const geometry_msgs::msg::Point* right_last = nullptr;
+    for (const auto& m : msg.markers)
+    {
+        if (m.ns == "left_boundary_955" && !m.points.empty())
+        {
+            left_first = &m.points.front();
+            left_last = &m.points.back();
+        }
+        else if (m.ns == "right_boundary_955" && !m.points.empty())
+        {
+            right_first = &m.points.front();
+            right_last = &m.points.back();
+        }
+    }
+    ASSERT_NE(left_first, nullptr) << "fixture no longer carries left_boundary_955";
+    ASSERT_NE(right_first, nullptr) << "fixture no longer carries right_boundary_955";
+
+    const mpviz::MapElement* road = nullptr;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_SURFACE && e.lane_id == 955u)
+        {
+            road = &e;
+            break;
+        }
+    }
+    ASSERT_NE(road, nullptr) << "lane 955 produced no ROAD_SURFACE element";
+    ASSERT_EQ(road->point_count, 32u);
+
+    // points[0..15] = left rail, points[16..31] = right rail, index-parallel
+    // by normalized station (map_elements.hpp's own two-rail encoding note).
+    constexpr double kEps = 1e-6;
+    EXPECT_NEAR(road->points[0].x, left_first->x, kEps);
+    EXPECT_NEAR(road->points[0].y, left_first->y, kEps);
+    EXPECT_NEAR(road->points[15].x, left_last->x, kEps);
+    EXPECT_NEAR(road->points[15].y, left_last->y, kEps);
+    EXPECT_NEAR(road->points[16].x, right_first->x, kEps);
+    EXPECT_NEAR(road->points[16].y, right_first->y, kEps);
+    EXPECT_NEAR(road->points[31].x, right_last->x, kEps);
+    EXPECT_NEAR(road->points[31].y, right_last->y, kEps);
 }
 
 // ── Road-edge detection (user directive 2026-09-08): "the boundary of the

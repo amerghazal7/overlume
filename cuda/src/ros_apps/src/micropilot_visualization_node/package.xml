@@ -36,6 +36,10 @@
   <depend>map_msgs</depend>
   <depend>tf2_geometry_msgs</depend>
   <depend>ament_index_cpp</depend>
+  <!-- Epic 3 Task 2 (VM-034): ~/diagnostics message type. ROS2 Humble core
+       package, already present in this distro; no new interface-generation
+       package needed (this node still has zero .msg/.srv files of its own). -->
+  <depend>diagnostic_msgs</depend>
 
   <!-- visual_renderer (micropilot::visualization, clang/libc++) is NOT a ROS
        package and is not resolved via find_package/CMAKE_PREFIX_PATH: it has

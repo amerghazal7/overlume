@@ -57,6 +57,42 @@ bool MarkerPoseHasNan(const geometry_msgs::msg::Pose& p)
 // SURFACE's point_count is always 2*kRoadFillSamples.
 constexpr uint32_t kRoadFillSamples = 16;
 
+// VM-034 review fix, round 2 (fade-pulse policy, blocking): fill() used to
+// stamp e.last_update_sec = last_recv_sec_ straight -- the library's fade
+// (SceneBuffer::staleness_alpha) then starts at 0.5s of silence and
+// completes at 1.0s (kStaleFadeStartSec/kStaleFadeTimeoutSec,
+// visual_renderer/src/renderer_internal.hpp:123-124; NOT "only 1.0s of
+// silence fades it," a claim this file and hd_map.hpp used to make and both
+// got wrong). Two real rows broke against that 0.5-1.0s window: a row
+// received at 1-2 Hz sawtoothed alpha 1.0->0.0 every receipt gap (last_recv_
+// sec_ frozen between receipts while sim_time keeps climbing), and a
+// publish-once/transient_local row (sim_profile.yaml's /sim/hd_map/markers,
+// one latched message, 3725 markers, the sim profile's ONLY full-extent map
+// source) faded to alpha 0 by +1.0s even though visualization_node.cpp
+// keeps calling fill() for it until its own timeout_sec cutoff (5.0s) --
+// "map never appears" for 4 of that row's 5 visible seconds.
+//
+// Fix: stamp the fade window into the LAST kMapFadeWindowSec before the
+// row's OWN timeout_sec cutoff, not kStaleFadeTimeoutSec after the last
+// receipt -- e.last_update_sec = last_recv_sec_ + (row_.timeout_sec -
+// kMapFadeWindowSec). A row received faster than roughly (timeout_sec -
+// kMapFadeWindowSec - kStaleFadeStartSec) apart stamps a last_update_sec
+// that stays in the future of "now" every tick, so staleness_alpha's age
+// stays negative and the row is continuously opaque (no sawtooth). A row
+// that stops receiving (or never receives again, the transient_local case)
+// freezes that same stamp, so the fade now plays out in the
+// kMapFadeWindowSec right before the node stops calling fill() -- an
+// opacity ramp into the cutoff (spec §5), not a pop, and not an early fade
+// while the node is still choosing to show the row.
+//
+// kMapFadeWindowSec mirrors the library's kStaleFadeTimeoutSec (renderer_
+// internal.hpp:124) on purpose -- that header is library-internal, not
+// reachable from node-side code, so this is a hand-kept copy: if that
+// constant ever moves, this one must move with it. profile.cpp's own
+// validation (row.timeout_sec >= 1.0) guarantees row_.timeout_sec -
+// kMapFadeWindowSec is never negative.
+constexpr double kMapFadeWindowSec = 1.0;
+
 // Resamples `pts` to exactly `n_stations` points, evenly spaced by
 // NORMALIZED arc length (station k is at s = k/(n_stations-1) * total arc
 // length) -- extracted from the pre-Epic3 dash-chopper's own point_at()
@@ -212,6 +248,14 @@ void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, doubl
         ++stats_.dropped_no_tf;
         return;  // whole message dropped; previously-stored elements stay
     }
+
+    // VM-034 review fix: stamp topic-liveness BEFORE the rate gate below,
+    // not after it. fill() stamps every MapElement::last_update_sec from
+    // this, not from last_rebuild_sec_/stats_.last_msg_sec (both set only
+    // past the gate) -- see hd_map.hpp's Staleness comment for why: a
+    // throttled row must stay opaque between accepted rebuilds as long as
+    // it keeps receiving, not blink dark on the rebuild cadence.
+    last_recv_sec_ = sim_time_sec;
 
     // Rate limit: gates REBUILDS, not receipt. First-ever call always
     // rebuilds (last_rebuild_sec_ starts at -1.0, "no prior rebuild").
@@ -386,6 +430,11 @@ void HdMapAdapter::fill(micropilot::visualization_app::SceneAssembly& out) const
             e.is_polygon = elem.is_polygon;
             e.kind = elem.kind;
             e.lane_id = elem.lane_id;
+            // VM-034 review fix: stamped from last_recv_sec_ (topic
+            // liveness), not stats_.last_msg_sec, offset into the last
+            // kMapFadeWindowSec of this row's own timeout_sec (see
+            // kMapFadeWindowSec's own comment above and hd_map.hpp).
+            e.last_update_sec = last_recv_sec_ + (row_.timeout_sec - kMapFadeWindowSec);
             if (e.kind == mpviz::MapKind::LEFT_BOUNDARY &&
                 IsRoadEdge(elem.lane_id, elem.points, right_by_lane))
             {
@@ -429,6 +478,10 @@ void HdMapAdapter::fill(micropilot::visualization_app::SceneAssembly& out) const
         e.is_polygon = 0;
         e.kind = mpviz::MapKind::ROAD_SURFACE;
         e.lane_id = lane_id;
+        // VM-034 review fix: same offset stamp as every other emitted
+        // element above -- the synthesized ROAD_SURFACE element must fade
+        // (and ramp-out-before-cutoff) too.
+        e.last_update_sec = last_recv_sec_ + (row_.timeout_sec - kMapFadeWindowSec);
         out.map_elements.push_back(e);
     }
 }
