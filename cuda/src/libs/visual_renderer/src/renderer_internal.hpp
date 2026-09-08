@@ -466,8 +466,25 @@ public:
         // width, since the vertex COUNT alone (2 per point) can't tell width
         // apart from any other rebuild -- it's width-independent.
         float halfWidthM = 0.0f;
+        // The first geometry point build_slot_meshes() actually used (user
+        // directive 2026-09-08, ego-proximity ribbon clip) -- ribbon.cpp's
+        // update_ribbons() may hand build_slot_meshes() a polyline
+        // TRUNCATED at an interpolated point rather than the raw
+        // PathRibbon::points[0], so this mirrors what was really built,
+        // same "not a Filament read-back" reasoning as halfWidthM just
+        // above. ribbon_test_hooks.hpp's ribbon_slot_first_point() reads it
+        // back to prove a clipped ribbon's geometry starts at the
+        // interpolated clip point, not pixel-diffing a golden.
+        Vec3 firstPointM{};
     };
     std::vector<RibbonSlot> ribbonSlots;
+    // Incremented once per slot rebuild (content, role, OR quantized
+    // ego-clip station changed) -- same "cache-miss counter" pattern as
+    // mapElementRebuildCount above (Epic 3 Task 1's precedent), used by
+    // Ribbon.ParkedEgoCausesZeroRibbonRebuilds (user directive 2026-09-08,
+    // ITEM 2) to prove a stationary ego causes NO rebuilds across many
+    // frames, not just "the pixels look the same".
+    uint64_t ribbonRebuildCount = 0;
 
     // Ground grids (Epic 2 Task 6 / VM-025): OGM occupancy grids as
     // theme-colored ground textures. groundGridMaterial is ground_grid.mat

@@ -44,12 +44,19 @@ TEST(RibbonGolden, ThreeRoles_DarkAdas) {
     mpviz::testing::RibbonScene ribbons = mpviz::testing::make_three_role_ribbons(/*now=*/10.0);
     mpviz::SceneGraph s{};
     s.sim_time_sec = 10.0;
-    s.ego = {{0, 0, 0}, 0.0, 0.0, /*valid=*/1};
+    // Ego (user directive 2026-09-08, ego-proximity ribbon clip): supplied
+    // by the scene builder itself now, positioned on the BEHAVIOR ribbon so
+    // this golden shows the clip -- see RibbonScene::ego's own comment.
+    s.ego = ribbons.ego;
     s.paths = ribbons.ribbons.data();
     s.path_count = static_cast<uint32_t>(ribbons.ribbons.size());
     mpviz::set_scene(r, s);
 
-    mpviz::CameraPose pose{{-14, -14, 10}, {0, 0, 0}, 60.0};
+    // Camera pulled in on the stacked corridor (2026-09-08: the scene
+    // changed from three spread-out ribbons to one stacked corridor -- see
+    // make_three_role_ribbons()'s own comment; the old {-14,-14,10} pose
+    // left the stack too small to judge the per-role rims).
+    mpviz::CameraPose pose{{-4, -8, 6}, {4, 1, 0}, 60.0};
     double ssim = mpviz::testing::render_and_compare(
         r, pose, MPVIZ_TEST_DATA_DIR "/tests/goldens/ribbons_three_roles_dark_adas.png",
         "/tmp/ribbons_three_roles_dark_adas_actual.png");
@@ -315,5 +322,205 @@ TEST(Ribbon, MaterialIsThemedOnFirstDataWithNoTransition) {
     EXPECT_NEAR(loc.r, theme->palette.ribbon_local.r, 1e-4);
     EXPECT_NEAR(loc.g, theme->palette.ribbon_local.g, 1e-4);
     EXPECT_NEAR(loc.b, theme->palette.ribbon_local.b, 1e-4);
+    mpviz::destroy_renderer(r);
+}
+
+// ── ITEM 3 (user directive 2026-09-08): "make it like lane fill (with
+//    margins...)" -- per-role effective width is the margin form now,
+//    evolved from ITEM 1's flat width_m ────────────────────────────────────
+
+TEST(Ribbon, MarginChangeRebuildsGeometry) {
+    // ribbon_margin_a.yaml/ribbon_margin_b.yaml are byte-for-byte identical
+    // except `ribbon.margin_local_m` (0.5 vs 1.0, lane_width_m 3.5 both) --
+    // width_m is untouched (absent, soft-defaults to 0.24) on both, so this
+    // proves the MARGIN fields themselves reach build_slot_meshes(), not
+    // just the legacy width_m seed WidthChangeRebuildsGeometry already
+    // covers.
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, fixtureDir.c_str(), "ribbon_margin_a"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    const mpviz::Vec3 pts[] = {{-5, 0, 0}, {-3, 0, 0}, {-1, 0, 0}, {1, 0, 0}, {3, 0, 0}};
+    mpviz::PathRibbon ribbon{};
+    ribbon.role = mpviz::PathRole::LOCAL;
+    ribbon.points = pts;
+    ribbon.point_count = 5;
+    ribbon.last_update_sec = 0.0;
+    mpviz::SceneGraph s{};
+    s.sim_time_sec = 0.0;
+    s.paths = &ribbon;
+    s.path_count = 1;
+    mpviz::set_scene(r, s);
+    mpviz::CameraPose pose{{0, -8, 6}, {0, 0, 0}, 60.0};
+    render_once(r, pose);
+    // (3.5 - 2*0.5) / 2 == 1.25
+    EXPECT_NEAR(mpviz::testing::ribbon_slot_half_width_m(r, 0), 1.25f, 1e-4f);
+    const size_t vertsBefore = mpviz::testing::ribbon_vertex_count(r, 0);
+
+    ASSERT_TRUE(mpviz::set_theme(r, "ribbon_margin_b", /*at_sec=*/0.0, /*transition_sec=*/0.2));
+    s.sim_time_sec = 0.2;
+    mpviz::set_scene(r, s);
+    render_once(r, pose);
+
+    // (3.5 - 2*1.0) / 2 == 0.75
+    EXPECT_NEAR(mpviz::testing::ribbon_slot_half_width_m(r, 0), 0.75f, 1e-4f)
+        << "a margin-only theme change (no PathRibbon point data touched) did not rebuild "
+           "slot 0's geometry at the new margin -- margins aren't part of the slot signature";
+    EXPECT_EQ(mpviz::testing::ribbon_vertex_count(r, 0), vertsBefore);
+    mpviz::destroy_renderer(r);
+}
+
+TEST(Ribbon, EffectiveHalfWidthClampsToTheHalfWidthFloor) {
+    // ribbon_margin_extreme.yaml: lane_width_m 3.5, margin_local_m 1.74 ->
+    // raw half-width (3.5 - 2*1.74) / 2 == 0.01, which must clamp UP to
+    // kRibbonMinHalfWidthM (0.12), not render a near-zero-width hairline.
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, fixtureDir.c_str(), "ribbon_margin_extreme"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    const mpviz::Vec3 pts[] = {{-5, 0, 0}, {5, 0, 0}};
+    mpviz::PathRibbon ribbon{};
+    ribbon.role = mpviz::PathRole::LOCAL;
+    ribbon.points = pts;
+    ribbon.point_count = 2;
+    mpviz::SceneGraph s{};
+    s.paths = &ribbon;
+    s.path_count = 1;
+    mpviz::set_scene(r, s);
+    mpviz::CameraPose pose{{0, -8, 6}, {0, 0, 0}, 60.0};
+    render_once(r, pose);
+    EXPECT_NEAR(mpviz::testing::ribbon_slot_half_width_m(r, 0), 0.12f, 1e-4f);
+    mpviz::destroy_renderer(r);
+}
+
+// ── ITEM 2 (user directive 2026-09-08): "ribbons are showing behind the
+//    ego vehicle... we should never render the part of the ribbon behind
+//    the ego" ─────────────────────────────────────────────────────────────
+
+TEST(Ribbon, ClipStartsAtInterpolatedPointWhenEgoIsMidRibbon) {
+    // A straight ribbon along +X; ego sits AT x=0 (exactly the midpoint,
+    // well within the proximity gate) -- the first half (x<0) is behind
+    // the ego and must not appear in the built geometry, which must start
+    // at an INTERPOLATED point (0,0,0), not snapped to the nearest original
+    // vertex.
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    const mpviz::Vec3 pts[] = {{-10, 0, 0}, {-5, 0, 0}, {5, 0, 0}, {10, 0, 0}};
+    mpviz::PathRibbon ribbon{};
+    ribbon.role = mpviz::PathRole::GLOBAL;
+    ribbon.points = pts;
+    ribbon.point_count = 4;
+    mpviz::SceneGraph s{};
+    s.ego = {{0, 0, 0}, 0.0, 0.0, /*valid=*/1};
+    s.paths = &ribbon;
+    s.path_count = 1;
+    mpviz::set_scene(r, s);
+    mpviz::CameraPose pose{{0, -8, 10}, {0, 0, 0}, 60.0};
+    render_once(r, pose);
+
+    mpviz::Vec3 firstPoint{};
+    ASSERT_TRUE(mpviz::testing::ribbon_slot_first_point(r, 0, &firstPoint));
+    EXPECT_NEAR(firstPoint.x, 0.0, 0.5) << "clip station should land near x=0, the ego's own "
+                                            "closest-approach point on the ribbon";
+    // 0.0, not -0.5 (review 2026-09-08): compute_ribbon_clip ceils the
+    // quantized station, so the cut is always AT or AHEAD of closest
+    // approach -- the directive's literal "never render behind the ego".
+    EXPECT_GE(firstPoint.x, 0.0) << "clipped geometry still starts behind the ego";
+    // Two whole surviving points (x=5,10) plus the interpolated cut -> 3
+    // surviving polyline points -> 6 extruded vertices, fewer than the
+    // unclipped 4*2=8.
+    EXPECT_LT(mpviz::testing::ribbon_vertex_count(r, 0), 4u * 2)
+        << "clip did not actually shrink the built geometry";
+    mpviz::destroy_renderer(r);
+}
+
+TEST(Ribbon, ProximityGateSkipsClipWhenEgoIsFarFromTheRibbon) {
+    // Same ribbon shape as the test above, but the ego sits 20m away
+    // laterally -- well outside kRibbonEgoClipLateralM (5.0m). A far-away
+    // GLOBAL route must render WHOLE, unclipped.
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    const mpviz::Vec3 pts[] = {{-10, 0, 0}, {-5, 0, 0}, {5, 0, 0}, {10, 0, 0}};
+    mpviz::PathRibbon ribbon{};
+    ribbon.role = mpviz::PathRole::GLOBAL;
+    ribbon.points = pts;
+    ribbon.point_count = 4;
+    mpviz::SceneGraph s{};
+    s.ego = {{0, 20, 0}, 0.0, 0.0, /*valid=*/1};  // 20m off to the side
+    s.paths = &ribbon;
+    s.path_count = 1;
+    mpviz::set_scene(r, s);
+    mpviz::CameraPose pose{{0, -8, 30}, {0, 0, 0}, 60.0};
+    render_once(r, pose);
+
+    EXPECT_EQ(mpviz::testing::ribbon_vertex_count(r, 0), 4u * 2)
+        << "a ribbon the ego is nowhere near must render whole, not clipped";
+    mpviz::destroy_renderer(r);
+}
+
+TEST(Ribbon, ClipAppliesOnlyWhenEgoIsValid) {
+    // Ego sits exactly on the ribbon (well within the gate) but
+    // ego.valid == 0 -- clip must NOT apply (directive: "Clip applies when
+    // ego.valid only").
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    const mpviz::Vec3 pts[] = {{-10, 0, 0}, {-5, 0, 0}, {5, 0, 0}, {10, 0, 0}};
+    mpviz::PathRibbon ribbon{};
+    ribbon.role = mpviz::PathRole::GLOBAL;
+    ribbon.points = pts;
+    ribbon.point_count = 4;
+    mpviz::SceneGraph s{};
+    s.ego = {{0, 0, 0}, 0.0, 0.0, /*valid=*/0};
+    s.paths = &ribbon;
+    s.path_count = 1;
+    mpviz::set_scene(r, s);
+    mpviz::CameraPose pose{{0, -8, 10}, {0, 0, 0}, 60.0};
+    render_once(r, pose);
+
+    EXPECT_EQ(mpviz::testing::ribbon_vertex_count(r, 0), 4u * 2)
+        << "an invalid ego must never clip a ribbon";
+    mpviz::destroy_renderer(r);
+}
+
+TEST(Ribbon, ParkedEgoCausesZeroRibbonRebuilds) {
+    // A stationary ego re-clipped every frame against unchanged ribbon
+    // points must land on the SAME quantized clip station every time --
+    // discipline: "a parked ego causes ZERO rebuilds" (user directive
+    // 2026-09-08). Checked via the rebuild-count hook across N frames, not
+    // pixel-diffing.
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    const mpviz::Vec3 pts[] = {{-10, 0, 0}, {-5, 0, 0}, {5, 0, 0}, {10, 0, 0}};
+    mpviz::PathRibbon ribbon{};
+    ribbon.role = mpviz::PathRole::GLOBAL;
+    ribbon.points = pts;
+    ribbon.point_count = 4;
+    mpviz::SceneGraph s{};
+    s.ego = {{0, 0, 0}, 0.0, 0.0, /*valid=*/1};
+    s.paths = &ribbon;
+    s.path_count = 1;
+    mpviz::CameraPose pose{{0, -8, 10}, {0, 0, 0}, 60.0};
+
+    mpviz::set_scene(r, s);
+    render_once(r, pose);
+    const uint64_t afterFirst = mpviz::testing::ribbon_rebuild_count(r);
+    EXPECT_GT(afterFirst, 0u);
+
+    for (int i = 0; i < 10; ++i) {
+        mpviz::set_scene(r, s);  // identical content + identical parked ego, every frame
+        render_once(r, pose);
+    }
+    EXPECT_EQ(mpviz::testing::ribbon_rebuild_count(r), afterFirst)
+        << "a parked ego re-triggered rebuilds -- the quantized clip station isn't stable";
     mpviz::destroy_renderer(r);
 }

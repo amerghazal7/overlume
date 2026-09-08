@@ -82,10 +82,15 @@ std::vector<std::pair<uint32_t, uint32_t>> polyline_chunks(uint32_t n);
 // decision #2 fixes its n==4 guard to actually fire on real recorded
 // geometry). Painted bars with ground visible in the gaps between them --
 // the visual differentiation IS the geometry, not a second material.
-// Bilinear-interpolated stripes between the quad's two SHORT edges (a
-// general convex-polygon clip was skipped as unneeded complexity -- see
-// map_elements.cpp's own ponytail note). Returns empty for n != 4; the
-// caller falls back to triangulate_convex_polygon()'s plain fan fill.
+// Bilinear-interpolated stripes between the quad's two LONG edges, so each
+// bar's long axis runs along the quad's SHORT (travel) axis and bars stack
+// across the crossing width (user directive 2026-09-08: the previous
+// SHORT-edge rail choice rendered horizontal ladder rungs instead of a real
+// zebra pattern; stripe count is now pitch-derived, not fixed -- see
+// map_elements.cpp's own ponytail note). A general convex-polygon clip was
+// skipped as unneeded complexity -- see the same note. Returns empty for
+// n != 4; the caller falls back to triangulate_convex_polygon()'s plain fan
+// fill.
 // Declared here (not map_elements.hpp, which pulls in Filament) so it's
 // reachable from Filament-free tests, same reasoning as every function
 // above it in this header.

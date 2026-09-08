@@ -12,8 +12,12 @@ palette:
   # lane_boundary/crosswalk (both soft-default to this) -- boundaries dash
   # white per ref-1, centerline gets its own yellow below.
   lane_paint:  [0.85, 0.85, 0.88]
-  ribbon_core: [0.10, 1.00, 0.40]
-  ribbon_glow: [0.10, 1.00, 0.40]
+  # ribbon_core/ribbon_glow (user directive 2026-09-08: "I hate the glowing
+  # colors, use normal cold green"): was neon [0.10, 1.00, 0.40] driven to
+  # bloom by emissive.ribbon_strength 4.0 -- now a normal cold (blue-leaning)
+  # green with the emissive glow killed below.
+  ribbon_core: [0.12, 0.55, 0.42]
+  ribbon_glow: [0.12, 0.55, 0.42]
   # ribbon_global/ribbon_local (user directive 2026-08-20, ITEM 1): GLOBAL
   # (a coarse route/plan overlay) blue-ish, LOCAL (the near-field planned
   # path) amber -- both distinct from the green BEHAVIOR/hero ribbon above
@@ -55,7 +59,10 @@ palette:
     warning: [1.0, 0.7, 0.1]
     critical: [1.0, 0.15, 0.1]
 material: { roughness: 0.85, metallic: 0.0 }
-emissive: { ribbon_strength: 4.0 }
+# emissive.ribbon_strength 4.0 -> 0.0 (user directive 2026-09-08: "I hate the
+# glowing colors") -- the hero ribbon no longer blooms; ribbon_emissive.mat
+# still carries the alpha-fade path, it just stops feeding the bloom pass.
+emissive: { ribbon_strength: 0.0 }
 grid: { line_color: [0.12, 0.14, 0.18], fade_start_m: 15.0, fade_end_m: 40.0 }
 hud: { text_color: [0.9, 0.95, 1.0], accent_color: [0.10, 1.0, 0.4], scale: 1.0 }
 sun: { direction: [-0.5, -0.3, -1.0], color: [0.55, 0.6, 0.75], intensity: 480000.0 }
@@ -80,8 +87,17 @@ ibl:  # analytic 2-band hemisphere gradient — NOT raw SH coefficients
 # it. 0.10 (round 5) had measurably erased grid/object legibility at Task
 # 4's ego-mesh distances -- see renderer.cpp for the full history.
 fog: { density: 0.015 }
-# ribbon.width_m (user directive 2026-08-20, ITEM 1): the extruded strip's
-# FULL width -- 0.24 is the pre-existing hard-coded value (2*kRibbonHalfWidthM,
-# ribbon.cpp), authored explicitly here so both shipped themes state it
-# rather than relying on theme.cpp's soft-default silently supplying it.
-ribbon: { width_m: 0.24 }
+# ribbon (user directive 2026-09-08, ITEM 3: lane-fill margins) -- "make it
+# like lane fill (with margins so it doesn't fully fill), configurable
+# margin... behaviour to allow stacking them on each other while still the
+# below ribbon still visible". The old width_m key is DROPPED here (theme.cpp
+# still parses it as the soft-default SEED for the margins below, so any
+# YAML that still has it keeps working) -- both shipped themes now author
+# the fill look directly: lane_width_m 3.5m; margins GLOBAL 0.3 (widest,
+# bottom of the existing z-stagger), LOCAL 0.8, BEHAVIOR 1.3 (narrowest, on
+# top) -- each lower-z-lifted ribbon peeks out as a colored rim around the
+# narrower one stacked above it. Widened from 0.2/0.5/0.8 (user directive
+# 2026-09-08: "make the margins bit bigger by default I can't clearly see
+# the 3 ribbons stacked when I play the bag") -- each rim is now 0.5m per
+# side instead of 0.3m.
+ribbon: { lane_width_m: 3.5, margin_behavior_m: 1.3, margin_global_m: 0.3, margin_local_m: 0.8 }

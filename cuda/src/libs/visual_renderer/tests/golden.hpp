@@ -79,6 +79,13 @@ ObjectScene make_mixed_class_objects(double now);
 struct RibbonScene {
     std::vector<mpviz::Vec3> point_storage;
     std::vector<mpviz::PathRibbon> ribbons;
+    // Ego pose make_three_role_ribbons() positions ON the BEHAVIOR ribbon
+    // (user directive 2026-09-08: re-shoot ribbons_three_roles_dark_adas
+    // with "an ego mid-ribbon in the scene so the clip is visible in the
+    // golden") -- an explicit field here, not left implicit in the test's
+    // own SceneGraph setup, so the scene builder itself documents WHY the
+    // ego sits where it does.
+    mpviz::EgoState ego{};
 
     RibbonScene() = default;
     RibbonScene(const RibbonScene&) = delete;

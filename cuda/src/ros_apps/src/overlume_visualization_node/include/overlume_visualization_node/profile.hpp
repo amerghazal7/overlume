@@ -59,6 +59,22 @@ struct ProfileRow
 
     bool transient_local{false}; // optional; latched publishers (/sim/hd_map/markers)
     bool best_effort{false};     // optional; BEST_EFFORT publishers (/sim/ground_truth/boxes)
+
+    // Junction-cleanup directive (2026-09-08): adapter: hd_map rows only
+    // (ParseRow rejects it elsewhere). true (default, matches every shipped
+    // profile): LEFT_/RIGHT_BOUNDARY elements render through a JUNCTION
+    // polygon untouched -- they're the interior lane-separator guidance the
+    // directive's own refinement asked to keep visible by default. false:
+    // HdMapAdapter::fill() drops a boundary element's segments that fall
+    // inside a JUNCTION polygon, the same clip ROAD_EDGE always gets.
+    // KNOWN LIMITATION, stated honestly: this flag is INERT when the row's
+    // own message carries no JUNCTION-kind elements (the urban local/global
+    // feed never does -- see hd_map.cpp) -- there is no polygon to clip
+    // against, so a boundary crossing another lane's connector inside an
+    // unmapped junction keeps rendering uncut even with this set to false.
+    // Never applies the mutual-crossing cut (ROAD_EDGE-only) -- interior
+    // separators legitimately cross connector geometry.
+    bool junction_interior_boundaries{true};
 };
 
 struct Profile

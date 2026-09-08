@@ -113,9 +113,36 @@ Theme parse(const YAML::Node& root) {
     // ribbon.width_m (user directive 2026-08-20, ITEM 1): the whole `ribbon:`
     // section, and width_m within it, are OPTIONAL -- soft-defaulted to
     // Theme::Ribbon's own 0.24 default (theme.hpp), same convention as
-    // palette.ego/ribbon_global/ribbon_local above.
+    // palette.ego/ribbon_global/ribbon_local above. Kept exactly as before;
+    // no longer read directly by ribbon.cpp's geometry (see below).
     const YAML::Node ribbon = root["ribbon"];
     t.ribbon.width_m = (ribbon && ribbon["width_m"]) ? ribbon["width_m"].as<float>() : 0.24f;
+
+    // lane_width_m/margin_{behavior,global,local}_m (user directive
+    // 2026-09-08, ITEM 3: lane-fill margins) -- same soft-default
+    // convention. lane_width_m defaults to 3.5m (Theme::Ribbon's own
+    // default); each margin defaults to (lane_width_m - width_m) / 2, using
+    // whatever lane_width_m/width_m THIS theme actually parsed to above --
+    // that formula is what makes a pre-existing YAML (only `ribbon.width_m`
+    // set, or no `ribbon:` section at all) reproduce today's strip width to
+    // within ONE FLOAT ULP -- not byte-for-byte: the margin round-trip
+    // (lane_width_m - 2*((lane_width_m - width_m)/2)) / 2 computes to
+    // 0x3df5c290 (0.1200000048f) where the old width_m * 0.5f was
+    // 0x3df5c28f (0.1199999973f). 7.5e-9 m is visually nothing, but do NOT
+    // add an exact-equality assertion expecting these to match (review
+    // 2026-09-08); tests use EXPECT_NEAR. Neither shipped theme
+    // relies on this default (both author explicit lane_width_m/margins,
+    // per user directive 2026-09-08); it exists for a third-party theme
+    // file predating this directive, same reasoning as every soft-default
+    // above.
+    t.ribbon.lane_width_m = (ribbon && ribbon["lane_width_m"]) ? ribbon["lane_width_m"].as<float>() : 3.5f;
+    const float marginDefault = (t.ribbon.lane_width_m - t.ribbon.width_m) / 2.0f;
+    t.ribbon.margin_behavior_m =
+        (ribbon && ribbon["margin_behavior_m"]) ? ribbon["margin_behavior_m"].as<float>() : marginDefault;
+    t.ribbon.margin_global_m =
+        (ribbon && ribbon["margin_global_m"]) ? ribbon["margin_global_m"].as<float>() : marginDefault;
+    t.ribbon.margin_local_m =
+        (ribbon && ribbon["margin_local_m"]) ? ribbon["margin_local_m"].as<float>() : marginDefault;
 
     return t;
 }
@@ -149,8 +176,11 @@ const Theme& kFallbackTheme() {
         // a, review-verified: was mid-gray [0.45,0.5,0.55]) -- must match
         // dark_adas.yaml exactly (ThemeLoad.BuiltinFallbackMatchesDarkAdasYaml).
         t.palette.lane_paint = {0.85f, 0.85f, 0.88f};
-        t.palette.ribbon_core = {0.10f, 1.00f, 0.40f};
-        t.palette.ribbon_glow = {0.10f, 1.00f, 0.40f};
+        // Cold green, glow killed (user directive 2026-09-08: "I hate the
+        // glowing colors, use normal cold green") -- was neon {0.10, 1.00,
+        // 0.40} + ribbon_strength 4.0.
+        t.palette.ribbon_core = {0.12f, 0.55f, 0.42f};
+        t.palette.ribbon_glow = {0.12f, 0.55f, 0.42f};
         // Cross-theme swap (user directive 2026-08-20): light_clay's ground
         // color, same value dark_adas.yaml's `ego` key authors on disk --
         // see this struct's own header comment in theme.hpp.
@@ -186,7 +216,7 @@ const Theme& kFallbackTheme() {
         t.palette.alert.critical = {1.0f, 0.15f, 0.1f};
         t.material.roughness = 0.85f;
         t.material.metallic = 0.0f;
-        t.emissive.ribbon_strength = 4.0f;
+        t.emissive.ribbon_strength = 0.0f;  // glow killed 2026-09-08, matches dark_adas.yaml
         t.grid.line_color = {0.12f, 0.14f, 0.18f};
         t.grid.fade_start_m = 15.0f;
         t.grid.fade_end_m = 40.0f;
@@ -200,7 +230,19 @@ const Theme& kFallbackTheme() {
         t.ibl.ground_color = {0.02f, 0.02f, 0.03f};
         t.ibl.intensity = 256000.0f;
         t.fog.density = 0.015f;
+        // ribbon (user directive 2026-09-08, ITEM 3: lane-fill margins) --
+        // width_m is no longer authored on disk (dark_adas.yaml drops the
+        // key, see its own comment) so it parses via the soft-default seed
+        // (0.24); lane_width_m/margins are explicit, matching
+        // dark_adas.yaml exactly (ThemeLoad.BuiltinFallbackMatchesDarkAdasYaml).
         t.ribbon.width_m = 0.24f;
+        t.ribbon.lane_width_m = 3.5f;
+        // Widened 0.2/0.5/0.8 -> 0.3/0.8/1.3 (user directive 2026-09-08:
+        // "make the margins bit bigger by default I can't clearly see the 3
+        // ribbons stacked when I play the bag") -- 0.5m rim per side.
+        t.ribbon.margin_behavior_m = 1.3f;  // narrowest -- top of the z-stagger, the hero ribbon
+        t.ribbon.margin_global_m = 0.3f;    // widest -- bottom of the z-stagger
+        t.ribbon.margin_local_m = 0.8f;
         return t;
     }();
     return theme;

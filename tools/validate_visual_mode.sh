@@ -91,6 +91,48 @@
 #               -- it only rules out "the diagnostics publisher is silent,"
 #               not the render_ms/staleness VALUES (that needs mode 3 active
 #               and a human looking at the GUI panel or the topic echo).
+#   2026-09-08  User directive (live-render review, 3 items): (1) crosswalk
+#               hatch bars now run ALONG the direction of travel and stack
+#               ACROSS the crossing width (was: rotated 90 degrees --
+#               "horizontal lines instead of vertical"), with a pitch-derived
+#               stripe count instead of a fixed 5. (2) path ribbons
+#               (BEHAVIOR/GLOBAL/LOCAL) now CLIP to the ego's closest-approach
+#               point and render only forward of it, when the ego is within
+#               5m of the route -- a route the ego is far from (e.g. the
+#               whole GLOBAL destination path) still renders whole. (3)
+#               ribbons now draw as a lane FILL with per-role margins instead
+#               of a flat stripe: BEHAVIOR (top) is narrowest, LOCAL middle,
+#               GLOBAL (bottom) widest, so a lower ribbon's own color peeks
+#               out as a rim around whichever is stacked above it. No new
+#               topic/param this round -- same /hd_map_local_elements and
+#               path-topic rate checks already cover the inputs these fixes
+#               depend on; nothing new to sample.
+#   2026-09-08  User directive (ribbons-candidate review): hero ribbon glow
+#               KILLED in both themes (emissive.ribbon_strength -> 0.0) and
+#               dark_adas's hero color is now a cold green (was neon green);
+#               default lane-fill margins widened (0.3/0.8/1.3 for
+#               GLOBAL/LOCAL/BEHAVIOR) so each stacked ribbon shows a 0.5m
+#               rim per side. Theme-only change; nothing new to sample.
+#   2026-09-08  User directive (junction-interior cleanup): ROAD_EDGE lines
+#               crisscrossing a road junction ("so messy... it would be much
+#               nicer if we cut them off... and continue along the road after
+#               the junction") are now CUT at the junction -- clipped against
+#               a MapKind::JUNCTION polygon where the feed has one
+#               (/sim/hd_map/markers), and/or trimmed back 2.0 m either side
+#               of any two ROAD_EDGE lines' own 2D crossing point everywhere
+#               else (covers urban's local/global feed, which has no junction
+#               geometry at all). Interior LEFT_/RIGHT_BOUNDARY dashed
+#               separators are NEVER cut this way and stay visible through a
+#               junction by default (refinement: "only allow the lanes
+#               separating dashed lines... enable them by default") -- new
+#               profile row key `junction_interior_boundaries: false` drops
+#               them there too, on a row with junction polygon data. No new
+#               topic/param -- same /hd_map_local_elements rate check already
+#               covers the one input this depends on. Visually checkable in
+#               mode 3: yellow ROAD_EDGE lines no longer run through the
+#               middle of a junction box: they stop, the interior reads as
+#               dashed white separators only (or clean at the drop-flag), and
+#               the outer edges resume past it.
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its

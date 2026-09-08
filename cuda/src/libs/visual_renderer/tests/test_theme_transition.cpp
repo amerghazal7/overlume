@@ -317,6 +317,10 @@ mpviz::detail::Theme MakeSentinelTheme(float scalar, const std::string& name) {
     t.ibl.intensity = scalar;
     t.fog.density = scalar;
     t.ribbon.width_m = scalar;
+    t.ribbon.lane_width_m = scalar;
+    t.ribbon.margin_behavior_m = scalar;
+    t.ribbon.margin_global_m = scalar;
+    t.ribbon.margin_local_m = scalar;
     return t;
 }
 
@@ -391,6 +395,10 @@ TEST(ThemeTransition, SentinelThemesDetectAnyUnblendedField) {
     ExpectBetweenSentinels(mid.ibl.intensity, "ibl.intensity");
     ExpectBetweenSentinels(mid.fog.density, "fog.density");
     ExpectBetweenSentinels(mid.ribbon.width_m, "ribbon.width_m");
+    ExpectBetweenSentinels(mid.ribbon.lane_width_m, "ribbon.lane_width_m");
+    ExpectBetweenSentinels(mid.ribbon.margin_behavior_m, "ribbon.margin_behavior_m");
+    ExpectBetweenSentinels(mid.ribbon.margin_global_m, "ribbon.margin_global_m");
+    ExpectBetweenSentinels(mid.ribbon.margin_local_m, "ribbon.margin_local_m");
 }
 
 TEST(ThemeTransition, UnknownThemeName_ReturnsFalseAndLeavesActiveThemeUnchanged) {

@@ -216,6 +216,17 @@ rows:
   # (d) centerline_ is dropped (user directive 2026-09-08): hidden by
   #     default on this row too -- same rationale/re-enable steps as
   #     urban_profile.yaml's matching comment.
+  #
+  # Junction cleanup (user directive 2026-09-08 + same-day refinement): this
+  # is the one row anywhere that DOES carry `junction`-namespace geometry
+  # (9 markers, closed-ring boxes -- see the namespace count above), so both
+  # cut mechanisms are live here: ROAD_EDGE polylines get clipped at a
+  # JUNCTION polygon's boundary (stopping/resuming, not just trimmed by a
+  # fixed back-off) AND get the mutual-crossing cut for anything the
+  # polygon clip doesn't cover. `junction_interior_boundaries` (row key,
+  # default true, not written) keeps interior LEFT_/RIGHT_BOUNDARY dashed
+  # separators visible through a junction box -- set it to false to drop
+  # their in-box segments too.
   - {topic: /sim/hd_map/markers, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, transient_local: true,
      ns_default: drop,

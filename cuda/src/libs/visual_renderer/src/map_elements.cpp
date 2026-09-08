@@ -86,11 +86,27 @@ std::vector<Vertex> to_verts(const std::vector<Vec3>& positions) {
 // map_elements.hpp, per Epic 3 Task 1 (VM-036) Step 2: reachable from
 // Filament-free tests the same way extrude_polyline/triangulate_convex_
 // polygon already are.
-// ponytail: bilinear-interpolated stripes between the quad's two SHORT
+// ponytail: bilinear-interpolated stripes between the quad's two LONG
 // edges, not a general convex-polygon clip -- guaranteed to stay inside a
 // convex quad (the only shape this epic's recorded data produces) with far
 // less code than Sutherland-Hodgman; upgrade if a skewed/non-quad crosswalk
 // ever shows a stripe spilling outside its polygon in a golden.
+//
+// User directive 2026-09-08: "crosswalk is rendered wrongly! it's
+// horizontal lines instead of vertical!" -- root cause was picking the
+// quad's SHORT-edge pair as the two rails, which sweeps each bar's LONG
+// axis across the quad's own LONG axis (road width) while stacking bars
+// along the SHORT axis (direction of travel): ladder rungs across the
+// road, the wrong way round. FIX: rails = the LONG-edge pair instead, so
+// each bar's long axis runs along the SHORT (travel) axis and bars stack
+// across the LONG axis (crossing width) -- real zebra orientation. Stripe
+// count is now pitch-derived (kCrosswalkStripePitchM) rather than a fixed
+// 5 -- a fixed count would render absurdly fat bars once a wide crossing
+// is oriented correctly.
+constexpr double kCrosswalkStripePitchM = 1.2;  // target bar+gap pitch along the long axis
+constexpr int kCrosswalkStripesMin = 3;
+constexpr int kCrosswalkStripesMax = 24;
+
 std::vector<Vec3> detail::build_crosswalk_hatch(const Vec3* pts, uint32_t n, float z_lift) {
     std::vector<Vec3> tris;
     if (n != 4) return tris;
@@ -101,21 +117,27 @@ std::vector<Vec3> detail::build_crosswalk_hatch(const Vec3* pts, uint32_t n, flo
     };
     const double lenA = edge_len(0, 1) + edge_len(2, 3);
     const double lenB = edge_len(1, 2) + edge_len(3, 0);
-    // rail0/rail1: the pair of SHORT edges -- lerping along them sweeps
-    // stripes across the polygon's long axis.
+    // rail0/rail1: the pair of LONG edges -- lerping along them sweeps
+    // bars across the polygon's SHORT (travel) axis, stacking them along
+    // the LONG (crossing-width) axis.
     Vec3 r0a, r0b, r1a, r1b;
+    double longAxisLen;
     if (lenA >= lenB) {
-        r0a = pts[1];
-        r0b = pts[2];
-        r1a = pts[0];
-        r1b = pts[3];
-    } else {
         r0a = pts[0];
         r0b = pts[1];
         r1a = pts[3];
         r1b = pts[2];
+        longAxisLen = lenA / 2.0;
+    } else {
+        r0a = pts[1];
+        r0b = pts[2];
+        r1a = pts[0];
+        r1b = pts[3];
+        longAxisLen = lenB / 2.0;
     }
-    constexpr int kStripes = 5;
+    const int kStripes = std::clamp(
+        static_cast<int>(std::lround(longAxisLen / kCrosswalkStripePitchM)), kCrosswalkStripesMin,
+        kCrosswalkStripesMax);
     auto lerp = [](const Vec3& a, const Vec3& b, double t) {
         return Vec3{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t};
     };

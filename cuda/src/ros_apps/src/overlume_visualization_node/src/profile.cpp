@@ -90,7 +90,7 @@ const std::set<std::string>& KnownRowKeys()
     static const std::set<std::string> kKeys = {
         "topic",     "type",       "adapter",         "role",     "update_topic",
         "timeout_sec", "max_rate_hz", "namespaces",    "ns_default", "transient_local",
-        "best_effort"};
+        "best_effort", "junction_interior_boundaries"};
     return kKeys;
 }
 
@@ -129,6 +129,24 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
     out.max_rate_hz = node["max_rate_hz"] ? node["max_rate_hz"].as<double>() : 0.0;
     out.transient_local = node["transient_local"] ? node["transient_local"].as<bool>() : false;
     out.best_effort = node["best_effort"] ? node["best_effort"].as<bool>() : false;
+
+    // Junction-cleanup directive (2026-09-08): adapter: hd_map only -- the
+    // key's presence is what's restricted (not its value: an explicit
+    // `true` on a non-hd_map row is still meaningless and still rejected,
+    // same "typo'd key" concern update_topic's own hard adapter check
+    // guards against elsewhere). Checked here, not deferred to ValidateRow,
+    // because ValidateRow only sees the parsed bool -- it can't tell
+    // "explicitly true" from "left at its true default" -- and `out.adapter`
+    // is already parsed above by the time this key is read.
+    if (node["junction_interior_boundaries"]) {
+        if (out.adapter != "hd_map") {
+            errors.push_back(RowTag(file, idx, out.topic) +
+                              "junction_interior_boundaries is only valid on adapter: hd_map rows");
+            ok = false;
+        } else {
+            out.junction_interior_boundaries = node["junction_interior_boundaries"].as<bool>();
+        }
+    }
 
     const std::string ns_default_str = get_str("ns_default", "polyline");
     if (auto r = ParseNsRender(ns_default_str)) {
