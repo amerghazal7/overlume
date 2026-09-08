@@ -124,15 +124,32 @@ struct Theme {
         float density = 0.0f;
     } fog;
 
-    // Ribbon geometry config (user directive 2026-08-20, ITEM 1): width_m is
-    // the extruded strip's FULL width (not half-width) -- SOFT-DEFAULTED
-    // (theme.cpp's parse(), same convention as palette.ego/ribbon_global/
-    // ribbon_local above) to 0.24, i.e. 2*kRibbonHalfWidthM, the constant
-    // ribbon.cpp used to hard-code before this field existed -- a theme file
-    // missing the whole `ribbon:` section (or just `width_m` in it) parses
-    // unchanged, reproducing today's look exactly.
+    // Ribbon geometry config. width_m (user directive 2026-08-20, ITEM 1)
+    // was the extruded strip's FULL width (not half-width), read directly
+    // by ribbon.cpp -- SOFT-DEFAULTED (theme.cpp's parse(), same convention
+    // as palette.ego/ribbon_global/ribbon_local above) to 0.24, i.e.
+    // 2*kRibbonHalfWidthM, the constant ribbon.cpp used to hard-code before
+    // this field existed.
+    //
+    // lane_width_m/margin_{behavior,global,local}_m (user directive
+    // 2026-09-08, ITEM 3): "make it like lane fill (with margins so it
+    // doesn't fully fill)". A ribbon no longer draws at a flat width_m --
+    // each role now extrudes at (lane_width_m - 2*margin_role)/2 half-width
+    // (clamped to today's 0.12m floor, ribbon.cpp's kRibbonMinHalfWidthM),
+    // so a lower ribbon peeks out as a colored rim around a narrower one
+    // stacked above it (the existing per-role z-stagger). width_m is KEPT,
+    // parsed exactly as before, but is no longer read by ribbon.cpp's
+    // geometry directly -- it now serves only as the soft-default SEED for
+    // the three margin fields below (theme.cpp's parse() states the exact
+    // arithmetic), so a theme YAML that predates this directive and only
+    // sets width_m reproduces an IDENTICAL rendered strip, not merely a
+    // similar one.
     struct Ribbon {
         float width_m = 0.24f;
+        float lane_width_m = 3.5f;
+        float margin_behavior_m = 1.63f;  // (lane_width_m - width_m) / 2 default -- see theme.cpp
+        float margin_global_m = 1.63f;
+        float margin_local_m = 1.63f;
     } ribbon;
 };
 

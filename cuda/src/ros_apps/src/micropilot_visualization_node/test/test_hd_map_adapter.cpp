@@ -68,11 +68,41 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks)
     //     lane/crosswalk elements + 16 ROAD_SURFACE = 58 total.
     // (2) Road-edge detection (IsRoadEdge()/hd_map.cpp) reclassifies some
     //     LEFT_BOUNDARY/RIGHT_BOUNDARY elements to ROAD_EDGE in place --
-    //     the TOTAL count is unaffected (same 32 boundary elements, just
-    //     re-labeled), so 58 stays 58; see the kind-split assertions below
-    //     for the actual per-kind counts, measured against this fixture's
-    //     real geometry (not guessed).
-    EXPECT_EQ(out.map_elements.size(), 58u);
+    //     the TOTAL count would otherwise be unaffected (same 32 boundary
+    //     elements, just re-labeled), so 58 stayed 58 as of that directive.
+    //
+    // Junction-cleanup directive 2026-09-08 (round 4) -- a THIRD change,
+    // MEASURED, not guessed, and CORRECTED by a code-review finding (blocking):
+    // the original version of this comment claimed all 24 raw
+    // SegSegIntersect2D detections on this fixture were near "a real road
+    // edge never legitimately crosses another, so this only ever fires
+    // inside a junction" -- false. Re-classifying each of the 24: 21 are
+    // shared-endpoint abutments between chained lanelet boundaries (outgoing
+    // angle 175.2-179.8 deg -- one continuous straight line through the
+    // node -- or 0.5-2.8 deg -- two rails leaving the same node
+    // codirectionally, duplicate surveys of the same rail), not crossings at
+    // all. SegSegIntersect2D now rejects near-parallel AND near-antiparallel
+    // segment pairs (see its own comment) instead of only exactly-parallel
+    // ones, and with that fix only ONE of the 24 raw detections survives as
+    // an accepted crossing: lanes 792 and 685, crossing at (-40.36,-21.90)
+    // (the review's other two candidate "interior" locations,
+    // (-46.95,49.99) and (-53.50,-2.95), are themselves near-parallel by
+    // angle even though neither t nor u sits at exactly 0/1 -- a chained
+    // polyline can carry an extra sample point near a node, so "not an exact
+    // endpoint" doesn't imply "not a survey kink"; both are correctly
+    // rejected too). That one crossing lands in the interior of BOTH edges
+    // with enough clearance either side, so both split into 2 pieces (a
+    // 2.0 m back-off gap around (-40.36,-21.90)), for +2 ROAD_EDGE elements:
+    // 15 -> 17. Every other promoted ROAD_EDGE element now renders at its
+    // full original length -- no more silent endpoint trimming from
+    // near-collinear "crossings". LEFT_BOUNDARY/RIGHT_BOUNDARY counts are
+    // untouched (the cut never applies to boundaries) and this fixture's
+    // window carries no JUNCTION-kind geometry at all (verified:
+    // urban_profile.yaml has no `junction` namespace rule on either hd_map
+    // row), so the polygon-clip mechanism is the no-op here -- this count
+    // moved by the crossing-cut alone.
+    // 58 + 2 = 60.
+    EXPECT_EQ(out.map_elements.size(), 60u);
     // is_polygon comes from the row's namespace rules (crosswalk_ ->
     // polygon) and from NOTHING else -- on the wire every hd_map marker in
     // this fixture is a LINE_STRIP.
@@ -108,8 +138,14 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks)
     // have no coincident opposite-side twin and promote to ROAD_EDGE (9
     // stay LEFT_BOUNDARY, 8 stay RIGHT_BOUNDARY); lane 934 is the one lane
     // fully interior on both sides (paired left AND right) and contributes
-    // no ROAD_EDGE. 9 + 8 + 15 == 32, the original boundary total --
-    // promotion re-labels, it never drops or duplicates an element.
+    // no ROAD_EDGE. left/right/promoted-before-cutting still sums to 32,
+    // the original boundary total -- promotion re-labels, it never drops or
+    // duplicates an element. The junction-cleanup mutual-crossing cut then
+    // splits 2 of those 15 ROAD_EDGE elements (lanes 792/685, the one
+    // genuine crossing measured above) into 2 pieces each, so the ELEMENT
+    // count carrying kind==ROAD_EDGE is 17, not 15 -- left_count/right_count
+    // are untouched (boundaries never get the crossing cut), so the
+    // three-way sum is 32 + 2 == 34, not 32.
     const auto left_count = std::count_if(
         out.map_elements.begin(), out.map_elements.end(),
         [](const mpviz::MapElement& m) { return m.kind == mpviz::MapKind::LEFT_BOUNDARY; });
@@ -121,8 +157,8 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks)
         [](const mpviz::MapElement& m) { return m.kind == mpviz::MapKind::ROAD_EDGE; });
     EXPECT_EQ(left_count, 9);
     EXPECT_EQ(right_count, 8);
-    EXPECT_EQ(road_edge_count, 15);
-    EXPECT_EQ(left_count + right_count + road_edge_count, 32);
+    EXPECT_EQ(road_edge_count, 17);
+    EXPECT_EQ(left_count + right_count + road_edge_count, 34);
     // Lane 934 is the measured fully-interior exemplar: both its boundaries
     // stay LEFT_BOUNDARY/RIGHT_BOUNDARY, never ROAD_EDGE.
     for (const auto& e : out.map_elements)
@@ -683,6 +719,50 @@ visualization_msgs::msg::Marker RailMarker(const char* ns, int32_t id, double x)
     return m;
 }
 
+// Same shape as MapRuleRow() but adds a `junction` namespace rule (kind:
+// junction) for the junction-cleanup tests below (user directive
+// 2026-09-08) -- optionally with `junction_interior_boundaries: false` set
+// at row level (default true, matching every shipped profile).
+mpviz_node::ProfileRow JunctionRuleRow(bool junction_interior_boundaries = true)
+{
+    std::vector<std::string> errs;
+    std::string yaml =
+        "name: t\nrows:\n  - {topic: /hd_map, type: visualization_msgs/msg/MarkerArray,"
+        " adapter: hd_map, role: lane, ns_default: drop, ";
+    if (!junction_interior_boundaries) yaml += "junction_interior_boundaries: false, ";
+    yaml +=
+        "namespaces:"
+        " [{prefix: left_boundary_,  render: polyline, kind: left_boundary},"
+        "  {prefix: right_boundary_, render: polyline, kind: right_boundary},"
+        "  {prefix: junction,        render: polyline, kind: junction}]}\n";
+    auto p = mpviz_node::load_profile_string(yaml, errs);
+    if (!p) throw std::runtime_error("JunctionRuleRow: profile failed to parse: " +
+                                      (errs.empty() ? "" : errs[0]));
+    return p->rows[0];
+}
+
+// A LINE_STRIP marker with explicit (x,y) points (z=0), full control over
+// point spacing -- the junction-cleanup tests below need vertices that
+// straddle a polygon/crossing boundary without landing exactly on it.
+visualization_msgs::msg::Marker LineMarker(const char* ns, int32_t id,
+                                            const std::vector<std::pair<double, double>>& xy)
+{
+    visualization_msgs::msg::Marker m;
+    m.header.frame_id = "map";
+    m.ns = ns;
+    m.id = id;
+    m.type = 4;
+    m.action = 0;
+    for (const auto& [x, y] : xy)
+    {
+        geometry_msgs::msg::Point p;
+        p.x = x;
+        p.y = y;
+        m.points.push_back(p);
+    }
+    return m;
+}
+
 // One straight 10 m LINE_STRIP marker under the given namespace -- the
 // same shape RateLimitHonoursMaxRateHz's make_one_marker uses above.
 visualization_msgs::msg::MarkerArray StraightTenMeterMarker(const char* ns)
@@ -961,6 +1041,231 @@ TEST(HdMapAdapter, SingleIsolatedLaneHasBothBoundariesPromotedToRoadEdge)
         ++road_edge_count;
     }
     EXPECT_EQ(road_edge_count, 2);
+}
+
+// ---- Junction cleanup (user directive 2026-09-08 + same-day refinement) --
+
+TEST(HdMapAdapter, JunctionPolygonClipSplitsRoadEdgeIntoTwoSubElementsWithInterpolatedCuts)
+{
+    // A single isolated (hence ROAD_EDGE-promoted) rail running straight
+    // through a 6x6 m JUNCTION box centered on the origin: the directive's
+    // own "cut them off in these areas and continue along the road after
+    // the junction."
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(JunctionRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_edge", 1, {{0, -10}, {0, -5}, {0, 0}, {0, 5}, {0, 10}}),
+        LineMarker("junction", 900, {{-3, -3}, {3, -3}, {3, 3}, {-3, 3}, {-3, -3}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> edges;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_EDGE) edges.push_back(e);
+    }
+    ASSERT_EQ(edges.size(), 2u) << "one edge crossing the junction box splits into two";
+    std::sort(edges.begin(), edges.end(),
+              [](const mpviz::MapElement& a, const mpviz::MapElement& b) {
+                  return a.points[0].y < b.points[0].y;
+              });
+
+    // First sub-element: y=-10 up to the box's entry edge (y=-3) -- the
+    // last point is INTERPOLATED (the box boundary), not one of the
+    // original recorded vertices (-5, 0, 5, 10).
+    EXPECT_DOUBLE_EQ(edges[0].points[0].y, -10.0);
+    EXPECT_NEAR(edges[0].points[edges[0].point_count - 1].y, -3.0, 1e-6);
+    EXPECT_NE(edges[0].points[edges[0].point_count - 1].y, -5.0);
+
+    // Second sub-element: the box's exit edge (y=3) resuming out to y=10.
+    EXPECT_NEAR(edges[1].points[0].y, 3.0, 1e-6);
+    EXPECT_DOUBLE_EQ(edges[1].points[edges[1].point_count - 1].y, 10.0);
+    EXPECT_NE(edges[1].points[0].y, 5.0);
+}
+
+TEST(HdMapAdapter, MutualCrossingCutSplitsBothRoadEdgesWithBackoff)
+{
+    // Two isolated (ROAD_EDGE-promoted) rails from DIFFERENT lane_ids
+    // crossing at the origin, no JUNCTION geometry at all -- the mechanism
+    // that covers urban's real feed (verified: no `junction` namespace
+    // rule anywhere in urban_profile.yaml).
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1, {{-10, 0}, {10, 0}}),
+        LineMarker("left_boundary_b", 2, {{0, -10}, {0, 10}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> lane_a, lane_b;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind != mpviz::MapKind::ROAD_EDGE) continue;
+        (e.lane_id == 1u ? lane_a : lane_b).push_back(e);
+    }
+    ASSERT_EQ(lane_a.size(), 2u);
+    ASSERT_EQ(lane_b.size(), 2u);
+    std::sort(lane_a.begin(), lane_a.end(),
+              [](const mpviz::MapElement& a, const mpviz::MapElement& b) {
+                  return a.points[0].x < b.points[0].x;
+              });
+    std::sort(lane_b.begin(), lane_b.end(),
+              [](const mpviz::MapElement& a, const mpviz::MapElement& b) {
+                  return a.points[0].y < b.points[0].y;
+              });
+
+    // kJunctionCutBackoffM = 2.0 m either side of the crossing at the origin.
+    EXPECT_EQ(lane_a[0].point_count, 2u);
+    EXPECT_DOUBLE_EQ(lane_a[0].points[0].x, -10.0);
+    EXPECT_NEAR(lane_a[0].points[1].x, -2.0, 1e-9);
+    EXPECT_NEAR(lane_a[1].points[0].x, 2.0, 1e-9);
+    EXPECT_DOUBLE_EQ(lane_a[1].points[1].x, 10.0);
+
+    EXPECT_NEAR(lane_b[0].points[1].y, -2.0, 1e-9);
+    EXPECT_NEAR(lane_b[1].points[0].y, 2.0, 1e-9);
+}
+
+TEST(HdMapAdapter, ParallelRoadEdgesAreNeverCut)
+{
+    // A real road edge never legitimately crosses another -- two parallel
+    // rails must render whole, unsplit, regardless of how close together
+    // they run.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1, {{0, -10}, {0, 10}}),
+        LineMarker("left_boundary_b", 2, {{5, -10}, {5, 10}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    int road_edge_count = 0;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind != mpviz::MapKind::ROAD_EDGE) continue;
+        ++road_edge_count;
+        EXPECT_EQ(e.point_count, 2u) << "untouched -- no cut introduced";
+    }
+    EXPECT_EQ(road_edge_count, 2);
+}
+
+TEST(HdMapAdapter, AbuttingNearCollinearRoadEdgesAreNeverCut)
+{
+    // Code-review finding (blocking): a lanelet-chain node where two
+    // ROAD_EDGE rails from DIFFERENT lane_ids share an endpoint with only a
+    // ~1 deg kink is NOT a junction crossing -- it is the ordinary case of
+    // one lanelet boundary handing off to the next, re-derived against
+    // hd_map_local_elements_0.yaml (21 of 24 raw SegSegIntersect2D
+    // detections on that fixture were exactly this: shared-endpoint
+    // abutments at 175.2-179.8 deg or 0.5-2.8 deg, not genuine crossings).
+    // Before the fix, SegSegIntersect2D's bare |denom| < 1e-12 guard
+    // happily accepted this (t==1, u==0 exactly, denom far above 1e-12)
+    // and punched a kJunctionCutBackoffM hole into a continuous rail.
+    // ParallelRoadEdgesAreNeverCut above can't pin this: its rails never
+    // touch at all, so it never reaches the t/u-at-an-endpoint case this
+    // guards.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    const double kink_rad = 1.0 * M_PI / 180.0;
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1, {{-10, 0}, {0, 0}}),
+        LineMarker("left_boundary_b", 2, {{0, 0}, {10, 10 * std::tan(kink_rad)}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    int road_edge_count = 0;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind != mpviz::MapKind::ROAD_EDGE) continue;
+        ++road_edge_count;
+        EXPECT_EQ(e.point_count, 2u) << "untouched -- a ~1 deg kink is not a crossing";
+    }
+    EXPECT_EQ(road_edge_count, 2);
+}
+
+TEST(HdMapAdapter, BoundariesUntouchedByJunctionCutsAtDefaultFlag)
+{
+    // junction_interior_boundaries defaults to true: an INTERIOR boundary
+    // -- lane 2's left rail coincides with lane 1's right rail (the shared
+    // painted line between two adjacent lanes, same coincidence check
+    // OuterBoundariesOfThreeAdjacentLanesPromoteToRoadEdge exercises), so
+    // neither promotes to ROAD_EDGE -- running straight through a JUNCTION
+    // box renders whole, unclipped: the refinement's own "enable them by
+    // default".
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(JunctionRuleRow(/*junction_interior_boundaries=*/true), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_b", 2, {{0, -10}, {0, -5}, {0, 0}, {0, 5}, {0, 10}}),
+        LineMarker("right_boundary_a", 1, {{0, -10}, {0, 10}}),
+        LineMarker("junction", 900, {{-3, -3}, {3, -3}, {3, 3}, {-3, 3}, {-3, -3}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> left;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::LEFT_BOUNDARY) left.push_back(e);
+    }
+    ASSERT_EQ(left.size(), 1u) << "not split -- the junction polygon clip never ran on it";
+    ASSERT_EQ(left[0].point_count, 5u) << "every original point survives, untouched";
+    EXPECT_DOUBLE_EQ(left[0].points[0].y, -10.0);
+    EXPECT_DOUBLE_EQ(left[0].points[2].y, 0.0);
+    EXPECT_DOUBLE_EQ(left[0].points[4].y, 10.0);
+}
+
+TEST(HdMapAdapter, JunctionInteriorBoundariesFalseDropsSegmentsInsideJunctionPolygon)
+{
+    // Same interior (coincident, non-promoted) boundary + junction box as
+    // above, but with junction_interior_boundaries: false -- the boundary
+    // now gets the SAME polygon clip ROAD_EDGE always gets (never the
+    // crossing-cut's back-off: the cut point sits exactly on the box edge,
+    // y=+/-3, not offset by kJunctionCutBackoffM).
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(JunctionRuleRow(/*junction_interior_boundaries=*/false), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_b", 2, {{0, -10}, {0, -5}, {0, 0}, {0, 5}, {0, 10}}),
+        LineMarker("right_boundary_a", 1, {{0, -10}, {0, 10}}),
+        LineMarker("junction", 900, {{-3, -3}, {3, -3}, {3, 3}, {-3, 3}, {-3, -3}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> left;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::LEFT_BOUNDARY) left.push_back(e);
+    }
+    ASSERT_EQ(left.size(), 2u) << "split by the polygon clip, same as ROAD_EDGE would be";
+    std::sort(left.begin(), left.end(),
+              [](const mpviz::MapElement& a, const mpviz::MapElement& b) {
+                  return a.points[0].y < b.points[0].y;
+              });
+    EXPECT_DOUBLE_EQ(left[0].points[0].y, -10.0);
+    EXPECT_NEAR(left[0].points[left[0].point_count - 1].y, -3.0, 1e-6);
+    EXPECT_NEAR(left[1].points[0].y, 3.0, 1e-6);
+    EXPECT_DOUBLE_EQ(left[1].points[left[1].point_count - 1].y, 10.0);
 }
 
 TEST(HdMapAdapter, OneMarkerCountsAsOneIngestedMarkerForStats)

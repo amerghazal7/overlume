@@ -10,6 +10,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 #include "theme.hpp"
 #include "visual_renderer/api.h"
@@ -55,10 +56,12 @@ struct RibbonMaterialInfo {
 };
 RibbonMaterialInfo ribbon_slot_material_info(mpviz::VisualRenderer* r, size_t slot);
 
-// The half-width (theme.ribbon.width_m * 0.5) slot `slot`'s geometry was
-// actually built with the last time it rebuilt (user directive 2026-08-20,
-// ITEM 1) -- NOT a Filament AABB query, same "mirrors the actual value
-// used, not a bounding-box read-back" reasoning as ego.cpp's
+// The half-width (build_effective_half_width(), ribbon.cpp: derived from
+// theme.ribbon.lane_width_m and the role's own margin, per user directive
+// 2026-09-08 ITEM 3 -- was a flat theme.ribbon.width_m * 0.5, ITEM 1) slot
+// `slot`'s geometry was actually built with the last time it rebuilt --
+// NOT a Filament AABB query, same "mirrors the actual value used, not a
+// bounding-box read-back" reasoning as ego.cpp's
 // egoFallbackDims (add_mesh() gives every mesh the same hard-coded declared
 // culling box, unrelated to the strip's real extent). Ribbon.
 // WidthChangeRebuildsGeometry reads this back to prove a width-only
@@ -67,5 +70,20 @@ RibbonMaterialInfo ribbon_slot_material_info(mpviz::VisualRenderer* r, size_t sl
 // 2*point_count regardless of width). 0.0f if `r` is null or `slot` is out
 // of range.
 float ribbon_slot_half_width_m(mpviz::VisualRenderer* r, size_t slot);
+
+// The first geometry point slot `slot`'s build_slot_meshes() call actually
+// used (user directive 2026-09-08, ego-proximity ribbon clip) -- written to
+// `*out`, function returns false (out unchanged) if `r` is null, `slot` is
+// out of range, or the slot has never built any geometry. Proves a clipped
+// ribbon's mesh starts at the interpolated clip point, not the original
+// PathRibbon::points[0] -- see RibbonSlot::firstPointM's own comment
+// (renderer_internal.hpp).
+bool ribbon_slot_first_point(mpviz::VisualRenderer* r, size_t slot, mpviz::Vec3* out);
+
+// Total number of ribbon slot rebuilds (content, role, OR ego-clip station
+// changed) since `r` was created -- same "cache-miss counter" convention as
+// map_elements_test_hooks.hpp's map_element_rebuild_count(). 0 if `r` is
+// null.
+uint64_t ribbon_rebuild_count(mpviz::VisualRenderer* r);
 
 }  // namespace mpviz::testing

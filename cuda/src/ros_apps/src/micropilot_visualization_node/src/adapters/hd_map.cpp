@@ -105,12 +105,13 @@ constexpr double kMapFadeWindowSec = 1.0;
 // ever indexing past either rail's own point array. Returns empty for
 // fewer than 2 input points or n_stations == 0 (malformed guard, mirrors
 // every other "not enough data" path in this file).
-std::vector<mpviz::Vec3> ResampleByArcLength(const std::vector<mpviz::Vec3>& pts,
-                                              uint32_t n_stations)
+// cum[0] == 0, cum[i] == arc length from pts[0] to pts[i], cum.back() ==
+// total polyline length. Shared by ResampleByArcLength (road-surface fill)
+// and the junction-cleanup clip/cut machinery below (user directive
+// 2026-09-08) -- both need to turn "a point somewhere along this polyline"
+// into/from a normalized arc-length station.
+std::vector<double> CumulativeArcLength(const std::vector<mpviz::Vec3>& pts)
 {
-    std::vector<mpviz::Vec3> out;
-    if (pts.size() < 2 || n_stations == 0) return out;
-
     std::vector<double> cum(pts.size(), 0.0);
     for (size_t i = 1; i < pts.size(); ++i)
     {
@@ -118,6 +119,33 @@ std::vector<mpviz::Vec3> ResampleByArcLength(const std::vector<mpviz::Vec3>& pts
                      dz = pts[i].z - pts[i - 1].z;
         cum[i] = cum[i - 1] + std::sqrt(dx * dx + dy * dy + dz * dz);
     }
+    return cum;
+}
+
+// Interpolated point at arc length `s` (clamped to [0, cum.back()]) along
+// `pts`, using its own precomputed `cum` (CumulativeArcLength(pts)).
+mpviz::Vec3 PointAtArcLength(const std::vector<mpviz::Vec3>& pts, const std::vector<double>& cum,
+                              double s)
+{
+    const double total_len = cum.back();
+    s = std::clamp(s, 0.0, total_len);
+    size_t i = static_cast<size_t>(std::lower_bound(cum.begin(), cum.end(), s) - cum.begin());
+    if (i == 0) i = 1;
+    if (i >= pts.size()) i = pts.size() - 1;
+    const double seg_len = cum[i] - cum[i - 1];
+    const double t = seg_len > 0.0 ? (s - cum[i - 1]) / seg_len : 0.0;
+    const auto& a = pts[i - 1];
+    const auto& b = pts[i];
+    return mpviz::Vec3{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t};
+}
+
+std::vector<mpviz::Vec3> ResampleByArcLength(const std::vector<mpviz::Vec3>& pts,
+                                              uint32_t n_stations)
+{
+    std::vector<mpviz::Vec3> out;
+    if (pts.size() < 2 || n_stations == 0) return out;
+
+    const std::vector<double> cum = CumulativeArcLength(pts);
     const double total_len = cum.back();
 
     out.reserve(n_stations);
@@ -126,15 +154,7 @@ std::vector<mpviz::Vec3> ResampleByArcLength(const std::vector<mpviz::Vec3>& pts
         const double s = (n_stations == 1)
                              ? 0.0
                              : total_len * static_cast<double>(k) / static_cast<double>(n_stations - 1);
-        size_t i = static_cast<size_t>(std::lower_bound(cum.begin(), cum.end(), s) - cum.begin());
-        if (i == 0) i = 1;
-        if (i >= pts.size()) i = pts.size() - 1;
-        const double seg_len = cum[i] - cum[i - 1];
-        const double t = seg_len > 0.0 ? (s - cum[i - 1]) / seg_len : 0.0;
-        const auto& a = pts[i - 1];
-        const auto& b = pts[i];
-        out.push_back(mpviz::Vec3{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t,
-                                   a.z + (b.z - a.z) * t});
+        out.push_back(PointAtArcLength(pts, cum, s));
     }
     return out;
 }
@@ -223,6 +243,257 @@ bool IsRoadEdge(uint32_t lane_id, const std::vector<mpviz::Vec3>& pts,
         }
     }
     return true;
+}
+
+// ---- Junction cleanup (user directive 2026-09-08 + same-day refinement) --
+// "the middle area [of a junction]... it would be much nicer if we cut
+// [ROAD_EDGE lines] off in these areas and continue along the road after
+// the junction" / refinement: "The junction interior is only allowed to
+// have the lane[]-separating dashed lines, or make it configurable... but
+// enable them by default." Two independent cut mechanisms, both run from
+// fill() below:
+//   1. JUNCTION-POLYGON CLIP (ClipAgainstJunctions): where the message
+//      actually carries MapKind::JUNCTION geometry (today: only
+//      /sim/hd_map/markers's `junction` namespace rule -- verified,
+//      urban_profile.yaml's /hd_map_local_elements and
+//      /hd_map_global_elements rows have no `junction` rule at all, so this
+//      mechanism is a no-op for them) a ROAD_EDGE polyline is clipped
+//      against the union of that message's JUNCTION rings. LEFT_/RIGHT_
+//      BOUNDARY gets the identical clip ONLY when the row's
+//      `junction_interior_boundaries` is false (default true -- the
+//      refinement's own "enable them by default").
+//   2. MUTUAL-CROSSING CUT (SegSegIntersect2D + the window machinery):
+//      works with NO junction data at all -- any two ROAD_EDGE polylines
+//      from DIFFERENT lane_ids that cross in 2D at a real angle get
+//      trimmed back kJunctionCutBackoffM from the crossing point, both
+//      sides continuing beyond. CORRECTED (code-review finding, re-derived
+//      against hd_map_local_elements_0.yaml): "a real road edge never
+//      legitimately crosses another, so this only ever fires inside a
+//      junction" is NOT what the original measurement showed -- of the 24
+//      raw 2D crossings on that fixture, 21 are shared-endpoint abutments
+//      between chained lanelet boundaries (outgoing angle 175.2-179.8 deg,
+//      i.e. one continuous straight line through the shared node, or
+//      0.5-2.8 deg, i.e. two rails leaving the same node codirectionally --
+//      duplicate surveys of the same rail); of the remaining 3 candidate
+//      "interior" crossings (not an exact endpoint on either side), only 1
+//      is a genuine junction crossing by ANGLE -- the other 2 are also
+//      near-parallel/near-antiparallel despite landing away from either
+//      polyline's own literal endpoint (a chained polyline can carry an
+//      extra sample point close to a node). A lanelet-chain node with a
+//      plain survey kink of a fraction of a degree is not a junction.
+//      SegSegIntersect2D now rejects near-parallel AND near-antiparallel
+//      segment pairs (within kMinCrossingSinAngle's ~15 deg of 0 or 180
+//      deg), not just exactly-parallel ones -- see that function's own
+//      comment; this is what those 2 additional rejections ride on. See
+//      test_hd_map_adapter.cpp's LocalElementsFixtureYieldsLanesAndCrosswalks
+//      and this epic's plan doc for the full re-derivation.
+//      NEVER applied to boundaries: interior separators legitimately cross
+//      connector geometry inside a junction (the refinement's own point).
+// O(edges^2 * segments^2) over this row's own promoted-ROAD_EDGE count
+// (~15 edges x ~20 segments on the committed urban fixture) is fine at
+// this scale -- no spatial index attempted.
+constexpr double kJunctionCutBackoffM = 2.0;
+
+// Mirrors map_elements.cpp's own IsBoundaryKind() (library-side, not
+// reachable from this node-side translation unit) -- same two kinds, same
+// meaning: an interior lane separator, never the road's own outer edge.
+bool IsBoundaryKind(mpviz::MapKind kind)
+{
+    return kind == mpviz::MapKind::LEFT_BOUNDARY || kind == mpviz::MapKind::RIGHT_BOUNDARY;
+}
+
+// Even-odd point-in-polygon on the 2D (x,y) ring `poly` -- standard ray-cast
+// parity of edge crossings to the right of `p`. `poly` need not repeat its
+// first point as its last (the recorded JUNCTION markers do; a hand-built
+// ring need not) -- the wraparound `j = poly.size() - 1` always closes it.
+bool PointInPolygonEvenOdd(const mpviz::Vec3& p, const std::vector<mpviz::Vec3>& poly)
+{
+    bool inside = false;
+    for (size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++)
+    {
+        const mpviz::Vec3& a = poly[i];
+        const mpviz::Vec3& b = poly[j];
+        if (((a.y > p.y) != (b.y > p.y)) &&
+            (p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x))
+        {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+bool PointInAnyPolygon(const mpviz::Vec3& p,
+                        const std::vector<const std::vector<mpviz::Vec3>*>& polys)
+{
+    for (const auto* poly : polys)
+    {
+        if (poly != nullptr && poly->size() >= 3 && PointInPolygonEvenOdd(p, *poly)) return true;
+    }
+    return false;
+}
+
+// Splits `pts` into the sub-polylines that lie OUTSIDE the union of
+// `polys`: point-in-polygon at every vertex, a 30-halving bisection (far
+// finer than survey precision) locating the entry/exit crossing on any
+// segment whose two endpoints disagree. Assumes at most one inside<->
+// outside transition per INPUT segment -- true of every recorded boundary/
+// junction pair (input points a few meters apart, junction boxes tens of
+// meters across); a segment that both enters and exits the same polygon
+// keeps its middle crossing unseen, a stated limitation, not something
+// this epic's real data exercises. Empty `polys` (or `pts.size() < 2`) is a
+// no-op: returns `pts` unchanged as the one surviving piece -- this is what
+// makes `junction_interior_boundaries: false` correctly inert on a row with
+// no JUNCTION geometry at all (ProfileRow's own documented limitation).
+std::vector<std::vector<mpviz::Vec3>> ClipAgainstJunctions(
+    const std::vector<mpviz::Vec3>& pts, const std::vector<const std::vector<mpviz::Vec3>*>& polys)
+{
+    std::vector<std::vector<mpviz::Vec3>> out;
+    if (polys.empty() || pts.size() < 2)
+    {
+        out.push_back(pts);
+        return out;
+    }
+
+    auto lerp = [](const mpviz::Vec3& a, const mpviz::Vec3& b, double t) {
+        return mpviz::Vec3{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t};
+    };
+
+    std::vector<mpviz::Vec3> current;
+    bool a_in = PointInAnyPolygon(pts.front(), polys);
+    if (!a_in) current.push_back(pts.front());
+    for (size_t i = 0; i + 1 < pts.size(); ++i)
+    {
+        const mpviz::Vec3& a = pts[i];
+        const mpviz::Vec3& b = pts[i + 1];
+        const bool b_in = PointInAnyPolygon(b, polys);
+        if (a_in == b_in)
+        {
+            if (!b_in) current.push_back(b);
+        }
+        else
+        {
+            double lo = 0.0, hi = 1.0;  // lo matches a_in's side, hi matches b_in's
+            for (int iter = 0; iter < 30; ++iter)
+            {
+                const double mid = 0.5 * (lo + hi);
+                if (PointInAnyPolygon(lerp(a, b, mid), polys) == a_in)
+                    lo = mid;
+                else
+                    hi = mid;
+            }
+            const mpviz::Vec3 cross = lerp(a, b, 0.5 * (lo + hi));
+            if (a_in && !b_in)
+            {
+                // Exiting the polygon: start a fresh kept (outside) chain.
+                current.clear();
+                current.push_back(cross);
+                current.push_back(b);
+            }
+            else
+            {
+                // Entering the polygon: close the kept chain here.
+                current.push_back(cross);
+                if (current.size() >= 2) out.push_back(current);
+                current.clear();
+            }
+        }
+        a_in = b_in;
+    }
+    if (current.size() >= 2) out.push_back(current);
+    return out;
+}
+
+// 2D (x,y) segment-segment intersection, (p1,p2) x (p3,p4). On a genuine
+// crossing, writes the parametric position along EACH segment (0..1) to
+// t/u respectively and returns true. Rejects near-parallel AND
+// near-antiparallel segment pairs, not just exactly-parallel ones: the
+// cross-product denom is proportional to sin(angle between the two
+// directions), and sin(180 deg - x) == sin(x), so normalizing it by the
+// two segment lengths and gating on kMinCrossingSinAngle catches a
+// lanelet-chain node's fraction-of-a-degree kink the same way it catches
+// two open-road ROAD_EDGE rails running alongside each other -- see this
+// function's own callers' comment for the fixture classification
+// (175.2-179.8 deg / 0.5-2.8 deg abutments vs. genuine crossings) that
+// motivated widening this past the original exact-parallel-only guard.
+constexpr double kMinCrossingSinAngle = 0.25881904510252074;  // sin(15 deg)
+
+bool SegSegIntersect2D(const mpviz::Vec3& p1, const mpviz::Vec3& p2, const mpviz::Vec3& p3,
+                       const mpviz::Vec3& p4, double& t, double& u)
+{
+    const double d1x = p2.x - p1.x, d1y = p2.y - p1.y;
+    const double d2x = p4.x - p3.x, d2y = p4.y - p3.y;
+    const double denom = d1x * d2y - d1y * d2x;
+    const double len1 = std::hypot(d1x, d1y);
+    const double len2 = std::hypot(d2x, d2y);
+    if (len1 < 1e-9 || len2 < 1e-9) return false;
+    if (std::abs(denom) < kMinCrossingSinAngle * len1 * len2) return false;
+    const double dx = p3.x - p1.x, dy = p3.y - p1.y;
+    t = (dx * d2y - dy * d2x) / denom;
+    u = (dx * d1y - dy * d1x) / denom;
+    return t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0;
+}
+
+// Sorts + merges overlapping/touching [start,end] windows in place -- one
+// polyline crossed by several others accumulates one raw window per
+// crossing before this ever runs.
+void MergeWindows(std::vector<std::pair<double, double>>& windows)
+{
+    if (windows.empty()) return;
+    std::sort(windows.begin(), windows.end());
+    std::vector<std::pair<double, double>> merged;
+    merged.push_back(windows.front());
+    for (size_t i = 1; i < windows.size(); ++i)
+    {
+        if (windows[i].first <= merged.back().second)
+        {
+            merged.back().second = std::max(merged.back().second, windows[i].second);
+        }
+        else
+        {
+            merged.push_back(windows[i]);
+        }
+    }
+    windows = std::move(merged);
+}
+
+// Splits `pts` into the sub-polylines that survive after removing every
+// already-merged arc-length `windows` entry -- the mutual-crossing cut's
+// own geometry op, sibling to ClipAgainstJunctions above but keyed by arc
+// length instead of point-in-polygon (no bisection needed: a window
+// boundary IS an arc-length value, so the cut point is a direct
+// PointAtArcLength() call). Empty `windows` is a no-op: returns `pts`
+// unchanged.
+std::vector<std::vector<mpviz::Vec3>> ApplyCutWindows(
+    const std::vector<mpviz::Vec3>& pts, const std::vector<double>& cum,
+    const std::vector<std::pair<double, double>>& windows)
+{
+    std::vector<std::vector<mpviz::Vec3>> out;
+    if (windows.empty())
+    {
+        out.push_back(pts);
+        return out;
+    }
+    const double total = cum.back();
+    double pos = 0.0;
+    auto append_kept_range = [&](double from, double to) {
+        std::vector<mpviz::Vec3> chain;
+        chain.push_back(PointAtArcLength(pts, cum, from));
+        for (size_t j = 0; j < pts.size(); ++j)
+        {
+            if (cum[j] > from && cum[j] < to) chain.push_back(pts[j]);
+        }
+        chain.push_back(PointAtArcLength(pts, cum, to));
+        if (chain.size() >= 2) out.push_back(std::move(chain));
+    };
+    for (const auto& w : windows)
+    {
+        const double w_start = std::clamp(w.first, 0.0, total);
+        const double w_end = std::clamp(w.second, 0.0, total);
+        if (w_start > pos) append_kept_range(pos, w_start);
+        pos = std::max(pos, w_end);
+    }
+    if (pos < total) append_kept_range(pos, total);
+    return out;
 }
 
 }  // namespace
@@ -388,18 +659,26 @@ void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, doubl
 void HdMapAdapter::fill(micropilot::visualization_app::SceneAssembly& out) const
 {
     road_surface_points_.clear();
+    junction_cut_points_.clear();
     std::unordered_map<uint32_t, const std::vector<mpviz::Vec3>*> left_by_lane, right_by_lane;
+    // Every JUNCTION-kind ring this message carries (empty on urban's local/
+    // global rows -- verified, they have no `junction` namespace rule at
+    // all). Pointers alias storage_, same lifetime contract as everything
+    // else fill() reads from it.
+    std::vector<const std::vector<mpviz::Vec3>*> junction_polys;
 
-    // First pass: index every boundary rail by lane_id. Needed BEFORE any
-    // element is emitted -- road-edge detection (below) must see every
-    // OTHER lane's opposite-side boundary, and road-surface pairing
-    // (further below) needs the same index. One pass over storage_ builds
-    // both; a second walk (below) does the actual emitting.
+    // First pass: index every boundary rail by lane_id, and collect every
+    // JUNCTION ring. Needed BEFORE any element is emitted -- road-edge
+    // detection (below) must see every OTHER lane's opposite-side boundary,
+    // and road-surface pairing (further below) needs the same index. One
+    // pass over storage_ builds both; a second walk (below) does the actual
+    // emitting.
     for (const auto& [key, pieces] : storage_)
     {
         (void)key;
         for (const auto& elem : pieces)
         {
+            if (elem.kind == mpviz::MapKind::JUNCTION) junction_polys.push_back(&elem.points);
             if (elem.lane_id == 0) continue;
             if (elem.kind == mpviz::MapKind::LEFT_BOUNDARY)
             {
@@ -419,14 +698,36 @@ void HdMapAdapter::fill(micropilot::visualization_app::SceneAssembly& out) const
     // maps built above are unaffected by this promotion -- road-surface
     // fill still pairs by the ORIGINAL LEFT_BOUNDARY/RIGHT_BOUNDARY kind,
     // regardless of what kind the emitted element ends up carrying.
+    //
+    // Junction cleanup (user directive 2026-09-08): a promoted ROAD_EDGE
+    // element is NOT pushed straight to `out` here -- it is clipped against
+    // `junction_polys` (a no-op when there are none) and queued in
+    // `road_edge_pieces` so every promoted edge, from every marker, can be
+    // checked against every OTHER one for the mutual-crossing cut below.
+    // LEFT_/RIGHT_BOUNDARY gets the SAME polygon clip, pushed straight to
+    // `out` (never queued -- boundaries never get the crossing cut), only
+    // when `row_.junction_interior_boundaries` is false; the default (true)
+    // leaves boundaries alone entirely, matching the refinement's own
+    // "enable them by default".
+    struct PendingRoadEdge
+    {
+        std::vector<mpviz::Vec3> points;
+        uint32_t lane_id;
+        double last_update_sec;
+        uint8_t is_polygon;  // carried through the cut (review 2026-09-08):
+                             // unreachable via today's shipped rules (only
+                             // polyline boundaries promote), but a future
+                             // `render: polygon, kind: road_edge` row must
+                             // not silently lose the field.
+    };
+    std::vector<PendingRoadEdge> road_edge_pieces;
+
     for (const auto& [key, pieces] : storage_)
     {
         (void)key;
         for (const auto& elem : pieces)
         {
             mpviz::MapElement e{};
-            e.points = elem.points.data();
-            e.point_count = static_cast<uint32_t>(elem.points.size());
             e.is_polygon = elem.is_polygon;
             e.kind = elem.kind;
             e.lane_id = elem.lane_id;
@@ -445,6 +746,84 @@ void HdMapAdapter::fill(micropilot::visualization_app::SceneAssembly& out) const
             {
                 e.kind = mpviz::MapKind::ROAD_EDGE;
             }
+
+            if (e.kind == mpviz::MapKind::ROAD_EDGE)
+            {
+                for (auto& piece : ClipAgainstJunctions(elem.points, junction_polys))
+                {
+                    road_edge_pieces.push_back(PendingRoadEdge{std::move(piece), elem.lane_id,
+                                                               e.last_update_sec, e.is_polygon});
+                }
+                continue;
+            }
+            if (IsBoundaryKind(e.kind) && !row_.junction_interior_boundaries &&
+                !junction_polys.empty())
+            {
+                for (auto& piece : ClipAgainstJunctions(elem.points, junction_polys))
+                {
+                    junction_cut_points_.push_back(std::move(piece));
+                    mpviz::MapElement be = e;  // same is_polygon/kind/lane_id/last_update_sec
+                    be.points = junction_cut_points_.back().data();
+                    be.point_count = static_cast<uint32_t>(junction_cut_points_.back().size());
+                    out.map_elements.push_back(be);
+                }
+                continue;
+            }
+
+            e.points = elem.points.data();
+            e.point_count = static_cast<uint32_t>(elem.points.size());
+            out.map_elements.push_back(e);
+        }
+    }
+
+    // Mutual-crossing cut (user directive 2026-09-08, decision #2): any two
+    // ROAD_EDGE pieces from DIFFERENT lane_ids that cross in 2D each get a
+    // kJunctionCutBackoffM window removed around their own crossing arc-
+    // length station -- same-lane pairs are skipped (two pieces of the
+    // SAME original polyline, split apart by the polygon clip above, are
+    // never meant to cut each other). Every crossing a piece is party to
+    // adds one raw window; MergeWindows folds overlapping ones from
+    // several crossings on the same piece before ApplyCutWindows runs.
+    std::vector<std::vector<double>> cum(road_edge_pieces.size());
+    for (size_t i = 0; i < road_edge_pieces.size(); ++i)
+    {
+        cum[i] = CumulativeArcLength(road_edge_pieces[i].points);
+    }
+    std::vector<std::vector<std::pair<double, double>>> windows(road_edge_pieces.size());
+    for (size_t i = 0; i < road_edge_pieces.size(); ++i)
+    {
+        const auto& pi = road_edge_pieces[i].points;
+        for (size_t j = i + 1; j < road_edge_pieces.size(); ++j)
+        {
+            if (road_edge_pieces[i].lane_id == road_edge_pieces[j].lane_id) continue;
+            const auto& pj = road_edge_pieces[j].points;
+            for (size_t a = 0; a + 1 < pi.size(); ++a)
+            {
+                for (size_t b = 0; b + 1 < pj.size(); ++b)
+                {
+                    double t = 0.0, u = 0.0;
+                    if (!SegSegIntersect2D(pi[a], pi[a + 1], pj[b], pj[b + 1], t, u)) continue;
+                    const double s_i = cum[i][a] + t * (cum[i][a + 1] - cum[i][a]);
+                    const double s_j = cum[j][b] + u * (cum[j][b + 1] - cum[j][b]);
+                    windows[i].emplace_back(s_i - kJunctionCutBackoffM, s_i + kJunctionCutBackoffM);
+                    windows[j].emplace_back(s_j - kJunctionCutBackoffM, s_j + kJunctionCutBackoffM);
+                }
+            }
+        }
+    }
+    for (size_t i = 0; i < road_edge_pieces.size(); ++i)
+    {
+        MergeWindows(windows[i]);
+        for (auto& piece : ApplyCutWindows(road_edge_pieces[i].points, cum[i], windows[i]))
+        {
+            junction_cut_points_.push_back(std::move(piece));
+            mpviz::MapElement e{};
+            e.points = junction_cut_points_.back().data();
+            e.point_count = static_cast<uint32_t>(junction_cut_points_.back().size());
+            e.is_polygon = road_edge_pieces[i].is_polygon;
+            e.kind = mpviz::MapKind::ROAD_EDGE;
+            e.lane_id = road_edge_pieces[i].lane_id;
+            e.last_update_sec = road_edge_pieces[i].last_update_sec;
             out.map_elements.push_back(e);
         }
     }

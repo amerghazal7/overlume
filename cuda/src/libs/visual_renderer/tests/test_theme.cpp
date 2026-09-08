@@ -191,6 +191,74 @@ TEST(ThemePalette, RibbonWidthLerpsLinearlyAcrossTransition) {
     EXPECT_NEAR(mid.ribbon.width_m, expectedMid, 1e-4f);
 }
 
+// ── ribbon.lane_width_m/margin_{behavior,global,local}_m (user directive
+//    2026-09-08, ITEM 3: lane-fill margins) -- four new soft-defaulted,
+//    linearly-blended scalars ────────────────────────────────────────────
+
+TEST(ThemePalette, RibbonLaneWidthAndMarginsFallBackToTheWidthMSeedWhenMissingFromYaml) {
+    // sun_dir_a.yaml predates lane_width_m/margin_*_m entirely (same "prove
+    // the soft default, don't retrofit every old fixture" reasoning as
+    // every other soft-defaulted token above) and has no `ribbon:` section
+    // at all -- so width_m ALSO falls back to its own 0.24 default, and the
+    // margin default is computed from THAT: (3.5 - 0.24) / 2 == 1.63.
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<mpviz::detail::Theme> theme =
+        mpviz::detail::load_theme(fixtureDir, "sun_dir_a");
+    ASSERT_TRUE(theme.has_value())
+        << "a theme file missing the optional lane_width_m/margin_*_m keys must still parse";
+
+    EXPECT_NEAR(theme->ribbon.lane_width_m, 3.5f, 1e-4f);
+    EXPECT_NEAR(theme->ribbon.margin_behavior_m, 1.63f, 1e-4f);
+    EXPECT_NEAR(theme->ribbon.margin_global_m, 1.63f, 1e-4f);
+    EXPECT_NEAR(theme->ribbon.margin_local_m, 1.63f, 1e-4f);
+}
+
+TEST(ThemePalette, RibbonLaneWidthAndMarginsLerpLinearlyAcrossTransition) {
+    const std::optional<mpviz::detail::Theme> dark =
+        mpviz::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<mpviz::detail::Theme> light =
+        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    ASSERT_TRUE(dark.has_value());
+    ASSERT_TRUE(light.has_value());
+
+    const mpviz::detail::Theme mid = mpviz::detail::blend(*dark, *light, 0.5f);
+    // Plain scalar lerps, same as ribbon.width_m above -- not colors.
+    EXPECT_NEAR(mid.ribbon.lane_width_m, (dark->ribbon.lane_width_m + light->ribbon.lane_width_m) / 2.0f,
+                1e-4f);
+    EXPECT_NEAR(mid.ribbon.margin_behavior_m,
+                (dark->ribbon.margin_behavior_m + light->ribbon.margin_behavior_m) / 2.0f, 1e-4f);
+    EXPECT_NEAR(mid.ribbon.margin_global_m,
+                (dark->ribbon.margin_global_m + light->ribbon.margin_global_m) / 2.0f, 1e-4f);
+    EXPECT_NEAR(mid.ribbon.margin_local_m,
+                (dark->ribbon.margin_local_m + light->ribbon.margin_local_m) / 2.0f, 1e-4f);
+}
+
+TEST(ThemePalette, ShippedThemesAuthorTheFillLookExplicitly) {
+    // Both shipped themes drop the old width_m key and author the fill look
+    // directly (user directive 2026-09-08): lane_width_m 3.5, margins
+    // GLOBAL 0.2 (widest) < LOCAL 0.5 < BEHAVIOR 0.8 (narrowest, on top of
+    // the existing z-stagger) -- proves the shipped YAMLs actually parsed
+    // these explicit values, not silently falling back to the width_m-seed
+    // default (which would instead read 1.63 for every role).
+    const std::optional<mpviz::detail::Theme> dark =
+        mpviz::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<mpviz::detail::Theme> light =
+        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    ASSERT_TRUE(dark.has_value());
+    ASSERT_TRUE(light.has_value());
+
+    for (const auto* t : {&*dark, &*light}) {
+        EXPECT_NEAR(t->ribbon.lane_width_m, 3.5f, 1e-4f);
+        // Widened 2026-09-08 ("make the margins bit bigger by default I
+        // can't clearly see the 3 ribbons stacked when I play the bag").
+        EXPECT_NEAR(t->ribbon.margin_global_m, 0.3f, 1e-4f);
+        EXPECT_NEAR(t->ribbon.margin_local_m, 0.8f, 1e-4f);
+        EXPECT_NEAR(t->ribbon.margin_behavior_m, 1.3f, 1e-4f);
+        EXPECT_LT(t->ribbon.margin_global_m, t->ribbon.margin_local_m);
+        EXPECT_LT(t->ribbon.margin_local_m, t->ribbon.margin_behavior_m);
+    }
+}
+
 // ── palette.road/lane_centerline/lane_boundary/crosswalk (Epic 3 Task 1 /
 //    VM-036, decision #6): four new soft-defaulted tokens ─────────────────
 
@@ -316,6 +384,10 @@ TEST(ThemeLoad, BuiltinFallbackMatchesDarkAdasYaml) {
     EXPECT_NEAR(fb.ibl.intensity, dark->ibl.intensity, 1e-4f);
     EXPECT_NEAR(fb.fog.density, dark->fog.density, 1e-4f);
     EXPECT_NEAR(fb.ribbon.width_m, dark->ribbon.width_m, 1e-4f);
+    EXPECT_NEAR(fb.ribbon.lane_width_m, dark->ribbon.lane_width_m, 1e-4f);
+    EXPECT_NEAR(fb.ribbon.margin_behavior_m, dark->ribbon.margin_behavior_m, 1e-4f);
+    EXPECT_NEAR(fb.ribbon.margin_global_m, dark->ribbon.margin_global_m, 1e-4f);
+    EXPECT_NEAR(fb.ribbon.margin_local_m, dark->ribbon.margin_local_m, 1e-4f);
 }
 
 TEST(ClayMaterial, RespondsToLightDirection) {

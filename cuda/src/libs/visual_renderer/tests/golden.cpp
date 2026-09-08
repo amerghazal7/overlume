@@ -304,15 +304,26 @@ RibbonScene make_three_role_ribbons(double now)
         std::vector<mpviz::Vec3> points;
         double age_sec;  // last_update_sec = now - age_sec
     };
+    // All three share ONE corridor (user directive 2026-09-08: "make the
+    // margins bit bigger by default I can't clearly see the 3 ribbons
+    // stacked when I play the bag") -- the bag publishes all three roles
+    // along the ego's lane, so the golden must show the stack: GLOBAL widest
+    // at the bottom of the z-stagger, LOCAL narrower above it, BEHAVIOR
+    // narrowest on top, each lower ribbon peeking out as a rim. The old
+    // scene spread them apart, which could never demonstrate the rims.
     const std::vector<Spec> specs = {
-        // BEHAVIOR: the hero ribbon, fresh, sweeping toward the camera.
+        // BEHAVIOR: the hero ribbon, fresh, shortest -- the near-term plan.
         {mpviz::PathRole::BEHAVIOR,
-         {{-6.0, -2.0, 0.0}, {-3.0, -1.0, 0.0}, {0.0, 0.0, 0.0}, {3.0, 1.0, 0.0}, {6.0, 2.0, 0.0}},
+         {{-4.0, -1.2, 0.0}, {0.0, 0.0, 0.0}, {4.0, 1.2, 0.0}},
          0.0},
-        // GLOBAL: fresh, a distinct straight line off to one side.
-        {mpviz::PathRole::GLOBAL, {{-8.0, 5.0, 0.0}, {0.0, 6.0, 0.0}, {8.0, 5.0, 0.0}}, 0.0},
-        // LOCAL: fresh, a short curl off to the other side.
-        {mpviz::PathRole::LOCAL, {{-4.0, -6.0, 0.0}, {0.0, -8.0, 0.0}, {4.0, -6.0, 0.0}}, 0.0},
+        // GLOBAL: fresh, the longest -- the coarse route, same corridor.
+        {mpviz::PathRole::GLOBAL,
+         {{-10.0, -3.0, 0.0}, {-5.0, -1.5, 0.0}, {0.0, 0.0, 0.0}, {5.0, 1.5, 0.0}, {10.0, 3.0, 0.0}},
+         0.0},
+        // LOCAL: fresh, mid-length, same corridor.
+        {mpviz::PathRole::LOCAL,
+         {{-6.0, -1.8, 0.0}, {-3.0, -0.9, 0.0}, {0.0, 0.0, 0.0}, {3.0, 0.9, 0.0}, {6.0, 1.8, 0.0}},
+         0.0},
     };
 
     RibbonScene s;
@@ -333,6 +344,12 @@ RibbonScene make_three_role_ribbons(double now)
         r.last_update_sec = now - sp.age_sec;
         s.ribbons.push_back(r);
     }
+    // Ego (user directive 2026-09-08, ego-proximity ribbon clip): sits
+    // exactly at (0,0,0), a point ALL THREE polylines now pass through by
+    // construction -- well inside kRibbonEgoClipLateralM (5.0m) for every
+    // role, so the whole stack renders clipped at the ego in this golden
+    // (the bag behaves the same way: all three roles ride the ego's lane).
+    s.ego = mpviz::EgoState{{0.0, 0.0, 0.0}, 0.0, 0.0, /*valid=*/1};
     return s;
 }
 

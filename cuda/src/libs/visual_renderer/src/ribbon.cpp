@@ -13,9 +13,13 @@
 #include <math/vec3.h>
 #include <math/vec4.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <limits>
+#include <utility>
 #include <vector>
 
 namespace mpviz {
@@ -54,7 +58,28 @@ uint64_t hash_vec3(const Vec3& v) {
 // happened to force a rebuild. Hashed as its bit pattern (not the float
 // value) -- exact reproducibility across calls with the same width matters
 // here, not numeric comparison.
-uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float width_m) {
+// half_width_m (user directive 2026-09-08, ITEM 3: lane-fill margins) --
+// evolved from the old flat theme.ribbon.width_m into the actual PER-ROLE
+// effective half-width (build_effective_half_width(), below: derived from
+// lane_width_m and the role's own margin, clamped to the floor) -- a
+// set_theme() that changes only a margin touches no PathRibbon point data
+// at all, so without the EFFECTIVE width in the signature a mid-transition
+// margin change would be silently ignored until some UNRELATED content
+// change happened to force a rebuild (same reasoning ITEM 1 originally
+// stated for the flat width_m this replaces).
+//
+// clip_active/clip_units (user directive 2026-09-08, ITEM 2, ego-proximity
+// ribbon clip): folded in so a slot rebuilds when the QUANTIZED clip
+// station moves, on top of every reason it already rebuilt for. clip_units
+// is hashed as a plain integer (not the quantized station's float bit
+// pattern) -- it's already an exact multiple of kRibbonClipQuantizeM by
+// construction, so two frames landing on the same station always hash
+// identically; a parked ego (or one outside the proximity gate every
+// frame) recomputes the SAME clip_active/clip_units pair every call, so
+// this contributes nothing new to the signature and causes zero rebuilds
+// (see update_ribbons()'s own comment).
+uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float half_width_m,
+                           bool clip_active, int64_t clip_units) {
     uint64_t h = hash_combine(0, static_cast<uint64_t>(role));
     h = hash_combine(h, static_cast<uint64_t>(n));
     if (n > 0) {
@@ -62,8 +87,10 @@ uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float widt
         h = hash_combine(h, hash_vec3(pts[n - 1]));
     }
     uint32_t widthBits;
-    std::memcpy(&widthBits, &width_m, sizeof(widthBits));
+    std::memcpy(&widthBits, &half_width_m, sizeof(widthBits));
     h = hash_combine(h, static_cast<uint64_t>(widthBits));
+    h = hash_combine(h, clip_active ? 1ULL : 0ULL);
+    h = hash_combine(h, static_cast<uint64_t>(clip_units));
     return h;
 }
 
@@ -73,13 +100,16 @@ uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float widt
 // ribbons (review 2026-08-20: at 0.03 a behavior/local ribbon crossing a
 // tracked object's predicted path was coplanar and z-fought it).
 //
-// Half-width (user directive 2026-08-20, ITEM 1) is no longer a fixed
-// constant here -- it now comes from the active theme's ribbon.width_m at
-// BUILD time (build_slot_meshes() below), the same "parameters/theme state
-// pattern already established" renderer.cpp's active_theme already follows
-// for every other themed value. 0.24 (this constant's old doubled value)
-// remains Theme::Ribbon's own soft-default (theme.hpp), so a theme file
-// that predates this field renders identically.
+// Half-width (user directive 2026-08-20, ITEM 1; evolved into the per-role
+// margin form by user directive 2026-09-08, ITEM 3) is no longer a fixed
+// constant here -- it now comes from build_effective_half_width(), below,
+// derived from the active theme's ribbon.lane_width_m and the role's own
+// margin at BUILD time (build_slot_meshes() below), the same "parameters/
+// theme state pattern already established" renderer.cpp's active_theme
+// already follows for every other themed value. 0.24 (ITEM 1's old flat
+// width_m default) remains Theme::Ribbon's own soft-default seed for the
+// margin fields (theme.hpp/theme.cpp), so a theme file that predates ITEM 3
+// renders identically.
 // Per-role stagger, not one shared plane: BEHAVIOR and LOCAL routinely trace
 // the SAME route (planner output vs velocity path), and at a shared z they
 // z-fight into a patchy interleave (seen live 2026-08-20, light theme).
@@ -87,6 +117,143 @@ uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float widt
 constexpr float kRibbonZLiftByRoleM[3] = {0.05f,   // BEHAVIOR (PathRole 0)
                                           0.040f,  // GLOBAL   (PathRole 1)
                                           0.045f}; // LOCAL    (PathRole 2)
+
+// Today's fixed half-width floor (user directive 2026-09-08, ITEM 3: lane-
+// fill margins) -- the OLD kRibbonHalfWidthM this file used to hard-code
+// before theme.ribbon.width_m existed (see build_effective_half_width()'s
+// own comment). Per-role effective half-width is clamped to never go
+// narrower than this, however aggressively a theme authors its margins.
+constexpr float kRibbonMinHalfWidthM = 0.12f;
+
+// Per-role extruded half-width (user directive 2026-09-08, ITEM 3): "make
+// it like lane fill (with margins so it doesn't fully fill)". A ribbon no
+// longer fully occupies theme.ribbon.lane_width_m -- each role's own margin
+// (margin_behavior_m/margin_global_m/margin_local_m) eats into both sides,
+// so a lower-z-lifted ribbon of a different color peeks out as a colored
+// rim around whichever role sits above it in the z-stagger
+// (kRibbonZLiftByRoleM). theme.cpp's parse() derives the margin defaults
+// from the OLD ribbon.width_m field so a pre-existing theme YAML reproduces
+// today's 0.24m strip exactly -- see its own comment for the arithmetic.
+float role_margin_m(const detail::Theme::Ribbon& cfg, PathRole role) {
+    switch (role) {
+        case PathRole::BEHAVIOR:
+            return cfg.margin_behavior_m;
+        case PathRole::GLOBAL:
+            return cfg.margin_global_m;
+        case PathRole::LOCAL:
+        default:
+            return cfg.margin_local_m;
+    }
+}
+
+float build_effective_half_width(const detail::Theme::Ribbon& cfg, PathRole role) {
+    const float halfWidth = (cfg.lane_width_m - 2.0f * role_margin_m(cfg, role)) * 0.5f;
+    return std::max(halfWidth, kRibbonMinHalfWidthM);
+}
+
+// Ego-proximity ribbon clip (user directive 2026-09-08, ITEM 2): "ribbons
+// are showing behind the ego vehicle... we should never render the part of
+// the ribbon behind the ego". Finds the ribbon polyline's closest-approach
+// arc-station to `ego` (2D -- x/y only, map frame) by walking every
+// segment once; returns {station, min lateral distance}. n<2 -> {0, +inf}
+// (nothing to clip against -- the +inf distance also fails the proximity
+// gate below, so an empty/degenerate ribbon is simply never clipped).
+std::pair<double, double> closest_arc_station(const Vec3* pts, uint32_t n, const Vec3& ego) {
+    if (n < 2) return {0.0, std::numeric_limits<double>::infinity()};
+    double cum = 0.0;
+    double bestStation = 0.0;
+    double bestDist = std::numeric_limits<double>::infinity();
+    for (uint32_t i = 0; i + 1 < n; ++i) {
+        const Vec3& a = pts[i];
+        const Vec3& b = pts[i + 1];
+        const double dx = b.x - a.x, dy = b.y - a.y;
+        const double segLen = std::sqrt(dx * dx + dy * dy);
+        double t = 0.0;
+        if (segLen > 0.0) {
+            t = ((ego.x - a.x) * dx + (ego.y - a.y) * dy) / (segLen * segLen);
+            t = std::clamp(t, 0.0, 1.0);
+        }
+        const double px = a.x + dx * t, py = a.y + dy * t;
+        const double dist = std::hypot(ego.x - px, ego.y - py);
+        if (dist < bestDist) {
+            bestDist = dist;
+            bestStation = cum + t * segLen;
+        }
+        cum += segLen;
+    }
+    return {bestStation, bestDist};
+}
+
+// Proximity gate (user directive 2026-09-08, ITEM 2, named constant): only
+// clip a ribbon the ego is actually near -- a far-away GLOBAL route (the
+// planned destination route, routinely kilometers of it loaded at once)
+// must render whole, untouched. 5.0m is deliberately generous versus the
+// ~0.1-0.5m half-widths ribbons actually draw at -- this is "is the ego
+// riding this route at all", not a precise lateral-offset threshold.
+constexpr float kRibbonEgoClipLateralM = 5.0f;
+// Arc-length quantization (user directive 2026-09-08, ITEM 2, named
+// constant): the clip station folds into ribbon_signature() only at this
+// granularity, so a parked ego (station recomputed identically every
+// frame) causes ZERO rebuilds and a moving one rebuilds a few times a
+// second, not every single frame for a sub-millimeter station drift.
+constexpr float kRibbonClipQuantizeM = 0.5f;
+
+struct RibbonClip {
+    bool active = false;
+    int64_t quantizedUnits = 0;  // station / kRibbonClipQuantizeM, rounded -- meaningful iff active
+    double stationM = 0.0;       // quantizedUnits * kRibbonClipQuantizeM -- meaningful iff active
+};
+
+// Clip applies only when ego.valid (user directive 2026-09-08, ITEM 2) --
+// an invalid ego has no real position to clip against (EgoState::valid's
+// own "0 = no TF yet" contract, scene.h).
+RibbonClip compute_ribbon_clip(const PathRibbon& ribbon, const EgoState& ego) {
+    RibbonClip clip;
+    if (!ego.valid) return clip;
+    const auto [station, dist] = closest_arc_station(ribbon.points, ribbon.point_count, ego.position);
+    if (dist >= kRibbonEgoClipLateralM) return clip;  // proximity gate: too far, render whole
+    clip.active = true;
+    // ceil, not lround (review 2026-09-08): round-to-nearest lands the cut
+    // up to 0.25 m BEHIND the closest-approach station about half the time,
+    // against the directive's literal "never render the part of the ribbon
+    // behind the ego". ceil keeps the cut at-or-ahead, equally
+    // deterministic (parked-ego zero-rebuild property unchanged).
+    clip.quantizedUnits = static_cast<int64_t>(std::ceil(station / kRibbonClipQuantizeM));
+    clip.stationM = static_cast<double>(clip.quantizedUnits) * kRibbonClipQuantizeM;
+    return clip;
+}
+
+// Truncates `pts`/`n` to the forward half starting at arc-length `s0`,
+// with an interpolated point at the cut (not a snap to the nearest
+// original vertex) -- "render only from there FORWARD with an interpolated
+// start point" per the directive. Walks the SAME 2D arc length
+// closest_arc_station() computed `s0` against, so the cut lands exactly
+// where that search says it should. n<2 -> empty.
+std::vector<Vec3> clip_ribbon_forward(const Vec3* pts, uint32_t n, double s0) {
+    std::vector<Vec3> out;
+    if (n < 2) return out;
+    double cum = 0.0;
+    for (uint32_t i = 0; i + 1 < n; ++i) {
+        const Vec3& a = pts[i];
+        const Vec3& b = pts[i + 1];
+        const double dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+        const double segLen = std::sqrt(dx * dx + dy * dy);
+        const bool isLastSeg = (i + 2 == n);
+        if (cum + segLen >= s0 || isLastSeg) {
+            const double t = segLen > 0.0 ? std::clamp((s0 - cum) / segLen, 0.0, 1.0) : 0.0;
+            out.push_back(Vec3{a.x + dx * t, a.y + dy * t, a.z + dz * t});
+            for (uint32_t k = i + 1; k < n; ++k) out.push_back(pts[k]);
+            return out;
+        }
+        cum += segLen;
+    }
+    // Unreachable in practice (the loop's isLastSeg branch always fires by
+    // the final segment), kept as a defensive fallback rather than an empty
+    // return -- still renders SOMETHING rather than silently dropping the
+    // ribbon.
+    out.push_back(pts[n - 1]);
+    return out;
+}
 
 // Destroys every mesh in `slot.meshes` (independent of role/fade state --
 // called both on a full content-signature rebuild and on slot release) and
@@ -119,28 +286,34 @@ void destroy_slot_meshes(VisualRenderer& r, VisualRenderer::RibbonSlot& slot) {
 // < 65536 for n <= kMaxPointsPerMesh) straight to the IndexBuffer -- no
 // flattening, no per-corner duplication, and the actual GPU vertex count
 // this task's tests assert against.
-void build_slot_meshes(VisualRenderer& r, VisualRenderer::RibbonSlot& slot,
-                       const PathRibbon& ribbon) {
+// pts/n is whatever update_ribbons() decided the slot's geometry should be
+// built from -- the raw PathRibbon points, or (user directive 2026-09-08,
+// ITEM 2) an ego-clipped forward-truncated subset. `role` picks the
+// material AND (ITEM 3) the per-role margin, same as before.
+void build_slot_meshes(VisualRenderer& r, VisualRenderer::RibbonSlot& slot, PathRole role,
+                       const Vec3* pts, uint32_t n) {
     destroy_slot_meshes(r, slot);
     slot.totalVertexCount = 0;
-    filament::MaterialInstance* mat = r.ribbonMaterial[static_cast<uint8_t>(ribbon.role)];
+    filament::MaterialInstance* mat = r.ribbonMaterial[static_cast<uint8_t>(role)];
     // Half-width from the ACTIVE (possibly mid-transition-blended) theme at
-    // build time (user directive 2026-08-20, ITEM 1) -- r.active_theme is
-    // kept live every render_frame() call by apply_current_theme(), which
-    // runs before update_ribbons() (this function's only caller), so this
-    // always reads whatever width a live set_theme() transition has blended
-    // to by THIS frame, not a frozen create_renderer()-time snapshot. Mirrored
-    // onto the slot itself (RibbonSlot::halfWidthM, see its own comment) so
-    // tests can read back what was actually used without a Filament AABB
-    // query (add_mesh() gives every mesh the same hard-coded declared
-    // culling box, unrelated to the strip's real extent).
-    const float halfWidthM = r.active_theme.ribbon.width_m * 0.5f;
+    // build time (user directive 2026-08-20, ITEM 1; per-role margin form,
+    // ITEM 3, user directive 2026-09-08) -- r.active_theme is kept live
+    // every render_frame() call by apply_current_theme(), which runs
+    // before update_ribbons() (this function's only caller), so this always
+    // reads whatever lane_width_m/margin a live set_theme() transition has
+    // blended to by THIS frame, not a frozen create_renderer()-time
+    // snapshot. Mirrored onto the slot itself (RibbonSlot::halfWidthM, see
+    // its own comment) so tests can read back what was actually used
+    // without a Filament AABB query (add_mesh() gives every mesh the same
+    // hard-coded declared culling box, unrelated to the strip's real
+    // extent).
+    const float halfWidthM = build_effective_half_width(r.active_theme.ribbon, role);
     slot.halfWidthM = halfWidthM;
-    for (auto [a, b] : detail::polyline_chunks(ribbon.point_count)) {
-        const uint32_t n = b - a;
-        std::vector<Vec3> strip =
-            detail::extrude_polyline(ribbon.points + a, n, halfWidthM,
-                                     kRibbonZLiftByRoleM[static_cast<uint8_t>(ribbon.role)]);
+    slot.firstPointM = n > 0 ? pts[0] : Vec3{};
+    for (auto [a, b] : detail::polyline_chunks(n)) {
+        const uint32_t chunkN = b - a;
+        std::vector<Vec3> strip = detail::extrude_polyline(
+            pts + a, chunkN, halfWidthM, kRibbonZLiftByRoleM[static_cast<uint8_t>(role)]);
         if (strip.empty()) continue;
         std::vector<uint16_t> idx =
             detail::extrude_polyline_indices(static_cast<uint32_t>(strip.size() / 2));
@@ -189,19 +362,45 @@ void update_ribbons(VisualRenderer& r, const SceneGraph& s) {
         const PathRibbon& ribbon = s.paths[i];
         VisualRenderer::RibbonSlot& slot = r.ribbonSlots[i];
 
-        const uint64_t sig = ribbon_signature(ribbon.role, ribbon.points, ribbon.point_count,
-                                              r.active_theme.ribbon.width_m);
+        // Ego-proximity clip (user directive 2026-09-08, ITEM 2), recomputed
+        // every frame from the ribbon's OWN points and the current ego --
+        // cheap (one segment walk), and it's exactly this per-frame
+        // recomputation that makes "parked ego -> zero rebuilds" true: a
+        // stationary ego against unchanged ribbon points always lands on
+        // the SAME quantized station, so the signature below never changes
+        // even though this runs every call.
+        const RibbonClip clip = compute_ribbon_clip(ribbon, s.ego);
+
+        const float effectiveHalfWidthM = build_effective_half_width(r.active_theme.ribbon, ribbon.role);
+        const uint64_t sig =
+            ribbon_signature(ribbon.role, ribbon.points, ribbon.point_count,
+                             effectiveHalfWidthM, clip.active, clip.quantizedUnits);
         if (!slot.has_signature || slot.signature != sig) {
-            // Content (or role) changed -- full rebuild. A live translucent
-            // fade instance is stale bookkeeping for the OLD geometry; drop
-            // it and let the staleness pass below re-decide from scratch
-            // against the ribbon's (now current) last_update_sec.
+            // Clipped geometry is materialized ONLY on a rebuild (review
+            // 2026-09-08): the clip station is already in the signature, so
+            // the rebuild branch is the only consumer -- computing the
+            // clipped copy every frame allocated and discarded the whole
+            // point list of a long ridden GLOBAL route ~30x/s for nothing.
+            std::vector<Vec3> clippedStorage;
+            const Vec3* geomPts = ribbon.points;
+            uint32_t geomN = ribbon.point_count;
+            if (clip.active) {
+                clippedStorage = clip_ribbon_forward(ribbon.points, ribbon.point_count, clip.stationM);
+                geomPts = clippedStorage.data();
+                geomN = static_cast<uint32_t>(clippedStorage.size());
+            }
+            // Content (or role, or clip station) changed -- full rebuild. A
+            // live translucent fade instance is stale bookkeeping for the
+            // OLD geometry; drop it and let the staleness pass below
+            // re-decide from scratch against the ribbon's (now current)
+            // last_update_sec.
             if (slot.fadeInstance != nullptr) {
                 r.engine->destroy(slot.fadeInstance);
                 slot.fadeInstance = nullptr;
                 slot.fadeAlpha = 1.0f;
             }
-            build_slot_meshes(r, slot, ribbon);
+            ++r.ribbonRebuildCount;
+            build_slot_meshes(r, slot, ribbon.role, geomPts, geomN);
             slot.role = ribbon.role;
             slot.signature = sig;
             slot.has_signature = true;
@@ -292,6 +491,19 @@ RibbonMaterialInfo ribbon_slot_material_info(mpviz::VisualRenderer* r, size_t sl
 float ribbon_slot_half_width_m(mpviz::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->ribbonSlots.size()) return 0.0f;
     return r->ribbonSlots[slot].halfWidthM;
+}
+
+bool ribbon_slot_first_point(mpviz::VisualRenderer* r, size_t slot, mpviz::Vec3* out) {
+    if (r == nullptr || slot >= r->ribbonSlots.size() || out == nullptr) return false;
+    const auto& s = r->ribbonSlots[slot];
+    if (s.meshes.empty()) return false;
+    *out = s.firstPointM;
+    return true;
+}
+
+uint64_t ribbon_rebuild_count(mpviz::VisualRenderer* r) {
+    if (r == nullptr) return 0;
+    return r->ribbonRebuildCount;
 }
 
 }  // namespace mpviz::testing

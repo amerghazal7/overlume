@@ -256,6 +256,40 @@ TEST(Profile, OgmRowCarriesItsUpdateTopicAndNonOgmRowsMayNot)
     EXPECT_NE(errs2[0].find("update_topic"), std::string::npos);
 }
 
+TEST(Profile, JunctionInteriorBoundariesDefaultsToTrueAndParsesExplicitFalse)
+{
+    // Junction-cleanup directive (2026-09-08): default true (shipped
+    // profiles never write the key at all -- see urban/sim_profile.yaml's
+    // hd_map row comments).
+    std::vector<std::string> errs;
+    auto p = load_profile_string(
+        "name: t\nrows:\n  - {topic: /h, type: visualization_msgs/msg/MarkerArray,"
+        " adapter: hd_map, role: lane}\n", errs);
+    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
+    EXPECT_TRUE(p->rows[0].junction_interior_boundaries);
+
+    std::vector<std::string> errs2;
+    auto p2 = load_profile_string(
+        "name: t\nrows:\n  - {topic: /h, type: visualization_msgs/msg/MarkerArray,"
+        " adapter: hd_map, role: lane, junction_interior_boundaries: false}\n", errs2);
+    ASSERT_TRUE(p2.has_value()) << (errs2.empty() ? "" : errs2[0]);
+    EXPECT_FALSE(p2->rows[0].junction_interior_boundaries);
+}
+
+TEST(Profile, JunctionInteriorBoundariesIsRejectedOnNonHdMapRows)
+{
+    // Restricted to adapter: hd_map -- an explicit value on any other
+    // adapter is a typo'd key, never intentional (nothing else in the
+    // pipeline reads it).
+    std::vector<std::string> errs;
+    auto bad = load_profile_string(
+        "name: t\nrows:\n  - {topic: /p, type: nav_msgs/msg/Path,"
+        " adapter: path, role: behavior, junction_interior_boundaries: false}\n", errs);
+    EXPECT_FALSE(bad.has_value());
+    ASSERT_EQ(errs.size(), 1u);
+    EXPECT_NE(errs[0].find("junction_interior_boundaries"), std::string::npos);
+}
+
 TEST(Profile, GroundTruthBoxesRowIsBestEffortBecauseItsPublisherIs)
 {
     // The bag's metadata.yaml records offered `reliability: 2` (BEST_EFFORT)

@@ -1,12 +1,11 @@
-# ribbon_width_b.yaml — test fixture for test_ribbon.cpp's Ribbon.
-# WidthChangeRebuildsGeometry (user directive 2026-08-20, ITEM 1). See
-# ribbon_width_a.yaml's own comment for why this pair is still valid after
-# user directive 2026-09-08 (ITEM 3, lane-fill margins).
-# Byte-for-byte identical to ribbon_width_a.yaml except `ribbon.width_m` --
-# the only thing that can make a slot's built geometry differ between the
-# two is theme.ribbon.width_m actually reaching build_slot_meshes(). Values
-# otherwise copied from assets/themes/dark_adas.yaml.
-name: ribbon_width_b
+# ribbon_margin_extreme.yaml — test fixture for test_ribbon.cpp's Ribbon.
+# EffectiveHalfWidthClampsToTheHalfWidthFloor (user directive 2026-09-08,
+# ITEM 3: lane-fill margins). margin_local_m is deliberately almost as wide
+# as half of lane_width_m: raw half-width = (3.5 - 2*1.74) / 2 = 0.01, which
+# must clamp UP to ribbon.cpp's kRibbonMinHalfWidthM (0.12), never render a
+# near-zero-width hairline. Values otherwise copied from
+# assets/themes/dark_adas.yaml.
+name: ribbon_margin_extreme
 palette:
   ground:      [0.05, 0.06, 0.08]
   sky:         [0.02, 0.02, 0.05]
@@ -38,4 +37,5 @@ ibl:
   ground_color: [0.02, 0.02, 0.03]
   intensity: 256000.0
 fog: { density: 0.015 }
-ribbon: { width_m: 0.60 }
+# LOCAL raw half-width = (3.5 - 2*1.74) / 2 = 0.01 -- clamps to 0.12.
+ribbon: { lane_width_m: 3.5, margin_behavior_m: 0.8, margin_global_m: 0.2, margin_local_m: 1.74 }

@@ -56,6 +56,24 @@ rows:
   # crosswalk_stopline_ is a real map element and is KEPT, as a polyline -- it
   # is a painted stop bar, not a crosswalk box; again it needs its own rule
   # because crosswalk_ is a prefix of it.
+  #
+  # Junction cleanup (user directive 2026-09-08 + same-day refinement):
+  # "cut [the crisscrossing ROAD_EDGE lines] off in [a junction] and
+  # continue along the road after the junction." This row has no `junction`
+  # namespace rule -- this feed never carries JUNCTION geometry (verified) --
+  # so the cut mechanism that applies here is the mutual-crossing cut
+  # (hd_map.cpp): any two ROAD_EDGE polylines from different lane_ids that
+  # cross in 2D at a real angle get trimmed back from the crossing point --
+  # SegSegIntersect2D rejects near-parallel AND near-antiparallel segment
+  # pairs (not just exactly-parallel ones; see its own comment), so a
+  # chained lanelet boundary's ordinary survey kink at a shared node is
+  # never mistaken for a crossing, and this never touches open-road
+  # geometry. `junction_interior_boundaries` (row key, default true, not
+  # written here) keeps interior LEFT_/RIGHT_BOUNDARY dashed separators
+  # visible through a junction box by default (the refinement's own "enable
+  # them by default") -- set it to false to drop them there too, though it
+  # is INERT on this row specifically: with no JUNCTION polygon to clip
+  # against, there is nothing for it to do (see ProfileRow's own comment).
   - {topic: /hd_map_local_elements, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 2.0,
      ns_default: drop,
@@ -82,6 +100,9 @@ rows:
   # gets nothing at all. If the layer stays empty, that is the first thing to
   # check -- flip transient_local: true here IF the publisher is latched; if
   # it is genuinely VOLATILE, the node must be up before the publisher.
+  # Junction cleanup: same as the local row above -- no `junction` rule, so
+  # only the mutual-crossing cut applies; `junction_interior_boundaries`
+  # (default true, not written) is likewise inert here.
   - {topic: /hd_map_global_elements, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 0.5,
      ns_default: drop,

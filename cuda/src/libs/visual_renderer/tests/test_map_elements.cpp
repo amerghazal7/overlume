@@ -11,8 +11,10 @@
 #include "test_paths.hpp"
 #include "theme.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -207,6 +209,86 @@ TEST(MapElements, CrosswalkHatchFiresOnRecordedFivePointClosedPolyline) {
     };
     auto tris = mpviz::detail::build_crosswalk_hatch(pts_after_dedupe, 4, 0.02f);
     EXPECT_FALSE(tris.empty());
+}
+
+// ── User directive 2026-09-08: crosswalk orientation fix (rails = the
+//    quad's LONG-edge pair, not the SHORT-edge pair) + pitch-derived stripe
+//    count ──────────────────────────────────────────────────────────────
+
+TEST(MapElements, CrosswalkHatchBarsAreOrientedAlongTheShortAxis) {
+    // Same real crosswalk_8043 fixture geometry as the test above -- edges
+    // 0-1/2-3 are the LONG pair (~14.9m, the crossing WIDTH) and edges
+    // 1-2/3-0 are the SHORT pair (~1.95m, the travel-direction DEPTH),
+    // verified by direct computation on these exact points. A real zebra
+    // stripe's own long axis runs along the SHORT (travel) axis; before
+    // this fix, rails were picked from the SHORT-edge pair, which instead
+    // produced bars whose long axis ran along the LONG axis (ladder rungs
+    // across the road -- the user's exact complaint, "horizontal lines
+    // instead of vertical").
+    const mpviz::Vec3 pts[4] = {
+        {-39.50850289011474, 45.33743457749722, -0.000284586101770401},
+        {-54.35884356129442, 45.2288915511252, -0.00039308611303567886},
+        {-54.476791014440394, 47.18497371095612, -0.0004083588719367981},
+        {-39.52170872121907, 47.27801090662989, -0.0002988511696457863},
+    };
+    auto tris = mpviz::detail::build_crosswalk_hatch(pts, 4, 0.0f);
+    ASSERT_FALSE(tris.empty());
+    ASSERT_EQ(tris.size() % 6, 0u) << "not a whole number of 2-triangle stripe quads";
+
+    // First stripe quad is tris[0..5]: (a0, a1, b1, a0, b1, b0). a0->a1 and
+    // b0->b1 are the two edges cutting ACROSS the bar at one t-slice --
+    // the bar's actual long axis is a0->b0 (or a1->b1), spanning between
+    // the two rails. That vector must be close to parallel with one of the
+    // quad's own SHORT edges (1-2 or 3-0), not the LONG edges (0-1/2-3).
+    const auto& a0 = tris[0];
+    const auto& b0 = tris[5];
+    const double barDx = b0.x - a0.x, barDy = b0.y - a0.y;
+    const double barLen = std::sqrt(barDx * barDx + barDy * barDy);
+
+    auto edge_vec = [&](int i, int j) {
+        return std::pair<double, double>{pts[j].x - pts[i].x, pts[j].y - pts[i].y};
+    };
+    auto cos_angle = [&](std::pair<double, double> e) {
+        const double eLen = std::sqrt(e.first * e.first + e.second * e.second);
+        if (barLen <= 0.0 || eLen <= 0.0) return 0.0;
+        return std::abs((barDx * e.first + barDy * e.second) / (barLen * eLen));
+    };
+    const double cosShort = std::max(cos_angle(edge_vec(1, 2)), cos_angle(edge_vec(3, 0)));
+    const double cosLong = std::max(cos_angle(edge_vec(0, 1)), cos_angle(edge_vec(2, 3)));
+    EXPECT_GT(cosShort, 0.99) << "bar long axis should be ~parallel to the quad's SHORT edges";
+    EXPECT_LT(cosLong, 0.2) << "bar long axis should be ~perpendicular to the quad's LONG edges";
+}
+
+TEST(MapElements, CrosswalkHatchStripeCountIsPitchDerivedOnRealFixture) {
+    // Same fixture; the long axis (edges 0-1/2-3) averages ~14.90m.
+    // clamp(round(14.90 / 1.2), 3, 24) == 12 -- computed independently in
+    // Python against these exact coordinates, not re-derived from the
+    // production formula.
+    const mpviz::Vec3 pts[4] = {
+        {-39.50850289011474, 45.33743457749722, -0.000284586101770401},
+        {-54.35884356129442, 45.2288915511252, -0.00039308611303567886},
+        {-54.476791014440394, 47.18497371095612, -0.0004083588719367981},
+        {-39.52170872121907, 47.27801090662989, -0.0002988511696457863},
+    };
+    auto tris = mpviz::detail::build_crosswalk_hatch(pts, 4, 0.0f);
+    ASSERT_FALSE(tris.empty());
+    ASSERT_EQ(tris.size() % 6, 0u);
+    EXPECT_EQ(tris.size() / 6, 12u) << "5 fixed bars across a ~15m crossing was the old, wrong "
+                                        "behavior -- stripe count must scale with crossing length";
+}
+
+TEST(MapElements, CrosswalkHatchStripeCountClampsToRange) {
+    // A tiny (~1m long-axis) and a huge (~200m long-axis) quad both clamp
+    // into [3, 24] rather than rounding to an absurd 1 or 166.
+    const mpviz::Vec3 tiny[4] = {{0, 0, 0}, {1, 0, 0}, {1, 2, 0}, {0, 2, 0}};
+    auto trisTiny = mpviz::detail::build_crosswalk_hatch(tiny, 4, 0.0f);
+    ASSERT_FALSE(trisTiny.empty());
+    EXPECT_EQ(trisTiny.size() / 6, 3u);
+
+    const mpviz::Vec3 huge[4] = {{0, 0, 0}, {200, 0, 0}, {200, 4, 0}, {0, 4, 0}};
+    auto trisHuge = mpviz::detail::build_crosswalk_hatch(huge, 4, 0.0f);
+    ASSERT_FALSE(trisHuge.empty());
+    EXPECT_EQ(trisHuge.size() / 6, 24u);
 }
 
 // ── Epic 3 Task 1 (VM-036) Step 4: dash-kind flip -- boundary dashes,
@@ -645,15 +727,15 @@ TEST(MapGolden, CenterlineDotsOnState_DarkAdas) {
     mpviz::set_scene(r, s);
     const std::vector<uint8_t> withDots = render_once(r, pose);
 
-    // No committed golden yet (HARD RULE: candidates to /tmp, no promotion
-    // this task) -- SSIM against a nonexistent path reads low/0, same
-    // established pattern as SyntheticLaneAndCrosswalkChangePixelsVsBaseline's
-    // "/nonexistent-golden.png" above; the real assertion is the pixel-diff
-    // against an empty scene, proving the dot-disc path actually renders
-    // something.
-    mpviz::testing::render_and_compare(
+    // The golden was promoted with Task 1 (4b26fb6) -- the SSIM return is
+    // asserted now (review 2026-09-08: an unchecked render_and_compare is a
+    // candidate generator that can never go red, so a regression in this
+    // scene would be invisible). The pixel-diff against the empty scene
+    // below stays as the mechanism-level check.
+    const double dotSsim = mpviz::testing::render_and_compare(
         r, pose, MPVIZ_TEST_DATA_DIR "/tests/goldens/centerline_dots_dark_adas.png",
         "/tmp/centerline_dots_dark_adas_actual.png");
+    EXPECT_GT(dotSsim, 0.98);
     mpviz::destroy_renderer(r);
 
     ASSERT_EQ(baseline.size(), withDots.size());
@@ -663,6 +745,83 @@ TEST(MapGolden, CenterlineDotsOnState_DarkAdas) {
     }
     EXPECT_GT(differing, 0u) << "CENTERLINE dot-disc elements produced no visible pixel "
                                  "difference from a scene with no map data at all";
+}
+
+// ── User directive 2026-09-08 (round 4): junction-cleanup golden ────────
+// The cut itself (clip against a JUNCTION polygon / mutual-crossing
+// back-off) is entirely node-side (HdMapAdapter::fill(), adapter-level
+// tests) -- the library only ever renders whatever MapElements it is
+// handed, so this golden feeds a SYNTHETIC scene shaped like the
+// adapter's OWN post-cut output: two crossing roads' ROAD_EDGE outer
+// edges, each already split into the two pieces a real cut would produce
+// (stopping at the junction box, resuming past it -- nothing rendered
+// runs through the middle), a MapKind::JUNCTION ring (the box itself,
+// generic/OTHER styling, no dedicated token per decision #6's YAGNI call),
+// and two interior LEFT_/RIGHT_BOUNDARY dashed separators left UNCUT,
+// running straight through -- the refinement's own "only the lanes
+// separating dashed lines... enabled by default." Proves the RENDERED
+// RESULT of a cut adapter output reads clean, independent of the cut
+// algorithm itself (already proven at the adapter level, hd_map.cpp).
+TEST(MapGolden, JunctionCleanupOnState_DarkAdas) {
+    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    mpviz::CameraPose pose{{0, -14, 12}, {0, 0, 0}, 60.0};
+
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    // Road A (east-west) outer edges, each already cut at the box
+    // (x in [-3,3]) -- two pieces per rail, four ROAD_EDGE elements.
+    const mpviz::Vec3 a_north_w[] = {{-10, 2, 0}, {-3, 2, 0}};
+    const mpviz::Vec3 a_north_e[] = {{3, 2, 0}, {10, 2, 0}};
+    const mpviz::Vec3 a_south_w[] = {{-10, -2, 0}, {-3, -2, 0}};
+    const mpviz::Vec3 a_south_e[] = {{3, -2, 0}, {10, -2, 0}};
+    // Road B (north-south) outer edges, same shape, cut at y in [-3,3].
+    const mpviz::Vec3 b_east_s[] = {{2, -10, 0}, {2, -3, 0}};
+    const mpviz::Vec3 b_east_n[] = {{2, 3, 0}, {2, 10, 0}};
+    const mpviz::Vec3 b_west_s[] = {{-2, -10, 0}, {-2, -3, 0}};
+    const mpviz::Vec3 b_west_n[] = {{-2, 3, 0}, {-2, 10, 0}};
+    // The junction box itself (closed ring, matches a real recorded
+    // JUNCTION marker's own 5-point closed-rectangle shape).
+    const mpviz::Vec3 junction_ring[] = {
+        {-3, -3, 0}, {3, -3, 0}, {3, 3, 0}, {-3, 3, 0}, {-3, -3, 0}};
+    // Interior separators: NOT cut -- run straight through the box, per
+    // the refinement's own default-enabled ask.
+    const mpviz::Vec3 sep_v[] = {{0, -10, 0}, {0, 10, 0}};
+    const mpviz::Vec3 sep_h[] = {{-10, 0, 0}, {10, 0, 0}};
+
+    mpviz::MapElement elems[10]{};
+    elems[0].points = a_north_w; elems[0].point_count = 2; elems[0].kind = mpviz::MapKind::ROAD_EDGE;
+    elems[1].points = a_north_e; elems[1].point_count = 2; elems[1].kind = mpviz::MapKind::ROAD_EDGE;
+    elems[2].points = a_south_w; elems[2].point_count = 2; elems[2].kind = mpviz::MapKind::ROAD_EDGE;
+    elems[3].points = a_south_e; elems[3].point_count = 2; elems[3].kind = mpviz::MapKind::ROAD_EDGE;
+    elems[4].points = b_east_s;  elems[4].point_count = 2; elems[4].kind = mpviz::MapKind::ROAD_EDGE;
+    elems[5].points = b_east_n;  elems[5].point_count = 2; elems[5].kind = mpviz::MapKind::ROAD_EDGE;
+    elems[6].points = b_west_s;  elems[6].point_count = 2; elems[6].kind = mpviz::MapKind::ROAD_EDGE;
+    elems[7].points = b_west_n;  elems[7].point_count = 2; elems[7].kind = mpviz::MapKind::ROAD_EDGE;
+    elems[8].points = sep_v;     elems[8].point_count = 2; elems[8].kind = mpviz::MapKind::LEFT_BOUNDARY;
+    elems[9].points = sep_h;     elems[9].point_count = 2; elems[9].kind = mpviz::MapKind::RIGHT_BOUNDARY;
+    mpviz::MapElement junction_elem{};
+    junction_elem.points = junction_ring;
+    junction_elem.point_count = 5;
+    junction_elem.kind = mpviz::MapKind::JUNCTION;
+
+    std::vector<mpviz::MapElement> all(elems, elems + 10);
+    all.push_back(junction_elem);
+
+    mpviz::SceneGraph s{};
+    s.ego.valid = 1;
+    s.map_elements = all.data();
+    s.map_element_count = static_cast<uint32_t>(all.size());
+    mpviz::set_scene(r, s);
+
+    // SSIM asserted (review 2026-09-08: an unchecked render_and_compare can
+    // never go red). Sanctioned red until the golden is promoted on user
+    // approval of /tmp/junction_cleanup_dark_adas_actual.png.
+    const double ssim = mpviz::testing::render_and_compare(
+        r, pose, MPVIZ_TEST_DATA_DIR "/tests/goldens/junction_cleanup_dark_adas.png",
+        "/tmp/junction_cleanup_dark_adas_actual.png");
+    EXPECT_GT(ssim, 0.98);
+    mpviz::destroy_renderer(r);
 }
 
 // ── Epic 3 Task 2 (VM-034) Step 2: staleness fade, the one shared path ──

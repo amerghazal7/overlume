@@ -159,6 +159,13 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     // lerp, same as roughness/metallic/hud.scale above -- not a color, no
     // Oklab involved.
     out.ribbon.width_m = lerpf(a.ribbon.width_m, b.ribbon.width_m, w);
+    // ribbon.lane_width_m/margin_{behavior,global,local}_m (user directive
+    // 2026-09-08, ITEM 3 + decision #7's field-coverage guard): same plain
+    // scalar lerp.
+    out.ribbon.lane_width_m = lerpf(a.ribbon.lane_width_m, b.ribbon.lane_width_m, w);
+    out.ribbon.margin_behavior_m = lerpf(a.ribbon.margin_behavior_m, b.ribbon.margin_behavior_m, w);
+    out.ribbon.margin_global_m = lerpf(a.ribbon.margin_global_m, b.ribbon.margin_global_m, w);
+    out.ribbon.margin_local_m = lerpf(a.ribbon.margin_local_m, b.ribbon.margin_local_m, w);
 
     return out;
 }

@@ -135,6 +135,17 @@ public:
     // unaffected -- see hd_map.cpp's IsRoadEdge()/fill() for the measured
     // threshold).
     //
+    // Junction cleanup (same directive, same-day refinement): a promoted
+    // ROAD_EDGE polyline crossing through a JUNCTION-kind ring in this
+    // message gets clipped to stop at the ring's boundary and resume past
+    // it; independently, any two ROAD_EDGE polylines from different
+    // lane_ids that cross in 2D (the common case on a row with no JUNCTION
+    // geometry at all) get trimmed back from their crossing point. Interior
+    // LEFT_/RIGHT_BOUNDARY separators are never crossing-cut, and are only
+    // ring-clipped when `row.junction_interior_boundaries` is false
+    // (default true) -- see hd_map.cpp's junction-cleanup block and
+    // ProfileRow::junction_interior_boundaries for the full rationale.
+    //
     // Road-surface fill (Epic 3 Task 1 / VM-036, decision #5): pairs every
     // LEFT_BOUNDARY/RIGHT_BOUNDARY element sharing a lane_id, resamples
     // both rails to kRoadFillSamples stations by normalized arc length
@@ -182,6 +193,12 @@ private:
     // "logically read-only, physically caches a derived buffer" shape as
     // every other adapter's fill()-time geometry synthesis).
     mutable std::vector<std::vector<mpviz::Vec3>> road_surface_points_;
+    // Junction cleanup (user directive 2026-09-08): rebuilt from scratch at
+    // the START of every fill() call, same "mutable, fill()-time cache"
+    // shape as road_surface_points_ above -- holds every clipped/cut
+    // ROAD_EDGE and (junction_interior_boundaries: false) LEFT_/RIGHT_
+    // BOUNDARY sub-polyline the MapElements below point into.
+    mutable std::vector<std::vector<mpviz::Vec3>> junction_cut_points_;
     AdapterStats stats_;
     // Separate from stats_.last_msg_sec: this tracks the last ACCEPTED
     // rebuild for max_rate_hz gating, not the last message merely
