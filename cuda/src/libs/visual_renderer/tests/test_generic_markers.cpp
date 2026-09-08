@@ -1,11 +1,10 @@
-// test_generic_markers.cpp — Epic 2 Task 8 (VM-027): the generic-marker
-// fallback renderer, i.e. the spec §7 parity guarantee. Same "no Filament
-// type" boundary as every other tests/*.cpp -- see
-// generic_markers_test_hooks.hpp.
+// test_generic_markers.cpp — the generic-marker fallback renderer, i.e.
+// the spec §7 parity guarantee. Same "no Filament type" boundary as every
+// other tests/*.cpp -- see generic_markers_test_hooks.hpp.
 //
-// FIXTURE GAP 5: 7 of the 12 ROS marker types never appear in the recorded
-// bag -- GenericMarkersGolden.EveryPrimitiveType_DarkAdas's scene is
-// entirely synthetic BY DESIGN (golden.cpp's make_all_primitive_markers()).
+// 7 of the 12 ROS marker types never appear in the recorded bag --
+// GenericMarkersGolden.EveryPrimitiveType_DarkAdas's scene is entirely
+// synthetic by design (golden.cpp's make_all_primitive_markers()).
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
 

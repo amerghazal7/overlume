@@ -1,8 +1,7 @@
 #pragma once
 /** @file fixture_msgs.hpp
- *  @brief Test-only helpers, shared by every node gtest target (Epic 2
- *  Task 1 / VM-020, "Fixture strategy"). The inverse of
- *  scripts/bag_to_fixture.py: yaml-cpp -> ROS message, covering only the
+ *  @brief Test-only helpers, shared by every node gtest target. The inverse
+ *  of scripts/bag_to_fixture.py: yaml-cpp -> ROS message, covering only the
  *  fields the adapters read.
  *
  *  Fixture filenames are relative to MPVIZ_NODE_FIXTURES_DIR
@@ -33,11 +32,9 @@ namespace mpviz_node::testing
 visualization_msgs::msg::MarkerArray load_marker_array(const std::string& fixture_name);
 nav_msgs::msg::Path load_path(const std::string& fixture_name);
 nav_msgs::msg::OccupancyGrid load_occupancy_grid(const std::string& fixture_name);
-// Epic 2 Task 6 (VM-025): map_msgs/OccupancyGridUpdate loader -- extends
-// this file's existing OccupancyGrid support (its own header comment above
-// already named it) for OgmAdapter's second ingest overload. FIXTURE GAP 3:
-// synthetic, hand-authored YAML -- no OccupancyGridUpdate topic exists in
-// the recorded bag.
+// map_msgs/OccupancyGridUpdate loader for OgmAdapter's second ingest
+// overload. Synthetic, hand-authored YAML -- no OccupancyGridUpdate topic
+// exists in the recorded bag.
 map_msgs::msg::OccupancyGridUpdate load_occupancy_grid_update(const std::string& fixture_name);
 
 // Loads the shipped urban_profile.yaml / sim_profile.yaml (from

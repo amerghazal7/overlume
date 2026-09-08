@@ -26,11 +26,9 @@ bool HasNan(const mpviz::Vec3& p)
     return std::isnan(p.x) || std::isnan(p.y) || std::isnan(p.z);
 }
 
-// Marker.msg semantics (rviz-parity fix, user report 2026-08-20): points[]
-// on a LINE_STRIP are RELATIVE to marker.pose -- identical to hd_map.cpp's
-// own MarkerPoseIsIdentity/MarkerPoseHasNan (each adapter file carries its
-// own copy rather than a shared header, matching this codebase's existing
-// per-adapter-file convention).
+// points[] on a LINE_STRIP are RELATIVE to marker.pose -- identical to
+// hd_map.cpp's own MarkerPoseIsIdentity/MarkerPoseHasNan (each adapter file
+// keeps its own copy rather than a shared header).
 bool MarkerPoseIsIdentity(const geometry_msgs::msg::Pose& p)
 {
     constexpr double kEps = 1e-12;
@@ -62,13 +60,10 @@ constexpr double kDedupEpsM = 1e-6;
 
 }  // namespace
 
-// Task 7's ONE role -> severity table (epic2 plan, Task 7's table, sourced
-// from assets/urban_config.rviz:175-223). An unknown role is a Task 1
-// profile-validator bug (profile.cpp's RoleSets already rejects any other
-// role for `adapter: collision`) -- this function asserts that by
-// throwing, never by silently defaulting to info (epic2 plan: "an unknown
-// collision role is already rejected by the Task 1 validator; assert that,
-// never default to info").
+// Role -> severity table (sourced from assets/urban_config.rviz:175-223). An
+// unknown role is a profile-validator bug (profile.cpp's RoleSets already
+// rejects any other role for adapter: collision) -- assert that by throwing,
+// never default to info.
 uint8_t severity_for_role(const std::string& role)
 {
     if (role == "collision") return 2;                              // critical
@@ -89,8 +84,8 @@ void CollisionAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, d
     ++stats_.msgs;
     if (msg.markers.empty()) return;
 
-    // ONE lookup for the whole message (epic2 plan, "Frames") -- same
-    // convention as hd_map.cpp/dynamic_objects.cpp.
+    // ONE lookup for the whole message; same convention as
+    // hd_map.cpp/dynamic_objects.cpp.
     tf2::Transform xform;
     if (!tf_.lookup(msg.markers.front().header, xform))
     {
@@ -119,7 +114,7 @@ void CollisionAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, d
         }
 
         // effective_point = frame_transform * (marker_pose * point) --
-        // identical composition order to hd_map.cpp (rviz-parity fix).
+        // identical composition order to hd_map.cpp.
         const bool identity_pose = MarkerPoseIsIdentity(m.pose);
         tf2::Transform marker_tf;
         if (!identity_pose)
@@ -160,7 +155,7 @@ void CollisionAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, d
         if (!ok)
         {
             // A NaN anywhere drops the WHOLE primitive (spec §9), same as
-            // every other Epic 2 adapter.
+            // every other adapter.
             ++stats_.dropped_malformed;
             continue;
         }
@@ -174,20 +169,16 @@ void CollisionAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, d
 
         if (pts.size() < 3)
         {
-            // Fewer than 3 DISTINCT points survive -- no polygon (spec
-            // §9: a degenerate primitive is dropped and counted, never
-            // rendered as something).
+            // Fewer than 3 DISTINCT points survive -- no polygon (spec §9:
+            // dropped and counted, never rendered).
             ++stats_.dropped_malformed;
             continue;
         }
 
-        // CLOSED, always, regardless of which convention the producer
-        // used (epic2 plan, Task 7: "polygons from marker points ...
-        // CLOSED if the producer did not repeat the first point"). `pts`
-        // is now the OPEN distinct-vertex ring (the two passes above
-        // stripped whichever duplicate the producer supplied, if any);
-        // re-close it here, uniformly, so the library's fan triangulation
-        // always sees a genuinely closed loop.
+        // CLOSED, always, regardless of which convention the producer used.
+        // `pts` is now the OPEN distinct-vertex ring (duplicates stripped
+        // above); re-close it here so the library's fan triangulation always
+        // sees a genuinely closed loop.
         pts.push_back(pts.front());
 
         StoredPolygon poly;

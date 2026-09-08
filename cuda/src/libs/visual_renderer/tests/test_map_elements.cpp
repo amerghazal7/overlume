@@ -1,7 +1,7 @@
-// test_map_elements.cpp — Epic 2 Task 2 (VM-024): retiring the placeholder
-// ground/grid (2a), the lane MaterialInstance's theming (8a), and HD-map
-// lane/crosswalk rendering (2d). Same "no Filament type" boundary as every
-// other tests/*.cpp — see map_elements_test_hooks.hpp / ego_test_hooks.hpp.
+// test_map_elements.cpp — ego-following ground/grid, lane MaterialInstance
+// theming, and HD-map lane/crosswalk rendering. Same "no Filament type"
+// boundary as every other tests/*.cpp — see map_elements_test_hooks.hpp /
+// ego_test_hooks.hpp.
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
 
@@ -30,7 +30,7 @@ std::vector<uint8_t> render_once(mpviz::VisualRenderer* r, const mpviz::CameraPo
 
 }  // namespace
 
-// ── 2a: the ego void is retired ─────────────────────────────────────────
+// ── ego-following ground/grid patch ──────────────────────────────────────
 
 TEST(Ground, FollowsEgoQuantizedToGridPitch) {
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
@@ -42,12 +42,11 @@ TEST(Ground, FollowsEgoQuantizedToGridPitch) {
     mpviz::CameraPose pose{{120, -88, 4}, {120, -80, 0}, 60.0};
     render_once(r, pose);
     auto c = mpviz::testing::ground_patch_centre(r);
-    // Quantized to the REAL grid pitch (2 m, renderer_internal.hpp's
-    // kGridPitchM -- the same symbol build_grid_lines() draws lines at):
+    // Quantized to the real grid pitch (2 m, renderer_internal.hpp's
+    // kGridPitchM, the same symbol build_grid_lines() draws lines at):
     // round(120.4/2)*2 = 120; round(-80.6/2)*2 = -80. Snapping to 1 m
-    // instead would shift the 2 m lines by HALF A CELL every time the ego
-    // crosses an odd metre -- exactly the crawl the quantization exists to
-    // prevent.
+    // instead would shift the 2 m lines by half a cell every time the ego
+    // crosses an odd metre.
     EXPECT_NEAR(c.x, 120.0, 1e-6);
     EXPECT_NEAR(c.y, -80.0, 1e-6);
     mpviz::destroy_renderer(r);
@@ -72,8 +71,8 @@ TEST(Ground, PatchSnapsAWholeCellAtATime) {
 }
 
 TEST(Ground, NoEgoYet_StaysAtOrigin) {
-    // ego.valid == 0 -> patch centre (0,0): identical to Epic 1's image, so
-    // every Epic 1 golden stays valid byte-for-byte.
+    // ego.valid == 0 -> patch centre (0,0): identical to the original
+    // static placement, so every pre-existing golden stays valid.
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
@@ -89,10 +88,9 @@ TEST(Ground, NoEgoYet_StaysAtOrigin) {
 }
 
 TEST(Ground, EpicOneEmptyWorldGoldenStillMatches) {
-    // Confirms the ordering section's claim directly: ThemeGolden.
-    // EmptyWorld_* (test_theme.cpp) renders with ego.valid == 0, which is
-    // exactly the branch that must reproduce Epic 1's original static
-    // placement byte-for-byte.
+    // ThemeGolden.EmptyWorld_* (test_theme.cpp) renders with ego.valid == 0,
+    // the branch that must reproduce the original static placement
+    // byte-for-byte.
     mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
@@ -106,7 +104,7 @@ TEST(Ground, EpicOneEmptyWorldGoldenStillMatches) {
     mpviz::destroy_renderer(r);
 }
 
-// ── 8a: lane material is themed on first data, no set_theme() needed ───
+// ── lane material is themed on first data, no set_theme() needed ────────
 
 TEST(MapElements, LaneMaterialIsThemedOnFirstDataWithNoTransition) {
     const auto theme = mpviz::detail::load_theme(kThemeDir, "dark_adas");
@@ -136,15 +134,12 @@ TEST(MapElements, LaneMaterialIsThemedOnFirstDataWithNoTransition) {
     mpviz::destroy_renderer(r);
 }
 
-// ── Epic 3 Task 1 (VM-036) decision #6: per-kind material dispatch ──────
+// ── per-kind material dispatch ───────────────────────────────────────────
 
 TEST(MapElements, KindDrivesMaterialDispatchToTheMatchingThemeToken) {
-    // Same shape as LaneMaterialIsThemedOnFirstDataWithNoTransition just
-    // above: first-ever data, no set_theme() call, one render. Exercises
-    // every kind material_for_kind() (map_elements.cpp) dispatches on,
-    // reading the values off the loaded dark_adas theme itself (not
-    // hardcoded literals), so a re-authored palette doesn't stale this
-    // test out from under itself.
+    // Exercises every kind material_for_kind() (map_elements.cpp) dispatches
+    // on, reading values off the loaded dark_adas theme itself (not
+    // hardcoded literals), so a re-authored palette doesn't stale this test.
     const auto theme = mpviz::detail::load_theme(kThemeDir, "dark_adas");
     ASSERT_TRUE(theme.has_value());
 
@@ -177,30 +172,24 @@ TEST(MapElements, KindDrivesMaterialDispatchToTheMatchingThemeToken) {
     expect_kind_color(mpviz::MapKind::RIGHT_BOUNDARY, theme->palette.lane_boundary);
     expect_kind_color(mpviz::MapKind::CROSSWALK, theme->palette.crosswalk);
     expect_kind_color(mpviz::MapKind::ROAD_SURFACE, theme->palette.road);
-    // ROAD_EDGE (user directive 2026-09-08): its own dedicated token.
+    // ROAD_EDGE has its own dedicated token.
     expect_kind_color(mpviz::MapKind::ROAD_EDGE, theme->palette.road_edge);
-    // STOPLINE has no dedicated token (decision #6, deliberate YAGNI) --
-    // falls back to the pre-existing laneMaterial / palette.lane_paint,
-    // unchanged behaviour, same as every other undedicated kind.
+    // STOPLINE has no dedicated token (deliberate YAGNI) -- falls back to
+    // palette.lane_paint, same as every other undedicated kind.
     expect_kind_color(mpviz::MapKind::STOPLINE, theme->palette.lane_paint);
 
     mpviz::destroy_renderer(r);
 }
 
-// ── Epic 3 Task 1 (VM-036) Step 2: crosswalk-hatch dedupe fix ───────────
+// ── crosswalk-hatch dedupe ───────────────────────────────────────────────
 
 TEST(MapElements, CrosswalkHatchFiresOnRecordedFivePointClosedPolyline) {
     // The exact 5 points from test/fixtures/hd_map_local_elements_0.yaml,
-    // ns: crosswalk_8043 (verified against the committed node-package
-    // fixture) -- point[0] == point[4] (closing vertex), a REAL recorded
-    // shape, not an invented 4-point quad. Before this epic's fix,
-    // build_crosswalk_hatch(pts, 5, ...) returns empty (n != 4 guard); the
-    // dedupe itself is adapter-side (hd_map.cpp, decision #2) and is what
-    // turns this into the 4-point call below on real data for the first
-    // time. This regression pins the library half: the geometry, once
-    // deduped, hatches correctly on a REAL (non-axis-aligned) quad, not
-    // just the synthetic one SyntheticLaneAndCrosswalkChangePixelsVsBaseline
-    // already exercises.
+    // ns: crosswalk_8043 -- point[0] == point[4] (closing vertex), a real
+    // recorded shape, not an invented 4-point quad. The dedupe to 4 points
+    // is adapter-side (hd_map.cpp); this pins the library half: the
+    // geometry, once deduped, hatches correctly on a real (non-axis-aligned)
+    // quad, not just a synthetic one.
     const mpviz::Vec3 pts_after_dedupe[4] = {
         {-39.50850289011474, 45.33743457749722, -0.000284586101770401},
         {-54.35884356129442, 45.2288915511252, -0.00039308611303567886},
@@ -211,20 +200,15 @@ TEST(MapElements, CrosswalkHatchFiresOnRecordedFivePointClosedPolyline) {
     EXPECT_FALSE(tris.empty());
 }
 
-// ── User directive 2026-09-08: crosswalk orientation fix (rails = the
-//    quad's LONG-edge pair, not the SHORT-edge pair) + pitch-derived stripe
-//    count ──────────────────────────────────────────────────────────────
+// ── crosswalk orientation: rails = the quad's LONG-edge pair, stripe count
+//    is pitch-derived ───────────────────────────────────────────────────
 
 TEST(MapElements, CrosswalkHatchBarsAreOrientedAlongTheShortAxis) {
     // Same real crosswalk_8043 fixture geometry as the test above -- edges
     // 0-1/2-3 are the LONG pair (~14.9m, the crossing WIDTH) and edges
     // 1-2/3-0 are the SHORT pair (~1.95m, the travel-direction DEPTH),
     // verified by direct computation on these exact points. A real zebra
-    // stripe's own long axis runs along the SHORT (travel) axis; before
-    // this fix, rails were picked from the SHORT-edge pair, which instead
-    // produced bars whose long axis ran along the LONG axis (ladder rungs
-    // across the road -- the user's exact complaint, "horizontal lines
-    // instead of vertical").
+    // stripe's long axis runs along the SHORT (travel) axis.
     const mpviz::Vec3 pts[4] = {
         {-39.50850289011474, 45.33743457749722, -0.000284586101770401},
         {-54.35884356129442, 45.2288915511252, -0.00039308611303567886},
@@ -235,11 +219,10 @@ TEST(MapElements, CrosswalkHatchBarsAreOrientedAlongTheShortAxis) {
     ASSERT_FALSE(tris.empty());
     ASSERT_EQ(tris.size() % 6, 0u) << "not a whole number of 2-triangle stripe quads";
 
-    // First stripe quad is tris[0..5]: (a0, a1, b1, a0, b1, b0). a0->a1 and
-    // b0->b1 are the two edges cutting ACROSS the bar at one t-slice --
-    // the bar's actual long axis is a0->b0 (or a1->b1), spanning between
-    // the two rails. That vector must be close to parallel with one of the
-    // quad's own SHORT edges (1-2 or 3-0), not the LONG edges (0-1/2-3).
+    // First stripe quad is tris[0..5]: (a0, a1, b1, a0, b1, b0). The bar's
+    // actual long axis is a0->b0, spanning between the two rails -- it must
+    // be close to parallel with one of the quad's SHORT edges (1-2 or 3-0),
+    // not the LONG edges (0-1/2-3).
     const auto& a0 = tris[0];
     const auto& b0 = tris[5];
     const double barDx = b0.x - a0.x, barDy = b0.y - a0.y;
@@ -261,8 +244,7 @@ TEST(MapElements, CrosswalkHatchBarsAreOrientedAlongTheShortAxis) {
 
 TEST(MapElements, CrosswalkHatchStripeCountIsPitchDerivedOnRealFixture) {
     // Same fixture; the long axis (edges 0-1/2-3) averages ~14.90m.
-    // clamp(round(14.90 / 1.2), 3, 24) == 12 -- computed independently in
-    // Python against these exact coordinates, not re-derived from the
+    // clamp(round(14.90 / 1.2), 3, 24) == 12, computed independently of the
     // production formula.
     const mpviz::Vec3 pts[4] = {
         {-39.50850289011474, 45.33743457749722, -0.000284586101770401},
@@ -291,17 +273,14 @@ TEST(MapElements, CrosswalkHatchStripeCountClampsToRange) {
     EXPECT_EQ(trisHuge.size() / 6, 24u);
 }
 
-// ── Epic 3 Task 1 (VM-036) Step 4: dash-kind flip -- boundary dashes,
-//    centerline stays one solid mesh ─────────────────────────────────────
+// ── dash-kind flip: boundary dashes, centerline stays one solid mesh ────
 
 TEST(MapElementsGolden, DashedBoundaryProducesSameDashRunsAsThePreMoveAlgorithm) {
-    // A 10 m straight polyline (same shape the pre-Epic3 adapter-side
-    // ChopIntoDashes worked example used) on a kind==LEFT_BOUNDARY element:
-    // one whole element crossing the ABI boundary, dashed librarywise into
-    // 4 mesh chunks at kDashLenM=1.5/kGapLenM=1.5 ([0,1.5],[3,4.5],[6,7.5],
-    // [9,10]) -- checked via the mesh-count hook, not a full-frame SSIM
-    // (which would also carry road-fill/per-kind color, a separate concern
-    // per decision #3's own AC).
+    // A 10 m straight polyline on a kind==LEFT_BOUNDARY element, dashed
+    // librarywise into 4 mesh chunks at kDashLenM=1.5/kGapLenM=1.5
+    // ([0,1.5],[3,4.5],[6,7.5],[9,10]) -- checked via the mesh-count hook,
+    // not a full-frame SSIM (which would also carry road-fill/per-kind
+    // color, a separate concern).
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
@@ -322,8 +301,8 @@ TEST(MapElementsGolden, DashedBoundaryProducesSameDashRunsAsThePreMoveAlgorithm)
 }
 
 TEST(MapElementsGolden, CenterlineOfSameGeometryProducesOneMeshChunkNotDashSplit) {
-    // The flip's other half (decision #3): the SAME geometry on
-    // kind==CENTERLINE stays ONE mesh chunk -- never dash-split.
+    // The flip's other half: the same geometry on kind==CENTERLINE stays
+    // one mesh chunk -- never dash-split.
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
@@ -343,15 +322,13 @@ TEST(MapElementsGolden, CenterlineOfSameGeometryProducesOneMeshChunkNotDashSplit
     mpviz::destroy_renderer(r);
 }
 
-// ── User directive 2026-09-08: ROAD_EDGE is solid (never dashed), and
-//    CENTERLINE renders as dot discs (not a strip) ─────────────────────
+// ── ROAD_EDGE is solid (never dashed), CENTERLINE renders as dot discs ──
 
 TEST(MapElementsGolden, RoadEdgeOfSameGeometryProducesOneMeshChunkNeverDashed) {
     // The dash-flip's third case: ROAD_EDGE is NOT a BOUNDARY kind
     // (IsBoundaryKind() only matches LEFT_BOUNDARY/RIGHT_BOUNDARY), so the
     // same 10 m geometry that dashes into 4 chunks under LEFT_BOUNDARY
-    // stays ONE solid mesh chunk under ROAD_EDGE -- "the boundary of the
-    // road... should not be dashed" (user directive 2026-09-08, verbatim).
+    // stays ONE solid mesh chunk under ROAD_EDGE.
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
@@ -372,17 +349,12 @@ TEST(MapElementsGolden, RoadEdgeOfSameGeometryProducesOneMeshChunkNeverDashed) {
 }
 
 TEST(MapElements, CenterlineRendersAsDotDiscsNotAStrip) {
-    // build_centerline_dots() (map_elements.cpp) replaces the old solid
-    // ribbon strip for CENTERLINE with arc-length-spaced filled discs.
-    // Proven via vertex count, not a full-frame SSIM: a 10 m straight line
-    // -> a strip (build_ribbon_flat) would be 2*(2 points) = 4 raw
-    // vertices, flattened to 6*(2-1) = 6 triangle-list vertices. Dots at
-    // kCenterlineDotSpacingM=2.0 m over a 10 m line land at s=0,2,4,6,8,10
-    // (6 dots, the "<=" endpoint-inclusive convention), each a
-    // kCenterlineDotSegments=10-wedge fan = 30 vertices/dot -> 180 total --
-    // an order of magnitude more vertices than a strip of the same
-    // geometry would ever produce, and an exact, derivable number (not
-    // "just different").
+    // build_centerline_dots() (map_elements.cpp) replaces the solid ribbon
+    // strip for CENTERLINE with arc-length-spaced filled discs. Proven via
+    // vertex count, not a full-frame SSIM: dots at kCenterlineDotSpacingM=
+    // 2.0m over a 10m line land at s=0,2,4,6,8,10 (6 dots, endpoint-
+    // inclusive), each a kCenterlineDotSegments=10-wedge fan = 30
+    // vertices/dot -> 180 total (a strip of the same geometry would be 6).
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
@@ -405,14 +377,14 @@ TEST(MapElements, CenterlineRendersAsDotDiscsNotAStrip) {
     mpviz::destroy_renderer(r);
 }
 
-// ── Epic 3 Task 1 (VM-036) Step 5: road-surface fill ────────────────────
+// ── road-surface fill ────────────────────────────────────────────────────
 
 TEST(MapElements, RoadSurfaceKindTriangulatesTheTwoRailEncodingIntoAStrip) {
     // 16 stations per rail (kRoadFillSamples), point_count == 32 -- assert
-    // the built mesh renders as SOMETHING distinguishable from an empty
+    // the built mesh renders as something distinguishable from an empty
     // scene (a Filament-free triangle-count hook would need a new export;
     // a pixel-difference check against a no-map-data baseline is the same
-    // "actually renders" proof this epic's other synthetic map tests use).
+    // proof this file's other synthetic map tests use).
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     mpviz::CameraPose pose{{0, -8, 6}, {0, 0, 0}, 60.0};
 
@@ -437,9 +409,8 @@ TEST(MapElements, RoadSurfaceKindTriangulatesTheTwoRailEncodingIntoAStrip) {
     e.point_count = 2 * kN;
     e.kind = mpviz::MapKind::ROAD_SURFACE;
     mpviz::SceneGraph s{};
-    // Epic 3 Task 2 (VM-034) Step 3: same "give it a valid ego" fallout as
-    // SyntheticLaneAndCrosswalkChangePixelsVsBaseline above -- this test
-    // proves the strip renders, not the ego-invalid fade path.
+    // Valid ego: this test proves the strip renders, not the ego-invalid
+    // fade path (see EgoInvalidFadesMapElementsRatherThanLeavingThemAtFullOpacity).
     s.ego.valid = 1;
     s.map_elements = &e;
     s.map_element_count = 1;
@@ -479,12 +450,11 @@ TEST(MapElements, RoadSurfaceMalformedPointCountBuildsNothing) {
     mpviz::destroy_renderer(r);
 }
 
-// ── Epic 3 Task 1 (VM-036) Step 7: map_element_rebuild_count hook ───────
+// ── map_element_rebuild_count hook ───────────────────────────────────────
 
 TEST(MapElements, RebuildCountStaysZeroOnUnchangedContentSignature) {
-    // Epic 2's own untested AC ("cached, no per-frame rebuild"), finally
-    // checked: publishing the IDENTICAL SceneGraph twice must not rebuild
-    // the second time (a cache-hit on the unchanged content signature).
+    // Publishing the IDENTICAL SceneGraph twice must not rebuild the second
+    // time (a cache-hit on the unchanged content signature).
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
@@ -512,8 +482,7 @@ TEST(MapElements, RebuildCountStaysZeroOnUnchangedContentSignature) {
     mpviz::destroy_renderer(r);
 }
 
-// ── 2d: map elements actually render (synthetic — see the STATED
-// DEVIATION below re: the recorded-fixture golden) ──────────────────────
+// ── map elements actually render (synthetic scenes) ──────────────────────
 
 TEST(MapElements, SyntheticLaneAndCrosswalkChangePixelsVsBaseline) {
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
@@ -541,19 +510,16 @@ TEST(MapElements, SyntheticLaneAndCrosswalkChangePixelsVsBaseline) {
     elems[1].point_count = 4;
     elems[1].is_polygon = 1;
     mpviz::SceneGraph s{};
-    // Epic 3 Task 2 (VM-034) Step 3: update_map_elements() now gates on
-    // ego.valid (fades to 0 while invalid, the ego-invalid cosmetic fix) --
-    // this test isn't exercising that path, so it needs a valid ego like
-    // every other "prove the geometry actually renders" synthetic scene now
-    // does. last_update_sec/sim_time_sec both default to 0.0 (fresh).
+    // update_map_elements() gates on ego.valid (fades to 0 while invalid);
+    // this test isn't exercising that path, so it needs a valid ego.
+    // last_update_sec/sim_time_sec both default to 0.0 (fresh).
     s.ego.valid = 1;
     s.map_elements = elems;
     s.map_element_count = 2;
     mpviz::set_scene(r, s);
     const std::vector<uint8_t> withMap = render_once(r, pose);
     // Not a golden (no committed comparison target) -- just a viewable PNG
-    // of the new lane+crosswalk render path for human sanity-checking
-    // before Step 8/10's recorded-fixture golden exists to promote.
+    // of the lane+crosswalk render path for human sanity-checking.
     mpviz::testing::render_and_compare(r, pose, "/nonexistent-golden.png",
                                         "/tmp/map_elements_synthetic_actual.png");
     mpviz::destroy_renderer(r);
@@ -604,16 +570,14 @@ TEST(MapElements, ElementCountShrinksWhenElementsVanishBetweenUpdates) {
     mpviz::destroy_renderer(r);
 }
 
-// ── 2d golden: recorded HD-map fixture, both themes ─────────────────────
+// ── golden: recorded HD-map fixture, both themes ─────────────────────────
 
 namespace {
 
 // `hd_map_local_elements_0.geom` is committed (emitted by the node-side
-// HdMapAdapter's own gtest, Task 2 Step 7, from the real, filtered
-// hd_map_local_elements_0.yaml; format extended and fixture regenerated
-// Epic 3 Task 1 / VM-036 -- dashing moved renderer-side, decision #3, and
-// road-fill added, decision #5) -- 74 elements (58 lane/crosswalk markers
-// + 16 synthesized ROAD_SURFACE elements). Returns true only for the one
+// HdMapAdapter's own gtest, from the real, filtered
+// hd_map_local_elements_0.yaml) -- 74 elements (58 lane/crosswalk markers +
+// 16 synthesized ROAD_SURFACE elements). Returns true only for the one
 // legitimate runtime skip left (no GPU/EGL), matching every other renderer
 // test's convention.
 bool RunMapGolden(const char* theme_name, const char* golden_name, const char* out_name) {
@@ -629,27 +593,16 @@ bool RunMapGolden(const char* theme_name, const char* golden_name, const char* o
 
     mpviz::SceneGraph s{};
     s.sim_time_sec = 10.0;
-    // Epic 3 Task 2 (VM-034) Step 2: the `.geom` text-dump format
-    // (golden.hpp's own comment: `<is_polygon> <kind> <lane_id> <n> ...`)
-    // carries no last_update_sec, so every loaded element defaults to 0.0 --
-    // against sim_time_sec=10.0 that reads as maximally stale and this
-    // golden (proving the lane network at an ego offset, not staleness)
-    // would fade to near-invisible. Stamp every element "just refreshed"
+    // The `.geom` text-dump format (golden.hpp) carries no last_update_sec,
+    // so every loaded element defaults to 0.0 -- against sim_time_sec=10.0
+    // that reads as maximally stale. Stamp every element "just refreshed"
     // instead, the same way a live HdMapAdapter would on its next fill().
     for (auto& e : elems) e.last_update_sec = s.sim_time_sec;
     const mpviz::Vec3 c = mpviz::testing::centroid(elems);
-    // Pins that the fixture really is far from the map origin -- i.e. still
-    // the "Epic 1 rendered pure void here" position this task exists to fix.
-    // STATED DEVIATION (node-side pass, Task 2 Step 7/8): the plan's own
-    // Step 8 pseudocode wrote this threshold as "> 50.0" before the real
-    // filtered fixture existed. The committed hd_map_local_elements_0.geom
-    // (58 kept elements / 873 points, emitted from the real, filtered
-    // hd_map_local_elements_0.yaml via HdMapAdapter) centroids at
-    // (-46.73, 12.82), hypot ~48.46 -- comfortably outside Epic 1's 40x40m
-    // origin-centred void patch (kGroundHalfExtent=20m) but just under the
-    // speculative round number. 45.0 is the honest threshold for this
-    // measured, real, recorded-and-filtered dataset -- not a re-guess, a
-    // re-measurement.
+    // Pins that the fixture is far from the map origin. Measured centroid
+    // (-46.73, 12.82), hypot ~48.46 -- comfortably outside the 40x40m
+    // origin-centred void patch (kGroundHalfExtent=20m); 45.0 is the
+    // measured threshold for this dataset.
     EXPECT_GT(std::hypot(c.x, c.y), 45.0);
     s.ego = {c, 0.0, 3.0, 1};
     s.map_elements = elems.data();
@@ -679,16 +632,13 @@ TEST(MapGolden, LaneNetworkAtEgoOffset_LightClay) {
     }
 }
 
-// ── User directive 2026-09-08: centerline-ON golden (dot guidance) ──────
+// ── centerline-ON golden (dot guidance) ──────────────────────────────────
 // Profiles gate whether CENTERLINE elements ever reach the library (hidden
-// by default now, per urban_profile.yaml/sim_profile.yaml) -- but the
-// library itself renders them unconditionally whenever they're present in
-// the SceneGraph (decision #5's own precedent: "profiles don't gate
-// library tests"). Synthetic scene, not fixture-derived (the committed
-// hd_map_local_elements_0.geom no longer carries any CENTERLINE elements,
-// by design), feeding CENTERLINE elements directly to prove the dot-disc
-// path renders as SOMETHING distinct and legible, independent of whatever
-// a shipped profile currently gates.
+// by default, per urban_profile.yaml/sim_profile.yaml) -- but the library
+// itself renders them unconditionally whenever present in the SceneGraph.
+// Synthetic scene (the committed hd_map_local_elements_0.geom carries no
+// CENTERLINE elements by design), feeding them directly to prove the
+// dot-disc path renders as something distinct and legible.
 TEST(MapGolden, CenterlineDotsOnState_DarkAdas) {
     mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
     mpviz::CameraPose pose{{0, -10, 8}, {0, 0, 0}, 60.0};
@@ -703,8 +653,7 @@ TEST(MapGolden, CenterlineDotsOnState_DarkAdas) {
     auto* r = mpviz::create_renderer(cfg);
     ASSERT_TRUE(r);
     // A handful of straight/curved centerlines across the frame -- enough
-    // to show dot spacing/radius at a glance, same synthetic-scene spirit
-    // as SyntheticLaneAndCrosswalkChangePixelsVsBaseline above.
+    // to show dot spacing/radius at a glance.
     const mpviz::Vec3 line_a[] = {{-6, -6, 0}, {-6, 6, 0}};
     const mpviz::Vec3 line_b[] = {{0, -6, 0}, {0, 0, 0}, {2, 6, 0}};
     const mpviz::Vec3 line_c[] = {{6, -6, 0}, {6, 6, 0}};
@@ -719,19 +668,15 @@ TEST(MapGolden, CenterlineDotsOnState_DarkAdas) {
     elems[2].point_count = 2;
     elems[2].kind = mpviz::MapKind::CENTERLINE;
     mpviz::SceneGraph s{};
-    // Epic 3 Task 2 (VM-034) Step 3: same "give it a valid ego" fallout as
-    // SyntheticLaneAndCrosswalkChangePixelsVsBaseline above.
     s.ego.valid = 1;
     s.map_elements = elems;
     s.map_element_count = 3;
     mpviz::set_scene(r, s);
     const std::vector<uint8_t> withDots = render_once(r, pose);
 
-    // The golden was promoted with Task 1 (4b26fb6) -- the SSIM return is
-    // asserted now (review 2026-09-08: an unchecked render_and_compare is a
-    // candidate generator that can never go red, so a regression in this
-    // scene would be invisible). The pixel-diff against the empty scene
-    // below stays as the mechanism-level check.
+    // SSIM is asserted, not just returned: an unchecked render_and_compare
+    // is a candidate generator that can never go red. The pixel-diff
+    // against the empty scene below stays as the mechanism-level check.
     const double dotSsim = mpviz::testing::render_and_compare(
         r, pose, MPVIZ_TEST_DATA_DIR "/tests/goldens/centerline_dots_dark_adas.png",
         "/tmp/centerline_dots_dark_adas_actual.png");
@@ -747,21 +692,18 @@ TEST(MapGolden, CenterlineDotsOnState_DarkAdas) {
                                  "difference from a scene with no map data at all";
 }
 
-// ── User directive 2026-09-08 (round 4): junction-cleanup golden ────────
+// ── junction-cleanup golden ───────────────────────────────────────────────
 // The cut itself (clip against a JUNCTION polygon / mutual-crossing
 // back-off) is entirely node-side (HdMapAdapter::fill(), adapter-level
 // tests) -- the library only ever renders whatever MapElements it is
-// handed, so this golden feeds a SYNTHETIC scene shaped like the
-// adapter's OWN post-cut output: two crossing roads' ROAD_EDGE outer
-// edges, each already split into the two pieces a real cut would produce
-// (stopping at the junction box, resuming past it -- nothing rendered
-// runs through the middle), a MapKind::JUNCTION ring (the box itself,
-// generic/OTHER styling, no dedicated token per decision #6's YAGNI call),
-// and two interior LEFT_/RIGHT_BOUNDARY dashed separators left UNCUT,
-// running straight through -- the refinement's own "only the lanes
-// separating dashed lines... enabled by default." Proves the RENDERED
-// RESULT of a cut adapter output reads clean, independent of the cut
-// algorithm itself (already proven at the adapter level, hd_map.cpp).
+// handed, so this golden feeds a synthetic scene shaped like the adapter's
+// own post-cut output: two crossing roads' ROAD_EDGE outer edges, each
+// already split at the junction box, a MapKind::JUNCTION ring (the box
+// itself, generic/OTHER styling, no dedicated token), and two interior
+// LEFT_/RIGHT_BOUNDARY dashed separators left uncut, running straight
+// through. Proves the rendered result of a cut adapter output reads clean,
+// independent of the cut algorithm itself (proven at the adapter level,
+// hd_map.cpp).
 TEST(MapGolden, JunctionCleanupOnState_DarkAdas) {
     mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
     mpviz::CameraPose pose{{0, -14, 12}, {0, 0, 0}, 60.0};
@@ -784,8 +726,7 @@ TEST(MapGolden, JunctionCleanupOnState_DarkAdas) {
     // JUNCTION marker's own 5-point closed-rectangle shape).
     const mpviz::Vec3 junction_ring[] = {
         {-3, -3, 0}, {3, -3, 0}, {3, 3, 0}, {-3, 3, 0}, {-3, -3, 0}};
-    // Interior separators: NOT cut -- run straight through the box, per
-    // the refinement's own default-enabled ask.
+    // Interior separators: NOT cut -- run straight through the box.
     const mpviz::Vec3 sep_v[] = {{0, -10, 0}, {0, 10, 0}};
     const mpviz::Vec3 sep_h[] = {{-10, 0, 0}, {10, 0, 0}};
 
@@ -814,9 +755,7 @@ TEST(MapGolden, JunctionCleanupOnState_DarkAdas) {
     s.map_element_count = static_cast<uint32_t>(all.size());
     mpviz::set_scene(r, s);
 
-    // SSIM asserted (review 2026-09-08: an unchecked render_and_compare can
-    // never go red). Sanctioned red until the golden is promoted on user
-    // approval of /tmp/junction_cleanup_dark_adas_actual.png.
+    // SSIM asserted: an unchecked render_and_compare can never go red.
     const double ssim = mpviz::testing::render_and_compare(
         r, pose, MPVIZ_TEST_DATA_DIR "/tests/goldens/junction_cleanup_dark_adas.png",
         "/tmp/junction_cleanup_dark_adas_actual.png");
@@ -824,18 +763,16 @@ TEST(MapGolden, JunctionCleanupOnState_DarkAdas) {
     mpviz::destroy_renderer(r);
 }
 
-// ── Epic 3 Task 2 (VM-034) Step 2: staleness fade, the one shared path ──
+// ── staleness fade, the one shared path ──────────────────────────────────
 
 TEST(MapElements, FadesViaSharedStalenessAlpha) {
-    // Same test SHAPE as every other category's own "...FadesViaShared
-    // StalenessAlpha" (epic2 plan's exemplar; test_objects.cpp's
-    // StaleObjectFadesViaSharedStalenessAlpha is the direct precedent) --
+    // Same shape as test_objects.cpp's StaleObjectFadesViaSharedStalenessAlpha:
     // publish ONE MapElement with last_update_sec in the past relative to
     // sim_time_sec, render, assert via the test hook that the bound
     // clay_translucent instance's alpha matches staleness_alpha()'s own
-    // computed value, NOT a pixel comparison. ego.valid=1 so the Step 3
-    // ego-invalid gate (tested separately below) can't be what's driving
-    // this alpha down.
+    // computed value, not a pixel comparison. ego.valid=1 so the
+    // ego-invalid gate (tested separately below) isn't what's driving this
+    // alpha down.
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
@@ -865,7 +802,7 @@ TEST(MapElements, FadesViaSharedStalenessAlpha) {
 }
 
 TEST(MapElements, FreshMapElementStaysOnTheOpaqueTemplate) {
-    // The other half of the fade -- FRESH (last_update_sec == sim_time_sec)
+    // The other half of the fade -- fresh (last_update_sec == sim_time_sec)
     // must stay on the shared opaque per-kind template, no per-entity
     // instance at all (test_objects.cpp's own "fresh" half, same shape).
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
@@ -895,18 +832,14 @@ TEST(MapElements, FreshMapElementStaysOnTheOpaqueTemplate) {
     mpviz::destroy_renderer(r);
 }
 
-// ── Epic 3 Task 2 (VM-034) Step 3: the ego-invalid map cosmetic ─────────
+// ── the ego-invalid map cosmetic ─────────────────────────────────────────
 
 TEST(MapElements, EgoInvalidFadesMapElementsRatherThanLeavingThemAtFullOpacity) {
-    // Root cause (renderer.cpp:1458-1470 / Epic 2 gate finding wf_0ff03eb8-
-    // 5ec): update_ground_grid_transform() snaps the ego-following ground/
-    // grid patch to the world origin whenever ego.valid==0, but
-    // update_map_elements() had no matching gate at all -- real map
-    // geometry kept rendering, at full opacity, against an origin-snapped
-    // ground. Fix: ego.valid==0 drives alpha to 0 via the SAME fade path
-    // Step 2 just wired (not skip-and-freeze, which would leave the last
-    // valid frame's geometry at full opacity forever -- the identical bug
-    // one frame later).
+    // update_ground_grid_transform() snaps the ego-following ground/grid
+    // patch to the world origin whenever ego.valid==0; update_map_elements()
+    // must match: ego.valid==0 drives alpha to 0 via the same fade path
+    // (not skip-and-freeze, which would leave the last valid frame's
+    // geometry at full opacity forever). See renderer.cpp.
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";

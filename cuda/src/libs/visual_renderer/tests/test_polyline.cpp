@@ -1,7 +1,6 @@
-// test_polyline.cpp — Epic 2 Task 2 (VM-024) Step 4/5: the shared
-// polyline/polygon extruder. Pure geometry, no GPU, no GTEST_SKIP, and no
-// Filament type anywhere in it or in polyline.hpp — see that header's own
-// comment.
+// test_polyline.cpp — the shared polyline/polygon extruder. Pure geometry,
+// no GPU, no GTEST_SKIP, and no Filament type anywhere in it or in
+// polyline.hpp — see that header's own comment.
 #include "polyline.hpp"
 
 #include <cmath>
@@ -35,14 +34,11 @@ TEST(Polyline, CornerMitresWithoutSelfIntersection) {
     const Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}, {10, 10, 0}};
     auto v = extrude_polyline(pts, 3, /*half_width=*/1.0f, /*z_lift=*/0.0f);
     ASSERT_EQ(v.size(), 6u);
-    // Corner pair is v[2]/v[3] (point index 1). One of them is the inner
-    // rail (concave side, smaller |x-10| turned toward the turn) — miter
-    // scale for an exact 90 degree turn is 1/cos(45deg) ~= 1.41421, so the
-    // inner corner vertex sits ~1.41 units from the corner point along the
-    // bisector, and critically must NOT have crossed past the corner point
-    // onto the other segment's far side (a self-intersection would put the
-    // inner vertex's x on the wrong side of x=10 or its y on the wrong side
-    // of y=0).
+    // Corner pair is v[2]/v[3] (point index 1). Miter scale for an exact 90
+    // degree turn is 1/cos(45deg) ~= 1.41421, so the inner corner vertex
+    // sits ~1.41 units from the corner point along the bisector, and must
+    // NOT have crossed past the corner point onto the other segment's far
+    // side.
     const double innerX = std::min(v[2].x, v[3].x);
     const double innerY = std::min(v[2].y, v[3].y);
     EXPECT_LT(innerX, 10.0);  // inner rail stays left of the vertical leg

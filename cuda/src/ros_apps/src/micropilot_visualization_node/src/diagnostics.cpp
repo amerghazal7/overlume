@@ -40,23 +40,16 @@ diagnostic_msgs::msg::DiagnosticArray BuildDiagnostics(const std::vector<RowStat
     {
         diagnostic_msgs::msg::DiagnosticStatus status;
         status.name = row.topic;
-        // ABSENT (never published, stats.msgs == 0) is not the same as
-        // STALE (published before, then went quiet past timeout_sec) --
-        // mirrors visualization_node.cpp's own "msgs == 0 is absent, not
-        // stale" guard verbatim (its dynamic_objects_rows_/path_rows_/
-        // ogm_rows_/collision_rows_/generic_marker_rows_ loops each `continue`
-        // on stats().msgs == 0 with that exact comment). The caller computes
-        // last_msg_age_sec as sim_clock_sec_ - stats.last_msg_sec
-        // (visualization_node.cpp), which for an absent row (last_msg_sec
-        // still its 0.0 default) is really "however long sim_clock_sec_ has
-        // been running," not an age -- reporting that as a stale age would
-        // be a bogus WARN on data that never existed.
+        // ABSENT (never published) is not the same as STALE (published, then
+        // went quiet past timeout_sec) -- mirrors visualization_node.cpp's
+        // msgs==0 guard. For an absent row, last_msg_age_sec is really "how
+        // long sim_clock_sec_ has run," not a real age; reporting it as
+        // stale would be a bogus WARN on data that never existed.
         const bool absent = row.stats.msgs == 0;
         // WARN once this row's OWN timeout_sec is exceeded -- past it,
-        // visualization_node.cpp's per-category gate stops calling fill()
-        // for this row, so a WARN here is a live signal of exactly that,
-        // not a fixed magic-number age threshold. timeout_sec==0.0 (unset,
-        // e.g. a producer row with no meaningful "age") never WARNs.
+        // visualization_node.cpp's per-category gate stops calling fill(), so
+        // this WARN signals exactly that, not a fixed threshold. timeout_sec
+        // ==0.0 (unset) never WARNs.
         const bool stale =
             !absent && row.timeout_sec > 0.0 && row.last_msg_age_sec > row.timeout_sec;
         status.level = stale ? diagnostic_msgs::msg::DiagnosticStatus::WARN

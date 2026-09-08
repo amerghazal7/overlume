@@ -1,11 +1,8 @@
-// ego.cpp — Epic 1 Task 4 (VM-012): ego robot via Filament gltfio, with a
-// themed clay-box fallback on any load failure (spec §9's non-fatal
-// asset-load-failure path). Compiled as part of the same visual_renderer
-// library target as renderer.cpp, so it shares that target's PRIVATE
-// Filament include access — see renderer_internal.hpp's own header comment
-// for why this is a separate translation unit at all (test binaries must
-// never see <filament/...>, but ego needs it, same reasoning renderer.cpp
-// already established).
+// ego.cpp — ego robot via Filament gltfio, with a themed clay-box fallback
+// on any load failure. Compiled into the same visual_renderer library
+// target as renderer.cpp, sharing its PRIVATE Filament include access; see
+// renderer_internal.hpp for why this is a separate translation unit (test
+// binaries must never see <filament/...>).
 #include "ego.hpp"
 #include "ego_test_hooks.hpp"
 #include "renderer_internal.hpp"
@@ -43,19 +40,9 @@ using filament::math::float4;
 using filament::math::mat4f;
 using filament::math::quatf;
 
-// fill_tangent_frames() used to be duplicated here rather than promoted to
-// renderer_internal.hpp ("not worth widening the Step 7e extraction's
-// surface for one more helper just for this one box builder"). Epic 2 Task
-// 2 (VM-024) needed the same helper from a SECOND new translation unit
-// (map_elements.cpp) and promoted it there instead — see that header's
-// comment. Using the promoted mpviz::fill_tangent_frames here now (this
-// file already includes renderer_internal.hpp) rather than keeping two
-// copies that would have to be kept behaviorally identical by hand.
-
 // A box centered on X/Y, resting on the ground plane (Z in [0, dims.z]) —
-// the ego's origin is its ground-contact point, matching how the TF
-// adapter's (Task 4c, node-side) base_link position is defined for a
-// ground vehicle.
+// the ego's origin is its ground-contact point, matching how the node-side
+// TF adapter defines base_link for a ground vehicle.
 void build_ego_box(std::vector<Vertex>& verts, std::vector<uint16_t>& indices,
                     const Vec3& dims) {
     const float hx = static_cast<float>(dims.x) * 0.5f;
@@ -91,16 +78,12 @@ void build_ego_box(std::vector<Vertex>& verts, std::vector<uint16_t>& indices,
     fill_tangent_frames(verts, normals);
 }
 
-// Builds the themed clay-box fallback — the non-fatal path for a missing/
-// unparseable glTF (spec §9). Binds r.egoMaterial, a DEDICATED clay.mat
-// instance (user contrast directive 2026-08-20) — Task 4 originally reused
-// r.groundMaterial here (Step 5's remap comment allowed "the SAME opaque
-// clay.mat MaterialInstance"), but that made the ego render as
-// palette.ground, i.e. the exact color of the ground plane it stands on,
-// invisible against it in both shipped themes. egoMaterial is themed with
-// its own palette.ego token (a deliberate cross-theme swap — see
-// theme.hpp's Palette::ego comment) instead, created eagerly and pushed by
-// push_theme_to_scene() the same way groundMaterial/laneMaterial are.
+// Builds the themed clay-box fallback for a missing/unparseable glTF.
+// Binds r.egoMaterial, a dedicated clay.mat instance themed with its own
+// palette.ego token — not r.groundMaterial, which would render the ego the
+// same color as the ground plane it stands on (see theme.hpp's
+// Palette::ego comment). Created eagerly and pushed by
+// push_theme_to_scene() like groundMaterial/laneMaterial.
 void build_ego_fallback(VisualRenderer& r, const Vec3& dims) {
     std::vector<Vertex> verts;
     std::vector<uint16_t> indices;
@@ -109,12 +92,11 @@ void build_ego_fallback(VisualRenderer& r, const Vec3& dims) {
              filament::RenderableManager::PrimitiveType::TRIANGLES, r.egoMaterial,
              /*cast_shadows=*/true, /*receive_shadows=*/false);
     // Recorded for rendered_bounding_box_diagonal() (testing-only): the
-    // actual box built here, not add_mesh()'s unrelated declared culling
-    // AABB (see renderer_internal.hpp's egoFallbackDims comment).
+    // actual box built here, not add_mesh()'s declared culling AABB.
     r.egoFallbackDims = dims;
-    // add_mesh() doesn't create a TransformManager component — ground/grid
-    // never move, so Task 2 never needed one. The ego is the first
-    // renderable that does, so it's created explicitly, once, here.
+    // add_mesh() doesn't create a TransformManager component (ground/grid
+    // never move); the ego is the first renderable that does, so it's
+    // created explicitly, once, here.
     r.engine->getTransformManager().create(r.egoFallback.entity);
     r.egoTransformEntity = r.egoFallback.entity;
 }
@@ -143,17 +125,12 @@ bool set_ego_model(VisualRenderer* r, const char* gltf_path, Vec3 fallback_dims)
 
     namespace gltfio = filament::gltfio;
 
-    // Shared gltfio machinery (Epic 2 Task 4 / VM-022): hoisted out of this
-    // function's former per-call AssetLoader + ubershader MaterialProvider +
-    // ResourceLoader (Step 5's original comment on MaterialProvider/
-    // ResourceLoader construction now lives in ensure_gltf_loader(),
-    // renderer_internal.hpp/objects.cpp) -- objects.cpp's
-    // set_object_model_dir() needs the exact same machinery, and a second
-    // AssetLoader in this library is a blocking duplication finding (see
-    // the plan). ensure_gltf_loader() is a no-op if either this function or
-    // set_object_model_dir() already built it; behavior here is otherwise
-    // unchanged (still createAsset()+releaseSourceData(), not the
-    // instanced path objects.cpp uses).
+    // Shared gltfio machinery (AssetLoader + ubershader MaterialProvider +
+    // ResourceLoader) lives in ensure_gltf_loader() (renderer_internal.hpp)
+    // since objects.cpp's set_object_model_dir() needs the same machinery
+    // and a second AssetLoader would duplicate it. No-op if either caller
+    // already built it. Still createAsset()+releaseSourceData() here, not
+    // the instanced path objects.cpp uses.
     if (!ensure_gltf_loader(*r)) {
         build_ego_fallback(*r, fallback_dims);
         return false;
@@ -165,11 +142,10 @@ bool set_ego_model(VisualRenderer* r, const char* gltf_path, Vec3 fallback_dims)
         return false;
     }
 
-    // ResourceLoader::loadResources (Step 5): uploads the geometry gltfio
-    // parsed above to the GPU — skipping this is the "silently renders
-    // nothing" trap the finding calls out. Synchronous: the GLB's buffers
-    // are embedded (obj2gltf_m02p.py's trimesh export embeds them), so
-    // there's no external URI to resolve asynchronously.
+    // ResourceLoader::loadResources uploads the parsed geometry to the
+    // GPU — skipping this silently renders nothing. Synchronous here since
+    // the GLB's buffers are embedded, so there's no external URI to
+    // resolve asynchronously.
     if (!r->sharedResourceLoader->loadResources(asset)) {
         r->sharedAssetLoader->destroyAsset(asset);
         build_ego_fallback(*r, fallback_dims);
@@ -177,16 +153,12 @@ bool set_ego_model(VisualRenderer* r, const char* gltf_path, Vec3 fallback_dims)
     }
     asset->releaseSourceData();
 
-    // Material remap (Step 5, spec §4.2): the ego reads as clay like
-    // everything else, not whatever materials the OBJ->glTF conversion
-    // produced. Safe against the current opaque clay.mat (Task 2 dropped
-    // its old `requires: [color]`) — the gltfio-loaded mesh has no vertex
-    // COLOR attribute, and would have failed this remap against the old
-    // material. Remaps to r->egoMaterial, NOT r->groundMaterial (user
-    // contrast directive 2026-08-20): the ego needs its own themed instance
-    // (palette.ego, a cross-theme swap against the ground it stands on —
-    // see build_ego_fallback()'s comment above and theme.hpp's Palette::ego
-    // comment) so it doesn't render as the same color as the ground plane.
+    // Material remap: the ego reads as clay like everything else, not
+    // whatever materials the OBJ->glTF conversion produced. Safe against
+    // clay.mat only because it has no `requires: [color]` — the
+    // gltfio-loaded mesh has no vertex COLOR attribute. Remaps to
+    // r->egoMaterial, not r->groundMaterial — see build_ego_fallback()
+    // above for why.
     filament::RenderableManager& rm = r->engine->getRenderableManager();
     const utils::Entity* renderables = asset->getRenderableEntities();
     const size_t renderableCount = asset->getRenderableEntityCount();
@@ -197,9 +169,8 @@ bool set_ego_model(VisualRenderer* r, const char* gltf_path, Vec3 fallback_dims)
         for (size_t p = 0; p < primCount; ++p) {
             rm.setMaterialInstanceAt(inst, p, r->egoMaterial);
         }
-        // The ego is the one thing in this epic's scene that should
-        // actually darken the ground it stands on; nothing casts onto the
-        // ego itself yet (Step 5).
+        // The ego is the one thing here that should darken the ground it
+        // stands on; nothing casts onto the ego itself yet.
         rm.setCastShadows(inst, true);
         rm.setReceiveShadows(inst, false);
     }
@@ -208,13 +179,12 @@ bool set_ego_model(VisualRenderer* r, const char* gltf_path, Vec3 fallback_dims)
 
     r->egoAsset = asset;
     // The asset's transform root already has a TransformManager component
-    // (built by gltfio's own node hierarchy) — no explicit create() needed,
-    // unlike the clay-box fallback path above.
+    // (gltfio's own node hierarchy) — no explicit create() needed, unlike
+    // the clay-box fallback above.
     r->egoTransformEntity = asset->getRoot();
     return true;
 }
 
-// Epic 1 Task 4 (VM-012): see ego.hpp's header comment.
 void update_ego_transform(VisualRenderer& r, const EgoState& ego) {
     if (!r.egoTransformEntity) return;  // set_ego_model() never called
     filament::TransformManager& tm = r.engine->getTransformManager();
@@ -223,13 +193,11 @@ void update_ego_transform(VisualRenderer& r, const EgoState& ego) {
     const float3 pos{static_cast<float>(ego.position.x), static_cast<float>(ego.position.y),
                       static_cast<float>(ego.position.z)};
     const quatf rot = quatf::fromAxisAngle(float3{0, 0, 1}, static_cast<float>(ego.heading_rad));
-    // ego.valid == 0 (no TF yet, spec §9's non-fatal "no data" path) hides
-    // the ego by zero-scaling its transform rather than tracking scene
-    // membership across the glTF asset's whole entity list (root + N node
-    // entities) — simpler, and a zero-scale renderable has no visible
-    // extent and casts no shadow either. Upgrade path if this ever needs
-    // to skip vertex-shader cost too: scene->removeEntities()/
-    // addEntities() instead, tracked against a "currently in scene" bool.
+    // ego.valid == 0 hides the ego by zero-scaling its transform rather
+    // than tracking scene membership across the glTF asset's whole entity
+    // list — simpler, and a zero-scale renderable casts no shadow.
+    // ponytail: doesn't skip vertex-shader cost; upgrade to
+    // scene->removeEntities()/addEntities() if that matters.
     const float scale = ego.valid ? 1.0f : 0.0f;
     tm.setTransform(inst, mat4f::translation(pos) * mat4f(rot) * mat4f::scaling(scale));
 }
@@ -247,13 +215,11 @@ double rendered_bounding_box_diagonal(mpviz::VisualRenderer* r) {
                           static_cast<double>(d.z) * d.z);
     }
     if (r->egoFallback.entity) {
-        // NOT RenderableManager::getAxisAlignedBoundingBox(): that reports
-        // add_mesh()'s hard-coded declared culling AABB (renderer.cpp's
-        // kGroundHalfExtent box), a constant unrelated to what
-        // build_ego_box() actually built — reading it made this fallback
-        // path's diagonal vacuous regardless of `dims` (review round 8).
-        // egoFallbackDims is the real dims build_ego_fallback() used; a
-        // {0,0,0} guard covers the "never actually built" case too.
+        // Not RenderableManager::getAxisAlignedBoundingBox(): that reports
+        // add_mesh()'s hard-coded declared culling AABB, unrelated to what
+        // build_ego_box() actually built. egoFallbackDims is the real dims
+        // build_ego_fallback() used; the {0,0,0} guard covers "never
+        // actually built" too.
         const Vec3& d = r->egoFallbackDims;
         return std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
     }

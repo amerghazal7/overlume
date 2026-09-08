@@ -116,10 +116,10 @@ def test_patch_yaml_appends_missing_key():
     assert "    exposure_match: true\n" in out
 
 
-# ── Bridge E2E: mode-3 switch + orbit while streaming (plan Task 5 Step 5) ───
+# ── Bridge E2E: mode-3 switch + orbit while streaming ────────────────────────
 # Full-stack integration: bridge <-> both ROS nodes <-> a real websocket
 # client. Skips cleanly (not a failure) when the ROS install this repo
-# builds isn't present — same spirit as the C++ GL tests skipping without a
+# builds isn't present -- same spirit as the C++ GL tests skipping without a
 # GPU: this test needs `colcon_build.sh` to have run first.
 import asyncio
 import subprocess

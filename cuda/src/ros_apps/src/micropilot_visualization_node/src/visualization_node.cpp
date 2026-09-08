@@ -49,9 +49,8 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
         return CallbackReturn::FAILURE;
     }
 
-    // Global mux mode this node starts in (spec §3.1 "race handling"): both
-    // rendering_node and this node default to the same last-configured value
-    // so exactly one publisher is active from the first frame.
+    // Both nodes default to the same mode so exactly one publisher is active
+    // from the first frame (spec §3.1 "race handling").
     initial_mode_ = declare_parameter<int>("initial_mode", 1);
     if (initial_mode_ < 1 || initial_mode_ > 3)
     {
@@ -60,9 +59,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     }
     active_mode_ = initial_mode_;
 
-    // Static hello-frame camera pose (no scene ingestion yet — that's Epic 1+).
-    // [eye xyz | target xyz], matching mpviz::CameraPose's own layout — see
-    // Task 2's default pose (tests/test_hello_frame.cpp, examples/hello_frame.cpp).
+    // [eye xyz | target xyz], matches mpviz::CameraPose's own layout.
     auto vp = declare_parameter<std::vector<double>>(
         "virtual_pose", {-4.0, 0.0, 3.5, 2.0, 0.0, -0.5});
     if (vp.size() != 6)
@@ -73,8 +70,8 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     }
     for (int i = 0; i < 3; ++i) pose_.eye[i] = vp[i];
     for (int i = 0; i < 3; ++i) pose_.target[i] = vp[3 + i];
-    // 80°, not the CUDA node's 60° default: at this pose's ~34° downward
-    // pitch, 60° puts no sky above the horizon (Task 2 Deviation 3).
+    // 80°, not the CUDA node's 60° -- at this pose's ~34° downward pitch, 60°
+    // puts no sky above the horizon.
     pose_.vfov_deg = declare_parameter<double>("virtual_vfov_deg", 80.0);
 
     // ── renderer ──────────────────────────────────────────────────────────────
@@ -90,13 +87,10 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     }
     frame_buf_.assign(static_cast<size_t>(out_width_) * out_height_ * 3, 0);
 
-    // Gate-review addition (2026-08-20, spec §9 minor): create_renderer()
-    // silently substitutes its compiled-in fallback theme whenever the
-    // requested theme_assets_dir/initial_theme fails to load -- non-fatal by
-    // design (rendering still comes up), but until now gave this node no way
-    // to WARN that it happened. config.theme_assets_dir is null here (this
-    // node doesn't expose a parameter for it yet), so the dir actually tried
-    // is the library's own compiled-in default.
+    // create_renderer() silently falls back to its compiled-in theme if
+    // theme_assets_dir/initial_theme fails to load (non-fatal by design);
+    // config.theme_assets_dir is null here since this node exposes no such
+    // parameter yet, so the dir actually tried is the library's own default.
     if (!mpviz::theme_assets_loaded(renderer_))
     {
         RCLCPP_WARN(get_logger(),
@@ -106,14 +100,11 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
                                              : "<compiled-in default theme dir>");
     }
 
-    // ── profile YAML loader (Epic 2 Task 1 / VM-020) ─────────────────────────
-    // Drives which adapters subscribe to what (Tasks 2-8 add the actual
-    // create_subscription() calls, one adapter at a time, by walking
-    // mpviz_node::subscriptions_for(row) over profile->rows -- nothing here
-    // subscribes to anything yet). Failure to load is fatal (matches the
-    // existing virtual_pose validation convention): every collected error
-    // is logged, not just the first, because a config file with three
-    // mistakes should take one edit pass, not three.
+    // ── profile YAML loader ───────────────────────────────────────────────────
+    // Drives which adapters subscribe to what, via mpviz_node::subscriptions_for(row)
+    // over profile->rows. Failure to load is fatal; every collected error is
+    // logged, not just the first, so a config file with several mistakes
+    // takes one edit pass, not several.
     auto profile_name = declare_parameter<std::string>("profile", "urban");
     auto profile_dir_param = declare_parameter<std::string>("profile_dir", "");
     std::string profile_dir = profile_dir_param;
@@ -133,10 +124,8 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     }
     RCLCPP_INFO(get_logger(), "profile '%s' loaded (%zu rows) from '%s'", profile->name.c_str(),
                 profile->rows.size(), profile_path.c_str());
-    // load_profile() can return a valid profile AND non-fatal warnings (e.g.
-    // "unknown key 'best_efort' (ignored)") -- the ERROR branch above logs
-    // profile_errors on failure, but a successful load must too, or the one
-    // diagnostic naming a config typo is computed and silently dropped.
+    // load_profile() can succeed with non-fatal warnings too; log those here
+    // or the diagnostic naming a config typo is computed and silently dropped.
     for (const auto& err : profile_errors) RCLCPP_WARN(get_logger(), "  %s", err.c_str());
     for (const auto& row : profile->rows)
     {
@@ -156,12 +145,9 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
         }
     }
 
-    // ── ego model (Epic 1 Task 4 / VM-012) ───────────────────────────────────
-    // Mirrors micropilot_rendering_node's robot_model_path convention
-    // exactly: "" is a legal default, load failure (missing file, bad
-    // asset) is non-fatal (mpviz::set_ego_model's own contract already
-    // falls back to a themed clay box at fallback_dims -- this WARN is
-    // purely informational, not a gate).
+    // Mirrors micropilot_rendering_node's robot_model_path convention: "" is a
+    // legal default, load failure is non-fatal (set_ego_model() falls back to
+    // a themed clay box at fallback_dims; the WARN below is informational only).
     auto ego_model_path = declare_parameter<std::string>("ego_model_path", "");
     auto ego_dims = declare_parameter<std::vector<double>>("ego_fallback_dims", {4.5, 2.0, 1.8});
     if (ego_dims.size() != 3)
@@ -177,17 +163,13 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
                     ego_model_path.c_str());
     }
 
-    // ── TF adapter (Epic 1 Task 4 / VM-012) ──────────────────────────────────
     // map->base_link -> SceneGraph.ego, finite-differenced + EMA-smoothed
     // speed. Buffer/TransformListener live on the node (need its
-    // NodeInterfaces to construct); TfAdapter just wraps the lookup +
-    // smoothing math on top.
+    // NodeInterfaces to construct); TfAdapter wraps the lookup + smoothing on top.
     auto ego_speed_smoothing_alpha = declare_parameter<double>("ego_speed_smoothing_alpha", 0.2);
-    // flatten_z (user directive 2026-08-20): the HD-map layer is a 2D plane
-    // today, so real z (live TF altitude, dynamic-object bbox centers) would
-    // otherwise render as floating geometry -- see frame_transform.hpp/
-    // tf_adapter.hpp's own ctor docs. Set false once the HD-map layer grows
-    // real 3D coordinates.
+    // HD-map layer is a 2D plane today, so real z (live TF altitude,
+    // dynamic-object bbox centers) would render as floating geometry -- see
+    // frame_transform.hpp/tf_adapter.hpp. Set false once HD-map gains real 3D.
     auto flatten_z = declare_parameter<bool>("flatten_z", true);
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_, this);
@@ -195,12 +177,10 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
                                               ego_speed_smoothing_alpha, flatten_z);
     pub_ego_state_ = create_publisher<std_msgs::msg::Float64MultiArray>("~/ego_state", 1);
 
-    // ── HD-map adapters (Epic 2 Task 2 / VM-024) ─────────────────────────────
-    // One HdMapAdapter per profile row with adapter: hd_map, subscribed via
-    // subscriptions_for(row) -- the pure function Task 1 built specifically
-    // so this loop never hand-rolls QoS logic. fill() APPENDS into
-    // scene_asm_ every tick (timer_callback), never assigns it, so all of
-    // urban's 3 rows (and sim's 4th, latched) render together.
+    // ── HD-map adapters ───────────────────────────────────────────────────────
+    // One HdMapAdapter per profile row with adapter: hd_map. fill() APPENDS
+    // into scene_asm_ every tick, never assigns, so every matching row renders
+    // together.
     frame_transformer_ = std::make_unique<FrameTransformer>(*tf_buffer_, "map", flatten_z);
     for (const auto& row : profile->rows)
     {
@@ -222,13 +202,10 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     }
     RCLCPP_INFO(get_logger(), "hd_map: %zu row(s) subscribed", hd_map_rows_.size());
 
-    // ── Dynamic objects (Epic 2 Task 3 / VM-021) ─────────────────────────────
-    // class_inference.yaml lives next to the profile YAMLs (same share/config
-    // directory, same profile_dir override) -- loaded once, before any
-    // DynamicObjectsAdapter is constructed, since every adapter holds a
-    // reference to it for the lifetime of this configure/activate cycle.
-    // Failure to load is fatal for the same reason a bad profile is: a
-    // config file this node depends on to classify every tracked object.
+    // ── Dynamic objects ───────────────────────────────────────────────────────
+    // class_inference_ must be loaded before any DynamicObjectsAdapter is
+    // constructed -- adapters hold a reference to it for the lifetime of this
+    // configure/activate cycle. Failure to load is fatal, same as a bad profile.
     const std::string class_inference_path = profile_dir + "/class_inference.yaml";
     std::vector<std::string> class_inference_errors;
     if (auto table = mpviz_node::load_class_inference(class_inference_path, class_inference_errors))
@@ -243,8 +220,6 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
         return CallbackReturn::FAILURE;
     }
 
-    // One DynamicObjectsAdapter per profile row with adapter: dynamic_objects
-    // -- same subscriptions_for(row)/QoS pattern as the hd_map loop above.
     for (const auto& row : profile->rows)
     {
         if (row.adapter != "dynamic_objects") continue;
@@ -268,10 +243,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     RCLCPP_INFO(get_logger(), "dynamic_objects: %zu row(s) subscribed",
                 dynamic_objects_rows_.size());
 
-    // ── Path ribbons (Epic 2 Task 5 / VM-023) ────────────────────────────────
-    // One PathAdapter per profile row with adapter: path -- same
-    // subscriptions_for(row)/QoS pattern as the hd_map/dynamic_objects loops
-    // above. Both shipped profiles ship FOUR rows over THREE roles.
+    // ── Path ribbons ──────────────────────────────────────────────────────────
     for (const auto& row : profile->rows)
     {
         if (row.adapter != "path") continue;
@@ -292,14 +264,11 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     }
     RCLCPP_INFO(get_logger(), "path: %zu row(s) subscribed", path_rows_.size());
 
-    // ── OGM ground grids (Epic 2 Task 6 / VM-025) ────────────────────────────
-    // One OgmAdapter per profile row with adapter: ogm -- UNLIKE every other
-    // loop above, subscriptions_for(row) returns TWO SubSpecs for this one
-    // row (the base topic + row.update_topic), so this creates TWO
-    // subscriptions, binding each spec's `type` to the matching ingest()
-    // overload on the SAME adapter instance (profile.cpp's own comment:
-    // best_effort propagates to the update stream, transient_local never
-    // does -- an update stream is inherently VOLATILE).
+    // ── OGM ground grids ──────────────────────────────────────────────────────
+    // Unlike every other loop above, subscriptions_for(row) returns TWO specs
+    // for adapter: ogm (base + update topic), each bound to a different
+    // ingest() overload on the same adapter. transient_local never applies to
+    // the update stream (it's inherently VOLATILE); best_effort still does.
     for (const auto& row : profile->rows)
     {
         if (row.adapter != "ogm") continue;
@@ -331,11 +300,9 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     }
     RCLCPP_INFO(get_logger(), "ogm: %zu row(s) subscribed", ogm_rows_.size());
 
-    // ── Collision alert polygons (Epic 2 Task 7 / VM-026) ────────────────────
-    // One CollisionAdapter per profile row with adapter: collision -- urban
-    // ships all FIVE (Task 1 Step 3) -- same subscriptions_for(row)/QoS
-    // pattern as every loop above. FIXTURE GAP 4: all five topics were
-    // silent in the recorded bag -- unvalidated against a live publisher.
+    // ── Collision alert polygons ──────────────────────────────────────────────
+    // FIXTURE GAP: all five collision topics were silent in the recorded bag
+    // -- unvalidated against a live publisher.
     for (const auto& row : profile->rows)
     {
         if (row.adapter != "collision") continue;
@@ -356,10 +323,8 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     }
     RCLCPP_INFO(get_logger(), "collision: %zu row(s) subscribed", collision_rows_.size());
 
-    // ── Generic marker fallback (Epic 2 Task 8 / VM-027) ─────────────────────
-    // One GenericMarkerAdapter per profile row with adapter: generic -- the
-    // spec §7 parity guarantee: adding a topic is one YAML row and no code.
-    // Same subscriptions_for(row)/QoS pattern as every loop above.
+    // ── Generic marker fallback ───────────────────────────────────────────────
+    // Adding a topic is one YAML row, no code change (spec §7 parity guarantee).
     for (const auto& row : profile->rows)
     {
         if (row.adapter != "generic") continue;
@@ -380,14 +345,11 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     }
     RCLCPP_INFO(get_logger(), "generic: %zu row(s) subscribed", generic_marker_rows_.size());
 
-    // ── TF-axes debug layer (Epic 2 Task 8 Step 7 / VM-027) ──────────────────
-    // One TfAxesAdapter per profile row with adapter: tf_axes -- a
-    // PRODUCER (no subscription branch: subscriptions_for() returns {} for
-    // this adapter, see profile.cpp). Both shipped profiles carry the row
-    // COMMENTED (Task 1 Step 3) -- uncommenting it is the only way this
-    // loop ever constructs one. Takes the node's own tf_buffer_ directly
-    // (this adapter's own header comment explains why, not
-    // frame_transformer_).
+    // ── TF-axes debug layer ───────────────────────────────────────────────────
+    // PRODUCER, not a subscriber (subscriptions_for() returns {} for this
+    // adapter). Both shipped profiles carry the row commented out. Takes the
+    // node's own tf_buffer_ directly, not frame_transformer_ (see this
+    // adapter's own header comment).
     for (const auto& row : profile->rows)
     {
         if (row.adapter != "tf_axes") continue;
@@ -395,17 +357,13 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     }
     RCLCPP_INFO(get_logger(), "tf_axes: %zu row(s) configured", tf_axes_rows_.size());
 
-    // Spec §7 (docs/superpowers/specs/2026-08-18-visual-mode-design.md:264):
-    // ego speed PREFERS this topic over the TF finite-difference fallback
-    // tf_adapter_ computes above. Global (not "~/..."): it's the robot's own
-    // feedback, published once regardless of which mux mode/node is active.
-    // QoS fix (Epic 2 Task 1 / VM-020 Step 4): the bag's metadata.yaml
-    // records this publisher's offered `reliability: 2` (BEST_EFFORT). A
-    // bare `10` here defaults to RELIABLE, which NEVER matches a
-    // BEST_EFFORT publisher -- no error, no warning, a permanently silent
-    // topic, with the TF finite-difference fallback quietly covering for
-    // it. Same root cause as the profile `best_effort` field (see
-    // urban_profile.yaml's /sim/ground_truth/boxes row); this subscription
+    // Ego speed PREFERS this topic over the TF finite-difference fallback
+    // computed above. Global (not "~/..."): the robot's own feedback,
+    // published once regardless of which mux mode/node is active.
+    // Must be best_effort(): the bag records this publisher as BEST_EFFORT; a
+    // bare `10` here defaults to RELIABLE and never matches, leaving the
+    // topic permanently (and silently) unsubscribed. Same root cause as the
+    // profile `best_effort` field (see urban_profile.yaml); this subscription
     // isn't a profile row, so it's fixed here directly.
     robot_speed_sub_ = create_subscription<std_msgs::msg::Float32>(
         "/robot/feedback/robot_speed_mps", rclcpp::QoS(10).best_effort(),
@@ -418,19 +376,14 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     pub_image_ = create_publisher<sensor_msgs::msg::Image>("/rendering/image", 1);
     pub_info_ = create_publisher<sensor_msgs::msg::CameraInfo>("/rendering/camera_info", 1);
     pub_vcam_state_ = create_publisher<std_msgs::msg::Float64MultiArray>("~/vcam_state", 1);
-    // Epic 3 Task 2 (VM-034): per-topic age/drop counters + render_ms, one
-    // per tick regardless of mode -- design doc §9's "a ~/diagnostics-style
-    // status".
+    // Per-topic age/drop counters + render_ms, published every tick regardless
+    // of mode.
     pub_diagnostics_ =
         create_publisher<diagnostic_msgs::msg::DiagnosticArray>("~/diagnostics", 1);
 
-    // ── virtual-camera presets / tween (plan Task 5 / VM-013) ────────────────
-    // Vcam's constructor seeds presets_[0] ("config") from pose_ with the
-    // identical formula this file used inline before the extraction (see
-    // vcam.cpp). Constructed AFTER every failure gate above, at the same
-    // point the pre-extraction code created the ~/set_virtual_cam service and
-    // ~/set_look subscription — a failed configure must not leave a live vcam
-    // control surface advertised (Opus review, Task 5 round 1).
+    // ── virtual-camera presets / tween ────────────────────────────────────────
+    // Constructed AFTER every failure gate above -- a failed configure must
+    // not leave a live vcam control surface advertised.
     vcam_ = std::make_unique<Vcam>(this, pose_);
 
     // ── mode mux subscription (global, not "~/...") ──────────────────────────
@@ -447,7 +400,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
             RCLCPP_INFO(get_logger(), "visualization_node: mode -> %d", active_mode_);
         });
 
-    // ── theme control (Epic 1 Task 3 / VM-014) ───────────────────────────────
+    // ── theme control ─────────────────────────────────────────────────────────
     theme_sub_ = create_subscription<std_msgs::msg::String>(
         "~/set_theme", 10,
         [this](const std_msgs::msg::String::SharedPtr msg)
@@ -485,12 +438,9 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
 // ── Timer callback ───────────────────────────────────────────────────────────
 namespace
 {
-// Epic 2 plan, "Diagnostics counters": WARN_THROTTLE (5 s) per adapter when
-// dropped_malformed or dropped_no_tf GROWS. Rule drops (dropped_by_rule) are
-// the designed steady state and never warn. One helper shared by every
-// adapter row so later Epic 2 adapters get identical wording for free.
-// Watermarks advance even while the throttle suppresses the print — the
-// counters are cumulative, so the next growth after the window still warns.
+// WARN_THROTTLE (5s) when dropped_malformed/dropped_no_tf grows; dropped_by_rule
+// is the designed steady state and never warns. Watermarks advance even while
+// throttled, since the counters are cumulative, so the next growth still warns.
 void warn_on_drop_growth(const rclcpp::Logger& logger, rclcpp::Clock& clock,
                          const std::string& topic, const mpviz_node::AdapterStats& s,
                          uint64_t& warned_malformed, uint64_t& warned_no_tf)
@@ -510,10 +460,8 @@ void warn_on_drop_growth(const rclcpp::Logger& logger, rclcpp::Clock& clock,
 
 void VisualizationNode::timer_callback()
 {
-    // Ease the virtual camera toward the selected preset (no-op once settled)
-    // and publish vcam telemetry BEFORE the mode gate below, mirroring
-    // rendering_node: external UIs keep receiving pose updates (and can
-    // pre-orbit) even while this node isn't the active mux output.
+    // Publish vcam telemetry BEFORE the mode gate below (mirrors
+    // rendering_node) so external UIs keep getting pose updates while inactive.
     vcam_->advance_tween();
     pose_ = vcam_->pose();
 
@@ -524,29 +472,16 @@ void VisualizationNode::timer_callback()
                   static_cast<double>(active_mode_)};
     pub_vcam_state_->publish(state);
 
-    // Epic 1 Task 3 (VM-014): the call this whole task depends on. EVERY
-    // tick, regardless of mode (ingest continues regardless of mode — same
-    // philosophy as the mux above), advance the node's own monotonic clock
-    // and push it into the renderer via set_scene() -- BEFORE the mode gate
-    // below that decides whether this tick actually renders/publishes an
-    // image. Without this call, SceneBuffer::active().sim_time_sec never
-    // advances, render_frame()'s theme-transition clock is permanently
-    // stuck at t=0, and a ~/set_theme request would never visibly finish
-    // outside a unit test that drives set_scene()/render_frame() directly.
-    // Task 4 fills in scene.ego from the TF adapter here too; nothing else
-    // is populated until Epic 2.
+    // Runs every tick regardless of mode, before the mode gate below. Without
+    // this, SceneBuffer::active().sim_time_sec never advances and a
+    // ~/set_theme request never visibly finishes.
     sim_clock_sec_ += kTimerPeriodSec;
 
-    // Epic 2 Task 2 (VM-024): merge every hd_map adapter's current geometry
-    // into one SceneAssembly, THEN point the frozen SceneGraph at it --
-    // scene_asm_.clear() must run before any adapter's fill(), or last
-    // tick's elements pile up on top of this tick's (SceneAssembly's own
-    // header, "ClearBetweenTicksDoesNotAccumulate"). MapElement now carries
-    // last_update_sec (VM-034), so this category fades via the library's
-    // shared staleness_alpha() like every other category; the timeout_sec
-    // gate below is the separate hard cutoff, and with timeout_sec 5.0 >
-    // kStaleFadeTimeoutSec 1.0 on both shipped hd_map rows the fade always
-    // completes before the cutoff, so no pop remains.
+    // scene_asm_.clear() must run before any adapter's fill(), or last tick's
+    // elements pile up on top of this tick's. MapElement fades via the
+    // library's shared staleness handling (see kStaleFadeTimeoutSec in
+    // cuda/src/libs/visual_renderer/src/renderer_internal.hpp); timeout_sec
+    // below is the separate hard cutoff.
     scene_asm_.clear();
     for (auto& hr : hd_map_rows_)
     {
@@ -556,17 +491,10 @@ void VisualizationNode::timer_callback()
         hr.adapter->fill(scene_asm_);
     }
 
-    // Epic 2 Task 3 (VM-021): same "stop filling past timeout_sec" rule as
-    // hd_map above -- TrackedObject carries last_update_sec, so this
-    // category gets the library's staleness FADE -- Task 4 wires
-    // clay_translucent.mat to it, this adapter just has to keep publishing
-    // right up to timeout_sec.
     for (auto& dr : dynamic_objects_rows_)
     {
-        // Review fix (VM-021 gate): a topic that has NEVER published is
-        // absent, not stale -- without this, last_msg_sec==0 makes
-        // dropped_stale tick at ~30 Hz from startup on a silent topic and
-        // VM-034 would report data loss on data that never existed.
+        // A topic that has never published is absent, not stale -- without
+        // this, last_msg_sec==0 would report data loss on data that never existed.
         if (dr.adapter->stats().msgs == 0) continue;
         warn_on_drop_growth(get_logger(), *get_clock(), dr.topic, dr.adapter->stats(),
                             dr.warned_malformed, dr.warned_no_tf);
@@ -578,10 +506,6 @@ void VisualizationNode::timer_callback()
         dr.adapter->fill(scene_asm_);
     }
 
-    // Epic 2 Task 5 (VM-023): same "absent row never counts as stale" /
-    // "stop filling past timeout_sec, mark_stale_tick() instead" shape as
-    // dynamic_objects above -- PathRibbon carries last_update_sec, so the
-    // library fades it rather than popping.
     for (auto& pr : path_rows_)
     {
         if (pr.adapter->stats().msgs == 0) continue;
@@ -595,17 +519,9 @@ void VisualizationNode::timer_callback()
         pr.adapter->fill(scene_asm_);
     }
 
-    // Epic 2 Task 6 (VM-025): same "absent row never counts as stale" /
-    // "stop filling past timeout_sec, mark_stale_tick() instead" shape as
-    // dynamic_objects/path above -- GroundGridLayer carries last_update_sec,
-    // so the library fades it (ground_grid.mat's own alpha) rather than
-    // popping. stats().msgs counts BOTH ingest()/ingest_update() overloads'
-    // accepted messages (ogm.hpp's own stated decision), so a row that has
-    // only ever received _updates patches (impossible in practice --
-    // ingest_update() before any ingest() is a no-op, see
-    // UpdateBeforeAnyFullGridIsDroppedAndCounted) would still correctly
-    // read as "never produced a renderable grid" via fill() emitting
-    // nothing, not via this msgs==0 gate.
+    // stats().msgs counts BOTH ingest()/ingest_update() overloads' accepted
+    // messages (see ogm.hpp); ingest_update() before any ingest() is a no-op,
+    // so a row that only ever received update patches still reads as msgs==0.
     for (auto& gr : ogm_rows_)
     {
         if (gr.adapter->stats().msgs == 0) continue;
@@ -619,14 +535,8 @@ void VisualizationNode::timer_callback()
         gr.adapter->fill(scene_asm_);
     }
 
-    // Epic 2 Task 7 (VM-026): same "absent row never counts as stale" /
-    // "stop filling past timeout_sec, mark_stale_tick() instead" shape as
-    // dynamic_objects/path/ogm above -- AlertPolygon carries
-    // last_update_sec, so this category gets the library's staleness FADE
-    // (its severity's constant alpha, multiplied down) rather than
-    // popping. FIXTURE GAP 4: all five collision topics were silent in the
-    // recorded bag -- msgs==0 is the expected steady state here, not an
-    // error path (CollisionAdapter.SilentTopicYieldsZeroAlertsAndDoesNotWedge).
+    // msgs==0 is the expected steady state here (all five collision topics
+    // are silent in the recorded bag), not an error path.
     for (auto& cr : collision_rows_)
     {
         if (cr.adapter->stats().msgs == 0) continue;
@@ -640,11 +550,6 @@ void VisualizationNode::timer_callback()
         cr.adapter->fill(scene_asm_);
     }
 
-    // Epic 2 Task 8 (VM-027): same "absent row never counts as stale" /
-    // "stop filling past timeout_sec, mark_stale_tick() instead" shape as
-    // dynamic_objects/path/ogm/collision above -- GenericMarker carries
-    // last_update_sec, so this category gets the library's staleness
-    // FADE.
     for (auto& gmr : generic_marker_rows_)
     {
         if (gmr.adapter->stats().msgs == 0) continue;
@@ -658,10 +563,8 @@ void VisualizationNode::timer_callback()
         gmr.adapter->fill(scene_asm_);
     }
 
-    // Epic 2 Task 8 Step 7 (VM-027): a live tf2 buffer walk, not a
-    // message-driven category -- no timeout/staleness gate, runs every
-    // tick unconditionally (this adapter's own header comment: it stamps
-    // "now" onto every marker it emits, so it can never itself go stale).
+    // No timeout gate: a live tf2 walk, not message-driven; this adapter
+    // stamps "now" onto every marker it emits, so it can never itself go stale.
     for (auto& axes : tf_axes_rows_)
     {
         axes->fill(scene_asm_, sim_clock_sec_);
@@ -680,15 +583,10 @@ void VisualizationNode::timer_callback()
     pub_ego_state_->publish(ego_state);
 
     // Render/readback/publish only while this node is the active mux output
-    // (spec §3.1) — costs ~zero GPU otherwise. Diagnostics still publish
-    // every tick regardless (Step 0's own AC) -- ingest above already ran
-    // unconditionally, same "ingest continues regardless of mode"
-    // philosophy as sim_clock_sec_. render_ms_ is explicitly zeroed here,
-    // not left at whatever the last mode-3 tick measured, so a diagnostics
-    // consumer never mistakes a stale number for a live one (Step 1's own
-    // AC) -- verified by code reading only, no automated test; see the plan
-    // (Task 2 Step 1)'s own note: "No dedicated automated test for the
-    // reads-0-outside-mode-3 behavior."
+    // (spec §3.1) — costs ~zero GPU otherwise. Diagnostics still publish every
+    // tick regardless. render_ms_ is explicitly zeroed here, not left at
+    // whatever the last mode-3 tick measured, so a diagnostics consumer never
+    // mistakes a stale number for a live one.
     if (active_mode_ != 3)
     {
         render_ms_ = 0.0;
@@ -696,27 +594,21 @@ void VisualizationNode::timer_callback()
         return;
     }
 
-    // Ego-anchored camera composition (2026-08-19 user directive, plan Task 5
-    // scope addition): compose HERE ONLY, right before handing the pose to
-    // the renderer -- pose_/cur_/telemetry above are never touched, so an
-    // unchanged offset + a moving ego composes into a smooth follow with no
-    // drift or feedback, and orbits/presets keep adjusting the offset only.
+    // Composed HERE ONLY, right before handing the pose to the renderer --
+    // pose_ itself is never touched, so orbits/presets keep adjusting the
+    // offset only.
     mpviz::CameraPose render_pose = pose_;
     if (scene.ego.valid)
     {
         render_pose = compose_ego_anchored_pose(pose_, scene.ego);
     }
-    // else: no TF yet -- offset pose used as an absolute world pose, exactly
-    // today's behavior (keeps test_vcam_contract.py and every no-TF test
-    // bit-identical).
+    // else: no TF yet -- offset pose used as an absolute world pose (keeps
+    // test_vcam_contract.py and every no-TF test bit-identical).
 
     mpviz::FrameView view{frame_buf_.data(), static_cast<uint32_t>(out_width_),
                           static_cast<uint32_t>(out_height_)};
-    // Epic 3 Task 2 (VM-034) Step 1: render_ms instrumentation -- wraps the
-    // EXISTING render_frame() call (nothing about the call itself changes),
-    // measured only in this branch (active_mode_==3), fed into
-    // publish_diagnostics() below and at every subsequent tick until the
-    // next successful measurement.
+    // render_ms_ instrumentation wraps render_frame() without changing the
+    // call; measured only in this branch (active_mode_==3).
     const auto render_start = std::chrono::steady_clock::now();
     if (!mpviz::render_frame(renderer_, render_pose, view))
     {
@@ -756,14 +648,10 @@ void VisualizationNode::timer_callback()
     publish_diagnostics();
 }
 
-// Epic 3 Task 2 (VM-034) Step 0: gathers every subscribed row's AdapterStats
-// -- hd_map/dynamic_objects/path/ogm/collision/generic_marker, NOT
-// tf_axes_rows_ (a PRODUCER with no topic/subscription/stats of its own,
-// visualization_node.hpp's own comment on that vector) -- into one
-// DiagnosticArray and publishes it. `last_msg_age_sec` is computed HERE
-// (sim_clock_sec_ - stats().last_msg_sec), not inside diagnostics.hpp, which
-// deliberately takes no ROS clock so it stays a pure, easily unit-tested
-// data transform.
+// Gathers every subscribed row's stats (not tf_axes_rows_, a PRODUCER with no
+// stats of its own) into one DiagnosticArray. last_msg_age_sec is computed
+// here, not inside diagnostics.hpp, which deliberately takes no ROS clock so
+// it stays a pure, easily unit-tested data transform.
 void VisualizationNode::publish_diagnostics()
 {
     std::vector<mpviz_node::RowStats> rows;

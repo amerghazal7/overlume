@@ -15,7 +15,7 @@
  *  the buffer currently knows about and look each one up against `map`
  *  directly". Widening FrameTransformer's contract for this one caller
  *  isn't worth it; this class takes the raw `tf2_ros::Buffer` (the same
- *  object visualization_node.cpp:134 already owns) plus its own
+ *  object visualization_node.cpp already owns) plus its own
  *  `target_frame` (defaults to "map", matching every other adapter's
  *  frame_transformer_ target).
  *

@@ -1,7 +1,7 @@
-// golden.hpp — Epic 1 Task 2 Step 9: shared render+compare helper used by
-// every later epic's golden-image tests. NOT a gtest file itself (see
-// CMakeLists.txt: golden.cpp is compiled as a plain extra source into every
-// other test binary instead of its own gtest executable).
+// golden.hpp — shared render+compare helper used by every golden-image
+// test. NOT a gtest file itself (see CMakeLists.txt: golden.cpp is compiled
+// as a plain extra source into every other test binary instead of its own
+// gtest executable).
 #pragma once
 
 #include <vector>
@@ -11,14 +11,11 @@
 
 namespace mpviz::testing {
 
-// Epic 2 Task 2 (VM-024) Step 8: move-only owner of a `.geom` fixture's
-// point data AND the `MapElement`s that point into it. Move-only, not
-// copyable: `MapElement::points` are raw pointers into `points` — a copy
-// would leave the copy's elements aimed at the ORIGINAL's buffer (see
-// map_elements.cpp's own comment on this general hazard). A move is safe
-// because std::vector's move constructor transfers the underlying buffer
-// without reallocating, so every pointer already baked into `elements`
-// keeps pointing at valid memory after the move.
+// Move-only owner of a `.geom` fixture's point data AND the `MapElement`s
+// that point into it. Not copyable: `MapElement::points` are raw pointers
+// into `points` — a copy would leave the copy's elements aimed at the
+// ORIGINAL's buffer (see map_elements.cpp). Move is safe: std::vector's
+// move ctor transfers the buffer without reallocating.
 struct MapGeom {
     std::vector<mpviz::Vec3> points;
     std::vector<mpviz::MapElement> elements;
@@ -31,8 +28,7 @@ struct MapGeom {
 };
 
 // Reads a `.geom` fixture emitted by the node-side HdMapAdapter test
-// (MPVIZ_EMIT_GEOM, Task 2 Step 7; format extended Epic 3 Task 1 / VM-036
-// to carry kind/lane_id) -- a plain-text dump, one MapElement per line:
+// (MPVIZ_EMIT_GEOM) -- a plain-text dump, one MapElement per line:
 // `<is_polygon> <kind> <lane_id> <n> <x1> <y1> <z1> ... <xn> <yn> <zn>`.
 // ponytail: a text dump, not a serializer -- this is the whole parser.
 // Returns an empty MapGeom (elements.empty()) if `path` can't be opened or
@@ -41,12 +37,9 @@ struct MapGeom {
 // "passes" against nothing.
 MapGeom load_map_geom(const char* path);
 
-// Epic 2 Task 4 (VM-022) Step 2: move-only owner of a synthetic mixed-class
-// scene's `predicted_path` point arrays AND the `TrackedObject`s that point
-// into them -- same move-only-not-copyable reasoning as MapGeom above (a
-// bare `std::vector<mpviz::TrackedObject>` would dangle: TrackedObject::
-// predicted_path is a raw pointer into `path_points`, and a copy would leave
-// the copy's objects aimed at the ORIGINAL's buffer).
+// Move-only owner of a synthetic mixed-class scene's `predicted_path` point
+// arrays AND the `TrackedObject`s that point into them -- same
+// move-only-not-copyable reasoning as MapGeom above.
 struct ObjectScene {
     std::vector<mpviz::Vec3> path_points;
     std::vector<mpviz::TrackedObject> objects;
@@ -67,24 +60,15 @@ struct ObjectScene {
 // tints, arrows, predicted ribbons AND staleness fade together.
 ObjectScene make_mixed_class_objects(double now);
 
-// Epic 2 Task 5 (VM-023) Step 3: move-only owner of a synthetic three-role
-// ribbon scene's point arrays AND the `PathRibbon`s that point into them --
-// same move-only-not-copyable reasoning as MapGeom/ObjectScene above (a bare
-// `std::vector<mpviz::PathRibbon>` would dangle: PathRibbon::points is a raw
-// pointer into `point_storage`, and a copy would leave the copy's ribbons
-// aimed at the ORIGINAL's buffer). Widening this file's own header comment,
-// per the plan: "test scenes must keep the points arrays alive across
-// set_scene (golden.cpp move-only owner pattern)" -- this is the ribbon
-// case of that pattern, MapGeom/ObjectScene being the map/object ones.
+// Move-only owner of a synthetic three-role ribbon scene's point arrays AND
+// the `PathRibbon`s that point into them -- same move-only-not-copyable
+// reasoning as MapGeom/ObjectScene above.
 struct RibbonScene {
     std::vector<mpviz::Vec3> point_storage;
     std::vector<mpviz::PathRibbon> ribbons;
-    // Ego pose make_three_role_ribbons() positions ON the BEHAVIOR ribbon
-    // (user directive 2026-09-08: re-shoot ribbons_three_roles_dark_adas
-    // with "an ego mid-ribbon in the scene so the clip is visible in the
-    // golden") -- an explicit field here, not left implicit in the test's
-    // own SceneGraph setup, so the scene builder itself documents WHY the
-    // ego sits where it does.
+    // Ego pose make_three_role_ribbons() positions ON the BEHAVIOR ribbon --
+    // explicit field here (not left implicit in the test's SceneGraph
+    // setup) so the scene builder itself documents WHY the ego sits there.
     mpviz::EgoState ego{};
 
     RibbonScene() = default;
@@ -97,20 +81,16 @@ struct RibbonScene {
 // One ribbon per role (BEHAVIOR/GLOBAL/LOCAL), all fresh at `now` unless
 // noted, positioned so a camera looking roughly at the world origin sees
 // all three -- the RibbonGolden.ThreeRoles_DarkAdas synthetic scene (no
-// recording exercises a live GLOBAL ribbon or a second LOCAL row at once,
-// see the plan's fixture gap 2).
+// recording exercises a live GLOBAL ribbon or a second LOCAL row at once).
 RibbonScene make_three_role_ribbons(double now);
 
-// Epic 2 Task 7 (VM-026) Step 3: move-only owner of a synthetic
-// sweep+predicted alert scene's point arrays AND the `AlertPolygon`s that
-// point into them — same move-only-not-copyable reasoning as MapGeom/
-// ObjectScene/RibbonScene above (`AlertPolygon::points` is a raw pointer
-// into `point_storage`; a copy would leave the copy's polygons aimed at
-// the ORIGINAL's buffer).
+// Move-only owner of a synthetic sweep+predicted alert scene's point
+// arrays AND the `AlertPolygon`s that point into them -- same
+// move-only-not-copyable reasoning as MapGeom/ObjectScene/RibbonScene
+// above.
 //
-// FIXTURE GAP 4: the five collision-checker topics were silent in the
-// recorded bag (a calm scenario, zero messages) — entirely synthetic, the
-// same "no recording to draw from" shape as RibbonScene's fixture gap 2.
+// The five collision-checker topics were silent in the recorded bag (a
+// calm scenario, zero messages) — entirely synthetic.
 struct AlertScene {
     std::vector<mpviz::Vec3> point_storage;
     std::vector<mpviz::AlertPolygon> alerts;
@@ -130,19 +110,16 @@ struct AlertScene {
 // — AlertGolden.SweepPlusPredicted_DarkAdas's synthetic scene.
 AlertScene make_sweep_and_predicted_alerts(double now);
 
-// Epic 2 Task 8 (VM-027) Step 1: move-only owner of a synthetic
-// one-of-every-primitive-type scene's point storage AND the
-// `GenericMarker`s that point into it -- same move-only-not-copyable
-// reasoning as MapGeom/ObjectScene/RibbonScene/AlertScene above
-// (`GenericMarker::points` is a raw pointer into `point_storage`; a copy
-// would leave the copy's markers aimed at the ORIGINAL's buffer). TEXT's
-// `text` and MESH's `mesh_path` are plain string literals (static storage
-// duration), so — unlike `points` — they need no owned storage here.
+// Move-only owner of a synthetic one-of-every-primitive-type scene's point
+// storage AND the `GenericMarker`s that point into it -- same
+// move-only-not-copyable reasoning as MapGeom/ObjectScene/RibbonScene/
+// AlertScene above. TEXT's `text` and MESH's `mesh_path` are plain string
+// literals (static storage duration), so — unlike `points` — they need no
+// owned storage here.
 //
-// FIXTURE GAP 5: 7 of the 12 ROS marker types never appear in the recorded
-// bag -- this scene is entirely synthetic BY DESIGN (the backlog AC itself
-// asks for one of every primitive type, which real traffic never
-// exercises).
+// 7 of the 12 ROS marker types never appear in the recorded bag -- this
+// scene is entirely synthetic by design (real traffic never exercises one
+// of every primitive type).
 struct GenericMarkerScene {
     std::vector<mpviz::Vec3> point_storage;
     std::vector<mpviz::GenericMarker> markers;
@@ -157,15 +134,13 @@ struct GenericMarkerScene {
 // One of every FROZEN MarkerPrimitive (all 10 scene.h enum values) laid
 // out in a row along +X so a human can count shapes at a glance, PLUS the
 // adapter's CUBE_LIST/SPHERE_LIST fan-out result (a 3-point CUBE_LIST and
-// a 3-point SPHERE_LIST both fan out into one GenericMarker CUBE/SPHERE
-// per point, Task 8 Step 4's adapter contract) -- hand-built here exactly
-// as GenericMarkerAdapter would emit them, since this is a LIBRARY test
-// (the node-side fan-out itself is proven by GenericMarkerAdapter.
-// CubeListFansOutIntoOneMarkerPerPoint). `mesh_glb_path` is a caller-owned
-// string (MPVIZ_TEST_DATA_DIR-prefixed, a compile-time-stable literal at
-// every call site) borrowed only for this call -- GenericMarker::mesh_path
-// itself is stored as the same pointer, so it must outlive `markers`' use
-// exactly like every other GenericMarker string field.
+// a 3-point SPHERE_LIST each fan out into one GenericMarker per point) --
+// hand-built here exactly as GenericMarkerAdapter would emit them, since
+// this is a LIBRARY test (the node-side fan-out itself is proven by
+// GenericMarkerAdapter.CubeListFansOutIntoOneMarkerPerPoint).
+// `mesh_glb_path` is caller-owned, borrowed only for this call --
+// GenericMarker::mesh_path is stored as the same pointer, so it must
+// outlive `markers`' use like every other GenericMarker string field.
 GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_path);
 
 // Mean of every point across every element -- used to place the golden's
@@ -173,22 +148,17 @@ GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_p
 // at a hand-picked coordinate. {0,0,0} if `elems` has no points at all.
 mpviz::Vec3 centroid(const std::vector<mpviz::MapElement>& elems);
 
-// Epic 2 Task 6 (VM-025) Step 3: move-only owner of a synthetic two-layer
-// OGM scene's cell-byte storage AND the `GroundGridLayer`s that point into
-// it -- same move-only-not-copyable reasoning as MapGeom/ObjectScene/
-// RibbonScene above (`GroundGridLayer::cells` is a raw pointer into one of
-// `cell_storage`'s elements; a copy would leave the copy's layers aimed at
-// the ORIGINAL's buffers). Safe to move: moving the OUTER
-// `vector<vector<uint8_t>>` relocates only the top-level array, never the
-// inner vectors' own heap buffers, so every `cells` pointer already baked
-// into `grids` keeps pointing at valid memory after the move (same
-// reasoning scene_buffer.hpp's own `OwnedScene::object_paths` — the
-// production code's equivalent nested-vector shape — already relies on).
+// Move-only owner of a synthetic two-layer OGM scene's cell-byte storage
+// AND the `GroundGridLayer`s that point into it -- same
+// move-only-not-copyable reasoning as MapGeom/ObjectScene/RibbonScene
+// above. Safe to move: moving the OUTER `vector<vector<uint8_t>>`
+// relocates only the top-level array, never the inner vectors' own heap
+// buffers, so every `cells` pointer stays valid (same reasoning
+// scene_buffer.hpp's `OwnedScene::object_paths` relies on).
 //
-// FIXTURE GAP 3 (epic2 plan, Task 6): zero OccupancyGrid topics exist in
-// the recorded bag, so unlike MapGeom (which loads a real recorded
-// fixture), this is entirely hand-built synthetic data -- see
-// make_two_layer_grids()'s own comment.
+// Zero OccupancyGrid topics exist in the recorded bag, so unlike MapGeom
+// (which loads a real fixture), this is entirely hand-built synthetic
+// data -- see make_two_layer_grids()'s own comment.
 struct GridScene {
     std::vector<std::vector<uint8_t>> cell_storage;
     std::vector<mpviz::GroundGridLayer> grids;
@@ -250,20 +220,14 @@ struct FrameStats {
     double top_third_mean = 0.0;
     double bottom_third_mean = 0.0;
     // sky_row_mean: rows [10,40) -- deep in the flat sky/clear-color
-    // backdrop, above any horizon effect, for this epic's fixed 320x240 /
-    // CameraPose{{0,-8,4},{0,0,0},60} test setup (same "not scene-aware,
-    // just matches this fixed pose" caveat as top/bottom_third_mean above).
-    // horizon_row_mean: rows [50,60) -- the far edge of the ground plane
-    // (kGroundHalfExtent, only 40m across) as it meets the sky, where
-    // distance-fog opacity is at its highest for any on-plane ray (though,
-    // being a *finite* plane, never near-total extinction the way a true
-    // infinite ground would give). Every shipped theme authors palette.fog
-    // == palette.sky (spec §4.3 treats them as one token), so a correctly-
-    // scaled fog should pull this band noticeably toward sky_row_mean --
-    // this is the guard the epic1 Task 2 fog-scale review round asked for
-    // (a flat mean-band check can't express "the ground fades toward the
-    // sky", only "isn't crushed/clipped"; see renderer.cpp's setFogOptions
-    // comment for why exact equality isn't reachable by color scale alone).
+    // backdrop, fixed to this epic's 320x240 / CameraPose{{0,-8,4},{0,0,0},60}
+    // test setup, same caveat as top/bottom_third_mean above.
+    // horizon_row_mean: rows [50,60) -- the far edge of the (finite,
+    // kGroundHalfExtent) ground plane meeting the sky, where fog opacity is
+    // highest for any on-plane ray. Every shipped theme sets palette.fog ==
+    // palette.sky, so correctly-scaled fog should pull this band toward
+    // sky_row_mean -- see renderer.cpp's setFogOptions comment for why
+    // exact equality isn't reachable by color scale alone.
     double sky_row_mean = 0.0;
     double horizon_row_mean = 0.0;
 };

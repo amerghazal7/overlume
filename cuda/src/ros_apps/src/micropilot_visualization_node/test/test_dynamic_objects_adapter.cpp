@@ -1,19 +1,11 @@
 /** @file test_dynamic_objects_adapter.cpp
- *  @brief DynamicObjectsAdapter + class inference tests (Epic 2 Task 3 /
- *  VM-021).
+ *  @brief DynamicObjectsAdapter + class inference tests.
  *
- *  Fixture note: the committed `perception_dynamic_objects_list_0.yaml`
- *  (Task 1) is bbox+text ONLY -- every track's first frame in the
- *  recorded bag, verified: 15559 bboxes vs 15522 arrows, so a real first
- *  frame has zero arrows across the board. `perception_dynamic_objects_
- *  list_1.yaml` adds arrows but every recorded arrow length is > 1e-3 m
- *  (smallest observed: ~0.002 m) and neither fixture carries a
- *  hd_map_path/hd_map_path_dots namespace or a disjoint LINE_LIST. Per
- *  this task's instructions, those cases (all 4 namespaces fused, a
- *  zero-length arrow, a disjoint LINE_LIST, both path+_dots on one track)
- *  are hand-built MarkerArrays below instead of new committed fixtures --
- *  the two real fixtures are used exactly where they already cover the
- *  case (heading-from-bbox, first-frame-no-arrow, DELETEALL).
+ *  Fixture note: perception_dynamic_objects_list_0.yaml is bbox+text only
+ *  (every track's first frame has zero arrows); _list_1.yaml adds arrows but
+ *  none zero-length, and neither carries a hd_map_path/hd_map_path_dots
+ *  namespace or a disjoint LINE_LIST. Those cases are hand-built
+ *  MarkerArrays below instead of new committed fixtures.
  */
 #include "micropilot_visualization_node/adapters/dynamic_objects.hpp"
 
@@ -470,8 +462,7 @@ TEST(DynamicObjects, MalformedMarkersDroppedAndCounted)
     EXPECT_EQ(out.objects[0].id, 3005u);
 }
 
-// ── rviz-parity fix (user report 2026-08-20): PATH/ARROW points[] are
-// RELATIVE to that marker's own pose ──────────────────────────────────────
+// ── PATH/ARROW points[] are RELATIVE to that marker's own pose ─────────────
 
 namespace
 {
@@ -570,14 +561,13 @@ TEST(DynamicObjects, ArrowNinetyDegreeYawPoseRotatesVelocity)
 
 TEST(DynamicObjects, MarkerPoseAndNonMapFrameComposeInFrameInsideOrder)
 {
-    // Combined case (order matters, spec item 5): frame_transform *
-    // (marker_pose * point), never the other way round. PATH marker pose:
-    // pure translation (5,0,0), no rotation. Frame map<-base_link: yaw +90
-    // deg AND translation (1000,0,0). Correct order composes the marker's
-    // translation INSIDE the header frame before the frame's own rotation
-    // is applied -- the wrong order (frame outside, then marker translation
-    // added in the map frame) yields a visibly different point, which is
-    // exactly what this test would catch.
+    // Combined case: frame_transform * (marker_pose * point), never the
+    // other way round. PATH marker pose: pure translation (5,0,0), no
+    // rotation. Frame map<-base_link: yaw +90 deg AND translation
+    // (1000,0,0). Correct order composes the marker's translation INSIDE
+    // the header frame before the frame's own rotation is applied -- the
+    // wrong order yields a visibly different point, which this test would
+    // catch.
     auto clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
     tf2_ros::Buffer buffer(clock);
     geometry_msgs::msg::TransformStamped xf;
@@ -659,9 +649,9 @@ TEST(DynamicObjects, NanArrowPoseIsDroppedAsMalformed)
 TEST(DynamicObjects, ZeroQuaternionBboxPoseIsIdentityHeadingNotNan)
 {
     // rviz treats a zero-filled orientation as identity; tf2 would make
-    // getYaw() NaN and corrupt the object's transform (review finding
-    // 2026-08-20). Zero quat -> object still emitted, heading 0, position
-    // honoured, nothing counted malformed.
+    // getYaw() NaN and corrupt the object's transform. Zero quat -> object
+    // still emitted, heading 0, position honoured, nothing counted
+    // malformed.
     TfFixture kTf;
     auto classes = mpviz_node::testing::inference_table();
     DynamicObjectsAdapter a(mpviz_node::testing::urban_row("/perception/dynamic_objects_list"),
@@ -686,8 +676,8 @@ TEST(DynamicObjects, ZeroQuaternionBboxPoseIsIdentityHeadingNotNan)
 
 TEST(DynamicObjects, NonZeroBboxZIsFlattenedToTheMapPlane)
 {
-    // flatten_z (user directive 2026-08-20): bbox centers carry z (half the
-    // box height) and rendered objects floated above the 2D HD-map plane.
+    // bbox centers carry z (half the box height); rendered objects must
+    // flatten to the 2D HD-map plane.
     TfFixture kTf;
     auto classes = mpviz_node::testing::inference_table();
     DynamicObjectsAdapter a(mpviz_node::testing::urban_row("/perception/dynamic_objects_list"),

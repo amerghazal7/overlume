@@ -1,7 +1,7 @@
 // scene_buffer.hpp — internal, `-I src` visibility, not installed, not POD.
-// Owns the double-buffered deep-copy staging for mpviz::SceneGraph (Task 1 /
-// VM-010). std:: usage is fine here — it's a `.hpp` under `src/`, never
-// shipped across the POD boundary.
+// Owns the double-buffered deep-copy staging for mpviz::SceneGraph. std::
+// usage is fine here — it's a `.hpp` under `src/`, never shipped across the
+// POD boundary.
 #pragma once
 #include <mutex>
 #include <string>
@@ -66,19 +66,16 @@ public:
 
 private:
     mutable std::mutex mutex_;   // ponytail: cheap at this call rate (<=30 Hz);
-                                  // serializes active_idx_ only. Today's
-                                  // single-threaded executor never contends
-                                  // it. It does NOT by itself make
-                                  // multi-threaded ingest safe — active()
-                                  // still hands back a bare reference aliased
-                                  // into slot storage, so a second publisher
-                                  // could overwrite a slot a reader still
-                                  // holds. See set_scene()'s corrected
-                                  // threading contract in scene.h: real
+                                  // serializes active_idx_ only. Doesn't by
+                                  // itself make multi-threaded ingest safe —
+                                  // active() still hands back a bare
+                                  // reference aliased into slot storage, so
+                                  // a second publisher could overwrite a
+                                  // slot a reader still holds. Real
                                   // multi-threaded ingest needs active() to
-                                  // return an owned/refcounted snapshot, a
-                                  // SceneBuffer redesign this epic does not
-                                  // attempt.
+                                  // return an owned/refcounted snapshot; see
+                                  // set_scene()'s threading contract in
+                                  // scene.h.
     OwnedScene slots_[2];
     int active_idx_{0};
 };

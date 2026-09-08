@@ -1,24 +1,19 @@
-# DynamicObjectsAdapter class inference (Epic 2 Task 3 / VM-021).
+# DynamicObjectsAdapter class inference (VM-021).
 # Loaded by mpviz_node::load_class_inference(), consumed by mpviz_node::infer().
-#
-# Label format is "<prefix>_<track_id>" (live-sim 2026-08-19, e.g. "V_1105").
-# VERIFIED against the recorded bag: prefix "V" only -- 15559 of 15559 labels,
-# 46 distinct track ids. Every other row below is taken from the rviz/autonomy
-# convention and is UNVALIDATED against a real publisher (named fixture gap 1).
+# Label format "<prefix>_<track_id>" (e.g. "V_1105"). Verified against the
+# recorded bag: prefix "V" only (15559/15559 labels, 46 track ids); every
+# other row below is UNVALIDATED against a real publisher (fixture gap 1).
 prefix:
   V: CAR          # the only prefix the recorded stack ever emits
   T: TRUCK_VAN
   B: BUS
   P: PEDESTRIAN
   C: CYCLIST
-# Fallback when the prefix is unknown/absent: measured bbox footprint.
-# Scale is ALWAYS taken from the bbox regardless of class, so a
-# misclassification is cosmetic (wrong model, right size) -- never a
-# geometry error. That is the whole reason this table is allowed to be a
-# heuristic. Bands are checked in order, first match wins; a degenerate
-# (zero length/width) box matches no band and falls through to `default`
-# (mpviz_node::infer()'s own guard -- see ClassInference test
-# NoLabelAndNoMatchingBandIsUnknownNotACrash).
+# Fallback when prefix is unknown/absent: measured bbox footprint. Scale is
+# always taken from the bbox, so misclassification is cosmetic, not a
+# geometry error -- this table may stay a heuristic. Bands are checked in
+# order, first match wins; a degenerate box matches none and falls through
+# to `default` (see ClassInference test NoLabelAndNoMatchingBandIsUnknownNotACrash).
 footprint:
   - {max_length_m: 1.2, max_width_m: 1.2, min_height_m: 1.4, class: PEDESTRIAN}
   - {max_length_m: 2.5, max_width_m: 1.0, class: CYCLIST}

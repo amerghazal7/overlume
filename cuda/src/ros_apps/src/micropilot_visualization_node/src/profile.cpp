@@ -21,9 +21,9 @@ std::optional<NsRender> ParseNsRender(const std::string& s)
     return std::nullopt;
 }
 
-// Epic 3 Task 1 (VM-036): YAML spelling -> MapKind. "road_surface" is
-// deliberately NOT accepted here -- ROAD_SURFACE is adapter-synthesized
-// (paired boundary rails), never a value a profile author can request.
+// YAML spelling -> MapKind. "road_surface" is deliberately NOT accepted here
+// -- ROAD_SURFACE is adapter-synthesized (paired boundary rails), never a
+// value a profile author can request.
 std::optional<mpviz::MapKind> ParseMapKind(const std::string& s)
 {
     if (s == "other") return mpviz::MapKind::OTHER;
@@ -48,7 +48,7 @@ bool KindIsLegalOnRender(mpviz::MapKind kind, NsRender render)
     return render == NsRender::kPolyline;
 }
 
-// Adapter -> its closed role set (epic2 plan, profile.hpp struct comment).
+// Adapter -> its closed role set (see profile.hpp struct comment).
 const std::map<std::string, std::set<std::string>>& RoleSets()
 {
     static const std::map<std::string, std::set<std::string>> kRoles = {
@@ -101,12 +101,10 @@ std::string RowTag(const std::string& file, size_t idx, const std::string& topic
     return os.str();
 }
 
-// Builds one ProfileRow from its YAML node. Returns false (and appends an
-// error) on a malformed enum value (namespaces[].render / ns_default) --
-// those can't be represented in ProfileRow at all, so they must fail here,
-// before validate_row() ever runs. Unknown extra keys are a WARNING
-// appended to `errors`, never a hard failure (VM-042: hand-edited by the
-// autonomy team).
+// Builds one ProfileRow from its YAML node. Returns false on a malformed enum
+// value (namespaces[].render / ns_default) -- those can't be represented in
+// ProfileRow at all, so they must fail here, before validate_row() ever runs.
+// Unknown extra keys are a warning only (hand-edited by the autonomy team).
 bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, ProfileRow& out,
               std::vector<std::string>& errors)
 {
@@ -130,14 +128,12 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
     out.transient_local = node["transient_local"] ? node["transient_local"].as<bool>() : false;
     out.best_effort = node["best_effort"] ? node["best_effort"].as<bool>() : false;
 
-    // Junction-cleanup directive (2026-09-08): adapter: hd_map only -- the
-    // key's presence is what's restricted (not its value: an explicit
-    // `true` on a non-hd_map row is still meaningless and still rejected,
-    // same "typo'd key" concern update_topic's own hard adapter check
-    // guards against elsewhere). Checked here, not deferred to ValidateRow,
-    // because ValidateRow only sees the parsed bool -- it can't tell
-    // "explicitly true" from "left at its true default" -- and `out.adapter`
-    // is already parsed above by the time this key is read.
+    // adapter: hd_map only -- the key's presence is what's restricted, not its
+    // value (same "typo'd key" concern update_topic's own adapter check
+    // guards against). Checked here, not in ValidateRow, because ValidateRow
+    // only sees the parsed bool -- it can't tell "explicitly true" from "left
+    // at default" -- and out.adapter is already parsed by the time this key
+    // is read.
     if (node["junction_interior_boundaries"]) {
         if (out.adapter != "hd_map") {
             errors.push_back(RowTag(file, idx, out.topic) +
@@ -287,11 +283,9 @@ std::optional<Profile> BuildProfile(const YAML::Node& root, const std::string& f
     }
 
     size_t idx = 0;
-    // Parallel to profile.rows: the row's index in the FILE, not its index
-    // among the surviving rows -- an earlier row that failed ParseRow/
-    // ValidateRow is dropped from profile.rows but must not shift every
-    // later row's reported number, or the duplicate-(topic,adapter) message
-    // below would name the wrong row.
+    // Parallel to profile.rows: the row's index in the FILE, not among
+    // surviving rows -- a dropped earlier row must not shift later rows'
+    // reported numbers, or the duplicate-pair message below names the wrong row.
     std::vector<size_t> row_file_idx;
     for (const auto& node : root["rows"]) {
         ProfileRow row;
@@ -395,10 +389,9 @@ std::vector<SubSpec> subscriptions_for(const ProfileRow& row)
     if (row.adapter == "ogm" && !row.update_topic.empty()) {
         // best_effort is safe to propagate (a BEST_EFFORT subscriber still
         // matches a RELIABLE publisher); transient_local is NOT -- an update
-        // stream is inherently VOLATILE (each patch supersedes the last, a
-        // late joiner needs the base grid, not old patches), so a
-        // TRANSIENT_LOCAL-requesting subscriber would never match it and the
-        // patch stream would go silently, permanently dead.
+        // stream is inherently VOLATILE (each patch supersedes the last), so a
+        // TRANSIENT_LOCAL subscriber would never match it and go silently,
+        // permanently dead.
         specs.push_back(SubSpec{row.update_topic, "map_msgs/msg/OccupancyGridUpdate",
                                  row.best_effort, false});
     }

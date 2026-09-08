@@ -1,15 +1,12 @@
 # fog_color_black.yaml — test fixture for test_theme.cpp's
 # Fog.ColorAffectsRenderedOutput. Byte-for-byte identical to
-# fog_color_white.yaml except `palette.fog` -- the only thing that can make
-# the two renders differ is FogOptions::color actually reaching the screen.
-# Deliberately reuses light_clay.yaml's own shipped fog.density (0.008), not
-# an inflated one: the bug this guards (epic1 Task 2 review) was a domain
-# mismatch (raw 0-1 hue fed in as scene radiance, ~5-6 orders of magnitude
-# dimmer than the sun/IBL), and an artificially high density would swamp
-# that with sheer extinction and mask a domain-scale regression. At this
-# real density, unfixed code moves the mean by <1/255 between black and
-# white fog (measured); fixed code moves it by ~90/255. Values otherwise
-# copied from assets/themes/light_clay.yaml.
+# fog_color_white.yaml except `palette.fog` -- isolates whether
+# FogOptions::color reaches the screen. Uses a modest fog.density (0.008,
+# light_clay's original value; it now ships 0.0015), not an inflated one,
+# so the guarded domain-scale bug
+# (raw 0-1 hue fed in as scene radiance) isn't masked by sheer extinction.
+# Fixed code moves the mean by ~90/255 between black/white fog; unfixed
+# moves it by <1/255.
 name: fog_color_black
 palette:
   ground:      [0.82, 0.80, 0.76]

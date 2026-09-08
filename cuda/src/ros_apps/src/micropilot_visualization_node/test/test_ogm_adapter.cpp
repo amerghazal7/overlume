@@ -1,10 +1,9 @@
 /** @file test_ogm_adapter.cpp
- *  @brief OgmAdapter tests (Epic 2 Task 6 / VM-025).
+ *  @brief OgmAdapter tests.
  *
- *  FIXTURE GAP 3 (epic2 plan, Task 6): zero OccupancyGrid topics exist in
- *  the recorded bag or stack -- every fixture here is SYNTHETIC (see
- *  fixtures/ogm_synthetic.yaml / ogm_update_synthetic.yaml's own header
- *  comments).
+ *  Zero OccupancyGrid topics exist in the recorded bag or stack -- every
+ *  fixture here is SYNTHETIC (see fixtures/ogm_synthetic.yaml /
+ *  ogm_update_synthetic.yaml's own header comments).
  */
 #include "micropilot_visualization_node/adapters/ogm.hpp"
 
@@ -68,7 +67,7 @@ TEST(OgmAdapter, FullGridPopulatesLayerGeometryAndCells)
     EXPECT_EQ(a.stats().msgs, 1u);
 }
 
-// ── flatten_z (user directive 2026-08-20): origin z zeroed by default ──────
+// ── flatten_z: origin z zeroed by default ───────────────────────────────────
 
 TEST(OgmAdapter, OriginZFlattenedToZeroByDefault)
 {

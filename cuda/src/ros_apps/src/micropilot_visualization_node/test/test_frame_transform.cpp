@@ -1,5 +1,5 @@
 /** @file test_frame_transform.cpp
- *  @brief FrameTransformer tests (Epic 2 Task 1 / VM-020).
+ *  @brief FrameTransformer tests.
  */
 #include "micropilot_visualization_node/frame_transform.hpp"
 

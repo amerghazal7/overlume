@@ -1,7 +1,6 @@
 /** @file test_tf_axes_adapter.cpp
- *  @brief TfAxesAdapter tests (Epic 2 Task 8 Step 7 / VM-027). Hand-built
- *  tf2_ros::Buffer, same fixture style as test_frame_transform.cpp -- no
- *  ROS graph, no launch.
+ *  @brief TfAxesAdapter tests. Hand-built tf2_ros::Buffer, same fixture
+ *  style as test_frame_transform.cpp -- no ROS graph, no launch.
  */
 #include "micropilot_visualization_node/adapters/tf_axes.hpp"
 

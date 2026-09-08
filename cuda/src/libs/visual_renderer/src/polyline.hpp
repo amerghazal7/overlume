@@ -1,19 +1,16 @@
-// polyline.hpp — Epic 2 Task 2 (VM-024): the shared CPU polyline/polygon
-// geometry helper Tasks 4 (predicted paths), 5 (ribbons) and 7 (alert
-// polygons) all reuse instead of each writing their own extruder (see the
-// plan's "Library: internal seams" — a reviewer finding a second extrusion
-// implementation in this epic is a blocking duplication finding).
+// polyline.hpp — shared CPU polyline/polygon geometry helper: predicted
+// paths, ribbons, and alert polygons all reuse this instead of each
+// writing their own extruder.
 //
-// Deliberately Filament-free: test targets get `-I src` and `-I ${STB_DIR}`
-// only, NOT visual_renderer's PRIVATE Filament include dir
-// (renderer_internal.hpp's own comment, CMakeLists.txt:246-252) — a header
-// here that transitively names `Vertex` (filament::math::float3/float4)
-// would fail tests/test_polyline.cpp at the first #include, before a single
-// assertion runs. Everything below returns/accepts only `mpviz::Vec3`
-// (scene.h, itself Filament-free) or plain integer types. The Vec3->Vertex
-// conversion (positions + the flat +Z tangent frame) happens at the
-// Filament call site in map_elements.cpp (and, in later tasks, ribbon.cpp /
-// objects.cpp / alert_polygons.cpp).
+// Deliberately Filament-free: test targets get `-I src` and
+// `-I ${STB_DIR}` only, not visual_renderer's PRIVATE Filament include dir
+// (see renderer_internal.hpp) — a header here that transitively names
+// `Vertex` (filament::math::float3/float4) would fail
+// tests/test_polyline.cpp at the first #include. Everything below
+// returns/accepts only `mpviz::Vec3` (scene.h, itself Filament-free) or
+// plain integer types. The Vec3->Vertex conversion happens at the
+// Filament call site (map_elements.cpp/ribbon.cpp/objects.cpp/
+// alert_polygons.cpp).
 #pragma once
 
 #include <cstdint>
@@ -28,16 +25,16 @@ namespace mpviz::detail {
 // `half_width`, each vertex lifted `z_lift` above its source point's Z
 // (avoids z-fighting with the ground plane it's painted onto). Returns
 // 2*m positions, interleaved [left_0, right_0, left_1, right_1, ...] where
-// pair i straddles the i-th SURVIVING point (see cleaning rules below) —
+// pair i straddles the i-th surviving point (see cleaning rules below) —
 // left/right meaning "rotate the local direction +90d/-90d about +Z".
 //
-// Input cleaning (spec §9 — never propagate a NaN vertex, never divide by a
+// Input cleaning (never propagate a NaN vertex, never divide by a
 // zero-length segment direction):
 //  - nullptr or n<2 -> empty.
-//  - a NaN in any component of pts[i] TRUNCATES the polyline at i (points
+//  - a NaN in any component of pts[i] truncates the polyline at i (points
 //    before it are still extruded; points at/after it are dropped) rather
 //    than propagating the NaN into a vertex buffer.
-//  - a point identical to the immediately preceding SURVIVING point (a
+//  - a point identical to the immediately preceding surviving point (a
 //    zero-length segment) is dropped, not kept as a degenerate duplicate.
 //  - if fewer than 2 points survive cleaning, returns empty.
 //
@@ -45,9 +42,7 @@ namespace mpviz::detail {
 // scaled by 1/cos(half the turn angle)) — exact for the common shallow-
 // curve case (lane centerlines), and the mitre length is clamped to
 // `half_width * kMaxMiterRatio` so a near-reversal corner can't shoot a
-// vertex arbitrarily far out (the classic "bowtie" extrusion bug becomes a
-// bounded pinch instead of an unbounded spike; see the .cpp for the clamp
-// value).
+// vertex arbitrarily far out (see the .cpp for the clamp value).
 std::vector<Vec3> extrude_polyline(const Vec3* pts, uint32_t n, float half_width, float z_lift);
 
 // Triangle-strip index list for the 2*point_count vertices a `point_count`-
@@ -78,22 +73,17 @@ std::vector<Vec3> triangulate_convex_polygon(const Vec3* pts, uint32_t n, float 
 inline constexpr uint32_t kMaxPointsPerMesh = 32000;  // 2 verts/pt, < 65535/2
 std::vector<std::pair<uint32_t, uint32_t>> polyline_chunks(uint32_t n);
 
-// Lazy crosswalk hatch (Epic 2 Task 2 / VM-024; Epic 3 Task 1 / VM-036
-// decision #2 fixes its n==4 guard to actually fire on real recorded
-// geometry). Painted bars with ground visible in the gaps between them --
-// the visual differentiation IS the geometry, not a second material.
-// Bilinear-interpolated stripes between the quad's two LONG edges, so each
-// bar's long axis runs along the quad's SHORT (travel) axis and bars stack
-// across the crossing width (user directive 2026-09-08: the previous
-// SHORT-edge rail choice rendered horizontal ladder rungs instead of a real
-// zebra pattern; stripe count is now pitch-derived, not fixed -- see
-// map_elements.cpp's own ponytail note). A general convex-polygon clip was
-// skipped as unneeded complexity -- see the same note. Returns empty for
-// n != 4; the caller falls back to triangulate_convex_polygon()'s plain fan
-// fill.
+// Lazy crosswalk hatch: painted bars with ground visible in the gaps
+// between them -- the visual differentiation is the geometry, not a
+// second material. Bilinear-interpolated stripes between the quad's two
+// long edges, so each bar's long axis runs along the quad's short
+// (travel) axis and bars stack across the crossing width; stripe count is
+// pitch-derived, not fixed (see map_elements.cpp's own ponytail note on
+// why a general convex-polygon clip was skipped). Returns empty for
+// n != 4; the caller falls back to triangulate_convex_polygon()'s plain
+// fan fill.
 // Declared here (not map_elements.hpp, which pulls in Filament) so it's
-// reachable from Filament-free tests, same reasoning as every function
-// above it in this header.
+// reachable from Filament-free tests.
 std::vector<Vec3> build_crosswalk_hatch(const Vec3* pts, uint32_t n, float z_lift);
 
 }  // namespace mpviz::detail

@@ -1,6 +1,6 @@
-// test_objects.cpp — Epic 2 Task 4 (VM-022): clay object rendering. Same
-// "no Filament type" boundary as every other tests/*.cpp — see
-// objects_test_hooks.hpp / map_elements_test_hooks.hpp / ego_test_hooks.hpp.
+// test_objects.cpp — clay object rendering. Same "no Filament type"
+// boundary as every other tests/*.cpp — see objects_test_hooks.hpp /
+// map_elements_test_hooks.hpp / ego_test_hooks.hpp.
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
 
@@ -128,12 +128,9 @@ TEST(Objects, DimensionsDriveScaleNotTheClassModel) {
     // pipeline guarantees every model's own X/Y footprint is exactly 1x1
     // (scripts/normalize_models.py), so the APPLIED scale's X/Y always
     // equal the raw perception dims regardless of which glb backs the
-    // class -- a bug that rendered every CAR at the model's own native
-    // size (ignoring dims) would make these two objects' scale IDENTICAL
-    // despite very different dims, and this hook reads the APPLIED
-    // TransformManager scale, never RenderableManager's AABB (which
-    // add_mesh() hard-codes to the same 40x40x2 box for every renderable —
-    // Epic 1's documented trap).
+    // class. This hook reads the APPLIED TransformManager scale, never
+    // RenderableManager's AABB -- add_mesh() hard-codes that to the same
+    // 40x40x2 box for every renderable, see renderer.cpp.
     const auto small = mpviz::testing::object_transform_scale(r, 1);
     const auto big = mpviz::testing::object_transform_scale(r, 2);
     EXPECT_NEAR(small.x, 4.5, 1e-4);
@@ -291,14 +288,12 @@ TEST(Objects, FiftyObjectsSceneUpdateUnderTwoMilliseconds) {
     mpviz::destroy_renderer(r);
 }
 
-// ── Predicted-path ribbon teardown must not double-destroy (blocking gate
-// finding, VM-022 review round 1): a persistent track's predicted_path
-// appearing then vanishing while a SECOND object stays live used to
-// re-enter destroy_mesh() on every subsequent frame (destroy_mesh() never
-// nulled the Mesh it tore down), eventually double-freeing Filament
-// resources and recycling the entity id into a live object. Reproduces the
-// finding's exact sequence: path present -> path gone (2nd object present)
-// -> repeat identical scene twice more.
+// ── Predicted-path ribbon teardown must not double-destroy: destroy_mesh()
+// must null the Mesh it tears down, or a persistent track's predicted_path
+// vanishing (while a second object stays live) re-enters destroy_mesh() on
+// every subsequent frame, double-freeing Filament resources and recycling
+// the entity id into a live object. Repro: path present -> path gone (2nd
+// object present) -> repeat identical scene twice more.
 
 TEST(Objects, VanishingPredictedPathDoesNotDoubleDestroyRibbon) {
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};

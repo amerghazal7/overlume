@@ -1,51 +1,33 @@
-# dark_adas.yaml — Epic 1 Task 2 (VM-011) shipped default theme.
-# All colors are LINEAR RGB (no sRGB decode applied by theme.cpp) — see
-# src/theme.hpp's header comment.
+# dark_adas.yaml — shipped default theme. All colors are LINEAR RGB (no
+# sRGB decode applied by theme.cpp) — see src/theme.hpp's header comment.
 name: dark_adas
 palette:
   ground:      [0.05, 0.06, 0.08]
   sky:         [0.02, 0.02, 0.05]
   fog:         [0.02, 0.02, 0.05]
-  # Re-authored toward near-white (Epic 3 Task 1 / VM-036 debt item a,
-  # review-verified: was mid-gray [0.45,0.5,0.55], effectively
-  # undifferentiated from a lit clay surface). Now the base tone for
-  # lane_boundary/crosswalk (both soft-default to this) -- boundaries dash
-  # white per ref-1, centerline gets its own yellow below.
+  # Base tone for lane_boundary/crosswalk (both soft-default to this) --
+  # boundaries dash white per ref-1, centerline gets its own color below.
   lane_paint:  [0.85, 0.85, 0.88]
-  # ribbon_core/ribbon_glow (user directive 2026-09-08: "I hate the glowing
-  # colors, use normal cold green"): was neon [0.10, 1.00, 0.40] driven to
-  # bloom by emissive.ribbon_strength 4.0 -- now a normal cold (blue-leaning)
-  # green with the emissive glow killed below.
+  # Cold (blue-leaning) green; emissive glow killed via
+  # emissive.ribbon_strength below.
   ribbon_core: [0.12, 0.55, 0.42]
   ribbon_glow: [0.12, 0.55, 0.42]
-  # ribbon_global/ribbon_local (user directive 2026-08-20, ITEM 1): GLOBAL
-  # (a coarse route/plan overlay) blue-ish, LOCAL (the near-field planned
-  # path) amber -- both distinct from the green BEHAVIOR/hero ribbon above
-  # (ribbon_core/glow), which stays ref-1's committed green.
+  # GLOBAL (coarse route/plan overlay) blue-ish, LOCAL (near-field path)
+  # amber -- both distinct from the green BEHAVIOR/hero ribbon above.
   ribbon_global: [0.25, 0.55, 0.95]
   ribbon_local: [0.95, 0.70, 0.15]
   ego: [0.82, 0.80, 0.76]  # warm near-white clay so the ego pops on dark (was light_clay's ORIGINAL ground before its 2026-08-20 re-authoring to a road-gray; no longer an exact cross-theme swap)
-  # road/lane_centerline/lane_boundary (Epic 3 Task 1 / VM-036, decision #6):
-  # road is a darker near-black than palette.ground just above (0.05,0.06,
-  # 0.08) -- the static road-surface base coat sits visibly below the
-  # ground it's painted on, per the backlog's "road darker than ground" AC.
-  # lane_boundary reuses the near-white lane_paint tone (dashed white, per
-  # decision #3's flip). crosswalk is left to its soft default
-  # (== lane_paint) -- no debt-item hue target names it.
+  # road is darker than palette.ground above -- the static road-surface
+  # base coat sits visibly below the ground it's painted on. lane_boundary
+  # reuses the lane_paint tone; crosswalk soft-defaults to lane_paint too.
   road: [0.03, 0.035, 0.045]
-  # lane_centerline (user directive 2026-09-08 -- centerlines now render as
-  # faint dot guidance, hidden by default): RE-AUTHORED from decision #6's
-  # bold ADAS yellow [0.95,0.80,0.10] to "a light fade of lane color" -- a
-  # low-contrast blend 25% lane_paint / 75% road (mix chosen so the dots
-  # read as subtle guidance, not a bold stroke): 0.25*[0.85,0.85,0.88] +
-  # 0.75*[0.03,0.035,0.045] = [0.235, 0.239, 0.254].
+  # Faint dot guidance: 25% lane_paint / 75% road = 0.25*[0.85,0.85,0.88] +
+  # 0.75*[0.03,0.035,0.045] = [0.235, 0.239, 0.254]. Recompute if either
+  # moves.
   lane_centerline: [0.235, 0.239, 0.254]
   lane_boundary: [0.85, 0.85, 0.88]
-  # road_edge (user directive 2026-09-08): the road's outer boundary
-  # (MapKind::ROAD_EDGE) renders SOLID, never dashed -- a clear, fully-
-  # saturated road-paint yellow (AASHTO-yellow family), readable against
-  # the dark road fill above and clearly distinct from lane_centerline's
-  # now-faint fade.
+  # Road's outer boundary (MapKind::ROAD_EDGE), renders SOLID never dashed
+  # -- saturated yellow, distinct from lane_centerline's faint fade above.
   road_edge: [0.95, 0.75, 0.05]
   object_tints:
     car: [0.25, 0.35, 0.9]
@@ -59,9 +41,8 @@ palette:
     warning: [1.0, 0.7, 0.1]
     critical: [1.0, 0.15, 0.1]
 material: { roughness: 0.85, metallic: 0.0 }
-# emissive.ribbon_strength 4.0 -> 0.0 (user directive 2026-09-08: "I hate the
-# glowing colors") -- the hero ribbon no longer blooms; ribbon_emissive.mat
-# still carries the alpha-fade path, it just stops feeding the bloom pass.
+# Hero ribbon no longer blooms; ribbon_emissive.mat still carries the
+# alpha-fade path, it just stops feeding the bloom pass.
 emissive: { ribbon_strength: 0.0 }
 grid: { line_color: [0.12, 0.14, 0.18], fade_start_m: 15.0, fade_end_m: 40.0 }
 hud: { text_color: [0.9, 0.95, 1.0], accent_color: [0.10, 1.0, 0.4], scale: 1.0 }
@@ -70,34 +51,14 @@ ibl:  # analytic 2-band hemisphere gradient — NOT raw SH coefficients
   sky_color:    [0.05, 0.06, 0.12]
   ground_color: [0.02, 0.02, 0.03]
   intensity: 256000.0
-# density restored to the plan's originally-authored 0.015 (epic1 Task 2
-# review round 7). Rounds 5/6 raised this to 0.10, then 0.03, both times
-# using density to buy the horizon/sky convergence guard (tests/
-# test_theme.cpp) headroom against a *color-scale* bug (palette.fog
-# rendered up to 1.71x brighter than the identical palette.sky) -- the
-# right fix for a color bug is the color conversion (renderer.cpp's
-# setFogOptions() comment), not the density a theme author picked for how
-# thick the fog looks. With the scale now genuinely 1.0x (fog radiance ==
-# sky radiance when palette.fog == palette.sky, spec §4.3), re-measured at
-# this authored 0.015: liveness clears its guard 4x over (delta 62.1); the
-# honest residual horizon/sky gap (~37.3, golden.cpp's [50,60) band) is the
-# expected consequence of this theme's 40m ground plane never reaching
-# near-total fog extinction, not a miscalibration -- tests/test_theme.cpp's
-# guard is loosened to match instead of manufacturing more fog mass to hide
-# it. 0.10 (round 5) had measurably erased grid/object legibility at Task
-# 4's ego-mesh distances -- see renderer.cpp for the full history.
+# density 0.015 clears the horizon/sky convergence guard (tests/
+# test_theme.cpp) 4x over (delta 62.1); the residual ~37.3 horizon/sky gap
+# (golden.cpp's [50,60) band) is expected from this theme's 40m ground
+# plane, not a miscalibration. See renderer.cpp setFogOptions() for the
+# color-scale fix this depends on.
 fog: { density: 0.015 }
-# ribbon (user directive 2026-09-08, ITEM 3: lane-fill margins) -- "make it
-# like lane fill (with margins so it doesn't fully fill), configurable
-# margin... behaviour to allow stacking them on each other while still the
-# below ribbon still visible". The old width_m key is DROPPED here (theme.cpp
-# still parses it as the soft-default SEED for the margins below, so any
-# YAML that still has it keeps working) -- both shipped themes now author
-# the fill look directly: lane_width_m 3.5m; margins GLOBAL 0.3 (widest,
-# bottom of the existing z-stagger), LOCAL 0.8, BEHAVIOR 1.3 (narrowest, on
-# top) -- each lower-z-lifted ribbon peeks out as a colored rim around the
-# narrower one stacked above it. Widened from 0.2/0.5/0.8 (user directive
-# 2026-09-08: "make the margins bit bigger by default I can't clearly see
-# the 3 ribbons stacked when I play the bag") -- each rim is now 0.5m per
-# side instead of 0.3m.
+# margins: GLOBAL 0.3 (widest, bottom of z-stagger), LOCAL 0.8, BEHAVIOR 1.3
+# (narrowest, on top) -- each lower ribbon peeks out as a rim around the one
+# stacked above it. Old width_m key dropped; theme.cpp still parses it as
+# the soft-default seed for these margins if present.
 ribbon: { lane_width_m: 3.5, margin_behavior_m: 1.3, margin_global_m: 0.3, margin_local_m: 0.8 }

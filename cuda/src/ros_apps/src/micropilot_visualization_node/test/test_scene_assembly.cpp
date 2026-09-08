@@ -1,5 +1,5 @@
 /** @file test_scene_assembly.cpp
- *  @brief SceneAssembly tests (Epic 2 Task 1 / VM-020).
+ *  @brief SceneAssembly tests.
  */
 #include "micropilot_visualization_node/scene_assembly.hpp"
 

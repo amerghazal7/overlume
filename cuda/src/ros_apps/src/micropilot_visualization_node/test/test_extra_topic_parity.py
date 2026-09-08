@@ -59,42 +59,26 @@ OUT_W, OUT_H = 320, 240
 TF_RATE_HZ = 20.0
 TF_DT = 1.0 / TF_RATE_HZ
 EGO_X_M = 150.0  # "100+ m from the map origin" per the plan
-# ~/set_look offset (ego-anchored, applied immediately, no tween -- same
-# contract test_ego_anchored_vcam.py exercises): a SIDE view of the ego,
-# close enough that the boxes (see BOX_SCALE's own comment) register a
-# comfortable margin above DIFF_FLOOR. The default chase-cam preset looks
-# along the ego's forward (+X) axis -- exactly where both boxes (base_link
-# +-3 in X, i.e. dead ahead/behind the ego) sit, so the ego's own tall
-# clay-box silhouette occludes most of them from that angle (confirmed
-# empirically: the default preset showed only a sliver of one box). A side
-# view puts both boxes either side of the ego with nothing in the way.
+# ~/set_look offset (ego-anchored, no tween): a SIDE view, since the
+# default chase-cam preset looks along +X where both boxes sit (base_link
+# +-3 in X) and the ego's own clay-box silhouette occludes most of them
+# from that angle (confirmed empirically).
 LOOK_OFFSET = [0.0, -3.5, 1.8, 0.0, 0.0, 0.0]
-# Marker scale (position, not size, is what the plan pins down: "publish
-# two boxes at base_link (+-3, 0, 0)"): a 1x1x1 box at a camera distance
-# that also keeps the whole scene in frame occupies too few PIXELS of a
-# 320x240 image for a WHOLE-FRAME mean-abs-diff to clear DIFF_FLOOR
-# (confirmed empirically: 1x1x1 boxes measured ~0.7 mean-abs-diff here,
-# nowhere near 10.0, even fully unoccluded) -- this is the same metric/
-# threshold test_theme_ws.py uses for a whole-background theme change,
-# which is a fundamentally bigger-footprint edit than two small props.
-# Sized here as a decent-sized ground obstacle (not a huge prop) rather
-# than moving the camera uncomfortably close, which would fight the "point
-# the camera at the ego" framing the plan asks for.
+# Marker scale: position (not size) is what the plan pins down. A 1x1x1
+# box measured ~0.7 mean-abs-diff here (confirmed empirically), nowhere
+# near DIFF_FLOOR=10.0 even unoccluded, so BOX_SCALE is sized up to a
+# decent-sized ground obstacle instead of moving the camera uncomfortably
+# close.
 BOX_SCALE = (4.0, 4.0, 3.0)
 SETTLE_SEC = 1.0     # TF alone -- let the ego/camera settle before the baseline capture
 PUBLISH_SEC = 1.5    # boxes + TF together -- long enough to clear the row's staleness window
 DIFF_FLOOR = 10.0    # matches test_ego_anchored_vcam.py-style generous noise floors
 NOCHANGE_CEILING = 5.0  # phase 1's own "nothing rendered" internal check
 
-# Port 18767: this script's isolation knob (every E2E script in this
-# directory picks a distinct one; test_theme_ws.py/test_vcam_ws_bridge.py
-# use it for an actual websocket bridge port -- this script has no bridge
-# server, so it plays the same "reserve a distinct number, never reuse
-# another script's" role via ROS_DOMAIN_ID instead, which is what actually
-# isolates DDS discovery from a concurrently-running live sim.
-# ROS_DOMAIN_ID must be 0..232; derived from 18767 (mod 232) so it stays
-# traceable back to the assigned port number rather than being an
-# unrelated magic constant.
+# TEST_PORT is this script's isolation knob (every E2E script in this
+# directory picks a distinct one); ROS_DOMAIN_ID is derived from it (mod
+# 232, the valid domain range) so it stays traceable to the assigned port
+# rather than being an unrelated magic constant.
 TEST_PORT = 18767
 ROS_DOMAIN_ID = TEST_PORT % 232
 
@@ -164,10 +148,9 @@ def _make_norow_profile(tmpdir: str) -> str:
     src = os.path.join(VIZ_SHARE_CONFIG, "urban_profile.yaml")
     with open(src) as f:
         profile = yaml.safe_load(f)
-    # Since 2026-08-20 the shipped profile carries NO /sim/ground_truth/boxes
-    # row (the ego's own gt box flickered on the robot proxy; see the profile's
-    # comment block). Phase 1 therefore uses the shipped rows as-is -- assert
-    # that stays true, or this test's premise silently rots:
+    # The shipped profile carries no /sim/ground_truth/boxes row (see the
+    # profile's own comment block) -- assert that stays true, or this
+    # test's premise silently rots:
     assert not any(r.get("topic") == "/sim/ground_truth/boxes" for r in profile["rows"]), (
         "shipped urban_profile.yaml has a /sim/ground_truth/boxes row again -- "
         "phase 1 is no longer a no-row baseline; update this test")
@@ -286,16 +269,13 @@ def _run_phase(env: dict, profile_name: str, profile_dir: str):
         if not _lifecycle(env, "configure") or not _lifecycle(env, "activate"):
             raise RuntimeError("lifecycle transition failed")
 
-        # Wait for the FIRST frame explicitly (not folded into a fixed-
-        # duration settle window below): DDS discovery + the lifecycle CLI
-        # subprocess's own startup jitter is variable and can itself eat
-        # most of a short fixed window, which would fail this on pure
-        # timing noise rather than an actual render-path problem.
-        # publish_look() is repeated here too (not a single fire-and-forget
-        # call): the fixture's own publisher needs to discovery-match
-        # visualization_node's subscription first, same race as the image
-        # subscription above -- applying the offset is idempotent, so
-        # repeating it costs nothing.
+        # Wait for the FIRST frame explicitly: DDS discovery + the lifecycle
+        # CLI subprocess's startup jitter is variable and could eat a fixed
+        # settle window, failing this on timing noise rather than a real
+        # render-path problem. publish_look() is repeated (not fire-and-
+        # forget): the fixture's publisher must discovery-match the node's
+        # subscription first, same race as the image subscription; applying
+        # the offset is idempotent, so repeating it costs nothing.
         first_frame_deadline = time.time() + 8.0
         while fixture.latest_frame is None and time.time() < first_frame_deadline:
             fixture.publish_tf()
@@ -370,12 +350,11 @@ def main() -> int:
         print("SKIP: cuda/install/ros_apps not found -- build with colcon_build.sh first.")
         return 0
 
-    # Set directly on THIS process's environment, not just a dict handed to
-    # subprocess calls: the fixture's rclpy node runs IN-PROCESS (never
-    # via subprocess), so rclpy.init() below must see the override too, or
-    # the node subprocess and this script's own ROS graph end up on two
-    # different DDS domains and never discover each other at all (the
-    # bug this exact line exists to prevent -- confirmed the hard way).
+    # Set on THIS process's environment, not just a dict handed to
+    # subprocess calls: the fixture's rclpy node runs in-process, so
+    # rclpy.init() must see the override too, or the node subprocess and
+    # this script end up on different DDS domains and never discover each
+    # other (confirmed the hard way).
     os.environ["ROS_DOMAIN_ID"] = str(ROS_DOMAIN_ID)
     env = os.environ
 
@@ -408,15 +387,13 @@ def main() -> int:
                   file=sys.stderr)
             return 1
         row_frac, col_frac = centroid
-        # Generous central window (not a tight bbox on the boxes'
-        # projected footprint, which would overfit this one vcam preset):
-        # the diff must land broadly where the ego-anchored camera is
-        # actually looking, not smeared over the whole frame and not
-        # (the failure this guards against) sitting wherever an
-        # untransformed base_link->map bug would put it -- which, at
-        # EGO_X_M=150m out, is 100+ m outside this frustum entirely (i.e.
-        # would produce NO diff pixels at all, already caught by the
-        # DIFF_FLOOR check above).
+        # Generous central window (not a tight bbox on the boxes' projected
+        # footprint, which would overfit this vcam preset): the diff must
+        # land where the ego-anchored camera is looking, not smeared across
+        # the frame or (the bug this guards against) sitting where an
+        # untransformed base_link->map bug would put it -- 100+ m outside
+        # this frustum, which would produce no diff pixels (already caught
+        # by DIFF_FLOOR above).
         if not (0.15 <= row_frac <= 0.95 and 0.1 <= col_frac <= 0.9):
             print(f"FAIL: diff centroid ({row_frac:.2f}, {col_frac:.2f}) is not in the ego's "
                   f"screen neighbourhood -- expected roughly central, not a corner/edge smear.",

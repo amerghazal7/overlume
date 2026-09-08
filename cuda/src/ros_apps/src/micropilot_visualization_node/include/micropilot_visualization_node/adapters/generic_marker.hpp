@@ -152,13 +152,13 @@ private:
 
     ProfileRow row_;
     const micropilot::visualization_app::FrameTransformer& tf_;
-    // ORDERED map on purpose (review 2026-08-20): fill() emits in iteration
-    // order and the renderer keys its pooled slots by INDEX -- an
-    // unordered_map's rehash after the 0.2s-lifetime erase/insert churn
-    // reordered emissions, re-homing slots and forcing per-tick mesh
-    // rebuilds (a glTF re-parse for MESH markers), the exact per-frame
-    // allocation spec 4.2 forbids. std::map keeps a given (ns,id) in the
-    // same slot every tick; Key is pair<string,int32_t>, ordered for free.
+    // ORDERED map on purpose: fill() emits in iteration order and the
+    // renderer keys its pooled slots by INDEX -- an unordered_map's rehash
+    // after erase/insert churn reordered emissions, re-homing slots and
+    // forcing per-tick mesh rebuilds (a glTF re-parse for MESH markers),
+    // which spec 4.2's per-frame allocation forbids. std::map keeps a given
+    // (ns,id) in the same slot every tick; Key is pair<string,int32_t>,
+    // ordered for free.
     std::map<Key, StoredMarker> storage_;
     AdapterStats stats_;
 };

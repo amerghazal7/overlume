@@ -25,10 +25,10 @@
  *      the object's heading; an arrow-less or zero-length-arrow frame
  *      would otherwise corrupt heading).
  *    - velocity: arrow points[0]->points[1] ONLY. Both points are first
- *      composed with the ARROW marker's OWN pose (Marker.msg semantics,
- *      rviz-parity fix, user report 2026-08-20: points[] are relative to
- *      marker.pose) before the frame transform; the difference cancels
- *      both the arrow pose's and the frame transform's translation, so a
+ *      composed with the ARROW marker's OWN pose (Marker.msg semantics:
+ *      points[] are relative to marker.pose) before the frame transform;
+ *      the difference cancels both the arrow pose's and the frame
+ *      transform's translation, so a
  *      pure-translation arrow pose leaves velocity unchanged and only a
  *      rotation actually rotates it. |p1-p0| < kMinArrowM -> {0,0,0}, never
  *      a NaN normalize. Missing arrow -> object still renders, zero

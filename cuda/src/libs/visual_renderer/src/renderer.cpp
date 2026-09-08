@@ -1,26 +1,21 @@
-// renderer.cpp — Epic 1 Task 2 (VM-011): real lit clay pipeline + theme
-// system, replacing Epic 0's throwaway unlit hello-frame scene (docs/
-// superpowers/plans/2026-08-18-visual-mode-epic1.md, "Known Epic 0 deviation
-// this epic must fix").
+// renderer.cpp — real lit clay pipeline + theme system (see docs/
+// superpowers/plans/2026-08-18-visual-mode-epic1.md for the design history).
 //
 // Scene: one directional sun + a themed clay ground plane + a distance-faded
 // reference grid, lit for real (clay.mat/clay_faded.mat, both `shadingModel:
 // lit`) with a theme-driven sun + analytic 2-band IBL + distance fog.
-// Geometry is baked directly in world space (no TransformManager use) —
-// Epic 2 (SceneGraph population) and Task 4 (ego from TF) are what start
-// needing per-frame transforms.
+// Geometry is baked directly in world space; later scene content (map
+// elements, objects, ego) is what needs per-frame transforms.
 //
 // This file is internal to visual_renderer's clang/libc++ build, so (unlike
 // api.h/scene.h) ordinary std:: usage is fine here — nothing here crosses
 // the ABI boundary with the gcc/libstdc++ ROS node.
 //
-// Epic 1 Task 2 Step 7e: `VisualRenderer` (plus the `Mesh`/`HeadlessEglPlatform`/
-// `Vertex`/`add_mesh` helper types it needs) is extracted into
-// renderer_internal.hpp so a future separate translation unit (Task 4's
-// src/ego.cpp) compiled into the same library target can see the class and
-// reuse add_mesh. HeadlessEglPlatform's full body stays defined in THIS .cpp
-// (just no longer inside an anonymous namespace) — only forward-declared in
-// the header.
+// `VisualRenderer` (plus the `Mesh`/`HeadlessEglPlatform`/`Vertex`/
+// `add_mesh` helper types it needs) is extracted into renderer_internal.hpp
+// so other translation units in the same library target (ego.cpp, etc) can
+// see the class and reuse add_mesh. HeadlessEglPlatform's full body stays
+// defined in this .cpp — only forward-declared in the header.
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
 #include "alert_polygons.hpp"
@@ -93,26 +88,23 @@
 #include <thread>
 #include <vector>
 
-// bluegl::bind()/unbind() (libbluegl.a, already pulled in by
+// bluegl::bind()/unbind() (libbluegl.a, pulled in by
 // cmake/GetFilament.cmake's archive glob): Filament's compiled OpenGLDriver
-// calls GL functions through bluegl's function-pointer table, which starts
-// out null until something calls bluegl::bind() on a thread with a current
-// GL context — confirmed the hard way (SIGSEGV in
-// OpenGLContext::queryOpenGLVersion() calling a null glGetString before this
-// was added). The real bluegl/BlueGL.h is ~thousands of lines of generated
-// `#define glFoo bluegl_glFoo` macros for Filament's own .cpp files to call
-// GL through; none of that applies here since this file never calls a GL
-// function directly, so only the two real entry points are hand-declared —
-// at global scope (NOT inside namespace mpviz) so they name-match the real
-// ::bluegl::bind()/unbind() the linker resolves against.
+// calls GL through bluegl's function-pointer table, which is null until
+// something calls bluegl::bind() on a thread with a current GL context
+// (confirmed the hard way: SIGSEGV in queryOpenGLVersion() calling a null
+// glGetString before this was added). This file never calls GL directly, so
+// only the two real entry points are hand-declared — at global scope (not
+// inside namespace mpviz) so they name-match the real ::bluegl::bind()/
+// unbind() the linker resolves against.
 namespace bluegl {
 int bind();
 void unbind();
 }  // namespace bluegl
 
 // Compiled-in default theme-assets dir (CMakeLists.txt target_compile_
-// definitions on the visual_renderer target, Task 2 Step 5a) — used
-// whenever RenderConfig::theme_assets_dir is null.
+// definitions on the visual_renderer target) — used whenever
+// RenderConfig::theme_assets_dir is null.
 #ifndef DEFAULT_THEME_ASSETS_DIR
 #error "DEFAULT_THEME_ASSETS_DIR must be defined by CMakeLists.txt"
 #endif
@@ -126,18 +118,16 @@ using filament::math::quatf;
 namespace {
 float3 to_filament(const detail::Float3& c) { return float3{c.r, c.g, c.b}; }
 
-// See the comment at the setFogOptions() call site for what this is and how
-// it was measured (epic1 Task 2 review round 6). Two real anchors, not a
-// one-point fit extrapolated by an unvalidated inverse-linear guess:
-// light_clay (ibl.intensity 8750) needs scale 50 to be live without
-// overshooting; dark_adas (ibl.intensity 256000) needs scale ~1 -- i.e.
-// palette.fog rendered at the SAME radiance as the identical palette.sky
-// value fed to the clear color (spec §4.3's "one sky/fog token" intent) --
-// to stop manufacturing its own fog/sky mismatch. Solving
+// Fog radiance scale: two measured anchors, not a one-point extrapolation.
+// light_clay (ibl.intensity 8750) needs scale 50; dark_adas (ibl.intensity
+// 256000) needs scale ~1 -- i.e. palette.fog rendered at the same radiance
+// as the identical palette.sky value fed to the clear color. Solving
 // scale = kFogScaleReferenceValue * (kFogScaleReferenceIntensity /
-// ibl.intensity)^kFogScaleExponent for both anchors simultaneously gives
-// exponent ~= 1.159 (not 1 -- round 5's formula was inverse-LINEAR,
-// unvalidated past the single light_clay point it reproduced exactly).
+// ibl.intensity)^kFogScaleExponent for both anchors gives exponent ~= 1.159
+// (not 1: an inverse-linear fit only reproduces the single light_clay
+// point). See push_theme_to_scene()'s fogOptions.color line for how this is
+// applied, and docs/superpowers/plans/2026-08-18-visual-mode-epic1.md for
+// the rejected alternatives.
 constexpr float kFogScaleExponent = 1.159f;
 constexpr float kFogScaleReferenceIntensity = 8750.0f;  // light_clay's ibl.intensity
 constexpr float kFogScaleReferenceValue = 50.0f;        // light_clay's proven-good flat scale
@@ -340,9 +330,9 @@ float grid_fade_alpha(float dist_m, float fade_start_m, float fade_end_m) {
 void build_grid_lines(std::vector<GridVertex>& verts, std::vector<uint16_t>& indices,
                        float fade_start_m, float fade_end_m) {
     const float h = kGroundHalfExtent;
-    const float step = kGridPitchM;  // Task 2 Step 2: the ego-following
-    // patch snaps to this SAME symbol -- see renderer_internal.hpp's
-    // comment for why they must never drift apart.
+    const float step = kGridPitchM;  // the ego-following patch snaps to
+    // this SAME symbol (renderer_internal.hpp) -- shared on purpose so the
+    // grids can never drift apart.
     const float z = 0.001f;
     std::vector<float3> normals;
     std::vector<Vertex> plainVerts;  // reused only to drive fill_tangent_frames
@@ -425,7 +415,7 @@ void add_grid_mesh(VisualRenderer& r, Mesh& mesh, std::vector<GridVertex> verts,
 // Analytic 2-band (L0 + L1, 4 coefficients) irradiance SH for a two-color
 // hemisphere gradient environment (`sky` above, `ground` below the world
 // XY plane) — the "Stupid Spherical Harmonics Tricks" hemisphere-light
-// closed form (Task 2 Step 7):
+// closed form:
 //
 //   c_00 = Y00 * 2*pi * (sky + ground)              [[whole-sphere Y00 projection]]
 //   c_10 = Y1  * pi   * (sky - ground)               [[z-axis Y10 projection; no
@@ -440,11 +430,10 @@ void add_grid_mesh(VisualRenderer& r, Mesh& mesh, std::vector<GridVertex> verts,
 //   receive irradiance == pi*sky, matching an unoccluded upper hemisphere).
 //
 // ponytail: clay materials in both reference images are matte/non-
-// reflective — a full cmgen-baked prefiltered specular cubemap buys nothing
-// here (see the plan's own note); this 4-coefficient analytic field is the
-// whole IBL. Upgrade path if a future epic needs glossy reflections: swap
-// this for cmgen-prefiltered per-theme cubemaps behind the same
-// IndirectLight::Builder call site.
+// reflective, so this 4-coefficient analytic field is the whole IBL --
+// upgrade to cmgen-prefiltered per-theme cubemaps behind the same
+// IndirectLight::Builder call site if a future epic needs glossy
+// reflections.
 void sh_from_hemisphere(const float3& sky, const float3& ground, float3 sh[4]) {
     constexpr float kPi = 3.14159265358979323846f;
     constexpr float kY0 = 0.282095f;   // sqrt(1/(4*pi))
@@ -457,30 +446,22 @@ void sh_from_hemisphere(const float3& sky, const float3& ground, float3 sh[4]) {
 }
 
 // Pushes every theme-driven Filament token (ground/grid material params, sun
-// direction/color/intensity, IBL, fog, clear color) into the live scene.
-// Epic 1 Task 3 (VM-014): the single place that decides what a `Theme`
-// actually looks like on screen, called from TWO sites --
-// create_renderer() once at startup, and apply_current_theme() (below,
-// mpviz-namespace scope) every render_frame() call WHILE a set_theme()
-// transition is animating (never in steady state -- see that function). All
-// of `r`'s scene/view/renderer/sunEntity(component)/groundMaterial/
-// gridMaterial must already exist before this is called.
+// direction/color/intensity, IBL, fog, clear color) into the live scene --
+// the single place that decides what a `Theme` looks like on screen, called
+// from create_renderer() once at startup, and apply_current_theme() every
+// render_frame() call while a set_theme() transition is animating (never
+// in steady state). All of `r`'s scene/view/renderer/sunEntity(component)/
+// groundMaterial/gridMaterial must already exist before this is called.
 //
-// ponytail ceiling, stated once here (ambient rebuild): every field pushed
-// below has a real runtime setter (MaterialInstance::setParameter,
-// LightManager::setDirection/setColor/setIntensity, View::setFogOptions,
-// Renderer::setClearOptions) EXCEPT IndirectLight -- the pinned Filament
-// 1.56.5 SDK's IndirectLight only exposes setIntensity()/setRotation() at
-// runtime (confirmed against its public header), not a way to feed new SH
-// coefficients into an already-built instance. Animating theme.ibl.sky_
-// color/ground_color therefore means destroying and rebuilding the small
-// (4-coefficient, no cubemap) IndirectLight object on every call this
-// function makes DURING an active transition -- bounded to the ~24-30
-// frames of a default 0.8s transition, never in steady state (this
-// function isn't called at all once a transition finishes). Upgrade path if
-// this ever shows up in a profile: only rebuild when ibl.sky_color/
-// ground_color actually changed since the last call (they're the only
-// inputs to sh_from_hemisphere), skip it otherwise.
+// ponytail: every field pushed below has a real runtime setter except
+// IndirectLight -- the pinned Filament 1.56.5 SDK only exposes
+// setIntensity()/setRotation() at runtime, not a way to feed new SH
+// coefficients into an already-built instance. Animating
+// theme.ibl.sky_color/ground_color means destroying and rebuilding the
+// small IndirectLight object on every call during an active transition
+// (bounded to ~24-30 frames of a default 0.8s transition, never in steady
+// state). Upgrade path if this ever shows up in a profile: only rebuild
+// when sky_color/ground_color actually changed since the last call.
 void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     r.groundMaterial->setParameter("baseColor", to_filament(theme.palette.ground));
     r.groundMaterial->setParameter("roughness", theme.material.roughness);
@@ -490,24 +471,17 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     r.gridMaterial->setParameter("roughness", theme.material.roughness);
     r.gridMaterial->setParameter("metallic", theme.material.metallic);
 
-    // Lane paint (Epic 2 Task 2 / VM-024 Step 8a): laneMaterial is created
-    // EAGERLY in create_renderer(), BEFORE this function's first call, so
-    // this call (the SAME one invoked at create_renderer() time and on
-    // every render_frame() while a set_theme() transition animates) is what
-    // themes it on the very first frame that has any map data at all -- no
-    // separate "first data" code path, and nothing waits for a set_theme()
-    // call to happen first. laneMaterialBaseColor mirrors what
-    // MaterialInstance itself has no getter for (map_elements_test_hooks.hpp's
-    // regression guard reads this, not live GPU state).
+    // laneMaterial is created eagerly (renderer_internal.hpp), so this call
+    // themes it on the very first frame with map data, no separate "first
+    // data" path. laneMaterialBaseColor mirrors it for
+    // map_elements_test_hooks.hpp's regression guard.
     r.laneMaterial->setParameter("baseColor", to_filament(theme.palette.lane_paint));
     r.laneMaterial->setParameter("roughness", theme.material.roughness);
     r.laneMaterial->setParameter("metallic", theme.material.metallic);
     r.laneMaterialBaseColor = theme.palette.lane_paint;
 
-    // Per-kind tints (Epic 3 Task 1 / VM-036, decision #6): four more
-    // clay.mat instances, created EAGERLY in create_renderer(), themed
-    // here on every call for the exact same "first frame, no transition
-    // needed" reason laneMaterial just above is.
+    // Per-kind tints: four more clay.mat instances, same eager-creation
+    // reasoning as laneMaterial above.
     r.laneCenterlineMaterial->setParameter("baseColor", to_filament(theme.palette.lane_centerline));
     r.laneCenterlineMaterial->setParameter("roughness", theme.material.roughness);
     r.laneCenterlineMaterial->setParameter("metallic", theme.material.metallic);
@@ -528,30 +502,23 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     r.roadMaterial->setParameter("metallic", theme.material.metallic);
     r.roadMaterialBaseColor = theme.palette.road;
 
-    // ROAD_EDGE (user directive 2026-09-08): roadEdgeMaterial is created
-    // EAGERLY in create_renderer() (same reasoning as laneMaterial/the
-    // other per-kind tints above), themed here on every call.
+    // ROAD_EDGE: same eager-creation reasoning; added after the others.
     r.roadEdgeMaterial->setParameter("baseColor", to_filament(theme.palette.road_edge));
     r.roadEdgeMaterial->setParameter("roughness", theme.material.roughness);
     r.roadEdgeMaterial->setParameter("metallic", theme.material.metallic);
     r.roadEdgeMaterialBaseColor = theme.palette.road_edge;
 
-    // Ego contrast color (user directive 2026-08-20): egoMaterial is created
-    // EAGERLY in create_renderer() (same reasoning as laneMaterial just
-    // above), so this call themes it from the very first frame, whether or
-    // not set_ego_model() has been called yet — no separate "first ego"
-    // code path needed. egoMaterialBaseColor mirrors laneMaterialBaseColor's
-    // own pattern (ego_test_hooks.hpp's regression test reads this).
+    // egoMaterial: same eager-creation reasoning as laneMaterial, themed
+    // whether or not set_ego_model() has run yet. egoMaterialBaseColor
+    // mirrors it for ego_test_hooks.hpp's regression test.
     r.egoMaterial->setParameter("baseColor", to_filament(theme.palette.ego));
     r.egoMaterial->setParameter("roughness", theme.material.roughness);
     r.egoMaterial->setParameter("metallic", theme.material.metallic);
     r.egoMaterialBaseColor = theme.palette.ego;
 
-    // Object class tints (Epic 2 Task 4 / VM-022): six clay.mat instances,
-    // created EAGERLY in create_renderer() (same reasoning as laneMaterial/
-    // egoMaterial above), themed here on every call -- the very first frame
-    // any TrackedObject arrives, whether or not set_theme() has ever run.
-    // Indexed by static_cast<uint8_t>(ObjectClass) (CAR..UNKNOWN).
+    // Object class tints: six clay.mat instances, same eager-creation
+    // reasoning as laneMaterial above. Indexed by
+    // static_cast<uint8_t>(ObjectClass) (CAR..UNKNOWN).
     const detail::Float3 objectTints[VisualRenderer::kObjectClassCount] = {
         theme.palette.object_tints.car,        theme.palette.object_tints.truck_van,
         theme.palette.object_tints.bus,        theme.palette.object_tints.pedestrian,
@@ -563,9 +530,8 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
         r.objectClassMaterial[i]->setParameter("metallic", theme.material.metallic);
         r.objectClassTint[i] = objectTints[i];
     }
-    // Re-push any LIVE per-entity staleness-fade instance's tint too -- a
-    // theme switch mid-fade must animate color without resetting the fade
-    // (see the plan's "…and the material that can actually do it").
+    // Re-push any live per-entity staleness-fade instance's tint too -- a
+    // theme switch mid-fade must animate color without resetting the fade.
     for (auto& [id, entity] : r.objectEntities) {
         if (entity.fadeInstance == nullptr) continue;
         const detail::Float3& tint = objectTints[static_cast<uint8_t>(entity.cls)];
@@ -575,22 +541,17 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
         entity.fadeInstance->setParameter("metallic", theme.material.metallic);
     }
 
-    // Path ribbon roles (Epic 2 Task 5 / VM-023): all THREE role instances,
-    // created EAGERLY in create_renderer() (same reasoning as laneMaterial/
-    // objectClassMaterial above) and themed here on every call -- the very
-    // first frame any PathRibbon arrives, whether or not set_theme() has
-    // ever run (RibbonMaterialIsThemedOnFirstDataWithNoTransition, this
-    // task's copy of Step 8a's exemplar).
+    // Path ribbon roles: three role instances, same eager-creation
+    // reasoning as laneMaterial above.
     //
     // BEHAVIOR is the emissive bloom hero on ribbon_emissive.mat:
     // palette.ribbon_core is the base tint, palette.ribbon_glow +
     // emissive.ribbon_strength drive the bloom-triggering emissive channel.
-    // Alpha stays 1.0 here -- update_ribbons() (ribbon.cpp) is the ONLY
+    // Alpha stays 1.0 here -- update_ribbons() (ribbon.cpp) is the only
     // place that overwrites baseColor.a, every render_frame() call, from
-    // staleness_alpha(); a theme push mid-fade must not reset it back to
-    // opaque (update_ribbons() runs immediately after apply_current_theme()
-    // in render_frame(), so the correct alpha always wins by frame's end
-    // even when a push and a fade land the same tick).
+    // staleness_alpha(); update_ribbons() runs immediately after
+    // apply_current_theme() in render_frame(), so the correct alpha always
+    // wins by frame's end even when a push and a fade land the same tick.
     r.ribbonMaterial[static_cast<uint8_t>(PathRole::BEHAVIOR)]->setParameter(
         "baseColor", float4{theme.palette.ribbon_core.r, theme.palette.ribbon_core.g,
                             theme.palette.ribbon_core.b, 1.0f});
@@ -604,15 +565,10 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
         "emissiveStrength", theme.emissive.ribbon_strength);
     r.ribbonTint[static_cast<uint8_t>(PathRole::BEHAVIOR)] = theme.palette.ribbon_core;
 
-    // GLOBAL/LOCAL are plain clay.mat instances, each in its own theme role
-    // tint. User directive 2026-08-20 (ITEM 1) gave them their own dedicated
-    // palette tokens (ribbon_global/ribbon_local, theme.hpp) instead of
-    // reusing the BEHAVIOR/hero ribbon's ribbon_core/ribbon_glow -- the old
-    // reuse was an authoring gap (both shipped themes happened to author
-    // ribbon_core == ribbon_glow, so GLOBAL/LOCAL rendered the same flat
-    // tint until a theme author gave them distinct values); soft-defaulted
-    // in theme.cpp's parse() to exactly the old reused values, so a theme
-    // file that predates these tokens still renders identically.
+    // GLOBAL/LOCAL are plain clay.mat instances with their own dedicated
+    // palette tokens (ribbon_global/ribbon_local, theme.hpp), soft-defaulted
+    // in theme.cpp's parse() to the old ribbon_core/ribbon_glow values so a
+    // theme file that predates these tokens still renders identically.
     r.ribbonMaterial[static_cast<uint8_t>(PathRole::GLOBAL)]->setParameter(
         "baseColor", to_filament(theme.palette.ribbon_global));
     r.ribbonMaterial[static_cast<uint8_t>(PathRole::GLOBAL)]->setParameter(
@@ -629,10 +585,10 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
         "metallic", theme.material.metallic);
     r.ribbonTint[static_cast<uint8_t>(PathRole::LOCAL)] = theme.palette.ribbon_local;
 
-    // Re-push any LIVE GLOBAL/LOCAL translucent fade instance's tint too --
-    // same "animate color without resetting the fade" reasoning as the
-    // object staleness loop just above. BEHAVIOR never has a fadeInstance
-    // (it fades on its own material, set unconditionally above).
+    // Re-push any live GLOBAL/LOCAL fade instance's tint too, same
+    // reasoning as the object staleness loop above. BEHAVIOR never has a
+    // fadeInstance (it fades on its own material, set unconditionally
+    // above).
     for (auto& slot : r.ribbonSlots) {
         if (slot.fadeInstance == nullptr) continue;
         const detail::Float3& tint = r.ribbonTint[static_cast<uint8_t>(slot.role)];
@@ -642,26 +598,15 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
         slot.fadeInstance->setParameter("metallic", theme.material.metallic);
     }
 
-    // Ground grids (Epic 2 Task 6 / VM-025): two eager per-kind
-    // ground_grid.mat instances, created EAGERLY in create_renderer() (same
-    // "lazy creation is a known trap" reasoning as laneMaterial/
-    // objectClassMaterial/ribbonMaterial above) and themed here on every
-    // call -- the very first frame any GroundGridLayer arrives, whether or
-    // not set_theme() has ever run. theme.hpp has no dedicated OGM ramp
-    // token (the epic's "zero theme fields added" rule) -- STATED DECISION,
-    // same shape as ribbon.cpp's GLOBAL/LOCAL reuse: freeColor reuses
-    // palette.ground (the 0%-occupied ramp endpoint -- unoccupied ground
-    // then reads as literally the ground it's shading, per the plan's own
-    // "ground shading, not a floating poster" AC), occupiedColor reuses
-    // palette.alert.warning (the 100%-occupied endpoint -- an obstacle-ish
-    // hazard tone already authored in both shipped themes). An authoring
-    // gap, not a code gap: a future theme author could give OGM its own
-    // dedicated tokens: this just avoids adding new theme.hpp fields this
-    // epic doesn't strictly need. `alpha` is NOT set here -- it's the
-    // staleness knob, driven every frame by update_ground_grids()
-    // (ground_grid.cpp) from whichever GroundGridLayer is live, exactly the
-    // same "never reset a live fade" split apply_current_theme()/
-    // update_ribbons() already follow for ribbons.
+    // Ground grids: two eager per-kind ground_grid.mat instances, same
+    // eager-creation reasoning as laneMaterial above. theme.hpp has no
+    // dedicated OGM ramp token (deliberately -- zero new theme fields):
+    // freeColor reuses palette.ground (0%-occupied ground reads as the
+    // ground it's shading), occupiedColor reuses palette.alert.warning
+    // (100%-occupied, an obstacle-ish hazard tone already authored). `alpha`
+    // is NOT set here -- it's the staleness knob update_ground_grids()
+    // (ground_grid.cpp) drives every frame, same "never reset a live fade"
+    // split as ribbons.
     for (auto* inst : r.groundGridMaterialInstance) {
         inst->setParameter("freeColor", to_filament(theme.palette.ground));
         inst->setParameter("occupiedColor", to_filament(theme.palette.alert.warning));
@@ -671,22 +616,13 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     r.groundGridFreeColor = theme.palette.ground;
     r.groundGridOccupiedColor = theme.palette.alert.warning;
 
-    // Alert polygons (Epic 2 Task 7 / VM-026): three eager
-    // clay_translucent.mat instances, created EAGERLY in create_renderer()
-    // (same "lazy creation is a known trap" reasoning as laneMaterial/
-    // objectClassMaterial/ribbonMaterial/groundGridMaterialInstance above)
-    // and themed here on every call -- the very first frame any
-    // AlertPolygon arrives, whether or not set_theme() has ever run
-    // (Alerts.MaterialIsThemedOnFirstDataWithNoTransition, this task's own
-    // copy of Step 8a's exemplar). rgb from palette.alert.{info,warning,
-    // critical}; alpha is the FIXED kAlertSeverityAlpha constant
-    // (renderer_internal.hpp) -- NOT a theme field (the epic's "zero new
-    // theme fields" rule) and reset to that same constant on every push,
-    // exactly like ribbonMaterial[BEHAVIOR]'s alpha=1.0 reset just above:
-    // update_alert_polygons() (alert_polygons.cpp) runs immediately after
-    // apply_current_theme() in render_frame(), so a live per-slot
-    // fadeInstance's correct (possibly-faded) alpha always wins by frame's
-    // end even when a push and a fade land the same tick.
+    // Alert polygons: three eager clay_translucent.mat instances, same
+    // eager-creation reasoning as laneMaterial above. rgb from
+    // palette.alert.{info,warning,critical}; alpha is the fixed
+    // kAlertSeverityAlpha constant (renderer_internal.hpp), not a theme
+    // field, reset to that constant on every push -- same "runs immediately
+    // after apply_current_theme()" ordering as update_ribbons() ensures the
+    // correct (possibly-faded) alpha wins by frame's end.
     const detail::Float3 alertTints[VisualRenderer::kAlertSeverityCount] = {
         theme.palette.alert.info,
         theme.palette.alert.warning,
@@ -700,9 +636,8 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
         r.alertMaterial[i]->setParameter("metallic", theme.material.metallic);
         r.alertTint[i] = alertTints[i];
     }
-    // Re-push any LIVE per-slot translucent fade instance's tint too --
-    // same "animate color without resetting the fade" reasoning as the
-    // object/ribbon staleness loops above.
+    // Re-push any live per-slot fade instance's tint too, same reasoning as
+    // the object/ribbon staleness loops above.
     for (auto& slot : r.alertSlots) {
         if (slot.fadeInstance == nullptr) continue;
         const detail::Float3& tint = r.alertTint[slot.severity];
@@ -712,18 +647,13 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
         slot.fadeInstance->setParameter("metallic", theme.material.metallic);
     }
 
-    // Generic markers (Epic 2 Task 8 / VM-027): genericMarkerMaterial is the
-    // theme-neutral default (GenericMarker::color alpha==0, "no colour
-    // supplied") -- reuses palette.object_tints.unknown (the existing
-    // "unclassified" tint token, the epic's "zero new theme fields" rule),
-    // created EAGERLY in create_renderer() and themed here on every call --
-    // the very first frame any GenericMarker arrives, whether or not
-    // set_theme() has ever run, same reasoning as every other per-category
-    // template above. Every LIVE per-marker supplied-color instance
-    // (genericMarkerColorInstances) also gets its roughness/metallic
-    // re-pushed here (never its baseColor -- that's the marker's OWN
-    // supplied color, not a theme token) so a theme switch keeps every
-    // marker's material response consistent with the rest of the scene.
+    // genericMarkerMaterial is the theme-neutral default (GenericMarker::
+    // color alpha==0), reusing palette.object_tints.unknown -- zero new
+    // theme fields, same eager-creation reasoning as laneMaterial above.
+    // Every live per-marker supplied-color instance
+    // (genericMarkerColorInstances) gets its roughness/metallic re-pushed
+    // here too (never its baseColor -- the marker's own supplied color) so
+    // a theme switch keeps its material response consistent.
     r.genericMarkerMaterial->setParameter("baseColor",
                                            to_filament(theme.palette.object_tints.unknown));
     r.genericMarkerMaterial->setParameter("roughness", theme.material.roughness);
@@ -733,9 +663,8 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
         inst->setParameter("roughness", theme.material.roughness);
         inst->setParameter("metallic", theme.material.metallic);
     }
-    // Re-push any LIVE per-slot translucent fade instance's tint too --
-    // same "animate color without resetting the fade" reasoning as the
-    // object/ribbon/alert staleness loops above.
+    // Re-push any live per-slot fade instance's tint too, same reasoning as
+    // the object/ribbon/alert staleness loops above.
     for (auto& slot : r.genericMarkerSlots) {
         if (slot.fadeInstance == nullptr) continue;
         slot.fadeInstance->setParameter(
@@ -750,9 +679,9 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     lm.setColor(sunInst, to_filament(theme.sun.color));
     lm.setIntensity(sunInst, theme.sun.intensity);
 
-    // Analytic 2-band hemisphere IBL from the theme's ibl.sky_color/
-    // ibl.ground_color (see sh_from_hemisphere()'s own comment) — see this
-    // function's header comment for why this is a rebuild, not a setter.
+    // Analytic 2-band hemisphere IBL from theme.ibl.sky_color/ground_color
+    // (see sh_from_hemisphere()) -- see this function's header comment for
+    // why this is a rebuild, not a setter.
     float3 sh[4];
     sh_from_hemisphere(to_filament(theme.ibl.sky_color), to_filament(theme.ibl.ground_color), sh);
     filament::IndirectLight* newAmbient = filament::IndirectLight::Builder()
@@ -767,80 +696,37 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     // skybox mesh). `enabled` defaults to false (FogOptions' last member);
     // omitting it here would silently render neither theme's `fog:` token.
     filament::FogOptions fogOptions{};
-    // FogOptions::color is in-scattering RADIANCE (Options.h: "a good value
+    // FogOptions::color is in-scattering radiance (Options.h: "a good value
     // is to use the average of the ambient light"), evaluated in the same
     // pre-exposure HDR domain as the sun/IBL -- not a 0-1 display color like
-    // palette.ground/palette.sky. palette.fog, though, IS authored as a 0-1
-    // display-ish hue (dark_adas ~0.02-0.05, light_clay ~0.8-0.92), same
-    // convention as every other palette.* token, and it needs to STAY in
-    // that domain relative to itself (dark_adas near-black, light_clay
-    // near-white) -- only its overall magnitude was wrong. Feeding it in
-    // completely unscaled made it ~5-6 orders of magnitude dimmer than this
-    // scene's actual sun/IBL and thus effectively inert: measured, forcing
-    // light_clay's fog to pure red moved a golden's far-field row by
-    // <=2/255 (epic1 Task 2 review).
+    // palette.ground/palette.sky. palette.fog is authored as a 0-1
+    // display-ish hue and needs to stay in that domain relative to itself;
+    // only its overall magnitude needs scaling up to compete with the
+    // scene's actual sun/IBL radiance -- see kFogScaleExponent/
+    // kFogScaleReferenceIntensity/kFogScaleReferenceValue's own comment
+    // above for the two-anchor fit.
     //
-    // ponytail: two more-"principled" scalings were tried and rejected
-    // empirically (rendered + inspected, not just hand-derived) before
-    // this one:
-    //  - dividing by camera exposure (so setExposure()'s multiply cancels
-    //    back out to the authored hue, the way palette.sky's clear color
-    //    already reads at roughly its authored value): wrong, because fog
-    //    color isn't a display color like the clear color -- it's inserted
-    //    at the same pipeline stage as the sun/IBL-lit surface radiance.
-    //    1/exposure (~153600x here) overshot every surface in the scene
-    //    and clipped both themes to solid white, even erasing the sun's
-    //    directionality (ClayMaterial.RespondsToLightDirection started
-    //    failing).
-    //  - theme.ibl.intensity/pi (the literal "average of the ambient
-    //    light" reading): wrong scale to use PER THEME, because dark_adas/
-    //    light_clay's ibl.intensity are ~29x apart *on purpose* (the
-    //    lux-rebalance comments below) to land their very differently-
-    //    albedo'd surfaces at similar screen brightness -- multiplying
-    //    fog by ibl.intensity directly reproduces that 29x gap instead,
-    //    so no single divisor made light_clay's haze visible without
-    //    clipping dark_adas to white.
-    // What actually works: the authored hue already encodes each theme's
-    // intended relative fog brightness correctly (that's not the bug) --
-    // it just needs to be loud enough, in absolute terms, to compete with
-    // the surface radiance it's blending against at long range. A flat
-    // multiplier preserves the authored ratio *between themes* exactly --
-    // which is exactly the problem: dark_adas/light_clay's ibl.intensity
-    // (the "average ambient light" Options.h itself points at) are ~29x
-    // apart *on purpose* (the lux-rebalance comment below), so how loud
-    // "loud enough to compete with the surface radiance" needs to be is
-    // *itself* wildly different between the two themes. A flat multiplier
-    // (kFogRadianceScale = 50, tuned only against light_clay) can only get
-    // this right for the one theme it was tuned on -- fed dark_adas's much
-    // higher ibl.intensity, the same 50x turns its correct-magnitude
-    // near-black fog hue into a bright lavender wall at the horizon
-    // (epic1 Task 2 review, round 4): measured on a fresh build, far-field
-    // ground rows 48-59 landed ~139 luminance levels away from the sky
-    // backdrop they're authored to match (palette.fog == palette.sky, spec
-    // §4.3) instead of within a few.
-    //
-    // (rounds 5/6/7 of this history live in git log / this same comment as
-    // it stood before Task 3 -- unchanged reasoning, just relocated here
-    // alongside the code it explains, since Task 3 made this a
-    // callable-more-than-once function instead of create_renderer()'s own
-    // inline setup.)
+    // ponytail: dividing by camera exposure and scaling by
+    // theme.ibl.intensity/pi were both tried and rejected empirically
+    // before the two-anchor fit above -- exposure-division clipped both
+    // themes to white (fog isn't a display color, it's inserted at the same
+    // pipeline stage as the lit surface radiance), and ibl.intensity/pi
+    // reproduces the ~29x lux gap between themes directly instead of
+    // compensating for it. See docs/superpowers/plans/
+    // 2026-08-18-visual-mode-epic1.md for the full history.
     const float fogScale = kFogScaleReferenceValue *
                             std::pow(kFogScaleReferenceIntensity / theme.ibl.intensity,
                                      kFogScaleExponent);
     fogOptions.color = to_filament(theme.palette.fog) * fogScale;
     fogOptions.density = theme.fog.density;
-    // heightFalloff defaults to 1.0/m (Filament models fog as a height-
-    // stratified layer, densest at `height`, which itself defaults to 0 —
-    // i.e. our own ground plane). Our theme schema only exposes ONE fog
-    // knob (fog.density, a flat extinction coefficient — see theme.hpp/the
-    // YAML files) with no height concept at all, so leaving Filament's
-    // real-world height-fog default active silently multiplies density
-    // near ground level far beyond the authored value: confirmed
-    // empirically (a grazing camera pose at exactly this density erased
-    // the entire grid to nothing; forcing heightFalloff to 0 — uniform,
-    // non-height-stratified exponential distance fog, the model our single-
-    // scalar theme.fog.density actually represents — restored the expected
-    // gentle distance fade with the grid still clearly visible).
+    // heightFalloff defaults to 1.0/m (Filament's height-stratified fog,
+    // densest at `height`, default 0 -- our ground plane). Our theme schema
+    // only exposes one fog knob (fog.density, a flat extinction
+    // coefficient), with no height concept, so Filament's real-world
+    // default silently multiplies density near ground level -- confirmed
+    // empirically (a grazing camera pose erased the grid entirely). Forced
+    // to 0: uniform, non-height-stratified exponential fog, the model
+    // theme.fog.density actually represents.
     fogOptions.heightFalloff = 0.0f;
     fogOptions.enabled = true;
     r.view->setFogOptions(fogOptions);
@@ -862,12 +748,10 @@ void on_readback_complete(void* /*buffer*/, size_t /*size*/, void* user) {
 
 }  // namespace
 
-// Namespace-scope definition of fill_tangent_frames() (renderer_internal.hpp
-// declares it — Epic 2 Task 2 / VM-024's promotion, see that header's
-// comment): body unchanged from its former anonymous-namespace version
-// (still calls quat_to_float4(), which stays anonymous-namespace-local —
+// Definition of fill_tangent_frames() (renderer_internal.hpp declares it).
+// Still calls quat_to_float4(), which stays anonymous-namespace-local --
 // unqualified lookup from this enclosing mpviz scope still finds it, same
-// TU). map_elements.cpp (Task 2) is the second caller this exists for.
+// TU.
 void fill_tangent_frames(std::vector<Vertex>& verts, const std::vector<float3>& normals) {
     filament::geometry::SurfaceOrientation::Builder builder;
     builder.vertexCount(normals.size());
@@ -881,14 +765,9 @@ void fill_tangent_frames(std::vector<Vertex>& verts, const std::vector<float3>& 
     }
 }
 
-// Namespace-scope definition of destroy_mesh() (renderer_internal.hpp
-// declares it — Task 2's promotion): body unchanged from its former
-// anonymous-namespace version. map_elements.cpp's diff-cache eviction is
-// the second caller this exists for.
-// The one definition of the shared unit arrow -- see renderer_internal.hpp's
-// declaration comment (promoted from objects.cpp when generic_markers.cpp
-// shipped a verbatim copy, review 2026-08-20). Flat shaft+head pointing +X,
-// tail at x=0, tip at x=1, drawn in the XY plane.
+// The one definition of the shared unit arrow (renderer_internal.hpp
+// declares it). Flat shaft+head pointing +X, tail at x=0, tip at x=1,
+// drawn in the XY plane.
 void build_unit_arrow(std::vector<Vertex>& verts, std::vector<uint16_t>& indices) {
     constexpr float kShaftHalfW = 0.06f;
     constexpr float kHeadHalfW = 0.15f;
@@ -903,6 +782,9 @@ void build_unit_arrow(std::vector<Vertex>& verts, std::vector<uint16_t>& indices
     fill_tangent_frames(verts, std::vector<float3>(verts.size(), float3{0, 0, 1}));
 }
 
+// Definition of destroy_mesh() (renderer_internal.hpp declares it).
+// map_elements.cpp's diff-cache eviction is the second caller this exists
+// for.
 void destroy_mesh(filament::Engine& engine, filament::Scene& scene, Mesh& mesh) {
     if (mesh.entity) {
         scene.remove(mesh.entity);
@@ -911,17 +793,15 @@ void destroy_mesh(filament::Engine& engine, filament::Scene& scene, Mesh& mesh) 
     }
     if (mesh.vb) engine.destroy(mesh.vb);
     if (mesh.ib) engine.destroy(mesh.ib);
-    // Epic 3 Task 2 (VM-034): a mesh torn down mid-fade owns a per-entity
-    // clay_translucent.mat instance (Mesh::fadeInstance) that nothing else
-    // references -- destroy it here too, same "every createInstance() has a
-    // matching destroy()" rule objects.cpp/alert_polygons.cpp already follow.
+    // A mesh torn down mid-fade owns a per-entity clay_translucent.mat
+    // instance (Mesh::fadeInstance) that nothing else references -- destroy
+    // it here too, same "every createInstance() has a matching destroy()"
+    // rule objects.cpp/alert_polygons.cpp follow.
     if (mesh.fadeInstance) engine.destroy(mesh.fadeInstance);
     mesh = {};
 }
 
-// Namespace-scope definitions of the two functions renderer_internal.hpp
-// declares (Step 7e) — bodies unchanged from their former anonymous-
-// namespace versions.
+// Definitions of the two functions renderer_internal.hpp declares.
 filament::VertexBuffer* make_vertex_buffer(filament::Engine& engine,
                                             std::vector<Vertex> verts) {
     // BufferDescriptor only *references* client memory; Filament's driver
@@ -967,19 +847,14 @@ filament::IndexBuffer* make_index_buffer(filament::Engine& engine,
     return ib;
 }
 
-// Namespace-scope free function (Step 7e) — was a lambda local to
-// create_renderer() capturing `&engine`/`&em`/`&r`. A lambda can't be called
-// from ego.cpp, a different translation unit, which is exactly what Task 4
-// Step 5 needs to do for the ego's clay-box fallback. `r.engine`/
-// `utils::EntityManager::get()` replace the old `&engine`/`&em` captures
-// (`em` was always just that singleton accessor, nothing stateful worth
-// threading through).
+// Namespace-scope free function so a different translation unit (ego.cpp,
+// objects.cpp) can call it -- a lambda local to create_renderer() couldn't.
 void add_mesh(VisualRenderer& r, Mesh& mesh, std::vector<Vertex> verts,
               std::vector<uint16_t> indices,
               filament::RenderableManager::PrimitiveType primitive,
               filament::MaterialInstance* material, bool cast_shadows, bool receive_shadows) {
-    // User directive 2026-09-08: captured BEFORE the moves below empty
-    // `verts` -- see Mesh::vertexCount's own comment (renderer_internal.hpp).
+    // Captured before the moves below empty `verts` -- see Mesh::
+    // vertexCount's own comment (renderer_internal.hpp).
     mesh.vertexCount = static_cast<uint32_t>(verts.size());
     mesh.vb = make_vertex_buffer(*r.engine, std::move(verts));
     mesh.ib = make_index_buffer(*r.engine, std::move(indices));
@@ -998,12 +873,10 @@ void add_mesh(VisualRenderer& r, Mesh& mesh, std::vector<Vertex> verts,
 VisualRenderer* create_renderer(const RenderConfig& config) {
     if (config.width == 0 || config.height == 0) return nullptr;
 
-    // Theme resolution (Step 7/7b): both RenderConfig pointers are
-    // caller-owned and borrowed only for this call (api.h) — copy into
-    // owned std::string storage FIRST, before doing anything else with
-    // them. load_theme() failure (missing dir, missing file, malformed
-    // YAML) is non-fatal (spec §9): fall back to the compiled-in
-    // kFallbackTheme() rather than letting create_renderer() fail.
+    // Both RenderConfig pointers are caller-owned and borrowed only for
+    // this call (api.h) -- copy into owned std::string storage first.
+    // load_theme() failure (missing dir/file, malformed YAML) is non-fatal:
+    // fall back to the compiled-in kFallbackTheme().
     const std::string themeDir =
         config.theme_assets_dir ? std::string(config.theme_assets_dir) : std::string(DEFAULT_THEME_ASSETS_DIR);
     const std::string themeName = config.initial_theme ? std::string(config.initial_theme) : std::string("dark_adas");
@@ -1037,10 +910,9 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     r->view->setScene(r->scene);
     r->view->setViewport({0, 0, config.width, config.height});
 
-    // Step 7a: post-processing back on (Epic 0 turned it off, which made
-    // setFogOptions below a silent no-op and left no tone mapping / gamma
-    // encoding at all — the themes' photometric sun/IBL would otherwise
-    // clip to flat white instead of rendering as lit).
+    // Post-processing on: without it, setFogOptions below is a silent
+    // no-op and there's no tone mapping/gamma encoding -- the themes'
+    // photometric sun/IBL would clip to flat white instead of rendering lit.
     r->view->setPostProcessingEnabled(true);
     r->colorGrading = filament::ColorGrading::Builder()
                            .toneMapping(filament::ColorGrading::ToneMapping::ACES)
@@ -1048,33 +920,32 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     r->view->setColorGrading(r->colorGrading);
 
     // Bloom: the theme YAMLs already ship emissive.ribbon_strength, which
-    // presupposes bloom, even though Epic 1 has no emissive ribbon geometry
-    // yet — enabling it now means Epic 2's ribbons don't need a renderer
-    // change to glow. BloomOptions::strength is declared before `enabled`
-    // in include/filament/Options.h; clang requires designated
+    // presupposes bloom, so enabling it now means later ribbon geometry
+    // doesn't need a renderer change to glow. BloomOptions::strength is
+    // declared before `enabled` in Options.h; clang requires designated
     // initializers to follow declaration order.
     filament::BloomOptions bloom{};
     bloom.strength = 0.5f;  // tuned against goldens, not a spec number
     bloom.enabled = true;
     r->view->setBloomOptions(bloom);
 
-    // SSAO + anti-aliasing, driven by config.quality (0=low, 1=med, 2=high;
-    // spec §8 preset table) — decided now, not deferred, because both move
-    // pixels in this task's own committed goldens (Step 7a rationale).
+    // SSAO + anti-aliasing, driven by config.quality (0=low, 1=med,
+    // 2=high) -- both move pixels in committed goldens, so decided here,
+    // not deferred.
     filament::AmbientOcclusionOptions ao{};
     ao.enabled = config.quality >= 1;
     ao.resolution = config.quality >= 2 ? 1.0f : 0.5f;  // Options.h: must be 0.5 or 1.0
     r->view->setAmbientOcclusionOptions(ao);
 
     if (config.quality >= 2) {
-        // high: TAA replaces FXAA (spec §8) — NONE here, TAA enabled separately.
+        // high: TAA replaces FXAA -- NONE here, TAA enabled separately.
         r->view->setAntiAliasing(filament::AntiAliasing::NONE);
         filament::TemporalAntiAliasingOptions taa{};
         taa.enabled = true;
         r->view->setTemporalAntiAliasingOptions(taa);
     } else {
-        // low and medium both use FXAA (spec §8); this is also Filament's own
-        // default, so this call is one line of explicitness, not new behavior.
+        // low and medium both use FXAA; this is also Filament's own default,
+        // so this call is one line of explicitness, not new behavior.
         r->view->setAntiAliasing(filament::AntiAliasing::FXAA);
     }
 
@@ -1083,45 +954,31 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     r->cameraEntity = em.create();
     r->camera = engine->createCamera(r->cameraEntity);
     r->view->setCamera(r->camera);
-    // Physically-based lighting with Filament's default getExposure() (tuned
-    // for a normal 1-10k lux daylight scene) would over/under-expose against
-    // these themes' much higher sun/IBL numbers. Fixed exposure, calibrated
-    // once against the committed goldens (Step 7a) by actually rendering
-    // both and inspecting pixels (not just picking a textbook "sunny 16"
-    // triple and assuming it works) — see the finding below.
+    // Physically-based lighting with Filament's default getExposure() would
+    // over/under-expose against these themes' much higher sun/IBL numbers.
+    // Fixed exposure below, calibrated once against goldens by rendering
+    // and inspecting pixels.
     //
-    // ponytail: an EARLIER version of dark_adas/light_clay's authored lux
-    // put an ~80x (~6.3-stop) gap in reflected radiance between the two
-    // themes -- no single fixed exposure could put both at a legible
-    // reading simultaneously (confirmed empirically at the time: darkening
-    // enough to pull light_clay off its clip crushed dark_adas to
-    // indistinguishable near-black first). Root-caused and fixed at the
-    // theme-data layer instead of here (review finding, epic1 Task 2):
-    // dark_adas' sun/ibl intensity raised ~5 stops and light_clay's grid
-    // line_color darkened for contrast + its sun/ibl lowered ~2 stops (see
-    // assets/themes/*.yaml) -- this narrowed the gap enough that the SAME
-    // fixed exposure below (unchanged) now renders both themes legibly:
-    // dark_adas ~43/255 mean with the sunlit ground clearly brighter than
-    // the sky backdrop, light_clay ~151/255 mean with the grid visibly
-    // fading with distance, neither clipped nor crushed. Regression-guarded
-    // by tests/test_theme.cpp's FrameStats checks (mean band, distinct
-    // luminance levels, ground-vs-sky ordering), not just SSIM-against-
-    // golden, so a future exposure/lux change that re-breaks legibility
-    // fails loudly instead of only "looking wrong" in a diff nobody opens.
+    // ponytail: an earlier version of dark_adas/light_clay's authored lux
+    // had too wide a gap for any single fixed exposure to read both
+    // legibly -- fixed at the theme-data layer instead (assets/themes/
+    // *.yaml sun/ibl intensity + grid line_color), not here. Regression-
+    // guarded by tests/test_theme.cpp's FrameStats checks (mean band,
+    // distinct luminance levels, ground-vs-sky ordering), not just
+    // SSIM-against-golden, so a future exposure/lux change that re-breaks
+    // legibility fails loudly.
     r->camera->setExposure(16.0f, 1.0f / 500.0f, 100.0f);
 
-    // Sun: the LightManager COMPONENT is created here (angular radius/
+    // Sun: the LightManager component is created here (angular radius/
     // shadow-casting are creation-time-only properties this renderer never
-    // changes at runtime); its direction/color/intensity — and the IBL's
-    // SH/intensity, and the fog/clear-color tokens — are all theme-DRIVEN
-    // values, pushed by the shared push_theme_to_scene() helper (Epic 1
-    // Task 3 / VM-014, defined above create_renderer()) immediately below,
-    // and re-pushed every render_frame() call while a set_theme()
-    // transition is animating (apply_current_theme(), this same .cpp,
-    // below create_renderer()). Builder() below is seeded with Filament's
-    // own defaults for direction/color/intensity — push_theme_to_scene()
-    // overwrites them immediately after, so there is exactly one place
-    // that ever decides what a theme's sun/ibl/fog/clear-color actually is.
+    // changes at runtime); direction/color/intensity -- and the IBL's
+    // SH/intensity, and fog/clear-color -- are all theme-driven, pushed by
+    // push_theme_to_scene() immediately below and re-pushed every
+    // render_frame() call while a set_theme() transition is animating
+    // (apply_current_theme()). Builder() below is seeded with Filament's
+    // own defaults; push_theme_to_scene() overwrites them immediately
+    // after, so there is exactly one place that decides what a theme's
+    // sun/ibl/fog/clear-color actually is.
     r->sunEntity = em.create();
     filament::LightManager::Builder(filament::LightManager::Type::SUN)
         .sunAngularRadius(1.9f)
@@ -1129,10 +986,9 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
         .build(*engine, r->sunEntity);
     r->scene->addEntity(r->sunEntity);
 
-    // clay.mat (shared, opaque — ground here, ego clay-box fallback + glTF
-    // remap in Task 4) and clay_faded.mat (grid-only, per-vertex alpha)
-    // replace Epic 0's unlit simple_color.mat — see those .mat files' own
-    // comments for why two materials, not one.
+    // clay.mat (shared, opaque -- ground here, ego clay-box fallback + glTF
+    // remap) and clay_faded.mat (grid-only, per-vertex alpha) -- see those
+    // .mat files for why two materials, not one.
     r->clayMaterial = filament::Material::Builder()
                           .package(mpviz::materials::kclayFilamat, mpviz::materials::kclayFilamatSize)
                           .build(*engine);
@@ -1143,33 +999,27 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
 
     r->groundMaterial = r->clayMaterial->createInstance();
     r->gridMaterial = r->clayFadedMaterial->createInstance();
-    // Lane paint (Epic 2 Task 2 / VM-024): a third clay.mat instance, tinted
-    // separately from the ground — created EAGERLY here (not lazily on
-    // first map data) so push_theme_to_scene() below themes it on the very
-    // first frame, transition-free (Step 8a's regression guard). Same
-    // material file as ground/grid; see map_elements.cpp for why no new
-    // .mat is needed at all.
+    // laneMaterial: a third clay.mat instance, tinted separately from the
+    // ground -- created eagerly (not lazily on first map data) so
+    // push_theme_to_scene() below themes it on the very first frame,
+    // transition-free. Same material file as ground/grid; see
+    // map_elements.cpp for why no new .mat is needed.
     r->laneMaterial = r->clayMaterial->createInstance();
-    // Per-kind tints (Epic 3 Task 1 / VM-036, decision #6): four more
-    // clay.mat instances, created EAGERLY here for the exact same reason
-    // laneMaterial just above is.
+    // Per-kind tints: four more clay.mat instances, same eager-creation
+    // reasoning as laneMaterial above.
     r->laneCenterlineMaterial = r->clayMaterial->createInstance();
     r->laneBoundaryMaterial = r->clayMaterial->createInstance();
     r->crosswalkMaterial = r->clayMaterial->createInstance();
     r->roadMaterial = r->clayMaterial->createInstance();
-    // ROAD_EDGE (user directive 2026-09-08): same eager-creation reasoning.
+    // ROAD_EDGE: same eager-creation reasoning.
     r->roadEdgeMaterial = r->clayMaterial->createInstance();
-    // Ego contrast color (user directive 2026-08-20): a dedicated clay.mat
-    // instance for the ego, created EAGERLY here for the exact same reason
-    // laneMaterial just above is — see renderer_internal.hpp's field
-    // comment and push_theme_to_scene()'s own comment for the "lazy
-    // creation is a known trap" reasoning.
+    // egoMaterial: a dedicated clay.mat instance for the ego, same
+    // eager-creation reasoning as laneMaterial above.
     r->egoMaterial = r->clayMaterial->createInstance();
 
-    // Object class tints (Epic 2 Task 4 / VM-022): six clay.mat instances,
-    // created EAGERLY here (not lazily on first TrackedObject) for the
-    // exact same "lazy creation is a known trap" reasoning as laneMaterial/
-    // egoMaterial above -- themed below by push_theme_to_scene().
+    // Object class tints: six clay.mat instances, same eager-creation
+    // reasoning as laneMaterial above -- themed below by
+    // push_theme_to_scene().
     r->clayTranslucentMaterial =
         filament::Material::Builder()
             .package(mpviz::materials::kclay_translucentFilamat,
@@ -1179,15 +1029,13 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
         r->objectClassMaterial[i] = r->clayMaterial->createInstance();
     }
 
-    // Path ribbon roles (Epic 2 Task 5 / VM-023): ribbon_emissive.mat is a
-    // FOURTH Material (its own float4 baseColor + blending: fade + an
-    // emissive channel -- clay.mat can't carry either, see that .mat's
-    // header comment), built once here. Three role instances, created
-    // EAGERLY (not lazily on first PathRibbon) for the exact same reason
-    // laneMaterial/objectClassMaterial above are: BEHAVIOR on
-    // ribbonEmissiveMaterial (the bloom hero), GLOBAL/LOCAL on the SAME
-    // clayMaterial every other opaque clay surface shares -- themed below
-    // by push_theme_to_scene().
+    // Path ribbon roles: ribbon_emissive.mat is a fourth Material (its own
+    // float4 baseColor + blending: fade + an emissive channel -- clay.mat
+    // can't carry either, see that .mat's header comment), built once
+    // here. Three role instances, same eager-creation reasoning as
+    // laneMaterial above: BEHAVIOR on ribbonEmissiveMaterial (the bloom
+    // hero), GLOBAL/LOCAL on the same clayMaterial every other opaque clay
+    // surface shares.
     r->ribbonEmissiveMaterial =
         filament::Material::Builder()
             .package(mpviz::materials::kribbon_emissiveFilamat,
@@ -1198,13 +1046,10 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     r->ribbonMaterial[static_cast<uint8_t>(PathRole::GLOBAL)] = r->clayMaterial->createInstance();
     r->ribbonMaterial[static_cast<uint8_t>(PathRole::LOCAL)] = r->clayMaterial->createInstance();
 
-    // Ground grids (Epic 2 Task 6 / VM-025): ground_grid.mat is a FIFTH
-    // Material (textured quad, its own float4-less float3 ramp endpoints +
-    // a settable float alpha -- see that .mat's header comment), built once
-    // here. TWO per-kind instances, created EAGERLY (not lazily on first
-    // GroundGridLayer) for the exact same reason laneMaterial/
-    // objectClassMaterial/ribbonMaterial above are -- themed below by
-    // push_theme_to_scene().
+    // Ground grids: ground_grid.mat is a fifth Material (textured quad,
+    // float3 ramp endpoints + a settable float alpha -- see that .mat's
+    // header comment), built once here. Two per-kind instances, same
+    // eager-creation reasoning as laneMaterial above.
     r->groundGridMaterial =
         filament::Material::Builder()
             .package(mpviz::materials::kground_gridFilamat,
@@ -1214,37 +1059,26 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
         inst = r->groundGridMaterial->createInstance();
     }
 
-    // Alert polygons (Epic 2 Task 7 / VM-026): THREE eager
-    // clay_translucent.mat instances (0 info/1 warning/2 critical) on the
-    // SAME clayTranslucentMaterial objects.cpp/ribbon.cpp already built
-    // above -- no fourth Material, per the plan ("no fourth material and
-    // no per-topic branch"). Created EAGERLY for the exact same reason
-    // laneMaterial/objectClassMaterial/ribbonMaterial/
-    // groundGridMaterialInstance above are -- themed (rgb + the fixed
-    // per-severity alpha constant) below by push_theme_to_scene().
+    // Alert polygons: three eager clay_translucent.mat instances (0 info/1
+    // warning/2 critical) on the same clayTranslucentMaterial
+    // objects.cpp/ribbon.cpp already use -- no fourth Material. Same
+    // eager-creation reasoning as laneMaterial above.
     for (size_t i = 0; i < VisualRenderer::kAlertSeverityCount; ++i) {
         r->alertMaterial[i] = r->clayTranslucentMaterial->createInstance();
     }
 
-    // Generic markers (Epic 2 Task 8 / VM-027): ONE eager clay.mat instance,
-    // the theme-neutral default -- created EAGERLY for the exact same
-    // reason laneMaterial/objectClassMaterial/ribbonMaterial/
-    // groundGridMaterialInstance/alertMaterial above are -- themed below by
-    // push_theme_to_scene(). Per-supplied-color instances
-    // (genericMarkerColorInstances) are created lazily instead (see that
-    // map's own comment) -- the set of colors isn't known until data
-    // arrives, unlike this one shared default.
+    // Generic markers: one eager clay.mat instance, the theme-neutral
+    // default -- same eager-creation reasoning as laneMaterial above.
+    // Per-supplied-color instances (genericMarkerColorInstances) are
+    // created lazily instead -- the set of colors isn't known until data
+    // arrives.
     r->genericMarkerMaterial = r->clayMaterial->createInstance();
 
     // ponytail: don't chase hand-derived winding correctness for a large
-    // flat quad / line list — CullingMode::NONE sidesteps backface culling
-    // entirely so a winding mistake shows as visible-from-both-sides, not a
-    // silently invisible surface. Lane geometry (polyline ribbons, fan-
-    // triangulated crosswalk polygons + hatch) gets the same treatment for
-    // the same reason — map_elements.cpp derives triangle winding from
-    // recorded marker point order, which this renderer has no control over.
-    // Object class materials get it too (procedural-box fallback winding,
-    // same reasoning).
+    // flat quad / line list -- CullingMode::NONE sidesteps backface culling
+    // so a winding mistake shows as visible-from-both-sides, not a silently
+    // invisible surface. Lane geometry and object-class fallback boxes get
+    // the same treatment for the same reason.
     r->groundMaterial->setCullingMode(filament::backend::CullingMode::NONE);
     r->gridMaterial->setCullingMode(filament::backend::CullingMode::NONE);
     r->laneMaterial->setCullingMode(filament::backend::CullingMode::NONE);
@@ -1268,11 +1102,8 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     }
     r->genericMarkerMaterial->setCullingMode(filament::backend::CullingMode::NONE);
 
-    // Epic 1 Task 3 (VM-014): pushes theme.{palette,material,sun,ibl,fog}
-    // into everything created above — the single call site create_renderer()
-    // and apply_current_theme() (below) both use; see push_theme_to_scene()'s
-    // own header comment (above, before create_renderer()) for the full
-    // fog-color-scale history that used to live inline here.
+    // Pushes theme.{palette,material,sun,ibl,fog} into everything created
+    // above; see push_theme_to_scene()'s own header comment for details.
     push_theme_to_scene(*r, theme);
 
     std::vector<Vertex> groundVerts;
@@ -1287,16 +1118,11 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     build_grid_lines(gridVerts, gridIdx, theme.grid.fade_start_m, theme.grid.fade_end_m);
     add_grid_mesh(*r, r->grid, gridVerts, gridIdx, r->gridMaterial);
 
-    // Epic 2 Task 2 (VM-024) Step 2: the REAL missing piece for the
-    // ego-following patch is this TransformManager component — add_mesh()/
-    // add_grid_mesh() never create one (ground/grid never moved before this
-    // task), so without this render_frame()'s ego-following
-    // setTransform() call below would resolve to a null Instance and
-    // silently do nothing (tm.getInstance() returns an invalid Instance;
-    // TransformManager::setTransform() on an invalid Instance is a no-op in
-    // release, an assert in debug). The entity handles themselves
-    // (r->ground.entity/r->grid.entity) already existed since Epic 1 —
-    // this component is the only thing that was ever missing.
+    // The ego-following ground/grid patch needs this TransformManager
+    // component -- add_mesh()/add_grid_mesh() never create one. Without it,
+    // update_ground_grid_transform()'s setTransform() call resolves to a
+    // null Instance and silently does nothing in release (an assert in
+    // debug).
     r->engine->getTransformManager().create(r->ground.entity);
     r->engine->getTransformManager().create(r->grid.entity);
 
@@ -1305,14 +1131,12 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
 
 void destroy_renderer(VisualRenderer* r) {
     if (r == nullptr) return;
-    // Epic 2 Task 4 (VM-022): every live per-track object entity -- recycles
-    // gltfio instances to their class free list / destroys procedural boxes
-    // + arrow entities + path-ribbon meshes + any live fade instance. Must
-    // run BEFORE the class pools' destroyAsset() calls below (destroyAsset
-    // destroys every instance of that asset outright, live-or-free-listed,
-    // gltfio's own documented behavior -- release_object_entity()'s
-    // "recycle to the free list" here is otherwise immediately moot, which
-    // is fine, it's still the correct per-entity teardown either way).
+    // Every live per-track object entity -- recycles gltfio instances to
+    // their class free list / destroys procedural boxes + arrow entities +
+    // path-ribbon meshes + any live fade instance. Must run before the
+    // class pools' destroyAsset() calls below: destroyAsset() destroys
+    // every instance of that asset outright, live-or-free-listed (gltfio's
+    // documented behavior).
     for (auto& [id, entity] : r->objectEntities) {
         release_object_entity(*r, entity);
     }
@@ -1326,13 +1150,11 @@ void destroy_renderer(VisualRenderer* r) {
     for (auto* m : r->objectClassMaterial) {
         if (m) r->engine->destroy(m);
     }
-    // Epic 2 Task 5 (VM-023): every live ribbon slot -- meshes (possibly
-    // several per slot, past the uint16 chunk-split ceiling) and any live
-    // GLOBAL/LOCAL translucent fade instance. MUST run before
-    // clayTranslucentMaterial is destroyed just below: a live fadeInstance
-    // is an INSTANCE of that Material, and Filament requires an instance
-    // torn down before its parent Material (same ordering
-    // release_object_entity()'s objectEntities loop above already follows).
+    // Every live ribbon slot -- meshes (possibly several per slot, past the
+    // uint16 chunk-split ceiling) and any live GLOBAL/LOCAL fade instance.
+    // Must run before clayTranslucentMaterial is destroyed below: a live
+    // fadeInstance is an instance of that Material, and Filament requires
+    // an instance torn down before its parent Material.
     // ribbonMaterial[role]/ribbonEmissiveMaterial are destroyed further
     // below, alongside laneMaterial/clayMaterial.
     for (auto& slot : r->ribbonSlots) {
@@ -1341,11 +1163,10 @@ void destroy_renderer(VisualRenderer* r) {
     }
     r->ribbonSlots.clear();
 
-    // Epic 2 Task 7 (VM-026): every live alert slot -- mesh + any live
-    // per-slot fadeInstance -- MUST run before clayTranslucentMaterial is
-    // destroyed just below (same "instance before its Material" ordering
-    // as ribbonSlots/objectEntities above): every alertMaterial[severity]
-    // TEMPLATE and every live fadeInstance are both instances of it.
+    // Every live alert slot -- mesh + any live per-slot fadeInstance --
+    // must run before clayTranslucentMaterial is destroyed below (same
+    // "instance before its Material" ordering): every alertMaterial
+    // template and every live fadeInstance are both instances of it.
     for (auto& slot : r->alertSlots) {
         if (slot.mesh.vb) destroy_mesh(*r->engine, *r->scene, slot.mesh);
         if (slot.fadeInstance) r->engine->destroy(slot.fadeInstance);
@@ -1355,15 +1176,14 @@ void destroy_renderer(VisualRenderer* r) {
         if (m) r->engine->destroy(m);
     }
 
-    // Epic 2 Task 8 (VM-027): every live generic-marker slot -- a
-    // shared-geometry entity, an own mesh, OR a glTF asset, any live
-    // per-slot fadeInstance, plus every per-supplied-color instance (both
-    // are instances of clayMaterial/clayTranslucentMaterial -- MUST run
-    // before either is destroyed further below, same "instance before its
-    // Material" ordering as ribbonSlots/alertSlots/objectEntities above).
-    // Also MUST run before sharedAssetLoader is destroyed further below
-    // (alongside egoAsset) -- any live MESH slot's asset is one of its
-    // instances.
+    // Every live generic-marker slot -- a shared-geometry entity, an own
+    // mesh, or a glTF asset, any live per-slot fadeInstance, plus every
+    // per-supplied-color instance (both are instances of
+    // clayMaterial/clayTranslucentMaterial) -- must run before either is
+    // destroyed further below (same "instance before its Material"
+    // ordering). Also must run before sharedAssetLoader is destroyed
+    // further below (alongside egoAsset) -- any live MESH slot's asset is
+    // one of its instances.
     for (auto& slot : r->genericMarkerSlots) {
         if (slot.fadeInstance) r->engine->destroy(slot.fadeInstance);
         if (slot.sharedGeomEntity) {
@@ -1392,14 +1212,12 @@ void destroy_renderer(VisualRenderer* r) {
     if (r->genericTextMesh.vb) r->engine->destroy(r->genericTextMesh.vb);
     if (r->genericTextMesh.ib) r->engine->destroy(r->genericTextMesh.ib);
 
-    // Epic 3 Task 2 (VM-034): every live map-element fadeInstance is an
-    // INSTANCE of clayTranslucentMaterial -- MUST run before it is destroyed
-    // just below, same "instance before its Material" ordering as
-    // ribbonSlots/alertSlots/genericMarkerSlots/objectEntities above. The
-    // Mesh itself (vb/ib/entity) is torn down later, alongside every other
-    // map-element mesh (Epic 2 Task 2's own teardown further below) --
-    // only the fadeInstance needs to move earlier; destroy_mesh() there
-    // sees fadeInstance already null and skips it, no double-destroy.
+    // Every live map-element fadeInstance is an instance of
+    // clayTranslucentMaterial -- must run before it is destroyed below
+    // (same "instance before its Material" ordering). The Mesh itself
+    // (vb/ib/entity) is torn down later, alongside every other map-element
+    // mesh; only the fadeInstance needs to move earlier -- destroy_mesh()
+    // there sees it already null and skips it, no double-destroy.
     for (auto& [key, mesh] : r->mapElementMeshes) {
         (void)key;
         if (mesh.fadeInstance) {
@@ -1410,11 +1228,10 @@ void destroy_renderer(VisualRenderer* r) {
 
     if (r->clayTranslucentMaterial) r->engine->destroy(r->clayTranslucentMaterial);
 
-    // Ego (Epic 1 Task 4 / VM-012): tear down whichever path set_ego_model()
-    // actually populated. Order matters — destroyAsset() before destroying
-    // the shared loader/materials it (and every object class pool above)
-    // was created through (mirrors AssetLoader.h's own documented teardown
-    // order).
+    // Tear down whichever path set_ego_model() actually populated. Order
+    // matters -- destroyAsset() before destroying the shared loader it (and
+    // every object class pool above) was created through, mirroring
+    // AssetLoader.h's own documented teardown order.
     if (r->egoAsset) r->sharedAssetLoader->destroyAsset(r->egoAsset);
     if (r->sharedResourceLoader) delete r->sharedResourceLoader;
     if (r->sharedAssetLoader) filament::gltfio::AssetLoader::destroy(&r->sharedAssetLoader);
@@ -1425,8 +1242,8 @@ void destroy_renderer(VisualRenderer* r) {
     destroy_mesh(*r->engine, *r->scene, r->egoFallback);
     destroy_mesh(*r->engine, *r->scene, r->ground);
     destroy_mesh(*r->engine, *r->scene, r->grid);
-    // Epic 2 Task 2 (VM-024): every mesh update_map_elements() ever built
-    // and never subsequently evicted (Step 9's diff cache).
+    // Every mesh update_map_elements() ever built and never subsequently
+    // evicted (the diff cache).
     for (auto& [key, mesh] : r->mapElementMeshes) {
         destroy_mesh(*r->engine, *r->scene, mesh);
     }
@@ -1438,18 +1255,15 @@ void destroy_renderer(VisualRenderer* r) {
     if (r->roadMaterial) r->engine->destroy(r->roadMaterial);
     if (r->roadEdgeMaterial) r->engine->destroy(r->roadEdgeMaterial);
     if (r->egoMaterial) r->engine->destroy(r->egoMaterial);
-    // Epic 2 Task 5 (VM-023): all three role instances, before either
-    // Material they're instances of (ribbonEmissiveMaterial/clayMaterial,
-    // just below) is destroyed.
+    // All three role instances, before either Material they're instances
+    // of (ribbonEmissiveMaterial/clayMaterial, just below) is destroyed.
     for (auto* m : r->ribbonMaterial) {
         if (m) r->engine->destroy(m);
     }
     if (r->ribbonEmissiveMaterial) r->engine->destroy(r->ribbonEmissiveMaterial);
-    // Epic 2 Task 6 (VM-025): every live ground-grid slot -- quad mesh AND
-    // its texture (the most expensive leak this epic can produce) -- MUST
-    // run before groundGridMaterial is destroyed just below (its two
-    // instances are destroyed here too, same "instance before its Material"
-    // ordering as ribbonMaterial/ribbonEmissiveMaterial just above).
+    // Every live ground-grid slot -- quad mesh and its texture -- must run
+    // before groundGridMaterial is destroyed below (its two instances are
+    // destroyed here too, same "instance before its Material" ordering).
     for (auto& slot : r->groundGridSlots) {
         destroy_mesh(*r->engine, *r->scene, slot.quad);
         if (slot.texture) r->engine->destroy(slot.texture);
@@ -1483,14 +1297,12 @@ void destroy_renderer(VisualRenderer* r) {
     delete r;
 }
 
-// Epic 1 Task 3 (VM-014): recomputes the blended Theme from `sim_time_sec`
-// (the active SceneGraph's own clock -- never wall-clock, per scene.h's
-// frozen SceneGraph::sim_time_sec contract) on every render_frame() call.
-// No-op (touches no Filament state at all) whenever no set_theme()
-// transition is in flight -- once a transition's `t` reaches 1.0 this
-// clears r->theme_transition, so every call after that (until the next
-// set_theme()) is this early return, not a from==to blend recomputed
-// forever (Step 6's "idempotent no-op blend" AC).
+// Recomputes the blended Theme from `sim_time_sec` (the active SceneGraph's
+// own clock -- never wall-clock, per scene.h's frozen contract) on every
+// render_frame() call. No-op whenever no set_theme() transition is in
+// flight -- once a transition's `t` reaches 1.0 this clears
+// r->theme_transition, so every call after that is this early return, not
+// a from==to blend recomputed forever.
 void apply_current_theme(VisualRenderer& r, double sim_time_sec) {
     if (!r.theme_transition) return;
     const detail::ThemeTransition& tr = *r.theme_transition;
@@ -1500,8 +1312,8 @@ void apply_current_theme(VisualRenderer& r, double sim_time_sec) {
     const detail::Theme blended = detail::blend(tr.from, tr.to, static_cast<float>(t));
     push_theme_to_scene(r, blended);
     // Kept up to date every call a transition is in flight, so a mid-flight
-    // set_theme() retarget (see that function, below) snapshots the CURRENT
-    // blend as its new `from`, not either endpoint -- no visible snap.
+    // set_theme() retarget snapshots the current blend as its new `from`,
+    // not either endpoint -- no visible snap.
     r.active_theme = blended;
     if (t >= 1.0) {
         r.theme_transition.reset();
@@ -1510,26 +1322,20 @@ void apply_current_theme(VisualRenderer& r, double sim_time_sec) {
 
 namespace {
 
-// Epic 2 Task 2 (VM-024) Step 2: moves the ego-following ground/grid patch
-// to `ego.position` XY, QUANTIZED to kGridPitchM (2 m — the same symbol
-// build_grid_lines() draws lines at, renderer_internal.hpp), Z always 0.
-// Quantizing to anything other than the real line pitch would shift the
-// grid by a fraction of a cell as the ego crosses non-multiple-of-pitch
-// coordinates — exactly the crawl this exists to prevent (see the plan's
-// "Grid-fade interaction" note). `ego.valid == 0` (no TF yet) snaps the
-// patch back to the world origin, identical to Epic 1's static placement,
-// so every Epic 1 golden (shot with no ego or ego at the origin) stays
-// valid byte-for-byte.
+// Moves the ego-following ground/grid patch to `ego.position` XY,
+// quantized to kGridPitchM (the same symbol build_grid_lines() draws lines
+// at) -- quantizing to anything else would shift the grid by a fraction of
+// a cell as the ego crosses non-multiple-of-pitch coordinates. `ego.valid
+// == 0` (no TF yet) snaps the patch back to the world origin.
 //
 // Deliberately does NOT touch build_grid_lines()'s baked per-vertex fade
-// alpha or rebuild either mesh: the fade was always computed in PATCH-LOCAL
+// alpha or rebuild either mesh: the fade was computed in patch-local
 // coordinates (distance from the patch's own centre, at grid-build time),
-// so translating the whole patch by a TransformManager transform silently
-// and correctly changes its meaning from "fades with distance from the map
-// origin" to "fades with distance from the ego" — which is what spec §7
-// asks for and a rebuild-per-frame would only re-derive identically at the
-// cost of doing it every frame. ponytail: 40 m follow-patch; a real
-// streamed ground is Epic 4's EnvironmentLayer.
+// so translating the whole patch via TransformManager correctly changes
+// its meaning from "fades with distance from the map origin" to "fades
+// with distance from the ego" -- a rebuild-per-frame would only re-derive
+// this identically, every frame.
+// ponytail: 40 m follow-patch; a real streamed ground is Epic 4's EnvironmentLayer.
 void update_ground_grid_transform(VisualRenderer& r, const EgoState& ego) {
     filament::TransformManager& tm = r.engine->getTransformManager();
     float3 t{0.0f, 0.0f, 0.0f};
@@ -1550,40 +1356,33 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     if (r == nullptr || out.rgb == nullptr || out.width == 0 || out.height == 0) return false;
 
     apply_current_theme(*r, r->scene_buffer.active().sim_time_sec);
-    // Epic 1 Task 4 (VM-012): the ego's TransformManager transform is
-    // re-derived from the last-published active() scene every call, same
-    // split as set_scene()/render_frame() (Task 1) and set_theme()/
-    // apply_current_theme() (Task 3) — set_ego_model() builds/loads the
-    // entity once and never touches its transform itself.
+    // The ego's TransformManager transform is re-derived from the
+    // last-published active() scene every call -- set_ego_model()
+    // builds/loads the entity once and never touches its transform itself.
     update_ego_transform(*r, r->scene_buffer.active().ego);
-    // Epic 2 Task 2 (VM-024) Step 2: same re-derive-every-call split as the
-    // ego transform and theme blend above — set_scene() never touches
-    // Filament state itself.
+    // Same re-derive-every-call split as the ego transform and theme blend
+    // above -- set_scene() never touches Filament state itself.
     update_ground_grid_transform(*r, r->scene_buffer.active().ego);
-    // Epic 2 Task 2 (VM-024) Step 9: diffs map_elements against the cached
-    // meshes and rebuilds only what changed — see map_elements.cpp.
+    // Diffs map_elements against the cached meshes and rebuilds only what
+    // changed — see map_elements.cpp.
     update_map_elements(*r, r->scene_buffer.active());
-    // Epic 2 Task 4 (VM-022) Step 5: diffs objects against the live entity
-    // map (acquire/update/release) — see objects.cpp.
+    // Diffs objects against the live entity map (acquire/update/release) —
+    // see objects.cpp.
     update_objects(*r, r->scene_buffer.active());
-    // Epic 2 Task 5 (VM-023): diffs paths against the live per-slot ribbon
-    // cache (keyed by slot index, not role -- see ribbon.cpp) — see that
-    // file's own comment.
+    // Diffs paths against the live per-slot ribbon cache (keyed by slot
+    // index, not role) — see ribbon.cpp.
     update_ribbons(*r, r->scene_buffer.active());
-    // Epic 2 Task 6 (VM-025): diffs OGM ground grids against the live
-    // per-slot quad+texture cache (keyed by slot index -- see that file's
-    // own comment) — see ground_grid.cpp.
+    // Diffs OGM ground grids against the live per-slot quad+texture cache
+    // (keyed by slot index) — see ground_grid.cpp.
     update_ground_grids(*r, r->scene_buffer.active());
-    // Epic 2 Task 7 (VM-026): diffs alert polygons against the live
-    // per-slot mesh+material cache (keyed by slot index -- see that file's
-    // own comment) — see alert_polygons.cpp. Overlays every category
-    // above it (z-lift 0.06, the topmost layer of the epic's z-stack).
+    // Diffs alert polygons against the live per-slot mesh+material cache
+    // (keyed by slot index) — see alert_polygons.cpp. Overlays every
+    // category above it (z-lift 0.06, the topmost layer of the z-stack).
     update_alert_polygons(*r, r->scene_buffer.active());
-    // Epic 2 Task 8 (VM-027): the §7 parity-guarantee fallback -- diffs
-    // generic markers against the live per-slot pool (keyed by marker
-    // index -- see that file's own comment) — see generic_markers.cpp.
-    // Runs LAST: a debug/parity layer, not meant to hide under anything
-    // else this epic draws.
+    // The §7 parity-guarantee fallback -- diffs generic markers against
+    // the live per-slot pool (keyed by marker index) — see
+    // generic_markers.cpp. Runs last: a debug/parity layer, not meant to
+    // hide under anything else drawn.
     update_generic_markers(*r, r->scene_buffer.active());
 
     r->camera->lookAt({pose.eye[0], pose.eye[1], pose.eye[2]},
@@ -1594,15 +1393,15 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
                               filament::Camera::Fov::VERTICAL);
 
     // Viewport/render target sizing tracks the renderer's own fixed
-    // swapchain size (Task 2 assumes out matches the RenderConfig used at
-    // create_renderer() time; later epics can resize the swapchain instead).
+    // swapchain size (assumes out matches the RenderConfig used at
+    // create_renderer() time; a resizable swapchain is future work).
     if (out.width != r->width || out.height != r->height) return false;
 
     // Filament's SwapChain readPixels() (unlike Renderer::readPixels() on a
-    // Texture-backed RenderTarget, per that overload's own doc note) hands
-    // back rows already top-down — confirmed empirically (a manual bottom-up
-    // flip here produced an upside-down horizon) — so out.rgb can be the
-    // readback target directly with no intermediate buffer or flip.
+    // Texture-backed RenderTarget) hands back rows already top-down --
+    // confirmed empirically (a manual bottom-up flip produced an
+    // upside-down horizon) -- so out.rgb can be the readback target
+    // directly with no intermediate buffer or flip.
     const size_t byteCount = static_cast<size_t>(out.width) * out.height * 3;
     ReadbackState state;
     filament::backend::PixelBufferDescriptor buffer(
@@ -1634,25 +1433,20 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     return true;
 }
 
-// Task 2 Step 7: exactly one line, per scene.h's frozen contract comment —
-// no Filament::Engine/Scene/TransformManager call happens here. render_frame
-// (this task's sun/IBL/fog/theme-driven material params) and the future
-// ego-transform hook (Task 4) both read scene_buffer.active() back out
-// instead — set_scene() itself only ever touches the staging buffer.
+// Exactly one line, per scene.h's frozen contract comment -- no
+// Filament::Engine/Scene/TransformManager call happens here. render_frame()
+// reads scene_buffer.active() back out instead; set_scene() itself only
+// ever touches the staging buffer.
 void set_scene(VisualRenderer* r, const SceneGraph& scene) {
     r->scene_buffer.publish(scene);
 }
 
-// Epic 1 Task 3 (VM-014): see scene.h's frozen contract comment. Snapshots
-// the CURRENTLY-blended theme (r->active_theme -- kept live by
-// apply_current_theme() above on every render_frame() call while a
-// transition is in flight, and left holding the final settled theme once
-// one finishes) as the new transition's `from`, so retargeting mid-flight
-// (calling this again before the previous transition finishes) starts the
-// new ease from that blend, not from either endpoint. Does NOT touch
-// Filament state itself -- render_frame()'s apply_current_theme() is what
-// actually pushes anything, on whichever thread owns the Engine, same
-// split as set_scene()/render_frame() (Task 1).
+// See scene.h's frozen contract comment. Snapshots the currently-blended
+// theme (r->active_theme -- kept live by apply_current_theme() above) as
+// the new transition's `from`, so retargeting mid-flight starts the new
+// ease from that blend, not from either endpoint. Does not touch Filament
+// state itself -- render_frame()'s apply_current_theme() is what actually
+// pushes anything.
 bool set_theme(VisualRenderer* r, const char* theme_name, double at_sec, double transition_sec) {
     if (r == nullptr || theme_name == nullptr) return false;
     const std::optional<detail::Theme> target = detail::load_theme(r->theme_dir, theme_name);
@@ -1666,17 +1460,17 @@ bool set_theme(VisualRenderer* r, const char* theme_name, double at_sec, double 
     return true;
 }
 
-// Gate-review addition (2026-08-20, spec §9 minor) — see scene.h's comment.
+// See scene.h's comment.
 bool theme_assets_loaded(VisualRenderer* r) {
     return r != nullptr && r->theme_assets_loaded;
 }
 
 }  // namespace mpviz
 
-// Epic 2 Task 2 (VM-024): Filament-free test introspection hooks (see
-// map_elements_test_hooks.hpp's own comment for why these live here rather
-// than map_elements.cpp — both the ground/grid patch and the lane
-// MaterialInstance's theming are wired up in THIS file).
+// Filament-free test introspection hooks; see map_elements_test_hooks.hpp
+// for why these live here rather than map_elements.cpp -- both the
+// ground/grid patch and the lane MaterialInstance's theming are wired up
+// in this file.
 namespace mpviz::testing {
 
 mpviz::Vec3 ground_patch_centre(mpviz::VisualRenderer* r) {
@@ -1694,15 +1488,13 @@ mpviz::detail::Float3 lane_material_base_color(mpviz::VisualRenderer* r) {
     return r->laneMaterialBaseColor;
 }
 
-// Epic 3 Task 1 (VM-036) decision #6: mirrors map_elements.cpp's (anonymous
-// namespace, so not directly callable from here) material_for_kind() switch
-// field-for-field, against the *MaterialBaseColor mirrors push_theme_to_
-// scene() pushes rather than the MaterialInstance pointers themselves --
-// same "no Filament getter" reasoning as lane_material_base_color() above.
-// Kept in sync with material_for_kind() by hand; a kind added to one and
-// not the other is caught the moment a test exercises the new kind, same as
-// any other hand-mirrored switch in this codebase (e.g. the two independent
-// arc-length walkers decision #3/#5 call out explicitly).
+// Mirrors map_elements.cpp's material_for_kind() switch field-for-field
+// (that function is anonymous-namespace, not directly callable from here),
+// against the *MaterialBaseColor mirrors rather than the MaterialInstance
+// pointers themselves -- same "no Filament getter" reasoning as
+// lane_material_base_color() above. Kept in sync with material_for_kind()
+// by hand -- a kind added to one and not the other is caught the moment a
+// test exercises the new kind.
 mpviz::detail::Float3 map_kind_base_color(mpviz::VisualRenderer* r, mpviz::MapKind kind) {
     if (r == nullptr) return {};
     switch (kind) {
@@ -1727,8 +1519,7 @@ mpviz::detail::Float3 ego_material_base_color(mpviz::VisualRenderer* r) {
     return r->egoMaterialBaseColor;
 }
 
-// Epic 3 Task 1 (VM-036) Step 7: Epic 2's untested "cached, no per-frame
-// rebuild" AC. 0 if `r` is null.
+// 0 if `r` is null.
 uint64_t map_element_rebuild_count(mpviz::VisualRenderer* r) {
     return r == nullptr ? 0 : r->mapElementRebuildCount;
 }
@@ -1737,12 +1528,11 @@ size_t map_element_mesh_count(mpviz::VisualRenderer* r) {
     return r == nullptr ? 0 : r->mapElementMeshes.size();
 }
 
-// User directive 2026-09-08: sums Mesh::vertexCount (add_mesh()'s own
-// mirror of what it was called with -- Filament's VertexBuffer has no
-// getter) across every mesh update_map_elements() currently holds. Used to
-// distinguish a dot-disc-built CENTERLINE mesh (many small fan triangles)
-// from a strip-built one (few, per decision #3's ribbon path) without a
-// full-frame SSIM. 0 if `r` is null.
+// Sums Mesh::vertexCount (add_mesh()'s own mirror of what it was called
+// with -- Filament's VertexBuffer has no getter) across every mesh
+// update_map_elements() currently holds. Used to distinguish a
+// dot-disc-built CENTERLINE mesh (many small fan triangles) from a
+// strip-built one (few) without a full-frame SSIM. 0 if `r` is null.
 size_t map_element_total_vertex_count(mpviz::VisualRenderer* r) {
     if (r == nullptr) return 0;
     size_t total = 0;
@@ -1753,9 +1543,9 @@ size_t map_element_total_vertex_count(mpviz::VisualRenderer* r) {
     return total;
 }
 
-// Epic 3 Task 2 (VM-034): reads "the" live map-element mesh's fade state --
-// see the hook's own header comment (map_elements_test_hooks.hpp) for why
-// this is only meaningful at map_element_mesh_count() == 1.
+// Reads "the" live map-element mesh's fade state -- see
+// map_elements_test_hooks.hpp for why this is only meaningful at
+// map_element_mesh_count() == 1.
 MapElementMaterialInfo map_element_material_info(mpviz::VisualRenderer* r) {
     MapElementMaterialInfo info;
     if (r == nullptr || r->mapElementMeshes.size() != 1) return info;

@@ -22,12 +22,10 @@ uint8_t KindFromRole(const std::string& role)
 
 bool HasNan(const tf2::Vector3& v) { return std::isnan(v.x()) || std::isnan(v.y()) || std::isnan(v.z()); }
 
-// The ONE int8->uint8 conversion, shared by the full-grid and patch paths
-// (this file's header comment: "the SAME conversion runs on the patch
-// path"). Never a memcpy/static_cast -- see ogm.hpp for why. Sets
-// `*malformed = true` (never cleared) when `v` is neither -1 nor in
-// 0..100, so callers can ++dropped_malformed ONCE PER MESSAGE regardless of
-// how many individual cells were out of range.
+// The ONE int8->uint8 conversion shared by the full-grid and patch paths.
+// Never a memcpy/static_cast -- see ogm.hpp for why. Sets malformed=true
+// (never cleared) so callers can ++dropped_malformed once per message
+// regardless of how many cells were out of range.
 uint8_t ConvertCell(int8_t v, bool& malformed)
 {
     if (v == -1) return kUnknownCell;
@@ -62,14 +60,12 @@ void OgmAdapter::ingest(const nav_msgs::msg::OccupancyGrid& msg, double sim_time
         return;
     }
 
-    // ONE lookup for the whole message (epic2 plan, "Frames"), same rule as
-    // every other adapter -- transforms the grid's own origin (cell (0,0)'s
-    // pose) into the map frame. GroundGridLayer::origin is position-only
-    // (frozen, no rotation field): origin.orientation is NOT applied here --
-    // a stated gap, same "positions only" convention PathRibbon/MapElement
-    // already accept, and untestable against real data regardless (FIXTURE
-    // GAP 3: no OGM publisher exists in the recorded stack to confirm
-    // whether it ever ships a non-identity origin orientation).
+    // ONE lookup for the whole message, transforms the grid's origin (cell
+    // (0,0)'s pose) into the map frame. GroundGridLayer::origin is
+    // position-only; origin.orientation is NOT applied (same convention
+    // PathRibbon/MapElement accept). FIXTURE GAP 3: no OGM publisher exists
+    // in the recorded stack to confirm whether a real one ships non-identity
+    // origin orientation.
     tf2::Transform xform;
     if (!tf_.lookup(msg.header, xform))
     {
@@ -113,10 +109,9 @@ void OgmAdapter::ingest_update(const map_msgs::msg::OccupancyGridUpdate& msg, do
 {
     ++stats_.msgs;
 
-    // No base grid yet -- nothing to patch. Dropped + counted, no
-    // allocation, no crash, and this is PERMANENT if `ogm` ever stops being
-    // one row with two subscriptions (see OneRowYieldsTwoSubscriptionsAndOne
-    // Adapter's own comment on why that would matter).
+    // No base grid yet -- nothing to patch. Dropped + counted, no allocation,
+    // no crash. Permanent if `ogm` ever stops being one row with two
+    // subscriptions (see OneRowYieldsTwoSubscriptionsAndOneAdapter).
     if (!has_grid_)
     {
         ++stats_.dropped_malformed;

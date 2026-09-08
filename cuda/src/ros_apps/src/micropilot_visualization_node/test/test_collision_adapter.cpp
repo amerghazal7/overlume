@@ -1,5 +1,5 @@
 /** @file test_collision_adapter.cpp
- *  @brief CollisionAdapter tests (Epic 2 Task 7 / VM-026).
+ *  @brief CollisionAdapter tests.
  *
  *  FIXTURE GAP 4: the five collision-checker topics were silent in the
  *  recorded bag (a calm scenario, zero messages) -- every fixture below is
@@ -43,7 +43,7 @@ TEST(CollisionAdapter, EveryShippedRoleMapsToItsSeverity)
     // Table-driven over the five ROWS SHIPPED IN THE REAL urban_profile.yaml
     // (loaded via urban_row(), never a hand-written role string) -- an
     // adapter test that invents its own role strings cannot notice the
-    // profile drifting away from this table (epic2 plan, Task 7 Step 1).
+    // profile drifting away from this table.
     struct Case
     {
         const char* topic;
@@ -200,11 +200,10 @@ TEST(CollisionAdapter, DeleteAllClearsPreviousPolygons)
 
 TEST(CollisionAdapter, MarkerPoseComposesAndZeroQuaternionIsIdentity)
 {
-    // Review 2026-08-20: the pose-composition path (Marker points are
-    // RELATIVE to marker.pose, rviz parity) had hd_map coverage but none
-    // here. A pose translation plus an all-ZERO quaternion (which rviz
-    // forgives as identity and tf2 would NaN) must land the polygon at the
-    // translated coordinates, nothing dropped.
+    // Marker points are RELATIVE to marker.pose (rviz parity). A pose
+    // translation plus an all-ZERO quaternion (which rviz forgives as
+    // identity and tf2 would NaN) must land the polygon at the translated
+    // coordinates, nothing dropped.
     TfFixture kTf;
     auto row = mpviz_node::testing::urban_row(
         "/navigation_urban_collision_checker_testing_node/ego_footprint_sweep");

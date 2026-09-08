@@ -1,17 +1,13 @@
-# Hand-edited fixture (Epic 2 Task 2 / VM-024, "Fixture strategy": "one
-# deliberately malformed hand-edited variant is enough"). All four
-# namespaces below start with "left_boundary_" so urban_profile.yaml's
-# {prefix: left_boundary_, render: polyline} rule keeps every one of them --
-# these markers are dropped for being MALFORMED, never for classify()
-# saying kDrop, so HdMapAdapter.MalformedMarkersAreDroppedAndCounted can
-# assert dropped_malformed == 3 and dropped_by_rule == 0.
-# RENAMED from centerline_* (user directive 2026-09-08): urban_profile.yaml's
-# centerline_ rule is now `render: drop` by default (centerlines hidden
-# unless turned on), so a centerline_-namespaced marker here would be
-# dropped BY RULE before ever reaching the malformed-detection path this
-# fixture exists to exercise -- left_boundary_ stays `render: polyline` and
-# is otherwise identical for this test's purposes (malformed-marker
-# detection does not care which polyline-rendering kind matched).
+# Hand-edited fixture (VM-024). All four namespaces start with
+# "left_boundary_" so urban_profile.yaml's {prefix: left_boundary_, render:
+# polyline} rule keeps every one of them -- these markers are dropped for
+# being MALFORMED, never for classify() saying kDrop, so
+# HdMapAdapter.MalformedMarkersAreDroppedAndCounted can assert
+# dropped_malformed == 3 and dropped_by_rule == 0.
+# Uses left_boundary_ rather than centerline_: urban_profile.yaml's
+# centerline_ rule is `render: drop` by default, which would drop a
+# centerline_-namespaced marker BY RULE before ever reaching the
+# malformed-detection path this fixture exists to exercise.
 markers:
 - header:
     frame_id: map

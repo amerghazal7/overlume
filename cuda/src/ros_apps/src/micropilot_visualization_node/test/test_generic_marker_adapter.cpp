@@ -1,6 +1,5 @@
 /** @file test_generic_marker_adapter.cpp
- *  @brief GenericMarkerAdapter tests (Epic 2 Task 8 / VM-027): the spec §7
- *  parity guarantee.
+ *  @brief GenericMarkerAdapter tests: the spec's §7 parity guarantee.
  */
 #include "micropilot_visualization_node/adapters/generic_marker.hpp"
 
@@ -76,16 +75,11 @@ visualization_msgs::msg::Marker DeleteAll()
     return m;
 }
 
-// Pre-existing gap fixed in passing (Epic 3 Task 1 / VM-036 build/test
-// pass, unrelated to VM-036 itself): urban_profile.yaml's own
-// /sim/ground_truth/boxes row has shipped COMMENTED OUT since 2026-08-20
-// (the ego's own ground-truth box flickers at the robot proxy's origin --
-// see that file's own note), so `urban_row("/sim/ground_truth/boxes")`
-// throws ("has no row for topic") for every test below that used it. Same
-// fix test_profile.cpp's own GroundTruthBoxesRowIsBestEffortBecauseItsPublisherIs
-// test already applies: build the CANONICAL disabled row text directly
-// (best_effort: true is load-bearing -- see urban_profile.yaml's NOTE 2),
-// independent of whether that row is commented out in the shipped config.
+// urban_profile.yaml's /sim/ground_truth/boxes row ships commented out (the
+// ego's own ground-truth box flickers at the robot proxy's origin), so
+// urban_row("/sim/ground_truth/boxes") throws for every test below. Build
+// the CANONICAL disabled row text directly instead (best_effort: true is
+// load-bearing), independent of the row's shipped state.
 mpviz_node::ProfileRow GroundTruthBoxesRow()
 {
     std::vector<std::string> errs;
@@ -170,7 +164,7 @@ TEST(GenericMarkerAdapter, BaseLinkMarkersLandAroundTheEgoNotTheMapOrigin)
     xf.header.frame_id = "map";
     xf.header.stamp = rclcpp::Time(0, 0, RCL_ROS_TIME);
     xf.child_frame_id = "base_link";
-    xf.transform.translation.x = 150.0;  // ego 150m out -- "100+ m" per the plan
+    xf.transform.translation.x = 150.0;  // ego 150m out
     xf.transform.translation.y = 0.0;
     xf.transform.rotation.w = 1.0;
     buffer.setTransform(xf, "test_authority", /*is_static=*/true);

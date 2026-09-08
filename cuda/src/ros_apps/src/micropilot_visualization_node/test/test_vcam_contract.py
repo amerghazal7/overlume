@@ -38,10 +38,9 @@ from std_msgs.msg import Float64MultiArray
 OUT_W = 160
 OUT_H = 120
 
-# visualization_node's virtual_pose (eye|target, 6 floats) chosen to match
-# rendering_node's DEFAULT virtual_pose (R|t) reduced to a look-point:
-#   R row0=[1,0,0] row1=[0,0,-1] row2=[0,1,0] -> forward = R col2 = (0,-1,0)
-#   t = (0,-4,0) -> eye=t=(0,-4,0), target=eye+forward=(0,-5,0)
+# visualization_node's virtual_pose (eye|target) chosen to match
+# rendering_node's default virtual_pose reduced to a look-point:
+# eye=(0,-4,0), target=(0,-5,0) (see rendering_node.cpp's default R/t).
 MATCHING_VIRTUAL_POSE = [0.0, -4.0, 0.0, 0.0, -5.0, 0.0]
 
 INSTALL_DIR = os.path.normpath(

@@ -37,13 +37,10 @@ bool HasNanQuat(const tf2::Quaternion& q)
     return HasNan(q.x()) || HasNan(q.y()) || HasNan(q.z()) || HasNan(q.w());
 }
 
-// Marker.msg semantics (rviz-parity gap, user report 2026-08-20): the
-// ARROW's two points and the PATH's LINE_LIST points are RELATIVE to that
-// marker's own pose -- rviz always composes pose * point. The BBOX branch
-// above already does this correctly; ARROW and PATH did not. Identity pose
-// skips the multiply entirely (mirrors FrameTransformer's identity-frame
-// shortcut, frame_transform.cpp) so the common case -- every recorded bag
-// marker's pose today -- pays nothing.
+// ARROW's two points and PATH's LINE_LIST points are RELATIVE to the
+// marker's own pose -- rviz composes pose * point. Identity pose skips the
+// multiply (mirrors FrameTransformer's identity-frame shortcut,
+// frame_transform.cpp), so the common case pays nothing.
 bool MarkerPoseIsIdentity(const geometry_msgs::msg::Pose& p)
 {
     constexpr double kEps = 1e-12;
@@ -61,10 +58,10 @@ bool BuildMarkerPoseTransform(const geometry_msgs::msg::Pose& p, tf2::Transform&
     const tf2::Vector3 pos(p.position.x, p.position.y, p.position.z);
     tf2::Quaternion q(p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w);
     if (HasNanVec(pos) || HasNanQuat(q)) return false;
-    // Zero/degenerate quaternion -> identity, matching rviz (which renders a
+    // Zero/degenerate quaternion -> identity, matching rviz (renders a
     // zero-filled orientation as identity, with a console warning). Handing
-    // it to tf2 instead NaNs every transformed point and silently voids the
-    // whole marker as dropped_malformed (review finding 2026-08-20).
+    // it to tf2 directly NaNs every transformed point and silently voids the
+    // whole marker as dropped_malformed.
     if (q.length2() < 1e-12) q = tf2::Quaternion::getIdentity();
     out = tf2::Transform(q, pos);
     return true;
@@ -175,10 +172,10 @@ mpviz::ObjectClass infer(const ClassInferenceTable& cfg, const char* label, mpvi
         }
     }
 
-    // A degenerate (zero/negative) footprint matches no band on purpose --
-    // see NoLabelAndNoMatchingBandIsUnknownNotACrash: without this guard a
-    // {0,0,0} box would satisfy every band's upper bounds and misreport as
-    // whichever class happens to have no min_height_m floor (CYCLIST).
+    // A degenerate (zero/negative) footprint matches no band on purpose (see
+    // NoLabelAndNoMatchingBandIsUnknownNotACrash) -- otherwise a {0,0,0} box
+    // satisfies every band's upper bounds and misreports as whichever class
+    // has no min_height_m floor.
     if (dims.x <= 0.0 || dims.y <= 0.0) return cfg.default_cls;
 
     for (const auto& band : cfg.footprint)
@@ -241,8 +238,7 @@ void DynamicObjectsAdapter::ingest(const visualization_msgs::msg::MarkerArray& m
     ++stats_.msgs;
     if (msg.markers.empty()) return;
 
-    // ONE lookup for the whole message (epic2 plan, "Frames") -- same
-    // reasoning as every other adapter.
+    // ONE lookup for the whole message; same reasoning as every other adapter.
     tf2::Transform xform;
     if (!tf_.lookup(msg.markers.front().header, xform))
     {
@@ -264,12 +260,10 @@ void DynamicObjectsAdapter::ingest(const visualization_msgs::msg::MarkerArray& m
         }
         if (m.action == kActionDelete)
         {
-            // ponytail: a per-marker DELETE removes the WHOLE track (not
-            // just the one namespace) -- simplest correct-enough behaviour
-            // for an action the recorded bag never actually sends (every
-            // frame starts with one DELETEALL and nothing else deletes).
-            // Widen this if a real publisher starts using per-marker
-            // DELETE for one namespace while keeping the others live.
+            // ponytail: a per-marker DELETE removes the WHOLE track, not just
+            // the namespace -- simplest correct-enough behavior since the bag
+            // never sends this outside a leading DELETEALL. Widen if a
+            // publisher starts using per-namespace DELETE.
             tracks_.erase(m.id);
             continue;
         }
@@ -278,9 +272,8 @@ void DynamicObjectsAdapter::ingest(const visualization_msgs::msg::MarkerArray& m
         const NsRender verdict = classify(row_, m.ns);
         if (verdict == NsRender::kDrop)
         {
-            // dynamic_objects_hd_map_path_dots: same predicted path,
-            // redrawn as dots -- intentionally discarded, not malformed
-            // (epic2 plan, "Five namespaces on the wire, not four").
+            // dynamic_objects_hd_map_path_dots: same predicted path redrawn
+            // as dots -- intentionally discarded, not malformed.
             ++stats_.dropped_by_rule;
             continue;
         }
@@ -334,12 +327,10 @@ void DynamicObjectsAdapter::ingest(const visualization_msgs::msg::MarkerArray& m
             {
                 continue;  // no direction to read; velocity stays at 0,0,0
             }
-            // effective_point = frame_transform * (marker_pose * point) --
-            // applied to BOTH endpoints, then differenced: marker_pose's
-            // and frame_transform's translations both cancel in the
-            // difference automatically (rotation is what's left), so this
-            // is the ROTATION-only effect the fix requires without any
-            // separate rotation-only math path.
+            // effective_point = frame_transform * (marker_pose * point),
+            // applied to both endpoints then differenced -- both transforms'
+            // translations cancel in the difference, leaving only the
+            // rotation effect, with no separate rotation-only path needed.
             const bool identity_pose = MarkerPoseIsIdentity(m.pose);
             tf2::Transform marker_tf;
             if (!identity_pose && !BuildMarkerPoseTransform(m.pose, marker_tf))
@@ -362,12 +353,10 @@ void DynamicObjectsAdapter::ingest(const visualization_msgs::msg::MarkerArray& m
         else if (m.ns == "dynamic_objects_hd_map_path")
         {
             // effective_point = frame_transform * (marker_pose * point) --
-            // the path's OWN pose is applied to its LINE_LIST points BEFORE
-            // line_list_to_polyline() collapses them (the pairwise-chain
-            // tolerance check is a rigid-transform invariant, so applying
-            // the pose first vs. after makes no difference to that check,
-            // but matches the fix's directive: pose composes before any
-            // other processing).
+            // pose is applied to the LINE_LIST points before
+            // line_list_to_polyline() collapses them (a rigid-transform
+            // invariant, so order vs. the tolerance check doesn't matter, but
+            // pose must compose before any other processing).
             const bool identity_pose = MarkerPoseIsIdentity(m.pose);
             tf2::Transform marker_tf;
             if (!identity_pose && !BuildMarkerPoseTransform(m.pose, marker_tf))

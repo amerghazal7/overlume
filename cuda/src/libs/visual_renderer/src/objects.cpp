@@ -1,17 +1,15 @@
-// objects.cpp — Epic 2 Task 4 (VM-022): clay object rendering. Instanced
-// glTF per class (car/truck_van/bus/pedestrian/cyclist), scaled to each
-// TrackedObject's measured bbox, per-class theme tints, velocity arrows,
-// predicted-path ribbons (reusing Task 2's extrude_polyline — no second
-// extruder), and the staleness fade via clay_translucent.mat (see the
-// plan's "…and the material that can actually do it" for the full argument
-// this file's fade mechanism rests on).
+// objects.cpp — clay object rendering. Instanced glTF per class
+// (car/truck_van/bus/pedestrian/cyclist), scaled to each TrackedObject's
+// measured bbox, per-class theme tints, velocity arrows, predicted-path
+// ribbons (reusing extrude_polyline — no second extruder), and the
+// staleness fade via clay_translucent.mat (see renderer_internal.hpp's
+// ObjectEntity comment for the fade mechanism).
 //
-// UNKNOWN and any class with no loaded/loadable model (Step 0's default:
-// bus/cyclist ship with no model — see assets/models/ATTRIBUTION.md) fall
-// back to a procedural clay box, ALWAYS built as a unit 1x1x1 cube so its
+// UNKNOWN and any class with no loaded/loadable model (bus/cyclist ship
+// with no model — see assets/models/ATTRIBUTION.md) fall back to a
+// procedural clay box, always built as a unit 1x1x1 cube so its
 // TransformManager scale is `dims / (1,1,1)` — identical math to the glTF
-// path (`dims / class_unit_footprint`), no separate "box is baked at dims"
-// special case.
+// path (`dims / class_unit_footprint`).
 #include "objects.hpp"
 #include "objects_test_hooks.hpp"
 #include "polyline.hpp"
@@ -60,15 +58,13 @@ float3 to_f3(const Vec3& v) {
 
 bool is_zero_vec3(const Vec3& v) { return v.x == 0.0 && v.y == 0.0 && v.z == 0.0; }
 
-// A plain (not rounded — the fillet buys nothing a test or a golden checks,
-// see the plan's "procedural rounded clay box"; ponytail: upgrade if a
-// human reviewing the golden ever flags the boxy look) unit cube: X/Y in
-// [-0.5, 0.5], Z in [0, 1] (ground-contact origin, same convention as
-// ego.cpp's build_ego_box — deliberately NOT shared with it: this file's
-// box is always UNIT-sized so per-object dims apply as a TransformManager
-// scale like the glTF path does, whereas ego's is baked directly at its
-// fallback_dims; sharing would mean threading that difference through one
-// more parameter for a ~20-line function).
+// A plain (not rounded — a fillet buys nothing a test or golden checks;
+// ponytail: upgrade if a human reviewing the golden ever flags the boxy
+// look) unit cube: X/Y in [-0.5, 0.5], Z in [0, 1] (ground-contact origin,
+// same convention as ego.cpp's build_ego_box — deliberately not shared
+// with it: this box is always unit-sized so per-object dims apply as a
+// TransformManager scale, whereas ego's is baked directly at its
+// fallback_dims).
 void build_unit_box(std::vector<Vertex>& verts, std::vector<uint16_t>& indices) {
     constexpr float h = 0.5f;
     const float3 p[8] = {
@@ -101,9 +97,9 @@ void build_unit_box(std::vector<Vertex>& verts, std::vector<uint16_t>& indices) 
     fill_tangent_frames(verts, normals);
 }
 
-// The unit velocity-arrow geometry is the promoted shared build_unit_arrow()
+// The unit velocity-arrow geometry is the shared build_unit_arrow()
 // (renderer_internal.hpp / renderer.cpp) -- generic_markers.cpp's ARROW
-// primitive draws the same mesh (review 2026-08-20).
+// primitive draws the same mesh.
 
 void remap_to_material(filament::RenderableManager& rm, const utils::Entity* ents, size_t n,
                         filament::MaterialInstance* material) {
@@ -127,13 +123,13 @@ Vec3 unit_footprint_for(VisualRenderer& r, const ObjectEntity& e) {
     return it != r.objectClassPools.end() ? it->second.unitFootprint : Vec3{1.0, 1.0, 1.0};
 }
 
-// Acquires a renderable for a NEWLY-seen track (Step 3): pulls a
-// FilamentInstance off its class's free list, grows the pool
-// (createInstance(), logged once per class) if the free list is empty and
-// the class hasn't hit kMaxInstancesPerClass, or falls back to the
-// procedural box (missing/unloadable model, UNKNOWN, or pool exhaustion —
-// all non-fatal, spec §9). The clay remap (setMaterialInstanceAt per
-// primitive) happens HERE, once per acquire, never per frame.
+// Acquires a renderable for a newly-seen track: pulls a FilamentInstance
+// off its class's free list, grows the pool (createInstance(), logged
+// once per class) if the free list is empty and the class hasn't hit
+// kMaxInstancesPerClass, or falls back to the procedural box (missing/
+// unloadable model, UNKNOWN, or pool exhaustion — all non-fatal). The clay
+// remap (setMaterialInstanceAt per primitive) happens here, once per
+// acquire, never per frame.
 void acquire_entity(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& out) {
     out.cls = obj.cls;
     const auto clsIdx = static_cast<uint8_t>(obj.cls);
@@ -147,8 +143,8 @@ void acquire_entity(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& o
             inst = pool.freeList.back();
             pool.freeList.pop_back();
         } else if (pool.pool.size() < kMaxInstancesPerClass) {
-            // Growth past the initial createInstancedAsset() batch (Step 3):
-            // one at a time, amortized, DEBUG-logged once per class.
+            // Growth past the initial createInstancedAsset() batch: one at
+            // a time, amortized, debug-logged once per class.
             inst = r.sharedAssetLoader->createInstance(pool.asset);
             if (inst != nullptr) {
                 pool.pool.push_back(inst);
@@ -210,8 +206,7 @@ void update_entity_transform(VisualRenderer& r, const TrackedObject& obj, Object
     const quatf rot = quatf::fromAxisAngle(float3{0, 0, 1}, static_cast<float>(obj.heading_rad));
     const Vec3 unit = unit_footprint_for(r, e);
     // Perception bbox always wins (stretch, never clip) — a misclassified
-    // object is cosmetic, never a rendering failure (Objects.
-    // DimensionsDriveScaleNotTheClassModel).
+    // object is cosmetic, never a rendering failure.
     const float3 scale{
         static_cast<float>(obj.dimensions.x / (unit.x > 0.0 ? unit.x : 1.0)),
         static_cast<float>(obj.dimensions.y / (unit.y > 0.0 ? unit.y : 1.0)),
@@ -230,16 +225,14 @@ void ensure_shared_arrow_mesh(VisualRenderer& r) {
     r.sharedArrowMesh.ib = make_index_buffer(*r.engine, std::move(indices));
 }
 
-// velocity == {0,0,0} -> no arrow (spec §4.1). Otherwise one entity
-// (created once, recycled by transform alone afterward — never rebuilt)
-// bound to the ONE shared unit-arrow vb/ib, rotated to the velocity
-// heading and scaled in length by (clamped) speed, floating just above the
-// object's own roof.
+// velocity == {0,0,0} -> no arrow. Otherwise one entity (created once,
+// recycled by transform alone afterward — never rebuilt) bound to the one
+// shared unit-arrow vb/ib, rotated to the velocity heading and scaled in
+// length by (clamped) speed, floating just above the object's own roof.
 //
 // ponytail: the arrow doesn't participate in the staleness fade (only the
-// object's own body does) -- no test checks it, and the fade mechanism's
-// stated scope ("that entity's renderable") is naturally read as the
-// object body; revisit if a fading arrow ever shows up as a visual bug.
+// object's own body does); revisit if a fading arrow ever shows up as a
+// visual bug.
 void update_entity_arrow(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& e) {
     filament::TransformManager& tm = r.engine->getTransformManager();
     if (is_zero_vec3(obj.velocity)) {
@@ -281,9 +274,7 @@ void update_entity_arrow(VisualRenderer& r, const TrackedObject& obj, ObjectEnti
 // Content signature for a predicted path -- same shape as map_elements.cpp's
 // chunk_signature() (point count + first/last point; the source data is
 // re-published wholesale each tick, so array identity means nothing, but a
-// literally-unchanged prediction shouldn't re-extrude every frame). A small
-// hash, not the extrusion algorithm itself -- duplicating THIS is not the
-// "second extruder" the plan's duplication finding is about.
+// literally-unchanged prediction shouldn't re-extrude every frame).
 uint64_t path_signature(const Vec3* pts, uint32_t n) {
     auto mix = [](uint64_t seed, uint64_t v) {
         return seed ^ (v + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
@@ -302,12 +293,12 @@ uint64_t path_signature(const Vec3* pts, uint32_t n) {
     return h;
 }
 
-// Predicted-path ribbon: extrude_polyline() (Task 2's shared helper — no
-// second extruder), rebuilt ONLY when the path's content signature changes
-// since the last update (skip-rebuild guard, same spirit as
-// map_elements.cpp's diff cache). Baked directly in WORLD space from the
-// TrackedObject's own absolute predicted_path points, so — unlike the
-// object body — it needs no TransformManager transform at all.
+// Predicted-path ribbon: extrude_polyline() (shared helper — no second
+// extruder), rebuilt only when the path's content signature changes since
+// the last update (skip-rebuild guard, same spirit as map_elements.cpp's
+// diff cache). Baked directly in world space from the TrackedObject's own
+// absolute predicted_path points, so — unlike the object body — it needs
+// no TransformManager transform at all.
 void update_entity_path(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& e) {
     const uint32_t n = std::min(obj.predicted_path_count, detail::kMaxPointsPerMesh);
     if (obj.predicted_path == nullptr || n < 2) {
@@ -318,10 +309,10 @@ void update_entity_path(VisualRenderer& r, const TrackedObject& obj, ObjectEntit
         return;
     }
     const uint64_t sig = path_signature(obj.predicted_path, n);
-    // Signature-only guard, NOT entity-gated: a degenerate path (all points
-    // coincident -> extrude_polyline returns empty, no entity built) must
-    // still be skipped on every later frame while unchanged, or it is
-    // re-extruded ~30x/s forever.
+    // Signature-only guard, not entity-gated: a degenerate path (all
+    // points coincident -> extrude_polyline returns empty, no entity
+    // built) must still be skipped on every later frame while unchanged,
+    // or it is re-extruded ~30x/s forever.
     if (sig == e.pathSignature) return;
     if (e.pathRibbon.entity) destroy_mesh(*r.engine, *r.scene, e.pathRibbon);
 
@@ -330,12 +321,12 @@ void update_entity_path(VisualRenderer& r, const TrackedObject& obj, ObjectEntit
     std::vector<Vec3> ribbon = detail::extrude_polyline(obj.predicted_path, n, kPathHalfWidthM, kPathZLiftM);
     e.pathSignature = sig;
     if (ribbon.empty()) return;
-    // TRUE indexed mesh, ribbon.cpp's pattern (review 2026-08-20): the old
-    // "flatten then identity uint16 indices" shortcut wraps its counter and
-    // never terminates once flattened verts exceed 65535 -- reachable, since
-    // n is only capped at kMaxPointsPerMesh (32000) and flattening
-    // multiplies by ~6. Indexed: 2n distinct verts (<= 64000) + index
-    // values 0..2n-1, both safely under the uint16 ceiling.
+    // True indexed mesh (ribbon.cpp's pattern): a flatten-then-identity-
+    // uint16-indices shortcut would wrap its counter and never terminate
+    // once flattened verts exceed 65535 -- reachable, since n is only
+    // capped at kMaxPointsPerMesh (32000) and flattening multiplies by ~6.
+    // Indexed: 2n distinct verts (<= 64000) + index values 0..2n-1, both
+    // safely under the uint16 ceiling.
     std::vector<uint16_t> idx =
         detail::extrude_polyline_indices(static_cast<uint32_t>(ribbon.size() / 2));
     if (idx.empty()) return;
@@ -348,14 +339,13 @@ void update_entity_path(VisualRenderer& r, const TrackedObject& obj, ObjectEntit
              /*cast_shadows=*/false, /*receive_shadows=*/true);
 }
 
-// Staleness fade — see the plan's "…and the material that can actually do
-// it". Fresh (alpha>=1.0): stays/returns to the shared OPAQUE
+// Staleness fade (see renderer_internal.hpp's ObjectEntity comment for the
+// mechanism). Fresh (alpha>=1.0): stays/returns to the shared opaque
 // objectClassMaterial[cls] template, no per-entity instance. Fading: a
 // per-entity clay_translucent.mat instance, created from
-// r.clayTranslucentMaterial (NEVER MaterialInstance::duplicate() of the
-// opaque template — a duplicate of a clay.mat instance is still clay.mat:
-// opaque, float3 baseColor), seeded from the STORED class tint
-// (objectClassTint — MaterialInstance has no getter), alpha set every call.
+// r.clayTranslucentMaterial (never MaterialInstance::duplicate() of the
+// opaque template), seeded from the stored class tint (objectClassTint —
+// MaterialInstance has no getter), alpha set every call.
 void update_entity_staleness(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& e,
                               double sim_time_sec) {
     const auto alpha = static_cast<float>(detail::SceneBuffer::staleness_alpha(
@@ -428,8 +418,7 @@ void release_object_entity(VisualRenderer& r, ObjectEntity& e) {
     }
     if (e.glInstance != nullptr) {
         // Recycle -- remove from the scene, return to the class free list.
-        // NO destroyInstance() exists in gltfio (Step 3's own comment):
-        // recycled, never destroyed.
+        // No destroyInstance() exists in gltfio: recycled, never destroyed.
         r.scene->removeEntities(e.glInstance->getEntities(), e.glInstance->getEntityCount());
         r.objectClassPools[static_cast<uint8_t>(e.cls)].freeList.push_back(e.glInstance);
         e.glInstance = nullptr;
@@ -445,9 +434,9 @@ void release_object_entity(VisualRenderer& r, ObjectEntity& e) {
     if (e.pathRibbon.entity) destroy_mesh(*r.engine, *r.scene, e.pathRibbon);
 }
 
-// Epic 2 Task 4 (VM-022) Step 5: diffs `s.objects`/`object_count` against
-// `r.objectEntities` (keyed by TrackedObject::id), acquiring/updating/
-// releasing only what changed -- never rebuilt wholesale.
+// Diffs `s.objects`/`object_count` against `r.objectEntities` (keyed by
+// TrackedObject::id), acquiring/updating/releasing only what changed --
+// never rebuilt wholesale.
 void update_objects(VisualRenderer& r, const SceneGraph& s) {
     std::unordered_map<uint32_t, ObjectEntity> next;
     next.reserve(s.object_count);
@@ -461,8 +450,8 @@ void update_objects(VisualRenderer& r, const SceneGraph& s) {
             r.objectEntities.erase(it);
             if (entity.cls != obj.cls) {
                 // Class flip mid-track (footprint-band jitter near a band
-                // boundary): re-acquire so model + tint follow the inference
-                // instead of sticking to the class the track first arrived as.
+                // boundary): re-acquire so model + tint follow the
+                // inference instead of sticking to the original class.
                 release_object_entity(r, entity);
                 entity = {};
                 acquire_entity(r, obj, entity);
@@ -476,8 +465,8 @@ void update_objects(VisualRenderer& r, const SceneGraph& s) {
         update_entity_staleness(r, obj, entity, s.sim_time_sec);
         if (next.count(obj.id)) {
             // Duplicate TrackedObject::id within one publish = malformed
-            // input (spec §9): first wins, and the loser's entity must be
-            // released or its instance leaks in-scene until the class cap.
+            // input: first wins, and the loser's entity must be released
+            // or its instance leaks in-scene until the class cap.
             release_object_entity(r, entity);
         } else {
             next.emplace(obj.id, std::move(entity));
@@ -493,11 +482,11 @@ void update_objects(VisualRenderer& r, const SceneGraph& s) {
     r.objectEntities = std::move(next);
 }
 
-// Epic 2 Task 4 (VM-022): see scene.h's frozen doc comment. Expected stems
+// See scene.h's doc comment. Expected stems
 // car.glb/truck_van.glb/bus.glb/pedestrian.glb/cyclist.glb -- UNKNOWN is
 // deliberately never looked up here, always the procedural box. Any
 // missing/unparseable stem is non-fatal (that class stays on the box);
-// returns the count that actually loaded (0 is legal, spec §9 / Step 0).
+// returns the count that actually loaded (0 is legal).
 uint32_t set_object_model_dir(VisualRenderer* r, const char* dir) {
     if (r == nullptr || dir == nullptr) return 0;
     if (!r->objectClassPools.empty()) {
@@ -533,10 +522,10 @@ uint32_t set_object_model_dir(VisualRenderer* r, const char* dir) {
         file.seekg(0);
         if (!file.read(reinterpret_cast<char*>(bytes.data()), size)) continue;
 
-        // createInstancedAsset (Step 3): ONE parse feeding
-        // kInitialInstancesPerClass placements, not N re-parses per
-        // vehicle. Do NOT call releaseSourceData() -- it kills
-        // createInstance() growth past this initial batch.
+        // createInstancedAsset: one parse feeding kInitialInstancesPerClass
+        // placements, not N re-parses per vehicle. Do not call
+        // releaseSourceData() -- it kills createInstance() growth past
+        // this initial batch.
         std::vector<filament::gltfio::FilamentInstance*> instances(kInitialInstancesPerClass);
         filament::gltfio::FilamentAsset* asset = r->sharedAssetLoader->createInstancedAsset(
             bytes.data(), static_cast<uint32_t>(bytes.size()), instances.data(), instances.size());
@@ -562,9 +551,8 @@ uint32_t set_object_model_dir(VisualRenderer* r, const char* dir) {
 
 }  // namespace mpviz
 
-// Epic 2 Task 4 (VM-022): Filament-free test introspection hooks (see
-// objects_test_hooks.hpp's own comment for why these live here, mirroring
-// ego_test_hooks.hpp's definitions living in ego.cpp).
+// Filament-free test introspection hooks; see objects_test_hooks.hpp for
+// why these live here.
 namespace mpviz::testing {
 
 namespace {
@@ -586,13 +574,13 @@ bool object_in_scene(mpviz::VisualRenderer* r, uint32_t id) {
     if (r == nullptr) return false;
     auto it = r->objectEntities.find(id);
     if (it == r->objectEntities.end()) return false;
-    // NOT FilamentInstance::getRoot() -- that entity "has no matching glTF
+    // Not FilamentInstance::getRoot() -- that entity "has no matching glTF
     // node" (FilamentInstance.h's own doc comment) and is deliberately
-    // absent from getEntities(), so it is never passed to
+    // absent from getEntities(), so it's never passed to
     // scene->addEntities()/removeEntities() and checking it here would
     // read as "never in the scene" even for a correctly-rendering object.
-    // Check one of the actual renderable entities instead -- they're always
-    // added/removed together, so any one of them proves membership.
+    // Check one of the actual renderable entities instead -- they're
+    // always added/removed together, so any one of them proves membership.
     filament::RenderableManager& rm = r->engine->getRenderableManager();
     const utils::Entity ent = first_renderable(rm, it->second);
     return ent && r->scene->hasEntity(ent);

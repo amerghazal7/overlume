@@ -1,9 +1,8 @@
-// map_elements.cpp — Epic 2 Task 2 (VM-024): HD-map lane centerlines,
-// boundaries, crosswalk polygons and (Epic 3 Task 1 / VM-036) road-surface
-// fill on the lit clay pipeline. Per-kind styling driven entirely by theme
-// tokens + a fixed dispatch table (material_for_kind/z_lift_for_kind) --
-// no per-theme branch here, same discipline as renderer.cpp's
-// push_theme_to_scene().
+// map_elements.cpp — HD-map lane centerlines, boundaries, crosswalk
+// polygons, and road-surface fill on the lit clay pipeline. Per-kind
+// styling driven entirely by theme tokens + a fixed dispatch table
+// (material_for_kind/z_lift_for_kind) -- no per-theme branch here, same
+// discipline as renderer.cpp's push_theme_to_scene().
 #include "map_elements.hpp"
 #include "polyline.hpp"
 #include "renderer_internal.hpp"
@@ -43,13 +42,12 @@ uint64_t hash_vec3(const Vec3& v) {
     return h;
 }
 
-// Content signature for one mesh chunk -- NOT keyed by array position: the
-// source topic (/hd_map_local_elements) is a rolling ~50m window
-// republished at 18 Hz, so an element's index in the array is not stable
-// from one set_scene() call to the next, but its own point data is (a lane
-// segment that hasn't left the window yet still has the same points). Two
-// chunks of the SAME polyline (see polyline_chunks()) get distinct
-// signatures because each chunk's own first/last point differs.
+// Content signature for one mesh chunk -- not keyed by array position: the
+// source topic is a rolling ~50m window republished at 18 Hz, so an
+// element's index isn't stable across set_scene() calls, but its own
+// point data is. Two chunks of the same polyline (see polyline_chunks())
+// get distinct signatures because each chunk's own first/last point
+// differs.
 uint64_t chunk_signature(bool is_polygon, const Vec3* pts, uint32_t n) {
     uint64_t h = is_polygon ? 0x1ULL : 0x0ULL;
     h = hash_combine(h, static_cast<uint64_t>(n));
@@ -70,39 +68,29 @@ std::vector<Vertex> to_verts(const std::vector<Vec3>& positions) {
 
 }  // namespace
 
-// Lazy crosswalk hatch (spec §7's "crosswalk reads as a crosswalk", not a
-// new material -- see map_elements.hpp/the plan's own note: "the lazy hatch
-// is geometry, not a new material"). This IS the crosswalk's rendering for
-// the common 4-point quad every recorded crosswalk marker actually is
-// (Task 2 Step 6's fixture note: crosswalk_/crosswalk_stopline_ markers are
-// LINE_STRIP/polygon quads on the wire) -- deliberately NOT a full-polygon
-// solid fill with stripes drawn on top of it (that would be invisible: the
-// stripes and the fill share the one lane-paint MaterialInstance, so an
-// on-top stripe over an identically-colored fill changes zero pixels). The
-// visual differentiation IS the geometry: painted bars with ground visible
-// in the gaps between them. Returns empty for n != 4 -- the caller falls
-// back to triangulate_convex_polygon()'s plain fan fill for any other
-// polygon shape. Declared in polyline.hpp (mpviz::detail), not
-// map_elements.hpp, per Epic 3 Task 1 (VM-036) Step 2: reachable from
-// Filament-free tests the same way extrude_polyline/triangulate_convex_
-// polygon already are.
-// ponytail: bilinear-interpolated stripes between the quad's two LONG
+// Lazy crosswalk hatch: the crosswalk's actual rendering for the common
+// 4-point quad every recorded crosswalk marker is -- deliberately not a
+// full-polygon solid fill with stripes drawn on top (invisible: stripes
+// and fill would share one MaterialInstance, so an on-top stripe over an
+// identically-colored fill changes zero pixels). The visual
+// differentiation is the geometry: painted bars with ground visible in
+// the gaps. Returns empty for n != 4 -- caller falls back to
+// triangulate_convex_polygon()'s plain fan fill for any other shape.
+// Declared in polyline.hpp (mpviz::detail), not map_elements.hpp, so it's
+// reachable from Filament-free tests the same way extrude_polyline/
+// triangulate_convex_polygon already are.
+// ponytail: bilinear-interpolated stripes between the quad's two long
 // edges, not a general convex-polygon clip -- guaranteed to stay inside a
-// convex quad (the only shape this epic's recorded data produces) with far
-// less code than Sutherland-Hodgman; upgrade if a skewed/non-quad crosswalk
-// ever shows a stripe spilling outside its polygon in a golden.
+// convex quad (the only shape this epic's recorded data produces) with
+// far less code than Sutherland-Hodgman; upgrade if a skewed/non-quad
+// crosswalk ever shows a stripe spilling outside its polygon in a golden.
 //
-// User directive 2026-09-08: "crosswalk is rendered wrongly! it's
-// horizontal lines instead of vertical!" -- root cause was picking the
-// quad's SHORT-edge pair as the two rails, which sweeps each bar's LONG
-// axis across the quad's own LONG axis (road width) while stacking bars
-// along the SHORT axis (direction of travel): ladder rungs across the
-// road, the wrong way round. FIX: rails = the LONG-edge pair instead, so
-// each bar's long axis runs along the SHORT (travel) axis and bars stack
-// across the LONG axis (crossing width) -- real zebra orientation. Stripe
-// count is now pitch-derived (kCrosswalkStripePitchM) rather than a fixed
-// 5 -- a fixed count would render absurdly fat bars once a wide crossing
-// is oriented correctly.
+// Rails = the quad's long-edge pair (not the short-edge pair): each bar's
+// long axis runs along the short (travel) axis and bars stack across the
+// long (crossing-width) axis, giving real zebra orientation. Stripe count
+// is pitch-derived (kCrosswalkStripePitchM) rather than fixed -- a fixed
+// count would render absurdly fat bars once a wide crossing is oriented
+// correctly.
 constexpr double kCrosswalkStripePitchM = 1.2;  // target bar+gap pitch along the long axis
 constexpr int kCrosswalkStripesMin = 3;
 constexpr int kCrosswalkStripesMax = 24;
@@ -117,9 +105,9 @@ std::vector<Vec3> detail::build_crosswalk_hatch(const Vec3* pts, uint32_t n, flo
     };
     const double lenA = edge_len(0, 1) + edge_len(2, 3);
     const double lenB = edge_len(1, 2) + edge_len(3, 0);
-    // rail0/rail1: the pair of LONG edges -- lerping along them sweeps
-    // bars across the polygon's SHORT (travel) axis, stacking them along
-    // the LONG (crossing-width) axis.
+    // rail0/rail1: the pair of long edges -- lerping along them sweeps
+    // bars across the polygon's short (travel) axis, stacking them along
+    // the long (crossing-width) axis.
     Vec3 r0a, r0b, r1a, r1b;
     double longAxisLen;
     if (lenA >= lenB) {
@@ -164,20 +152,18 @@ std::vector<Vec3> detail::build_crosswalk_hatch(const Vec3* pts, uint32_t n, flo
 
 namespace {
 
-// Half-width 0.05 -> 0.10 m FULL stripe width, matching what the real
-// publishers ask for via Marker::scale.x (measured on the wire 2026-08-20:
-// boundaries 0.10, centerlines 0.15, stoplines 0.20 -- rviz honors scale.x,
-// and at our previous 0.20 m full width two adjacent-lane boundary lines a
-// few decimetres apart merged into "offset" double bands that rviz showed
-// as crisp separate lines). One constant is a stopgap: per-marker width is
-// a code constant, not a theme/wire field -- a deliberate YAGNI call (Epic
-// 3 Task 1 / VM-036 decision #6's own "per-kind width/z-lift are code
-// constants" note); promote the day a deployment actually asks for it.
+// Half-width 0.05 -> 0.10 m full stripe width, matching real publishers'
+// Marker::scale.x (measured: boundaries 0.10, centerlines 0.15, stoplines
+// 0.20). Don't widen it back: at 0.20 m full width, adjacent-lane
+// boundaries a few decimetres apart merged into "offset" double bands
+// that rviz showed as crisp separate lines.
+// One constant is a stopgap -- per-marker width is a code
+// constant, not a theme/wire field; promote the day a deployment actually
+// asks for it.
 constexpr float kLaneHalfWidthM = 0.05f;  // lane-paint stripe half-width
 constexpr float kLaneZLiftM = 0.02f;      // matches the ego-box/grid z-lift convention
-// Road-fill z-lift (Epic 3 Task 1 / VM-036, decision #1): between ground
-// (0) and OGM's kGradientZLiftM (0.010, ground_grid.cpp) -- the road
-// surface is a static base coat painted directly on the ground, and OGM (a
+// Road-fill z-lift: between ground (0) and OGM's kGradientZLiftM (0.010,
+// ground_grid.cpp) -- the road surface is a static base coat, and OGM (a
 // live perception overlay) must sit above it so a dynamic occupancy
 // reading is never hidden behind the static road tint.
 constexpr float kRoadZLiftM = 0.005f;
@@ -190,12 +176,10 @@ float z_lift_for_kind(MapKind kind) {
     return kind == MapKind::ROAD_SURFACE ? kRoadZLiftM : kLaneZLiftM;
 }
 
-// Per-kind MaterialInstance dispatch (decision #6). STOPLINE/JUNCTION/OTHER
-// have no dedicated token (a deliberate YAGNI call, same decision) and fall
-// back to the pre-existing laneMaterial/palette.lane_paint -- unchanged
-// behaviour for those kinds. ROAD_EDGE got its own dedicated token (user
-// directive 2026-09-08) -- solid yellow-family, see IsBoundaryKind() below
-// for why it never dashes.
+// Per-kind MaterialInstance dispatch. STOPLINE/JUNCTION/OTHER have no
+// dedicated token and fall back to laneMaterial/palette.lane_paint.
+// ROAD_EDGE has its own dedicated token -- solid yellow-family, see
+// IsBoundaryKind() below for why it never dashes.
 filament::MaterialInstance* material_for_kind(VisualRenderer& r, MapKind kind) {
     switch (kind) {
         case MapKind::CENTERLINE:
@@ -214,12 +198,11 @@ filament::MaterialInstance* material_for_kind(VisualRenderer& r, MapKind kind) {
     }
 }
 
-// Epic 3 Task 2 (VM-034): the tint currently pushed into `kind`'s opaque
-// template (mirrors material_for_kind()'s own dispatch field-for-field —
-// same rows, same fallback). Needed because the staleness fade seeds a
-// FRESH clay_translucent.mat instance from this stored value (Filament's
-// MaterialInstance has no getter, the same reason every *MaterialBaseColor
-// field exists at all) rather than the opaque template's own baseColor.
+// The tint currently pushed into `kind`'s opaque template (mirrors
+// material_for_kind()'s dispatch field-for-field). The staleness fade
+// seeds a fresh clay_translucent.mat instance from this stored value
+// (MaterialInstance has no getter) rather than the opaque template's own
+// baseColor.
 detail::Float3 tint_for_kind(const VisualRenderer& r, MapKind kind) {
     switch (kind) {
         case MapKind::CENTERLINE:
@@ -238,13 +221,10 @@ detail::Float3 tint_for_kind(const VisualRenderer& r, MapKind kind) {
     }
 }
 
-// Dash geometry (Epic 3 Task 1 / VM-036, decision #3): moved renderer-side
-// from the adapter (hd_map.cpp), same algorithm and constants, now gated on
-// BOUNDARY kinds instead of centerlines -- the flip debt item 2 asks for.
-// This is a SEPARATE, independent arc-length walker from the adapter's own
+// Dash geometry, gated on BOUNDARY kinds (not centerlines). A separate,
+// independent arc-length walker from the adapter's own
 // ResampleByArcLength (hd_map.cpp's road-fill resample) -- two small
-// functions, one per side of the ABI boundary, not duplication (map_
-// elements.hpp's Files-list note).
+// functions, one per side of the ABI boundary, not duplication.
 constexpr double kDashLenM = 1.5;
 constexpr double kGapLenM = 1.5;
 constexpr double kMinDashLenM = 0.25;  // shorter trailing dash -> dropped
@@ -256,13 +236,11 @@ double dash_dist(const Vec3& a, const Vec3& b) {
 
 // Shared arc-length walk: given `pts`/`n` and its own cumulative-length
 // table `cum` (cum[0]==0, cum[n-1]==total arc length), returns the
-// interpolated point at arc-length `s` (clamped to [0, total]). Extracted
-// (user directive 2026-09-08) out of chop_into_dashes()'s own point_at
-// lambda so build_centerline_dots() below reuses the exact same walk
-// instead of a second copy -- unlike hd_map.cpp's ResampleByArcLength
-// (map_elements.hpp's Files-list note explains why THAT one stays a
-// separate copy across the ABI boundary), this is the same file, same
-// toolchain, so reuse is the correct move, not "two ~15-line functions."
+// interpolated point at arc-length `s` (clamped to [0, total]). Shared by
+// chop_into_dashes() and build_centerline_dots() below instead of each
+// keeping its own copy -- unlike hd_map.cpp's ResampleByArcLength, which
+// stays a separate copy across the ABI boundary, this is the same file,
+// same toolchain, so reuse is the right move here.
 Vec3 point_at_arc_length(const Vec3* pts, uint32_t n, const std::vector<double>& cum, double s) {
     const double total_len = cum.back();
     s = std::clamp(s, 0.0, total_len);
@@ -276,8 +254,8 @@ Vec3 point_at_arc_length(const Vec3* pts, uint32_t n, const std::vector<double>&
     return Vec3{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t};
 }
 
-// Same worked example as the pre-Epic3 adapter-side ChopIntoDashes (10 m
-// polyline, 1.5/1.5 -> dashes at [0,1.5],[3,4.5],[6,7.5],[9,10]).
+// Worked example: a 10 m polyline at 1.5/1.5 -> dashes at
+// [0,1.5],[3,4.5],[6,7.5],[9,10].
 std::vector<std::vector<Vec3>> chop_into_dashes(const Vec3* pts, uint32_t n) {
     std::vector<std::vector<Vec3>> out;
     if (n < 2) return out;
@@ -302,17 +280,14 @@ std::vector<std::vector<Vec3>> chop_into_dashes(const Vec3* pts, uint32_t n) {
     return out;
 }
 
-// Centerline dot guidance (user directive 2026-09-08, post Task 1 candidate
-// review): "circles points along the line instead of a yellow filled line"
-// -- flat filled discs (a triangle fan per dot, kCenterlineDotSegments
-// wedges) spaced by arc length along the polyline, replacing the old solid
-// ribbon strip for kind==CENTERLINE. Radius/spacing are named constants,
-// same "code constant, not a theme/wire field" YAGNI call decision #6 made
-// for per-kind width/z-lift -- promote to a theme field the day a
-// deployment asks to tune it (ribbon.width_m's own history). ponytail:
-// segment count fixed at 10 regardless of camera distance/quality preset --
-// a per-quality LOD would shave triangles at long range, add if a profiling
-// pass ever shows centerline dots costing real frame time.
+// Centerline dots: flat filled discs (a triangle fan per dot,
+// kCenterlineDotSegments wedges) spaced by arc length along the polyline,
+// replacing a solid ribbon strip for kind==CENTERLINE. Radius/spacing are
+// code constants, not theme/wire fields -- promote to a theme field the
+// day a deployment asks to tune it.
+// ponytail: segment count fixed at 10 regardless of camera distance/
+// quality preset -- add a per-quality LOD if a profiling pass ever shows
+// centerline dots costing real frame time.
 constexpr float kCenterlineDotRadiusM = 0.15f;
 constexpr float kCenterlineDotSpacingM = 2.0f;  // arc-length spacing, dot centre to dot centre
 constexpr int kCenterlineDotSegments = 10;
@@ -327,9 +302,9 @@ std::vector<Vec3> build_centerline_dots(const Vec3* pts, uint32_t n, float z_lif
     const double total_len = cum.back();
     if (total_len <= 0.0) return tris;
 
-    // <= (not <): the LAST dot sits exactly at the polyline's own end
-    // point, same "chunk boundaries are inclusive" convention chop_into_
-    // dashes' own s1 clamp already follows.
+    // <= (not <): the last dot sits exactly at the polyline's own end
+    // point, same inclusive-boundary convention chop_into_dashes' s1
+    // clamp follows.
     for (double s = 0.0; s <= total_len; s += kCenterlineDotSpacingM) {
         const Vec3 c = point_at_arc_length(pts, n, cum, s);
         const Vec3 centre{c.x, c.y, c.z + z_lift};
@@ -347,11 +322,11 @@ std::vector<Vec3> build_centerline_dots(const Vec3* pts, uint32_t n, float z_lif
 }
 
 // Shared by both the dashed (boundary) and non-dashed polyline paths --
-// extrude_polyline()'s own 2*n distinct vertices, re-triangulated into a
-// flat sequentially-indexed list via extrude_polyline_indices() (see
-// ribbon.cpp's header for why a TRUE indexed mesh matters at scale; this
-// path stays under the uint16 ceiling by construction, polyline_chunks()
-// already guarantees that upstream).
+// extrude_polyline()'s 2*n distinct vertices, re-triangulated into a flat
+// sequentially-indexed list via extrude_polyline_indices() (see
+// ribbon.cpp for why a true-indexed mesh matters at scale; this path
+// stays under the uint16 ceiling by construction, polyline_chunks()
+// guarantees that upstream).
 std::vector<Vec3> build_ribbon_flat(const Vec3* pts, uint32_t n, float half_width, float z_lift) {
     std::vector<Vec3> ribbon = detail::extrude_polyline(pts, n, half_width, z_lift);
     if (ribbon.empty()) return ribbon;
@@ -361,14 +336,12 @@ std::vector<Vec3> build_ribbon_flat(const Vec3* pts, uint32_t n, float half_widt
     return flat;
 }
 
-// Road-surface fill (Epic 3 Task 1 / VM-036, decision #5): zips the
-// adapter's two-rail encoding (point_count == 2*kRoadFillSamples;
-// points[0..n) left rail, points[n..2n) right rail, index-parallel by
-// station) into a triangle strip. No polygon-clipping code, no resampling
-// here -- the adapter already resampled both rails to the same fixed
-// station count, so this is a plain zip. Malformed guard: fewer than 4
-// points or an odd point_count (can't split evenly into two rails) yields
-// an empty strip -- silently dropped, not malformed (spec §9).
+// Road-surface fill: zips the adapter's two-rail encoding (points[0..n)
+// left rail, points[n..2n) right rail, index-parallel by station) into a
+// triangle strip. No polygon-clipping or resampling here -- the adapter
+// already resampled both rails to the same station count, so this is a
+// plain zip. Fewer than 4 points or an odd point_count (can't split
+// evenly into two rails) yields an empty strip -- silently dropped.
 std::vector<Vec3> build_road_strip(const Vec3* pts, uint32_t point_count, float z_lift) {
     std::vector<Vec3> tris;
     if (point_count < 4 || point_count % 2 != 0) return tris;
@@ -393,26 +366,18 @@ std::vector<Vec3> build_road_strip(const Vec3* pts, uint32_t point_count, float 
     return tris;
 }
 
-// Staleness fade (Epic 3 Task 2 / VM-034) — the exact per-entity
-// clay_translucent.mat MaterialInstance-swap mechanism objects.cpp's
-// update_entity_staleness()/alert_polygons.cpp's rebind_slot_material()
-// already established (see the Epic 2 plan's "…and the material that can
-// actually do it"), specialized for a single-mesh slot the same way
-// alert_polygons.cpp's rebind_slot_material() is: fresh (alpha>=1.0) stays
-// on the shared OPAQUE per-kind template (material_for_kind()), no
-// per-entity instance; fading swaps to a clay_translucent.mat instance
-// seeded from tint_for_kind()'s stored tint, alpha set every call.
+// Staleness fade: the same per-entity clay_translucent.mat
+// MaterialInstance-swap mechanism as objects.cpp/alert_polygons.cpp (see
+// renderer_internal.hpp's Mesh::fadeInstance comment) -- fresh (alpha>=1.0)
+// stays on the shared opaque per-kind template (material_for_kind());
+// fading swaps to a clay_translucent.mat instance seeded from
+// tint_for_kind()'s stored tint.
 //
-// `ego_valid=false` (Epic 2 gate finding, the ego-invalid map cosmetic —
-// renderer.cpp:1458-1470's update_ground_grid_transform() snaps the
-// ego-following ground/grid patch to the world origin whenever
-// ego.valid==0, but update_map_elements() had no matching gate at all, so
-// real map geometry kept rendering against an origin-snapped ground) drives
-// alpha to 0 via this SAME fade path, multiplying staleness down to zero
-// exactly like alert_polygons.cpp's kAlertSeverityAlpha*staleness — not a
-// second mechanism, and not skip-and-freeze (which would leave the LAST
-// valid frame's geometry at full opacity forever, the identical bug one
-// frame later).
+// `ego_valid=false` drives alpha to 0 via this same fade path (the
+// ego-following ground/grid patch snaps to the world origin when
+// ego.valid==0, so map geometry must fade out with it) -- not a second
+// mechanism, and not skip-and-freeze, which would leave the last valid
+// frame's geometry at full opacity forever.
 void apply_map_element_staleness(VisualRenderer& r, Mesh& mesh, MapKind kind,
                                   double last_update_sec, double sim_time_sec, bool ego_valid) {
     if (!mesh.entity) return;
@@ -446,24 +411,21 @@ void apply_map_element_staleness(VisualRenderer& r, Mesh& mesh, MapKind kind,
 
 }  // namespace
 
-// Epic 3 Task 2 (VM-034): the HD-map category now fades via the one shared
-// staleness_alpha() path every other category uses (apply_map_element_
-// staleness(), above) — closes Epic 2's stated deviation ("the HD-map
-// category pops, it does not fade", epic2 plan lines 228-238). This
-// function still renders whatever the last set_scene() call handed it; the
-// fade is applied per-mesh, right after each is adopted or (re)built, below.
+// The HD-map category fades via the one shared staleness_alpha() path
+// every other category uses (apply_map_element_staleness(), above). This
+// function renders whatever the last set_scene() call handed it; the fade
+// is applied per-mesh, right after each is adopted or (re)built, below.
 void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
     std::unordered_map<uint64_t, Mesh> next;
     next.reserve(r.mapElementMeshes.size());
 
-    // Epic 3 Task 2 (VM-034): `kind`/`last_update_sec` are the source
-    // MapElement's own — every chunk/dash of one element shares them — and
-    // drive the staleness-fade pass applied at the end, below, on BOTH the
-    // adopt path and the freshly-built path (not just one), the same way
-    // every other category's per-frame diff pass re-evaluates staleness on
-    // every live entity regardless of whether ITS geometry changed this
-    // frame. `s.ego.valid` is read directly (this lambda already captures
-    // `s` by reference) — not threaded through as its own parameter.
+    // `kind`/`last_update_sec` are the source MapElement's own -- every
+    // chunk/dash of one element shares them -- and drive the
+    // staleness-fade pass applied at the end, below, on both the adopt
+    // path and the freshly-built path, the same way every category
+    // re-evaluates staleness on every live entity regardless of whether
+    // its geometry changed this frame. `s.ego.valid` is read directly
+    // (this lambda already captures `s` by reference).
     auto adopt_or_build = [&](uint64_t key, filament::MaterialInstance* material, MapKind kind,
                                double last_update_sec, auto build_fn) {
         auto it = r.mapElementMeshes.find(key);
@@ -471,20 +433,20 @@ void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
             next.emplace(key, std::move(it->second));
             r.mapElementMeshes.erase(it);
         } else {
-            // Epic 3 Task 1 (VM-036) Step 7: this IS the cache-miss branch
-            // Epic 2's untested "cached, no per-frame rebuild" AC needs a
-            // counter for -- incremented here, not after build_fn() runs, so
-            // an empty-result build (malformed geometry) still counts as an
+            // The cache-miss branch mapElementRebuildCount counts --
+            // incremented here, not after build_fn() runs, so an
+            // empty-result build (malformed geometry) still counts as an
             // attempted rebuild, not a silent no-op.
             ++r.mapElementRebuildCount;
             std::vector<Vec3> positions = build_fn();
             if (positions.empty()) return;
             std::vector<Vertex> verts = to_verts(positions);
-            // Flat sequential indexing lives under the uint16 index ceiling.
-            // Today's builders stay well below it (lanes chunked, crosswalks
-            // tiny); this guard turns a would-be infinite loop (a uint16_t
-            // counter WRAPS at 65536 and never reaches a larger verts.size() --
-            // see ribbon.cpp's header, review 2026-08-20) into a loud drop.
+            // Flat sequential indexing stays under the uint16 index
+            // ceiling. Today's builders stay well below it (lanes
+            // chunked, crosswalks tiny); this guard turns a would-be
+            // infinite loop (a uint16_t counter wraps at 65536 and never
+            // reaches a larger verts.size() -- see ribbon.cpp) into a
+            // loud drop.
             // ponytail: flat + guard; convert to ribbon.cpp's true-indexed
             // pattern if a real >10k-point map element ever shows up.
             if (verts.size() > 65535) {
@@ -514,8 +476,8 @@ void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
         const float z_lift = z_lift_for_kind(e.kind);
 
         if (e.kind == MapKind::ROAD_SURFACE) {
-            // Two-rail encoding (decision #5) -- never is_polygon, never
-            // dashed, its own triangulation entirely.
+            // Two-rail encoding -- never is_polygon, never dashed, its
+            // own triangulation entirely.
             const uint64_t key = chunk_signature(false, e.points, e.point_count);
             adopt_or_build(key, material, e.kind, e.last_update_sec,
                            [&]() { return build_road_strip(e.points, e.point_count, z_lift); });
@@ -527,18 +489,17 @@ void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
                     hatch = detail::build_crosswalk_hatch(e.points, e.point_count, z_lift);
                 }
                 if (!hatch.empty()) return hatch;
-                // Not a hatched crosswalk quad -- no safe hatch reading;
-                // fall back to a plain solid fan fill so the polygon still
-                // renders as SOMETHING rather than nothing.
+                // Not a hatched crosswalk quad -- fall back to a plain
+                // solid fan fill so the polygon still renders as
+                // something rather than nothing.
                 return detail::triangulate_convex_polygon(e.points, e.point_count, z_lift);
             });
         } else if (IsBoundaryKind(e.kind)) {
-            // Dashing (decision #3): moved here from the adapter, now
-            // gated on LEFT_BOUNDARY/RIGHT_BOUNDARY instead of centerline
-            // -- CENTERLINE falls through to its own dot-disc path below;
-            // ROAD_EDGE falls through to the plain solid polyline path
-            // further below (user directive 2026-09-08: the road's outer
-            // edge is SOLID, never dashed -- it isn't a BOUNDARY kind).
+            // Dashing, gated on LEFT_BOUNDARY/RIGHT_BOUNDARY -- CENTERLINE
+            // falls through to its own dot-disc path below; ROAD_EDGE
+            // falls through to the plain solid polyline path further
+            // below (the road's outer edge is solid, never dashed -- it
+            // isn't a BOUNDARY kind).
             for (auto& dash : chop_into_dashes(e.points, e.point_count)) {
                 for (auto [a, b] : detail::polyline_chunks(static_cast<uint32_t>(dash.size()))) {
                     const uint32_t chunkStart = a;  // structured bindings can't be captured directly
@@ -551,11 +512,10 @@ void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
                 }
             }
         } else if (e.kind == MapKind::CENTERLINE) {
-            // Dot guidance (user directive 2026-09-08): circles along the
-            // line instead of a filled ribbon strip -- chunked the same way
-            // the plain polyline path below is (uint16 index-ceiling guard),
-            // even though a dot-disc mesh is far smaller than a ribbon of
-            // the same point count.
+            // Dots instead of a filled ribbon strip -- chunked the same
+            // way the plain polyline path below is (uint16 index-ceiling
+            // guard), even though a dot-disc mesh is far smaller than a
+            // ribbon of the same point count.
             for (auto [a, b] : detail::polyline_chunks(e.point_count)) {
                 const uint32_t n = b - a;
                 const Vec3* chunkPts = e.points + a;

@@ -52,11 +52,9 @@ import sys
 import time
 
 OUT_W, OUT_H = 160, 120
-# Default set_theme() transition_sec (mpviz::set_theme's 0.0 -> 0.8s default,
-# scene.h) + margin for the node's own 33ms timer tick + GPU scheduling
-# jitter on a box that may also be running the live CARLA sim (project
-# environment note: tolerate GPU contention in timing checks, never assume
-# an idle GPU).
+# Default set_theme() transition_sec (mpviz::set_theme's 0.8s default, see
+# scene.h) + margin for the node's 33ms tick + GPU scheduling jitter (may
+# be sharing the box with the live CARLA sim -- never assume an idle GPU).
 TRANSITION_SEC = 0.8
 WAIT_MARGIN_SEC = 2.0
 # A single timer tick is 33ms; the AC is "no frame drop > 1 tick" (~66ms at
@@ -65,9 +63,8 @@ WAIT_MARGIN_SEC = 2.0
 # stall -- 1.0s was too loose to catch anything but a multi-second wedge.
 MAX_FRAME_GAP_SEC = 0.15
 
-# This file lives at cuda/src/ros_apps/src/micropilot_visualization_node/test/
-# -- 6 levels up is the true repo root (matches smoke_test.py's 5-levels-up
-# to CUDA_ROOT in the same directory, one level short of the repo root).
+# 6 levels up from this file is the repo root (see smoke_test.py's
+# 5-levels-up to CUDA_ROOT for the analogous offset).
 REPO_ROOT = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "..", ".."))
 CUDA_ROOT = os.path.join(REPO_ROOT, "cuda")

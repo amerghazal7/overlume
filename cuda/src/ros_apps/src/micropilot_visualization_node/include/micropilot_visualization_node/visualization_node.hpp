@@ -70,16 +70,15 @@ private:
     void timer_callback();
     void teardown_active();
     void destroy_renderer_if_any();
-    // Epic 3 Task 2 (VM-034) Step 0: gathers every subscribed row's
-    // AdapterStats (hd_map/dynamic_objects/path/ogm/collision/generic_marker
-    // -- NOT tf_axes_rows_, a PRODUCER with no topic/stats of its own) into
-    // mpviz_node::BuildDiagnostics(), stamps it, and publishes on
-    // ~/diagnostics. Called every tick regardless of mode (Step 0's own AC:
-    // "diagnostics shows per-topic age... and render_ms"), same "ingest
-    // continues regardless of mode" philosophy as sim_clock_sec_.
+    // Gathers every subscribed row's AdapterStats (hd_map/dynamic_objects/
+    // path/ogm/collision/generic_marker -- NOT tf_axes_rows_, a PRODUCER
+    // with no topic/stats of its own) into mpviz_node::BuildDiagnostics(),
+    // stamps it, and publishes on ~/diagnostics. Called every tick
+    // regardless of mode, same "ingest continues regardless of mode"
+    // philosophy as sim_clock_sec_ below.
     void publish_diagnostics();
 
-    // ── virtual-camera presets / eased switching (plan Task 5 / VM-013) ──────
+    // ── virtual-camera presets / eased switching (VM-013) ──────
     // Extracted into its own class (vcam.hpp/vcam.cpp) — owns the preset
     // table, the src_/dst_ tween, and the ~/set_virtual_cam service +
     // ~/set_look subscription. Still the same EGO-RELATIVE OFFSET frame;

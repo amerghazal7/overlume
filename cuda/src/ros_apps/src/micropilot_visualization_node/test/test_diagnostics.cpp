@@ -1,7 +1,7 @@
-// test_diagnostics.cpp — Epic 3 Task 2 (VM-034) Step 0. BuildDiagnostics() is
-// a pure data transform (diagnostics.hpp's own header comment) -- no ROS
-// node, no clock, no fixture -- so these are plain value-in/value-out
-// assertions on diagnostic_msgs::msg::DiagnosticArray.
+// test_diagnostics.cpp — BuildDiagnostics() is a pure data transform
+// (diagnostics.hpp's own header comment) -- no ROS node, no clock, no
+// fixture -- so these are plain value-in/value-out assertions on
+// diagnostic_msgs::msg::DiagnosticArray.
 #include "micropilot_visualization_node/diagnostics.hpp"
 
 #include <gtest/gtest.h>
@@ -58,8 +58,6 @@ TEST(Diagnostics, ValuesCarryEveryAdapterStatsCounterVerbatim)
     // dropped_by_rule stays a SEPARATE counter from dropped_malformed
     // (adapter_stats.hpp's own header comment) -- both must be present and
     // must carry their own distinct value, not one folded into the other.
-    // "verbatim" means every AdapterStats field, msgs included -- this test's
-    // name used to claim that coverage while never checking msgs at all.
     EXPECT_EQ(find("msgs"), "40");
     EXPECT_EQ(find("dropped_malformed"), "1");
     EXPECT_EQ(find("dropped_stale"), "2");

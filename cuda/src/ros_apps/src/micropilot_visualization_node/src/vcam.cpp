@@ -1,12 +1,10 @@
 /** @file vcam.cpp
- *  @brief Virtual-camera presets + eased tween switching (plan Task 5 / VM-013).
+ *  @brief Virtual-camera presets + eased tween switching.
  *
- *  Bodies moved verbatim from visualization_node.cpp — ported originally from
- *  micropilot_rendering_node/src/rendering_node.cpp's smoothstep()/
- *  advance_tween() (float precision preserved — see LookPoint's doc comment
- *  in vcam.hpp for why). This extraction changes zero math (plan Task 5
- *  reality check + Step 2: "a byte-diff of the tween math against the
- *  pre-refactor version should show zero changes").
+ *  Ported from micropilot_rendering_node/src/rendering_node.cpp's
+ *  smoothstep()/advance_tween() (float precision preserved — see
+ *  LookPoint's doc comment in vcam.hpp for why). Math unchanged from the
+ *  pre-extraction version.
  */
 
 #include "micropilot_visualization_node/vcam.hpp"
@@ -31,7 +29,7 @@ float smoothstep(float s)
 Vcam::Vcam(rclcpp_lifecycle::LifecycleNode* node, const mpviz::CameraPose& seed_pose)
     : pose_(seed_pose), logger_(node->get_logger()), clock_(node->get_clock())
 {
-    // ── virtual-camera presets (plan Task 5) ─────────────────────────────────
+    // ── virtual-camera presets ───────────────────────────────────────────────
     // Preset 1 ("config") is the just-declared virtual_pose, expressed
     // directly as a look-point (no R/t derivation needed here — unlike
     // rendering_node's CUDA camera, mpviz::CameraPose already IS eye/target).
@@ -49,7 +47,7 @@ Vcam::Vcam(rclcpp_lifecycle::LifecycleNode* node, const mpviz::CameraPose& seed_
     tween_t_ = 1.0;  // start settled on the config preset
     active_preset_ = 1;
 
-    // ── vcam control surface (plan Task 5 / spec §6) ─────────────────────────
+    // ── vcam control surface (spec §6) ───────────────────────────────────────
     // Same message/service contracts as rendering_node's, under this node's
     // own namespace — the WS bridge fans commands out to both.
     set_vcam_srv_ = node->create_service<SetVirtualCam>(

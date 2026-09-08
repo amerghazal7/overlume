@@ -1,5 +1,5 @@
 /** @file test_path_adapter.cpp
- *  @brief PathAdapter tests (Epic 2 Task 5 / VM-023).
+ *  @brief PathAdapter tests.
  */
 #include "micropilot_visualization_node/adapters/path.hpp"
 
@@ -74,10 +74,10 @@ TEST(PathAdapter, BehaviorPathHeadingDerivedFromPointsNotOrientation)
     {
         EXPECT_DOUBLE_EQ(r.points[i].x, msg.poses[i].pose.position.x);
         EXPECT_DOUBLE_EQ(r.points[i].y, msg.poses[i].pose.position.y);
-        // flatten_z is ON by default (user directive 2026-08-20, 2D HD-map
-        // plane -- see frame_transform.hpp): stored z is 0 regardless of
-        // the recorded pose z. HdMapAdapter.FlattenZOffPreservesPublisherZ
-        // covers the configurable off-path.
+        // flatten_z is ON by default (2D HD-map plane; see
+        // frame_transform.hpp): stored z is 0 regardless of the recorded
+        // pose z. HdMapAdapter.FlattenZOffPreservesPublisherZ covers the
+        // configurable off-path.
         EXPECT_DOUBLE_EQ(r.points[i].z, 0.0);
     }
 }
@@ -168,9 +168,8 @@ TEST(PathAdapter, PathChangeReplacesRatherThanAppends)
     ASSERT_EQ(out1.paths.size(), 1u);
     EXPECT_EQ(out1.paths.front().point_count, long_path.poses.size());
 
-    // The real recorded 33-pose /local_vel_path message (review 2026-08-20:
-    // this is the fixture the plan's "803-pose then 33-pose" pairing meant;
-    // real recorded coordinates beat a synthetic straight line).
+    // The real recorded 33-pose /local_vel_path message -- real recorded
+    // coordinates beat a synthetic straight line.
     auto short_path = mpviz_node::testing::load_path("local_vel_path_0.yaml");
     ASSERT_EQ(short_path.poses.size(), 33u);
     a.ingest(short_path, 2.0);

@@ -1,10 +1,10 @@
-// test_alert_polygons.cpp — Epic 2 Task 7 (VM-026): translucent collision
-// alert polygons. Same "no Filament type" boundary as every other
-// tests/*.cpp -- see alert_polygons_test_hooks.hpp.
+// test_alert_polygons.cpp — translucent collision alert polygons. Same
+// "no Filament type" boundary as every other tests/*.cpp -- see
+// alert_polygons_test_hooks.hpp.
 //
-// FIXTURE GAP 4: the five collision-checker topics were silent in the
-// recorded bag -- AlertGolden.SweepPlusPredicted_DarkAdas's scene is
-// entirely synthetic (golden.cpp's make_sweep_and_predicted_alerts()).
+// The five collision-checker topics were silent in the recorded bag --
+// AlertGolden.SweepPlusPredicted_DarkAdas's scene is entirely synthetic
+// (golden.cpp's make_sweep_and_predicted_alerts()).
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
 
@@ -35,11 +35,9 @@ TEST(AlertGolden, SweepPlusPredicted_DarkAdas) {
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    // Synthetic scene (FIXTURE GAP 4: no live collision-checker publisher
-    // exists in the recorded stack -- see
-    // docs/superpowers/plans/2026-08-18-visual-mode-epic2.md, Task 7 Step
-    // 3). Points array kept alive by AlertScene across set_scene()
-    // (golden.cpp's move-only owner pattern).
+    // Synthetic scene: no live collision-checker publisher exists in the
+    // recorded stack. Points array kept alive by AlertScene across
+    // set_scene() (golden.cpp's move-only owner pattern).
     mpviz::testing::AlertScene alerts = mpviz::testing::make_sweep_and_predicted_alerts(/*now=*/10.0);
     mpviz::SceneGraph s{};
     s.sim_time_sec = 10.0;

@@ -1,10 +1,8 @@
 # ribbon_margin_extreme.yaml — test fixture for test_ribbon.cpp's Ribbon.
-# EffectiveHalfWidthClampsToTheHalfWidthFloor (user directive 2026-09-08,
-# ITEM 3: lane-fill margins). margin_local_m is deliberately almost as wide
-# as half of lane_width_m: raw half-width = (3.5 - 2*1.74) / 2 = 0.01, which
-# must clamp UP to ribbon.cpp's kRibbonMinHalfWidthM (0.12), never render a
-# near-zero-width hairline. Values otherwise copied from
-# assets/themes/dark_adas.yaml.
+# EffectiveHalfWidthClampsToTheHalfWidthFloor. margin_local_m is deliberately
+# almost as wide as half of lane_width_m: raw half-width =
+# (3.5 - 2*1.74) / 2 = 0.01, which must clamp UP to ribbon.cpp's
+# kRibbonMinHalfWidthM (0.12), never render a near-zero-width hairline.
 name: ribbon_margin_extreme
 palette:
   ground:      [0.05, 0.06, 0.08]

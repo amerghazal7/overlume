@@ -1,15 +1,10 @@
-# ogm_synthetic.yaml — Epic 2 Task 6 (VM-025). SYNTHETIC, hand-authored
-# (FIXTURE GAP 3: zero OccupancyGrid topics exist in the recorded bag or
-# stack). A tiny 5x2 grid, resolution 0.5m, origin (1.0, 2.0, 0.0).
-#
-# Row 0 (y=0): -1, 0, 50, 100, 127 -- the exact quintet
-# UnknownCellsBecomeTheSentinelNotTwoFiftyFive asserts against: -1 (legal
-# "unknown") and 127 (illegal, out of 0..100) both convert to
-# kUnknownCell=255; 0/50/100 pass through unchanged; exactly one
-# dropped_malformed (127 is the only illegal cell).
-# Row 1 (y=1): all zero -- harmless filler, and the base
-# PartialUpdatePatchesInPlaceWithoutResizing/OutOfBoundsUpdateRectIsRejected
-# patch against (ogm_update_synthetic.yaml).
+# ogm_synthetic.yaml (VM-025). SYNTHETIC, hand-authored -- fixture gap 3:
+# no OccupancyGrid topics exist in the recorded bag. 5x2 grid, resolution
+# 0.5m, origin (1.0, 2.0, 0.0).
+# Row 0 (y=0): -1, 0, 50, 100, 127 -- UnknownCellsBecomeTheSentinelNotTwoFiftyFive
+# asserts: -1 and 127 (illegal) both convert to kUnknownCell=255; 0/50/100
+# pass through unchanged; exactly one dropped_malformed (127).
+# Row 1 (y=1): all zero filler, patched by ogm_update_synthetic.yaml.
 header:
   frame_id: map
   stamp: {sec: 0, nanosec: 0}

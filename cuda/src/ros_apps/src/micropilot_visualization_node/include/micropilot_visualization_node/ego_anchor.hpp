@@ -1,11 +1,10 @@
 #pragma once
 /** @file ego_anchor.hpp
- *  @brief Ego-anchored virtual-camera pose composition (2026-08-19 user
- *  directive). Pulled out of visualization_node.cpp's anonymous namespace
- *  (review finding: the yaw convention already regressed once -- a pi/2
- *  broadside bug caught only by a human on a live frame -- so it needs
- *  automated coverage, which a translation-unit-local function can't get)
- *  so test_ego_anchor.cpp can include and exercise it directly.
+ *  @brief Ego-anchored virtual-camera pose composition. Pulled out of
+ *  visualization_node.cpp's anonymous namespace so test_ego_anchor.cpp can
+ *  include and exercise it directly -- a yaw-convention bug here was once
+ *  caught only by a human on a live frame, which a translation-unit-local
+ *  function can't get automated coverage for.
  */
 
 #include <cmath>
@@ -21,16 +20,15 @@ namespace micropilot::visualization_app
 // defined as if the ego sat at the world origin facing world +X
 // (heading_rad == 0).
 //
-// Concrete case, verified by hand against the node's REAL default offset
-// (virtual_pose param: eye (-4, 0, 3.5), target (2, 0, -0.5)) — the offset
-// frame already looks along +X, i.e. its "forward" IS +X, so kEgoForwardYaw
-// is 0 and offsets rotate by heading_rad directly. heading_rad = 0 (ego
-// facing world +X): rotation = 0, eye stays (-4, 0) = directly behind the
-// ego, target (2, 0) = ahead of it. heading_rad = -pi/2 (facing -Y):
-// rotation -pi/2 puts the eye at (0, +4) — behind an ego driving toward -Y,
-// looking along its heading. (An earlier revision used pi/2, derived from a
-// -Y-facing example offset {0,-8,4} that is NOT this node's default — it
-// framed the ego broadside-on, verified live against the fixture bag.)
+// kEgoForwardYaw = 0: verified against the node's REAL default offset
+// (virtual_pose param: eye (-4, 0, 3.5), target (2, 0, -0.5)) — that offset
+// frame already looks along +X, i.e. its "forward" IS +X, so offsets rotate
+// by heading_rad directly. heading_rad = 0 (ego facing world +X): rotation
+// = 0, eye stays (-4, 0) = directly behind the ego, target (2, 0) = ahead
+// of it. heading_rad = -pi/2 (facing -Y): rotation -pi/2 puts the eye at
+// (0, +4) — behind an ego driving toward -Y, looking along its heading.
+// Not pi/2 — that derives from a -Y-facing example offset {0,-8,4} that is
+// NOT this node's default, and it frames the ego broadside-on.
 constexpr double kEgoForwardYaw = 0.0;
 
 // Yaw-rotate a rig-relative offset pose about +Z by (ego.heading_rad -

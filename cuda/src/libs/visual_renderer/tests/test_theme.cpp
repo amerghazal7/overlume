@@ -1,6 +1,5 @@
-// test_theme.cpp — Epic 1 Task 2 (VM-011): theme system on a real lit
-// pipeline + golden-image harness
-// (docs/superpowers/plans/2026-08-18-visual-mode-epic1.md).
+// test_theme.cpp — theme system on a real lit pipeline + golden-image
+// harness.
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
 
@@ -26,29 +25,12 @@ bool AnyDiffer(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
 
 }  // namespace
 
-// ── palette.ego (user contrast directive 2026-08-20) ────────────────────
-// Originally authored as a cross-theme swap in BOTH directions:
-// dark_adas.yaml's `ego` key authored light_clay's THEN-current ground
-// color and vice versa, so the ego always read against whichever ground it
-// was standing on.
-//
-// ITEM 2 (user directive 2026-08-20, light_clay holistic re-authoring
-// against ref-2) broke the dark_adas -> light_clay half of that swap ON
-// PURPOSE: light_clay.palette.ground moved from the old near-white
-// [0.82, 0.80, 0.76] to a road-toned gray (~[0.58, 0.58, 0.64]) to fix
-// ref-2's value separation, but dark_adas.yaml's `ego` deliberately did NOT
-// follow it -- dark_adas's own shipped goldens (MapGolden.
-// LaneNetworkAtEgoOffset_DarkAdas among them) render dark_adas's ego
-// fallback box in that exact color, and ITEM 2's OWN constraint is "dark
-// goldens must stay green" (ribbons_three_roles_dark_adas is the one
-// stated exception, for an unrelated reason -- ITEM 1's ribbon role
-// split). dark_adas.ego is therefore now its own independently-authored
-// contrast color, not a live mirror of light_clay.ground -- still miles
-// away from dark_adas's own near-black ground, which is all the "pops
-// against its own ground" contract ever required.
-//
-// The light_clay -> dark_adas half is untouched (dark_adas.palette.ground
-// didn't change), so it still holds and is still asserted below.
+// ── palette.ego ──────────────────────────────────────────────────────────
+// light_clay.ego is still a live mirror of dark_adas.ground (cross-theme
+// swap). dark_adas.ego is NOT a mirror of light_clay.ground -- it's now its
+// own independently-authored contrast color, since light_clay's ground
+// moved on and dark_adas's own shipped goldens require its ego fallback
+// box to keep that exact color. Both are asserted below.
 
 TEST(ThemePalette, EgoParsesFromYamlAsCrossThemeSwap) {
     const std::optional<mpviz::detail::Theme> dark =
@@ -75,12 +57,10 @@ TEST(ThemePalette, EgoParsesFromYamlAsCrossThemeSwap) {
 }
 
 TEST(ThemePalette, EgoFallsBackToBuiltinDefaultWhenMissingFromYaml) {
-    // tests/fixtures/themes/sun_dir_a.yaml predates palette.ego and was
-    // deliberately NOT updated to add it (this task's scope) -- proving
-    // `ego` is the one OPTIONAL palette key (theme.cpp's parse(), unlike
-    // every required field which would instead throw and fall the whole
-    // theme back to kFallbackTheme() -- see this test's own has_value()
-    // assertion below, which would fail if it still threw).
+    // sun_dir_a.yaml predates palette.ego and was deliberately not updated
+    // to add it -- proving `ego` is the one OPTIONAL palette key
+    // (theme.cpp's parse()); a required field would instead throw and fall
+    // back to kFallbackTheme(), failing the has_value() assertion below.
     const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
     const std::optional<mpviz::detail::Theme> theme =
         mpviz::detail::load_theme(fixtureDir, "sun_dir_a");
@@ -117,14 +97,13 @@ TEST(ThemePalette, EgoBlendsInOklabAcrossTransition) {
     EXPECT_GT(std::abs(Lmid - Lb), 1e-4f);
 }
 
-// ── palette.ribbon_global/ribbon_local + ribbon.width_m (user directive
-//    2026-08-20, ITEM 1): three new soft-defaulted tokens ─────────────────
+// ── palette.ribbon_global/ribbon_local + ribbon.width_m: soft-defaulted
+//    tokens ───────────────────────────────────────────────────────────────
 
 TEST(ThemePalette, RibbonGlobalLocalAndWidthFallBackToTodaysValuesWhenMissingFromYaml) {
     // sun_dir_a.yaml predates ribbon_global/ribbon_local/the whole `ribbon:`
-    // section and was deliberately NOT updated to add them (same "prove the
-    // soft default, don't retrofit every old fixture" reasoning as palette.
-    // ego's own EgoFallsBackToBuiltinDefaultWhenMissingFromYaml above).
+    // section, same "prove the soft default, don't retrofit every old
+    // fixture" reasoning as EgoFallsBackToBuiltinDefaultWhenMissingFromYaml.
     const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
     const std::optional<mpviz::detail::Theme> theme =
         mpviz::detail::load_theme(fixtureDir, "sun_dir_a");
@@ -191,16 +170,13 @@ TEST(ThemePalette, RibbonWidthLerpsLinearlyAcrossTransition) {
     EXPECT_NEAR(mid.ribbon.width_m, expectedMid, 1e-4f);
 }
 
-// ── ribbon.lane_width_m/margin_{behavior,global,local}_m (user directive
-//    2026-09-08, ITEM 3: lane-fill margins) -- four new soft-defaulted,
-//    linearly-blended scalars ────────────────────────────────────────────
+// ── ribbon.lane_width_m/margin_{behavior,global,local}_m: soft-defaulted,
+//    linearly-blended scalars ─────────────────────────────────────────────
 
 TEST(ThemePalette, RibbonLaneWidthAndMarginsFallBackToTheWidthMSeedWhenMissingFromYaml) {
-    // sun_dir_a.yaml predates lane_width_m/margin_*_m entirely (same "prove
-    // the soft default, don't retrofit every old fixture" reasoning as
-    // every other soft-defaulted token above) and has no `ribbon:` section
-    // at all -- so width_m ALSO falls back to its own 0.24 default, and the
-    // margin default is computed from THAT: (3.5 - 0.24) / 2 == 1.63.
+    // sun_dir_a.yaml has no `ribbon:` section at all, so width_m ALSO falls
+    // back to its own 0.24 default, and the margin default is computed from
+    // THAT: (3.5 - 0.24) / 2 == 1.63.
     const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
     const std::optional<mpviz::detail::Theme> theme =
         mpviz::detail::load_theme(fixtureDir, "sun_dir_a");
@@ -235,11 +211,11 @@ TEST(ThemePalette, RibbonLaneWidthAndMarginsLerpLinearlyAcrossTransition) {
 
 TEST(ThemePalette, ShippedThemesAuthorTheFillLookExplicitly) {
     // Both shipped themes drop the old width_m key and author the fill look
-    // directly (user directive 2026-09-08): lane_width_m 3.5, margins
-    // GLOBAL 0.2 (widest) < LOCAL 0.5 < BEHAVIOR 0.8 (narrowest, on top of
-    // the existing z-stagger) -- proves the shipped YAMLs actually parsed
-    // these explicit values, not silently falling back to the width_m-seed
-    // default (which would instead read 1.63 for every role).
+    // directly: lane_width_m 3.5, margins GLOBAL < LOCAL < BEHAVIOR
+    // (narrowest, on top of the existing z-stagger) -- proves the shipped
+    // YAMLs actually parsed these explicit values, not silently falling
+    // back to the width_m-seed default (which would instead read 1.63 for
+    // every role).
     const std::optional<mpviz::detail::Theme> dark =
         mpviz::detail::load_theme(kThemeDir, "dark_adas");
     const std::optional<mpviz::detail::Theme> light =
@@ -249,8 +225,6 @@ TEST(ThemePalette, ShippedThemesAuthorTheFillLookExplicitly) {
 
     for (const auto* t : {&*dark, &*light}) {
         EXPECT_NEAR(t->ribbon.lane_width_m, 3.5f, 1e-4f);
-        // Widened 2026-09-08 ("make the margins bit bigger by default I
-        // can't clearly see the 3 ribbons stacked when I play the bag").
         EXPECT_NEAR(t->ribbon.margin_global_m, 0.3f, 1e-4f);
         EXPECT_NEAR(t->ribbon.margin_local_m, 0.8f, 1e-4f);
         EXPECT_NEAR(t->ribbon.margin_behavior_m, 1.3f, 1e-4f);
@@ -259,14 +233,13 @@ TEST(ThemePalette, ShippedThemesAuthorTheFillLookExplicitly) {
     }
 }
 
-// ── palette.road/lane_centerline/lane_boundary/crosswalk (Epic 3 Task 1 /
-//    VM-036, decision #6): four new soft-defaulted tokens ─────────────────
+// ── palette.road/lane_centerline/lane_boundary/crosswalk: soft-defaulted
+//    tokens ────────────────────────────────────────────────────────────────
 
 TEST(ThemePalette, RoadLaneCenterlineLaneBoundaryCrosswalkFallBackWhenMissingFromYaml) {
-    // sun_dir_a.yaml predates these four tokens and was deliberately NOT
-    // updated to add them (same "prove the soft default, don't retrofit
-    // every old fixture" reasoning as palette.ego's own
-    // EgoFallsBackToBuiltinDefaultWhenMissingFromYaml above).
+    // sun_dir_a.yaml predates these four tokens, same "prove the soft
+    // default, don't retrofit every old fixture" reasoning as
+    // EgoFallsBackToBuiltinDefaultWhenMissingFromYaml above.
     const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
     const std::optional<mpviz::detail::Theme> theme =
         mpviz::detail::load_theme(fixtureDir, "sun_dir_a");
@@ -289,8 +262,7 @@ TEST(ThemePalette, RoadLaneCenterlineLaneBoundaryCrosswalkFallBackWhenMissingFro
     EXPECT_NEAR(theme->palette.crosswalk.r, theme->palette.lane_paint.r, 1e-4f);
     EXPECT_NEAR(theme->palette.crosswalk.g, theme->palette.lane_paint.g, 1e-4f);
     EXPECT_NEAR(theme->palette.crosswalk.b, theme->palette.lane_paint.b, 1e-4f);
-    // road_edge (user directive 2026-09-08): same soft-default convention,
-    // falls back to lane_paint (the palette.ego precedent).
+    // road_edge: same soft-default convention, falls back to lane_paint.
     EXPECT_NEAR(theme->palette.road_edge.r, theme->palette.lane_paint.r, 1e-4f);
     EXPECT_NEAR(theme->palette.road_edge.g, theme->palette.lane_paint.g, 1e-4f);
     EXPECT_NEAR(theme->palette.road_edge.b, theme->palette.lane_paint.b, 1e-4f);
@@ -391,20 +363,14 @@ TEST(ThemeLoad, BuiltinFallbackMatchesDarkAdasYaml) {
 }
 
 TEST(ClayMaterial, RespondsToLightDirection) {
-    // Two renderers loaded from fixture themes that are byte-for-byte
-    // identical except `sun.direction` (tests/fixtures/themes/sun_dir_{a,b}
-    // .yaml), rendering the same static ground+grid scene from the same
-    // pose, must NOT produce identical pixels -- proves clay.mat actually
-    // responds to the sun's direction, unlike Engine::getDefaultMaterial()
-    // and Epic 0's simple_color.mat (both confirmed lighting-independent,
-    // "Known Epic 0 deviation" in the plan).
-    //
-    // This deliberately does NOT compare two different shipped themes
-    // (dark_adas vs light_clay): those also differ in palette/fog/IBL, so a
-    // completely unlit material rendering two different baseColors would
-    // pass that comparison trivially and prove nothing about lighting (see
-    // epic1 review). Isolating sun.direction as the only variable is what
-    // the plan's Task 2 Step 3 AC actually specifies.
+    // Two renderers loaded from fixture themes byte-for-byte identical
+    // except `sun.direction` (sun_dir_{a,b}.yaml), rendering the same
+    // static ground+grid scene from the same pose, must NOT produce
+    // identical pixels -- proves clay.mat actually responds to the sun's
+    // direction. Deliberately does NOT compare two different shipped
+    // themes (dark_adas vs light_clay): those also differ in palette/fog/
+    // IBL, so a completely unlit material would pass that comparison
+    // trivially and prove nothing about lighting.
     constexpr uint32_t kWidth = 320, kHeight = 240;
     const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
     mpviz::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "sun_dir_a"};
@@ -436,22 +402,14 @@ TEST(ClayMaterial, RespondsToLightDirection) {
 }
 
 TEST(Fog, ColorAffectsRenderedOutput) {
-    // Regression test for the epic1 Task 2 review finding: setFogOptions()
-    // fed the raw 0-1 authored `palette.fog` straight in as `FogOptions::
-    // color`, but that field is scene radiance (Options.h: "a good value is
-    // to use the average of the ambient light"), ~5-6 orders of magnitude
-    // brighter than 0-1 in this scene's photometric units -- making the
-    // token effectively inert (measured: forcing light_clay's fog to pure
-    // red moved a golden's far-field row by <=2/255).
-    //
-    // Two fixtures identical to light_clay -- including its shipped
-    // fog.density (0.008); an inflated density would swamp the domain-scale
-    // bug with sheer extinction and mask a regression -- except `palette.
-    // fog` (black vs. white) must render visibly different mean brightness
-    // once the fog color actually reaches the screen. Measured: unfixed
-    // code moves the mean by <1/255 here; fixed code moves it by ~90/255.
-    // Same "byte-for-byte identical except one field" isolation technique
-    // as ClayMaterial.RespondsToLightDirection above.
+    // Guards setFogOptions() actually feeding `palette.fog` into
+    // `FogOptions::color` (scene radiance, Options.h) rather than leaving
+    // it effectively inert. Two fixtures identical to light_clay (including
+    // its shipped fog.density 0.008 -- an inflated density would mask the
+    // regression with sheer extinction) except `palette.fog` (black vs.
+    // white) must render visibly different mean brightness. Fixed code
+    // moves the mean by ~90/255 here; unfixed by <1/255. Same isolation
+    // technique as ClayMaterial.RespondsToLightDirection above.
     constexpr uint32_t kWidth = 320, kHeight = 240;
     const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
     mpviz::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "fog_color_black"};
@@ -488,17 +446,11 @@ TEST(Fog, ColorAffectsRenderedOutput) {
 }
 
 TEST(Fog, ColorAffectsRenderedOutput_DarkAdas) {
-    // Regression test for the epic1 Task 2 review round 5 finding: the
-    // fixtures above are both derived from light_clay (ibl.intensity 8750)
-    // and so only ever exercised ONE branch of setFogOptions()'s per-theme
-    // color-scale formula. Round 4's kFogAmbientReferenceIntensitySq/
-    // ibl.intensity^2 formula passed the light_clay-only test above while
-    // being dead on dark_adas's own branch (ibl.intensity 256000): measured
-    // directly, applying the exact same technique as the light_clay test to
-    // dark_adas-derived fixtures, round 4's formula moved the mean by only
-    // 5.33 (black=41.37, white=46.70) -- below this same test's own >15.0
-    // liveness bar. This test closes that coverage gap so the shipped
-    // default theme's fog token is actually guarded, not just light_clay's.
+    // Closes a coverage gap: the fixtures in Fog.ColorAffectsRenderedOutput
+    // are both derived from light_clay (ibl.intensity 8750) and only
+    // exercise one branch of setFogOptions()'s per-theme color-scale
+    // formula. This guards dark_adas's own branch (ibl.intensity 256000)
+    // the same way, against the same >15.0 liveness bar.
     constexpr uint32_t kWidth = 320, kHeight = 240;
     const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
     mpviz::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(),
@@ -550,10 +502,10 @@ TEST(ThemeLoad, MissingThemeDir_FallsBackToBuiltinTheme) {
     std::vector<uint8_t> pixels(320u * 240u * 3u);
     mpviz::FrameView view{pixels.data(), 320, 240};
     EXPECT_TRUE(mpviz::render_frame(r, pose, view));
-    // Gate-review addition (2026-08-20, spec §9 minor): false here is the
-    // whole point of theme_assets_loaded() -- a caller-visible signal that
-    // create_renderer() had to substitute the compiled-in fallback, so
-    // callers (visualization_node.cpp's on_configure()) can WARN.
+    // false here is the whole point of theme_assets_loaded() -- a
+    // caller-visible signal that create_renderer() had to substitute the
+    // compiled-in fallback, so callers (visualization_node.cpp's
+    // on_configure()) can WARN.
     EXPECT_FALSE(mpviz::theme_assets_loaded(r));
     mpviz::destroy_renderer(r);
 }
@@ -569,9 +521,9 @@ TEST(ThemeLoad, RealAssetsDir_ThemeAssetsLoadedIsTrue) {
 }
 
 TEST(ThemeGolden, EmptyWorld_DarkAdas) {
-    // quality=1 (medium: FXAA + SSAO half-res) -- the shipped default (see
-    // epic plan's "Conservative perf assumptions"), so the committed golden
-    // matches what Step 7a actually ships, not an arbitrary tier.
+    // quality=1 (medium: FXAA + SSAO half-res) -- the shipped default, so
+    // the committed golden matches what actually ships, not an arbitrary
+    // tier.
     mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
     mpviz::VisualRenderer* r = mpviz::create_renderer(cfg);
     if (r == nullptr) {
@@ -589,22 +541,18 @@ TEST(ThemeGolden, EmptyWorld_DarkAdas) {
         "/tmp/empty_world_dark_adas_actual.png");
     EXPECT_GT(ssim, 0.98);
 
-    // Legibility ACs from Task 2 Step 7a ("clay surfaces read as mid-gray-
-    // ish, not clipped white or crushed black") -- catches the exposure/lux
-    // miscalibration that shipped this theme as an effectively-black frame
-    // (see epic1 review). Bounds are deliberately loose (this is a
-    // legibility floor, not a look-lock -- SSIM above already pins the
-    // exact look).
+    // Legibility floor ("clay surfaces read as mid-gray-ish, not clipped
+    // white or crushed black") -- catches an exposure/lux miscalibration.
+    // Bounds are deliberately loose: this is a floor, not a look-lock --
+    // SSIM above already pins the exact look.
     mpviz::testing::FrameStats stats =
         mpviz::testing::analyze_png("/tmp/empty_world_dark_adas_actual.png");
     EXPECT_GT(stats.mean, 20.0) << "frame reads as crushed black";
     EXPECT_LT(stats.mean, 200.0) << "frame reads as clipped white";
-    // 15, re-measured 2026-08-20: the ground patch widened 20m -> 60m (map
-    // horizon fix), so most of the frame is now uniform far-ground past the
-    // 40m grid-fade end and the user-approved golden legitimately carries 22
-    // distinct levels (was >40 with the 40m patch filling the frame with
-    // fade gradient). A genuinely lost fade/grid collapses to ~2-5 levels,
-    // so the tripwire still fires for the failure it was built to catch.
+    // 15: the golden legitimately carries 22 distinct levels with the
+    // current 60m ground patch; a genuinely lost fade/grid collapses to
+    // ~2-5, so the tripwire still fires for the failure it was built to
+    // catch.
     EXPECT_GT(stats.distinct_levels, 15)
         << "too few distinct luminance levels -- grid-vs-ground contrast and "
            "distance fade aren't visible";
@@ -612,36 +560,19 @@ TEST(ThemeGolden, EmptyWorld_DarkAdas) {
     // backdrop -- regression guard for "sky 10x brighter than ground".
     EXPECT_GT(stats.bottom_third_mean, stats.top_third_mean)
         << "sky backdrop is brighter than the sunlit ground";
-    // dark_adas authors palette.fog == palette.sky (spec §4.3: one 'sky/fog'
-    // token) -- the far-field ground just below the horizon should
-    // therefore read close to the flat sky backdrop, i.e. the ground fades
-    // toward the sky, not into a hard bright band against it (golden.hpp's
-    // FrameStats comment has the "why not exact" caveat). The mean-band
-    // check above (20 < mean < 200) can't express this: a fog scale that's
-    // right for one theme and ~10-15x too hot for this one still lands
-    // inside that band (epic1 Task 2 fog-scale review round).
+    // dark_adas authors palette.fog == palette.sky, so the far-field ground
+    // just below the horizon should read close to the flat sky backdrop
+    // (golden.hpp's FrameStats comment has the "why not exact" caveat). The
+    // mean-band check above can't express this: a fog scale ~10-15x too hot
+    // still lands inside that band.
     //
-    // Guard loosened 30.0 -> 40.0 (epic1 Task 2 review round 7): round 6's
-    // color-scale fix (renderer.cpp's setFogOptions comment) plus the
-    // plan's authored density (0.015, restored in dark_adas.yaml -- rounds
-    // 5/6 had raised it to 0.10 then 0.03 specifically to buy this guard
-    // headroom while a *different* bug, ~1.71x too-bright fog color, was
-    // still live) together measure a real, honestly-live gap of ~37.3 here,
-    // not the ~31 a stale measurement against golden.cpp's now-corrected
-    // [50,60) horizon-row band once suggested. That residual isn't a color/
-    // density miscalibration to chase away: dark_adas's ground plane is
-    // only 40m across (kGroundHalfExtent), so even the farthest on-plane
-    // ray never reaches the near-total fog extinction a true infinite
-    // ground would give -- full convergence to sky-row-exact isn't
-    // reachable by either knob, and spending density to force it shut is
-    // the exact mistake this round undoes. Loosened again 40.0 -> 45.0
-    // (Epic 3 Task 1 / VM-036 debt item d): review verified there is no
-    // shared bound to "split" between the two themes (dark's 40.0 and
-    // light's 55.0 below are, and were before 3b3ce2c, two independent
-    // EXPECT_LT calls) -- the debt item's only remaining, optional piece is
-    // this one-line parity-of-headroom tweak. Still a real regression
-    // guard (round 4's un-scaled fog measured a ~139-level gap; this would
-    // still catch that) without demanding the physically unreachable.
+    // 45.0: dark_adas's ground plane is only 40m across (kGroundHalfExtent),
+    // so even the farthest on-plane ray never reaches near-total fog
+    // extinction -- full convergence to sky-row-exact isn't physically
+    // reachable, and the honest live gap measures ~37.3. An un-scaled fog
+    // color bug measured a ~139-level gap, so this bound is still a real
+    // regression guard. See renderer.cpp's setFogOptions comment for the
+    // color-scale fix this depends on.
     EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 45.0)
         << "far-field ground (" << stats.horizon_row_mean << ") doesn't fade "
            "into the sky (" << stats.sky_row_mean << ") -- fog is over/under-scaled";
@@ -671,15 +602,12 @@ TEST(ThemeGolden, EmptyWorld_LightClay) {
     EXPECT_GT(stats.distinct_levels, 40)
         << "too few distinct luminance levels -- grid-vs-ground contrast and "
            "distance fade aren't visible";
-    // Same "fog == sky" convergence guard as EmptyWorld_DarkAdas above --
-    // light_clay also authors palette.fog == palette.sky. 55, re-measured
-    // 2026-08-20 (same precedent as dark's own loosening, renderer.cpp fog
-    // history): the ref-2-targeted light re-authoring deliberately runs
-    // near-zero fog density (0.0015 -- ref-2 is crisp to the horizon, and
-    // 0.008 drowned the whole scene), so the 60m patch's honest residual
-    // horizon/sky gap measures ~44.6. Manufacturing fog mass to force it
-    // under 30 is exactly the mistake the dark theme's history documents.
-    // A genuinely over/under-scaled fog color still trips this at ~55+.
+    // Same "fog == sky" convergence guard as EmptyWorld_DarkAdas above.
+    // 55.0: light_clay deliberately runs a near-zero fog density (0.0015 --
+    // ref-2 is crisp to the horizon), so the honest residual horizon/sky
+    // gap measures ~44.6; manufacturing fog mass to force it lower would be
+    // the mistake dark_adas's own guard avoids. A genuinely over/
+    // under-scaled fog color still trips this at ~55+.
     EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 55.0)
         << "far-field ground (" << stats.horizon_row_mean << ") doesn't fade "
            "into the sky (" << stats.sky_row_mean << ") -- fog is over/under-scaled";

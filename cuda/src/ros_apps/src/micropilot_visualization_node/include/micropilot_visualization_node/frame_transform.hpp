@@ -25,8 +25,8 @@ namespace micropilot::visualization_app
 class FrameTransformer
 {
 public:
-    // flatten_z (default ON -- user directive 2026-08-20): the HD map is a
-    // 2D plane today, so publisher-supplied z (dynamic-object bbox centers,
+    // flatten_z (default ON): the HD map is a 2D plane today, so
+    // publisher-supplied z (dynamic-object bbox centers,
     // live TF altitude) renders as floating geometry. Every adapter zeroes
     // the z of the points it STORES while this is true (the transform math
     // itself is untouched). Flip to false when the HD-map layer grows real

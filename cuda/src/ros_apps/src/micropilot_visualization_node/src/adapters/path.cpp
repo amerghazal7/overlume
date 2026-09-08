@@ -40,9 +40,8 @@ void PathAdapter::ingest(const nav_msgs::msg::Path& msg, double sim_time_sec)
         return;
     }
 
-    // ONE lookup for the whole message (epic2 plan, "Frames") -- same
-    // reasoning as every other adapter, from the Path's own header (every
-    // pose in the recorded bag shares the Path's header frame/stamp).
+    // ONE lookup for the whole message; same reasoning as every other adapter
+    // -- every pose in the recorded bag shares the Path's header frame/stamp.
     tf2::Transform xform;
     if (!tf_.lookup(msg.header, xform))
     {
@@ -59,10 +58,9 @@ void PathAdapter::ingest(const nav_msgs::msg::Path& msg, double sim_time_sec)
     {
         const auto& p = ps.pose.position;
         const tf2::Vector3 v = xform * tf2::Vector3(p.x, p.y, p.z);
-        // NaN checked on the TRANSFORMED point (hd_map.cpp's convention,
-        // review 2026-08-20): a NaN-bearing /tf entry must also drop the
-        // path here and count it, not leak NaN into the library for
-        // extrude_polyline to silently truncate.
+        // NaN checked on the TRANSFORMED point (hd_map.cpp's convention): a
+        // NaN-bearing /tf entry must also drop the path here and count it,
+        // not leak NaN into the library for extrude_polyline to silently truncate.
         if (HasNan(v.x()) || HasNan(v.y()) || HasNan(v.z()))
         {
             ++stats_.dropped_malformed;  // NaN pose/TF -- drop the whole path
@@ -72,8 +70,8 @@ void PathAdapter::ingest(const nav_msgs::msg::Path& msg, double sim_time_sec)
         next.push_back({v.x(), v.y(), tf_.flatten_z() ? 0.0 : v.z()});
     }
 
-    // REPLACES the stored path wholesale, never appends/merges (Task 5
-    // Step 1, PathChangeReplacesRatherThanAppends).
+    // REPLACES the stored path wholesale, never appends/merges
+    // (PathChangeReplacesRatherThanAppends).
     points_ = std::move(next);
     last_update_sec_ = sim_time_sec;
     stats_.last_msg_sec = sim_time_sec;

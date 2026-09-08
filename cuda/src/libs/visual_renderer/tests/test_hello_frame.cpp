@@ -1,11 +1,9 @@
-// test_hello_frame.cpp — Epic 0 Task 2 failing-first gtest
-// (docs/superpowers/plans/2026-08-18-visual-mode.md).
-//
-// Renders one frame from the node's default pose and checks that something
-// plausible came out: the buffer isn't all-zero, and the sky (top rows,
-// nothing drawn there) is visibly different from the ground (bottom rows,
-// the lit ground plane). GTEST_SKIP()s cleanly on machines with no GPU/EGL
-// device instead of failing, matching the repo's GPU-test convention.
+// test_hello_frame.cpp — renders one frame from the node's default pose
+// and checks that something plausible came out: the buffer isn't all-zero,
+// and the sky (top rows, nothing drawn there) is visibly different from
+// the ground (bottom rows, the lit ground plane). GTEST_SKIP()s cleanly on
+// machines with no GPU/EGL device instead of failing, matching the repo's
+// GPU-test convention.
 #include "visual_renderer/api.h"
 
 #include <EGL/egl.h>

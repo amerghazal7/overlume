@@ -1,11 +1,10 @@
-// test_ground_grid.cpp — Epic 2 Task 6 (VM-025): OGM occupancy grids as
-// theme-colored ground textures with in-place partial updates. Same "no
-// Filament type" boundary as every other tests/*.cpp -- see
-// ground_grid_test_hooks.hpp.
+// test_ground_grid.cpp — OGM occupancy grids as theme-colored ground
+// textures with in-place partial updates. Same "no Filament type" boundary
+// as every other tests/*.cpp -- see ground_grid_test_hooks.hpp.
 //
-// FIXTURE GAP 3 (epic2 plan, Task 6): zero OccupancyGrid topics exist in
-// the recorded bag or stack. Every scene in this file (including the
-// golden) is SYNTHETIC -- see golden.hpp's make_two_layer_grids().
+// Zero OccupancyGrid topics exist in the recorded bag or stack. Every
+// scene in this file (including the golden) is synthetic -- see
+// golden.hpp's make_two_layer_grids().
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
 
@@ -36,10 +35,10 @@ TEST(GroundGridGolden, TwoLayers_OffroadLightClay) {
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    // Synthetic two-layer OGM scene (FIXTURE GAP 3: no OccupancyGrid
-    // publisher exists in the recorded stack -- see golden.hpp's
-    // make_two_layer_grids()). Cell storage kept alive by GridScene across
-    // set_scene() (golden.cpp's move-only owner pattern).
+    // Synthetic two-layer OGM scene (no OccupancyGrid publisher exists in
+    // the recorded stack -- see golden.hpp's make_two_layer_grids()). Cell
+    // storage kept alive by GridScene across set_scene() (golden.cpp's
+    // move-only owner pattern).
     mpviz::testing::GridScene grids = mpviz::testing::make_two_layer_grids(/*now=*/10.0);
     mpviz::SceneGraph s{};
     s.sim_time_sec = 10.0;
@@ -123,14 +122,12 @@ TEST(GroundGrid, DimensionChangeRecreatesTheTexture) {
     const uint32_t genBefore = mpviz::testing::ground_grid_texture_generation(r, 0);
     ASSERT_EQ(genBefore, 1u);  // first-ever build
 
-    // A dims change (a new full grid at a different width/height -- real
-    // OGM semantics allow this only via a fresh full-grid message, never a
-    // partial _updates patch, see ogm.hpp) must destroy + recreate, never
-    // leak the old texture. Checked via a generation counter, NOT pointer
-    // comparison -- Filament's fixed-size Texture wrapper objects can (and,
-    // measured empirically writing this test, DO) get the identical address
-    // back from destroy()-then-build(), so address non-equality is not a
-    // reliable proxy for "a new object was actually built" here.
+    // A dims change (a new full grid, per ogm.hpp only via a fresh
+    // full-grid message, never a partial _updates patch) must destroy +
+    // recreate, never leak the old texture. Checked via a generation
+    // counter, not pointer comparison -- Filament's Texture wrapper can
+    // (measured empirically) return the identical address from
+    // destroy()-then-build().
     std::vector<uint8_t> cellsB(8 * 8, 50);
     layer.width_cells = 8;
     layer.height_cells = 8;

@@ -1,9 +1,9 @@
 /** @file test_scene_layout.cpp
  *  @brief Node-side (gcc/libstdc++) mirror of tests/test_scene_buffer.cpp's
- *  scene.h layout static_asserts -- Epic 3 Task 1 (VM-036), this epic's
- *  slice of VM-037(e). ADR-0004 (docs/adr/0004-scene-interface-versioning.md)
- *  requires kSceneVersion to be bumped alongside every additive scene.h
- *  change, guarded by sizeof/offsetof static_asserts "on both toolchains" --
+ *  scene.h layout static_asserts. ADR-0004
+ *  (docs/adr/0004-scene-interface-versioning.md) requires kSceneVersion to
+ *  be bumped alongside every additive scene.h change, guarded by
+ *  sizeof/offsetof static_asserts on both toolchains --
  *  the library's own test_scene_buffer.cpp only compiles clang/libc++; this
  *  file is the gcc/libstdc++ half, so a layout mismatch between the two
  *  toolchains fails THIS build too, not only the library's, instead of
