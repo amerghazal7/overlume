@@ -354,6 +354,16 @@ class VcamWindow(Gtk.Window):
         self._cam_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         panel.pack_start(self._cam_box, False, False, 0)
 
+        # Epic 3 Task 2 (VM-034) Step 4: render_ms + a per-row staleness
+        # indicator, display-only -- no new WS command, this just renders
+        # whatever "diagnostics" frames vcam_ws_bridge.py already relays
+        # (same node-telemetry pipe vcam_state uses).
+        section("Diagnostics")
+        self._diag_label = Gtk.Label(xalign=0.0)
+        self._diag_label.set_line_wrap(True)
+        self._diag_label.set_markup("<i>no diagnostics yet</i>")
+        panel.pack_start(self._diag_label, False, False, 0)
+
         section("Save")
         upd = Gtk.Button(label="Update node config file")
         upd.connect("clicked", lambda _b: self._ws.send({"cmd": "save_params"}))
@@ -475,6 +485,21 @@ class VcamWindow(Gtk.Window):
             f"target ({tgt[0]:+.2f}, {tgt[1]:+.2f}, {tgt[2]:+.2f})")
         return False
 
+    def _apply_diagnostics(self, msg: dict):
+        # GLib.markup_escape_text so a topic name (arbitrary string, not
+        # under this GUI's control) can never be read as Pango markup.
+        lines = [f"render_ms: {msg.get('render_ms') or '—'}"]
+        for row in msg.get("rows", []):
+            stale = row.get("level", 0) != 0  # DiagnosticStatus.OK == 0
+            topic = GLib.markup_escape_text(str(row.get("topic", "?")))
+            age = row.get("age")
+            age_s = f"{float(age):.2f}s" if age is not None else "?"
+            colour = "#e06666" if stale else "#93c47d"  # WARN red / OK green
+            lines.append(f'<span color="{colour}">{"WARN" if stale else "OK"}</span>  '
+                         f"{topic}  age={age_s}")
+        self._diag_label.set_markup("\n".join(lines))
+        return False
+
     def _on_ws_msg(self, msg: dict):
         t = msg.get("type")
         if t == "state":
@@ -483,6 +508,8 @@ class VcamWindow(Gtk.Window):
             return self._apply_params(msg.get("values") or {})
         if t == "ack":
             return self._apply_ack(msg)
+        if t == "diagnostics":
+            return self._apply_diagnostics(msg)
         if t == "error":
             self._status.set_text(f"✘ {msg.get('message')}")
         return False
