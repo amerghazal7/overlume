@@ -176,6 +176,7 @@ def main() -> int:
     import rclpy
     from rclpy.node import Node
     from std_msgs.msg import Float64MultiArray, Int32, String
+    from diagnostic_msgs.msg import DiagnosticArray
     from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
     from rcl_interfaces.srv import GetParameters, SetParameters
     from micropilot_rendering_node.srv import SetVirtualCam
@@ -210,6 +211,16 @@ def main() -> int:
             # pointed at rendering_node, matching its default render_mode_
             # (2) so state flows before any set_render_mode is ever sent.
             self._active_ns = VCAM_NAMESPACES[0]
+            # Epic 3 Task 2 (VM-034) Step 4: diagnostics only exists on
+            # visualization_node (mode 3) -- no mux needed, harmless if it
+            # keeps arriving while mode 1/2 is active, same "ingest
+            # continues regardless of mode" philosophy vcam_state already
+            # follows. Display-only: reuses this same telemetry pipe rather
+            # than opening a second WS command/transport (plan Step 4).
+            self.diagnostics: dict | None = None
+            self.create_subscription(
+                DiagnosticArray, "/visualization_node/diagnostics",
+                self._on_diagnostics, 10)
             self._pub_look = [
                 self.create_publisher(Float64MultiArray, f"{ns}/set_look", 10)
                 for ns in VCAM_NAMESPACES]
@@ -242,6 +253,28 @@ def main() -> int:
         def _on_state(self, ns, msg):
             if ns == self._active_ns:
                 self.state = list(msg.data)
+
+        def _on_diagnostics(self, msg):
+            # DiagnosticStatus.level is `byte` (rclpy: a 1-length bytes
+            # object), not an int -- unwrap it once here so the GUI/WS
+            # client only ever sees plain JSON-serializable values.
+            render_ms = None
+            rows = []
+            for st in msg.status:
+                values = {kv.key: kv.value for kv in st.values}
+                if st.name == "render_ms":
+                    render_ms = values.get("render_ms")
+                    continue
+                rows.append({
+                    "topic": st.name,
+                    "level": st.level[0] if isinstance(st.level, (bytes, bytearray)) else int(st.level),
+                    "age": values.get("last_msg_age_sec"),
+                    "dropped_malformed": values.get("dropped_malformed"),
+                    "dropped_stale": values.get("dropped_stale"),
+                    "dropped_no_tf": values.get("dropped_no_tf"),
+                    "dropped_by_rule": values.get("dropped_by_rule"),
+                })
+            self.diagnostics = {"render_ms": render_ms, "rows": rows}
 
         def set_look(self, eye, target):
             m = Float64MultiArray()
@@ -419,19 +452,30 @@ def main() -> int:
 
     async def broadcast_state():
         last = None
+        last_diag = None
         while True:
             await asyncio.sleep(1.0 / STATE_HZ)
-            s = node.state
-            if s is None or s == last or not clients:
+            if not clients:
                 continue
-            last = list(s)
-            frame = json.dumps({
-                "type": "state",
-                "eye": s[0:3], "target": s[3:6],
-                "preset": int(s[6]) if len(s) > 6 else 0,
-                "render_mode": int(s[7]) if len(s) > 7 else 2})
-            await asyncio.gather(
-                *(ws.send(frame) for ws in list(clients)), return_exceptions=True)
+            s = node.state
+            if s is not None and s != last:
+                last = list(s)
+                frame = json.dumps({
+                    "type": "state",
+                    "eye": s[0:3], "target": s[3:6],
+                    "preset": int(s[6]) if len(s) > 6 else 0,
+                    "render_mode": int(s[7]) if len(s) > 7 else 2})
+                await asyncio.gather(
+                    *(ws.send(frame) for ws in list(clients)), return_exceptions=True)
+            # Epic 3 Task 2 (VM-034) Step 4: same "send only on change" shape
+            # as state above, its own frame type -- the GUI panel renders it
+            # display-only, no ack/command round-trip involved.
+            d = node.diagnostics
+            if d is not None and d != last_diag:
+                last_diag = d
+                diag_frame = json.dumps({"type": "diagnostics", **d})
+                await asyncio.gather(
+                    *(ws.send(diag_frame) for ws in list(clients)), return_exceptions=True)
 
     async def serve():
         async with websockets.serve(handle_client, args.host, args.port):
