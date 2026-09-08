@@ -227,6 +227,13 @@ rows:
   # default true, not written) keeps interior LEFT_/RIGHT_BOUNDARY dashed
   # separators visible through a junction box -- set it to false to drop
   # their in-box segments too.
+  # Follow-up 2026-09-08 (user report: "yellow boundaries left overs (check
+  # junction corners) that looks messy"): the mutual-crossing cut's own
+  # windows now merge across a small gap (kJunctionGapMergeM=6.6 m,
+  # measured against /hd_map_local_elements's recorded feed -- see
+  # urban_profile.yaml's matching comment for the bounds) instead of
+  # leaving it as its own tiny rendered leftover piece; the JUNCTION-polygon
+  # clip above is unchanged by this follow-up.
   - {topic: /sim/hd_map/markers, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, transient_local: true,
      ns_default: drop,
