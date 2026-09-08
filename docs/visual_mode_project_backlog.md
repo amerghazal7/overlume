@@ -1,0 +1,312 @@
+# Visual Mode — Project Backlog for Azure DevOps
+
+**Document ID:** MPVZ-BL-001  
+**Version:** 1.0  
+**Date:** 2026-09-08  
+**Based on:** Visual Mode Design `docs/superpowers/specs/2026-08-18-visual-mode-design.md` (accepted, amended 2026-09-07), Visual Mode Backlog `docs/superpowers/specs/2026-08-18-visual-mode-backlog.md`, Master Plan `docs/superpowers/plans/2026-08-18-visual-mode.md`, Epic 1/2/3 plans (Status ledgers), ADR-0001…0004 (`docs/adr/`), GPU budget probe `cuda/src/libs/visual_renderer/tools/budget_probe.md`  
+**Status source of truth:** the Status ledger table atop each epic plan (rebuilt from git in the 2026-09-07 plan review). Done marks below were taken from those ledgers and the commit hashes they cite.
+
+---
+
+## Import Instructions for Azure DevOps
+
+1. **Hierarchy:** Epic → Feature → Backlog Item (User Story). Features carry the original `VM-xxx` story IDs in their titles so the in-repo docs stay traceable.
+2. **Area Path:** `Micropilot Visualization\<Epic Area>` (e.g., `Micropilot Visualization\Autonomy Data Ingestion`)
+3. **Iteration Path:** Map to sprints in Epic order E00 → E01 → E02 → E03 → E04 → E05 → E06 (E06 is v1.1, starts at v1.0 sign-off)
+4. **Effort field:** Values in **person-days** (1 day = 8 hours). Done items carry `✅ Done` instead of an estimate.
+5. **Priority:** 1 = Must, 2 = Should, 3 = Could
+6. **Tags:** Use the `Tags` column for filtering (`DONE` marks completed items; `deferred` marks E07)
+7. **Custom field:** Use `Linked Requirements` as a custom text field (spec section / ADR references from the `Refs` column) or place in Description
+8. **State mapping:** `✅ Done` → Closed; `In Progress` → Active; everything else → New
+
+---
+
+## Summary
+
+| Epic | Features | Backlog Items | Est. Days (remaining) | Status |
+|------|----------|---------------|-----------------------|--------|
+| E00: Contract Spike | 4 | 10 | 2 | ✅ Mostly Done — Filament 1.56.5 build, headless hello-frame, node + mode mux, vcam parity (commits 66c1340…e619d41). GPU budget: proxy probe done 2026-09-07; on-robot rerun open (blocks VM-043) |
+| E01: Core Scene & Dark Theme | 5 | 13 | 0 | ✅ CLOSED at e47b057 (2026-08-20), review-gate approved. SceneGraph, both themes on a lit clay pipeline, animated toggle, ego robot, vcam tween |
+| E02: Autonomy Data Ingestion | 9 | 20 | 0.5 | ✅ CLOSED at fd72331 (2026-09-07); gate PASSED 2026-08-20 at 37d41fe, all goldens human-approved. Three human bag-validation checks remain open |
+| E03: HUD, Polish & Controls | 8 | 33 | 21 | In Progress — Task 1 VM-036 done 2026-09-07 (in working tree, not yet committed at time of writing); VM-034/030/031/032/035/037 not started |
+| E04: Clay Buildings (EnvironmentLayer) | 3 | 9 | 13 | Not Started — nothing exists yet (no bake script, no geo anchor); fixture bag carries NavSatFix |
+| E05: Hardening & Delivery | 5 | 16 | 18 | Not Started — quality governor, repo-local CI gate (no hosted CI exists), docs, asset packaging, live validation sign-off |
+| E06: v1.1 — 3D Tiles Streaming | 4 | 10 | 17 | Committed v1.1 (user decision 2026-09-07, deferral rejected) — starts at v1.0 sign-off; Cesium ion registration by user |
+| E07: Future (explicitly deferred) | 7 | 0 | — | Deferred — each item carries its re-entry trigger |
+| **TOTAL** | **45** | **111** | **~72** | |
+
+---
+
+## Backlog Table
+
+> **Column legend:**  
+> `WI Type` = Work Item Type | `ID` = Backlog ID | `Parent` = Parent ID | `Pri` = Priority (1/2/3) | `Effort` = Person-days (or ✅ Done) | `Refs` = Linked spec sections / ADRs / plan tasks
+
+### E00 — Contract Spike
+
+> **Source:** Master plan Epic 0 (Tasks 1–6), fully specified and executed 2026-08-18. Resolves the facts every later epic builds against: Filament pin + build recipe, clang/libc++ toolchain boundary, mode mux, vcam contract, GPU headroom.
+
+| WI Type | ID | Parent | Title | Description | Acceptance Criteria | Pri | Effort | Refs | Tags |
+|---------|----|--------|-------|-------------|---------------------|-----|--------|------|------|
+| Epic | E00 | — | Contract Spike | De-risk the visual mode end to end: a styled hello-frame streamed on `/rendering/image` behind the real two-node mode mux and the existing virtual-camera contract, built from a pinned Filament release with a rootless clang/libc++ toolchain behind a POD-only API. | Frame streams in mode 3; modes 1–2 untouched and green; vcam contract identical; Filament version recorded; GPU budget measured. | 1 | 2 | Spec §2, §3.1, §6, §8; ADR-0001, 0002, 0003; Plan Epic 0 | spike, build, mux, vcam, PARTIALLY DONE |
+| Feature | F00.1 | E00 | VM-001 Filament headless hello-frame | Minimal clang/libc++ static `visual_renderer` library (POD API) rendering a lit cube on a grid to a readable headless swapchain and returning RGB8. | ✅ Standalone example writes a PNG on the dev box without an X server; header passes the POD-only check. (66c1340, bc2007c, 76ce179, acd26a8, 73f100c) | 1 | ✅ Done | Spec §2, §4.2; ADR-0001, 0003 | filament, build, DONE |
+| Backlog Item | B00.1.1 | F00.1 | Pin Filament 1.56.5 + rootless clang-14/libc++ toolchain | `cmake/GetFilament.cmake` (pinned prebuilt, sha256), `scripts/setup_toolchain.sh` (apt-get download + dpkg-deb -x into `~/.cache/mpviz-toolchain`), `cmake/toolchain-clang-libcxx.cmake`; libc++ statically linked; Filament archives linked with `--start-group/--end-group`. | ✅ Clean-shell build reproducible; newer Filament rejected (needs glibc ≥ 2.38, box is 2.35) and the reason recorded in the CMake comment. | 1 | ✅ Done | ADR-0001, 0003 | build, toolchain, DONE |
+| Backlog Item | B00.1.2 | F00.1 | POD-boundary header check | `scripts/check_pod_header.sh` as a ctest of the lib project: public headers include nothing from the standard library beyond `<cstdint>`/`<cstddef>`. | ✅ ctest passes; a deliberate `#include <string>` in `api.h` fails it. | 1 | ✅ Done | Spec §2; ADR-0003 | build, pod, DONE |
+| Backlog Item | B00.1.3 | F00.1 | Headless EGL swapchain + RGB8 readback + hello_frame example | Hand-rolled headless EGL platform, `SwapChain::CONFIG_READABLE`, `render_frame()` returns RGB8; `examples/hello_frame.cpp` writes PNG via vendored `stb_image_write`. | ✅ Runs without `$DISPLAY`; cube/grid/horizon visually confirmed. | 1 | ✅ Done | Spec §4.2; ADR-0001 | filament, DONE |
+| Feature | F00.2 | E00 | VM-002 Skeleton visualization node + mode mux | Lifecycle node `micropilot_visualization_node` publishing VM-001's frame to `/rendering/image` at 30 Hz; global `/rendering/set_mode` handling in BOTH nodes (CUDA node idles on 3). | ✅ Smoke test drives 1→3→2 with exactly-one-publisher and no consumer re-subscribe; existing node tests still green. (dfab33b, 2968ebc). Residual mux defects → VM-037. | 1 | ✅ Done | Spec §3.1; ADR-0002 | node, mux, DONE |
+| Backlog Item | B00.2.1 | F00.2 | Lifecycle node streaming hello-frame on mode 3 | New ROS 2 package linking the prebuilt `libvisual_renderer.a` (gcc node, clang lib); `initial_mode` param; 33 ms wall timer; `sensor_msgs/Image` rgb8 + `camera_info`. | ✅ `initial_mode=3`: frames flow; `initial_mode=1`: none. | 1 | ✅ Done | Spec §3.1 | node, DONE |
+| Backlog Item | B00.2.2 | F00.2 | Global `/rendering/set_mode` in both nodes | CUDA node subscribes and idles (no render, no readback) on mode 3; visualization node renders only on 3; last-write-wins. | ✅ Both nodes switch 3→2→3→1 with each switch < 0.5 s and no gap > 0.5 s. | 1 | ✅ Done | Spec §3.1; ADR-0002 | mux, DONE |
+| Backlog Item | B00.2.3 | F00.2 | Smoke tests for the mux | Extend both `smoke_test.py` files with the mux step; fix pre-existing `vcam_state` length assertion (7 → 8). | ✅ Both smoke tests PASS; full `colcon_build.sh` green. | 1 | ✅ Done | Spec §10 | test, DONE |
+| Feature | F00.3 | E00 | VM-003 vcam parity | `~/set_virtual_cam` / `~/set_look` / `~/vcam_state` on the new node (reusing `micropilot_rendering_node/srv/SetVirtualCam`); WS bridge fan-out to mode 3. | ✅ Contract test proves identical framing math vs CUDA node for the 5 presets; GUI orbit works against mode 3. (6a43f55, e619d41) | 1 | ✅ Done | Spec §6 | vcam, ws, DONE |
+| Backlog Item | B00.3.1 | F00.3 | vcam services + telemetry on the new node | Same message semantics as the CUDA node; presets/orbit/set_look. | ✅ Contract test vectors (preset poses, set_look echo, state layout) pass. | 1 | ✅ Done | Spec §6 | vcam, DONE |
+| Backlog Item | B00.3.2 | F00.3 | WS bridge fan-out + GUI mode control | `tools/vcam_ws_bridge.py` fans vcam commands to whichever node is active; `tools/vcam_gui.py` gains a mode button / 3-way view cycle (bowl → pointcloud → visual). | ✅ WS E2E green in mode 3; clicking "view" no longer strands mode 3. | 1 | ✅ Done | Spec §6 | ws, gui, DONE |
+| Feature | F00.4 | E00 | VM-004 GPU budget measurement | Frame-rate/GPU headroom of the visualization node at 1280×720 across quality presets, alone and beside the CUDA node. Split 2026-09-07 into a proxy on the dev box (done) and an on-robot rerun (open, blocks VM-043). The original "gate for Epic 1+" was overridden in practice. | Proxy table recorded; on-robot table recorded; go/adjust decision on the 720p30 assumption. | 1 | 2 | Spec §8; Plan Epic 0 Task 6 | perf, PARTIALLY DONE |
+| Backlog Item | B00.4.1 | F00.4 | Proxy budget probe on the dev box | `tools/budget_probe.sh` + `budget_probe.md`: quality 0/1/2, urban profile, fixture bag looped with `--clock`, alone and beside the CUDA node (no camera input). | ✅ 30 Hz held at every preset alone; GPU SM 21–35 %; default stays `quality: 1`. Done 2026-09-07 (cd2dcc9). | 1 | ✅ Done | Spec §8 | perf, DONE |
+| Backlog Item | B00.4.2 | F00.4 | On-robot budget rerun | Same matrix on robot hardware with perception + CARLA/real cameras feeding the CUDA node; add `render_ms` p50/p99 (VM-034), `GL_RENDERER` string (VM-037), CUDA-node and perception fps deltas. | Table recorded in `budget_probe.md` Results (b); go/adjust decision recorded in the master plan "Epic 0 results". Blocks VM-043. | 1 | 2 | Spec §8 | perf, robot |
+
+### E01 — Core Scene & Dark Theme
+
+> **Source:** `docs/superpowers/plans/2026-08-18-visual-mode-epic1.md`. **CLOSED at e47b057 (2026-08-20)**, 4-way Opus review gate passed; two majors fixed in gate round 1 (geometric log-space sun/IBL blend; exhaustive offsetof layout asserts).
+
+| WI Type | ID | Parent | Title | Description | Acceptance Criteria | Pri | Effort | Refs | Tags |
+|---------|----|--------|-------|-------------|---------------------|-----|--------|------|------|
+| Epic | E01 | — | Core Scene & Dark Theme | Replace the Epic 0 hello-frame with the real baseline: `SceneGraph` POD domain model with double-buffered freeze-frame semantics and staleness fade, data-driven theme system with BOTH shipped themes on a genuinely lit clay pipeline, animated `set_theme` transition, ego robot from TF, vcam tween port. Interfaces are stable and additive-only afterwards (ADR-0004). | ✅ Empty themed world goldens per theme; transition goldens; ego golden; contract vectors pass; layout static_asserts guard the POD. | 1 | ✅ Done | Spec §4.1, §4.3, §4.4, §9, §10; ADR-0004 | scene, theme, ego, DONE |
+| Feature | F01.1 | E01 | VM-010 SceneGraph + double buffer | Domain structs (`scene.h`, POD), staging/render swap, per-entity staleness fade timers. | ✅ Unit tests for swap semantics and staleness fade timers. (dfaa62c, e47b057) | 1 | ✅ Done | Spec §4.1 | scene, DONE |
+| Backlog Item | B01.1.1 | F01.1 | `scene.h` POD SceneGraph + `set_scene` entry point | Seven categories (ego, objects, paths, map_elements, grids, alerts, markers) + `Hud`; caller-owned pointers; `set_scene(VisualRenderer*, const SceneGraph&)`. | ✅ Header passes POD check; node compiles against it on gcc. | 1 | ✅ Done | Spec §4.1; ADR-0003 | scene, DONE |
+| Backlog Item | B01.1.2 | F01.1 | `SceneBuffer` deep-copy swap + staleness clocks | `src/scene_buffer.cpp`: staging → render swap with deep copy (`OwnedScene`), single-threaded contract, per-entity `staleness_alpha`. | ✅ `tests/test_scene_buffer.cpp` swap + fade tests green. | 1 | ✅ Done | Spec §4.1, §5 | scene, DONE |
+| Backlog Item | B01.1.3 | F01.1 | Exhaustive sizeof/offsetof layout asserts | Static_assert table for every POD struct incl. `RenderConfig`/`CameraPose`/`FrameView` (gate round 1 fix). | ✅ A deliberate layout change fails the clang test TU. Node-side mirror deferred → VM-037(e) (shipped in E03 Task 1). | 1 | ✅ Done | ADR-0004 | scene, test, DONE |
+| Feature | F01.2 | E01 | VM-011 Theme system | YAML tokens → materials on a real lit pipeline (sun + IBL, shadows); `dark_adas.yaml` and `light_clay.yaml` both ship; golden-image harness. | ✅ Golden of an empty themed world (ground, grid, sky/fog) per theme; no per-theme code branches. (7eb1d25, fbd44c2, 6cfccba, de6f14e, 12b3ff3, e25865d, 196a561, 1506542, 2e7a363) | 1 | ✅ Done | Spec §4.3, §10 | theme, DONE |
+| Backlog Item | B01.2.1 | F01.2 | Retire spike scene; lit clay material | Remove the unlit Epic 0 deviation; `ClayMaterial` lit by sun + IBL; `VisualRenderer` extracted to `renderer_internal.hpp`. | ✅ Lighting test isolates `sun.direction`; renderer builds the real pipeline. | 1 | ✅ Done | Spec §4.2, §4.3 | theme, filament, DONE |
+| Backlog Item | B01.2.2 | F01.2 | Theme YAML loader + both themes + builtin fallback | `src/theme.cpp` parses palette/sun/ibl/fog/grid tokens; `kFallbackTheme()` mirrors dark_adas; missing asset → WARN once, fallback theme; `theme_assets_loaded()` entry point. | ✅ `tests/test_theme.cpp` green; both YAMLs load; fallback WARN path tested. | 1 | ✅ Done | Spec §4.3, §9 | theme, DONE |
+| Backlog Item | B01.2.3 | F01.2 | Golden-image harness | `tests/golden.{cpp,py}`: deterministic SceneGraph → headless render → block-SSIM 0.98 at 320×240, `quality=1`, GPU-skip; human promotion workflow. | ✅ Empty-world goldens per theme committed and approved. | 1 | ✅ Done | Spec §10 | test, golden, DONE |
+| Backlog Item | B01.2.4 | F01.2 | Fog color-scale root-cause fix | `setFogOptions()` rendered `palette.fog` ~1.71× brighter than the identical `palette.sky`; fixed the scale conversion instead of masking with density (review rounds 5–7). | ✅ dark_adas horizon un-crushed with `fog.density` back at its intended value; per-theme fog scale documented (spec §4.3 note). | 1 | ✅ Done | Spec §4.3 | theme, fix, DONE |
+| Feature | F01.3 | E01 | VM-014 Animated theme toggle | `set_theme` eases all tokens current→target (0.8 s smoothstep, Oklab palette lerp, sun/IBL crossfade); GUI day/night toggle + WS command. | ✅ Goldens at t=0/0.4/0.8 s (deterministic clock); no frame drop > 1 during switch; mid-transition retarget smooth. (83094df, e47b057) | 1 | ✅ Done | Spec §4.3, §6 | theme, ws, gui, DONE |
+| Backlog Item | B01.3.1 | F01.3 | `theme_transition.cpp` token blend | Smoothstep 0.8 s; Oklab palette lerp; geometric log-space sun/IBL intensity blend (linear lerp overshot ~2 stops mid-transition — gate fix); retarget mid-transition. | ✅ Transition goldens green; `test_theme_transition.cpp` retarget test. Residual: `blend()` enumerates fields by hand → guard added in VM-036. | 1 | ✅ Done | Spec §4.3 | theme, DONE |
+| Backlog Item | B01.3.2 | F01.3 | GUI day/night toggle + WS `set_theme` | `tools/vcam_gui.py` toggle; `tools/vcam_ws_bridge.py` command relays to the node service. | ✅ WS E2E toggles theme; GUI reflects state. | 1 | ✅ Done | Spec §6 | ws, gui, DONE |
+| Feature | F01.4 | E01 | VM-012 Ego robot | M02P→glTF conversion script; TF-driven ego pose + smoothed speed; clay-box fallback. | ✅ Ego golden (clay-box fallback); speed matches TF finite difference on a recorded fixture. (e51bad6, + d18d283 axis bake, 02939c3 flatten_z). Residual: M02P asset outside git, per-user path → VM-044. | 1 | ✅ Done | Spec §4.4, §5 | ego, DONE |
+| Backlog Item | B01.4.1 | F01.4 | `obj2gltf_m02p.py` conversion script | OBJ → glTF, bakes obj→rig rotation so the mesh forward is +X. | ✅ Conversion ran 2026-08-20 (`~/Downloads/M02P.glb`, 75.8 MB). | 1 | ✅ Done | Spec §4.4 | ego, tooling, DONE |
+| Backlog Item | B01.4.2 | F01.4 | gltfio ego load + clay-box fallback | `set_ego_model()` entry point; missing/invalid asset → clay box, WARN once. | ✅ Golden with clay-box ego; fallback path tested. | 1 | ✅ Done | Spec §4.4, §9 | ego, filament, DONE |
+| Backlog Item | B01.4.3 | F01.4 | TF adapter: ego pose + smoothed speed + ego-anchored vcam | node `src/tf_adapter.cpp`: map→base_link pose, finite-difference speed smoothed; `ego_anchor.hpp` composes presets/orbit/set_look as ego-relative offsets at the render boundary (user directive). | ✅ Speed within tolerance vs fixture; orbit and presets stay aligned with follow-ego camera. | 1 | ✅ Done | Spec §5, §6 | ego, vcam, DONE |
+| Feature | F01.5 | E01 | VM-013 Camera preset/tween port | Eased tween identical to the CUDA node, extracted into `src/vcam.cpp`. | ✅ Contract test vectors pass. (7d4eec9, e51bad6) | 1 | ✅ Done | Spec §6 | vcam, DONE |
+| Backlog Item | B01.5.1 | F01.5 | Extract vcam preset/tween into `src/vcam.cpp` | Refactor shared with the Epic 0 vcam code; no behaviour change. | ✅ Existing contract tests unchanged and green. | 1 | ✅ Done | Spec §6 | vcam, refactor, DONE |
+
+### E02 — Autonomy Data Ingestion
+
+> **Source:** `docs/superpowers/plans/2026-08-18-visual-mode-epic2.md`. **CLOSED at fd72331 (2026-09-07)**; review gate PASSED 2026-08-20 at 37d41fe with user-authorized deviations; every golden human-approved in three batches. Post-gate config: `flatten_z` param, three ribbon theme tokens, ground-truth-boxes + `/road_markers` rows disabled (upstream publisher output wrong). Three human bag-validation checks remain open (F02.9).
+
+| WI Type | ID | Parent | Title | Description | Acceptance Criteria | Pri | Effort | Refs | Tags |
+|---------|----|--------|-------|-------------|---------------------|-----|--------|------|------|
+| Epic | E02 | — | Autonomy Data Ingestion | Fill six of the seven `SceneGraph` categories from the autonomy topics the two rviz configs show. Every topic is a profile-YAML row, not code: profile loader drives adapters, adapters translate ROS messages into the POD structs, the library grows one render path per category. Retires the Epic 1 placeholder ground patch. | ✅ Library 88/88 + node 101 tests green; all goldens approved; §7 parity E2E passed; `validate_visual_mode.sh` runs the full fixture-bag rig. | 1 | 0.5 | Spec §4.1, §4.2, §5, §7, §9, §10 | ingest, adapters, DONE |
+| Feature | F02.1 | E02 | VM-020 Profile YAML loader | urban/offroad/sim topic rows → subscriptions; `FrameTransformer`; `SceneAssembly`; fixture tooling. | ✅ Bad rows rejected with clear errors; all three shipped profiles load. (0943e6b, b680718, fd72331) | 1 | ✅ Done | Spec §5 | profile, node, DONE |
+| Backlog Item | B02.1.1 | F02.1 | `profile.cpp` loader + three profiles | `config/{urban,offroad,sim}_profile.yaml`; per-row adapter kind, topic, QoS, namespace rules; sim adds the latched `/sim/hd_map/markers` row. | ✅ `test_profile.cpp` rejects malformed rows; all three load. | 1 | ✅ Done | Spec §5 | profile, DONE |
+| Backlog Item | B02.1.2 | F02.1 | `FrameTransformer` + `SceneAssembly` + `flatten_z` | TF lookup into map frame; per-category staging vectors; `flatten_z` node param (2D map plane, default ON; 02939c3). | ✅ Unit tests green; flatten_z toggles in the validation rig. | 1 | ✅ Done | Spec §5 | node, DONE |
+| Backlog Item | B02.1.3 | F02.1 | Fixture tooling + recorded fixture bags | `scripts/bag_to_fixture.py`, `test/fixture_msgs.*`; bags under `~/TPSProjector-fixtures/` (90 s epic2 fixtures, latched sim map). | ✅ Adapter tests run from recorded fixtures. | 1 | ✅ Done | Spec §10 | test, fixtures, DONE |
+| Backlog Item | B02.1.4 | F02.1 | One-command validation rig | `tools/validate_visual_mode.sh` (577be27): node mode 3 + `use_sim_time`, lifecycle up, `tf_flatten_fixture.py` relay, bag `--loop --clock`, WS bridge, GUI, 25 Hz + ego health gate, teardown. Standing directive: extend with every visually-validatable layer. | ✅ Script stands up the rig and tears down cleanly; MILESTONE UPDATE LOG maintained. | 1 | ✅ Done | Spec §10 | tooling, validation, DONE |
+| Feature | F02.2 | E02 | VM-021 DynamicObjectsAdapter + class inference | MarkerArray → TrackedObjects; label keywords (`V_1105` prefix convention) + bbox-dims fallback table (config-driven). | ✅ Fixture tests from a recorded bag; inference table test; malformed markers dropped and counted. (b680718) | 1 | ✅ Done | Spec §5 | adapters, objects, DONE |
+| Backlog Item | B02.2.1 | F02.2 | Adapter + `class_inference.yaml` | `src/adapters/dynamic_objects.cpp`; label prefix → class, bbox dims fallback; NaN/empty validation. | ✅ Recorded-bag fixture test; malformed-input test. Fixture gap: only `V_` prefix recorded. | 1 | ✅ Done | Spec §5, §9 | adapters, DONE |
+| Feature | F02.3 | E02 | VM-022 Clay object rendering | CC0 glTF pack normalized; instancing; bbox-driven scaling; velocity arrows; predicted-path ribbons. | ✅ Golden with a mixed-class scene approved; 50 objects < 2 ms scene-update. (d18d283, af60c38) | 1 | ✅ Done | Spec §4.4 | objects, filament, DONE |
+| Backlog Item | B02.3.1 | F02.3 | `normalize_models.py` + instanced clay objects | `assets/models/*.glb`; `src/objects.cpp` instancing + bbox scaling; bus/cyclist fall back to clay box (recorded deviation). | ✅ Mixed-class golden approved. | 1 | ✅ Done | Spec §4.4 | objects, DONE |
+| Backlog Item | B02.3.2 | F02.3 | Velocity arrows + predicted-path ribbons | Per-object arrows and predicted ribbons through the shared polyline extruder. | ✅ Included in the mixed-class golden. | 2 | ✅ Done | Spec §7 | objects, DONE |
+| Feature | F02.4 | E02 | VM-023 Path ribbons | Behavior (hero emissive), global, local ribbons. | ✅ Goldens approved; ribbon regenerates correctly on path change. (d18d283, b680718, 3b3ce2c) | 1 | ✅ Done | Spec §7 | paths, DONE |
+| Backlog Item | B02.4.1 | F02.4 | `ribbon.cpp` + path adapter, three roles | `src/adapters/path.cpp`; behavior ribbon bloom-driven hero; per-role z-stagger. | ✅ Goldens approved; regeneration test. Fixture gap: only `/local_vel_path` carries data. | 1 | ✅ Done | Spec §7 | paths, DONE |
+| Backlog Item | B02.4.2 | F02.4 | Ribbon color/width theme tokens | `ribbon_global`, `ribbon_local`, `ribbon.width_m` soft-defaulted tokens (3b3ce2c, post-gate). | ✅ Both themes load; goldens re-promoted. Residual: dark_adas `ribbon_local` ≈ `alert.warning` amber → VM-036 debt (c). | 2 | ✅ Done | Spec §4.3 | theme, paths, DONE |
+| Feature | F02.5 | E02 | VM-024 HdMapAdapter + lane styling | `/hd_map_local_elements` primary; cached map elements (no per-frame rebuild); ego-following ground; dashed centerlines (ingest chop). | ✅ Golden from recorded HD-map fixture approved; cached. (d18d283, b680718, 3b3ce2c) | 1 | ✅ Done | Spec §5, §7 | map, DONE |
+| Backlog Item | B02.5.1 | F02.5 | Shared polyline extruder | `src/polyline.cpp` reused by objects/ribbons/alerts; chunked under the uint16 index ceiling. | ✅ Unit tests; used by four render paths. | 1 | ✅ Done | Spec §4.2 | filament, DONE |
+| Backlog Item | B02.5.2 | F02.5 | `HdMapAdapter` namespace rules + cache | `src/adapters/hd_map.cpp`: ns rules (`centerline_`, `left/right_boundary_`, `crosswalk`), arrows dropped (93 % of map volume), lane width 0.10 m, dashed centerline chop (superseded by VM-036). | ✅ Adapter tests; cached map. Residual: crosswalk hatch dead code + no cache test → fixed in VM-036. | 1 | ✅ Done | Spec §5, §7 | map, adapters, DONE |
+| Backlog Item | B02.5.3 | F02.5 | Ego-following ground patch | 60 m ground patch following the ego replaces the Epic 1 40 m origin patch (ego no longer drives into a void). | ✅ Validation rig shows continuous ground. | 1 | ✅ Done | Spec §4.3 | ground, DONE |
+| Backlog Item | B02.5.4 | F02.5 | ref-2 targeted `light_clay` re-authoring | fog 0.0015, emissive 1.1, palette.ego cross-theme swap against `assets/visualization-reference-2.jpg`. | ✅ Light-theme goldens approved by the user. | 2 | ✅ Done | Spec §4.3 | theme, DONE |
+| Feature | F02.6 | E02 | VM-025 OGM ground layers | Dynamic + gradient occupancy grids with `_updates`. | ✅ Fixture test incl. partial updates; offroad profile golden approved. (d18d283, b680718, 3b3ce2c, 02939c3) | 1 | ✅ Done | Spec §7 | ogm, DONE |
+| Backlog Item | B02.6.1 | F02.6 | OGM adapter + `ground_grid` layers | `src/adapters/ogm.cpp`, lib `src/ground_grid.cpp`; theme transfer functions; origin flatten. | ✅ Partial-update fixture test green. Fixture gap: all synthetic. | 1 | ✅ Done | Spec §7 | ogm, DONE |
+| Feature | F02.7 | E02 | VM-026 Collision alert polygons | Five collision-checker topics → translucent polygons in theme warning materials, ego sweep as ghost trail. | ✅ Golden with sweep + predicted polygons approved. (22d1bed, 37d41fe) | 1 | ✅ Done | Spec §7 | alerts, DONE |
+| Backlog Item | B02.7.1 | F02.7 | Collision adapter + `alert_polygons.cpp` | Closed-polyline dedupe; warning materials per theme. | ✅ Goldens approved. Fixture gap: synthetic (calm scenario had silent collision topics). | 1 | ✅ Done | Spec §7 | alerts, DONE |
+| Feature | F02.8 | E02 | VM-027 Generic marker fallback renderer | All 12 Marker primitive types, pooled renderables; the §7 parity guarantee: any extra topic displayable via one profile row. | ✅ Parity test renders a synthetic MarkerArray of every type; `test_extra_topic_parity.py` PASSED. (af60c38, 37d41fe, fd72331) | 1 | ✅ Done | Spec §7 | markers, parity, DONE |
+| Backlog Item | B02.8.1 | F02.8 | Generic marker adapter + renderer | `src/adapters/generic_marker.cpp`, lib `src/generic_markers.cpp`; `marker.pose` composition, zero-quaternion as identity (rviz parity); TEXT as stand-in quad (real text = VM-030/031). | ✅ All-types golden approved. | 1 | ✅ Done | Spec §7 | markers, DONE |
+| Backlog Item | B02.8.2 | F02.8 | TF-axes debug layer (off by default) | `src/adapters/tf_axes.cpp` through the generic renderer. | ✅ Toggleable via profile row. | 3 | ✅ Done | Spec §7 | debug, DONE |
+| Backlog Item | B02.8.3 | F02.8 | §7 parity E2E | `test/test_extra_topic_parity.py` (BEST_EFFORT + base_link). | ✅ PASSED 2026-08-20. | 1 | ✅ Done | Spec §7, §10 | test, DONE |
+| Backlog Item | B02.8.4 | F02.8 | Post-gate profile hygiene | gt-boxes row disabled by default (ego's own box flickered on the robot); `/road_markers` row disabled with re-enable checklist (upstream output wrong, user-verified in rviz). (fd72331) | ✅ Committed with checklist in `urban_profile.yaml`. | 2 | ✅ Done | Spec §5 | profile, DONE |
+| Feature | F02.9 | E02 | Epic 2 residual bag-validation checks | Three human visual checks left open at close (indirect live evidence only): Task 2 Step 12 (HD map on the bag), Task 4 Step 6 (clay objects on the bag), and the closing bag pass. | Each check recorded (date + observer) in the Epic 2 plan; ledger updated. | 2 | 0.5 | Epic 2 plan Status ledger | validation |
+| Backlog Item | B02.9.1 | F02.9 | Record the three open bag-validation checks | Run `tools/validate_visual_mode.sh` on the epic2 fixture bag, tick the three steps with evidence. | Three boxes ticked with a note; no code change. | 2 | 0.5 | Epic 2 plan | validation |
+
+### E03 — HUD, Polish & Controls
+
+> **Source:** `docs/superpowers/plans/2026-08-18-visual-mode-epic3.md` (authored 2026-09-07, a8e02a2). Re-sequenced by the 2026-09-07 review: fix what autonomy sees today first (VM-036 lane kinds, VM-034 fades + `render_ms`), then HUD/callouts/controls, then point clouds, then Epic-0 debt. Fixed order: **VM-036 → VM-034 → VM-030 → VM-031 → VM-032 → VM-035 → VM-037**. User decisions applied: HUD composited node-side (stb_truetype) with `get_hud_colors()` as the one new entry point; per-theme goldens only for theming-sensitive subjects; `set_quality()` live effect settled in the Epic 5 plan.
+
+| WI Type | ID | Parent | Title | Description | Acceptance Criteria | Pri | Effort | Refs | Tags |
+|---------|----|--------|-------|-------------|---------------------|-----|--------|------|------|
+| Epic | E03 | — | HUD, Polish & Controls | Close Epic 2's two recorded deviations (HD-map pops instead of fading; lane geometry undifferentiated), add diagnostics/`render_ms` instrumentation every later epic depends on, ship HUD and alert-callout overlays as a node-side CPU composite, wire layer-visibility and quality-preset controls end to end, add a `PointCloud` category, and close out the Epic-0 mux/build-hygiene debt. | Review gate (Opus, plan checklist) passed; ledger closed; every `scene.h` change appended with `kSceneVersion` bump; goldens promoted per the P3 scoping rule. | 1 | 21 | Spec §4.1, §4.4, §5, §6, §8, §9, §10; ADR-0004 | hud, polish, controls, IN PROGRESS |
+| Feature | F03.1 | E03 | VM-036 MapElement.kind — per-kind lane styling + road surface | Append `MapKind` (`kind`), `lane_id`, `last_update_sec` to `MapElement` (ADR-0004); adapter fills them from namespace rules; per-kind theme tokens/width/z-lift; road-surface fill between paired boundaries in `palette.road`; dashing moves renderer-side and FLIPS to boundaries (centerline solid); crosswalk-hatch dead-code fix; `kSceneVersion` introduced. Styling ground truth: `assets/visualization-reference-{1,2}.jpg`. | ✅ All 8 steps done 2026-09-07 (Epic 3 ledger): library + node suites green (2 sanctioned MapGolden reds pending promotion). Stated deviation: `palette.ground` unchanged in both themes; debt items (b) object-tint retint and (c) `ribbon_local` hue move skipped to protect unsanctioned goldens. **Working tree not yet committed at time of writing (2026-09-08).** | 1 | ✅ Done | Spec §4.1, §4.3, §7; ADR-0004; Epic 3 Task 1 | map, theme, DONE |
+| Backlog Item | B03.1.1 | F03.1 | `kSceneVersion` + node-side layout mirror (VM-037(e) slice) | `kSceneVersion` constant in `scene.h`; node-side header-only gtest `test_scene_layout.cpp` mirroring the sizeof/offsetof table. | ✅ Passes on clang/libc++ and gcc/libstdc++. | 1 | ✅ Done | ADR-0004 | scene, test, DONE |
+| Backlog Item | B03.1.2 | F03.1 | Append `MapKind`/`kind`/`lane_id`/`last_update_sec` | CENTERLINE, LEFT_BOUNDARY, RIGHT_BOUNDARY, CROSSWALK, STOPLINE, JUNCTION, OTHER; `MapElement` 16 → 24 bytes, asserts updated. | ✅ Layout asserts updated in both TUs. | 1 | ✅ Done | ADR-0004 | scene, DONE |
+| Backlog Item | B03.1.3 | F03.1 | Crosswalk-hatch dedupe fix | Recorded crosswalks are closed 5-point polylines; `build_crosswalk_hatch()` guarded `n != 4`. Drop the duplicate closing vertex in `hd_map.cpp` (mirrors `collision.cpp`). | ✅ Test on the recorded fixture geometry; hatch renders. | 1 | ✅ Done | Spec §7 | map, fix, DONE |
+| Backlog Item | B03.1.4 | F03.1 | kind/`lane_id` extraction from namespace rules | `NsRule::kind`; both crosswalk spellings (`crosswalks`, `crosswalk_{id}`); `NsRule::dashed` deleted. | ✅ `test_hd_map_adapter.cpp` proves ns → kind + lane_id mapping. | 1 | ✅ Done | Spec §5 | adapters, DONE |
+| Backlog Item | B03.1.5 | F03.1 | Renderer-side dashing on BOUNDARY kinds | `chop_into_dashes` in `map_elements.cpp` gated on `IsBoundaryKind()`; centerlines solid (yellow family); ingest chop retired. | ✅ Dashed golden; `git grep dashed` gate on the node package empty. | 1 | ✅ Done | Spec §7 | map, DONE |
+| Backlog Item | B03.1.6 | F03.1 | Road-surface fill | Pair `left_boundary_{id}`/`right_boundary_{id}` by `lane_id` in the adapter; fill strip in the library with `palette.road` inside the verified z-stack. | ✅ Golden per theme with road darker than ground (fixture lanes 813/955). | 1 | ✅ Done | Spec §4.3 | map, theme, DONE |
+| Backlog Item | B03.1.7 | F03.1 | Theme tokens + guards | `palette.road/lane_centerline/lane_boundary/crosswalk` soft-defaulted; dark_adas lane paint near-white; per-theme horizon guards; `ThemeLoad.BuiltinFallbackMatchesDarkAdasYaml`; `blend()` field-count static_assert. | ✅ Tests green. Deviation: `palette.ground`, object-tint retint (b) and `ribbon_local` hue (c) deferred. | 1 | ✅ Done | Spec §4.3 | theme, DONE |
+| Backlog Item | B03.1.8 | F03.1 | `map_element_rebuild_count` hook + cache test | Counter on `adopt_or_build` cache miss exposed via a Filament-free test hook. | ✅ "Cached, no per-frame rebuild" AC from Epic 2 now tested. | 2 | ✅ Done | Spec §10 | test, DONE |
+| Feature | F03.2 | E03 | VM-034 Staleness fades + diagnostics + `render_ms` | Map-layer fade via `last_update_sec`; `~/diagnostics` topic (per-topic age, dropped-primitive counts, `render_ms`); ego-invalid map-pop cosmetic fix; GUI surfaces diagnostics. | Silencing a topic fades its layer (map included); diagnostics shows per-topic age, dropped counts and `render_ms`. | 1 | 3.5 | Spec §5, §8, §9; Epic 3 Task 2 | diagnostics, staleness |
+| Backlog Item | B03.2.1 | F03.2 | Diagnostics publisher on `diagnostic_msgs/DiagnosticArray` | No custom message; one status per topic row: last-message age, dropped-primitive count; one status for the renderer. | Node test asserts array contents for a fed-and-silenced topic. | 1 | 1 | Spec §9 | diagnostics |
+| Backlog Item | B03.2.2 | F03.2 | `render_ms` instrumentation | Wrap `render_frame()` in `timer_callback()` with `steady_clock`; publish in diagnostics; prerequisite for VM-040 and B00.4.2. | Value present in diagnostics; sane on the validation rig. | 1 | 0.5 | Spec §8 | perf, diagnostics |
+| Backlog Item | B03.2.3 | F03.2 | Map-layer staleness fade | Library fades map elements from `last_update_sec` through the shared `staleness_alpha` (closes Epic 2 "pops, does not fade"). | Failing test in `test_map_elements.cpp` turns green; validation rig shows a fade when the map topic is silenced. | 1 | 1 | Spec §5 | map, staleness |
+| Backlog Item | B03.2.4 | F03.2 | Ego-invalid map-pop cosmetic fix | Ground-grid transform update while ego pose is invalid (Epic 2 gate finding, known cosmetic). | Root cause fixed with a test; no pop on bag start. | 2 | 0.5 | Epic 3 Task 2 Step 3 | fix |
+| Backlog Item | B03.2.5 | F03.2 | GUI surfaces diagnostics | `tools/vcam_gui.py` shows per-topic age / drops / `render_ms` via the existing WS state channel. | Panel updates live in the validation rig. | 2 | 0.5 | Spec §9 | gui, ws |
+| Feature | F03.3 | E03 | VM-030 HUD overlay (node-side CPU composite) | Speed chip + mode indicator composited onto the RGB8 buffer after readback (stb_truetype vendored node-side), theme colors via `get_hud_colors()` (accepted exception). Re-entry trigger for an in-lib pass: HUD text must be depth-tested, lit or fogged. | Node-side test renders a known frame + HUD; HUD reads `SceneGraph::hud`; text legible at 720p low preset. | 1 | 3 | Spec §4.1, §4.4; Epic 3 Task 3 | hud |
+| Backlog Item | B03.3.1 | F03.3 | Populate `SceneGraph::hud` | `scene.hud.speed_mps = ego.speed_mps; scene.hud.active_mode = active_mode_` next to the `~/ego_state` publish (never populated today). | Node test asserts hud fields after a tick. | 1 | 0.5 | Spec §4.1 | hud, node |
+| Backlog Item | B03.3.2 | F03.3 | Vendor stb_truetype + OFL font asset | Separate node-side copy (not the lib's stb vendoring); one permissively licensed `.ttf` under `assets/fonts/`. | Builds under colcon; license recorded. | 1 | 0.5 | Spec §4.4 | build, assets |
+| Backlog Item | B03.3.3 | F03.3 | `hud_overlay.cpp` compositor + `get_hud_colors()` | Rasterize chips into the frame buffer; lib entry point returns theme HUD colors (appended, ADR-0004); node-side golden. | `test_hud_overlay.cpp` golden green; legibility confirmed at 720p low. | 1 | 2 | Spec §4.4; ADR-0004 | hud |
+| Feature | F03.4 | E03 | VM-031 Alert callouts | Leader-line chips anchored to 3D objects (e.g., nearest-obstacle distance from collision topics); library exposes `project_to_screen()`, chip drawn node-side. `Hud::chips`/`AlertChip` in `scene.h` stay unused by design. | Golden; callout tracks object across camera moves. | 2 | 3 | Spec §4.1; Epic 3 Task 4 | hud, alerts |
+| Backlog Item | B03.4.1 | F03.4 | `project_to_screen()` library helper | Appended entry point projecting a world point through the current camera to pixel coordinates. | Library test against known camera/point pairs. | 2 | 1 | ADR-0004 | lib |
+| Backlog Item | B03.4.2 | F03.4 | Node-side chip builder + leader lines | Nearest-obstacle selection from alert polygons; leader line + chip through the HUD compositor. | Golden; chip follows the anchor under orbit. | 2 | 2 | Spec §7 | hud, alerts |
+| Feature | F03.5 | E03 | VM-032 Layer visibility + quality presets | Per-category visibility params + WS `set_layers` + GUI panel (node-side gate on `SceneAssembly`); `set_quality` WS plumbing; map spec §8's deferred knobs (shadow-map resolution, shadow enable, 960×540 upscale for low) into the quality dispatch. Live preset switching decided in the Epic 5 plan (VM-040). | WS E2E toggles each layer and preset; each preset measurably changes `render_ms`. | 1 | 3 | Spec §6, §8; Epic 3 Task 5 | controls, ws, gui |
+| Backlog Item | B03.5.1 | F03.5 | Per-category visibility params + WS `set_layers` + GUI panel | Node parameters per category; WS command; GUI checkboxes. | WS E2E (Python) toggles each layer; hidden layer absent from `set_scene`. | 1 | 1.5 | Spec §6 | controls |
+| Backlog Item | B03.5.2 | F03.5 | `set_quality` WS command plumbing | Command reaches the node parameter; live effect explicitly deferred to VM-040's decision. | WS E2E sets the parameter; documented deferral. | 2 | 0.5 | Spec §8 | controls |
+| Backlog Item | B03.5.3 | F03.5 | Map §8 knobs into `create_renderer()` quality dispatch | Shadow-map 2048/1024/none, shadow enable, 960×540 render-scale upscale for low (today only SSAO + FXAA/TAA). | `render_ms` differs measurably per preset on the validation rig. | 1 | 1 | Spec §8 | perf, quality |
+| Feature | F03.6 | E03 | VM-035 PointCloudLayer | `sensor_msgs/PointCloud2` ingestion + point rendering. `PointCloud` category appended to `SceneGraph` (`kSceneVersion` → 2). Node-side `PointCloudAdapter` with per-row decimation (`max_points`, `stride`, `max_rate_hz`) and `color_mode: auto / rgb / intensity / height / flat`; adapter bakes rgba8 per point so the renderer has ONE points path. | Goldens from three synthetic clouds (rgb, intensity-only, bare XYZ) proving each `auto` tier; adapter test proves field detection + decimation counts; one YAML row displays any PointCloud2. | 2 | 5 | Spec §4.1, §7; ADR-0004; Epic 3 Task 6 | pointcloud |
+| Backlog Item | B03.6.1 | F03.6 | Append `PointCloud` category, `kSceneVersion` → 2 | Layout asserts updated in both TUs. | Both layout tests green. | 2 | 0.5 | ADR-0004 | scene |
+| Backlog Item | B03.6.2 | F03.6 | `OwnedScene` deep copy + `assign()` for points | Caller-owned `points` pointer copied like `MapElement::points`. | `test_scene_buffer.cpp` deep-copy test. | 2 | 0.5 | Spec §4.1 | scene |
+| Backlog Item | B03.6.3 | F03.6 | Points vertex layout + per-vertex COLOR material | Fourth material; chunked under the uint16 index ceiling; layer-wide fade via `staleness_alpha`. | Renders the three synthetic clouds. | 2 | 1.5 | Spec §4.2 | filament |
+| Backlog Item | B03.6.4 | F03.6 | `PointCloudAdapter` field detection + `color_mode` + decimation | Offset-scan of PointCloud2 fields (prior art in `rendering_node.cpp`); rgb → intensity ramp (auto-ranged) → height ramp → flat; decimation knobs. | Adapter test proves detection tiers and decimation counts. | 2 | 1.5 | Spec §5 | adapters |
+| Backlog Item | B03.6.5 | F03.6 | Point-cloud goldens + parity | Three single-theme goldens (not theming-sensitive per P3); parity test extended to a cloud row. | Goldens promoted; parity E2E green. | 2 | 1 | Spec §10 | test, golden |
+| Feature | F03.7 | E03 | VM-037 Epic-0 debt: mux hardening + build hygiene | (a) `/rendering/set_mode` QoS transient_local/depth 1/reliable everywhere; (b) legacy `~/set_render_mode` re-publishes globally; (c) `initial_mode:=1` also sets `render_mode_`; (d) `vcam_state[8] = mux_mode` on both nodes; (f) `check_pod_header.sh` as `ament_add_test`, glob `*.h*`; (g) `FILAMENT_VERSION` single-sourced; (h) `GL_VENDOR/RENDERER/VERSION` logged once, hello-frame skips without GPU; (i) `bluegl::bind()` link-probe. Item (e) shipped in F03.1. | Smoke test drives restart-in-mode-3 and legacy-topic exit with exactly-one-publisher; `colcon_build.sh` runs the POD check; a deliberate `scene.h` layout change fails the node build; hello-frame log names the GPU. | 1 | 3 | Spec §3.1; ADR-0002, 0003; Epic 3 Task 7 | mux, build, debt |
+| Backlog Item | B03.7.1 | F03.7 | (a) mux QoS transient_local | Every `/rendering/set_mode` publisher/subscriber; late joiner/restart rejoins the live mode. | Smoke: restart node in mode 3 → resumes mode 3. | 1 | 0.5 | ADR-0002 | mux |
+| Backlog Item | B03.7.2 | F03.7 | (b)+(c) legacy `~/set_render_mode` re-publish + `initial_mode` sync | No one-sided exit from mode 3; `initial_mode:=1` starts bowl, not hybrid. | Smoke: legacy topic exit leaves exactly one publisher; mode-1 start verified. | 1 | 0.5 | Spec §3.1 | mux |
+| Backlog Item | B03.7.3 | F03.7 | (d) `vcam_state[8] = mux_mode` on both nodes | Index 7 unchanged; smoke tests assert length 9. | Both smoke tests updated and green. | 2 | 0.5 | Spec §6 | vcam |
+| Backlog Item | B03.7.4 | F03.7 | (f)+(g) POD check under colcon + `FILAMENT_VERSION` single-source | `ament_add_test` in the node package; glob widened; node CMake reads the version from `GetFilament.cmake`. | `colcon_build.sh` fails on a POD violation; one version string in the repo. | 1 | 0.5 | ADR-0001, 0003 | build |
+| Backlog Item | B03.7.5 | F03.7 | (h)+(i) GL device logging + bluegl link-probe | Log strings once at `create_renderer()`; static assertion on the hand-declared `bluegl::bind()` signature. | Hello-frame log names the GPU; probe fails on a signature drift. | 2 | 0.5 | ADR-0001 | build, logging |
+| Backlog Item | B03.7.6 | F03.7 | Smoke tests for restart-in-mode-3 + legacy exit | Extend `smoke_test.py` per the feature AC. | Both scenarios PASS. | 1 | 0.5 | Spec §10 | test |
+| Feature | F03.8 | E03 | Epic 3 review gate + close | Opus review against the plan's own gate checklist; ledger closed; goldens promoted; `validate_visual_mode.sh` MILESTONE UPDATE LOG extended for every new layer. | Gate PASSED recorded in the Epic 3 plan "results" section; master plan row updated. | 1 | 1 | Epic 3 plan Review gate | review |
+| Backlog Item | B03.8.1 | F03.8 | Run the Epic 3 review gate and close the ledger | Workflow per the project's Fable/Sonnet/Opus directive; fix majors; record deviations. | Gate verdict + fixes committed. | 1 | 1 | Epic 3 plan | review |
+
+### E04 — Clay Buildings (EnvironmentLayer)
+
+> **Source:** Backlog spec Epic 4, design §4.5. Nothing exists yet. Bag fact: `/sim/feedback/gps` (NavSatFix, ~10 Hz) is in the fixture bag. Mapbox token available to the user (env var, never committed) if Overpass is rate-limited. Epic plan doc to be authored at Epic 3 close.
+
+| WI Type | ID | Parent | Title | Description | Acceptance Criteria | Pri | Effort | Refs | Tags |
+|---------|----|--------|-------|-------------|---------------------|-----|--------|------|------|
+| Epic | E04 | — | Clay Buildings (EnvironmentLayer) | Stylized clay building environment around the ego from an offline bake of OSM footprints/heights, geo-anchored via the robot's NavSatFix, loaded as distance-culled chunks behind an `EnvironmentSource` seam (Epic 6 swaps in streaming). | Golden with the baked town; frame-time delta < 2 ms at target preset; layer disabled with WARN when no datum. | 2 | 13 | Spec §4.5 | environment, buildings |
+| Feature | F04.1 | E04 | VM-050 Geo-anchor | NavSatFix (WGS84, robot-published) + `gps_link` TF sampling → local-ENU transform; `geo_datum` param (lat/lon/heading of map origin) as manual override; layer disabled with WARN when absent. | Unit test round-trips WGS84 ↔ map-frame within 0.1 m over a 2 km area. | 2 | 3 | Spec §4.5; Global constraints | geo |
+| Backlog Item | B04.1.1 | F04.1 | NavSatFix + `gps_link` datum sampling → ENU | node `src/geo_anchor.cpp`; datum settles after N fixes; ENU transform published to the environment layer. | Fixture-bag test derives a stable datum. | 2 | 1.5 | Spec §4.5 | geo |
+| Backlog Item | B04.1.2 | F04.1 | `geo_datum` override + WARN when absent | Param overrides sampling; missing both → layer disabled, WARN once. | Param test; WARN path test. | 2 | 0.5 | Spec §9 | geo |
+| Backlog Item | B04.1.3 | F04.1 | Round-trip accuracy test | WGS84 ↔ map-frame over a 2 km area. | Error < 0.1 m. | 2 | 1 | Spec §4.5 | test |
+| Feature | F04.2 | E04 | VM-051 Bake pipeline | `scripts/bake_environment.py`: bbox → OSM footprints + heights (Overpass or local extract; Mapbox MVT alternative) → extruded, chunked glTF + tileset index JSON; verification overlay image (footprints vs a recorded ego track). | Bake of the CARLA-town / real operating area completes offline from a cached extract; overlay image sanity-approved. | 2 | 5 | Spec §4.5 | bake, tooling |
+| Backlog Item | B04.2.1 | F04.2 | Footprint fetch + local cache | Overpass query for bbox with cached extract; Mapbox MVT source as alternative (token via env var). | Repeatable offline run from cache. | 2 | 2 | Spec §4.5 | bake |
+| Backlog Item | B04.2.2 | F04.2 | Extrude + chunk → glTF + index | Heights from tags/levels with defaults; chunk grid; `tileset.json`-style index. | Chunks load in a glTF viewer; index validates. | 2 | 2 | Spec §4.5 | bake |
+| Backlog Item | B04.2.3 | F04.2 | Verification overlay image | Footprints drawn over a recorded ego track. | Image approved by the user. | 2 | 1 | Spec §4.5 | bake, validation |
+| Feature | F04.3 | E04 | VM-052 Runtime chunk loading + culling | Index → distance-enabled chunks behind an `EnvironmentSource` seam; theme building material. | Golden with baked town; frame-time delta < 2 ms at target preset. | 2 | 5 | Spec §4.5, §8 | environment, filament |
+| Backlog Item | B04.3.1 | F04.3 | `EnvironmentSource` seam + chunk loader + distance culling | lib `src/environment.cpp`; chunk enable/disable by ego distance. | Unit test on chunk selection; validation rig shows buildings. | 2 | 3 | Spec §4.5 | environment |
+| Backlog Item | B04.3.2 | F04.3 | Theme building material + golden | `palette.building` token per theme; clay material. | Golden per theme (theming-sensitive). | 2 | 1 | Spec §4.3 | theme, golden |
+| Backlog Item | B04.3.3 | F04.3 | Frame-time check | `render_ms` delta with/without the layer at the target preset. | < 2 ms recorded. | 2 | 1 | Spec §8 | perf |
+
+### E05 — Hardening & Delivery
+
+> **Source:** Backlog spec Epic 5. The repo has no hosted CI (no `.github/workflows`, no GitLab CI), so "CI wiring" is a repo-local gate script. VM-044 (asset packaging) was added by the 2026-09-07 review and blocks VM-043 together with the on-robot budget table (B00.4.2).
+
+| WI Type | ID | Parent | Title | Description | Acceptance Criteria | Pri | Effort | Refs | Tags |
+|---------|----|--------|-------|-------------|---------------------|-----|--------|------|------|
+| Epic | E05 | — | Hardening & Delivery | Quality auto-drop governor, perf benchmark + repo-local CI gate, documentation/runbooks, packaged theme + ego assets for a real install, and the live validation sign-off (CARLA + real-robot bag, rviz parity, on-robot budget). | v1.0 sign-off checklist complete; `ci_visual_mode.sh` green from a clean checkout; clean clone on another machine shows both themes and the ego mesh. | 1 | 18 | Spec §8, §9, §10; Global constraints | hardening, delivery |
+| Feature | F05.1 | E05 | VM-040 Quality auto-drop with hysteresis | Node-side governor on `render_ms` (VM-034): drop preset when over budget for N consecutive seconds, log line, recover with hysteresis. Live preset change needs `set_quality()` (appended, ADR-0004) or a renderer re-create — decide in the Epic 5 plan (P4 accepted). | Synthetic-load test triggers drop + log; recovers. | 1 | 3 | Spec §8; ADR-0004 | perf, quality |
+| Backlog Item | B05.1.1 | F05.1 | Decide `set_quality()` vs renderer re-create | Record in the Epic 5 plan; implement the chosen path. | Live preset change works on the validation rig. | 1 | 0.5 | ADR-0004 | decision |
+| Backlog Item | B05.1.2 | F05.1 | Governor with hysteresis + log | `src/quality_governor.cpp` (node); thresholds as params; never silent. | Unit test on the state machine. | 1 | 1.5 | Spec §8 | perf |
+| Backlog Item | B05.1.3 | F05.1 | Synthetic-load test | Inflate scene until over budget; assert drop, log, recovery. | Test green (GPU-skip aware). | 1 | 1 | Spec §10 | test |
+| Feature | F05.2 | E05 | VM-041 Perf benchmark + repo-local CI gate | `tools/viz_benchmark.cpp` (scripted scene at target complexity, per-preset frame-time assertion, informational) + `tools/ci_visual_mode.sh` running POD check, lib ctest, node gtests, WS bridge pytest and goldens with GPU-skip; documented as the pre-merge gate. Hosted CI follows when a platform exists. | Clean-checkout build + `ci_visual_mode.sh` green, documented and reproducible. | 1 | 3 | Spec §10; Global constraints | ci, perf |
+| Backlog Item | B05.2.1 | F05.2 | `viz_benchmark` | Scripted scene; per-preset frame time; informational output. | Runs on the dev box; numbers recorded. | 2 | 1.5 | Spec §10 | perf |
+| Backlog Item | B05.2.2 | F05.2 | `tools/ci_visual_mode.sh` | One script, all suites, GPU-skip; exit code is the gate. | Green from clean checkout. | 1 | 1 | Spec §10 | ci |
+| Backlog Item | B05.2.3 | F05.2 | Document the pre-merge gate | README/AGENTS pointer; clean-checkout recipe incl. `setup_toolchain.sh`. | A new contributor reproduces it from docs alone. | 2 | 0.5 | — | docs |
+| Feature | F05.3 | E05 | VM-042 Docs + runbook | README section, profile-authoring guide for the autonomy team, environment-bake guide, deployment notes under `docs/visual_mode/` (ADRs stay in `docs/adr/`). | An autonomy-team member can add a topic via profile YAML using only docs. | 2 | 4 | Spec §5, §7 | docs |
+| Backlog Item | B05.3.1 | F05.3 | README visual-mode section | Modes, launch, params, WS commands, validation rig. | Reviewed by the user. | 2 | 1 | — | docs |
+| Backlog Item | B05.3.2 | F05.3 | Profile-authoring guide | Row schema, adapter kinds, ns rules, QoS, color modes, parity fallback. | Autonomy member adds a topic without help (dry run). | 2 | 1.5 | Spec §5, §7 | docs |
+| Backlog Item | B05.3.3 | F05.3 | Environment-bake guide + deployment notes | Bake pipeline usage, token handling, install layout. | Reviewed. | 3 | 1.5 | Spec §4.5 | docs |
+| Feature | F05.4 | E05 | VM-044 Package theme + ego assets for a real install | Today `DEFAULT_THEME_ASSETS_DIR` is this checkout's path, the node leaves `theme_assets_dir` null, no param selects the initial theme, and `ego_model_path` defaults to a per-user `~/Downloads` path — off the dev box the node silently runs the fallback theme with a clay-box ego. Install `assets/themes` + the converted ego `.glb` (Git LFS or fetch script), resolve via `ament_index`, add `initial_theme` param. Blocks VM-043. | Clean clone + build on another machine shows both themes and the ego mesh; `ros2 param get` shows the resolved paths. | 1 | 3 | Spec §4.4, §9 | assets, install |
+| Backlog Item | B05.4.1 | F05.4 | Install themes + ego glb via `ament_index` | LFS or fetch script for the 75.8 MB M02P glb; CMake install rules; node resolves paths at runtime. | Paths resolve on a clean install. | 1 | 1.5 | Spec §4.4 | assets |
+| Backlog Item | B05.4.2 | F05.4 | `initial_theme` param + resolved-path params | Launch with light_clay possible; `ros2 param get` shows resolved paths. | Param test. | 1 | 0.5 | Spec §4.3 | node |
+| Backlog Item | B05.4.3 | F05.4 | Clean-clone verification on another machine | Build + run on a second box; re-shoot the ego golden with the real mesh. | Both themes + ego mesh visible; golden promoted. | 1 | 1 | Spec §10 | validation |
+| Feature | F05.5 | E05 | VM-043 Live validation + v1.0 sign-off | Full stack on CARLA bridge + a real-robot bag; side-by-side review vs rviz for parity; on-robot budget table (B00.4.2) as a blocking checklist item; `docs/visual_mode/signoff.md`. | Product + autonomy sign-off checklist complete, budget table recorded. | 1 | 5 | Spec §1 success criteria, §7, §8 | validation, signoff |
+| Backlog Item | B05.5.1 | F05.5 | CARLA-bridge full-stack run | Sim + autonomy stack + both render nodes; mode switching under load. | Session recorded; issues filed. | 1 | 1.5 | Spec §10 | validation |
+| Backlog Item | B05.5.2 | F05.5 | Real-robot bag rviz side-by-side | Every §7 row compared; deviations listed. | Parity checklist signed by autonomy. | 1 | 1.5 | Spec §7 | validation |
+| Backlog Item | B05.5.3 | F05.5 | On-robot budget table | Executes B00.4.2 as part of sign-off. | Table + go/adjust recorded. | 1 | 1 | Spec §8 | perf |
+| Backlog Item | B05.5.4 | F05.5 | `signoff.md` checklist | Product + autonomy sign-off; Cesium ion registration reminder for E06. | Checklist complete. | 1 | 1 | — | signoff |
+
+### E06 — v1.1: 3D Tiles Streaming (committed)
+
+> **Source:** Backlog spec Epic 6 (a314162). The 2026-09-07 review proposed deferring this epic; the user rejected that — it stays committed v1.1 and starts immediately after v1.0 sign-off. Its bite-sized plan (`2026-08-18-visual-mode-epic6.md`) is authored at VM-043. Prerequisite: user performs Cesium ion registration; token handled like the Mapbox token (env var, never committed).
+
+| WI Type | ID | Parent | Title | Description | Acceptance Criteria | Pri | Effort | Refs | Tags |
+|---------|----|--------|-------|-------------|---------------------|-----|--------|------|------|
+| Epic | E06 | — | v1.1 — 3D Tiles Streaming | Stream Cesium OSM Buildings (3D Tiles) through cesium-native behind the `EnvironmentSource` seam from E04, re-materialized in the theme's clay building material, geo-placed via the VM-050 anchor, with a disk cache and baked-chunk fallback on network loss. | Baked-source goldens still pass with the streaming source; frame-time budget held while streaming; fallback e2e passes. | 2 | 17 | Spec §4.5; ADR-0003 | environment, streaming, v1.1 |
+| Feature | F06.1 | E06 | VM-060 Cesium ion registration + tileset access | User registers; Cesium OSM Buildings token stored as env var, never committed; runbook `docs/visual_mode/cesium.md`. | Token retrieves `tileset.json` for the operating area. | 2 | 1 | Spec §4.5 | cesium, setup |
+| Backlog Item | B06.1.1 | F06.1 | Cesium ion registration (user) | Account + asset access to OSM Buildings. | Token issued. | 2 | 0.5 | — | setup |
+| Backlog Item | B06.1.2 | F06.1 | Token handling + tileset retrieval check | Env var convention documented; smoke script fetches `tileset.json`. | Fetch succeeds for the operating-area bbox. | 2 | 0.5 | — | setup |
+| Feature | F06.2 | E06 | VM-061 cesium-native build integration | Pin a cesium-native release behind the same clang/libc++ + POD-boundary rules as Filament (`cmake/GetCesiumNative.cmake`). | Builds alongside Filament; POD header check still passes. | 2 | 5 | ADR-0001, 0003 | build |
+| Backlog Item | B06.2.1 | F06.2 | `GetCesiumNative.cmake` pin + static link | Pinned release, sha256, libc++ static; cyclic archive handling. | Lib builds; hello-frame unchanged. | 2 | 3 | ADR-0003 | build |
+| Backlog Item | B06.2.2 | F06.2 | POD boundary + node link verification | No cesium types in public headers; node links the new archive. | `check_pod_header.sh` green; colcon green. | 2 | 2 | ADR-0003 | build |
+| Feature | F06.3 | E06 | VM-062 3D Tiles streaming EnvironmentSource | Tile selection/loading behind the seam; glTF tile payloads re-materialized with the clay building material; geo placement via VM-050; disk tile cache for offline robustness. | Baked-source goldens still pass with the streaming source swapped in over the same area; frame-time budget held. | 2 | 8 | Spec §4.5, §8 | streaming |
+| Backlog Item | B06.3.1 | F06.3 | Tile selection + async loading | `src/environment_stream.cpp`; camera/ego-driven tile selection off the render thread. | Tiles appear in the validation rig. | 2 | 3 | Spec §4.5 | streaming |
+| Backlog Item | B06.3.2 | F06.3 | Clay re-materialization of tile glTF | Strip textures, apply theme building material. | Golden matches baked-source look. | 2 | 2 | Spec §4.3 | theme |
+| Backlog Item | B06.3.3 | F06.3 | Geo placement via VM-050 anchor | ECEF → local ENU using the datum. | Buildings align with the baked overlay within tolerance. | 2 | 1 | Spec §4.5 | geo |
+| Backlog Item | B06.3.4 | F06.3 | Disk tile cache | Cache dir param; offline replay from cache. | Second run loads with network disabled. | 2 | 2 | Spec §9 | streaming |
+| Feature | F06.4 | E06 | VM-063 Source selection + fallback | Profile/param chooses `baked / streamed`; streamed falls back to baked chunks on network loss with WARN. | Fallback e2e test (kill network mid-run → baked chunks appear, WARN). | 2 | 3 | Spec §9 | streaming, fallback |
+| Backlog Item | B06.4.1 | F06.4 | Source selection param | Node/profile knob; both sources behind one seam. | Param switches sources live or at configure. | 2 | 1 | Spec §4.5 | node |
+| Backlog Item | B06.4.2 | F06.4 | Fallback on network loss + e2e | Detect stalled tiles → baked chunks; WARN once. | E2E passes. | 2 | 2 | Spec §9 | test |
+
+### E07 — Future (explicitly deferred)
+
+> **Source:** Backlog spec "Future" section. Each item carries its re-entry trigger; none is scheduled. Import as Features under a Deferred epic so other work items can link them.
+
+| WI Type | ID | Parent | Title | Description | Acceptance Criteria | Pri | Effort | Refs | Tags |
+|---------|----|--------|-------|-------------|---------------------|-----|--------|------|------|
+| Epic | E07 | — | Future (deferred) | Ideas explicitly out of v1/v1.1 with recorded re-entry triggers. | Re-entry trigger fires and a plan is authored. | 3 | — | Spec §11 | deferred |
+| Feature | F07.1 | E07 | VM-070 Minimap inset | Can reuse bake data. | Trigger: product asks for orientation context the 3D view cannot give. | 3 | — | Spec §11 | deferred |
+| Feature | F07.2 | E07 | VM-071 Typed perception-topic adapter | The `DynamicObjectsAdapter` seam already accepts one. | Trigger: the autonomy stack publishes a typed object list. | 3 | — | Spec §5 | deferred |
+| Feature | F07.3 | E07 | VM-072 Hybrid mode (camera ground + synthetic overlays) | Photographic ground with visual-mode overlays. | Trigger: product request modes 1–2 cannot serve. | 3 | — | Spec §11 | deferred |
+| Feature | F07.4 | E07 | VM-073 Interactive picking over WS | Click-to-inspect needs picking + richer WS protocol. | Trigger: a client needs click-to-inspect. | 3 | — | Spec §7, §11 | deferred |
+| Feature | F07.5 | E07 | VM-074 Async readback | Double-buffered readback. | Trigger: on-robot `render_ms` p99 shows readback dominating. | 3 | — | Spec §8 | deferred |
+| Feature | F07.6 | E07 | VM-075 Wheel/turn animations on clay models | Cosmetic. | No trigger. | 3 | — | Spec §11 | deferred |
+| Feature | F07.7 | E07 | VM-076 `cuda/` directory rename | Cosmetic. | No trigger. | 3 | — | — | deferred |
+
+---
+
+## Recommended Iteration Order (remaining work)
+
+1. E03.F03.1 — commit VM-036 (working tree) and promote the two sanctioned MapGolden reds
+2. E03.F03.2 — VM-034 fades + diagnostics + `render_ms` (unblocks VM-040 and the on-robot budget table)
+3. E03.F03.3 → F03.4 → F03.5 — HUD, callouts, layer/quality controls
+4. E03.F03.6 — VM-035 point clouds
+5. E03.F03.7 → F03.8 — VM-037 Epic-0 debt, Epic 3 review gate
+6. E04 — geo-anchor, bake, runtime chunks (plan doc authored at Epic 3 close)
+7. E05.F05.4 — VM-044 asset packaging early (it blocks sign-off and needs another machine)
+8. E05.F05.1 → F05.2 → F05.3 — governor, CI gate, docs
+9. E05.F05.5 + E00.B00.4.2 — live validation and on-robot budget table, v1.0 sign-off
+10. E06 — v1.1 streaming (plan authored at sign-off; user does Cesium ion registration first)
+
+---
+
+## Azure DevOps CSV Export Reference
+
+For bulk import via Azure DevOps CSV, use these column headers:
+
+```
+Work Item Type, Title, Description, Acceptance Criteria, Priority, Effort, Tags, Parent ID, Area Path, Linked Requirements
+```
+
+Map the `ID` column from this document to `Parent ID` for hierarchy. Set `Area Path` to `Micropilot Visualization\<Epic Title>`. Put the `Refs` column into `Linked Requirements`. Rows whose `Effort` is `✅ Done` import with `Effort` blank and State = Closed.
+
+---
+
+## Document References
+
+| Document | Location | Relevance to Backlog |
+|----------|----------|---------------------|
+| Visual Mode Design | `docs/superpowers/specs/2026-08-18-visual-mode-design.md` | All `§` references; success criteria (§1), architecture (§3), library (§4), adapters (§5), vcam (§6), parity matrix (§7), perf (§8), errors (§9), testing (§10), out of scope (§11) |
+| Visual Mode Backlog (stories + AC) | `docs/superpowers/specs/2026-08-18-visual-mode-backlog.md` | Source of every `VM-xxx` story and its acceptance criteria |
+| Master Implementation Plan | `docs/superpowers/plans/2026-08-18-visual-mode.md` | Epic 0 tasks, Epics 1–6 task tables, global constraints, 2026-09-07 review changelog |
+| Epic 1 / 2 / 3 plans | `docs/superpowers/plans/2026-08-18-visual-mode-epic{1,2,3}.md` | Status ledgers (status truth), task steps, review gates |
+| ADR-0001 Filament pin + headless EGL | `docs/adr/0001-filament-pin-and-headless-egl.md` | E00, build items |
+| ADR-0002 Two-node mode mux | `docs/adr/0002-two-node-mode-mux.md` | E00 mux, VM-037 |
+| ADR-0003 POD boundary, clang/libc++ lib | `docs/adr/0003-pod-boundary-clang-libcxx-lib.md` | Every library/node interface item |
+| ADR-0004 Additive-only versioned scene interface | `docs/adr/0004-scene-interface-versioning.md` | Every `scene.h` change (VM-036, VM-035, VM-030, VM-031, VM-040) |
+| GPU budget probe | `cuda/src/libs/visual_renderer/tools/budget_probe.md` | VM-004 proxy results; on-robot table template |
+| Validation rig | `tools/validate_visual_mode.sh` | Standing user directive: every visually-validatable layer extends it |
+| Styling ground truth | `assets/visualization-reference-1.jpg`, `assets/visualization-reference-2.jpg` | Binding for every theme/styling item |
+
+---
+
+*End of Project Backlog*
