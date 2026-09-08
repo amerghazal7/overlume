@@ -78,4 +78,17 @@ std::vector<Vec3> triangulate_convex_polygon(const Vec3* pts, uint32_t n, float 
 inline constexpr uint32_t kMaxPointsPerMesh = 32000;  // 2 verts/pt, < 65535/2
 std::vector<std::pair<uint32_t, uint32_t>> polyline_chunks(uint32_t n);
 
+// Lazy crosswalk hatch (Epic 2 Task 2 / VM-024; Epic 3 Task 1 / VM-036
+// decision #2 fixes its n==4 guard to actually fire on real recorded
+// geometry). Painted bars with ground visible in the gaps between them --
+// the visual differentiation IS the geometry, not a second material.
+// Bilinear-interpolated stripes between the quad's two SHORT edges (a
+// general convex-polygon clip was skipped as unneeded complexity -- see
+// map_elements.cpp's own ponytail note). Returns empty for n != 4; the
+// caller falls back to triangulate_convex_polygon()'s plain fan fill.
+// Declared here (not map_elements.hpp, which pulls in Filament) so it's
+// reachable from Filament-free tests, same reasoning as every function
+// above it in this header.
+std::vector<Vec3> build_crosswalk_hatch(const Vec3* pts, uint32_t n, float z_lift);
+
 }  // namespace mpviz::detail

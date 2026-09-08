@@ -82,6 +82,16 @@ struct Mesh {
     filament::VertexBuffer* vb = nullptr;
     filament::IndexBuffer* ib = nullptr;
     utils::Entity entity;
+    // Epic 3 Task 1 (VM-036) user directive 2026-09-08: the vertex count
+    // add_mesh() built this with -- Filament's VertexBuffer exposes no
+    // getter for it, so this mirrors what was passed in, the same "no
+    // getter, so mirror the value at the call site" reasoning as every
+    // *MaterialBaseColor field below. Set for every mesh add_mesh() builds
+    // (ground/grid/lane/ribbon/ego/etc, not map-elements-specific), read by
+    // map_element_total_vertex_count() (map_elements_test_hooks.hpp) to
+    // distinguish a dot-disc-built CENTERLINE mesh from a strip-built one
+    // without a full-frame SSIM.
+    uint32_t vertexCount = 0;
 };
 
 // Epic 2 Task 2 (VM-024): the ego-following ground/grid patch, per-element
@@ -262,7 +272,35 @@ public:
     // publish (spec §5's "cached, no per-frame rebuild" AC).
     filament::MaterialInstance* laneMaterial = nullptr;
     detail::Float3 laneMaterialBaseColor{};
+    // Per-kind tint instances (Epic 3 Task 1 / VM-036, decision #6) -- same
+    // clay.mat template, same eager-creation/push_theme_to_scene reasoning
+    // as laneMaterial above, one more instance per new token. laneMaterial
+    // itself stays the fallback for STOPLINE/JUNCTION/OTHER (the kinds with
+    // no dedicated token, per decision #6's soft-default note). ROAD_EDGE
+    // got its own dedicated roadEdgeMaterial below (user directive
+    // 2026-09-08) -- it no longer falls back to laneMaterial.
+    filament::MaterialInstance* laneCenterlineMaterial = nullptr;
+    detail::Float3 laneCenterlineMaterialBaseColor{};
+    filament::MaterialInstance* laneBoundaryMaterial = nullptr;
+    detail::Float3 laneBoundaryMaterialBaseColor{};
+    filament::MaterialInstance* crosswalkMaterial = nullptr;
+    detail::Float3 crosswalkMaterialBaseColor{};
+    filament::MaterialInstance* roadMaterial = nullptr;
+    detail::Float3 roadMaterialBaseColor{};
+    // ROAD_EDGE (user directive 2026-09-08): the road's outer boundary gets
+    // its own clay.mat instance, same eager-creation/push_theme_to_scene
+    // reasoning as every other per-kind tint above -- solid yellow-family,
+    // never dashed (map_elements.cpp gates dashing on LEFT_BOUNDARY/
+    // RIGHT_BOUNDARY only, which ROAD_EDGE is not).
+    filament::MaterialInstance* roadEdgeMaterial = nullptr;
+    detail::Float3 roadEdgeMaterialBaseColor{};
     std::unordered_map<uint64_t, Mesh> mapElementMeshes;
+    // Epic 3 Task 1 (VM-036) Step 7: Epic 2's untested "cached, no
+    // per-frame rebuild" AC, finally checked. Incremented once per
+    // adopt_or_build() CACHE-MISS branch in update_map_elements()
+    // (map_elements.cpp) -- a content signature already present in
+    // mapElementMeshes is adopted, not rebuilt, and does not bump this.
+    uint64_t mapElementRebuildCount = 0;
 
     // Theme system (Task 2 Step 7/7b). theme_dir is the retained copy of
     // RenderConfig::theme_assets_dir (borrow-then-copy rule, see api.h) —

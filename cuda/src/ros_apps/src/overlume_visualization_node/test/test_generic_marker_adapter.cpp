@@ -6,6 +6,9 @@
 
 #include <cmath>
 #include <memory>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
@@ -73,6 +76,28 @@ visualization_msgs::msg::Marker DeleteAll()
     return m;
 }
 
+// Pre-existing gap fixed in passing (Epic 3 Task 1 / VM-036 build/test
+// pass, unrelated to VM-036 itself): urban_profile.yaml's own
+// /sim/ground_truth/boxes row has shipped COMMENTED OUT since 2026-08-20
+// (the ego's own ground-truth box flickers at the robot proxy's origin --
+// see that file's own note), so `urban_row("/sim/ground_truth/boxes")`
+// throws ("has no row for topic") for every test below that used it. Same
+// fix test_profile.cpp's own GroundTruthBoxesRowIsBestEffortBecauseItsPublisherIs
+// test already applies: build the CANONICAL disabled row text directly
+// (best_effort: true is load-bearing -- see urban_profile.yaml's NOTE 2),
+// independent of whether that row is commented out in the shipped config.
+mpviz_node::ProfileRow GroundTruthBoxesRow()
+{
+    std::vector<std::string> errs;
+    auto p = mpviz_node::load_profile_string(
+        "name: t\nrows:\n  - {topic: /sim/ground_truth/boxes, "
+        "type: visualization_msgs/msg/MarkerArray, adapter: generic, role: neutral, "
+        "best_effort: true}\n",
+        errs);
+    if (!p) throw std::runtime_error("GroundTruthBoxesRow: profile failed to parse");
+    return p->rows[0];
+}
+
 }  // namespace
 
 // ── Step 4: fan-out is the ONLY freeze-respecting route for CUBE_LIST ──────
@@ -80,7 +105,7 @@ visualization_msgs::msg::Marker DeleteAll()
 TEST(GenericMarkerAdapter, CubeListFansOutIntoOneMarkerPerPoint)
 {
     TfFixture kTf;
-    auto row = mpviz_node::testing::urban_row("/sim/ground_truth/boxes");
+    auto row = GroundTruthBoxesRow();
     GenericMarkerAdapter a(row, kTf.tf);
 
     auto m = BaseMarker("boxes", 1, /*CUBE_LIST=*/6);
@@ -111,7 +136,7 @@ TEST(GenericMarkerAdapter, CubeListFansOutIntoOneMarkerPerPoint)
 TEST(GenericMarkerAdapter, SphereListFanOutUsesPerPointColorsWhenPopulated)
 {
     TfFixture kTf;
-    auto row = mpviz_node::testing::urban_row("/sim/ground_truth/boxes");
+    auto row = GroundTruthBoxesRow();
     GenericMarkerAdapter a(row, kTf.tf);
 
     auto m = BaseMarker("spheres", 2, /*SPHERE_LIST=*/7);
@@ -151,7 +176,7 @@ TEST(GenericMarkerAdapter, BaseLinkMarkersLandAroundTheEgoNotTheMapOrigin)
     buffer.setTransform(xf, "test_authority", /*is_static=*/true);
     FrameTransformer ft(buffer);
 
-    auto row = mpviz_node::testing::urban_row("/sim/ground_truth/boxes");
+    auto row = GroundTruthBoxesRow();
     GenericMarkerAdapter a(row, ft);
 
     auto box1 = BaseMarker("boxes", 1, /*CUBE=*/1);
@@ -181,7 +206,7 @@ TEST(GenericMarkerAdapter, BaseLinkMarkersLandAroundTheEgoNotTheMapOrigin)
 TEST(GenericMarkerAdapter, MalformedMarkersDroppedAndCountedNeighboursStillRender)
 {
     TfFixture kTf;
-    auto row = mpviz_node::testing::urban_row("/sim/ground_truth/boxes");
+    auto row = GroundTruthBoxesRow();
     GenericMarkerAdapter a(row, kTf.tf);
 
     auto good = BaseMarker("boxes", 1, /*CUBE=*/1);
@@ -204,7 +229,7 @@ TEST(GenericMarkerAdapter, MalformedMarkersDroppedAndCountedNeighboursStillRende
 TEST(GenericMarkerAdapter, DeleteAllClearsPreviousMarkers)
 {
     TfFixture kTf;
-    auto row = mpviz_node::testing::urban_row("/sim/ground_truth/boxes");
+    auto row = GroundTruthBoxesRow();
     GenericMarkerAdapter a(row, kTf.tf);
 
     visualization_msgs::msg::MarkerArray msg1;
@@ -222,8 +247,9 @@ TEST(GenericMarkerAdapter, DeleteAllClearsPreviousMarkers)
 
 TEST(GenericMarkerAdapter, DroppedByRuleNamespaceNeverReachesStorage)
 {
-    auto row = mpviz_node::testing::urban_row("/sim/ground_truth/boxes");
-    row.namespaces.push_back(mpviz_node::NsRule{"noisy_", mpviz_node::NsRender::kDrop, false});
+    auto row = GroundTruthBoxesRow();
+    row.namespaces.push_back(
+        mpviz_node::NsRule{"noisy_", mpviz_node::NsRender::kDrop, mpviz::MapKind::OTHER});
     TfFixture kTf;
     GenericMarkerAdapter a(row, kTf.tf);
 
@@ -242,7 +268,7 @@ TEST(GenericMarkerAdapter, DroppedByRuleNamespaceNeverReachesStorage)
 TEST(GenericMarkerAdapter, NonZeroLifetimeExpiresOnALaterIngestPastIt)
 {
     TfFixture kTf;
-    auto row = mpviz_node::testing::urban_row("/sim/ground_truth/boxes");
+    auto row = GroundTruthBoxesRow();
     GenericMarkerAdapter a(row, kTf.tf);
 
     auto m = BaseMarker("boxes", 1, /*CUBE=*/1);
@@ -278,7 +304,7 @@ TEST(GenericMarkerAdapter, NonZeroLifetimeExpiresOnALaterIngestPastIt)
 TEST(GenericMarkerAdapter, TextAndMeshPathStorageSurvivesFill)
 {
     TfFixture kTf;
-    auto row = mpviz_node::testing::urban_row("/sim/ground_truth/boxes");
+    auto row = GroundTruthBoxesRow();
     GenericMarkerAdapter a(row, kTf.tf);
 
     auto text = BaseMarker("boxes", 1, /*TEXT_VIEW_FACING=*/9);

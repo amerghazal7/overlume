@@ -211,6 +211,19 @@ if(BUILD_TESTING)
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${VISUAL_RENDERER_DIR}/include)
 
+  # Epic 3 Task 1 (VM-036) / this epic's slice of VM-037(e): mirrors
+  # tests/test_scene_buffer.cpp's sizeof/offsetof static_asserts, compiled
+  # gcc/libstdc++, so a future scene.h layout drift fails the NODE build too,
+  # not only the library's own clang/libc++ test binary (ADR-0004). Header-only
+  # + POD types only -- no need to link the visual_renderer static archive,
+  # just its headers, same pattern as test_ego_anchor immediately above. The
+  # static_asserts do the real work; the TEST body is a placeholder so this is
+  # a normal gtest target ctest/colcon can run.
+  ament_add_gtest(test_scene_layout test/test_scene_layout.cpp)
+  target_include_directories(test_scene_layout PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${VISUAL_RENDERER_DIR}/include)
+
   # Epic 2 Task 1 (VM-020) Step 1 item 6: every gtest target that compiles
   # test/fixture_msgs.cpp needs these three -- fixture_msgs.cpp's
   # urban_row()/sim_row() use TEST_CONFIG_DIR unconditionally, and

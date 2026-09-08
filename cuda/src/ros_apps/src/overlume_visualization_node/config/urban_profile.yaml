@@ -39,6 +39,17 @@ rows:
   # changing its render: to polyline; no rebuild needed. Note it needs its own
   # rule -- "centerline_" is a PREFIX of "centerline_arrows_0", so listing
   # only centerline_ would admit every arrow marker.
+  # centerline_ itself is ALSO dropped (user directive 2026-09-08): hidden by
+  # default -- these are the logical lane-center lines the HD map records,
+  # not painted road markings, and the road already reads correctly without
+  # them (solid yellow ROAD_EDGE outer lines, dashed white interior
+  # boundaries, filled road surface). Re-enable by restoring
+  # `render: polyline, kind: centerline` on this rule (`kind` cannot be set
+  # while `render: drop` -- ValidateRow's KindIsLegalOnRender rejects a
+  # non-OTHER kind on a drop verdict); once re-enabled, centerlines render as
+  # faint dot guidance (map_elements.cpp's build_centerline_dots()), not the
+  # old solid strip -- and `palette.lane_centerline` (both shipped themes)
+  # picks the dot color.
   # crosswalk_ is the only polygon namespace: on the wire it is a LINE_STRIP
   # exactly like the centerlines, so is_polygon (and therefore the crosswalk
   # hatching in spec §7) can only come from here.
@@ -49,12 +60,12 @@ rows:
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 2.0,
      ns_default: drop,
      namespaces: [
-       {prefix: centerline_,         render: polyline, dashed: true},
+       {prefix: centerline_,         render: drop},
        {prefix: centerline_arrows_,  render: drop},
-       {prefix: left_boundary_,      render: polyline},
-       {prefix: right_boundary_,     render: polyline},
-       {prefix: crosswalk,           render: polygon},
-       {prefix: crosswalk_stopline_, render: polyline}]}
+       {prefix: left_boundary_,      render: polyline, kind: left_boundary},
+       {prefix: right_boundary_,     render: polyline, kind: right_boundary},
+       {prefix: crosswalk,           render: polygon,  kind: crosswalk},
+       {prefix: crosswalk_stopline_, render: polyline, kind: stopline}]}
 
   # FIXTURE GAP: /hd_map_global_elements was silent in the recorded bag
   # (Count 0), exactly like /local_path and /navigation/global_path -- and it
@@ -75,12 +86,12 @@ rows:
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 0.5,
      ns_default: drop,
      namespaces: [
-       {prefix: centerline_,         render: polyline, dashed: true},
+       {prefix: centerline_,         render: drop},
        {prefix: centerline_arrows_,  render: drop},
-       {prefix: left_boundary_,      render: polyline},
-       {prefix: right_boundary_,     render: polyline},
-       {prefix: crosswalk,           render: polygon},
-       {prefix: crosswalk_stopline_, render: polyline}]}
+       {prefix: left_boundary_,      render: polyline, kind: left_boundary},
+       {prefix: right_boundary_,     render: polyline, kind: right_boundary},
+       {prefix: crosswalk,           render: polygon,  kind: crosswalk},
+       {prefix: crosswalk_stopline_, render: polyline, kind: stopline}]}
 
   # /road_markers: live in the bag (1921 msgs, RELIABLE, frame map). NOT in
   # either rviz config -- it ships because it is real painted-lane geometry

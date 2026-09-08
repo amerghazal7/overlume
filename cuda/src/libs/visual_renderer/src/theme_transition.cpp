@@ -95,6 +95,16 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.palette.ribbon_global =
         blend_color(a.palette.ribbon_global, b.palette.ribbon_global, w);
     out.palette.ribbon_local = blend_color(a.palette.ribbon_local, b.palette.ribbon_local, w);
+    // road/lane_centerline/lane_boundary/crosswalk (Epic 3 Task 1 / VM-036,
+    // decision #6 + decision #7's field-coverage guard).
+    out.palette.road = blend_color(a.palette.road, b.palette.road, w);
+    out.palette.lane_centerline =
+        blend_color(a.palette.lane_centerline, b.palette.lane_centerline, w);
+    out.palette.lane_boundary = blend_color(a.palette.lane_boundary, b.palette.lane_boundary, w);
+    out.palette.crosswalk = blend_color(a.palette.crosswalk, b.palette.crosswalk, w);
+    // road_edge (user directive 2026-09-08): same soft-defaulted-token
+    // blend as every other palette.* field above.
+    out.palette.road_edge = blend_color(a.palette.road_edge, b.palette.road_edge, w);
     out.palette.object_tints.car =
         blend_color(a.palette.object_tints.car, b.palette.object_tints.car, w);
     out.palette.object_tints.truck_van =

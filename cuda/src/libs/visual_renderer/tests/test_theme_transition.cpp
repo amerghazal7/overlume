@@ -267,6 +267,132 @@ TEST(ThemeTransition, MidTransition_LuminanceDoesNotOvershootEndpoints) {
     mpviz::destroy_renderer(r);
 }
 
+namespace {
+
+// Epic 3 Task 1 (VM-036) decision #7: every leaf field set to `scalar`.
+// Every color field is a Float3 (r=g=b=scalar, far from any real 0..1
+// color); every scalar field gets `scalar` directly.
+mpviz::detail::Theme MakeSentinelTheme(float scalar, const std::string& name) {
+    using mpviz::detail::Float3;
+    const Float3 c{scalar, scalar, scalar};
+    mpviz::detail::Theme t;
+    t.name = name;
+    t.palette.ground = c;
+    t.palette.sky = c;
+    t.palette.fog = c;
+    t.palette.lane_paint = c;
+    t.palette.ribbon_core = c;
+    t.palette.ribbon_glow = c;
+    t.palette.ego = c;
+    t.palette.ribbon_global = c;
+    t.palette.ribbon_local = c;
+    t.palette.road = c;
+    t.palette.lane_centerline = c;
+    t.palette.lane_boundary = c;
+    t.palette.crosswalk = c;
+    t.palette.road_edge = c;
+    t.palette.object_tints.car = c;
+    t.palette.object_tints.truck_van = c;
+    t.palette.object_tints.bus = c;
+    t.palette.object_tints.pedestrian = c;
+    t.palette.object_tints.cyclist = c;
+    t.palette.object_tints.unknown = c;
+    t.palette.alert.info = c;
+    t.palette.alert.warning = c;
+    t.palette.alert.critical = c;
+    t.material.roughness = scalar;
+    t.material.metallic = scalar;
+    t.emissive.ribbon_strength = scalar;
+    t.grid.line_color = c;
+    t.grid.fade_start_m = scalar;
+    t.grid.fade_end_m = scalar;
+    t.hud.text_color = c;
+    t.hud.accent_color = c;
+    t.hud.scale = scalar;
+    t.sun.direction = c;
+    t.sun.color = c;
+    t.sun.intensity = scalar;
+    t.ibl.sky_color = c;
+    t.ibl.ground_color = c;
+    t.ibl.intensity = scalar;
+    t.fog.density = scalar;
+    t.ribbon.width_m = scalar;
+    return t;
+}
+
+void ExpectBetweenSentinels(float v, const char* label) {
+    EXPECT_GT(v, 100.0f) << label << " looks unblended (silently defaulted?)";
+    EXPECT_LT(v, 230.0f) << label << " looks unblended (silently defaulted?)";
+}
+
+void ExpectBetweenSentinels(const mpviz::detail::Float3& v, const char* label) {
+    ExpectBetweenSentinels(v.r, (std::string(label) + ".r").c_str());
+    ExpectBetweenSentinels(v.g, (std::string(label) + ".g").c_str());
+    ExpectBetweenSentinels(v.b, (std::string(label) + ".b").c_str());
+}
+
+}  // namespace
+
+TEST(ThemeTransition, SentinelThemesDetectAnyUnblendedField) {
+    // A field added to Palette/etc. without a matching line in blend()
+    // silently blends to black forever -- there is no compiler check
+    // (C++ has no reflection over aggregate members here). A with every
+    // leaf at 111.0f, B at 222.0f, blended at t=0.5: every leaf of the
+    // result must lie strictly between 100.0f and 230.0f. A field that
+    // silently defaulted to 0.0f (out's default-constructed Theme{}) fails
+    // this immediately.
+    const mpviz::detail::Theme a = MakeSentinelTheme(111.0f, "a");
+    const mpviz::detail::Theme b = MakeSentinelTheme(222.0f, "b");
+    const mpviz::detail::Theme mid = mpviz::detail::blend(a, b, 0.5f);
+
+    ExpectBetweenSentinels(mid.palette.ground, "palette.ground");
+    ExpectBetweenSentinels(mid.palette.sky, "palette.sky");
+    ExpectBetweenSentinels(mid.palette.fog, "palette.fog");
+    ExpectBetweenSentinels(mid.palette.lane_paint, "palette.lane_paint");
+    ExpectBetweenSentinels(mid.palette.ribbon_core, "palette.ribbon_core");
+    ExpectBetweenSentinels(mid.palette.ribbon_glow, "palette.ribbon_glow");
+    ExpectBetweenSentinels(mid.palette.ego, "palette.ego");
+    ExpectBetweenSentinels(mid.palette.ribbon_global, "palette.ribbon_global");
+    ExpectBetweenSentinels(mid.palette.ribbon_local, "palette.ribbon_local");
+    ExpectBetweenSentinels(mid.palette.road, "palette.road");
+    ExpectBetweenSentinels(mid.palette.lane_centerline, "palette.lane_centerline");
+    ExpectBetweenSentinels(mid.palette.lane_boundary, "palette.lane_boundary");
+    ExpectBetweenSentinels(mid.palette.crosswalk, "palette.crosswalk");
+    ExpectBetweenSentinels(mid.palette.road_edge, "palette.road_edge");
+    ExpectBetweenSentinels(mid.palette.object_tints.car, "palette.object_tints.car");
+    ExpectBetweenSentinels(mid.palette.object_tints.truck_van, "palette.object_tints.truck_van");
+    ExpectBetweenSentinels(mid.palette.object_tints.bus, "palette.object_tints.bus");
+    ExpectBetweenSentinels(mid.palette.object_tints.pedestrian,
+                            "palette.object_tints.pedestrian");
+    ExpectBetweenSentinels(mid.palette.object_tints.cyclist, "palette.object_tints.cyclist");
+    ExpectBetweenSentinels(mid.palette.object_tints.unknown, "palette.object_tints.unknown");
+    ExpectBetweenSentinels(mid.palette.alert.info, "palette.alert.info");
+    ExpectBetweenSentinels(mid.palette.alert.warning, "palette.alert.warning");
+    ExpectBetweenSentinels(mid.palette.alert.critical, "palette.alert.critical");
+    ExpectBetweenSentinels(mid.material.roughness, "material.roughness");
+    ExpectBetweenSentinels(mid.material.metallic, "material.metallic");
+    ExpectBetweenSentinels(mid.emissive.ribbon_strength, "emissive.ribbon_strength");
+    ExpectBetweenSentinels(mid.grid.line_color, "grid.line_color");
+    // grid.fade_start_m/fade_end_m are deliberately NOT blended (carried
+    // through as `b`'s value, per theme_transition.cpp's own comment) --
+    // still checked here since `b`'s sentinel (222.0f) is itself inside
+    // the [100,230] band, so this still catches a field that silently
+    // defaulted to 0.0f instead.
+    ExpectBetweenSentinels(mid.grid.fade_start_m, "grid.fade_start_m");
+    ExpectBetweenSentinels(mid.grid.fade_end_m, "grid.fade_end_m");
+    ExpectBetweenSentinels(mid.hud.text_color, "hud.text_color");
+    ExpectBetweenSentinels(mid.hud.accent_color, "hud.accent_color");
+    ExpectBetweenSentinels(mid.hud.scale, "hud.scale");
+    ExpectBetweenSentinels(mid.sun.direction, "sun.direction");
+    ExpectBetweenSentinels(mid.sun.color, "sun.color");
+    ExpectBetweenSentinels(mid.sun.intensity, "sun.intensity");
+    ExpectBetweenSentinels(mid.ibl.sky_color, "ibl.sky_color");
+    ExpectBetweenSentinels(mid.ibl.ground_color, "ibl.ground_color");
+    ExpectBetweenSentinels(mid.ibl.intensity, "ibl.intensity");
+    ExpectBetweenSentinels(mid.fog.density, "fog.density");
+    ExpectBetweenSentinels(mid.ribbon.width_m, "ribbon.width_m");
+}
+
 TEST(ThemeTransition, UnknownThemeName_ReturnsFalseAndLeavesActiveThemeUnchanged) {
     mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
     mpviz::VisualRenderer* r = mpviz::create_renderer(cfg);

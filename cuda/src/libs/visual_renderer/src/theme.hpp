@@ -57,6 +57,28 @@ struct Theme {
         // ribbon_glow for local) rather than invalidating the whole theme.
         Float3 ribbon_global;
         Float3 ribbon_local;
+        // road/lane_centerline/lane_boundary/crosswalk (Epic 3 Task 1 /
+        // VM-036, decision #6): SOFT-DEFAULTED exactly like `ego`/
+        // `ribbon_global`/`ribbon_local` above (theme.cpp's parse()), so a
+        // theme file predating these still parses -- lane_centerline/
+        // lane_boundary/crosswalk fall back to `lane_paint`, `road` falls
+        // back to `ground`. Neither shipped theme relies on the default
+        // (both get explicit values, per decision #6's concrete hue
+        // targets); the soft-default exists for a third-party theme file.
+        Float3 road;
+        Float3 lane_centerline;
+        Float3 lane_boundary;
+        Float3 crosswalk;
+        // road_edge (user directive 2026-09-08, post Task 1 candidate
+        // review): the road's outer boundary (MapKind::ROAD_EDGE -- reserved
+        // since Task 1, first producer this directive adds in hd_map.cpp)
+        // renders SOLID and yellow-family, distinct from the dashed-white
+        // interior `lane_boundary` tone above. SOFT-DEFAULTED exactly like
+        // every other token in this block (theme.cpp's parse()) -- falls
+        // back to `lane_paint`, the same `palette.ego` precedent -- so a
+        // theme file predating this key still parses. Neither shipped theme
+        // relies on the default; both author an explicit yellow.
+        Float3 road_edge;
         struct ObjectTints {
             Float3 car, truck_van, bus, pedestrian, cyclist, unknown;
         } object_tints;

@@ -504,6 +504,38 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     r.laneMaterial->setParameter("metallic", theme.material.metallic);
     r.laneMaterialBaseColor = theme.palette.lane_paint;
 
+    // Per-kind tints (Epic 3 Task 1 / VM-036, decision #6): four more
+    // clay.mat instances, created EAGERLY in create_renderer(), themed
+    // here on every call for the exact same "first frame, no transition
+    // needed" reason laneMaterial just above is.
+    r.laneCenterlineMaterial->setParameter("baseColor", to_filament(theme.palette.lane_centerline));
+    r.laneCenterlineMaterial->setParameter("roughness", theme.material.roughness);
+    r.laneCenterlineMaterial->setParameter("metallic", theme.material.metallic);
+    r.laneCenterlineMaterialBaseColor = theme.palette.lane_centerline;
+
+    r.laneBoundaryMaterial->setParameter("baseColor", to_filament(theme.palette.lane_boundary));
+    r.laneBoundaryMaterial->setParameter("roughness", theme.material.roughness);
+    r.laneBoundaryMaterial->setParameter("metallic", theme.material.metallic);
+    r.laneBoundaryMaterialBaseColor = theme.palette.lane_boundary;
+
+    r.crosswalkMaterial->setParameter("baseColor", to_filament(theme.palette.crosswalk));
+    r.crosswalkMaterial->setParameter("roughness", theme.material.roughness);
+    r.crosswalkMaterial->setParameter("metallic", theme.material.metallic);
+    r.crosswalkMaterialBaseColor = theme.palette.crosswalk;
+
+    r.roadMaterial->setParameter("baseColor", to_filament(theme.palette.road));
+    r.roadMaterial->setParameter("roughness", theme.material.roughness);
+    r.roadMaterial->setParameter("metallic", theme.material.metallic);
+    r.roadMaterialBaseColor = theme.palette.road;
+
+    // ROAD_EDGE (user directive 2026-09-08): roadEdgeMaterial is created
+    // EAGERLY in create_renderer() (same reasoning as laneMaterial/the
+    // other per-kind tints above), themed here on every call.
+    r.roadEdgeMaterial->setParameter("baseColor", to_filament(theme.palette.road_edge));
+    r.roadEdgeMaterial->setParameter("roughness", theme.material.roughness);
+    r.roadEdgeMaterial->setParameter("metallic", theme.material.metallic);
+    r.roadEdgeMaterialBaseColor = theme.palette.road_edge;
+
     // Ego contrast color (user directive 2026-08-20): egoMaterial is created
     // EAGERLY in create_renderer() (same reasoning as laneMaterial just
     // above), so this call themes it from the very first frame, whether or
@@ -941,6 +973,9 @@ void add_mesh(VisualRenderer& r, Mesh& mesh, std::vector<Vertex> verts,
               std::vector<uint16_t> indices,
               filament::RenderableManager::PrimitiveType primitive,
               filament::MaterialInstance* material, bool cast_shadows, bool receive_shadows) {
+    // User directive 2026-09-08: captured BEFORE the moves below empty
+    // `verts` -- see Mesh::vertexCount's own comment (renderer_internal.hpp).
+    mesh.vertexCount = static_cast<uint32_t>(verts.size());
     mesh.vb = make_vertex_buffer(*r.engine, std::move(verts));
     mesh.ib = make_index_buffer(*r.engine, std::move(indices));
     mesh.entity = utils::EntityManager::get().create();
@@ -1110,6 +1145,15 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // material file as ground/grid; see map_elements.cpp for why no new
     // .mat is needed at all.
     r->laneMaterial = r->clayMaterial->createInstance();
+    // Per-kind tints (Epic 3 Task 1 / VM-036, decision #6): four more
+    // clay.mat instances, created EAGERLY here for the exact same reason
+    // laneMaterial just above is.
+    r->laneCenterlineMaterial = r->clayMaterial->createInstance();
+    r->laneBoundaryMaterial = r->clayMaterial->createInstance();
+    r->crosswalkMaterial = r->clayMaterial->createInstance();
+    r->roadMaterial = r->clayMaterial->createInstance();
+    // ROAD_EDGE (user directive 2026-09-08): same eager-creation reasoning.
+    r->roadEdgeMaterial = r->clayMaterial->createInstance();
     // Ego contrast color (user directive 2026-08-20): a dedicated clay.mat
     // instance for the ego, created EAGERLY here for the exact same reason
     // laneMaterial just above is — see renderer_internal.hpp's field
@@ -1199,6 +1243,11 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     r->groundMaterial->setCullingMode(filament::backend::CullingMode::NONE);
     r->gridMaterial->setCullingMode(filament::backend::CullingMode::NONE);
     r->laneMaterial->setCullingMode(filament::backend::CullingMode::NONE);
+    r->laneCenterlineMaterial->setCullingMode(filament::backend::CullingMode::NONE);
+    r->laneBoundaryMaterial->setCullingMode(filament::backend::CullingMode::NONE);
+    r->crosswalkMaterial->setCullingMode(filament::backend::CullingMode::NONE);
+    r->roadMaterial->setCullingMode(filament::backend::CullingMode::NONE);
+    r->roadEdgeMaterial->setCullingMode(filament::backend::CullingMode::NONE);
     r->egoMaterial->setCullingMode(filament::backend::CullingMode::NONE);
     for (size_t i = 0; i < VisualRenderer::kObjectClassCount; ++i) {
         r->objectClassMaterial[i]->setCullingMode(filament::backend::CullingMode::NONE);
@@ -1362,6 +1411,11 @@ void destroy_renderer(VisualRenderer* r) {
     }
     r->mapElementMeshes.clear();
     if (r->laneMaterial) r->engine->destroy(r->laneMaterial);
+    if (r->laneCenterlineMaterial) r->engine->destroy(r->laneCenterlineMaterial);
+    if (r->laneBoundaryMaterial) r->engine->destroy(r->laneBoundaryMaterial);
+    if (r->crosswalkMaterial) r->engine->destroy(r->crosswalkMaterial);
+    if (r->roadMaterial) r->engine->destroy(r->roadMaterial);
+    if (r->roadEdgeMaterial) r->engine->destroy(r->roadEdgeMaterial);
     if (r->egoMaterial) r->engine->destroy(r->egoMaterial);
     // Epic 2 Task 5 (VM-023): all three role instances, before either
     // Material they're instances of (ribbonEmissiveMaterial/clayMaterial,
@@ -1619,9 +1673,63 @@ mpviz::detail::Float3 lane_material_base_color(mpviz::VisualRenderer* r) {
     return r->laneMaterialBaseColor;
 }
 
+// Epic 3 Task 1 (VM-036) decision #6: mirrors map_elements.cpp's (anonymous
+// namespace, so not directly callable from here) material_for_kind() switch
+// field-for-field, against the *MaterialBaseColor mirrors push_theme_to_
+// scene() pushes rather than the MaterialInstance pointers themselves --
+// same "no Filament getter" reasoning as lane_material_base_color() above.
+// Kept in sync with material_for_kind() by hand; a kind added to one and
+// not the other is caught the moment a test exercises the new kind, same as
+// any other hand-mirrored switch in this codebase (e.g. the two independent
+// arc-length walkers decision #3/#5 call out explicitly).
+mpviz::detail::Float3 map_kind_base_color(mpviz::VisualRenderer* r, mpviz::MapKind kind) {
+    if (r == nullptr) return {};
+    switch (kind) {
+        case mpviz::MapKind::CENTERLINE:
+            return r->laneCenterlineMaterialBaseColor;
+        case mpviz::MapKind::LEFT_BOUNDARY:
+        case mpviz::MapKind::RIGHT_BOUNDARY:
+            return r->laneBoundaryMaterialBaseColor;
+        case mpviz::MapKind::CROSSWALK:
+            return r->crosswalkMaterialBaseColor;
+        case mpviz::MapKind::ROAD_SURFACE:
+            return r->roadMaterialBaseColor;
+        case mpviz::MapKind::ROAD_EDGE:
+            return r->roadEdgeMaterialBaseColor;
+        default:
+            return r->laneMaterialBaseColor;
+    }
+}
+
 mpviz::detail::Float3 ego_material_base_color(mpviz::VisualRenderer* r) {
     if (r == nullptr) return {};
     return r->egoMaterialBaseColor;
+}
+
+// Epic 3 Task 1 (VM-036) Step 7: Epic 2's untested "cached, no per-frame
+// rebuild" AC. 0 if `r` is null.
+uint64_t map_element_rebuild_count(mpviz::VisualRenderer* r) {
+    return r == nullptr ? 0 : r->mapElementRebuildCount;
+}
+
+size_t map_element_mesh_count(mpviz::VisualRenderer* r) {
+    return r == nullptr ? 0 : r->mapElementMeshes.size();
+}
+
+// User directive 2026-09-08: sums Mesh::vertexCount (add_mesh()'s own
+// mirror of what it was called with -- Filament's VertexBuffer has no
+// getter) across every mesh update_map_elements() currently holds. Used to
+// distinguish a dot-disc-built CENTERLINE mesh (many small fan triangles)
+// from a strip-built one (few, per decision #3's ribbon path) without a
+// full-frame SSIM. 0 if `r` is null.
+size_t map_element_total_vertex_count(mpviz::VisualRenderer* r) {
+    if (r == nullptr) return 0;
+    size_t total = 0;
+    for (const auto& [key, mesh] : r->mapElementMeshes) {
+        (void)key;
+        total += mesh.vertexCount;
+    }
+    return total;
 }
 
 }  // namespace mpviz::testing

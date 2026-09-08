@@ -6,7 +6,12 @@ palette:
   ground:      [0.05, 0.06, 0.08]
   sky:         [0.02, 0.02, 0.05]
   fog:         [0.02, 0.02, 0.05]
-  lane_paint:  [0.45, 0.5, 0.55]
+  # Re-authored toward near-white (Epic 3 Task 1 / VM-036 debt item a,
+  # review-verified: was mid-gray [0.45,0.5,0.55], effectively
+  # undifferentiated from a lit clay surface). Now the base tone for
+  # lane_boundary/crosswalk (both soft-default to this) -- boundaries dash
+  # white per ref-1, centerline gets its own yellow below.
+  lane_paint:  [0.85, 0.85, 0.88]
   ribbon_core: [0.10, 1.00, 0.40]
   ribbon_glow: [0.10, 1.00, 0.40]
   # ribbon_global/ribbon_local (user directive 2026-08-20, ITEM 1): GLOBAL
@@ -16,6 +21,28 @@ palette:
   ribbon_global: [0.25, 0.55, 0.95]
   ribbon_local: [0.95, 0.70, 0.15]
   ego: [0.82, 0.80, 0.76]  # warm near-white clay so the ego pops on dark (was light_clay's ORIGINAL ground before its 2026-08-20 re-authoring to a road-gray; no longer an exact cross-theme swap)
+  # road/lane_centerline/lane_boundary (Epic 3 Task 1 / VM-036, decision #6):
+  # road is a darker near-black than palette.ground just above (0.05,0.06,
+  # 0.08) -- the static road-surface base coat sits visibly below the
+  # ground it's painted on, per the backlog's "road darker than ground" AC.
+  # lane_boundary reuses the near-white lane_paint tone (dashed white, per
+  # decision #3's flip). crosswalk is left to its soft default
+  # (== lane_paint) -- no debt-item hue target names it.
+  road: [0.03, 0.035, 0.045]
+  # lane_centerline (user directive 2026-09-08 -- centerlines now render as
+  # faint dot guidance, hidden by default): RE-AUTHORED from decision #6's
+  # bold ADAS yellow [0.95,0.80,0.10] to "a light fade of lane color" -- a
+  # low-contrast blend 25% lane_paint / 75% road (mix chosen so the dots
+  # read as subtle guidance, not a bold stroke): 0.25*[0.85,0.85,0.88] +
+  # 0.75*[0.03,0.035,0.045] = [0.235, 0.239, 0.254].
+  lane_centerline: [0.235, 0.239, 0.254]
+  lane_boundary: [0.85, 0.85, 0.88]
+  # road_edge (user directive 2026-09-08): the road's outer boundary
+  # (MapKind::ROAD_EDGE) renders SOLID, never dashed -- a clear, fully-
+  # saturated road-paint yellow (AASHTO-yellow family), readable against
+  # the dark road fill above and clearly distinct from lane_centerline's
+  # now-faint fade.
+  road_edge: [0.95, 0.75, 0.05]
   object_tints:
     car: [0.25, 0.35, 0.9]
     truck_van: [0.30, 0.35, 0.85]

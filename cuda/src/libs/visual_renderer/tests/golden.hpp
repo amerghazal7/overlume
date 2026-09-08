@@ -31,8 +31,9 @@ struct MapGeom {
 };
 
 // Reads a `.geom` fixture emitted by the node-side HdMapAdapter test
-// (MPVIZ_EMIT_GEOM, Task 2 Step 7) -- a plain-text dump, one MapElement per
-// line: `<is_polygon> <n> <x1> <y1> <z1> ... <xn> <yn> <zn>`.
+// (MPVIZ_EMIT_GEOM, Task 2 Step 7; format extended Epic 3 Task 1 / VM-036
+// to carry kind/lane_id) -- a plain-text dump, one MapElement per line:
+// `<is_polygon> <kind> <lane_id> <n> <x1> <y1> <z1> ... <xn> <yn> <zn>`.
 // ponytail: a text dump, not a serializer -- this is the whole parser.
 // Returns an empty MapGeom (elements.empty()) if `path` can't be opened or
 // contains no valid lines -- callers assert non-empty right after this
