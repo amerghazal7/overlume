@@ -177,6 +177,50 @@
 #               resumes exactly at the curb's own true corner vertex, never
 #               short of it the way the old margin-bounded snap could land
 #               (up to ~5 m short on this fixture's own crossing).
+#   2026-09-08  USER CORRECTION ("you got the leftovers wrongly! Look at the
+#               right boundary of a road that has a junction with right
+#               exit, you'll find the arc that goes to the right exit road
+#               but also a stray straight line for couple meters continuing
+#               the boundary line, that's the unwanted leftover I'm talking
+#               about"): measured, against the real bag, that this is NOT a
+#               separate stray polyline -- it is the arc-bearing edge's OWN
+#               recorded tail, continuing past its OWN arc's rejoin vertex,
+#               running the whole rest of its length within 1.0 m of a
+#               DIFFERENT, independently-promoted ROAD_EDGE piece, until the
+#               two converge at an exact shared vertex (14/19 bag-wide
+#               corner instances measured this way, re-derived per-message
+#               over the full bag, order-independent discriminator; the
+#               other 5 are 2 coincident-endpoint-but-not-coincident-path
+#               cases (1.5366 / 5.3242 m) plus 3 free-floating tails with no
+#               shared vertex at all (nearest 3.4289 m), correctly left
+#               alone). Fix: new `TrimRedundantArcTails` pass trims the tail
+#               back to the arc's own rejoin vertex whenever this
+#               discriminator fires. Same /hd_map_local_elements input, no
+#               new topic/param. Visually checkable in mode 3: a junction
+#               corner's arc still renders in full, but the thin duplicate
+#               line running alongside the exit road's own edge just past it
+#               is gone.
+#   2026-09-09  Code-review fix, round 3 (blocking): the trim above removes
+#               a redundant DUPLICATE tail, but the user's own words --
+#               "the arc that goes to the right exit road but also a stray
+#               straight line for couple meters continuing the boundary
+#               line" -- describe a DIFFERENT edge: the through road's own
+#               straight boundary, sharing the connector's start node, whose
+#               fixed-backoff crossing-cut has no notion of where the
+#               connector's own corner curves away and so dead-ends past it
+#               (measured instance: msg 452, lane 955 x lane 12, kept head
+#               3.24 m past the corner's own departure vertex). Fix: new
+#               `SnapWindowsToNeighborArcDepartures` pass, the symmetric
+#               counterpart of the round-1 arc-snap -- it snaps a STRAIGHT
+#               neighbour's own window boundary back to a shared-node arc's
+#               departure vertex, rather than snapping the arc-owning
+#               piece's own window outward. Reuses the existing measured
+#               node-coincidence and corner-vs-floor gates, no new constant.
+#               Same /hd_map_local_elements input, no new topic/param.
+#               Visually checkable in mode 3: a through road's yellow
+#               boundary at a junction corner now stops exactly where the
+#               connector's own curb starts curving away, instead of running
+#               a couple more meters into the junction mouth.
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its

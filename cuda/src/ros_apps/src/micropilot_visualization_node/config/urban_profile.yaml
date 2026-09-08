@@ -106,6 +106,18 @@ rows:
   # kArcRadiusThresholdM/
   # kArcMinTotalTurnDeg/kArcSearchMarginM comments for the measured
   # thresholds and this epic's plan doc for the full dated follow-up.
+  # Follow-up 2026-09-08, USER CORRECTION ("you got the leftovers wrongly!
+  # ...you'll find the arc that goes to the right exit road but also a
+  # stray straight line for couple meters continuing the boundary line"):
+  # the arc renders correctly, but its OWN recorded tail past its own rejoin
+  # vertex sometimes duplicates a DIFFERENT, independently-promoted
+  # ROAD_EDGE piece for the rest of its length (measured: 14/19 bag-wide
+  # corner instances, re-derived per-message 2026-09-09 -- superseded a
+  # stale 9/15 figure; the discriminator was also made order-independent,
+  # see hd_map.cpp's own comment). New pass `TrimRedundantArcTails`
+  # (hd_map.cpp) trims that tail back to the arc's own rejoin vertex when it
+  # does; see that function's own comment for the measured discriminator
+  # and this epic's plan doc for the full dated follow-up.
   - {topic: /hd_map_local_elements, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 2.0,
      ns_default: drop,
@@ -138,7 +150,8 @@ rows:
   # gap-merge follow-up applies (kJunctionGapMergeM=6.6 m) -- see the local
   # row's own comment for the measured bounds. Same round-2 arc-snap
   # follow-up applies too (SnapWindowsToArcs) -- see the local row's own
-  # comment.
+  # comment. Same 2026-09-08 redundant-arc-tail-trim follow-up applies too
+  # (TrimRedundantArcTails) -- see the local row's own comment.
   - {topic: /hd_map_global_elements, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 0.5,
      ns_default: drop,
