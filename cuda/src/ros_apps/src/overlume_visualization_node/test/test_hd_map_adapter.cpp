@@ -102,6 +102,44 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks)
     // row), so the polygon-clip mechanism is the no-op here -- this count
     // moved by the crossing-cut alone.
     // 58 + 2 = 60.
+    //
+    // Arc-aware cut refinement (follow-up, 2026-09-08) -- RE-MEASURED, not
+    // assumed: this count stays 60 (the refinement only ever moves a
+    // boundary's own arc-length station -- it can turn 2 pieces into 1 by
+    // fully consuming a piece, but never adds or removes a piece by
+    // itself, and doesn't do either here). The GEOMETRY does change,
+    // though: `left_boundary_792`'s promoted ROAD_EDGE crosses
+    // `right_boundary_685` at (-40.36,-21.90) (this fixture's one genuine
+    // crossing). Lane 792's real contiguous R<20 m run (by
+    // `FindArcSpanNear`'s own definition of an arc) is arc-length 17.114 to
+    // 24.822 (73.96 deg total turn, radii 15.09/11.66/5.00/10.02 m) -- this
+    // is where the fillet actually starts and ends.
+    // CORRECTED (code-review finding 2026-09-08, blocking): an earlier
+    // version of this comment claimed the OLD fixed 2.0 m backoff (arc-length
+    // 25.328, interpolated) "lands squarely inside lane 792's own recorded
+    // corner fillet" -- false by the run's own numbers above: 25.328 sits
+    // 0.5052 m PAST the run's far end (24.822), i.e. just OUTSIDE the
+    // fillet, not inside it. An earlier version of the refinement itself
+    // then only reached arc-length 22.178 (a run vertex, but not the run's
+    // own true start) -- STILL inside the fillet, and in fact a REGRESSION
+    // under "cut where the arc starts": the un-refined boundary was already
+    // past the far end, and the old refinement moved it back INTO the
+    // fillet's own sharpest interior vertex (R=4.9973 m). FindArcSpanNear now
+    // extends a run past kArcSearchMarginM=6.0 m (see that function's own
+    // comment) while curvature keeps clearing kArcRadiusThresholdM, so the
+    // kept HEAD piece's own far boundary now lands exactly at arc-length
+    // 17.114, the run's own TRUE start (-46.4658864625989,
+    // -14.974389719737527) -- verified directly against this test's own
+    // MPVIZ_EMIT_GEOM dump. See
+    // `ArcSnapReachesTheArcsTrueStartEvenBeyondTheOldSearchMargin` below,
+    // which pins this exact case on self-contained synthetic geometry built
+    // from this fixture's own real recorded vertices.
+    // The piece COUNT is unaffected (still 2 pieces for this lane), so this
+    // fixture is silent on the count but not on the geometry; the dedicated
+    // ArcSnap*/PureArcCornerConnector*/TerminalArcStub* tests below
+    // (synthetic geometry built from the measurement pass's own numbers)
+    // and the /tmp/junction_arc_cut_before_after.png visual check against
+    // the real bag are what actually prove the mechanism end to end.
     EXPECT_EQ(out.map_elements.size(), 60u);
     // is_polygon comes from the row's namespace rules (crosswalk_ ->
     // polygon) and from NOTHING else -- on the wire every hd_map marker in
@@ -171,6 +209,35 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks)
         }
         ADD_FAILURE() << "lane 934 has an unexpected kind " << static_cast<int>(e.kind)
                       << " -- it is measured fully-interior and should never promote to ROAD_EDGE";
+    }
+
+    // Arc-aware cut refinement (follow-up, 2026-09-08) -- lane 792's own
+    // HEAD piece (see the count comment above) is measured to end exactly
+    // at (-46.4658864625989, -14.974389719737527), a REAL recorded vertex --
+    // not the OLD fixed-backoff interpolated point this same fixture
+    // produced before the refinement. Pinned by coordinate, not just by
+    // count, since the piece COUNT alone (17 ROAD_EDGE, unchanged above)
+    // cannot tell the two behaviours apart. CORRECTED (code-review finding
+    // 2026-09-08, blocking): an earlier version of this test pinned
+    // (-44.9537814989, -19.7772110336) here -- the window-clipped REMAINDER
+    // of lane 792's own real corner fillet that the OLD +/-6.0 m search
+    // margin alone could reach, NOT the fillet's own true start. See
+    // `ArcSnapReachesTheArcsTrueStartEvenBeyondTheOldSearchMargin` below,
+    // which pins this exact case on self-contained synthetic geometry.
+    {
+        std::vector<mpviz::MapElement> lane792;
+        for (const auto& e : out.map_elements)
+        {
+            if (e.kind == mpviz::MapKind::ROAD_EDGE && e.lane_id == 792u) lane792.push_back(e);
+        }
+        ASSERT_EQ(lane792.size(), 2u);
+        std::sort(lane792.begin(), lane792.end(),
+                  [](const mpviz::MapElement& a, const mpviz::MapElement& b) {
+                      return a.points[0].y > b.points[0].y;  // head piece starts highest (y~2.1)
+                  });
+        const auto& head = lane792[0];
+        EXPECT_NEAR(head.points[head.point_count - 1].x, -46.4658864625989, 1e-6);
+        EXPECT_NEAR(head.points[head.point_count - 1].y, -14.974389719737527, 1e-6);
     }
 
     // Step 7's dump-and-exit: run once with MPVIZ_EMIT_GEOM set to emit
@@ -1390,6 +1457,480 @@ TEST(HdMapAdapter, JunctionInteriorBoundariesFalseDropsSegmentsInsideJunctionPol
     EXPECT_NEAR(left[0].points[left[0].point_count - 1].y, -3.0, 1e-6);
     EXPECT_NEAR(left[1].points[0].y, 3.0, 1e-6);
     EXPECT_DOUBLE_EQ(left[1].points[left[1].point_count - 1].y, 10.0);
+}
+
+// ---- Arc-aware cut refinement (user directive 2026-09-08, follow-up:
+// "leftover still exist, I suggest that as there are arcs on the inner
+// coreners of the junction, start cutting of from the poin the arc starts,
+// and if you drive through further another adjecent arc joins there we stop
+// cutting off"). Every polyline below is built from the measurement pass's
+// own numbers (kArcRadiusThresholdM=20.0, kArcMinTotalTurnDeg=15.0,
+// kArcSearchMarginM=6.0 -- see hd_map.cpp's own comment for the measured
+// margins that chose them) so each test pins a specific, checkable
+// arc-length station, not just "some point past the old fixed backoff".
+
+TEST(HdMapAdapter, ArcSnapExtendsCutPastFixedBackoffToTheCornerArcsFarEdge)
+{
+    // lane 1 crosses lane 2 near the origin; well past the OLD fixed
+    // kJunctionCutBackoffM=2.0 m cut point (x=2), lane 1's own recorded
+    // curb geometry curves into a real corner arc (radius 8 m, within the
+    // measured 2.29-12.44 m corner range) -- the old mechanism would stop
+    // mid-curve at (1.99, 0.13). The arc-snap must extend the cut out to a
+    // REAL recorded vertex on that curve, never an interpolated mid-curve
+    // point, and (code-review finding 2026-09-08, blocking) all the way to
+    // the arc's own true far edge (v6, the run v2..v6 all measuring R=8.0 m,
+    // 75 deg total turn) even though that lies farther than
+    // kArcSearchMarginM=6.0 m from the fixed-backoff boundary -- not just
+    // the farthest vertex the OLD search margin alone could reach (v4).
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1,
+                   {{-30.0, 0.0},
+                    {1.0, 0.0},
+                    {3.070552360820166, 0.2725933896874535},
+                    {5.0, 1.0717967697244903},
+                    {6.65685424949238, 2.3431457505076194},
+                    {7.928203230275509, 3.999999999999999},
+                    {8.727406610312546, 5.929447639179834},
+                    {9.0, 7.999999999999999},
+                    {9.0, 20.0}}),
+        LineMarker("left_boundary_b", 2, {{0.0, -10.0}, {0.0, 10.0}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> lane_a;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
+    }
+    ASSERT_EQ(lane_a.size(), 2u) << "one crossing -- head piece and tail piece";
+    std::sort(lane_a.begin(), lane_a.end(),
+              [](const mpviz::MapElement& a, const mpviz::MapElement& b) {
+                  return a.points[0].x < b.points[0].x;
+              });
+
+    // Head piece: untouched by the arc (it's on the tail side only) --
+    // still the OLD fixed-backoff point (x=-2).
+    ASSERT_EQ(lane_a[0].point_count, 2u);
+    EXPECT_DOUBLE_EQ(lane_a[0].points[0].x, -30.0);
+    EXPECT_NEAR(lane_a[0].points[1].x, -2.0, 1e-9);
+    EXPECT_NEAR(lane_a[0].points[1].y, 0.0, 1e-9);
+
+    // Tail piece: the cut resumes at (8.727406610312546, 5.929447639179834)
+    // -- the arc's own TRUE far recorded vertex (v6), not an interpolated
+    // point. CORRECTED (code-review finding 2026-09-08, blocking): an
+    // earlier version of this test pinned (6.65685424949238,
+    // 2.3431457505076194) (v4) here -- the farthest vertex the OLD
+    // +/-6.0 m search margin could reach from the fixed-backoff boundary,
+    // not the arc's own far edge the run actually reaches (v2..v6, all
+    // R=8.0 m, 75 deg total turn) -- under a test name asserting exactly
+    // that far-edge behaviour. FindArcSpanNear now extends a run past the
+    // search margin while curvature keeps clearing kArcRadiusThresholdM, so
+    // the cut reaches v6 in full.
+    ASSERT_EQ(lane_a[1].point_count, 3u);
+    EXPECT_NEAR(lane_a[1].points[0].x, 8.727406610312546, 1e-9);
+    EXPECT_NEAR(lane_a[1].points[0].y, 5.929447639179834, 1e-9);
+    EXPECT_NEAR(lane_a[1].points[2].x, 9.0, 1e-9);
+    EXPECT_NEAR(lane_a[1].points[2].y, 20.0, 1e-9);
+}
+
+TEST(HdMapAdapter, ArcSnapDoesNotFireOnTheMeasuredWorstCaseGentleOpenRoadCurve)
+{
+    // CORRECTED (code-review finding 2026-09-08, blocking): the ORIGINAL
+    // version of this test pinned a single-vertex 2.8 deg survey kink as
+    // "the measured worst case" -- the wrong population (see
+    // kArcMinTotalTurnDeg's corrected comment in hd_map.cpp). This gate
+    // gates a maximal contiguous R<kArcRadiusThresholdM RUN's own
+    // accumulated |TurnAngleDeg|, not one vertex's own kink -- and
+    // TurnAngleDeg sums absolute per-vertex turns, so a multi-vertex
+    // near-straight run is the false-positive shape a single-vertex test
+    // can never exercise. Re-pointed at the real worst case: three interior
+    // vertices, each on a true R=15 m circular arc (well under the 20 m
+    // radius gate), each contributing 3.5267 deg, for an accumulated total
+    // of 10.58 deg -- the largest REJECTED R<threshold run measured in the
+    // bag-wide scan, still comfortably under the 15 deg gate (smallest
+    // ACCEPTED run measured: 17.05 deg). Sits well within kArcSearchMarginM
+    // of the crossing-cut boundary -- exactly where a false positive would
+    // show up -- and must NOT move the cut at all: both boundaries stay at
+    // the OLD fixed-backoff points.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1,
+                   {{-30.0, 0.0},
+                    {2.0, 0.0},
+                    {2.9231334322826161, 0.0},
+                    {3.8445187055856869, 0.056784786150068864},
+                    {4.76066612300773, 0.1701392891431307},
+                    {5.668105825743191, 0.339634184928405}}),
+        LineMarker("left_boundary_b", 2, {{0.0, -10.0}, {0.0, 10.0}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> lane_a;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
+    }
+    ASSERT_EQ(lane_a.size(), 2u);
+    std::sort(lane_a.begin(), lane_a.end(),
+              [](const mpviz::MapElement& a, const mpviz::MapElement& b) {
+                  return a.points[0].x < b.points[0].x;
+              });
+
+    ASSERT_EQ(lane_a[0].point_count, 2u);
+    EXPECT_NEAR(lane_a[0].points[1].x, -2.0, 1e-9) << "unchanged -- the run never qualifies";
+    EXPECT_NEAR(lane_a[0].points[1].y, 0.0, 1e-9);
+
+    ASSERT_EQ(lane_a[1].point_count, 5u) << "the whole near-straight run still renders, unmoved";
+    EXPECT_NEAR(lane_a[1].points[0].x, 2.0, 1e-9) << "unchanged -- still the old fixed backoff";
+    EXPECT_NEAR(lane_a[1].points[1].x, 2.9231334322826161, 1e-9);
+    EXPECT_NEAR(lane_a[1].points[2].x, 3.8445187055856869, 1e-9);
+    EXPECT_NEAR(lane_a[1].points[3].x, 4.76066612300773, 1e-9);
+    EXPECT_NEAR(lane_a[1].points[4].x, 5.668105825743191, 1e-9);
+}
+
+TEST(HdMapAdapter, ArcSnapExtendsBothWindowBoundariesToTheirOwnCornerArcs)
+{
+    // "start cutting off from the point the arc starts, and if you drive
+    // through further another adjacent arc joins there we stop cutting
+    // off": lane 1 approaches the crossing (near the origin) through an
+    // entry-side corner arc AND leaves through an exit-side one (the same
+    // corner geometry as the test above, mirrored) -- both directions of
+    // travel through this one junction corner. Both window boundaries must
+    // snap outward independently.
+    // CORRECTED (code-review finding 2026-09-08, blocking): this lane's own
+    // entry lead-in (v0->v1, 7.0711 m) is short enough that CircumradiusXY
+    // AT v1 itself (R=7.246 m) also clears kArcRadiusThresholdM -- unlike
+    // the longer straight lead-ins in the tests above, where the joint
+    // vertex reads as high-radius and stops the run there. CircumradiusXY
+    // takes the curvature's MAGNITUDE only (std::abs), so the inflection at
+    // v7/v8 (where the entry arc's curve direction reverses into the exit
+    // arc, still R=15.63 m, comfortably under threshold) never breaks the
+    // run either -- by this run's own definition, v1..v13 is ONE continuous
+    // qualifying corridor, not two independent corners. Both boundaries
+    // therefore snap to that ONE run's own two true ends (v1 and v13), not
+    // to two separate nearer corners -- still "each boundary snaps outward
+    // independently to its own nearby geometry" (no cross-polyline pairing
+    // logic was added), just with a farther reach than this test originally
+    // assumed under the old, margin-bounded search.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1,
+                   {{-14.0, 13.0},
+                    {-9.0, 8.0},
+                    {-8.727406610312546, 5.929447639179834},
+                    {-7.928203230275509, 3.999999999999999},
+                    {-6.65685424949238, 2.3431457505076194},
+                    {-5.0, 1.0717967697244903},
+                    {-3.070552360820166, 0.2725933896874535},
+                    {-1.0, 0.0},
+                    {1.0, 0.0},
+                    {3.070552360820166, 0.2725933896874535},
+                    {5.0, 1.0717967697244903},
+                    {6.65685424949238, 2.3431457505076194},
+                    {7.928203230275509, 3.999999999999999},
+                    {8.727406610312546, 5.929447639179834},
+                    {9.0, 7.999999999999999},
+                    {9.0, 20.0}}),
+        LineMarker("left_boundary_b", 2, {{0.0, -10.0}, {0.0, 10.0}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> lane_a;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
+    }
+    ASSERT_EQ(lane_a.size(), 2u);
+    std::sort(lane_a.begin(), lane_a.end(),
+              [](const mpviz::MapElement& a, const mpviz::MapElement& b) {
+                  return a.points[0].x < b.points[0].x;
+              });
+
+    // Entry side: cut starts (the kept head ends) at v1 (-9.0, 8.0) -- the
+    // one continuous run's own true near end, reached even though it lies
+    // past the OLD +/-6.0 m search margin from the fixed-backoff boundary.
+    ASSERT_EQ(lane_a[0].point_count, 2u);
+    EXPECT_NEAR(lane_a[0].points[0].x, -14.0, 1e-9);
+    EXPECT_NEAR(lane_a[0].points[1].x, -9.0, 1e-9);
+    EXPECT_NEAR(lane_a[0].points[1].y, 8.0, 1e-9);
+
+    // Exit side: cutting resumes at v13 (8.727406610312546, 5.929447639179834)
+    // -- the same one continuous run's own true far end.
+    ASSERT_EQ(lane_a[1].point_count, 3u);
+    EXPECT_NEAR(lane_a[1].points[0].x, 8.727406610312546, 1e-9);
+    EXPECT_NEAR(lane_a[1].points[0].y, 5.929447639179834, 1e-9);
+    EXPECT_NEAR(lane_a[1].points[2].x, 9.0, 1e-9);
+    EXPECT_NEAR(lane_a[1].points[2].y, 20.0, 1e-9);
+}
+
+TEST(HdMapAdapter, ArcSnapAdjacentWindowsFromTwoCrossingsProduceOneContinuousCut)
+{
+    // Same crossing positions as JunctionGapMergeKeepsLegitInteriorSpanAboveThreshold
+    // above (gap 7.0 m, ABOVE kJunctionGapMergeM=6.6 -- MergeWindows alone
+    // leaves a legit interior span there). lane 1's own recorded geometry
+    // now carries a small real corner kink facing EACH crossing from the
+    // inside (turn ~25 deg, radius ~3.5 m -- both comfortably inside the
+    // measured corner range). This models the user's own "another adjacent
+    // arc joins there" case: TWO DIFFERENT crossings, each with its own
+    // corner, close enough together that once each window snaps outward to
+    // its own arc, they meet -- and the interior that used to survive
+    // whole is correctly consumed once each window snaps outward to its own
+    // arc. fill() re-runs MergeWindows after SnapWindowsToArcs (see that
+    // call site's own comment); this test does not depend on which of the
+    // two MergeWindows calls is the one that folds these windows together.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1,
+                   {{-50.0, 0.0},
+                    {-4.0, 0.0},
+                    {-2.0, 0.3},
+                    {-1.0, 0.0},
+                    {1.0, 0.0},
+                    {2.0, 0.3},
+                    {4.0, 0.0},
+                    {50.0, 0.0}}),
+        LineMarker("left_boundary_b", 2, {{-5.5, -10.0}, {-5.5, 10.0}}),
+        LineMarker("left_boundary_c", 3, {{5.5, -10.0}, {5.5, 10.0}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> lane_a;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
+    }
+    ASSERT_EQ(lane_a.size(), 2u)
+        << "the two corners' arcs meet in the middle -- no legit interior survives "
+           "here any more, unlike the plain-straight version of this same gap above";
+    std::sort(lane_a.begin(), lane_a.end(),
+              [](const mpviz::MapElement& a, const mpviz::MapElement& b) {
+                  return a.points[0].x < b.points[0].x;
+              });
+
+    // The OUTER bounds are exactly where the plain fixed backoff always put
+    // them (+/-2.0 m off the +/-5.5 m crossings) -- neither kink is close
+    // enough to the OUTER edge to move it; only the (now-vanished) interior
+    // moved.
+    ASSERT_EQ(lane_a[0].point_count, 2u);
+    EXPECT_DOUBLE_EQ(lane_a[0].points[0].x, -50.0);
+    EXPECT_NEAR(lane_a[0].points[1].x, -7.5, 1e-9);
+    ASSERT_EQ(lane_a[1].point_count, 2u);
+    EXPECT_NEAR(lane_a[1].points[0].x, 7.5, 1e-9);
+    EXPECT_DOUBLE_EQ(lane_a[1].points[1].x, 50.0);
+}
+
+TEST(HdMapAdapter, PureArcCornerConnectorStillFramesItsOwnTwoRecordedEndpoints)
+{
+    // "No edge in this data is 'mostly arc'" (measurement pass) -- this is
+    // the hypothetical the report flags but never observed: a SHORT
+    // connector whose entire length between its own two recorded endpoints
+    // is one continuous corner arc (radius 6 m, ~45 deg total turn),
+    // crossed once. Stated behaviour, by design: the arc-snap can never
+    // swallow a polyline's own literal first/last vertex (FindArcSpanNear
+    // only tests INTERIOR vertices -- an endpoint has no far neighbour to
+    // compute curvature from), so even a 100%-arc connector still emits two
+    // short slivers framing its own two recorded ends, not zero pieces.
+    // This is the outward-only design's own stated ceiling, not a bug.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1,
+                   {{0.0, 0.0},
+                    {1.5529142706151244, 0.2044450422655899},
+                    {2.9999999999999996, 0.803847577293368},
+                    {4.242640687119285, 1.7573593128807143},
+                    {5.196152422706632, 2.999999999999999}}),
+        LineMarker("left_boundary_b", 2, {{2.2, -10.0}, {2.2, 10.0}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> lane_a;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
+    }
+    ASSERT_EQ(lane_a.size(), 2u) << "two minimal end-slivers, never zero pieces";
+    std::sort(lane_a.begin(), lane_a.end(),
+              [](const mpviz::MapElement& a, const mpviz::MapElement& b) {
+                  return a.points[0].x < b.points[0].x;
+              });
+
+    // Head sliver: the connector's own literal FIRST point, plus the
+    // (unmoved -- the fixed backoff already reached further in than the
+    // arc's own near edge here) cut boundary.
+    ASSERT_EQ(lane_a[0].point_count, 2u);
+    EXPECT_NEAR(lane_a[0].points[0].x, 0.0, 1e-9);
+    EXPECT_NEAR(lane_a[0].points[0].y, 0.0, 1e-9);
+
+    // Tail sliver: starts exactly at the arc's own far recorded vertex
+    // (4.242640687119285, 1.7573593128807143), not mid-curve, and still
+    // ends at the connector's own literal LAST point -- never dropped.
+    ASSERT_EQ(lane_a[1].point_count, 2u);
+    EXPECT_NEAR(lane_a[1].points[0].x, 4.242640687119285, 1e-9);
+    EXPECT_NEAR(lane_a[1].points[0].y, 1.7573593128807143, 1e-9);
+    EXPECT_NEAR(lane_a[1].points[1].x, 5.196152422706632, 1e-9);
+    EXPECT_NEAR(lane_a[1].points[1].y, 2.999999999999999, 1e-9);
+}
+
+TEST(HdMapAdapter, TerminalArcStubIsRemovedAndArcSnapStaysSafeAtTheClamp)
+{
+    // A crossing lands close enough to lane 1's own recorded END that the
+    // PLAIN fixed kJunctionCutBackoffM=2.0 m window already clamps past
+    // its own total length (a terminal cut -- H1 from the original
+    // measurement pass, checked and found absent in the real bag, but the
+    // mechanism must still behave when it happens): the tail stub must be
+    // REMOVED ENTIRELY (zero pieces on that side), not left as a tiny
+    // leftover. There IS a real corner arc near that same boundary (the
+    // crossing lands inside it) -- this pins that FindArcSpanNear finding
+    // one there does NOT resurrect the already-clamped tail (the max()
+    // snap in SnapWindowsToArcs is a no-op whenever the arc's own far edge
+    // sits BEFORE the already-larger clamped boundary, exactly like here).
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1,
+                   {{-30.0, 0.0},
+                    {1.0, 0.0},
+                    {3.070552360820166, 0.2725933896874535},
+                    {5.0, 1.0717967697244903},
+                    {6.65685424949238, 2.3431457505076194},
+                    {7.928203230275509, 3.999999999999999},
+                    {8.727406610312546, 5.929447639179834},
+                    {9.0, 7.999999999999999}}),
+        // Crosses the final segment (index6->7) at arc-length 42.5, i.e.
+        // (8.865490872405871, 6.978301740877824) -- 1.03 m from lane 1's
+        // own recorded end (total length 43.53051445312495), well inside
+        // kJunctionCutBackoffM=2.0 m of it.
+        LineMarker("left_boundary_b", 2, {{-10.0, 6.978301740877824}, {20.0, 6.978301740877824}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> lane_a;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
+    }
+    ASSERT_EQ(lane_a.size(), 1u) << "the tail stub is gone -- only the head piece survives";
+
+    // Head piece: the arc-snap DOES fire here (the fixed backoff at 40.5 m
+    // landed mid-curve too) and extends it out to a real recorded vertex,
+    // exactly as ArcSnapExtendsCutPastFixedBackoffToTheCornerArcsFarEdge
+    // pins on the equivalent entry-side geometry. CORRECTED (code-review
+    // finding 2026-09-08, blocking): the extension now reaches all the way
+    // back to v2, the run's own true near end (v2..v6, all R=8.0 m) -- an
+    // earlier version of this test pinned v3, the farthest vertex the OLD
+    // +/-6.0 m search margin alone could reach from this boundary.
+    ASSERT_EQ(lane_a[0].point_count, 3u);
+    EXPECT_DOUBLE_EQ(lane_a[0].points[0].x, -30.0);
+    EXPECT_NEAR(lane_a[0].points[2].x, 3.070552360820166, 1e-9);
+    EXPECT_NEAR(lane_a[0].points[2].y, 0.2725933896874535, 1e-9);
+}
+
+TEST(HdMapAdapter, ArcSnapReachesTheArcsTrueStartEvenBeyondTheOldSearchMargin)
+{
+    // CORRECTED (code-review finding 2026-09-08, blocking): this test used
+    // to be named ArcSnapKnownCeilingStopsWithinSearchMarginNotAtTheArcsTrue
+    // Start and pinned a DELIBERATE, ACCEPTED ceiling -- when a qualifying
+    // arc run's own true start lay more than kArcSearchMarginM=6.0 m before
+    // the fixed-backoff boundary, the snap used to reach only the farthest
+    // vertex the search margin could see (vertex 6), not the run's own true
+    // first vertex (vertex 4), a 5.065 m shortfall. That ceiling is now
+    // removed: FindArcSpanNear extends a run outward past the search margin
+    // while curvature keeps clearing kArcRadiusThresholdM (see that
+    // function's own comment), so the snap reaches vertex 4 in full. This is
+    // a real, committed instance, not a hypothetical: lane_a's 10 points
+    // below are LocalElementsFixtureYieldsLanesAndCrosswalks' own real
+    // recorded lane 792 vertices (hd_map_local_elements_0.yaml), and lane_b
+    // crosses at that same fixture's own one genuine crossing point,
+    // (-40.36,-21.90) -- reproduced standalone here so this specific case is
+    // pinned by a dedicated, self-contained test, not just implicitly by the
+    // fixture test's own aggregate assertions.
+    //
+    // Lane 792's real contiguous R<kArcRadiusThresholdM run is vertices
+    // 4..7 (station 17.114 to 24.822, 73.96 deg total turn) -- by
+    // FindArcSpanNear's own definition of an arc, THIS is where the fillet
+    // actually starts, and it is now where the snap actually lands.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 792,
+                   {{-46.980491978360725, 2.12625044165753},
+                    {-46.771308183612035, -6.249399325630099},
+                    {-46.78021262964802, -9.742296952272927},
+                    {-46.547218708994116, -12.837935483912194},
+                    {-46.4658864625989, -14.974389719737527},   // vertex 4, station 17.114 --
+                                                                 // the arc's OWN true start
+                    {-46.0651262769608, -17.148459112710047},   // vertex 5, station 19.324
+                    {-44.95378149894339, -19.77721103359962},   // vertex 6, station 22.178 --
+                                                                 // the search margin's own reach
+                    {-42.79181672520813, -21.299520261110413},  // vertex 7, station 24.822
+                    {-38.17917117284436, -22.437475517352055},
+                    {-30.297919317257183, -23.46468621338738}}),
+        LineMarker("left_boundary_b", 685, {{-40.35957131078806, -50.0}, {-40.35957131078806, 50.0}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> lane_a;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_EDGE && e.lane_id == 792u) lane_a.push_back(e);
+    }
+    ASSERT_EQ(lane_a.size(), 2u);
+    std::sort(lane_a.begin(), lane_a.end(),
+              [](const mpviz::MapElement& a, const mpviz::MapElement& b) {
+                  return a.points[0].x < b.points[0].x;
+              });
+
+    // Head piece: stops at vertex 4, the arc's own TRUE start -- reached in
+    // full even though it lies 5.065 m past the OLD +/-6.0 m search margin
+    // from the fixed-backoff boundary (25.3276 m).
+    const auto& head = lane_a[0];
+    ASSERT_EQ(head.point_count, 5u);
+    EXPECT_NEAR(head.points[0].x, -46.980491978360725, 1e-9) << "lane's own literal first vertex";
+    EXPECT_NEAR(head.points[4].x, -46.4658864625989, 1e-6) << "vertex 4 -- the arc's own true start";
+    EXPECT_NEAR(head.points[4].y, -14.974389719737527, 1e-6);
+
+    // Tail piece: untouched -- the arc-snap's own outward-only max() never
+    // moves this boundary, since the far side's own reachable run (the same
+    // vertex 4..7 run, extended the same way from this side) never exceeds
+    // the fixed-backoff boundary already at 29.3276.
+    const auto& tail = lane_a[1];
+    ASSERT_EQ(tail.point_count, 3u);
+    EXPECT_NEAR(tail.points[2].x, -30.297919317257183, 1e-9) << "lane's own literal last vertex";
+    EXPECT_NEAR(tail.points[2].y, -23.46468621338738, 1e-9);
 }
 
 TEST(HdMapAdapter, OneMarkerCountsAsOneIngestedMarkerForStats)

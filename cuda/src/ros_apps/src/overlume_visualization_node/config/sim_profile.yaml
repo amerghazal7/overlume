@@ -234,6 +234,19 @@ rows:
   # urban_profile.yaml's matching comment for the bounds) instead of
   # leaving it as its own tiny rendered leftover piece; the JUNCTION-polygon
   # clip above is unchanged by this follow-up.
+  # Follow-up 2026-09-08, round 2 (user report: "leftover still exist, I
+  # suggest that as there are arcs on the inner coreners of the junction,
+  # start cutting of from the poin the arc starts, and if you drive through
+  # further another adjecent arc joins there we stop cutting off"): the
+  # mutual-crossing cut's fixed 2.0 m back-off was landing mid-curve on a
+  # real corner fillet instead of at the fillet's own edge (measured
+  # against /hd_map_local_elements's recorded feed -- see that row's own
+  # comment for the full bounds). A new per-boundary pass
+  # (SnapWindowsToArcs, hd_map.cpp) snaps each cut-window boundary outward
+  # to a real corner arc's own far edge found nearby on the same edge's own
+  # polyline; the JUNCTION-polygon clip above is unaffected (it only ever
+  # applies to ROAD_EDGE/boundary polylines against the JUNCTION ring, a
+  # different mechanism from the arc-length window this refinement adjusts).
   - {topic: /sim/hd_map/markers, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, transient_local: true,
      ns_default: drop,

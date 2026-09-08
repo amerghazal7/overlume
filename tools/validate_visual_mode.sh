@@ -148,6 +148,35 @@
 #               checkable in mode 3: junction corners no longer show small
 #               isolated yellow fragments between the outer cut and the
 #               interior.
+#   2026-09-08  User directive, round 2 ("leftover still exist, I suggest
+#               that as there are arcs on the inner coreners of the
+#               junction, start cutting of from the poin the arc starts,
+#               and if you drive through further another adjecent arc joins
+#               there we stop cutting off"): the fixed 2.0 m trim window had
+#               no notion of the recorded curb geometry, so it lands at an
+#               arbitrary distance from any real corner fillet, not at the
+#               fillet's own edge -- a blunt, oblique-looking stub, not a
+#               clean corner. Fix: each trim window's own boundary now snaps
+#               OUTWARD to a real corner arc's own far recorded vertex when
+#               one is found nearby on that same edge (radius < 20 m, turn
+#               >= 15 deg, candidate LOCATED within 6 m of the boundary --
+#               all measured against the recorded bag; a plain open-pavement
+#               crossing with no arc is untouched). Same /hd_map_local_elements
+#               input, no new topic/param. Visually checkable in mode 3:
+#               yellow ROAD_EDGE lines through a junction corner now stop
+#               cleanly where the curb was already curving away, instead of
+#               cutting off at an oblique angle mid-curve.
+#   2026-09-08  Code-review fix, round 2 (3 blocking findings; ceiling
+#               removal): the 6 m figure above only LOCATES the candidate
+#               arc vertex -- it does not bound how far the run it belongs
+#               to is reached. A located run is now followed outward,
+#               vertex by vertex, to its own true first/last vertex for as
+#               long as curvature keeps clearing radius < 20 m. Same
+#               /hd_map_local_elements input, no new topic/param. Visually
+#               checkable in mode 3: a junction-corner cut now always
+#               resumes exactly at the curb's own true corner vertex, never
+#               short of it the way the old margin-bounded snap could land
+#               (up to ~5 m short on this fixture's own crossing).
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its
