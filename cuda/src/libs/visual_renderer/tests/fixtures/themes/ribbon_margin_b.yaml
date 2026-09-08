@@ -1,7 +1,6 @@
 # ribbon_margin_b.yaml — test fixture for test_ribbon.cpp's Ribbon.
-# MarginChangeRebuildsGeometry (user directive 2026-09-08, ITEM 3: lane-fill
-# margins). See ribbon_margin_a.yaml's own comment for why this pair proves
-# the margin fields themselves (not the legacy width_m seed) reach
+# MarginChangeRebuildsGeometry. See ribbon_margin_a.yaml's own comment for
+# why this pair proves the margin fields themselves reach
 # build_slot_meshes().
 name: ribbon_margin_b
 palette:

@@ -1,6 +1,6 @@
-// golden.cpp — Epic 1 Task 2 Step 9. See golden.hpp. Not a gtest file
-// (excluded from CMakeLists.txt's auto-glob-as-gtest-binary loop by name;
-// compiled as a plain extra source into every other test binary instead).
+// golden.cpp — see golden.hpp. Not a gtest file (excluded from
+// CMakeLists.txt's auto-glob-as-gtest-binary loop by name; compiled as a
+// plain extra source into every other test binary instead).
 #include "golden.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -119,9 +119,8 @@ FrameStats analyze_png(const char* png_path) {
     // 320x240 / CameraPose test setup).
     constexpr int kSkyRowStart = 10, kSkyRowEnd = 40;
     // Starts at 50, not 48: rows 48-49 are pure sky at this fixed pose (the
-    // first ground row is 50) -- including them let ~2/12 of this band read
-    // as sky, understating the true ground/sky gap by ~4 levels (epic1
-    // Task 2 review round 6). See golden.hpp's FrameStats comment.
+    // first ground row is 50); including them understated the true
+    // ground/sky gap by ~4 levels.
     constexpr int kHorizonRowStart = 50, kHorizonRowEnd = 60;
     double skySum = 0.0, horizonSum = 0.0;
     size_t skyN = 0, horizonN = 0;
@@ -159,8 +158,7 @@ FrameStats analyze_png(const char* png_path) {
     return stats;
 }
 
-// Epic 2 Task 2 (VM-024) Step 8: see golden.hpp. `.geom` format (extended
-// Epic 3 Task 1 / VM-036 to carry kind/lane_id), one element per line:
+// See golden.hpp. `.geom` format, one element per line:
 // `<is_polygon:0|1> <kind> <lane_id> <n> <x1> <y1> <z1> ... <xn> <yn> <zn>`.
 // A malformed line (fewer than n points, non-numeric field) is skipped, not
 // half-consumed into the next line's read.
@@ -169,15 +167,11 @@ MapGeom load_map_geom(const char* path) {
     std::ifstream in(path);
     if (!in) return g;
 
-    // Two-pass: first pass appends every point into g.points (so its final
-    // buffer address is fixed before anything points into it), recording
+    // Two-pass: first pass appends every point into g.points and records
     // each element's (is_polygon, kind, lane_id, offset, count); second
-    // pass builds g.elements from that metadata. Doing it in one pass would
-    // mean g.points might reallocate mid-way and invalidate offsets
-    // computed against an earlier capacity -- offsets survive that fine
-    // (they're integers, not pointers), but computing the final
-    // `MapElement::points` pointers only after all growth is done is
-    // simpler to reason about than re-deriving them from a moving target.
+    // pass builds g.elements from that metadata, once g.points is done
+    // growing -- so `MapElement::points` is computed only after g.points'
+    // buffer address is final, not re-derived from a moving target.
     struct Meta {
         uint8_t is_polygon;
         mpviz::MapKind kind;
@@ -226,9 +220,8 @@ MapGeom load_map_geom(const char* path) {
     return g;
 }
 
-// Epic 2 Task 4 (VM-022) Step 2: see golden.hpp. One TrackedObject per
-// ObjectClass, positioned so a camera looking roughly at the world origin
-// sees all six.
+// See golden.hpp. One TrackedObject per ObjectClass, positioned so a
+// camera looking roughly at the world origin sees all six.
 ObjectScene make_mixed_class_objects(double now) {
     struct Spec {
         mpviz::ObjectClass cls;
@@ -293,9 +286,9 @@ ObjectScene make_mixed_class_objects(double now) {
     return s;
 }
 
-// Epic 2 Task 5 (VM-023) Step 3: see golden.hpp. One ribbon per role,
-// camera-visible from the same kind of origin-looking pose test_objects.cpp
-// uses (kPose there / RibbonGolden.ThreeRoles_DarkAdas here).
+// See golden.hpp. One ribbon per role, camera-visible from the same kind
+// of origin-looking pose test_objects.cpp uses (kPose there /
+// RibbonGolden.ThreeRoles_DarkAdas here).
 RibbonScene make_three_role_ribbons(double now)
 {
     struct Spec
@@ -304,13 +297,10 @@ RibbonScene make_three_role_ribbons(double now)
         std::vector<mpviz::Vec3> points;
         double age_sec;  // last_update_sec = now - age_sec
     };
-    // All three share ONE corridor (user directive 2026-09-08: "make the
-    // margins bit bigger by default I can't clearly see the 3 ribbons
-    // stacked when I play the bag") -- the bag publishes all three roles
-    // along the ego's lane, so the golden must show the stack: GLOBAL widest
-    // at the bottom of the z-stagger, LOCAL narrower above it, BEHAVIOR
-    // narrowest on top, each lower ribbon peeking out as a rim. The old
-    // scene spread them apart, which could never demonstrate the rims.
+    // All three share ONE corridor, matching how the bag publishes all
+    // three roles along the ego's lane: GLOBAL widest at the bottom of the
+    // z-stagger, LOCAL narrower above it, BEHAVIOR narrowest on top, each
+    // lower ribbon peeking out as a rim.
     const std::vector<Spec> specs = {
         // BEHAVIOR: the hero ribbon, fresh, shortest -- the near-term plan.
         {mpviz::PathRole::BEHAVIOR,
@@ -344,17 +334,15 @@ RibbonScene make_three_role_ribbons(double now)
         r.last_update_sec = now - sp.age_sec;
         s.ribbons.push_back(r);
     }
-    // Ego (user directive 2026-09-08, ego-proximity ribbon clip): sits
-    // exactly at (0,0,0), a point ALL THREE polylines now pass through by
-    // construction -- well inside kRibbonEgoClipLateralM (5.0m) for every
-    // role, so the whole stack renders clipped at the ego in this golden
-    // (the bag behaves the same way: all three roles ride the ego's lane).
+    // Ego sits exactly at (0,0,0), a point all three polylines pass through
+    // by construction -- well inside kRibbonEgoClipLateralM (5.0m) for
+    // every role, so the whole stack renders clipped at the ego.
     s.ego = mpviz::EgoState{{0.0, 0.0, 0.0}, 0.0, 0.0, /*valid=*/1};
     return s;
 }
 
-// Epic 2 Task 7 (VM-026) Step 3: see golden.hpp. Synthetic (FIXTURE GAP 4 --
-// the five collision-checker topics were silent in the recorded bag).
+// See golden.hpp. Synthetic -- the five collision-checker topics were
+// silent in the recorded bag.
 AlertScene make_sweep_and_predicted_alerts(double now)
 {
     struct Spec
@@ -364,13 +352,10 @@ AlertScene make_sweep_and_predicted_alerts(double now)
         double age_sec;  // last_update_sec = now - age_sec
     };
     const std::vector<Spec> specs = {
-        // Ego footprint sweep: severity 0 (info -- the ghost trail, see the
-        // plan's "the ego sweep gets a ghost alpha" -- that's a property of
-        // severity 0 itself, not a topic/role AlertPolygon has no field
-        // for). Aged 0.75s stale (kStaleFadeStartSec=0.5/
-        // kStaleFadeTimeoutSec=1.0 -- solidly mid-fade) so the golden shows
-        // the fade actually applied, not just the constant's already-low
-        // alpha.
+        // Ego footprint sweep: severity 0 (info) gets the ghost alpha as a
+        // property of the severity itself. Aged 0.75s stale (solidly inside
+        // kStaleFadeStartSec=0.5/kStaleFadeTimeoutSec=1.0) so the golden
+        // shows the fade actually applied, not just the low constant alpha.
         {0, {{-3.0, -2.0, 0.0}, {3.0, -2.0, 0.0}, {3.0, 2.0, 0.0}, {-3.0, 2.0, 0.0}}, 0.75},
         // Object predicted polygon: severity 1 (warning), fresh, off to one
         // side so a human sees both shapes distinctly.
@@ -398,8 +383,8 @@ AlertScene make_sweep_and_predicted_alerts(double now)
     return s;
 }
 
-// Epic 2 Task 8 (VM-027) Step 1: see golden.hpp. Synthetic (FIXTURE GAP 5 --
-// 7 of the 12 marker types never appear in the recorded bag).
+// See golden.hpp. Synthetic -- 7 of the 12 marker types never appear in
+// the recorded bag.
 GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_path) {
     GenericMarkerScene s;
     // LINE_STRIP(4) + LINE_LIST(4) + POINTS(5) + TRIANGLE_LIST(3) -- fixed
@@ -482,12 +467,11 @@ GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_p
         s.markers.push_back(m);
     }
 
-    // CUBE_LIST(6)/SPHERE_LIST(7) fan-out (Task 8 Step 4's adapter
-    // contract): a 3-point CUBE_LIST and a 3-point SPHERE_LIST each fan out
-    // into one GenericMarker per point, all sharing the source marker's
-    // scale -- hand-built here exactly as GenericMarkerAdapter would emit
-    // them (the node-side fan-out mechanism itself is a separate,
-    // node-side test).
+    // CUBE_LIST(6)/SPHERE_LIST(7) fan-out: a 3-point CUBE_LIST and a
+    // 3-point SPHERE_LIST each fan out into one GenericMarker per point,
+    // all sharing the source marker's scale -- hand-built here exactly as
+    // GenericMarkerAdapter would emit them (the node-side fan-out
+    // mechanism itself is a separate, node-side test).
     for (int i = 0; i < 3; ++i) {
         push_posed(mpviz::MarkerPrimitive::CUBE, 20.0 + i * 1.2, {0.6, 0.6, 0.6});
     }
@@ -498,8 +482,8 @@ GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_p
     return s;
 }
 
-// Epic 2 Task 6 (VM-025) Step 3: see golden.hpp. Synthetic (FIXTURE GAP 3 --
-// no OccupancyGrid topic exists in the recorded bag/stack).
+// See golden.hpp. Synthetic -- no OccupancyGrid topic exists in the
+// recorded bag/stack.
 GridScene make_two_layer_grids(double now) {
     constexpr uint32_t kW = 16, kH = 16;
     constexpr double kRes = 0.5;  // 16 * 0.5 = 8m footprint

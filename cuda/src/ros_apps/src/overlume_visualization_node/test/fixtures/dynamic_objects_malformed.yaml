@@ -1,9 +1,8 @@
-# Hand-edited fixture (Epic 2 Task 3 / VM-021, "FIXTURES" -- the four
-# malformed shapes DynamicObjectsAdapter.MalformedMarkersDroppedAndCounted
-# asserts: NaN bbox pose, zero-extent bbox, an empty text string, and a
-# bbox with no matching text marker at all -- plus one fully valid track
-# (3005) proving neighbours survive. No DELETEALL marker: this fixture is
-# ingested into a fresh adapter, so there is nothing to clear first.
+# Hand-edited fixture (VM-021). Four malformed shapes
+# DynamicObjectsAdapter.MalformedMarkersDroppedAndCounted asserts: NaN bbox
+# pose, zero-extent bbox, empty text string, bbox with no matching text --
+# plus one fully valid track (3005) proving neighbours survive. No
+# DELETEALL marker: ingested into a fresh adapter, so nothing to clear first.
 markers:
 - header:
     frame_id: map

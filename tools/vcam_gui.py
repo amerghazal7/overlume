@@ -234,12 +234,11 @@ class VcamWindow(Gtk.Window):
         self._mode_btn.connect("clicked", self._on_mode_toggle)
         btns.pack_end(self._mode_btn, False, False, 6)
 
-        # day/night theme toggle (Epic 1 Task 3 / VM-014, visual mode only).
-        # Unlike _mode_btn above, there's no telemetry echo of the active
-        # theme yet (that's Epic 3's ~/diagnostics, VM-034) -- the label just
-        # optimistically flips on click, same as how preset buttons don't
-        # wait for confirmation today. Starts on "dark_adas", the shipped
-        # default (visualization_node's initial_theme).
+        # day/night theme toggle (visual mode only). Unlike _mode_btn above,
+        # there's no telemetry echo of the active theme yet -- the label
+        # just optimistically flips on click, same as preset buttons not
+        # waiting for confirmation today. Starts on "dark_adas", the
+        # shipped default (visualization_node's initial_theme).
         self._theme = "dark_adas"
         self._theme_btn = Gtk.Button(label="theme: dark_adas")
         self._theme_btn.connect("clicked", self._on_theme_toggle)
@@ -354,10 +353,10 @@ class VcamWindow(Gtk.Window):
         self._cam_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         panel.pack_start(self._cam_box, False, False, 0)
 
-        # Epic 3 Task 2 (VM-034) Step 4: render_ms + a per-row staleness
-        # indicator, display-only -- no new WS command, this just renders
-        # whatever "diagnostics" frames vcam_ws_bridge.py already relays
-        # (same node-telemetry pipe vcam_state uses).
+        # render_ms + a per-row staleness indicator, display-only -- no new
+        # WS command, this just renders whatever "diagnostics" frames
+        # vcam_ws_bridge.py already relays (same node-telemetry pipe
+        # vcam_state uses).
         section("Diagnostics")
         self._diag_label = Gtk.Label(xalign=0.0)
         self._diag_label.set_line_wrap(True)
@@ -577,7 +576,7 @@ class VcamWindow(Gtk.Window):
         target = {1: 2, 2: 3, 3: 1}.get(self._render_mode, 3)
         # Optimistic: telemetry echoes correct this when frames flow, but
         # without it a dead node freezes self._render_mode and every click
-        # re-sends the same mode forever (review finding).
+        # re-sends the same mode forever.
         self._render_mode = target
         self._ws.send({"cmd": "set_render_mode",
                        "mode": {1: "bowl", 2: "pointcloud", 3: "visual"}[target]})

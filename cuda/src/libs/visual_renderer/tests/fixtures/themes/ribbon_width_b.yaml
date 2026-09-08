@@ -1,11 +1,7 @@
 # ribbon_width_b.yaml — test fixture for test_ribbon.cpp's Ribbon.
-# WidthChangeRebuildsGeometry (user directive 2026-08-20, ITEM 1). See
-# ribbon_width_a.yaml's own comment for why this pair is still valid after
-# user directive 2026-09-08 (ITEM 3, lane-fill margins).
-# Byte-for-byte identical to ribbon_width_a.yaml except `ribbon.width_m` --
-# the only thing that can make a slot's built geometry differ between the
-# two is theme.ribbon.width_m actually reaching build_slot_meshes(). Values
-# otherwise copied from assets/themes/dark_adas.yaml.
+# WidthChangeRebuildsGeometry. See ribbon_width_a.yaml's own comment for the
+# full rationale; byte-for-byte identical to that file except
+# `ribbon.width_m`.
 name: ribbon_width_b
 palette:
   ground:      [0.05, 0.06, 0.08]

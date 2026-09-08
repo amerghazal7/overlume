@@ -1,11 +1,8 @@
 # ribbon_margin_a.yaml — test fixture for test_ribbon.cpp's Ribbon.
-# MarginChangeRebuildsGeometry (user directive 2026-09-08, ITEM 3: lane-fill
-# margins). Byte-for-byte identical to ribbon_margin_b.yaml except
-# `ribbon.margin_local_m` -- unlike ribbon_width_a/b.yaml (which vary the
-# legacy width_m seed), this pair proves the margin fields THEMSELVES reach
-# build_slot_meshes(): width_m is untouched (absent, soft-defaults to 0.24)
-# on both files, only margin_local_m differs. Values otherwise copied from
-# assets/themes/dark_adas.yaml.
+# MarginChangeRebuildsGeometry. Byte-for-byte identical to
+# ribbon_margin_b.yaml except `ribbon.margin_local_m` -- unlike
+# ribbon_width_a/b.yaml (which vary the legacy width_m seed), this pair
+# proves the margin fields themselves reach build_slot_meshes().
 name: ribbon_margin_a
 palette:
   ground:      [0.05, 0.06, 0.08]

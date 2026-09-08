@@ -47,13 +47,8 @@ N_STEPS = 100                # 5s of straight-line motion at 20Hz
 OUTLIER_STEP = 40            # inject the bad sample partway through (t=2.0s)
 OUTLIER_JUMP_M = 5.0         # instantaneous position jump for that one sample
 SMOOTHING_ALPHA = 0.2        # matches the node's declared default (ego_speed_smoothing_alpha)
-# EMA ceiling for the outlier tick: smoothed_new = smoothed_prev + alpha *
-# (raw - smoothed_prev). smoothed_prev is near SPEED_MPS (~2) by that point;
-# raw for the outlier step is roughly OUTLIER_JUMP_M / TF_DT (~100 m/s) minus
-# whatever the node's own timer-vs-TF-rate sampling shaves off it -- the
-# single-step jump this can possibly produce is bounded by
-# alpha * (raw - smoothed_prev), so a ceiling comfortably above that jump
-# (but far below the ~100 m/s raw value) proves the filter, not a pass-through.
+# EMA ceiling for the outlier tick: alpha*(raw~100 m/s - prev~2 m/s) bounds
+# the single-step jump; 60 sits comfortably above that bound, far below raw.
 OUTLIER_SMOOTHED_CEILING_MPS = 60.0
 
 INSTALL_DIR = os.path.normpath(
@@ -155,11 +150,9 @@ def test_tf_adapter_speed_converges():
         rclpy.init()
         fixture = TfFixtureNode()
 
-        # Real-time-paced fixture (not spin-once-as-fast-as-possible): the
-        # finite-difference math is dx/dt off real TF timestamps, so the
-        # loop must actually take ~TF_DT per step for dx (nominal,
-        # SPEED_MPS * TF_DT per step) to correspond to a real dt of ~TF_DT --
-        # otherwise the "constant 2.0 m/s" fixture wouldn't actually BE
+        # Real-time-paced (not spin-once-as-fast-as-possible): finite-difference
+        # math is dx/dt off real TF timestamps, so the loop must take ~TF_DT
+        # per step for the "constant 2.0 m/s" fixture to actually measure as
         # 2.0 m/s once timestamped.
         for i in range(N_STEPS):
             x = SPEED_MPS * i * TF_DT

@@ -1,14 +1,9 @@
-# fog_color_black_dark.yaml — test fixture for test_theme.cpp's Fog.ColorAffectsRenderedOutput
-# (dark_adas branch, epic1 Task 2 review round 5). Byte-for-byte identical
-# to assets/themes/dark_adas.yaml (including its fog.density) except
-# `palette.fog` -- the only thing that can make the two renders differ is
-# FogOptions::color actually reaching the screen for THIS theme's own
-# ibl.intensity, not just light_clay's (see fog_color_{black,white}.yaml
-# above, which only exercised light_clay's branch of the color-scale
-# formula and missed a dead dark_adas token in review round 4). Measured:
-# unfixed round-4 code (kFogAmbientReferenceIntensitySq/ibl.intensity^2)
-# moves the mean by 5.33 between black and white fog here -- below the
-# >15.0 liveness bar; the round-5 fix moves it by ~166.
+# fog_color_black_dark.yaml — test fixture for test_theme.cpp's Fog.
+# ColorAffectsRenderedOutput (dark_adas branch). Byte-for-byte identical to
+# assets/themes/dark_adas.yaml except `palette.fog` -- isolates whether
+# FogOptions::color reaches the screen for this theme's own ibl.intensity.
+# Fixed code moves the mean by ~166 between black/white fog here, well
+# past the >15.0 liveness bar.
 name: fog_color_black_dark
 palette:
   ground:      [0.05, 0.06, 0.08]
@@ -37,12 +32,6 @@ ibl:  # analytic 2-band hemisphere gradient — NOT raw SH coefficients
   sky_color:    [0.05, 0.06, 0.12]
   ground_color: [0.02, 0.02, 0.03]
   intensity: 256000.0
-# Tracks assets/themes/dark_adas.yaml's own shipped fog.density (0.015, as
-# of epic1 Task 2 review round 7 -- restored to the plan's originally-
-# authored value; rounds 5/6's 0.10/0.03 were compensating for a fog
-# color-scale bug, fixed at its source in renderer.cpp instead) -- same
-# convention as fog_color_black.yaml above tracking light_clay's shipped
-# density, so this fixture doesn't silently drift from the theme it's meant
-# to exercise if the density changes again. See dark_adas.yaml's own comment
-# for the full history.
+# Tracks assets/themes/dark_adas.yaml's own shipped fog.density -- keep in
+# sync so this fixture doesn't drift from the theme it exercises.
 fog: { density: 0.015 }

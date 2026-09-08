@@ -1,12 +1,8 @@
 # sun_dir_a.yaml — test fixture for test_theme.cpp's ClayMaterial.
-# RespondsToLightDirection. Byte-for-byte identical to sun_dir_b.yaml except
-# `sun.direction`, so the only thing that can make the two renders differ is
-# clay.mat actually responding to the sun's direction -- unlike the
-# ClayMaterial-vs-full-theme-swap comparison this replaced (dark_adas vs
-# light_clay also differ in palette/fog/IBL, so that comparison could pass
-# even with a completely unlit material; see epic1 review). Values otherwise
-# copied from assets/themes/dark_adas.yaml -- same "linear RGB, no sRGB
-# decode" convention (see theme.hpp).
+# RespondsToLightDirection. Byte-for-byte identical to sun_dir_b.yaml
+# except `sun.direction` -- isolates whether clay.mat responds to the
+# sun's direction (a full dark_adas-vs-light_clay swap also differs in
+# palette/fog/IBL, so it could pass even with an unlit material).
 name: sun_dir_a
 palette:
   ground:      [0.05, 0.06, 0.08]

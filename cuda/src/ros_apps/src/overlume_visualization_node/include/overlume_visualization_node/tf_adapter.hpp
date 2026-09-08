@@ -11,8 +11,7 @@
  *  small bit of state (previous position/timestamp, smoothed speed) that
  *  the finite-difference+EMA math needs across ticks.
  *
- *  Speed source (spec §7, docs/superpowers/specs/2026-08-18-visual-mode-design.md:264,
- *  added after this task's plan text but binding per this review round):
+ *  Speed source (spec §7, docs/superpowers/specs/2026-08-18-visual-mode-design.md:264):
  *  ego speed PREFERS `/robot/feedback/robot_speed_mps` (Float32) when the
  *  node has received at least one sample from it, falling back to the TF
  *  finite-difference+EMA below only until the first sample arrives. The
@@ -40,7 +39,7 @@ public:
     /// kills single-sample TF noise without adding latency-tuning
     /// complexity (a Kalman filter would be gold-plating for a HUD speed
     /// readout, not a control input).
-    /// flatten_z (default ON -- user directive 2026-08-20): zeroes the ego's
+    /// flatten_z (default ON): zeroes the ego's
     /// map-frame z so it sits on the 2D HD-map plane every other flattened
     /// layer renders on (live TF carries real altitude, ~11 m on the sim).
     /// See frame_transform.hpp; flips off together with the node's

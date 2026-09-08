@@ -1,9 +1,8 @@
 /** @file test_ego_anchor.cpp
- *  @brief Unit coverage for compose_ego_anchored_pose/kEgoForwardYaw (review
- *  finding: the yaw convention already regressed once -- a pi/2 broadside
- *  bug caught only by a human on a live frame -- with zero automated
- *  coverage). Exercises the header directly; no ROS/renderer runtime
- *  needed.
+ *  @brief Unit coverage for compose_ego_anchored_pose/kEgoForwardYaw -- the
+ *  yaw convention has regressed once already (a pi/2 broadside bug caught
+ *  only by a human on a live frame). Exercises the header directly; no
+ *  ROS/renderer runtime needed.
  */
 
 #include <cmath>

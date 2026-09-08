@@ -1,12 +1,9 @@
-# ogm_update_synthetic.yaml — Epic 2 Task 6 (VM-025). SYNTHETIC (FIXTURE GAP
-# 3, see ogm_synthetic.yaml's own comment). A patch against
-# ogm_synthetic.yaml's 5x2 base grid: rect (x=1, y=1, width=2, height=1) --
-# i.e. cells (1,1) and (2,1), row 1 columns 1-2 -- rewritten to [42, -1]
-# (converts to [42, 255]). Every OTHER cell in the base grid must be
-# byte-identical after this patch (PartialUpdatePatchesInPlaceWithout
-# Resizing). Shifting x/width here (in test code, not a second fixture file)
-# to overrun the 5-wide base grid is OutOfBoundsUpdateRectIsRejected's own
-# variant.
+# ogm_update_synthetic.yaml (VM-025). SYNTHETIC (fixture gap 3, see
+# ogm_synthetic.yaml). Patch against the 5x2 base grid: rect (x=1, y=1,
+# width=2, height=1) rewritten to [42, -1] (converts to [42, 255]); every
+# other cell must stay byte-identical (PartialUpdatePatchesInPlaceWithoutResizing).
+# Shifting x/width past the 5-wide grid in test code is
+# OutOfBoundsUpdateRectIsRejected's own variant.
 header:
   frame_id: map
   stamp: {sec: 0, nanosec: 0}

@@ -1,12 +1,6 @@
 #pragma once
 /** @file adapter_stats.hpp
- *  @brief Diagnostics counters shared by every Epic 2 marker/path/grid
- *  adapter (epic2 plan, "Node: adapter shape" -- "Diagnostics counters").
- *
- *  Promoted out of hd_map.hpp (that file's own comment named this exact
- *  moment: "Promote to its own shared header the day a second adapter
- *  (Task 3's DynamicObjectsAdapter) needs the identical shape rather than
- *  copy it a second time" -- this is that day).
+ *  @brief Diagnostics counters shared by every marker/path/grid adapter.
  *
  *  `dropped_by_rule` is a SEPARATE counter from `dropped_malformed` on
  *  purpose: every marker a profile `namespaces:` rule says `render: drop`

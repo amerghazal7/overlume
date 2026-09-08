@@ -29,9 +29,9 @@
  *  unvalidated against a live publisher.
  *
  *  ingest(): one AlertPolygon per LINE_STRIP marker. Marker.msg semantics
- *  identical to HdMapAdapter's own (rviz-parity fix, user report
- *  2026-08-20): points[] are RELATIVE to marker.pose, composed BEFORE the
- *  frame transform; a zero/degenerate orientation quaternion is treated as
+ *  identical to HdMapAdapter's own: points[] are RELATIVE to marker.pose,
+ *  composed BEFORE the frame transform; a zero/degenerate orientation
+ *  quaternion is treated as
  *  identity (matching rviz), never NaN'd through tf2; flatten_z on stored
  *  points (frame_transform.hpp). Producers may or may not repeat the
  *  first point as the last -- this adapter normalizes storage to always

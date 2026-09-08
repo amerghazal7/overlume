@@ -15,11 +15,8 @@ namespace
 
 // visualization_msgs/msg/Marker.msg action + type constants -- not worth a
 // dependency on the generated enum names (same convention as
-// hd_map.cpp/dynamic_objects.cpp/collision.cpp).
-// Marker.msg defines ADD = 0 and MODIFY = 0 (the SAME value), DELETE = 2,
-// DELETEALL = 3 -- there is no action 1, so a single kActionAdd check covers
-// add and modify both (review 2026-08-20: a kActionModify=1 constant here
-// implied the msg defines it and over-accepted an undefined action).
+// hd_map.cpp/dynamic_objects.cpp/collision.cpp). ADD=0 and MODIFY=0 are the
+// same value and there is no action 1, so kActionAdd alone covers both.
 constexpr int32_t kActionAdd = 0;
 constexpr int32_t kActionDelete = 2;
 constexpr int32_t kActionDeleteAll = 3;
@@ -39,12 +36,9 @@ constexpr int32_t kTypeTriangleList = 11;
 
 bool HasNan(const mpviz::Vec3& p) { return std::isnan(p.x) || std::isnan(p.y) || std::isnan(p.z); }
 
-// Marker.msg semantics (rviz-parity fix, user report 2026-08-20): a
-// marker's own pose is RELATIVE to the header frame -- identical to every
-// other Epic 2 adapter's own copy of this pair (hd_map.cpp/
-// dynamic_objects.cpp/collision.cpp; each file carries its own rather than
-// a shared header, matching this codebase's existing per-adapter-file
-// convention).
+// A marker's own pose is RELATIVE to the header frame -- same pair as every
+// other adapter's own copy (hd_map.cpp/dynamic_objects.cpp/collision.cpp;
+// each file keeps its own rather than a shared header).
 bool MarkerPoseIsIdentity(const geometry_msgs::msg::Pose& p)
 {
     constexpr double kEps = 1e-12;
@@ -54,10 +48,8 @@ bool MarkerPoseIsIdentity(const geometry_msgs::msg::Pose& p)
            std::abs(p.orientation.w - 1.0) < kEps;
 }
 
-// Returns false (caller treats as malformed) only on a NaN pose. Zero/
-// degenerate quaternion -> identity, matching rviz (dynamic_objects.cpp's
-// identical rationale: handing tf2 a zero quaternion NaNs every
-// transformed point instead of rendering as identity).
+// Returns false only on a NaN pose. Zero/degenerate quaternion -> identity,
+// matching rviz (see dynamic_objects.cpp).
 bool BuildMarkerPoseTransform(const geometry_msgs::msg::Pose& p, tf2::Transform& out)
 {
     const tf2::Vector3 pos(p.position.x, p.position.y, p.position.z);
@@ -72,15 +64,11 @@ bool BuildMarkerPoseTransform(const geometry_msgs::msg::Pose& p, tf2::Transform&
     return true;
 }
 
-// mesh_resource (Marker.msg: a resource-retriever URI, "embedded://..." or
-// a scheme like "file://...") -> a plain filesystem path GenericMarker::
-// mesh_path can hand straight to the library's gltfio loader. ponytail:
-// only a "file://" prefix is stripped -- no package:// resolution (no
-// ament_index dependency pulled in for a marker type FIXTURE GAP 5 names
-// as never appearing in the recorded bag; a bare/absolute path passes
-// through unchanged, which is what every hand-built test/E2E fixture
-// supplies). Upgrade to real resource-retriever resolution the day a live
-// publisher actually ships package:// MESH_RESOURCE markers.
+// mesh_resource (a resource-retriever URI) -> a plain filesystem path for
+// GenericMarker::mesh_path. ponytail: only a "file://" prefix is stripped --
+// no package:// resolution (FIXTURE GAP 5: never appears in the recorded
+// bag; bare/absolute paths pass through, matching test fixtures). Upgrade
+// when a live publisher ships package:// MESH_RESOURCE markers.
 std::string ToMeshPath(const std::string& uri)
 {
     constexpr const char* kFilePrefix = "file://";
@@ -102,11 +90,9 @@ void GenericMarkerAdapter::ingest(const visualization_msgs::msg::MarkerArray& ms
     ++stats_.msgs;
     if (msg.markers.empty()) return;
 
-    // Lifetime expiry, swept FIRST (this file's own header comment): a
-    // stored entry's `expires_at_sec` is judged against THIS message's
-    // sim_time_sec, independent of whether the TF lookup below succeeds --
-    // a marker whose lifetime is up should vanish even on a message that
-    // happens to arrive in a frame this adapter can't currently resolve.
+    // Lifetime expiry, swept FIRST: expires_at_sec is judged against this
+    // message's sim_time_sec regardless of whether the TF lookup below
+    // succeeds -- an expired marker should vanish even in an unresolvable frame.
     for (auto it = storage_.begin(); it != storage_.end();)
     {
         if (it->second.expires_at_sec > 0.0 && it->second.expires_at_sec <= sim_time_sec)
@@ -183,10 +169,8 @@ void GenericMarkerAdapter::ingest(const visualization_msgs::msg::MarkerArray& ms
 
         if (is_fan_out)
         {
-            // CUBE_LIST(6)/SPHERE_LIST(7): the ONLY freeze-respecting route
-            // for the two ROS types without a MarkerPrimitive slot -- fan
-            // out into one GenericMarker CUBE/SPHERE per point (this
-            // file's own header comment).
+            // CUBE_LIST/SPHERE_LIST have no MarkerPrimitive slot -- fan out
+            // into one GenericMarker CUBE/SPHERE per point.
             if (m.points.empty() || m.scale.x <= 0.0 || m.scale.y <= 0.0 || m.scale.z <= 0.0)
             {
                 ++stats_.dropped_malformed;
@@ -224,12 +208,10 @@ void GenericMarkerAdapter::ingest(const visualization_msgs::msg::MarkerArray& ms
                 if (per_point_colors)
                 {
                     // colors[] alpha is documented as "not yet used"
-                    // (Marker.msg) -- a real publisher routinely leaves it
-                    // 0, which scene.h's GenericMarker::color would
-                    // otherwise read as "no colour supplied" and silently
-                    // discard every per-point color a publisher actually
-                    // sent. Force alpha 1.0 here so a supplied colors[i]
-                    // always reads as supplied.
+                    // (Marker.msg); a publisher routinely leaves it 0, which
+                    // would otherwise read as "no color supplied" and drop a
+                    // real per-point color. Force alpha 1.0 so a supplied
+                    // colors[i] always reads as supplied.
                     entry.fan_colors.push_back(m.colors[i].r);
                     entry.fan_colors.push_back(m.colors[i].g);
                     entry.fan_colors.push_back(m.colors[i].b);
@@ -270,10 +252,9 @@ void GenericMarkerAdapter::ingest(const visualization_msgs::msg::MarkerArray& ms
                 ++stats_.dropped_malformed;
                 continue;
             }
-            // Not just a floor -- the MULTIPLE matters (review 2026-08-20):
-            // a 5-point TRIANGLE_LIST or a 3-point LINE_LIST would reach the
-            // renderer's flat indexing and silently truncate the trailing
-            // points with nothing counted. rviz rejects these too.
+            // The MULTIPLE matters, not just a floor -- a 5-point
+            // TRIANGLE_LIST or 3-point LINE_LIST would silently truncate in
+            // the renderer's flat indexing. rviz rejects these too.
             if ((primitive == mpviz::MarkerPrimitive::TRIANGLE_LIST && m.points.size() % 3 != 0) ||
                 (primitive == mpviz::MarkerPrimitive::LINE_LIST && m.points.size() % 2 != 0))
             {
@@ -321,8 +302,8 @@ void GenericMarkerAdapter::ingest(const visualization_msgs::msg::MarkerArray& ms
             }
             else if (m.scale.x <= 0.0 || m.scale.y <= 0.0 || m.scale.z <= 0.0)
             {
-                // TEXT ignores scale entirely (this library's placeholder
-                // billboard, generic_markers.cpp Step 3) -- every other
+                // TEXT ignores scale entirely (library's placeholder
+                // billboard, see generic_markers.cpp); every other
                 // pose+scale primitive needs a real extent.
                 ++stats_.dropped_malformed;
                 continue;

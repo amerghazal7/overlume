@@ -182,10 +182,9 @@ nav_msgs::msg::OccupancyGrid load_occupancy_grid(const std::string& fixture_name
     return grid;
 }
 
-// Epic 2 Task 6 (VM-025): see fixture_msgs.hpp. Same shape as
-// load_occupancy_grid() just above -- x/y/width/height are plain scalars,
-// data is int8[] (msg's own on-wire type; OgmAdapter's ConvertCell(), not
-// this loader, does the -1/0..100/malformed conversion).
+// Same shape as load_occupancy_grid() just above -- x/y/width/height are
+// plain scalars, data is int8[] (msg's own on-wire type; OgmAdapter's
+// ConvertCell(), not this loader, does the -1/0..100/malformed conversion).
 map_msgs::msg::OccupancyGridUpdate load_occupancy_grid_update(const std::string& fixture_name)
 {
     const YAML::Node root = LoadFixtureYaml(fixture_name);

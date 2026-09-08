@@ -36,11 +36,8 @@ TEST(Profile, ShippedOffroadProfileLoads)
 
 TEST(Profile, ShippedSimProfileLoadsAndMarksTheLatchedHdMapRow)
 {
-    // sim_profile.yaml exists precisely so ProfileRow::transient_local has a
-    // shipped user, a test, and a way to reach /sim/hd_map/markers -- the only
-    // full-extent map source in the bag (1 msg, 3725 markers, TRANSIENT_LOCAL).
-    // Without this file the field is dead config and a QoS bug in it ships
-    // undetected until Epic 5's live validation.
+    // sim_profile.yaml is the only shipped profile with a TRANSIENT_LOCAL
+    // hd_map row (/sim/hd_map/markers); this pins that QoS bit.
     std::vector<std::string> errs;
     auto p = mpviz_node::load_profile(std::string(TEST_CONFIG_DIR) + "/sim_profile.yaml", errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
@@ -51,7 +48,6 @@ TEST(Profile, ShippedSimProfileLoadsAndMarksTheLatchedHdMapRow)
 
 TEST(Profile, NamespaceRuleIsLongestPrefixWins)
 {
-    // The whole ingest-decimation story rests on this one behaviour.
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n  - {topic: /m, type: visualization_msgs/msg/MarkerArray,"
@@ -71,8 +67,8 @@ TEST(Profile, NamespaceRuleIsLongestPrefixWins)
 
 TEST(Profile, KindParsesOnNamespaceRules)
 {
-    // VM-036 (Epic 3 Task 1): kind is per-rule, not inherited by a sibling
-    // rule in the same row, and defaults to OTHER when the key is absent.
+    // kind is per-rule (not inherited by a sibling rule) and defaults to
+    // OTHER when the key is absent.
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n  - {topic: /m, type: visualization_msgs/msg/MarkerArray,"
@@ -90,8 +86,7 @@ TEST(Profile, KindParsesOnNamespaceRules)
 TEST(Profile, KindIsRejectedWhenIllegalForRender)
 {
     // kind: crosswalk is polygon-only; every lane-geometry kind is
-    // polyline-only -- the validator rejects both mismatches, same
-    // error-collection convention as every other ValidateRow check.
+    // polyline-only.
     std::vector<std::string> polyline_errs;
     auto polyline = load_profile_string(
         "name: t\nrows:\n  - {topic: /m, type: visualization_msgs/msg/MarkerArray,"
@@ -126,19 +121,16 @@ TEST(Profile, UnknownKindValueIsRejectedWithRowContext)
 
 TEST(Profile, ShippedUrbanLocalRowMarksCenterlineAndBoundaryKinds)
 {
-    // config/urban_profile.yaml (Epic 3 Task 1 / VM-036): centerline_ and
-    // left_boundary_/right_boundary_ carry distinct kinds so the renderer
-    // can style/dash them differently (decision #3's flip: boundaries get
-    // dash geometry renderer-side, centerline solid).
+    // centerline_ and left/right_boundary_ carry distinct kinds so the
+    // renderer can dash boundaries and keep centerline solid.
     std::vector<std::string> errs;
     auto p = load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
     const auto* row = find_row(*p, "/hd_map_local_elements");
     ASSERT_NE(row, nullptr);
 
-    // centerline_ is now `render: drop` (user directive 2026-09-08: hidden
-    // by default) -- `kind` cannot be set on a drop rule (ValidateRow's
-    // KindIsLegalOnRender), so it stays the OTHER default.
+    // centerline_ is render: drop, and kind can't be set on a drop rule, so
+    // it stays the OTHER default.
     const auto* centerline_rule = match_rule(*row, "centerline_0");
     ASSERT_NE(centerline_rule, nullptr);
     EXPECT_EQ(centerline_rule->render, NsRender::kDrop);
@@ -182,26 +174,23 @@ TEST(Profile, DuplicateNamespacePrefixIsRejected)
 
 TEST(Profile, ShippedProfilesRouteEveryKnownNamespaceOfEveryShippedTopic)
 {
-    // The gap this closes: a topic whose real namespaces are NOT the ones the
-    // row's rules were written for renders as garbage, silently. Table-driven
-    // over the namespaces actually observed on the wire (counts from a
-    // full-bag deserialization pass), asserting the row's classify() verdict.
+    // Table-driven over the namespaces actually observed on the wire,
+    // asserting each row's classify() verdict -- a topic whose real
+    // namespaces don't match its rules renders as garbage, silently.
     std::vector<std::string> errs;
     auto urban = mpviz_node::load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
     ASSERT_TRUE(urban.has_value());
     auto sim = mpviz_node::load_profile(std::string(TEST_CONFIG_DIR) + "/sim_profile.yaml", errs);
     ASSERT_TRUE(sim.has_value());
 
-    // /road_markers row DISABLED 2026-08-20: the upstream publisher's output
-    // is wrong (user-verified in rviz — same broken geometry there, so the
-    // source is at fault, not the renderer). Row ships commented out until
-    // the owning team fixes the topic; on re-enable, restore the three
-    // classify() assertions from git history and bump the row count below.
+    // /road_markers row is disabled (bad upstream publisher data); on
+    // re-enable, restore its classify() assertions from git history and
+    // bump the row count below.
     EXPECT_EQ(find_row(*urban, "/road_markers"), nullptr);
 
     const auto* hd_map_global = find_row(*urban, "/hd_map_global_elements");
     ASSERT_NE(hd_map_global, nullptr);
-    // centerline_ hidden by default (user directive 2026-09-08).
+    // centerline_ hidden by default.
     EXPECT_EQ(classify(*hd_map_global, "centerline_0"), NsRender::kDrop);
     EXPECT_EQ(classify(*hd_map_global, "centerline_arrows_0"), NsRender::kDrop);
 
@@ -213,10 +202,9 @@ TEST(Profile, ShippedProfilesRouteEveryKnownNamespaceOfEveryShippedTopic)
     EXPECT_EQ(classify(*hd_map_local, "right_boundary_0"), NsRender::kPolyline);
     EXPECT_EQ(classify(*hd_map_local, "crosswalk_7"), NsRender::kPolygon);
     EXPECT_EQ(classify(*hd_map_local, "crosswalk_stopline_7"), NsRender::kPolyline);
-    // Marker convention (user, 2026-08-20): the sim publisher's namespace is
-    // the PLURAL "crosswalks" with no numeric suffix; the shipped rule is the
-    // bare prefix "crosswalk" so BOTH spellings classify as polygon on every
-    // hd_map row, while the longer crosswalk_stopline_ rule still wins.
+    // The sim publisher uses plural "crosswalks" (no numeric suffix); the
+    // bare "crosswalk" prefix matches both spellings, while the longer
+    // crosswalk_stopline_ rule still wins.
     EXPECT_EQ(classify(*hd_map_local, "crosswalks"), NsRender::kPolygon);
 
     const auto* dyn_objects = find_row(*urban, "/perception/dynamic_objects_list");
@@ -229,7 +217,7 @@ TEST(Profile, ShippedProfilesRouteEveryKnownNamespaceOfEveryShippedTopic)
 
     const auto* sim_hd_map = find_row(*sim, "/sim/hd_map/markers");
     ASSERT_NE(sim_hd_map, nullptr);
-    // centerline_ hidden by default (user directive 2026-09-08).
+    // centerline_ hidden by default.
     EXPECT_EQ(classify(*sim_hd_map, "centerline_0"), NsRender::kDrop);
     EXPECT_EQ(classify(*sim_hd_map, "centerline_arrows_0"), NsRender::kDrop);
     EXPECT_EQ(classify(*sim_hd_map, "crosswalks"), NsRender::kPolygon);  // note: no numeric suffix
@@ -258,9 +246,7 @@ TEST(Profile, OgmRowCarriesItsUpdateTopicAndNonOgmRowsMayNot)
 
 TEST(Profile, JunctionInteriorBoundariesDefaultsToTrueAndParsesExplicitFalse)
 {
-    // Junction-cleanup directive (2026-09-08): default true (shipped
-    // profiles never write the key at all -- see urban/sim_profile.yaml's
-    // hd_map row comments).
+    // Defaults to true; shipped profiles never write this key explicitly.
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n  - {topic: /h, type: visualization_msgs/msg/MarkerArray,"
@@ -278,9 +264,8 @@ TEST(Profile, JunctionInteriorBoundariesDefaultsToTrueAndParsesExplicitFalse)
 
 TEST(Profile, JunctionInteriorBoundariesIsRejectedOnNonHdMapRows)
 {
-    // Restricted to adapter: hd_map -- an explicit value on any other
-    // adapter is a typo'd key, never intentional (nothing else in the
-    // pipeline reads it).
+    // Restricted to adapter: hd_map; an explicit value elsewhere is a typo'd
+    // key -- nothing else reads it.
     std::vector<std::string> errs;
     auto bad = load_profile_string(
         "name: t\nrows:\n  - {topic: /p, type: nav_msgs/msg/Path,"
@@ -292,24 +277,16 @@ TEST(Profile, JunctionInteriorBoundariesIsRejectedOnNonHdMapRows)
 
 TEST(Profile, GroundTruthBoxesRowIsBestEffortBecauseItsPublisherIs)
 {
-    // The bag's metadata.yaml records offered `reliability: 2` (BEST_EFFORT)
-    // for /sim/ground_truth/boxes. An rclcpp subscription defaults to
-    // RELIABLE, which NEVER matches a BEST_EFFORT publisher -- no error, no
-    // warning, a permanently silent topic. This row is the epic's only
-    // base_link row and the subject of Task 8's parity E2E, whose own rclpy
-    // publisher is RELIABLE, so nothing else in this epic can catch it.
-    // The row ships COMMENTED OUT since 2026-08-20 (user report: the ego's
-    // own gt box sits at base_link origin = ON the robot proxy, flickering;
-    // one shared namespace means no rule can drop just the ego's). Pin the
-    // absent-by-default state...
+    // The bag's /sim/ground_truth/boxes publisher is BEST_EFFORT; an rclcpp
+    // subscription defaults to RELIABLE and would never match it, silently.
+    // Row ships disabled (the ego's own box sits at the robot's origin,
+    // flickering).
     std::vector<std::string> errs;
     auto p = load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
     ASSERT_TRUE(p.has_value());
     EXPECT_EQ(find_row(*p, "/sim/ground_truth/boxes"), nullptr);
-    // ...and keep the QoS knowledge alive against the CANONICAL row text
-    // (the same text the parity E2E appends and a re-enabler uncomments):
-    // best_effort is load-bearing, an rclcpp default-RELIABLE subscription
-    // never matches this topic's BEST_EFFORT publisher.
+    // Confirm best_effort: true still parses correctly, independent of the
+    // row's disabled state.
     std::vector<std::string> errs2;
     auto p2 = load_profile_string(
         "name: t\nrows:\n"
@@ -339,10 +316,9 @@ TEST(Profile, SubscriptionsForCarriesQosAndFansOutOgmRows)
     // ogm row -> 2 specs (topic + update_topic, the second typed
     // map_msgs/msg/OccupancyGridUpdate). transient_local: true on the row
     // must reach the base-grid spec but NOT the update spec: an update
-    // stream is inherently VOLATILE (each patch supersedes the last), so a
-    // TRANSIENT_LOCAL-requesting subscriber would never match a VOLATILE
-    // update publisher and the patch stream would go silently dead. See
-    // profile.cpp's subscriptions_for().
+    // stream is inherently VOLATILE, so a TRANSIENT_LOCAL subscriber would
+    // never match a VOLATILE publisher and the patch stream would go
+    // silently dead.
     auto p2 = load_profile_string(
         "name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
         " adapter: ogm, role: dynamic_ogm, update_topic: /g_updates,"
@@ -406,8 +382,8 @@ TEST(Profile, MissingRequiredKeyIsRejected)
 
 TEST(Profile, TimeoutBelowRenderFadeWindowIsRejected)
 {
-    // timeout_sec: 0.4 -> rejected; error explains the >= 1.0 s rule
-    // (the renderer's own fade runs 0.5..1.0 s; see "Staleness" above)
+    // timeout_sec must be >= 1.0s: the renderer's fade window ends at
+    // kStaleFadeTimeoutSec (cuda/src/libs/visual_renderer/src/renderer_internal.hpp).
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: bad\nrows:\n  - {topic: /x, type: visualization_msgs/msg/MarkerArray,"
@@ -434,8 +410,8 @@ TEST(Profile, AllErrorsReportedNotJustTheFirst)
 
 TEST(Profile, UnknownExtraKeyIsAWarningNotAHardFailure)
 {
-    // VM-042: profiles are hand-edited by the autonomy team; a typo'd
-    // optional key must not take the node down.
+    // Profiles are hand-edited; a typo'd optional key must not take the
+    // node down.
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n  - {topic: /x, type: visualization_msgs/msg/MarkerArray,"
@@ -459,12 +435,10 @@ TEST(Profile, DuplicateTopicAdapterPairIsRejected)
 
 TEST(Profile, DuplicateTopicAdapterPairNamesTheFileRowIndexNotTheSurvivingRowIndex)
 {
-    // Row 0 is rejected (bad adapter) and never makes it into profile.rows.
-    // Rows 1 and 2 are the actual duplicate pair. profile.rows ends up
-    // holding them at surviving-indices 0 and 1 -- the message must still
-    // name FILE row 2 (the second, offending occurrence), not row 1 (which
-    // is what the surviving-index would misreport, and which is also the
-    // innocent, first-seen row of the pair).
+    // Row 0 is rejected (bad adapter) and never enters profile.rows. Rows 1
+    // and 2 are the actual duplicate pair, surviving at indices 0 and 1 --
+    // but the error must still name FILE row 2 (the offending occurrence),
+    // not the surviving-index or row 1 (the innocent first occurrence).
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n"
@@ -491,9 +465,8 @@ TEST(Profile, RoleMustBeInTheAdapterClosedSet)
 
 TEST(Profile, MalformedScalarTypeIsReportedNotThrown)
 {
-    // A hand-edited profile (VM-042) with a mis-typed scalar must produce an
-    // error + nullopt, not let YAML::TypedBadConversion escape and abort the
-    // process. Exercises ParseRow's node[...].as<T>() calls directly.
+    // A mis-typed scalar must produce an error + nullopt, not let
+    // YAML::TypedBadConversion escape and abort the process.
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: bad\nrows:\n  - {topic: /x, type: visualization_msgs/msg/MarkerArray,"
@@ -514,14 +487,10 @@ TEST(Profile, WholeFileScalarIsReportedNotThrown)
 
 TEST(Profile, ShippedProfilesCarryEveryCollisionPathAndOgmRow)
 {
-    // Task 1's other two file-level tests (ShippedUrbanProfileLoads,
-    // ShippedProfilesRouteEveryKnownNamespaceOfEveryShippedTopic) only catch
-    // a MALFORMED row, never a MISSING one -- "file parses" and "rows
-    // non-empty" both still pass if a row is silently deleted. The plan
-    // ships the 5 collision + 4 path + 2 ogm rows in Task 1 specifically so
-    // Task 7 lands severities/adapters against rows something already
-    // validated, not against a profile whose completeness nothing checked.
-    // Table-driven over (topic, adapter, role) closes that gap.
+    // The other file-level tests only catch a MALFORMED row, never a
+    // MISSING one -- "file parses" and "rows non-empty" both still pass if a
+    // row is silently deleted. Table-driven over (topic, adapter, role)
+    // closes that gap.
     struct Expected
     {
         std::string topic;
@@ -563,7 +532,7 @@ TEST(Profile, ShippedProfilesCarryEveryCollisionPathAndOgmRow)
     }
 }
 
-// ── Step 0.3: coexisting yaml-cpps (see scene.h / this task's Step 0) ───────
+// ── Coexisting yaml-cpp builds (vendor + bundled) ───────────────────────────
 TEST(Profile, CoexistsWithTheRendererLibrarysOwnYamlCpp)
 {
     // No GPU needed, no GTEST_SKIP: if this test can be skipped it is not a
@@ -571,19 +540,15 @@ TEST(Profile, CoexistsWithTheRendererLibrarysOwnYamlCpp)
     std::vector<std::string> errs;
     auto p = mpviz_node::load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
     ASSERT_TRUE(p.has_value());
-    // Row COUNT, not just has_value(): merge_yamlcpp.sh recipe 3 (see that
-    // script's header) LINKED fine and still returned a Profile with the
-    // right error count (0) but the WRONG row count (0 instead of the full
-    // count) -- an ABI-mismatched YAML::Node silently corrupting data, not
-    // crashing. has_value() alone would pass on that broken build.
-    // 14, not 16, since 2026-08-20: TWO rows ship commented out --
-    // /road_markers (upstream data defect) and /sim/ground_truth/boxes (the
-    // ego's own gt box flickers on the robot proxy); see urban_profile.yaml.
-    // Bump when either is re-enabled.
+    // Row COUNT, not just has_value(): an ABI-mismatched YAML::Node can link
+    // fine and still return a Profile with the right error count (0) but the
+    // wrong row count -- silently corrupting data, not crashing.
+    // 14, not 16: /road_markers and /sim/ground_truth/boxes ship disabled
+    // (see above). Bump when either is re-enabled.
     EXPECT_EQ(p->rows.size(), 14u);
     // ...and the bundled yaml-cpp (clang/libc++), inside libvisual_renderer.a,
     // parses a theme in the SAME process. If the two ever get relinked into
-    // one, this is where it shows up -- not in a field crash three epics later.
+    // one, this is where it shows up.
     EXPECT_TRUE(mpviz::theme_parses(MPVIZ_THEME_DIR, "dark_adas"));
     EXPECT_FALSE(mpviz::theme_parses(MPVIZ_THEME_DIR, "no_such_theme"));
     // ...and the vendor copy still works afterwards (ordering-sensitive
@@ -592,13 +557,12 @@ TEST(Profile, CoexistsWithTheRendererLibrarysOwnYamlCpp)
     EXPECT_TRUE(p2.has_value());
 }
 
-// ── Step 5 self-check: bag_to_fixture.py's committed output round-trips ────
+// ── Fixture round-trip: bag_to_fixture.py's committed output ───────────────
 TEST(FixtureMsgs, DynamicObjectsListFixtureRoundTrips)
 {
-    // Committed by scripts/bag_to_fixture.py against the real bag (see that
-    // script's docstring). Ground truth taken from the same fixture file at
-    // authoring time: 15 markers in message 0, first is the ns=""
-    // action=DELETEALL marker, second is a dynamic_objects_bbox CUBE.
+    // Fixture generated by scripts/bag_to_fixture.py from the real bag;
+    // message 0 has 15 markers -- first is the ns="" action=DELETEALL
+    // marker, second is a dynamic_objects_bbox CUBE.
     auto arr = mpviz_node::testing::load_marker_array("perception_dynamic_objects_list_0.yaml");
     ASSERT_EQ(arr.markers.size(), 15u);
     EXPECT_EQ(arr.markers[0].ns, "");

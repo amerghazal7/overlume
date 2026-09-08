@@ -1,9 +1,9 @@
-// test_ribbon.cpp — Epic 2 Task 5 (VM-023): path ribbons in three roles
-// (BEHAVIOR/GLOBAL/LOCAL), the behavior ribbon as the emissive bloom hero.
-// Same "no Filament type" boundary as every other tests/*.cpp -- see
-// ribbon_test_hooks.hpp. polyline.hpp is Filament-free (its own header
-// comment) so this file, like test_polyline.cpp, may include it directly
-// for polyline_chunks()'s own math (LongPathSplitsAcrossMeshesWithoutTruncation).
+// test_ribbon.cpp — path ribbons in three roles (BEHAVIOR/GLOBAL/LOCAL),
+// the behavior ribbon as the emissive bloom hero. Same "no Filament type"
+// boundary as every other tests/*.cpp -- see ribbon_test_hooks.hpp.
+// polyline.hpp is Filament-free (its own header comment) so this file,
+// like test_polyline.cpp, may include it directly for polyline_chunks()'s
+// own math (LongPathSplitsAcrossMeshesWithoutTruncation).
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
 
@@ -36,26 +36,22 @@ TEST(RibbonGolden, ThreeRoles_DarkAdas) {
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    // Synthetic three-ribbon scene (FIXTURE GAP 2: no global-path publisher
-    // exists in the recorded stack, so this golden cannot come from the
-    // bag -- see docs/superpowers/plans/2026-08-18-visual-mode-epic2.md,
-    // Task 5 Step 3). Points array kept alive by RibbonScene across
-    // set_scene() (golden.cpp's move-only owner pattern).
+    // Synthetic three-ribbon scene: no global-path publisher exists in the
+    // recorded stack, so this golden cannot come from the bag. Points array
+    // kept alive by RibbonScene across set_scene() (golden.cpp's move-only
+    // owner pattern).
     mpviz::testing::RibbonScene ribbons = mpviz::testing::make_three_role_ribbons(/*now=*/10.0);
     mpviz::SceneGraph s{};
     s.sim_time_sec = 10.0;
-    // Ego (user directive 2026-09-08, ego-proximity ribbon clip): supplied
-    // by the scene builder itself now, positioned on the BEHAVIOR ribbon so
-    // this golden shows the clip -- see RibbonScene::ego's own comment.
+    // Ego supplied by the scene builder, positioned on the BEHAVIOR ribbon
+    // so this golden shows the clip -- see RibbonScene::ego's own comment.
     s.ego = ribbons.ego;
     s.paths = ribbons.ribbons.data();
     s.path_count = static_cast<uint32_t>(ribbons.ribbons.size());
     mpviz::set_scene(r, s);
 
-    // Camera pulled in on the stacked corridor (2026-09-08: the scene
-    // changed from three spread-out ribbons to one stacked corridor -- see
-    // make_three_role_ribbons()'s own comment; the old {-14,-14,10} pose
-    // left the stack too small to judge the per-role rims).
+    // Camera pulled in on the stacked corridor -- see
+    // make_three_role_ribbons()'s own comment.
     mpviz::CameraPose pose{{-4, -8, 6}, {4, 1, 0}, 60.0};
     double ssim = mpviz::testing::render_and_compare(
         r, pose, MPVIZ_TEST_DATA_DIR "/tests/goldens/ribbons_three_roles_dark_adas.png",
@@ -98,8 +94,7 @@ TEST(Ribbon, PathChangeRebuildsGeometry) {
     mpviz::destroy_renderer(r);
 }
 
-// ── ITEM 1 (user directive 2026-08-20): theme.ribbon.width_m joins the slot
-//    content signature ─────────────────────────────────────────────────────
+// ── theme.ribbon.width_m joins the slot content signature ─────────────────
 
 TEST(Ribbon, WidthChangeRebuildsGeometry) {
     // ribbon_width_a.yaml/ribbon_width_b.yaml are byte-for-byte identical
@@ -308,11 +303,10 @@ TEST(Ribbon, MaterialIsThemedOnFirstDataWithNoTransition) {
     EXPECT_NEAR(beh.g, theme->palette.ribbon_core.g, 1e-4);
     EXPECT_NEAR(beh.b, theme->palette.ribbon_core.b, 1e-4);
 
-    // GLOBAL/LOCAL each have their OWN dedicated theme token as of user
-    // directive 2026-08-20 (ITEM 1) -- ribbon_global/ribbon_local
-    // (theme.hpp), no longer a reuse of the BEHAVIOR/hero ribbon's own
-    // ribbon_core/ribbon_glow (see push_theme_to_scene()'s own comment in
-    // renderer.cpp).
+    // GLOBAL/LOCAL each have their own dedicated theme token --
+    // ribbon_global/ribbon_local (theme.hpp), not a reuse of the
+    // BEHAVIOR/hero ribbon's ribbon_core/ribbon_glow (see
+    // push_theme_to_scene() in renderer.cpp).
     const auto glob = mpviz::testing::ribbon_role_base_color(r, mpviz::PathRole::GLOBAL);
     EXPECT_NEAR(glob.r, theme->palette.ribbon_global.r, 1e-4);
     EXPECT_NEAR(glob.g, theme->palette.ribbon_global.g, 1e-4);
@@ -325,9 +319,8 @@ TEST(Ribbon, MaterialIsThemedOnFirstDataWithNoTransition) {
     mpviz::destroy_renderer(r);
 }
 
-// ── ITEM 3 (user directive 2026-09-08): "make it like lane fill (with
-//    margins...)" -- per-role effective width is the margin form now,
-//    evolved from ITEM 1's flat width_m ────────────────────────────────────
+// ── per-role effective width is the margin form, evolved from the flat
+//    width_m seed ──────────────────────────────────────────────────────────
 
 TEST(Ribbon, MarginChangeRebuildsGeometry) {
     // ribbon_margin_a.yaml/ribbon_margin_b.yaml are byte-for-byte identical
@@ -395,9 +388,7 @@ TEST(Ribbon, EffectiveHalfWidthClampsToTheHalfWidthFloor) {
     mpviz::destroy_renderer(r);
 }
 
-// ── ITEM 2 (user directive 2026-09-08): "ribbons are showing behind the
-//    ego vehicle... we should never render the part of the ribbon behind
-//    the ego" ─────────────────────────────────────────────────────────────
+// ── never render the part of the ribbon behind the ego ─────────────────────
 
 TEST(Ribbon, ClipStartsAtInterpolatedPointWhenEgoIsMidRibbon) {
     // A straight ribbon along +X; ego sits AT x=0 (exactly the midpoint,
@@ -426,9 +417,8 @@ TEST(Ribbon, ClipStartsAtInterpolatedPointWhenEgoIsMidRibbon) {
     ASSERT_TRUE(mpviz::testing::ribbon_slot_first_point(r, 0, &firstPoint));
     EXPECT_NEAR(firstPoint.x, 0.0, 0.5) << "clip station should land near x=0, the ego's own "
                                             "closest-approach point on the ribbon";
-    // 0.0, not -0.5 (review 2026-09-08): compute_ribbon_clip ceils the
-    // quantized station, so the cut is always AT or AHEAD of closest
-    // approach -- the directive's literal "never render behind the ego".
+    // 0.0, not -0.5: compute_ribbon_clip ceils the quantized station, so
+    // the cut is always AT or AHEAD of closest approach -- never behind.
     EXPECT_GE(firstPoint.x, 0.0) << "clipped geometry still starts behind the ego";
     // Two whole surviving points (x=5,10) plus the interpolated cut -> 3
     // surviving polyline points -> 6 extruded vertices, fewer than the
@@ -466,8 +456,7 @@ TEST(Ribbon, ProximityGateSkipsClipWhenEgoIsFarFromTheRibbon) {
 
 TEST(Ribbon, ClipAppliesOnlyWhenEgoIsValid) {
     // Ego sits exactly on the ribbon (well within the gate) but
-    // ego.valid == 0 -- clip must NOT apply (directive: "Clip applies when
-    // ego.valid only").
+    // ego.valid == 0 -- clip must NOT apply.
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
@@ -492,10 +481,9 @@ TEST(Ribbon, ClipAppliesOnlyWhenEgoIsValid) {
 
 TEST(Ribbon, ParkedEgoCausesZeroRibbonRebuilds) {
     // A stationary ego re-clipped every frame against unchanged ribbon
-    // points must land on the SAME quantized clip station every time --
-    // discipline: "a parked ego causes ZERO rebuilds" (user directive
-    // 2026-09-08). Checked via the rebuild-count hook across N frames, not
-    // pixel-diffing.
+    // points must land on the SAME quantized clip station every time -- a
+    // parked ego causes zero rebuilds. Checked via the rebuild-count hook
+    // across N frames, not pixel-diffing.
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";

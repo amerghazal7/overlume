@@ -93,21 +93,17 @@ static_assert(mpviz::kSceneVersion == 1,
 // missing-field build error. Numbers below were read off the actual compiler
 // output on this toolchain (clang/libc++, LP64), not hand-guessed. "layout
 // frozen" below is ADR-0004-superseded wording (appending is expected and
-// covered by kSceneVersion, not frozen shut) — kept verbatim on every
-// pre-existing assert message so a diff against history stays legible;
-// new asserts below use ADR-0004 phrasing directly.
+// covered by kSceneVersion, not frozen shut) — kept verbatim on pre-existing
+// assert messages so a diff against history stays legible; new asserts use
+// ADR-0004 phrasing directly.
 //
-// Epic1 Task2/3 review gate (MAJOR 2): the original version of this block
-// only sizeof-checked TrackedObject/PathRibbon/MapElement/GroundGridLayer/
-// AlertPolygon/GenericMarker/AlertChip/Hud (no offsetof for any of their
-// members) and left 9 of SceneGraph's 15 members' offsets unchecked — a
-// same-size member reorder inside any of those structs (e.g. swapping two
-// same-width fields) would pass every sizeof-only assert here silently, and
-// the ROS node links a PREBUILT libvisual_renderer.a archive against this
-// header, so that would be a silent ABI break, not a compile error at the
-// call site. Every member of every struct below now has its own offsetof
-// assert; sizeof stays too as the "no trailing padding grew" check offsetof
-// alone doesn't give you.
+// Every member of every struct below has its own offsetof assert, not just
+// sizeof: a same-size member reorder (e.g. swapping two same-width fields)
+// would pass a sizeof-only check silently, and the ROS node links a
+// PREBUILT libvisual_renderer.a archive against this header, so that would
+// be a silent ABI break, not a compile error at the call site. sizeof stays
+// too, as the "no trailing padding grew" check offsetof alone doesn't give
+// you.
 static_assert(sizeof(mpviz::Vec3) == 24, "Vec3 layout frozen");
 static_assert(offsetof(mpviz::Vec3, x) == 0, "Vec3 layout frozen");
 static_assert(offsetof(mpviz::Vec3, y) == 8, "Vec3 layout frozen");
@@ -139,10 +135,9 @@ static_assert(offsetof(mpviz::PathRibbon, points) == 8, "PathRibbon layout froze
 static_assert(offsetof(mpviz::PathRibbon, point_count) == 16, "PathRibbon layout frozen");
 static_assert(offsetof(mpviz::PathRibbon, last_update_sec) == 24, "PathRibbon layout frozen");
 
-// Epic 3 Task 1 (VM-036, ADR-0004): kind/lane_id/last_update_sec appended
-// after is_polygon -- 16 -> 32 bytes. "layout frozen" reworded to "ADR-0004
-// additive" on every line this task's diff touches (appending is expected
-// and covered by kSceneVersion, not frozen shut).
+// kind/lane_id/last_update_sec appended after is_polygon (ADR-0004) -- 16
+// -> 32 bytes. "layout frozen" reworded to "ADR-0004 additive": appending
+// is expected and covered by kSceneVersion, not frozen shut.
 static_assert(sizeof(mpviz::MapElement) == 32, "MapElement layout, ADR-0004 additive");
 static_assert(offsetof(mpviz::MapElement, points) == 0, "MapElement layout, ADR-0004 additive");
 static_assert(offsetof(mpviz::MapElement, point_count) == 8, "MapElement layout, ADR-0004 additive");
@@ -211,7 +206,7 @@ static_assert(offsetof(mpviz::SceneGraph, markers) == 136, "SceneGraph layout fr
 static_assert(offsetof(mpviz::SceneGraph, marker_count) == 144, "SceneGraph layout frozen");
 static_assert(offsetof(mpviz::SceneGraph, hud) == 152, "SceneGraph layout frozen");
 
-// RenderConfig (api.h) — same review finding: not covered at all before.
+// RenderConfig (api.h) — also crosses the prebuilt-archive ABI boundary.
 static_assert(sizeof(mpviz::RenderConfig) == 32, "RenderConfig layout frozen");
 static_assert(offsetof(mpviz::RenderConfig, width) == 0, "RenderConfig layout frozen");
 static_assert(offsetof(mpviz::RenderConfig, height) == 4, "RenderConfig layout frozen");
@@ -232,11 +227,9 @@ static_assert(offsetof(mpviz::FrameView, rgb) == 0, "FrameView layout frozen");
 static_assert(offsetof(mpviz::FrameView, width) == 8, "FrameView layout frozen");
 static_assert(offsetof(mpviz::FrameView, height) == 12, "FrameView layout frozen");
 
-// Epic 3 Task 1 (VM-036) Step 1: MapElement's three new fields survive the
-// deep-copy in SceneBuffer::assign() just like every other member already
-// did -- no owned-pointer new field means no new logic in assign() itself,
-// only the existing memberwise struct copy, so this is a "still works"
-// regression, not a new code path.
+// MapElement's kind/lane_id/last_update_sec fields survive the deep-copy
+// in SceneBuffer::assign() -- no owned-pointer new field means no new
+// logic in assign() itself, just the existing memberwise struct copy.
 TEST(SceneBufferMapElement, KindLaneIdLastUpdateSecSurviveAssign) {
     mpviz::detail::SceneBuffer buf;
     mpviz::Vec3 pts[2] = {{0, 0, 0}, {1, 0, 0}};

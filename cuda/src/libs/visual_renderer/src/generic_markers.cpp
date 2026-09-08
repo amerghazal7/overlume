@@ -1,25 +1,15 @@
-// generic_markers.cpp — Epic 2 Task 8 (VM-027): the generic-marker fallback
-// renderer, i.e. the spec §7 parity guarantee ("ANY MarkerArray topic
-// renders via one YAML row"). Unit meshes for the primitives that don't
-// carry their own point data (cube/sphere/cylinder/arrow/text) are built
-// ONCE and shared; every marker of that primitive gets its own entity bound
-// to the shared geometry, posed per marker via TransformManager.
-// LINE_STRIP/LINE_LIST/POINTS/TRIANGLE_LIST bake their own geometry
-// straight from the marker's already-world-space `points` (the
-// map_elements.cpp/alert_polygons.cpp convention — the adapter has already
-// composed marker.pose + FrameTransformer before these ever reach the
-// library). MESH goes through the SHARED gltfio loader (Task 4's hoisted
-// ensure_gltf_loader()) via the simple non-instanced createAsset() path
-// (ego.cpp's precedent — MESH markers aren't grouped into a fixed class
-// set the way TrackedObjects are, so there's no natural instancing pool
-// key here).
-//
-// FIXTURE GAP 5 (epic2 plan, Task 8): 7 of the 12 ROS marker types never
-// appear in the recorded bag (SPHERE, CYLINDER, CUBE_LIST, SPHERE_LIST,
-// POINTS, MESH_RESOURCE, TRIANGLE_LIST) — GenericMarkersGolden.
-// EveryPrimitiveType_DarkAdas's scene is entirely synthetic BY DESIGN (the
-// backlog AC itself asks for "one of every primitive type", which the real
-// traffic never exercises).
+// generic_markers.cpp — the generic-marker fallback renderer: any
+// MarkerArray topic renders via one YAML row. Unit meshes for the
+// primitives that don't carry their own point data (cube/sphere/cylinder/
+// arrow/text) are built once and shared; every marker of that primitive
+// gets its own entity bound to the shared geometry, posed per marker via
+// TransformManager. LINE_STRIP/LINE_LIST/POINTS/TRIANGLE_LIST bake their
+// own geometry straight from the marker's already-world-space `points`
+// (the adapter has already composed marker.pose + FrameTransformer before
+// these ever reach the library). MESH goes through the shared gltfio
+// loader (ensure_gltf_loader()) via the simple non-instanced createAsset()
+// path -- MESH markers aren't grouped into a fixed class set the way
+// TrackedObjects are, so there's no natural instancing pool key here.
 #include "generic_markers.hpp"
 #include "generic_markers_test_hooks.hpp"
 #include "renderer_internal.hpp"
@@ -75,11 +65,11 @@ uint64_t hash_vec3(const Vec3& v) {
     return h;
 }
 
-// Content signature for a LINE_*/POINTS/TRIANGLE_LIST slot's OWN geometry
-// (map_elements.cpp's chunk_signature()/alert_polygons.cpp's
-// alert_signature() shape: point count + first/last point). The primitive
-// itself is already fixed for the slot by the time this is called (a
-// primitive change tears the slot down and rebuilds fresh, see
+// Content signature for a LINE_*/POINTS/TRIANGLE_LIST slot's own geometry
+// (same shape as map_elements.cpp's chunk_signature()/alert_polygons.cpp's
+// alert_signature(): point count + first/last point). The primitive is
+// already fixed for the slot by the time this is called (a primitive
+// change tears the slot down and rebuilds fresh, see
 // update_generic_markers() below), so it isn't part of the hash.
 uint64_t points_signature(const Vec3* pts, uint32_t n) {
     uint64_t h = hash_combine(0, static_cast<uint64_t>(n));
@@ -91,10 +81,9 @@ uint64_t points_signature(const Vec3* pts, uint32_t n) {
 }
 
 // 8-bit-per-channel quantization for GenericMarker::color (a supplied,
-// non-zero-alpha rgb) — the key into VisualRenderer::
-// genericMarkerColorInstances. 256^3 possible keys is not a real ceiling in
-// practice (see that map's own ponytail comment on eviction, not
-// quantization granularity).
+// non-zero-alpha rgb) — the key into
+// VisualRenderer::genericMarkerColorInstances (see that map's own
+// ponytail comment on eviction).
 uint32_t quantize_color(float r, float g, float b) {
     auto q = [](float c) -> uint32_t {
         return static_cast<uint32_t>(std::clamp(c, 0.0f, 1.0f) * 255.0f + 0.5f);
@@ -113,9 +102,9 @@ detail::Float3 dequantize_color(uint32_t key) {
 // ── Shared unit geometry (built once, lazily, per primitive) ───────────────
 // All centered on the marker's own position (ROS Marker convention for
 // CUBE/SPHERE/CYLINDER/ARROW: the pose is the geometric center, extending
-// +-scale/2 in every axis) — deliberately NOT objects.cpp's
+// +-scale/2 in every axis) — deliberately not objects.cpp's
 // ground-contact-origin unit box, a different convention for a different
-// struct (TrackedObject's measured bbox vs. a marker's own pose+scale).
+// struct.
 
 void build_unit_cube(std::vector<Vertex>& verts, std::vector<uint16_t>& indices) {
     constexpr float h = 0.5f;
@@ -224,12 +213,12 @@ void build_unit_cylinder(std::vector<Vertex>& verts, std::vector<uint16_t>& indi
     fill_tangent_frames(verts, normals);
 }
 
-// TEXT placeholder billboard (Step 3: there is no text rendering in this
-// library at all — real SDF glyphs are VM-030/Epic 3). A small flat quad,
-// fixed size, facing -Y (legible from every committed golden's camera,
-// which looks toward the scene from -Y-ish) — translation-only per marker
-// (see update_slot_transform()): a placeholder needs to be visible and
-// positioned, not scaled/rotated to a real label's metrics.
+// TEXT placeholder billboard -- there is no text rendering in this
+// library at all yet (real SDF glyphs: VM-030). A small flat quad, fixed size, facing -Y (legible
+// from every committed golden's camera, which looks toward the scene from
+// -Y-ish) — translation-only per marker (see update_slot_transform()): a
+// placeholder needs to be visible and positioned, not scaled/rotated to a
+// real label's metrics.
 void build_text_billboard(std::vector<Vertex>& verts, std::vector<uint16_t>& indices) {
     constexpr float h = 0.25f;
     const float3 p[4] = {{-h, 0.0f, -h}, {h, 0.0f, -h}, {h, 0.0f, h}, {-h, 0.0f, h}};
@@ -262,10 +251,8 @@ void ensure_cylinder_mesh(VisualRenderer& r) {
     r.genericCylinderMesh.vb = make_vertex_buffer(*r.engine, std::move(v));
     r.genericCylinderMesh.ib = make_index_buffer(*r.engine, std::move(idx));
 }
-// ARROW reuses r.sharedArrowMesh -- the SAME GPU mesh objects.cpp's velocity
-// arrows draw, filled from the promoted shared build_unit_arrow()
-// (review 2026-08-20: this TU shipped a verbatim copy + a second GPU
-// allocation of identical geometry).
+// ARROW reuses r.sharedArrowMesh -- the same GPU mesh objects.cpp's
+// velocity arrows draw, filled from the shared build_unit_arrow().
 void ensure_arrow_mesh(VisualRenderer& r) {
     if (r.sharedArrowMesh.vb != nullptr) return;
     std::vector<Vertex> v;
@@ -297,9 +284,9 @@ filament::RenderableManager::PrimitiveType to_filament_primitive(MarkerPrimitive
 }
 
 // Creates (once) the entity a shared-geometry slot (CUBE/SPHERE/CYLINDER/
-// ARROW/TEXT) needs, bound to `shared`'s vb/ib. Its own TransformManager
-// component is created here too (update_slot_transform() drives it every
-// frame) — this IS a new GPU/ECS allocation (a fresh entity), counted.
+// ARROW/TEXT) needs, bound to `shared`'s vb/ib, with its own
+// TransformManager component (update_slot_transform() drives it every
+// frame) -- a new GPU/ECS allocation, counted.
 void ensure_slot_shared_entity(VisualRenderer& r, VisualRenderer::GenericMarkerSlot& slot,
                                 const Mesh& shared, filament::MaterialInstance* initialMaterial) {
     if (slot.sharedGeomEntity) return;
@@ -317,7 +304,7 @@ void ensure_slot_shared_entity(VisualRenderer& r, VisualRenderer::GenericMarkerS
     ++r.genericMarkerAllocCount;
 }
 
-// LINE_STRIP/LINE_LIST/POINTS/TRIANGLE_LIST: this slot's OWN geometry,
+// LINE_STRIP/LINE_LIST/POINTS/TRIANGLE_LIST: this slot's own geometry,
 // baked directly from the marker's already-world-space `points` (no
 // TransformManager transform — see this file's header comment). Rebuilt
 // only when the content signature changes.
@@ -351,9 +338,9 @@ void update_own_mesh_geometry(VisualRenderer& r, const GenericMarker& m,
 }
 
 // MESH: loads (or re-loads, on a path change) `m.mesh_path` through the
-// shared gltfio loader (Task 4's ensure_gltf_loader()); any failure (null/
-// missing/unparseable path) falls back to a clay box built into
-// slot.ownMesh, WARNed once per distinct failing path (spec §9).
+// shared gltfio loader (ensure_gltf_loader()); any failure (null/missing/
+// unparseable path) falls back to a clay box built into slot.ownMesh,
+// warned once per distinct failing path.
 void update_mesh_geometry(VisualRenderer& r, const GenericMarker& m,
                           VisualRenderer::GenericMarkerSlot& slot) {
     const std::string path = m.mesh_path != nullptr ? std::string(m.mesh_path) : std::string();
@@ -397,9 +384,8 @@ void update_mesh_geometry(VisualRenderer& r, const GenericMarker& m,
     }
 
     if (!loaded) {
-        // WARN once per distinct failing path (spec §9's "asset load
-        // failure -> clay-box fallback, WARN once") -- objectClassMissing
-        // Warned's per-CLASS shape, keyed by path here since MESH markers
+        // Warn once per distinct failing path -- same shape as
+        // objectClassMissingWarned, keyed by path here since MESH markers
         // aren't grouped into a fixed class set.
         if (r.genericMarkerMeshWarned.insert(path).second) {
             std::fprintf(stderr,
@@ -491,11 +477,11 @@ void update_slot_transform(VisualRenderer& r, const GenericMarker& m,
     tm.setTransform(inst, mat4f::translation(pos) * mat4f(rot) * mat4f::scaling(scale));
 }
 
-// GenericMarker::color alpha==0 -> theme-neutral default (this file's
-// header comment / renderer_internal.hpp's genericMarkerMaterial); else a
+// GenericMarker::color alpha==0 -> theme-neutral default
+// (renderer_internal.hpp's genericMarkerMaterial); else a
 // per-quantized-color clay.mat instance, created lazily and pooled by
-// VisualRenderer::genericMarkerColorInstances (that map's own ponytail
-// comment covers the no-eviction ceiling).
+// VisualRenderer::genericMarkerColorInstances (see that map's ponytail
+// comment on the no-eviction ceiling).
 filament::MaterialInstance* resolve_marker_material(VisualRenderer& r, const GenericMarker& m,
                                                      detail::Float3& outTint) {
     if (m.color[3] == 0.0f) {
@@ -519,10 +505,10 @@ filament::MaterialInstance* resolve_marker_material(VisualRenderer& r, const Gen
     return inst;
 }
 
-// Rebinds every one of slot `slot`'s renderable entities to `mat` -- the
-// fresh<->stale swap needs this every frame, mirroring objects.cpp's
+// Rebinds every one of slot `slot`'s renderable entities to `mat` for the
+// fresh<->stale swap (same mechanism as objects.cpp's
 // remap_to_material()/alert_polygons.cpp's rebind_slot_material(),
-// generalized over this file's three geometry shapes (single
+// generalized over this file's three geometry shapes: single
 // shared-geometry entity, single own-mesh entity, or a whole glTF asset's
 // N renderable entities).
 void bind_marker_material(filament::RenderableManager& rm, VisualRenderer::GenericMarkerSlot& slot,
@@ -549,12 +535,11 @@ void bind_marker_material(filament::RenderableManager& rm, VisualRenderer::Gener
     }
 }
 
-// Staleness fade -- the exact clay_translucent.mat per-entity swap
-// mechanism objects.cpp/ribbon.cpp/alert_polygons.cpp already established
-// (see the plan's "…and the material that can actually do it"). Runs every
-// frame regardless of whether geometry rebuilt this tick, since a marker's
-// resolved material (fresh template identity, or the staleness ramp) can
-// change even when its geometry/pose didn't.
+// Staleness fade -- the same clay_translucent.mat per-entity swap
+// mechanism as objects.cpp/ribbon.cpp/alert_polygons.cpp. Runs every
+// frame regardless of whether geometry rebuilt this tick, since a
+// marker's resolved material (fresh template identity, or the staleness
+// ramp) can change even when its geometry/pose didn't.
 void update_slot_material(VisualRenderer& r, const GenericMarker& m,
                           VisualRenderer::GenericMarkerSlot& slot, double sim_time_sec) {
     detail::Float3 tint{};
@@ -624,12 +609,9 @@ void update_generic_markers(VisualRenderer& r, const SceneGraph& s) {
         VisualRenderer::GenericMarkerSlot& slot = r.genericMarkerSlots[i];
 
         // The frozen scene.h enum has exactly 10 values (0..9). A raw
-        // out-of-range uint8_t here means a caller (never this epic's own
-        // adapter, see generic_marker.cpp's ROS-type table) constructed a
-        // GenericMarker the library doesn't know how to draw --
-        // UnknownOrUnsupportedPrimitiveIsSkippedAndCounted, the library's
-        // own defensive floor (collision.cpp's severity_for_role() is the
-        // same "assert-don't-default" shape for a different category).
+        // out-of-range uint8_t here means a caller constructed a
+        // GenericMarker the library doesn't know how to draw -- this is
+        // the library's own defensive floor.
         if (static_cast<uint8_t>(m.primitive) > 9) {
             if (slot.active) release_generic_marker_slot(r, slot);
             ++r.genericMarkerUnknownCount;
@@ -650,9 +632,8 @@ void update_generic_markers(VisualRenderer& r, const SceneGraph& s) {
 
 }  // namespace mpviz
 
-// Epic 2 Task 8 (VM-027): Filament-free test introspection hooks (see
-// generic_markers_test_hooks.hpp's own comment for why these live here,
-// mirroring alert_polygons.cpp/objects.cpp's own hook definitions).
+// Filament-free test introspection hooks; see
+// generic_markers_test_hooks.hpp for why these live here.
 namespace mpviz::testing {
 
 size_t generic_marker_slot_count(mpviz::VisualRenderer* r) {

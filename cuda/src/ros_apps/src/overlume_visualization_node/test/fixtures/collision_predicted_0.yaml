@@ -1,10 +1,8 @@
-# Hand-written synthetic fixture (Epic 2 Task 7 / VM-026, FIXTURE GAP 4 --
-# see collision_sweep_0.yaml's own comment). Represents one
-# /object_predicted_polygons MarkerArray message: a single LINE_STRIP
-# polygon, this time WITH its first point repeated as its last (the other
-# producer convention CollisionAdapter.OpenPolylineIsClosedIntoAPolygon
-# must handle identically -- no doubled closing vertex in storage_ either
-# way).
+# Hand-written synthetic fixture (VM-026, fixture gap 4 -- see
+# collision_sweep_0.yaml). One /object_predicted_polygons MarkerArray
+# message: a LINE_STRIP polygon with its first point repeated as its last
+# (the other producer convention CollisionAdapter.OpenPolylineIsClosedIntoAPolygon
+# must handle identically -- no doubled closing vertex in storage_ either way).
 markers:
 - header:
     frame_id: map

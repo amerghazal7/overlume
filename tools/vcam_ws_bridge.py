@@ -198,25 +198,19 @@ def main() -> int:
         def __init__(self):
             super().__init__("vcam_ws_bridge")
             self.state: list[float] | None = None  # [eye3, target3, preset, mode]
-            # Both nodes publish ~/vcam_state continuously regardless of which
-            # one is actually active (spec §9 telemetry-always-flows), so
-            # picking "whichever arrived last" flickers between them. index 7
-            # of that message means something different per publisher —
-            # rendering_node reports render_mode_ (1|2 only, its bowl/
-            # pointcloud choice, independent of whether it's even the active
-            # renderer) while visualization_node reports active_mode_ (1|2|3)
-            # — so it can't be used as a filter value shared across nodes.
-            # Instead, track which NAMESPACE is authoritative for the last
-            # commanded mode and only accept state from that one. Starts
-            # pointed at rendering_node, matching its default render_mode_
-            # (2) so state flows before any set_render_mode is ever sent.
+            # Both nodes publish ~/vcam_state continuously (spec §9), so
+            # picking "whichever arrived last" flickers between them. Index 7
+            # means something different per publisher (rendering_node's
+            # render_mode_ 1|2 vs. visualization_node's active_mode_ 1|2|3),
+            # so it can't be a shared filter value -- instead track which
+            # NAMESPACE is authoritative for the last commanded mode. Starts
+            # at rendering_node, matching its default render_mode_ (2).
             self._active_ns = VCAM_NAMESPACES[0]
-            # Epic 3 Task 2 (VM-034) Step 4: diagnostics only exists on
-            # visualization_node (mode 3) -- no mux needed, harmless if it
-            # keeps arriving while mode 1/2 is active, same "ingest
-            # continues regardless of mode" philosophy vcam_state already
-            # follows. Display-only: reuses this same telemetry pipe rather
-            # than opening a second WS command/transport (plan Step 4).
+            # diagnostics only exists on visualization_node (mode 3) -- no
+            # mux needed, harmless if it keeps arriving while mode 1/2 is
+            # active, same "ingest continues regardless of mode" philosophy
+            # vcam_state already follows. Display-only: reuses this same
+            # telemetry pipe rather than opening a second WS transport.
             self.diagnostics: dict | None = None
             self.create_subscription(
                 DiagnosticArray, "/visualization_node/diagnostics",
@@ -224,15 +218,14 @@ def main() -> int:
             self._pub_look = [
                 self.create_publisher(Float64MultiArray, f"{ns}/set_look", 10)
                 for ns in VCAM_NAMESPACES]
-            # Global mux topic (plan Task 4/5): 1|2|3, shared by both nodes —
-            # switches which one owns /rendering/image AND (for 1|2) the CUDA
-            # node's bowl/pointcloud view, same semantics as the old
-            # per-node "~/set_render_mode" it replaces here.
+            # Global mux topic: 1|2|3, shared by both nodes -- switches which
+            # one owns /rendering/image AND (for 1|2) the CUDA node's
+            # bowl/pointcloud view, same semantics as the old per-node
+            # "~/set_render_mode" it replaces here.
             self._pub_mode = self.create_publisher(Int32, "/rendering/set_mode", 10)
-            # Epic 1 Task 3 (VM-014): node-private, mode-3-only concept -- no
-            # mux needed, harmless if published while mode 1/2 is active
-            # (same "ingest continues regardless of mode" philosophy as
-            # /rendering/set_mode above).
+            # node-private, mode-3-only concept -- no mux needed, harmless if
+            # published while mode 1/2 is active (same "ingest continues
+            # regardless of mode" philosophy as /rendering/set_mode above).
             self._pub_theme = self.create_publisher(
                 String, "/visualization_node/set_theme", 10)
             self._cli = [
@@ -467,9 +460,9 @@ def main() -> int:
                     "render_mode": int(s[7]) if len(s) > 7 else 2})
                 await asyncio.gather(
                     *(ws.send(frame) for ws in list(clients)), return_exceptions=True)
-            # Epic 3 Task 2 (VM-034) Step 4: same "send only on change" shape
-            # as state above, its own frame type -- the GUI panel renders it
-            # display-only, no ack/command round-trip involved.
+            # Same "send only on change" shape as state above, its own frame
+            # type -- the GUI panel renders it display-only, no ack/command
+            # round-trip involved.
             d = node.diagnostics
             if d is not None and d != last_diag:
                 last_diag = d

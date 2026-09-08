@@ -1,16 +1,14 @@
 // theme.hpp — internal-only (not installed, not POD). YAML -> Theme token
 // set consumed generically by renderer.cpp; no per-theme branch anywhere in
-// the renderer (Epic 1 Task 2 / VM-011). std:: usage is fine here — it's a
-// `.hpp` under `src/`, never crosses the api.h/scene.h POD boundary.
+// the renderer. std:: usage is fine here — it's a `.hpp` under `src/`,
+// never crosses the api.h/scene.h POD boundary.
 //
-// Color-space note (stated once, here, per
-// docs/superpowers/plans/2026-08-18-visual-mode-epic1.md Task 2 Step 7a):
-// every color field below is authored in LINEAR space in the YAML files and
-// consumed as-is by materialParams/setFogOptions/IndirectLight::Builder —
-// no sRGB decode happens anywhere in this loader. This matches Filament's
-// own convention that baseColor/light/fog colors are linear, and is
-// consistent with sun/ibl `intensity` already being physical units (lux),
-// not colors.
+// Color-space note: every color field below is authored in linear space in
+// the YAML files and consumed as-is by materialParams/setFogOptions/
+// IndirectLight::Builder — no sRGB decode happens anywhere in this loader.
+// This matches Filament's own convention that baseColor/light/fog colors
+// are linear, and is consistent with sun/ibl `intensity` already being
+// physical units (lux), not colors.
 #pragma once
 
 #include <optional>
@@ -35,49 +33,41 @@ struct Theme {
         Float3 lane_paint;
         Float3 ribbon_core;
         Float3 ribbon_glow;
-        // Ego contrast color (user directive 2026-08-20): NOT reused from
-        // `ground` — the ego used to bind groundMaterial directly and so
-        // rendered as palette.ground, blending into the ground plane it
-        // stands on in both shipped themes. This is deliberately a
-        // CROSS-theme swap (dark_adas.yaml's `ego` is light_clay's `ground`
-        // and vice versa, see those files' own comments), not a new color
-        // invented from scratch, so the ego always pops against whichever
-        // ground it's standing on. Optional key (see theme.cpp's parse()):
-        // absence doesn't invalidate an otherwise-valid theme file, unlike
-        // every other palette.* field above.
+        // Ego contrast color: not reused from `ground` -- rendering the
+        // ego with groundMaterial directly would blend it into the ground
+        // plane it stands on. Deliberately a cross-theme swap
+        // (dark_adas.yaml's `ego` is light_clay's `ground` and vice versa,
+        // see those files' own comments), not a new color invented from
+        // scratch, so the ego always pops against whichever ground it's
+        // standing on. Optional key (see theme.cpp's parse()): absence
+        // doesn't invalidate an otherwise-valid theme file, unlike every
+        // other palette.* field above.
         Float3 ego;
-        // ribbon_global/ribbon_local (user directive 2026-08-20, ITEM 1):
-        // GLOBAL/LOCAL path-ribbon roles used to reuse ribbon_core/
-        // ribbon_glow (the BEHAVIOR/hero ribbon's own tokens) -- an
-        // authoring gap, not a code gap, per renderer.cpp's old comment.
-        // These are the two dedicated tokens that close it. SOFT-DEFAULTED
-        // exactly like `ego` just above (theme.cpp's parse()): a theme file
-        // missing either key still parses, falling back to the value that
-        // reproduces today's reused-token look (ribbon_core for global,
-        // ribbon_glow for local) rather than invalidating the whole theme.
+        // ribbon_global/ribbon_local: dedicated tokens for the GLOBAL/LOCAL
+        // path-ribbon roles, which used to reuse ribbon_core/ribbon_glow
+        // (the BEHAVIOR/hero ribbon's own tokens). Soft-defaulted exactly
+        // like `ego` above (theme.cpp's parse()): a theme file missing
+        // either key still parses, falling back to the reused-token look
+        // (ribbon_core for global, ribbon_glow for local).
         Float3 ribbon_global;
         Float3 ribbon_local;
-        // road/lane_centerline/lane_boundary/crosswalk (Epic 3 Task 1 /
-        // VM-036, decision #6): SOFT-DEFAULTED exactly like `ego`/
-        // `ribbon_global`/`ribbon_local` above (theme.cpp's parse()), so a
-        // theme file predating these still parses -- lane_centerline/
-        // lane_boundary/crosswalk fall back to `lane_paint`, `road` falls
-        // back to `ground`. Neither shipped theme relies on the default
-        // (both get explicit values, per decision #6's concrete hue
-        // targets); the soft-default exists for a third-party theme file.
+        // road/lane_centerline/lane_boundary/crosswalk: soft-defaulted
+        // exactly like `ego`/`ribbon_global`/`ribbon_local` above
+        // (theme.cpp's parse()), so a theme file predating these still
+        // parses -- lane_centerline/lane_boundary/crosswalk fall back to
+        // `lane_paint`, `road` falls back to `ground`. Neither shipped
+        // theme relies on the default; the soft-default exists for a
+        // third-party theme file.
         Float3 road;
         Float3 lane_centerline;
         Float3 lane_boundary;
         Float3 crosswalk;
-        // road_edge (user directive 2026-09-08, post Task 1 candidate
-        // review): the road's outer boundary (MapKind::ROAD_EDGE -- reserved
-        // since Task 1, first producer this directive adds in hd_map.cpp)
-        // renders SOLID and yellow-family, distinct from the dashed-white
-        // interior `lane_boundary` tone above. SOFT-DEFAULTED exactly like
-        // every other token in this block (theme.cpp's parse()) -- falls
-        // back to `lane_paint`, the same `palette.ego` precedent -- so a
-        // theme file predating this key still parses. Neither shipped theme
-        // relies on the default; both author an explicit yellow.
+        // road_edge: the road's outer boundary (MapKind::ROAD_EDGE) renders
+        // solid and yellow-family, distinct from the dashed-white interior
+        // `lane_boundary` tone above. Soft-defaulted like every other
+        // token in this block (theme.cpp's parse()) -- falls back to
+        // `lane_paint`, so a theme file predating this key still parses.
+        // Neither shipped theme relies on the default.
         Float3 road_edge;
         struct ObjectTints {
             Float3 car, truck_van, bus, pedestrian, cyclist, unknown;
@@ -124,26 +114,18 @@ struct Theme {
         float density = 0.0f;
     } fog;
 
-    // Ribbon geometry config. width_m (user directive 2026-08-20, ITEM 1)
-    // was the extruded strip's FULL width (not half-width), read directly
-    // by ribbon.cpp -- SOFT-DEFAULTED (theme.cpp's parse(), same convention
-    // as palette.ego/ribbon_global/ribbon_local above) to 0.24, i.e.
-    // 2*kRibbonHalfWidthM, the constant ribbon.cpp used to hard-code before
-    // this field existed.
+    // Ribbon geometry config. width_m is the extruded strip's full width
+    // (not half-width) -- soft-defaulted (theme.cpp's parse()) to 0.24.
+    // It's no longer read by ribbon.cpp's geometry directly; it now serves
+    // only as the soft-default seed for the three margin fields below
+    // (theme.cpp's parse() states the exact arithmetic), so a theme YAML
+    // that only sets width_m reproduces an identical rendered strip.
     //
-    // lane_width_m/margin_{behavior,global,local}_m (user directive
-    // 2026-09-08, ITEM 3): "make it like lane fill (with margins so it
-    // doesn't fully fill)". A ribbon no longer draws at a flat width_m --
-    // each role now extrudes at (lane_width_m - 2*margin_role)/2 half-width
-    // (clamped to today's 0.12m floor, ribbon.cpp's kRibbonMinHalfWidthM),
-    // so a lower ribbon peeks out as a colored rim around a narrower one
-    // stacked above it (the existing per-role z-stagger). width_m is KEPT,
-    // parsed exactly as before, but is no longer read by ribbon.cpp's
-    // geometry directly -- it now serves only as the soft-default SEED for
-    // the three margin fields below (theme.cpp's parse() states the exact
-    // arithmetic), so a theme YAML that predates this directive and only
-    // sets width_m reproduces an IDENTICAL rendered strip, not merely a
-    // similar one.
+    // lane_width_m/margin_{behavior,global,local}_m: each role extrudes at
+    // (lane_width_m - 2*margin_role)/2 half-width (clamped to the 0.12m
+    // floor, ribbon.cpp's kRibbonMinHalfWidthM), so a lower ribbon peeks
+    // out as a colored rim around a narrower one stacked above it (the
+    // per-role z-stagger).
     struct Ribbon {
         float width_m = 0.24f;
         float lane_width_m = 3.5f;

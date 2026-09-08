@@ -1,7 +1,6 @@
-// theme_transition.hpp — Epic 1 Task 3 (VM-014): animated theme toggle.
-// Internal-only (not installed, not POD) — same rules as theme.hpp: ordinary
-// std:: usage is fine here, nothing here crosses the api.h/scene.h POD
-// boundary.
+// theme_transition.hpp — animated theme toggle. Internal-only (not
+// installed, not POD) — same rules as theme.hpp: ordinary std:: usage is
+// fine here, nothing here crosses the api.h/scene.h POD boundary.
 #pragma once
 
 #include "theme.hpp"
@@ -29,45 +28,35 @@ float smoothstep01(float t);
 Float3 blend_color(const Float3& a, const Float3& b, float t);
 
 // Blends every themed token from `a` toward `b`: `w = smoothstep01(t)`;
-// every float3 PALETTE/grid/hud color -> blend_color(w); every scalar
+// every float3 palette/grid/hud color -> blend_color(w); every scalar
 // (roughness, metallic, ribbon_strength, hud scale, fog density) -> linear
 // lerp by w. One function, no per-field branch beyond "is this a color or a
-// scalar" -- EXCEPT sun.intensity/ibl.intensity, which use a geometric
-// (log-space) lerp instead of linear (see lerpf_geometric() in the .cpp and
-// the plan's Task 3 Step 3 "geometric-intensity deviation" block): those two
-// are physical lux values ~19-29x apart between the shipped themes, and
-// illumination x albedo is a product, so a linear lerp of illumination
-// blended against simultaneously-brightening albedo overshoots both
-// endpoints mid-transition. Geometric lerp is monotonic between endpoints by
-// construction, so it can't.
+// scalar" -- except sun.intensity/ibl.intensity, which use a geometric
+// (log-space) lerp instead of linear (see lerpf_geometric() in the .cpp for
+// why: those two are physical lux values far apart between the shipped
+// themes, and a linear lerp of illumination against simultaneously
+// brightening albedo overshoots both endpoints).
 //
 // Exception: grid.fade_start_m/fade_end_m are carried through from `b`
-// unchanged, NOT lerped -- they're baked into the grid vertex buffer once at
-// create_renderer() time (renderer.cpp's build_grid_lines()) and are not
-// re-read from the blended Theme by push_theme_to_scene(), so a lerp here
-// would be dead code. See blend()'s definition for the full comment.
+// unchanged, not lerped -- see blend()'s definition for why.
 //
 // Deliberate exception, not covered by that color/scalar split:
-// `sun.direction` is a float3 but is NOT a color — it's a world-space
-// direction vector. Running it through the Oklab color matrices (calibrated
-// for physically-plausible ~[0,1] linear-sRGB tristimulus values, not
-// arbitrary signed direction components) would produce a numerically well-
-// defined but photometrically meaningless result. It gets a plain
-// component-wise linear lerp instead, un-normalized — matching the existing
-// static-theme convention already in renderer.cpp, where
-// theme.sun.direction (e.g. dark_adas's {-0.5,-0.3,-1.0}, magnitude ~1.157)
-// is fed to LightManager::Builder::direction()/setDirection() as-is, never
-// renormalized, and that already works.
+// `sun.direction` is a float3 but is not a color -- it's a world-space
+// direction vector. Running it through the Oklab color matrices (which
+// assume ~[0,1] linear-sRGB tristimulus values) would be photometrically
+// meaningless. It gets a plain component-wise linear lerp instead,
+// un-normalized -- matching the existing static-theme convention in
+// renderer.cpp, which feeds theme.sun.direction to
+// LightManager::Builder::direction() as-is, never renormalized.
 Theme blend(const Theme& a, const Theme& b, float t);
 
-// Per-VisualRenderer transition state (Task 3 Step 6): `from` is a snapshot
-// of the currently-blended theme at the moment set_theme() was called (so a
+// Per-VisualRenderer transition state: `from` is a snapshot of the
+// currently-blended theme at the moment set_theme() was called (so a
 // mid-flight retarget starts from the current blend, not either endpoint —
-// see set_theme()'s frozen contract in scene.h), `to` is the freshly loaded
-// target theme, and `start_sec`/`duration_sec` key the render_frame()-side
+// see set_theme()'s contract in scene.h), `to` is the freshly loaded target
+// theme, and `start_sec`/`duration_sec` key the render_frame()-side
 // `t = clamp((sim_time_sec - start_sec) / duration_sec, 0, 1)` clock (the
-// caller's sim clock, never wall-clock — scene.h's SceneGraph::sim_time_sec
-// contract).
+// caller's sim clock, never wall-clock).
 struct ThemeTransition {
     Theme from;
     Theme to;
