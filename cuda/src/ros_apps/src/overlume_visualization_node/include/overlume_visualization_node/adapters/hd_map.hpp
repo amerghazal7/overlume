@@ -36,12 +36,39 @@
  *  multiply entirely; a NaN pose is malformed (dropped_malformed), a
  *  non-identity pose is not.
  *
- *  Staleness: node-side only, by design (epic2 plan, "Staleness" --
- *  STATED DEVIATION: MapElement is frozen with no last_update_sec, so the
- *  library cannot fade map geometry; past row.timeout_sec every lane and
- *  crosswalk vanishes in one frame). This adapter has no timeout logic of
- *  its own -- visualization_node.cpp checks stats().last_msg_sec against
- *  the row's timeout_sec and simply stops calling fill() for a stale row.
+ *  Staleness (Epic 3 Task 2 / VM-034, closes the STATED DEVIATION this
+ *  comment used to record): every emitted MapElement now carries a real
+ *  MapElement::last_update_sec (appended, ADR-0004), so the map layer fades
+ *  via the library's shared staleness_alpha() like every other category --
+ *  it no longer pops. The library's fade BEGINS at kStaleFadeStartSec =
+ *  0.5s of age and COMPLETES (alpha 0) at kStaleFadeTimeoutSec = 1.0s
+ *  (renderer_internal.hpp) -- not "only 1.0s of silence fades it," a claim
+ *  this comment used to make and got wrong; a straight last_update_sec ==
+ *  last_recv_sec_ stamp sawtoothed the whole layer between alpha 1.0 and
+ *  0.0 once per receipt on any row received slower than ~2 Hz, and left a
+ *  publish-once/transient_local row (last_recv_sec_ frozen at its one
+ *  receipt while sim_time keeps climbing) faded to alpha 0 within 1s of
+ *  that receipt (2026-09-08 review fix, round 2).
+ *
+ *  Fixed by stamping e.last_update_sec = last_recv_sec_ + (row_.timeout_sec
+ *  - kMapFadeWindowSec) (see hd_map.cpp's kMapFadeWindowSec comment) --
+ *  last_recv_sec_ is still the sim time of this row's last TF-lookup-
+ *  succeeded ingest() call (set BEFORE the max_rate_hz rebuild gate, see
+ *  ingest()'s own comment), deliberately NOT stats_.last_msg_sec, the last
+ *  ACCEPTED rebuild: a throttled row (e.g. /hd_map_global_elements'
+ *  max_rate_hz: 0.5) keeps receiving at its real publish rate between
+ *  rebuilds, and gating the fade on the rebuild cadence would blink the
+ *  layer dark for most of every rebuild interval even while the topic is
+ *  genuinely alive. The (timeout_sec - kMapFadeWindowSec) offset places
+ *  that same liveness stamp's fade window in the last kMapFadeWindowSec
+ *  before this row's own hard cutoff instead of right after last_recv_sec_
+ *  itself, so a row received often enough stays continuously opaque and a
+ *  row that goes silent (genuinely, or because it only ever published
+ *  once) ramps out right before the node stops calling fill() for it,
+ *  rather than popping or fading early while still being shown. This
+ *  adapter still has no timeout logic of its own for the hard cutoff --
+ *  visualization_node.cpp separately checks stats().last_msg_sec against
+ *  the row's timeout_sec and stops calling fill() for a stale row.
  */
 
 #include <cstddef>
@@ -161,6 +188,14 @@ private:
     // received (a rate-limited-away message still bumps stats_.msgs but
     // must not reset this, or the cooldown would never actually apply).
     double last_rebuild_sec_{-1.0};
+    // VM-034 review fix: the sim time of the last ingest() call whose TF
+    // lookup succeeded, set BEFORE the max_rate_hz gate above so a
+    // rate-limited-away message still advances it -- fill() stamps
+    // MapElement::last_update_sec from this PLUS an offset into the row's
+    // own timeout_sec (see this class's own Staleness doc comment for the
+    // offset and for why the base must NOT be last_rebuild_sec_/
+    // stats_.last_msg_sec instead).
+    double last_recv_sec_{-1.0};
 };
 
 }  // namespace mpviz_node

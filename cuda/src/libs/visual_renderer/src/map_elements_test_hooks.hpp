@@ -68,4 +68,23 @@ size_t map_element_mesh_count(mpviz::VisualRenderer* r);
 // elements.cpp). 0 if `r` is null.
 size_t map_element_total_vertex_count(mpviz::VisualRenderer* r);
 
+// Epic 3 Task 2 (VM-034): the staleness-fade state of "the" live
+// map-element mesh — same shape/reasoning as AlertMaterialInfo/
+// ObjectMaterialInfo/GenericMarkerMaterialInfo ("MaterialInstance has no
+// getter, so the CPU-stored alpha is what a test reads"; `bound_to_
+// translucent` via RenderableManager::getMaterialInstanceAt(), a real GPU
+// read). Unlike those three, map elements have NO caller-stable per-element
+// index to key this by (renderer_internal.hpp's mapElementMeshes comment:
+// keyed by content signature, since the source topic is a rolling window)
+// — this hook is therefore meaningful only when map_element_mesh_count()
+// == 1, exactly the shape every FadesViaSharedStalenessAlpha-style test
+// publishes (one MapElement in, one mesh chunk out). With 0 or >1 live
+// meshes it returns the same {false, 1.0f} default a null `r` gives — "which
+// one?" has no answer, so it declines to guess.
+struct MapElementMaterialInfo {
+    bool bound_to_translucent = false;
+    float alpha = 1.0f;
+};
+MapElementMaterialInfo map_element_material_info(mpviz::VisualRenderer* r);
+
 }  // namespace mpviz::testing

@@ -355,6 +355,10 @@ TEST(MapElements, RoadSurfaceKindTriangulatesTheTwoRailEncodingIntoAStrip) {
     e.point_count = 2 * kN;
     e.kind = mpviz::MapKind::ROAD_SURFACE;
     mpviz::SceneGraph s{};
+    // Epic 3 Task 2 (VM-034) Step 3: same "give it a valid ego" fallout as
+    // SyntheticLaneAndCrosswalkChangePixelsVsBaseline above -- this test
+    // proves the strip renders, not the ego-invalid fade path.
+    s.ego.valid = 1;
     s.map_elements = &e;
     s.map_element_count = 1;
     mpviz::set_scene(r, s);
@@ -455,6 +459,12 @@ TEST(MapElements, SyntheticLaneAndCrosswalkChangePixelsVsBaseline) {
     elems[1].point_count = 4;
     elems[1].is_polygon = 1;
     mpviz::SceneGraph s{};
+    // Epic 3 Task 2 (VM-034) Step 3: update_map_elements() now gates on
+    // ego.valid (fades to 0 while invalid, the ego-invalid cosmetic fix) --
+    // this test isn't exercising that path, so it needs a valid ego like
+    // every other "prove the geometry actually renders" synthetic scene now
+    // does. last_update_sec/sim_time_sec both default to 0.0 (fresh).
+    s.ego.valid = 1;
     s.map_elements = elems;
     s.map_element_count = 2;
     mpviz::set_scene(r, s);
@@ -528,7 +538,7 @@ bool RunMapGolden(const char* theme_name, const char* golden_name, const char* o
     const std::string geomPath =
         std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/hd_map_local_elements_0.geom";
     mpviz::testing::MapGeom g = mpviz::testing::load_map_geom(geomPath.c_str());
-    const auto& elems = g.elements;
+    auto& elems = g.elements;
     EXPECT_FALSE(elems.empty());
 
     mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, theme_name};
@@ -537,6 +547,14 @@ bool RunMapGolden(const char* theme_name, const char* golden_name, const char* o
 
     mpviz::SceneGraph s{};
     s.sim_time_sec = 10.0;
+    // Epic 3 Task 2 (VM-034) Step 2: the `.geom` text-dump format
+    // (golden.hpp's own comment: `<is_polygon> <kind> <lane_id> <n> ...`)
+    // carries no last_update_sec, so every loaded element defaults to 0.0 --
+    // against sim_time_sec=10.0 that reads as maximally stale and this
+    // golden (proving the lane network at an ego offset, not staleness)
+    // would fade to near-invisible. Stamp every element "just refreshed"
+    // instead, the same way a live HdMapAdapter would on its next fill().
+    for (auto& e : elems) e.last_update_sec = s.sim_time_sec;
     const mpviz::Vec3 c = mpviz::testing::centroid(elems);
     // Pins that the fixture really is far from the map origin -- i.e. still
     // the "Epic 1 rendered pure void here" position this task exists to fix.
@@ -619,6 +637,9 @@ TEST(MapGolden, CenterlineDotsOnState_DarkAdas) {
     elems[2].point_count = 2;
     elems[2].kind = mpviz::MapKind::CENTERLINE;
     mpviz::SceneGraph s{};
+    // Epic 3 Task 2 (VM-034) Step 3: same "give it a valid ego" fallout as
+    // SyntheticLaneAndCrosswalkChangePixelsVsBaseline above.
+    s.ego.valid = 1;
     s.map_elements = elems;
     s.map_element_count = 3;
     mpviz::set_scene(r, s);
@@ -642,4 +663,121 @@ TEST(MapGolden, CenterlineDotsOnState_DarkAdas) {
     }
     EXPECT_GT(differing, 0u) << "CENTERLINE dot-disc elements produced no visible pixel "
                                  "difference from a scene with no map data at all";
+}
+
+// ── Epic 3 Task 2 (VM-034) Step 2: staleness fade, the one shared path ──
+
+TEST(MapElements, FadesViaSharedStalenessAlpha) {
+    // Same test SHAPE as every other category's own "...FadesViaShared
+    // StalenessAlpha" (epic2 plan's exemplar; test_objects.cpp's
+    // StaleObjectFadesViaSharedStalenessAlpha is the direct precedent) --
+    // publish ONE MapElement with last_update_sec in the past relative to
+    // sim_time_sec, render, assert via the test hook that the bound
+    // clay_translucent instance's alpha matches staleness_alpha()'s own
+    // computed value, NOT a pixel comparison. ego.valid=1 so the Step 3
+    // ego-invalid gate (tested separately below) can't be what's driving
+    // this alpha down.
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    const mpviz::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
+    mpviz::MapElement e{};
+    e.points = pts;
+    e.point_count = 2;
+    e.kind = mpviz::MapKind::CENTERLINE;
+    e.last_update_sec = 10.0 - 0.75;  // 0.75s behind -> alpha ~0.5, same worked
+                                       // example test_objects.cpp's own fade test uses
+    mpviz::SceneGraph s{};
+    s.sim_time_sec = 10.0;
+    s.ego.valid = 1;
+    s.map_elements = &e;
+    s.map_element_count = 1;
+    mpviz::set_scene(r, s);
+    render_once(r, mpviz::CameraPose{{0, -8, 4}, {0, 0, 0}, 60.0});
+
+    const auto info = mpviz::testing::map_element_material_info(r);
+    EXPECT_TRUE(info.bound_to_translucent)
+        << "a stale map element's renderable must be bound to clay_translucent.mat, not "
+           "its opaque per-kind template";
+    EXPECT_NEAR(info.alpha, 0.5f, 0.02f);
+
+    mpviz::destroy_renderer(r);
+}
+
+TEST(MapElements, FreshMapElementStaysOnTheOpaqueTemplate) {
+    // The other half of the fade -- FRESH (last_update_sec == sim_time_sec)
+    // must stay on the shared opaque per-kind template, no per-entity
+    // instance at all (test_objects.cpp's own "fresh" half, same shape).
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    const mpviz::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
+    mpviz::MapElement e{};
+    e.points = pts;
+    e.point_count = 2;
+    e.kind = mpviz::MapKind::CENTERLINE;
+    e.last_update_sec = 10.0;
+    mpviz::SceneGraph s{};
+    s.sim_time_sec = 10.0;
+    s.ego.valid = 1;
+    s.map_elements = &e;
+    s.map_element_count = 1;
+    mpviz::set_scene(r, s);
+    render_once(r, mpviz::CameraPose{{0, -8, 4}, {0, 0, 0}, 60.0});
+
+    const auto info = mpviz::testing::map_element_material_info(r);
+    EXPECT_FALSE(info.bound_to_translucent)
+        << "a FRESH map element must stay on the opaque shared template, not get a "
+           "per-entity instance";
+    EXPECT_NEAR(info.alpha, 1.0f, 1e-4);
+
+    mpviz::destroy_renderer(r);
+}
+
+// ── Epic 3 Task 2 (VM-034) Step 3: the ego-invalid map cosmetic ─────────
+
+TEST(MapElements, EgoInvalidFadesMapElementsRatherThanLeavingThemAtFullOpacity) {
+    // Root cause (renderer.cpp:1458-1470 / Epic 2 gate finding wf_0ff03eb8-
+    // 5ec): update_ground_grid_transform() snaps the ego-following ground/
+    // grid patch to the world origin whenever ego.valid==0, but
+    // update_map_elements() had no matching gate at all -- real map
+    // geometry kept rendering, at full opacity, against an origin-snapped
+    // ground. Fix: ego.valid==0 drives alpha to 0 via the SAME fade path
+    // Step 2 just wired (not skip-and-freeze, which would leave the last
+    // valid frame's geometry at full opacity forever -- the identical bug
+    // one frame later).
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    const mpviz::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
+    mpviz::MapElement e{};
+    e.points = pts;
+    e.point_count = 2;
+    e.kind = mpviz::MapKind::CENTERLINE;
+    e.last_update_sec = 10.0;  // fresh by staleness_alpha's own math
+    mpviz::SceneGraph s{};
+    s.sim_time_sec = 10.0;
+    s.ego.valid = 1;
+    s.map_elements = &e;
+    s.map_element_count = 1;
+    mpviz::CameraPose pose{{0, -8, 4}, {0, 0, 0}, 60.0};
+
+    mpviz::set_scene(r, s);
+    render_once(r, pose);
+    EXPECT_NEAR(mpviz::testing::map_element_material_info(r).alpha, 1.0f, 1e-4)
+        << "sanity check: ego valid + fresh element -> full opacity, before the flip below";
+
+    s.ego.valid = 0;  // TF dropout; the SAME MapElement, still "fresh" by staleness_alpha
+    mpviz::set_scene(r, s);
+    render_once(r, pose);
+    const auto afterEgoInvalid = mpviz::testing::map_element_material_info(r);
+    EXPECT_LT(afterEgoInvalid.alpha, 1.0f)
+        << "ego.valid==0 must fade map elements toward invisible, not hold them at full "
+           "opacity while the ground/grid patch has already snapped to the origin";
+    EXPECT_NEAR(afterEgoInvalid.alpha, 0.0f, 1e-4);
+
+    mpviz::destroy_renderer(r);
 }

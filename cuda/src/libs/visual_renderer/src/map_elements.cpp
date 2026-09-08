@@ -12,6 +12,7 @@
 #include <filament/RenderableManager.h>
 
 #include <math/vec3.h>
+#include <math/vec4.h>
 
 #include <algorithm>
 #include <cmath>
@@ -25,6 +26,7 @@ namespace mpviz {
 namespace {
 
 using filament::math::float3;
+using filament::math::float4;
 
 float3 to_f3(const Vec3& v) {
     return float3{static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)};
@@ -190,6 +192,30 @@ filament::MaterialInstance* material_for_kind(VisualRenderer& r, MapKind kind) {
     }
 }
 
+// Epic 3 Task 2 (VM-034): the tint currently pushed into `kind`'s opaque
+// template (mirrors material_for_kind()'s own dispatch field-for-field —
+// same rows, same fallback). Needed because the staleness fade seeds a
+// FRESH clay_translucent.mat instance from this stored value (Filament's
+// MaterialInstance has no getter, the same reason every *MaterialBaseColor
+// field exists at all) rather than the opaque template's own baseColor.
+detail::Float3 tint_for_kind(const VisualRenderer& r, MapKind kind) {
+    switch (kind) {
+        case MapKind::CENTERLINE:
+            return r.laneCenterlineMaterialBaseColor;
+        case MapKind::LEFT_BOUNDARY:
+        case MapKind::RIGHT_BOUNDARY:
+            return r.laneBoundaryMaterialBaseColor;
+        case MapKind::CROSSWALK:
+            return r.crosswalkMaterialBaseColor;
+        case MapKind::ROAD_SURFACE:
+            return r.roadMaterialBaseColor;
+        case MapKind::ROAD_EDGE:
+            return r.roadEdgeMaterialBaseColor;
+        default:
+            return r.laneMaterialBaseColor;
+    }
+}
+
 // Dash geometry (Epic 3 Task 1 / VM-036, decision #3): moved renderer-side
 // from the adapter (hd_map.cpp), same algorithm and constants, now gated on
 // BOUNDARY kinds instead of centerlines -- the flip debt item 2 asks for.
@@ -345,56 +371,117 @@ std::vector<Vec3> build_road_strip(const Vec3* pts, uint32_t point_count, float 
     return tris;
 }
 
+// Staleness fade (Epic 3 Task 2 / VM-034) — the exact per-entity
+// clay_translucent.mat MaterialInstance-swap mechanism objects.cpp's
+// update_entity_staleness()/alert_polygons.cpp's rebind_slot_material()
+// already established (see the Epic 2 plan's "…and the material that can
+// actually do it"), specialized for a single-mesh slot the same way
+// alert_polygons.cpp's rebind_slot_material() is: fresh (alpha>=1.0) stays
+// on the shared OPAQUE per-kind template (material_for_kind()), no
+// per-entity instance; fading swaps to a clay_translucent.mat instance
+// seeded from tint_for_kind()'s stored tint, alpha set every call.
+//
+// `ego_valid=false` (Epic 2 gate finding, the ego-invalid map cosmetic —
+// renderer.cpp:1458-1470's update_ground_grid_transform() snaps the
+// ego-following ground/grid patch to the world origin whenever
+// ego.valid==0, but update_map_elements() had no matching gate at all, so
+// real map geometry kept rendering against an origin-snapped ground) drives
+// alpha to 0 via this SAME fade path, multiplying staleness down to zero
+// exactly like alert_polygons.cpp's kAlertSeverityAlpha*staleness — not a
+// second mechanism, and not skip-and-freeze (which would leave the LAST
+// valid frame's geometry at full opacity forever, the identical bug one
+// frame later).
+void apply_map_element_staleness(VisualRenderer& r, Mesh& mesh, MapKind kind,
+                                  double last_update_sec, double sim_time_sec, bool ego_valid) {
+    if (!mesh.entity) return;
+    const auto staleness = static_cast<float>(detail::SceneBuffer::staleness_alpha(
+        sim_time_sec, last_update_sec, kStaleFadeStartSec, kStaleFadeTimeoutSec));
+    const float alpha = ego_valid ? staleness : 0.0f;
+
+    filament::RenderableManager& rm = r.engine->getRenderableManager();
+    const auto ri = rm.getInstance(mesh.entity);
+
+    if (alpha >= 1.0f) {
+        if (mesh.fadeInstance != nullptr) {
+            if (ri.isValid()) rm.setMaterialInstanceAt(ri, 0, material_for_kind(r, kind));
+            r.engine->destroy(mesh.fadeInstance);
+            mesh.fadeInstance = nullptr;
+        }
+        mesh.fadeAlpha = 1.0f;
+        return;
+    }
+    if (mesh.fadeInstance == nullptr) {
+        mesh.fadeInstance = r.clayTranslucentMaterial->createInstance();
+        mesh.fadeInstance->setCullingMode(filament::backend::CullingMode::NONE);
+        if (ri.isValid()) rm.setMaterialInstanceAt(ri, 0, mesh.fadeInstance);
+    }
+    const detail::Float3 tint = tint_for_kind(r, kind);
+    mesh.fadeInstance->setParameter("baseColor", float4{tint.r, tint.g, tint.b, alpha});
+    mesh.fadeInstance->setParameter("roughness", r.active_theme.material.roughness);
+    mesh.fadeInstance->setParameter("metallic", r.active_theme.material.metallic);
+    mesh.fadeAlpha = alpha;
+}
+
 }  // namespace
 
-// STATED DEVIATION from spec §5, STILL OPEN until Epic 3 Task 2 (VM-034):
-// the HD-map category pops instead of fading. Epic 2 Task 2 (VM-024) STATED
-// the deviation (MapElement had no `last_update_sec` to fade against);
-// Epic 3 Task 1 (VM-036, ADR-0004) only APPENDED that field -- the actual
-// staleness_alpha() wiring for map elements is VM-034's, which deletes this
-// marker. This function does not fade anything itself; it renders whatever
-// the last set_scene() call handed it.
+// Epic 3 Task 2 (VM-034): the HD-map category now fades via the one shared
+// staleness_alpha() path every other category uses (apply_map_element_
+// staleness(), above) — closes Epic 2's stated deviation ("the HD-map
+// category pops, it does not fade", epic2 plan lines 228-238). This
+// function still renders whatever the last set_scene() call handed it; the
+// fade is applied per-mesh, right after each is adopted or (re)built, below.
 void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
     std::unordered_map<uint64_t, Mesh> next;
     next.reserve(r.mapElementMeshes.size());
 
-    auto adopt_or_build = [&](uint64_t key, filament::MaterialInstance* material, auto build_fn) {
+    // Epic 3 Task 2 (VM-034): `kind`/`last_update_sec` are the source
+    // MapElement's own — every chunk/dash of one element shares them — and
+    // drive the staleness-fade pass applied at the end, below, on BOTH the
+    // adopt path and the freshly-built path (not just one), the same way
+    // every other category's per-frame diff pass re-evaluates staleness on
+    // every live entity regardless of whether ITS geometry changed this
+    // frame. `s.ego.valid` is read directly (this lambda already captures
+    // `s` by reference) — not threaded through as its own parameter.
+    auto adopt_or_build = [&](uint64_t key, filament::MaterialInstance* material, MapKind kind,
+                               double last_update_sec, auto build_fn) {
         auto it = r.mapElementMeshes.find(key);
         if (it != r.mapElementMeshes.end()) {
             next.emplace(key, std::move(it->second));
             r.mapElementMeshes.erase(it);
-            return;
+        } else {
+            // Epic 3 Task 1 (VM-036) Step 7: this IS the cache-miss branch
+            // Epic 2's untested "cached, no per-frame rebuild" AC needs a
+            // counter for -- incremented here, not after build_fn() runs, so
+            // an empty-result build (malformed geometry) still counts as an
+            // attempted rebuild, not a silent no-op.
+            ++r.mapElementRebuildCount;
+            std::vector<Vec3> positions = build_fn();
+            if (positions.empty()) return;
+            std::vector<Vertex> verts = to_verts(positions);
+            // Flat sequential indexing lives under the uint16 index ceiling.
+            // Today's builders stay well below it (lanes chunked, crosswalks
+            // tiny); this guard turns a would-be infinite loop (a uint16_t
+            // counter WRAPS at 65536 and never reaches a larger verts.size() --
+            // see ribbon.cpp's header, review 2026-08-20) into a loud drop.
+            // ponytail: flat + guard; convert to ribbon.cpp's true-indexed
+            // pattern if a real >10k-point map element ever shows up.
+            if (verts.size() > 65535) {
+                std::fprintf(stderr,
+                             "[visual_renderer] map element mesh (%zu verts) exceeds the uint16 "
+                             "index ceiling; element dropped\n",
+                             verts.size());
+                return;
+            }
+            std::vector<uint16_t> indices(verts.size());
+            for (size_t i = 0; i < verts.size(); ++i) indices[i] = static_cast<uint16_t>(i);
+            Mesh mesh;
+            add_mesh(r, mesh, std::move(verts), std::move(indices),
+                     filament::RenderableManager::PrimitiveType::TRIANGLES, material,
+                     /*cast_shadows=*/false, /*receive_shadows=*/true);
+            next.emplace(key, std::move(mesh));
         }
-        // Epic 3 Task 1 (VM-036) Step 7: this IS the cache-miss branch
-        // Epic 2's untested "cached, no per-frame rebuild" AC needs a
-        // counter for -- incremented here, not after build_fn() runs, so
-        // an empty-result build (malformed geometry) still counts as an
-        // attempted rebuild, not a silent no-op.
-        ++r.mapElementRebuildCount;
-        std::vector<Vec3> positions = build_fn();
-        if (positions.empty()) return;
-        std::vector<Vertex> verts = to_verts(positions);
-        // Flat sequential indexing lives under the uint16 index ceiling.
-        // Today's builders stay well below it (lanes chunked, crosswalks
-        // tiny); this guard turns a would-be infinite loop (a uint16_t
-        // counter WRAPS at 65536 and never reaches a larger verts.size() --
-        // see ribbon.cpp's header, review 2026-08-20) into a loud drop.
-        // ponytail: flat + guard; convert to ribbon.cpp's true-indexed
-        // pattern if a real >10k-point map element ever shows up.
-        if (verts.size() > 65535) {
-            std::fprintf(stderr,
-                         "[visual_renderer] map element mesh (%zu verts) exceeds the uint16 "
-                         "index ceiling; element dropped\n",
-                         verts.size());
-            return;
-        }
-        std::vector<uint16_t> indices(verts.size());
-        for (size_t i = 0; i < verts.size(); ++i) indices[i] = static_cast<uint16_t>(i);
-        Mesh mesh;
-        add_mesh(r, mesh, std::move(verts), std::move(indices),
-                 filament::RenderableManager::PrimitiveType::TRIANGLES, material,
-                 /*cast_shadows=*/false, /*receive_shadows=*/true);
-        next.emplace(key, std::move(mesh));
+        apply_map_element_staleness(r, next.at(key), kind, last_update_sec, s.sim_time_sec,
+                                     s.ego.valid != 0);
     };
 
     for (uint32_t i = 0; i < s.map_element_count; ++i) {
@@ -408,11 +495,11 @@ void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
             // Two-rail encoding (decision #5) -- never is_polygon, never
             // dashed, its own triangulation entirely.
             const uint64_t key = chunk_signature(false, e.points, e.point_count);
-            adopt_or_build(key, material,
+            adopt_or_build(key, material, e.kind, e.last_update_sec,
                            [&]() { return build_road_strip(e.points, e.point_count, z_lift); });
         } else if (e.is_polygon) {
             const uint64_t key = chunk_signature(true, e.points, e.point_count);
-            adopt_or_build(key, material, [&]() {
+            adopt_or_build(key, material, e.kind, e.last_update_sec, [&]() {
                 std::vector<Vec3> hatch;
                 if (e.kind == MapKind::CROSSWALK) {
                     hatch = detail::build_crosswalk_hatch(e.points, e.point_count, z_lift);
@@ -435,7 +522,8 @@ void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
                     const uint32_t chunkStart = a;  // structured bindings can't be captured directly
                     const uint32_t n = b - a;
                     const uint64_t key = chunk_signature(false, dash.data() + chunkStart, n);
-                    adopt_or_build(key, material, [dash, chunkStart, n, z_lift]() {
+                    adopt_or_build(key, material, e.kind, e.last_update_sec,
+                                   [dash, chunkStart, n, z_lift]() {
                         return build_ribbon_flat(dash.data() + chunkStart, n, kLaneHalfWidthM, z_lift);
                     });
                 }
@@ -450,7 +538,7 @@ void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
                 const uint32_t n = b - a;
                 const Vec3* chunkPts = e.points + a;
                 const uint64_t key = chunk_signature(false, chunkPts, n);
-                adopt_or_build(key, material, [chunkPts, n, z_lift]() {
+                adopt_or_build(key, material, e.kind, e.last_update_sec, [chunkPts, n, z_lift]() {
                     return build_centerline_dots(chunkPts, n, z_lift);
                 });
             }
@@ -459,7 +547,7 @@ void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
                 const uint32_t n = b - a;
                 const Vec3* chunkPts = e.points + a;
                 const uint64_t key = chunk_signature(false, chunkPts, n);
-                adopt_or_build(key, material, [chunkPts, n, z_lift]() {
+                adopt_or_build(key, material, e.kind, e.last_update_sec, [chunkPts, n, z_lift]() {
                     return build_ribbon_flat(chunkPts, n, kLaneHalfWidthM, z_lift);
                 });
             }
