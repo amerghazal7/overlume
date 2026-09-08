@@ -1198,6 +1198,130 @@ TEST(HdMapAdapter, AbuttingNearCollinearRoadEdgesAreNeverCut)
     EXPECT_EQ(road_edge_count, 2);
 }
 
+// ---- Junction gap-merge (measurement pass 2026-09-08, user report "yellow
+// boundaries left overs (check junction corners) that looks messy") -- a
+// real multi-lane junction crosses one through-edge SEVERAL times close
+// together; each crossing's own kJunctionCutBackoffM=2.0 window needs to
+// merge with its neighbours' when the gap between them is small, or the
+// small real gap survives as its own tiny "leftover" rendered piece (the
+// bug). All three tests below share one long through-rail (lane 1, x=-20
+// to 20 along y=0) crossed by two other lanes (2, 3) at two x positions;
+// only lane 1's own resulting ROAD_EDGE pieces are asserted on.
+
+TEST(HdMapAdapter, JunctionGapMergeCutsSliverBetweenCloseCrossings)
+{
+    // Crossings at x=-4.5 and x=4.5 (separation 9.0 m): each gets its own
+    // [-2,+2] backoff window, [-6.5,-2.5] and [2.5,6.5] -- a 5.0 m gap
+    // between them, UNDER kJunctionGapMergeM=6.6 -- so MergeWindows folds
+    // them into one [-6.5,6.5] cut. Before this fix, a 5.0 m gap did not
+    // touch/overlap under the old bare-overlap test, so it would have
+    // survived as its own emitted sliver between the two crossings --
+    // exactly the "leftovers at junction corners" the user reported.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1, {{-20, 0}, {20, 0}}),
+        LineMarker("left_boundary_b", 2, {{-4.5, -10}, {-4.5, 10}}),
+        LineMarker("left_boundary_c", 3, {{4.5, -10}, {4.5, 10}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> lane_a;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
+    }
+    ASSERT_EQ(lane_a.size(), 2u) << "the two close-together crossings merge into one cut -- "
+                                    "no sliver piece survives between them";
+    std::sort(lane_a.begin(), lane_a.end(),
+              [](const mpviz::MapElement& a, const mpviz::MapElement& b) {
+                  return a.points[0].x < b.points[0].x;
+              });
+    EXPECT_DOUBLE_EQ(lane_a[0].points[0].x, -20.0);
+    EXPECT_NEAR(lane_a[0].points[lane_a[0].point_count - 1].x, -6.5, 1e-9);
+    EXPECT_NEAR(lane_a[1].points[0].x, 6.5, 1e-9);
+    EXPECT_DOUBLE_EQ(lane_a[1].points[lane_a[1].point_count - 1].x, 20.0);
+}
+
+TEST(HdMapAdapter, JunctionGapMergeAtThresholdStillMerges)
+{
+    // Crossings at x=-5.3/+5.3 (separation 10.6 m): windows [-7.3,-3.3] and
+    // [3.3,7.3] -- the inter-window gap is kJunctionGapMergeM=6.6 m to
+    // within floating-point noise (6.599999999999998 as the arc-length walk
+    // computes it, ~2 ulp BELOW 6.6 -- review 2026-09-08), so this pins the
+    // constant's boundary from just below it: still one merged cut. The
+    // merge test is <=, and nothing here depends on the exact-equality case.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1, {{-20, 0}, {20, 0}}),
+        LineMarker("left_boundary_b", 2, {{-5.3, -10}, {-5.3, 10}}),
+        LineMarker("left_boundary_c", 3, {{5.3, -10}, {5.3, 10}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> lane_a;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
+    }
+    ASSERT_EQ(lane_a.size(), 2u) << "gap exactly at the threshold still merges (inclusive test)";
+    std::sort(lane_a.begin(), lane_a.end(),
+              [](const mpviz::MapElement& a, const mpviz::MapElement& b) {
+                  return a.points[0].x < b.points[0].x;
+              });
+    EXPECT_NEAR(lane_a[0].points[lane_a[0].point_count - 1].x, -7.3, 1e-9);
+    EXPECT_NEAR(lane_a[1].points[0].x, 7.3, 1e-9);
+}
+
+TEST(HdMapAdapter, JunctionGapMergeKeepsLegitInteriorSpanAboveThreshold)
+{
+    // Crossings at x=-5.5/+5.5 (separation 11.0 m): windows [-7.5,-3.5] and
+    // [3.5,7.5] -- a 7.0 m gap, ABOVE kJunctionGapMergeM=6.6, so the two
+    // windows stay separate and the 7.0 m interior span between them
+    // survives as its own legit piece (this is the "just above threshold
+    // survives" case -- a real stub is never shorter than 7.027 m per the
+    // measurement pass, so a mechanism that ate anything above 6.0 m would
+    // risk eating real road; this pins that it does not).
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1, {{-20, 0}, {20, 0}}),
+        LineMarker("left_boundary_b", 2, {{-5.5, -10}, {-5.5, 10}}),
+        LineMarker("left_boundary_c", 3, {{5.5, -10}, {5.5, 10}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> lane_a;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
+    }
+    ASSERT_EQ(lane_a.size(), 3u) << "head, kept interior span, tail -- the gap is too wide to merge";
+    std::sort(lane_a.begin(), lane_a.end(),
+              [](const mpviz::MapElement& a, const mpviz::MapElement& b) {
+                  return a.points[0].x < b.points[0].x;
+              });
+    EXPECT_DOUBLE_EQ(lane_a[0].points[0].x, -20.0);
+    EXPECT_NEAR(lane_a[0].points[lane_a[0].point_count - 1].x, -7.5, 1e-9);
+    EXPECT_NEAR(lane_a[1].points[0].x, -3.5, 1e-9);
+    EXPECT_NEAR(lane_a[1].points[lane_a[1].point_count - 1].x, 3.5, 1e-9);
+    EXPECT_NEAR(lane_a[2].points[0].x, 7.5, 1e-9);
+    EXPECT_DOUBLE_EQ(lane_a[2].points[lane_a[2].point_count - 1].x, 20.0);
+}
+
 TEST(HdMapAdapter, BoundariesUntouchedByJunctionCutsAtDefaultFlag)
 {
     // junction_interior_boundaries defaults to true: an INTERIOR boundary

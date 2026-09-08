@@ -133,6 +133,21 @@
 #               middle of a junction box: they stop, the interior reads as
 #               dashed white separators only (or clean at the drop-flag), and
 #               the outer edges resume past it.
+#   2026-09-08  User report ("you can spot yellow boundaries left overs
+#               (check junction corners) that looks messy"): a real
+#               multi-lane junction crosses one ROAD_EDGE line SEVERAL times
+#               close together, and each crossing's own 2.0 m trim window was
+#               independent -- a small real gap between two nearby crossings
+#               survived as its own tiny leftover yellow sliver (measured
+#               against the recorded bag, dense-scanned across its whole
+#               recorded life: 0.02-6.30 m). Fix: those windows now MERGE
+#               across a gap under kJunctionGapMergeM=6.6 m (below
+#               the shortest real road ever observed adjacent to a cut,
+#               7.03 m) instead of leaving the gap rendered. Same
+#               /hd_map_local_elements input, no new topic/param. Visually
+#               checkable in mode 3: junction corners no longer show small
+#               isolated yellow fragments between the outer cut and the
+#               interior.
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its

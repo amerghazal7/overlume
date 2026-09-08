@@ -289,10 +289,60 @@ bool IsRoadEdge(uint32_t lane_id, const std::vector<mpviz::Vec3>& pts,
 //      and this epic's plan doc for the full re-derivation.
 //      NEVER applied to boundaries: interior separators legitimately cross
 //      connector geometry inside a junction (the refinement's own point).
+//      FOLLOW-UP (measurement pass 2026-09-08, user report "yellow
+//      boundaries left overs (check junction corners) that looks messy"):
+//      a real multi-lane junction crosses one through-edge SEVERAL times in
+//      quick succession, not once -- each crossing's own window is
+//      independent, and MergeWindows below now folds windows separated by
+//      less than kJunctionGapMergeM into one merged cut (see that
+//      constant's own comment for the measured bounds) instead of leaving
+//      the small real gap between them as its own tiny rendered piece.
 // O(edges^2 * segments^2) over this row's own promoted-ROAD_EDGE count
 // (~15 edges x ~20 segments on the committed urban fixture) is fine at
 // this scale -- no spatial index attempted.
 constexpr double kJunctionCutBackoffM = 2.0;
+
+// Junction gap-merge (measurement pass 2026-09-08, user report "yellow
+// boundaries left overs (check junction corners) that looks messy"):
+// generalizes the mutual-crossing cut above from 2 windows to N. A real
+// multi-lane junction's through-edge crosses SEVERAL other ROAD_EDGE
+// polylines in quick succession (once per crossing lane of the intersecting
+// road); each crossing gets its own independent kJunctionCutBackoffM
+// window, and MergeWindows below only merged windows that already
+// touch/overlap -- two windows separated by a small real gap each survived
+// as their own tiny emitted piece between them. Measured (CORRECTED,
+// code-review finding, blocking: an earlier 43-message spot-sample (10s
+// steps) reported max 4.010 m and missed the tail -- dense scan, every 8th
+// /hd_map_local_elements message across this topic's ENTIRE recorded life,
+// bag-relative +10.65s..+128.85s, 504 messages, 4265 emitted
+// INTERIOR_SLIVER pieces): these leftover interior slivers range
+// 0.020-6.302 m (median 2.709 m, unchanged from the spot-sample -- only the
+// max was wrong) -- this IS the messy yellow left the screenshot shows. The
+// 6.302 m case: promoted edge lane 792 crossed by lane 1320 (merged window
+// [11.555,19.026]) and by lane 685 at 27.328 (window [25.328,29.328]),
+// bag-relative +22.49s..+24.65s -- inter-window gap 6.302 m. 36 of the 4265
+// slivers are >= 4.0 m, 10 are >= 6.0 m; re-running the dense scan with the
+// old 6.0 m constant confirms the residual (4255 of 4265 slivers die, but
+// the 6.302 m piece's 10 instances survive). The shortest real road
+// fragment ever observed adjacent to a cut (a HEAD_STUB/TAIL_STUB -- real
+// continuing road, not a sliver) is 7.027 m; nothing legitimate was ever
+// observed between 6.302 m and 7.027 m. kJunctionGapMergeM = 6.6 m sits in
+// that gap: ~0.30 m of margin above the largest observed sliver, ~0.43 m of
+// margin below the shortest observed legit stub -- verified by rerunning
+// the dense scan at gap=6.6: zero interior slivers remain and
+// HEAD_STUB/TAIL_STUB/LEGIT are byte-for-byte unchanged (n=2710/2710/7101,
+// floors still 7.027/7.863/10.731 -- nothing legitimate eaten). KNOWN
+// CEILING: this is a merge-by-proximity heuristic, not a geometric proof --
+// with kJunctionCutBackoffM=2.0 m of back-off on each side, it eats any
+// real interior span whose two bounding crossings are separated by ~4-10.6
+// m (inter-window gap 0-6.6 m, not observed as a legitimate span in this
+// data); crossings farther apart than that are untouched. Unlike a bare
+// min-piece-length filter, though, it generalizes correctly to a WIDER
+// junction made of MORE crossings that are still individually close
+// together, rather than needing a bigger constant every time; a genuinely
+// large isolated interior (two crossings far apart on a wide multi-lane
+// through-road) is out of scope for both approaches.
+constexpr double kJunctionGapMergeM = 6.6;
 
 // Mirrors map_elements.cpp's own IsBoundaryKind() (library-side, not
 // reachable from this node-side translation unit) -- same two kinds, same
@@ -433,9 +483,12 @@ bool SegSegIntersect2D(const mpviz::Vec3& p1, const mpviz::Vec3& p2, const mpviz
     return t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0;
 }
 
-// Sorts + merges overlapping/touching [start,end] windows in place -- one
-// polyline crossed by several others accumulates one raw window per
-// crossing before this ever runs.
+// Sorts + merges [start,end] windows in place whose gap is under
+// kJunctionGapMergeM (touching/overlapping windows, gap <= 0, always
+// qualify) -- one polyline crossed by several others accumulates one raw
+// window per crossing before this ever runs; see kJunctionGapMergeM's own
+// comment for why a bare touch/overlap test left slivers between
+// closely-spaced junction crossings.
 void MergeWindows(std::vector<std::pair<double, double>>& windows)
 {
     if (windows.empty()) return;
@@ -444,7 +497,7 @@ void MergeWindows(std::vector<std::pair<double, double>>& windows)
     merged.push_back(windows.front());
     for (size_t i = 1; i < windows.size(); ++i)
     {
-        if (windows[i].first <= merged.back().second)
+        if (windows[i].first <= merged.back().second + kJunctionGapMergeM)
         {
             merged.back().second = std::max(merged.back().second, windows[i].second);
         }

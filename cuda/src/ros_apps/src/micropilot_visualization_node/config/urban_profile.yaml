@@ -74,6 +74,15 @@ rows:
   # them by default") -- set it to false to drop them there too, though it
   # is INERT on this row specifically: with no JUNCTION polygon to clip
   # against, there is nothing for it to do (see ProfileRow's own comment).
+  # Follow-up 2026-09-08 (user report: "yellow boundaries left overs (check
+  # junction corners) that looks messy"): a real multi-lane junction crosses
+  # one ROAD_EDGE polyline SEVERAL times close together, not once -- each
+  # crossing's own trim window now merges with a neighbour's when the gap
+  # between them is under kJunctionGapMergeM=6.6 m (measured against this
+  # topic's own recorded feed, dense-scanned across its whole recorded life:
+  # leftover slivers ran 0.02-6.30 m, real road never shorter than 7.03 m
+  # adjacent to a cut), instead of leaving that small gap as its own tiny
+  # rendered "leftover" piece.
   - {topic: /hd_map_local_elements, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 2.0,
      ns_default: drop,
@@ -102,7 +111,9 @@ rows:
   # it is genuinely VOLATILE, the node must be up before the publisher.
   # Junction cleanup: same as the local row above -- no `junction` rule, so
   # only the mutual-crossing cut applies; `junction_interior_boundaries`
-  # (default true, not written) is likewise inert here.
+  # (default true, not written) is likewise inert here. Same 2026-09-08
+  # gap-merge follow-up applies (kJunctionGapMergeM=6.6 m) -- see the local
+  # row's own comment for the measured bounds.
   - {topic: /hd_map_global_elements, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 0.5,
      ns_default: drop,
