@@ -21,3 +21,5 @@ cuda/scripts/ros_apps_build/log/
 cuda/scripts/ros_apps_build/install/
 cuda/src/ros_apps/log/
 cuda/src/ros_apps/install/
+
+**/*.mp4
