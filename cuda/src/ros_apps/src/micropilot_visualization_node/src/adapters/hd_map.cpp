@@ -26,13 +26,11 @@ bool HasNan(const mpviz::Vec3& p)
     return std::isnan(p.x) || std::isnan(p.y) || std::isnan(p.z);
 }
 
-// Marker.msg semantics (rviz-parity gap, user report 2026-08-20): points[]
-// on a LINE_STRIP are RELATIVE to marker.pose -- rviz always composes
-// pose * point before anything else touches the geometry, including dash
-// chopping below. Identity pose (every recorded bag marker's pose today)
-// skips the multiply entirely, mirroring FrameTransformer's own
-// identity-frame shortcut (frame_transform.cpp) so the common case pays
-// nothing.
+// Marker.msg semantics: points[] on a LINE_STRIP are RELATIVE to
+// marker.pose -- composed as pose * point before anything else touches the
+// geometry (rviz parity), including dash chopping below. Identity pose (the
+// common case) skips the multiply, mirroring FrameTransformer's own
+// identity-frame shortcut (frame_transform.cpp).
 bool MarkerPoseIsIdentity(const geometry_msgs::msg::Pose& p)
 {
     constexpr double kEps = 1e-12;
@@ -51,65 +49,32 @@ bool MarkerPoseHasNan(const geometry_msgs::msg::Pose& p)
            std::isnan(p.orientation.z) || std::isnan(p.orientation.w);
 }
 
-// Road-surface fill (Epic 3 Task 1 / VM-036, decision #5): the number of
-// stations both boundary rails are resampled to, by normalized arc length,
-// before being zipped into a triangle strip library-side. Fixed; ROAD_
-// SURFACE's point_count is always 2*kRoadFillSamples.
+// The number of stations both boundary rails are resampled to, by
+// normalized arc length, before being zipped into a triangle strip
+// library-side. Fixed; ROAD_SURFACE's point_count is always
+// 2*kRoadFillSamples.
 constexpr uint32_t kRoadFillSamples = 16;
 
-// VM-034 review fix, round 2 (fade-pulse policy, blocking): fill() used to
-// stamp e.last_update_sec = last_recv_sec_ straight -- the library's fade
-// (SceneBuffer::staleness_alpha) then starts at 0.5s of silence and
-// completes at 1.0s (kStaleFadeStartSec/kStaleFadeTimeoutSec,
-// visual_renderer/src/renderer_internal.hpp:123-124; NOT "only 1.0s of
-// silence fades it," a claim this file and hd_map.hpp used to make and both
-// got wrong). Two real rows broke against that 0.5-1.0s window: a row
-// received at 1-2 Hz sawtoothed alpha 1.0->0.0 every receipt gap (last_recv_
-// sec_ frozen between receipts while sim_time keeps climbing), and a
-// publish-once/transient_local row (sim_profile.yaml's /sim/hd_map/markers,
-// one latched message, 3725 markers, the sim profile's ONLY full-extent map
-// source) faded to alpha 0 by +1.0s even though visualization_node.cpp
-// keeps calling fill() for it until its own timeout_sec cutoff (5.0s) --
-// "map never appears" for 4 of that row's 5 visible seconds.
+// e.last_update_sec is stamped last_recv_sec_ + (row_.timeout_sec -
+// kMapFadeWindowSec): the fade window is anchored to the LAST
+// kMapFadeWindowSec before the row's own timeout_sec cutoff, not to
+// kStaleFadeTimeoutSec after the last receipt. This keeps a fast-received
+// row continuously opaque (no sawtooth on TF receipt gaps) and turns a
+// stopped/transient_local row's fade into an opacity ramp ending exactly at
+// its own timeout_sec cutoff, instead of a pop.
 //
-// Fix: stamp the fade window into the LAST kMapFadeWindowSec before the
-// row's OWN timeout_sec cutoff, not kStaleFadeTimeoutSec after the last
-// receipt -- e.last_update_sec = last_recv_sec_ + (row_.timeout_sec -
-// kMapFadeWindowSec). A row received faster than roughly (timeout_sec -
-// kMapFadeWindowSec - kStaleFadeStartSec) apart stamps a last_update_sec
-// that stays in the future of "now" every tick, so staleness_alpha's age
-// stays negative and the row is continuously opaque (no sawtooth). A row
-// that stops receiving (or never receives again, the transient_local case)
-// freezes that same stamp, so the fade now plays out in the
-// kMapFadeWindowSec right before the node stops calling fill() -- an
-// opacity ramp into the cutoff (spec §5), not a pop, and not an early fade
-// while the node is still choosing to show the row.
-//
-// kMapFadeWindowSec mirrors the library's kStaleFadeTimeoutSec (renderer_
-// internal.hpp:124) on purpose -- that header is library-internal, not
-// reachable from node-side code, so this is a hand-kept copy: if that
-// constant ever moves, this one must move with it. profile.cpp's own
-// validation (row.timeout_sec >= 1.0) guarantees row_.timeout_sec -
-// kMapFadeWindowSec is never negative.
+// kMapFadeWindowSec MIRRORS the library's kStaleFadeTimeoutSec
+// (visual_renderer/src/renderer_internal.hpp:124, library-internal, not
+// reachable from node-side code) -- keep in sync with that constant.
+// profile.cpp's row.timeout_sec >= 1.0 validation guarantees
+// row_.timeout_sec - kMapFadeWindowSec is never negative.
 constexpr double kMapFadeWindowSec = 1.0;
 
-// Resamples `pts` to exactly `n_stations` points, evenly spaced by
-// NORMALIZED arc length (station k is at s = k/(n_stations-1) * total arc
-// length) -- extracted from the pre-Epic3 dash-chopper's own point_at()
-// lambda (the arc-length-walk technique is what's reused here, not the
-// dash-specific caller, which is gone -- dashing moved renderer-side, see
-// map_elements.cpp). Two rails of a lane are NOT guaranteed to carry the
-// same point count on real data (verified: lane 955 is 8/9, lane 813 is
-// 10/11 in the committed fixture) -- resampling both to the same fixed
-// station count is what lets the library zip them into a strip without
-// ever indexing past either rail's own point array. Returns empty for
-// fewer than 2 input points or n_stations == 0 (malformed guard, mirrors
-// every other "not enough data" path in this file).
 // cum[0] == 0, cum[i] == arc length from pts[0] to pts[i], cum.back() ==
 // total polyline length. Shared by ResampleByArcLength (road-surface fill)
-// and the junction-cleanup clip/cut machinery below (user directive
-// 2026-09-08) -- both need to turn "a point somewhere along this polyline"
-// into/from a normalized arc-length station.
+// below and the junction-cleanup clip/cut machinery further down -- both
+// need to convert "a point somewhere along this polyline" into/from a
+// normalized arc-length station.
 std::vector<double> CumulativeArcLength(const std::vector<mpviz::Vec3>& pts)
 {
     std::vector<double> cum(pts.size(), 0.0);
@@ -139,6 +104,13 @@ mpviz::Vec3 PointAtArcLength(const std::vector<mpviz::Vec3>& pts, const std::vec
     return mpviz::Vec3{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t};
 }
 
+// Resamples `pts` to exactly `n_stations` points, evenly spaced by
+// normalized arc length. Two rails of a lane are not guaranteed to carry
+// the same point count on real data (e.g. lane 955 is 8/9 points, lane 813
+// is 10/11, in the committed fixture) -- resampling both to a fixed
+// station count is what lets the library zip them into a strip without
+// indexing past either rail's own array. Returns empty for fewer than 2
+// input points or n_stations == 0.
 std::vector<mpviz::Vec3> ResampleByArcLength(const std::vector<mpviz::Vec3>& pts,
                                               uint32_t n_stations)
 {
@@ -159,45 +131,32 @@ std::vector<mpviz::Vec3> ResampleByArcLength(const std::vector<mpviz::Vec3>& pts
     return out;
 }
 
-// Kinds that carry a lane_id (the marker's own `id`, per decision #4) --
-// crosswalk/stopline/junction/other are not lane-paired. ROAD_EDGE carries
-// one because fill()'s promotion pass (below) relabels a LEFT_/RIGHT_
-// BOUNDARY in place, keeping its lane_id -- the kind IS emitted today; what
-// never produces it is an ingest-time namespace rule.
+// Kinds that carry a lane_id (the marker's own `id`) -- crosswalk/stopline/
+// junction/other are not lane-paired. ROAD_EDGE carries one too: fill()'s
+// promotion pass relabels a LEFT_/RIGHT_BOUNDARY to ROAD_EDGE in place,
+// keeping its lane_id; no ingest-time namespace rule ever produces
+// ROAD_EDGE directly.
 bool KindCarriesLaneId(mpviz::MapKind kind)
 {
     return kind == mpviz::MapKind::CENTERLINE || kind == mpviz::MapKind::LEFT_BOUNDARY ||
            kind == mpviz::MapKind::RIGHT_BOUNDARY || kind == mpviz::MapKind::ROAD_EDGE;
 }
 
-// Road-edge detection (Epic 3 Task 1 / VM-036, user directive 2026-09-08):
-// "the boundary of the road (most left and most right lines) should not be
-// dashed and should be colored differently, usually yellow." ROAD_EDGE was
-// reserved (Task 1) but had no producer until now. Detection: a LEFT_
-// BOUNDARY/RIGHT_BOUNDARY element promotes to ROAD_EDGE when NO OTHER
-// lane's OPPOSITE-side boundary sits within kRoadEdgeCoincidenceThresholdM
-// of it -- an interior divider between two adjacent lanes has its own
-// near-duplicate polyline recorded on the neighbour's opposite side (the
-// SAME painted line, surveyed twice); a lane on the road's outer edge does
-// not.
+// Road-edge detection: a LEFT_BOUNDARY/RIGHT_BOUNDARY promotes to ROAD_EDGE
+// when no OTHER lane's opposite-side boundary sits within
+// kRoadEdgeCoincidenceThresholdM of it (sampled at its own two endpoints +
+// midpoint) -- an interior divider has a near-duplicate survey on the
+// neighbour's opposite side (the SAME painted line, surveyed twice); an
+// outer edge does not.
 //
-// Threshold, MEASURED against the committed hd_map_local_elements_0.yaml
-// fixture (not guessed): sampling each boundary's own two endpoints + its
-// midpoint, and taking the minimum point-to-polyline distance to every
-// OTHER lane's opposite-side boundary, the fixture's 16 real adjacent-lane
-// pairs land at 0.00-0.20 m (Epic 2's own prior measurement called this
-// "centimeters," and this fixture confirms it -- several pairs are exact
-// floating-point duplicates, the survey recorded the same line twice). The
-// NEXT-nearest case that is NOT a shared line sits at 1.7955 m (left_
-// boundary_1453 vs. its closest non-twin, right_boundary_838) with the bulk
-// of true non-adjacent lanes at 3.1-3.7 m (roughly one full lane width
-// away). kRoadEdgeCoincidenceThresholdM = 1.0 m sits in the gap between
-// 0.1983 m (the largest genuine twin separation) and 1.7955 m (the nearest
-// genuine non-twin) -- real headroom on both sides, not a round-number
-// guess. On this fixture the result is 15 of the 32 boundary elements
-// promoted to ROAD_EDGE (one lane, 934, is fully interior -- paired on both
-// sides -- and contributes none); see this epic's plan doc addendum for the
-// full worked measurement.
+// kRoadEdgeCoincidenceThresholdM = 1.0 m: measured against the committed
+// hd_map_local_elements_0.yaml fixture, genuine twin separations run
+// 0.00-0.20 m (several are exact float duplicates) and the nearest genuine
+// non-twin sits at 1.7955 m (bulk of non-adjacent lanes at 3.1-3.7 m, ~one
+// lane width) -- see plan 2026-08-18-visual-mode-epic3.md for the full
+// worked measurement. On this fixture: 15 of 32 boundary elements promote
+// to ROAD_EDGE (lane 934 is fully interior -- paired both sides -- and
+// contributes none).
 constexpr double kRoadEdgeCoincidenceThresholdM = 1.0;
 
 double PointToPolylineDist2D(const mpviz::Vec3& p, const std::vector<mpviz::Vec3>& poly)
@@ -225,15 +184,12 @@ double PointToPolylineDist2D(const mpviz::Vec3& p, const std::vector<mpviz::Vec3
 // Arc-length station (into `cum`, `poly`'s own precomputed
 // CumulativeArcLength) of the closest point on `poly` to `p` -- same
 // nearest-point-on-segment search as PointToPolylineDist2D above, but
-// returning WHERE on the polyline that closest point sits rather than just
-// how far away it is. Used below (code-review finding 2026-09-09, blocking
-// -- see SnapWindowsToNeighborArcDepartures's own comment) to project a
-// NEIGHBOUR piece's own corner-arc departure vertex onto THIS piece's own
-// polyline: two independently-surveyed curbs sharing a junction node run
-// near-coincident right up to where one of them peels away into its own
-// corner, so the nearest point on the straight piece to the curved piece's
-// departure vertex is, to survey precision, "the same physical place" on
-// the straight piece's own line.
+// returning WHERE the closest point sits rather than how far away it is.
+// Used by SnapWindowsToNeighborArcDepartures to project a neighbour piece's
+// own corner-arc departure vertex onto this piece's polyline: two
+// independently-surveyed curbs sharing a junction node run near-coincident
+// right up to where one peels away, so the nearest point on the straight
+// piece is, to survey precision, the same physical place.
 double NearestStationOnPolyline(const mpviz::Vec3& p, const std::vector<mpviz::Vec3>& poly,
                                  const std::vector<double>& cum)
 {
@@ -264,11 +220,10 @@ double NearestStationOnPolyline(const mpviz::Vec3& p, const std::vector<mpviz::V
 
 // True when `pts` (this lane's own boundary, `lane_id`) has no coincident
 // twin in `opposite_by_lane` (every OTHER lane's opposite-side boundary) --
-// i.e. it is the road's outer edge. Sampled at `pts`' own first/mid/last
-// point (the plan directive's own sampling choice: "the boundary's midpoint
-// and endpoints for robustness"), each checked against a candidate's FULL
-// polyline extent (not just ITS endpoints), so a candidate that only grazes
-// one of this boundary's three samples still counts as coincident.
+// i.e. it is the road's outer edge. Sampled at pts' own first/mid/last
+// point, each checked against a candidate's FULL polyline extent (not just
+// its endpoints), so a candidate that only grazes one sample still counts
+// as coincident.
 bool IsRoadEdge(uint32_t lane_id, const std::vector<mpviz::Vec3>& pts,
                 const std::unordered_map<uint32_t, const std::vector<mpviz::Vec3>*>& opposite_by_lane)
 {
@@ -285,158 +240,81 @@ bool IsRoadEdge(uint32_t lane_id, const std::vector<mpviz::Vec3>& pts,
     return true;
 }
 
-// ---- Junction cleanup (user directive 2026-09-08 + same-day refinement) --
-// "the middle area [of a junction]... it would be much nicer if we cut
-// [ROAD_EDGE lines] off in these areas and continue along the road after
-// the junction" / refinement: "The junction interior is only allowed to
-// have the lane[]-separating dashed lines, or make it configurable... but
-// enable them by default." Two independent cut mechanisms, both run from
+// ---- Junction cleanup: two independent cut mechanisms, both run from
 // fill() below:
 //   1. JUNCTION-POLYGON CLIP (ClipAgainstJunctions): where the message
-//      actually carries MapKind::JUNCTION geometry (today: only
-//      /sim/hd_map/markers's `junction` namespace rule -- verified,
-//      urban_profile.yaml's /hd_map_local_elements and
-//      /hd_map_global_elements rows have no `junction` rule at all, so this
-//      mechanism is a no-op for them) a ROAD_EDGE polyline is clipped
-//      against the union of that message's JUNCTION rings. LEFT_/RIGHT_
-//      BOUNDARY gets the identical clip ONLY when the row's
-//      `junction_interior_boundaries` is false (default true -- the
-//      refinement's own "enable them by default").
+//      carries MapKind::JUNCTION geometry (today: only /sim/hd_map/
+//      markers's `junction` namespace rule -- urban_profile.yaml has none)
+//      a ROAD_EDGE polyline is clipped against the union of that message's
+//      JUNCTION rings. LEFT_/RIGHT_BOUNDARY gets the identical clip only
+//      when the row's `junction_interior_boundaries` is false (default
+//      true).
 //   2. MUTUAL-CROSSING CUT (SegSegIntersect2D + the window machinery):
-//      works with NO junction data at all -- any two ROAD_EDGE polylines
+//      works with no junction data at all -- any two ROAD_EDGE polylines
 //      from DIFFERENT lane_ids that cross in 2D at a real angle get
 //      trimmed back kJunctionCutBackoffM from the crossing point, both
-//      sides continuing beyond. CORRECTED (code-review finding, re-derived
-//      against hd_map_local_elements_0.yaml): "a real road edge never
-//      legitimately crosses another, so this only ever fires inside a
-//      junction" is NOT what the original measurement showed -- of the 24
-//      raw 2D crossings on that fixture, 21 are shared-endpoint abutments
-//      between chained lanelet boundaries (outgoing angle 175.2-179.8 deg,
-//      i.e. one continuous straight line through the shared node, or
-//      0.5-2.8 deg, i.e. two rails leaving the same node codirectionally --
-//      duplicate surveys of the same rail); of the remaining 3 candidate
-//      "interior" crossings (not an exact endpoint on either side), only 1
-//      is a genuine junction crossing by ANGLE -- the other 2 are also
-//      near-parallel/near-antiparallel despite landing away from either
-//      polyline's own literal endpoint (a chained polyline can carry an
-//      extra sample point close to a node). A lanelet-chain node with a
-//      plain survey kink of a fraction of a degree is not a junction.
-//      SegSegIntersect2D now rejects near-parallel AND near-antiparallel
-//      segment pairs (within kMinCrossingSinAngle's ~15 deg of 0 or 180
-//      deg), not just exactly-parallel ones -- see that function's own
-//      comment; this is what those 2 additional rejections ride on. See
-//      test_hd_map_adapter.cpp's LocalElementsFixtureYieldsLanesAndCrosswalks
-//      and this epic's plan doc for the full re-derivation.
-//      NEVER applied to boundaries: interior separators legitimately cross
-//      connector geometry inside a junction (the refinement's own point).
-//      FOLLOW-UP (measurement pass 2026-09-08, user report "yellow
-//      boundaries left overs (check junction corners) that looks messy"):
-//      a real multi-lane junction crosses one through-edge SEVERAL times in
-//      quick succession, not once -- each crossing's own window is
-//      independent, and MergeWindows below now folds windows separated by
-//      less than kJunctionGapMergeM into one merged cut (see that
-//      constant's own comment for the measured bounds) instead of leaving
-//      the small real gap between them as its own tiny rendered piece.
+//      sides continuing beyond. Never applied to boundaries: interior
+//      separators legitimately cross connector geometry inside a junction.
+//      SegSegIntersect2D rejects near-parallel AND near-antiparallel
+//      segment pairs (not just exactly-parallel ones -- see that
+//      function's own comment for the crossing-angle classification that
+//      motivated it) so a lanelet-chain node's ordinary survey kink at a
+//      shared node is never mistaken for a crossing. MergeWindows below
+//      folds windows separated by less than kJunctionGapMergeM into one cut
+//      (see that constant's own comment) instead of leaving small real
+//      gaps between close-together crossings as their own tiny rendered
+//      pieces. See plan 2026-08-18-visual-mode-epic3.md for the full
+//      derivation of both mechanisms.
 // O(edges^2 * segments^2) over this row's own promoted-ROAD_EDGE count
 // (~15 edges x ~20 segments on the committed urban fixture) is fine at
 // this scale -- no spatial index attempted.
 constexpr double kJunctionCutBackoffM = 2.0;
 
-// Junction gap-merge (measurement pass 2026-09-08, user report "yellow
-// boundaries left overs (check junction corners) that looks messy"):
-// generalizes the mutual-crossing cut above from 2 windows to N. A real
-// multi-lane junction's through-edge crosses SEVERAL other ROAD_EDGE
-// polylines in quick succession (once per crossing lane of the intersecting
-// road); each crossing gets its own independent kJunctionCutBackoffM
-// window, and MergeWindows below only merged windows that already
-// touch/overlap -- two windows separated by a small real gap each survived
-// as their own tiny emitted piece between them. Measured (CORRECTED,
-// code-review finding, blocking: an earlier 43-message spot-sample (10s
-// steps) reported max 4.010 m and missed the tail -- dense scan, every 8th
-// /hd_map_local_elements message across this topic's ENTIRE recorded life,
-// bag-relative +10.65s..+128.85s, 504 messages, 4265 emitted
-// INTERIOR_SLIVER pieces): these leftover interior slivers range
-// 0.020-6.302 m (median 2.709 m, unchanged from the spot-sample -- only the
-// max was wrong) -- this IS the messy yellow left the screenshot shows. The
-// 6.302 m case: promoted edge lane 792 crossed by lane 1320 (merged window
-// [11.555,19.026]) and by lane 685 at 27.328 (window [25.328,29.328]),
-// bag-relative +22.49s..+24.65s -- inter-window gap 6.302 m. 36 of the 4265
-// slivers are >= 4.0 m, 10 are >= 6.0 m; re-running the dense scan with the
-// old 6.0 m constant confirms the residual (4255 of 4265 slivers die, but
-// the 6.302 m piece's 10 instances survive). The shortest real road
-// fragment ever observed adjacent to a cut (a HEAD_STUB/TAIL_STUB -- real
-// continuing road, not a sliver) is 7.027 m; nothing legitimate was ever
-// observed between 6.302 m and 7.027 m. kJunctionGapMergeM = 6.6 m sits in
-// that gap: ~0.30 m of margin above the largest observed sliver, ~0.43 m of
-// margin below the shortest observed legit stub -- verified by rerunning
-// the dense scan at gap=6.6: zero interior slivers remain and
-// HEAD_STUB/TAIL_STUB/LEGIT are byte-for-byte unchanged (n=2710/2710/7101,
-// floors still 7.027/7.863/10.731 -- nothing legitimate eaten). KNOWN
-// CEILING: this is a merge-by-proximity heuristic, not a geometric proof --
-// with kJunctionCutBackoffM=2.0 m of back-off on each side, it eats any
-// real interior span whose two bounding crossings are separated by ~4-10.6
-// m (inter-window gap 0-6.6 m, not observed as a legitimate span in this
-// data); crossings farther apart than that are untouched. Unlike a bare
-// min-piece-length filter, though, it generalizes correctly to a WIDER
-// junction made of MORE crossings that are still individually close
-// together, rather than needing a bigger constant every time; a genuinely
-// large isolated interior (two crossings far apart on a wide multi-lane
-// through-road) is out of scope for both approaches.
+// Junction gap-merge: generalizes the mutual-crossing cut above from 2
+// windows to N -- a multi-lane junction's through-edge crosses several
+// other ROAD_EDGE polylines in quick succession, and a bare touch/overlap
+// merge left the small real gaps between those windows as their own tiny
+// rendered slivers.
+//
+// kJunctionGapMergeM = 6.6 m: measured via a dense scan (every 8th
+// /hd_map_local_elements message across the topic's full recorded life, 504
+// messages) of leftover interior-sliver lengths (0.020-6.302 m, median
+// 2.709 m) against the shortest real road fragment ever observed adjacent
+// to a cut (7.027 m) -- 6.6 m sits in that gap (~0.30 m margin above the
+// largest sliver, ~0.43 m below the shortest legit stub); see plan
+// 2026-08-18-visual-mode-epic3.md for the full scan. ponytail: a
+// merge-by-proximity heuristic, not a geometric proof -- it eats any real
+// interior span whose bounding crossings are separated by roughly 4-10.6 m
+// (not observed as legitimate in this data); farther-apart crossings are
+// untouched. Generalizes to a wider junction of more closely-spaced
+// crossings without a bigger constant; a genuinely large isolated interior
+// on a wide multi-lane through-road would need one, upgrade then.
 constexpr double kJunctionGapMergeM = 6.6;
 
-// ---- Arc-aware cut refinement (measurement pass 2026-09-08, user directive:
-// "leftover still exist, I suggest that as there are arcs on the inner
-// coreners of the junction, start cutting of from the poin the arc starts,
-// and if you drive through further another adjecent arc joins there we stop
-// cutting off"):
-//
-// Root cause: the fixed kJunctionCutBackoffM=2.0 m window has no notion of
-// where the ROAD_EDGE's own recorded curb geometry actually curves, so the
-// boundary it lands on is at an arbitrary distance from any real corner
-// fillet nearby -- inside it, at it, or past it, whichever the 2.0 m happens
-// to hit for that particular crossing's geometry. CORRECTED (code-review
-// finding 2026-09-08, blocking): an earlier version of this comment claimed
-// "106 checked crossing-cut boundaries... landed STRICTLY INSIDE the arc's
-// own span, never within 0.5 m of its true start/end" -- that population
-// scan is not reproducible from anything committed to this repo, and the
-// one instance that IS independently verifiable here (this fixture's own
-// lane 792 x 685 crossing) contradicts it: the pre-fix boundary at
-// arc-length 25.3276 sits 0.5052 m PAST lane 792's real R<20 run
-// (17.1136-24.8224), i.e. just OUTSIDE the fillet, not inside it. Whichever
-// side of the arc the fixed backoff happens to land on, the underlying
-// defect is the same -- a distance-based cut with no notion of curvature at
-// all -- and that is what the fix below addresses directly, not a
-// direction-specific "always lands inside" claim this file cannot
-// substantiate.
+// ---- Arc-aware cut refinement: the fixed kJunctionCutBackoffM=2.0 m
+// window has no notion of where the ROAD_EDGE's own curb geometry actually
+// curves, so the cut boundary lands at an arbitrary distance from any real
+// corner fillet nearby.
 //
 // Fix: after MergeWindows below folds nearby crossing windows together, an
 // independent per-boundary pass (SnapWindowsToArcs) searches each merged
-// window's own two boundaries, WITHIN kArcSearchMarginM of it, for a real
-// corner arc on the EDGE'S OWN polyline nearby, then (CORRECTED, code-review
-// finding 2026-09-08, blocking -- see kArcSearchMarginM's own comment)
-// extends that candidate run outward past the search margin, while
-// curvature keeps clearing kArcRadiusThresholdM, to its own true first/last
-// vertex -- kArcSearchMarginM only LOCATES the candidate, it no longer
-// bounds how far the run it belongs to is reached. The boundary then snaps
-// OUTWARD (growing the cut, never shrinking it below the existing
-// kJunctionCutBackoffM) to that true far edge -- "cut from where the arc
-// starts" "...until it straightens again" (a real recorded vertex where
-// curvature drops back to the road's own floor, not an interpolated point).
-// Snapping w.first and w.second independently is what gives "if you drive
-// through further another adjacent arc joins there we stop cutting off" for
-// free, with no cross-polyline pairing logic: each boundary looks at its OWN
-// nearby geometry only, so a window whose far side abuts a second, adjacent
-// crossing's own arc grows to meet it just the same as any other arc.
+// window's own two boundaries, within kArcSearchMarginM of it, for a real
+// corner arc on the edge's own polyline nearby, then extends that
+// candidate run outward -- while curvature keeps clearing
+// kArcRadiusThresholdM -- to its own true first/last vertex.
+// kArcSearchMarginM only LOCATES the candidate; it does not bound how far
+// the run it belongs to is reached. The boundary then snaps OUTWARD
+// (growing the cut, never shrinking it below kJunctionCutBackoffM) to that
+// true far edge: a real recorded vertex where curvature drops back to the
+// road's own floor, never interpolated. Snapping each window's two ends
+// independently is what lets an adjacent crossing's own arc "join up" for
+// free, with no cross-polyline pairing logic.
 //
-// Composition -- AUGMENTS the existing crossing-cut + gap-merge, does NOT
-// replace either: 75.2% of cut edges (measured) carry no arc at all (an
-// open-pavement crossing with no curb connecting the two roads), and
-// FindArcSpanNear returns false for every one of them, leaving that window
-// exactly as MergeWindows produced it -- the fixed-backoff mechanism is
-// still doing the right job there, unmodified. The refinement never touches
-// an edge with no cut window at all (a LEGIT, never-crossed ROAD_EDGE that
-// already renders whole, arc or not) -- it only ever adjusts a boundary
-// that ALREADY exists, and only ever grows it.
+// Composition: augments the existing crossing-cut + gap-merge, does not
+// replace either -- 75.2% of cut edges (measured) carry no arc at all, and
+// FindArcSpanNear returns false for those, leaving the window exactly as
+// MergeWindows produced it. Never touches an edge with no cut window at
+// all. See plan 2026-08-18-visual-mode-epic3.md for the full derivation.
 constexpr double kArcRadiusThresholdM = 20.0;   // see FindArcSpanNear's own
                                                  // comment for the measured
                                                  // corner-vs-floor margin.
@@ -478,60 +356,27 @@ double TurnAngleDeg(const mpviz::Vec3& A, const mpviz::Vec3& B, const mpviz::Vec
 // at least kArcMinTotalTurnDeg. On a match, `lo`/`hi` are the run's own
 // endpoint vertices' arc-length stations (real recorded points, never
 // interpolated); returns false when nothing in the search window qualifies.
+// Once a run is anchored inside the +/-kArcSearchMarginM window, it extends
+// outward vertex by vertex past the window, for as long as CircumradiusXY
+// keeps clearing kArcRadiusThresholdM, so a run's own true start/end is
+// always reached regardless of how far it lies from the fixed-backoff
+// boundary; only the turn-angle qualification has to occur inside the
+// window. A snap can therefore land farther than kJunctionGapMergeM=6.6 m
+// from its own original boundary -- fill() re-runs MergeWindows after
+// SnapWindowsToArcs for exactly this reason.
 //
-// Thresholds -- RE-MEASURED (code-review finding 2026-09-08, blocking: the
-// original population/floor scans above compared each constant against the
-// wrong population -- a per-corner or cross-population summary, not the
-// quantity the gate actually gates). Re-derived directly against the
-// per-INTERIOR-VERTEX values this code computes (stride-60 scan, 68
-// messages of /hd_map_local_elements, 2313 interior vertices of promoted
-// ROAD_EDGE geometry; run classification: 520 maximal contiguous
-// R<kArcRadiusThresholdM vertex runs, 446 of them also clearing
-// kArcMinTotalTurnDeg):
-//   kArcRadiusThresholdM = 20.0 m -- gates the per-vertex CircumradiusXY,
-//     not a per-corner summary radius. Measured: circumradius is a
-//     continuum from 2.288 m to 332.009 m, with ZERO vertices (0/2313)
-//     exactly collinear -- "every long polyline is dead straight" does not
-//     hold in this data. 1503 vertices sit under 20 m, 594 in [20,60) m,
-//     216 at/above 60 m, and 313 land in the dense [12,22] m band straddling
-//     this threshold. The largest sub-threshold vertex is 19.4259 m and the
-//     smallest supra-threshold vertex is 20.7210 m -- a 1.3 m (~6%) margin,
-//     not the "~1.6x headroom" an earlier (wrong) per-corner comparison
-//     claimed. 20.0 m is kept on that thin-but-real margin: it still
-//     separates the two populations correctly on every vertex measured.
-//   kArcMinTotalTurnDeg = 15.0 deg -- gates the accumulated |TurnAngleDeg|
-//     of a maximal R<kArcRadiusThresholdM run, not a single vertex's own
-//     kink. Measured: the largest REJECTED run (R<20 m throughout, still
-//     under 15 deg total) turns 10.58 deg; the smallest ACCEPTED
-//     (qualifying) run turns 17.05 deg -- a ~1.14x margin, not the "~5.4x"
-//     an earlier (wrong) comparison against SegSegIntersect2D's own
-//     kMinCrossingSinAngle population (a 2.8 deg lanelet-chain-node kink --
-//     a DIFFERENT gate's own adversary, not this one's) claimed. 15.0 deg
-//     is kept on that real, if narrower, margin.
-//   kArcSearchMarginM = 6.0 m -- LOCATES a candidate arc vertex to search
-//     from; it does NOT bound how far the run it belongs to actually
-//     extends (that is real curb geometry, measured separately above).
-//     CORRECTED (code-review finding 2026-09-08, blocking): an earlier
-//     version of this comment described a KNOWN CEILING here -- "the snap
-//     reaches only the reachable-within-margin vertex, not the run's true
-//     first/last one" (measured: 7/141 snaps bag-wide truncated this way,
-//     worst shortfall 5.065 m on lane 792's own 73.96 deg run, the
-//     committed fixture's only crossing) -- but that ceiling described what
-//     the CODE did, not what the surrounding comments (this block's own
-//     "does not bound how far the run... extends", the top-of-file
-//     refinement comment's "cut from where the arc starts... until it
-//     straightens again") already promised. FindArcSpanNear's `close_run`
-//     now actually does what those comments always claimed: once a run is
-//     anchored inside the +/-6.0 m window, it extends outward vertex by
-//     vertex, past the window, for as long as CircumradiusXY keeps clearing
-//     kArcRadiusThresholdM -- so a run's own true start/end is always
-//     reached regardless of how far it lies from the fixed-backoff
-//     boundary; only kArcMinTotalTurnDeg qualification still has to occur
-//     inside the window (that is what "LOCATES a candidate" means). Because
-//     a snap can now land farther than kJunctionGapMergeM=6.6 m from its own
-//     original boundary, fill() re-runs MergeWindows after SnapWindowsToArcs
-//     (see that call site's own comment) instead of relying on a
-//     never-cross-a-neighbour bound that no longer holds.
+// Thresholds, measured against a stride-60 scan of /hd_map_local_elements
+// (68 messages, 2313 interior vertices of promoted ROAD_EDGE geometry; see
+// plan 2026-08-18-visual-mode-epic3.md for the full scan):
+//   kArcRadiusThresholdM = 20.0 m -- per-vertex circumradius ranges 2.288-
+//     332.009 m with zero exactly-collinear vertices; largest sub-threshold
+//     vertex 19.4259 m, smallest supra-threshold 20.7210 m (~6% margin).
+//   kArcMinTotalTurnDeg = 15.0 deg -- gates the accumulated turn of a
+//     maximal R<20m run; largest rejected run turns 10.58 deg, smallest
+//     accepted run turns 17.05 deg (~1.14x margin).
+//   kArcSearchMarginM = 6.0 m -- only locates a candidate arc vertex to
+//     search from; does not bound how far the run it belongs to extends
+//     (that is real curb geometry, measured above).
 bool FindArcSpanNear(const std::vector<mpviz::Vec3>& pts, const std::vector<double>& cum, double b,
                      double& lo, double& hi)
 {
@@ -549,11 +394,10 @@ bool FindArcSpanNear(const std::vector<mpviz::Vec3>& pts, const std::vector<doub
         if (in_run && run_turn_deg >= kArcMinTotalTurnDeg)
         {
             // Extend the qualifying run outward past the search-window
-            // bound (kArcSearchMarginM only LOCATED this run -- see that
-            // constant's own comment) while the next vertex still clears
-            // kArcRadiusThresholdM, so a run whose own true start/end lies
-            // farther than the margin is still reached in full (code-review
-            // finding 2026-09-08, blocking).
+            // bound (kArcSearchMarginM only locates this run) while the
+            // next vertex still clears kArcRadiusThresholdM, so a run's own
+            // true start/end is reached in full even when farther than the
+            // margin.
             size_t ext_start = run_start;
             while (ext_start > 1 &&
                    CircumradiusXY(pts[ext_start - 2], pts[ext_start - 1], pts[ext_start]) <
@@ -611,21 +455,17 @@ bool FindArcSpanNear(const std::vector<mpviz::Vec3>& pts, const std::vector<doub
 }
 
 // A promoted-but-not-yet-cut ROAD_EDGE piece, queued in fill() below so
-// every promoted edge from every marker can be checked against every OTHER
-// one for the mutual-crossing cut, arc-snap, and (moved here from fill()'s
-// own body, user directive 2026-09-08 follow-up: TrimRedundantArcTails
-// below needs every OTHER piece's own points too) the redundant-arc-tail
-// trim.
+// every promoted edge from every marker can be checked against every other
+// one for the mutual-crossing cut, arc-snap, and redundant-arc-tail trim.
 struct PendingRoadEdge
 {
     std::vector<mpviz::Vec3> points;
     uint32_t lane_id;
     double last_update_sec;
-    uint8_t is_polygon;  // carried through the cut (review 2026-09-08):
-                         // unreachable via today's shipped rules (only
-                         // polyline boundaries promote), but a future
-                         // `render: polygon, kind: road_edge` row must
-                         // not silently lose the field.
+    uint8_t is_polygon;  // carried through the cut: unreachable via today's
+                         // shipped rules (only polyline boundaries
+                         // promote), but a future `render: polygon,
+                         // kind: road_edge` row must not silently lose it.
 };
 
 // Snaps each of `windows`'s own boundaries outward to the far edge of a
@@ -645,154 +485,64 @@ void SnapWindowsToArcs(const std::vector<mpviz::Vec3>& pts, const std::vector<do
     }
 }
 
-// ---- Redundant arc-tail trim (measurement pass 2026-09-08, follow-up --
-// USER CORRECTION, verbatim, to an earlier wrong "H3 large interior span"
-// diagnosis of the same complaint: "you got the leftovers wrongly! Look at
-// the right boundary of a road that has a junction with right exit, you'll
-// find the arc that goes to the right exit road but also a stray straight
-// line for couple meters continuing the boundary line, that's the unwanted
-// leftover I'm talking about"):
+// ---- Redundant arc-tail trim: the arc-bearing piece's OWN recorded tail
+// continues past its own corner arc's rejoin vertex (the same "straightens
+// again" point SnapWindowsToArcs already looks for), running the rest of
+// its length within kRoadEdgeCoincidenceThresholdM of a DIFFERENT,
+// independently-promoted ROAD_EDGE piece, before the two converge at an
+// EXACT shared vertex (two independent surveys of the same physical curb
+// past that point).
 //
-// Root cause, measured (Python re-implementation of this whole pipeline
-// against the real bag, ~/TPSProjector-fixtures/epic2_fixtures_full):
-// this is NOT a separate stray polyline -- it is the arc-bearing piece's
-// OWN recorded tail, continuing past its OWN corner arc's rejoin vertex
-// (the same "straightens again" point SnapWindowsToArcs already looks
-// for), running the whole rest of its own length within
-// kRoadEdgeCoincidenceThresholdM of a DIFFERENT, independently-promoted
-// ROAD_EDGE piece, before the two converge at an EXACT shared vertex (the
-// two boundaries are two independent surveys of the same physical curb
-// past that point). The user's screenshot corner (lane 955): 6.168 m tail,
-// 0.09-0.31 m lateral offset from lane 1320 the whole way, 0.000 m at the
-// shared final vertex.
-//
-// RE-DERIVED (code-review finding 2026-09-09, blocking): the measurement
-// above collapsed each instance to its single best frame and, worse, drove
-// the true/false split off the OLD argmin-then-test selection below --
-// which is order-dependent (see that code's own comment). Re-measured PER
-// MESSAGE, independently, over all 4029 /hd_map_local_elements messages
-// (each message opens with DELETEALL, so storage_ holds exactly one
-// message's worth -- population confirmed correct): still 19 distinct
-// (lane_id, hi_idx) arc-tail instances, but the split is **14 true / 5
-// false**, not 11/8 -- three instances the old argmin-based measurement
-// filed as "coincident-endpoint false" (lanes 644, 1305, 14605@hi=8) are
-// real duplicates: a genuine matching partner is present and satisfies
-// both conditions in every frame it appears in (lane 644's partner 553:
-// 171/171 frames; lane 1305's partner 685: 2180/2180; lane 14605@hi=8's
-// partner 371: 430/430, confirmed by direct geometry inspection -- partner
-// 371's own polyline hugs this tail at 0.064 m the whole way, while the
-// OTHER condition-(a)-tied piece the old argmin sometimes picked instead,
-// lane 386, diverges at 3.46 m -- a legitimate different connecting road,
-// not a duplicate survey). The shipped argmin-then-test code missed all
-// three in some or all of their frames purely because it tested condition
-// (b) against whichever piece argmin happened to select, never against
-// the other tied candidates. The corrected false class is 5: lanes 232
-// and 1029 (coincident endpoint, condition (b) fails against EVERY tied
-// candidate: 1.5366 / 5.3242 m) plus 3 genuinely free-floating tails with
-// no coincident endpoint at all (lanes 813, 838, 1621; nearest 3.43 m).
-//
-// Discriminator (re-derived, no ambiguous middle case across all 19): (a)
-// this piece's own last recorded vertex sits within kSharedNodeEpsM of a
-// DIFFERENT piece's own endpoint -- BY ITSELF THIS DOES NO DISCRIMINATING
-// WORK: 16 of the 19 instances (the 14 true cases AND the 2 coincident-
-// endpoint false cases, 232 and 1029) all sit at an identical 0.0000 m
-// match here; kSharedNodeEpsM's only real job is excluding the 3 genuinely
-// free-floating tails (nearest 3.43 m -- NOT 1.537 m, which is one of the
-// false cases' *penultimate* distance under condition (b), not a
-// nearest-false-match margin on this condition). (b) The vertex just
+// Discriminator (measured against all 19 distinct bag-wide instances, no
+// ambiguous middle case; see plan 2026-08-18-visual-mode-epic3.md for the
+// full derivation): (a) this piece's own last vertex sits within
+// kSharedNodeEpsM of a DIFFERENT piece's own endpoint -- this alone does no
+// discriminating work (16/19 instances, true and false alike, sit at an
+// identical 0.0000 m match here); its only real job is excluding the 3
+// genuinely free-floating tails (nearest 3.43 m). (b) The vertex just
 // before that is ALSO within kRoadEdgeCoincidenceThresholdM of that SAME
-// other piece's full polyline (true matches: 0.0055-0.8883 m -- UNCHANGED
-// by the re-derivation: lane 792 is still the worst true case, lane 412
-// still the best; nearest false match: lane 232 at 1.5366 m -- a 1.73x
-// margin, not 30x). Condition (b) alone is what actually separates the 14
-// real cases from the 5 false ones -- but MUST be tested against every
-// condition-(a)-tied candidate, not just one arbitrarily chosen "nearest"
-// one, or the tie-break itself reintroduces the exact bug this
-// re-derivation found (see TrimRedundantArcTails's own comment on the
-// order-independent fix). Both conditions together, tested existentially
-// over every candidate, fire on exactly the 14 real cases and never on
-// the 5 others.
-// Structurally cannot fire on the arc's own upstream straight approach: it
-// only ever looks at vertices AFTER the arc's OWN rejoin vertex, never
-// before it.
+// other piece's full polyline (true matches 0.0055-0.8883 m; nearest false
+// match 1.5366 m -- a 1.73x margin). Condition (b), tested existentially
+// over every condition-(a)-tied candidate (not just the nearest one -- see
+// TrimRedundantArcTails' own comment on why order-independence matters
+// here), is what actually separates the 14 real cases from the 5 false
+// ones.
 //
-// Trim point: exactly the arc's own rejoin vertex -- a real recorded
-// point, never interpolated, symmetric to SnapWindowsToArcs's own "cut
-// from where the arc starts" now applied to where it straightens back out.
+// Trim point: exactly the arc's own rejoin vertex -- a real recorded point,
+// symmetric to SnapWindowsToArcs' own "cut from where the arc starts" now
+// applied to where it straightens back out. Structurally cannot fire on the
+// arc's own upstream approach: it only looks at vertices after the arc's
+// own rejoin vertex.
 //
-// Composition: this is a SEPARATE per-piece scan of the piece's OWN
-// geometry (FindLastArcRunEnd below), not contingent on there being a
-// nearby crossing/window at all -- the confirmed real instance above (lane
-// 955) has no crossing anywhere near its own tail, so a version of this
-// mechanism keyed off an EXISTING window (this file's other three
-// mechanisms) would have missed it entirely. It only ever appends/extends
-// one more window on the tail side of an already-qualifying arc; it never
-// changes what counts as a crossing (SegSegIntersect2D untouched), never
-// re-opens the gap-merge (kJunctionGapMergeM untouched, and this window is
-// merged into place directly below, not via another MergeWindows call,
-// which would risk folding it into an unrelated nearby crossing at the 6.6
-// m gap-merge distance), and never touches a piece with no qualifying arc.
-// (a) alone has no measured separation -- every false case with a
-// coincident endpoint sits at 0.0000 m, same as the true cases; this eps
-// only excludes the 3 genuinely free-floating tails (nearest 3.43 m). The
-// real discriminator is condition (b) below (0.8883 m true max vs 1.5366 m
-// false min against kRoadEdgeCoincidenceThresholdM=1.0 m).
+// Composition: a separate per-piece scan of the piece's OWN geometry
+// (FindLastArcRunEnd below), independent of there being a nearby crossing
+// window at all. It only ever appends/extends one more window on the tail
+// side of an already-qualifying arc; never changes what counts as a
+// crossing, never re-opens the gap-merge, never touches a piece with no
+// qualifying arc.
 constexpr double kSharedNodeEpsM = 0.10;
 
-// ---- Straight-neighbour overshoot snap (code-review finding 2026-09-09,
-// blocking, re-targeting TrimRedundantArcTails at the class criterion 1 and
-// the user's own words actually describe): "the arc that goes to the right
-// exit road but also a stray straight line for couple meters continuing the
-// boundary line" is, in the finding's own verified frame (msg 452, lane 955
-// x lane 12), NOT lane 955's own tail (that tail is a duplicate of lane
-// 1320's rail and is already handled by TrimRedundantArcTails below) -- it
-// is lane 12, the THROUGH ROAD'S OWN straight boundary, sharing lane 955's
-// start node and continuing straight PAST lane 955's own corner-arc
-// departure vertex (v2) because lane 12 carries no arc of its own: nothing
-// but the fixed kJunctionCutBackoffM=2.0 m back-off decided where its
-// crossing-cut window stopped, and that fixed distance has no notion of
-// where the ADJACENT lane's curb actually starts curving away. Measured on
-// that frame: lane 12's kept head ran to (-53.56,-9.49), 3.24 m past v2 =
-// (-53.78,-6.22).
+// ---- Straight-neighbour overshoot snap: symmetric counterpart of
+// SnapWindowsToArcs above. That function snaps a window on the piece that
+// OWNS a nearby arc outward to the arc's own far edge; this one snaps a
+// window on the STRAIGHT NEIGHBOUR that shares the arc's own departure node
+// back to that same vertex, so the two meet exactly where the curb starts
+// curving away instead of at an arbitrary fixed distance
+// (kJunctionCutBackoffM has no notion of where an adjacent lane's curb
+// starts curving). GROW-ONLY: only ever pulls a boundary back toward the
+// shared node (std::min/std::max against the boundary's own already-cut
+// position), so a boundary already at or before the departure vertex is
+// left untouched.
 //
-// This is the SYMMETRIC counterpart of SnapWindowsToArcs above: that
-// function snaps a window on the piece that OWNS a nearby arc outward to
-// the arc's own far edge; this one snaps a window on the STRAIGHT
-// NEIGHBOUR that shares the arc's own departure node back to that same
-// vertex, so the two meet exactly where the curb actually starts curving
-// away instead of at an arbitrary fixed distance. GROW-ONLY, same as every
-// other refinement in this file: it only ever pulls a boundary BACK toward
-// the shared node (std::min on the near-start side, std::max on the
-// near-end side, both against the boundary's OWN already-cut position), so
-// a boundary that already sits at or before the departure vertex is left
-// untouched.
+// No new threshold: reuses kSharedNodeEpsM (does this candidate share the
+// node at all) and kArcRadiusThresholdM/kArcMinTotalTurnDeg (is that
+// neighbour actually curving away there) -- both already measured
+// elsewhere in this file for a different purpose.
 //
-// No new threshold: the two conditions this reuses (kSharedNodeEpsM just
-// above, kArcRadiusThresholdM/kArcMinTotalTurnDeg above that) are already
-// measured elsewhere in this file for a different purpose and hold up
-// unchanged here -- kSharedNodeEpsM=0.10 m (the SAME junction-node-
-// coincidence gate TrimRedundantArcTails's own condition (a) uses) decides
-// whether a candidate neighbour actually shares THIS piece's own start/end
-// node at all (a piece with no coincident neighbour is untouched, so a
-// plain open-pavement crossing with no arc anywhere nearby -- 75.2% of cut
-// edges, per SnapWindowsToArcs's own top-of-block measurement -- never
-// fires this either); kArcRadiusThresholdM=20.0 m / kArcMinTotalTurnDeg=
-// 15.0 deg (the SAME corner-vs-floor gates FindArcSpanNear/
-// FindLastArcRunEnd use) decide whether that neighbour is actually curving
-// away right there, not just running straight alongside. Because both
-// conditions are existing, independently-measured population separators
-// being reused for a new purpose rather than a new distance cutoff being
-// invented, there is no new constant here to calibrate against a fresh
-// bag-wide scan.
-//
-// Structurally self-limiting the same way TrimRedundantArcTails is: it only
-// ever tightens a window that ALREADY exists from the ordinary
-// crossing-cut (a never-crossed LEGIT edge has no window to tighten), and
-// it only tightens a boundary that is ACTUALLY past the projected departure
-// vertex (NearestStationOnPolyline's projection only ever moves the
-// boundary toward the shared node when the existing boundary sits farther
-// out -- min()/max() against the CURRENT value is what guarantees this
-// never fires backwards).
+// Self-limiting the same way TrimRedundantArcTails is: only ever tightens a
+// window that already exists from the ordinary crossing-cut, and only
+// tightens a boundary that is actually past the projected departure
+// vertex.
 bool FindArcDepartureFromEnd(const std::vector<mpviz::Vec3>& pts, bool from_back, size_t& idx)
 {
     const size_t n = pts.size();
@@ -844,14 +594,12 @@ bool FindArcDepartureFromEnd(const std::vector<mpviz::Vec3>& pts, bool from_back
 }
 
 // Searches every OTHER promoted piece for one that (a) shares `node`
-// (`self`'s own start or end vertex) at ONE of its own two endpoints, within
-// kSharedNodeEpsM, and (b) carries a corner-arc run departing from that SAME
+// (`self`'s own start or end vertex) at one of its own two endpoints, within
+// kSharedNodeEpsM, and (b) carries a corner-arc run departing from that same
 // endpoint (FindArcDepartureFromEnd above). On a match, `station_out` is
-// that departure vertex projected onto `self`'s OWN polyline
-// (NearestStationOnPolyline) -- the station `self`'s own crossing-cut
-// boundary at `node`'s end must not run past. Existential over every
-// candidate (first qualifying match wins, same "first match wins" style
-// TrimRedundantArcTails's own duplicate search already uses in this file) --
+// that departure vertex projected onto `self`'s own polyline
+// (NearestStationOnPolyline) -- the station self's own crossing-cut
+// boundary at node's end must not run past. First qualifying match wins:
 // at most one neighbour sharing a junction node is expected to carry a
 // corner arc departing from it.
 bool FindNeighborArcDepartureStation(const std::vector<PendingRoadEdge>& pieces, size_t self,
@@ -888,16 +636,13 @@ bool FindNeighborArcDepartureStation(const std::vector<PendingRoadEdge>& pieces,
 
 // Applies the snap above to `pieces[self]`'s own two OUTER window
 // boundaries only (windows.front().first, windows.back().second) -- the
-// ones adjoining `pieces[self]`'s own literal start/end vertex, i.e. the
-// only ones a shared-node neighbour's own departure vertex is relevant to.
-// A no-op when `windows` is empty (never introduces a cut on a piece the
-// ordinary crossing-cut never touched at all -- the finding's own required
-// fix scopes this to "a crossing-cut window boundary [that] leaves a
-// straight end past" the departure vertex, not a fresh cut on an uncrossed
-// edge). Merges directly into place, same reasoning as
-// TrimRedundantArcTails's own comment: tightening only the two outermost
-// boundaries can never overlap an inner window (already sorted,
-// non-overlapping) and never needs another MergeWindows pass.
+// ones adjoining pieces[self]'s own literal start/end vertex, the only ones
+// a shared-node neighbour's own departure vertex is relevant to. A no-op
+// when `windows` is empty (never introduces a cut on a piece the ordinary
+// crossing-cut never touched at all). Merges directly into place:
+// tightening only the two outermost boundaries can never overlap an inner
+// window (already sorted, non-overlapping) and never needs another
+// MergeWindows pass.
 void SnapWindowsToNeighborArcDepartures(const std::vector<PendingRoadEdge>& pieces, size_t self,
                                         const std::vector<std::vector<double>>& cum,
                                         std::vector<std::pair<double, double>>& windows)
@@ -966,12 +711,12 @@ bool FindLastArcRunEnd(const std::vector<mpviz::Vec3>& pts, size_t& hi_idx)
 // redundant-duplicate class measured above. `windows` is `pieces[self]`'s
 // own already-sorted, non-overlapping cut-window list (post arc-snap); a
 // no-op when no qualifying arc exists in this piece, or when the
-// discriminator does not fire. Ponytail: the "other" endpoint search
+// discriminator does not fire. ponytail: the "other" endpoint search
 // compares against every OTHER promoted ROAD_EDGE piece's own two literal
-// endpoints, pre-cut -- the real convergence vertex measured above is a
-// piece's own outer endpoint, never inside any of ITS OWN cut windows, so
-// this is exactly as accurate as comparing against final post-cut pieces
-// and needs no ordering dependency on when piece j's own cut runs.
+// endpoints, pre-cut -- the real convergence vertex is a piece's own outer
+// endpoint, never inside any of its own cut windows, so this is exactly as
+// accurate as comparing against final post-cut pieces and needs no
+// ordering dependency on when piece j's own cut runs.
 void TrimRedundantArcTails(const std::vector<PendingRoadEdge>& pieces, size_t self,
                            const std::vector<std::vector<double>>& cum,
                            std::vector<std::pair<double, double>>& windows)
@@ -983,25 +728,18 @@ void TrimRedundantArcTails(const std::vector<PendingRoadEdge>& pieces, size_t se
     const mpviz::Vec3& far = pts.back();
     const mpviz::Vec3& penult = pts[pts.size() - 2];
 
-    // ORDER-INDEPENDENT discriminator (code-review finding 2026-09-09,
-    // blocking -- see this function's own top-of-block comment and
-    // kSharedNodeEpsM's comment for the re-derivation this replaces): fires
-    // when ANY other piece satisfies both conditions, not only when the
-    // single argmin-by-condition-(a) piece happens to. The old code picked
-    // ONE `nearest_other` by condition (a) alone and tested condition (b)
-    // against only that piece -- but 16 of the 19 measured bag-wide
-    // instances sit at an IDENTICAL condition-(a) match (0.0000 m, up to 4
-    // pieces tied inside kSharedNodeEpsM), so which candidate counted as
-    // "nearest" was decided by iteration order over `pieces` (itself walked
-    // from storage_, an unordered_map) and by which pieces the message's own
-    // ~50 m rolling window happened to carry that frame -- not by geometry.
-    // A message-order shuffle could silently flip the same corner between
-    // trimmed and un-trimmed frame to frame at this row's 2 Hz map rate.
-    // Testing every condition-(a)-tied candidate and firing on any qualifying
-    // match is deterministic given the SET of pieces present (order-
-    // independent) and is the geometrically correct question anyway: "is
-    // this tail a duplicate of SOME other independently-promoted piece",
-    // an existential test, not "is it a duplicate of whichever piece is
+    // Order-independent by design: fires when ANY other piece satisfies both
+    // conditions, not just a single nearest-by-condition-(a) pick. 16 of the
+    // 19 measured bag-wide instances tie at an identical 0.0000 m
+    // condition-(a) match (up to 4 pieces tied inside kSharedNodeEpsM), so
+    // picking "the nearest" would be decided by iteration order over
+    // `pieces` (walked from storage_, an unordered_map) rather than by
+    // geometry -- a message-order shuffle could silently flip the same
+    // corner between trimmed and un-trimmed frame to frame. Testing every
+    // condition-(a)-tied candidate and firing on any qualifying match is
+    // deterministic given the SET of pieces present, and is the
+    // geometrically correct question: "is this tail a duplicate of SOME
+    // other independently-promoted piece", not "of whichever piece is
     // closest by endpoint alone".
     bool duplicate_found = false;
     for (size_t j = 0; j < pieces.size() && !duplicate_found; ++j)
@@ -1153,15 +891,13 @@ std::vector<std::vector<mpviz::Vec3>> ClipAgainstJunctions(
 // 2D (x,y) segment-segment intersection, (p1,p2) x (p3,p4). On a genuine
 // crossing, writes the parametric position along EACH segment (0..1) to
 // t/u respectively and returns true. Rejects near-parallel AND
-// near-antiparallel segment pairs, not just exactly-parallel ones: the
+// near-antiparallel segment pairs (kMinCrossingSinAngle = sin(15 deg)): the
 // cross-product denom is proportional to sin(angle between the two
-// directions), and sin(180 deg - x) == sin(x), so normalizing it by the
-// two segment lengths and gating on kMinCrossingSinAngle catches a
-// lanelet-chain node's fraction-of-a-degree kink the same way it catches
-// two open-road ROAD_EDGE rails running alongside each other -- see this
-// function's own callers' comment for the fixture classification
-// (175.2-179.8 deg / 0.5-2.8 deg abutments vs. genuine crossings) that
-// motivated widening this past the original exact-parallel-only guard.
+// directions), and sin(180 deg - x) == sin(x), so a lanelet-chain node's
+// fraction-of-a-degree kink (abutting at 175-180 deg or 0-3 deg, measured
+// against hd_map_local_elements_0.yaml) is rejected the same way two
+// open-road rails running alongside each other are. See plan
+// 2026-08-18-visual-mode-epic3.md for the fixture classification.
 constexpr double kMinCrossingSinAngle = 0.25881904510252074;  // sin(15 deg)
 
 bool SegSegIntersect2D(const mpviz::Vec3& p1, const mpviz::Vec3& p2, const mpviz::Vec3& p3,
@@ -1270,12 +1006,11 @@ void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, doubl
         return;  // whole message dropped; previously-stored elements stay
     }
 
-    // VM-034 review fix: stamp topic-liveness BEFORE the rate gate below,
-    // not after it. fill() stamps every MapElement::last_update_sec from
-    // this, not from last_rebuild_sec_/stats_.last_msg_sec (both set only
-    // past the gate) -- see hd_map.hpp's Staleness comment for why: a
-    // throttled row must stay opaque between accepted rebuilds as long as
-    // it keeps receiving, not blink dark on the rebuild cadence.
+    // Stamps topic-liveness BEFORE the rate gate below, not after it: fill()
+    // stamps every MapElement::last_update_sec from this, not from
+    // last_rebuild_sec_/stats_.last_msg_sec (both set only past the gate) --
+    // see hd_map.hpp's Staleness comment for why a throttled row must stay
+    // opaque between accepted rebuilds as long as it keeps receiving.
     last_recv_sec_ = sim_time_sec;
 
     // Rate limit: gates REBUILDS, not receipt. First-ever call always
@@ -1336,8 +1071,8 @@ void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, doubl
             tf2::Quaternion q(m.pose.orientation.x, m.pose.orientation.y, m.pose.orientation.z,
                               m.pose.orientation.w);
             // Zero/degenerate quaternion -> identity, matching rviz; tf2
-            // would NaN every point and silently void the whole marker
-            // (review finding 2026-08-20).
+            // would otherwise NaN every point and silently void the whole
+            // marker.
             if (q.length2() < 1e-12) q = tf2::Quaternion::getIdentity();
             marker_tf = tf2::Transform(
                 q, tf2::Vector3(m.pose.position.x, m.pose.position.y, m.pose.position.z));
@@ -1370,13 +1105,12 @@ void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, doubl
 
         const uint8_t is_polygon = (verdict == NsRender::kPolygon) ? 1 : 0;
 
-        // Crosswalk-hatch fix (Epic 3 Task 1 / VM-036, decision #2): a
-        // closed polygon marker arrives with a duplicate closing vertex
-        // (point[0] == point[n-1], verified against the real recorded
-        // fixture's crosswalk_8043) -- mirrors collision.cpp's own
-        // trailing-duplicate dedupe verbatim (kDedupEpsM = 1e-6). Without
-        // this, build_crosswalk_hatch()'s n==4 guard never fires on real
-        // data (every recorded crosswalk arrives with 5 points).
+        // Crosswalk-hatch fix: a closed polygon marker arrives with a
+        // duplicate closing vertex (point[0] == point[n-1], e.g. the real
+        // recorded fixture's crosswalk_8043) -- mirrors collision.cpp's own
+        // trailing-duplicate dedupe (kDedupEpsM = 1e-6). Without this,
+        // build_crosswalk_hatch()'s n==4 guard never fires on real data
+        // (every recorded crosswalk arrives with 5 points).
         if (is_polygon && pts.size() >= 2)
         {
             constexpr double kDedupEpsM = 1e-6;
@@ -1386,11 +1120,10 @@ void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, doubl
             if (std::sqrt(dx * dx + dy * dy + dz * dz) < kDedupEpsM) pts.pop_back();
         }
 
-        // kind/lane_id extraction (Epic 3 Task 1 / VM-036, decision #4):
-        // `kind` is the matched NsRule's own field (no match -> OTHER,
-        // same "no rule -> default" shape ns_default already has for
-        // render verdicts); `lane_id` is the marker's own `id` for the
-        // lane-paired kinds, 0 otherwise.
+        // kind/lane_id extraction: `kind` is the matched NsRule's own field
+        // (no match -> OTHER, same "no rule -> default" shape ns_default
+        // already has for render verdicts); `lane_id` is the marker's own
+        // `id` for the lane-paired kinds, 0 otherwise.
         const mpviz::MapKind kind = rule != nullptr ? rule->kind : mpviz::MapKind::OTHER;
         const uint32_t lane_id = KindCarriesLaneId(kind) ? static_cast<uint32_t>(m.id) : 0;
 
@@ -1449,17 +1182,15 @@ void HdMapAdapter::fill(micropilot::visualization_app::SceneAssembly& out) const
     // fill still pairs by the ORIGINAL LEFT_BOUNDARY/RIGHT_BOUNDARY kind,
     // regardless of what kind the emitted element ends up carrying.
     //
-    // Junction cleanup (user directive 2026-09-08): a promoted ROAD_EDGE
-    // element is NOT pushed straight to `out` here -- it is clipped against
-    // `junction_polys` (a no-op when there are none) and queued in
-    // `road_edge_pieces` so every promoted edge, from every marker, can be
-    // checked against every OTHER one for the mutual-crossing cut below.
-    // LEFT_/RIGHT_BOUNDARY gets the SAME polygon clip, pushed straight to
-    // `out` (never queued -- boundaries never get the crossing cut), only
-    // when `row_.junction_interior_boundaries` is false; the default (true)
-    // leaves boundaries alone entirely, matching the refinement's own
-    // "enable them by default". (PendingRoadEdge itself now lives at file
-    // scope, above SnapWindowsToArcs -- TrimRedundantArcTails needs it too.)
+    // Junction cleanup: a promoted ROAD_EDGE element is NOT pushed straight
+    // to `out` here -- it is clipped against `junction_polys` (a no-op when
+    // there are none) and queued in `road_edge_pieces` so every promoted
+    // edge, from every marker, can be checked against every OTHER one for
+    // the mutual-crossing cut below. LEFT_/RIGHT_BOUNDARY gets the SAME
+    // polygon clip, pushed straight to `out` (never queued -- boundaries
+    // never get the crossing cut), only when
+    // `row_.junction_interior_boundaries` is false; the default (true)
+    // leaves boundaries alone entirely.
     std::vector<PendingRoadEdge> road_edge_pieces;
 
     for (const auto& [key, pieces] : storage_)
@@ -1471,10 +1202,10 @@ void HdMapAdapter::fill(micropilot::visualization_app::SceneAssembly& out) const
             e.is_polygon = elem.is_polygon;
             e.kind = elem.kind;
             e.lane_id = elem.lane_id;
-            // VM-034 review fix: stamped from last_recv_sec_ (topic
-            // liveness), not stats_.last_msg_sec, offset into the last
-            // kMapFadeWindowSec of this row's own timeout_sec (see
-            // kMapFadeWindowSec's own comment above and hd_map.hpp).
+            // Stamped from last_recv_sec_ (topic liveness), not
+            // stats_.last_msg_sec, offset into the last kMapFadeWindowSec of
+            // this row's own timeout_sec (see kMapFadeWindowSec's own
+            // comment above and hd_map.hpp).
             e.last_update_sec = last_recv_sec_ + (row_.timeout_sec - kMapFadeWindowSec);
             if (e.kind == mpviz::MapKind::LEFT_BOUNDARY &&
                 IsRoadEdge(elem.lane_id, elem.points, right_by_lane))
@@ -1516,14 +1247,14 @@ void HdMapAdapter::fill(micropilot::visualization_app::SceneAssembly& out) const
         }
     }
 
-    // Mutual-crossing cut (user directive 2026-09-08, decision #2): any two
-    // ROAD_EDGE pieces from DIFFERENT lane_ids that cross in 2D each get a
-    // kJunctionCutBackoffM window removed around their own crossing arc-
-    // length station -- same-lane pairs are skipped (two pieces of the
-    // SAME original polyline, split apart by the polygon clip above, are
-    // never meant to cut each other). Every crossing a piece is party to
-    // adds one raw window; MergeWindows folds overlapping ones from
-    // several crossings on the same piece before ApplyCutWindows runs.
+    // Mutual-crossing cut: any two ROAD_EDGE pieces from DIFFERENT lane_ids
+    // that cross in 2D each get a kJunctionCutBackoffM window removed
+    // around their own crossing arc-length station -- same-lane pairs are
+    // skipped (two pieces of the SAME original polyline, split apart by the
+    // polygon clip above, are never meant to cut each other). Every
+    // crossing a piece is party to adds one raw window; MergeWindows folds
+    // overlapping ones from several crossings on the same piece before
+    // ApplyCutWindows runs.
     std::vector<std::vector<double>> cum(road_edge_pieces.size());
     for (size_t i = 0; i < road_edge_pieces.size(); ++i)
     {
@@ -1554,48 +1285,39 @@ void HdMapAdapter::fill(micropilot::visualization_app::SceneAssembly& out) const
     for (size_t i = 0; i < road_edge_pieces.size(); ++i)
     {
         MergeWindows(windows[i]);
-        // Arc-aware refinement (user directive 2026-09-08, follow-up -- see
-        // that constant block's own comment above): snaps each merged
-        // window's own boundaries outward to a real corner arc found nearby
-        // on THIS edge's own polyline. Runs after MergeWindows (so it only
-        // ever refines an already-decided set of cut regions, never changes
-        // which crossings get cut) and before ApplyCutWindows (so the
-        // extended boundaries are what actually gets removed). CORRECTED
-        // (code-review finding 2026-09-08, blocking): FindArcSpanNear now
-        // extends a qualifying run past kArcSearchMarginM out to its own
-        // true start/end (see that function's own comment), so a snap is no
-        // longer bounded to the +/-6.0 m search window -- the
-        // ascending-by-start argument this comment used to make (every
-        // snap stays under kJunctionGapMergeM=6.6 m of its own original
-        // boundary) no longer holds, and a window's boundary CAN now cross
-        // a neighbour's original boundary. Re-running MergeWindows below
-        // (it sorts + merges) is what restores both invariants
-        // ApplyCutWindows relies on, rather than re-deriving a bound on how
-        // far a single snap can reach.
+        // Arc-aware refinement (see that constant block's own comment
+        // above): snaps each merged window's own boundaries outward to a
+        // real corner arc found nearby on THIS edge's own polyline. Runs
+        // after MergeWindows (so it only ever refines an already-decided
+        // set of cut regions, never changes which crossings get cut) and
+        // before ApplyCutWindows (so the extended boundaries are what
+        // actually gets removed). A snap can land farther than
+        // kJunctionGapMergeM=6.6 m from its own original boundary (see
+        // FindArcSpanNear's own comment), so re-running MergeWindows below
+        // (it sorts + merges) is what restores the sorted/non-overlapping
+        // invariant ApplyCutWindows relies on.
         SnapWindowsToArcs(road_edge_pieces[i].points, cum[i], windows[i]);
         MergeWindows(windows[i]);
-        // Straight-neighbour overshoot snap (code-review finding
-        // 2026-09-09, blocking -- see SnapWindowsToNeighborArcDepartures's
-        // own top-of-block comment): the symmetric counterpart of
-        // SnapWindowsToArcs just above -- that one snaps THIS piece's own
-        // window outward to an arc it OWNS; this one snaps it back to a
-        // NEIGHBOUR piece's own arc-departure vertex when this piece is the
-        // straight edge running past it. Runs after this loop's own
-        // MergeWindows (only ever tightens an already-decided cut region,
-        // same as every mechanism below it) and only ever touches the two
+        // Straight-neighbour overshoot snap (see
+        // SnapWindowsToNeighborArcDepartures's own top-of-block comment):
+        // the symmetric counterpart of SnapWindowsToArcs just above -- that
+        // one snaps THIS piece's own window outward to an arc it OWNS; this
+        // one snaps it back to a NEIGHBOUR piece's own arc-departure vertex
+        // when this piece is the straight edge running past it. Runs after
+        // this loop's own MergeWindows (only ever tightens an
+        // already-decided cut region) and only ever touches the two
         // outermost boundaries in place -- see that function's own comment
         // for why no further MergeWindows call is needed.
         SnapWindowsToNeighborArcDepartures(road_edge_pieces, i, cum, windows[i]);
-        // Redundant arc-tail trim (user correction 2026-09-08, follow-up --
-        // see TrimRedundantArcTails's own top-of-block comment): appends one
-        // more trim window on THIS piece's own tail past its last corner
-        // arc's rejoin vertex, when that tail duplicates another
-        // independently-promoted ROAD_EDGE piece. Runs after this loop's own
-        // MergeWindows (so it only ever adds to an already-decided set of
-        // cut regions) and merges directly into `windows[i]` in place
-        // (never via another MergeWindows call -- see that function's own
-        // comment for why), so ApplyCutWindows below sees the trim already
-        // folded in.
+        // Redundant arc-tail trim (see TrimRedundantArcTails's own
+        // top-of-block comment): appends one more trim window on THIS
+        // piece's own tail past its last corner arc's rejoin vertex, when
+        // that tail duplicates another independently-promoted ROAD_EDGE
+        // piece. Runs after this loop's own MergeWindows (so it only ever
+        // adds to an already-decided set of cut regions) and merges
+        // directly into `windows[i]` in place (never via another
+        // MergeWindows call -- see that function's own comment for why), so
+        // ApplyCutWindows below sees the trim already folded in.
         TrimRedundantArcTails(road_edge_pieces, i, cum, windows[i]);
         for (auto& piece : ApplyCutWindows(road_edge_pieces[i].points, cum[i], windows[i]))
         {
@@ -1611,11 +1333,11 @@ void HdMapAdapter::fill(micropilot::visualization_app::SceneAssembly& out) const
         }
     }
 
-    // Road-surface fill (decision #5): pair every lane_id present on BOTH
-    // rails; a lane_id on only one rail (0 of 16 in the committed fixture,
-    // but not provably impossible on other bags) emits nothing for it --
-    // silently dropped, not malformed (spec §9's "missing data renders
-    // nothing"). road_surface_points_ holds the resampled buffers these
+    // Road-surface fill: pair every lane_id present on BOTH rails; a
+    // lane_id on only one rail (0 of 16 in the committed fixture, but not
+    // provably impossible on other bags) emits nothing for it -- silently
+    // dropped, not malformed (spec §9's "missing data renders nothing").
+    // road_surface_points_ holds the resampled buffers these
     // synthesized elements point into; cleared and rebuilt at the top of
     // every fill() call, so it stays alive exactly as long as this fill()
     // call's own out.map_elements does.
@@ -1640,9 +1362,9 @@ void HdMapAdapter::fill(micropilot::visualization_app::SceneAssembly& out) const
         e.is_polygon = 0;
         e.kind = mpviz::MapKind::ROAD_SURFACE;
         e.lane_id = lane_id;
-        // VM-034 review fix: same offset stamp as every other emitted
-        // element above -- the synthesized ROAD_SURFACE element must fade
-        // (and ramp-out-before-cutoff) too.
+        // Same offset stamp as every other emitted element above -- the
+        // synthesized ROAD_SURFACE element must fade (and
+        // ramp-out-before-cutoff) too.
         e.last_update_sec = last_recv_sec_ + (row_.timeout_sec - kMapFadeWindowSec);
         out.map_elements.push_back(e);
     }

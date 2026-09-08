@@ -39,9 +39,9 @@ rows:
   # changing its render: to polyline; no rebuild needed. Note it needs its own
   # rule -- "centerline_" is a PREFIX of "centerline_arrows_0", so listing
   # only centerline_ would admit every arrow marker.
-  # centerline_ itself is ALSO dropped (user directive 2026-09-08): hidden by
-  # default -- these are the logical lane-center lines the HD map records,
-  # not painted road markings, and the road already reads correctly without
+  # centerline_ itself is ALSO dropped: hidden by default -- these are the
+  # logical lane-center lines the HD map records, not painted road markings,
+  # and the road already reads correctly without
   # them (solid yellow ROAD_EDGE outer lines, dashed white interior
   # boundaries, filled road surface). Re-enable by restoring
   # `render: polyline, kind: centerline` on this rule (`kind` cannot be set
@@ -57,67 +57,35 @@ rows:
   # is a painted stop bar, not a crosswalk box; again it needs its own rule
   # because crosswalk_ is a prefix of it.
   #
-  # Junction cleanup (user directive 2026-09-08 + same-day refinement):
-  # "cut [the crisscrossing ROAD_EDGE lines] off in [a junction] and
-  # continue along the road after the junction." This row has no `junction`
-  # namespace rule -- this feed never carries JUNCTION geometry (verified) --
-  # so the cut mechanism that applies here is the mutual-crossing cut
-  # (hd_map.cpp): any two ROAD_EDGE polylines from different lane_ids that
-  # cross in 2D at a real angle get trimmed back from the crossing point --
-  # SegSegIntersect2D rejects near-parallel AND near-antiparallel segment
-  # pairs (not just exactly-parallel ones; see its own comment), so a
-  # chained lanelet boundary's ordinary survey kink at a shared node is
-  # never mistaken for a crossing, and this never touches open-road
-  # geometry. `junction_interior_boundaries` (row key, default true, not
+  # Junction cleanup: this row has no `junction` namespace rule -- this feed
+  # never carries JUNCTION geometry -- so the cut mechanism that applies
+  # here is the mutual-crossing cut (hd_map.cpp): any two ROAD_EDGE
+  # polylines from different lane_ids that cross in 2D at a real angle get
+  # trimmed back from the crossing point. SegSegIntersect2D rejects
+  # near-parallel AND near-antiparallel segment pairs (not just
+  # exactly-parallel ones; see its own comment), so a chained lanelet
+  # boundary's ordinary survey kink at a shared node is never mistaken for a
+  # crossing. `junction_interior_boundaries` (row key, default true, not
   # written here) keeps interior LEFT_/RIGHT_BOUNDARY dashed separators
-  # visible through a junction box by default (the refinement's own "enable
-  # them by default") -- set it to false to drop them there too, though it
-  # is INERT on this row specifically: with no JUNCTION polygon to clip
-  # against, there is nothing for it to do (see ProfileRow's own comment).
-  # Follow-up 2026-09-08 (user report: "yellow boundaries left overs (check
-  # junction corners) that looks messy"): a real multi-lane junction crosses
-  # one ROAD_EDGE polyline SEVERAL times close together, not once -- each
-  # crossing's own trim window now merges with a neighbour's when the gap
-  # between them is under kJunctionGapMergeM=6.6 m (measured against this
-  # topic's own recorded feed, dense-scanned across its whole recorded life:
-  # leftover slivers ran 0.02-6.30 m, real road never shorter than 7.03 m
-  # adjacent to a cut), instead of leaving that small gap as its own tiny
-  # rendered "leftover" piece.
-  # Follow-up 2026-09-08, round 2 (user report: "leftover still exist, I
-  # suggest that as there are arcs on the inner coreners of the junction,
-  # start cutting of from the poin the arc starts, and if you drive through
-  # further another adjecent arc joins there we stop cutting off"): the
-  # fixed 2.0 m back-off has no notion of the recorded curb geometry, so it
-  # lands at an arbitrary distance from any real corner fillet nearby --
-  # inside it, at it, or past it, whichever the 2.0 m happens to hit
-  # (CORRECTED, code-review finding 2026-09-08, blocking: a retracted
-  # "106/106 checked boundaries landed STRICTLY inside it, never within
-  # 0.5 m of its true start/end" claim is not reproducible from anything
-  # committed here; the one independently verifiable instance -- this
-  # fixture's own lane 792 crossing -- lands 0.5052 m PAST lane 792's own
-  # R<20 m run, stations 17.1136-24.8224, i.e. just outside the fillet, not
-  # inside it). A new per-boundary pass (SnapWindowsToArcs, hd_map.cpp)
-  # runs after the gap-merge above and snaps each cut-window boundary
-  # outward to a real corner arc's own far edge: +/-6.0 m only LOCATES the
-  # candidate on the SAME edge's own polyline, then the run is followed
-  # outward to its own true start/end while curvature keeps clearing 20 m
-  # -- augmenting, not replacing, the mechanisms above (75% of cut edges,
-  # measured, carry no arc at all, and are untouched). See hd_map.cpp's own
-  # kArcRadiusThresholdM/
-  # kArcMinTotalTurnDeg/kArcSearchMarginM comments for the measured
-  # thresholds and this epic's plan doc for the full dated follow-up.
-  # Follow-up 2026-09-08, USER CORRECTION ("you got the leftovers wrongly!
-  # ...you'll find the arc that goes to the right exit road but also a
-  # stray straight line for couple meters continuing the boundary line"):
-  # the arc renders correctly, but its OWN recorded tail past its own rejoin
-  # vertex sometimes duplicates a DIFFERENT, independently-promoted
-  # ROAD_EDGE piece for the rest of its length (measured: 14/19 bag-wide
-  # corner instances, re-derived per-message 2026-09-09 -- superseded a
-  # stale 9/15 figure; the discriminator was also made order-independent,
-  # see hd_map.cpp's own comment). New pass `TrimRedundantArcTails`
-  # (hd_map.cpp) trims that tail back to the arc's own rejoin vertex when it
-  # does; see that function's own comment for the measured discriminator
-  # and this epic's plan doc for the full dated follow-up.
+  # visible through a junction box by default -- set it to false to drop
+  # them there too, though it is INERT on this row specifically: with no
+  # JUNCTION polygon to clip against, there is nothing for it to do (see
+  # ProfileRow's own comment).
+  #
+  # Three refinements on top of the base cut (all in hd_map.cpp -- see that
+  # file's own comments for the measured thresholds and plan
+  # 2026-08-18-visual-mode-epic3.md for the full derivations):
+  #   - gap-merge: neighbouring crossing windows merge when under
+  #     kJunctionGapMergeM=6.6 m apart, instead of leaving the small gap as
+  #     its own tiny rendered leftover.
+  #   - arc-snap (SnapWindowsToArcs): each cut-window boundary snaps outward
+  #     to a real corner arc's own far edge when one is found nearby on the
+  #     same edge's own polyline, instead of stopping at an arbitrary fixed
+  #     distance mid-curve.
+  #   - redundant-tail trim (TrimRedundantArcTails): an arc-bearing edge's
+  #     own tail past its rejoin vertex is trimmed back when it duplicates a
+  #     different, independently-promoted ROAD_EDGE piece for the rest of
+  #     its length.
   - {topic: /hd_map_local_elements, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 2.0,
      ns_default: drop,
@@ -145,13 +113,9 @@ rows:
   # check -- flip transient_local: true here IF the publisher is latched; if
   # it is genuinely VOLATILE, the node must be up before the publisher.
   # Junction cleanup: same as the local row above -- no `junction` rule, so
-  # only the mutual-crossing cut applies; `junction_interior_boundaries`
-  # (default true, not written) is likewise inert here. Same 2026-09-08
-  # gap-merge follow-up applies (kJunctionGapMergeM=6.6 m) -- see the local
-  # row's own comment for the measured bounds. Same round-2 arc-snap
-  # follow-up applies too (SnapWindowsToArcs) -- see the local row's own
-  # comment. Same 2026-09-08 redundant-arc-tail-trim follow-up applies too
-  # (TrimRedundantArcTails) -- see the local row's own comment.
+  # only the mutual-crossing cut (plus its gap-merge/arc-snap/redundant-tail
+  # refinements) applies; `junction_interior_boundaries` (default true, not
+  # written) is likewise inert here. See the local row's own comment.
   - {topic: /hd_map_global_elements, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 0.5,
      ns_default: drop,
@@ -261,12 +225,11 @@ rows:
   # and every test in this epic still passes, because the Task 8 E2E's own
   # rclpy publisher is RELIABLE. `ros2 topic info -v /sim/ground_truth/boxes`
   # (or grep the bag metadata) before changing it.
-  # DISABLED BY DEFAULT (user report 2026-08-20): ground truth includes the
-  # EGO'S OWN box -- at base_link (0,0), i.e. exactly ON the robot proxy,
-  # redrawn at ~9 Hz against the 30 Hz camera = a flickering box around the
-  # ego ("visually so inconvenient and feels wrong"). All 29 boxes share ONE
-  # namespace (gt_boxes), so no rule can drop just the ego's. Debug scenery:
-  # uncomment to overlay sim ground truth. The Task 8 parity E2E no longer
+  # DISABLED BY DEFAULT: ground truth includes the EGO'S OWN box -- at
+  # base_link (0,0), i.e. exactly ON the robot proxy, redrawn at ~9 Hz
+  # against the 30 Hz camera = a flickering box around the ego. All 29 boxes
+  # share ONE namespace (gt_boxes), so no rule can drop just the ego's.
+  # Debug scenery: uncomment to overlay sim ground truth. The Task 8 parity E2E no longer
   # depends on this row -- it ADDS its own copy of it to a temp profile
   # (test_extra_topic_parity.py), which is the purer one-YAML-row story.
   # NOTE 2 above (best_effort is LOAD-BEARING) still applies on re-enable.

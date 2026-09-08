@@ -32,10 +32,10 @@ rows:
   # crosswalk_stopline_ is a real map element and is KEPT, as a polyline -- it
   # is a painted stop bar, not a crosswalk box; again it needs its own rule
   # because crosswalk_ is a prefix of it.
-  # centerline_ is dropped (user directive 2026-09-08): hidden by default --
-  # see urban_profile.yaml's matching comment for the full rationale and the
-  # re-enable steps (same `render: polyline, kind: centerline` restore;
-  # `kind` cannot be set while `render: drop`).
+  # centerline_ is dropped: hidden by default -- see urban_profile.yaml's
+  # matching comment for the full rationale and the re-enable steps (same
+  # `render: polyline, kind: centerline` restore; `kind` cannot be set while
+  # `render: drop`).
   - {topic: /hd_map_local_elements, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 2.0,
      ns_default: drop,
@@ -163,10 +163,10 @@ rows:
   # and every test in this epic still passes, because the Task 8 E2E's own
   # rclpy publisher is RELIABLE. `ros2 topic info -v /sim/ground_truth/boxes`
   # (or grep the bag metadata) before changing it.
-  # DISABLED BY DEFAULT (user report 2026-08-20): the ego's own gt box sits
-  # at base_link (0,0) = ON the robot proxy and flickers -- see
-  # urban_profile.yaml's identical block for the full story. Uncomment to
-  # overlay sim ground truth (NOTE 2 / best_effort still applies).
+  # DISABLED BY DEFAULT: the ego's own gt box sits at base_link (0,0) = ON
+  # the robot proxy and flickers -- see urban_profile.yaml's identical block
+  # for the full story. Uncomment to overlay sim ground truth (NOTE 2 /
+  # best_effort still applies).
   # - {topic: /sim/ground_truth/boxes, type: visualization_msgs/msg/MarkerArray,
   #    adapter: generic, role: neutral, best_effort: true}
 
@@ -204,7 +204,7 @@ rows:
   # (b) "crosswalks" (plural) was not matched by the original "crosswalk_"
 #     prefix ('s' != '_'); the shipped rule is now the bare prefix
 #     "crosswalk", which matches BOTH the urban publisher's crosswalk_<id>
-#     and this publisher's plural form (marker convention, user 2026-08-20)
+#     and this publisher's plural form,
   #     so is_polygon would never be set and §7 crosswalk hatching would never
   #     render on the only full-extent map source -- the exact defect Task 2's
   #     urban-only assertion cannot see;
@@ -213,48 +213,24 @@ rows:
   #     Uncomment the generic row below -- a second adapter on the same topic
   #     is legal (the duplicate check is on topic+adapter) and renders them as
   #     what they are.
-  # (d) centerline_ is dropped (user directive 2026-09-08): hidden by
-  #     default on this row too -- same rationale/re-enable steps as
-  #     urban_profile.yaml's matching comment.
+  # (d) centerline_ is dropped: hidden by default on this row too -- same
+  #     rationale/re-enable steps as urban_profile.yaml's matching comment.
   #
-  # Junction cleanup (user directive 2026-09-08 + same-day refinement): this
-  # is the one row anywhere that DOES carry `junction`-namespace geometry
-  # (9 markers, closed-ring boxes -- see the namespace count above), so both
-  # cut mechanisms are live here: ROAD_EDGE polylines get clipped at a
-  # JUNCTION polygon's boundary (stopping/resuming, not just trimmed by a
-  # fixed back-off) AND get the mutual-crossing cut for anything the
-  # polygon clip doesn't cover. `junction_interior_boundaries` (row key,
-  # default true, not written) keeps interior LEFT_/RIGHT_BOUNDARY dashed
-  # separators visible through a junction box -- set it to false to drop
-  # their in-box segments too.
-  # Follow-up 2026-09-08 (user report: "yellow boundaries left overs (check
-  # junction corners) that looks messy"): the mutual-crossing cut's own
-  # windows now merge across a small gap (kJunctionGapMergeM=6.6 m,
-  # measured against /hd_map_local_elements's recorded feed -- see
-  # urban_profile.yaml's matching comment for the bounds) instead of
-  # leaving it as its own tiny rendered leftover piece; the JUNCTION-polygon
-  # clip above is unchanged by this follow-up.
-  # Follow-up 2026-09-08, round 2 (user report: "leftover still exist, I
-  # suggest that as there are arcs on the inner coreners of the junction,
-  # start cutting of from the poin the arc starts, and if you drive through
-  # further another adjecent arc joins there we stop cutting off"): the
-  # mutual-crossing cut's fixed 2.0 m back-off was landing mid-curve on a
-  # real corner fillet instead of at the fillet's own edge (measured
-  # against /hd_map_local_elements's recorded feed -- see that row's own
-  # comment for the full bounds). A new per-boundary pass
-  # (SnapWindowsToArcs, hd_map.cpp) snaps each cut-window boundary outward
-  # to a real corner arc's own far edge found nearby on the same edge's own
-  # polyline; the JUNCTION-polygon clip above is unaffected (it only ever
-  # applies to ROAD_EDGE/boundary polylines against the JUNCTION ring, a
-  # different mechanism from the arc-length window this refinement adjusts).
-  # Follow-up 2026-09-08, USER CORRECTION ("...you'll find the arc that goes
-  # to the right exit road but also a stray straight line for couple meters
-  # continuing the boundary line"): a promoted edge's own tail past its own
-  # arc's rejoin vertex sometimes duplicates a DIFFERENT promoted piece for
-  # the rest of its length -- new pass `TrimRedundantArcTails` (hd_map.cpp)
-  # trims it back to that rejoin vertex when it does; see
-  # urban_profile.yaml's matching row comment and this epic's plan doc for
-  # the full measurement.
+  # Junction cleanup: this is the one row anywhere that DOES carry
+  # `junction`-namespace geometry (9 markers, closed-ring boxes -- see the
+  # namespace count above), so both cut mechanisms are live here: ROAD_EDGE
+  # polylines get clipped at a JUNCTION polygon's boundary
+  # (stopping/resuming, not just trimmed by a fixed back-off) AND get the
+  # mutual-crossing cut for anything the polygon clip doesn't cover.
+  # `junction_interior_boundaries` (row key, default true, not written)
+  # keeps interior LEFT_/RIGHT_BOUNDARY dashed separators visible through a
+  # junction box -- set it to false to drop their in-box segments too.
+  #
+  # The mutual-crossing cut's own gap-merge/arc-snap/redundant-tail
+  # refinements (all in hd_map.cpp -- see urban_profile.yaml's matching
+  # comment and plan 2026-08-18-visual-mode-epic3.md for the measured
+  # bounds) apply here too; the JUNCTION-polygon clip above is a separate
+  # mechanism and is unaffected by any of them.
   - {topic: /sim/hd_map/markers, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, transient_local: true,
      ns_default: drop,

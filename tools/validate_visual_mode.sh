@@ -113,103 +113,76 @@
 #               default lane-fill margins widened (0.3/0.8/1.3 for
 #               GLOBAL/LOCAL/BEHAVIOR) so each stacked ribbon shows a 0.5m
 #               rim per side. Theme-only change; nothing new to sample.
-#   2026-09-08  User directive (junction-interior cleanup): ROAD_EDGE lines
-#               crisscrossing a road junction ("so messy... it would be much
-#               nicer if we cut them off... and continue along the road after
-#               the junction") are now CUT at the junction -- clipped against
+#   2026-09-08  Junction-interior cleanup: ROAD_EDGE lines crisscrossing a
+#               road junction are now CUT at the junction -- clipped against
 #               a MapKind::JUNCTION polygon where the feed has one
 #               (/sim/hd_map/markers), and/or trimmed back 2.0 m either side
 #               of any two ROAD_EDGE lines' own 2D crossing point everywhere
 #               else (covers urban's local/global feed, which has no junction
 #               geometry at all). Interior LEFT_/RIGHT_BOUNDARY dashed
 #               separators are NEVER cut this way and stay visible through a
-#               junction by default (refinement: "only allow the lanes
-#               separating dashed lines... enable them by default") -- new
-#               profile row key `junction_interior_boundaries: false` drops
-#               them there too, on a row with junction polygon data. No new
-#               topic/param -- same /hd_map_local_elements rate check already
-#               covers the one input this depends on. Visually checkable in
-#               mode 3: yellow ROAD_EDGE lines no longer run through the
-#               middle of a junction box: they stop, the interior reads as
-#               dashed white separators only (or clean at the drop-flag), and
-#               the outer edges resume past it.
-#   2026-09-08  User report ("you can spot yellow boundaries left overs
-#               (check junction corners) that looks messy"): a real
-#               multi-lane junction crosses one ROAD_EDGE line SEVERAL times
-#               close together, and each crossing's own 2.0 m trim window was
-#               independent -- a small real gap between two nearby crossings
-#               survived as its own tiny leftover yellow sliver (measured
-#               against the recorded bag, dense-scanned across its whole
-#               recorded life: 0.02-6.30 m). Fix: those windows now MERGE
-#               across a gap under kJunctionGapMergeM=6.6 m (below
-#               the shortest real road ever observed adjacent to a cut,
-#               7.03 m) instead of leaving the gap rendered. Same
+#               junction by default -- new profile row key
+#               `junction_interior_boundaries: false` drops them there too,
+#               on a row with junction polygon data. No new topic/param --
+#               same /hd_map_local_elements rate check already covers the
+#               one input this depends on. Visually checkable in mode 3:
+#               yellow ROAD_EDGE lines no longer run through the middle of a
+#               junction box: they stop, the interior reads as dashed white
+#               separators only (or clean at the drop-flag), and the outer
+#               edges resume past it.
+#   2026-09-08  Junction gap-merge: a multi-lane junction crosses one
+#               ROAD_EDGE line several times close together, and each
+#               crossing's own 2.0 m trim window was independent -- a small
+#               real gap between two nearby crossings survived as its own
+#               tiny leftover yellow sliver (measured 0.02-6.30 m against the
+#               recorded bag). Fix: those windows now MERGE across a gap
+#               under kJunctionGapMergeM=6.6 m (below the shortest real road
+#               ever observed adjacent to a cut, 7.03 m). Same
 #               /hd_map_local_elements input, no new topic/param. Visually
 #               checkable in mode 3: junction corners no longer show small
 #               isolated yellow fragments between the outer cut and the
 #               interior.
-#   2026-09-08  User directive, round 2 ("leftover still exist, I suggest
-#               that as there are arcs on the inner coreners of the
-#               junction, start cutting of from the poin the arc starts,
-#               and if you drive through further another adjecent arc joins
-#               there we stop cutting off"): the fixed 2.0 m trim window had
-#               no notion of the recorded curb geometry, so it lands at an
-#               arbitrary distance from any real corner fillet, not at the
-#               fillet's own edge -- a blunt, oblique-looking stub, not a
-#               clean corner. Fix: each trim window's own boundary now snaps
-#               OUTWARD to a real corner arc's own far recorded vertex when
-#               one is found nearby on that same edge (radius < 20 m, turn
-#               >= 15 deg, candidate LOCATED within 6 m of the boundary --
-#               all measured against the recorded bag; a plain open-pavement
-#               crossing with no arc is untouched). Same /hd_map_local_elements
-#               input, no new topic/param. Visually checkable in mode 3:
-#               yellow ROAD_EDGE lines through a junction corner now stop
-#               cleanly where the curb was already curving away, instead of
-#               cutting off at an oblique angle mid-curve.
-#   2026-09-08  Code-review fix, round 2 (3 blocking findings; ceiling
-#               removal): the 6 m figure above only LOCATES the candidate
-#               arc vertex -- it does not bound how far the run it belongs
-#               to is reached. A located run is now followed outward,
-#               vertex by vertex, to its own true first/last vertex for as
-#               long as curvature keeps clearing radius < 20 m. Same
-#               /hd_map_local_elements input, no new topic/param. Visually
-#               checkable in mode 3: a junction-corner cut now always
-#               resumes exactly at the curb's own true corner vertex, never
-#               short of it the way the old margin-bounded snap could land
-#               (up to ~5 m short on this fixture's own crossing).
-#   2026-09-08  USER CORRECTION ("you got the leftovers wrongly! Look at the
-#               right boundary of a road that has a junction with right
-#               exit, you'll find the arc that goes to the right exit road
-#               but also a stray straight line for couple meters continuing
-#               the boundary line, that's the unwanted leftover I'm talking
-#               about"): measured, against the real bag, that this is NOT a
-#               separate stray polyline -- it is the arc-bearing edge's OWN
-#               recorded tail, continuing past its OWN arc's rejoin vertex,
-#               running the whole rest of its length within 1.0 m of a
-#               DIFFERENT, independently-promoted ROAD_EDGE piece, until the
-#               two converge at an exact shared vertex (14/19 bag-wide
-#               corner instances measured this way, re-derived per-message
-#               over the full bag, order-independent discriminator; the
-#               other 5 are 2 coincident-endpoint-but-not-coincident-path
-#               cases (1.5366 / 5.3242 m) plus 3 free-floating tails with no
-#               shared vertex at all (nearest 3.4289 m), correctly left
-#               alone). Fix: new `TrimRedundantArcTails` pass trims the tail
-#               back to the arc's own rejoin vertex whenever this
-#               discriminator fires. Same /hd_map_local_elements input, no
-#               new topic/param. Visually checkable in mode 3: a junction
-#               corner's arc still renders in full, but the thin duplicate
-#               line running alongside the exit road's own edge just past it
-#               is gone.
-#   2026-09-09  Code-review fix, round 3 (blocking): the trim above removes
-#               a redundant DUPLICATE tail, but the user's own words --
-#               "the arc that goes to the right exit road but also a stray
-#               straight line for couple meters continuing the boundary
-#               line" -- describe a DIFFERENT edge: the through road's own
-#               straight boundary, sharing the connector's start node, whose
-#               fixed-backoff crossing-cut has no notion of where the
-#               connector's own corner curves away and so dead-ends past it
-#               (measured instance: msg 452, lane 955 x lane 12, kept head
-#               3.24 m past the corner's own departure vertex). Fix: new
+#   2026-09-08  Arc-aware cut refinement, round 1: the fixed 2.0 m trim
+#               window had no notion of the recorded curb geometry, so it
+#               lands at an arbitrary distance from any real corner fillet,
+#               not at the fillet's own edge. Fix: each trim window's own
+#               boundary now snaps OUTWARD to a real corner arc's own far
+#               recorded vertex when one is found nearby on that same edge
+#               (radius < 20 m, turn >= 15 deg, candidate located within 6 m
+#               of the boundary -- a plain open-pavement crossing with no arc
+#               is untouched). Same /hd_map_local_elements input, no new
+#               topic/param. Visually checkable in mode 3: yellow ROAD_EDGE
+#               lines through a junction corner now stop cleanly where the
+#               curb was already curving away, instead of cutting off at an
+#               oblique angle mid-curve.
+#   2026-09-08  Code-review fix, round 2 (ceiling removal): the 6 m figure
+#               above only LOCATES the candidate arc vertex -- it does not
+#               bound how far the run it belongs to is reached. A located
+#               run is now followed outward, vertex by vertex, to its own
+#               true first/last vertex for as long as curvature keeps
+#               clearing radius < 20 m. Same /hd_map_local_elements input, no
+#               new topic/param. Visually checkable in mode 3: a
+#               junction-corner cut now always resumes exactly at the curb's
+#               own true corner vertex, never short of it the way the old
+#               margin-bounded snap could land.
+#   2026-09-08  Redundant arc-tail trim: a promoted edge's own recorded tail,
+#               continuing past its own arc's rejoin vertex, sometimes
+#               duplicates a DIFFERENT, independently-promoted ROAD_EDGE
+#               piece for the rest of its length until the two converge at
+#               an exact shared vertex (14 of 19 bag-wide corner instances
+#               measured this way, order-independent discriminator). Fix:
+#               new `TrimRedundantArcTails` pass trims the tail back to the
+#               arc's own rejoin vertex whenever this discriminator fires.
+#               Same /hd_map_local_elements input, no new topic/param.
+#               Visually checkable in mode 3: a junction corner's arc still
+#               renders in full, but the thin duplicate line running
+#               alongside the exit road's own edge just past it is gone.
+#   2026-09-09  Code-review fix, round 3: the trim above removes a redundant
+#               duplicate tail, but a distinct leftover is a DIFFERENT edge:
+#               the through road's own straight boundary, sharing the
+#               connector's start node, whose fixed-backoff crossing-cut has
+#               no notion of where the connector's own corner curves away and
+#               so dead-ends past it. Fix: new
 #               `SnapWindowsToNeighborArcDepartures` pass, the symmetric
 #               counterpart of the round-1 arc-snap -- it snaps a STRAIGHT
 #               neighbour's own window boundary back to a shared-node arc's
