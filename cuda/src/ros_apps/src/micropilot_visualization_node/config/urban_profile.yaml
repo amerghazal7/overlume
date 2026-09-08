@@ -83,6 +83,29 @@ rows:
   # leftover slivers ran 0.02-6.30 m, real road never shorter than 7.03 m
   # adjacent to a cut), instead of leaving that small gap as its own tiny
   # rendered "leftover" piece.
+  # Follow-up 2026-09-08, round 2 (user report: "leftover still exist, I
+  # suggest that as there are arcs on the inner coreners of the junction,
+  # start cutting of from the poin the arc starts, and if you drive through
+  # further another adjecent arc joins there we stop cutting off"): the
+  # fixed 2.0 m back-off has no notion of the recorded curb geometry, so it
+  # lands at an arbitrary distance from any real corner fillet nearby --
+  # inside it, at it, or past it, whichever the 2.0 m happens to hit
+  # (CORRECTED, code-review finding 2026-09-08, blocking: a retracted
+  # "106/106 checked boundaries landed STRICTLY inside it, never within
+  # 0.5 m of its true start/end" claim is not reproducible from anything
+  # committed here; the one independently verifiable instance -- this
+  # fixture's own lane 792 crossing -- lands 0.5052 m PAST lane 792's own
+  # R<20 m run, stations 17.1136-24.8224, i.e. just outside the fillet, not
+  # inside it). A new per-boundary pass (SnapWindowsToArcs, hd_map.cpp)
+  # runs after the gap-merge above and snaps each cut-window boundary
+  # outward to a real corner arc's own far edge: +/-6.0 m only LOCATES the
+  # candidate on the SAME edge's own polyline, then the run is followed
+  # outward to its own true start/end while curvature keeps clearing 20 m
+  # -- augmenting, not replacing, the mechanisms above (75% of cut edges,
+  # measured, carry no arc at all, and are untouched). See hd_map.cpp's own
+  # kArcRadiusThresholdM/
+  # kArcMinTotalTurnDeg/kArcSearchMarginM comments for the measured
+  # thresholds and this epic's plan doc for the full dated follow-up.
   - {topic: /hd_map_local_elements, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 2.0,
      ns_default: drop,
@@ -113,7 +136,9 @@ rows:
   # only the mutual-crossing cut applies; `junction_interior_boundaries`
   # (default true, not written) is likewise inert here. Same 2026-09-08
   # gap-merge follow-up applies (kJunctionGapMergeM=6.6 m) -- see the local
-  # row's own comment for the measured bounds.
+  # row's own comment for the measured bounds. Same round-2 arc-snap
+  # follow-up applies too (SnapWindowsToArcs) -- see the local row's own
+  # comment.
   - {topic: /hd_map_global_elements, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 0.5,
      ns_default: drop,

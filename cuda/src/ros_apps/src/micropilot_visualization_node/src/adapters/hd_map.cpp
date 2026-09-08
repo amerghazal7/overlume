@@ -344,6 +344,249 @@ constexpr double kJunctionCutBackoffM = 2.0;
 // through-road) is out of scope for both approaches.
 constexpr double kJunctionGapMergeM = 6.6;
 
+// ---- Arc-aware cut refinement (measurement pass 2026-09-08, user directive:
+// "leftover still exist, I suggest that as there are arcs on the inner
+// coreners of the junction, start cutting of from the poin the arc starts,
+// and if you drive through further another adjecent arc joins there we stop
+// cutting off"):
+//
+// Root cause: the fixed kJunctionCutBackoffM=2.0 m window has no notion of
+// where the ROAD_EDGE's own recorded curb geometry actually curves, so the
+// boundary it lands on is at an arbitrary distance from any real corner
+// fillet nearby -- inside it, at it, or past it, whichever the 2.0 m happens
+// to hit for that particular crossing's geometry. CORRECTED (code-review
+// finding 2026-09-08, blocking): an earlier version of this comment claimed
+// "106 checked crossing-cut boundaries... landed STRICTLY INSIDE the arc's
+// own span, never within 0.5 m of its true start/end" -- that population
+// scan is not reproducible from anything committed to this repo, and the
+// one instance that IS independently verifiable here (this fixture's own
+// lane 792 x 685 crossing) contradicts it: the pre-fix boundary at
+// arc-length 25.3276 sits 0.5052 m PAST lane 792's real R<20 run
+// (17.1136-24.8224), i.e. just OUTSIDE the fillet, not inside it. Whichever
+// side of the arc the fixed backoff happens to land on, the underlying
+// defect is the same -- a distance-based cut with no notion of curvature at
+// all -- and that is what the fix below addresses directly, not a
+// direction-specific "always lands inside" claim this file cannot
+// substantiate.
+//
+// Fix: after MergeWindows below folds nearby crossing windows together, an
+// independent per-boundary pass (SnapWindowsToArcs) searches each merged
+// window's own two boundaries, WITHIN kArcSearchMarginM of it, for a real
+// corner arc on the EDGE'S OWN polyline nearby, then (CORRECTED, code-review
+// finding 2026-09-08, blocking -- see kArcSearchMarginM's own comment)
+// extends that candidate run outward past the search margin, while
+// curvature keeps clearing kArcRadiusThresholdM, to its own true first/last
+// vertex -- kArcSearchMarginM only LOCATES the candidate, it no longer
+// bounds how far the run it belongs to is reached. The boundary then snaps
+// OUTWARD (growing the cut, never shrinking it below the existing
+// kJunctionCutBackoffM) to that true far edge -- "cut from where the arc
+// starts" "...until it straightens again" (a real recorded vertex where
+// curvature drops back to the road's own floor, not an interpolated point).
+// Snapping w.first and w.second independently is what gives "if you drive
+// through further another adjacent arc joins there we stop cutting off" for
+// free, with no cross-polyline pairing logic: each boundary looks at its OWN
+// nearby geometry only, so a window whose far side abuts a second, adjacent
+// crossing's own arc grows to meet it just the same as any other arc.
+//
+// Composition -- AUGMENTS the existing crossing-cut + gap-merge, does NOT
+// replace either: 75.2% of cut edges (measured) carry no arc at all (an
+// open-pavement crossing with no curb connecting the two roads), and
+// FindArcSpanNear returns false for every one of them, leaving that window
+// exactly as MergeWindows produced it -- the fixed-backoff mechanism is
+// still doing the right job there, unmodified. The refinement never touches
+// an edge with no cut window at all (a LEGIT, never-crossed ROAD_EDGE that
+// already renders whole, arc or not) -- it only ever adjusts a boundary
+// that ALREADY exists, and only ever grows it.
+constexpr double kArcRadiusThresholdM = 20.0;   // see FindArcSpanNear's own
+                                                 // comment for the measured
+                                                 // corner-vs-floor margin.
+constexpr double kArcMinTotalTurnDeg = 15.0;    // ditto.
+constexpr double kArcSearchMarginM = 6.0;       // ditto.
+
+// Circumradius of the 2D (x,y) triangle (A,B,C) -- the library's own
+// road-plane is flat, same "ignore z" choice every other 2D helper in this
+// file already makes (PointInPolygonEvenOdd, SegSegIntersect2D). Returns
+// +inf for (near-)collinear points: a straight run has no meaningful
+// circumradius, and "infinite" correctly never clears
+// kArcRadiusThresholdM, so a dead-straight stretch never counts as an arc.
+double CircumradiusXY(const mpviz::Vec3& A, const mpviz::Vec3& B, const mpviz::Vec3& C)
+{
+    const double abx = B.x - A.x, aby = B.y - A.y;
+    const double acx = C.x - A.x, acy = C.y - A.y;
+    const double cross2 = std::abs(abx * acy - aby * acx);  // 2x triangle area
+    if (cross2 < 1e-9) return std::numeric_limits<double>::infinity();
+    const double a = std::hypot(C.x - B.x, C.y - B.y);
+    const double b = std::hypot(C.x - A.x, C.y - A.y);
+    const double c = std::hypot(B.x - A.x, B.y - A.y);
+    return (a * b * c) / (2.0 * cross2);  // R = abc / (4*Area) = abc / (2*cross2)
+}
+
+// Turn angle (degrees, always >= 0) at vertex B between the incoming
+// (A->B) and outgoing (B->C) directions.
+double TurnAngleDeg(const mpviz::Vec3& A, const mpviz::Vec3& B, const mpviz::Vec3& C)
+{
+    const double d1x = B.x - A.x, d1y = B.y - A.y;
+    const double d2x = C.x - B.x, d2y = C.y - B.y;
+    return std::abs(std::atan2(d1x * d2y - d1y * d2x, d1x * d2x + d1y * d2y)) * 180.0 / M_PI;
+}
+
+// Searches `pts`'s own recorded vertices whose arc-length station (`cum`)
+// falls within [b - kArcSearchMarginM, b + kArcSearchMarginM] for the
+// longest contiguous run of INTERIOR vertices (index 1..size-2, each needs
+// both neighbours to define curvature) whose own CircumradiusXY is under
+// kArcRadiusThresholdM AND whose accumulated |TurnAngleDeg| over the run is
+// at least kArcMinTotalTurnDeg. On a match, `lo`/`hi` are the run's own
+// endpoint vertices' arc-length stations (real recorded points, never
+// interpolated); returns false when nothing in the search window qualifies.
+//
+// Thresholds -- RE-MEASURED (code-review finding 2026-09-08, blocking: the
+// original population/floor scans above compared each constant against the
+// wrong population -- a per-corner or cross-population summary, not the
+// quantity the gate actually gates). Re-derived directly against the
+// per-INTERIOR-VERTEX values this code computes (stride-60 scan, 68
+// messages of /hd_map_local_elements, 2313 interior vertices of promoted
+// ROAD_EDGE geometry; run classification: 520 maximal contiguous
+// R<kArcRadiusThresholdM vertex runs, 446 of them also clearing
+// kArcMinTotalTurnDeg):
+//   kArcRadiusThresholdM = 20.0 m -- gates the per-vertex CircumradiusXY,
+//     not a per-corner summary radius. Measured: circumradius is a
+//     continuum from 2.288 m to 332.009 m, with ZERO vertices (0/2313)
+//     exactly collinear -- "every long polyline is dead straight" does not
+//     hold in this data. 1503 vertices sit under 20 m, 594 in [20,60) m,
+//     216 at/above 60 m, and 313 land in the dense [12,22] m band straddling
+//     this threshold. The largest sub-threshold vertex is 19.4259 m and the
+//     smallest supra-threshold vertex is 20.7210 m -- a 1.3 m (~6%) margin,
+//     not the "~1.6x headroom" an earlier (wrong) per-corner comparison
+//     claimed. 20.0 m is kept on that thin-but-real margin: it still
+//     separates the two populations correctly on every vertex measured.
+//   kArcMinTotalTurnDeg = 15.0 deg -- gates the accumulated |TurnAngleDeg|
+//     of a maximal R<kArcRadiusThresholdM run, not a single vertex's own
+//     kink. Measured: the largest REJECTED run (R<20 m throughout, still
+//     under 15 deg total) turns 10.58 deg; the smallest ACCEPTED
+//     (qualifying) run turns 17.05 deg -- a ~1.14x margin, not the "~5.4x"
+//     an earlier (wrong) comparison against SegSegIntersect2D's own
+//     kMinCrossingSinAngle population (a 2.8 deg lanelet-chain-node kink --
+//     a DIFFERENT gate's own adversary, not this one's) claimed. 15.0 deg
+//     is kept on that real, if narrower, margin.
+//   kArcSearchMarginM = 6.0 m -- LOCATES a candidate arc vertex to search
+//     from; it does NOT bound how far the run it belongs to actually
+//     extends (that is real curb geometry, measured separately above).
+//     CORRECTED (code-review finding 2026-09-08, blocking): an earlier
+//     version of this comment described a KNOWN CEILING here -- "the snap
+//     reaches only the reachable-within-margin vertex, not the run's true
+//     first/last one" (measured: 7/141 snaps bag-wide truncated this way,
+//     worst shortfall 5.065 m on lane 792's own 73.96 deg run, the
+//     committed fixture's only crossing) -- but that ceiling described what
+//     the CODE did, not what the surrounding comments (this block's own
+//     "does not bound how far the run... extends", the top-of-file
+//     refinement comment's "cut from where the arc starts... until it
+//     straightens again") already promised. FindArcSpanNear's `close_run`
+//     now actually does what those comments always claimed: once a run is
+//     anchored inside the +/-6.0 m window, it extends outward vertex by
+//     vertex, past the window, for as long as CircumradiusXY keeps clearing
+//     kArcRadiusThresholdM -- so a run's own true start/end is always
+//     reached regardless of how far it lies from the fixed-backoff
+//     boundary; only kArcMinTotalTurnDeg qualification still has to occur
+//     inside the window (that is what "LOCATES a candidate" means). Because
+//     a snap can now land farther than kJunctionGapMergeM=6.6 m from its own
+//     original boundary, fill() re-runs MergeWindows after SnapWindowsToArcs
+//     (see that call site's own comment) instead of relying on a
+//     never-cross-a-neighbour bound that no longer holds.
+bool FindArcSpanNear(const std::vector<mpviz::Vec3>& pts, const std::vector<double>& cum, double b,
+                     double& lo, double& hi)
+{
+    if (pts.size() < 3) return false;
+    const double lo_bound = b - kArcSearchMarginM;
+    const double hi_bound = b + kArcSearchMarginM;
+
+    bool best_found = false;
+    double best_lo = 0.0, best_hi = 0.0;
+    bool in_run = false;
+    size_t run_start = 0;
+    double run_turn_deg = 0.0;
+
+    auto close_run = [&](size_t run_end_vertex) {
+        if (in_run && run_turn_deg >= kArcMinTotalTurnDeg)
+        {
+            // Extend the qualifying run outward past the search-window
+            // bound (kArcSearchMarginM only LOCATED this run -- see that
+            // constant's own comment) while the next vertex still clears
+            // kArcRadiusThresholdM, so a run whose own true start/end lies
+            // farther than the margin is still reached in full (code-review
+            // finding 2026-09-08, blocking).
+            size_t ext_start = run_start;
+            while (ext_start > 1 &&
+                   CircumradiusXY(pts[ext_start - 2], pts[ext_start - 1], pts[ext_start]) <
+                       kArcRadiusThresholdM)
+            {
+                --ext_start;
+            }
+            size_t ext_end = run_end_vertex;
+            while (ext_end + 2 < pts.size() &&
+                   CircumradiusXY(pts[ext_end], pts[ext_end + 1], pts[ext_end + 2]) <
+                       kArcRadiusThresholdM)
+            {
+                ++ext_end;
+            }
+            const double r_lo = cum[ext_start], r_hi = cum[ext_end];
+            if (!best_found || (r_hi - r_lo) > (best_hi - best_lo))
+            {
+                best_lo = r_lo;
+                best_hi = r_hi;
+                best_found = true;
+            }
+        }
+        in_run = false;
+        run_turn_deg = 0.0;
+    };
+
+    for (size_t i = 1; i + 1 < pts.size(); ++i)
+    {
+        const bool in_window = cum[i] >= lo_bound && cum[i] <= hi_bound;
+        const bool is_arc_vertex =
+            in_window && CircumradiusXY(pts[i - 1], pts[i], pts[i + 1]) < kArcRadiusThresholdM;
+        if (is_arc_vertex)
+        {
+            if (!in_run)
+            {
+                in_run = true;
+                run_start = i;
+                run_turn_deg = 0.0;
+            }
+            run_turn_deg += TurnAngleDeg(pts[i - 1], pts[i], pts[i + 1]);
+        }
+        else
+        {
+            close_run(i - 1);
+        }
+    }
+    close_run(pts.size() - 2);
+
+    if (best_found)
+    {
+        lo = best_lo;
+        hi = best_hi;
+    }
+    return best_found;
+}
+
+// Snaps each of `windows`'s own boundaries outward to the far edge of a
+// real corner arc found near it (FindArcSpanNear above), independently per
+// boundary -- see this refinement's own top-of-block comment for the
+// mechanism and composition decision. min()/max() below are what make this
+// GROW-ONLY: a boundary with no qualifying arc nearby, or one that already
+// sits at or beyond the arc's own far edge, is left untouched.
+void SnapWindowsToArcs(const std::vector<mpviz::Vec3>& pts, const std::vector<double>& cum,
+                       std::vector<std::pair<double, double>>& windows)
+{
+    for (auto& w : windows)
+    {
+        double lo = 0.0, hi = 0.0;
+        if (FindArcSpanNear(pts, cum, w.first, lo, hi)) w.first = std::min(w.first, lo);
+        if (FindArcSpanNear(pts, cum, w.second, lo, hi)) w.second = std::max(w.second, hi);
+    }
+}
+
 // Mirrors map_elements.cpp's own IsBoundaryKind() (library-side, not
 // reachable from this node-side translation unit) -- same two kinds, same
 // meaning: an interior lane separator, never the road's own outer edge.
@@ -866,6 +1109,26 @@ void HdMapAdapter::fill(micropilot::visualization_app::SceneAssembly& out) const
     }
     for (size_t i = 0; i < road_edge_pieces.size(); ++i)
     {
+        MergeWindows(windows[i]);
+        // Arc-aware refinement (user directive 2026-09-08, follow-up -- see
+        // that constant block's own comment above): snaps each merged
+        // window's own boundaries outward to a real corner arc found nearby
+        // on THIS edge's own polyline. Runs after MergeWindows (so it only
+        // ever refines an already-decided set of cut regions, never changes
+        // which crossings get cut) and before ApplyCutWindows (so the
+        // extended boundaries are what actually gets removed). CORRECTED
+        // (code-review finding 2026-09-08, blocking): FindArcSpanNear now
+        // extends a qualifying run past kArcSearchMarginM out to its own
+        // true start/end (see that function's own comment), so a snap is no
+        // longer bounded to the +/-6.0 m search window -- the
+        // ascending-by-start argument this comment used to make (every
+        // snap stays under kJunctionGapMergeM=6.6 m of its own original
+        // boundary) no longer holds, and a window's boundary CAN now cross
+        // a neighbour's original boundary. Re-running MergeWindows below
+        // (it sorts + merges) is what restores both invariants
+        // ApplyCutWindows relies on, rather than re-deriving a bound on how
+        // far a single snap can reach.
+        SnapWindowsToArcs(road_edge_pieces[i].points, cum[i], windows[i]);
         MergeWindows(windows[i]);
         for (auto& piece : ApplyCutWindows(road_edge_pieces[i].points, cum[i], windows[i]))
         {
