@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Transform.h>
@@ -50,46 +51,45 @@ bool MarkerPoseHasNan(const geometry_msgs::msg::Pose& p)
            std::isnan(p.orientation.z) || std::isnan(p.orientation.w);
 }
 
-// Dashed centerlines (user directive 2026-08-20: undifferentiated lane
-// paint reads as "a repeated mess"). Node-side only -- MapElement is
-// frozen at {points, point_count, is_polygon}, so dashing has to happen
-// as pure geometry before a marker's points ever become a MapElement.
-// Fixed pattern; promote to YAML knobs the day someone actually asks for
-// a different rhythm.
-constexpr double kDashLenM = 1.5;
-constexpr double kGapLenM = 1.5;
-constexpr double kMinDashLenM = 0.25;  // shorter trailing dash -> dropped
+// Road-surface fill (Epic 3 Task 1 / VM-036, decision #5): the number of
+// stations both boundary rails are resampled to, by normalized arc length,
+// before being zipped into a triangle strip library-side. Fixed; ROAD_
+// SURFACE's point_count is always 2*kRoadFillSamples.
+constexpr uint32_t kRoadFillSamples = 16;
 
-double Dist(const mpviz::Vec3& a, const mpviz::Vec3& b)
+// Resamples `pts` to exactly `n_stations` points, evenly spaced by
+// NORMALIZED arc length (station k is at s = k/(n_stations-1) * total arc
+// length) -- extracted from the pre-Epic3 dash-chopper's own point_at()
+// lambda (the arc-length-walk technique is what's reused here, not the
+// dash-specific caller, which is gone -- dashing moved renderer-side, see
+// map_elements.cpp). Two rails of a lane are NOT guaranteed to carry the
+// same point count on real data (verified: lane 955 is 8/9, lane 813 is
+// 10/11 in the committed fixture) -- resampling both to the same fixed
+// station count is what lets the library zip them into a strip without
+// ever indexing past either rail's own point array. Returns empty for
+// fewer than 2 input points or n_stations == 0 (malformed guard, mirrors
+// every other "not enough data" path in this file).
+std::vector<mpviz::Vec3> ResampleByArcLength(const std::vector<mpviz::Vec3>& pts,
+                                              uint32_t n_stations)
 {
-    const double dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
-    return std::sqrt(dx * dx + dy * dy + dz * dz);
-}
-
-// Splits one polyline into its kept dash runs by arc length, alternating
-// kDashLenM-long "keep" windows with kGapLenM-long gaps starting at s=0.
-// Cut points are interpolated exactly (a dash boundary rarely lands on a
-// vertex); any ORIGINAL vertex strictly inside a kept window is preserved
-// too, so a dash on a curved centerline still follows the curve instead of
-// chording straight across it. Worked example (10 m polyline, 1.5/1.5):
-// dashes at [0,1.5],[3,4.5],[6,7.5],[9,10] -- 4 runs, the last only 1.0 m
-// (kept: 1.0 >= kMinDashLenM). Empty input, a zero-length polyline, or a
-// trailing run shorter than kMinDashLenM yields fewer runs (never a
-// zero-length MapElement).
-std::vector<std::vector<mpviz::Vec3>> ChopIntoDashes(const std::vector<mpviz::Vec3>& pts)
-{
-    std::vector<std::vector<mpviz::Vec3>> out;
-    if (pts.size() < 2) return out;
+    std::vector<mpviz::Vec3> out;
+    if (pts.size() < 2 || n_stations == 0) return out;
 
     std::vector<double> cum(pts.size(), 0.0);
-    for (size_t i = 1; i < pts.size(); ++i) cum[i] = cum[i - 1] + Dist(pts[i - 1], pts[i]);
+    for (size_t i = 1; i < pts.size(); ++i)
+    {
+        const double dx = pts[i].x - pts[i - 1].x, dy = pts[i].y - pts[i - 1].y,
+                     dz = pts[i].z - pts[i - 1].z;
+        cum[i] = cum[i - 1] + std::sqrt(dx * dx + dy * dy + dz * dz);
+    }
     const double total_len = cum.back();
-    if (total_len <= 0.0) return out;
 
-    const auto point_at = [&](double s) -> mpviz::Vec3 {
-        s = std::clamp(s, 0.0, total_len);
-        // First cumulative-length entry >= s -- cum is sorted ascending by
-        // construction, so std::lower_bound is exact, not a heuristic.
+    out.reserve(n_stations);
+    for (uint32_t k = 0; k < n_stations; ++k)
+    {
+        const double s = (n_stations == 1)
+                             ? 0.0
+                             : total_len * static_cast<double>(k) / static_cast<double>(n_stations - 1);
         size_t i = static_cast<size_t>(std::lower_bound(cum.begin(), cum.end(), s) - cum.begin());
         if (i == 0) i = 1;
         if (i >= pts.size()) i = pts.size() - 1;
@@ -97,25 +97,96 @@ std::vector<std::vector<mpviz::Vec3>> ChopIntoDashes(const std::vector<mpviz::Ve
         const double t = seg_len > 0.0 ? (s - cum[i - 1]) / seg_len : 0.0;
         const auto& a = pts[i - 1];
         const auto& b = pts[i];
-        return mpviz::Vec3{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t};
-    };
-
-    constexpr double kPeriod = kDashLenM + kGapLenM;
-    for (double s0 = 0.0; s0 < total_len; s0 += kPeriod)
-    {
-        const double s1 = std::min(s0 + kDashLenM, total_len);
-        if (s1 - s0 < kMinDashLenM) continue;  // trailing partial dash, too short to keep
-
-        std::vector<mpviz::Vec3> dash;
-        dash.push_back(point_at(s0));
-        for (size_t i = 0; i < pts.size(); ++i)
-        {
-            if (cum[i] > s0 && cum[i] < s1) dash.push_back(pts[i]);
-        }
-        dash.push_back(point_at(s1));
-        out.push_back(std::move(dash));
+        out.push_back(mpviz::Vec3{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t,
+                                   a.z + (b.z - a.z) * t});
     }
     return out;
+}
+
+// Kinds that carry a lane_id (the marker's own `id`, per decision #4) --
+// crosswalk/stopline/junction/other are not lane-paired. ROAD_EDGE carries
+// one because fill()'s promotion pass (below) relabels a LEFT_/RIGHT_
+// BOUNDARY in place, keeping its lane_id -- the kind IS emitted today; what
+// never produces it is an ingest-time namespace rule.
+bool KindCarriesLaneId(mpviz::MapKind kind)
+{
+    return kind == mpviz::MapKind::CENTERLINE || kind == mpviz::MapKind::LEFT_BOUNDARY ||
+           kind == mpviz::MapKind::RIGHT_BOUNDARY || kind == mpviz::MapKind::ROAD_EDGE;
+}
+
+// Road-edge detection (Epic 3 Task 1 / VM-036, user directive 2026-09-08):
+// "the boundary of the road (most left and most right lines) should not be
+// dashed and should be colored differently, usually yellow." ROAD_EDGE was
+// reserved (Task 1) but had no producer until now. Detection: a LEFT_
+// BOUNDARY/RIGHT_BOUNDARY element promotes to ROAD_EDGE when NO OTHER
+// lane's OPPOSITE-side boundary sits within kRoadEdgeCoincidenceThresholdM
+// of it -- an interior divider between two adjacent lanes has its own
+// near-duplicate polyline recorded on the neighbour's opposite side (the
+// SAME painted line, surveyed twice); a lane on the road's outer edge does
+// not.
+//
+// Threshold, MEASURED against the committed hd_map_local_elements_0.yaml
+// fixture (not guessed): sampling each boundary's own two endpoints + its
+// midpoint, and taking the minimum point-to-polyline distance to every
+// OTHER lane's opposite-side boundary, the fixture's 16 real adjacent-lane
+// pairs land at 0.00-0.20 m (Epic 2's own prior measurement called this
+// "centimeters," and this fixture confirms it -- several pairs are exact
+// floating-point duplicates, the survey recorded the same line twice). The
+// NEXT-nearest case that is NOT a shared line sits at 1.7955 m (left_
+// boundary_1453 vs. its closest non-twin, right_boundary_838) with the bulk
+// of true non-adjacent lanes at 3.1-3.7 m (roughly one full lane width
+// away). kRoadEdgeCoincidenceThresholdM = 1.0 m sits in the gap between
+// 0.1983 m (the largest genuine twin separation) and 1.7955 m (the nearest
+// genuine non-twin) -- real headroom on both sides, not a round-number
+// guess. On this fixture the result is 15 of the 32 boundary elements
+// promoted to ROAD_EDGE (one lane, 934, is fully interior -- paired on both
+// sides -- and contributes none); see this epic's plan doc addendum for the
+// full worked measurement.
+constexpr double kRoadEdgeCoincidenceThresholdM = 1.0;
+
+double PointToPolylineDist2D(const mpviz::Vec3& p, const std::vector<mpviz::Vec3>& poly)
+{
+    double best = std::numeric_limits<double>::infinity();
+    for (size_t i = 0; i + 1 < poly.size(); ++i)
+    {
+        const auto& a = poly[i];
+        const auto& b = poly[i + 1];
+        const double dx = b.x - a.x, dy = b.y - a.y;
+        const double len2 = dx * dx + dy * dy;
+        double t = 0.0;
+        if (len2 > 1e-12)
+        {
+            t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+            t = std::clamp(t, 0.0, 1.0);
+        }
+        const double cx = a.x + t * dx, cy = a.y + t * dy;
+        const double d = std::hypot(p.x - cx, p.y - cy);
+        if (d < best) best = d;
+    }
+    return best;
+}
+
+// True when `pts` (this lane's own boundary, `lane_id`) has no coincident
+// twin in `opposite_by_lane` (every OTHER lane's opposite-side boundary) --
+// i.e. it is the road's outer edge. Sampled at `pts`' own first/mid/last
+// point (the plan directive's own sampling choice: "the boundary's midpoint
+// and endpoints for robustness"), each checked against a candidate's FULL
+// polyline extent (not just ITS endpoints), so a candidate that only grazes
+// one of this boundary's three samples still counts as coincident.
+bool IsRoadEdge(uint32_t lane_id, const std::vector<mpviz::Vec3>& pts,
+                const std::unordered_map<uint32_t, const std::vector<mpviz::Vec3>*>& opposite_by_lane)
+{
+    if (pts.size() < 2) return false;
+    const mpviz::Vec3 samples[3] = {pts.front(), pts[pts.size() / 2], pts.back()};
+    for (const auto& [other_lane, other_pts] : opposite_by_lane)
+    {
+        if (other_lane == lane_id || other_pts == nullptr) continue;
+        for (const auto& s : samples)
+        {
+            if (PointToPolylineDist2D(s, *other_pts) < kRoadEdgeCoincidenceThresholdM) return false;
+        }
+    }
+    return true;
 }
 
 }  // namespace
@@ -233,30 +304,37 @@ void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, doubl
         }
 
         const uint8_t is_polygon = (verdict == NsRender::kPolygon) ? 1 : 0;
-        std::vector<StoredElement> pieces;
-        if (rule != nullptr && rule->dashed && verdict == NsRender::kPolyline)
+
+        // Crosswalk-hatch fix (Epic 3 Task 1 / VM-036, decision #2): a
+        // closed polygon marker arrives with a duplicate closing vertex
+        // (point[0] == point[n-1], verified against the real recorded
+        // fixture's crosswalk_8043) -- mirrors collision.cpp's own
+        // trailing-duplicate dedupe verbatim (kDedupEpsM = 1e-6). Without
+        // this, build_crosswalk_hatch()'s n==4 guard never fires on real
+        // data (every recorded crosswalk arrives with 5 points).
+        if (is_polygon && pts.size() >= 2)
         {
-            // Dashing is a marker-ingest-time geometry op, not a rendering
-            // concept -- one marker becomes N kept dash runs, still ONE
-            // entry in storage_ (still ONE ingested marker for stats: see
-            // this function's ++stats_.msgs at the top, incremented once
-            // per ingest() call, never per marker/dash).
-            for (auto& dash_pts : ChopIntoDashes(pts))
-            {
-                StoredElement piece;
-                piece.points = std::move(dash_pts);
-                piece.is_polygon = is_polygon;
-                pieces.push_back(std::move(piece));
-            }
+            constexpr double kDedupEpsM = 1e-6;
+            const auto& front = pts.front();
+            const auto& back = pts.back();
+            const double dx = back.x - front.x, dy = back.y - front.y, dz = back.z - front.z;
+            if (std::sqrt(dx * dx + dy * dy + dz * dz) < kDedupEpsM) pts.pop_back();
         }
-        else
-        {
-            StoredElement elem;
-            elem.points = std::move(pts);
-            elem.is_polygon = is_polygon;
-            pieces.push_back(std::move(elem));
-        }
-        storage_[Key{m.ns, m.id}] = std::move(pieces);
+
+        // kind/lane_id extraction (Epic 3 Task 1 / VM-036, decision #4):
+        // `kind` is the matched NsRule's own field (no match -> OTHER,
+        // same "no rule -> default" shape ns_default already has for
+        // render verdicts); `lane_id` is the marker's own `id` for the
+        // lane-paired kinds, 0 otherwise.
+        const mpviz::MapKind kind = rule != nullptr ? rule->kind : mpviz::MapKind::OTHER;
+        const uint32_t lane_id = KindCarriesLaneId(kind) ? static_cast<uint32_t>(m.id) : 0;
+
+        StoredElement elem;
+        elem.points = std::move(pts);
+        elem.is_polygon = is_polygon;
+        elem.kind = kind;
+        elem.lane_id = lane_id;
+        storage_[Key{m.ns, m.id}] = std::vector<StoredElement>{std::move(elem)};
     }
 
     last_rebuild_sec_ = sim_time_sec;
@@ -265,6 +343,38 @@ void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, doubl
 
 void HdMapAdapter::fill(micropilot::visualization_app::SceneAssembly& out) const
 {
+    road_surface_points_.clear();
+    std::unordered_map<uint32_t, const std::vector<mpviz::Vec3>*> left_by_lane, right_by_lane;
+
+    // First pass: index every boundary rail by lane_id. Needed BEFORE any
+    // element is emitted -- road-edge detection (below) must see every
+    // OTHER lane's opposite-side boundary, and road-surface pairing
+    // (further below) needs the same index. One pass over storage_ builds
+    // both; a second walk (below) does the actual emitting.
+    for (const auto& [key, pieces] : storage_)
+    {
+        (void)key;
+        for (const auto& elem : pieces)
+        {
+            if (elem.lane_id == 0) continue;
+            if (elem.kind == mpviz::MapKind::LEFT_BOUNDARY)
+            {
+                left_by_lane[elem.lane_id] = &elem.points;
+            }
+            else if (elem.kind == mpviz::MapKind::RIGHT_BOUNDARY)
+            {
+                right_by_lane[elem.lane_id] = &elem.points;
+            }
+        }
+    }
+
+    // Second pass: emit one MapElement per stored element, promoting a
+    // LEFT_BOUNDARY/RIGHT_BOUNDARY to ROAD_EDGE when IsRoadEdge() finds no
+    // coincident twin on the opposite side (see that function's own
+    // comment for the measured threshold). The left_by_lane/right_by_lane
+    // maps built above are unaffected by this promotion -- road-surface
+    // fill still pairs by the ORIGINAL LEFT_BOUNDARY/RIGHT_BOUNDARY kind,
+    // regardless of what kind the emitted element ends up carrying.
     for (const auto& [key, pieces] : storage_)
     {
         (void)key;
@@ -274,8 +384,52 @@ void HdMapAdapter::fill(micropilot::visualization_app::SceneAssembly& out) const
             e.points = elem.points.data();
             e.point_count = static_cast<uint32_t>(elem.points.size());
             e.is_polygon = elem.is_polygon;
+            e.kind = elem.kind;
+            e.lane_id = elem.lane_id;
+            if (e.kind == mpviz::MapKind::LEFT_BOUNDARY &&
+                IsRoadEdge(elem.lane_id, elem.points, right_by_lane))
+            {
+                e.kind = mpviz::MapKind::ROAD_EDGE;
+            }
+            else if (e.kind == mpviz::MapKind::RIGHT_BOUNDARY &&
+                     IsRoadEdge(elem.lane_id, elem.points, left_by_lane))
+            {
+                e.kind = mpviz::MapKind::ROAD_EDGE;
+            }
             out.map_elements.push_back(e);
         }
+    }
+
+    // Road-surface fill (decision #5): pair every lane_id present on BOTH
+    // rails; a lane_id on only one rail (0 of 16 in the committed fixture,
+    // but not provably impossible on other bags) emits nothing for it --
+    // silently dropped, not malformed (spec §9's "missing data renders
+    // nothing"). road_surface_points_ holds the resampled buffers these
+    // synthesized elements point into; cleared and rebuilt at the top of
+    // every fill() call, so it stays alive exactly as long as this fill()
+    // call's own out.map_elements does.
+    for (const auto& [lane_id, left_pts] : left_by_lane)
+    {
+        const auto it = right_by_lane.find(lane_id);
+        if (it == right_by_lane.end()) continue;
+
+        const std::vector<mpviz::Vec3> left_r = ResampleByArcLength(*left_pts, kRoadFillSamples);
+        const std::vector<mpviz::Vec3> right_r = ResampleByArcLength(*it->second, kRoadFillSamples);
+        if (left_r.empty() || right_r.empty()) continue;  // malformed rail, skip silently
+
+        road_surface_points_.emplace_back();
+        std::vector<mpviz::Vec3>& combined = road_surface_points_.back();
+        combined.reserve(2 * kRoadFillSamples);
+        combined.insert(combined.end(), left_r.begin(), left_r.end());
+        combined.insert(combined.end(), right_r.begin(), right_r.end());
+
+        mpviz::MapElement e{};
+        e.points = combined.data();
+        e.point_count = static_cast<uint32_t>(combined.size());
+        e.is_polygon = 0;
+        e.kind = mpviz::MapKind::ROAD_SURFACE;
+        e.lane_id = lane_id;
+        out.map_elements.push_back(e);
     }
 }
 

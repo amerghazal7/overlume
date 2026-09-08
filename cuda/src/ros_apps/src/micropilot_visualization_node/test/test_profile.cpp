@@ -69,68 +69,100 @@ TEST(Profile, NamespaceRuleIsLongestPrefixWins)
     EXPECT_EQ(classify(r, "traffic_light_2"), NsRender::kDrop);  // ns_default
 }
 
-TEST(Profile, DashedFlagParsesOnPolylineRules)
+TEST(Profile, KindParsesOnNamespaceRules)
 {
-    // VM-036-adjacent (user directive 2026-08-20): dashed defaults false and
-    // is per-rule, not inherited by a sibling rule in the same row.
+    // VM-036 (Epic 3 Task 1): kind is per-rule, not inherited by a sibling
+    // rule in the same row, and defaults to OTHER when the key is absent.
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n  - {topic: /m, type: visualization_msgs/msg/MarkerArray,"
         " adapter: hd_map, role: lane, namespaces:"
-        " [{prefix: centerline_,    render: polyline, dashed: true},"
-        "  {prefix: left_boundary_, render: polyline}]}\n", errs);
+        " [{prefix: centerline_,    render: polyline, kind: centerline},"
+        "  {prefix: left_boundary_, render: polyline, kind: left_boundary},"
+        "  {prefix: junk_,          render: polyline}]}\n", errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
-    ASSERT_EQ(p->rows[0].namespaces.size(), 2u);
-    EXPECT_TRUE(p->rows[0].namespaces[0].dashed);
-    EXPECT_FALSE(p->rows[0].namespaces[1].dashed);
+    ASSERT_EQ(p->rows[0].namespaces.size(), 3u);
+    EXPECT_EQ(p->rows[0].namespaces[0].kind, mpviz::MapKind::CENTERLINE);
+    EXPECT_EQ(p->rows[0].namespaces[1].kind, mpviz::MapKind::LEFT_BOUNDARY);
+    EXPECT_EQ(p->rows[0].namespaces[2].kind, mpviz::MapKind::OTHER);
 }
 
-TEST(Profile, DashedIsRejectedOnANonPolylineRule)
+TEST(Profile, KindIsRejectedWhenIllegalForRender)
 {
-    // dashed is pure geometry chopping, meaningless for a polygon
-    // (crosswalk) and moot for a dropped namespace -- the validator
-    // rejects both, same error-collection convention as every other
-    // ValidateRow check.
+    // kind: crosswalk is polygon-only; every lane-geometry kind is
+    // polyline-only -- the validator rejects both mismatches, same
+    // error-collection convention as every other ValidateRow check.
+    std::vector<std::string> polyline_errs;
+    auto polyline = load_profile_string(
+        "name: t\nrows:\n  - {topic: /m, type: visualization_msgs/msg/MarkerArray,"
+        " adapter: hd_map, role: lane, namespaces:"
+        " [{prefix: crosswalk_, render: polyline, kind: crosswalk}]}\n", polyline_errs);
+    EXPECT_FALSE(polyline.has_value());
+    ASSERT_EQ(polyline_errs.size(), 1u);
+    EXPECT_NE(polyline_errs[0].find("kind"), std::string::npos);
+    EXPECT_NE(polyline_errs[0].find("crosswalk_"), std::string::npos);
+
     std::vector<std::string> polygon_errs;
     auto polygon = load_profile_string(
         "name: t\nrows:\n  - {topic: /m, type: visualization_msgs/msg/MarkerArray,"
         " adapter: hd_map, role: lane, namespaces:"
-        " [{prefix: crosswalk_, render: polygon, dashed: true}]}\n", polygon_errs);
+        " [{prefix: centerline_, render: polygon, kind: centerline}]}\n", polygon_errs);
     EXPECT_FALSE(polygon.has_value());
     ASSERT_EQ(polygon_errs.size(), 1u);
-    EXPECT_NE(polygon_errs[0].find("dashed"), std::string::npos);
-    EXPECT_NE(polygon_errs[0].find("crosswalk_"), std::string::npos);
-
-    std::vector<std::string> drop_errs;
-    auto drop = load_profile_string(
-        "name: t\nrows:\n  - {topic: /m, type: visualization_msgs/msg/MarkerArray,"
-        " adapter: hd_map, role: lane, namespaces:"
-        " [{prefix: centerline_arrows_, render: drop, dashed: true}]}\n", drop_errs);
-    EXPECT_FALSE(drop.has_value());
-    ASSERT_EQ(drop_errs.size(), 1u);
-    EXPECT_NE(drop_errs[0].find("dashed"), std::string::npos);
+    EXPECT_NE(polygon_errs[0].find("kind"), std::string::npos);
 }
 
-TEST(Profile, ShippedUrbanLocalRowMarksCenterlineDashedButNotBoundary)
+TEST(Profile, UnknownKindValueIsRejectedWithRowContext)
 {
-    // config/urban_profile.yaml (user directive 2026-08-20): centerline_
-    // ships dashed: true so it visually reads apart from the two solid
-    // boundary stripes either side of it.
+    std::vector<std::string> errs;
+    auto p = load_profile_string(
+        "name: t\nrows:\n  - {topic: /m, type: visualization_msgs/msg/MarkerArray,"
+        " adapter: hd_map, role: lane, namespaces:"
+        " [{prefix: centerline_, render: polyline, kind: teleporter}]}\n", errs);
+    EXPECT_FALSE(p.has_value());
+    ASSERT_EQ(errs.size(), 1u);
+    EXPECT_NE(errs[0].find("teleporter"), std::string::npos);
+}
+
+TEST(Profile, ShippedUrbanLocalRowMarksCenterlineAndBoundaryKinds)
+{
+    // config/urban_profile.yaml (Epic 3 Task 1 / VM-036): centerline_ and
+    // left_boundary_/right_boundary_ carry distinct kinds so the renderer
+    // can style/dash them differently (decision #3's flip: boundaries get
+    // dash geometry renderer-side, centerline solid).
     std::vector<std::string> errs;
     auto p = load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
     const auto* row = find_row(*p, "/hd_map_local_elements");
     ASSERT_NE(row, nullptr);
 
+    // centerline_ is now `render: drop` (user directive 2026-09-08: hidden
+    // by default) -- `kind` cannot be set on a drop rule (ValidateRow's
+    // KindIsLegalOnRender), so it stays the OTHER default.
     const auto* centerline_rule = match_rule(*row, "centerline_0");
     ASSERT_NE(centerline_rule, nullptr);
-    EXPECT_EQ(centerline_rule->render, NsRender::kPolyline);
-    EXPECT_TRUE(centerline_rule->dashed);
+    EXPECT_EQ(centerline_rule->render, NsRender::kDrop);
+    EXPECT_EQ(centerline_rule->kind, mpviz::MapKind::OTHER);
 
-    const auto* boundary_rule = match_rule(*row, "left_boundary_0");
-    ASSERT_NE(boundary_rule, nullptr);
-    EXPECT_EQ(boundary_rule->render, NsRender::kPolyline);
-    EXPECT_FALSE(boundary_rule->dashed);
+    const auto* left_rule = match_rule(*row, "left_boundary_0");
+    ASSERT_NE(left_rule, nullptr);
+    EXPECT_EQ(left_rule->render, NsRender::kPolyline);
+    EXPECT_EQ(left_rule->kind, mpviz::MapKind::LEFT_BOUNDARY);
+
+    const auto* right_rule = match_rule(*row, "right_boundary_0");
+    ASSERT_NE(right_rule, nullptr);
+    EXPECT_EQ(right_rule->render, NsRender::kPolyline);
+    EXPECT_EQ(right_rule->kind, mpviz::MapKind::RIGHT_BOUNDARY);
+
+    const auto* crosswalk_rule = match_rule(*row, "crosswalk_7");
+    ASSERT_NE(crosswalk_rule, nullptr);
+    EXPECT_EQ(crosswalk_rule->render, NsRender::kPolygon);
+    EXPECT_EQ(crosswalk_rule->kind, mpviz::MapKind::CROSSWALK);
+
+    const auto* stopline_rule = match_rule(*row, "crosswalk_stopline_7");
+    ASSERT_NE(stopline_rule, nullptr);
+    EXPECT_EQ(stopline_rule->render, NsRender::kPolyline);
+    EXPECT_EQ(stopline_rule->kind, mpviz::MapKind::STOPLINE);
 }
 
 TEST(Profile, DuplicateNamespacePrefixIsRejected)
@@ -169,12 +201,13 @@ TEST(Profile, ShippedProfilesRouteEveryKnownNamespaceOfEveryShippedTopic)
 
     const auto* hd_map_global = find_row(*urban, "/hd_map_global_elements");
     ASSERT_NE(hd_map_global, nullptr);
-    EXPECT_EQ(classify(*hd_map_global, "centerline_0"), NsRender::kPolyline);
+    // centerline_ hidden by default (user directive 2026-09-08).
+    EXPECT_EQ(classify(*hd_map_global, "centerline_0"), NsRender::kDrop);
     EXPECT_EQ(classify(*hd_map_global, "centerline_arrows_0"), NsRender::kDrop);
 
     const auto* hd_map_local = find_row(*urban, "/hd_map_local_elements");
     ASSERT_NE(hd_map_local, nullptr);
-    EXPECT_EQ(classify(*hd_map_local, "centerline_0"), NsRender::kPolyline);
+    EXPECT_EQ(classify(*hd_map_local, "centerline_0"), NsRender::kDrop);
     EXPECT_EQ(classify(*hd_map_local, "centerline_arrows_0"), NsRender::kDrop);
     EXPECT_EQ(classify(*hd_map_local, "left_boundary_0"), NsRender::kPolyline);
     EXPECT_EQ(classify(*hd_map_local, "right_boundary_0"), NsRender::kPolyline);
@@ -196,7 +229,8 @@ TEST(Profile, ShippedProfilesRouteEveryKnownNamespaceOfEveryShippedTopic)
 
     const auto* sim_hd_map = find_row(*sim, "/sim/hd_map/markers");
     ASSERT_NE(sim_hd_map, nullptr);
-    EXPECT_EQ(classify(*sim_hd_map, "centerline_0"), NsRender::kPolyline);
+    // centerline_ hidden by default (user directive 2026-09-08).
+    EXPECT_EQ(classify(*sim_hd_map, "centerline_0"), NsRender::kDrop);
     EXPECT_EQ(classify(*sim_hd_map, "centerline_arrows_0"), NsRender::kDrop);
     EXPECT_EQ(classify(*sim_hd_map, "crosswalks"), NsRender::kPolygon);  // note: no numeric suffix
     EXPECT_EQ(classify(*sim_hd_map, "junction"), NsRender::kPolyline);

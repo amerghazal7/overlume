@@ -12,12 +12,15 @@
  *  header's own comment on why: the last adapter to run must not erase the
  *  others).
  *
- *  Namespace rules (profile.hpp's classify()) decide is_polygon
+ *  Namespace rules (profile.hpp's classify()/match_rule()) decide is_polygon
  *  (NsRender::kPolygon) vs polyline (kPolyline) vs dropped (kDrop) -- see
- *  the shipped urban_profile.yaml / sim_profile.yaml hd_map rows. This
- *  class never reads a namespace string itself beyond classify()'s
- *  verdict -- MapElement carries no namespace and no "kind" (scene.h:56-59
- *  is frozen at {points, point_count, is_polygon}).
+ *  the shipped urban_profile.yaml / sim_profile.yaml hd_map rows. Epic 3
+ *  Task 1 (VM-036, ADR-0004): the matched NsRule's `kind` field (MapKind,
+ *  scene.h) is carried straight onto the stored/emitted MapElement, and
+ *  `lane_id` is the marker's own `id` for CENTERLINE/LEFT_BOUNDARY/
+ *  RIGHT_BOUNDARY/ROAD_EDGE (0 for everything else -- crosswalk/stopline/
+ *  junction/other aren't lane-paired). This class still never parses a
+ *  namespace STRING itself beyond match_rule()'s verdict.
  *
  *  Frames: every marker's points are moved into the map frame via `tf`
  *  BEFORE being stored -- ONE lookup per ingest() call (from the first
@@ -91,9 +94,29 @@ public:
     // hd_map profile row), all filling the same category, and the last
     // one to run must not erase what the others already appended.
     // Returned MapElement::points pointers alias this object's OWN
-    // storage_ and stay valid exactly as long as this object is not
-    // destroyed and does not run another ingest() -- the same contract
-    // SceneAssembly's own header documents for every adapter.
+    // storage_ (or, for synthesized ROAD_SURFACE elements, this object's
+    // OWN road_surface_points_ cache, rebuilt fresh on every call) and stay
+    // valid exactly as long as this object is not destroyed and does not
+    // run another ingest()/fill() -- the same contract SceneAssembly's own
+    // header documents for every adapter.
+    //
+    // Road-edge detection (user directive 2026-09-08): before road-surface
+    // fill runs, a LEFT_BOUNDARY/RIGHT_BOUNDARY element whose polyline has
+    // no near-coincident opposite-side boundary from a DIFFERENT lane_id
+    // has its EMITTED kind promoted to ROAD_EDGE (the underlying LEFT_
+    // BOUNDARY/RIGHT_BOUNDARY pairing used by road-surface fill, below, is
+    // unaffected -- see hd_map.cpp's IsRoadEdge()/fill() for the measured
+    // threshold).
+    //
+    // Road-surface fill (Epic 3 Task 1 / VM-036, decision #5): pairs every
+    // LEFT_BOUNDARY/RIGHT_BOUNDARY element sharing a lane_id, resamples
+    // both rails to kRoadFillSamples stations by normalized arc length
+    // (rail point counts are NOT guaranteed to match -- verified on real
+    // data), and emits one extra kind==ROAD_SURFACE MapElement per paired
+    // lane (point_count == 2*kRoadFillSamples: points[0..16) left rail,
+    // points[16..32) right rail, index-parallel by station). A lane_id
+    // present on only one rail emits no ROAD_SURFACE element for it --
+    // silently dropped, not malformed (spec §9).
     void fill(micropilot::visualization_app::SceneAssembly& out) const;
 
     const AdapterStats& stats() const { return stats_; }
@@ -103,14 +126,15 @@ private:
     {
         std::vector<mpviz::Vec3> points;
         uint8_t is_polygon{0};
+        mpviz::MapKind kind{mpviz::MapKind::OTHER};  // NEW (VM-036): from the matched NsRule
+        uint32_t lane_id{0};                          // NEW (VM-036): marker.id, lane kinds only
     };
-    // One marker key can now expand into several MapElements (a dashed
-    // centerline's dash pieces) -- see ingest()'s dash-chopping. Every
-    // OTHER marker (non-dashed, or a polygon) still stores exactly one
-    // StoredElement per key; the vector is size 1 for those, never fanned
-    // out. DELETE(m.ns, m.id) erases the whole vector, i.e. every dash
-    // piece, in one shot -- ROS Marker semantics don't have a "half a
-    // marker" concept and neither does this.
+    // Epic 3 Task 1 (VM-036, decision #3): dashing moved renderer-side, so
+    // the adapter never chops a marker into pieces any more -- every key
+    // maps to exactly one StoredElement now. The vector wrapper is kept
+    // (not collapsed to a bare StoredElement) purely to avoid touching
+    // ingest()/fill()'s existing shape for zero behavioural gain; it is
+    // always size 1. DELETE(m.ns, m.id) erases it in one shot.
     using Key = std::pair<std::string, int32_t>;  // (marker.ns, marker.id)
     struct KeyHash
     {
@@ -124,6 +148,13 @@ private:
     ProfileRow row_;
     const micropilot::visualization_app::FrameTransformer& tf_;
     std::unordered_map<Key, std::vector<StoredElement>, KeyHash> storage_;
+    // Road-surface fill (VM-036, decision #5): rebuilt from scratch at the
+    // START of every fill() call (never touched by ingest()) -- holds the
+    // resampled two-rail point buffers the synthesized ROAD_SURFACE
+    // MapElements point into. `mutable` because fill() is const (same
+    // "logically read-only, physically caches a derived buffer" shape as
+    // every other adapter's fill()-time geometry synthesis).
+    mutable std::vector<std::vector<mpviz::Vec3>> road_surface_points_;
     AdapterStats stats_;
     // Separate from stats_.last_msg_sec: this tracks the last ACCEPTED
     // rebuild for max_rate_hz gating, not the last message merely

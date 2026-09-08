@@ -84,10 +84,18 @@ TEST(StalenessAlpha, PastTimeoutIsFullyFaded) {
     EXPECT_FLOAT_EQ(mpviz::detail::SceneBuffer::staleness_alpha(13.0, 10.0, 0.5, 2.0), 0.0f);
 }
 
-// POD-layout snapshot test: guards the scene.h freeze itself — catches an
-// accidental member reorder/resize in review, not just a missing-field build
-// error. Numbers below were read off the actual compiler output on this
-// toolchain (clang/libc++, LP64), not hand-guessed.
+static_assert(mpviz::kSceneVersion == 1,
+              "bump this alongside every additive scene.h change, and update the "
+              "node-side test_scene_layout.cpp mirror");
+
+// POD-layout snapshot test: guards scene.h's ADDITIVE-ONLY contract (ADR-0004)
+// — catches an accidental member reorder/resize in review, not just a
+// missing-field build error. Numbers below were read off the actual compiler
+// output on this toolchain (clang/libc++, LP64), not hand-guessed. "layout
+// frozen" below is ADR-0004-superseded wording (appending is expected and
+// covered by kSceneVersion, not frozen shut) — kept verbatim on every
+// pre-existing assert message so a diff against history stays legible;
+// new asserts below use ADR-0004 phrasing directly.
 //
 // Epic1 Task2/3 review gate (MAJOR 2): the original version of this block
 // only sizeof-checked TrackedObject/PathRibbon/MapElement/GroundGridLayer/
@@ -131,10 +139,18 @@ static_assert(offsetof(mpviz::PathRibbon, points) == 8, "PathRibbon layout froze
 static_assert(offsetof(mpviz::PathRibbon, point_count) == 16, "PathRibbon layout frozen");
 static_assert(offsetof(mpviz::PathRibbon, last_update_sec) == 24, "PathRibbon layout frozen");
 
-static_assert(sizeof(mpviz::MapElement) == 16, "MapElement layout frozen");
-static_assert(offsetof(mpviz::MapElement, points) == 0, "MapElement layout frozen");
-static_assert(offsetof(mpviz::MapElement, point_count) == 8, "MapElement layout frozen");
-static_assert(offsetof(mpviz::MapElement, is_polygon) == 12, "MapElement layout frozen");
+// Epic 3 Task 1 (VM-036, ADR-0004): kind/lane_id/last_update_sec appended
+// after is_polygon -- 16 -> 32 bytes. "layout frozen" reworded to "ADR-0004
+// additive" on every line this task's diff touches (appending is expected
+// and covered by kSceneVersion, not frozen shut).
+static_assert(sizeof(mpviz::MapElement) == 32, "MapElement layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::MapElement, points) == 0, "MapElement layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::MapElement, point_count) == 8, "MapElement layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::MapElement, is_polygon) == 12, "MapElement layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::MapElement, kind) == 13, "MapElement layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::MapElement, lane_id) == 16, "MapElement layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::MapElement, last_update_sec) == 24,
+              "MapElement layout, ADR-0004 additive");
 
 static_assert(sizeof(mpviz::GroundGridLayer) == 64, "GroundGridLayer layout frozen");
 static_assert(offsetof(mpviz::GroundGridLayer, kind) == 0, "GroundGridLayer layout frozen");
@@ -215,3 +231,33 @@ static_assert(sizeof(mpviz::FrameView) == 16, "FrameView layout frozen");
 static_assert(offsetof(mpviz::FrameView, rgb) == 0, "FrameView layout frozen");
 static_assert(offsetof(mpviz::FrameView, width) == 8, "FrameView layout frozen");
 static_assert(offsetof(mpviz::FrameView, height) == 12, "FrameView layout frozen");
+
+// Epic 3 Task 1 (VM-036) Step 1: MapElement's three new fields survive the
+// deep-copy in SceneBuffer::assign() just like every other member already
+// did -- no owned-pointer new field means no new logic in assign() itself,
+// only the existing memberwise struct copy, so this is a "still works"
+// regression, not a new code path.
+TEST(SceneBufferMapElement, KindLaneIdLastUpdateSecSurviveAssign) {
+    mpviz::detail::SceneBuffer buf;
+    mpviz::Vec3 pts[2] = {{0, 0, 0}, {1, 0, 0}};
+    mpviz::MapElement e{};
+    e.points = pts;
+    e.point_count = 2;
+    e.is_polygon = 0;
+    e.kind = mpviz::MapKind::CENTERLINE;
+    e.lane_id = 934;
+    e.last_update_sec = 12.5;
+    mpviz::SceneGraph s{};
+    s.map_elements = &e;
+    s.map_element_count = 1;
+    buf.publish(s);
+
+    e.kind = mpviz::MapKind::OTHER;  // caller mutates its own buffer after publish() returns
+    e.lane_id = 0;
+    e.last_update_sec = 0.0;
+
+    const mpviz::MapElement& active = buf.active().map_elements[0];
+    EXPECT_EQ(active.kind, mpviz::MapKind::CENTERLINE);
+    EXPECT_EQ(active.lane_id, 934u);
+    EXPECT_DOUBLE_EQ(active.last_update_sec, 12.5);
+}

@@ -32,16 +32,20 @@ rows:
   # crosswalk_stopline_ is a real map element and is KEPT, as a polyline -- it
   # is a painted stop bar, not a crosswalk box; again it needs its own rule
   # because crosswalk_ is a prefix of it.
+  # centerline_ is dropped (user directive 2026-09-08): hidden by default --
+  # see urban_profile.yaml's matching comment for the full rationale and the
+  # re-enable steps (same `render: polyline, kind: centerline` restore;
+  # `kind` cannot be set while `render: drop`).
   - {topic: /hd_map_local_elements, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 2.0,
      ns_default: drop,
      namespaces: [
-       {prefix: centerline_,         render: polyline, dashed: true},
+       {prefix: centerline_,         render: drop},
        {prefix: centerline_arrows_,  render: drop},
-       {prefix: left_boundary_,      render: polyline},
-       {prefix: right_boundary_,     render: polyline},
-       {prefix: crosswalk,           render: polygon},
-       {prefix: crosswalk_stopline_, render: polyline}]}
+       {prefix: left_boundary_,      render: polyline, kind: left_boundary},
+       {prefix: right_boundary_,     render: polyline, kind: right_boundary},
+       {prefix: crosswalk,           render: polygon,  kind: crosswalk},
+       {prefix: crosswalk_stopline_, render: polyline, kind: stopline}]}
 
   # FIXTURE GAP: /hd_map_global_elements was silent in the recorded bag
   # (Count 0), exactly like /local_path and /navigation/global_path -- and it
@@ -62,12 +66,12 @@ rows:
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 0.5,
      ns_default: drop,
      namespaces: [
-       {prefix: centerline_,         render: polyline, dashed: true},
+       {prefix: centerline_,         render: drop},
        {prefix: centerline_arrows_,  render: drop},
-       {prefix: left_boundary_,      render: polyline},
-       {prefix: right_boundary_,     render: polyline},
-       {prefix: crosswalk,           render: polygon},
-       {prefix: crosswalk_stopline_, render: polyline}]}
+       {prefix: left_boundary_,      render: polyline, kind: left_boundary},
+       {prefix: right_boundary_,     render: polyline, kind: right_boundary},
+       {prefix: crosswalk,           render: polygon,  kind: crosswalk},
+       {prefix: crosswalk_stopline_, render: polyline, kind: stopline}]}
 
   # /road_markers: live in the bag (1921 msgs, RELIABLE, frame map). NOT in
   # either rviz config -- it ships because it is real painted-lane geometry
@@ -209,16 +213,19 @@ rows:
   #     Uncomment the generic row below -- a second adapter on the same topic
   #     is legal (the duplicate check is on topic+adapter) and renders them as
   #     what they are.
+  # (d) centerline_ is dropped (user directive 2026-09-08): hidden by
+  #     default on this row too -- same rationale/re-enable steps as
+  #     urban_profile.yaml's matching comment.
   - {topic: /sim/hd_map/markers, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, transient_local: true,
      ns_default: drop,
      namespaces: [
-       {prefix: centerline_,        render: polyline, dashed: true},
+       {prefix: centerline_,        render: drop},
        {prefix: centerline_arrows_, render: drop},
-       {prefix: left_boundary_,     render: polyline},
-       {prefix: right_boundary_,    render: polyline},
-       {prefix: crosswalk,          render: polygon},
-       {prefix: junction,           render: polyline},
+       {prefix: left_boundary_,     render: polyline, kind: left_boundary},
+       {prefix: right_boundary_,    render: polyline, kind: right_boundary},
+       {prefix: crosswalk,          render: polygon,  kind: crosswalk},
+       {prefix: junction,           render: polyline, kind: junction},
        {prefix: landmark,           render: drop}]}
 
   # Optional: the sim map's 65 landmarks (CUBE) + 65 labels (TEXT), rendered

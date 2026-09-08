@@ -50,6 +50,30 @@
 #               topic would otherwise look identical to a silently-broken
 #               HdMapAdapter subscription, and this at least rules the
 #               former out before anyone goes looking in the latter.
+#   2026-09-07  Epic 3 Task 1/VM-036: lane kinds are now visually distinct
+#               (CENTERLINE solid yellow-family, LEFT_BOUNDARY/RIGHT_BOUNDARY
+#               dashed white -- the inverse of Epic 2's look), crosswalks
+#               hatch on every recorded marker (not just synthetic 4-point
+#               fixtures), and the road surface between a lane's two
+#               boundaries now fills in its own darker `palette.road` tone
+#               (both shipped themes) instead of every map element reading
+#               as one undifferentiated stroke color. No new topic/param
+#               this task -- the health gate's existing /hd_map_local_elements
+#               rate check already covers the one input this task's
+#               rendering depends on; nothing new to sample.
+#   2026-09-08  User directive (post Task 1 candidate review): the road's
+#               outer edges (MapKind::ROAD_EDGE, geometry-detected in
+#               HdMapAdapter::fill()) now render SOLID yellow-family
+#               (palette.road_edge); lane centerlines are HIDDEN BY DEFAULT
+#               (urban/sim hd_map rows' centerline_ rule flipped to
+#               render: drop) and, when re-enabled via profile YAML, render
+#               as faint dot-guidance circles (build_centerline_dots()) in a
+#               low-contrast lane-color fade instead of the old solid
+#               strip. Visually checkable in mode 3: the two outermost lane
+#               lines read as bold solid yellow, interior lane dividers stay
+#               dashed white, no centerline strip down the middle of any
+#               lane. Same /hd_map_local_elements rate check covers it;
+#               nothing new to sample.
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its

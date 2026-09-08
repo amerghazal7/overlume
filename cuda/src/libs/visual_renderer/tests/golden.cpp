@@ -159,8 +159,9 @@ FrameStats analyze_png(const char* png_path) {
     return stats;
 }
 
-// Epic 2 Task 2 (VM-024) Step 8: see golden.hpp. `.geom` format, one
-// element per line: `<is_polygon:0|1> <n> <x1> <y1> <z1> ... <xn> <yn> <zn>`.
+// Epic 2 Task 2 (VM-024) Step 8: see golden.hpp. `.geom` format (extended
+// Epic 3 Task 1 / VM-036 to carry kind/lane_id), one element per line:
+// `<is_polygon:0|1> <kind> <lane_id> <n> <x1> <y1> <z1> ... <xn> <yn> <zn>`.
 // A malformed line (fewer than n points, non-numeric field) is skipped, not
 // half-consumed into the next line's read.
 MapGeom load_map_geom(const char* path) {
@@ -170,21 +171,30 @@ MapGeom load_map_geom(const char* path) {
 
     // Two-pass: first pass appends every point into g.points (so its final
     // buffer address is fixed before anything points into it), recording
-    // each element's (is_polygon, offset, count); second pass builds
-    // g.elements from that metadata. Doing it in one pass would mean
-    // g.points might reallocate mid-way and invalidate offsets computed
-    // against an earlier capacity -- offsets survive that fine (they're
-    // integers, not pointers), but computing the final `MapElement::points`
-    // pointers only after all growth is done is simpler to reason about
-    // than re-deriving them from a moving target.
-    std::vector<std::tuple<uint8_t, uint32_t, uint32_t>> meta;  // is_polygon, offset, count
+    // each element's (is_polygon, kind, lane_id, offset, count); second
+    // pass builds g.elements from that metadata. Doing it in one pass would
+    // mean g.points might reallocate mid-way and invalidate offsets
+    // computed against an earlier capacity -- offsets survive that fine
+    // (they're integers, not pointers), but computing the final
+    // `MapElement::points` pointers only after all growth is done is
+    // simpler to reason about than re-deriving them from a moving target.
+    struct Meta {
+        uint8_t is_polygon;
+        mpviz::MapKind kind;
+        uint32_t lane_id;
+        uint32_t offset;
+        uint32_t count;
+    };
+    std::vector<Meta> meta;
     std::string line;
     while (std::getline(in, line)) {
         if (line.empty()) continue;
         std::istringstream iss(line);
         int isPolygon = 0;
+        int kindRaw = 0;
+        uint32_t laneId = 0;
         uint32_t n = 0;
-        if (!(iss >> isPolygon >> n)) continue;
+        if (!(iss >> isPolygon >> kindRaw >> laneId >> n)) continue;
         const auto offset = static_cast<uint32_t>(g.points.size());
         bool ok = true;
         for (uint32_t i = 0; i < n && ok; ++i) {
@@ -199,15 +209,18 @@ MapGeom load_map_geom(const char* path) {
             g.points.resize(offset);  // drop the partially-read element's points
             continue;
         }
-        meta.emplace_back(static_cast<uint8_t>(isPolygon != 0), offset, n);
+        meta.push_back(Meta{static_cast<uint8_t>(isPolygon != 0),
+                             static_cast<mpviz::MapKind>(kindRaw), laneId, offset, n});
     }
 
     g.elements.reserve(meta.size());
-    for (const auto& [isPolygon, offset, n] : meta) {
+    for (const auto& m : meta) {
         mpviz::MapElement e{};
-        e.points = n > 0 ? g.points.data() + offset : nullptr;
-        e.point_count = n;
-        e.is_polygon = isPolygon;
+        e.points = m.count > 0 ? g.points.data() + m.offset : nullptr;
+        e.point_count = m.count;
+        e.is_polygon = m.is_polygon;
+        e.kind = m.kind;
+        e.lane_id = m.lane_id;
         g.elements.push_back(e);
     }
     return g;

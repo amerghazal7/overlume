@@ -27,7 +27,7 @@
  *
  *  Namespace rules (profile.hpp's classify()) decide render vs. drop
  *  (dropped_by_rule), same ONE rule every marker adapter in this node
- *  uses -- `is_polygon`/`dashed` have no meaning here (GenericMarker
+ *  uses -- `is_polygon`/`kind` have no meaning here (GenericMarker
  *  carries neither), only the render/drop verdict matters.
  *
  *  Frames: marker.pose composition (points[]/CUBE_LIST/SPHERE_LIST points

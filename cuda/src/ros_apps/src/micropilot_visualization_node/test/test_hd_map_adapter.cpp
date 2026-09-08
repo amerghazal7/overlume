@@ -48,20 +48,31 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks)
     a.fill(out);  // appends, never overwrites
 
     EXPECT_GT(out.map_elements.size(), 0u);
-    // Old -> new count math (VM-036-adjacent, user directive 2026-08-20:
-    // urban's centerline_ rule now ships dashed: true). Before dashing this
-    // fixture's committed markers (16 centerline_, 16 left_boundary_, 16
-    // right_boundary_, 5 crosswalk_ polygons, 5 crosswalk_stopline_
-    // polylines; the 64 centerline_arrows_ markers are all dropped by rule
-    // and were never counted) yielded 16+16+16+5+5 = 58 MapElements.
-    // Dashing only touches the 16 centerline_ markers; summing each one's
-    // REAL arc length (verified against the committed fixture, not
-    // guessed) through kDashLenM=1.5/kGapLenM=1.5 chopping gives 204 dash
-    // pieces in place of those 16 markers (per-marker: 934->14, 782->15,
-    // 2225->15, 1029->8, 838->13, 955->9, 690->14, 685->15, 792->14,
-    // 12->15, 68->14, 813->9, 787->14, 7->14, 1305->8, 1453->13). New
-    // total: 204 + 16 + 16 + 5 + 5 = 246.
-    EXPECT_EQ(out.map_elements.size(), 246u);
+    // Epic 3 Task 1 (VM-036, decision #3): dashing moved renderer-side, so
+    // the adapter never chops a marker into pieces any more -- one marker,
+    // one MapElement, always. This fixture's committed markers: 16
+    // centerline_, 16 left_boundary_, 16 right_boundary_, 5 crosswalk_
+    // polygons, 5 crosswalk_stopline_ polylines (the 64 centerline_arrows_
+    // markers are all dropped by rule and never counted) = 58 elements,
+    // PLUS the road-surface fill (decision #5): every one of those 16 lanes
+    // carries BOTH boundaries (verified against the committed fixture,
+    // "Named fixture gaps" #2), so pairing left_boundary_{id}/
+    // right_boundary_{id} by lane_id synthesizes 16 more kind==ROAD_SURFACE
+    // elements. Pre-2026-09-08 total: 58 + 16 = 74.
+    //
+    // User directive 2026-09-08 -- two changes to that count:
+    // (1) centerline_ is now `render: drop` (hidden by default) in
+    //     urban_profile.yaml -- the 16 centerline_ markers no longer reach
+    //     storage_ at all (they land in dropped_by_rule instead, see
+    //     ArrowNamespaceIsDroppedByLongestPrefixWins below). 58 - 16 = 42
+    //     lane/crosswalk elements + 16 ROAD_SURFACE = 58 total.
+    // (2) Road-edge detection (IsRoadEdge()/hd_map.cpp) reclassifies some
+    //     LEFT_BOUNDARY/RIGHT_BOUNDARY elements to ROAD_EDGE in place --
+    //     the TOTAL count is unaffected (same 32 boundary elements, just
+    //     re-labeled), so 58 stays 58; see the kind-split assertions below
+    //     for the actual per-kind counts, measured against this fixture's
+    //     real geometry (not guessed).
+    EXPECT_EQ(out.map_elements.size(), 58u);
     // is_polygon comes from the row's namespace rules (crosswalk_ ->
     // polygon) and from NOTHING else -- on the wire every hd_map marker in
     // this fixture is a LINE_STRIP.
@@ -71,19 +82,75 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks)
     // silently dropped.
     EXPECT_TRUE(std::any_of(out.map_elements.begin(), out.map_elements.end(),
                              [](const mpviz::MapElement& m) { return m.is_polygon == 0; }));
+    // centerline_ is hidden by default (user directive 2026-09-08) -- zero
+    // CENTERLINE elements reach fill()'s output for this fixture now.
+    EXPECT_EQ(std::count_if(out.map_elements.begin(), out.map_elements.end(),
+                             [](const mpviz::MapElement& m) { return m.kind == mpviz::MapKind::CENTERLINE; }),
+              0);
+
+    // Road-surface fill (decision #5): 16 synthesized ROAD_SURFACE
+    // elements, every one point_count == 2*16 == 32 regardless of the real
+    // rail's own recorded point count (lanes 813/955 are 10/11 and 8/9 on
+    // the wire -- resampling is what makes this uniform).
+    const auto road_count =
+        std::count_if(out.map_elements.begin(), out.map_elements.end(),
+                       [](const mpviz::MapElement& m) { return m.kind == mpviz::MapKind::ROAD_SURFACE; });
+    EXPECT_EQ(road_count, 16);
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_SURFACE) EXPECT_EQ(e.point_count, 32u);
+    }
+
+    // Road-edge detection (user directive 2026-09-08, IsRoadEdge() in
+    // hd_map.cpp): MEASURED against this fixture's real geometry (see
+    // hd_map.cpp's own comment on kRoadEdgeCoincidenceThresholdM for the
+    // full worked distances) -- of the 16 lanes' 32 boundary elements, 15
+    // have no coincident opposite-side twin and promote to ROAD_EDGE (9
+    // stay LEFT_BOUNDARY, 8 stay RIGHT_BOUNDARY); lane 934 is the one lane
+    // fully interior on both sides (paired left AND right) and contributes
+    // no ROAD_EDGE. 9 + 8 + 15 == 32, the original boundary total --
+    // promotion re-labels, it never drops or duplicates an element.
+    const auto left_count = std::count_if(
+        out.map_elements.begin(), out.map_elements.end(),
+        [](const mpviz::MapElement& m) { return m.kind == mpviz::MapKind::LEFT_BOUNDARY; });
+    const auto right_count = std::count_if(
+        out.map_elements.begin(), out.map_elements.end(),
+        [](const mpviz::MapElement& m) { return m.kind == mpviz::MapKind::RIGHT_BOUNDARY; });
+    const auto road_edge_count = std::count_if(
+        out.map_elements.begin(), out.map_elements.end(),
+        [](const mpviz::MapElement& m) { return m.kind == mpviz::MapKind::ROAD_EDGE; });
+    EXPECT_EQ(left_count, 9);
+    EXPECT_EQ(right_count, 8);
+    EXPECT_EQ(road_edge_count, 15);
+    EXPECT_EQ(left_count + right_count + road_edge_count, 32);
+    // Lane 934 is the measured fully-interior exemplar: both its boundaries
+    // stay LEFT_BOUNDARY/RIGHT_BOUNDARY, never ROAD_EDGE.
+    for (const auto& e : out.map_elements)
+    {
+        if (e.lane_id != 934u) continue;
+        if (e.kind == mpviz::MapKind::LEFT_BOUNDARY || e.kind == mpviz::MapKind::RIGHT_BOUNDARY ||
+            e.kind == mpviz::MapKind::ROAD_SURFACE)
+        {
+            continue;
+        }
+        ADD_FAILURE() << "lane 934 has an unexpected kind " << static_cast<int>(e.kind)
+                      << " -- it is measured fully-interior and should never promote to ROAD_EDGE";
+    }
 
     // Step 7's dump-and-exit: run once with MPVIZ_EMIT_GEOM set to emit
     // the .geom fixture the library-side MapGolden.* tests render from
-    // (epic2 plan, Task 2 Step 7). `.geom` format (golden.cpp/golden.hpp):
-    // one element per line, `<is_polygon> <n> <x1> <y1> <z1> ... <xn> <yn>
-    // <zn>`. ponytail: a text dump, not a serializer.
+    // (epic2 plan, Task 2 Step 7; format extended Epic 3 Task 1 to carry
+    // kind/lane_id -- see golden.hpp/golden.cpp). One element per line:
+    // `<is_polygon> <kind> <lane_id> <n> <x1> <y1> <z1> ... <xn> <yn> <zn>`.
+    // ponytail: a text dump, not a serializer.
     if (const char* geom_path = std::getenv("MPVIZ_EMIT_GEOM"))
     {
         std::ofstream geom(geom_path);
         geom << std::setprecision(12);
         for (const auto& e : out.map_elements)
         {
-            geom << static_cast<int>(e.is_polygon) << ' ' << e.point_count;
+            geom << static_cast<int>(e.is_polygon) << ' ' << static_cast<int>(e.kind) << ' '
+                 << e.lane_id << ' ' << e.point_count;
             for (uint32_t i = 0; i < e.point_count; ++i)
             {
                 geom << ' ' << e.points[i].x << ' ' << e.points[i].y << ' ' << e.points[i].z;
@@ -125,6 +192,71 @@ TEST(HdMapAdapter, SimProfileRowMakesCrosswalksPolygonsToo)
     EXPECT_EQ(a.stats().dropped_malformed, 0u);
 }
 
+TEST(HdMapAdapter, SimCrosswalksPluralUnsuffixedGetsCrosswalkKind)
+{
+    // Review finding (VM-036 Task 1 Step 3): test_profile.cpp:157 only
+    // covers urban's "crosswalk_" rule at rule level (match_rule/classify).
+    // Nothing exercises the ADAPTER on sim's plural, unsuffixed "crosswalks"
+    // namespace -- map_elements.cpp gates build_crosswalk_hatch() on
+    // kind == CROSSWALK, so if sim_profile.yaml's row ever lost its
+    // `kind: crosswalk`, is_polygon would still be set (SimProfileRowMakes-
+    // CrosswalksPolygonsToo, above, would stay green) but hatching would go
+    // dark on sim's only full-extent map source, silently.
+    auto msg = mpviz_node::testing::load_marker_array("sim_hd_map_markers_0.yaml");
+    TfFixture kTf;
+    auto row = mpviz_node::testing::sim_row("/sim/hd_map/markers");
+    mpviz_node::HdMapAdapter a(row, kTf.tf);
+    a.ingest(msg, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    bool found = false;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.is_polygon != 1) continue;
+        found = true;
+        EXPECT_EQ(e.kind, mpviz::MapKind::CROSSWALK);
+    }
+    ASSERT_TRUE(found) << "no polygon (crosswalk) element found in sim fixture output";
+}
+
+TEST(HdMapAdapter, CrosswalkTrailingDuplicateVertexIsDeduped)
+{
+    // Review finding (VM-036 Task 1 Step 2): the real crosswalk_8043 marker
+    // (committed fixture) arrives with 5 points, point[0] == point[4] (a
+    // closed-polygon closing vertex). The adapter's dedupe must drop that
+    // trailing duplicate so the STORED element has 4 points, not 5 --
+    // build_crosswalk_hatch()'s n==4 guard never fires on real data
+    // otherwise. Reverting the dedupe in hd_map.cpp must fail this test.
+    auto msg = mpviz_node::testing::load_marker_array("hd_map_local_elements_0.yaml");
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(mpviz_node::testing::urban_row("/hd_map_local_elements"), kTf.tf);
+    a.ingest(msg, /*sim_time_sec=*/1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    // crosswalk_8043's marker id is 8043 (crosswalk isn't lane-paired, so
+    // lane_id doesn't identify it); find it by its recorded first vertex
+    // instead of depending on storage iteration order.
+    bool found = false;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind != mpviz::MapKind::CROSSWALK || e.point_count == 0) continue;
+        if (std::abs(e.points[0].x - (-39.50850289011474)) < 1e-6 &&
+            std::abs(e.points[0].y - 45.33743457749722) < 1e-6)
+        {
+            found = true;
+            EXPECT_EQ(e.point_count, 4u);
+            // Review finding (VM-036 Task 1 Step 3, decision #4):
+            // crosswalks are not lane-paired -- KindCarriesLaneId()
+            // (hd_map.cpp) excludes CROSSWALK, so this element's lane_id
+            // must stay 0 regardless of the marker's own (irrelevant) id.
+            EXPECT_EQ(e.lane_id, 0u);
+        }
+    }
+    ASSERT_TRUE(found) << "crosswalk_8043 element not found in fill() output";
+}
+
 TEST(HdMapAdapter, ArrowNamespaceIsDroppedByLongestPrefixWins)
 {
     // "centerline_" -> polyline and "centerline_arrows_" -> drop in the
@@ -139,8 +271,11 @@ TEST(HdMapAdapter, ArrowNamespaceIsDroppedByLongestPrefixWins)
 
     // 64 centerline_arrows_* markers in this fixture (verified against the
     // committed YAML) -- every one dropped BY RULE, never counted as
-    // malformed even though they carry no points[] on the wire.
-    EXPECT_EQ(a.stats().dropped_by_rule, 64u);
+    // malformed even though they carry no points[] on the wire. PLUS
+    // (user directive 2026-09-08): centerline_ itself is now `render: drop`
+    // too (hidden by default) -- its 16 markers land in dropped_by_rule
+    // alongside the arrows. 64 + 16 = 80.
+    EXPECT_EQ(a.stats().dropped_by_rule, 80u);
     EXPECT_EQ(a.stats().dropped_malformed, 0u);
 }
 
@@ -237,7 +372,12 @@ TEST(HdMapAdapter, MalformedMarkersAreDroppedAndCounted)
 {
     // Hand-edited fixture: a LINE_STRIP with 1 point, one with a NaN
     // point, one with an empty points[]. All three dropped; the valid
-    // marker in the same message still comes through.
+    // marker in the same message still comes through. RENAMED (user
+    // directive 2026-09-08) from centerline_* to left_boundary_*: urban's
+    // centerline_ rule is now `render: drop` by default, so a centerline_
+    // marker here would be dropped BY RULE before ever reaching this test's
+    // malformed-detection path -- left_boundary_ stays `render: polyline`
+    // (see the fixture's own header comment).
     auto msg = mpviz_node::testing::load_marker_array("hd_map_malformed_0.yaml");
     TfFixture kTf;
     auto row = mpviz_node::testing::urban_row("/hd_map_local_elements");
@@ -249,13 +389,10 @@ TEST(HdMapAdapter, MalformedMarkersAreDroppedAndCounted)
 
     SceneAssembly out;
     a.fill(out);
-    // Old -> new: urban's centerline_ rule now ships dashed: true, and
-    // centerline_ok is a straight 10 m 2-point line -- it no longer stays
-    // ONE element. At kDashLenM=1.5/kGapLenM=1.5: dashes at [0,1.5],
-    // [3,4.5],[6,7.5],[9,10] = 4 kept runs (the last is 1.0 m, still >=
-    // the 0.25 m drop threshold), each a straight 2-point piece (no
-    // interior vertices to preserve on a 2-point input).
-    ASSERT_EQ(out.map_elements.size(), 4u);
+    // Epic 3 Task 1 (VM-036, decision #3): dashing moved renderer-side, so
+    // the adapter never chops -- left_boundary_ok stays ONE 2-point
+    // element.
+    ASSERT_EQ(out.map_elements.size(), 1u);
     for (const auto& e : out.map_elements) EXPECT_EQ(e.point_count, 2u);
 }
 
@@ -288,43 +425,72 @@ TEST(HdMapAdapter, RateLimitHonoursMaxRateHz)
         return arr;
     };
 
-    a.ingest(make_one_marker("centerline_a", 1, 0.0), 1.0);   // accepted (first ever)
-    a.ingest(make_one_marker("centerline_b", 2, 10.0), 1.1);  // gap 0.1s < 0.5s -> skipped
-    a.ingest(make_one_marker("centerline_c", 3, 20.0), 1.2);  // gap 0.2s < 0.5s -> skipped
-    a.ingest(make_one_marker("centerline_d", 4, 30.0), 1.6);  // gap 0.6s >= 0.5s -> accepted
+    // RENAMED (user directive 2026-09-08) from centerline_* to
+    // left_boundary_*: urban's centerline_ rule is now `render: drop` by
+    // default, so a centerline_ marker here would never reach storage_ at
+    // all -- left_boundary_ stays `render: polyline` and this test's own
+    // point (rate-limiting REBUILDS) doesn't care which polyline-rendering
+    // kind matched.
+    a.ingest(make_one_marker("left_boundary_a", 1, 0.0), 1.0);   // accepted (first ever)
+    a.ingest(make_one_marker("left_boundary_b", 2, 10.0), 1.1);  // gap 0.1s < 0.5s -> skipped
+    a.ingest(make_one_marker("left_boundary_c", 3, 20.0), 1.2);  // gap 0.2s < 0.5s -> skipped
+    a.ingest(make_one_marker("left_boundary_d", 4, 30.0), 1.6);  // gap 0.6s >= 0.5s -> accepted
 
     SceneAssembly out;
     a.fill(out);
     // Only the 2 accepted messages' markers made it in -- with no
     // rate-limit honoured all 4 (no DELETEALL between them) would
-    // accumulate. Old -> new: urban's centerline_ rule now ships
-    // dashed: true, and both accepted markers ("centerline_a", 0->10;
-    // "centerline_d", 30->40) are straight 10 m lines -- each chops into
-    // 4 dash elements exactly like the worked example in ChopIntoDashes'
-    // comment ([0,1.5],[3,4.5],[6,7.5],[9,10]), so 2 accepted markers ->
-    // 2*4 = 8 elements, not 2.
-    EXPECT_EQ(out.map_elements.size(), 8u);
+    // accumulate. Epic 3 Task 1 (VM-036, decision #3): dashing moved
+    // renderer-side, so the adapter never chops -- 2 accepted markers ->
+    // 2 elements.
+    EXPECT_EQ(out.map_elements.size(), 2u);
 }
 
 namespace
 {
 
-// Builds a one-row profile with a single namespace rule, for the
-// dash-chopping tests below -- independent of the shipped config so these
-// tests exercise the geometry op in isolation from urban_profile.yaml.
-mpviz_node::ProfileRow DashRuleRow(bool dashed)
+// Builds a one-row profile with centerline_/left_boundary_/right_boundary_
+// namespace rules, for the pose-composition/flatten-z tests below --
+// independent of the shipped config so they exercise the geometry op in
+// isolation from urban_profile.yaml. Epic 3 Task 1 (VM-036, decision #3):
+// dashing moved renderer-side, so this no longer takes the retired
+// per-namespace chop parameter -- the adapter never chops any namespace
+// now, for any kind. right_boundary_ added (user directive 2026-09-08) for
+// the road-edge-detection tests below, which need both rails.
+mpviz_node::ProfileRow MapRuleRow()
 {
     std::vector<std::string> errs;
     const std::string yaml =
         "name: t\nrows:\n  - {topic: /hd_map, type: visualization_msgs/msg/MarkerArray,"
         " adapter: hd_map, role: lane, ns_default: drop, namespaces:"
-        " [{prefix: centerline_,    render: polyline, dashed: " +
-        std::string(dashed ? "true" : "false") +
-        "},"
-        "  {prefix: left_boundary_, render: polyline}]}\n";
+        " [{prefix: centerline_,     render: polyline, kind: centerline},"
+        "  {prefix: left_boundary_,  render: polyline, kind: left_boundary},"
+        "  {prefix: right_boundary_, render: polyline, kind: right_boundary}]}\n";
     auto p = mpviz_node::load_profile_string(yaml, errs);
-    if (!p) throw std::runtime_error("DashRuleRow: profile failed to parse");
+    if (!p) throw std::runtime_error("MapRuleRow: profile failed to parse");
     return p->rows[0];
+}
+
+// Straight LINE_STRIP marker at a given X offset, running the full Y span
+// -- three of these side by side (X=0, X=3.2, X=6.4) model three adjacent
+// lanes sharing painted lines: lane A's right rail == lane B's left rail,
+// lane B's right rail == lane C's left rail (road-edge-detection tests
+// below, user directive 2026-09-08).
+visualization_msgs::msg::Marker RailMarker(const char* ns, int32_t id, double x)
+{
+    visualization_msgs::msg::Marker m;
+    m.header.frame_id = "map";
+    m.ns = ns;
+    m.id = id;
+    m.type = 4;
+    m.action = 0;
+    geometry_msgs::msg::Point p0, p1;
+    p0.x = x;
+    p0.y = 0.0;
+    p1.x = x;
+    p1.y = 20.0;
+    m.points = {p0, p1};
+    return m;
 }
 
 // One straight 10 m LINE_STRIP marker under the given namespace -- the
@@ -348,73 +514,207 @@ visualization_msgs::msg::MarkerArray StraightTenMeterMarker(const char* ns)
 
 }  // namespace
 
-TEST(HdMapAdapter, DashedCenterlineChopsByArcLengthWithInterpolatedEndpoints)
+TEST(HdMapAdapter, MarkerOfAnyKindStaysOneElementOutOfTheAdapter)
 {
-    // 10 m straight centerline, dashed: true, at kDashLenM=1.5/kGapLenM=1.5:
-    // keep windows start every (1.5+1.5)=3.0 m -- [0,1.5],[3,4.5],[6,7.5],
-    // [9,10] (the last window is truncated by the polyline's own end to
-    // 1.0 m, still >= the 0.25 m drop threshold) = 4 kept dash elements,
-    // each a straight 2-point piece with exactly interpolated endpoints.
-    TfFixture kTf;
-    mpviz_node::HdMapAdapter a(DashRuleRow(/*dashed=*/true), kTf.tf);
-    a.ingest(StraightTenMeterMarker("centerline_x"), 1.0);
-
-    SceneAssembly out;
-    a.fill(out);
-    ASSERT_EQ(out.map_elements.size(), 4u);
-
-    // storage_ holds exactly one (ns, id) key here, and fill() walks its
-    // vector<StoredElement> in chop (insertion) order, so element i IS
-    // dash i -- no sorting needed to make this assertion order-independent.
-    const double kExpectedX[4][2] = {{0.0, 1.5}, {3.0, 4.5}, {6.0, 7.5}, {9.0, 10.0}};
-    for (int i = 0; i < 4; ++i)
-    {
-        const auto& e = out.map_elements[i];
-        ASSERT_EQ(e.point_count, 2u);
-        EXPECT_NEAR(e.points[0].x, kExpectedX[i][0], 1e-9);
-        EXPECT_NEAR(e.points[1].x, kExpectedX[i][1], 1e-9);
-        EXPECT_NEAR(e.points[0].y, 0.0, 1e-9);
-        EXPECT_NEAR(e.points[1].y, 0.0, 1e-9);
-        EXPECT_EQ(e.is_polygon, 0u);
-    }
-}
-
-TEST(HdMapAdapter, NonDashedNamespaceOfIdenticalGeometryStaysOneElement)
-{
-    // Same 10 m geometry as the dashed test above, but under a namespace
-    // whose rule has no dashed: true -- must stay ONE element, byte-for-byte
-    // the pre-dashing behavior. Two variants: a boundary-shaped namespace
-    // (left_boundary_, never dashed by design) and the SAME centerline_
-    // prefix with its rule's dashed flag explicitly false.
+    // Epic 3 Task 1 (VM-036, decision #3): dashing moved renderer-side, so
+    // the adapter never chops, for any kind -- a straight 10 m marker
+    // stays ONE element under a boundary namespace AND under a centerline
+    // namespace. Successor to the pre-Epic3
+    // DashedCenterlineChopsByArcLengthWithInterpolatedEndpoints /
+    // DashChopHappensAfterPoseComposition tests, whose premise (an
+    // adapter-side chop) no longer exists.
     TfFixture kTf;
 
-    mpviz_node::HdMapAdapter boundary(DashRuleRow(/*dashed=*/true), kTf.tf);
+    mpviz_node::HdMapAdapter boundary(MapRuleRow(), kTf.tf);
     boundary.ingest(StraightTenMeterMarker("left_boundary_x"), 1.0);
     SceneAssembly boundary_out;
     boundary.fill(boundary_out);
     ASSERT_EQ(boundary_out.map_elements.size(), 1u);
     EXPECT_EQ(boundary_out.map_elements[0].point_count, 2u);
+    // Road-edge detection (user directive 2026-09-08): this marker has no
+    // paired lane on the opposite side at all (it is the only lane in the
+    // scene), so IsRoadEdge() promotes it -- the emitted kind is ROAD_EDGE,
+    // not the raw LEFT_BOUNDARY the rule matched. This test's own point
+    // (one marker -> one element, never chopped) is unaffected.
+    EXPECT_EQ(boundary_out.map_elements[0].kind, mpviz::MapKind::ROAD_EDGE);
 
-    mpviz_node::HdMapAdapter not_dashed(DashRuleRow(/*dashed=*/false), kTf.tf);
-    not_dashed.ingest(StraightTenMeterMarker("centerline_x"), 1.0);
-    SceneAssembly not_dashed_out;
-    not_dashed.fill(not_dashed_out);
-    ASSERT_EQ(not_dashed_out.map_elements.size(), 1u);
-    EXPECT_EQ(not_dashed_out.map_elements[0].point_count, 2u);
+    mpviz_node::HdMapAdapter centerline(MapRuleRow(), kTf.tf);
+    centerline.ingest(StraightTenMeterMarker("centerline_x"), 1.0);
+    SceneAssembly centerline_out;
+    centerline.fill(centerline_out);
+    ASSERT_EQ(centerline_out.map_elements.size(), 1u);
+    EXPECT_EQ(centerline_out.map_elements[0].point_count, 2u);
+    EXPECT_EQ(centerline_out.map_elements[0].kind, mpviz::MapKind::CENTERLINE);
 }
 
-TEST(HdMapAdapter, DashedMarkerStillCountsAsOneIngestedMarkerForStats)
+TEST(HdMapAdapter, CenterlineAndBoundaryKindAndLaneIdFromMarkerId)
 {
-    // A dashed centerline is one MARKER on the wire and one ingest() call
-    // regardless of how many MapElements it explodes into -- msgs and the
-    // dropped_* counters must not scale with dash count.
+    // Review finding (VM-036 Task 1 Step 3 / decision #4): shared decision
+    // #4's core claim -- "the marker's own `id` field *is* `lane_id`
+    // directly, no ns-suffix parsing" -- was asserted by NO test in either
+    // suite before this one (test_scene_buffer.cpp:261's lane_id round-trip
+    // only exercises SceneBuffer::assign(), never the adapter's own
+    // extraction in hd_map.cpp). A centerline_934/id=934 marker and a
+    // left_boundary_934/id=934 marker, same lane_id carried purely via the
+    // marker's own `id`, not the ns string.
     TfFixture kTf;
-    mpviz_node::HdMapAdapter a(DashRuleRow(/*dashed=*/true), kTf.tf);
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    auto make_marker = [](const char* ns, int32_t id) {
+        visualization_msgs::msg::Marker m;
+        m.header.frame_id = "map";
+        m.ns = ns;
+        m.id = id;
+        m.type = 4;
+        m.action = 0;
+        geometry_msgs::msg::Point p0;
+        geometry_msgs::msg::Point p1;
+        p1.x = 10.0;
+        m.points = {p0, p1};
+        return m;
+    };
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {make_marker("centerline_934", 934), make_marker("left_boundary_934", 934)};
+    a.ingest(arr, 1.0);
+
+    SceneAssembly out;
+    a.fill(out);
+    ASSERT_EQ(out.map_elements.size(), 2u);
+
+    bool found_centerline = false, found_boundary = false;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::CENTERLINE)
+        {
+            found_centerline = true;
+            EXPECT_EQ(e.lane_id, 934u);
+        }
+        // Road-edge detection (user directive 2026-09-08): this marker has
+        // no opposite-side partner (no right_boundary_934 in this test's
+        // scene), so IsRoadEdge() promotes it to ROAD_EDGE -- this test's
+        // own point (lane_id carried via the marker's own `id`) doesn't
+        // care which of the two kinds it ends up as.
+        else if (e.kind == mpviz::MapKind::ROAD_EDGE)
+        {
+            found_boundary = true;
+            EXPECT_EQ(e.lane_id, 934u);
+        }
+    }
+    EXPECT_TRUE(found_centerline);
+    EXPECT_TRUE(found_boundary);
+}
+
+TEST(HdMapAdapter, LaneWithOnlyOneBoundaryProducesNoRoadSurfaceElement)
+{
+    // Review finding (VM-036 Task 1 Step 5 / "Named fixture gaps" #2): the
+    // committed hd_map_local_elements_0.yaml has all 16 boundary-bearing
+    // lanes fully paired, so fill()'s `if (it == right_by_lane.end())
+    // continue;` branch has no real-fixture instance and is otherwise
+    // unexecuted by any test. Hand-built: only a left_boundary_ marker, no
+    // right_boundary_ counterpart for the same lane_id -> zero ROAD_SURFACE
+    // elements, and this is "missing data," not "bad data" (spec §9), so no
+    // dropped_malformed bump either.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    a.ingest(StraightTenMeterMarker("left_boundary_x"), 1.0);  // marker id 1 -> lane_id 1
+
+    SceneAssembly out;
+    a.fill(out);
+    const auto road_count =
+        std::count_if(out.map_elements.begin(), out.map_elements.end(),
+                       [](const mpviz::MapElement& m) { return m.kind == mpviz::MapKind::ROAD_SURFACE; });
+    EXPECT_EQ(road_count, 0);
+    EXPECT_EQ(a.stats().dropped_malformed, 0u);
+}
+
+// ── Road-edge detection (user directive 2026-09-08): "the boundary of the
+//    road (most left and most right lines) should not be dashed and should
+//    be colored differently" ────────────────────────────────────────────
+
+TEST(HdMapAdapter, OuterBoundariesOfThreeAdjacentLanesPromoteToRoadEdge)
+{
+    // Three adjacent lanes sharing painted lines (A|B|C, each 3.2 m wide --
+    // RailMarker's own comment): A's right rail == B's left rail (x=3.2),
+    // B's right rail == C's left rail (x=6.4). Only the outermost two rails
+    // (A's left, x=0; C's right, x=9.6) have no coincident opposite-side
+    // twin from another lane -- everything between stays a shared interior
+    // divider.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        RailMarker("left_boundary_a", 1, 0.0),
+        RailMarker("right_boundary_a", 1, 3.2),
+        RailMarker("left_boundary_b", 2, 3.2),
+        RailMarker("right_boundary_b", 2, 6.4),
+        RailMarker("left_boundary_c", 3, 6.4),
+        RailMarker("right_boundary_c", 3, 9.6),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    // Direct scan by recorded X (simpler and unambiguous than re-deriving
+    // "which side" from kind alone, since kind is exactly what's under test).
+    auto kind_at_x = [&](double x) -> mpviz::MapKind {
+        for (const auto& e : out.map_elements)
+        {
+            if (e.kind == mpviz::MapKind::ROAD_SURFACE) continue;
+            if (std::abs(e.points[0].x - x) < 1e-9) return e.kind;
+        }
+        ADD_FAILURE() << "no element found at x=" << x;
+        return mpviz::MapKind::OTHER;
+    };
+    EXPECT_EQ(kind_at_x(0.0), mpviz::MapKind::ROAD_EDGE) << "lane A's left rail: outer edge";
+    EXPECT_EQ(kind_at_x(3.2), mpviz::MapKind::LEFT_BOUNDARY)
+        << "lane B's left rail == lane A's right rail: shared interior divider";
+    EXPECT_EQ(kind_at_x(6.4), mpviz::MapKind::LEFT_BOUNDARY)
+        << "lane C's left rail == lane B's right rail: shared interior divider";
+    EXPECT_EQ(kind_at_x(9.6), mpviz::MapKind::ROAD_EDGE) << "lane C's right rail: outer edge";
+
+    const auto road_edge_count = std::count_if(
+        out.map_elements.begin(), out.map_elements.end(),
+        [](const mpviz::MapElement& m) { return m.kind == mpviz::MapKind::ROAD_EDGE; });
+    EXPECT_EQ(road_edge_count, 2);
+}
+
+TEST(HdMapAdapter, SingleIsolatedLaneHasBothBoundariesPromotedToRoadEdge)
+{
+    // A lane with no neighbour on either side: BOTH its boundaries are road
+    // edges (there is nothing to be interior to).
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {RailMarker("left_boundary_solo", 1, 0.0),
+                    RailMarker("right_boundary_solo", 1, 3.2)};
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    int road_edge_count = 0;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_SURFACE) continue;
+        EXPECT_EQ(e.kind, mpviz::MapKind::ROAD_EDGE);
+        ++road_edge_count;
+    }
+    EXPECT_EQ(road_edge_count, 2);
+}
+
+TEST(HdMapAdapter, OneMarkerCountsAsOneIngestedMarkerForStats)
+{
+    // A centerline marker is one MARKER on the wire and one ingest() call,
+    // producing one MapElement (dashing moved renderer-side, decision #3)
+    // -- msgs and the dropped_* counters reflect that one marker.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
     a.ingest(StraightTenMeterMarker("centerline_x"), 1.0);
 
     SceneAssembly out;
     a.fill(out);
-    ASSERT_EQ(out.map_elements.size(), 4u);  // the dash explosion, for context
+    ASSERT_EQ(out.map_elements.size(), 1u);
 
     EXPECT_EQ(a.stats().msgs, 1u);
     EXPECT_EQ(a.stats().dropped_malformed, 0u);
@@ -429,10 +729,10 @@ TEST(HdMapAdapter, MarkerPoseComposesRotationBeforeTranslation)
 {
     // pose position (10,20,0), yaw +90 deg, points (0,0) and (5,0) -> stored
     // (10,20) and (10,25) -- rotation applied BEFORE translation, per
-    // tf2::Transform's own point-multiply composition order. Non-dashed
-    // namespace so the marker stays exactly one MapElement.
+    // tf2::Transform's own point-multiply composition order. Single marker,
+    // so it stays exactly one MapElement.
     TfFixture kTf;
-    mpviz_node::HdMapAdapter a(DashRuleRow(/*dashed=*/false), kTf.tf);
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     visualization_msgs::msg::Marker m;
@@ -471,7 +771,7 @@ TEST(HdMapAdapter, IdentityMarkerPoseIsByteIdenticalToRawPoints)
     // `float64 w 1`) -- must reproduce today's un-posed behaviour exactly:
     // no rotation, no translation (regression for the identity fast path).
     TfFixture kTf;
-    mpviz_node::HdMapAdapter a(DashRuleRow(/*dashed=*/false), kTf.tf);
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
     a.ingest(StraightTenMeterMarker("centerline_x"), 1.0);
 
     SceneAssembly out;
@@ -490,7 +790,7 @@ TEST(HdMapAdapter, NanMarkerPoseIsDroppedAsMalformedNotAppliedRaw)
     // The malformed marker is dropped; a valid neighbour still comes
     // through (spec §9, "drop the one primitive, never propagate").
     TfFixture kTf;
-    mpviz_node::HdMapAdapter a(DashRuleRow(/*dashed=*/false), kTf.tf);
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     auto bad = StraightTenMeterMarker("centerline_x").markers[0];
@@ -509,26 +809,11 @@ TEST(HdMapAdapter, NanMarkerPoseIsDroppedAsMalformedNotAppliedRaw)
     EXPECT_DOUBLE_EQ(out.map_elements[0].points[1].x, 10.0);
 }
 
-TEST(HdMapAdapter, DashChopHappensAfterPoseComposition)
-{
-    // Review finding 2026-08-20: structurally the chop runs on posed points,
-    // but no test pinned it -- a refactor moving ChopIntoDashes ahead of the
-    // pose multiply would pass every other test. Same 10 m straight
-    // centerline, dashed, posed +100 in x: the first dash must land at
-    // [100, 101.5], i.e. chopping ran on POSED coordinates.
-    TfFixture kTf;
-    mpviz_node::HdMapAdapter a(DashRuleRow(/*dashed=*/true), kTf.tf);
-    auto arr = StraightTenMeterMarker("centerline_x");
-    arr.markers[0].pose.position.x = 100.0;
-    a.ingest(arr, 1.0);
-
-    SceneAssembly out;
-    a.fill(out);
-    ASSERT_EQ(out.map_elements.size(), 4u);
-    ASSERT_EQ(out.map_elements[0].point_count, 2u);
-    EXPECT_NEAR(out.map_elements[0].points[0].x, 100.0, 1e-9);
-    EXPECT_NEAR(out.map_elements[0].points[1].x, 101.5, 1e-9);
-}
+// DashChopHappensAfterPoseComposition (pre-Epic3): DELETED. Its premise --
+// an adapter-side chop that could theoretically run before vs. after pose
+// composition -- no longer exists (decision #3: chopping is entirely
+// renderer-side now and only ever sees already-posed points crossing the
+// ABI boundary). No adapter-side successor is needed.
 
 TEST(HdMapAdapter, ZeroQuaternionPoseIsTreatedAsIdentityRotationNotNan)
 {
@@ -537,7 +822,7 @@ TEST(HdMapAdapter, ZeroQuaternionPoseIsTreatedAsIdentityRotationNotNan)
     // whole marker as dropped_malformed. Zero quat + translation -> points
     // still come through translated, nothing counted malformed.
     TfFixture kTf;
-    mpviz_node::HdMapAdapter a(DashRuleRow(/*dashed=*/false), kTf.tf);
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
     auto arr = StraightTenMeterMarker("centerline_x");
     arr.markers[0].pose.position.y = 7.0;
     arr.markers[0].pose.orientation.w = 0.0;  // all-zero quaternion
@@ -557,7 +842,7 @@ TEST(HdMapAdapter, NonZeroZPointsAreFlattenedToTheMapPlane)
     // flatten_z (user directive 2026-08-20): the HD map is a 2D plane, so
     // publisher z must not float geometry above it. Default is ON.
     TfFixture kTf;
-    mpviz_node::HdMapAdapter a(DashRuleRow(/*dashed=*/false), kTf.tf);
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
     auto arr = StraightTenMeterMarker("centerline_x");
     for (auto& p : arr.markers[0].points) p.z = 3.0;
     a.ingest(arr, 1.0);
@@ -576,7 +861,7 @@ TEST(HdMapAdapter, FlattenZOffPreservesPublisherZ)
     // when the HD-map layer grows 3D coordinates.
     TfFixture kTf;
     micropilot::visualization_app::FrameTransformer tf3d(kTf.buffer, "map", /*flatten_z=*/false);
-    mpviz_node::HdMapAdapter a(DashRuleRow(/*dashed=*/false), tf3d);
+    mpviz_node::HdMapAdapter a(MapRuleRow(), tf3d);
     auto arr = StraightTenMeterMarker("centerline_x");
     for (auto& p : arr.markers[0].points) p.z = 3.0;
     a.ingest(arr, 1.0);

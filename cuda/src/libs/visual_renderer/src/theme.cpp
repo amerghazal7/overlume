@@ -52,6 +52,24 @@ Theme parse(const YAML::Node& root) {
     t.palette.ribbon_local =
         palette["ribbon_local"] ? to_float3(palette["ribbon_local"]) : t.palette.ribbon_glow;
 
+    // road/lane_centerline/lane_boundary/crosswalk (Epic 3 Task 1 / VM-036,
+    // decision #6): same soft-default convention as ribbon_global/
+    // ribbon_local above. `road` falls back to `ground` (today's "ground
+    // carries the road tone" look); the other three fall back to
+    // `lane_paint` (today's "every map element is one stroke color" look).
+    t.palette.road = palette["road"] ? to_float3(palette["road"]) : t.palette.ground;
+    t.palette.lane_centerline =
+        palette["lane_centerline"] ? to_float3(palette["lane_centerline"]) : t.palette.lane_paint;
+    t.palette.lane_boundary =
+        palette["lane_boundary"] ? to_float3(palette["lane_boundary"]) : t.palette.lane_paint;
+    t.palette.crosswalk =
+        palette["crosswalk"] ? to_float3(palette["crosswalk"]) : t.palette.lane_paint;
+    // road_edge (user directive 2026-09-08): same soft-default convention,
+    // falls back to lane_paint (the palette.ego precedent) -- neither
+    // shipped theme relies on it, both author an explicit yellow.
+    t.palette.road_edge =
+        palette["road_edge"] ? to_float3(palette["road_edge"]) : t.palette.lane_paint;
+
     const YAML::Node tints = palette["object_tints"];
     t.palette.object_tints.car = to_float3(tints["car"]);
     t.palette.object_tints.truck_van = to_float3(tints["truck_van"]);
@@ -127,7 +145,10 @@ const Theme& kFallbackTheme() {
         t.palette.ground = {0.05f, 0.06f, 0.08f};
         t.palette.sky = {0.02f, 0.02f, 0.05f};
         t.palette.fog = {0.02f, 0.02f, 0.05f};
-        t.palette.lane_paint = {0.45f, 0.5f, 0.55f};
+        // Re-authored toward near-white (Epic 3 Task 1 / VM-036 debt item
+        // a, review-verified: was mid-gray [0.45,0.5,0.55]) -- must match
+        // dark_adas.yaml exactly (ThemeLoad.BuiltinFallbackMatchesDarkAdasYaml).
+        t.palette.lane_paint = {0.85f, 0.85f, 0.88f};
         t.palette.ribbon_core = {0.10f, 1.00f, 0.40f};
         t.palette.ribbon_glow = {0.10f, 1.00f, 0.40f};
         // Cross-theme swap (user directive 2026-08-20): light_clay's ground
@@ -139,6 +160,21 @@ const Theme& kFallbackTheme() {
         // code this fallback mirrors.
         t.palette.ribbon_global = {0.25f, 0.55f, 0.95f};
         t.palette.ribbon_local = {0.95f, 0.70f, 0.15f};
+        // road/lane_centerline/lane_boundary/crosswalk/road_edge (Epic 3
+        // Task 1 / VM-036, decision #6; lane_centerline + road_edge
+        // re-authored by user directive 2026-09-08) -- must match
+        // dark_adas.yaml exactly (ThemeLoad.BuiltinFallbackMatchesDarkAdasYaml).
+        // road is darker than palette.ground (0.05,0.06,0.08);
+        // lane_boundary/crosswalk are the same near-white lane_paint was
+        // re-authored toward; lane_centerline is now a LOW-CONTRAST fade of
+        // lane_paint toward road (25% lane_paint / 75% road -- faint dot
+        // guidance, not a bold stroke); road_edge is a clear, fully-
+        // saturated road-paint yellow, solid and readable on the dark road.
+        t.palette.road = {0.03f, 0.035f, 0.045f};
+        t.palette.lane_centerline = {0.235f, 0.239f, 0.254f};
+        t.palette.lane_boundary = {0.85f, 0.85f, 0.88f};
+        t.palette.crosswalk = {0.85f, 0.85f, 0.88f};
+        t.palette.road_edge = {0.95f, 0.75f, 0.05f};
         t.palette.object_tints.car = {0.25f, 0.35f, 0.9f};
         t.palette.object_tints.truck_van = {0.30f, 0.35f, 0.85f};
         t.palette.object_tints.bus = {0.85f, 0.6f, 0.15f};

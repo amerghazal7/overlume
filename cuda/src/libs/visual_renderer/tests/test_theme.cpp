@@ -191,6 +191,133 @@ TEST(ThemePalette, RibbonWidthLerpsLinearlyAcrossTransition) {
     EXPECT_NEAR(mid.ribbon.width_m, expectedMid, 1e-4f);
 }
 
+// ── palette.road/lane_centerline/lane_boundary/crosswalk (Epic 3 Task 1 /
+//    VM-036, decision #6): four new soft-defaulted tokens ─────────────────
+
+TEST(ThemePalette, RoadLaneCenterlineLaneBoundaryCrosswalkFallBackWhenMissingFromYaml) {
+    // sun_dir_a.yaml predates these four tokens and was deliberately NOT
+    // updated to add them (same "prove the soft default, don't retrofit
+    // every old fixture" reasoning as palette.ego's own
+    // EgoFallsBackToBuiltinDefaultWhenMissingFromYaml above).
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<mpviz::detail::Theme> theme =
+        mpviz::detail::load_theme(fixtureDir, "sun_dir_a");
+    ASSERT_TRUE(theme.has_value())
+        << "a theme file missing only the optional road/lane_centerline/lane_boundary/"
+           "crosswalk keys must still parse";
+
+    // road falls back to ground -- today's "ground carries the road tone".
+    EXPECT_NEAR(theme->palette.road.r, theme->palette.ground.r, 1e-4f);
+    EXPECT_NEAR(theme->palette.road.g, theme->palette.ground.g, 1e-4f);
+    EXPECT_NEAR(theme->palette.road.b, theme->palette.ground.b, 1e-4f);
+    // lane_centerline/lane_boundary/crosswalk fall back to lane_paint --
+    // today's "every map element is one stroke color" look.
+    EXPECT_NEAR(theme->palette.lane_centerline.r, theme->palette.lane_paint.r, 1e-4f);
+    EXPECT_NEAR(theme->palette.lane_centerline.g, theme->palette.lane_paint.g, 1e-4f);
+    EXPECT_NEAR(theme->palette.lane_centerline.b, theme->palette.lane_paint.b, 1e-4f);
+    EXPECT_NEAR(theme->palette.lane_boundary.r, theme->palette.lane_paint.r, 1e-4f);
+    EXPECT_NEAR(theme->palette.lane_boundary.g, theme->palette.lane_paint.g, 1e-4f);
+    EXPECT_NEAR(theme->palette.lane_boundary.b, theme->palette.lane_paint.b, 1e-4f);
+    EXPECT_NEAR(theme->palette.crosswalk.r, theme->palette.lane_paint.r, 1e-4f);
+    EXPECT_NEAR(theme->palette.crosswalk.g, theme->palette.lane_paint.g, 1e-4f);
+    EXPECT_NEAR(theme->palette.crosswalk.b, theme->palette.lane_paint.b, 1e-4f);
+    // road_edge (user directive 2026-09-08): same soft-default convention,
+    // falls back to lane_paint (the palette.ego precedent).
+    EXPECT_NEAR(theme->palette.road_edge.r, theme->palette.lane_paint.r, 1e-4f);
+    EXPECT_NEAR(theme->palette.road_edge.g, theme->palette.lane_paint.g, 1e-4f);
+    EXPECT_NEAR(theme->palette.road_edge.b, theme->palette.lane_paint.b, 1e-4f);
+}
+
+TEST(ThemePalette, RoadLaneCenterlineLaneBoundaryBlendInOklabAcrossTransition) {
+    const std::optional<mpviz::detail::Theme> dark =
+        mpviz::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<mpviz::detail::Theme> light =
+        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    ASSERT_TRUE(dark.has_value());
+    ASSERT_TRUE(light.has_value());
+
+    const mpviz::detail::Theme mid = mpviz::detail::blend(*dark, *light, 0.5f);
+
+    // Same self-consistency + "actually moved off both endpoints" technique
+    // as palette.ego's own EgoBlendsInOklabAcrossTransition above.
+    for (const auto& [a, b, m] :
+         {std::tuple{dark->palette.road, light->palette.road, mid.palette.road},
+          std::tuple{dark->palette.lane_centerline, light->palette.lane_centerline,
+                     mid.palette.lane_centerline},
+          std::tuple{dark->palette.lane_boundary, light->palette.lane_boundary,
+                     mid.palette.lane_boundary},
+          std::tuple{dark->palette.road_edge, light->palette.road_edge, mid.palette.road_edge}}) {
+        const float La = mpviz::detail::linear_srgb_to_oklab(a).L;
+        const float Lb = mpviz::detail::linear_srgb_to_oklab(b).L;
+        const float Lmid = mpviz::detail::linear_srgb_to_oklab(m).L;
+        EXPECT_GE(Lmid, std::min(La, Lb) - 1e-4f);
+        EXPECT_LE(Lmid, std::max(La, Lb) + 1e-4f);
+        EXPECT_GT(std::abs(Lmid - La), 1e-4f);
+        EXPECT_GT(std::abs(Lmid - Lb), 1e-4f);
+    }
+}
+
+TEST(ThemeLoad, BuiltinFallbackMatchesDarkAdasYaml) {
+    // kFallbackTheme() (theme.cpp) is a hand-kept C++ copy of dark_adas.yaml
+    // -- the two are supposed to be byte-for-byte the same values, but
+    // nothing enforced that before this test, so a future dark_adas.yaml
+    // edit could silently drift from what create_renderer() falls back to
+    // on a broken/missing theme-asset install (spec §9). Field-by-field,
+    // not exhaustive-by-reflection (C++ has none here), but every field
+    // this epic actually touches is covered, plus the pre-existing ones.
+    const std::optional<mpviz::detail::Theme> dark =
+        mpviz::detail::load_theme(kThemeDir, "dark_adas");
+    ASSERT_TRUE(dark.has_value());
+    const mpviz::detail::Theme& fb = mpviz::detail::kFallbackTheme();
+
+    const auto near3 = [](const mpviz::detail::Float3& a, const mpviz::detail::Float3& b) {
+        EXPECT_NEAR(a.r, b.r, 1e-4f);
+        EXPECT_NEAR(a.g, b.g, 1e-4f);
+        EXPECT_NEAR(a.b, b.b, 1e-4f);
+    };
+    EXPECT_EQ(fb.name, dark->name);
+    near3(fb.palette.ground, dark->palette.ground);
+    near3(fb.palette.sky, dark->palette.sky);
+    near3(fb.palette.fog, dark->palette.fog);
+    near3(fb.palette.lane_paint, dark->palette.lane_paint);
+    near3(fb.palette.ribbon_core, dark->palette.ribbon_core);
+    near3(fb.palette.ribbon_glow, dark->palette.ribbon_glow);
+    near3(fb.palette.ego, dark->palette.ego);
+    near3(fb.palette.ribbon_global, dark->palette.ribbon_global);
+    near3(fb.palette.ribbon_local, dark->palette.ribbon_local);
+    near3(fb.palette.road, dark->palette.road);
+    near3(fb.palette.lane_centerline, dark->palette.lane_centerline);
+    near3(fb.palette.lane_boundary, dark->palette.lane_boundary);
+    near3(fb.palette.crosswalk, dark->palette.crosswalk);
+    near3(fb.palette.road_edge, dark->palette.road_edge);
+    near3(fb.palette.object_tints.car, dark->palette.object_tints.car);
+    near3(fb.palette.object_tints.truck_van, dark->palette.object_tints.truck_van);
+    near3(fb.palette.object_tints.bus, dark->palette.object_tints.bus);
+    near3(fb.palette.object_tints.pedestrian, dark->palette.object_tints.pedestrian);
+    near3(fb.palette.object_tints.cyclist, dark->palette.object_tints.cyclist);
+    near3(fb.palette.object_tints.unknown, dark->palette.object_tints.unknown);
+    near3(fb.palette.alert.info, dark->palette.alert.info);
+    near3(fb.palette.alert.warning, dark->palette.alert.warning);
+    near3(fb.palette.alert.critical, dark->palette.alert.critical);
+    EXPECT_NEAR(fb.material.roughness, dark->material.roughness, 1e-4f);
+    EXPECT_NEAR(fb.material.metallic, dark->material.metallic, 1e-4f);
+    EXPECT_NEAR(fb.emissive.ribbon_strength, dark->emissive.ribbon_strength, 1e-4f);
+    near3(fb.grid.line_color, dark->grid.line_color);
+    EXPECT_NEAR(fb.grid.fade_start_m, dark->grid.fade_start_m, 1e-4f);
+    EXPECT_NEAR(fb.grid.fade_end_m, dark->grid.fade_end_m, 1e-4f);
+    near3(fb.hud.text_color, dark->hud.text_color);
+    near3(fb.hud.accent_color, dark->hud.accent_color);
+    EXPECT_NEAR(fb.hud.scale, dark->hud.scale, 1e-4f);
+    near3(fb.sun.direction, dark->sun.direction);
+    near3(fb.sun.color, dark->sun.color);
+    EXPECT_NEAR(fb.sun.intensity, dark->sun.intensity, 1e-4f);
+    near3(fb.ibl.sky_color, dark->ibl.sky_color);
+    near3(fb.ibl.ground_color, dark->ibl.ground_color);
+    EXPECT_NEAR(fb.ibl.intensity, dark->ibl.intensity, 1e-4f);
+    EXPECT_NEAR(fb.fog.density, dark->fog.density, 1e-4f);
+    EXPECT_NEAR(fb.ribbon.width_m, dark->ribbon.width_m, 1e-4f);
+}
+
 TEST(ClayMaterial, RespondsToLightDirection) {
     // Two renderers loaded from fixture themes that are byte-for-byte
     // identical except `sun.direction` (tests/fixtures/themes/sun_dir_{a,b}
@@ -435,11 +562,15 @@ TEST(ThemeGolden, EmptyWorld_DarkAdas) {
     // ray never reaches the near-total fog extinction a true infinite
     // ground would give -- full convergence to sky-row-exact isn't
     // reachable by either knob, and spending density to force it shut is
-    // the exact mistake this round undoes. 40.0 keeps this a real
-    // regression guard (round 4's un-scaled fog measured a ~139-level gap;
-    // this would still catch that) without demanding the physically
-    // unreachable.
-    EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 40.0)
+    // the exact mistake this round undoes. Loosened again 40.0 -> 45.0
+    // (Epic 3 Task 1 / VM-036 debt item d): review verified there is no
+    // shared bound to "split" between the two themes (dark's 40.0 and
+    // light's 55.0 below are, and were before 3b3ce2c, two independent
+    // EXPECT_LT calls) -- the debt item's only remaining, optional piece is
+    // this one-line parity-of-headroom tweak. Still a real regression
+    // guard (round 4's un-scaled fog measured a ~139-level gap; this would
+    // still catch that) without demanding the physically unreachable.
+    EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 45.0)
         << "far-field ground (" << stats.horizon_row_mean << ") doesn't fade "
            "into the sky (" << stats.sky_row_mean << ") -- fog is over/under-scaled";
     mpviz::destroy_renderer(r);

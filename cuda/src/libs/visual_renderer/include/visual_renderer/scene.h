@@ -1,17 +1,27 @@
 // scene.h — POD boundary, same rules as api.h (checked by the same
 // check_pod_header.sh, extended to glob include/visual_renderer/*.h).
 //
-// Frozen for all Visual Mode epics once Epic 1's review gate passes
-// (docs/superpowers/plans/2026-08-18-visual-mode-epic1.md, Task 1/VM-010).
-// Spec §4.1 lists 8 scene categories; Epic 1 only ever populates `ego`
-// (object_count == 0, path_count == 0, etc. for everything else) — Epic 2
-// fills the rest without touching this header again.
+// ADDITIVE-ONLY, per ADR-0004 (docs/adr/0004-scene-interface-versioning.md),
+// which supersedes the old "frozen after Epic N / freeze lift" language:
+// fields are appended to structs, enum values are appended, entry points are
+// added -- nothing here is ever renamed, reordered, or removed within a
+// major version. `kSceneVersion` below is bumped on every additive change;
+// tests/test_scene_buffer.cpp's sizeof/offsetof static_asserts (and the
+// node-side test_scene_layout.cpp mirror) are the layout guard that makes a
+// version bump without a matching rebuild fail loudly instead of silently
+// reading garbage across the ABI boundary.
 #pragma once
 #include <cstdint>
 #include <cstddef>
 #include "visual_renderer/api.h"
 
 namespace mpviz {
+
+// Introduced Epic 3 Task 1 (VM-036, ADR-0004). Bumped on every additive
+// scene.h change; the node-side static_assert mirror (test_scene_layout.cpp)
+// fails loudly on a layout mismatch instead of silently reading garbage
+// across the ABI boundary at the node's next rebuild.
+constexpr uint32_t kSceneVersion = 1;
 
 struct Vec3 { double x, y, z; };
 
@@ -52,10 +62,27 @@ struct PathRibbon {
     double last_update_sec;
 };
 
-// ── MapElement[] (Epic 2: VM-024) ───────────────────────────────────────────
+// ── MapElement[] (Epic 2: VM-024; kind/lane_id/last_update_sec: Epic 3
+//    Task 1 / VM-036, ADR-0004 additive) ─────────────────────────────────────
+// Namespace convention verified against the recorded bag (see the Epic 3
+// plan, Task 1, "Verified: kind/lane_id source"). ROAD_EDGE is emitted by
+// HdMapAdapter::fill()'s geometry-driven promotion (user directive
+// 2026-09-08): a LEFT_/RIGHT_BOUNDARY with no near-coincident opposite-side
+// twin from another lane IS the road's outer edge; no ingest rule produces
+// it directly (the disabled /road_markers row may also map to it one day).
+// ROAD_SURFACE is adapter-synthesized (never present on the wire) -- see the
+// plan's road-fill section for its two-rail point encoding.
+enum class MapKind : uint8_t {
+    OTHER = 0, CENTERLINE = 1, LEFT_BOUNDARY = 2, RIGHT_BOUNDARY = 3,
+    CROSSWALK = 4, STOPLINE = 5, JUNCTION = 6, ROAD_EDGE = 7, ROAD_SURFACE = 8
+};
+
 struct MapElement {
     const Vec3* points;  uint32_t point_count;
     uint8_t is_polygon;  // 0 = polyline (lane centerline), 1 = polygon (crosswalk)
+    MapKind kind;             // NEW, appended. Default (aggregate zero-init) = OTHER.
+    uint32_t lane_id;         // NEW, appended. 0 = none (crosswalk/stopline/junction/other).
+    double last_update_sec;   // NEW, appended. Closes Epic 2's "map pops, does not fade" deviation.
 };
 
 // ── GroundGrid (OGM layers; Epic 2: VM-025) ─────────────────────────────────

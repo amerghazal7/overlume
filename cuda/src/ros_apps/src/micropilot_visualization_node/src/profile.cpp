@@ -21,6 +21,33 @@ std::optional<NsRender> ParseNsRender(const std::string& s)
     return std::nullopt;
 }
 
+// Epic 3 Task 1 (VM-036): YAML spelling -> MapKind. "road_surface" is
+// deliberately NOT accepted here -- ROAD_SURFACE is adapter-synthesized
+// (paired boundary rails), never a value a profile author can request.
+std::optional<mpviz::MapKind> ParseMapKind(const std::string& s)
+{
+    if (s == "other") return mpviz::MapKind::OTHER;
+    if (s == "centerline") return mpviz::MapKind::CENTERLINE;
+    if (s == "left_boundary") return mpviz::MapKind::LEFT_BOUNDARY;
+    if (s == "right_boundary") return mpviz::MapKind::RIGHT_BOUNDARY;
+    if (s == "crosswalk") return mpviz::MapKind::CROSSWALK;
+    if (s == "stopline") return mpviz::MapKind::STOPLINE;
+    if (s == "junction") return mpviz::MapKind::JUNCTION;
+    if (s == "road_edge") return mpviz::MapKind::ROAD_EDGE;
+    return std::nullopt;
+}
+
+// Which render verdicts a non-OTHER kind is legal on (ValidateRow's
+// cross-field check, same shape as the retired adapter-side chop-vs-render
+// check it replaces). CROSSWALK is polygon-only; every lane-geometry kind is
+// polyline-only.
+bool KindIsLegalOnRender(mpviz::MapKind kind, NsRender render)
+{
+    if (kind == mpviz::MapKind::OTHER) return true;
+    if (kind == mpviz::MapKind::CROSSWALK) return render == NsRender::kPolygon;
+    return render == NsRender::kPolyline;
+}
+
 // Adapter -> its closed role set (epic2 plan, profile.hpp struct comment).
 const std::map<std::string, std::set<std::string>>& RoleSets()
 {
@@ -142,12 +169,24 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
                 ok = false;
                 continue;
             }
-            rule.dashed = item["dashed"] ? item["dashed"].as<bool>() : false;
-            // dashed vs. render is a cross-field semantic check, not a
+            if (item["kind"]) {
+                const std::string kind_str = item["kind"].as<std::string>();
+                if (auto k = ParseMapKind(kind_str)) {
+                    rule.kind = *k;
+                } else {
+                    errors.push_back(RowTag(file, idx, out.topic) +
+                                      "namespaces[].kind '" + kind_str +
+                                      "' must be one of other|centerline|left_boundary|"
+                                      "right_boundary|crosswalk|stopline|junction|road_edge");
+                    ok = false;
+                    continue;
+                }
+            }
+            // kind vs. render is a cross-field semantic check, not a
             // can't-represent-it-at-all parse failure -- see ValidateRow.
             for (auto it = item.begin(); it != item.end(); ++it) {
                 const std::string key = it->first.as<std::string>();
-                if (key != "prefix" && key != "render" && key != "dashed") {
+                if (key != "prefix" && key != "render" && key != "kind") {
                     errors.push_back(RowTag(file, idx, out.topic) +
                                       "namespaces[] unknown key '" + key + "' (ignored)");
                 }
@@ -209,10 +248,9 @@ bool ValidateRow(const ProfileRow& row, const std::string& file, size_t idx,
     for (const auto& rule : row.namespaces) {
         if (!seen.insert(rule.prefix).second)
             return fail("duplicate namespace prefix '" + rule.prefix + "'");
-        if (rule.dashed && rule.render != NsRender::kPolyline)
+        if (!KindIsLegalOnRender(rule.kind, rule.render))
             return fail("namespaces[] prefix '" + rule.prefix +
-                        "': dashed: true is only legal on render: polyline (got '" +
-                        (rule.render == NsRender::kPolygon ? "polygon" : "drop") + "')");
+                        "': kind is not legal on this rule's render verdict");
     }
 
     return true;

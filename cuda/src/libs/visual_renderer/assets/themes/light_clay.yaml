@@ -45,6 +45,25 @@ palette:
   ribbon_global: [0.45, 0.55, 0.65]
   ribbon_local: [0.70, 0.55, 0.38]
   ego: [0.05, 0.06, 0.08]  # cross-theme swap: dark_adas's ground/clay, so the ego pops on light
+  # road/lane_centerline/lane_boundary (Epic 3 Task 1 / VM-036, decision
+  # #6): road is a darker lavender-gray than palette.ground just above
+  # (0.58,0.58,0.64) -- the static road-surface base coat, per the
+  # backlog's "road darker than ground" AC. lane_boundary reuses the
+  # existing near-white lane_paint tone. crosswalk is left to its soft
+  # default (== lane_paint).
+  road: [0.40, 0.40, 0.46]
+  # lane_centerline (user directive 2026-09-08 -- centerlines now render as
+  # faint dot guidance, hidden by default): RE-AUTHORED from decision #6's
+  # bold amber [0.80,0.65,0.10] to "a light fade of lane color" -- the same
+  # 25% lane_paint / 75% road mix dark_adas uses: 0.25*[0.92,0.92,0.90] +
+  # 0.75*[0.40,0.40,0.46] = [0.53, 0.53, 0.57].
+  lane_centerline: [0.53, 0.53, 0.57]
+  lane_boundary: [0.92, 0.92, 0.90]
+  # road_edge (user directive 2026-09-08): the road's outer boundary
+  # (MapKind::ROAD_EDGE) renders SOLID, never dashed -- a deeper, more
+  # saturated yellow than lane_centerline's new fade, per ref-2's double-
+  # yellow road-edge striping.
+  road_edge: [0.75, 0.55, 0.03]
   # Deepened (ITEM 2c) so every class still reads as "clay but distinct"
   # against the new, darker road-toned ground -- the old values were tuned
   # for the near-white ground this pass replaced.
