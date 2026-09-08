@@ -1933,6 +1933,347 @@ TEST(HdMapAdapter, ArcSnapReachesTheArcsTrueStartEvenBeyondTheOldSearchMargin)
     EXPECT_NEAR(tail.points[2].y, -23.46468621338738, 1e-9);
 }
 
+TEST(HdMapAdapter, RedundantArcTailTrimCutsBackToTheCornerArcsDepartureVertex)
+{
+    // USER CORRECTION, verbatim, to an earlier wrong diagnosis of this same
+    // complaint: "you got the leftovers wrongly! Look at the right boundary
+    // of a road that has a junction with right exit, you'll find the arc
+    // that goes to the right exit road but also a stray straight line for
+    // couple meters continuing the boundary line, that's the unwanted
+    // leftover I'm talking about."
+    //
+    // lane 1's own recorded polyline: a straight lead-in, then the SAME
+    // R=8 m/75 deg corner arc ArcSnapExtendsCutPastFixedBackoffToTheCorner
+    // ArcsFarEdge above uses (the "arc that goes to the right exit road"),
+    // then a straight tail continuing 12 m past the arc's own rejoin vertex
+    // (v6) -- that tail is the "stray straight line" leftover. lane 2 is a
+    // SEPARATE, independently-promoted ROAD_EDGE piece that is what this
+    // tail actually duplicates: it shares lane 1's own exact final vertex
+    // (9.0, 20.0) and runs within 0.30 m of lane 1's own tail the whole way
+    // -- the measured discriminator (kSharedNodeEpsM at the shared vertex,
+    // kRoadEdgeCoincidenceThresholdM at the vertex just before it). No
+    // crossing exists anywhere in this scene at all (unlike the ArcSnap*
+    // tests above) -- this mechanism does not need one, matching the real
+    // confirmed instance (lane 955) the measurement pass found, which has
+    // no crossing anywhere near its own tail either.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1,
+                   {{-5.0, 0.0},
+                    {1.0, 0.0},
+                    {3.070552360820166, 0.2725933896874535},
+                    {5.0, 1.0717967697244903},
+                    {6.65685424949238, 2.3431457505076194},
+                    {7.928203230275509, 3.999999999999999},
+                    {8.727406610312546, 5.929447639179834},  // v6 -- the arc's own rejoin vertex
+                    {9.0, 8.0},                               // redundant tail starts
+                    {9.0, 20.0}}),                             // redundant tail ends, shared vertex
+        LineMarker("left_boundary_b", 2, {{9.3, 8.0}, {9.0, 20.0}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> lane_a, lane_b;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind != mpviz::MapKind::ROAD_EDGE) continue;
+        if (e.lane_id == 1u) lane_a.push_back(e);
+        if (e.lane_id == 2u) lane_b.push_back(e);
+    }
+
+    ASSERT_EQ(lane_a.size(), 1u) << "no crossing exists -- the trim is the only cut on this piece";
+    ASSERT_EQ(lane_a[0].point_count, 7u) << "v0..v6 kept -- the redundant tail (v7,v8) is gone";
+    // Upstream approach AND the arc itself are untouched -- the trim only
+    // ever looks at vertices past the arc's own rejoin vertex.
+    EXPECT_NEAR(lane_a[0].points[0].x, -5.0, 1e-9) << "lane's own literal first vertex, unmoved";
+    EXPECT_NEAR(lane_a[0].points[0].y, 0.0, 1e-9);
+    EXPECT_NEAR(lane_a[0].points[6].x, 8.727406610312546, 1e-9)
+        << "v6 -- the arc's own true rejoin vertex, a real recorded point, never interpolated";
+    EXPECT_NEAR(lane_a[0].points[6].y, 5.929447639179834, 1e-9);
+
+    ASSERT_EQ(lane_b.size(), 1u) << "lane 2 is its own independently-promoted piece, untouched";
+    ASSERT_EQ(lane_b[0].point_count, 2u);
+}
+
+TEST(HdMapAdapter, RedundantArcTailTrimDoesNotFireOnAnOpenElbowConnector)
+{
+    // Measured false-positive class (5 of the 19 bag-wide arc-tail
+    // instances -- re-derived per-message, order-independent discriminator:
+    // lanes 232 and 1029 sit in this coincident-endpoint sub-class, plus 3
+    // more with no coincident endpoint at all; lanes 644, 1305, and
+    // 14605@hi=8 were misfiled here by an earlier order-dependent
+    // measurement but are real true cases -- see hd_map.cpp's own corrected
+    // comment on kSharedNodeEpsM): a tail's own last vertex CAN coincide
+    // exactly with another piece's own endpoint (kSharedNodeEpsM does NOT
+    // discriminate this case -- see hd_map.cpp's own corrected comment on
+    // that constant) while the vertex just before it sits outside
+    // kRoadEdgeCoincidenceThresholdM of that other piece's polyline, so
+    // the trim correctly does not fire. Pinned here at lane 232's own
+    // measured value -- the nearest legitimate straight edge sits at
+    // 1.5366 m, only a 1.73x margin past kRoadEdgeCoincidenceThresholdM=
+    // 1.0 m (NOT the ~30x this file used to attribute to kSharedNodeEpsM)
+    // -- rather than an arbitrary far distance, so a future change eroding
+    // that real margin fails this test. Same lane-1 arc geometry as the
+    // test above; lane 2 now reaches the shared vertex from a direction
+    // whose penultimate-vertex distance sits just past the real measured
+    // boundary instead of far past it.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1,
+                   {{-5.0, 0.0},
+                    {1.0, 0.0},
+                    {3.070552360820166, 0.2725933896874535},
+                    {5.0, 1.0717967697244903},
+                    {6.65685424949238, 2.3431457505076194},
+                    {7.928203230275509, 3.999999999999999},
+                    {8.727406610312546, 5.929447639179834},
+                    {9.0, 8.0},
+                    {9.0, 20.0}}),
+        LineMarker("left_boundary_b", 2, {{9.0, 20.0}, {10.549, 8.0}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> lane_a;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
+    }
+    ASSERT_EQ(lane_a.size(), 1u);
+    ASSERT_EQ(lane_a[0].point_count, 9u)
+        << "penultimate vertex ~1.5366 m from lane 2 (lane 232's own measured false-case "
+           "distance) -- just past kRoadEdgeCoincidenceThresholdM, condition (b) fails, whole "
+           "lane renders unmoved";
+}
+
+TEST(HdMapAdapter, RedundantArcTailTrimFiresOnTheWorstMeasuredTrueCase)
+{
+    // Companion to the false-case test above: pins the OTHER side of the
+    // real discriminating band. Lane 792 was the worst (largest lateral
+    // offset) of the 14 real bag-wide true cases (re-derived per-message,
+    // order-independent discriminator -- see hd_map.cpp's own corrected
+    // comment; three instances an earlier order-dependent measurement had
+    // misfiled as false, lanes 644/1305/14605@hi=8, are true cases too, but
+    // lane 792 remains the worst of all 14), at 0.8883 m -- still
+    // comfortably inside kRoadEdgeCoincidenceThresholdM=1.0 m, but only a
+    // 1.73x margin from lane 232's 1.5366 m false case above (not the
+    // ~30x this file used to wrongly attribute to kSharedNodeEpsM).
+    // Bracketing both sides of that measured 0.8883/1.5366 m band around
+    // the 1.0 m gate means a future change to that constant that erodes
+    // either margin fails a test. Same lane-1 arc geometry as both tests
+    // above; lane 2's penultimate-vertex distance sits just inside the
+    // measured true-case boundary instead of deep inside it.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1,
+                   {{-5.0, 0.0},
+                    {1.0, 0.0},
+                    {3.070552360820166, 0.2725933896874535},
+                    {5.0, 1.0717967697244903},
+                    {6.65685424949238, 2.3431457505076194},
+                    {7.928203230275509, 3.999999999999999},
+                    {8.727406610312546, 5.929447639179834},
+                    {9.0, 8.0},
+                    {9.0, 20.0}}),
+        LineMarker("left_boundary_b", 2, {{9.0, 20.0}, {9.891, 8.0}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> lane_a;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
+    }
+    ASSERT_EQ(lane_a.size(), 1u);
+    ASSERT_EQ(lane_a[0].point_count, 7u)
+        << "penultimate vertex ~0.8885 m from lane 2 (lane 792's own measured worst true-case "
+           "distance) -- just inside kRoadEdgeCoincidenceThresholdM, condition (b) passes, the "
+           "redundant tail is trimmed";
+}
+
+TEST(HdMapAdapter, RedundantArcTailTrimDoesNotFireJustOutsideTheSharedNodeEpsilon)
+{
+    // Pins condition (a), kSharedNodeEpsM, for the piece that never shares
+    // an endpoint at all. Measured bag-wide, this condition alone does NO
+    // discriminating work against the coincident-endpoint false class --
+    // those all sit at 0.0000 m, indistinguishable from the true matches
+    // on this condition by itself (see hd_map.cpp's own corrected comment
+    // on kSharedNodeEpsM); its only real job is excluding the 3 genuinely
+    // free-floating tails, nearest 3.43 m -- NOT 1.537 m, which is a
+    // *different* false case's condition-(b) penultimate distance, not a
+    // nearest-false-match margin on this condition. Here lane 2's near
+    // endpoint sits 0.20 m from lane 1's own tail end -- outside
+    // kSharedNodeEpsM=0.10 m -- even though it otherwise runs close
+    // alongside lane 1's tail exactly like the confirmed-duplicate test
+    // above -- proximity along the way is not enough without the
+    // shared-endpoint condition too.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1,
+                   {{-5.0, 0.0},
+                    {1.0, 0.0},
+                    {3.070552360820166, 0.2725933896874535},
+                    {5.0, 1.0717967697244903},
+                    {6.65685424949238, 2.3431457505076194},
+                    {7.928203230275509, 3.999999999999999},
+                    {8.727406610312546, 5.929447639179834},
+                    {9.0, 8.0},
+                    {9.0, 20.0}}),
+        LineMarker("left_boundary_b", 2, {{9.3, 8.0}, {9.2, 20.0}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> lane_a;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
+    }
+    ASSERT_EQ(lane_a.size(), 1u);
+    ASSERT_EQ(lane_a[0].point_count, 9u)
+        << "0.2 m gap at the tail's own far vertex is outside kSharedNodeEpsM -- no trim";
+}
+
+TEST(HdMapAdapter, NeighborArcDepartureSnapCutsBackAStraightEdgeOvershootingTheCorner)
+{
+    // Code-review finding 2026-09-09, blocking, re-targeting
+    // TrimRedundantArcTails at the class criterion 1 and the user's own
+    // words actually describe: "the arc that goes to the right exit road
+    // but also a stray straight line for couple meters continuing the
+    // boundary line" is, in the finding's own verified frame (msg 452, lane
+    // 955 x lane 12), NOT lane 955's own tail -- it is lane 12, the through
+    // road's own straight boundary, sharing lane 955's start node and
+    // continuing straight past lane 955's own corner-arc departure vertex,
+    // because lane 12 carries no arc of its own to snap to.
+    //
+    // lane 1 here plays lane 955: the SAME R=8 m/75 deg corner arc the
+    // ArcSnap*/RedundantArcTailTrim* tests above use (v0 = shared node, v2 =
+    // the corner's own departure vertex, v6 = rejoin -- unused here, no tail
+    // needed). lane 3 plays lane 12: a plain straight boundary sharing lane
+    // 1's own start node (-5,0), crossed by lane 4 (an unrelated crossing,
+    // playing lane 1591/1320's role) far past the corner at x=15 -- the OLD
+    // fixed kJunctionCutBackoffM=2.0 m back-off alone puts lane 3's own kept
+    // head at x=13, station 18, well past v2 at station 8.0706 (matching
+    // the real corner's own 3.24 m overshoot in kind, not magnitude). lane 4
+    // is placed at x=15 (far past lane 1's own x<=8.73 extent) specifically
+    // so it crosses ONLY lane 3, not lane 1 -- isolating this mechanism from
+    // the ordinary crossing-cut.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1,
+                   {{-5.0, 0.0},
+                    {1.0, 0.0},
+                    {3.070552360820166, 0.2725933896874535},  // v2 -- the corner's own departure
+                    {5.0, 1.0717967697244903},
+                    {6.65685424949238, 2.3431457505076194},
+                    {7.928203230275509, 3.999999999999999},
+                    {8.727406610312546, 5.929447639179834}}),
+        LineMarker("left_boundary_c", 3, {{-5.0, 0.0}, {30.0, 0.0}}),
+        LineMarker("left_boundary_d", 4, {{15.0, -10.0}, {15.0, 10.0}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> lane_a, lane_c;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind != mpviz::MapKind::ROAD_EDGE) continue;
+        if (e.lane_id == 1u) lane_a.push_back(e);
+        if (e.lane_id == 3u) lane_c.push_back(e);
+    }
+
+    ASSERT_EQ(lane_a.size(), 1u) << "lane 1 crosses nothing in this scene -- untouched, whole";
+    ASSERT_EQ(lane_a[0].point_count, 7u);
+
+    ASSERT_EQ(lane_c.size(), 2u) << "one crossing on lane 3 -- head piece and tail piece";
+    std::sort(lane_c.begin(), lane_c.end(),
+              [](const mpviz::MapElement& x, const mpviz::MapElement& y) {
+                  return x.points[0].x < y.points[0].x;
+              });
+
+    // Head piece: WITHOUT this fix, the fixed backoff alone would keep this
+    // at x=13 (station 18). With it, the boundary is pulled back to v2's
+    // own station projected onto lane 3's straight line -- the exact
+    // physical point where lane 1's own curb starts curving away.
+    ASSERT_EQ(lane_c[0].point_count, 2u);
+    EXPECT_NEAR(lane_c[0].points[0].x, -5.0, 1e-9) << "lane 3's own literal start, unmoved";
+    EXPECT_NEAR(lane_c[0].points[1].x, 3.070552360820166, 1e-9)
+        << "pulled back to v2's own station -- not left at the old fixed-backoff x=13";
+    EXPECT_NEAR(lane_c[0].points[1].y, 0.0, 1e-9);
+
+    // Tail piece: lane 3's own end (30,0) shares no node with anything --
+    // untouched, still at the old fixed-backoff point (x=17).
+    ASSERT_EQ(lane_c[1].point_count, 2u);
+    EXPECT_NEAR(lane_c[1].points[0].x, 17.0, 1e-9);
+    EXPECT_NEAR(lane_c[1].points[1].x, 30.0, 1e-9);
+}
+
+TEST(HdMapAdapter, NeighborArcDepartureSnapDoesNotFireWithoutASharedNode)
+{
+    // Pins the scoping condition: moving lane 3's own start 0.2 m away from
+    // lane 1's start -- outside kSharedNodeEpsM=0.10 m, the SAME
+    // node-coincidence gate TrimRedundantArcTails's own condition (a) uses
+    // -- means no neighbour is found to snap to at all, so the ordinary
+    // fixed-backoff crossing-cut boundary is left exactly where it was.
+    // Same scene as the test above otherwise.
+    TfFixture kTf;
+    mpviz_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+
+    visualization_msgs::msg::MarkerArray arr;
+    arr.markers = {
+        LineMarker("left_boundary_a", 1,
+                   {{-5.0, 0.0},
+                    {1.0, 0.0},
+                    {3.070552360820166, 0.2725933896874535},
+                    {5.0, 1.0717967697244903},
+                    {6.65685424949238, 2.3431457505076194},
+                    {7.928203230275509, 3.999999999999999},
+                    {8.727406610312546, 5.929447639179834}}),
+        LineMarker("left_boundary_c", 3, {{-5.2, 0.0}, {30.0, 0.0}}),
+        LineMarker("left_boundary_d", 4, {{15.0, -10.0}, {15.0, 10.0}}),
+    };
+    a.ingest(arr, 1.0);
+    SceneAssembly out;
+    a.fill(out);
+
+    std::vector<mpviz::MapElement> lane_c;
+    for (const auto& e : out.map_elements)
+    {
+        if (e.kind == mpviz::MapKind::ROAD_EDGE && e.lane_id == 3u) lane_c.push_back(e);
+    }
+    ASSERT_EQ(lane_c.size(), 2u);
+    std::sort(lane_c.begin(), lane_c.end(),
+              [](const mpviz::MapElement& x, const mpviz::MapElement& y) {
+                  return x.points[0].x < y.points[0].x;
+              });
+    ASSERT_EQ(lane_c[0].point_count, 2u);
+    EXPECT_NEAR(lane_c[0].points[1].x, 13.0, 1e-9)
+        << "0.2 m outside kSharedNodeEpsM -- no neighbour found, old fixed-backoff point unmoved "
+           "(2.0 m back off the x=15 crossing, same physical point regardless of this lane's own "
+           "start offset)";
+}
+
 TEST(HdMapAdapter, OneMarkerCountsAsOneIngestedMarkerForStats)
 {
     // A centerline marker is one MARKER on the wire and one ingest() call,

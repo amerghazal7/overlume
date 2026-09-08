@@ -247,6 +247,14 @@ rows:
   # polyline; the JUNCTION-polygon clip above is unaffected (it only ever
   # applies to ROAD_EDGE/boundary polylines against the JUNCTION ring, a
   # different mechanism from the arc-length window this refinement adjusts).
+  # Follow-up 2026-09-08, USER CORRECTION ("...you'll find the arc that goes
+  # to the right exit road but also a stray straight line for couple meters
+  # continuing the boundary line"): a promoted edge's own tail past its own
+  # arc's rejoin vertex sometimes duplicates a DIFFERENT promoted piece for
+  # the rest of its length -- new pass `TrimRedundantArcTails` (hd_map.cpp)
+  # trims it back to that rejoin vertex when it does; see
+  # urban_profile.yaml's matching row comment and this epic's plan doc for
+  # the full measurement.
   - {topic: /sim/hd_map/markers, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, transient_local: true,
      ns_default: drop,
