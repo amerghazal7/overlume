@@ -155,6 +155,40 @@ endforeach()
 # load_profile(), not just "doesn't crash" -- a prior, since-abandoned fix
 # attempt linked fine and still returned the wrong data).
 
+# ── stb_truetype.h / stb_image.h / stb_image_write.h (Epic 3 Task 3 / VM-030,
+# Step 1) — a SEPARATE vendoring from visual_renderer's own (that library's
+# file(DOWNLOAD ...) block, CMakeLists.txt:95-114, lands in ITS OWN
+# CMAKE_BINARY_DIR/_deps/stb; this package never add_subdirectory's that
+# project and only imports its prebuilt archive below, so nothing from that
+# build tree is reachable here — and that archive never vendored
+# stb_truetype.h in the first place (stb_image_write.h doesn't rasterize
+# glyphs). Same immutable-commit-URL + EXPECTED_HASH pattern, into this
+# package's OWN build tree. stb_image.h/stb_image_write.h are pulled too,
+# for the node-side HUD golden test only (test_hud_overlay.cpp: PNG-encode
+# the actual frame, PNG-decode a promoted golden to SSIM against) — same
+# commit as visual_renderer's own pin, so the two vendored copies are
+# byte-identical, just living in different build trees.
+set(MPVIZ_NODE_STB_COMMIT "2c980bb59875b0d32144a71867fbdebb2f77cd20")
+set(MPVIZ_NODE_STB_DIR "${CMAKE_BINARY_DIR}/_deps/stb")
+set(MPVIZ_NODE_STB_TRUETYPE_H "${MPVIZ_NODE_STB_DIR}/stb_truetype.h")
+set(MPVIZ_NODE_STB_IMAGE_H "${MPVIZ_NODE_STB_DIR}/stb_image.h")
+set(MPVIZ_NODE_STB_IMAGE_WRITE_H "${MPVIZ_NODE_STB_DIR}/stb_image_write.h")
+if(NOT EXISTS "${MPVIZ_NODE_STB_TRUETYPE_H}")
+    file(DOWNLOAD "https://raw.githubusercontent.com/nothings/stb/${MPVIZ_NODE_STB_COMMIT}/stb_truetype.h"
+         "${MPVIZ_NODE_STB_TRUETYPE_H}"
+         EXPECTED_HASH SHA256=ecd30b05e0dd4fea3a13c26810dd9e1992dc379049482c393d5a19e6b5090aab)
+endif()
+if(NOT EXISTS "${MPVIZ_NODE_STB_IMAGE_H}")
+    file(DOWNLOAD "https://raw.githubusercontent.com/nothings/stb/${MPVIZ_NODE_STB_COMMIT}/stb_image.h"
+         "${MPVIZ_NODE_STB_IMAGE_H}"
+         EXPECTED_HASH SHA256=594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3)
+endif()
+if(NOT EXISTS "${MPVIZ_NODE_STB_IMAGE_WRITE_H}")
+    file(DOWNLOAD "https://raw.githubusercontent.com/nothings/stb/${MPVIZ_NODE_STB_COMMIT}/stb_image_write.h"
+         "${MPVIZ_NODE_STB_IMAGE_WRITE_H}"
+         EXPECTED_HASH SHA256=cbd5f0ad7a9cf4468affb36354a1d2338034f2c12473cf1a8e32053cb6914a05)
+endif()
+
 add_library(visual_renderer_prebuilt STATIC IMPORTED)
 set_target_properties(visual_renderer_prebuilt PROPERTIES
     IMPORTED_LOCATION "${VISUAL_RENDERER_LIB}"
@@ -179,11 +213,17 @@ add_library(visualization_node_lib SHARED
   src/adapters/collision.cpp
   src/adapters/generic_marker.cpp
   src/adapters/tf_axes.cpp
-  src/diagnostics.cpp)
+  src/diagnostics.cpp
+  src/hud_overlay.cpp)
 
 target_include_directories(visualization_node_lib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
+# hud_overlay.cpp's #define STB_TRUETYPE_IMPLEMENTATION -- see that file --
+# needs stb_truetype.h on the include path; PRIVATE, not PUBLIC (the header
+# stays an implementation detail of this target, not part of this
+# library's own public include/ surface).
+target_include_directories(visualization_node_lib PRIVATE "${MPVIZ_NODE_STB_DIR}")
 
 ament_target_dependencies(visualization_node_lib ${THIS_PACKAGE_DEPS})
 target_link_libraries(visualization_node_lib visual_renderer_prebuilt)
@@ -240,7 +280,11 @@ if(BUILD_TESTING)
   target_compile_definitions(mpviz_node_test_paths INTERFACE
     TEST_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config"
     MPVIZ_THEME_DIR="${VISUAL_RENDERER_DIR}/assets/themes"
-    MPVIZ_NODE_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures")
+    MPVIZ_NODE_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures"
+    # Epic 3 Task 3 (VM-030): the one committed HUD font, for
+    # test_hud_overlay's CompositeHud() calls -- same "test macro, not a
+    # hardcoded relative path" shape as TEST_CONFIG_DIR/MPVIZ_THEME_DIR above.
+    MPVIZ_NODE_FONT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/NotoSans-Regular.ttf")
 
   ament_add_gtest(test_profile test/test_profile.cpp src/profile.cpp
     src/adapters/dynamic_objects.cpp src/frame_transform.cpp test/fixture_msgs.cpp)
@@ -401,6 +445,22 @@ if(BUILD_TESTING)
   target_include_directories(test_diagnostics PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include)
   ament_target_dependencies(test_diagnostics diagnostic_msgs)
+
+  # Epic 3 Task 3 (VM-030): CompositeHud()/PopulateHud() + the sanctioned-red
+  # node-side 720p HUD golden. The ONE OTHER node gtest (besides test_profile)
+  # that links visual_renderer_prebuilt -- the golden case stands up a real
+  # headless-EGL VisualRenderer to get a realistic frame to composite onto
+  # (test_profile's own comment explains why that link is the documented
+  # exception, not the rule). Needs the node's own stb_truetype/_image/
+  # _image_write vendoring (Step 1), not visual_renderer's -- see this
+  # file's own comment on MPVIZ_NODE_STB_DIR above for why that split exists.
+  ament_add_gtest(test_hud_overlay test/test_hud_overlay.cpp src/hud_overlay.cpp)
+  target_include_directories(test_hud_overlay PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${VISUAL_RENDERER_DIR}/include
+    ${MPVIZ_NODE_STB_DIR})
+  ament_target_dependencies(test_hud_overlay ${THIS_PACKAGE_DEPS})
+  target_link_libraries(test_hud_overlay visual_renderer_prebuilt mpviz_node_test_paths)
 endif()
 
 ament_package()

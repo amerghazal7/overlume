@@ -1465,6 +1465,24 @@ bool theme_assets_loaded(VisualRenderer* r) {
     return r != nullptr && r->theme_assets_loaded;
 }
 
+// See scene.h's comment. r->active_theme is exactly the theme
+// apply_current_theme() keeps live every render_frame() call (blended
+// mid-transition, or the settled target once a transition completes) --
+// read verbatim, no new state.
+HudColors get_hud_colors(VisualRenderer* r) {
+    if (r == nullptr) return HudColors{};
+    const detail::Theme::Hud& hud = r->active_theme.hud;
+    HudColors out{};
+    out.text_color[0] = hud.text_color.r;
+    out.text_color[1] = hud.text_color.g;
+    out.text_color[2] = hud.text_color.b;
+    out.accent_color[0] = hud.accent_color.r;
+    out.accent_color[1] = hud.accent_color.g;
+    out.accent_color[2] = hud.accent_color.b;
+    out.scale = hud.scale;
+    return out;
+}
+
 }  // namespace mpviz
 
 // Filament-free test introspection hooks; see map_elements_test_hooks.hpp

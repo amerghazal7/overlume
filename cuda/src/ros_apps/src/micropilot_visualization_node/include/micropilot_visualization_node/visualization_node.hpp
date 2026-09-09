@@ -44,6 +44,7 @@
 #include "micropilot_visualization_node/adapters/tf_axes.hpp"
 #include "micropilot_visualization_node/diagnostics.hpp"
 #include "micropilot_visualization_node/frame_transform.hpp"
+#include "micropilot_visualization_node/hud_overlay.hpp"
 #include "micropilot_visualization_node/profile.hpp"
 #include "micropilot_visualization_node/scene_assembly.hpp"
 #include "micropilot_visualization_node/tf_adapter.hpp"
@@ -301,6 +302,26 @@ private:
     double render_ms_{0.0};
     rclcpp_lifecycle::LifecyclePublisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr
         pub_diagnostics_;
+
+    // ── HUD overlay (Epic 3 Task 3 / VM-030) ─────────────────────────────────
+    // hud_font_path_ read once in on_configure() (VM-044 closes the
+    // per-checkout-path gap this shares with ego_model_path_'s own default,
+    // config/default_params.yaml). hud_font_warned_ makes the
+    // missing/unloadable-font WARN one-shot, not per-tick (spec §9, same
+    // "non-fatal, WARN once" shape as set_ego_model's own clay-box path).
+    std::string hud_font_path_;
+    bool hud_font_warned_{false};
+    // hud_enabled_ read once in on_configure(), same as hud_font_path_. The
+    // STANDING user directive (visual-mode-epic3.md, "every rendered element
+    // ships with style + disable config") requires this: when false,
+    // timer_callback() never calls CompositeHud() and frame_buf_ passes
+    // through untouched -- not "empty font path", a real disable knob. No
+    // node-level gtest exercises the guard itself (no existing test in this
+    // suite stands up a full VisualizationNode/rclcpp harness -- see Step
+    // 0's own note on why PopulateHud became a free function instead of
+    // adding one); the guard is a single `if` around an already-tested call,
+    // documented here and at its call site instead.
+    bool hud_enabled_{true};
 
     rclcpp::TimerBase::SharedPtr timer_;
 };
