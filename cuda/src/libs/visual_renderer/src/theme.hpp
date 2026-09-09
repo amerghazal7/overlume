@@ -103,7 +103,7 @@ struct Theme {
     // 720p. Soft-defaulted (palette.ego convention); STANDING-directive style
     // token for the point-cloud layer.
     struct PointCloudStyle {
-        float point_size_px = 4.0f;
+        float point_size_px = 2.0f;  // user-tuned 2026-09-09 ("Points are large, make default is 2px")
     } point_cloud;
 
     struct Sun {
