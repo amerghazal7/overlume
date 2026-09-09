@@ -230,6 +230,7 @@ add_library(visualization_node_lib SHARED
   src/adapters/generic_marker.cpp
   src/adapters/tf_axes.cpp
   src/adapters/point_cloud.cpp
+  src/adapters/trajectory_carpet.cpp
   src/diagnostics.cpp
   src/hud_overlay.cpp
   src/callouts.cpp)
@@ -530,6 +531,27 @@ if(BUILD_TESTING)
     ${MPVIZ_NODE_STB_DIR})
   ament_target_dependencies(test_point_cloud_adapter ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_point_cloud_adapter visual_renderer_prebuilt mpviz_node_test_paths)
+
+  # VM-077: TrajectoryCarpetAdapter. Same shape as test_collision_adapter/
+  # test_generic_marker_adapter above -- no visual_renderer_prebuilt link,
+  # scene.h's TrajectoryCarpet/PointCloudPoint/Vec3 are POD-only. No shipped
+  # profile row to borrow via urban_row() for the ingest tests themselves
+  # (the row lands in this same task, Step 3) -- hand-built ProfileRow, same
+  # "no urban_row()/sim_row() to borrow" shape test_point_cloud_adapter.cpp
+  # already uses for its own row.
+  ament_add_gtest(test_trajectory_carpet_adapter
+    test/test_trajectory_carpet_adapter.cpp
+    src/adapters/trajectory_carpet.cpp
+    src/profile.cpp
+    src/frame_transform.cpp
+    src/adapters/dynamic_objects.cpp
+    test/fixture_msgs.cpp)
+  target_include_directories(test_trajectory_carpet_adapter PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test
+    ${VISUAL_RENDERER_DIR}/include)
+  ament_target_dependencies(test_trajectory_carpet_adapter ${THIS_PACKAGE_DEPS})
+  target_link_libraries(test_trajectory_carpet_adapter ${yaml_cpp_vendor_TARGETS} mpviz_node_test_paths)
 endif()
 
 ament_package()

@@ -47,11 +47,12 @@ STATE_HZ = 15.0
 PRESET_RANGE = (1, 5)
 RENDER_MODES = {"bowl": 1, "pointcloud": 2, "visual": 3, 1: 1, 2: 2, 3: 3}
 
-# Epic 3 Task 5 (VM-032): the seven layer_<name> bool params visualization_node
-# declares (scene_assembly.hpp's six live categories + point_clouds, declared
-# but inert until Task 6/VM-035 -- see that node's on_configure()).
+# Epic 3 Task 5 (VM-032) + VM-077: the eight layer_<name> bool params
+# visualization_node declares (scene_assembly.hpp's live categories --
+# trajectory_carpet added VM-077, see that node's on_configure()).
 LAYER_NAMES = {
     "objects", "paths", "map_elements", "grids", "alerts", "markers", "point_clouds",
+    "trajectory_carpet",
 }
 # quality preset name -> visualization_node's `quality` param encoding
 # (0=low, 1=med, 2=high, api.h's RenderConfig::quality).

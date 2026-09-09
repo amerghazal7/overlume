@@ -191,6 +191,9 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     layer_alerts_ = declare_parameter<bool>("layer_alerts", true);
     layer_markers_ = declare_parameter<bool>("layer_markers", true);
     layer_point_clouds_ = declare_parameter<bool>("layer_point_clouds", true);
+    // VM-077: gates scene_asm_.trajectory_carpets -- see the gate list in
+    // timer_callback() below.
+    layer_trajectory_carpet_ = declare_parameter<bool>("layer_trajectory_carpet", true);
 
     // map->base_link -> SceneGraph.ego, finite-differenced + EMA-smoothed
     // speed. Buffer/TransformListener live on the node (need its
@@ -399,6 +402,27 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     }
     RCLCPP_INFO(get_logger(), "point_cloud: %zu row(s) subscribed", point_cloud_rows_.size());
 
+    // ── Trajectory carpet (VM-077) ────────────────────────────────────────────
+    for (const auto& row : profile->rows)
+    {
+        if (row.adapter != "trajectory_carpet") continue;
+        const auto specs = mpviz_node::subscriptions_for(row);
+        if (specs.empty()) continue;
+        const auto& spec = specs.front();
+
+        auto adapter = std::make_unique<mpviz_node::TrajectoryCarpetAdapter>(row, *frame_transformer_);
+        mpviz_node::TrajectoryCarpetAdapter* adapter_ptr = adapter.get();
+        rclcpp::QoS qos(10);
+        if (spec.best_effort) qos.best_effort();
+        if (spec.transient_local) qos.transient_local();
+        carpet_subs_.push_back(create_subscription<visualization_msgs::msg::MarkerArray>(
+            spec.topic, qos,
+            [this, adapter_ptr](const visualization_msgs::msg::MarkerArray::SharedPtr msg)
+            { adapter_ptr->ingest(*msg, sim_clock_sec_); }));
+        carpet_rows_.push_back(CarpetRow{std::move(adapter), row.timeout_sec, row.topic});
+    }
+    RCLCPP_INFO(get_logger(), "trajectory_carpet: %zu row(s) subscribed", carpet_rows_.size());
+
     // ── TF-axes debug layer ───────────────────────────────────────────────────
     // PRODUCER, not a subscriber (subscriptions_for() returns {} for this
     // adapter). Both shipped profiles carry the row commented out. Takes the
@@ -526,6 +550,7 @@ rcl_interfaces::msg::SetParametersResult VisualizationNode::on_params(
             else if (n == "layer_alerts") layer_alerts_ = p.as_bool();
             else if (n == "layer_markers") layer_markers_ = p.as_bool();
             else if (n == "layer_point_clouds") layer_point_clouds_ = p.as_bool();
+            else if (n == "layer_trajectory_carpet") layer_trajectory_carpet_ = p.as_bool();
             // other params: accept (stored by rclcpp) but nothing to apply live
         }
         catch (const std::exception& e)
@@ -685,6 +710,21 @@ void VisualizationNode::timer_callback()
         pcr.adapter->fill(scene_asm_);
     }
 
+    // VM-077: same fill()-appends/timeout_sec/warn_on_drop_growth shape as
+    // every category above.
+    for (auto& cr : carpet_rows_)
+    {
+        if (cr.adapter->stats().msgs == 0) continue;
+        warn_on_drop_growth(get_logger(), *get_clock(), cr.topic, cr.adapter->stats(),
+                            cr.warned_malformed, cr.warned_no_tf);
+        if (sim_clock_sec_ - cr.adapter->stats().last_msg_sec > cr.timeout_sec)
+        {
+            cr.adapter->mark_stale_tick();
+            continue;
+        }
+        cr.adapter->fill(scene_asm_);
+    }
+
     // No timeout gate: a live tf2 walk, not message-driven; this adapter
     // stamps "now" onto every marker it emits, so it can never itself go stale.
     for (auto& axes : tf_axes_rows_)
@@ -711,7 +751,7 @@ void VisualizationNode::timer_callback()
     // additionally covered end-to-end by test_bridge_e2e_set_layers_hides_and_shows.
     apply_layer_gates(scene_asm_, {layer_objects_, layer_paths_, layer_map_elements_,
                                    layer_grids_, layer_alerts_, layer_markers_,
-                                   layer_point_clouds_});
+                                   layer_point_clouds_, layer_trajectory_carpet_});
 
     scene_asm_.point_at(scene);
     mpviz::set_scene(renderer_, scene);
@@ -869,7 +909,7 @@ void VisualizationNode::publish_diagnostics()
     std::vector<mpviz_node::RowStats> rows;
     rows.reserve(hd_map_rows_.size() + dynamic_objects_rows_.size() + path_rows_.size() +
                  ogm_rows_.size() + collision_rows_.size() + generic_marker_rows_.size() +
-                 point_cloud_rows_.size());
+                 point_cloud_rows_.size() + carpet_rows_.size());
 
     auto append_row = [&](const std::string& topic, const mpviz_node::AdapterStats& stats,
                            double timeout_sec)
@@ -893,6 +933,7 @@ void VisualizationNode::publish_diagnostics()
         append_row(gmr.topic, gmr.adapter->stats(), gmr.timeout_sec);
     for (const auto& pcr : point_cloud_rows_)
         append_row(pcr.topic, pcr.adapter->stats(), pcr.timeout_sec);
+    for (const auto& cr : carpet_rows_) append_row(cr.topic, cr.adapter->stats(), cr.timeout_sec);
 
     auto msg = mpviz_node::BuildDiagnostics(rows, render_ms_);
     msg.header.stamp = now();
@@ -946,6 +987,8 @@ VisualizationNode::CallbackReturn VisualizationNode::on_cleanup(
     generic_marker_rows_.clear();
     point_cloud_subs_.clear();
     point_cloud_rows_.clear();
+    carpet_subs_.clear();
+    carpet_rows_.clear();
     tf_axes_rows_.clear();
     frame_transformer_.reset();
     tf_adapter_.reset();
@@ -979,6 +1022,8 @@ VisualizationNode::CallbackReturn VisualizationNode::on_shutdown(
     generic_marker_rows_.clear();
     point_cloud_subs_.clear();
     point_cloud_rows_.clear();
+    carpet_subs_.clear();
+    carpet_rows_.clear();
     tf_axes_rows_.clear();
     frame_transformer_.reset();
     tf_adapter_.reset();

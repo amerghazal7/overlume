@@ -110,12 +110,12 @@ RENDER_SPINS = [
 ]
 RENDER_BOOLS = ["fill_blind_zone", "exposure_match"]
 
-# Epic 3 Task 5 (VM-032): visualization_node's seven layer_<name> params --
-# point_clouds is declared+sent here too (harmless no-op today; Task 6/
-# VM-035 gives it something to hide). All live: takes effect on the node's
-# very next tick, no restart.
+# Epic 3 Task 5 (VM-032) + VM-077: visualization_node's eight layer_<name>
+# params -- trajectory_carpet added VM-077 (output_trajectory_carpet). All
+# live: takes effect on the node's very next tick, no restart.
 LAYER_NAMES = [
     "objects", "paths", "map_elements", "grids", "alerts", "markers", "point_clouds",
+    "trajectory_carpet",
 ]
 # quality preset dropdown -- unlike LAYER_NAMES above, this one is NOT live
 # (P4, deferred to Epic 5): see the "takes effect on next restart" label at

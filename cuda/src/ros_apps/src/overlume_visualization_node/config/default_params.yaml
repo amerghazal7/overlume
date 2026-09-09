@@ -55,6 +55,9 @@
     layer_alerts: true
     layer_markers: true
     layer_point_clouds: true
+    # VM-077: gates the output_trajectory_carpet category. Singular knob
+    # name, matching the category's own singular topic/adapter/role.
+    layer_trajectory_carpet: true
     # Which shipped profile to load (urban|offroad|sim -> <profile>_profile.yaml).
     # profile_dir: "" means this package's own installed share/config
     # (resolved via ament_index_cpp in visualization_node.cpp); set an

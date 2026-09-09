@@ -62,6 +62,7 @@ TEST(SceneAssembly, ClearEmptiesEveryCategoryNotJustMapElements)
     asm_.alerts.push_back(mpviz::AlertPolygon{});
     asm_.markers.push_back(mpviz::GenericMarker{});
     asm_.point_clouds.push_back(mpviz::PointCloud{});
+    asm_.trajectory_carpets.push_back(mpviz::TrajectoryCarpet{});
 
     asm_.clear();
 
@@ -74,6 +75,7 @@ TEST(SceneAssembly, ClearEmptiesEveryCategoryNotJustMapElements)
     EXPECT_EQ(scene.alert_count, 0u);
     EXPECT_EQ(scene.marker_count, 0u);
     EXPECT_EQ(scene.point_cloud_count, 0u);
+    EXPECT_EQ(scene.trajectory_carpet_count, 0u);
 }
 
 TEST(SceneAssembly, PointCloudRowAppendsIntoScenePointClouds)
@@ -121,4 +123,49 @@ TEST(SceneAssembly, ApplyLayerGatesPointCloudsOnLeavesItIntact)
     mpviz::SceneGraph scene{};
     asm_.point_at(scene);
     EXPECT_EQ(scene.point_cloud_count, 1u);
+}
+
+TEST(SceneAssembly, TrajectoryCarpetRowAppendsIntoSceneTrajectoryCarpets)
+{
+    // Same shape as PointCloudRowAppendsIntoScenePointClouds above, for the
+    // new category (VM-077).
+    SceneAssembly asm_;
+    asm_.trajectory_carpets.push_back(mpviz::TrajectoryCarpet{});
+
+    mpviz::SceneGraph scene{};
+    asm_.point_at(scene);
+    EXPECT_EQ(scene.trajectory_carpet_count, 1u);
+    EXPECT_EQ(scene.trajectory_carpets, asm_.trajectory_carpets.data());
+}
+
+TEST(SceneAssembly, ApplyLayerGatesTrajectoryCarpetOffZeroesOnlyTrajectoryCarpets)
+{
+    // Task 3 Step 2: closes the gap the epic3 plan's own review fix named
+    // for layer_point_clouds -- this plan ships the gate test in the SAME
+    // task as the category, no forward-reference window left open.
+    SceneAssembly asm_;
+    asm_.trajectory_carpets.push_back(mpviz::TrajectoryCarpet{});
+    asm_.objects.push_back(mpviz::TrackedObject{});  // another category, must survive
+
+    LayerFlags flags;  // all true by default
+    flags.trajectory_carpet = false;
+    apply_layer_gates(asm_, flags);
+
+    mpviz::SceneGraph scene{};
+    asm_.point_at(scene);
+    EXPECT_EQ(scene.trajectory_carpet_count, 0u);
+    EXPECT_EQ(scene.object_count, 1u);
+}
+
+TEST(SceneAssembly, ApplyLayerGatesTrajectoryCarpetOnLeavesItIntact)
+{
+    SceneAssembly asm_;
+    asm_.trajectory_carpets.push_back(mpviz::TrajectoryCarpet{});
+
+    LayerFlags flags;  // all true, including trajectory_carpet
+    apply_layer_gates(asm_, flags);
+
+    mpviz::SceneGraph scene{};
+    asm_.point_at(scene);
+    EXPECT_EQ(scene.trajectory_carpet_count, 1u);
 }

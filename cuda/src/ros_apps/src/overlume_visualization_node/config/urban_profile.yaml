@@ -32,6 +32,25 @@ rows:
        {prefix: dynamic_objects_hd_map_path,        render: polyline},
        {prefix: dynamic_objects_hd_map_path_dots,   render: drop}]}
 
+  # SKIP ALL, evidence-cited (VM-077 measurement report §4, D4):
+  # dynamic_objects_marker_1..6 -- every one is either a proven or
+  # highly-probable double-render of the content this row already draws
+  # (rigid-transform-invariant distance-signature matching, synchronized to
+  # the same bag index):
+  #   marker_1 (base_link frame, ARROW+CUBE): 31/31 exact distance-signature
+  #     match against marker_2 -- same objects, pre-transform.
+  #   marker_2 (map frame, ARROW+CUBE): 24/31 direct position matches
+  #     against this row's own topic (same idx, rounding + small Δt).
+  #   marker_3 (map frame, ARROW+CUBE): 32/32 exact distance-signature match
+  #     against this row's own topic -- full duplicate.
+  #   marker_4 (0 CUBEs, 243-518 ARROW/CYLINDER/LINE_STRIP markers/msg):
+  #     shape matches this topic's own dynamic_objects_hd_map_path{,_dots}
+  #     namespaces -- near-certainly a duplicate path encoding (not
+  #     point-for-point confirmed, time-budgeted).
+  #   marker_5, marker_6: 0 messages in either recorded bag.
+  # Recommend NOT adding rows for any of these -- this row (real track ids,
+  # TEXT labels, HD-map path lines) is the richer superset besides.
+
   # PRIMARY map source: rolling ~50 m local window, ~18 Hz, always joinable.
   # Namespace rules: LONGEST MATCHING PREFIX WINS, unmatched -> ns_default.
   # centerline_arrows_ is dropped: 93% of all map markers in the recorded bag
@@ -164,6 +183,24 @@ rows:
 
   - {topic: /behavior_path_planner/output_path_visualization, type: nav_msgs/msg/Path,
      adapter: path, role: behavior, timeout_sec: 2.0}
+  # SKIP, evidence-cited (VM-077 measurement report §3, D4): both of the
+  # following ride the SAME ribbon this row already draws.
+  #   /behavior_path_planner/output_path_line (MarkerArray, LINE_STRIP) --
+  #   its largest sampled message (190 pts) is a 190/190 exact-coordinate
+  #   match (2-decimal) against the closest-in-time output_path_visualization
+  #   Path message (Δt -0.35 ms): a MarkerArray republish of the identical
+  #   polyline, confirmed duplicate.
+  #   /behavior_path_planner/output_path_velocity_visualization (MarkerArray,
+  #   ARROW delete-all sentinel + up to 190x TEXT_VIEW_FACING speed labels,
+  #   never a LINE_STRIP) -- NOT a geometric duplicate (genuinely new
+  #   per-point speed data), but generic_markers.cpp's TEXT_VIEW_FACING path
+  #   is a stated placeholder billboard with no glyph rendering (only
+  #   hud_overlay.cpp's stb_truetype compositor draws real text, and only in
+  #   screen-space HUD/callout use) -- routing this through adapter: generic
+  #   today renders 190 blank oriented boxes per frame, not numbers. DEFER
+  #   pending a 3D-anchored text rendering path (scene.h's Hud::chips/
+  #   AlertChip are reserved for exactly this, unused by design), not this
+  #   plan's job to build one.
   - {topic: /local_vel_path, type: nav_msgs/msg/Path, adapter: path, role: local}
   # FIXTURE GAP (VM-023): silent in the recorded bag, but BOTH of these are
   # enabled rviz_default_plugins/Path displays in assets/offroad_config.rviz,
@@ -184,33 +221,42 @@ rows:
   - {topic: /perception/gradient_ogm, type: nav_msgs/msg/OccupancyGrid,
      adapter: ogm, role: gradient_ogm, update_topic: /perception/gradient_ogm_updates}
 
-  # FIXTURE GAP (VM-026): collision checker was silent in the calm recorded
-  # scenario (zero messages on all five topics). Names, and the fact that
-  # there are exactly five, come from assets/urban_config.rviz:175-223 -- five
-  # ENABLED rviz_default_plugins/MarkerArray displays, all
-  # visualization_msgs/msg/MarkerArray, all offered RELIABLE/VOLATILE, so no
-  # best_effort: true here. UNVALIDATED against a live publisher.
-  # The five rows SHIP NOW, complete, in Task 1 -- not "filled in by Task 7".
-  # Task 1's ShippedUrbanProfileLoads and
-  # ShippedProfilesRouteEveryKnownNamespaceOfEveryShippedTopic assert against
-  # this file, so a placeholder comment here would mean those tests certify an
-  # incomplete profile and Task 7 would land five rows nothing ever validated.
-  # role -> AlertPolygon::severity is ONE table in collision.cpp (Task 7 Step
-  # 2); re-mapping a topic to a different severity is a role edit in this
-  # file, no rebuild. Rationale for the shipped mapping: only the checker's
-  # actual collision output is critical; the object predictions are the
-  # warning tier; the sweep and the two merge steps are debug geometry (info,
-  # and the ego sweep additionally gets the lower ghost alpha).
-  - {topic: /navigation_urban_collision_checker_testing_node/collision_markers,
+  # Retargeted 2026-09-09 (VM-077): /navigation_urban_collision_checker_testing_node/*
+  # confirmed dead stack-wide (0 live topics, ros2 topic list -t at
+  # recording time). Role from CONTENT, not the rviz slot the topic
+  # happened to land in (see the epic3 plan's rviz-reference-update
+  # CAUTION) -- explicit "COLLISION\nobject N..." label, no "predicted
+  # path" qualifier, two closed-ring footprints (ego+object).
+  - {topic: /behavior_path_planner/collision_markers,
      type: visualization_msgs/msg/MarkerArray, adapter: collision, role: collision}
-  - {topic: /navigation_urban_collision_checker_testing_node/object_predicted_polygons,
+  # FLAGGED JUDGMENT CALL (VM-077 measurement report §2, not resolved by
+  # content alone): every label ties the event to "object N, predicted
+  # path M" -- matching the OLD object_predicted_polygons semantics -- but
+  # this topic's own text also literally contains "COLLISION", same as the
+  # row above. Only the "predicted path N" qualifier discriminates the two
+  # topics, and it appears ONLY here. Shipped as role: predicted per the
+  # measured recommendation; a human sign-off on this one row, not a
+  # plan-time guess, is the right next step if it ever needs to flip.
+  - {topic: /navigation_motion_obstacle_planner_node/collision_markers,
      type: visualization_msgs/msg/MarkerArray, adapter: collision, role: predicted}
-  - {topic: /navigation_urban_collision_checker_testing_node/ego_footprint_sweep,
-     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: sweep}
-  - {topic: /navigation_urban_collision_checker_testing_node/ego_merged_polygon,
-     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_ego}
-  - {topic: /navigation_urban_collision_checker_testing_node/object_merged_polygons,
-     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_object}
+
+  # DISABLED 2026-09-09 -- VM-077 measurement pass found NO successor topic
+  # for this role's content shape (closed-ring ego-sweep polygon) anywhere
+  # in the new stack's 31-topic recording; the whole
+  # /navigation_urban_collision_checker_testing_node/* namespace is
+  # confirmed dead (0 live topics).
+  # >>> RE-ENABLE: (1) `ros2 topic list -t` on the live stack to find a
+  # >>> candidate; (2) content-verify it against THIS role's semantics --
+  # >>> from the message's own ns/geometry/labels, never from which rviz
+  # >>> slot it lands in (see the epic3 plan's rviz-reference-update
+  # >>> CAUTION); (3) retarget the topic name below; (4) flip this row's
+  # >>> assertions in test_profile.cpp back on (marked with the same date).
+  # - {topic: /navigation_urban_collision_checker_testing_node/ego_footprint_sweep,
+  #    type: visualization_msgs/msg/MarkerArray, adapter: collision, role: sweep}
+  # - {topic: /navigation_urban_collision_checker_testing_node/ego_merged_polygon,
+  #    type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_ego}
+  # - {topic: /navigation_urban_collision_checker_testing_node/object_merged_polygons,
+  #    type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_object}
 
   # Parity fallback (VM-027): anything not stylized above, one row each.
   # NOTE 1 (frames): this topic publishes in the base_link frame -- the only
@@ -252,3 +298,58 @@ rows:
   - {topic: /iv_points_fusion, type: sensor_msgs/msg/PointCloud2,
      adapter: point_cloud, role: points, color_mode: auto, max_points: 60000,
      stride: 2, best_effort: true, timeout_sec: 2.0}
+
+  # Trajectory carpet (VM-077, 2026-09-09) -- per-vertex velocity gradient,
+  # TRIANGLE_LIST, refreshed every tick (DELETE_ALL + ADD). See the plan's
+  # D1 for why this needs its own adapter/category rather than riding on
+  # generic_marker or collision. Disable knob: layer_trajectory_carpet
+  # param (STANDING directive); style: per-vertex color IS the data, the
+  # only themed piece is the malformed-colors fallback tint, which reuses
+  # palette.object_tints.unknown verbatim (zero new theme field).
+  - {topic: /navigation_motion_obstacle_planner_node/output_trajectory_carpet,
+     type: visualization_msgs/msg/MarkerArray, adapter: trajectory_carpet,
+     role: carpet, timeout_sec: 2.0}
+
+  # New topic (VM-077, 2026-09-09): CUBE+TEXT, a single continuously-tracked
+  # object box + value label -- NOT LINE_STRIP, so adapter: collision would
+  # drop 100% of it (CollisionAdapter::ingest()'s hard type check). Style:
+  # existing GenericMarker color[]/alpha==0 fallback, already live (this
+  # topic's own producer color is non-zero -- fallback is defensive-only).
+  # Disable: this row (removable) + existing layer_markers param. Urban
+  # only -- no evidence this topic publishes under sim/offroad.
+  - {topic: /navigation/debug_cruise_obstacle_marker,
+     type: visualization_msgs/msg/MarkerArray, adapter: generic, role: neutral,
+     timeout_sec: 2.0}
+
+  # New topic (VM-077, 2026-09-09): static 5-pt closed LINE_STRIP box outline
+  # (local-map tile bounding rect), 38 Hz but constant 352-byte payload --
+  # cheap. TRANSIENT_LOCAL on the wire per the bag's metadata.yaml, but a
+  # 38 Hz republish means a late joiner gets a fresh one within ~26 ms
+  # regardless -- transient_local: true is NOT set here (unlike
+  # /sim/hd_map/markers' once-ever latch); add it if a live deployment shows
+  # a cold-start gap. Urban only -- no evidence this topic publishes under
+  # sim/offroad.
+  - {topic: /local_map_corners, type: visualization_msgs/msg/MarkerArray,
+     adapter: generic, role: neutral, timeout_sec: 2.0}
+
+  # DEFER, no row (VM-077 measurement report §5, D4):
+  # /navigation/bvp_crosswalk_attention_areas -- every sampled message
+  # across the whole bag (1818/1818) is DELETE_ALL-only; never one real ADD
+  # marker in this recording. Same class as the Epic 2 fixture-gap cases,
+  # but with no rviz-enabled-display obligation forcing a row the way
+  # /hd_map_global_elements/local_path had -- so no row at all, not a
+  # stale-faded one. Revisit once a recording actually exercises it.
+
+  # SKIP, data-inconclusive (VM-077 measurement report §5, D4):
+  # /navigation/trajectory_following_status (std_msgs/UInt8) -- structurally
+  # a fine HUD-chip candidate (single byte -> color-coded chip, same shape
+  # as the existing hud_enabled-gated compositor), but data ≡ 1 for all 3657
+  # messages in the entire bag -- zero evidence of what any other value
+  # means. Needs either a msg-definition/source read or a scenario that
+  # actually exercises a deviation before its enum can be measured -- out of
+  # scope for a measurement pass and out of scope for this plan.
+
+  # UNCHANGED (VM-077 measurement report §5, D4): /navigation/global_path,
+  # /local_path, /perception/dynamic_ogm{,_updates} confirmed absent from
+  # both bags' topic lists -- no new evidence this pass; see those adapters'
+  # own FIXTURE GAP rows above, which already state the absence.

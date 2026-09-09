@@ -296,6 +296,23 @@
 #               "[visual_renderer] GL_RENDERER: ..." near this rig's own
 #               startup log to confirm real hardware vs. software
 #               rasterizer for any render_ms number recorded here.
+#   2026-09-09  VM-077 new-stack rendering lands -- output_trajectory_carpet
+#               (a per-vertex velocity-colored ribbon, TRIANGLE_LIST from
+#               /navigation_motion_obstacle_planner_node/output_trajectory_carpet)
+#               is now VISIBLE (new TrajectoryCarpet scene.h category,
+#               kSceneVersion 2->3; new trajectory_carpet.mat/adapter; disable
+#               knob layer_trajectory_carpet). Collision alerts now come from
+#               content-verified successors instead of the dead
+#               /navigation_urban_collision_checker_testing_node/* namespace:
+#               /behavior_path_planner/collision_markers (role: collision) and
+#               /navigation_motion_obstacle_planner_node/collision_markers
+#               (role: predicted, flagged judgment call -- see the plan's D2).
+#               Two cheap generic-adapter rows added
+#               (/navigation/debug_cruise_obstacle_marker, /local_map_corners).
+#               Six other new topics explicitly SKIP/deferred with evidence
+#               (duplicates or data-inconclusive) -- see the profile YAMLs'
+#               own comments and the VM-077 plan's D4 table. Net active urban
+#               row delta: 0 (−3 dormant collision, +1 carpet, +2 generic).
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its

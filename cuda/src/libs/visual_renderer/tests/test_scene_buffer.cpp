@@ -85,7 +85,7 @@ TEST(StalenessAlpha, PastTimeoutIsFullyFaded) {
     EXPECT_FLOAT_EQ(mpviz::detail::SceneBuffer::staleness_alpha(13.0, 10.0, 0.5, 2.0), 0.0f);
 }
 
-static_assert(mpviz::kSceneVersion == 2,
+static_assert(mpviz::kSceneVersion == 3,
               "bump this alongside every additive scene.h change, and update the "
               "node-side test_scene_layout.cpp mirror");
 
@@ -204,7 +204,15 @@ static_assert(offsetof(mpviz::PointCloud, point_count) == 8,
 static_assert(offsetof(mpviz::PointCloud, last_update_sec) == 16,
               "PointCloud layout, ADR-0004 additive");
 
-static_assert(sizeof(mpviz::SceneGraph) == 200, "SceneGraph layout, ADR-0004 additive");
+static_assert(sizeof(mpviz::TrajectoryCarpet) == 24, "TrajectoryCarpet layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::TrajectoryCarpet, points) == 0,
+              "TrajectoryCarpet layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::TrajectoryCarpet, point_count) == 8,
+              "TrajectoryCarpet layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::TrajectoryCarpet, last_update_sec) == 16,
+              "TrajectoryCarpet layout, ADR-0004 additive");
+
+static_assert(sizeof(mpviz::SceneGraph) == 216, "SceneGraph layout, ADR-0004 additive");
 static_assert(offsetof(mpviz::SceneGraph, sim_time_sec) == 0, "SceneGraph layout, ADR-0004 additive");
 static_assert(offsetof(mpviz::SceneGraph, ego) == 8, "SceneGraph layout, ADR-0004 additive");
 static_assert(offsetof(mpviz::SceneGraph, objects) == 56, "SceneGraph layout, ADR-0004 additive");
@@ -223,6 +231,10 @@ static_assert(offsetof(mpviz::SceneGraph, hud) == 152, "SceneGraph layout, ADR-0
 static_assert(offsetof(mpviz::SceneGraph, point_clouds) == 184,
               "SceneGraph layout, ADR-0004 additive");
 static_assert(offsetof(mpviz::SceneGraph, point_cloud_count) == 192,
+              "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, trajectory_carpets) == 200,
+              "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, trajectory_carpet_count) == 208,
               "SceneGraph layout, ADR-0004 additive");
 
 // RenderConfig (api.h) — also crosses the prebuilt-archive ABI boundary.
@@ -301,5 +313,37 @@ TEST(SceneBufferPointCloud, PointCloudPointsSurviveAssignAfterSourceBufferDies) 
     EXPECT_EQ(active.points[0].rgba, 0xFF0000FFu);
     EXPECT_DOUBLE_EQ(active.points[1].position.x, 1.0);
     EXPECT_EQ(active.points[1].rgba, 0xFF00FF00u);
+    EXPECT_DOUBLE_EQ(active.last_update_sec, 1.0);
+}
+
+// TrajectoryCarpet::points is a caller-owned raw pointer, exactly like
+// PointCloud::points -- assign()'s `view = src` copies that pointer
+// verbatim, so without the trajectory_carpets deep-copy block, active().
+// trajectory_carpets[i].points would dangle the instant this test's own
+// `pts` array is overwritten below (VM-077 Task 2 Step 0).
+TEST(SceneBufferTrajectoryCarpet, TrajectoryCarpetPointsSurviveAssignAfterSourceBufferDies) {
+    mpviz::detail::SceneBuffer buf;
+    std::vector<mpviz::PointCloudPoint> pts = {
+        {{0, 0, 0}, 0xFF0000FFu}, {{1, 0, 0}, 0xFF00FF00u}, {{1, 1, 0}, 0x00FF00FFu}};
+    mpviz::TrajectoryCarpet tc{};
+    tc.points = pts.data();
+    tc.point_count = 3;
+    tc.last_update_sec = 1.0;
+    mpviz::SceneGraph s{};
+    s.trajectory_carpets = &tc;
+    s.trajectory_carpet_count = 1;
+    buf.publish(s);
+
+    std::fill(pts.begin(), pts.end(), mpviz::PointCloudPoint{});  // overwrite caller's array
+
+    ASSERT_EQ(buf.active().trajectory_carpet_count, 1u);
+    const mpviz::TrajectoryCarpet& active = buf.active().trajectory_carpets[0];
+    ASSERT_EQ(active.point_count, 3u);
+    EXPECT_DOUBLE_EQ(active.points[0].position.x, 0.0);
+    EXPECT_EQ(active.points[0].rgba, 0xFF0000FFu);
+    EXPECT_DOUBLE_EQ(active.points[1].position.x, 1.0);
+    EXPECT_EQ(active.points[1].rgba, 0xFF00FF00u);
+    EXPECT_DOUBLE_EQ(active.points[2].position.y, 1.0);
+    EXPECT_EQ(active.points[2].rgba, 0x00FF00FFu);
     EXPECT_DOUBLE_EQ(active.last_update_sec, 1.0);
 }

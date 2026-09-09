@@ -1,0 +1,40 @@
+// trajectory_carpet.mat — VM-077. output_trajectory_carpet's per-vertex
+// color IS the signal (the producer's own baked velocity gradient,
+// STANDING directive 2026-09-09) -- UNLIT for the same reason
+// point_cloud.mat is: PBR shading would add a light-direction term nobody
+// asked for, and `CarpetVertex` (position + packed rgba, no tangent frame)
+// couldn't feed one anyway.
+//
+// `requires : [ color ]`: the per-vertex rgba8 trajectory_carpet.cpp's
+// CarpetVertex carries, baked ONCE by the node-side adapter (from the
+// marker's own colors[]) and never re-baked.
+//
+// `blending : fade` is load-bearing, same reasoning as point_cloud.mat: puts
+// this renderable in the blended queue so the staleness `alpha` uniform
+// below actually has an effect.
+//
+// `alpha` is a UNIFORM, not a re-baked vertex attribute -- same
+// staleness_alpha() ramp as every other category, carried by this one float
+// on the SINGLE MaterialInstance the whole TrajectoryCarpetLayer shares
+// (trajectory_carpet.cpp -- no per-entity instancing, no rebuild).
+//
+// No point-size uniform here: this is a TRIANGLES primitive, not POINTS --
+// carrying point_cloud.mat's per-vertex size knob over unmodified would be
+// dead config (Task 2 Step 2's own review gate: this file must declare no
+// such parameter).
+material {
+    name : trajectory_carpet,
+    shadingModel : unlit,
+    parameters : [
+        { type : float, name : alpha }
+    ],
+    requires : [ color ],
+    blending : fade
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        material.baseColor.rgb = getColor().rgb;
+        material.baseColor.a = materialParams.alpha;
+    }
+}

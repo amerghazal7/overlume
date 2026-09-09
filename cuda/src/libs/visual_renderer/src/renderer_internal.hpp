@@ -648,6 +648,46 @@ public:
         uint32_t totalVertexCount = 0;
     };
     std::vector<PointCloudSlot> pointCloudSlots;
+
+    // Trajectory carpets (VM-077): output_trajectory_carpet, a per-vertex
+    // velocity-colored TRIANGLE_LIST ribbon (D1). trajectoryCarpetMaterial is
+    // trajectory_carpet.mat (built once); trajectoryCarpetMaterialInstance is
+    // the SINGLE instance the whole layer shares -- same "a layer that fades
+    // as one unit needs no per-entity/per-chunk instancing" reasoning as
+    // pointCloudMaterialInstance above. trajectoryCarpetAlpha mirrors the
+    // last-pushed "alpha" staleness knob (MaterialInstance has no getter).
+    filament::Material* trajectoryCarpetMaterial = nullptr;
+    filament::MaterialInstance* trajectoryCarpetMaterialInstance = nullptr;
+    float trajectoryCarpetAlpha = 1.0f;
+
+    // One (possibly chunked, past kMaxPointsPerMesh) set of Filament meshes
+    // per live TrajectoryCarpet, keyed by slot index into
+    // active().trajectory_carpets -- same reasoning as PointCloudSlot above
+    // (TrajectoryCarpet has no id). `signature` is a content signature
+    // (point count + first/last point) so an unchanged carpet causes zero
+    // rebuilds.
+    struct TrajectoryCarpetSlot {
+        uint64_t signature = 0;
+        bool has_signature = false;
+        std::vector<Mesh> meshes;
+        uint32_t totalVertexCount = 0;
+        // Test-hook mirror ONLY (trajectory_carpet_test_hooks.hpp) -- the
+        // resolved (post alpha-zero-sentinel substitution) per-vertex rgba
+        // of the FIRST built mesh, kept purely so a test can prove the
+        // per-vertex color path without a Filament vertex-buffer read-back.
+        // Same "not a Filament read-back" reasoning as RibbonSlot's
+        // firstPointM/halfWidthM above.
+        std::vector<uint32_t> firstMeshRgba;
+        // Test-hook mirror ONLY: the actual world-space z each first-mesh
+        // vertex was built with, INCLUDING kTrajectoryCarpetZLiftM --
+        // catches the "adapter flattens to 0.0, renderer must lift it above
+        // the opaque ground plane or it z-fights invisible" regression a
+        // live-bag verification pass found (VM-077, 2026-09-09): every
+        // other vertex-count/mesh-count assertion in this file would have
+        // stayed green even with the lift silently removed.
+        std::vector<float> firstMeshZ;
+    };
+    std::vector<TrajectoryCarpetSlot> trajectoryCarpetSlots;
 };
 
 // Namespace-scope free function so a different translation unit (ego.cpp,
