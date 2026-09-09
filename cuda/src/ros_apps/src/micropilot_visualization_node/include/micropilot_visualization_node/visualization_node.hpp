@@ -27,6 +27,7 @@
 #include <map_msgs/msg/occupancy_grid_update.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/path.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
 #include <std_msgs/msg/int32.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <tf2_ros/buffer.h>
@@ -42,6 +43,7 @@
 #include "micropilot_visualization_node/adapters/hd_map.hpp"
 #include "micropilot_visualization_node/adapters/ogm.hpp"
 #include "micropilot_visualization_node/adapters/path.hpp"
+#include "micropilot_visualization_node/adapters/point_cloud.hpp"
 #include "micropilot_visualization_node/adapters/tf_axes.hpp"
 #include "micropilot_visualization_node/callouts.hpp"
 #include "micropilot_visualization_node/diagnostics.hpp"
@@ -280,6 +282,26 @@ private:
     std::vector<rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr>
         generic_marker_subs_;
 
+    // ── Point clouds (Epic 3 Task 6 / VM-035) ────────────────────────────────
+    // One PointCloudAdapter per profile row with adapter: point_cloud.
+    // FIXTURE GAP: zero sensor_msgs/PointCloud2 topics exist in any
+    // recording, and no shipped profile carries a live row -- unvalidated
+    // against a live publisher. Same fill()-appends/timeout_sec/
+    // warn_on_drop_growth shape as every category above. PointCloud
+    // carries last_update_sec, so this category gets the library's
+    // staleness FADE (point_cloud.mat's own settable alpha).
+    struct PointCloudRow
+    {
+        std::unique_ptr<mpviz_node::PointCloudAdapter> adapter;
+        double timeout_sec;
+        std::string topic;              // named in drop-growth WARNs
+        uint64_t warned_malformed = 0;  // counts already reported by
+        uint64_t warned_no_tf = 0;      // warn_on_drop_growth()
+    };
+    std::vector<PointCloudRow> point_cloud_rows_;
+    std::vector<rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr>
+        point_cloud_subs_;
+
     // ── TF-axes debug layer (Epic 2 Task 8 Step 7 / VM-027) ──────────────────
     // One TfAxesAdapter per profile row with adapter: tf_axes -- a
     // PRODUCER, not a subscriber (see that adapter's own header comment for
@@ -345,8 +367,8 @@ private:
     // takes effect on the very next timer_callback() tick, no restart. Node
     // side gate only (Step 0 decision) -- timer_callback() clears the
     // matching scene_asm_ vector right before point_at() when false; no
-    // renderer-side change. layer_point_clouds_ is declared+live but has
-    // nothing to gate until Task 6 (VM-035) adds scene_asm_.point_clouds.
+    // renderer-side change. layer_point_clouds_ gates scene_asm_.
+    // point_clouds as of Task 6 (VM-035) -- see timer_callback().
     bool layer_objects_{true};
     bool layer_paths_{true};
     bool layer_map_elements_{true};

@@ -30,6 +30,8 @@
 #include "map_elements_test_hooks.hpp"
 #include "objects.hpp"
 #include "objects_test_hooks.hpp"
+#include "point_cloud.hpp"
+#include "point_cloud_test_hooks.hpp"
 #include "ribbon.hpp"
 #include "ribbon_test_hooks.hpp"
 #include "renderer_internal.hpp"
@@ -77,6 +79,7 @@
 #include "clay_translucent_filamat.h"  // matc-generated; see assets/materials/clay_translucent.mat
 #include "ribbon_emissive_filamat.h"   // matc-generated; see assets/materials/ribbon_emissive.mat
 #include "ground_grid_filamat.h"       // matc-generated; see assets/materials/ground_grid.mat
+#include "point_cloud_filamat.h"       // matc-generated; see assets/materials/point_cloud.mat
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -1094,6 +1097,20 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
         inst = r->groundGridMaterial->createInstance();
     }
 
+    // Point clouds: point_cloud.mat is a sixth Material (UNLIT, packed
+    // rgba8 vertex color, one settable float alpha -- see that .mat's
+    // header comment), built once here. ONE instance for the whole layer
+    // (Step 2's decision) -- no per-kind/per-role fan-out like
+    // groundGridMaterialInstance/objectClassMaterial above, since a point
+    // cloud's color comes entirely from its own per-point vertex data, not
+    // a per-category tint.
+    r->pointCloudMaterial =
+        filament::Material::Builder()
+            .package(mpviz::materials::kpoint_cloudFilamat, mpviz::materials::kpoint_cloudFilamatSize)
+            .build(*engine);
+    r->pointCloudMaterialInstance = r->pointCloudMaterial->createInstance();
+    r->pointCloudMaterialInstance->setCullingMode(filament::backend::CullingMode::NONE);
+
     // Alert polygons: three eager clay_translucent.mat instances (0 info/1
     // warning/2 critical) on the same clayTranslucentMaterial
     // objects.cpp/ribbon.cpp already use -- no fourth Material. Same
@@ -1308,6 +1325,18 @@ void destroy_renderer(VisualRenderer* r) {
         if (m) r->engine->destroy(m);
     }
     if (r->groundGridMaterial) r->engine->destroy(r->groundGridMaterial);
+
+    // Every live point-cloud slot -- meshes (possibly several per slot,
+    // past the uint16 chunk-split ceiling) -- must run before
+    // pointCloudMaterial is destroyed below (same "instance before its
+    // Material" ordering; pointCloudMaterialInstance is destroyed there
+    // too, there being only the one).
+    for (auto& slot : r->pointCloudSlots) {
+        for (auto& mesh : slot.meshes) destroy_mesh(*r->engine, *r->scene, mesh);
+    }
+    r->pointCloudSlots.clear();
+    if (r->pointCloudMaterialInstance) r->engine->destroy(r->pointCloudMaterialInstance);
+    if (r->pointCloudMaterial) r->engine->destroy(r->pointCloudMaterial);
     if (r->groundMaterial) r->engine->destroy(r->groundMaterial);
     if (r->gridMaterial) r->engine->destroy(r->gridMaterial);
     if (r->clayMaterial) r->engine->destroy(r->clayMaterial);
@@ -1419,6 +1448,13 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     // generic_markers.cpp. Runs last: a debug/parity layer, not meant to
     // hide under anything else drawn.
     update_generic_markers(*r, r->scene_buffer.active());
+    // Point clouds (Epic 3 Task 6 / VM-035): diffs point_clouds against the
+    // live per-slot mesh cache (keyed by slot index) — see point_cloud.cpp.
+    // Order doesn't matter for z-fighting the way map/ribbon/alert do
+    // (unlit points, no shared plane to contend with), but runs last-ish
+    // alongside generic markers as the other "large synthetic/sensor data"
+    // category.
+    update_point_clouds(*r, r->scene_buffer.active());
 
     r->camera->lookAt({pose.eye[0], pose.eye[1], pose.eye[2]},
                        {pose.target[0], pose.target[1], pose.target[2]},

@@ -275,6 +275,66 @@ TEST(Profile, JunctionInteriorBoundariesIsRejectedOnNonHdMapRows)
     EXPECT_NE(errs[0].find("junction_interior_boundaries"), std::string::npos);
 }
 
+// ── Epic 3 Task 6 (VM-035): adapter: point_cloud row fields ─────────────────
+
+TEST(Profile, PointCloudRowDefaultsColorModeAutoStrideOne)
+{
+    std::vector<std::string> errs;
+    auto p = load_profile_string(
+        "name: t\nrows:\n  - {topic: /lidar/points, type: sensor_msgs/msg/PointCloud2,"
+        " adapter: point_cloud, role: points}\n", errs);
+    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
+    EXPECT_EQ(p->rows[0].color_mode, "auto");
+    EXPECT_EQ(p->rows[0].max_points, 0u);
+    EXPECT_EQ(p->rows[0].stride, 1u);
+}
+
+TEST(Profile, PointCloudRowParsesColorModeMaxPointsStride)
+{
+    std::vector<std::string> errs;
+    auto p = load_profile_string(
+        "name: t\nrows:\n  - {topic: /lidar/points, type: sensor_msgs/msg/PointCloud2,"
+        " adapter: point_cloud, role: points, color_mode: height, max_points: 5000,"
+        " stride: 4}\n", errs);
+    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
+    EXPECT_EQ(p->rows[0].color_mode, "height");
+    EXPECT_EQ(p->rows[0].max_points, 5000u);
+    EXPECT_EQ(p->rows[0].stride, 4u);
+}
+
+TEST(Profile, PointCloudRowRejectsUnknownColorMode)
+{
+    std::vector<std::string> errs;
+    auto p = load_profile_string(
+        "name: t\nrows:\n  - {topic: /lidar/points, type: sensor_msgs/msg/PointCloud2,"
+        " adapter: point_cloud, role: points, color_mode: rainbow}\n", errs);
+    EXPECT_FALSE(p.has_value());
+    ASSERT_FALSE(errs.empty());
+    EXPECT_NE(errs[0].find("color_mode"), std::string::npos);
+}
+
+TEST(Profile, PointCloudRowRejectsZeroStride)
+{
+    std::vector<std::string> errs;
+    auto p = load_profile_string(
+        "name: t\nrows:\n  - {topic: /lidar/points, type: sensor_msgs/msg/PointCloud2,"
+        " adapter: point_cloud, role: points, stride: 0}\n", errs);
+    EXPECT_FALSE(p.has_value());
+    ASSERT_FALSE(errs.empty());
+    EXPECT_NE(errs[0].find("stride"), std::string::npos);
+}
+
+TEST(Profile, ColorModeMaxPointsStrideAreRejectedOnNonPointCloudRows)
+{
+    std::vector<std::string> errs;
+    auto bad = load_profile_string(
+        "name: t\nrows:\n  - {topic: /p, type: nav_msgs/msg/Path,"
+        " adapter: path, role: behavior, color_mode: flat}\n", errs);
+    EXPECT_FALSE(bad.has_value());
+    ASSERT_FALSE(errs.empty());
+    EXPECT_NE(errs[0].find("color_mode"), std::string::npos);
+}
+
 TEST(Profile, GroundTruthBoxesRowIsBestEffortBecauseItsPublisherIs)
 {
     // The bag's /sim/ground_truth/boxes publisher is BEST_EFFORT; an rclcpp
@@ -543,9 +603,10 @@ TEST(Profile, CoexistsWithTheRendererLibrarysOwnYamlCpp)
     // Row COUNT, not just has_value(): an ABI-mismatched YAML::Node can link
     // fine and still return a Profile with the right error count (0) but the
     // wrong row count -- silently corrupting data, not crashing.
-    // 14, not 16: /road_markers and /sim/ground_truth/boxes ship disabled
-    // (see above). Bump when either is re-enabled.
-    EXPECT_EQ(p->rows.size(), 14u);
+    // 15, not 17: /road_markers and /sim/ground_truth/boxes ship disabled
+    // (see above); +1 for the /iv_points_fusion point_cloud row (2026-09-09).
+    // Bump when a row is added or a disabled one re-enabled.
+    EXPECT_EQ(p->rows.size(), 15u);
     // ...and the bundled yaml-cpp (clang/libc++), inside libvisual_renderer.a,
     // parses a theme in the SAME process. If the two ever get relinked into
     // one, this is where it shows up.

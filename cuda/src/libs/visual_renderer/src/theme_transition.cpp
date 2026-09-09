@@ -135,6 +135,8 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.hud.text_color = blend_color(a.hud.text_color, b.hud.text_color, w);
     out.hud.accent_color = blend_color(a.hud.accent_color, b.hud.accent_color, w);
     out.hud.scale = lerpf(a.hud.scale, b.hud.scale, w);
+    out.point_cloud.point_size_px =
+        lerpf(a.point_cloud.point_size_px, b.point_cloud.point_size_px, w);
 
     // sun.direction: not a color -- see theme_transition.hpp's comment
     // above blend()'s declaration. Plain vector lerp, un-normalized

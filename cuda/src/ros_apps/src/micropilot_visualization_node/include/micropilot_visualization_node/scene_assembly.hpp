@@ -40,6 +40,9 @@ struct SceneAssembly
     std::vector<mpviz::GroundGridLayer> grids;
     std::vector<mpviz::AlertPolygon> alerts;
     std::vector<mpviz::GenericMarker> markers;
+    // Epic 3 Task 6 (VM-035): PointCloud rows append here, same shape as
+    // every category above.
+    std::vector<mpviz::PointCloud> point_clouds;
 
     // Cleared at the top of every timer_callback(), before any adapter's
     // fill() runs -- this is what makes "ClearBetweenTicksDoesNotAccumulate"
@@ -52,5 +55,25 @@ struct SceneAssembly
     // deep-copy from.
     void point_at(mpviz::SceneGraph& scene) const;
 };
+
+// Epic 3 Task 5 (VM-032) / Task 6 (VM-035): one flag per SceneAssembly
+// category, node-side visibility gates. See timer_callback()'s call site for
+// why this is a node-side clear rather than a renderer API.
+struct LayerFlags
+{
+    bool objects = true;
+    bool paths = true;
+    bool map_elements = true;
+    bool grids = true;
+    bool alerts = true;
+    bool markers = true;
+    bool point_clouds = true;
+};
+
+// Clears each SceneAssembly category whose matching LayerFlags member is
+// false -- pulled out of timer_callback() so the layer_point_clouds gate
+// (and its six siblings) is exercisable by a plain unit test instead of only
+// the live-node bridge E2E. Call this right before point_at().
+void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags);
 
 }  // namespace micropilot::visualization_app

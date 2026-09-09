@@ -213,6 +213,7 @@ add_library(visualization_node_lib SHARED
   src/adapters/collision.cpp
   src/adapters/generic_marker.cpp
   src/adapters/tf_axes.cpp
+  src/adapters/point_cloud.cpp
   src/diagnostics.cpp
   src/hud_overlay.cpp
   src/callouts.cpp)
@@ -475,6 +476,29 @@ if(BUILD_TESTING)
     ${MPVIZ_NODE_STB_DIR})
   ament_target_dependencies(test_callouts ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_callouts visual_renderer_prebuilt mpviz_node_test_paths)
+
+  # Epic 3 Task 6 (VM-035): PointCloudAdapter + the three sanctioned-red
+  # synthetic-scene point-cloud goldens (one per auto tier). Needs
+  # visual_renderer_prebuilt (the goldens stand up a real headless-EGL
+  # VisualRenderer, same documented-exception shape test_profile/
+  # test_hud_overlay/test_callouts already use) and the node's own
+  # stb_truetype/_image/_image_write vendoring (test_hud_overlay's own
+  # comment explains the split from visual_renderer's copy). No
+  # profile.cpp/fixture_msgs.cpp link -- this adapter's tests hand-build
+  # their own ProfileRow/PointCloud2, same "no shipped row to borrow" shape
+  # test_tf_axes_adapter uses (FIXTURE GAP: no live point_cloud row exists
+  # in any shipped profile).
+  ament_add_gtest(test_point_cloud_adapter
+    test/test_point_cloud_adapter.cpp
+    src/adapters/point_cloud.cpp
+    src/frame_transform.cpp
+    src/scene_assembly.cpp)
+  target_include_directories(test_point_cloud_adapter PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${VISUAL_RENDERER_DIR}/include
+    ${MPVIZ_NODE_STB_DIR})
+  ament_target_dependencies(test_point_cloud_adapter ${THIS_PACKAGE_DEPS})
+  target_link_libraries(test_point_cloud_adapter visual_renderer_prebuilt mpviz_node_test_paths)
 endif()
 
 ament_package()

@@ -59,6 +59,7 @@ const std::map<std::string, std::set<std::string>>& RoleSets()
         {"dynamic_objects", {"tracked"}},
         {"generic", {"neutral"}},
         {"tf_axes", {"debug"}},
+        {"point_cloud", {"points"}},
     };
     return kRoles;
 }
@@ -74,6 +75,7 @@ const std::map<std::string, std::set<std::string>>& TypeSets()
         {"collision", {"visualization_msgs/msg/MarkerArray"}},
         {"dynamic_objects", {"visualization_msgs/msg/MarkerArray"}},
         {"generic", {"visualization_msgs/msg/MarkerArray"}},
+        {"point_cloud", {"sensor_msgs/msg/PointCloud2"}},
     };
     return kTypes;
 }
@@ -81,7 +83,8 @@ const std::map<std::string, std::set<std::string>>& TypeSets()
 const std::set<std::string>& KnownAdapters()
 {
     static const std::set<std::string> kAdapters = {
-        "dynamic_objects", "path", "hd_map", "ogm", "collision", "generic", "tf_axes"};
+        "dynamic_objects", "path", "hd_map", "ogm", "collision", "generic", "tf_axes",
+        "point_cloud"};
     return kAdapters;
 }
 
@@ -90,7 +93,8 @@ const std::set<std::string>& KnownRowKeys()
     static const std::set<std::string> kKeys = {
         "topic",     "type",       "adapter",         "role",     "update_topic",
         "timeout_sec", "max_rate_hz", "namespaces",    "ns_default", "transient_local",
-        "best_effort", "junction_interior_boundaries"};
+        "best_effort", "junction_interior_boundaries",
+        "color_mode", "max_points", "stride"};
     return kKeys;
 }
 
@@ -141,6 +145,36 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
             ok = false;
         } else {
             out.junction_interior_boundaries = node["junction_interior_boundaries"].as<bool>();
+        }
+    }
+
+    // adapter: point_cloud only (Epic 3 Task 6 / VM-035) -- same
+    // presence-restriction shape as junction_interior_boundaries above.
+    if (node["color_mode"]) {
+        if (out.adapter != "point_cloud") {
+            errors.push_back(RowTag(file, idx, out.topic) +
+                              "color_mode is only valid on adapter: point_cloud rows");
+            ok = false;
+        } else {
+            out.color_mode = node["color_mode"].as<std::string>();
+        }
+    }
+    if (node["max_points"]) {
+        if (out.adapter != "point_cloud") {
+            errors.push_back(RowTag(file, idx, out.topic) +
+                              "max_points is only valid on adapter: point_cloud rows");
+            ok = false;
+        } else {
+            out.max_points = node["max_points"].as<uint32_t>();
+        }
+    }
+    if (node["stride"]) {
+        if (out.adapter != "point_cloud") {
+            errors.push_back(RowTag(file, idx, out.topic) +
+                              "stride is only valid on adapter: point_cloud rows");
+            ok = false;
+        } else {
+            out.stride = node["stride"].as<uint32_t>();
         }
     }
 
@@ -257,6 +291,16 @@ bool ValidateRow(const ProfileRow& row, const std::string& file, size_t idx,
                     "past it -- a smaller value yanks the entity before the fade finishes)");
 
     if (row.max_rate_hz < 0.0) return fail("max_rate_hz must be >= 0");
+
+    if (row.adapter == "point_cloud") {
+        static const std::set<std::string> kColorModes = {"auto", "rgb", "intensity", "height",
+                                                            "flat"};
+        if (!kColorModes.count(row.color_mode))
+            return fail("color_mode '" + row.color_mode +
+                        "' must be one of auto|rgb|intensity|height|flat");
+        if (row.stride < 1)
+            return fail("stride must be >= 1 (0 would divide/mod by zero in the adapter)");
+    }
 
     std::set<std::string> seen;
     for (const auto& rule : row.namespaces) {

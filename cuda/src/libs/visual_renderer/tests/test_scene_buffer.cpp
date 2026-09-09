@@ -1,5 +1,6 @@
 #include "scene_buffer.hpp"   // -I src, internal header
 
+#include <algorithm>
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -84,7 +85,7 @@ TEST(StalenessAlpha, PastTimeoutIsFullyFaded) {
     EXPECT_FLOAT_EQ(mpviz::detail::SceneBuffer::staleness_alpha(13.0, 10.0, 0.5, 2.0), 0.0f);
 }
 
-static_assert(mpviz::kSceneVersion == 1,
+static_assert(mpviz::kSceneVersion == 2,
               "bump this alongside every additive scene.h change, and update the "
               "node-side test_scene_layout.cpp mirror");
 
@@ -189,22 +190,40 @@ static_assert(offsetof(mpviz::Hud, active_mode) == 8, "Hud layout frozen");
 static_assert(offsetof(mpviz::Hud, chips) == 16, "Hud layout frozen");
 static_assert(offsetof(mpviz::Hud, chip_count) == 24, "Hud layout frozen");
 
-static_assert(sizeof(mpviz::SceneGraph) == 184, "SceneGraph layout frozen");
-static_assert(offsetof(mpviz::SceneGraph, sim_time_sec) == 0, "SceneGraph layout frozen");
-static_assert(offsetof(mpviz::SceneGraph, ego) == 8, "SceneGraph layout frozen");
-static_assert(offsetof(mpviz::SceneGraph, objects) == 56, "SceneGraph layout frozen");
-static_assert(offsetof(mpviz::SceneGraph, object_count) == 64, "SceneGraph layout frozen");
-static_assert(offsetof(mpviz::SceneGraph, paths) == 72, "SceneGraph layout frozen");
-static_assert(offsetof(mpviz::SceneGraph, path_count) == 80, "SceneGraph layout frozen");
-static_assert(offsetof(mpviz::SceneGraph, map_elements) == 88, "SceneGraph layout frozen");
-static_assert(offsetof(mpviz::SceneGraph, map_element_count) == 96, "SceneGraph layout frozen");
-static_assert(offsetof(mpviz::SceneGraph, grids) == 104, "SceneGraph layout frozen");
-static_assert(offsetof(mpviz::SceneGraph, grid_count) == 112, "SceneGraph layout frozen");
-static_assert(offsetof(mpviz::SceneGraph, alerts) == 120, "SceneGraph layout frozen");
-static_assert(offsetof(mpviz::SceneGraph, alert_count) == 128, "SceneGraph layout frozen");
-static_assert(offsetof(mpviz::SceneGraph, markers) == 136, "SceneGraph layout frozen");
-static_assert(offsetof(mpviz::SceneGraph, marker_count) == 144, "SceneGraph layout frozen");
-static_assert(offsetof(mpviz::SceneGraph, hud) == 152, "SceneGraph layout frozen");
+// PointCloudPoint/PointCloud, appended Epic 3 Task 6 (VM-035, ADR-0004).
+static_assert(sizeof(mpviz::PointCloudPoint) == 32, "PointCloudPoint layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::PointCloudPoint, position) == 0,
+              "PointCloudPoint layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::PointCloudPoint, rgba) == 24,
+              "PointCloudPoint layout, ADR-0004 additive");
+
+static_assert(sizeof(mpviz::PointCloud) == 24, "PointCloud layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::PointCloud, points) == 0, "PointCloud layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::PointCloud, point_count) == 8,
+              "PointCloud layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::PointCloud, last_update_sec) == 16,
+              "PointCloud layout, ADR-0004 additive");
+
+static_assert(sizeof(mpviz::SceneGraph) == 200, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, sim_time_sec) == 0, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, ego) == 8, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, objects) == 56, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, object_count) == 64, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, paths) == 72, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, path_count) == 80, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, map_elements) == 88, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, map_element_count) == 96, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, grids) == 104, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, grid_count) == 112, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, alerts) == 120, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, alert_count) == 128, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, markers) == 136, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, marker_count) == 144, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, hud) == 152, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, point_clouds) == 184,
+              "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::SceneGraph, point_cloud_count) == 192,
+              "SceneGraph layout, ADR-0004 additive");
 
 // RenderConfig (api.h) — also crosses the prebuilt-archive ABI boundary.
 static_assert(sizeof(mpviz::RenderConfig) == 32, "RenderConfig layout frozen");
@@ -253,4 +272,34 @@ TEST(SceneBufferMapElement, KindLaneIdLastUpdateSecSurviveAssign) {
     EXPECT_EQ(active.kind, mpviz::MapKind::CENTERLINE);
     EXPECT_EQ(active.lane_id, 934u);
     EXPECT_DOUBLE_EQ(active.last_update_sec, 12.5);
+}
+
+// PointCloud::points is a caller-owned raw pointer, exactly like
+// MapElement::points -- assign()'s `view = src` copies that pointer
+// verbatim, so without the point_clouds deep-copy block, active().
+// point_clouds[i].points would dangle the instant this test's own `pts`
+// array is overwritten below (Task 6 Step 1).
+TEST(SceneBufferPointCloud, PointCloudPointsSurviveAssignAfterSourceBufferDies) {
+    mpviz::detail::SceneBuffer buf;
+    std::vector<mpviz::PointCloudPoint> pts = {
+        {{0, 0, 0}, 0xFF0000FFu}, {{1, 0, 0}, 0xFF00FF00u}};
+    mpviz::PointCloud pc{};
+    pc.points = pts.data();
+    pc.point_count = 2;
+    pc.last_update_sec = 1.0;
+    mpviz::SceneGraph s{};
+    s.point_clouds = &pc;
+    s.point_cloud_count = 1;
+    buf.publish(s);
+
+    std::fill(pts.begin(), pts.end(), mpviz::PointCloudPoint{});  // overwrite caller's array
+
+    ASSERT_EQ(buf.active().point_cloud_count, 1u);
+    const mpviz::PointCloud& active = buf.active().point_clouds[0];
+    ASSERT_EQ(active.point_count, 2u);
+    EXPECT_DOUBLE_EQ(active.points[0].position.x, 0.0);
+    EXPECT_EQ(active.points[0].rgba, 0xFF0000FFu);
+    EXPECT_DOUBLE_EQ(active.points[1].position.x, 1.0);
+    EXPECT_EQ(active.points[1].rgba, 0xFF00FF00u);
+    EXPECT_DOUBLE_EQ(active.last_update_sec, 1.0);
 }

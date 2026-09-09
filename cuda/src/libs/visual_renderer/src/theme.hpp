@@ -98,6 +98,14 @@ struct Theme {
         float scale = 1.0f;
     } hud;
 
+    // point_cloud.point_size_px (2026-09-09, "I can't see any point cloud!"):
+    // gl_PointSize for the POINTS primitive -- 1px default was invisible at
+    // 720p. Soft-defaulted (palette.ego convention); STANDING-directive style
+    // token for the point-cloud layer.
+    struct PointCloudStyle {
+        float point_size_px = 4.0f;
+    } point_cloud;
+
     struct Sun {
         Float3 direction;
         Float3 color;

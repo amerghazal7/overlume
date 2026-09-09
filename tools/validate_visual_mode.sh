@@ -261,6 +261,30 @@
 #               as VM-030/031. Visually checkable in mode 3: toggling a
 #               layer via the GUI checklist makes that category's geometry
 #               disappear/reappear on the very next frame.
+#   2026-09-09  Epic 3 Task 6/VM-035: point clouds land -- `PointCloud[]`
+#               appended to SceneGraph (kSceneVersion 1 -> 2), a new
+#               PointCloudAdapter (adapter: point_cloud, no shipped-profile
+#               row yet -- FIXTURE GAP, zero sensor_msgs/PointCloud2 topics
+#               exist in any recording) bakes rgba8 per point node-side
+#               (color_mode: auto|rgb|intensity|height|flat, plus
+#               max_points/stride decimation), and a new UNLIT point_cloud.mat
+#               (packed-rgba vertex color, one settable staleness-fade alpha
+#               uniform, ONE MaterialInstance for the whole layer) renders
+#               them. `layer_point_clouds` (declared by Task 5) now actually
+#               gates `scene_asm_.point_clouds`. No topic the health gate
+#               needs to sample yet (no live row ships) -- nothing new to
+#               check against the fixture bag until a real PointCloud2
+#               topic is profiled in. Visually checkable only via the
+#               library/node's own synthetic-scene tests and goldens
+#               (test_point_cloud.cpp, test_point_cloud_adapter.cpp), not
+#               against this script's rig.
+#   2026-09-09  User reports (2): point clouds now render VISIBLY (gl_Point
+#               Size from theme point_cloud.point_size_px, default 4px; was
+#               1px invisible dust) and the DEFAULT bag is the full sensor
+#               recording (lidar /iv_points_fusion rendered via the urban
+#               profile's new point_cloud row, best_effort REQUIRED; six
+#               camera topics present on replay for rviz/mode-1-2). Bag
+#               stored decompressed for instant playback start.
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its
@@ -273,11 +297,16 @@ set -m  # each backgrounded job gets its OWN process group (job leader = its
 
 # ---------------------------------------------------------------------- args
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# stack_v2 (VM-077, 2026-09-09): recorded from the new stack version on the
-# user's go — strict topic superset of epic2_fixtures_full (which stays on
-# disk as fallback) plus the new-stack topics (output_trajectory_carpet et
-# al). Health gate PASSED on swap: image 25.8 Hz, ego valid z=0, map 31.2 Hz.
-BAG="${HOME}/TPSProjector-fixtures/stack_v2_fixtures_2026-09-09"
+# stack_v2_full_sensors (VM-077, 2026-09-09, user: "I can't even see the
+# lidar topic in the recorded bag nor cameras when I run the validate
+# script?!"): the DEFAULT bag is the full sensor recording — everything the
+# lighter stack_v2_fixtures carries PLUS /iv_points_fusion lidar (rendered
+# by the urban profile's point_cloud row) and all six raw camera streams
+# (published on replay for rviz/mode-1-2 consumers; mode 3 does not render
+# them). Stored DECOMPRESSED for instant playback start (the .zstd archive
+# sits alongside). Lighter fallbacks on disk: stack_v2_fixtures_2026-09-09
+# (no sensors), epic2_fixtures_full (old stack).
+BAG="${HOME}/TPSProjector-fixtures/stack_v2_full_sensors_2026-09-09"
 QOS="${HOME}/TPSProjector-fixtures/qos_full.yaml"
 NO_GUI=0
 DO_BUILD=0

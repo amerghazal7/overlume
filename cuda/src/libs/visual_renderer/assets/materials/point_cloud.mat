@@ -1,0 +1,50 @@
+// point_cloud.mat — Epic 3 Task 6 (VM-035). A point cloud's per-point
+// color IS the signal (STANDING directive 2026-09-09), so this is UNLIT --
+// PBR shading would add a light-direction term nobody asked for and that
+// no `PointVertex` (position + packed rgba, no tangent frame -- points have
+// no meaningful normal) could feed anyway.
+//
+// `requires : [ color ]`: the per-point rgba8 point_cloud.cpp's
+// PointVertex carries, baked ONCE by the node-side adapter (scene.h's
+// PointCloudPoint::rgba) and never re-baked.
+//
+// `blending : fade` is load-bearing: fade/transparent are what put a
+// renderable in the blended queue at all -- an opaque material discards
+// vertex/fragment alpha outright (same contract as clay_faded.mat and
+// clay_translucent.mat; history in the plan's Task 6 Step 2).
+//
+// `alpha` is a UNIFORM, not a re-baked vertex attribute: staleness_alpha()
+// recomputes every frame during the ~0.5s fade ramp, and rebuilding the
+// whole point-cloud vertex buffer every frame to re-bake alpha -- on the
+// largest geometry in the scene -- is rejected outright. The per-point
+// rgba stays exactly as baked by the adapter (color only); the fade is
+// carried entirely by this one float parameter, set once per frame on the
+// SINGLE MaterialInstance the whole PointCloudLayer shares (point_cloud.cpp
+// -- no per-entity instancing, no rebuild, negligible cost regardless of
+// point count).
+// `pointSizePx` (user report 2026-09-09: "I can't see any point cloud!"):
+// a POINTS primitive rasterizes at gl_PointSize, which defaults to 1px --
+// invisible dust at 720p. Set from the theme's point_cloud.point_size_px
+// token (soft-defaulted, STANDING directive: style is configurable).
+material {
+    name : point_cloud,
+    shadingModel : unlit,
+    parameters : [
+        { type : float, name : alpha },
+        { type : float, name : pointSizePx }
+    ],
+    requires : [ color ],
+    blending : fade
+}
+vertex {
+    void materialVertex(inout MaterialVertexInputs material) {
+        gl_PointSize = materialParams.pointSizePx;
+    }
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        material.baseColor.rgb = getColor().rgb;
+        material.baseColor.a = materialParams.alpha;
+    }
+}

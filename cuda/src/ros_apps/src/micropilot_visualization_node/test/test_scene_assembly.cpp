@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+using micropilot::visualization_app::apply_layer_gates;
+using micropilot::visualization_app::LayerFlags;
 using micropilot::visualization_app::SceneAssembly;
 
 namespace
@@ -59,6 +61,7 @@ TEST(SceneAssembly, ClearEmptiesEveryCategoryNotJustMapElements)
     asm_.grids.push_back(mpviz::GroundGridLayer{});
     asm_.alerts.push_back(mpviz::AlertPolygon{});
     asm_.markers.push_back(mpviz::GenericMarker{});
+    asm_.point_clouds.push_back(mpviz::PointCloud{});
 
     asm_.clear();
 
@@ -70,4 +73,52 @@ TEST(SceneAssembly, ClearEmptiesEveryCategoryNotJustMapElements)
     EXPECT_EQ(scene.grid_count, 0u);
     EXPECT_EQ(scene.alert_count, 0u);
     EXPECT_EQ(scene.marker_count, 0u);
+    EXPECT_EQ(scene.point_cloud_count, 0u);
+}
+
+TEST(SceneAssembly, PointCloudRowAppendsIntoScenePointClouds)
+{
+    // Same shape as TwoAdaptersOnOneCategoryBothSurvive above, for the new
+    // category (Task 6 / VM-035).
+    SceneAssembly asm_;
+    asm_.point_clouds.push_back(mpviz::PointCloud{});
+    asm_.point_clouds.push_back(mpviz::PointCloud{});
+
+    mpviz::SceneGraph scene{};
+    asm_.point_at(scene);
+    EXPECT_EQ(scene.point_cloud_count, 2u);
+    EXPECT_EQ(scene.point_clouds, asm_.point_clouds.data());
+}
+
+TEST(SceneAssembly, ApplyLayerGatesPointCloudsOffZeroesOnlyPointClouds)
+{
+    // The finding this covers: visualization_node.cpp's
+    // `if (!layer_point_clouds_) scene_asm_.point_clouds.clear();` gate had
+    // no test exercising it directly. apply_layer_gates() is the exact
+    // function that line now calls, with the same LayerFlags shape.
+    SceneAssembly asm_;
+    asm_.point_clouds.push_back(mpviz::PointCloud{});
+    asm_.objects.push_back(mpviz::TrackedObject{});  // another category, must survive
+
+    LayerFlags flags;  // all true by default
+    flags.point_clouds = false;
+    apply_layer_gates(asm_, flags);
+
+    mpviz::SceneGraph scene{};
+    asm_.point_at(scene);
+    EXPECT_EQ(scene.point_cloud_count, 0u);
+    EXPECT_EQ(scene.object_count, 1u);
+}
+
+TEST(SceneAssembly, ApplyLayerGatesPointCloudsOnLeavesItIntact)
+{
+    SceneAssembly asm_;
+    asm_.point_clouds.push_back(mpviz::PointCloud{});
+
+    LayerFlags flags;  // all true, including point_clouds
+    apply_layer_gates(asm_, flags);
+
+    mpviz::SceneGraph scene{};
+    asm_.point_at(scene);
+    EXPECT_EQ(scene.point_cloud_count, 1u);
 }
