@@ -279,7 +279,7 @@
 #               (test_point_cloud.cpp, test_point_cloud_adapter.cpp), not
 #               against this script's rig.
 #   2026-09-09  User reports (2): point clouds now render VISIBLY (gl_Point
-#               Size from theme point_cloud.point_size_px, default 4px; was
+#               Size from theme point_cloud.point_size_px, default 2px (user-tuned from 4); was
 #               1px invisible dust) and the DEFAULT bag is the full sensor
 #               recording (lidar /iv_points_fusion rendered via the urban
 #               profile's new point_cloud row, best_effort REQUIRED; six
