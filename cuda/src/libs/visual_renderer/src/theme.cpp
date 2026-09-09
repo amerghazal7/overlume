@@ -88,6 +88,12 @@ Theme parse(const YAML::Node& root) {
     t.hud.accent_color = to_float3(hud["accent_color"]);
     t.hud.scale = hud["scale"].as<float>();
 
+    // point_cloud: soft-defaulted (a YAML predating the token parses fine).
+    const YAML::Node pc = root["point_cloud"];
+    t.point_cloud.point_size_px = (pc && pc["point_size_px"])
+                                       ? pc["point_size_px"].as<float>()
+                                       : 4.0f;
+
     const YAML::Node sun = root["sun"];
     t.sun.direction = to_float3(sun["direction"]);
     t.sun.color = to_float3(sun["color"]);
@@ -196,6 +202,7 @@ const Theme& kFallbackTheme() {
         t.hud.text_color = {0.9f, 0.95f, 1.0f};
         t.hud.accent_color = {0.10f, 1.0f, 0.4f};
         t.hud.scale = 1.0f;
+        t.point_cloud.point_size_px = 4.0f;
         t.sun.direction = {-0.5f, -0.3f, -1.0f};
         t.sun.color = {0.55f, 0.6f, 0.75f};
         t.sun.intensity = 480000.0f;

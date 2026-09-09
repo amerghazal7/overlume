@@ -381,9 +381,14 @@ def test_bridge_e2e_set_layers_hides_and_shows():
     pixels actually change (review 2026-09-09: param readback alone cannot
     distinguish "param written" from "gate applied"; the empty-scene frame
     shows the ground grid, so hiding layer_grids must change pixels) ->
-    show -> both recover (VM-032 Step 1). layer_point_clouds is
-    declared-but-inert (Task 6/VM-035 scope) so it isn't asserted here.
-    Mode 3 so visualization_node actually publishes frames."""
+    show -> both recover (VM-032 Step 1). Coverage shape (review 2026-09-09):
+    per-layer `ros2 param get` readback for all six LIVE_LAYERS, plus ONE
+    aggregate pixel-change assertion with all six hidden together
+    (attributable to layer_grids -- not per-layer pixels). layer_point_clouds
+    gates a live category as of Task 6/VM-035 but is not asserted here (no
+    sensor_msgs/PointCloud2 recording, named FIXTURE GAP); its gate is covered
+    instead by test_scene_assembly.cpp's ApplyLayerGates* cases. Mode 3 so
+    visualization_node actually publishes frames."""
     websockets = pytest.importorskip("websockets")
     rclpy = pytest.importorskip("rclpy")
     from rclpy.node import Node as RclpyNode

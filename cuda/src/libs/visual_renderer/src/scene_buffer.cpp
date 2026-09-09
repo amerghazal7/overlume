@@ -81,6 +81,15 @@ void OwnedScene::assign(const mpviz::SceneGraph& src) {
         chips[i].text = text ? chip_texts[i].c_str() : nullptr;
     }
     view.hud.chips = chips.data();
+
+    point_clouds.assign(src.point_clouds, src.point_clouds + src.point_cloud_count);
+    point_cloud_points.resize(src.point_cloud_count);
+    for (uint32_t i = 0; i < src.point_cloud_count; ++i) {
+        const PointCloud& s = src.point_clouds[i];
+        point_cloud_points[i].assign(s.points, s.points + s.point_count);
+        point_clouds[i].points = point_cloud_points[i].data();
+    }
+    view.point_clouds = point_clouds.data();
 }
 
 void SceneBuffer::publish(const mpviz::SceneGraph& scene) {

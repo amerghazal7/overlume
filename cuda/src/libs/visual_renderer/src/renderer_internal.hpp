@@ -622,6 +622,32 @@ public:
     // path string since MESH markers aren't grouped into a fixed class
     // set.
     std::unordered_set<std::string> genericMarkerMeshWarned;
+
+    // Point clouds (Epic 3 Task 6 / VM-035). pointCloudMaterial is
+    // point_cloud.mat (built once); pointCloudMaterialInstance is the
+    // SINGLE instance the whole layer shares (Step 2's decision: a layer
+    // that fades as one unit needs no per-entity/per-chunk instancing) --
+    // created eagerly and themed nowhere (point_cloud.mat carries no
+    // baseColor/tint parameter; the per-point rgba IS the color).
+    // pointCloudAlpha mirrors the last-pushed "alpha" staleness knob
+    // (MaterialInstance has no getter).
+    filament::Material* pointCloudMaterial = nullptr;
+    filament::MaterialInstance* pointCloudMaterialInstance = nullptr;
+    float pointCloudAlpha = 1.0f;
+
+    // One (possibly chunked, past kMaxPointsPerMesh) set of Filament meshes
+    // per live PointCloud, keyed by slot index into active().point_clouds --
+    // PointCloud has no id, same reasoning as RibbonSlot/GroundGridSlot/
+    // AlertSlot above. `signature` is a content signature (point count +
+    // first/last point) so an unchanged cloud causes zero rebuilds, same
+    // "diff, don't always rebuild" shape as every other category.
+    struct PointCloudSlot {
+        uint64_t signature = 0;
+        bool has_signature = false;
+        std::vector<Mesh> meshes;
+        uint32_t totalVertexCount = 0;
+    };
+    std::vector<PointCloudSlot> pointCloudSlots;
 };
 
 // Namespace-scope free function so a different translation unit (ego.cpp,

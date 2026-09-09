@@ -21,7 +21,7 @@ namespace mpviz {
 // scene.h change; the node-side static_assert mirror (test_scene_layout.cpp)
 // fails loudly on a layout mismatch instead of silently reading garbage
 // across the ABI boundary at the node's next rebuild.
-constexpr uint32_t kSceneVersion = 1;
+constexpr uint32_t kSceneVersion = 2;
 
 struct Vec3 { double x, y, z; };
 
@@ -118,6 +118,47 @@ struct GenericMarker {
     double last_update_sec;
 };
 
+// ── PointCloud[] (Epic 3 Task 6 / VM-035, ADR-0004 additive) ────────────────
+// Node-side PointCloudAdapter bakes one packed rgba8 per point from
+// sensor_msgs/PointCloud2 (color_mode: auto|rgb|intensity|height|flat) --
+// the renderer never re-derives color from raw sensor fields, and never
+// re-bakes this per point_cloud.mat's own header comment (alpha there is a
+// per-frame MATERIAL UNIFORM driven by staleness_alpha(), entirely separate
+// from this per-vertex color).
+//
+// Packing convention (mirrored by comment here, in the adapter, and in
+// point_cloud.cpp's unpack — same "one ABI constant, several mirror
+// comments" shape as ogm.hpp's kUnknownCell): byte 0 (LSB) = r, byte 1 = g,
+// byte 2 = b, byte 3 (MSB) = a, i.e.
+// `rgba = r | (g << 8) | (b << 16) | (a << 24)`. This is a plain byte-array
+// layout on this codebase's little-endian targets, so it copies straight
+// into a Filament UBYTE4 vertex attribute with no repacking at the render
+// call site.
+//
+// `a` (alpha) is never touched by the staleness fade (that is the
+// material's own uniform) — it is reused instead as a one-bit sentinel:
+// a==0 means "no real per-point color was computed" (color_mode: flat, or
+// any tier that fell all the way through with nothing to bake), and
+// point_cloud.cpp substitutes the theme's neutral token
+// (palette.object_tints.unknown — reused, zero new theme fields, same
+// token GenericMarker's own alpha==0 sentinel already uses) for every such
+// point at mesh-BUILD time. a!=0 (always 255 when baked) means "trust r/g/b
+// verbatim". KNOWN LIMITATION: because that substitution happens at
+// geometry build time, not every render_frame() call, a flat-mode cloud's
+// displayed color follows a live set_theme() transition only on its next
+// content-driven rebuild, not smoothly mid-transition -- same class of
+// caveat as this library's grid fade-distance bake (scene.h's set_theme()
+// doc comment).
+struct PointCloudPoint {
+    Vec3 position;     // map frame
+    uint32_t rgba;      // packed per the convention above
+};
+
+struct PointCloud {
+    const PointCloudPoint* points;  uint32_t point_count;
+    double last_update_sec;
+};
+
 // ── Hud (Epic 1: speed+mode only; chips arrive with VM-031) ─────────────────
 struct AlertChip {
     const char* text;
@@ -151,6 +192,9 @@ struct SceneGraph {
     const AlertPolygon*    alerts;       uint32_t alert_count;
     const GenericMarker*   markers;      uint32_t marker_count;
     Hud hud;
+    // Appended Epic 3 Task 6 (VM-035, ADR-0004) -- kSceneVersion 1 -> 2, the
+    // one bump this epic makes (Task 1 introduced the constant at 1).
+    const PointCloud*      point_clouds; uint32_t point_cloud_count;
 };
 
 // Deep-copies `scene` (and everything its pointers reach) into the renderer's

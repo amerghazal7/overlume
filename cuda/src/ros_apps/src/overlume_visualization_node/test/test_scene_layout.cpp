@@ -21,7 +21,7 @@
 
 #include <gtest/gtest.h>
 
-static_assert(mpviz::kSceneVersion == 1, "node/library scene.h version drifted");
+static_assert(mpviz::kSceneVersion == 2, "node/library scene.h version drifted");
 
 static_assert(sizeof(mpviz::MapElement) == 32, "node/library scene.h version drifted");
 static_assert(offsetof(mpviz::MapElement, points) == 0, "node/library scene.h version drifted");
@@ -32,6 +32,27 @@ static_assert(offsetof(mpviz::MapElement, is_polygon) == 12,
 static_assert(offsetof(mpviz::MapElement, kind) == 13, "node/library scene.h version drifted");
 static_assert(offsetof(mpviz::MapElement, lane_id) == 16, "node/library scene.h version drifted");
 static_assert(offsetof(mpviz::MapElement, last_update_sec) == 24,
+              "node/library scene.h version drifted");
+
+// PointCloudPoint/PointCloud + SceneGraph::point_clouds/point_cloud_count,
+// appended Epic 3 Task 6 (VM-035, ADR-0004) -- kSceneVersion 1 -> 2.
+static_assert(sizeof(mpviz::PointCloudPoint) == 32, "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::PointCloudPoint, position) == 0,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::PointCloudPoint, rgba) == 24,
+              "node/library scene.h version drifted");
+
+static_assert(sizeof(mpviz::PointCloud) == 24, "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::PointCloud, points) == 0, "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::PointCloud, point_count) == 8,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::PointCloud, last_update_sec) == 16,
+              "node/library scene.h version drifted");
+
+static_assert(sizeof(mpviz::SceneGraph) == 200, "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::SceneGraph, point_clouds) == 184,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::SceneGraph, point_cloud_count) == 192,
               "node/library scene.h version drifted");
 
 // static_asserts above do the real work; this TEST body only exists so

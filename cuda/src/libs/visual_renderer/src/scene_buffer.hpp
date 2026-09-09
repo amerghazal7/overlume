@@ -45,6 +45,8 @@ struct OwnedScene {
     std::vector<std::string> marker_mesh_paths;    // "" stored for a nullptr mesh_path
     std::vector<AlertChip> chips;
     std::vector<std::string> chip_texts;
+    std::vector<PointCloud> point_clouds;
+    std::vector<std::vector<PointCloudPoint>> point_cloud_points;  // point_clouds[i].points storage
     // Deep-copies `src` — including every nested Vec3[]/uint8_t[]/char*
     // payload reached by the arrays above — into this object's vectors, and
     // repoints view's pointers (both the top-level array pointers AND each

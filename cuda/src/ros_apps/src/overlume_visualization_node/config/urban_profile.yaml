@@ -242,3 +242,13 @@ rows:
   # owns (Task 8 Step 7). Uncomment to turn it on; it is noisy on a stack with
   # dozens of frames, which is why it ships commented.
   # - {adapter: tf_axes, role: debug, timeout_sec: 1.0}
+
+  # Lidar fusion cloud (VM-035 + VM-077, 2026-09-09) -- validated against the
+  # real recorded /iv_points_fusion in stack_v2_full_sensors_2026-09-09.
+  # best_effort is REQUIRED: the sensor publishes (and the bag replays)
+  # best-effort QoS; a reliable subscription silently receives nothing.
+  # Disable knob: layer_point_clouds param (STANDING directive); style:
+  # theme point_cloud.point_size_px + per-point colors from color_mode.
+  - {topic: /iv_points_fusion, type: sensor_msgs/msg/PointCloud2,
+     adapter: point_cloud, role: points, color_mode: auto, max_points: 60000,
+     stride: 2, best_effort: true, timeout_sec: 2.0}

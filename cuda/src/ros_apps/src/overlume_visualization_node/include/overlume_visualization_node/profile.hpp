@@ -74,6 +74,18 @@ struct ProfileRow
     // Never applies the mutual-crossing cut (ROAD_EDGE-only) -- interior
     // separators legitimately cross connector geometry.
     bool junction_interior_boundaries{true};
+
+    // adapter: point_cloud only (Epic 3 Task 6 / VM-035; ParseRow rejects
+    // these on any other adapter, same restriction shape as
+    // junction_interior_boundaries above). color_mode picks the per-point
+    // bake tier (auto|rgb|intensity|height|flat -- see PointCloudAdapter's
+    // own header comment for the auto-tier fallback order); max_points is
+    // a decimation CEILING applied after stride (0 = no cap, same "0 = no
+    // limit" convention as max_rate_hz); stride keeps every Nth point
+    // (default 1 = no decimation; 0 is invalid, ValidateRow rejects it).
+    std::string color_mode{"auto"};
+    uint32_t max_points{0};
+    uint32_t stride{1};
 };
 
 struct Profile

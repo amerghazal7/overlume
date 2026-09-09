@@ -181,9 +181,9 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // hud_enabled_/callouts_enabled_ above, these are read LIVE every tick
     // (on_params() below), not just once here -- a SetParametersCallback
     // update from the GUI/WS bridge takes effect on the very next
-    // timer_callback(), no restart needed. layer_point_clouds_ is declared
-    // here (and reachable through set_layers) but stays inert until Task 6
-    // adds the PointCloud category it would gate.
+    // timer_callback(), no restart needed. layer_point_clouds_ gates
+    // scene_asm_.point_clouds as of Task 6 (VM-035) -- see the gate list in
+    // timer_callback() below.
     layer_objects_ = declare_parameter<bool>("layer_objects", true);
     layer_paths_ = declare_parameter<bool>("layer_paths", true);
     layer_map_elements_ = declare_parameter<bool>("layer_map_elements", true);
@@ -373,6 +373,31 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
         generic_marker_rows_.push_back(GenericMarkerRow{std::move(adapter), row.timeout_sec, row.topic});
     }
     RCLCPP_INFO(get_logger(), "generic: %zu row(s) subscribed", generic_marker_rows_.size());
+
+    // ── Point clouds ──────────────────────────────────────────────────────────
+    // FIXTURE GAP: zero PointCloud2 topics exist in any recording, and no
+    // shipped profile carries a live row -- unvalidated against a live
+    // publisher. Same wiring shape as every other single-topic category
+    // above (collision/generic).
+    for (const auto& row : profile->rows)
+    {
+        if (row.adapter != "point_cloud") continue;
+        const auto specs = mpviz_node::subscriptions_for(row);
+        if (specs.empty()) continue;
+        const auto& spec = specs.front();
+
+        auto adapter = std::make_unique<mpviz_node::PointCloudAdapter>(row, *frame_transformer_);
+        mpviz_node::PointCloudAdapter* adapter_ptr = adapter.get();
+        rclcpp::QoS qos(10);
+        if (spec.best_effort) qos.best_effort();
+        if (spec.transient_local) qos.transient_local();
+        point_cloud_subs_.push_back(create_subscription<sensor_msgs::msg::PointCloud2>(
+            spec.topic, qos,
+            [this, adapter_ptr](const sensor_msgs::msg::PointCloud2::SharedPtr msg)
+            { adapter_ptr->ingest(*msg, sim_clock_sec_); }));
+        point_cloud_rows_.push_back(PointCloudRow{std::move(adapter), row.timeout_sec, row.topic});
+    }
+    RCLCPP_INFO(get_logger(), "point_cloud: %zu row(s) subscribed", point_cloud_rows_.size());
 
     // ── TF-axes debug layer ───────────────────────────────────────────────────
     // PRODUCER, not a subscriber (subscriptions_for() returns {} for this
@@ -633,6 +658,22 @@ void VisualizationNode::timer_callback()
         gmr.adapter->fill(scene_asm_);
     }
 
+    // FIXTURE GAP: no PointCloud2 topic exists in any recording -- msgs==0
+    // is the expected steady state today, not an error path (same
+    // reasoning as the collision-row loop above).
+    for (auto& pcr : point_cloud_rows_)
+    {
+        if (pcr.adapter->stats().msgs == 0) continue;
+        warn_on_drop_growth(get_logger(), *get_clock(), pcr.topic, pcr.adapter->stats(),
+                            pcr.warned_malformed, pcr.warned_no_tf);
+        if (sim_clock_sec_ - pcr.adapter->stats().last_msg_sec > pcr.timeout_sec)
+        {
+            pcr.adapter->mark_stale_tick();
+            continue;
+        }
+        pcr.adapter->fill(scene_asm_);
+    }
+
     // No timeout gate: a live tf2 walk, not message-driven; this adapter
     // stamps "now" onto every marker it emits, so it can never itself go stale.
     for (auto& axes : tf_axes_rows_)
@@ -652,14 +693,14 @@ void VisualizationNode::timer_callback()
     // not a renderer API -- clearing a category's vector right before
     // point_at() publishes it as count==0 for this tick, exactly as if no
     // adapter had ever filled it (every render path already handles the
-    // empty case). layer_point_clouds_ is declared+live but has no vector
-    // to gate yet (Task 6 Step 1 adds scene_asm_.point_clouds).
-    if (!layer_objects_) scene_asm_.objects.clear();
-    if (!layer_paths_) scene_asm_.paths.clear();
-    if (!layer_map_elements_) scene_asm_.map_elements.clear();
-    if (!layer_grids_) scene_asm_.grids.clear();
-    if (!layer_alerts_) scene_asm_.alerts.clear();
-    if (!layer_markers_) scene_asm_.markers.clear();
+    // empty case). layer_point_clouds_'s gate closes Task 5's forward
+    // reference (Task 6 / VM-035 owns this one line + the vector it clears).
+    // All seven gates -- this one included -- are exercised directly by
+    // test_scene_assembly.cpp's ApplyLayerGates* cases; the other six are
+    // additionally covered end-to-end by test_bridge_e2e_set_layers_hides_and_shows.
+    apply_layer_gates(scene_asm_, {layer_objects_, layer_paths_, layer_map_elements_,
+                                   layer_grids_, layer_alerts_, layer_markers_,
+                                   layer_point_clouds_});
 
     scene_asm_.point_at(scene);
     mpviz::set_scene(renderer_, scene);
@@ -816,7 +857,8 @@ void VisualizationNode::publish_diagnostics()
 {
     std::vector<mpviz_node::RowStats> rows;
     rows.reserve(hd_map_rows_.size() + dynamic_objects_rows_.size() + path_rows_.size() +
-                 ogm_rows_.size() + collision_rows_.size() + generic_marker_rows_.size());
+                 ogm_rows_.size() + collision_rows_.size() + generic_marker_rows_.size() +
+                 point_cloud_rows_.size());
 
     auto append_row = [&](const std::string& topic, const mpviz_node::AdapterStats& stats,
                            double timeout_sec)
@@ -838,6 +880,8 @@ void VisualizationNode::publish_diagnostics()
         append_row(cr.topic, cr.adapter->stats(), cr.timeout_sec);
     for (const auto& gmr : generic_marker_rows_)
         append_row(gmr.topic, gmr.adapter->stats(), gmr.timeout_sec);
+    for (const auto& pcr : point_cloud_rows_)
+        append_row(pcr.topic, pcr.adapter->stats(), pcr.timeout_sec);
 
     auto msg = mpviz_node::BuildDiagnostics(rows, render_ms_);
     msg.header.stamp = now();
@@ -889,6 +933,8 @@ VisualizationNode::CallbackReturn VisualizationNode::on_cleanup(
     collision_rows_.clear();
     generic_marker_subs_.clear();
     generic_marker_rows_.clear();
+    point_cloud_subs_.clear();
+    point_cloud_rows_.clear();
     tf_axes_rows_.clear();
     frame_transformer_.reset();
     tf_adapter_.reset();
@@ -920,6 +966,8 @@ VisualizationNode::CallbackReturn VisualizationNode::on_shutdown(
     collision_rows_.clear();
     generic_marker_subs_.clear();
     generic_marker_rows_.clear();
+    point_cloud_subs_.clear();
+    point_cloud_rows_.clear();
     tf_axes_rows_.clear();
     frame_transformer_.reset();
     tf_adapter_.reset();
