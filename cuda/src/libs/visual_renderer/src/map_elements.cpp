@@ -428,6 +428,15 @@ void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
     // (this lambda already captures `s` by reference).
     auto adopt_or_build = [&](uint64_t key, filament::MaterialInstance* material, MapKind kind,
                                double last_update_sec, auto build_fn) {
+        // Duplicate content in one frame (real data has it: adjacent lanes
+        // share a physical rail, so two boundary elements can carry
+        // identical geometry): the first occurrence owns the mesh in
+        // `next`; a second build would add a live renderable to the scene
+        // and then LEAK it -- `next.emplace` fails on the duplicate key and
+        // drops the Mesh handle while its entity stays in the scene
+        // forever. Measured on the fixture bag: render_ms climbed
+        // 13 -> ~140 over ~60s of playback from exactly this.
+        if (next.count(key) != 0) return;
         auto it = r.mapElementMeshes.find(key);
         if (it != r.mapElementMeshes.end()) {
             next.emplace(key, std::move(it->second));

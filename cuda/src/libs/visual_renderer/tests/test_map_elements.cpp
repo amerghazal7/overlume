@@ -763,6 +763,51 @@ TEST(MapGolden, JunctionCleanupOnState_DarkAdas) {
     mpviz::destroy_renderer(r);
 }
 
+// ── duplicate-signature leak regression (found live, 2026-09-09) ─────────
+
+TEST(MapElements, DuplicateElementsDoNotLeakMeshesOrRebuildEveryFrame) {
+    // Real feeds carry byte-identical map elements (adjacent lanes share a
+    // physical rail; local+global map topics overlap): both hash to ONE
+    // chunk signature. Before the `next.count(key)` guard in
+    // adopt_or_build, the second occurrence rebuilt a mesh, add_mesh()
+    // put its renderable in the scene, and the failed emplace dropped the
+    // only handle to it -- one leaked scene renderable PER FRAME, measured
+    // live as render_ms climbing 13 -> ~140 ms over a minute of playback.
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    const mpviz::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
+    mpviz::MapElement dup[2]{};
+    for (auto& e : dup) {
+        e.points = pts;
+        e.point_count = 2;
+        e.kind = mpviz::MapKind::ROAD_EDGE;  // solid polyline path, no dash fan-out
+        e.last_update_sec = 10.0;
+    }
+    mpviz::SceneGraph s{};
+    s.sim_time_sec = 10.0;
+    s.ego.valid = 1;
+    s.map_elements = dup;
+    s.map_element_count = 2;
+    const mpviz::CameraPose pose{{0, -8, 4}, {0, 0, 0}, 60.0};
+
+    mpviz::set_scene(r, s);
+    render_once(r, pose);
+    EXPECT_EQ(mpviz::testing::map_element_mesh_count(r), 1u)
+        << "two identical elements must share one cached mesh";
+    const uint64_t rebuildsAfterFirstFrame = mpviz::testing::map_element_rebuild_count(r);
+
+    for (int i = 0; i < 5; ++i) {
+        mpviz::set_scene(r, s);
+        render_once(r, pose);
+    }
+    EXPECT_EQ(mpviz::testing::map_element_mesh_count(r), 1u);
+    EXPECT_EQ(mpviz::testing::map_element_rebuild_count(r), rebuildsAfterFirstFrame)
+        << "an unchanged duplicate-bearing scene must not rebuild (and leak) every frame";
+    mpviz::destroy_renderer(r);
+}
+
 // ── staleness fade, the one shared path ──────────────────────────────────
 
 TEST(MapElements, FadesViaSharedStalenessAlpha) {
