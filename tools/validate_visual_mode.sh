@@ -213,6 +213,27 @@
 #               check besides looking at the frame. Visually checkable in
 #               mode 3: top-left corner shows the two chips over whatever's
 #               rendered beneath them.
+#   2026-09-09  Epic 3 Task 4/VM-031: alert callouts land -- the nearest
+#               live obstacle (from the collision-adapter AlertPolygon data
+#               already flowing into scene.alerts) gets a leader line + a
+#               "<n.n> m" distance chip, drawn through hud_overlay's own
+#               font/text/line primitives (extended, this task, with new
+#               DrawText()/DrawLine() calls -- no second compositor). New
+#               library entry point `project_to_screen()` (scene.h, additive,
+#               kSceneVersion unchanged) projects a world point through
+#               whatever camera the most recent render_frame() call set.
+#               Colored by the same live theme `hud.accent_color` the HUD's
+#               own mode chip already uses -- no new theme token needed. New
+#               `callouts_enabled` param (default true, STANDING directive's
+#               disable knob): false skips the chip builder entirely,
+#               distinct from "no obstacle in view this tick" (which also
+#               draws nothing, but is a live per-frame condition, not a
+#               config switch). No new topic/param the health gate needs to
+#               sample -- purely a mode-3 frame composite, same as VM-030's
+#               own HUD chips. Visually checkable in mode 3: when the ego is
+#               near a recorded collision/alert polygon, a short green line
+#               + distance chip appears near it and tracks it as the virtual
+#               camera orbits; with no nearby alert, nothing extra is drawn.
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its

@@ -171,6 +171,10 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // an accidental side effect that still calls CompositeHud() every tick;
     // this is the actual specified switch.
     hud_enabled_ = declare_parameter<bool>("hud_enabled", true);
+    // Alert-callout disable knob (Epic 3 Task 4 / VM-031, STANDING
+    // directive): default true, same "real disable knob, not a font-path
+    // side effect" shape as hud_enabled_ above.
+    callouts_enabled_ = declare_parameter<bool>("callouts_enabled", true);
 
     // map->base_link -> SceneGraph.ego, finite-differenced + EMA-smoothed
     // speed. Buffer/TransformListener live on the node (need its
@@ -664,6 +668,46 @@ void VisualizationNode::timer_callback()
                         hud_font_path_.c_str());
             hud_font_warned_ = true;
         }
+    }
+
+    // Epic 3 Task 4 (VM-031): the nearest-obstacle distance callout --
+    // leader line + chip, drawn through hud_overlay's DrawLine()/DrawText()
+    // primitives (extended, Task 3) onto the same frame_buf_ the HUD block
+    // above already composited onto. Reuses scene.alerts (this tick's live
+    // AlertPolygon list, already built by the collision-adapter rows above)
+    // and scene.ego.position as the nearest-obstacle anchor source --
+    // Hud::chips/chip_count stay unpopulated (scene.h's own comment next to
+    // Hud::chips).
+    //
+    // callouts_enabled_ gates the whole block (disable knob, STANDING
+    // directive): false means BuildNearestCallout() is never even called,
+    // frame_buf_ passes through untouched from the HUD block above.
+    // ego.valid gate (review 2026-09-09): valid==0 means "no TF yet -> ego
+    // hidden, not a clay box at origin" (scene.h's contract; the render pose
+    // above branches on it the same way) -- a distance measured from a
+    // non-existent ego would label the frame confidently wrong.
+    if (callouts_enabled_ && scene.ego.valid != 0)
+    {
+        mpviz_node::Callout callout{};
+        if (mpviz_node::BuildNearestCallout(renderer_, scene.alerts, scene.alert_count,
+                                            scene.ego.position, callout))
+        {
+            // Style token (STANDING directive): theme hud.accent_color,
+            // reused verbatim -- the same live (possibly mid-transition)
+            // color the HUD's own mode chip already draws with, not a new
+            // theme.hud field just for this.
+            const mpviz::HudColors hud_colors = mpviz::get_hud_colors(renderer_);
+            mpviz_node::DrawCallout(
+                frame_buf_.data(), static_cast<uint32_t>(out_width_),
+                static_cast<uint32_t>(out_height_), callout,
+                mpviz_node::HudRgb{hud_colors.accent_color[0], hud_colors.accent_color[1],
+                                   hud_colors.accent_color[2]},
+                hud_colors.scale, hud_font_path_.c_str());
+        }
+        // else: no obstacle in view this tick (no alerts, or the nearest
+        // anchor is behind the camera / outside the frustum) --
+        // BuildNearestCallout() already returned false; nothing drawn,
+        // frame_buf_ untouched ("suppressed, not misdrawn").
     }
 
     auto stamp = now();
