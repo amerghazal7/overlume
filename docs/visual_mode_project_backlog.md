@@ -262,6 +262,10 @@
 | Feature | F07.6 | E07 | VM-075 Wheel/turn animations on clay models | Cosmetic. | No trigger. | 3 | — | Spec §11 | deferred |
 | Feature | F07.7 | E07 | VM-076 `cuda/` directory rename | Cosmetic. | No trigger. | 3 | — | — | deferred |
 
+### Incoming (2026-09-09) — new autonomy-stack version
+
+| Feature | F-in.1 | — | VM-077 New-stack topic intake + fixture-bag re-record | User directive 2026-09-09: the new stack publishes new data ("a new velocity profile trajectory named output_trajectory_carpet amd similar new markers") to visualize; a NEW fixture bag, recorded from that stack on the user's go, REPLACES `epic2_fixtures_full` in `tools/validate_visual_mode.sh`. Scope decided after live topic inspection: adapter/profile rules for each new topic (style tokens + disable knob per the STANDING 2026-09-09 directive), bag re-record via `tools/record_fixture_bag.sh`, validate-script default swap, QoS overrides re-derived. Committed fixture YAMLs stay pinned (unit tests unaffected until deliberately re-cut). | Trigger: user "go" with the new stack running. | 1 | — | Epic 3 plan, "New-stack intake" addendum | queued |
+
 ---
 
 ## Recommended Iteration Order (remaining work)

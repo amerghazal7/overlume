@@ -700,6 +700,19 @@ TEST(MapElements, EgoInvalidFadesMapElementsRatherThanLeavingThemAtFullOpacity) 
 
 ---
 
+## New-stack intake, PENDING user "go" (2026-09-09) — VM-077
+
+**Verbatim:** "I am running a new version of the stack and theres more new data and topics offered I want to include in our plan (like a new velocity profile trajectory named output_trajectory_carpet amd similar new markers), I will start the stack and wait for my go to recor a new bag that will replace the new one we are using in the validate script."
+
+**Procedure, staged and gated on the user's go (backlog row VM-077):**
+1. With the new stack live: `ros2 topic list -t`, diff against `epic2_fixtures_full`'s 15 recorded topics; present the new-topic list (types, rates, one sample message each — `output_trajectory_carpet` first) to the user before recording.
+2. Record via `tools/record_fixture_bag.sh` (union of the old 15 + agreed new topics; latched topics need their transient_local QoS captured — regenerate the playback overrides file alongside, today's `qos_full.yaml`).
+3. Swap the validate script's default bag path to the new recording; keep the old bag on disk until the health gate passes against the new one.
+4. Author the new-topic rendering work as its own scoped task(s) AFTER inspecting the recorded data: `output_trajectory_carpet` is a velocity-profile trajectory (likely the path adapter with a new role or a velocity-colored variant — decided from the real message shape, not guessed here); every new element ships style tokens + a disable knob per the STANDING directive below.
+5. Honest blast-radius note: the committed fixture YAMLs (`hd_map_local_elements_0.yaml` etc.) stay pinned — unit tests and their measured constants (junction thresholds, road-edge counts) are UNAFFECTED until a fixture is deliberately re-cut from the new bag; if the new map data shows junction-cut regressions live, re-measure then, not preemptively.
+
+---
+
 ## STANDING user directive 2026-09-09 — every rendered element ships with style + disable config
 
 **Verbatim:** "don't forget to add config enetry to customize style or dsiable any element we are adding to the rendering now and in the future" — given while VM-030 (Task 3, HUD) was in flight; binds Task 3 and EVERY subsequent task/epic that adds a rendered element.
