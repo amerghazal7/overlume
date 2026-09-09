@@ -285,6 +285,17 @@
 #               profile's new point_cloud row, best_effort REQUIRED; six
 #               camera topics present on replay for rviz/mode-1-2). Bag
 #               stored decompressed for instant playback start.
+#   2026-09-09  Epic 3 Task 7/VM-037: Epic-0 mux hardening + build hygiene
+#               lands -- nothing new is visually checkable in this rig (mux
+#               QoS/legacy-topic/initial_mode/vcam_state[8]/build-hygiene
+#               fixes are behind-the-scenes: a restarted rendering_node now
+#               correctly rejoins the LIVE global mode instead of its own
+#               initial_mode default, and the legacy per-node mode switch
+#               now correctly hands off from mode 3). GL_RENDERER now
+#               logged once per create_renderer() call (stderr) -- look for
+#               "[visual_renderer] GL_RENDERER: ..." near this rig's own
+#               startup log to confirm real hardware vs. software
+#               rasterizer for any render_ms number recorded here.
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its

@@ -219,7 +219,8 @@ def main() -> int:
 
             r = watcher.rendering_state
             v = watcher.viz_state
-            if r is None or v is None or len(r) != 8 or len(v) != 8:
+            # 9 elements each (VM-037 Step (d) appended mux_mode at index 8).
+            if r is None or v is None or len(r) != 9 or len(v) != 9:
                 print(f"FAIL: preset {preset}: unexpected state shapes r={r} v={v}",
                       file=sys.stderr)
                 return 1
@@ -245,7 +246,7 @@ def main() -> int:
                 watcher.look_pub_viz.publish(msg)
                 return False
             r, v = watcher.rendering_state, watcher.viz_state
-            return (len(r) == 8 and len(v) == 8
+            return (len(r) == 9 and len(v) == 9
                     and all(abs(r[i] - look[i]) < 1e-6 for i in range(6))
                     and all(abs(v[i] - look[i]) < 1e-6 for i in range(6)))
 

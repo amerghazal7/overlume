@@ -41,6 +41,14 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
         return CallbackReturn::FAILURE;
     }
     active_mode_ = initial_mode_;
+    // Also sync render_mode_ (the local bowl/pointcloud view) from
+    // initial_mode_, following the exact rule the runtime /rendering/
+    // set_mode handler below already applies (Step (c), VM-037): initial_mode
+    // 3 (visualization owns the stream) leaves render_mode_ at its default so
+    // the first 1|2 resumes to that view, same as at runtime; 1|2 sets it
+    // directly. Without this, `initial_mode:=1` still rendered the
+    // pointcloud-hybrid default because only active_mode_ was set.
+    if (initial_mode_ != 3) render_mode_ = initial_mode_;
 
     n_cameras_ = declare_parameter<int>("n_cameras", 4);
     out_width_ = declare_parameter<int>("out_width", 640);
@@ -281,8 +289,21 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
         "~/set_look", 10,
         std::bind(&RenderingNode::on_set_look, this, std::placeholders::_1));
     // ~/vcam_state: [eye xyz | target xyz | active_preset (0 = free look) |
-    // render_mode], published each render tick as telemetry for external UIs.
+    // render_mode | mux_mode] (9 elements -- Step (d), VM-037), published
+    // each render tick as telemetry for external UIs.
     pub_vcam_state_ = create_publisher<std_msgs::msg::Float64MultiArray>("~/vcam_state", 1);
+
+    // /rendering/set_mode QoS (Step (a), VM-037): transient_local + reliable,
+    // depth 1, on every publisher/subscriber of this topic (both nodes, plus
+    // this node's own legacy-republish publisher below) -- a
+    // restarted/late-joining subscriber on the default VOLATILE QoS never
+    // receives the last-published mode, so it silently stays wherever
+    // initial_mode left it instead of rejoining the live mux state.
+    const auto mux_qos = rclcpp::QoS(1).transient_local().reliable();
+
+    // Legacy re-publish target for ~/set_render_mode below (Step (b)):
+    // transient_local per mux_qos above.
+    pub_mode_mux_ = create_publisher<std_msgs::msg::Int32>("/rendering/set_mode", mux_qos);
 
     // ~/set_render_mode: 1 = bowl-only, 2 = pointcloud hybrid (view switch
     // from the WS bridge / GUI; hybrid falls back to bowl without a cloud).
@@ -301,6 +322,14 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
             // (visualization) — this node resumes render+publish immediately
             // rather than waiting for a separate /rendering/set_mode message.
             active_mode_ = msg->data;
+            // Step (b), VM-037: republish on the global topic so
+            // micropilot_visualization_node's own /rendering/set_mode
+            // subscription (unchanged) observes the exit from mode 3 and
+            // stands down -- without this, the legacy per-node service never
+            // told the other node anything and both ended up publishing.
+            std_msgs::msg::Int32 mux_msg;
+            mux_msg.data = msg->data;
+            pub_mode_mux_->publish(mux_msg);
             RCLCPP_INFO(get_logger(), "render mode -> %s",
                         render_mode_ == 1 ? "bowl" : "pointcloud");
         });
@@ -310,7 +339,7 @@ RenderingNode::CallbackReturn RenderingNode::on_configure(const rclcpp_lifecycle
     // micropilot_visualization_node owns the stream instead. Shared, global
     // topic name (not "~/...") so a single publisher drives both nodes.
     mux_mode_sub_ = create_subscription<std_msgs::msg::Int32>(
-        "/rendering/set_mode", 10,
+        "/rendering/set_mode", mux_qos,
         [this](const std_msgs::msg::Int32::SharedPtr msg)
         {
             if (msg->data != 1 && msg->data != 2 && msg->data != 3)
@@ -354,6 +383,7 @@ RenderingNode::CallbackReturn RenderingNode::on_activate(const rclcpp_lifecycle:
     pub_image_->on_activate();
     pub_info_->on_activate();
     pub_vcam_state_->on_activate();
+    pub_mode_mux_->on_activate();
 
     // ── image subscriptions ──────────────────────────────────────────────────
     img_subs_.resize(n_cameras_);
@@ -628,11 +658,14 @@ void RenderingNode::timer_callback()
 
     // vcam telemetry — published before the frame-sync gate so external UIs
     // keep receiving pose updates even while waiting for camera frames.
+    // [eye xyz | target xyz | active_preset | render_mode | mux_mode] (9
+    // elements -- Step (d), VM-037 appended mux_mode at index 8).
     std_msgs::msg::Float64MultiArray state;
     state.data = {cur_.eye[0],    cur_.eye[1],    cur_.eye[2],
                   cur_.target[0], cur_.target[1], cur_.target[2],
                   static_cast<double>(active_preset_),
-                  static_cast<double>(render_mode_)};
+                  static_cast<double>(render_mode_),
+                  static_cast<double>(active_mode_)};
     pub_vcam_state_->publish(state);
 
     // Global mode mux (spec §3.1): while visualization_node (mode 3) owns the
@@ -1054,6 +1087,7 @@ RenderingNode::CallbackReturn RenderingNode::on_deactivate(
     pub_image_->on_deactivate();
     pub_info_->on_deactivate();
     pub_vcam_state_->on_deactivate();
+    pub_mode_mux_->on_deactivate();
     return CallbackReturn::SUCCESS;
 }
 
@@ -1068,6 +1102,7 @@ RenderingNode::CallbackReturn RenderingNode::on_cleanup(const rclcpp_lifecycle::
     pub_image_.reset();
     pub_info_.reset();
     pub_vcam_state_.reset();
+    pub_mode_mux_.reset();
     set_vcam_srv_.reset();
     set_look_sub_.reset();
     set_mode_sub_.reset();

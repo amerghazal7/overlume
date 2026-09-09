@@ -85,7 +85,23 @@ endif()
 # script's own `set(FILAMENT_ROOT ... CACHE PATH ...)` is a no-op once the
 # variable is already in the cache, and it skips the fetch when
 # FILAMENT_ROOT/include/filament/Engine.h already exists.
-set(FILAMENT_VERSION "1.56.5")
+# FILAMENT_VERSION single-sourced from visual_renderer's own
+# cmake/GetFilament.cmake (Step (g), VM-037) -- this used to be a second
+# hardcoded "1.56.5" literal here, which would silently go stale after a pin
+# bump there (this node would keep linking the stale SDK with no error).
+# Extracted via file(STRINGS) rather than include()'d directly: FILAMENT_ROOT
+# below needs the version string BEFORE GetFilament.cmake's own
+# set(FILAMENT_ROOT ...) runs (its CACHE var would otherwise win first and
+# never get re-pointed at this line's composed path).
+file(STRINGS "${VISUAL_RENDERER_DIR}/cmake/GetFilament.cmake" _filament_version_line
+     REGEX "^set\\(FILAMENT_VERSION ")
+if(NOT _filament_version_line)
+    message(FATAL_ERROR
+        "Could not find a FILAMENT_VERSION set() line in "
+        "${VISUAL_RENDERER_DIR}/cmake/GetFilament.cmake")
+endif()
+string(REGEX REPLACE "^set\\(FILAMENT_VERSION \"([^\"]+)\"\\)$" "\\1"
+       FILAMENT_VERSION "${_filament_version_line}")
 set(FILAMENT_ROOT "${VISUAL_RENDERER_DIR}/build/_deps/filament-${FILAMENT_VERSION}/filament"
     CACHE PATH "Filament SDK root (reused from visual_renderer's own build)")
 include("${VISUAL_RENDERER_DIR}/cmake/GetFilament.cmake")
@@ -270,6 +286,21 @@ if(BUILD_TESTING)
   target_include_directories(test_scene_layout PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${VISUAL_RENDERER_DIR}/include)
+
+  # Step (f), VM-037: visual_renderer's own POD-boundary check
+  # (scripts/check_pod_header.sh, add_test()'d in its OWN standalone
+  # clang/libc++ CMake project) was reachable only from that project's own
+  # ctest -- colcon_build.sh never builds or runs it, so a std:: leak into
+  # scene.h/api.h shipped undetected through every `colcon test` run.
+  # Wiring it in here (this package already depends on VISUAL_RENDERER_DIR
+  # above) closes that gap for the build everyone actually runs.
+  # GENERATE_RESULT_FOR_RETURN_CODE_ZERO: check_pod_header.sh is a plain bash
+  # script, not a gtest binary -- it produces no xunit result file of its own,
+  # so ament_add_test's run_test.py wrapper needs telling that exit code 0
+  # means pass (its default assumes the command writes its own result file).
+  ament_add_test(check_pod_header
+    COMMAND bash "${VISUAL_RENDERER_DIR}/scripts/check_pod_header.sh"
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO)
 
   # Epic 2 Task 1 (VM-020) Step 1 item 6: every gtest target that compiles
   # test/fixture_msgs.cpp needs these three -- fixture_msgs.cpp's

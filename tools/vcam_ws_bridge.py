@@ -209,6 +209,7 @@ def parse_cmd(text: str):
 def main() -> int:
     import rclpy
     from rclpy.node import Node
+    from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
     from std_msgs.msg import Float64MultiArray, Int32, String
     from diagnostic_msgs.msg import DiagnosticArray
     from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
@@ -255,8 +256,15 @@ def main() -> int:
             # Global mux topic: 1|2|3, shared by both nodes -- switches which
             # one owns /rendering/image AND (for 1|2) the CUDA node's
             # bowl/pointcloud view, same semantics as the old per-node
-            # "~/set_render_mode" it replaces here.
-            self._pub_mode = self.create_publisher(Int32, "/rendering/set_mode", 10)
+            # "~/set_render_mode" it replaces here. transient_local + reliable,
+            # depth 1 (VM-037 Step (a)): both nodes' subscriptions are now the
+            # same durable QoS, and a VOLATILE publisher is QoS-INCOMPATIBLE
+            # with a transient_local subscription (DDS won't match them at
+            # all), so this publisher must match or nothing gets delivered.
+            self._pub_mode = self.create_publisher(
+                Int32, "/rendering/set_mode",
+                QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
+                           durability=DurabilityPolicy.TRANSIENT_LOCAL, depth=1))
             # node-private, mode-3-only concept -- no mux needed, harmless if
             # published while mode 1/2 is active (same "ingest continues
             # regardless of mode" philosophy as /rendering/set_mode above).

@@ -3,7 +3,9 @@
 set -euo pipefail
 include_dir="$(dirname "$0")/../include/visual_renderer"
 shopt -s nullglob
-headers=("$include_dir"/*.h)
+# *.h* (not just *.h): a public .hpp would otherwise escape this check
+# entirely (Step (f), VM-037).
+headers=("$include_dir"/*.h*)
 if [ ${#headers[@]} -eq 0 ]; then
   echo "no headers found under $include_dir"
   exit 1

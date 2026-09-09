@@ -87,6 +87,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <optional>
 #include <string>
 #include <thread>
@@ -97,14 +98,28 @@
 // calls GL through bluegl's function-pointer table, which is null until
 // something calls bluegl::bind() on a thread with a current GL context
 // (confirmed the hard way: SIGSEGV in queryOpenGLVersion() calling a null
-// glGetString before this was added). This file never calls GL directly, so
-// only the two real entry points are hand-declared — at global scope (not
-// inside namespace mpviz) so they name-match the real ::bluegl::bind()/
-// unbind() the linker resolves against.
+// glGetString before this was added). Only the real entry points this file
+// actually needs are hand-declared — at global scope (not inside namespace
+// mpviz) so they name-match the real symbols the linker resolves against —
+// rather than vendoring the generated BlueGL.h, which would pull in
+// thousands of macro-renamed GL declarations this file never needs.
 namespace bluegl {
 int bind();
 void unbind();
 }  // namespace bluegl
+
+// bluegl_glGetString(): the vendored BlueGL.h would `#define glGetString
+// bluegl_glGetString` and declare it as a plain GL entry point (`nm` on
+// libbluegl.a confirms this exact exported symbol name, no C++ mangling —
+// it isn't inside namespace bluegl like bind()/unbind() above). Used once,
+// by create_renderer() below (Step (h), VM-037), to log the real GL
+// implementation. GL_VENDOR/GL_RENDERER/GL_VERSION are the standard GLenum
+// values (stable across every GL version) — hand-declared as plain ints for
+// the same header-avoidance reason as bind()/unbind() above.
+extern "C" const unsigned char* bluegl_glGetString(unsigned int name);
+constexpr unsigned int kGlVendor = 0x1F00;
+constexpr unsigned int kGlRenderer = 0x1F01;
+constexpr unsigned int kGlVersion = 0x1F02;
 
 // Compiled-in default theme-assets dir (CMakeLists.txt target_compile_
 // definitions on the visual_renderer target) — used whenever
@@ -215,6 +230,28 @@ public:
         }
         if (bluegl::bind() != 0) return nullptr;
         blueglBound_ = true;
+
+        // Log the real GL implementation once (Step (h), VM-037): a recorded
+        // render_ms budget number can't be attributed to real hardware vs. a
+        // software rasterizer (Mesa llvmpipe also passes HasGpuEglDevice())
+        // without this. MUST happen HERE, not in create_renderer() after
+        // Engine::Builder()...build() returns: FEngine runs its OpenGL driver
+        // on its own thread ("threading is enabled", confirmed in this
+        // build's own log line), and the EGL context/bluegl binding above are
+        // current only on THIS thread (the one createDriver() itself runs
+        // on) -- calling bluegl_glGetString() from create_renderer()'s thread
+        // after build() returns measured as always NULL (no current context
+        // there), confirmed empirically before settling on this location.
+        // NULL-guard (review 2026-09-09): glGetString can return NULL and
+        // %s on NULL is UB -- print a literal "(null)" instead (keeps the
+        // logging test's no-context assertion string).
+        const auto gl_str = [](unsigned int n) {
+            const unsigned char* s = bluegl_glGetString(n);
+            return s != nullptr ? reinterpret_cast<const char*>(s) : "(null)";
+        };
+        std::fprintf(stderr, "[visual_renderer] GL_VENDOR: %s\n", gl_str(kGlVendor));
+        std::fprintf(stderr, "[visual_renderer] GL_RENDERER: %s\n", gl_str(kGlRenderer));
+        std::fprintf(stderr, "[visual_renderer] GL_VERSION: %s\n", gl_str(kGlVersion));
 
         return createDefaultDriver(this, nullptr, driverConfig);
     }
@@ -896,6 +933,9 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
         delete platform;
         return nullptr;
     }
+    // GL_VENDOR/GL_RENDERER/GL_VERSION are logged once inside
+    // HeadlessEglPlatform::createDriver() above (Step (h), VM-037) -- see
+    // that call site's comment for why it can't be done here.
 
     auto* r = new VisualRenderer();
     r->platform = platform;

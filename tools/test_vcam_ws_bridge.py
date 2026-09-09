@@ -303,17 +303,23 @@ def test_bridge_e2e_mode3_orbit_and_frames():
 
                 # --- Regression: default config (no set_render_mode sent
                 # yet) must still emit state, sourced from rendering_node
-                # (the only node an un-configured client can mean) whose own
-                # default render_mode_ is 2 — bug: a stale `_last_mode`
-                # filter initialized to 1 rejected this forever. ---
+                # (the only node an un-configured client can mean) — bug: a
+                # stale `_last_mode` filter initialized to 1 rejected this
+                # forever. render_mode expected here is 1 (bowl), not
+                # rendering_node's raw hardcoded member default (2): this
+                # node is launched with initial_mode:=1 (below), and VM-037
+                # Step (c) fixed on_configure() to also sync render_mode_
+                # from initial_mode_ (it previously only set active_mode_,
+                # so render_mode_ silently stayed at its hardcoded default
+                # regardless of initial_mode). ---
                 default_states = await collect_states(3.0)
                 assert default_states, (
                     "no vcam_state telemetry in the default configuration "
                     "(before any set_render_mode) — regression of shipped "
                     "GUI behavior")
-                assert all(s["render_mode"] == 2 for s in default_states), (
-                    f"default-config state should read rendering_node's own "
-                    f"default render_mode (2): {default_states}")
+                assert all(s["render_mode"] == 1 for s in default_states), (
+                    f"default-config state should read rendering_node's "
+                    f"render_mode synced from initial_mode:=1 (1, bowl): {default_states}")
 
                 # --- Regression: modes 1/2 must show ONLY rendering_node's
                 # pose, never flicker with visualization_node's (different)
@@ -322,6 +328,14 @@ def test_bridge_e2e_mode3_orbit_and_frames():
                 # reports render_mode_ and visualization_node reports
                 # active_mode_, which read the same (1) while both are
                 # configured with initial_mode:=1. ---
+                # Drive to 2 first so the mode-1 command right below is a
+                # REAL value change: broadcast_state() only emits a WS frame
+                # on change, and (post-VM-037 Step (c)) rendering_node already
+                # starts at render_mode 1 with initial_mode:=1 (this test's
+                # own launch args), so sending mode 1 again with no
+                # intervening change would otherwise be a silent no-op here.
+                await ws.send(json.dumps({"cmd": "set_render_mode", "mode": 2}))
+                await collect_states(0.5)
                 await ws.send(json.dumps({"cmd": "set_render_mode", "mode": 1}))
                 mode1_states = await collect_states(2.0)
                 assert mode1_states, "no state frames after set_render_mode 1"

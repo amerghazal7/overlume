@@ -28,7 +28,7 @@ import threading
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import Float64MultiArray, Int32
 
@@ -96,6 +96,18 @@ SENSOR_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
     history=HistoryPolicy.KEEP_LAST,
     depth=5,
+)
+
+# /rendering/set_mode QoS (Step (a), VM-037): transient_local + reliable,
+# depth 1, matching both nodes' now-durable subscriptions -- a VOLATILE
+# publisher (the old default) is QoS-INCOMPATIBLE with a transient_local
+# subscription (DDS refuses to match them at all, not just miss late-join),
+# so every publisher of this topic, this test harness's own included, must
+# use this profile or nothing gets delivered.
+MUX_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    depth=1,
 )
 
 
@@ -173,6 +185,7 @@ class SmokeTestNode(Node):
         super().__init__("smoke_test_node")
         self.received_frame: Image | None = None
         self.vcam_state: list | None = None
+        self.viz_vcam_state: list | None = None
         # (recv_time, frame_id) for every /rendering/image frame — used by the
         # mode-mux test (Task 4) to tell which node produced each frame and
         # measure switch latency / inter-frame gaps.
@@ -181,9 +194,16 @@ class SmokeTestNode(Node):
             Image, "/rendering/image", self._on_image, 10)
         self._state_sub = self.create_subscription(
             Float64MultiArray, "/rendering_node/vcam_state", self._on_state, 10)
+        # Step (d), VM-037: vcam_state[8] (mux_mode) is checked on BOTH
+        # nodes' streams, so this test also subscribes visualization_node's.
+        self._viz_state_sub = self.create_subscription(
+            Float64MultiArray, "/visualization_node/vcam_state", self._on_viz_state, 10)
         self.look_pub = self.create_publisher(
             Float64MultiArray, "/rendering_node/set_look", 10)
-        self.mode_pub = self.create_publisher(Int32, "/rendering/set_mode", 10)
+        self.mode_pub = self.create_publisher(Int32, "/rendering/set_mode", MUX_QOS)
+        # Legacy per-node mode switch (Step (b), VM-037's regression target).
+        self.legacy_mode_pub = self.create_publisher(
+            Int32, "/rendering_node/set_render_mode", 10)
 
     def _on_image(self, msg: Image):
         if self.received_frame is None:
@@ -192,6 +212,9 @@ class SmokeTestNode(Node):
 
     def _on_state(self, msg: Float64MultiArray):
         self.vcam_state = list(msg.data)
+
+    def _on_viz_state(self, msg: Float64MultiArray):
+        self.viz_vcam_state = list(msg.data)
 
 
 def call_set_virtual_cam(preset: int, timeout: float = 15.0):
@@ -239,6 +262,27 @@ def call_lifecycle_subprocess(transition_name: str, timeout: float = 15.0,
 # ── mode-mux test (Task 4) ───────────────────────────────────────────────────
 RENDER_FRAME_ID = "rendering_virtual_cam"
 VIZ_FRAME_ID = "visualization_virtual_cam"
+
+
+def _launch_rendering_node(params: list) -> subprocess.Popen:
+    """Factored out of main() so the restart test (Step (a), VM-037) can
+    relaunch rendering_node with the same params mid-run."""
+    ros_args = build_ros_args(params)
+    env = os.environ.copy()
+    env["LD_LIBRARY_PATH"] = RENDERING_LIBS + ":" + env.get("LD_LIBRARY_PATH", "")
+    cmd = (
+        f"source /opt/ros/humble/setup.bash && "
+        f"source {INSTALL_DIR}/setup.bash && "
+        f"ros2 run micropilot_rendering_node rendering_node "
+        + " ".join(ros_args)
+    )
+    return subprocess.Popen(
+        ["bash", "-c", cmd],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,  # own process group → kill all children on teardown
+    )
 
 
 def _launch_visualization_node(out_w: int, out_h: int) -> subprocess.Popen:
@@ -325,16 +369,56 @@ def test_mode_mux(test_node: "SmokeTestNode", viz_out_w: int, viz_out_h: int) ->
             # in vcam_state (index 7 of [eye xyz|target xyz|preset|mode]) so a
             # /rendering/set_mode handler that forgets to update render_mode_
             # (only active_mode_) is caught.
+            time.sleep(0.3)  # let the just-published mode reach both vcam_state streams
             if mode in (1, 2):
                 state = test_node.vcam_state
-                if state is None or len(state) < 8 or int(state[7]) != mode:
+                if state is None or len(state) < 9 or int(state[7]) != mode:
                     print(f"FAIL: mode {mode}: vcam_state[7] (render_mode) = "
-                          f"{state[7] if state and len(state) >= 8 else state}, "
+                          f"{state[7] if state and len(state) >= 9 else state}, "
                           f"expected {mode}", file=sys.stderr)
+                    return False
+                # Step (d), VM-037: index 8 (mux_mode) on rendering_node's own
+                # stream must also read back the same mode.
+                if int(state[8]) != mode:
+                    print(f"FAIL: mode {mode}: rendering_node vcam_state[8] (mux_mode) = "
+                          f"{state[8]}, expected {mode}", file=sys.stderr)
+                    return False
+            else:
+                # mode == 3: visualization_node owns the stream -- check ITS
+                # own vcam_state[8] instead (Step (d)'s "both streams" AC).
+                vs = test_node.viz_vcam_state
+                if vs is None or len(vs) < 9 or int(vs[8]) != 3:
+                    print(f"FAIL: mode 3: visualization_node vcam_state[8] (mux_mode) = "
+                          f"{vs[8] if vs and len(vs) >= 9 else vs}, expected 3",
+                          file=sys.stderr)
                     return False
             print(f"INFO: mode {mode} -> {active_id} exclusive, no gap > 0.5s -- OK.")
 
         print("PASS: mode mux verified (exactly-one-publisher, no gap > 0.5s).")
+
+        # Step (b), VM-037: the legacy ~/set_render_mode service must also
+        # exit global mode 3, by republishing on /rendering/set_mode -- before
+        # this fix, selecting a local view via the old per-node topic never
+        # told visualization_node to stand down, so both nodes ended up
+        # publishing at once.
+        print("INFO: driving /rendering/set_mode -> 3, then legacy "
+              "~/set_render_mode -> 1 …")
+        switch_t = drive(3)
+        err = check_exclusive(switch_t, VIZ_FRAME_ID, RENDER_FRAME_ID, "3 (pre-legacy)")
+        if err is not None:
+            print(f"FAIL: {err}", file=sys.stderr)
+            return False
+
+        switch_t = time.time()
+        legacy_msg = Int32()
+        legacy_msg.data = 1
+        test_node.legacy_mode_pub.publish(legacy_msg)
+        time.sleep(1.2)
+        err = check_exclusive(switch_t, RENDER_FRAME_ID, VIZ_FRAME_ID, "legacy set_render_mode->1")
+        if err is not None:
+            print(f"FAIL: {err}", file=sys.stderr)
+            return False
+        print("PASS: legacy ~/set_render_mode=1 correctly exited mode 3.")
         return True
     finally:
         kill_process_group(viz_proc)
@@ -353,6 +437,108 @@ def kill_process_group(proc: subprocess.Popen):
         except ProcessLookupError:
             pass
         proc.wait()
+
+
+def test_restart_rejoins_live_mode(
+    test_node: "SmokeTestNode", pub_node: "SyntheticPublisher", node_proc: subprocess.Popen,
+    rendering_params: list, viz_out_w: int, viz_out_h: int,
+) -> tuple[bool, subprocess.Popen]:
+    """Step (a), VM-037: a restarted rendering_node must rejoin the LIVE
+    global mux mode via transient_local late-join, not fall back to its own
+    initial_mode default (1). Returns (ok, current_node_proc) so the caller's
+    teardown always targets whichever process is actually running.
+
+    Kills and relaunches rendering_node (default initial_mode=1) while the
+    global mode is live at 3 (visualization owns the stream); asserts it stays
+    idle -- no /rendering/image from RENDER_FRAME_ID -- until a NEW mode
+    message arrives, then confirms it resumes on mode -> 1 (proving it is
+    alive/subscribed, not just quiet for some other reason).
+    """
+    print("INFO: starting visualization_node for the restart-rejoins test …")
+    viz_proc = _launch_visualization_node(viz_out_w, viz_out_h)
+    try:
+        t0 = time.time()
+        while time.time() - t0 < 12.0:
+            time.sleep(0.2)
+            if viz_proc.poll() is not None:
+                print("FAIL: visualization_node exited early for the restart test",
+                      file=sys.stderr)
+                return False, node_proc
+        if not call_lifecycle_subprocess("configure", node_name="/visualization_node"):
+            print("FAIL: visualization_node configure failed (restart test)", file=sys.stderr)
+            return False, node_proc
+        if not call_lifecycle_subprocess("activate", node_name="/visualization_node"):
+            print("FAIL: visualization_node activate failed (restart test)", file=sys.stderr)
+            return False, node_proc
+
+        # Drive the global mode to 3 BEFORE killing rendering_node, so the
+        # mux's LIVE state (3) differs from rendering_node's own
+        # initial_mode default (1) -- this only proves the fix if the two
+        # disagree.
+        msg = Int32()
+        msg.data = 3
+        test_node.mode_pub.publish(msg)
+        time.sleep(1.0)
+
+        print("INFO: killing rendering_node …")
+        kill_process_group(node_proc)
+
+        print("INFO: relaunching rendering_node (default initial_mode=1) …")
+        new_proc = _launch_rendering_node(rendering_params)
+        t0 = time.time()
+        while time.time() - t0 < 12.0:
+            time.sleep(0.2)
+            if new_proc.poll() is not None:
+                stderr = new_proc.stderr.read().decode(errors="replace")
+                print(f"FAIL: relaunched rendering_node exited early:\n{stderr[-2000:]}",
+                      file=sys.stderr)
+                return False, new_proc
+        if not call_lifecycle_subprocess("configure"):
+            print("FAIL: relaunched rendering_node configure failed", file=sys.stderr)
+            return False, new_proc
+        if not call_lifecycle_subprocess("activate"):
+            print("FAIL: relaunched rendering_node activate failed", file=sys.stderr)
+            return False, new_proc
+
+        test_node.frame_log.clear()
+        settle_t = time.time()
+        deadline = settle_t + 2.5
+        while time.time() < deadline:
+            pub_node.publish_once()  # would feed a mode-1/2 render if it were active
+            time.sleep(0.1)
+        stray = [(t, fid) for t, fid in test_node.frame_log
+                 if fid == RENDER_FRAME_ID and t >= settle_t]
+        if stray:
+            print(f"FAIL: restarted rendering_node published {len(stray)} frame(s) while "
+                  f"the live mux mode (3) says visualization_node owns the stream -- it "
+                  f"fell back to its own initial_mode default instead of rejoining the "
+                  f"live mode via transient_local late-join.", file=sys.stderr)
+            return False, new_proc
+
+        print("INFO: restarted rendering_node correctly stayed idle at live mode 3 -- "
+              "driving mode -> 1 to confirm it resumes …")
+        switch_t = time.time()
+        msg = Int32()
+        msg.data = 1
+        test_node.mode_pub.publish(msg)
+        deadline = time.time() + 8.0
+        resumed = False
+        while time.time() < deadline:
+            pub_node.publish_once()
+            if any(fid == RENDER_FRAME_ID and t >= switch_t for t, fid in test_node.frame_log):
+                resumed = True
+                break
+            time.sleep(0.1)
+        if not resumed:
+            print("FAIL: restarted rendering_node never resumed publishing after mode -> 1",
+                  file=sys.stderr)
+            return False, new_proc
+
+        print("PASS: restarted rendering_node rejoined the live mux mode (idle at 3, "
+              "resumed at 1).")
+        return True, new_proc
+    finally:
+        kill_process_group(viz_proc)
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -376,23 +562,7 @@ def main() -> int:
     ]
 
     # ── launch the node subprocess ────────────────────────────────────────────
-    ros_args = build_ros_args(params)
-    env = os.environ.copy()
-    env["LD_LIBRARY_PATH"] = RENDERING_LIBS + ":" + env.get("LD_LIBRARY_PATH", "")
-
-    cmd = (
-        f"source /opt/ros/humble/setup.bash && "
-        f"source {INSTALL_DIR}/setup.bash && "
-        f"ros2 run micropilot_rendering_node rendering_node "
-        + " ".join(ros_args)
-    )
-    node_proc = subprocess.Popen(
-        ["bash", "-c", cmd],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        start_new_session=True,  # own process group → kill all children on teardown
-    )
+    node_proc = _launch_rendering_node(params)
 
     rclpy.init()
     pub_node = SyntheticPublisher()
@@ -436,6 +606,30 @@ def main() -> int:
             print("FAIL: activate transition failed", file=sys.stderr)
             return 1
         print("INFO: activate succeeded.")
+
+        # 3b. Step (c), VM-037: initial_mode (default 1, unset in `params`
+        # above) must also sync render_mode_, not just active_mode_ -- before
+        # this fix, render_mode_ defaulted to 2 (pointcloud hybrid) regardless
+        # of initial_mode, so `initial_mode:=1` still rendered the hybrid
+        # view. Checked here, before any /rendering/set_mode or
+        # ~/set_render_mode message has been sent, so vcam_state[7] reflects
+        # ONLY on_configure()'s own sync. vcam_state publishes every tick
+        # unconditionally, so no camera images are needed for this check.
+        print("INFO: checking initial_mode=1 also set render_mode_ (bowl, not hybrid) …")
+        deadline = time.time() + 5.0
+        ok_initial_mode = False
+        while time.time() < deadline:
+            s = test_node.vcam_state
+            if s is not None and len(s) >= 9:
+                ok_initial_mode = int(s[7]) == 1
+                break
+            time.sleep(0.1)
+        if not ok_initial_mode:
+            got = test_node.vcam_state[7] if test_node.vcam_state and len(test_node.vcam_state) >= 9 else test_node.vcam_state
+            print(f"FAIL: initial_mode=1 should sync render_mode_ to 1 (bowl); "
+                  f"vcam_state[7] = {got}", file=sys.stderr)
+            return 1
+        print("INFO: initial_mode=1 -> render_mode_ == 1 (bowl) confirmed.")
 
         # 4. Publish images + wait until a rendered frame arrives.
         # Clear any stale frame that may have arrived from a previous node session.
@@ -492,12 +686,10 @@ def main() -> int:
             test_node.look_pub.publish(msg)
             pub_node.publish_once()  # keep the render timer publishing state
             time.sleep(0.2)
-            # vcam_state is [eye xyz | target xyz | active_preset | render_mode]
-            # (8 floats) — render_mode was added to this telemetry array by
-            # already-committed history without updating this assertion
-            # (flagged in Epic 0 Task 3); fixed here as Task 4 territory.
+            # vcam_state is [eye xyz | target xyz | active_preset | render_mode
+            # | mux_mode] (9 floats -- Step (d), VM-037 appended mux_mode).
             s = test_node.vcam_state
-            if (s is not None and len(s) == 8 and s[6] == 0.0
+            if (s is not None and len(s) == 9 and s[6] == 0.0
                     and all(abs(s[i] - look[i]) < 1e-4 for i in range(6))):
                 ok_look = True
                 break
@@ -512,6 +704,13 @@ def main() -> int:
         #    (by header.frame_id) with no switch taking longer than 0.5s and no
         #    gap > 0.5s once settled — spec §10 / plan Task 4 step 1.
         ok = test_mode_mux(test_node, viz_out_w=OUT_W, viz_out_h=OUT_H)
+        if not ok:
+            return 1
+
+        # 9. Restart-rejoins-live-mode (Step (a), VM-037): replaces node_proc
+        #    with the freshly relaunched process so teardown below targets it.
+        ok, node_proc = test_restart_rejoins_live_mode(
+            test_node, pub_node, node_proc, params, viz_out_w=OUT_W, viz_out_h=OUT_H)
         if not ok:
             return 1
 
