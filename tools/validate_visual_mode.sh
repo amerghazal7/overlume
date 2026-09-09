@@ -246,7 +246,11 @@ set -m  # each backgrounded job gets its OWN process group (job leader = its
 
 # ---------------------------------------------------------------------- args
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BAG="${HOME}/TPSProjector-fixtures/epic2_fixtures_full"
+# stack_v2 (VM-077, 2026-09-09): recorded from the new stack version on the
+# user's go — strict topic superset of epic2_fixtures_full (which stays on
+# disk as fallback) plus the new-stack topics (output_trajectory_carpet et
+# al). Health gate PASSED on swap: image 25.8 Hz, ego valid z=0, map 31.2 Hz.
+BAG="${HOME}/TPSProjector-fixtures/stack_v2_fixtures_2026-09-09"
 QOS="${HOME}/TPSProjector-fixtures/qos_full.yaml"
 NO_GUI=0
 DO_BUILD=0
