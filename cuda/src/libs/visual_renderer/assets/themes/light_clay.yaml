@@ -31,8 +31,12 @@ palette:
   ribbon_local: [0.70, 0.55, 0.38]
   ego: [0.05, 0.06, 0.08]  # cross-theme swap: dark_adas's ground/clay, so the ego pops on light
   # road is darker than palette.ground above -- the static road-surface
-  # base coat. lane_boundary reuses the lane_paint tone; crosswalk
-  # soft-defaults to lane_paint too.
+  # base coat. lane_boundary reuses the lane_paint tone. crosswalk is
+  # AUTHORED warm tan (Epic 3 close finding 2026-09-09, same reasoning as
+  # dark_adas's ivory): distinct from the near-white boundary dashes and
+  # from road_edge's yellow, still reads as painted road marking on the
+  # light road.
+  crosswalk: [0.90, 0.82, 0.60]
   road: [0.40, 0.40, 0.46]
   # Faint dot guidance: 25% lane_paint / 75% road (same mix as dark_adas) =
   # 0.25*[0.92,0.92,0.90] + 0.75*[0.40,0.40,0.46] = [0.53, 0.53, 0.57].

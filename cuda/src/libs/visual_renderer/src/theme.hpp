@@ -55,9 +55,9 @@ struct Theme {
         // exactly like `ego`/`ribbon_global`/`ribbon_local` above
         // (theme.cpp's parse()), so a theme file predating these still
         // parses -- lane_centerline/lane_boundary/crosswalk fall back to
-        // `lane_paint`, `road` falls back to `ground`. Neither shipped
-        // theme relies on the default; the soft-default exists for a
-        // third-party theme file.
+        // `lane_paint`, `road` falls back to `ground`. Both shipped themes
+        // author `crosswalk` explicitly (2026-09-09, color-distinct from
+        // boundaries); the soft-defaults exist for a third-party theme file.
         Float3 road;
         Float3 lane_centerline;
         Float3 lane_boundary;

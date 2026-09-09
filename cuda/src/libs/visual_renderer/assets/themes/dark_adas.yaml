@@ -19,7 +19,11 @@ palette:
   ego: [0.82, 0.80, 0.76]  # warm near-white clay so the ego pops on dark (was light_clay's ORIGINAL ground before its 2026-08-20 re-authoring to a road-gray; no longer an exact cross-theme swap)
   # road is darker than palette.ground above -- the static road-surface
   # base coat sits visibly below the ground it's painted on. lane_boundary
-  # reuses the lane_paint tone; crosswalk soft-defaults to lane_paint too.
+  # reuses the lane_paint tone. crosswalk is AUTHORED warm ivory (Epic 3
+  # close finding 2026-09-09: it soft-defaulted to lane_paint, leaving
+  # crosswalks distinguishable by hatch geometry only) -- warm vs the cool
+  # white boundary dashes, far off road_edge's saturated yellow.
+  crosswalk: [0.95, 0.90, 0.70]
   road: [0.03, 0.035, 0.045]
   # Faint dot guidance: 25% lane_paint / 75% road = 0.25*[0.85,0.85,0.88] +
   # 0.75*[0.03,0.035,0.045] = [0.235, 0.239, 0.254]. Recompute if either
