@@ -194,6 +194,25 @@
 #               boundary at a junction corner now stops exactly where the
 #               connector's own curb starts curving away, instead of running
 #               a couple more meters into the junction mouth.
+#   2026-09-09  Epic 3 Task 3/VM-030: node-side HUD overlay lands -- a speed
+#               chip ("<speed> m/s", TfAdapter's own m/s field, no unit
+#               conversion) and an active-mode chip ("MODE <1|2|3>"),
+#               composited in place onto the RGB8 frame after render_frame()
+#               succeeds, colored by the live (possibly mid-theme-transition)
+#               theme HUD colors via the new mpviz::get_hud_colors(). New
+#               hud_font_path param (default: this checkout's committed
+#               assets/fonts/NotoSans-Regular.ttf, OFL-1.1 -- same
+#               per-checkout-path deviation VM-044/Epic 5 closes as
+#               ego_model_path). Missing/unloadable font is non-fatal (WARN
+#               once, frame left untouched, same clay-box-fallback
+#               philosophy as set_ego_model). New `hud_enabled` param
+#               (default true, STANDING directive's disable knob): false
+#               skips CompositeHud() entirely, distinct from the font-path
+#               fallback above. No new topic/param the health gate needs to
+#               sample -- purely a mode-3 frame composite; nothing new to
+#               check besides looking at the frame. Visually checkable in
+#               mode 3: top-left corner shows the two chips over whatever's
+#               rendered beneath them.
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its

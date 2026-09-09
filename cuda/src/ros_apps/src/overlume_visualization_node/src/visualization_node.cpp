@@ -163,6 +163,15 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
                     ego_model_path.c_str());
     }
 
+    // HUD compositor font (VM-030 Step 2); missing/unloadable is non-fatal
+    // (CompositeHud() in timer_callback() WARNs once, HUD just isn't drawn).
+    hud_font_path_ = declare_parameter<std::string>("hud_font_path", "");
+    // HUD disable knob (STANDING directive, visual-mode-epic3.md): default
+    // true, unrelated to hud_font_path_ -- an empty/unloadable font path is
+    // an accidental side effect that still calls CompositeHud() every tick;
+    // this is the actual specified switch.
+    hud_enabled_ = declare_parameter<bool>("hud_enabled", true);
+
     // map->base_link -> SceneGraph.ego, finite-differenced + EMA-smoothed
     // speed. Buffer/TransformListener live on the node (need its
     // NodeInterfaces to construct); TfAdapter wraps the lookup + smoothing on top.
@@ -573,6 +582,10 @@ void VisualizationNode::timer_callback()
     mpviz::SceneGraph scene{};
     scene.sim_time_sec = sim_clock_sec_;
     scene.ego = tf_adapter_->update();
+    // speed_mps/active_mode only -- chips/chip_count stay zero-init (Task 4
+    // / VM-031 scope). See hud_overlay.hpp's own comment for why this is a
+    // free function, not the two lines inlined here.
+    mpviz_node::PopulateHud(scene, active_mode_);
     scene_asm_.point_at(scene);
     mpviz::set_scene(renderer_, scene);
 
@@ -620,6 +633,38 @@ void VisualizationNode::timer_callback()
     render_ms_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
                                                              render_start)
                      .count();
+
+    // Composited in place on frame_buf_, after the render but before the
+    // image message is built below -- operates on the exact bytes about to
+    // be published. Non-fatal on a missing/unloadable font (hud_font_path_
+    // empty counts as "unloadable" here too): CompositeHud() leaves
+    // frame_buf_ untouched and this just WARNs once, same "asset load
+    // failure -> non-fatal" philosophy as set_ego_model above.
+    //
+    // hud_enabled_ gates the whole block (disable knob, STANDING directive):
+    // false means CompositeHud() is never called at all and frame_buf_ is
+    // passed through untouched -- distinct from the font-path fallback
+    // above, which still calls CompositeHud() every tick.
+    if (hud_enabled_)
+    {
+        const mpviz::HudColors hud_colors = mpviz::get_hud_colors(renderer_);
+        const mpviz_node::HudSnapshot hud_snapshot{scene.hud.speed_mps, scene.hud.active_mode};
+        if (!mpviz_node::CompositeHud(
+                frame_buf_.data(), static_cast<uint32_t>(out_width_),
+                static_cast<uint32_t>(out_height_), hud_snapshot,
+                mpviz_node::HudRgb{hud_colors.text_color[0], hud_colors.text_color[1],
+                                   hud_colors.text_color[2]},
+                mpviz_node::HudRgb{hud_colors.accent_color[0], hud_colors.accent_color[1],
+                                   hud_colors.accent_color[2]},
+                hud_colors.scale, hud_font_path_.c_str()) &&
+            !hud_font_warned_)
+        {
+            RCLCPP_WARN(get_logger(),
+                        "CompositeHud: failed to load/use font '%s' -- HUD not drawn this run",
+                        hud_font_path_.c_str());
+            hud_font_warned_ = true;
+        }
+    }
 
     auto stamp = now();
 

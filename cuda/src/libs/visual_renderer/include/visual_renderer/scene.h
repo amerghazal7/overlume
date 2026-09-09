@@ -238,6 +238,25 @@ uint32_t set_object_model_dir(VisualRenderer*, const char* dir);
 // the scene.h freeze (see this header's own top comment).
 bool theme_assets_loaded(VisualRenderer*);
 
+// Epic 3 Task 3 (VM-030): the node-side HUD compositor (hud_overlay.cpp)
+// needs the theme's live HUD colors, including mid-`theme_transition` blend
+// values, which exist only inside `active_theme` (renderer_internal.hpp) --
+// see the plan's "ACCEPTED (user, 2026-09-07): get_hud_colors() ships as
+// specified" for why this is an authorized amendment to P2's "no new public
+// entry point," not a silent extension of it. POD, appended per ADR-0004.
+struct HudColors {
+    float text_color[3];
+    float accent_color[3];
+    float scale;
+};
+
+// Reads `r->active_theme.hud` verbatim (kept live every render_frame() call
+// by apply_current_theme(), including mid-transition blend values -- no new
+// renderer state added for this). Null `r` -> zero-initialized HudColors
+// (scale 0.0), same non-crashing default-on-null shape as this header's
+// other pointer-taking calls.
+HudColors get_hud_colors(VisualRenderer*);
+
 // Epic 2 Task 1 (VM-020) Step 0.3: parses `<dir>/<theme_name>.yaml` with the
 // library's OWN bundled yaml-cpp and returns true iff it loaded. Creates no
 // Engine, no EGL context, no swapchain -- it is
