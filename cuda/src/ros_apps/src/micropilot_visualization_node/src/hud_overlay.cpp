@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -192,6 +193,47 @@ bool CompositeHud(uint8_t* rgb, uint32_t width, uint32_t height, const HudSnapsh
     draw_line(rgb, width, height, *atlas, mode_buf, x2, y2, accent_rgb.r, accent_rgb.g,
               accent_rgb.b);
     return true;
+}
+
+// See hud_overlay.hpp's comment. Thin wrapper over the same get_atlas()/
+// draw_line() this file's own CompositeHud() uses above.
+bool DrawText(uint8_t* rgb, uint32_t width, uint32_t height, const char* text, float x, float y,
+              HudRgb rgb_color, float scale, const char* font_path)
+{
+    if (rgb == nullptr || width == 0 || height == 0 || text == nullptr || font_path == nullptr ||
+        font_path[0] == '\0')
+    {
+        return false;
+    }
+    const float safe_scale = scale > 0.0f ? scale : 1.0f;
+    const FontAtlas* atlas = get_atlas(font_path, safe_scale);
+    if (atlas == nullptr) return false;
+    draw_line(rgb, width, height, *atlas, std::string(text), x, y, rgb_color.r, rgb_color.g,
+              rgb_color.b);
+    return true;
+}
+
+// See hud_overlay.hpp's comment. Plain integer Bresenham -- a callout's
+// leader line is short and cosmetic, no anti-aliasing needed.
+void DrawLine(uint8_t* rgb, uint32_t width, uint32_t height, float x0, float y0, float x1,
+              float y1, HudRgb rgb_color)
+{
+    if (rgb == nullptr || width == 0 || height == 0) return;
+    int x = static_cast<int>(std::lround(x0));
+    int y = static_cast<int>(std::lround(y0));
+    const int ix1 = static_cast<int>(std::lround(x1));
+    const int iy1 = static_cast<int>(std::lround(y1));
+    const int dx = std::abs(ix1 - x), sx = x < ix1 ? 1 : -1;
+    const int dy = -std::abs(iy1 - y), sy = y < iy1 ? 1 : -1;
+    int err = dx + dy;
+    for (;;)
+    {
+        blend_pixel(rgb, width, height, x, y, rgb_color.r, rgb_color.g, rgb_color.b, 1.0f);
+        if (x == ix1 && y == iy1) break;
+        const int e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x += sx; }
+        if (e2 <= dx) { err += dx; y += sy; }
+    }
 }
 
 }  // namespace mpviz_node

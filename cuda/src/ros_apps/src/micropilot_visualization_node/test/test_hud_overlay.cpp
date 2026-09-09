@@ -104,6 +104,50 @@ TEST(HudOverlay, EmptyFontPathIsNonFatal)
     EXPECT_EQ(rgb, before);
 }
 
+// ── Task 4 (VM-031): primitives exposed for callouts.cpp ────────────────────
+TEST(HudOverlay, DrawTextAndDrawLineComposeACallout)
+{
+    std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, kBackground);
+
+    mpviz_node::DrawLine(rgb.data(), kWidth, kHeight, /*x0=*/100, /*y0=*/100, /*x1=*/140,
+                          /*y1=*/60, mpviz_node::HudRgb{1.0f, 0.2f, 0.2f});
+    ASSERT_TRUE(mpviz_node::DrawText(rgb.data(), kWidth, kHeight, "3.2 m", /*x=*/140, /*y=*/60,
+                                      mpviz_node::HudRgb{1.0f, 0.2f, 0.2f}, /*scale=*/1.0f,
+                                      MPVIZ_NODE_FONT_PATH));
+
+    // One presence check over the whole region the line+text pair was drawn
+    // into -- same legibility-threshold shape as CompositesLegibleTextAtLowPreset
+    // above, not a pixel-exact golden.
+    constexpr int kLegibilityThreshold = 20;
+    bool found_drawn_pixel = false;
+    for (int y = 40; y < 100 && !found_drawn_pixel; ++y)
+    {
+        for (int x = 90; x < 300; ++x)
+        {
+            const size_t idx = (static_cast<size_t>(y) * kWidth + x) * 3;
+            const int diff = std::abs(static_cast<int>(rgb[idx]) - static_cast<int>(kBackground)) +
+                              std::abs(static_cast<int>(rgb[idx + 1]) - static_cast<int>(kBackground)) +
+                              std::abs(static_cast<int>(rgb[idx + 2]) - static_cast<int>(kBackground));
+            if (diff > kLegibilityThreshold)
+            {
+                found_drawn_pixel = true;
+                break;
+            }
+        }
+    }
+    EXPECT_TRUE(found_drawn_pixel) << "neither the leader line nor the chip text drew any pixel";
+}
+
+TEST(HudOverlay, DrawTextMissingFontIsNonFatal)
+{
+    std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, kBackground);
+    const std::vector<uint8_t> before = rgb;
+    EXPECT_FALSE(mpviz_node::DrawText(rgb.data(), kWidth, kHeight, "3.2 m", 10, 10,
+                                       mpviz_node::HudRgb{1, 1, 1}, 1.0f,
+                                       "/nonexistent/does_not_exist.ttf"));
+    EXPECT_EQ(rgb, before);
+}
+
 // ── Sanctioned-red node-side 720p HUD golden ────────────────────────────────
 // Renders a real (headless-EGL, low-preset) frame from a small synthetic
 // scene, composites the HUD on top, writes it to

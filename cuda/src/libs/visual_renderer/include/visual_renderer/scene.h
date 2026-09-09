@@ -126,6 +126,13 @@ struct AlertChip {
 struct Hud {
     double speed_mps;
     uint8_t active_mode;     // 1|2|3, mirrors ~/vcam_state
+    // Epic 3 Task 4 (VM-031) Step 0, SCOPE DECISION: stays UNUSED by design.
+    // The node builds its callout chip list from its own live
+    // AlertPolygon/collision-adapter data and draws it directly (node-side
+    // compositing, see project_to_screen()'s own comment below) -- it never
+    // routes through here. `chips`/`chip_count`/`AlertChip` stay in scene.h
+    // (ADR-0004 forbids removing them regardless) for a hypothetical future
+    // in-scene (3D-anchored, SDF) text path, not populated today.
     const AlertChip* chips;  uint32_t chip_count;
 };
 
@@ -256,6 +263,25 @@ struct HudColors {
 // (scale 0.0), same non-crashing default-on-null shape as this header's
 // other pointer-taking calls.
 HudColors get_hud_colors(VisualRenderer*);
+
+// Epic 3 Task 4 (VM-031): projects a map-frame world point (same space as
+// EgoState::position/TrackedObject::position/AlertPolygon::points) into
+// screen-fraction [0, 1] coordinates using the CAMERA STATE THE MOST RECENT
+// render_frame() CALL SET (its CameraPose's lookAt()/setProjection(), not a
+// separately-passed pose) -- a caller needing a different pose calls
+// render_frame() with it first. Standard world -> clip -> NDC -> [0,1]
+// pipeline. **Y IS FLIPPED** relative to raw NDC (NDC +Y is up) to match
+// FrameView's own top-to-bottom row order: `*out_y == 0.0` is the frame's
+// TOP row, `1.0` the bottom -- stated here explicitly (the epic2 precedent
+// of an unstated axis convention is exactly the kind of gap that ships a
+// silently-flipped picture). Returns false, leaving `*out_x`/`*out_y`
+// untouched, when `r`/`out_x`/`out_y` is null, the point is behind the
+// camera (clip.w <= 0), or it falls outside the view frustum's x/y bounds
+// (|NDC.x| > 1 or |NDC.y| > 1) -- near/far (z) clipping is left to
+// Filament's own render-time culling, not duplicated here, since "is this
+// point on screen" is fully settled by the x/y bounds alone. True with
+// `*out_x`/`*out_y` in [0, 1] otherwise.
+bool project_to_screen(VisualRenderer*, Vec3 world_point, float* out_x, float* out_y);
 
 // Epic 2 Task 1 (VM-020) Step 0.3: parses `<dir>/<theme_name>.yaml` with the
 // library's OWN bundled yaml-cpp and returns true iff it loaded. Creates no

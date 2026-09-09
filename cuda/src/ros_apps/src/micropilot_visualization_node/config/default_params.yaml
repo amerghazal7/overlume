@@ -37,6 +37,11 @@
     # HUD disable knob (STANDING directive, visual-mode-epic3.md): false
     # skips CompositeHud() entirely, frame passes through untouched.
     hud_enabled: true
+    # Alert-callout disable knob (VM-031, STANDING directive): false skips
+    # BuildNearestCallout() entirely, frame passes through untouched. Style
+    # (leader line + chip color) reuses the same theme hud.accent_color the
+    # HUD's own mode chip already draws with -- no new theme token.
+    callouts_enabled: true
     # Which shipped profile to load (urban|offroad|sim -> <profile>_profile.yaml).
     # profile_dir: "" means this package's own installed share/config
     # (resolved via ament_index_cpp in visualization_node.cpp); set an

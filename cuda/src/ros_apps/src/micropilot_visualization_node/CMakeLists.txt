@@ -214,7 +214,8 @@ add_library(visualization_node_lib SHARED
   src/adapters/generic_marker.cpp
   src/adapters/tf_axes.cpp
   src/diagnostics.cpp
-  src/hud_overlay.cpp)
+  src/hud_overlay.cpp
+  src/callouts.cpp)
 
 target_include_directories(visualization_node_lib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -461,6 +462,19 @@ if(BUILD_TESTING)
     ${MPVIZ_NODE_STB_DIR})
   ament_target_dependencies(test_hud_overlay ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_hud_overlay visual_renderer_prebuilt mpviz_node_test_paths)
+
+  # Epic 3 Task 4 (VM-031): BuildNearestCallout()'s camera-tracking / behind-
+  # camera-suppression behavior. Needs a real headless-EGL VisualRenderer
+  # (project_to_screen() reads the live r->camera state render_frame() just
+  # set) -- links visual_renderer_prebuilt, same documented-exception shape
+  # test_profile/test_hud_overlay already use.
+  ament_add_gtest(test_callouts test/test_callouts.cpp src/callouts.cpp src/hud_overlay.cpp)
+  target_include_directories(test_callouts PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${VISUAL_RENDERER_DIR}/include
+    ${MPVIZ_NODE_STB_DIR})
+  ament_target_dependencies(test_callouts ${THIS_PACKAGE_DEPS})
+  target_link_libraries(test_callouts visual_renderer_prebuilt mpviz_node_test_paths)
 endif()
 
 ament_package()

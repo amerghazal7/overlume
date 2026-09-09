@@ -1483,6 +1483,27 @@ HudColors get_hud_colors(VisualRenderer* r) {
     return out;
 }
 
+// See scene.h's comment. r->camera's view/projection are exactly what the
+// most recent render_frame() call's lookAt()/setProjection() set (top of
+// that function, above) -- read verbatim here, no separate camera state
+// kept for this call.
+bool project_to_screen(VisualRenderer* r, Vec3 world_point, float* out_x, float* out_y) {
+    if (r == nullptr || out_x == nullptr || out_y == nullptr) return false;
+    const filament::math::mat4 viewProj =
+        r->camera->getProjectionMatrix() * r->camera->getViewMatrix();
+    const filament::math::double4 clip =
+        viewProj * filament::math::double4{world_point.x, world_point.y, world_point.z, 1.0};
+    if (clip.w <= 1e-9) return false;  // behind the camera (or on the eye itself)
+    const double ndcX = clip.x / clip.w;
+    const double ndcY = clip.y / clip.w;
+    if (ndcX < -1.0 || ndcX > 1.0 || ndcY < -1.0 || ndcY > 1.0) return false;  // outside frustum
+    *out_x = static_cast<float>(ndcX * 0.5 + 0.5);
+    // Flip: raw NDC +Y is up, FrameView's rows go top-to-bottom (scene.h's
+    // own comment on this function states the convention).
+    *out_y = static_cast<float>(1.0 - (ndcY * 0.5 + 0.5));
+    return true;
+}
+
 }  // namespace mpviz
 
 // Filament-free test introspection hooks; see map_elements_test_hooks.hpp

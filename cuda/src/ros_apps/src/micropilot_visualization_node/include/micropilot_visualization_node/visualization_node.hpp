@@ -42,6 +42,7 @@
 #include "micropilot_visualization_node/adapters/ogm.hpp"
 #include "micropilot_visualization_node/adapters/path.hpp"
 #include "micropilot_visualization_node/adapters/tf_axes.hpp"
+#include "micropilot_visualization_node/callouts.hpp"
 #include "micropilot_visualization_node/diagnostics.hpp"
 #include "micropilot_visualization_node/frame_transform.hpp"
 #include "micropilot_visualization_node/hud_overlay.hpp"
@@ -322,6 +323,15 @@ private:
     // adding one); the guard is a single `if` around an already-tested call,
     // documented here and at its call site instead.
     bool hud_enabled_{true};
+
+    // ── Alert callouts (Epic 3 Task 4 / VM-031) ──────────────────────────────
+    // callouts_enabled_ read once in on_configure(), same shape as
+    // hud_enabled_ above (STANDING directive disable knob): when false,
+    // timer_callback() never even calls BuildNearestCallout(), frame_buf_
+    // passes through untouched from the HUD block above. No node-level gtest
+    // exercises the guard itself, same "no full VisualizationNode/rclcpp
+    // harness in this suite" reason hud_enabled_'s own comment gives.
+    bool callouts_enabled_{true};
 
     rclcpp::TimerBase::SharedPtr timer_;
 };

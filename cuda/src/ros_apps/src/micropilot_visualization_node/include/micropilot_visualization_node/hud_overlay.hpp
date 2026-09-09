@@ -69,4 +69,22 @@ struct HudSnapshot
 bool CompositeHud(uint8_t* rgb, uint32_t width, uint32_t height, const HudSnapshot& hud,
                    HudRgb text_rgb, HudRgb accent_rgb, float scale, const char* font_path);
 
+// Epic 3 Task 4 (VM-031): exposed so callouts.cpp can draw its chip/leader
+// line through the SAME font-atlas cache and glyph-blit path CompositeHud()
+// already uses -- extension, not a second compositor (plan's own
+// instruction). Draws one line of `text` with its baseline at (x, y) (stb's
+// own pen-position convention -- same as CompositeHud()'s two lines),
+// alpha-blended over whatever's already in `rgb`. False (rgb untouched) on
+// the same missing/unloadable-font/null/zero-size conditions as
+// CompositeHud(); true otherwise.
+bool DrawText(uint8_t* rgb, uint32_t width, uint32_t height, const char* text, float x, float y,
+              HudRgb rgb_color, float scale, const char* font_path);
+
+// A callout's leader line: solid, alpha-blended, 1px-wide, Bresenham-drawn
+// from (x0, y0) to (x1, y1). Pure raster, no font/atlas involved -- unlike
+// DrawText() this can't fail (out-of-bounds endpoints are simply clipped
+// pixel-by-pixel by the same bounds check blend_pixel() already applies).
+void DrawLine(uint8_t* rgb, uint32_t width, uint32_t height, float x0, float y0, float x1,
+              float y1, HudRgb rgb_color);
+
 }  // namespace mpviz_node
