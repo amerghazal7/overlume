@@ -174,15 +174,17 @@ const Theme& kFallbackTheme() {
         t.palette.ribbon_global = {0.25f, 0.55f, 0.95f};
         t.palette.ribbon_local = {0.95f, 0.70f, 0.15f};
         // Must match dark_adas.yaml exactly (ThemeLoad.BuiltinFallbackMatchesDarkAdasYaml).
-        // road is darker than palette.ground; lane_boundary/crosswalk are
-        // the same near-white as lane_paint; lane_centerline is a
+        // road is darker than palette.ground; lane_boundary is the same
+        // near-white as lane_paint; crosswalk is authored warm ivory
+        // (distinct from boundaries by color, not just hatch geometry);
+        // lane_centerline is a
         // low-contrast fade of lane_paint toward road (25%/75% -- faint dot
         // guidance, not a bold stroke); road_edge is a clear, saturated
         // road-paint yellow, solid and readable on the dark road.
         t.palette.road = {0.03f, 0.035f, 0.045f};
         t.palette.lane_centerline = {0.235f, 0.239f, 0.254f};
         t.palette.lane_boundary = {0.85f, 0.85f, 0.88f};
-        t.palette.crosswalk = {0.85f, 0.85f, 0.88f};
+        t.palette.crosswalk = {0.95f, 0.90f, 0.70f};  // authored warm ivory, matches dark_adas.yaml
         t.palette.road_edge = {0.95f, 0.75f, 0.05f};
         t.palette.object_tints.car = {0.25f, 0.35f, 0.9f};
         t.palette.object_tints.truck_van = {0.30f, 0.35f, 0.85f};

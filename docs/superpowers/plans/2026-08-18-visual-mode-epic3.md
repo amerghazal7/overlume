@@ -1144,6 +1144,12 @@ Opus reviewer signs off against:
 
 ---
 
+## Post-close follow-ups (2026-09-09)
+
+**Gate finding #4 closed (crosswalk color):** both themes now AUTHOR `palette.crosswalk` (dark_adas warm ivory [0.95,0.90,0.70], light_clay warm tan [0.90,0.82,0.60]); built-in fallback + theme.hpp comment synced. Proven end-to-end by `MapElements.KindDrivesMaterialDispatchToTheMatchingThemeToken` (rendered material color == the loaded theme token). Committed map goldens stayed green — NOTE the reason honestly: `block_ssim` is LUMINANCE-ONLY, chroma-blind, so color-only changes never trip a golden; visual judgment on color rests entirely with the user's eye (live zoom sent 2026-09-09; warmth is subtle at fog distance — value tuning is a one-line YAML change if the user wants more punch).
+
+**Discovery (new-stack map feed):** `/hd_map_local_elements` now carries an `intersection` namespace (2 ring markers per message, unmatched today -> ns_default drop). OPPORTUNITY: mapping it to `kind: junction` would light up the junction-polygon clip (and `junction_interior_boundaries`) on the urban feed, which currently relies on the mutual-crossing cut alone. Left for a scoped follow-up, not silently enabled.
+
 ## Epic 3 gate verdict (2026-09-09)
 
 **VERDICT: PASSED-with-findings.** Reviewed at `d62f8e3` against the "## Review gate" checklist above, every bullet worked with the exact greps/diffs each names. Baseline `fd72331` (Epic 2 close); epic work spans `4b26fb6`..`d62f8e3`, 179 files, +15979/-4453.
