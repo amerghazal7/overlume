@@ -234,6 +234,33 @@
 #               near a recorded collision/alert polygon, a short green line
 #               + distance chip appears near it and tracks it as the virtual
 #               camera orbits; with no nearby alert, nothing extra is drawn.
+#   2026-09-09  Epic 3 Task 5/VM-032: layer visibility + quality-preset
+#               plumbing lands. Seven new `layer_objects`/`layer_paths`/
+#               `layer_map_elements`/`layer_grids`/`layer_alerts`/
+#               `layer_markers`/`layer_point_clouds` bool params (default
+#               true, STANDING directive's disable-knob-per-category story),
+#               live via a SetParametersCallback -- a change takes effect on
+#               the very next timer tick, no restart, unlike every other
+#               param this node reads once at on_configure(). Node-side gate
+#               only (clears the matching scene_asm_ vector right before
+#               point_at() when false); no renderer/scene.h change.
+#               `layer_point_clouds` is declared+live but has nothing to
+#               gate yet (Task 6/VM-035 scope). `vcam_ws_bridge.py` gained
+#               `set_layers {layer: bool, ...}` (one WS message -> one
+#               set_parameters call carrying N Parameter entries) and
+#               `set_quality <preset>` (writes the `quality` param only --
+#               P4 defers the live in-process switch to Epic 5; GUI's
+#               quality dropdown says "takes effect on next restart").
+#               `create_renderer()`'s quality dispatch also now maps spec
+#               §8's shadow-map resolution (2048 high/1024 medium),
+#               shadow-disable at low, and low-preset 960x540 internal
+#               render scale (Filament DynamicResolutionOptions, pinned
+#               min==maxScale). No new topic the health gate needs to
+#               sample -- purely param/renderer-config plumbing, same
+#               "nothing new to check besides looking at the frame" shape
+#               as VM-030/031. Visually checkable in mode 3: toggling a
+#               layer via the GUI checklist makes that category's geometry
+#               disappear/reappear on the very next frame.
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its

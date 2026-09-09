@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
@@ -70,6 +71,10 @@ public:
 
 private:
     void timer_callback();
+    // Epic 3 Task 5 (VM-032) Step 1: live layer_* param updates -- see
+    // layer_param_cb_'s own comment.
+    rcl_interfaces::msg::SetParametersResult on_params(
+        const std::vector<rclcpp::Parameter>& params);
     void teardown_active();
     void destroy_renderer_if_any();
     // Gathers every subscribed row's AdapterStats (hd_map/dynamic_objects/
@@ -332,6 +337,24 @@ private:
     // exercises the guard itself, same "no full VisualizationNode/rclcpp
     // harness in this suite" reason hud_enabled_'s own comment gives.
     bool callouts_enabled_{true};
+
+    // ── Layer visibility (Epic 3 Task 5 / VM-032) ────────────────────────────
+    // Disable-knob-per-category, STANDING directive -- but unlike
+    // hud_enabled_/callouts_enabled_ above, these are read LIVE (on_params()
+    // below, registered via layer_param_cb_): a GUI/WS set_layers update
+    // takes effect on the very next timer_callback() tick, no restart. Node
+    // side gate only (Step 0 decision) -- timer_callback() clears the
+    // matching scene_asm_ vector right before point_at() when false; no
+    // renderer-side change. layer_point_clouds_ is declared+live but has
+    // nothing to gate until Task 6 (VM-035) adds scene_asm_.point_clouds.
+    bool layer_objects_{true};
+    bool layer_paths_{true};
+    bool layer_map_elements_{true};
+    bool layer_grids_{true};
+    bool layer_alerts_{true};
+    bool layer_markers_{true};
+    bool layer_point_clouds_{true};
+    rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr layer_param_cb_;
 
     rclcpp::TimerBase::SharedPtr timer_;
 };

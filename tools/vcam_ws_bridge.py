@@ -14,6 +14,12 @@ third-party client — can drive the virtual camera:
     {"cmd": "set_param", "name": str, "value": num|bool|[floats]}
     {"cmd": "save_params"}                  (update the node's launch config yaml)
     {"cmd": "save_params", "path": "/abs/new.yaml"}      (save as a new yaml)
+    {"cmd": "set_layers", "layers": {name: bool, ...}}   (visual mode only,
+        Epic 3 Task 5/VM-032 -- names from LAYER_NAMES below; applies live,
+        no restart)
+    {"cmd": "set_quality", "preset": "low"|"medium"|"high"|0|1|2}  (VM-032 --
+        writes visualization_node's `quality` param only; takes effect on
+        its NEXT restart, not live -- see that node's create_renderer())
   server -> client:
     {"type": "state", "eye": [...], "target": [...], "preset": 0..5,
      "render_mode": 1|2}  (~15 Hz)
@@ -40,6 +46,16 @@ import threading
 STATE_HZ = 15.0
 PRESET_RANGE = (1, 5)
 RENDER_MODES = {"bowl": 1, "pointcloud": 2, "visual": 3, 1: 1, 2: 2, 3: 3}
+
+# Epic 3 Task 5 (VM-032): the seven layer_<name> bool params visualization_node
+# declares (scene_assembly.hpp's six live categories + point_clouds, declared
+# but inert until Task 6/VM-035 -- see that node's on_configure()).
+LAYER_NAMES = {
+    "objects", "paths", "map_elements", "grids", "alerts", "markers", "point_clouds",
+}
+# quality preset name -> visualization_node's `quality` param encoding
+# (0=low, 1=med, 2=high, api.h's RenderConfig::quality).
+QUALITY_PRESETS = {"low": 0, "medium": 1, "high": 2, 0: 0, 1: 1, 2: 2}
 
 # Params the GUI tuning panel may read/write, with their declared ROS types.
 TUNABLE_PARAMS = {
@@ -169,6 +185,24 @@ def parse_cmd(text: str):
         if path is not None and (not isinstance(path, str) or not path):
             raise ValueError("save_params: path must be a non-empty string")
         return "save_params", path
+    if cmd == "set_layers":
+        layers = msg.get("layers")
+        if not isinstance(layers, dict) or not layers:
+            raise ValueError("set_layers: layers must be a non-empty object")
+        out = {}
+        for name, v in layers.items():
+            if name not in LAYER_NAMES:
+                raise ValueError(f"set_layers: unknown layer {name!r}")
+            if not isinstance(v, bool):
+                raise ValueError(f"set_layers: {name} must be a bool")
+            out[name] = v
+        return "set_layers", out
+    if cmd == "set_quality":
+        preset = msg.get("preset")
+        if isinstance(preset, bool) or preset not in QUALITY_PRESETS:
+            raise ValueError(
+                'set_quality: preset must be "low", "medium", "high", or 0/1/2')
+        return "set_quality", QUALITY_PRESETS[preset]
     raise ValueError(f"unknown cmd {cmd!r}")
 
 
@@ -235,6 +269,16 @@ def main() -> int:
                 GetParameters, "/rendering_node/get_parameters")
             self._cli_setp = self.create_client(
                 SetParameters, "/rendering_node/set_parameters")
+            # Epic 3 Task 5 (VM-032): layer_*/quality are visualization_node's
+            # own params, not rendering_node's TUNABLE_PARAMS above -- a
+            # separate client, same SetParameters service type.
+            self._cli_setp_viz = self.create_client(
+                SetParameters, "/visualization_node/set_parameters")
+            # get twin (review 2026-09-09): the GUI's layer switches must
+            # reflect the node's REAL layer_* values on load, not assert the
+            # defaults -- see get_layers_async()/the get_params handler.
+            self._cli_getp_viz = self.create_client(
+                GetParameters, "/visualization_node/get_parameters")
             # State telemetry is only meaningful from whichever node is
             # currently active; both publish the same [eye|target|preset|mode]
             # layout, so the GUI/WS clients don't care which one it came from.
@@ -327,6 +371,43 @@ def main() -> int:
             req.parameters = [Parameter(name=name, value=pv)]
             return self._cli_setp.call_async(req)
 
+        def get_layers_async(self):
+            """GetParameters for the seven layer_* bools from
+            visualization_node -- the read twin of set_layers_async below,
+            so the GUI can show real values instead of asserted defaults."""
+            if not self._cli_getp_viz.service_is_ready():
+                return None
+            req = GetParameters.Request()
+            req.names = [f"layer_{name}" for name in LAYER_NAMES]
+            return self._cli_getp_viz.call_async(req)
+
+        def set_layers_async(self, layers: dict):
+            """One set_parameters call carrying N layer_<name> bools --
+            "one WS message -> N parameter sets, still one client round
+            trip" (VM-032 Step 1): the batching is N Parameter entries in a
+            single SetParameters.Request, not N separate service calls."""
+            if not self._cli_setp_viz.service_is_ready():
+                return None
+            params = [
+                Parameter(name=f"layer_{name}",
+                          value=ParameterValue(type=ParameterType.PARAMETER_BOOL,
+                                                bool_value=value))
+                for name, value in layers.items()]
+            req = SetParameters.Request()
+            req.parameters = params
+            return self._cli_setp_viz.call_async(req)
+
+        def set_quality_async(self, preset: int):
+            """Writes visualization_node's `quality` param only -- no live
+            in-process effect (P4, deferred to Epic 5); read once at that
+            node's next create_renderer() (i.e. its next restart)."""
+            if not self._cli_setp_viz.service_is_ready():
+                return None
+            pv = ParameterValue(type=ParameterType.PARAMETER_INTEGER, integer_value=preset)
+            req = SetParameters.Request()
+            req.parameters = [Parameter(name="quality", value=pv)]
+            return self._cli_setp_viz.call_async(req)
+
         @staticmethod
         def param_value(pv):
             """ParameterValue -> python value (None for unset)."""
@@ -405,10 +486,52 @@ def main() -> int:
                 elif cmd == "get_params":
                     try:
                         vals = await fetch_params(list(TUNABLE_PARAMS))
+                        # layer_* live on visualization_node, best-effort
+                        # (review 2026-09-09): absent when that node isn't
+                        # up (bowl/pointcloud-only sessions) -- the GUI
+                        # skips switches it gets no value for.
+                        lfut = node.get_layers_async()
+                        if lfut is not None:
+                            try:
+                                lres = await await_ros(lfut, timeout=2.0)
+                                for name, v in zip(LAYER_NAMES, lres.values):
+                                    vals[f"layer_{name}"] = node.param_value(v)
+                            except Exception:
+                                pass
                         await ws.send(json.dumps({"type": "params", "values": vals}))
                     except Exception as e:
                         await ws.send(json.dumps({"type": "error",
                                                   "message": f"get_params: {e}"}))
+                elif cmd == "set_layers":
+                    fut = node.set_layers_async(payload)
+                    if fut is None:
+                        await ws.send(json.dumps({
+                            "type": "error",
+                            "message": "visualization_node set_parameters unavailable"}))
+                        continue
+                    try:
+                        res = await await_ros(fut)
+                        ok = all(r.successful for r in res.results)
+                        await ws.send(json.dumps({
+                            "type": "ack", "cmd": "set_layers", "success": ok}))
+                    except Exception as e:
+                        await ws.send(json.dumps({
+                            "type": "error", "message": f"set_layers: {e}"}))
+                elif cmd == "set_quality":
+                    fut = node.set_quality_async(payload)
+                    if fut is None:
+                        await ws.send(json.dumps({
+                            "type": "error",
+                            "message": "visualization_node set_parameters unavailable"}))
+                        continue
+                    try:
+                        res = await await_ros(fut)
+                        ok = all(r.successful for r in res.results)
+                        await ws.send(json.dumps({
+                            "type": "ack", "cmd": "set_quality", "success": ok}))
+                    except Exception as e:
+                        await ws.send(json.dumps({
+                            "type": "error", "message": f"set_quality: {e}"}))
                 elif cmd == "save_params":
                     try:
                         dst = await do_save_params(payload)

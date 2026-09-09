@@ -176,6 +176,22 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // side effect" shape as hud_enabled_ above.
     callouts_enabled_ = declare_parameter<bool>("callouts_enabled", true);
 
+    // Per-category layer visibility (Epic 3 Task 5 / VM-032 Step 1, STANDING
+    // directive disable-knob story for whole categories): unlike
+    // hud_enabled_/callouts_enabled_ above, these are read LIVE every tick
+    // (on_params() below), not just once here -- a SetParametersCallback
+    // update from the GUI/WS bridge takes effect on the very next
+    // timer_callback(), no restart needed. layer_point_clouds_ is declared
+    // here (and reachable through set_layers) but stays inert until Task 6
+    // adds the PointCloud category it would gate.
+    layer_objects_ = declare_parameter<bool>("layer_objects", true);
+    layer_paths_ = declare_parameter<bool>("layer_paths", true);
+    layer_map_elements_ = declare_parameter<bool>("layer_map_elements", true);
+    layer_grids_ = declare_parameter<bool>("layer_grids", true);
+    layer_alerts_ = declare_parameter<bool>("layer_alerts", true);
+    layer_markers_ = declare_parameter<bool>("layer_markers", true);
+    layer_point_clouds_ = declare_parameter<bool>("layer_point_clouds", true);
+
     // map->base_link -> SceneGraph.ego, finite-differenced + EMA-smoothed
     // speed. Buffer/TransformListener live on the node (need its
     // NodeInterfaces to construct); TfAdapter wraps the lookup + smoothing on top.
@@ -424,6 +440,13 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
             }
         });
 
+    // Live tuning: registered AFTER all declares (same convention as
+    // rendering_node.cpp's param_cb_) so it only fires on updates -- from
+    // the GUI's layers checklist via the WS bridge's set_layers -> N
+    // set_parameters() calls.
+    layer_param_cb_ = add_on_set_parameters_callback(
+        std::bind(&VisualizationNode::on_params, this, std::placeholders::_1));
+
     RCLCPP_INFO(get_logger(), "on_configure() succeeded. out=%dx%d quality=%d initial_mode=%d "
                 "flatten_z=%s",
                 out_width_, out_height_, quality_, initial_mode_, flatten_z ? "true" : "false");
@@ -446,6 +469,40 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
 
     RCLCPP_INFO(get_logger(), "on_activate() succeeded.");
     return CallbackReturn::SUCCESS;
+}
+
+// ── Live parameter updates (Epic 3 Task 5 / VM-032 Step 1) ──────────────────
+// Only the seven layer_* bools are live-tunable here (quality is create-time
+// only, per this task's Interfaces note -- set_quality writes the `quality`
+// param but nothing re-reads it until the next create_renderer()). Same
+// name-match-and-assign shape as rendering_node.cpp's on_params(); unmatched
+// param names fall through untouched (accepted, nothing to apply live).
+rcl_interfaces::msg::SetParametersResult VisualizationNode::on_params(
+    const std::vector<rclcpp::Parameter>& params)
+{
+    rcl_interfaces::msg::SetParametersResult res;
+    res.successful = true;
+    for (const auto& p : params)
+    {
+        const std::string& n = p.get_name();
+        try
+        {
+            if (n == "layer_objects") layer_objects_ = p.as_bool();
+            else if (n == "layer_paths") layer_paths_ = p.as_bool();
+            else if (n == "layer_map_elements") layer_map_elements_ = p.as_bool();
+            else if (n == "layer_grids") layer_grids_ = p.as_bool();
+            else if (n == "layer_alerts") layer_alerts_ = p.as_bool();
+            else if (n == "layer_markers") layer_markers_ = p.as_bool();
+            else if (n == "layer_point_clouds") layer_point_clouds_ = p.as_bool();
+            // other params: accept (stored by rclcpp) but nothing to apply live
+        }
+        catch (const std::exception& e)
+        {
+            res.successful = false;
+            res.reason = std::string("bad value for ") + n + ": " + e.what();
+        }
+    }
+    return res;
 }
 
 // ── Timer callback ───────────────────────────────────────────────────────────
@@ -590,6 +647,20 @@ void VisualizationNode::timer_callback()
     // / VM-031 scope). See hud_overlay.hpp's own comment for why this is a
     // free function, not the two lines inlined here.
     mpviz_node::PopulateHud(scene, active_mode_);
+
+    // Epic 3 Task 5 (VM-032) Step 0: layer visibility is a NODE-SIDE gate,
+    // not a renderer API -- clearing a category's vector right before
+    // point_at() publishes it as count==0 for this tick, exactly as if no
+    // adapter had ever filled it (every render path already handles the
+    // empty case). layer_point_clouds_ is declared+live but has no vector
+    // to gate yet (Task 6 Step 1 adds scene_asm_.point_clouds).
+    if (!layer_objects_) scene_asm_.objects.clear();
+    if (!layer_paths_) scene_asm_.paths.clear();
+    if (!layer_map_elements_) scene_asm_.map_elements.clear();
+    if (!layer_grids_) scene_asm_.grids.clear();
+    if (!layer_alerts_) scene_asm_.alerts.clear();
+    if (!layer_markers_) scene_asm_.markers.clear();
+
     scene_asm_.point_at(scene);
     mpviz::set_scene(renderer_, scene);
 
