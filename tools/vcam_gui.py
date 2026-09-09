@@ -110,6 +110,18 @@ RENDER_SPINS = [
 ]
 RENDER_BOOLS = ["fill_blind_zone", "exposure_match"]
 
+# Epic 3 Task 5 (VM-032): visualization_node's seven layer_<name> params --
+# point_clouds is declared+sent here too (harmless no-op today; Task 6/
+# VM-035 gives it something to hide). All live: takes effect on the node's
+# very next tick, no restart.
+LAYER_NAMES = [
+    "objects", "paths", "map_elements", "grids", "alerts", "markers", "point_clouds",
+]
+# quality preset dropdown -- unlike LAYER_NAMES above, this one is NOT live
+# (P4, deferred to Epic 5): see the "takes effect on next restart" label at
+# its call site.
+QUALITY_PRESETS = ["low", "medium", "high"]
+
 # A numeric tuning row: slider + value box sharing one Adjustment, plus
 # editable min/max boxes that rewrite the slider's range on the fly.
 Row = collections.namedtuple("Row", "val adj mn mx")
@@ -258,6 +270,7 @@ class VcamWindow(Gtk.Window):
         self._params_loaded = False    # real values received from the node
         self._param_spins = {}
         self._param_switches = {}
+        self._layer_switches = {}
         self._pose_spins = {}
         self._extrinsics: list[float] | None = None
         panel = self._build_panel()
@@ -348,6 +361,34 @@ class VcamWindow(Gtk.Window):
             panel.pack_start(row, False, False, 0)
             self._param_switches[name] = sw
 
+        # Epic 3 Task 5 (VM-032): per-category visibility, visual mode only
+        # (harmless no-op in bowl/pointcloud mode -- the WS command just
+        # writes visualization_node's own params). Live: no restart needed.
+        section("Layers (visual mode)")
+        for name in LAYER_NAMES:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            l = Gtk.Label(label=name, xalign=0.0)
+            l.set_size_request(130, -1)
+            sw = Gtk.Switch()
+            sw.set_active(True)
+            sw.connect("notify::active", lambda s, _p, n=name: self._on_layer_switch(n, s))
+            row.pack_start(l, False, False, 0)
+            row.pack_start(sw, False, False, 0)
+            panel.pack_start(row, False, False, 0)
+            self._layer_switches[name] = sw
+
+        # Epic 3 Task 5 (VM-032): quality preset -- NOT live (P4, Epic 5's
+        # own set_quality() entry point is what would make this live); the
+        # label says so here, not just in the plan, so a user doesn't file
+        # a bug against this epic for a capability it never promised.
+        section("Quality (visual mode) — takes effect on next restart")
+        quality_combo = Gtk.ComboBoxText()
+        for preset in QUALITY_PRESETS:
+            quality_combo.append_text(preset)
+        quality_combo.set_active(1)  # matches default_params.yaml's quality: 1 (medium)
+        quality_combo.connect("changed", self._on_quality_changed)
+        panel.pack_start(quality_combo, False, False, 0)
+
         section("Camera poses (calib)")
         # one collapsible block per camera, created when extrinsics arrive
         self._cam_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -387,6 +428,19 @@ class VcamWindow(Gtk.Window):
         if self._loading:
             return
         self._ws.send({"cmd": "set_param", "name": name, "value": bool(sw.get_active())})
+
+    def _on_layer_switch(self, name, sw):
+        if self._loading:
+            return
+        self._ws.send({"cmd": "set_layers", "layers": {name: bool(sw.get_active())}})
+
+    def _on_quality_changed(self, combo):
+        if self._loading:
+            return
+        preset = combo.get_active_text()
+        if preset is None:
+            return
+        self._ws.send({"cmd": "set_quality", "preset": preset})
 
     def _build_cam_expanders(self, n: int):
         names = CAM_NAMES_6 if n == 6 else [f"cam{i}" for i in range(n)]
@@ -436,6 +490,14 @@ class VcamWindow(Gtk.Window):
                     set_row_value(row, float(v))
             for name, sw in self._param_switches.items():
                 v = values.get(name)
+                if v is not None:
+                    sw.set_active(bool(v))
+            # Layer switches sync from the node's REAL layer_* values
+            # (review 2026-09-09) -- absent keys (visualization_node not up)
+            # leave the switch at its shipped-default ON, same skip rule as
+            # the loops above.
+            for name, sw in self._layer_switches.items():
+                v = values.get(f"layer_{name}")
                 if v is not None:
                     sw.set_active(bool(v))
             ext = values.get("camera_extrinsics")

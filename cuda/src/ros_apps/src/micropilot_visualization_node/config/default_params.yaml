@@ -42,6 +42,19 @@
     # (leader line + chip color) reuses the same theme hud.accent_color the
     # HUD's own mode chip already draws with -- no new theme token.
     callouts_enabled: true
+    # Per-category layer visibility (VM-032, STANDING directive disable-knob
+    # story): unlike hud_enabled/callouts_enabled above, these are read LIVE
+    # every tick -- a set_layers WS command (or a plain `ros2 param set`)
+    # takes effect on the very next tick, no restart. layer_point_clouds is
+    # declared here but stays inert until Task 6 (VM-035) adds the
+    # PointCloud category it would gate.
+    layer_objects: true
+    layer_paths: true
+    layer_map_elements: true
+    layer_grids: true
+    layer_alerts: true
+    layer_markers: true
+    layer_point_clouds: true
     # Which shipped profile to load (urban|offroad|sim -> <profile>_profile.yaml).
     # profile_dir: "" means this package's own installed share/config
     # (resolved via ament_index_cpp in visualization_node.cpp); set an

@@ -62,10 +62,35 @@ def test_set_theme_valid(theme):
     '{"cmd": "set_param", "name": "fill_blind_zone", "value": 1}',
     '{"cmd": "set_param", "name": "camera_extrinsics", "value": []}',
     '{"cmd": "save_params", "path": ""}',
+    '{"cmd": "set_layers"}',                              # missing layers
+    '{"cmd": "set_layers", "layers": {}}',                # empty
+    '{"cmd": "set_layers", "layers": {"nope": true}}',    # unknown layer name
+    '{"cmd": "set_layers", "layers": {"objects": 1}}',    # non-bool value
+    '{"cmd": "set_quality"}',                             # missing preset
+    '{"cmd": "set_quality", "preset": "ultra"}',           # unknown preset
+    '{"cmd": "set_quality", "preset": 3}',                 # out of range
+    '{"cmd": "set_quality", "preset": true}',              # bool is not a preset
 ])
 def test_rejects_malformed(text):
     with pytest.raises(ValueError):
         parse_cmd(text)
+
+
+def test_set_layers_valid():
+    assert parse_cmd(json.dumps(
+        {"cmd": "set_layers", "layers": {"objects": False}})) == \
+        ("set_layers", {"objects": False})
+    assert parse_cmd(json.dumps(
+        {"cmd": "set_layers", "layers": {"objects": True, "grids": False}})) == \
+        ("set_layers", {"objects": True, "grids": False})
+
+
+@pytest.mark.parametrize("preset,expect", [
+    ("low", 0), ("medium", 1), ("high", 2), (0, 0), (1, 1), (2, 2),
+])
+def test_set_quality_valid(preset, expect):
+    assert parse_cmd(json.dumps({"cmd": "set_quality", "preset": preset})) == \
+        ("set_quality", expect)
 
 
 def test_param_cmds_valid():
@@ -165,6 +190,22 @@ def _lifecycle(node_name: str, transition: str) -> bool:
     result = subprocess.run(["bash", "-c", cmd], env=_ros_env(), capture_output=True,
                             text=True, timeout=15.0)
     return result.returncode == 0
+
+
+def _param_get(node_name: str, param_name: str) -> str:
+    cmd = f"source /opt/ros/humble/setup.bash && ros2 param get {node_name} {param_name}"
+    result = subprocess.run(["bash", "-c", cmd], env=_ros_env(), capture_output=True,
+                            text=True, timeout=15.0)
+    return result.stdout.strip()
+
+
+def _param_get_bool(node_name: str, param_name: str) -> bool:
+    out = _param_get(node_name, param_name)
+    if "True" in out:
+        return True
+    if "False" in out:
+        return False
+    raise AssertionError(f"unexpected `ros2 param get {node_name} {param_name}` output: {out!r}")
 
 
 def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
@@ -326,6 +367,175 @@ def test_bridge_e2e_mode3_orbit_and_frames():
         if bridge_proc is not None:
             _kill(bridge_proc)
         _kill(rendering_proc)
+        _kill(viz_proc)
+
+
+LIVE_LAYERS = ("objects", "paths", "map_elements", "grids", "alerts", "markers")
+
+
+@pytest.mark.skipif(not os.path.isdir(INSTALL_DIR), reason="cuda/install/ros_apps not built")
+def test_bridge_e2e_set_layers_hides_and_shows():
+    """set_layers over WS -> N params on visualization_node's own
+    set_parameters service, live (no restart) -- hide -> ros2 param get
+    reads false for all six LIVE categories AND the published frame's
+    pixels actually change (review 2026-09-09: param readback alone cannot
+    distinguish "param written" from "gate applied"; the empty-scene frame
+    shows the ground grid, so hiding layer_grids must change pixels) ->
+    show -> both recover (VM-032 Step 1). layer_point_clouds is
+    declared-but-inert (Task 6/VM-035 scope) so it isn't asserted here.
+    Mode 3 so visualization_node actually publishes frames."""
+    websockets = pytest.importorskip("websockets")
+    rclpy = pytest.importorskip("rclpy")
+    from rclpy.node import Node as RclpyNode
+    from sensor_msgs.msg import Image
+
+    port = 18766
+    viz_cmd = (
+        f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
+        f"ros2 run micropilot_visualization_node visualization_node --ros-args "
+        f"-p out_width:={E2E_OUT_W} -p out_height:={E2E_OUT_H} -p initial_mode:=3")
+    bridge_cmd = (
+        f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
+        f"python3 {BRIDGE_SCRIPT} --port {port}")
+
+    viz_proc = _popen(viz_cmd)
+    bridge_proc = None
+    rclpy.init()
+
+    from geometry_msgs.msg import TransformStamped
+    from tf2_msgs.msg import TFMessage
+    from visualization_msgs.msg import Marker, MarkerArray
+
+    class FrameGrabber(RclpyNode):
+        """Grabs frames AND feeds the scene: an empty scene renders only the
+        renderer-internal ground+grid, which no layer_* gates -- so the
+        pixel-diff assertion needs real category content. Publishes a
+        map->base_link TF (ego anchor) and one CUBE object marker in front
+        of the default camera; hiding layer_objects must then change pixels."""
+        def __init__(self):
+            super().__init__("e2e_layer_frame_grabber")
+            self.latest = None
+            self.create_subscription(Image, "/rendering/image", self._on_image, 1)
+            self._tf_pub = self.create_publisher(TFMessage, "/tf", 10)
+            self._obj_pub = self.create_publisher(
+                MarkerArray, "/perception/dynamic_objects_list", 10)
+
+        def _on_image(self, msg: Image):
+            self.latest = bytes(msg.data)
+
+        def feed_scene(self):
+            t = TransformStamped()
+            t.header.stamp = self.get_clock().now().to_msg()
+            t.header.frame_id = "map"
+            t.child_frame_id = "base_link"
+            t.transform.rotation.w = 1.0
+            self._tf_pub.publish(TFMessage(transforms=[t]))
+            m = Marker()
+            m.header.stamp = t.header.stamp
+            m.header.frame_id = "map"
+            m.ns = "e2e"
+            m.id = 1
+            m.type = Marker.CUBE
+            m.action = Marker.ADD
+            m.pose.position.x = 4.0
+            m.pose.orientation.w = 1.0
+            m.scale.x = m.scale.y = m.scale.z = 2.0
+            m.color.a = 1.0
+            self._obj_pub.publish(MarkerArray(markers=[m]))
+
+    grabber = FrameGrabber()
+
+    def settled_frame(timeout=6.0):
+        """Spin until a FRESH frame arrives (clears first so a pre-toggle
+        frame can't satisfy the read), return its pixel bytes."""
+        grabber.latest = None
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            grabber.feed_scene()
+            rclpy.spin_once(grabber, timeout_sec=0.05)
+            if grabber.latest is not None:
+                # one more fresh frame: the first may have been mid-flight
+                # (rendered before the toggle landed)
+                first = grabber.latest
+                grabber.latest = None
+                t1 = time.time()
+                while time.time() - t1 < timeout and grabber.latest is None:
+                    grabber.feed_scene()
+                    rclpy.spin_once(grabber, timeout_sec=0.05)
+                return grabber.latest if grabber.latest is not None else first
+        raise AssertionError("no /rendering/image frame within timeout")
+
+    try:
+        assert _wait_running(viz_proc), (
+            f"visualization_node exited early:\n"
+            f"{viz_proc.stderr.read().decode(errors='replace')[-2000:]}")
+        assert _lifecycle("/visualization_node", "configure")
+        assert _lifecycle("/visualization_node", "activate")
+
+        bridge_proc = _popen(bridge_cmd)
+        deadline = time.time() + 12.0
+        connected = None
+        last_err = None
+
+        async def run_client():
+            nonlocal connected
+            uri = f"ws://127.0.0.1:{port}"
+            while time.time() < deadline and connected is None:
+                try:
+                    connected = await websockets.connect(uri, open_timeout=1.0)
+                except OSError as e:
+                    last_err = e
+                    await asyncio.sleep(0.3)
+            assert connected is not None, f"could not connect to bridge: {last_err}"
+            ws = connected
+            try:
+                async def recv_ack(cmd, timeout=5.0):
+                    # The bridge also streams "state"/"diagnostics" frames on
+                    # this same socket (broadcast_state(), ~15 Hz) -- skip
+                    # anything that isn't this command's own ack.
+                    t0 = time.time()
+                    while time.time() - t0 < timeout:
+                        frame = json.loads(await asyncio.wait_for(
+                            ws.recv(), timeout=timeout - (time.time() - t0)))
+                        if frame.get("type") == "ack" and frame.get("cmd") == cmd:
+                            return frame
+                    raise AssertionError(f"no {cmd!r} ack within {timeout}s")
+
+                baseline_frame = settled_frame()
+                await ws.send(json.dumps({
+                    "cmd": "set_layers",
+                    "layers": {name: False for name in LIVE_LAYERS}}))
+                ack = await recv_ack("set_layers")
+                assert ack.get("success"), ack
+                for name in LIVE_LAYERS:
+                    assert _param_get_bool("/visualization_node", f"layer_{name}") is False, \
+                        f"layer_{name} did not hide"
+                hidden_frame = settled_frame()
+                assert hidden_frame != baseline_frame, (
+                    "hiding every layer (incl. grids) left the published "
+                    "frame byte-identical -- the gate never applied")
+
+                await ws.send(json.dumps({
+                    "cmd": "set_layers",
+                    "layers": {name: True for name in LIVE_LAYERS}}))
+                ack2 = await recv_ack("set_layers")
+                assert ack2.get("success"), ack2
+                for name in LIVE_LAYERS:
+                    assert _param_get_bool("/visualization_node", f"layer_{name}") is True, \
+                        f"layer_{name} did not recover"
+                shown_frame = settled_frame()
+                assert shown_frame != hidden_frame, (
+                    "re-showing the layers did not change the published "
+                    "frame back -- the gate is stuck hidden")
+            finally:
+                await ws.close()
+
+        asyncio.run(run_client())
+    finally:
+        grabber.destroy_node()
+        rclpy.shutdown()
+        if bridge_proc is not None:
+            _kill(bridge_proc)
         _kill(viz_proc)
 
 

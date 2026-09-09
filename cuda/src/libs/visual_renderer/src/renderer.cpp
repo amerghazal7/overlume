@@ -33,6 +33,7 @@
 #include "ribbon.hpp"
 #include "ribbon_test_hooks.hpp"
 #include "renderer_internal.hpp"
+#include "renderer_quality_test_hooks.hpp"
 #include "theme.hpp"
 #include "theme_transition.hpp"
 
@@ -949,6 +950,31 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
         r->view->setAntiAliasing(filament::AntiAliasing::FXAA);
     }
 
+    // Epic 3 Task 5 (VM-032) Step 3: low-preset internal render scale --
+    // spec §8 pins low to a fixed 960x540 internal target, upscaled to
+    // whatever output size was requested. Filament's dynamic-resolution
+    // path does this for free: pinning minScale == maxScale forces a
+    // constant scale factor instead of the frame-time-driven scaling this
+    // option exists for. LOW quality = bilinear blit (cheapest upscale,
+    // matching the "low" preset's own budget). Medium/high leave dynamic
+    // resolution off (Filament default) -- they render at the requested
+    // output size directly.
+    if (config.quality == 0 && config.width > 0 && config.height > 0) {
+        filament::View::DynamicResolutionOptions dynRes{};
+        dynRes.enabled = true;
+        dynRes.homogeneousScaling = true;
+        dynRes.quality = filament::QualityLevel::LOW;
+        // ONE homogeneous scale for both axes (review 2026-09-09):
+        // homogeneousScaling=true makes Filament force a single factor, so
+        // per-axis values would silently disagree with the hook off-16:9;
+        // min() keeps the internal target within 960x540 at any aspect.
+        const float scale = std::min(960.0f / static_cast<float>(config.width),
+                                     540.0f / static_cast<float>(config.height));
+        dynRes.minScale = {scale, scale};
+        dynRes.maxScale = {scale, scale};
+        r->view->setDynamicResolutionOptions(dynRes);
+    }
+
     utils::EntityManager& em = utils::EntityManager::get();
 
     r->cameraEntity = em.create();
@@ -979,10 +1005,19 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // own defaults; push_theme_to_scene() overwrites them immediately
     // after, so there is exactly one place that decides what a theme's
     // sun/ibl/fog/clear-color actually is.
+    // Epic 3 Task 5 (VM-032) Step 3: shadows are the other two §8 preset
+    // knobs -- disabled entirely at low (quality == 0), a 1024 shadow map
+    // at medium, 2048 at high. Both are Builder-time-only LightManager
+    // properties (see the comment above), so this is the same
+    // config.quality dispatch as the SSAO/AA block above, just for a
+    // different Filament option.
+    filament::LightManager::ShadowOptions shadowOptions{};
+    shadowOptions.mapSize = config.quality >= 2 ? 2048 : 1024;
     r->sunEntity = em.create();
     filament::LightManager::Builder(filament::LightManager::Type::SUN)
         .sunAngularRadius(1.9f)
-        .castShadows(true)
+        .castShadows(config.quality >= 1)
+        .shadowOptions(shadowOptions)
         .build(*engine, r->sunEntity);
     r->scene->addEntity(r->sunEntity);
 
@@ -1597,6 +1632,46 @@ MapElementMaterialInfo map_element_material_info(mpviz::VisualRenderer* r) {
     filament::MaterialInstance* bound = rm.getMaterialInstanceAt(ri, 0);
     info.bound_to_translucent = mesh.fadeInstance != nullptr && bound == mesh.fadeInstance;
     return info;
+}
+
+// Epic 3 Task 5 (VM-032) Step 3 hooks -- read back the sun light's actual
+// Filament-side state (both have real getters, no CPU mirror needed).
+// false if `r` is null.
+bool quality_shadows_enabled(mpviz::VisualRenderer* r) {
+    if (r == nullptr) return false;
+    filament::LightManager& lm = r->engine->getLightManager();
+    return lm.isShadowCaster(lm.getInstance(r->sunEntity));
+}
+
+// 0 if `r` is null.
+uint32_t quality_shadow_map_size(mpviz::VisualRenderer* r) {
+    if (r == nullptr) return 0;
+    filament::LightManager& lm = r->engine->getLightManager();
+    return lm.getShadowOptions(lm.getInstance(r->sunEntity)).mapSize;
+}
+
+// The internal render target size setDynamicResolutionOptions() actually
+// implies, derived from r->width/height (the requested output) and the
+// fixed minScale==maxScale this task pins low-preset to -- View has no
+// direct "current internal render size" getter, but the option struct it
+// mirrors does, so this is arithmetic, not a CPU-side re-mirror of state
+// Filament already owns. {0, 0} if `r` is null.
+QualityRenderSize quality_internal_render_size(mpviz::VisualRenderer* r) {
+    QualityRenderSize size;
+    if (r == nullptr) return size;
+    const filament::View::DynamicResolutionOptions opts = r->view->getDynamicResolutionOptions();
+    if (!opts.enabled) {
+        size.width = r->width;
+        size.height = r->height;
+        return size;
+    }
+    // Both dimensions derive from minScale.x alone (review 2026-09-09):
+    // the low-preset block pins ONE homogeneous scale, and Filament's
+    // homogeneousScaling forces a single factor regardless -- reading .y
+    // separately would report a target the renderer never uses off-16:9.
+    size.width = static_cast<uint32_t>(std::lround(r->width * opts.minScale.x));
+    size.height = static_cast<uint32_t>(std::lround(r->height * opts.minScale.x));
+    return size;
 }
 
 }  // namespace mpviz::testing
