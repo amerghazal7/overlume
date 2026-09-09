@@ -95,7 +95,10 @@ private:
     // Task 5 Scope-addition block).
     std::unique_ptr<Vcam> vcam_;
 
-    // vcam telemetry: [eye xyz | target xyz | active_preset | active_mode],
+    // vcam telemetry: [eye xyz | target xyz | active_preset | active_mode |
+    // mux_mode] (9 elements -- Step (d), VM-037 appended mux_mode at index 8;
+    // here it duplicates active_mode_ at index 7, since this node has no
+    // separate local-view mode the way rendering_node's render_mode_ is),
     // one per timer tick — identical layout to rendering_node's ~/vcam_state.
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr
         pub_vcam_state_;

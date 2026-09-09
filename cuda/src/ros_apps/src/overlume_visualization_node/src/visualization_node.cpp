@@ -441,8 +441,15 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     vcam_ = std::make_unique<Vcam>(this, pose_);
 
     // ── mode mux subscription (global, not "~/...") ──────────────────────────
+    // transient_local + reliable, depth 1 (Step (a), VM-037): a restarted or
+    // late-joining subscriber on the default VOLATILE QoS never receives the
+    // last-published mode, so it silently stays wherever initial_mode left it
+    // instead of rejoining the live mux state. Every publisher of this topic
+    // (rendering_node's own subscription/legacy-republish, and any external
+    // tooling) must match this durability or QoS negotiation simply drops
+    // the connection.
     set_mode_sub_ = create_subscription<std_msgs::msg::Int32>(
-        "/rendering/set_mode", 10,
+        "/rendering/set_mode", rclcpp::QoS(1).transient_local().reliable(),
         [this](const std_msgs::msg::Int32::SharedPtr msg)
         {
             if (msg->data != 1 && msg->data != 2 && msg->data != 3)
@@ -560,10 +567,14 @@ void VisualizationNode::timer_callback()
     vcam_->advance_tween();
     pose_ = vcam_->pose();
 
+    // [eye xyz | target xyz | active_preset | active_mode | mux_mode] (9
+    // elements -- Step (d), VM-037 appended mux_mode at index 8, duplicating
+    // active_mode_ at index 7 for this node -- see the hpp field comment).
     std_msgs::msg::Float64MultiArray state;
     state.data = {pose_.eye[0],    pose_.eye[1],    pose_.eye[2],
                   pose_.target[0], pose_.target[1], pose_.target[2],
                   static_cast<double>(vcam_->active_preset()),
+                  static_cast<double>(active_mode_),
                   static_cast<double>(active_mode_)};
     pub_vcam_state_->publish(state);
 

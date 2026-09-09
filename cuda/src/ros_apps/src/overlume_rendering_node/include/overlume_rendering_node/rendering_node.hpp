@@ -105,7 +105,9 @@ private:
 
     rclcpp::Service<SetVirtualCam>::SharedPtr set_vcam_srv_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr set_look_sub_;
-    // vcam telemetry: [eye xyz | target xyz | active_preset], one per render tick.
+    // vcam telemetry: [eye xyz | target xyz | active_preset | render_mode |
+    // mux_mode] (9 elements), one per render tick -- must match
+    // visualization_node.hpp's own layout comment and both .cpp initializers.
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr
         pub_vcam_state_;
 
@@ -200,6 +202,15 @@ private:
     int initial_mode_{1};
     int active_mode_{1};
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr mux_mode_sub_;
+    // Legacy ~/set_render_mode (below) republishes 1|2 on this global-topic
+    // publisher (VM-037 Step (b)) so visualization_node's own /rendering/
+    // set_mode subscription observes the exit from mode 3 -- without this,
+    // selecting a local view via the old per-node service never told the
+    // other node to stand down. transient_local (Step (a)) so a late-joining
+    // subscriber still sees the last mode this fires. Same LifecyclePublisher
+    // shape as pub_vcam_state_ above (create_publisher on a LifecycleNode
+    // always returns one) -- activated/deactivated alongside it.
+    rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Int32>::SharedPtr pub_mode_mux_;
 
     rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::Image>::SharedPtr pub_image_;
     rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::CameraInfo>::SharedPtr pub_info_;

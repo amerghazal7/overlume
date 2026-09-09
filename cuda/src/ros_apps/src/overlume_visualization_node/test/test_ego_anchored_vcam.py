@@ -217,7 +217,7 @@ def main() -> int:
         print("FAIL: no ~/vcam_state samples received", file=sys.stderr)
         return 1
     for s in vcam_states:
-        if len(s) != 8:
+        if len(s) != 9:  # VM-037 Step (d) appended mux_mode at index 8
             print(f"FAIL: unexpected ~/vcam_state shape {s}", file=sys.stderr)
             return 1
         diffs = [abs(s[i] - LOOK[i]) for i in range(6)]
