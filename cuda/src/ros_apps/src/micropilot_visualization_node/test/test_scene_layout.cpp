@@ -21,7 +21,7 @@
 
 #include <gtest/gtest.h>
 
-static_assert(mpviz::kSceneVersion == 2, "node/library scene.h version drifted");
+static_assert(mpviz::kSceneVersion == 3, "node/library scene.h version drifted");
 
 static_assert(sizeof(mpviz::MapElement) == 32, "node/library scene.h version drifted");
 static_assert(offsetof(mpviz::MapElement, points) == 0, "node/library scene.h version drifted");
@@ -49,10 +49,24 @@ static_assert(offsetof(mpviz::PointCloud, point_count) == 8,
 static_assert(offsetof(mpviz::PointCloud, last_update_sec) == 16,
               "node/library scene.h version drifted");
 
-static_assert(sizeof(mpviz::SceneGraph) == 200, "node/library scene.h version drifted");
+static_assert(sizeof(mpviz::SceneGraph) == 216, "node/library scene.h version drifted");
 static_assert(offsetof(mpviz::SceneGraph, point_clouds) == 184,
               "node/library scene.h version drifted");
 static_assert(offsetof(mpviz::SceneGraph, point_cloud_count) == 192,
+              "node/library scene.h version drifted");
+
+// TrajectoryCarpet + SceneGraph::trajectory_carpets/trajectory_carpet_count,
+// appended VM-077 (ADR-0004) -- kSceneVersion 2 -> 3.
+static_assert(sizeof(mpviz::TrajectoryCarpet) == 24, "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::TrajectoryCarpet, points) == 0,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::TrajectoryCarpet, point_count) == 8,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::TrajectoryCarpet, last_update_sec) == 16,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::SceneGraph, trajectory_carpets) == 200,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::SceneGraph, trajectory_carpet_count) == 208,
               "node/library scene.h version drifted");
 
 // static_asserts above do the real work; this TEST body only exists so

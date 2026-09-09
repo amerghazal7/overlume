@@ -33,18 +33,25 @@ rows:
   - {topic: /perception/gradient_ogm, type: nav_msgs/msg/OccupancyGrid,
      adapter: ogm, role: gradient_ogm, update_topic: /perception/gradient_ogm_updates}
 
-  # Collision checker rows -- identical to urban_profile.yaml. Unvalidated
-  # against a live publisher (fixture gap 4, epic2 plan).
-  - {topic: /navigation_urban_collision_checker_testing_node/collision_markers,
+  # Collision checker rows -- retargeted 2026-09-09 (VM-077), identical to
+  # urban_profile.yaml. /navigation_urban_collision_checker_testing_node/*
+  # confirmed dead stack-wide; see urban_profile.yaml's identical rows for
+  # the full evidence and the dormant-row re-enable checklist.
+  - {topic: /behavior_path_planner/collision_markers,
      type: visualization_msgs/msg/MarkerArray, adapter: collision, role: collision}
-  - {topic: /navigation_urban_collision_checker_testing_node/object_predicted_polygons,
+  # FLAGGED JUDGMENT CALL (VM-077 measurement report §2) -- see
+  # urban_profile.yaml's identical row.
+  - {topic: /navigation_motion_obstacle_planner_node/collision_markers,
      type: visualization_msgs/msg/MarkerArray, adapter: collision, role: predicted}
-  - {topic: /navigation_urban_collision_checker_testing_node/ego_footprint_sweep,
-     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: sweep}
-  - {topic: /navigation_urban_collision_checker_testing_node/ego_merged_polygon,
-     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_ego}
-  - {topic: /navigation_urban_collision_checker_testing_node/object_merged_polygons,
-     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_object}
+
+  # DISABLED 2026-09-09 -- no measured successor for these three roles; see
+  # urban_profile.yaml's identical block for the re-enable checklist.
+  # - {topic: /navigation_urban_collision_checker_testing_node/ego_footprint_sweep,
+  #    type: visualization_msgs/msg/MarkerArray, adapter: collision, role: sweep}
+  # - {topic: /navigation_urban_collision_checker_testing_node/ego_merged_polygon,
+  #    type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_ego}
+  # - {topic: /navigation_urban_collision_checker_testing_node/object_merged_polygons,
+  #    type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_object}
 
   # Parity fallback (VM-027) -- identical to urban_profile.yaml. best_effort:
   # true is LOAD-BEARING (see that file's NOTE 2); do not drop it. Disabled

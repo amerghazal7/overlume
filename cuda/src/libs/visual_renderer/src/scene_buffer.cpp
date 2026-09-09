@@ -90,6 +90,16 @@ void OwnedScene::assign(const mpviz::SceneGraph& src) {
         point_clouds[i].points = point_cloud_points[i].data();
     }
     view.point_clouds = point_clouds.data();
+
+    trajectory_carpets.assign(src.trajectory_carpets,
+                               src.trajectory_carpets + src.trajectory_carpet_count);
+    trajectory_carpet_points.resize(src.trajectory_carpet_count);
+    for (uint32_t i = 0; i < src.trajectory_carpet_count; ++i) {
+        const TrajectoryCarpet& s = src.trajectory_carpets[i];
+        trajectory_carpet_points[i].assign(s.points, s.points + s.point_count);
+        trajectory_carpets[i].points = trajectory_carpet_points[i].data();
+    }
+    view.trajectory_carpets = trajectory_carpets.data();
 }
 
 void SceneBuffer::publish(const mpviz::SceneGraph& scene) {

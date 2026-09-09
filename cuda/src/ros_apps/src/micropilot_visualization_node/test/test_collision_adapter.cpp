@@ -1,9 +1,16 @@
 /** @file test_collision_adapter.cpp
  *  @brief CollisionAdapter tests.
  *
- *  FIXTURE GAP 4: the five collision-checker topics were silent in the
- *  recorded bag (a calm scenario, zero messages) -- every fixture below is
- *  synthetic, hand-written, unvalidated against a live publisher.
+ *  FIXTURE GAP 4 (epic2, superseded VM-077): the five collision-checker
+ *  topics were silent in the recorded bag -- every fixture below is
+ *  synthetic, hand-written. VM-077's measurement pass (2026-09-09) then
+ *  confirmed the whole /navigation_urban_collision_checker_testing_node/*
+ *  namespace dead stack-wide and retargeted/dormant'd every profile row
+ *  onto it (see urban_profile.yaml). `severity_for_role()`'s five-role
+ *  closed set is UNCHANGED by that remap (a dormant row's role stays legal
+ *  so it has something to uncomment onto) -- these tests exercise the
+ *  ADAPTER against hand-built rows (`MakeRow()` below), never `urban_row()`
+ *  for a topic that no longer ships a live row.
  */
 #include "micropilot_visualization_node/adapters/collision.hpp"
 
@@ -34,33 +41,52 @@ struct TfFixture
     FrameTransformer tf{buffer};
 };
 
+// VM-077: the dead-namespace topics these tests used to borrow via
+// urban_row() no longer have a live row to fetch (2 retargeted onto new
+// topic names, 3 dormant/commented) -- hand-built directly, same "no
+// urban_row()/sim_row() to borrow" shape test_point_cloud_adapter.cpp's own
+// MakeRow() already uses. The topic name itself is never read by
+// CollisionAdapter (severity comes from `role` alone), so a placeholder is
+// fine.
+mpviz_node::ProfileRow MakeRow(const std::string& role)
+{
+    mpviz_node::ProfileRow row;
+    row.topic = "/test/collision";
+    row.type = "visualization_msgs/msg/MarkerArray";
+    row.adapter = "collision";
+    row.role = role;
+    return row;
+}
+
 }  // namespace
 
 // ── Step 1: every shipped role maps to its severity ─────────────────────────
 
 TEST(CollisionAdapter, EveryShippedRoleMapsToItsSeverity)
 {
-    // Table-driven over the five ROWS SHIPPED IN THE REAL urban_profile.yaml
-    // (loaded via urban_row(), never a hand-written role string) -- an
-    // adapter test that invents its own role strings cannot notice the
-    // profile drifting away from this table.
+    // Table-driven over the five roles severity_for_role() must accept
+    // (profile.cpp's RoleSets closed set for adapter: collision) -- role
+    // strings, not urban_row() lookups: VM-077 dormant'd three of these
+    // roles' shipped rows (no live topic to fetch via urban_row() any
+    // more), but the role itself stays legal so a future re-enable has
+    // something to uncomment onto.
     struct Case
     {
-        const char* topic;
+        const char* role;
         uint8_t expected_severity;
     };
     const Case cases[] = {
-        {"/navigation_urban_collision_checker_testing_node/collision_markers", 2},
-        {"/navigation_urban_collision_checker_testing_node/object_predicted_polygons", 1},
-        {"/navigation_urban_collision_checker_testing_node/object_merged_polygons", 1},
-        {"/navigation_urban_collision_checker_testing_node/ego_footprint_sweep", 0},
-        {"/navigation_urban_collision_checker_testing_node/ego_merged_polygon", 0},
+        {"collision", 2},
+        {"predicted", 1},
+        {"merged_object", 1},
+        {"sweep", 0},
+        {"merged_ego", 0},
     };
 
     for (const auto& c : cases)
     {
         TfFixture kTf;
-        auto row = mpviz_node::testing::urban_row(c.topic);
+        auto row = MakeRow(c.role);
         mpviz_node::CollisionAdapter a(row, kTf.tf);
 
         // One trivial valid triangle -- proves the FULL path (ctor's
@@ -83,8 +109,8 @@ TEST(CollisionAdapter, EveryShippedRoleMapsToItsSeverity)
         a.ingest(arr, 1.0);
         SceneAssembly out;
         a.fill(out);
-        ASSERT_EQ(out.alerts.size(), 1u) << "topic " << c.topic;
-        EXPECT_EQ(out.alerts[0].severity, c.expected_severity) << "topic " << c.topic;
+        ASSERT_EQ(out.alerts.size(), 1u) << "role " << c.role;
+        EXPECT_EQ(out.alerts[0].severity, c.expected_severity) << "role " << c.role;
     }
 }
 
@@ -105,8 +131,7 @@ TEST(CollisionAdapter, OpenPolylineIsClosedIntoAPolygon)
     // its last (4 distinct points) -- stored polygon must come out CLOSED
     // (first == last), point_count == 5.
     TfFixture kTf;
-    auto row = mpviz_node::testing::urban_row(
-        "/navigation_urban_collision_checker_testing_node/ego_footprint_sweep");
+    auto row = MakeRow("sweep");
     mpviz_node::CollisionAdapter open(row, kTf.tf);
     auto openMsg = mpviz_node::testing::load_marker_array("collision_sweep_0.yaml");
     open.ingest(openMsg, 1.0);
@@ -121,8 +146,7 @@ TEST(CollisionAdapter, OpenPolylineIsClosedIntoAPolygon)
     // its last (5 points on the wire, 4 distinct) -- must come out
     // IDENTICALLY shaped: point_count == 5, no doubled closing vertex.
     TfFixture kTf2;
-    auto predictedRow = mpviz_node::testing::urban_row(
-        "/navigation_urban_collision_checker_testing_node/object_predicted_polygons");
+    auto predictedRow = MakeRow("predicted");
     mpviz_node::CollisionAdapter closed(predictedRow, kTf2.tf);
     auto closedMsg = mpviz_node::testing::load_marker_array("collision_predicted_0.yaml");
     closed.ingest(closedMsg, 1.0);
@@ -142,8 +166,7 @@ TEST(CollisionAdapter, DegenerateAndNaNPolygonsDroppedAndCounted)
     // (only 2 distinct points once its own producer-repeated closing point
     // is stripped), and one valid neighbour in between them.
     TfFixture kTf;
-    auto row = mpviz_node::testing::urban_row(
-        "/navigation_urban_collision_checker_testing_node/object_merged_polygons");
+    auto row = MakeRow("merged_object");
     mpviz_node::CollisionAdapter a(row, kTf.tf);
     auto msg = mpviz_node::testing::load_marker_array("collision_malformed_0.yaml");
     a.ingest(msg, 1.0);
@@ -163,8 +186,7 @@ TEST(CollisionAdapter, SilentTopicYieldsZeroAlertsAndDoesNotWedge)
     // FIXTURE GAP 4: this is the recorded-stack REALITY, not an error path
     // -- every collision topic published zero messages in the bag.
     TfFixture kTf;
-    auto row = mpviz_node::testing::urban_row(
-        "/navigation_urban_collision_checker_testing_node/collision_markers");
+    auto row = MakeRow("collision");
     mpviz_node::CollisionAdapter a(row, kTf.tf);
 
     EXPECT_EQ(a.stats().msgs, 0u);
@@ -178,8 +200,7 @@ TEST(CollisionAdapter, SilentTopicYieldsZeroAlertsAndDoesNotWedge)
 TEST(CollisionAdapter, DeleteAllClearsPreviousPolygons)
 {
     TfFixture kTf;
-    auto row = mpviz_node::testing::urban_row(
-        "/navigation_urban_collision_checker_testing_node/ego_footprint_sweep");
+    auto row = MakeRow("sweep");
     mpviz_node::CollisionAdapter a(row, kTf.tf);
     auto msg = mpviz_node::testing::load_marker_array("collision_sweep_0.yaml");
     a.ingest(msg, 1.0);
@@ -205,8 +226,7 @@ TEST(CollisionAdapter, MarkerPoseComposesAndZeroQuaternionIsIdentity)
     // identity and tf2 would NaN) must land the polygon at the translated
     // coordinates, nothing dropped.
     TfFixture kTf;
-    auto row = mpviz_node::testing::urban_row(
-        "/navigation_urban_collision_checker_testing_node/ego_footprint_sweep");
+    auto row = MakeRow("sweep");
     mpviz_node::CollisionAdapter a(row, kTf.tf);
     auto msg = mpviz_node::testing::load_marker_array("collision_sweep_0.yaml");
     ASSERT_FALSE(msg.markers.empty());

@@ -60,6 +60,7 @@ const std::map<std::string, std::set<std::string>>& RoleSets()
         {"generic", {"neutral"}},
         {"tf_axes", {"debug"}},
         {"point_cloud", {"points"}},
+        {"trajectory_carpet", {"carpet"}},
     };
     return kRoles;
 }
@@ -76,6 +77,7 @@ const std::map<std::string, std::set<std::string>>& TypeSets()
         {"dynamic_objects", {"visualization_msgs/msg/MarkerArray"}},
         {"generic", {"visualization_msgs/msg/MarkerArray"}},
         {"point_cloud", {"sensor_msgs/msg/PointCloud2"}},
+        {"trajectory_carpet", {"visualization_msgs/msg/MarkerArray"}},
     };
     return kTypes;
 }
@@ -84,7 +86,7 @@ const std::set<std::string>& KnownAdapters()
 {
     static const std::set<std::string> kAdapters = {
         "dynamic_objects", "path", "hd_map", "ogm", "collision", "generic", "tf_axes",
-        "point_cloud"};
+        "point_cloud", "trajectory_carpet"};
     return kAdapters;
 }
 

@@ -45,6 +45,7 @@
 #include "micropilot_visualization_node/adapters/path.hpp"
 #include "micropilot_visualization_node/adapters/point_cloud.hpp"
 #include "micropilot_visualization_node/adapters/tf_axes.hpp"
+#include "micropilot_visualization_node/adapters/trajectory_carpet.hpp"
 #include "micropilot_visualization_node/callouts.hpp"
 #include "micropilot_visualization_node/diagnostics.hpp"
 #include "micropilot_visualization_node/frame_transform.hpp"
@@ -305,6 +306,26 @@ private:
     std::vector<rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr>
         point_cloud_subs_;
 
+    // ── Trajectory carpet (VM-077) ────────────────────────────────────────────
+    // One TrajectoryCarpetAdapter per profile row with adapter:
+    // trajectory_carpet -- today's shipped urban profile carries exactly
+    // one (/navigation_motion_obstacle_planner_node/output_trajectory_carpet).
+    // Same fill()-appends/timeout_sec/warn_on_drop_growth shape as every
+    // category above. TrajectoryCarpet carries last_update_sec, so this
+    // category gets the library's staleness FADE
+    // (trajectory_carpet.mat's own settable alpha).
+    struct CarpetRow
+    {
+        std::unique_ptr<mpviz_node::TrajectoryCarpetAdapter> adapter;
+        double timeout_sec;
+        std::string topic;              // named in drop-growth WARNs
+        uint64_t warned_malformed = 0;  // counts already reported by
+        uint64_t warned_no_tf = 0;      // warn_on_drop_growth()
+    };
+    std::vector<CarpetRow> carpet_rows_;
+    std::vector<rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr>
+        carpet_subs_;
+
     // ── TF-axes debug layer (Epic 2 Task 8 Step 7 / VM-027) ──────────────────
     // One TfAxesAdapter per profile row with adapter: tf_axes -- a
     // PRODUCER, not a subscriber (see that adapter's own header comment for
@@ -379,6 +400,9 @@ private:
     bool layer_alerts_{true};
     bool layer_markers_{true};
     bool layer_point_clouds_{true};
+    // VM-077: gates scene_asm_.trajectory_carpets. Singular knob name,
+    // matching the category's own singular topic/adapter/role.
+    bool layer_trajectory_carpet_{true};
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr layer_param_cb_;
 
     rclcpp::TimerBase::SharedPtr timer_;

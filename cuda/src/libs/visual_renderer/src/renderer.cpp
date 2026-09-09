@@ -32,6 +32,8 @@
 #include "objects_test_hooks.hpp"
 #include "point_cloud.hpp"
 #include "point_cloud_test_hooks.hpp"
+#include "trajectory_carpet.hpp"
+#include "trajectory_carpet_test_hooks.hpp"
 #include "ribbon.hpp"
 #include "ribbon_test_hooks.hpp"
 #include "renderer_internal.hpp"
@@ -80,6 +82,7 @@
 #include "ribbon_emissive_filamat.h"   // matc-generated; see assets/materials/ribbon_emissive.mat
 #include "ground_grid_filamat.h"       // matc-generated; see assets/materials/ground_grid.mat
 #include "point_cloud_filamat.h"       // matc-generated; see assets/materials/point_cloud.mat
+#include "trajectory_carpet_filamat.h" // matc-generated; see assets/materials/trajectory_carpet.mat
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -1151,6 +1154,18 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     r->pointCloudMaterialInstance = r->pointCloudMaterial->createInstance();
     r->pointCloudMaterialInstance->setCullingMode(filament::backend::CullingMode::NONE);
 
+    // Trajectory carpets (VM-077): trajectory_carpet.mat is a seventh
+    // Material (UNLIT, packed rgba8 vertex color, one settable float alpha
+    // -- see that .mat's header comment), built once here. ONE instance for
+    // the whole layer, same reasoning as pointCloudMaterialInstance above.
+    r->trajectoryCarpetMaterial =
+        filament::Material::Builder()
+            .package(mpviz::materials::ktrajectory_carpetFilamat,
+                     mpviz::materials::ktrajectory_carpetFilamatSize)
+            .build(*engine);
+    r->trajectoryCarpetMaterialInstance = r->trajectoryCarpetMaterial->createInstance();
+    r->trajectoryCarpetMaterialInstance->setCullingMode(filament::backend::CullingMode::NONE);
+
     // Alert polygons: three eager clay_translucent.mat instances (0 info/1
     // warning/2 critical) on the same clayTranslucentMaterial
     // objects.cpp/ribbon.cpp already use -- no fourth Material. Same
@@ -1377,6 +1392,15 @@ void destroy_renderer(VisualRenderer* r) {
     r->pointCloudSlots.clear();
     if (r->pointCloudMaterialInstance) r->engine->destroy(r->pointCloudMaterialInstance);
     if (r->pointCloudMaterial) r->engine->destroy(r->pointCloudMaterial);
+
+    // Every live trajectory-carpet slot, same ordering rule as point clouds
+    // above (meshes before their shared Material is destroyed).
+    for (auto& slot : r->trajectoryCarpetSlots) {
+        for (auto& mesh : slot.meshes) destroy_mesh(*r->engine, *r->scene, mesh);
+    }
+    r->trajectoryCarpetSlots.clear();
+    if (r->trajectoryCarpetMaterialInstance) r->engine->destroy(r->trajectoryCarpetMaterialInstance);
+    if (r->trajectoryCarpetMaterial) r->engine->destroy(r->trajectoryCarpetMaterial);
     if (r->groundMaterial) r->engine->destroy(r->groundMaterial);
     if (r->gridMaterial) r->engine->destroy(r->gridMaterial);
     if (r->clayMaterial) r->engine->destroy(r->clayMaterial);
@@ -1495,6 +1519,12 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     // alongside generic markers as the other "large synthetic/sensor data"
     // category.
     update_point_clouds(*r, r->scene_buffer.active());
+    // Trajectory carpets (VM-077): diffs trajectory_carpets against the live
+    // per-slot mesh cache (keyed by slot index) — see trajectory_carpet.cpp.
+    // Runs right after point clouds -- the other "large synthetic data,
+    // order doesn't matter for z-fighting" category (unlit, no shared plane
+    // to contend with).
+    update_trajectory_carpets(*r, r->scene_buffer.active());
 
     r->camera->lookAt({pose.eye[0], pose.eye[1], pose.eye[2]},
                        {pose.target[0], pose.target[1], pose.target[2]},

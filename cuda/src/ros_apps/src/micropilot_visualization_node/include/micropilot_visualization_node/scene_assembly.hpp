@@ -43,6 +43,9 @@ struct SceneAssembly
     // Epic 3 Task 6 (VM-035): PointCloud rows append here, same shape as
     // every category above.
     std::vector<mpviz::PointCloud> point_clouds;
+    // VM-077: TrajectoryCarpetAdapter rows append here, same shape as every
+    // category above.
+    std::vector<mpviz::TrajectoryCarpet> trajectory_carpets;
 
     // Cleared at the top of every timer_callback(), before any adapter's
     // fill() runs -- this is what makes "ClearBetweenTicksDoesNotAccumulate"
@@ -68,6 +71,11 @@ struct LayerFlags
     bool alerts = true;
     bool markers = true;
     bool point_clouds = true;
+    // VM-077: gates SceneAssembly::trajectory_carpets. Singular, matching
+    // the category's own singular topic/adapter/param name
+    // (layer_trajectory_carpet) -- today's shipped profile carries exactly
+    // one row.
+    bool trajectory_carpet = true;
 };
 
 // Clears each SceneAssembly category whose matching LayerFlags member is

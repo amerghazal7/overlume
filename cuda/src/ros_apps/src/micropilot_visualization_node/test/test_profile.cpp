@@ -335,6 +335,61 @@ TEST(Profile, ColorModeMaxPointsStrideAreRejectedOnNonPointCloudRows)
     EXPECT_NE(errs[0].find("color_mode"), std::string::npos);
 }
 
+// ── VM-077: adapter: trajectory_carpet ──────────────────────────────────────
+
+TEST(Profile, TrajectoryCarpetAdapterAcceptsRoleCarpetOnly)
+{
+    std::vector<std::string> errs;
+    auto p = load_profile_string(
+        "name: t\nrows:\n  - {topic: /c, type: visualization_msgs/msg/MarkerArray,"
+        " adapter: trajectory_carpet, role: carpet}\n", errs);
+    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
+    EXPECT_EQ(p->rows[0].role, "carpet");
+
+    std::vector<std::string> bad_errs;
+    auto bad = load_profile_string(
+        "name: t\nrows:\n  - {topic: /c, type: visualization_msgs/msg/MarkerArray,"
+        " adapter: trajectory_carpet, role: neutral}\n", bad_errs);
+    EXPECT_FALSE(bad.has_value());
+    ASSERT_FALSE(bad_errs.empty());
+    EXPECT_NE(bad_errs[0].find("neutral"), std::string::npos);
+}
+
+TEST(Profile, TrajectoryCarpetAdapterRejectsWrongMessageType)
+{
+    std::vector<std::string> errs;
+    auto p = load_profile_string(
+        "name: t\nrows:\n  - {topic: /c, type: nav_msgs/msg/Path,"
+        " adapter: trajectory_carpet, role: carpet}\n", errs);
+    EXPECT_FALSE(p.has_value());
+    ASSERT_FALSE(errs.empty());
+    EXPECT_NE(errs[0].find("trajectory_carpet"), std::string::npos);
+}
+
+// ── VM-077 Task 5: two new generic-adapter rows (urban only) ───────────────
+
+TEST(Profile, DebugCruiseObstacleMarkerRowUsesGenericAdapter)
+{
+    std::vector<std::string> errs;
+    auto p = load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
+    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
+    const auto* row = find_row(*p, "/navigation/debug_cruise_obstacle_marker");
+    ASSERT_NE(row, nullptr);
+    EXPECT_EQ(row->adapter, "generic");
+    EXPECT_EQ(row->role, "neutral");
+}
+
+TEST(Profile, LocalMapCornersRowUsesGenericAdapter)
+{
+    std::vector<std::string> errs;
+    auto p = load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
+    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
+    const auto* row = find_row(*p, "/local_map_corners");
+    ASSERT_NE(row, nullptr);
+    EXPECT_EQ(row->adapter, "generic");
+    EXPECT_EQ(row->role, "neutral");
+}
+
 TEST(Profile, GroundTruthBoxesRowIsBestEffortBecauseItsPublisherIs)
 {
     // The bag's /sim/ground_truth/boxes publisher is BEST_EFFORT; an rclcpp
@@ -558,17 +613,13 @@ TEST(Profile, ShippedProfilesCarryEveryCollisionPathAndOgmRow)
         std::string role;
     };
     const std::vector<Expected> kExpectedRows = {
-        // 5 collision rows
-        {"/navigation_urban_collision_checker_testing_node/collision_markers", "collision",
-         "collision"},
-        {"/navigation_urban_collision_checker_testing_node/object_predicted_polygons",
-         "collision", "predicted"},
-        {"/navigation_urban_collision_checker_testing_node/ego_footprint_sweep", "collision",
-         "sweep"},
-        {"/navigation_urban_collision_checker_testing_node/ego_merged_polygon", "collision",
-         "merged_ego"},
-        {"/navigation_urban_collision_checker_testing_node/object_merged_polygons", "collision",
-         "merged_object"},
+        // 2 collision rows (VM-077 remap, 2026-09-09: the old
+        // /navigation_urban_collision_checker_testing_node/* namespace is
+        // confirmed dead stack-wide; sweep/merged_ego/merged_object went
+        // dormant with no measured successor -- see the profile YAMLs'
+        // own DISABLED blocks).
+        {"/behavior_path_planner/collision_markers", "collision", "collision"},
+        {"/navigation_motion_obstacle_planner_node/collision_markers", "collision", "predicted"},
         // 4 path rows
         {"/behavior_path_planner/output_path_visualization", "path", "behavior"},
         {"/local_vel_path", "path", "local"},
@@ -589,6 +640,19 @@ TEST(Profile, ShippedProfilesCarryEveryCollisionPathAndOgmRow)
             EXPECT_EQ(row->adapter, exp.adapter) << profile_file << ": topic " << exp.topic;
             EXPECT_EQ(row->role, exp.role) << profile_file << ": topic " << exp.topic;
         }
+
+        // The three dead-namespace rows with no measured successor
+        // (VM-077 Task 4 Step 1) must be ABSENT, not just re-pointed --
+        // dormant means commented out, never a live-subscribed row.
+        for (const char* dead_topic :
+             {"/navigation_urban_collision_checker_testing_node/collision_markers",
+              "/navigation_urban_collision_checker_testing_node/object_predicted_polygons",
+              "/navigation_urban_collision_checker_testing_node/ego_footprint_sweep",
+              "/navigation_urban_collision_checker_testing_node/ego_merged_polygon",
+              "/navigation_urban_collision_checker_testing_node/object_merged_polygons"}) {
+            EXPECT_EQ(find_row(*p, dead_topic), nullptr)
+                << profile_file << ": dead-namespace row must not still be live: " << dead_topic;
+        }
     }
 }
 
@@ -604,8 +668,14 @@ TEST(Profile, CoexistsWithTheRendererLibrarysOwnYamlCpp)
     // fine and still return a Profile with the right error count (0) but the
     // wrong row count -- silently corrupting data, not crashing.
     // 15, not 17: /road_markers and /sim/ground_truth/boxes ship disabled
-    // (see above); +1 for the /iv_points_fusion point_cloud row (2026-09-09).
-    // Bump when a row is added or a disabled one re-enabled.
+    // (see above); +1 for the /iv_points_fusion point_cloud row (2026-09-09);
+    // +1 for the output_trajectory_carpet row (VM-077 Task 3, 2026-09-09) ->
+    // 16; -3 for the VM-077 Task 4 collision remap (5 dead rows -> 2
+    // retargeted + 3 dormant/commented) -> 13; +2 for the VM-077 Task 5
+    // generic rows (/navigation/debug_cruise_obstacle_marker,
+    // /local_map_corners) -> 15 (net delta from this plan's Tasks 3+4+5 is
+    // 0, per the plan's own arithmetic note). Bump when a row is added or a
+    // disabled one re-enabled.
     EXPECT_EQ(p->rows.size(), 15u);
     // ...and the bundled yaml-cpp (clang/libc++), inside libvisual_renderer.a,
     // parses a theme in the SAME process. If the two ever get relinked into

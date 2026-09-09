@@ -47,6 +47,9 @@ struct OwnedScene {
     std::vector<std::string> chip_texts;
     std::vector<PointCloud> point_clouds;
     std::vector<std::vector<PointCloudPoint>> point_cloud_points;  // point_clouds[i].points storage
+    std::vector<TrajectoryCarpet> trajectory_carpets;
+    // trajectory_carpets[i].points storage
+    std::vector<std::vector<PointCloudPoint>> trajectory_carpet_points;
     // Deep-copies `src` — including every nested Vec3[]/uint8_t[]/char*
     // payload reached by the arrays above — into this object's vectors, and
     // repoints view's pointers (both the top-level array pointers AND each

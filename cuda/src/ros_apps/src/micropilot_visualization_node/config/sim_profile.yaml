@@ -122,33 +122,32 @@ rows:
   - {topic: /perception/gradient_ogm, type: nav_msgs/msg/OccupancyGrid,
      adapter: ogm, role: gradient_ogm, update_topic: /perception/gradient_ogm_updates}
 
-  # FIXTURE GAP (VM-026): collision checker was silent in the calm recorded
-  # scenario (zero messages on all five topics). Names, and the fact that
-  # there are exactly five, come from assets/urban_config.rviz:175-223 -- five
-  # ENABLED rviz_default_plugins/MarkerArray displays, all
-  # visualization_msgs/msg/MarkerArray, all offered RELIABLE/VOLATILE, so no
-  # best_effort: true here. UNVALIDATED against a live publisher.
-  # The five rows SHIP NOW, complete, in Task 1 -- not "filled in by Task 7".
-  # Task 1's ShippedUrbanProfileLoads and
-  # ShippedProfilesRouteEveryKnownNamespaceOfEveryShippedTopic assert against
-  # this file, so a placeholder comment here would mean those tests certify an
-  # incomplete profile and Task 7 would land five rows nothing ever validated.
-  # role -> AlertPolygon::severity is ONE table in collision.cpp (Task 7 Step
-  # 2); re-mapping a topic to a different severity is a role edit in this
-  # file, no rebuild. Rationale for the shipped mapping: only the checker's
-  # actual collision output is critical; the object predictions are the
-  # warning tier; the sweep and the two merge steps are debug geometry (info,
-  # and the ego sweep additionally gets the lower ghost alpha).
-  - {topic: /navigation_urban_collision_checker_testing_node/collision_markers,
+  # Retargeted 2026-09-09 (VM-077): /navigation_urban_collision_checker_testing_node/*
+  # confirmed dead stack-wide (0 live topics, ros2 topic list -t at
+  # recording time). Role from CONTENT, not the rviz slot the topic
+  # happened to land in (see the epic3 plan's rviz-reference-update
+  # CAUTION) -- explicit "COLLISION\nobject N..." label, no "predicted
+  # path" qualifier, two closed-ring footprints (ego+object). See
+  # urban_profile.yaml's identical rows for the full evidence.
+  - {topic: /behavior_path_planner/collision_markers,
      type: visualization_msgs/msg/MarkerArray, adapter: collision, role: collision}
-  - {topic: /navigation_urban_collision_checker_testing_node/object_predicted_polygons,
+  # FLAGGED JUDGMENT CALL (VM-077 measurement report §2, not resolved by
+  # content alone) -- see urban_profile.yaml's identical row for the full
+  # story. Shipped as role: predicted per the measured recommendation.
+  - {topic: /navigation_motion_obstacle_planner_node/collision_markers,
      type: visualization_msgs/msg/MarkerArray, adapter: collision, role: predicted}
-  - {topic: /navigation_urban_collision_checker_testing_node/ego_footprint_sweep,
-     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: sweep}
-  - {topic: /navigation_urban_collision_checker_testing_node/ego_merged_polygon,
-     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_ego}
-  - {topic: /navigation_urban_collision_checker_testing_node/object_merged_polygons,
-     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_object}
+
+  # DISABLED 2026-09-09 -- VM-077 measurement pass found NO successor topic
+  # for these three roles anywhere in the new stack's recording; the whole
+  # /navigation_urban_collision_checker_testing_node/* namespace is
+  # confirmed dead. See urban_profile.yaml's identical block for the
+  # re-enable checklist.
+  # - {topic: /navigation_urban_collision_checker_testing_node/ego_footprint_sweep,
+  #    type: visualization_msgs/msg/MarkerArray, adapter: collision, role: sweep}
+  # - {topic: /navigation_urban_collision_checker_testing_node/ego_merged_polygon,
+  #    type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_ego}
+  # - {topic: /navigation_urban_collision_checker_testing_node/object_merged_polygons,
+  #    type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_object}
 
   # Parity fallback (VM-027): anything not stylized above, one row each.
   # NOTE 1 (frames): this topic publishes in the base_link frame -- the only
@@ -255,3 +254,16 @@ rows:
   # (`landmark` is a prefix of `landmark_text`, so the hd_map row's single
   # `landmark` -> `drop` rule covers both; the generic row spells both out
   # because they need different verdicts from `ns_default: drop`.)
+
+  # SKIP as a render layer (VM-077 measurement report §5, D4):
+  # /sim/hd_map/local_markers -- same centerline_N/left_boundary_N/
+  # right_boundary_N ns nomenclature as this row's own /sim/hd_map/markers,
+  # overlapping road-network content, but a much smaller id space (max ~167
+  # vs ~7625 here) -- a different (likely sim ground-truth) source
+  # describing largely the same geometry, plus extra categories
+  # (arrows/crosswalks/junction/landmark). ~297 KB/msg const, ~3 MB/s at
+  # ~10 Hz, BEST_EFFORT (reliability:2 per the bag's metadata.yaml) -- cost
+  # without new information as a default-on duplicate. Revisit only as a
+  # deliberately-scoped, separately-toggleable ground-truth overlay row; if
+  # ever added, best_effort: true is REQUIRED (same lesson /iv_points_fusion
+  # already teaches).

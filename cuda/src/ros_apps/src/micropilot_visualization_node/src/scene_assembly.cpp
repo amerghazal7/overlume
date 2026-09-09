@@ -12,6 +12,7 @@ void SceneAssembly::clear()
     alerts.clear();
     markers.clear();
     point_clouds.clear();
+    trajectory_carpets.clear();
 }
 
 void SceneAssembly::point_at(mpviz::SceneGraph& scene) const
@@ -30,6 +31,8 @@ void SceneAssembly::point_at(mpviz::SceneGraph& scene) const
     scene.marker_count = static_cast<uint32_t>(markers.size());
     scene.point_clouds = point_clouds.data();
     scene.point_cloud_count = static_cast<uint32_t>(point_clouds.size());
+    scene.trajectory_carpets = trajectory_carpets.data();
+    scene.trajectory_carpet_count = static_cast<uint32_t>(trajectory_carpets.size());
 }
 
 void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags)
@@ -41,6 +44,7 @@ void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags)
     if (!flags.alerts) asm_.alerts.clear();
     if (!flags.markers) asm_.markers.clear();
     if (!flags.point_clouds) asm_.point_clouds.clear();
+    if (!flags.trajectory_carpet) asm_.trajectory_carpets.clear();
 }
 
 }  // namespace micropilot::visualization_app

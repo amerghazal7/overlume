@@ -21,7 +21,7 @@ namespace mpviz {
 // scene.h change; the node-side static_assert mirror (test_scene_layout.cpp)
 // fails loudly on a layout mismatch instead of silently reading garbage
 // across the ABI boundary at the node's next rebuild.
-constexpr uint32_t kSceneVersion = 2;
+constexpr uint32_t kSceneVersion = 3;
 
 struct Vec3 { double x, y, z; };
 
@@ -159,6 +159,19 @@ struct PointCloud {
     double last_update_sec;
 };
 
+// ── TrajectoryCarpet[] (VM-077, ADR-0004 additive) ──────────────────────────
+// output_trajectory_carpet: TRIANGLE_LIST, always a multiple of 3, genuine
+// per-vertex color (the producer's own velocity colormap -- r/g vary, b≡0,
+// a≡0.70; see the VM-077 measurement report). Reuses PointCloudPoint
+// verbatim (identical layout need: world position + packed rgba8) rather
+// than a new vertex struct. Rendered as a flat TRIANGLES list, sequential
+// indices -- mirrors point_cloud.cpp's own POINTS indexing exactly, minus
+// the pointSizePx uniform (meaningless for triangles).
+struct TrajectoryCarpet {
+    const PointCloudPoint* points;  uint32_t point_count;  // multiple of 3
+    double last_update_sec;
+};
+
 // ── Hud (Epic 1: speed+mode only; chips arrive with VM-031) ─────────────────
 struct AlertChip {
     const char* text;
@@ -195,6 +208,8 @@ struct SceneGraph {
     // Appended Epic 3 Task 6 (VM-035, ADR-0004) -- kSceneVersion 1 -> 2, the
     // one bump this epic makes (Task 1 introduced the constant at 1).
     const PointCloud*      point_clouds; uint32_t point_cloud_count;
+    // Appended VM-077 (ADR-0004) -- kSceneVersion 2 -> 3.
+    const TrajectoryCarpet* trajectory_carpets; uint32_t trajectory_carpet_count;
 };
 
 // Deep-copies `scene` (and everything its pointers reach) into the renderer's
