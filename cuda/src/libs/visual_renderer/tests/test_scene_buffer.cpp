@@ -85,7 +85,7 @@ TEST(StalenessAlpha, PastTimeoutIsFullyFaded) {
     EXPECT_FLOAT_EQ(mpviz::detail::SceneBuffer::staleness_alpha(13.0, 10.0, 0.5, 2.0), 0.0f);
 }
 
-static_assert(mpviz::kSceneVersion == 4,
+static_assert(mpviz::kSceneVersion == 5,
               "bump this alongside every additive scene.h change, and update the "
               "node-side test_scene_layout.cpp mirror");
 
@@ -247,6 +247,56 @@ static_assert(offsetof(mpviz::GeoAnchor, origin_lon_deg) == 8,
               "GeoAnchor layout, ADR-0004 additive");
 static_assert(offsetof(mpviz::GeoAnchor, heading_rad) == 16,
               "GeoAnchor layout, ADR-0004 additive");
+
+// CameraExtrinsics/CameraIntrinsics/BowlConfig, appended VM-090 (unified-
+// engine migration Task 1, ADR-0005) -- kSceneVersion 4 -> 5. None are
+// SceneGraph fields (same "standalone POD, not deep-copied per-tick" shape
+// as GeoAnchor above).
+static_assert(sizeof(mpviz::CameraExtrinsics) == 96,
+              "CameraExtrinsics layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::CameraExtrinsics, R) == 0,
+              "CameraExtrinsics layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::CameraExtrinsics, t) == 72,
+              "CameraExtrinsics layout, ADR-0004 additive");
+
+static_assert(sizeof(mpviz::CameraIntrinsics) == 72,
+              "CameraIntrinsics layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::CameraIntrinsics, fx) == 0,
+              "CameraIntrinsics layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::CameraIntrinsics, fy) == 8,
+              "CameraIntrinsics layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::CameraIntrinsics, cx) == 16,
+              "CameraIntrinsics layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::CameraIntrinsics, cy) == 24,
+              "CameraIntrinsics layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::CameraIntrinsics, dist) == 32,
+              "CameraIntrinsics layout, ADR-0004 additive");
+
+static_assert(sizeof(mpviz::BowlConfig) == 88, "BowlConfig layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::BowlConfig, camera_count) == 0,
+              "BowlConfig layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::BowlConfig, extrinsics) == 8,
+              "BowlConfig layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::BowlConfig, intrinsics) == 16,
+              "BowlConfig layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::BowlConfig, cam_width) == 24,
+              "BowlConfig layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::BowlConfig, cam_height) == 32,
+              "BowlConfig layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::BowlConfig, bowl_R0) == 40,
+              "BowlConfig layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::BowlConfig, bowl_k) == 48,
+              "BowlConfig layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::BowlConfig, bowl_Rmax) == 56,
+              "BowlConfig layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::BowlConfig, feather_margin) == 64,
+              "BowlConfig layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::BowlConfig, fill_blind_zone) == 72,
+              "BowlConfig layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::BowlConfig, exposure_match) == 73,
+              "BowlConfig layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::BowlConfig, sky_color) == 76,
+              "BowlConfig layout, ADR-0004 additive");
 
 // RenderConfig (api.h) — also crosses the prebuilt-archive ABI boundary.
 static_assert(sizeof(mpviz::RenderConfig) == 32, "RenderConfig layout frozen");

@@ -1402,6 +1402,13 @@ void destroy_renderer(VisualRenderer* r) {
     }
     if (r->groundGridMaterial) r->engine->destroy(r->groundGridMaterial);
 
+    // Every live camera-bowl texture (VM-090/ADR-0005) -- no bowl mesh/
+    // material exists yet at this task, only the per-camera textures
+    // set_bowl_config() allocates.
+    for (auto& slot : r->cameraSlots) {
+        if (slot.texture) r->engine->destroy(slot.texture);
+    }
+
     // Every live point-cloud slot -- meshes (possibly several per slot,
     // past the uint16 chunk-split ceiling) -- must run before
     // pointCloudMaterial is destroyed below (same "instance before its

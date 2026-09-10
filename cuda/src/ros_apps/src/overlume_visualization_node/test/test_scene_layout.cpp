@@ -21,7 +21,7 @@
 
 #include <gtest/gtest.h>
 
-static_assert(mpviz::kSceneVersion == 4, "node/library scene.h version drifted");
+static_assert(mpviz::kSceneVersion == 5, "node/library scene.h version drifted");
 
 static_assert(sizeof(mpviz::MapElement) == 32, "node/library scene.h version drifted");
 static_assert(offsetof(mpviz::MapElement, points) == 0, "node/library scene.h version drifted");
@@ -77,6 +77,47 @@ static_assert(offsetof(mpviz::GeoAnchor, origin_lat_deg) == 0,
 static_assert(offsetof(mpviz::GeoAnchor, origin_lon_deg) == 8,
               "node/library scene.h version drifted");
 static_assert(offsetof(mpviz::GeoAnchor, heading_rad) == 16,
+              "node/library scene.h version drifted");
+
+// CameraExtrinsics/CameraIntrinsics/BowlConfig, appended VM-090 (unified-
+// engine migration Task 1, ADR-0005) -- kSceneVersion 4 -> 5. Not
+// SceneGraph fields, same reasoning as GeoAnchor above.
+static_assert(sizeof(mpviz::CameraExtrinsics) == 96, "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::CameraExtrinsics, R) == 0, "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::CameraExtrinsics, t) == 72, "node/library scene.h version drifted");
+
+static_assert(sizeof(mpviz::CameraIntrinsics) == 72, "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::CameraIntrinsics, fx) == 0, "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::CameraIntrinsics, fy) == 8, "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::CameraIntrinsics, cx) == 16, "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::CameraIntrinsics, cy) == 24, "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::CameraIntrinsics, dist) == 32,
+              "node/library scene.h version drifted");
+
+static_assert(sizeof(mpviz::BowlConfig) == 88, "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::BowlConfig, camera_count) == 0,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::BowlConfig, extrinsics) == 8,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::BowlConfig, intrinsics) == 16,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::BowlConfig, cam_width) == 24,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::BowlConfig, cam_height) == 32,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::BowlConfig, bowl_R0) == 40,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::BowlConfig, bowl_k) == 48,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::BowlConfig, bowl_Rmax) == 56,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::BowlConfig, feather_margin) == 64,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::BowlConfig, fill_blind_zone) == 72,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::BowlConfig, exposure_match) == 73,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::BowlConfig, sky_color) == 76,
               "node/library scene.h version drifted");
 
 // static_asserts above do the real work; this TEST body only exists so
