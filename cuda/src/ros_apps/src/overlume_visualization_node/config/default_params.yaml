@@ -72,3 +72,15 @@
     geo_datum_lat_deg: .nan
     geo_datum_lon_deg: .nan
     geo_datum_heading_deg: .nan
+    # VM-052 (Epic 4 Task 3): baked-environment (clay buildings) disable knob
+    # (STANDING directive) -- false means on_activate() never calls
+    # mpviz::set_environment_source() at all, same "config for every
+    # rendered element" shape as hud_enabled/callouts_enabled above.
+    environment_enabled: true
+    # Per-checkout absolute path to Task 2 (VM-051)'s baked chunk index dir
+    # (index.yaml + chunks/*.glb) -- same class of gap as ego_model_path/
+    # hud_font_path above (VM-044, Epic 5, closes real ament_index
+    # resolution). "" is non-fatal: on_activate() WARNs once and never calls
+    # set_environment_source() (no anchor solved / no dir given -- same
+    # "missing data renders nothing" convention, spec §9).
+    environment_chunks_dir: ""

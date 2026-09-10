@@ -350,6 +350,18 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
     bool geo_anchor_logged_{false};
 
+    // ── Environment (VM-052) ──────────────────────────────────────────────────
+    // environment_enabled_/environment_chunks_dir_ read once in on_configure(),
+    // same shape as hud_enabled_/hud_font_path_ below (STANDING directive
+    // disable knob + per-checkout-path gap). on_activate() calls
+    // mpviz::set_environment_source() iff environment_enabled_ AND
+    // geo_anchor_solver_->solved() -- else WARNs once
+    // (environment_warned_) and never calls it, per spec §4.5/§9's "no
+    // anchor -> environment layer disabled with one WARN".
+    bool environment_enabled_{true};
+    std::string environment_chunks_dir_;
+    bool environment_warned_{false};
+
     SceneAssembly scene_asm_;
 
     // ── renderer + preallocated output buffer ────────────────────────────────
