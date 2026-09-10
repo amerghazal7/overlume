@@ -101,9 +101,12 @@ uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float half
 // ribbon" (user directive) while the hero ribbon stays topmost of the whole
 // stack. Full order, lowest to highest: GLOBAL 0.04 < LOCAL 0.045 <
 // velocity 0.0475 < BEHAVIOR 0.05 < alert_polygons.cpp's kAlertZLiftM 0.06.
-constexpr float kRibbonZLiftByRoleM[3] = {0.05f,   // BEHAVIOR (PathRole 0)
-                                          0.040f,  // GLOBAL   (PathRole 1)
-                                          0.045f}; // LOCAL    (PathRole 2)
+// Stagger widened 2026-09-10 (user: "Still flickering, increase the z a
+// bit and let me judge") -- gaps 6-8mm, was 2.5-5mm; whole stack stays
+// under alert_polygons' 0.06 so alerts remain topmost.
+constexpr float kRibbonZLiftByRoleM[3] = {0.058f,  // BEHAVIOR (PathRole 0)
+                                          0.038f,  // GLOBAL   (PathRole 1)
+                                          0.046f}; // LOCAL    (PathRole 2)
 
 // Per-role extruded half-width: a ribbon doesn't fully occupy
 // theme.ribbon.lane_width_m -- each role's own margin

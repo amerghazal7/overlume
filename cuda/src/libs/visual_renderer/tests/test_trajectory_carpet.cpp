@@ -312,11 +312,11 @@ TEST(TrajectoryCarpet, VertexZIsLiftedAboveTheFlattenedZeroTheAdapterSends) {
 
     for (size_t i = 0; i < 6; ++i) {
         const float z = mpviz::testing::trajectory_carpet_vertex_z(r, 0, i);
-        EXPECT_GT(z, 0.045f) << "vertex " << i
-                              << " must be lifted ABOVE LOCAL's own z-lift (0.045) -- "
+        EXPECT_GT(z, 0.046f) << "vertex " << i
+                              << " must be lifted ABOVE LOCAL's own z-lift (0.046) -- "
                                  "\"stacked on top of local ribbon\" per the user directive";
-        EXPECT_LT(z, 0.05f) << "vertex " << i
-                             << " must stay BELOW BEHAVIOR's z-lift (0.05) -- the hero ribbon "
+        EXPECT_LT(z, 0.058f) << "vertex " << i
+                             << " must stay BELOW BEHAVIOR's z-lift (0.058) -- the hero ribbon "
                                 "must remain topmost of the path/ribbon stack";
     }
     mpviz::destroy_renderer(r);

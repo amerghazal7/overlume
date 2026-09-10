@@ -67,7 +67,7 @@ using filament::math::float3;
 constexpr float kTrajectoryCarpetBoundsM = 200.0f;
 
 // Z-lift for the velocity ribbon: BETWEEN LOCAL (ribbon.cpp's
-// kRibbonZLiftByRoleM[LOCAL] == 0.045) and BEHAVIOR (kRibbonZLiftByRoleM
+// kRibbonZLiftByRoleM[LOCAL] == 0.046) and BEHAVIOR (kRibbonZLiftByRoleM
 // [BEHAVIOR] == 0.05) -- "stacked on top of local ribbon" (user directive)
 // while keeping the BEHAVIOR hero ribbon topmost, exactly the reasoning
 // ribbon.cpp's own per-role stagger doc states for why GLOBAL/LOCAL/
@@ -78,7 +78,7 @@ constexpr float kTrajectoryCarpetBoundsM = 200.0f;
 // kTrajectoryCarpetZLiftM (0.055, chosen only to clear BEHAVIOR from
 // "above everything" carpet-era thinking that no longer applies once this
 // renders IN the ribbon stack rather than over it).
-constexpr float kVelocityRibbonZLiftM = 0.0475f;
+constexpr float kVelocityRibbonZLiftM = 0.052f;  // widened stagger 2026-09-10, between LOCAL 0.046 and BEHAVIOR 0.058
 
 // One trajectory-carpet vertex: world-space position + packed rgba8, EXACTLY
 // point_cloud.cpp's PointVertex layout (D1: PointCloudPoint reused verbatim
