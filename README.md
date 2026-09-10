@@ -162,3 +162,18 @@ which the architecture is already set up to accept.
    - Video-file / GL consumer: designed-for seam in `Reprojector` interface; not yet wired.
 8. Disocclusion handling: temporal accumulation / inpainting to fill unseen
    geometry instead of bowl fallback.
+
+## Visual-mode docs
+
+For the ROS2 `micropilot_visualization_node` (Filament-based third render
+mode, `cuda/src/ros_apps/src/micropilot_visualization_node/`):
+
+- [`docs/visual_mode/profile_authoring.md`](docs/visual_mode/profile_authoring.md)
+  — add a topic to the visualization via profile YAML only (autonomy-team
+  guide).
+- [`docs/visual_mode/environment_bake.md`](docs/visual_mode/environment_bake.md)
+  — bake OSM building footprints into the environment-chunk format the node
+  loads.
+
+(Deployment/architecture notes for this node are deferred to post-cutover —
+see [`docs/visual_mode/README.md`](docs/visual_mode/README.md).)
