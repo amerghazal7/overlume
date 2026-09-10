@@ -662,6 +662,16 @@ def _selfcheck_step4_overlay(tmp_dir: Path) -> bool:
         local_enu_to_wgs(anchor, e, n) for e, n in [(-5, -5), (5, -5), (5, 5), (-5, 5)]
     ]}
     ego_track = [(0.0, 0.0), (10.0, 5.0), (20.0, -3.0)]
+
+    # Pins load_ego_track_xy()'s column contract (lat,lon,map_x,map_y) against
+    # Task 1's exact fixture format, independent of Task 1's file being present.
+    csv_path = tmp_dir / "ego_track_0.csv"
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    csv_path.write_text("# lat_deg,lon_deg,map_x,map_y\n25.08031512,55.39096843,-48.514142,-1.027173\n")
+    parsed_track = load_ego_track_xy(csv_path)
+    ok_parse = parsed_track == [(-48.514142, -1.027173)]
+    print(f"[step4 ego-track-parse] parsed={parsed_track} -> {'OK' if ok_parse else 'FAIL'}")
+
     out_path = render_verification_overlay([fp], anchor, ego_track, tmp_dir / "verification_overlay.png")
     ok = out_path.exists() and out_path.stat().st_size > 0
     if ok:
@@ -675,7 +685,7 @@ def _selfcheck_step4_overlay(tmp_dir: Path) -> bool:
             w, h = map(int, header.split("\n")[1].split())
             ok = w > 1 and h > 1
     print(f"[step4 overlay] wrote {out_path.name} ({out_path.stat().st_size} bytes) -> {'OK' if ok else 'FAIL'}")
-    return ok
+    return ok and ok_parse
 
 
 def _selfcheck_step5_height_fallback(tmp_dir: Path) -> bool:
@@ -732,17 +742,25 @@ def _selfcheck_end_to_end(tmp_dir: Path) -> bool:
 def _selfcheck() -> int:
     import tempfile
 
-    with tempfile.TemporaryDirectory(prefix="bake_environment_selfcheck_") as td:
-        tmp_dir = Path(td)
-        results = [
-            _selfcheck_step0_cache_no_network(),
-            _selfcheck_step2_centroid_and_trap(tmp_dir / "step2"),
-            _selfcheck_cross_language_pin(),
-            _selfcheck_step3_chunking(tmp_dir / "step3"),
-            _selfcheck_step4_overlay(tmp_dir / "step4"),
-            _selfcheck_step5_height_fallback(tmp_dir / "step5"),
-            _selfcheck_end_to_end(tmp_dir / "e2e"),
-        ]
+    def _blocked(*_a, **_kw):
+        raise AssertionError("selfcheck must never hit the network")
+
+    orig_post, orig_get = requests.post, requests.get
+    requests.post, requests.get = _blocked, _blocked
+    try:
+        with tempfile.TemporaryDirectory(prefix="bake_environment_selfcheck_") as td:
+            tmp_dir = Path(td)
+            results = [
+                _selfcheck_step0_cache_no_network(),
+                _selfcheck_step2_centroid_and_trap(tmp_dir / "step2"),
+                _selfcheck_cross_language_pin(),
+                _selfcheck_step3_chunking(tmp_dir / "step3"),
+                _selfcheck_step4_overlay(tmp_dir / "step4"),
+                _selfcheck_step5_height_fallback(tmp_dir / "step5"),
+                _selfcheck_end_to_end(tmp_dir / "e2e"),
+            ]
+    finally:
+        requests.post, requests.get = orig_post, orig_get
     ok = all(results)
     print(f"selfcheck: {'PASS' if ok else 'FAIL'} ({sum(results)}/{len(results)})")
     return 0 if ok else 1
