@@ -477,11 +477,15 @@ bool set_camera_motion_delta(VisualRenderer*, uint32_t cam_idx,
 // Threading: set_camera_frame()/set_bowl_config() both end in
 // filament::Engine calls and MUST be called from the same thread as
 // render_frame() -- the Engine thread, same contract as set_scene() above.
-// `release` itself is invoked from Filament's backend/driver thread, NOT
-// the Engine thread, so it must be thread-safe and must not call back into
-// this library -- a plain delete/free is fine, a shared frame pool needs
-// its own synchronization (or a filament CallbackHandler for Engine-thread
-// dispatch).
+// `release` is dispatched by Filament, not by this library, and NOT
+// necessarily on the thread that called set_camera_frame: with no
+// CallbackHandler supplied, Filament's BufferDescriptor.h (1.56.5,
+// lines 41-49) documents it as called on Filament's own main thread,
+// lightweight, and forbidden from calling Filament APIs. Treat it as
+// another thread -- it must be thread-safe and must not call back into
+// this library. A plain delete/free is safe; a shared frame pool needs
+// its own synchronization (or a filament CallbackHandler for dispatch on
+// a thread of the caller's choosing).
 //
 // false if r is null, cam_idx >= the configured camera_count, or
 // width/height mismatch the configured camera's dims.

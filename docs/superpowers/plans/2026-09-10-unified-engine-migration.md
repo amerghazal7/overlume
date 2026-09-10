@@ -40,7 +40,7 @@ Every task below exists to satisfy this literally: **one node, one Filament-back
 
 | Task | Backlog | Status | Notes |
 |---|---|---|---|
-| 1 POD-boundary camera-texture mechanism (ADR-0005) | VM-090 | Not started | Foundation for every later task; also the one place this plan asks for an explicit user go/no-go (see Decision 2). |
+| 1 POD-boundary camera-texture mechanism (ADR-0005) | VM-090 | **Done 2026-09-10** | Steps 0-5 landed (5725bb9 implementation, 6732252 review-round-1 fixes; gate APPROVED round 2). Release-callback `set_camera_frame` shipped per the Decision resolutions. |
 | 2 Mode 1 (bowl) migration into `micropilot_visualization_node` | VM-091 | Not started | Built and perf-gated behind the still-live mux — not yet authoritative in production. |
 | 3 Self-view masks + robot-proxy compositing (Filament-native) | VM-092 | Not started | Rides Task 2's bowl scene; reuses the already-Filament ego mesh instead of a new kernel. |
 | 4 Node consolidation — local mode switch, camera ingest moved, mux still live | VM-093 | Not started | Old node + mux stay running throughout; this only gives the new node the *ability* to answer modes 1/2. |
@@ -289,7 +289,7 @@ bool set_camera_frame(VisualRenderer*, uint32_t cam_idx,
 - Consumes: nothing from earlier tasks (this is the foundation task).
 - Produces: `kMaxBowlCameras`, `CameraExtrinsics`, `CameraIntrinsics`, `BowlConfig`, `set_bowl_config()`, `set_camera_frame()`, `set_bowl_visible()`, `set_camera_motion_delta()` — Task 2 is the first real consumer (Task 2 Step 6 calls `set_camera_motion_delta` per tick; Task 4's mode dispatch consumes `set_bowl_visible`).
 
-- [ ] **Step 0: Failing test — `set_camera_frame()` on an unconfigured renderer is a safe no-op.**
+- [x] **Step 0: Failing test — `set_camera_frame()` on an unconfigured renderer is a safe no-op.**
 ```cpp
 TEST(CameraTextures, SetCameraFrameBeforeBowlConfigIsNonFatal) {
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
@@ -302,7 +302,7 @@ TEST(CameraTextures, SetCameraFrameBeforeBowlConfigIsNonFatal) {
 ```
   Run — FAIL (`set_camera_frame` doesn't exist). Implement the free function + `camera_textures.hpp`'s `CameraTextureSet` skeleton (holds `camera_count = 0` until `set_bowl_config()` runs; `set_camera_frame` checks `cam_idx < camera_count` and returns `false` otherwise). Run — PASS.
 
-- [ ] **Step 1: Failing test — `set_bowl_config()` allocates persistent textures; `set_camera_frame()` uploads into them.**
+- [x] **Step 1: Failing test — `set_bowl_config()` allocates persistent textures; `set_camera_frame()` uploads into them.**
 ```cpp
 TEST(CameraTextures, SetCameraFrameUploadsAfterBowlConfig) {
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
@@ -321,7 +321,7 @@ TEST(CameraTextures, SetCameraFrameUploadsAfterBowlConfig) {
 ```
   Run — FAIL then PASS. Implement `set_bowl_config()`: allocate `camera_count` persistent RGB8 `filament::Texture`s (`Texture::Builder().width(w).height(h).format(RGB8).sampler(SAMPLER_2D).build(engine)`, same builder shape as `ground_grid.cpp:138-145`'s R8 occupancy texture, three channels instead of one), store per-camera extrinsics/intrinsics/dims copied into owned storage. `set_camera_frame()` calls `tex->setImage()` (same `PixelBufferDescriptor` heap-copy pattern `ground_grid.cpp:149-161` already uses) only when `cam_idx` is in range and dims match.
 
-- [ ] **Step 2: Failing test — dirty tracking skips a re-upload when `frame_id` repeats.** Expose a test-only upload counter via a hooks header (`camera_textures_test_hooks.hpp`, same shape as `ground_grid_test_hooks.hpp`/`map_elements_test_hooks.hpp` — internal-only, not installed, not POD, declares `uint64_t camera_frame_upload_count(mpviz::VisualRenderer*, uint32_t cam_idx)`).
+- [x] **Step 2: Failing test — dirty tracking skips a re-upload when `frame_id` repeats.** Expose a test-only upload counter via a hooks header (`camera_textures_test_hooks.hpp`, same shape as `ground_grid_test_hooks.hpp`/`map_elements_test_hooks.hpp` — internal-only, not installed, not POD, declares `uint64_t camera_frame_upload_count(mpviz::VisualRenderer*, uint32_t cam_idx)`).
 ```cpp
 TEST(CameraTextures, RepeatedFrameIdSkipsReupload) {
     // ... same setup as Step 1 ...
@@ -335,7 +335,7 @@ TEST(CameraTextures, RepeatedFrameIdSkipsReupload) {
 ```
   Run — FAIL then PASS. Implement: store the last-uploaded `frame_id` per camera; `setImage()` runs only when the incoming `frame_id` differs from the stored one — a single integer compare, O(1) regardless of image size. **Deliberately not a content `memcmp`:** at production size (6 cameras x 1280x720x3 = ~16.6 MB) a full-content compare every tick is exactly the ~0.5 GB/s CPU cost Decision 2 already rejected Option A for — a memcmp backstop at that size would silently reintroduce the same cost one layer down. The real dirty signal is expected to come from the node (Task 2 Step 6: the ROS image-callback firing IS "a new frame arrived," and the node passes a per-camera monotonic counter or the message's header stamp as `frame_id`) — this library-side check exists to make a caller bug (calling twice with a stale `frame_id`) a no-op, not to do content-level deduplication itself.
 
-- [ ] **Step 2b: Failing test — `set_camera_motion_delta()` is a cheap no-op before config, a real per-camera uniform write after.**
+- [x] **Step 2b: Failing test — `set_camera_motion_delta()` is a cheap no-op before config, a real per-camera uniform write after.**
 ```cpp
 TEST(CameraTextures, SetCameraMotionDeltaGatedOnBowlConfig) {
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
@@ -351,11 +351,11 @@ TEST(CameraTextures, SetCameraMotionDeltaGatedOnBowlConfig) {
 ```
   Run — FAIL then PASS. Implement: store/write camera `cam_idx`'s 4×4 ego-motion delta on the bowl material instance (one mat4 uniform per camera slot; default identity at `set_bowl_config` time so a caller that never compensates renders exactly the static bake). No re-bake, no texture work — this is the per-tick path, same no-op-before-config convention as `set_camera_frame` (Step 0).
 
-- [ ] **Step 3: `kSceneVersion` bump + layout asserts.** Append `CameraExtrinsics`/`CameraIntrinsics`/`BowlConfig` to `scene.h` per the Interfaces block above; bump `kSceneVersion` 4 → 5; add `sizeof`/`offsetof` `static_assert`s to `tests/test_scene_buffer.cpp` for all three new structs; mirror in `test_scene_layout.cpp`. Run both suites — PASS.
+- [x] **Step 3: `kSceneVersion` bump + layout asserts.** Append `CameraExtrinsics`/`CameraIntrinsics`/`BowlConfig` to `scene.h` per the Interfaces block above; bump `kSceneVersion` 4 → 5; add `sizeof`/`offsetof` `static_assert`s to `tests/test_scene_buffer.cpp` for all three new structs; mirror in `test_scene_layout.cpp`. Run both suites — PASS.
 
-- [ ] **Step 4: Write ADR-0005.** `docs/adr/0005-camera-frame-pod-boundary.md`, recording Decision 2 verbatim (Option B chosen over A/C, with the reupload-cost open item named as the one thing Task 2's review gate must resolve, not this ADR) — **and record which of plain-copy vs. release-callback `set_camera_frame` this task actually implemented**, citing `BufferDescriptor.h:50,92-95` either way, **stated in Decision 2's honest one-copy-vs-two framing: the `toCvCopy` conversion copy (`rendering_node.cpp:405-419`) is on the critical path in both variants, and the choice is only whether the library-side `setImage()` heap copy is added on top** — if plain-copy, state explicitly that the second ~16.6 MB/tick heap-copy is accepted here despite being the same cost class Option A was rejected for above (Task 2 Step 5's perf gate then carries this figure as a CPU-side budget line, not just a GPU-side `setImage` traffic note); if release-callback, note that the `release`/`user` parameters default to `nullptr` so every pre-Task-2 call site is unaffected. Record the wire-encoding check's outcome (Decision 2's third option: `toCvShare` + `Image::SharedPtr` capture, viable only if the topics are already `rgb8`). The ADR also states the threading contract from this task's Interfaces block: `set_camera_frame`/`set_bowl_config` are Engine-thread-only, same as `set_scene` (`scene.h:230-253`).
+- [x] **Step 4: Write ADR-0005.** `docs/adr/0005-camera-frame-pod-boundary.md`, recording Decision 2 verbatim (Option B chosen over A/C, with the reupload-cost open item named as the one thing Task 2's review gate must resolve, not this ADR) — **and record which of plain-copy vs. release-callback `set_camera_frame` this task actually implemented**, citing `BufferDescriptor.h:50,92-95` either way, **stated in Decision 2's honest one-copy-vs-two framing: the `toCvCopy` conversion copy (`rendering_node.cpp:405-419`) is on the critical path in both variants, and the choice is only whether the library-side `setImage()` heap copy is added on top** — if plain-copy, state explicitly that the second ~16.6 MB/tick heap-copy is accepted here despite being the same cost class Option A was rejected for above (Task 2 Step 5's perf gate then carries this figure as a CPU-side budget line, not just a GPU-side `setImage` traffic note); if release-callback, note that the `release`/`user` parameters default to `nullptr` so every pre-Task-2 call site is unaffected. Record the wire-encoding check's outcome (Decision 2's third option: `toCvShare` + `Image::SharedPtr` capture, viable only if the topics are already `rgb8`). The ADR also states the threading contract from this task's Interfaces block: `set_camera_frame`/`set_bowl_config` are Engine-thread-only, same as `set_scene` (`scene.h:230-253`).
 
-- [ ] **Step 5: Commit** `feat(visual): set_camera_frame/set_bowl_config POD-boundary mechanism (VM-090, ADR-0005)`.
+- [x] **Step 5: Commit** `feat(visual): set_camera_frame/set_bowl_config POD-boundary mechanism (VM-090, ADR-0005)`.
 
 ---
 

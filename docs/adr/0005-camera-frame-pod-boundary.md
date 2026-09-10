@@ -123,13 +123,16 @@ all Engine calls on one thread), and holds today because the merged node
 runs a single-threaded executor (`rclcpp::spin`); it must be revisited if the
 executor ever changes to multi-threaded.
 
-`release` itself is dispatched from a different thread than the caller of
-`set_camera_frame()`: Filament invokes a `PixelBufferDescriptor`'s `Callback`
-(no `CallbackHandler` supplied here) from its backend/driver thread, not the
-Engine thread. `release` must therefore be thread-safe and must not call
-back into this library -- a plain `delete`/`free` is safe as-is; a shared
-frame pool needs its own synchronization, or a Filament `CallbackHandler` if
-Task 2 wants Engine-thread dispatch instead.
+`release` is dispatched by Filament, not by this library, and not
+necessarily on the thread that called `set_camera_frame()`. With no
+`CallbackHandler` supplied, `BufferDescriptor.h:41-49` (1.56.5) documents
+the `Callback` guarantee as: called on Filament's own main thread, must be
+lightweight, must not call Filament APIs. The 1.56.5 SDK ships headers
+only, so the actual dispatch thread is not verifiable in-repo — treat the
+callback as arriving on another thread: it must be thread-safe and must not
+call back into this library. A plain `delete`/`free` is safe as-is; a
+shared frame pool needs its own synchronization, or a Filament
+`CallbackHandler` if Task 2 wants dispatch on a thread of its choosing.
 
 ## Consequences
 
