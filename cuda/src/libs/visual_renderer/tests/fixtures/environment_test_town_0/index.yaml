@@ -1,0 +1,16 @@
+chunk_size_m: 256.0
+chunks:
+- id: chunk_-1_-1
+  path: chunks/chunk_-1_-1.glb
+  center:
+  - -128.0
+  - -128.0
+  - 0.0
+  radius_m: 181.01933598375618
+- id: chunk_-1_0
+  path: chunks/chunk_-1_0.glb
+  center:
+  - -128.0
+  - 128.0
+  - 0.0
+  radius_m: 181.01933598375618

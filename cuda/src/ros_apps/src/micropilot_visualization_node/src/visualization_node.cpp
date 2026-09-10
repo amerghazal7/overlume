@@ -273,6 +273,15 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
             }
         });
 
+    // VM-052 (Epic 4 Task 3): environment disable knob + per-checkout chunks
+    // dir, same read-once shape as hud_enabled_/hud_font_path_ below.
+    // Actually wiring set_environment_source() happens in on_activate()
+    // (geo_anchor_solver_->solved() may still be false here, at
+    // on_configure() time -- sampling from NavSatFix+TF hasn't necessarily
+    // finished yet).
+    environment_enabled_ = declare_parameter<bool>("environment_enabled", true);
+    environment_chunks_dir_ = declare_parameter<std::string>("environment_chunks_dir", "");
+
     // ── HD-map adapters ───────────────────────────────────────────────────────
     // One HdMapAdapter per profile row with adapter: hd_map. fill() APPENDS
     // into scene_asm_ every tick, never assigns, so every matching row renders
@@ -583,6 +592,33 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
     pub_vcam_state_->on_activate();
     pub_ego_state_->on_activate();
     pub_diagnostics_->on_activate();
+
+    // VM-052 (Epic 4 Task 3): baked environment chunks. Gated on the
+    // disable knob AND on the geo-anchor already being solved (or
+    // overridden, Step 2's set_override() path) -- solving from live
+    // NavSatFix+TF takes real motion (kMinAnchorSamples @ 50 Hz,
+    // geo_anchor.hpp), so a run with no geo_datum_* override typically
+    // reaches here before solved() flips true; that is the stated, accepted
+    // gap this step's own WARN names, not silently patched around (spec
+    // §4.5/§9: "no anchor from either source -> environment layer disabled
+    // with one WARN").
+    if (environment_enabled_ && geo_anchor_solver_->solved())
+    {
+        if (!mpviz::set_environment_source(renderer_, environment_chunks_dir_.c_str(),
+                                            geo_anchor_solver_->anchor()))
+        {
+            RCLCPP_WARN(get_logger(),
+                        "set_environment_source: failed to open '%s' -- no buildings this run",
+                        environment_chunks_dir_.c_str());
+        }
+    }
+    else if (environment_enabled_ && !environment_warned_)
+    {
+        environment_warned_ = true;
+        RCLCPP_WARN(get_logger(),
+                    "environment_enabled but no geo-anchor solved yet at on_activate() -- "
+                    "environment layer disabled this run (spec Sec.4.5/9)");
+    }
 
     using namespace std::chrono_literals;
     timer_ = create_wall_timer(33ms, [this]() { timer_callback(); });
@@ -1044,6 +1080,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_cleanup(
     gps_sub_.reset();
     geo_anchor_solver_.reset();
     geo_anchor_logged_ = false;
+    environment_warned_ = false;
     hd_map_subs_.clear();
     hd_map_rows_.clear();
     dynamic_objects_subs_.clear();
@@ -1082,6 +1119,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_shutdown(
     gps_sub_.reset();
     geo_anchor_solver_.reset();
     geo_anchor_logged_ = false;
+    environment_warned_ = false;
     hd_map_subs_.clear();
     hd_map_rows_.clear();
     dynamic_objects_subs_.clear();

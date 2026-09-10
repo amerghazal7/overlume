@@ -383,4 +383,26 @@ struct GeoAnchor {
     double heading_rad;   // bearing of map-frame +X from true north, radians
 };
 
+// Loads Task 2 (VM-051)'s baked chunk index (`<source_uri>/index.yaml`) via
+// the library's own already-linked yaml-cpp (Decision 5) and gives
+// render_frame() a live, distance-culled BakedEnvironmentSource -- see
+// src/environment.hpp/.cpp (library-internal, never crosses this boundary
+// -- EnvironmentSource/BakedEnvironmentSource are not POD/ABI types, same
+// status as VisualRenderer's own internals, renderer_internal.hpp). `anchor`
+// is stored for a future streaming backend's on-the-fly WGS84->map
+// placement (Epic 6, VM-062) -- this v1 baked backend does NOT re-derive
+// placement from it: bake_environment.py (Task 2) already placed every
+// chunk's vertices directly in the map frame, offline, using this SAME
+// anchor (Decision 3). THIS ENTRY POINT'S SIGNATURE DOES NOT CHANGE between
+// v1 (baked, this epic) and v1.1 (streamed, Epic 6) -- only the concrete
+// EnvironmentSource this call constructs internally does (Decision 2;
+// Epic 6's VM-063 adds baked|streamed selection logic, not this epic's job
+// -- this call always constructs the baked backend, unconditionally).
+// Returns false (no environment configured; render_frame's environment step
+// becomes a no-op) if `r` is null, `source_uri` is null/empty, or the
+// backend fails to open/parse its index -- non-fatal, logs nothing itself
+// (POD boundary, same convention as set_ego_model), caller WARNs once
+// (spec §9's "missing data renders nothing").
+bool set_environment_source(VisualRenderer*, const char* source_uri, GeoAnchor anchor);
+
 }  // namespace mpviz

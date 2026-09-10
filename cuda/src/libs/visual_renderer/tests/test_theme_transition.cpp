@@ -268,6 +268,7 @@ mpviz::detail::Theme MakeSentinelTheme(float scalar, const std::string& name) {
     t.palette.lane_boundary = c;
     t.palette.crosswalk = c;
     t.palette.road_edge = c;
+    t.palette.building = c;
     t.palette.object_tints.car = c;
     t.palette.object_tints.truck_van = c;
     t.palette.object_tints.bus = c;
@@ -342,6 +343,7 @@ TEST(ThemeTransition, SentinelThemesDetectAnyUnblendedField) {
     ExpectBetweenSentinels(mid.palette.lane_boundary, "palette.lane_boundary");
     ExpectBetweenSentinels(mid.palette.crosswalk, "palette.crosswalk");
     ExpectBetweenSentinels(mid.palette.road_edge, "palette.road_edge");
+    ExpectBetweenSentinels(mid.palette.building, "palette.building");
     ExpectBetweenSentinels(mid.palette.object_tints.car, "palette.object_tints.car");
     ExpectBetweenSentinels(mid.palette.object_tints.truck_van, "palette.object_tints.truck_van");
     ExpectBetweenSentinels(mid.palette.object_tints.bus, "palette.object_tints.bus");

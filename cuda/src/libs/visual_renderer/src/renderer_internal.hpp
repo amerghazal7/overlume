@@ -13,6 +13,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -61,6 +62,13 @@ namespace mpviz {
 // VisualRenderer::platform (a bare pointer member) can name the type
 // without this header needing the EGL-touching definition itself.
 class HeadlessEglPlatform;
+// Forward-declared: VisualRenderer::environmentSource below is a
+// std::unique_ptr member, which needs the complete type only where its
+// destructor is actually instantiated (destroy_renderer(), renderer.cpp --
+// which #includes environment.hpp before `delete r` ever runs). Full
+// definition lives in environment.hpp (library-internal, same
+// "never #included by node code" status as this header itself).
+class EnvironmentSource;
 
 // One interleaved vertex: world-space position + the Filament "TANGENTS"
 // quaternion that encodes the surface normal (see VertexBuffer::Builder::
@@ -775,6 +783,17 @@ public:
     // this to pin the signature property: a message that only changes
     // per-vertex color, with identical positions, must NOT bump this counter.
     uint64_t trajectoryCarpetRebuildCount = 0;
+
+    // Environment (VM-052): buildingMaterial is an eager clay.mat instance
+    // (Decision 4 -- no new .mat file), themed from palette.building in
+    // push_theme_to_scene() alongside every other eager instance above.
+    // Buildings are the whole-time OPAQUE clay this comment block's own
+    // header note describes -- no fade instance, no translucent twin.
+    // environmentSource is null until set_environment_source() (scene.h)
+    // succeeds; render_frame() calls its update() once per tick, gated on
+    // it being non-null AND on ego.valid (renderer.cpp).
+    filament::MaterialInstance* buildingMaterial = nullptr;
+    std::unique_ptr<EnvironmentSource> environmentSource;
 };
 
 // Namespace-scope free function so a different translation unit (ego.cpp,

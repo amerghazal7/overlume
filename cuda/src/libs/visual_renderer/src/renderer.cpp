@@ -22,6 +22,8 @@
 #include "alert_polygons_test_hooks.hpp"
 #include "ego.hpp"
 #include "ego_test_hooks.hpp"
+#include "environment.hpp"
+#include "environment_test_hooks.hpp"
 #include "generic_markers.hpp"
 #include "generic_markers_test_hooks.hpp"
 #include "ground_grid.hpp"
@@ -778,6 +780,17 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     clearOptions.clearColor = {theme.palette.sky.r, theme.palette.sky.g, theme.palette.sky.b, 1.0f};
     clearOptions.clear = true;
     r.renderer->setClearOptions(clearOptions);
+
+    // Buildings (VM-052, Decision 4): one eager clay.mat instance, same
+    // eager-creation reasoning as laneMaterial above -- themed whether or
+    // not set_environment_source() has been called yet. Always OPAQUE
+    // (baseColor.a unused, clay.mat has no alpha param) -- buildings never
+    // stale-fade (environment.cpp loads/unloads by distance, never by a
+    // publish going stale), so there is no fade instance to re-push here,
+    // unlike the object/ribbon/alert/generic-marker loops above.
+    r.buildingMaterial->setParameter("baseColor", to_filament(theme.palette.building));
+    r.buildingMaterial->setParameter("roughness", theme.material.roughness);
+    r.buildingMaterial->setParameter("metallic", theme.material.metallic);
 }
 
 // Payload handed to the readPixels callback: where to signal completion.
@@ -1202,6 +1215,12 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // arrives.
     r->genericMarkerMaterial = r->clayMaterial->createInstance();
 
+    // Buildings (VM-052, Decision 4): a dedicated clay.mat instance, same
+    // eager-creation reasoning as laneMaterial/egoMaterial above -- created
+    // before push_theme_to_scene() below so it's themed on the very first
+    // frame, transition-free. No new .mat file (Global Constraints).
+    r->buildingMaterial = r->clayMaterial->createInstance();
+
     // ponytail: don't chase hand-derived winding correctness for a large
     // flat quad / line list -- CullingMode::NONE sidesteps backface culling
     // so a winding mistake shows as visible-from-both-sides, not a silently
@@ -1229,6 +1248,7 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
         m->setCullingMode(filament::backend::CullingMode::NONE);
     }
     r->genericMarkerMaterial->setCullingMode(filament::backend::CullingMode::NONE);
+    r->buildingMaterial->setCullingMode(filament::backend::CullingMode::NONE);
 
     // Pushes theme.{palette,material,sun,ibl,fog} into everything created
     // above; see push_theme_to_scene()'s own header comment for details.
@@ -1356,6 +1376,17 @@ void destroy_renderer(VisualRenderer* r) {
 
     if (r->clayTranslucentMaterial) r->engine->destroy(r->clayTranslucentMaterial);
 
+    // Environment chunks (VM-052): every loaded chunk's Filament resources
+    // must be torn down before sharedAssetLoader/sharedResourceLoader below
+    // are destroyed -- EnvironmentSource has no bare-destructor path to do
+    // this itself (no VisualRenderer& available there), so destroy_renderer()
+    // calls teardown() explicitly, same "instance/asset before its loader"
+    // ordering as egoAsset just below.
+    if (r->environmentSource) {
+        r->environmentSource->teardown(*r);
+        r->environmentSource.reset();
+    }
+
     // Tear down whichever path set_ego_model() actually populated. Order
     // matters -- destroyAsset() before destroying the shared loader it (and
     // every object class pool above) was created through, mirroring
@@ -1383,6 +1414,7 @@ void destroy_renderer(VisualRenderer* r) {
     if (r->roadMaterial) r->engine->destroy(r->roadMaterial);
     if (r->roadEdgeMaterial) r->engine->destroy(r->roadEdgeMaterial);
     if (r->egoMaterial) r->engine->destroy(r->egoMaterial);
+    if (r->buildingMaterial) r->engine->destroy(r->buildingMaterial);
     // All three role instances, before either Material they're instances
     // of (ribbonEmissiveMaterial/clayMaterial, just below) is destroyed.
     for (auto* m : r->ribbonMaterial) {
@@ -1549,6 +1581,16 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     // order doesn't matter for z-fighting" category (unlit, no shared plane
     // to contend with).
     update_trajectory_carpets(*r, r->scene_buffer.active());
+    // Environment chunks (VM-052): distance-load/unload behind
+    // EnvironmentSource -- gated on a source actually being configured
+    // (Decision 2: null source_uri/missing index -> no-op by construction)
+    // AND on ego.valid (freeze-frame: no valid ego position this tick
+    // leaves whatever's already loaded exactly as it is, Task 3 Step 2 --
+    // same "a tick with no fresh data re-renders the previous state"
+    // philosophy every other category follows).
+    if (r->environmentSource != nullptr && r->scene_buffer.active().ego.valid) {
+        r->environmentSource->update(*r, r->scene_buffer.active().ego.position);
+    }
 
     r->camera->lookAt({pose.eye[0], pose.eye[1], pose.eye[2]},
                        {pose.target[0], pose.target[1], pose.target[2]},
