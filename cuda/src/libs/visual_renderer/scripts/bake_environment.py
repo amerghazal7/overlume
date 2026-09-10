@@ -312,7 +312,7 @@ CHUNK_SIZE_M = 256.0
 CHUNK_RADIUS_M = CHUNK_SIZE_M * math.sqrt(2.0) / 2.0  # bounding-sphere radius of one cell
 
 
-def build_footprint_mesh_local_enu(fp: dict, anchor: GeoAnchor) -> trimesh.Trimesh:
+def build_footprint_mesh_local_enu(fp: dict, anchor: GeoAnchor) -> Optional[trimesh.Trimesh]:
     """Extrudes one footprint to its Decision-9 height, in UNROTATED local
     ENU (anchor origin only, no heading) -- the "before per-geometry
     transform" frame. shapely.Polygon + trimesh.creation.extrude_polygon,
@@ -321,6 +321,12 @@ def build_footprint_mesh_local_enu(fp: dict, anchor: GeoAnchor) -> trimesh.Trime
     polygon = shapely.geometry.Polygon(ring_enu)
     if not polygon.is_valid:
         polygon = polygon.buffer(0)  # best-effort repair of minor self-intersections
+    # buffer(0) can return a MultiPolygon or an empty geometry for a badly
+    # self-intersecting way -- extrude_polygon would raise. Same non-fatal
+    # "missing data renders nothing" shape as parse_overpass_footprints'
+    # len(ring) < 3 skip: return None, caller skips with one WARN.
+    if not isinstance(polygon, shapely.geometry.Polygon) or polygon.is_empty:
+        return None
     height = footprint_height_m(fp["tags"])
     return trimesh.creation.extrude_polygon(polygon, height)
 
@@ -352,6 +358,9 @@ def build_chunk_scene(footprints: List[dict], anchor: GeoAnchor) -> trimesh.Scen
     scene = trimesh.Scene()
     for fp in footprints:
         mesh = build_footprint_mesh_local_enu(fp, anchor)
+        if mesh is None:
+            print(f"WARN: footprint way {fp['way_id']} has an unrepairable ring -- skipped")
+            continue
         scene.add_geometry(mesh, node_name=f"footprint_{fp['way_id']}")
 
     M = _heading_rotation_matrix(anchor.heading_rad)
@@ -375,6 +384,8 @@ def bake(anchor: GeoAnchor, footprints: List[dict], out_dir: Path) -> dict:
     for (i, j), fps in sorted(buckets.items()):
         chunk_id = f"chunk_{i}_{j}"
         scene = build_chunk_scene(fps, anchor)
+        if not scene.geometry:
+            continue  # every footprint in this cell was unrepairable -- no empty chunk file
         scene.export(chunks_dir / f"{chunk_id}.glb")
         index_chunks.append(
             {
@@ -623,6 +634,17 @@ def _selfcheck_cross_language_pin() -> bool:
         ok = ok and point_ok
         print(f"[cross-lang pin] dlat={probe['dlat']} dlon={probe['dlon']} err={err:.2e} m -> "
               f"{'OK' if point_ok else 'FAIL'}")
+    # Nonzero-heading probes pin the rotation term itself -- a sign drift
+    # confined to the sin factor passes every heading-0 probe unchanged.
+    for probe in fixture.get("probes_nonzero_heading", []):
+        pa = probe["anchor"]
+        p_anchor = GeoAnchor(pa["origin_lat_deg"], pa["origin_lon_deg"], pa["heading_rad"])
+        x, y, z = wgs_to_map(p_anchor, probe["lat"], probe["lon"])
+        err = max(abs(x - probe["map_x"]), abs(y - probe["map_y"]), abs(z - probe["map_z"]))
+        point_ok = err < 1e-3
+        ok = ok and point_ok
+        print(f"[cross-lang pin] heading={pa['heading_rad']} err={err:.2e} m -> "
+              f"{'OK' if point_ok else 'FAIL'}")
     return ok
 
 
@@ -647,9 +669,26 @@ def _selfcheck_step3_chunking(tmp_dir: Path) -> bool:
     index_near = bake(anchor, near, tmp_dir / "near")
     ok_near = len(index_near["chunks"]) == 1
 
-    ok = ok_far and ok_near
+    # Index-row contract: center/radius_m are exactly what Task 3's distance
+    # cull consumes -- assert them, don't just count files. Vertex containment
+    # has a known ceiling: footprints are bucketed by CENTROID, so a building
+    # straddling a cell edge can poke outside the cell's bounding sphere by up
+    # to ~half its own extent -- Task 3's cull margin must absorb that
+    # overhang (these 4 m test squares sit well inside their cells).
+    ok_rows = True
+    for base, index in (("far", index_far), ("near", index_near)):
+        for row in index["chunks"]:
+            i, j = (int(v) for v in row["id"].split("_")[1:3])
+            ok_rows &= row["center"] == [(i + 0.5) * CHUNK_SIZE_M, (j + 0.5) * CHUNK_SIZE_M, 0.0]
+            ok_rows &= row["radius_m"] == CHUNK_RADIUS_M
+            verts = _load_all_vertices(tmp_dir / base / row["path"])
+            d = np.hypot(verts[:, 0] - row["center"][0], verts[:, 1] - row["center"][1])
+            ok_rows &= bool((d <= row["radius_m"]).all())
+
+    ok = ok_far and ok_near and ok_rows
     print(f"[step3 chunking] far->{len(index_far['chunks'])} chunk(s) (want 2), "
-          f"near->{len(index_near['chunks'])} chunk(s) (want 1) -> {'OK' if ok else 'FAIL'}")
+          f"near->{len(index_near['chunks'])} chunk(s) (want 1), "
+          f"index rows {'OK' if ok_rows else 'FAIL'} -> {'OK' if ok else 'FAIL'}")
     return ok
 
 
