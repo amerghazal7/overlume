@@ -873,6 +873,17 @@ filament::VertexBuffer* make_vertex_buffer(filament::Engine& engine,
     return vb;
 }
 
+void update_mesh_positions(filament::Engine& engine, Mesh& mesh, std::vector<Vertex> verts) {
+    if (mesh.vb == nullptr) return;
+    auto* heapVerts = new std::vector<Vertex>(std::move(verts));
+    mesh.vb->setBufferAt(
+        engine, 0,
+        filament::VertexBuffer::BufferDescriptor(
+            heapVerts->data(), heapVerts->size() * sizeof(Vertex),
+            [](void*, size_t, void* user) { delete static_cast<std::vector<Vertex>*>(user); },
+            heapVerts));
+}
+
 filament::IndexBuffer* make_index_buffer(filament::Engine& engine,
                                           std::vector<uint16_t> indices) {
     auto* heapIndices = new std::vector<uint16_t>(std::move(indices));

@@ -13,15 +13,16 @@
 // rail vertex takes its source station's color.
 //
 // Content signature mirrors ribbon_signature()'s shape (point count +
-// first/last point + half-width + ego-clip state) with deliberately NO
-// color term -- load-bearing: color-only drift (the producer's baked
-// velocity gradient changing while stations don't move) causes zero
-// rebuilds, an explicit accepted tradeoff, not an oversight. The displayed
-// color freezes at the last-built values until the next position-changing
-// rebuild -- no separate "recolor without rebuilding geometry" fast path
-// exists anywhere in this library (ribbon.cpp/point_cloud.cpp don't have
-// one either), and inventing one is new-scope machinery flagged back, not
-// silently built.
+// first/last point + half-width) with deliberately NO color term --
+// load-bearing: color-only drift (the producer's baked velocity gradient
+// changing while stations don't move) causes zero rebuilds, an explicit
+// accepted tradeoff, not an oversight. The displayed color freezes at the
+// last-built values until the next position-changing rebuild -- no
+// separate "recolor without rebuilding geometry" fast path exists anywhere
+// in this library (ribbon.cpp/point_cloud.cpp don't have one either), and
+// inventing one is new-scope machinery flagged back, not silently built.
+// Clip state deliberately excluded too; applied per-frame as a position
+// collapse, see apply_carpet_clip().
 //
 // scene.h UNCHANGED: TrajectoryCarpet::points (PointCloudPoint, reused
 // verbatim) already fit a centerline-plus-per-station-color encoding with
@@ -126,14 +127,14 @@ uint64_t hash_vec3(const Vec3& v) {
 }
 
 // Content signature for the velocity ribbon: mirrors ribbon.cpp's
-// ribbon_signature() shape EXACTLY (point count + first/last point +
-// half-width + ego-clip state) with NO color term -- see this file's own
-// header comment for why that omission is deliberate, not an
-// oversight. half_width_m hashed as its bit pattern (exact reproducibility
-// across calls with the same width matters, not numeric comparison), same
-// convention ribbon_signature() uses.
-uint64_t trajectory_carpet_signature(const Vec3* pts, uint32_t n, float half_width_m,
-                                       bool clip_active, int64_t clip_units) {
+// ribbon_signature() shape (point count + first/last point + half-width)
+// with NO color term -- see this file's own header comment for why that
+// omission is deliberate, not an oversight. Clip state deliberately
+// excluded too; applied per-frame as a position collapse, see
+// apply_carpet_clip(). half_width_m hashed as its bit pattern (exact
+// reproducibility across calls with the same width matters, not numeric
+// comparison), same convention ribbon_signature() uses.
+uint64_t trajectory_carpet_signature(const Vec3* pts, uint32_t n, float half_width_m) {
     uint64_t h = hash_combine(0, static_cast<uint64_t>(n));
     if (n > 0) {
         h = hash_combine(h, hash_vec3(pts[0]));
@@ -142,8 +143,6 @@ uint64_t trajectory_carpet_signature(const Vec3* pts, uint32_t n, float half_wid
     uint32_t widthBits;
     std::memcpy(&widthBits, &half_width_m, sizeof(widthBits));
     h = hash_combine(h, static_cast<uint64_t>(widthBits));
-    h = hash_combine(h, clip_active ? 1ULL : 0ULL);
-    h = hash_combine(h, static_cast<uint64_t>(clip_units));
     return h;
 }
 
@@ -203,47 +202,32 @@ std::vector<PointCloudPoint> clean_carpet_points(const PointCloudPoint* pts, uin
     return out;
 }
 
-// Ego-proximity forward clip, colour-carrying: walks the identical 2D arc
-// length detail::clip_polyline_forward() walks, but keeps each surviving
-// station's rgba alongside the (possibly interpolated) position -- the
-// interpolated cut point takes the EARLIER station's colour (no colour
-// interpolation; the GPU's own triangle rasterization already blends it
-// toward the next station's colour across the following face, same as
-// every other station-to-station transition). Ponytail: this duplicates
-// clip_polyline_forward()'s ~15-line walk rather than adding a colour
-// parameter to that shared, Filament-free, colour-agnostic helper -- promote
-// to a shared "clip with payload" helper if a third colour-carrying caller
-// ever needs one.
-std::vector<PointCloudPoint> clip_carpet_forward(const PointCloudPoint* pts, uint32_t n, double s0) {
-    std::vector<PointCloudPoint> out;
-    if (n < 2) return out;
-    double cum = 0.0;
-    for (uint32_t i = 0; i + 1 < n; ++i) {
-        const Vec3& a = pts[i].position;
-        const Vec3& b = pts[i + 1].position;
-        const double dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
-        const double segLen = std::sqrt(dx * dx + dy * dy);
-        const bool isLastSeg = (i + 2 == n);
-        if (cum + segLen >= s0 || isLastSeg) {
-            const double t = segLen > 0.0 ? std::clamp((s0 - cum) / segLen, 0.0, 1.0) : 0.0;
-            PointCloudPoint cut{};
-            cut.position = Vec3{a.x + dx * t, a.y + dy * t, a.z + dz * t};
-            cut.rgba = pts[i].rgba;  // earlier station's colour, see comment above
-            out.push_back(cut);
-            for (uint32_t k = i + 1; k < n; ++k) out.push_back(pts[k]);
-            return out;
-        }
-        cum += segLen;
-    }
-    out.push_back(pts[n - 1]);  // defensive fallback, same as clip_polyline_forward's own
-    return out;
-}
-
 void destroy_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& slot) {
     for (auto& m : slot.meshes) destroy_mesh(*r.engine, *r.scene, m);
     slot.meshes.clear();
     slot.firstMeshRgba.clear();
     slot.firstMeshZ.clear();
+    slot.baseStripPositions.clear();
+    slot.baseStripRgba.clear();
+    slot.pointStations.clear();
+    slot.has_applied_clip = false;
+}
+
+// Re-uploads `verts` into `mesh`'s EXISTING VertexBuffer via setBufferAt --
+// CarpetVertex's own analogue of renderer_internal.hpp's
+// update_mesh_positions(), duplicated because CarpetVertex is file-local
+// (same reasoning make_carpet_vertex_buffer() above already gives for its
+// own duplication of make_vertex_buffer()'s shape).
+void update_carpet_vertex_positions(filament::Engine& engine, Mesh& mesh,
+                                     std::vector<CarpetVertex> verts) {
+    if (mesh.vb == nullptr) return;
+    auto* heap = new std::vector<CarpetVertex>(std::move(verts));
+    mesh.vb->setBufferAt(
+        engine, 0,
+        filament::VertexBuffer::BufferDescriptor(
+            heap->data(), heap->size() * sizeof(CarpetVertex),
+            [](void*, size_t, void* user) { delete static_cast<std::vector<CarpetVertex>*>(user); },
+            heap));
 }
 
 // Rebuilds `slot`'s geometry from `pts`/`n` (centerline stations: position +
@@ -263,6 +247,15 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& 
 
     std::vector<Vec3> positions(cleaned.size());
     for (size_t i = 0; i < cleaned.size(); ++i) positions[i] = cleaned[i].position;
+    slot.firstPointM = positions[0];  // baseline; apply_carpet_clip() overwrites if clipped
+
+    // `cleaned`/`positions` are already clean and chunked over directly
+    // (not the raw `pts`/`n`), so each chunk's own arc-length station slice
+    // is already a GLOBAL measure with no cross-chunk offset needed --
+    // unlike ribbon.cpp's build_slot_meshes(), which chunks over the raw
+    // array and so needs one (see its own comment).
+    const std::vector<double> stations =
+        detail::clean_polyline_stations(positions.data(), positions.size());
 
     bool first_chunk = true;
     for (auto [a, b] : detail::polyline_chunks(static_cast<uint32_t>(cleaned.size()))) {
@@ -278,23 +271,22 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& 
         // extrude_polyline() above triggers no further internal drops --
         // strip.size() == 2*chunkN exactly, and pair i (vertices 2i/2i+1)
         // corresponds to cleaned[a+i] one-to-one.
+        std::vector<uint32_t> rgba(strip.size());
+        for (size_t i = 0; i < strip.size(); ++i) rgba[i] = resolve_rgba(r, cleaned[a + i / 2].rgba);
+
         std::vector<CarpetVertex> verts(strip.size());
         for (size_t i = 0; i < strip.size(); ++i) {
-            const size_t stationIdx = a + i / 2;
             verts[i].position = float3{static_cast<float>(strip[i].x), static_cast<float>(strip[i].y),
                                         static_cast<float>(strip[i].z)};
-            verts[i].rgba = resolve_rgba(r, cleaned[stationIdx].rgba);
+            verts[i].rgba = rgba[i];
         }
         if (first_chunk) {
             // Test-hook mirror only (trajectory_carpet_test_hooks.hpp) --
             // NOT a Filament read-back, same reasoning as RibbonSlot's
             // firstPointM/halfWidthM (renderer_internal.hpp).
-            slot.firstMeshRgba.reserve(verts.size());
+            slot.firstMeshRgba = rgba;
             slot.firstMeshZ.reserve(verts.size());
-            for (const auto& v : verts) {
-                slot.firstMeshRgba.push_back(v.rgba);
-                slot.firstMeshZ.push_back(v.position.z);
-            }
+            for (const auto& v : verts) slot.firstMeshZ.push_back(v.position.z);
             first_chunk = false;
         }
         slot.totalVertexCount += static_cast<uint32_t>(verts.size());
@@ -315,7 +307,37 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& 
             .build(*r.engine, mesh.entity);
         r.scene->addEntity(mesh.entity);
         slot.meshes.push_back(std::move(mesh));
+        slot.baseStripPositions.push_back(std::move(strip));
+        slot.baseStripRgba.push_back(std::move(rgba));
+        slot.pointStations.emplace_back(stations.begin() + a, stations.begin() + b);
     }
+}
+
+// Applies (or re-applies) the ego-proximity clip to every mesh in `slot` --
+// mirrors ribbon.cpp's apply_ribbon_clip() exactly (same collapse helper,
+// same GPU-upload-only-on-change gating).
+void apply_carpet_clip(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& slot,
+                       const detail::PolylineClip& clip) {
+    const bool changed = !slot.has_applied_clip || slot.appliedClipActive != clip.active ||
+                          (clip.active && slot.appliedClipUnits != clip.quantized_units);
+    if (!changed) return;
+    for (size_t i = 0; i < slot.meshes.size(); ++i) {
+        std::vector<Vec3> positions = slot.baseStripPositions[i];
+        detail::collapse_clipped_positions(positions, slot.pointStations[i], clip.active,
+                                            clip.station_m);
+        if (i == 0 && !positions.empty()) slot.firstPointM = positions[0];
+        std::vector<CarpetVertex> verts(positions.size());
+        for (size_t v = 0; v < positions.size(); ++v) {
+            verts[v].position = float3{static_cast<float>(positions[v].x),
+                                        static_cast<float>(positions[v].y),
+                                        static_cast<float>(positions[v].z)};
+            verts[v].rgba = slot.baseStripRgba[i][v];
+        }
+        update_carpet_vertex_positions(*r.engine, slot.meshes[i], std::move(verts));
+    }
+    slot.has_applied_clip = true;
+    slot.appliedClipActive = clip.active;
+    slot.appliedClipUnits = clip.quantized_units;
 }
 
 }  // namespace
@@ -351,23 +373,18 @@ void update_trajectory_carpets(VisualRenderer& r, const SceneGraph& s) {
                                                           s.ego.position)
                         : detail::PolylineClip{};
 
-        const uint64_t sig = trajectory_carpet_signature(rawPositions.data(), tc.point_count,
-                                                            halfWidthM, clip.active,
-                                                            clip.quantized_units);
+        const uint64_t sig =
+            trajectory_carpet_signature(rawPositions.data(), tc.point_count, halfWidthM);
         if (!slot.has_signature || slot.signature != sig) {
-            std::vector<PointCloudPoint> clippedStorage;
-            const PointCloudPoint* geomPts = tc.points;
-            uint32_t geomN = tc.point_count;
-            if (clip.active) {
-                clippedStorage = clip_carpet_forward(tc.points, tc.point_count, clip.station_m);
-                geomPts = clippedStorage.data();
-                geomN = static_cast<uint32_t>(clippedStorage.size());
-            }
+            // Content or width changed -- full rebuild, always the FULL
+            // unclipped carpet; apply_carpet_clip() below handles the clip.
             ++r.trajectoryCarpetRebuildCount;
-            build_slot_meshes(r, slot, geomPts, geomN, halfWidthM);
+            build_slot_meshes(r, slot, tc.points, tc.point_count, halfWidthM);
             slot.signature = sig;
             slot.has_signature = true;
         }
+
+        apply_carpet_clip(r, slot, clip);
 
         alpha = std::max(alpha, static_cast<float>(detail::SceneBuffer::staleness_alpha(
                                      s.sim_time_sec, tc.last_update_sec, kStaleFadeStartSec,
@@ -423,6 +440,14 @@ float trajectory_carpet_half_width_m(mpviz::VisualRenderer* r, size_t slot) {
 uint64_t trajectory_carpet_rebuild_count(mpviz::VisualRenderer* r) {
     if (r == nullptr) return 0;
     return r->trajectoryCarpetRebuildCount;
+}
+
+bool trajectory_carpet_slot_first_point(mpviz::VisualRenderer* r, size_t slot, mpviz::Vec3* out) {
+    if (r == nullptr || slot >= r->trajectoryCarpetSlots.size() || out == nullptr) return false;
+    const auto& s = r->trajectoryCarpetSlots[slot];
+    if (s.meshes.empty()) return false;
+    *out = s.firstPointM;
+    return true;
 }
 
 }  // namespace mpviz::testing

@@ -87,16 +87,17 @@ std::pair<double, double> closest_arc_station(const Vec3* pts, uint32_t n, const
 // route must render whole). Generous vs. the ~0.1-0.5m half-widths ribbons
 // draw at -- "is the ego riding this route", not a precise offset.
 inline constexpr float kPolylineEgoClipLateralM = 5.0f;
-// Clip station granularity, so a parked ego causes zero signature changes.
-// 0.05, not the original 0.5 (flicker root-cause 2026-09-10, user: "still
-// see shimmer live, local path still flickering" — measured: at 0.5 the
-// ribbon's front edge snapped half a meter every 0.15-0.3s of driving,
-// a 3-7 Hz full-slot rebuild, and the path/velocity ribbons' unsynchronized
-// snap schedules beat against each other, +53% super-additive frame diff;
-// docs/evidence + the vm077 plan carry the numbers). The quantize only
-// exists to absorb parked-ego GPS jitter; 0.05 keeps that property while
-// capping the visible snap at 5 cm, and the rebuild rate stays bounded at
-// one per rendered frame regardless of step size.
+// Clip station granularity. Value unchanged since the 2026-09-10 tuning
+// (0.05, not the original 0.5 -- caps the visible snap at 5cm while still
+// absorbing parked-ego GPS jitter), but its JOB changed the same day: the
+// clip no longer folds into any content signature (ribbon.cpp/
+// trajectory_carpet.cpp rebuild on role/point-data/half-width only now --
+// see their own signature functions), so this no longer bounds a mesh
+// REBUILD rate. It now gates the cheap per-frame VertexBuffer::setBufferAt
+// re-upload that applies the clip (collapse_clipped_positions() above): a
+// parked ego (or one whose quantized station hasn't moved) causes zero
+// re-uploads, same "stable output for stable input" property, at a layer
+// that was never the flicker's actual cause once decoupled from rebuilds.
 inline constexpr float kPolylineClipQuantizeM = 0.05f;
 
 struct PolylineClip {
@@ -109,9 +110,32 @@ struct PolylineClip {
 // validity first -- this function has no notion of EgoState::valid.
 PolylineClip compute_polyline_clip(const Vec3* pts, uint32_t n, const Vec3& ego_position);
 
-// Truncates `pts`/`n` to the forward half starting at arc-length `s0`, with
-// an interpolated cut point (not a snap to the nearest vertex). n<2 -> empty.
-std::vector<Vec3> clip_polyline_forward(const Vec3* pts, uint32_t n, double s0);
+// Per-surviving-point cumulative 2D arc length (dx,dy only -- the same
+// measure closest_arc_station()/compute_polyline_clip() use), cleaned per
+// clean_polyline()'s own rule (truncate at the first non-finite point, drop
+// an exact zero-length-segment duplicate). Shared by ribbon.cpp/
+// trajectory_carpet.cpp: extrude_polyline() applies the IDENTICAL cleaning
+// rule internally, so calling this on the same pts/n range always produces
+// one station entry per output vertex-pair, index-aligned by construction
+// (not by convention) -- see collapse_clipped_positions() below, the
+// consumer this exists for. First entry is always 0.0. Empty for
+// nullptr/n==0/an immediate NaN.
+std::vector<double> clean_polyline_stations(const Vec3* pts, uint32_t n);
+
+// Ego-proximity clip via degenerate-vertex collapse. `positions` is an
+// ALREADY-EXTRUDED strip (2*m entries, left/right rail pairs per surviving
+// point -- extrude_polyline()'s own output shape); `stations` is that
+// point's own arc length (m entries, clean_polyline_stations()'s output,
+// same measure compute_polyline_clip() produces `clip_station_m` in).
+// Collapses every pair whose point lies behind `clip_station_m` onto the
+// interpolated cut pair, IN PLACE -- so the caller can re-upload `positions`
+// into the SAME VertexBuffer every frame (no mesh rebuild, no
+// destroy-then-recreate window, no frame where the slot is absent). No-op
+// when `clip_active` is false or `stations` is empty; a mismatched
+// `positions.size() != 2*stations.size()` is treated as "nothing to do"
+// rather than an out-of-bounds read.
+void collapse_clipped_positions(std::vector<Vec3>& positions, const std::vector<double>& stations,
+                                 bool clip_active, double clip_station_m);
 
 // Lazy crosswalk hatch: painted bars with ground visible in the gaps
 // between them -- the visual differentiation is the geometry, not a

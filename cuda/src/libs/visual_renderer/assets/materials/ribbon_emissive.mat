@@ -27,6 +27,12 @@
 // still gets a baseColor contribution from the scene's own lighting so the
 // ribbon doesn't go pitch-black if bloom/bloomStrength were ever tuned to
 // zero.
+//
+// Depth test stays ON (Filament default): this ribbon must still occlude
+// behind the ego and other opaque geometry, never paint through it.
+// depthWrite:false only (matches clay_translucent.mat/Filament's blended
+// default) so this translucent draw can't corrupt the depth buffer for
+// another translucent object drawn after it in the same pass.
 material {
     name : ribbon_emissive,
     shadingModel : lit,
@@ -37,7 +43,8 @@ material {
         { type : float3, name : emissiveColor },
         { type : float, name : emissiveStrength }
     ],
-    blending : fade
+    blending : fade,
+    depthWrite : false
 }
 fragment {
     void material(inout MaterialInputs material) {

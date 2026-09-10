@@ -359,6 +359,118 @@
 #               deviation, dated 2026-09-10: performed in Task 1, not
 #               Task 3, since Task 1 is GeoAnchor's first consumer) -- no
 #               existing struct/enum touched, no rendering behavior change.
+#   2026-09-10  User directive (escalation, 4 fix attempts in): "NO THE
+#               GREEN LOCAL PATH DISAPPEAR AND APEAR randomly causing the
+#               flicker not the road?!" -- REPRODUCE pass found no dropout
+#               in the library's single-threaded set_scene()/render_frame()
+#               contract (tests/test_ribbon_dropout.cpp, committed as the
+#               permanent regression), but did find the real hazard: every
+#               ribbon slot (BEHAVIOR/GLOBAL/LOCAL via ribbon.cpp, the
+#               velocity ribbon via trajectory_carpet.cpp) destroyed and
+#               rebuilt its ENTIRE mesh on every quantized ego-clip tick
+#               (kPolylineClipQuantizeM=0.05 -- ~92% of frames while
+#               driving), the exact shape a torn cross-thread scene read
+#               (scene.h's own documented single-thread-only contract) would
+#               turn into a whole-frame dropout. FIX: the ego-clip no longer
+#               feeds any ribbon's content signature (ribbon_signature()/
+#               trajectory_carpet_signature() -- decision: station term
+#               REMOVED from the signature entirely, not just re-quantized);
+#               the full unclipped mesh now builds only on real content
+#               change (~8 Hz message rate), and the clip is applied EVERY
+#               frame as a degenerate-vertex position collapse re-uploaded
+#               into the SAME VertexBuffer (polyline.hpp's
+#               collapse_clipped_positions(), Filament's own
+#               VertexBuffer::setBufferAt) -- no destroy, no new mesh, no
+#               entity churn, so no frame can ever observe an absent slot.
+#               kPolylineClipQuantizeM (still 0.05) now only gates that
+#               per-frame upload (skip when the ego hasn't crossed a new
+#               quantized station), not a rebuild. Measured: the driving
+#               regression test's rebuild count dropped from ~55/60 frames
+#               (pre-fix, clip-driven) to 8/60 (post-fix, message-churn-only
+#               -- matches the injected content-change cadence exactly,
+#               parked or driving). Stacking/margins/z-order untouched
+#               (respine + margins + z as shipped at 33b2747) -- only the
+#               rebuild/clip mechanism changed. All 155 library tests green,
+#               including every ribbon/carpet golden (pixel-identical --
+#               the collapse renders the same picture the old truncate-then-
+#               rebuild did). Library rebuilt+installed
+#               (libs_build.sh Release) and the node force-relinked
+#               (colcon_build.sh micropilot_visualization_node, picked up
+#               the new libvisual_renderer.a automatically) -- node's own
+#               19/19 tests unaffected (adapter-level, not rendering-level).
+#               LIVE evidence (ROS_DOMAIN_ID=93, urban profile,
+#               stack_v2_full_sensors_2026-09-09 bag, 24-frame burst ~45s
+#               in, crop rows 260-560/cols 440-840 -- docs/evidence/
+#               vm077-flicker-2026-09-10/rebuild_clip_fix_burst_after.*):
+#               HONEST SPLIT VERDICT, STILL OPEN, not a clean close. The
+#               AMBER band (PathRole::LOCAL, palette.ribbon_local) -- what
+#               the internal name "LOCAL" literally refers to -- is rock
+#               solid across all 24 live frames: the r>b corridor-presence
+#               metric never drops (0.1575-0.1625 throughout, per the
+#               committed rebuild_clip_fix_burst_after_summary.json),
+#               exactly the property this fix targets. BUT the same capture
+#               shows the TOPMOST teal/green hero ribbon (PathRole::BEHAVIOR,
+#               palette.ribbon_core [0.12,0.55,0.42] -- plausibly what
+#               "green" in the user's own quote actually means, since it's
+#               the only genuinely green-ish element and the most visually
+#               prominent, directly on the ego) COMPLETELY ABSENT
+#               (teal_fraction exactly 0.0, not merely faint) on 15 of 24
+#               frames, present at ~0.0274 on the other 9 -- a STRUCTURAL
+#               per-frame presence failure, confirmed visually (full_0.png
+#               has no teal band, full_1.png shows it clearly, consecutive
+#               frames). Correction (this pass): an earlier draft of this
+#               entry described a different, since-overwritten capture
+#               (~0.0022-0.003 on 8 frames vs ~0.029-0.030 on the rest,
+#               corridor 0.16-0.2025) -- that capture's raw files were
+#               replaced in place by the current one and aren't
+#               recoverable, so the two can't be directly reconciled; what's
+#               certain is the CURRENT, committed evidence is worse (15
+#               frames totally absent, not 8 faintly present). Also fixed:
+#               tools/flicker_burst_capture.py's any_teal_dropout flagged
+#               this run false (its median-relative check exempted a run
+#               where the absent frames are the MAJORITY, since the median
+#               collapses to 0.0 right along with them) -- rekeyed off the
+#               run's own max instead, committed JSON's flag corrected to
+#               true. Mechanically this is NOT the destroy-rebuild path
+#               (identical fixed code handles BEHAVIOR too, and BEHAVIOR
+#               never swaps instances -- it fades via its own material
+#               alpha only, see ribbon.cpp) -- most likely explanation,
+#               STILL NOT PROVEN (no node-path instrumentation was run this
+#               pass either): BEHAVIOR's row (urban_profile.yaml,
+#               /behavior_path_planner/output_path_visualization,
+#               timeout_sec=2.0) hits the renderer's OWN staleness fade
+#               (kStaleFadeStartSec=0.5/kStaleFadeTimeoutSec=1.0,
+#               renderer_internal.hpp) when real message-arrival gaps under
+#               bag-replay timing exceed that margin -- the same class of
+#               "zero margin against the fade threshold" this plan's own
+#               2026-09-10 LOCAL-ribbon section already flagged (item 3,
+#               there for /local_vel_path) -- NOT the mechanism this task's
+#               FIX REQUIREMENTS targeted. LEFT OPEN, not silently declared
+#               fixed: the next pass needs to instrument the BEHAVIOR slot's
+#               staleness alpha and the topic's message-arrival timestamps
+#               during a live burst to show (or disprove) alpha being
+#               driven to 0 by a real message gap as a fade ramp, not the
+#               observed binary 0.0274->0.0 toggle. The rebuild-mechanism
+#               fix above stands on its own (already closed, shared by all
+#               four ribbon categories) -- the user-visible BEHAVIOR-ribbon
+#               dropout is NOT closed by it.
+#   2026-09-10  Post-review fix: ribbon_emissive.mat's depthCulling:false
+#               (added post-hoc to chase the BEHAVIOR staleness-fade drop
+#               above, unproven) let the BEHAVIOR hero ribbon paint through
+#               the ego body -- visible in the live burst evidence
+#               (rebuild_clip_fix_burst_after_full_1.png/.gif) and untested
+#               in either direction (no golden renders an ego body under a
+#               BEHAVIOR ribbon; RibbonGolden.ThreeRoles_DarkAdas, the only
+#               golden stacking all three ribbons, is pixel-identical with
+#               the depth test ON, so no z-fight was being lost there
+#               either). Reverted depthCulling:false; kept depthWrite:false
+#               (harmless, matches Filament's blended default). Files
+#               changed: cuda/src/libs/visual_renderer/assets/materials/
+#               ribbon_emissive.mat only. Sanctioned reds: none. Golden
+#               coverage of ego+BEHAVIOR-ribbon occlusion: none -- open
+#               scope, not claimed. Library + node rebuilt, all suites
+#               green; live burst evidence re-captured against the fixed
+#               build.
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its
@@ -466,6 +578,42 @@ kill_prior_rig() {
     fi
 }
 kill_prior_rig
+
+# --live HARD GUARANTEE (user report 2026-09-10: a leftover looping bag from
+# a prior bag-mode run survived into a --live session and fought the live
+# stack): live mode must not merely SKIP starting a bag -- it must refuse to
+# run while any bag player exists, ours or anyone's.
+if [[ "${LIVE}" == "1" ]]; then
+    for _pass in 1 2; do
+        while read -r _pid; do
+            [[ -z "${_pid}" || "${_pid}" == "$$" ]] && continue
+            kill -9 "${_pid}" 2>/dev/null || true
+        done < <(pgrep -f "ros2 bag play" 2>/dev/null || true)
+        sleep 0.5
+    done
+    if pgrep -f "ros2 bag play" >/dev/null 2>&1; then
+        echo "[live] FATAL: a 'ros2 bag play' process is still running and could" >&2
+        echo "       not be killed -- live mode will not fight a bag. Offender:" >&2
+        pgrep -af "ros2 bag play" >&2
+        exit 1
+    fi
+    # Functional check: a /clock publisher in live mode (without
+    # LIVE_SIM_TIME=true, where the live source e.g. CARLA legitimately
+    # publishes it) means a bag/sim clock somewhere on this domain will
+    # fight wall time -- refuse rather than produce the confusing frozen/
+    # stale-TF symptoms that fight causes.
+    if [[ "${LIVE_SIM_TIME:-false}" != "true" ]]; then
+        set +u; source /opt/ros/humble/setup.bash >/dev/null 2>&1; set -u
+        _clock_pubs="$(timeout 5 ros2 topic info /clock 2>/dev/null | sed -n 's/^Publisher count: //p' || true)"
+        if [[ -n "${_clock_pubs}" && "${_clock_pubs}" != "0" ]]; then
+            echo "[live] FATAL: /clock has ${_clock_pubs} publisher(s) on this ROS domain." >&2
+            echo "       Something is playing a bag or publishing sim time. Stop it, or" >&2
+            echo "       run with LIVE_SIM_TIME=true if the live source owns /clock." >&2
+            exit 1
+        fi
+    fi
+    echo "[live] verified: no bag player, no unexpected /clock publisher"
+fi
 
 # ---------------------------------------------------------------- prereqs
 if [[ ! -d "${REPO_ROOT}/cuda/install/ros_apps" ]]; then

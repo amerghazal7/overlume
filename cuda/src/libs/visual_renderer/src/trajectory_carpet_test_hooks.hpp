@@ -10,6 +10,7 @@
 #include <cstdint>
 
 #include "visual_renderer/api.h"
+#include "visual_renderer/scene.h"
 
 namespace mpviz::testing {
 
@@ -60,5 +61,12 @@ float trajectory_carpet_half_width_m(mpviz::VisualRenderer* r, size_t slot);
 // per-vertex color, with identical station positions, must NOT bump this.
 // 0 if `r` is null.
 uint64_t trajectory_carpet_rebuild_count(mpviz::VisualRenderer* r);
+
+// The current effective first vertex (left rail) slot `slot` is actually
+// showing -- post ego-clip collapse, if any. Written to `*out`; returns
+// false (out unchanged) if `r` is null, `slot` is out of range, or the
+// slot has never built geometry. Mirrors ribbon_test_hooks.hpp's
+// ribbon_slot_first_point().
+bool trajectory_carpet_slot_first_point(mpviz::VisualRenderer* r, size_t slot, mpviz::Vec3* out);
 
 }  // namespace mpviz::testing
