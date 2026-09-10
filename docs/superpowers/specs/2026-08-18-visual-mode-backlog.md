@@ -234,6 +234,11 @@ that on 2026-09-07 — it stays committed v1.1.
   AC: clean-checkout build + `ci_visual_mode.sh` green, documented and reproducible.
 - **VM-042 Docs + runbook.** README section, profile-authoring guide for the
   autonomy team, environment-bake guide, deployment notes.
+  `[2026-09-11]` Docs half shipped (commit 85013dd):
+  `docs/visual_mode/profile_authoring.md` + `environment_bake.md` + README
+  section. Deployment/two-node-topology notes DEFERRED to VM-095 (unified-
+  engine cutover) — the migration deletes that topology; see
+  `docs/visual_mode/README.md`.
   AC: autonomy-team member can add a topic via profile YAML using only docs.
 - **VM-044 Package theme + ego assets for a real install** (`[review 2026-09-07]`). Today `DEFAULT_THEME_ASSETS_DIR` compiles in this checkout's path, the node leaves `RenderConfig::theme_assets_dir` null, no ROS param selects the initial theme (always dark_adas at launch), and `ego_model_path` defaults to a per-user `~/Downloads` path — off this dev box the node silently runs the compiled-in fallback theme with a clay-box ego (WARN only). Install `assets/themes` and the converted ego `.glb` (Git LFS or a fetch script), resolve them via `ament_index`, add an `initial_theme` param.
   AC: clean clone + build on another machine shows both themes and the ego mesh; `ros2 param get` shows the resolved paths. Blocks VM-043.
