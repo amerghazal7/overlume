@@ -69,6 +69,14 @@ struct Theme {
         // `lane_paint`, so a theme file predating this key still parses.
         // Neither shipped theme relies on the default.
         Float3 road_edge;
+        // building: baked-environment clay buildings (VM-052, STANDING
+        // directive 2026-09-09: every rendered element gets a style token +
+        // a disable knob -- environment_enabled, the node-side disable
+        // half). Soft-defaulted like every other token in this block
+        // (theme.cpp's parse()) -- falls back to `road` -- but both shipped
+        // themes author an explicit value (Decision 10) so the reference
+        // images' value separation actually shows.
+        Float3 building;
         struct ObjectTints {
             Float3 car, truck_van, bus, pedestrian, cyclist, unknown;
         } object_tints;

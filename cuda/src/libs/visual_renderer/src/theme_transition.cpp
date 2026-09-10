@@ -99,6 +99,7 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.palette.lane_boundary = blend_color(a.palette.lane_boundary, b.palette.lane_boundary, w);
     out.palette.crosswalk = blend_color(a.palette.crosswalk, b.palette.crosswalk, w);
     out.palette.road_edge = blend_color(a.palette.road_edge, b.palette.road_edge, w);
+    out.palette.building = blend_color(a.palette.building, b.palette.building, w);
     out.palette.object_tints.car =
         blend_color(a.palette.object_tints.car, b.palette.object_tints.car, w);
     out.palette.object_tints.truck_van =

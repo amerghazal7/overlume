@@ -13,6 +13,10 @@ cuda/logs/
 *.db*CMakeFiles/
 .vscode/
 graphify-out/
+
+# Claude Code local-only (do not commit machine/session state)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
 **/build/
 # colcon run-from-anywhere artifacts (agents/tests)
 log/

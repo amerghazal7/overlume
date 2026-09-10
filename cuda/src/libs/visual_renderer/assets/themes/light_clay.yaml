@@ -47,6 +47,10 @@ palette:
   # -- deeper, more saturated yellow than lane_centerline's fade, per
   # ref-2's double-yellow road-edge striping.
   road_edge: [0.75, 0.55, 0.03]
+  # Baked-environment buildings (VM-052): pale gray/lavender clay, distinctly
+  # lighter than palette.road above (and than palette.ground) per ref-2's
+  # separation between road plane and surrounding structures.
+  building: [0.72, 0.70, 0.78]
   # Deepened so every class reads as "clay but distinct" against the
   # darker road-toned ground.
   object_tints:
