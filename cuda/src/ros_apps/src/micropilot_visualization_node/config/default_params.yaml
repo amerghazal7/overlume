@@ -84,3 +84,136 @@
     # set_environment_source() (no anchor solved / no dir given -- same
     # "missing data renders nothing" convention, spec §9).
     environment_chunks_dir: ""
+    # VM-091 (unified-engine migration Task 2 Step 6): mode-1 bowl camera
+    # ingest. bowl_enabled default OFF (STANDING disable-knob rule) --
+    # nothing below runs (no camera subs' cv_bridge conversion cost, no
+    # set_bowl_config/set_camera_frame/set_camera_motion_delta calls) until
+    # this is set true. n_cameras/image_topics/info_topics/camera_extrinsics
+    # and bowl_R0/k/Rmax/feather_margin/sky_color below are ported verbatim
+    # from micropilot_rendering_node's own default_params.yaml (the CARLA-sim
+    # config -- same six real camera topics this epic's own fixture bag,
+    # stack_v2_full_sensors_2026-09-09, publishes), not reinvented.
+    bowl_enabled: false
+    n_cameras: 6
+    image_topics:
+    - /fl_camera/raw_images
+    - /fm_camera/raw_images
+    - /fr_camera/raw_images
+    - /bl_camera/raw_images
+    - /bm_camera/raw_images
+    - /br_camera/raw_images
+    info_topics:
+    - /fl_camera/camera_info
+    - /fm_camera/camera_info
+    - /fr_camera/camera_info
+    - /bl_camera/camera_info
+    - /bm_camera/camera_info
+    - /br_camera/camera_info
+    # GUI-tunable; in this merged node it is the ego-motion re-alignment/
+    # staleness window (Step 6's redefined frame-sync gate semantics), no
+    # longer a render-withholding threshold the way the old node used it.
+    max_sync_latency: 0.12
+    # "" disables ego-motion compensation (identity deltas every tick) --
+    # this epic's own fixture bag carries no odometry topic at all, so this
+    # stays the honest default; a real robot config sets it (m2o1_params.yaml
+    # uses /fixposition/odometry_enu).
+    odom_topic: ""
+    # Read back by the GUI bridge's config-save path (mirrors
+    # micropilot_rendering_node's own config_path param, rendering_node.cpp).
+    config_path: ""
+    bowl_R0: 17.0
+    bowl_k: 0.06
+    bowl_Rmax: 40.0
+    feather_margin: 480.0
+    # Declared false AND node-clamped to false with a WARN (Decision 3's
+    # exposure/blind-zone deferral -- see the layer_param_cb_ extension in
+    # visualization_node.cpp): neither has a Filament-side implementation in
+    # this epic, so a config source that carries `true` (m2o1_params.yaml
+    # does, for both) must not silently re-enable a capability that isn't
+    # actually there. The yaml default here is honesty, not the enforcement.
+    fill_blind_zone: false
+    exposure_match: false
+    sky_color:
+    - 0.53
+    - 0.7
+    - 0.92
+    # Style knob alongside sky_color/feather_margin (bowl.mat's
+    # exposureCompensation parameter, BowlConfig::exposure_compensation).
+    # Retuned 10.0 -> 1.5 at Task 2 Step 7's golden capture against this
+    # exact bag (stack_v2_full_sensors_2026-09-09): 10.0 (an untested guess)
+    # blew the bowl out to near-white; 1.5 matches the CUDA node's own
+    # mode-1 output brightness on the same frame.
+    bowl_exposure_compensation: 1.5
+    camera_extrinsics:
+    - 0.9961946980917455
+    - -0.06269459458646724
+    - 0.06054346623323177
+    - -0.08715574274765814
+    - -0.7166024952237391
+    - 0.6920149856363047
+    - 0.0
+    - -0.6946583704589973
+    - -0.7193398003386511
+    - 0.1594
+    - 0.90401
+    - 1.314
+    - 0.0
+    - -0.7193398003386511
+    - 0.6946583704589973
+    - -1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - -0.6946583704589973
+    - -0.7193398003386511
+    - 1.05472
+    - 0.0
+    - 0.854
+    - -0.9961946980917455
+    - -0.06269459458646724
+    - 0.06054346623323177
+    - -0.08715574274765814
+    - 0.7166024952237391
+    - -0.6920149856363047
+    - 0.0
+    - -0.6946583704589973
+    - -0.7193398003386511
+    - 0.16735
+    - -0.94909
+    - 1.314
+    - 0.9961946980917455
+    - 0.06269459458646731
+    - -0.06054346623323184
+    - 0.08715574274765824
+    - -0.7166024952237391
+    - 0.6920149856363047
+    - 0.0
+    - -0.6946583704589973
+    - -0.7193398003386511
+    - -0.15922
+    - 0.90298
+    - 1.314
+    - 1.2246467991473532e-16
+    - 0.7193398003386511
+    - -0.6946583704589973
+    - 1.0
+    - -8.809371839840251e-17
+    - 8.507111498835273e-17
+    - 0.0
+    - -0.6946583704589973
+    - -0.7193398003386511
+    - -1.05472
+    - 0.0
+    - 0.854
+    - -0.9961946980917455
+    - 0.06269459458646731
+    - -0.06054346623323184
+    - 0.08715574274765824
+    - 0.7166024952237391
+    - -0.6920149856363047
+    - 0.0
+    - -0.6946583704589973
+    - -0.7193398003386511
+    - -0.16731
+    - -0.94884
+    - 1.314

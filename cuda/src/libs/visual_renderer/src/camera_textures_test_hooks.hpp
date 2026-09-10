@@ -20,4 +20,11 @@ namespace mpviz::testing {
 // set_bowl_config() has never succeeded.
 uint64_t camera_frame_upload_count(mpviz::VisualRenderer* r, uint32_t cam_idx);
 
+// Reads back camera `cam_idx`'s currently-stored ego-motion-delta uniform
+// (row-major 4x4, scene.h's set_camera_motion_delta contract) into `out` --
+// lets a test verify the EXACT delta a caller pushed, not just that the
+// call returned true. No-op (leaves `out` untouched) if `r` is null or
+// `cam_idx` is out of range.
+void camera_motion_delta(mpviz::VisualRenderer* r, uint32_t cam_idx, double out[16]);
+
 }  // namespace mpviz::testing

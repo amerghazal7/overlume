@@ -48,6 +48,7 @@
 #include "micropilot_visualization_node/adapters/tf_axes.hpp"
 #include "micropilot_visualization_node/adapters/trajectory_carpet.hpp"
 #include "micropilot_visualization_node/callouts.hpp"
+#include "micropilot_visualization_node/camera_ingest.hpp"
 #include "micropilot_visualization_node/diagnostics.hpp"
 #include "micropilot_visualization_node/frame_transform.hpp"
 #include "micropilot_visualization_node/geo_anchor.hpp"
@@ -430,6 +431,44 @@ private:
     // matching the category's own singular topic/adapter/role.
     bool layer_trajectory_carpet_{true};
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr layer_param_cb_;
+
+    // ── Camera bowl ingest (VM-091, unified-engine migration Task 2 Step 6) ──
+    // bowl_enabled_ is the STANDING disable knob (read once in on_configure,
+    // same shape as hud_enabled_/callouts_enabled_ above): false means
+    // camera_ingest_'s image callbacks do no cv_bridge conversion work and
+    // set_bowl_config()/set_camera_frame()/set_camera_motion_delta() are
+    // never called. bowl_R0_/bowl_k_/bowl_Rmax_/feather_margin_/sky_color_/
+    // exposure_compensation_ are the BowlConfig fields camera_ingest_ can't
+    // fill itself (camera intrinsics/extrinsics + dims come from
+    // camera_ingest_, everything else is a plain ROS param this node owns
+    // directly, same split as every other adapter's config-vs-ingest
+    // separation in this file). fill_blind_zone_/exposure_match_ are
+    // declared but CLAMPED to false (Decision 3's exposure/blind-zone
+    // deferral -- neither has a Filament-side implementation this epic) in
+    // both on_configure() and on_params() below, with a WARN whenever a
+    // config or set_parameters() call carries `true`.
+    bool bowl_enabled_{false};
+    // GUI-tunable; in this merged node it is the ego-motion re-alignment/
+    // staleness window (Step 6's redefined frame-sync gate semantics) --
+    // camera_ingest_ does not currently read this (identity/rig_delta
+    // compensation runs every tick regardless), reserved for Task 4's
+    // staleness-WARN carryover from the old node's gate.
+    double max_sync_latency_{0.12};
+    double bowl_R0_{6.0}, bowl_k_{0.08}, bowl_Rmax_{20.0};
+    double feather_margin_{30.0};
+    bool fill_blind_zone_{false};
+    bool exposure_match_{false};
+    float sky_color_[3]{0.53f, 0.70f, 0.92f};
+    // Retuned 10.0 -> 1.5 at Task 2 Step 7's golden capture (see
+    // default_params.yaml's own comment).
+    float bowl_exposure_compensation_{1.5f};
+    // Task 2 (this task) ships the bowl BUILT but not yet mode-dispatched
+    // (Task 4 owns the real per-mode set_bowl_visible() switch: visible in
+    // BOWL/HYBRID, hidden in FREE_LOOK). Until then, visibility just
+    // mirrors bowl_enabled_ directly -- the simplest thing that makes the
+    // bowl's real per-fragment cost show up in Step 5's perf gate without
+    // waiting on Task 4.
+    std::unique_ptr<CameraIngest> camera_ingest_;
 
     rclcpp::TimerBase::SharedPtr timer_;
 };

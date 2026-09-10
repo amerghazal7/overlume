@@ -273,6 +273,113 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
             }
         });
 
+    // ── Camera bowl ingest (VM-091, Task 2 Step 6) ───────────────────────────
+    // bowl_enabled_: STANDING disable knob, read once (same shape as
+    // hud_enabled_/callouts_enabled_ below) -- false means CameraIngest's
+    // image callbacks never touch cv_bridge and set_bowl_config()/
+    // set_camera_frame()/set_camera_motion_delta() are never called.
+    bowl_enabled_ = declare_parameter<bool>("bowl_enabled", false);
+    const int n_cameras = declare_parameter<int>("n_cameras", 6);
+    if (n_cameras <= 0 || static_cast<uint32_t>(n_cameras) > mpviz::kMaxBowlCameras)
+    {
+        RCLCPP_ERROR(get_logger(), "n_cameras must be in [1, %u], got %d", mpviz::kMaxBowlCameras,
+                     n_cameras);
+        return CallbackReturn::FAILURE;
+    }
+    auto image_topics =
+        declare_parameter<std::vector<std::string>>("image_topics", std::vector<std::string>{});
+    auto info_topics =
+        declare_parameter<std::vector<std::string>>("info_topics", std::vector<std::string>{});
+    if (bowl_enabled_ && (static_cast<int>(image_topics.size()) != n_cameras ||
+                          static_cast<int>(info_topics.size()) != n_cameras))
+    {
+        RCLCPP_ERROR(get_logger(),
+                     "bowl_enabled but image_topics/info_topics don't have n_cameras (%d) entries "
+                     "(%zu/%zu)",
+                     n_cameras, image_topics.size(), info_topics.size());
+        return CallbackReturn::FAILURE;
+    }
+    const std::string odom_topic = declare_parameter<std::string>("odom_topic", "");
+    // Read back by the GUI bridge's config-save path; nothing in this node
+    // reads it beyond that (mirrors micropilot_rendering_node's own
+    // config_path param).
+    declare_parameter<std::string>("config_path", "");
+    max_sync_latency_ = declare_parameter<double>("max_sync_latency", 0.12);
+    bowl_R0_ = declare_parameter<double>("bowl_R0", bowl_R0_);
+    bowl_k_ = declare_parameter<double>("bowl_k", bowl_k_);
+    bowl_Rmax_ = declare_parameter<double>("bowl_Rmax", bowl_Rmax_);
+    feather_margin_ = declare_parameter<double>("feather_margin", feather_margin_);
+    // Decision 3's exposure/blind-zone deferral: declared, but CLAMPED to
+    // false with a WARN regardless of what the config carries (the yaml
+    // default alone protects nothing -- m2o1_params.yaml ships both `true`).
+    {
+        const bool fbz = declare_parameter<bool>("fill_blind_zone", false);
+        if (fbz)
+        {
+            RCLCPP_WARN(get_logger(),
+                        "fill_blind_zone: true requested but forced to false -- no Filament-side "
+                        "implementation this epic (Decision 3)");
+        }
+        fill_blind_zone_ = false;
+        const bool em = declare_parameter<bool>("exposure_match", false);
+        if (em)
+        {
+            RCLCPP_WARN(get_logger(),
+                        "exposure_match: true requested but forced to false -- no Filament-side "
+                        "implementation this epic (Decision 3)");
+        }
+        exposure_match_ = false;
+    }
+    auto sky = declare_parameter<std::vector<double>>(
+        "sky_color", {sky_color_[0], sky_color_[1], sky_color_[2]});
+    if (sky.size() == 3)
+        for (int i = 0; i < 3; ++i) sky_color_[i] = static_cast<float>(sky[i]);
+    bowl_exposure_compensation_ = static_cast<float>(
+        declare_parameter<double>("bowl_exposure_compensation", bowl_exposure_compensation_));
+
+    std::vector<mpviz::CameraExtrinsics> camera_extrinsics(static_cast<size_t>(n_cameras));
+    if (bowl_enabled_)
+    {
+        // Default: identity-rotation ring around the origin (mirrors
+        // micropilot_rendering_node's own default-ring fallback shape) --
+        // real deployments always override this via the param.
+        std::vector<double> ext_default;
+        for (int i = 0; i < n_cameras; ++i)
+        {
+            const double angle = 2.0 * M_PI * i / n_cameras;
+            const double ca = std::cos(angle), sa = std::sin(angle);
+            const std::vector<double> row = {ca, -sa, 0, 0,  0,        -1,
+                                             sa, ca,  0, 0.55 * ca, 0.55 * sa, 0.55};
+            ext_default.insert(ext_default.end(), row.begin(), row.end());
+        }
+        auto ext_vec = declare_parameter<std::vector<double>>("camera_extrinsics", ext_default);
+        if (static_cast<int>(ext_vec.size()) != n_cameras * 12)
+        {
+            RCLCPP_ERROR(get_logger(), "camera_extrinsics must have n_cameras*12 = %d floats, got %zu",
+                         n_cameras * 12, ext_vec.size());
+            return CallbackReturn::FAILURE;
+        }
+        for (int i = 0; i < n_cameras; ++i)
+        {
+            mpviz::CameraExtrinsics& ext = camera_extrinsics[static_cast<size_t>(i)];
+            const int base = i * 12;
+            for (int j = 0; j < 9; ++j) ext.R[j] = ext_vec[base + j];
+            for (int j = 0; j < 3; ++j) ext.t[j] = ext_vec[base + 9 + j];
+        }
+    }
+    else
+    {
+        // Declared regardless, so a later `ros2 param set bowl_enabled true`
+        // + set_parameters(camera_extrinsics) sequence has somewhere to
+        // land -- Task 4/6 concern, not exercised by this task's own gate.
+        declare_parameter<std::vector<double>>("camera_extrinsics", std::vector<double>{});
+    }
+    camera_ingest_ = std::make_unique<CameraIngest>(this, static_cast<uint32_t>(n_cameras),
+                                                     image_topics, info_topics, odom_topic,
+                                                     camera_extrinsics);
+    camera_ingest_->set_renderer(renderer_);
+    camera_ingest_->set_bowl_enabled(bowl_enabled_);
+
     // VM-052 (Epic 4 Task 3): environment disable knob + per-checkout chunks
     // dir, same read-once shape as hud_enabled_/hud_font_path_ below.
     // Actually wiring set_environment_source() happens in on_activate()
@@ -660,6 +767,47 @@ rcl_interfaces::msg::SetParametersResult VisualizationNode::on_params(
             else if (n == "layer_markers") layer_markers_ = p.as_bool();
             else if (n == "layer_point_clouds") layer_point_clouds_ = p.as_bool();
             else if (n == "layer_trajectory_carpet") layer_trajectory_carpet_ = p.as_bool();
+            // ── Camera bowl live tuning (VM-091 Task 2 Step 6) ───────────────
+            // Same fall-through-unmatched-names-as-successful shape as the
+            // rest of this handler; extends the ALREADY-registered
+            // layer_param_cb_ rather than a second callback (rclcpp invokes
+            // every registered callback, and a second one that doesn't fall
+            // through unmatched names would reintroduce the reject-unknowns
+            // bug this node's own on_params already avoids).
+            else if (n == "bowl_R0") bowl_R0_ = p.as_double();
+            else if (n == "bowl_k") bowl_k_ = p.as_double();
+            else if (n == "bowl_Rmax") bowl_Rmax_ = p.as_double();
+            else if (n == "feather_margin") feather_margin_ = p.as_double();
+            else if (n == "bowl_exposure_compensation")
+                bowl_exposure_compensation_ = static_cast<float>(p.as_double());
+            else if (n == "sky_color")
+            {
+                auto v = p.as_double_array();
+                if (v.size() == 3)
+                    for (int i = 0; i < 3; ++i) sky_color_[i] = static_cast<float>(v[i]);
+            }
+            // Decision 3's root-cause guard, restated here: a live
+            // set_parameters() call (not just the initial declare) carrying
+            // `true` for either is CLAMPED to false with a WARN, same as
+            // on_configure()'s own declare-time clamp.
+            else if (n == "fill_blind_zone")
+            {
+                const bool requested = p.as_bool();
+                fill_blind_zone_ = false;
+                if (requested)
+                    RCLCPP_WARN(get_logger(),
+                                "fill_blind_zone: true requested but forced to false -- no "
+                                "Filament-side implementation this epic (Decision 3)");
+            }
+            else if (n == "exposure_match")
+            {
+                const bool requested = p.as_bool();
+                exposure_match_ = false;
+                if (requested)
+                    RCLCPP_WARN(get_logger(),
+                                "exposure_match: true requested but forced to false -- no "
+                                "Filament-side implementation this epic (Decision 3)");
+            }
             // other params: accept (stored by rclcpp) but nothing to apply live
         }
         catch (const std::exception& e)
@@ -716,6 +864,73 @@ void VisualizationNode::timer_callback()
     // this, SceneBuffer::active().sim_time_sec never advances and a
     // ~/set_theme request never visibly finishes.
     sim_clock_sec_ += kTimerPeriodSec;
+
+    // ── Camera bowl (VM-091, Task 2 Step 6) ───────────────────────────────────
+    // Runs every tick regardless of mode -- same "ingest continues
+    // regardless of mode" philosophy as sim_clock_sec_ above -- so the bowl
+    // stays warm (textures uploaded, mesh baked) whenever mode switches to
+    // it later (Task 4). bowl_enabled_ false means camera_ingest_ itself
+    // already does nothing (its image callbacks return before touching
+    // cv_bridge); this block is then also a no-op.
+    if (bowl_enabled_ && camera_ingest_)
+    {
+        // Same BowlConfig every (re)bake -- only WHEN it's called differs
+        // between the first-completion and re-bake-on-change branches below.
+        auto apply_bowl_config = [&]() -> bool
+        {
+            std::vector<mpviz::CameraExtrinsics> ext;
+            std::vector<mpviz::CameraIntrinsics> in;
+            std::vector<uint32_t> w, h;
+            camera_ingest_->fill_bowl_intrinsics(ext, in, w, h);
+            mpviz::BowlConfig bc{};
+            bc.camera_count = static_cast<uint32_t>(ext.size());
+            bc.extrinsics = ext.data();
+            bc.intrinsics = in.data();
+            bc.cam_width = w.data();
+            bc.cam_height = h.data();
+            bc.bowl_R0 = bowl_R0_;
+            bc.bowl_k = bowl_k_;
+            bc.bowl_Rmax = bowl_Rmax_;
+            bc.feather_margin = feather_margin_;
+            bc.fill_blind_zone = fill_blind_zone_ ? 1 : 0;
+            bc.exposure_match = exposure_match_ ? 1 : 0;
+            bc.sky_color[0] = sky_color_[0];
+            bc.sky_color[1] = sky_color_[1];
+            bc.sky_color[2] = sky_color_[2];
+            bc.exposure_compensation = bowl_exposure_compensation_;
+            return mpviz::set_bowl_config(renderer_, bc);
+        };
+
+        if (!camera_ingest_->config_applied())
+        {
+            if (camera_ingest_->all_info_ready())
+            {
+                if (apply_bowl_config())
+                {
+                    camera_ingest_->mark_bowl_config_applied();
+                    // Task 4 owns the real per-mode set_bowl_visible()
+                    // switch (visible in BOWL/HYBRID, hidden in FREE_LOOK);
+                    // until it lands, visibility mirrors bowl_enabled_
+                    // directly so this task's own perf gate (Step 5) and
+                    // golden (Step 7) can actually see/measure the bowl.
+                    mpviz::set_bowl_visible(renderer_, true);
+                    RCLCPP_INFO(get_logger(), "bowl: configured");
+                }
+                else
+                {
+                    RCLCPP_WARN(get_logger(), "set_bowl_config() failed with all CameraInfo present");
+                }
+            }
+        }
+        else if (camera_ingest_->consume_info_dirty())
+        {
+            if (apply_bowl_config())
+                RCLCPP_INFO(get_logger(), "bowl: re-baked (CameraInfo changed)");
+        }
+        // Cheap per-tick ego-motion re-alignment (no re-bake, no texture
+        // touch) -- identity deltas until config_applied()/odometry exist.
+        camera_ingest_->update_motion_deltas();
+    }
 
     // scene_asm_.clear() must run before any adapter's fill(), or last tick's
     // elements pile up on top of this tick's. MapElement fades via the
@@ -1087,6 +1302,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_cleanup(
     theme_sub_.reset();
     robot_speed_sub_.reset();
     gps_sub_.reset();
+    camera_ingest_.reset();
     geo_anchor_solver_.reset();
     geo_anchor_logged_ = false;
     environment_warned_ = false;
@@ -1126,6 +1342,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_shutdown(
     theme_sub_.reset();
     robot_speed_sub_.reset();
     gps_sub_.reset();
+    camera_ingest_.reset();
     geo_anchor_solver_.reset();
     geo_anchor_logged_ = false;
     environment_warned_ = false;

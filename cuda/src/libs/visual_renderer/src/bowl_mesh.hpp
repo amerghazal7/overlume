@@ -28,12 +28,11 @@
 // memory this trades for is cheaper than detecting cross-triangle
 // agreement first).
 //
-// Review round 1 (2026-09-11, blocking finding): the border feather is NOT
-// baked here anymore -- it used to be (feather * alignment^2), but a bake
-// step happens once per vertex while the fragment shader now samples
-// per-fragment, so a vertex-baked feather produced a hard step at each
-// camera's exact pixel-bounds cutoff instead of reproject.cu's smoothstep
-// falloff. bowl.mat computes the feather itself, per fragment, from its
+// The border feather is NOT baked here -- a bake step happens once per
+// vertex while the fragment shader samples per-fragment, so a vertex-baked
+// feather would produce a hard step at each camera's exact pixel-bounds
+// cutoff instead of reproject.cu's smoothstep falloff. bowl.mat computes
+// the feather itself, per fragment, from its
 // `featherMargin` parameter (bowl.cpp pushes it from BowlConfig::
 // feather_margin); this bake's coverage_a/coverage_b carry ONLY
 // alignment^2 (bowl_projection::CameraAlignment squared), the part that

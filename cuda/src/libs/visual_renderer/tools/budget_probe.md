@@ -75,3 +75,78 @@ Same matrix on robot hardware with perception + cameras feeding the CUDA node,
 plus `render_ms` p50/p99 from the VM-034 diagnostic, CUDA-node fps delta and
 perception fps delta. Record the go/adjust decision on the 720p30 assumption
 in the master plan's "Epic 0 results" line.
+
+## Results (c) — VM-091 Task 2 Step 5: bowl camera-ingest gate, real camera bag, 2026-09-11
+
+**These rows are their own baseline, not comparable to (a)/(b) above.** (a)'s
+`q1_alone`/`q1_rnode_idle`/`q1_rnode_mode2` were all measured on
+`epic2_fixtures_full`, which carries **no camera topics at all** — a bowl
+that needs six live camera images to render anything cannot be gated against
+a camera-starved number. This table uses this epic's own fixture bag,
+`~/TPSProjector-fixtures/stack_v2_full_sensors_2026-09-09` (six real
+`bgra8` 1440×928 cameras + `camera_info`, `ROS_DOMAIN_ID=93`, `SensorDataQoS`/
+best_effort sensor subs, fresh single-pass playback — no `--loop`), driven by
+`tools/bowl_perf_gate.sh` + `tools/sample_diagnostics.py` (checked in
+alongside `budget_probe.sh`; same procedure shape, `render_ms` read directly
+from the VM-034 `~/diagnostics` topic instead of estimated). 1280×720, quality 1
+(medium), `initial_mode:=3`, `~29s` of steady playback sampled per case
+(15s warm-up + 14s `topic hz`/`nvidia-smi dmon`/diagnostics window).
+
+| case | bowl_enabled | image_hz | GPU SM % | GPU mem % | viz CPU % | render_ms p50 | render_ms p99 | n |
+|---|---|---|---|---|---|---|---|---|
+| bowl_off (5a baseline) | false | 30.30 | 27 | 0 | 45.5 | 10.505 | 11.694 | 425 |
+| bowl_on | true | 30.28 | 34 | 0 | 85.0 | 16.820 | 22.358 | 425 |
+
+**Pass/fail:** `image_hz >= 30.0` holds in both cases (30.30, 30.28 — the
+fixed 33ms publish timer, same rule as table (a)). `render_ms` p99 stays well
+under the 33ms ceiling in both cases (11.694ms bowl-off, 22.358ms bowl-on).
+GPU SM % delta over the bowl-off baseline is +7 points (27→34); viz CPU %
+delta is +39.5 points (45.5%→85.0%, one core) — real and worth tracking as
+this epic's own per-fragment-sampling cost grows (more cameras dirty per
+tick, higher tessellation), but not over budget today. **No bar is missed;
+nothing here is absorbed silently.**
+
+**`bowl_on_static` vs `bowl_on_driving`: NOT separately measurable on this
+fixture** — a real, named gap, not a step skipped. `stack_v2_full_sensors_
+2026-09-09` carries **no odometry topic at all** (`ros2 bag info` lists no
+`nav_msgs/msg/Odometry` topic), so `camera_ingest_`'s twist buffer stays
+empty for the whole run regardless of `odom_topic` — `compensation_delta_
+4x4()` returns the identity matrix for every camera, every tick, the same
+path `bowl_on_static` would have exercised. The single `bowl_on` row above
+already includes the real per-tick cost of `update_motion_deltas()`'s loop
+(6 `set_camera_motion_delta()` calls/tick, each a cheap identity write here)
+plus real per-tick camera-dirty `set_camera_frame()` uploads (the bag's
+cameras run ~9 Hz each, so most ticks see 0–2 cameras dirty, not all 6) — it
+is the honest ceiling this fixture can produce, not a stand-in for the
+odometry-driven `rig_delta()` integration cost, which stays unmeasured until
+a bag (or live rig) with real odometry is available.
+
+**Upload/conversion bandwidth, at the REAL wire dims (not the plan's
+1280×720-derived ~16.6 MB estimate):**
+- Wire encoding: `bgra8`, 1440×928, confirmed via this bag's own
+  `camera_info`/`raw_images` — 4 bytes/px × 1440 × 928 × 6 cameras ≈
+  **32.07 MB/tick** of DDS `sensor_msgs/Image` payload (received, not a CPU
+  memcpy line item — cv_bridge's `toCvCopy` is the first place this repo's
+  own code touches the buffer).
+- `cv_bridge::toCvCopy(msg, "rgb8")` conversion copy (bgra8→rgb8, dropping
+  the alpha channel and reordering B/R): 1440 × 928 × 3 bytes/px × 6 cameras
+  ≈ **24.05 MB/tick** worst case (all six cameras dirty the same tick) — this
+  is the figure the finding names (`~24 MB/tick`), not the plan's
+  1280×720-derived ~16.6 MB estimate. This copy is unavoidable in every
+  variant (Decision 2's honest one-copy-vs-two framing) and is on the
+  `render_ms` critical path in the image callback (gated entirely behind
+  `bowl_enabled_`, so it costs nothing in the `bowl_off` row above).
+- **Release-callback `set_camera_frame` shipped (ADR-0005, Decision
+  resolution 1)** — `camera_ingest.cpp`'s image callback hands Filament the
+  SAME `cv_bridge`-converted buffer directly (a heap-allocated
+  `cv_bridge::CvImagePtr` copy is just a `shared_ptr` refcount bump, freed by
+  Filament's release callback once consumed), so the ~24.05 MB/tick figure
+  above is the ONLY copy on this path — there is no second ~24 MB/tick
+  library-side `setImage()` heap-copy-and-free line item to add (that
+  second copy is exactly what the release-callback shape was chosen to
+  avoid, Task 1/ADR-0005).
+- GPU-side `setImage()` upload traffic is the same ~24.05 MB/tick figure
+  (the converted RGB8 buffer is what's actually uploaded) — already
+  reflected in the GPU SM %/mem % columns above (mem % reads 0 at this
+  scale; six 1440×928×3 uploads/tick is small next to this GPU's memory
+  bandwidth).

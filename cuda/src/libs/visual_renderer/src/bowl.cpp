@@ -39,13 +39,11 @@ using filament::math::quatf;
 // payload, reused through the COLOR channel (bowl.mat's `requires: [
 // color, custom0 ]`).
 //
-// Review round 1 (blocking finding): rigPos used to ride uv0/uv1, but
-// Filament's generated vertex shader V-flips BOTH (`vec2(mesh_uv0.x,
-// 1.0 - mesh_uv0.y)`) -- fine for an actual texture UV, corrupting for an
-// arbitrary position payload smuggled through the same channel. A real
-// custom vertex attribute (CUSTOM0, bound FLOAT3) passes through
-// untouched -- Filament does no per-component arithmetic on CUSTOM
-// attributes -- so rigPos rides that instead.
+// rigPos rides a real custom vertex attribute (CUSTOM0, bound FLOAT3),
+// NOT uv0/uv1 -- Filament's generated vertex shader V-flips both
+// (`vec2(mesh_uv0.x, 1.0 - mesh_uv0.y)`), fine for an actual texture UV but
+// wrong for an arbitrary position payload. Filament does no per-component
+// arithmetic on CUSTOM attributes, so rigPos passes through untouched.
 struct BowlGpuVertex {
     float3 position;
     float4 color;    // coverage_a, index_a, coverage_b, index_b
@@ -225,8 +223,7 @@ bool build_bowl(VisualRenderer& r, const BowlConfig& cfg) {
     }
     owned->instance->setParameter(
         "skyColor", float3{cfg.sky_color[0], cfg.sky_color[1], cfg.sky_color[2]});
-    // Per-fragment feather (review round 1 blocking finding) + the
-    // exposure-compensation style knob (review round 1 minor finding) --
+    // Per-fragment feather + the exposure-compensation style knob --
     // both node-side style knobs alongside sky_color, per the STANDING
     // "every rendered element ships style tokens" directive.
     owned->instance->setParameter("featherMargin", static_cast<float>(cfg.feather_margin));

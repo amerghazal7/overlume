@@ -24,7 +24,7 @@ namespace {
 
 // Chooses RGB8 (three channels -- the camera pixels this task's Interfaces
 // block documents) when the backend supports it, falling back to RGBA8
-// (review round 1 minor finding) when it doesn't. The upload path
+// when it doesn't. The upload path
 // (upload_camera_frame below) stays PixelDataFormat::RGB either way -- see
 // CameraTextureSlot::format's comment.
 filament::Texture::InternalFormat choose_camera_format(filament::Engine& engine) {
@@ -173,6 +173,11 @@ namespace mpviz::testing {
 uint64_t camera_frame_upload_count(mpviz::VisualRenderer* r, uint32_t cam_idx) {
     if (r == nullptr || cam_idx >= r->cameraCount) return 0;
     return r->cameraSlots[cam_idx].uploadCount;
+}
+
+void camera_motion_delta(mpviz::VisualRenderer* r, uint32_t cam_idx, double out[16]) {
+    if (r == nullptr || cam_idx >= r->cameraCount) return;
+    std::memcpy(out, r->cameraSlots[cam_idx].motionDelta, sizeof(double) * 16);
 }
 
 }  // namespace mpviz::testing

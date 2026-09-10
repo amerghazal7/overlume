@@ -31,6 +31,11 @@ find_package(ament_index_cpp REQUIRED)
 # Epic 3 Task 2 (VM-034): ~/diagnostics message type -- ROS2 Humble core
 # package, already present in this distro.
 find_package(diagnostic_msgs REQUIRED)
+# VM-091 (unified-engine migration Task 2 Step 6): camera_ingest.cpp's
+# cv_bridge::toCvCopy(msg, "rgb8") -- the same dependency
+# micropilot_rendering_node/CMakeLists.txt already carries for the
+# identical call.
+find_package(cv_bridge REQUIRED)
 
 set(THIS_PACKAGE_DEPS
   rclcpp
@@ -47,7 +52,8 @@ set(THIS_PACKAGE_DEPS
   map_msgs
   tf2_geometry_msgs
   ament_index_cpp
-  diagnostic_msgs)
+  diagnostic_msgs
+  cv_bridge)
 
 # ── visual_renderer (clang/libc++ static lib) — cross-toolchain import ──────
 # visual_renderer (docs/superpowers/plans/2026-08-18-visual-mode.md Epic 0
@@ -234,7 +240,8 @@ add_library(visualization_node_lib SHARED
   src/geo_anchor.cpp
   src/diagnostics.cpp
   src/hud_overlay.cpp
-  src/callouts.cpp)
+  src/callouts.cpp
+  src/camera_ingest.cpp)
 
 target_include_directories(visualization_node_lib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -567,6 +574,27 @@ if(BUILD_TESTING)
     ${VISUAL_RENDERER_DIR}/include)
   ament_target_dependencies(test_geo_anchor ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_geo_anchor mpviz_node_test_paths)
+
+  # VM-091 (unified-engine migration Task 2 Step 6): camera_ingest.hpp's
+  # pure math (twist_at/rig_delta/compensation_delta_4x4/
+  # OrthonormalizeExtrinsics) + IngestState's info_ready gate/monotonic
+  # frame_id bookkeeping. Header/POD only, same "no visual_renderer_prebuilt
+  # link needed" shape as test_ego_anchor/test_scene_layout/test_geo_anchor
+  # above -- scene.h's CameraExtrinsics/CameraIntrinsics are POD. No
+  # rclcpp-node harness (this suite has none; see this test file's own
+  # header comment) -- links cv_bridge only because camera_ingest.cpp
+  # (compiled into this same gtest binary) includes cv_bridge/cv_bridge.h.
+  ament_add_gtest(test_camera_ingest test/test_camera_ingest.cpp src/camera_ingest.cpp)
+  target_include_directories(test_camera_ingest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${VISUAL_RENDERER_DIR}/include)
+  ament_target_dependencies(test_camera_ingest ${THIS_PACKAGE_DEPS})
+  # camera_ingest.cpp calls mpviz::set_camera_frame/set_camera_motion_delta
+  # (defined in libvisual_renderer.a, not header-only) even though this
+  # test's own cases never trigger those call sites -- the whole TU still
+  # needs the symbols to link. Same documented-exception shape as
+  # test_profile/test_hud_overlay/test_callouts above.
+  target_link_libraries(test_camera_ingest visual_renderer_prebuilt)
 endif()
 
 ament_package()
