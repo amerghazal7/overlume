@@ -257,8 +257,8 @@ void apply_ribbon_clip(VisualRenderer& r, VisualRenderer::RibbonSlot& slot, cons
     slot.appliedClipUnits = clip.quantized_units;
 }
 
-// Rebinds every primitive in `slot.meshes` to `mat` for the GLOBAL/LOCAL
-// staleness swap (BEHAVIOR never rebinds, see below); mirrors
+// Rebinds every primitive in `slot.meshes` to `mat` for the staleness swap
+// (all three roles since the 2026-09-10 opaque fix, see below); mirrors
 // objects.cpp's remap_to_material(), specialized for a ribbon slot's
 // (possibly several, post-chunking) single-primitive meshes.
 void rebind_slot_material(VisualRenderer& r, VisualRenderer::RibbonSlot& slot,
@@ -321,42 +321,33 @@ void update_ribbons(VisualRenderer& r, const SceneGraph& s) {
             s.sim_time_sec, ribbon.last_update_sec, kStaleFadeStartSec, kStaleFadeTimeoutSec));
         const auto roleIdx = static_cast<uint8_t>(slot.role);
 
-        if (slot.role == PathRole::BEHAVIOR) {
-            // The hero ribbon: alpha is the staleness knob on its own
-            // material (ribbon_emissive.mat's float4 baseColor + blending
-            // fade) -- never an instance swap. Set every frame regardless
-            // of value (cheap; at most one BEHAVIOR row ships today).
-            // ponytail: a second live BEHAVIOR ribbon would share this one
-            // instance and the last slot processed each frame would win —
-            // not a shipped scenario; revisit if a second BEHAVIOR row
-            // ever ships.
-            const detail::Float3& tint = r.ribbonTint[roleIdx];
-            r.ribbonMaterial[roleIdx]->setParameter("baseColor",
-                                                    float4{tint.r, tint.g, tint.b, alpha});
-            slot.fadeAlpha = alpha;
-        } else {
-            // GLOBAL/LOCAL: the same clay_translucent.mat swap mechanism as
-            // objects.cpp's update_entity_staleness() -- never
-            // MaterialInstance::duplicate() of the opaque template.
-            if (alpha >= 1.0f) {
-                if (slot.fadeInstance != nullptr) {
-                    rebind_slot_material(r, slot, r.ribbonMaterial[roleIdx]);
-                    r.engine->destroy(slot.fadeInstance);
-                    slot.fadeInstance = nullptr;
-                    slot.fadeAlpha = 1.0f;
-                }
-            } else {
-                if (slot.fadeInstance == nullptr) {
-                    slot.fadeInstance = r.clayTranslucentMaterial->createInstance();
-                    slot.fadeInstance->setCullingMode(filament::backend::CullingMode::NONE);
-                    rebind_slot_material(r, slot, slot.fadeInstance);
-                }
-                const detail::Float3& tint = r.ribbonTint[roleIdx];
-                slot.fadeInstance->setParameter("baseColor", float4{tint.r, tint.g, tint.b, alpha});
-                slot.fadeInstance->setParameter("roughness", r.active_theme.material.roughness);
-                slot.fadeInstance->setParameter("metallic", r.active_theme.material.metallic);
-                slot.fadeAlpha = alpha;
+        // ALL roles (BEHAVIOR included, since the 2026-09-10 flicker
+        // root-cause fix made ribbon_emissive.mat opaque -- see that file):
+        // fresh renders on the role's own OPAQUE instance, staleness fades
+        // via the clay_translucent.mat swap -- the same mechanism as
+        // objects.cpp's update_entity_staleness(), never
+        // MaterialInstance::duplicate() of the opaque template. BEHAVIOR's
+        // emissive glow is not carried through the 1s death-fade
+        // (clay_translucent has no emissive param) -- accepted; both
+        // shipped themes author emissive.ribbon_strength 0.0 today.
+        if (alpha >= 1.0f) {
+            if (slot.fadeInstance != nullptr) {
+                rebind_slot_material(r, slot, r.ribbonMaterial[roleIdx]);
+                r.engine->destroy(slot.fadeInstance);
+                slot.fadeInstance = nullptr;
+                slot.fadeAlpha = 1.0f;
             }
+        } else {
+            if (slot.fadeInstance == nullptr) {
+                slot.fadeInstance = r.clayTranslucentMaterial->createInstance();
+                slot.fadeInstance->setCullingMode(filament::backend::CullingMode::NONE);
+                rebind_slot_material(r, slot, slot.fadeInstance);
+            }
+            const detail::Float3& tint = r.ribbonTint[roleIdx];
+            slot.fadeInstance->setParameter("baseColor", float4{tint.r, tint.g, tint.b, alpha});
+            slot.fadeInstance->setParameter("roughness", r.active_theme.material.roughness);
+            slot.fadeInstance->setParameter("metallic", r.active_theme.material.metallic);
+            slot.fadeAlpha = alpha;
         }
     }
 }

@@ -5,20 +5,32 @@
 // no renderer change to glow) -- this material only has to emit above the
 // bloom threshold.
 //
-// Two constraints this file exists to satisfy (see the plan's "…and the
-// material that can actually do it"), copied here because a reviewer will
-// look for both:
-//  1. SETTABLE ALPHA: the BEHAVIOR ribbon fades via staleness_alpha() by
-//     setting THIS instance's own alpha (unlike GLOBAL/LOCAL, which swap to
-//     a separate clay_translucent.mat instance) -- clay.mat's baseColor is
-//     float3 and cannot carry one, so this material needs its own float4
-//     baseColor + `blending : fade`, same shape as clay_translucent.mat.
-//  2. NO COLOR VERTEX ATTRIBUTE DEMANDED: this epic's ribbon geometry comes
-//     from extrude_polyline() (polyline.hpp), which emits position +
-//     tangent-frame only -- no COLOR attribute, and must not grow one just
-//     to satisfy a material's `requires:` line (clay_faded.mat's mistake,
-//     documented on that file). So: no `requires:` line at all, exactly
-//     like clay_translucent.mat.
+// OPAQUE (flicker root-cause fix, 2026-09-10): this was `blending : fade`
+// so the BEHAVIOR ribbon could fade in place via its own alpha -- but that
+// parked the hero ribbon PERMANENTLY in Filament's blended queue, which
+// sorts per-renderable and writes no depth. Co-located with the (also
+// blended) velocity ribbon on the same spine, whichever strip was rebuilt
+// most recently drew LAST and fully overpainted the other at alpha 1 --
+// the exact binary teal on/off toggle of the live flicker report
+// (test_ribbon_dropout.cpp's BehaviorRibbonNeverVanishesUnderCoLocated-
+// CarpetChurn reproduces it against the fade version of this file).
+// Opaque writes depth, so the z-stagger (BEHAVIOR 0.058 above velocity
+// 0.052) decides visibility per-pixel regardless of draw order -- the same
+// reason fresh GLOBAL/LOCAL (opaque clay.mat) never flickered. Staleness
+// now fades via the clay_translucent.mat instance swap, the identical
+// mechanism GLOBAL/LOCAL always used (ribbon.cpp); the emissive glow is
+// not carried through the 1s death-fade (clay_translucent has no emissive
+// param), an accepted tradeoff -- both shipped themes author
+// emissive.ribbon_strength 0.0 today anyway.
+//
+// baseColor stays float4 (alpha ignored by the opaque pipeline) so
+// renderer.cpp's theme-apply writes need no signature change.
+//
+// NO COLOR VERTEX ATTRIBUTE DEMANDED: this ribbon's geometry comes from
+// extrude_polyline() (polyline.hpp), which emits position + tangent-frame
+// only -- no COLOR attribute, and must not grow one just to satisfy a
+// material's `requires:` line (clay_faded.mat's mistake, documented on
+// that file). So: no `requires:` line at all, exactly like clay.mat.
 //
 // LIT (not unlit): the glow reads as an EMISSIVE surface catching bloom, not
 // a flat self-lit decal -- `emissive.rgb` here is what Filament's bloom pass
@@ -27,12 +39,6 @@
 // still gets a baseColor contribution from the scene's own lighting so the
 // ribbon doesn't go pitch-black if bloom/bloomStrength were ever tuned to
 // zero.
-//
-// Depth test stays ON (Filament default): this ribbon must still occlude
-// behind the ego and other opaque geometry, never paint through it.
-// depthWrite:false only (matches clay_translucent.mat/Filament's blended
-// default) so this translucent draw can't corrupt the depth buffer for
-// another translucent object drawn after it in the same pass.
 material {
     name : ribbon_emissive,
     shadingModel : lit,
@@ -42,9 +48,7 @@ material {
         { type : float, name : metallic },
         { type : float3, name : emissiveColor },
         { type : float, name : emissiveStrength }
-    ],
-    blending : fade,
-    depthWrite : false
+    ]
 }
 fragment {
     void material(inout MaterialInputs material) {

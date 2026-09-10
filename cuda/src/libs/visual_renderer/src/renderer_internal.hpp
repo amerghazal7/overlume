@@ -705,6 +705,14 @@ public:
     // last-pushed "alpha" staleness knob (MaterialInstance has no getter).
     filament::Material* trajectoryCarpetMaterial = nullptr;
     filament::MaterialInstance* trajectoryCarpetMaterialInstance = nullptr;
+    // Death-fade twin (2026-09-10 flicker fix): trajectory_carpet.mat is
+    // OPAQUE now; while staleness_alpha() < 1 trajectory_carpet.cpp rebinds
+    // carpet meshes to this single shared trajectory_carpet_faded.mat
+    // instance (settable alpha, blending fade) -- ribbon.cpp's own
+    // fresh-opaque/stale-translucent swap shape, one eager instance instead
+    // of per-slot lazy ones because the whole layer fades as one unit.
+    filament::Material* trajectoryCarpetFadedMaterial = nullptr;
+    filament::MaterialInstance* trajectoryCarpetFadedMaterialInstance = nullptr;
     float trajectoryCarpetAlpha = 1.0f;
 
     // One (possibly chunked, past kMaxPointsPerMesh) set of Filament meshes
@@ -751,6 +759,10 @@ public:
         bool has_applied_clip = false;
         bool appliedClipActive = false;
         int64_t appliedClipUnits = 0;
+        // True while this slot's meshes are bound to the shared faded
+        // instance (staleness swap) -- reset by build_slot_meshes(), which
+        // always binds fresh geometry to the opaque instance.
+        bool boundFaded = false;
         // Mirrors RibbonSlot::firstPointM -- the current effective first
         // vertex (post-collapse), for the same test-hook reasoning.
         Vec3 firstPointM{};

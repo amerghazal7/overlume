@@ -9,32 +9,27 @@
 // CarpetVertex carries, baked ONCE by the node-side adapter (from the
 // marker's own colors[]) and never re-baked.
 //
-// `blending : fade` is load-bearing, same reasoning as point_cloud.mat: puts
-// this renderable in the blended queue so the staleness `alpha` uniform
-// below actually has an effect.
-//
-// `alpha` is a UNIFORM, not a re-baked vertex attribute -- same
-// staleness_alpha() ramp as every other category, carried by this one float
-// on the SINGLE MaterialInstance the whole TrajectoryCarpetLayer shares
-// (trajectory_carpet.cpp -- no per-entity instancing, no rebuild).
-//
-// No point-size uniform here: this is a TRIANGLES primitive, not POINTS --
-// carrying point_cloud.mat's per-vertex size knob over unmodified would be
-// dead config (Task 2 Step 2's own review gate: this file must declare no
-// such parameter).
+// OPAQUE (flicker root-cause fix, 2026-09-10): this was `blending : fade`
+// with a staleness `alpha` uniform -- but that parked the velocity ribbon
+// PERMANENTLY in Filament's blended queue (per-renderable sort, no depth
+// writes), where it and the also-blended BEHAVIOR ribbon on the same spine
+// overpainted each other by rebuild order -- the live binary teal flicker
+// (see ribbon_emissive.mat's own 2026-09-10 note and test_ribbon_dropout
+// .cpp's repro). Opaque writes depth, so the z-stagger (velocity 0.052
+// below BEHAVIOR 0.058, above LOCAL 0.046) decides per-pixel. Staleness
+// now fades via an instance swap to trajectory_carpet_faded.mat (the fade
+// twin that keeps this shader plus the alpha uniform) -- the same swap
+// mechanism ribbon.cpp uses; clay_translucent.mat can't serve here because
+// it's LIT (CarpetVertex has no tangent frame) and has no vertex color.
 material {
     name : trajectory_carpet,
     shadingModel : unlit,
-    parameters : [
-        { type : float, name : alpha }
-    ],
-    requires : [ color ],
-    blending : fade
+    requires : [ color ]
 }
 fragment {
     void material(inout MaterialInputs material) {
         prepareMaterial(material);
         material.baseColor.rgb = getColor().rgb;
-        material.baseColor.a = materialParams.alpha;
+        material.baseColor.a = 1.0;
     }
 }

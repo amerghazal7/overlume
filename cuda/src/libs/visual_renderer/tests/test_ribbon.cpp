@@ -215,10 +215,13 @@ TEST(Ribbon, StaleRibbonFadesViaSharedStalenessAlpha) {
     mpviz::CameraPose pose{{0, -8, 6}, {0, 0, 0}, 60.0};
     render_once(r, pose);
 
-    // BEHAVIOR: alpha IS the staleness knob on ribbon_emissive.mat's OWN
-    // instance -- never an instance swap.
+    // BEHAVIOR: same clay_translucent swap as GLOBAL/LOCAL since the
+    // 2026-09-10 flicker fix made ribbon_emissive.mat opaque (it previously
+    // faded in place via its own alpha -- which parked the fresh hero
+    // ribbon permanently in the blended queue, the flicker's root cause;
+    // see test_ribbon_dropout.cpp's co-located-carpet repro).
     const auto beh = mpviz::testing::ribbon_slot_material_info(r, 0);
-    EXPECT_FALSE(beh.bound_to_translucent);
+    EXPECT_TRUE(beh.bound_to_translucent);
     EXPECT_GT(beh.alpha, 0.0f);
     EXPECT_LT(beh.alpha, 1.0f);
 
