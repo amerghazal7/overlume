@@ -30,9 +30,12 @@
 // -> centerline station) and this file's geometry (flat triangle list ->
 // extruded ribbon) changed.
 //
-// Opacity: OPAQUE while fresh, per the user directive -- staleness_alpha()
-// alone drives the shared MaterialInstance's "alpha" uniform now; the old
-// measured-producer-alpha parity (0.7) is superseded, not reused.
+// Opacity: OPAQUE while fresh, per the user directive -- and truly opaque
+// since the 2026-09-10 flicker root-cause fix (trajectory_carpet.mat has no
+// blending at all now); staleness fades via an instance swap to
+// trajectory_carpet_faded.mat's shared instance, whose "alpha" uniform
+// staleness_alpha() alone drives. The old measured-producer-alpha parity
+// (0.7) is superseded, not reused.
 #include "trajectory_carpet.hpp"
 #include "trajectory_carpet_test_hooks.hpp"
 #include "polyline.hpp"
@@ -241,6 +244,7 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& 
     destroy_slot_meshes(r, slot);
     slot.totalVertexCount = 0;
     slot.halfWidthM = halfWidthM;
+    slot.boundFaded = false;  // fresh geometry binds the opaque instance below
 
     const std::vector<PointCloudPoint> cleaned = clean_carpet_points(pts, n);
     if (cleaned.size() < 2) return;  // nothing to extrude -- extrude_polyline's own floor
@@ -390,10 +394,30 @@ void update_trajectory_carpets(VisualRenderer& r, const SceneGraph& s) {
                                      s.sim_time_sec, tc.last_update_sec, kStaleFadeStartSec,
                                      kStaleFadeTimeoutSec)));
     }
-    // OPAQUE while fresh (user directive, 2026-09-10) -- staleness_alpha()
-    // alone drives this uniform now; the old kTrajectoryCarpetBaseAlpha
-    // (0.7, the measured producer m.color.a) is retired, not multiplied in.
-    r.trajectoryCarpetMaterialInstance->setParameter("alpha", alpha);
+    // Fresh-opaque / stale-translucent instance swap (2026-09-10 flicker
+    // root-cause fix -- see trajectory_carpet.mat's own comment): fresh
+    // carpets stay on the OPAQUE trajectory_carpet.mat instance (depth-
+    // written, immune to blended-queue draw-order flips against the
+    // BEHAVIOR ribbon on the same spine); only while staleness_alpha() < 1
+    // do the meshes rebind to the shared trajectory_carpet_faded.mat
+    // instance carrying the alpha uniform -- ribbon.cpp's exact swap shape.
+    // build_slot_meshes() always binds fresh geometry opaque (boundFaded
+    // reset there), so a rebuild mid-fade is re-swapped here the same frame.
+    const bool wantFaded = alpha < 1.0f;
+    if (wantFaded) {
+        r.trajectoryCarpetFadedMaterialInstance->setParameter("alpha", alpha);
+    }
+    filament::RenderableManager& rm = r.engine->getRenderableManager();
+    for (auto& slot : r.trajectoryCarpetSlots) {
+        if (slot.boundFaded == wantFaded) continue;
+        filament::MaterialInstance* mat = wantFaded ? r.trajectoryCarpetFadedMaterialInstance
+                                                    : r.trajectoryCarpetMaterialInstance;
+        for (auto& mesh : slot.meshes) {
+            const auto ri = rm.getInstance(mesh.entity);
+            if (ri.isValid()) rm.setMaterialInstanceAt(ri, 0, mat);
+        }
+        slot.boundFaded = wantFaded;
+    }
     r.trajectoryCarpetAlpha = alpha;
 }
 

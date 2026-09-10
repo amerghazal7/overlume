@@ -1,0 +1,32 @@
+// trajectory_carpet_faded.mat — the velocity ribbon's DEATH-FADE twin
+// (flicker root-cause fix, 2026-09-10). This is exactly the shader
+// trajectory_carpet.mat carried while it was `blending : fade`: unlit,
+// per-vertex color, one staleness `alpha` uniform. trajectory_carpet.mat
+// itself is opaque now (see its own comment for the blended-queue
+// overpaint this split fixes); trajectory_carpet.cpp swaps carpet meshes
+// onto an instance of THIS material only while staleness_alpha() < 1 --
+// the same fresh-opaque/stale-translucent instance-swap mechanism
+// ribbon.cpp's GLOBAL/LOCAL roles have always used. A blended carpet can
+// still sort against other blended renderables during its 1s death-fade;
+// that's inherent to translucency and invisible in practice, unlike the
+// permanent fresh-state blending this file's existence removes.
+//
+// clay_translucent.mat can't serve here: it's LIT (CarpetVertex has no
+// tangent frame to feed it) and has no COLOR input, so the velocity
+// gradient would vanish at fade start instead of fading out in place.
+material {
+    name : trajectory_carpet_faded,
+    shadingModel : unlit,
+    parameters : [
+        { type : float, name : alpha }
+    ],
+    requires : [ color ],
+    blending : fade
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        material.baseColor.rgb = getColor().rgb;
+        material.baseColor.a = materialParams.alpha;
+    }
+}

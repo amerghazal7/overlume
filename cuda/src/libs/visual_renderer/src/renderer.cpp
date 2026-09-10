@@ -83,6 +83,7 @@
 #include "ground_grid_filamat.h"       // matc-generated; see assets/materials/ground_grid.mat
 #include "point_cloud_filamat.h"       // matc-generated; see assets/materials/point_cloud.mat
 #include "trajectory_carpet_filamat.h" // matc-generated; see assets/materials/trajectory_carpet.mat
+#include "trajectory_carpet_faded_filamat.h" // matc-generated; see assets/materials/trajectory_carpet_faded.mat
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -591,11 +592,9 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     // BEHAVIOR is the emissive bloom hero on ribbon_emissive.mat:
     // palette.ribbon_core is the base tint, palette.ribbon_glow +
     // emissive.ribbon_strength drive the bloom-triggering emissive channel.
-    // Alpha stays 1.0 here -- update_ribbons() (ribbon.cpp) is the only
-    // place that overwrites baseColor.a, every render_frame() call, from
-    // staleness_alpha(); update_ribbons() runs immediately after
-    // apply_current_theme() in render_frame(), so the correct alpha always
-    // wins by frame's end even when a push and a fade land the same tick.
+    // The material is OPAQUE since the 2026-09-10 flicker fix (baseColor.a
+    // is ignored); staleness fades via ribbon.cpp's clay_translucent swap,
+    // same as GLOBAL/LOCAL.
     r.ribbonMaterial[static_cast<uint8_t>(PathRole::BEHAVIOR)]->setParameter(
         "baseColor", float4{theme.palette.ribbon_core.r, theme.palette.ribbon_core.g,
                             theme.palette.ribbon_core.b, 1.0f});
@@ -1166,9 +1165,13 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     r->pointCloudMaterialInstance->setCullingMode(filament::backend::CullingMode::NONE);
 
     // Trajectory carpets (VM-077): trajectory_carpet.mat is a seventh
-    // Material (UNLIT, packed rgba8 vertex color, one settable float alpha
-    // -- see that .mat's header comment), built once here. ONE instance for
-    // the whole layer, same reasoning as pointCloudMaterialInstance above.
+    // Material (UNLIT, packed rgba8 vertex color, OPAQUE since the
+    // 2026-09-10 flicker fix) plus its death-fade twin
+    // trajectory_carpet_faded.mat (same shader + settable alpha, blending
+    // fade) -- trajectory_carpet.cpp swaps between the two instances by
+    // staleness, ribbon.cpp's own fresh-opaque/stale-translucent shape.
+    // ONE instance each for the whole layer, same reasoning as
+    // pointCloudMaterialInstance above.
     r->trajectoryCarpetMaterial =
         filament::Material::Builder()
             .package(mpviz::materials::ktrajectory_carpetFilamat,
@@ -1176,6 +1179,13 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
             .build(*engine);
     r->trajectoryCarpetMaterialInstance = r->trajectoryCarpetMaterial->createInstance();
     r->trajectoryCarpetMaterialInstance->setCullingMode(filament::backend::CullingMode::NONE);
+    r->trajectoryCarpetFadedMaterial =
+        filament::Material::Builder()
+            .package(mpviz::materials::ktrajectory_carpet_fadedFilamat,
+                     mpviz::materials::ktrajectory_carpet_fadedFilamatSize)
+            .build(*engine);
+    r->trajectoryCarpetFadedMaterialInstance = r->trajectoryCarpetFadedMaterial->createInstance();
+    r->trajectoryCarpetFadedMaterialInstance->setCullingMode(filament::backend::CullingMode::NONE);
 
     // Alert polygons: three eager clay_translucent.mat instances (0 info/1
     // warning/2 critical) on the same clayTranslucentMaterial
@@ -1412,6 +1422,9 @@ void destroy_renderer(VisualRenderer* r) {
     r->trajectoryCarpetSlots.clear();
     if (r->trajectoryCarpetMaterialInstance) r->engine->destroy(r->trajectoryCarpetMaterialInstance);
     if (r->trajectoryCarpetMaterial) r->engine->destroy(r->trajectoryCarpetMaterial);
+    if (r->trajectoryCarpetFadedMaterialInstance)
+        r->engine->destroy(r->trajectoryCarpetFadedMaterialInstance);
+    if (r->trajectoryCarpetFadedMaterial) r->engine->destroy(r->trajectoryCarpetFadedMaterial);
     if (r->groundMaterial) r->engine->destroy(r->groundMaterial);
     if (r->gridMaterial) r->engine->destroy(r->gridMaterial);
     if (r->clayMaterial) r->engine->destroy(r->clayMaterial);

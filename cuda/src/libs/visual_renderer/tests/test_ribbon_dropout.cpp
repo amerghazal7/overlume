@@ -330,6 +330,97 @@ TEST(RibbonDropout, RealisticDrivingAtQuantize005DoesNotDropASingleThreadedFrame
     mpviz::destroy_renderer(r);
 }
 
+// ── The BINARY teal toggle from the live burst (teal fraction exactly 0.0
+//    on 15/24 frames, ~0.027 on the rest): BEHAVIOR (ribbon_emissive.mat)
+//    and the velocity carpet (trajectory_carpet.mat) were BOTH fade-blended
+//    -- Filament's blended queue sorts per-renderable and writes no depth,
+//    so with the two strips co-located on one spine the later-drawn one
+//    fully overpaints the other at alpha 1. Rebuilds re-enter the queue, so
+//    alternating ribbon/carpet content churn (exactly the live ~8Hz publish
+//    pattern) flips which is drawn last. This test alternates those rebuilds
+//    and asserts the teal BEHAVIOR strip -- z-lifted ABOVE the carpet
+//    (0.058 vs 0.052) and therefore rightfully visible -- never vanishes.
+//    The carpet is authored pure red and BEHAVIOR is the theme's cold
+//    green/teal, so "any green-dominant pixel exists" is the discriminator
+//    (the drive() probe above is warm-only, r>b, and is blind to teal --
+//    which is why the tests above passed while the live scene flickered). ──
+namespace {
+
+int count_teal_pixels(const std::vector<uint8_t>& px, int width, int height) {
+    int n = 0;
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const Rgb c = pixel_at(px, width, x, y);
+            if (c.g > c.r + 20 && c.g > 40) ++n;
+        }
+    }
+    return n;
+}
+
+}  // namespace
+
+TEST(RibbonDropout, BehaviorRibbonNeverVanishesUnderCoLocatedCarpetChurn) {
+    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    std::vector<Vec3> ribbonSpine = make_spine(0.0, 301, 0.5);
+    std::vector<Vec3> carpetSpine = ribbonSpine;
+    double egoX = 5.0;
+    std::mt19937 rng(99);
+    std::uniform_real_distribution<double> step(0.03, 0.08);
+
+    int framesWithTeal = 0;
+    constexpr int kFrames = 32;
+    for (int i = 0; i < kFrames; ++i) {
+        egoX += step(rng);
+        // Alternate WHICH renderable rebuilds -- the live publish pattern
+        // (behavior path and carpet arrive from different topics at
+        // different moments). The nudged tail is ~145m away, far outside
+        // the probed screen region.
+        if (i % 8 == 4) ribbonSpine.back().x += 0.01;
+        if (i % 8 == 0) carpetSpine.back().x += 0.01;
+
+        std::vector<PointCloudPoint> carpetPts(carpetSpine.size());
+        for (size_t j = 0; j < carpetSpine.size(); ++j) {
+            carpetPts[j].position = carpetSpine[j];
+            carpetPts[j].rgba = pack_rgba(255, 0, 0, 255);  // pure red -- never green-dominant
+        }
+
+        PathRibbon ribbon{};
+        ribbon.role = PathRole::BEHAVIOR;
+        ribbon.points = ribbonSpine.data();
+        ribbon.point_count = static_cast<uint32_t>(ribbonSpine.size());
+        ribbon.last_update_sec = 0.0;
+
+        TrajectoryCarpet carpet{};
+        carpet.points = carpetPts.data();
+        carpet.point_count = static_cast<uint32_t>(carpetPts.size());
+        carpet.last_update_sec = 0.0;
+
+        mpviz::SceneGraph s{};
+        s.sim_time_sec = 0.0;
+        s.ego = {{egoX, 0.0, 0.0}, 0.0, 0.0, /*valid=*/1};
+        s.paths = &ribbon;
+        s.path_count = 1;
+        s.trajectory_carpets = &carpet;
+        s.trajectory_carpet_count = 1;
+        mpviz::set_scene(r, s);
+
+        mpviz::CameraPose pose{{egoX - 4.0, -8.0, 6.0}, {egoX + 4.0, 1.0, 0.0}, 60.0};
+        std::vector<uint8_t> px = render_once(r, pose);
+
+        const int teal = count_teal_pixels(px, 320, 240);
+        if (teal > 0) ++framesWithTeal;
+        fprintf(stderr, "frame %2d: teal_pixels=%d\n", i, teal);
+        EXPECT_GT(teal, 0) << "frame " << i << ": the teal BEHAVIOR ribbon (z 0.058, above the "
+                              "carpet's 0.052) vanished -- the co-located strip drawn after it "
+                              "overpainted it (blended-queue order dependence)";
+    }
+    fprintf(stderr, "teal visible on %d/%d frames\n", framesWithTeal, kFrames);
+    mpviz::destroy_renderer(r);
+}
+
 // ── Control: a parked ego (zero clip-station churn) is the same condition
 //    the retired kPolylineClipQuantizeM=0.5 constant existed to approximate
 //    -- confirms rebuild rate (and therefore any rebuild-driven artifact)
