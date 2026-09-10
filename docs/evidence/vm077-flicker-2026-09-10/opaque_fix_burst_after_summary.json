@@ -1,0 +1,156 @@
+{
+  "n_frames": 24,
+  "any_dropout": false,
+  "any_teal_dropout": false,
+  "median_teal_fraction": 0.027408333333333333,
+  "min_corridor_fraction": 0.1575,
+  "min_teal_fraction": 0.027383333333333332,
+  "max_mean_abs_diff": 1.676175,
+  "mean_mean_abs_diff": 0.882325,
+  "per_frame": [
+    {
+      "frame": 0,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.027416666666666666,
+      "mean_abs_diff_vs_prev": null
+    },
+    {
+      "frame": 1,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.027408333333333333,
+      "mean_abs_diff_vs_prev": 0.6814111111111111
+    },
+    {
+      "frame": 2,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.027416666666666666,
+      "mean_abs_diff_vs_prev": 0.5921666666666666
+    },
+    {
+      "frame": 3,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.0274,
+      "mean_abs_diff_vs_prev": 0.7326444444444444
+    },
+    {
+      "frame": 4,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.0274,
+      "mean_abs_diff_vs_prev": 1.6684611111111112
+    },
+    {
+      "frame": 5,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.027408333333333333,
+      "mean_abs_diff_vs_prev": 0.7227472222222222
+    },
+    {
+      "frame": 6,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.027408333333333333,
+      "mean_abs_diff_vs_prev": 0.6797694444444444
+    },
+    {
+      "frame": 7,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.02739166666666667,
+      "mean_abs_diff_vs_prev": 1.676175
+    },
+    {
+      "frame": 8,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.02739166666666667,
+      "mean_abs_diff_vs_prev": 0.48288055555555554
+    },
+    {
+      "frame": 9,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.027425,
+      "mean_abs_diff_vs_prev": 0.6571916666666666
+    },
+    {
+      "frame": 10,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.027383333333333332,
+      "mean_abs_diff_vs_prev": 0.759275
+    },
+    {
+      "frame": 11,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.027408333333333333,
+      "mean_abs_diff_vs_prev": 1.4150277777777778
+    },
+    {
+      "frame": 12,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.027416666666666666,
+      "mean_abs_diff_vs_prev": 0.7260138888888888
+    },
+    {
+      "frame": 13,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.027433333333333334,
+      "mean_abs_diff_vs_prev": 0.6125611111111111
+    },
+    {
+      "frame": 14,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.0274,
+      "mean_abs_diff_vs_prev": 1.6548333333333334
+    },
+    {
+      "frame": 15,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.027416666666666666,
+      "mean_abs_diff_vs_prev": 0.5840666666666666
+    },
+    {
+      "frame": 16,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.02739166666666667,
+      "mean_abs_diff_vs_prev": 0.5901138888888889
+    },
+    {
+      "frame": 17,
+      "corridor_fraction": 0.1625,
+      "teal_fraction": 0.027425,
+      "mean_abs_diff_vs_prev": 1.5676416666666666
+    },
+    {
+      "frame": 18,
+      "corridor_fraction": 0.1625,
+      "teal_fraction": 0.027408333333333333,
+      "mean_abs_diff_vs_prev": 0.5811166666666666
+    },
+    {
+      "frame": 19,
+      "corridor_fraction": 0.1625,
+      "teal_fraction": 0.027416666666666666,
+      "mean_abs_diff_vs_prev": 0.5483027777777778
+    },
+    {
+      "frame": 20,
+      "corridor_fraction": 0.1575,
+      "teal_fraction": 0.027425,
+      "mean_abs_diff_vs_prev": 1.4983416666666667
+    },
+    {
+      "frame": 21,
+      "corridor_fraction": 0.16,
+      "teal_fraction": 0.02739166666666667,
+      "mean_abs_diff_vs_prev": 0.6427333333333334
+    },
+    {
+      "frame": 22,
+      "corridor_fraction": 0.16,
+      "teal_fraction": 0.027416666666666666,
+      "mean_abs_diff_vs_prev": 0.5556444444444445
+    },
+    {
+      "frame": 23,
+      "corridor_fraction": 0.16,
+      "teal_fraction": 0.02739166666666667,
+      "mean_abs_diff_vs_prev": 0.6643555555555556
+    }
+  ]
+}
