@@ -358,6 +358,7 @@ user performs Cesium ion registration; token handled like the Mapbox token
 | cesium-native pinned build (clang/libc++, POD rules) | VM-061 | `visual_renderer/cmake/GetCesiumNative.cmake` |
 | Streaming `EnvironmentSource` (clay re-materialize, disk cache) | VM-062 | lib `src/environment_stream.cpp` |
 | Source selection + baked fallback on network loss | VM-063 | node param plumbing, fallback e2e test |
+| Google Photorealistic 3D Tiles: original-materials mode + 3-preset source config (added 2026-09-11, user decision) | VM-064 | lib `src/environment_stream.cpp` (materials= key), config presets, runbook compliance notes |
 
 ## Review 2026-09-07 — self-review
 
