@@ -9,9 +9,9 @@
 // Z-order (alerts overlay everything): ground plane 0, ground-grid shading
 // 0.010/0.015 (ground_grid.cpp), HD-map lane paint/crosswalks 0.02
 // (map_elements.cpp), object predicted-path ribbons 0.03 (objects.cpp),
-// path ribbons 0.04-0.05 (ribbon.cpp), the trajectory carpet 0.055
-// (trajectory_carpet.cpp, translucent at 0.7 alpha while fresh), alert
-// polygons here at 0.06 — topmost.
+// path ribbons 0.038-0.058 incl. the velocity ribbon at 0.052
+// (ribbon.cpp / trajectory_carpet.cpp), alert polygons here at 0.06 —
+// topmost.
 #include "alert_polygons.hpp"
 #include "alert_polygons_test_hooks.hpp"
 #include "polyline.hpp"
