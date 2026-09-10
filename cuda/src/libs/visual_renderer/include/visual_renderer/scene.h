@@ -30,7 +30,10 @@ namespace mpviz {
 // append (+ both toolchains' layout tables) and Task 3 (VM-052) only
 // consumes the type + adds `set_environment_source`, which does NOT bump
 // the version again (one struct, one bump).
-constexpr uint32_t kSceneVersion = 4;
+//
+// Appended VM-090 (unified-engine migration Task 1, ADR-0005) -- kSceneVersion
+// 4 -> 5, for CameraExtrinsics/CameraIntrinsics/BowlConfig below.
+constexpr uint32_t kSceneVersion = 5;
 
 struct Vec3 { double x, y, z; };
 
@@ -382,5 +385,99 @@ struct GeoAnchor {
     double origin_lon_deg;
     double heading_rad;   // bearing of map-frame +X from true north, radians
 };
+
+// ── Camera bowl POD boundary (VM-090, unified-engine migration Task 1;
+//    ADR-0004 additive; ADR-0005 camera-frame POD boundary) ─────────────────
+// Camera pixels are NOT a SceneGraph field: at production size (6 cameras x
+// 1280x720x3 ~= 16.6MB) they are a different size class than the per-tick
+// deep-copied scene (set_scene()'s staging buffer was never built for this),
+// so they cross via their own arrival-driven entry point instead (ADR-0005).
+constexpr uint32_t kMaxBowlCameras = 6;
+
+// Row-major rotation + translation, RIG frame (not map frame -- the bowl
+// bake and lidar colorization both operate in rig frame; rig->map anchoring
+// happens per-tick elsewhere, via the ego pose).
+struct CameraExtrinsics { double R[9]; double t[3]; };
+
+// plumb_bob distortion, ported verbatim from micropilot::rendering::CameraParams
+// (rendering_node's types.hpp). dist = {k1, k2, p1, p2, k3}.
+struct CameraIntrinsics { double fx, fy, cx, cy; double dist[5]; };
+
+// Non-SceneGraph config, same class as RenderConfig -- changes far less
+// often than per-tick scene data, so it is NOT deep-copied by
+// set_scene()/SceneBuffer. Arrays are caller-owned for the duration of the
+// call only; set_bowl_config() copies what it needs into the renderer's own
+// storage before returning (same contract as RenderConfig's
+// theme_assets_dir/initial_theme).
+struct BowlConfig {
+    uint32_t camera_count;                 // <= kMaxBowlCameras (6)
+    const CameraExtrinsics* extrinsics;     // camera_count entries
+    const CameraIntrinsics* intrinsics;     // camera_count entries
+    const uint32_t* cam_width;              // camera_count entries, pixels
+    const uint32_t* cam_height;             // camera_count entries, pixels
+    double bowl_R0, bowl_k, bowl_Rmax;      // bowl surface shape
+    double feather_margin;
+    uint8_t fill_blind_zone;
+    uint8_t exposure_match;
+    float sky_color[3];
+};
+
+// (Re)builds the bowl's camera textures (this task) and, once Task 2 lands,
+// the bowl mesh + per-vertex weight/camera-index bake and per-camera
+// K/plumb_bob uniforms. Not a one-shot "call once at on_activate()": camera
+// intrinsics/distortion are not ROS parameters at all (Global Constraints) --
+// the caller calls this the first time only once every configured camera's
+// CameraInfo has arrived, and again (a full re-bake) whenever a camera's
+// K/dist/dims change thereafter. false (no-op) if r is null, camera_count ==
+// 0, or camera_count > kMaxBowlCameras -- same "missing/invalid config
+// renders nothing" convention as set_environment_source's null-path.
+bool set_bowl_config(VisualRenderer*, const BowlConfig&);
+
+// Cheap per-mode visibility toggle for the bowl entity -- no re-bake, no
+// texture teardown (set_bowl_config stays the expensive path). false (no-op)
+// if r is null or set_bowl_config() has never succeeded. Free-function-only
+// addition: per ADR-0004 it bumps nothing -- this task's 4->5 bump stays the
+// only kSceneVersion bump this migration makes.
+bool set_bowl_visible(VisualRenderer*, bool visible);
+
+// Cheap per-tick ego-motion-delta update. Sets ONLY camera cam_idx's 4x4
+// ego-motion delta uniform (row-major, rig frame at that camera's image
+// stamp -> rig frame at the tick's reference time); the vertex shader (Task
+// 2) applies it as project(delta * position). No re-bake, no texture touch,
+// no allocation. Identity delta = no compensation. false (no-op) if r is
+// null, cam_idx >= the configured camera_count, or set_bowl_config() has
+// never succeeded. Free-function-only addition: bumps nothing.
+bool set_camera_motion_delta(VisualRenderer*, uint32_t cam_idx,
+                              const double delta_4x4_row_major[16]);
+
+// Per-camera-frame-arrival call -- the node calls this once per incoming ROS
+// image message for that camera, not on a fixed per-tick timer. `frame_id`
+// is a caller-supplied, strictly-increasing counter (or the message's
+// header stamp converted to an integer nanosecond count) identifying THIS
+// image; a call whose frame_id matches the last one uploaded for this
+// cam_idx is a no-op upload (single O(1) integer compare), deliberately NOT
+// a content memcmp (see ADR-0005 for why that would reintroduce the exact
+// cost class Decision 2 rejected Option A for).
+//
+// `release`/`user` (ADR-0005: release-callback shipped): when non-null, the
+// library wraps `rgb` directly in a filament::backend::PixelBufferDescriptor
+// BY REFERENCE instead of heap-copying it, and calls
+// `release(rgb, width*height*3, user)` once Filament has consumed the
+// upload -- letting the caller hand in a buffer it owns and free/recycle it
+// in the callback. Both default to nullptr, in which case set_camera_frame
+// keeps a copy-on-call contract (a heap copy freed synchronously, same
+// shape as ground_grid.cpp's own upload).
+//
+// Threading: set_camera_frame()/set_bowl_config() both end in
+// filament::Engine calls and MUST be called from the same thread as
+// render_frame() -- the Engine thread, same contract as set_scene() above.
+//
+// false if r is null, cam_idx >= the configured camera_count, or
+// width/height mismatch the configured camera's dims.
+bool set_camera_frame(VisualRenderer*, uint32_t cam_idx,
+                       const uint8_t* rgb, uint32_t width, uint32_t height,
+                       uint64_t frame_id,
+                       void (*release)(void*, size_t, void*) = nullptr,
+                       void* user = nullptr);
 
 }  // namespace mpviz

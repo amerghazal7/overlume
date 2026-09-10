@@ -51,6 +51,7 @@
 #include <gltfio/MaterialProvider.h>
 #include <gltfio/ResourceLoader.h>
 
+#include "camera_textures.hpp"
 #include "scene_buffer.hpp"
 #include "theme.hpp"
 #include "theme_transition.hpp"
@@ -775,6 +776,20 @@ public:
     // this to pin the signature property: a message that only changes
     // per-vertex color, with identical positions, must NOT bump this counter.
     uint64_t trajectoryCarpetRebuildCount = 0;
+
+    // Camera bowl (VM-090, unified-engine migration Task 1; ADR-0005): up to
+    // kMaxBowlCameras persistent camera textures, keyed by camera index.
+    // cameraCount == 0 means set_bowl_config() has never succeeded -- every
+    // camera_textures.cpp entry point gates on this, same "0 = unconfigured"
+    // convention as every other category count above. Task 2's bowl.cpp is
+    // the first real mesh/material consumer of these slots (no bowl entity
+    // exists yet at this task).
+    uint32_t cameraCount = 0;
+    CameraTextureSlot cameraSlots[kMaxBowlCameras];
+    // Requested bowl visibility (set_bowl_visible) -- this task only stores
+    // it; Task 2's update_bowl() is what actually adds/removes the bowl
+    // entity from the scene based on this flag.
+    bool bowlVisible = false;
 };
 
 // Namespace-scope free function so a different translation unit (ego.cpp,
