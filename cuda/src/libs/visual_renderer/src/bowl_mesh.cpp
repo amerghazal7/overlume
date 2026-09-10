@@ -30,7 +30,7 @@ struct LogicalVertex {
     // camera_count entries -- retained per logical vertex so the
     // per-triangle pair decision below can look up any vertex's weight for
     // any candidate camera without re-projecting. Border feather is NOT
-    // included here (review round 1) -- bowl.mat computes it per-fragment.
+    // included here -- bowl.mat computes it per-fragment.
     std::vector<float> camWeight;
 };
 
@@ -68,9 +68,9 @@ BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double 
                     continue;
                 }
                 // Alignment^2 coverage only -- border feather is computed
-                // per-fragment by bowl.mat now (review round 1 blocking
-                // finding: a vertex-baked feather doesn't match a
-                // per-fragment-sampled UV's own pixel-exact border).
+                // per-fragment by bowl.mat instead (a vertex-baked feather
+                // doesn't match a per-fragment-sampled UV's own pixel-exact
+                // border).
                 const float align = CameraAlignment(extrinsics[c], lv.position);
                 lv.camWeight[c] = align * align;
             }
@@ -118,15 +118,15 @@ BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double 
         mesh.indices.push_back(base + 2);
     };
 
-    // Winding (review round 1 blocking finding): e1 = P01-P00 is +theta,
-    // e2 = P10-P00 is +r, and theta_hat x r_hat = -z_hat -- so
-    // (i00,i01,i10) has its normal pointing DOWN/outward, back-facing the
-    // bowl's interior (matinfo confirms this material's raster state is
-    // `Culling: back`, and RenderableManager's `.culling(false)` in
-    // bowl.cpp is frustum culling, not face culling). Swapped to
-    // (i00,i10,i01)/(i01,i10,i11) so the interior surface is front-facing;
-    // no `doubleSided` override (Task 3 depth-composites the ego mesh over
-    // the bowl and wants correct facing, not a double-sided patch).
+    // Winding: e1 = P01-P00 is +theta, e2 = P10-P00 is +r, and
+    // theta_hat x r_hat = -z_hat -- so (i00,i01,i10) has its normal
+    // pointing DOWN/outward, back-facing the bowl's interior (matinfo
+    // confirms this material's raster state is `Culling: back`, and
+    // RenderableManager's `.culling(false)` in bowl.cpp is frustum
+    // culling, not face culling). (i00,i10,i01)/(i01,i10,i11) instead keeps
+    // the interior surface front-facing; no `doubleSided` override (Task 3
+    // depth-composites the ego mesh over the bowl and wants correct
+    // facing, not a double-sided patch).
     for (uint32_t ring = 0; ring < rings; ++ring) {
         for (uint32_t seg = 0; seg < segs; ++seg) {
             const uint32_t seg1 = (seg + 1) % segs;

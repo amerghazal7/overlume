@@ -409,6 +409,19 @@ struct CameraIntrinsics { double fx, fy, cx, cy; double dist[5]; };
 // call only; set_bowl_config() copies what it needs into the renderer's own
 // storage before returning (same contract as RenderConfig's
 // theme_assets_dir/initial_theme).
+//
+// This struct's layout is still being finalized WITHIN the unreleased
+// kSceneVersion 5 by this epic's Task 2 (VM-091) -- unlike every other
+// struct on this POD boundary, it has no external consumer yet (Task 2
+// Steps 0-8 are this type's first and only user, and the merged node does
+// not go live on it until Task 6's cutover), so a field add/reorder here
+// during Task 2 is not the "silent layout drift inside a shipped version"
+// ADR-0004 exists to catch -- it's the type's own definition still
+// settling, both static_assert mirrors (test_scene_buffer.cpp,
+// test_scene_layout.cpp) updated together in the same commit each time, as
+// they were for exposure_compensation below. Once Task 6 cuts over
+// (BowlConfig has a real production consumer), any further layout change
+// bumps kSceneVersion normally, same as every other struct here.
 struct BowlConfig {
     uint32_t camera_count;                 // <= kMaxBowlCameras (6)
     const CameraExtrinsics* extrinsics;     // camera_count entries
@@ -420,15 +433,20 @@ struct BowlConfig {
     uint8_t fill_blind_zone;
     uint8_t exposure_match;
     float sky_color[3];
-    // bowl.mat's `exposureCompensation` material parameter (review round 1,
-    // 2026-09-11): the fixed camera exposure this renderer's unlit bowl
-    // material has to counteract (bowl.mat's own header explains why).
-    // Default member initializer keeps every pre-existing call site (this
-    // field predates Step 6's node-side param wiring) at the same 10.0
-    // value bowl.mat used as a hardcoded constant before this field existed
-    // -- a style knob, alongside sky_color/feather_margin, not yet plumbed
-    // to a ROS parameter.
-    float exposure_compensation = 10.0f;
+    // bowl.mat's `exposureCompensation` material parameter: the fixed
+    // camera exposure this renderer's unlit bowl material has to counteract
+    // (bowl.mat's own header explains why). This is the one field on this
+    // POD boundary with a default member initializer -- deliberately, not
+    // an oversight: it predates Step 6's node-side param wiring, and the
+    // default keeps every existing call site (every test in this suite
+    // that builds a BowlConfig without setting it) at a real, golden-
+    // capture-checked value rather than zero. Retuned 10.0 -> 1.5 at Task 2
+    // Step 7 (real bowl golden vs. the CUDA node's own output,
+    // stack_v2_full_sensors_2026-09-09): 10.0 (picked before any real
+    // camera frame had been sampled through this material) blew the bowl
+    // out to near-white against this bag's actual daytime CARLA exposure;
+    // 1.5 matches the CUDA reference's brightness on the same frame.
+    float exposure_compensation = 1.5f;
 };
 
 // (Re)builds the bowl's camera textures (this task) and, once Task 2 lands,

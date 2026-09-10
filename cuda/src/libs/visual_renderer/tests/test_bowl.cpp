@@ -86,9 +86,9 @@ TEST(BowlMeshBake, MidEdgeWeightInterpolationIsBoundedByTessellation) {
     // baked vertices' coverage floats should closely reproduce an
     // independent alignment^2 evaluation at their true geometric midpoint --
     // the property bit-packing (banned by Decision 3) could never have.
-    // Review round 1: coverage is alignment^2 ONLY -- border feather is no
-    // longer baked (it's computed per-fragment by bowl.mat now), so the
-    // reference value below doesn't include a BorderFeather factor either.
+    // Coverage is alignment^2 ONLY -- border feather is computed
+    // per-fragment by bowl.mat, not baked, so the reference value below
+    // doesn't include a BorderFeather factor either.
     const CameraExtrinsics ext = OverheadCamera();
     const CameraIntrinsics in = TightFovIntrinsics();
     const uint32_t w = 640, h = 480;
@@ -151,8 +151,8 @@ TEST(BowlMeshBake, EveryTriangleCarriesIdenticalCameraIndexPairAcrossAllThreeVer
 }
 
 TEST(BowlMeshBake, ThreeCameraOverlapStillPicksAConsistentPairPerTriangle) {
-    // Review round 1 minor finding, named parity exception (migration plan
-    // doc's Task 4 Step 1 checklist): this material contributes at most 2
+    // Named parity exception (migration plan doc's Task 4 Step 1
+    // checklist): this material contributes at most 2
     // cameras per fragment (CUSTOM0/CUSTOM2 are both spoken for), so a
     // genuine triple-overlap region -- three cameras all covering the same
     // vertex -- can only ever surface 2 of the 3. Three IDENTICAL overhead
@@ -268,20 +268,15 @@ TEST(Bowl, RenderFrameWithBowlConfiguredProducesSentinelPixels) {
     for (size_t i = 0; i < buf.size(); i += 3) {
         if (buf[i] > 150 && buf[i + 2] > 150) ++magenta_pixels;
     }
-    // Review round 1 blocking finding: the winding-order bug was culling
-    // ~95% of the bowl's interior surface (1,612 px shipped vs 31,340 px
-    // measured with correct winding -- 2% vs 41% of this 320x240 frame).
-    // >10% of the frame is Task 2 Step 4's own original acceptance bar;
-    // restored here now that the winding fix (bowl_mesh.cpp) + rigPos fix
-    // (bowl.mat) make it pass with real margin (measured ~40% together).
+    // >10% of the frame is this test's acceptance bar (measured ~40% with
+    // correct winding + rigPos wiring).
     EXPECT_GT(magenta_pixels, buf.size() / 3 / 10)
         << "expected the bowl's sampled surface to cover a meaningful fraction of the frame";
     mpviz::destroy_renderer(r);
 }
 
 TEST(Bowl, PerFragmentSamplingReadsTheCorrectPixelNotAMirroredOne) {
-    // Review round 1 blocking finding's required regression test: a UNIFORM
-    // magenta sentinel is blind to any position/orientation corruption (a
+    // A UNIFORM magenta sentinel is blind to any position/orientation corruption (a
     // mirrored or offset rigPos samples magenta just as well as the correct
     // one). A camera texture split into four distinctly-colored quadrants
     // instead lets this test assert the on-screen left/right and
@@ -426,5 +421,73 @@ TEST(Bowl, SetBowlVisibleFalseHidesTheBowlEntirely) {
         if (buf[i] > 150 && buf[i + 2] > 150) ++magenta_pixels;
     }
     EXPECT_EQ(magenta_pixels, 0u) << "bowl rendered while bowlVisible defaulted false";
+    mpviz::destroy_renderer(r);
+}
+
+TEST(Bowl, TwoCamerasWithNonzeroSlotIndexBothAppearInFrame) {
+    // Every GPU render test above configures camera_count == 1, so only the
+    // `idxA == 0` unrolled camera block in bowl.mat's fragment shader has
+    // ever executed on a real GPU -- the bake-side tests above that use 2-3
+    // cameras (BowlMeshBake.*) are CPU-only and never reach the shader. Two
+    // overhead cameras straddling the bowl (camera 1 offset to +x, camera 0
+    // to -x) makes camera 1 the per-triangle winner (nonzero index_a) over
+    // the +x half of the bowl -- proving a non-zero slot's uniforms/sampler
+    // are wired to the shader block that reads them, not just slot 0's.
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    mpviz::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    // Same overhead R (col0=right=(1,0,0), col1=down=(0,-1,0), col2=fwd=
+    // (0,0,-1)) as OverheadCamera() above, offset in t along x so each
+    // camera's alignment (straight-down-ness) peaks on its own side of the
+    // bowl.
+    mpviz::CameraExtrinsics exts[2] = {
+        {{1, 0, 0, 0, -1, 0, 0, 0, -1}, {-2.0, 0, 10.0}},
+        {{1, 0, 0, 0, -1, 0, 0, 0, -1}, {2.0, 0, 10.0}},
+    };
+    mpviz::CameraIntrinsics ins[2] = {
+        {300, 300, 160, 120, {0, 0, 0, 0, 0}},
+        {300, 300, 160, 120, {0, 0, 0, 0, 0}},
+    };
+    uint32_t widths[2] = {320, 320};
+    uint32_t heights[2] = {240, 240};
+    mpviz::BowlConfig bc{};
+    bc.camera_count = 2;
+    bc.extrinsics = exts;
+    bc.intrinsics = ins;
+    bc.cam_width = widths;
+    bc.cam_height = heights;
+    bc.bowl_R0 = 0.5;
+    bc.bowl_k = 0.3;
+    bc.bowl_Rmax = 4.0;
+    bc.feather_margin = 5.0;
+    bc.sky_color[0] = 0.05f;
+    bc.sky_color[1] = 0.05f;
+    bc.sky_color[2] = 0.05f;
+    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
+    ASSERT_TRUE(mpviz::set_bowl_visible(r, true));
+
+    // Distinct saturated colors: camera 0 = pure red, camera 1 = pure green.
+    std::vector<uint8_t> red(static_cast<size_t>(widths[0]) * heights[0] * 3);
+    std::vector<uint8_t> green(static_cast<size_t>(widths[1]) * heights[1] * 3);
+    for (size_t i = 0; i < red.size(); i += 3) { red[i] = 255; red[i + 1] = 0; red[i + 2] = 0; }
+    for (size_t i = 0; i < green.size(); i += 3) { green[i] = 0; green[i + 1] = 255; green[i + 2] = 0; }
+    ASSERT_TRUE(mpviz::set_camera_frame(r, 0, red.data(), widths[0], heights[0], /*frame_id=*/1));
+    ASSERT_TRUE(mpviz::set_camera_frame(r, 1, green.data(), widths[1], heights[1], /*frame_id=*/1));
+
+    std::vector<uint8_t> buf(320 * 240 * 3);
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {buf.data(), 320, 240}));
+
+    size_t red_pixels = 0, green_pixels = 0;
+    for (size_t i = 0; i < buf.size(); i += 3) {
+        const bool R = buf[i] > 150, G = buf[i + 1] > 150, B = buf[i + 2] > 150;
+        if (R && !G && !B) ++red_pixels;
+        if (!R && G && !B) ++green_pixels;
+    }
+    EXPECT_GT(red_pixels, 20u) << "camera 0 (slot index 0) never sampled";
+    EXPECT_GT(green_pixels, 20u)
+        << "camera 1 (slot index 1, the non-zero-slot case this test targets) never sampled -- "
+           "a non-zero idxA/idxB shader block or its uniforms/sampler are not wired correctly";
     mpviz::destroy_renderer(r);
 }

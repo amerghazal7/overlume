@@ -26,8 +26,8 @@ namespace mpviz {
 struct CameraTextureSlot {
     filament::Texture* texture = nullptr;
     // Chosen once per allocation by build_camera_texture()'s
-    // isTextureFormatSupported(RGB8) check (review round 1 minor finding) --
-    // recorded here for introspection/tests. Upload always uses
+    // isTextureFormatSupported(RGB8) check -- recorded here for
+    // introspection/tests. Upload always uses
     // PixelDataFormat::RGB regardless of this value (camera_textures.cpp's
     // upload_camera_frame comment explains why: the source cv::Mat stays
     // 3-channel either way, so an RGBA8 fallback texture is filled via

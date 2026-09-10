@@ -146,6 +146,16 @@ shared frame pool needs its own synchronization, or a Filament
 - This task allocates persistent per-camera RGB8 textures only; no bowl
   mesh/material exists yet — Task 2's `bowl.cpp` is the first real
   mesh/material consumer of these texture slots.
+- `BowlConfig`'s own layout is still being finalized WITHIN this unreleased
+  kSceneVersion 5 by Task 2 (VM-091) — it has no external consumer until
+  Task 6's cutover, so a field add/reorder there during Task 2 (e.g.
+  `exposure_compensation`, added at review round 1) is the type's own
+  definition settling, not the "silent layout drift inside a shipped
+  version" ADR-0004 exists to catch, as long as both static_assert mirrors
+  (`test_scene_buffer.cpp`, `test_scene_layout.cpp`) are updated together in
+  the same commit each time (they were). Any `BowlConfig` layout change
+  after Task 6's cutover bumps `kSceneVersion` normally, same as every other
+  struct on this boundary.
 
 ## Revisit when
 
