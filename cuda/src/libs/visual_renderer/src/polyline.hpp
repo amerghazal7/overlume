@@ -88,7 +88,16 @@ std::pair<double, double> closest_arc_station(const Vec3* pts, uint32_t n, const
 // draw at -- "is the ego riding this route", not a precise offset.
 inline constexpr float kPolylineEgoClipLateralM = 5.0f;
 // Clip station granularity, so a parked ego causes zero signature changes.
-inline constexpr float kPolylineClipQuantizeM = 0.5f;
+// 0.05, not the original 0.5 (flicker root-cause 2026-09-10, user: "still
+// see shimmer live, local path still flickering" — measured: at 0.5 the
+// ribbon's front edge snapped half a meter every 0.15-0.3s of driving,
+// a 3-7 Hz full-slot rebuild, and the path/velocity ribbons' unsynchronized
+// snap schedules beat against each other, +53% super-additive frame diff;
+// docs/evidence + the vm077 plan carry the numbers). The quantize only
+// exists to absorb parked-ego GPS jitter; 0.05 keeps that property while
+// capping the visible snap at 5 cm, and the rebuild rate stays bounded at
+// one per rendered frame regardless of step size.
+inline constexpr float kPolylineClipQuantizeM = 0.05f;
 
 struct PolylineClip {
     bool active = false;

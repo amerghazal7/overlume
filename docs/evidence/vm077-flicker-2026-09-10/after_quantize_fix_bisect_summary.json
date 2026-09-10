@@ -1,0 +1,98 @@
+{
+  "all_on": {
+    "n_frames": 120,
+    "front_crop_diff": {
+      "mean": 3.8422370853587093,
+      "median": 0.9365523457527161,
+      "p90": 9.779448890686036,
+      "max": 11.588223457336426,
+      "stdev": 4.158458829931127
+    },
+    "wide_crop_diff": {
+      "mean": 1.454202704450004,
+      "median": 0.9379596710205078,
+      "p90": 2.7377859592437748,
+      "max": 5.787891387939453,
+      "stdev": 1.1803915296486471
+    },
+    "n_frame_pairs": 117,
+    "n_pairs_with_ego_crossing": 0,
+    "frac_pairs_with_crossing": 0.0,
+    "front_diff_mean_AT_crossing": null,
+    "front_diff_mean_NO_crossing": 3.8422370853587093,
+    "n_crossing_pairs_sampled": 0,
+    "n_no_crossing_pairs_sampled": 117
+  },
+  "carpet_off": {
+    "n_frames": 120,
+    "front_crop_diff": {
+      "mean": 1.4615432836561122,
+      "median": 0.6437572240829468,
+      "p90": 3.4207841396331786,
+      "max": 10.524493217468262,
+      "stdev": 1.7243825375906785
+    },
+    "wide_crop_diff": {
+      "mean": 0.9568280167559273,
+      "median": 0.5535692572593689,
+      "p90": 2.0232913017272955,
+      "max": 3.6411750316619873,
+      "stdev": 0.6941412196543999
+    },
+    "n_frame_pairs": 117,
+    "n_pairs_with_ego_crossing": 0,
+    "frac_pairs_with_crossing": 0.0,
+    "front_diff_mean_AT_crossing": null,
+    "front_diff_mean_NO_crossing": 1.4615432836561122,
+    "n_crossing_pairs_sampled": 0,
+    "n_no_crossing_pairs_sampled": 117
+  },
+  "paths_off": {
+    "n_frames": 120,
+    "front_crop_diff": {
+      "mean": 2.047748064892924,
+      "median": 0.6759403944015503,
+      "p90": 3.5519530773162846,
+      "max": 40.565399169921875,
+      "stdev": 4.318643702285042
+    },
+    "wide_crop_diff": {
+      "mean": 1.5833905838493607,
+      "median": 0.5930070281028748,
+      "p90": 3.6893304824829114,
+      "max": 9.511575698852539,
+      "stdev": 1.9117433891464823
+    },
+    "n_frame_pairs": 117,
+    "n_pairs_with_ego_crossing": 0,
+    "frac_pairs_with_crossing": 0.0,
+    "front_diff_mean_AT_crossing": null,
+    "front_diff_mean_NO_crossing": 2.047748064892924,
+    "n_crossing_pairs_sampled": 0,
+    "n_no_crossing_pairs_sampled": 117
+  },
+  "both_off": {
+    "n_frames": 120,
+    "front_crop_diff": {
+      "mean": 0.9464914235803816,
+      "median": 0.6313295960426331,
+      "p90": 2.155457162857057,
+      "max": 3.749030590057373,
+      "stdev": 0.7801160638539023
+    },
+    "wide_crop_diff": {
+      "mean": 0.7093546696198292,
+      "median": 0.5756534337997437,
+      "p90": 1.175407505035401,
+      "max": 3.821685314178467,
+      "stdev": 0.40848874370026533
+    },
+    "n_frame_pairs": 117,
+    "n_pairs_with_ego_crossing": 0,
+    "frac_pairs_with_crossing": 0.0,
+    "front_diff_mean_AT_crossing": null,
+    "front_diff_mean_NO_crossing": 0.9464914235803816,
+    "n_crossing_pairs_sampled": 0,
+    "n_no_crossing_pairs_sampled": 117
+  }
+}

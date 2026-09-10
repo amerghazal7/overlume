@@ -178,3 +178,25 @@ TEST(PathAdapter, PathChangeReplacesRatherThanAppends)
     ASSERT_EQ(out2.paths.size(), 1u);
     EXPECT_EQ(out2.paths.front().point_count, 33u);
 }
+
+// Anchored-stamp regression (flicker hardening 2026-09-10): a path row's
+// fade must be anchored to its own timeout cutoff, not raw receipt time --
+// raw stamping sawtooths any topic whose inter-message gap can cross the
+// library's 0.5s fade start (the recorded /local_vel_path peaks at 0.461s,
+// zero margin). Mirrors hd_map.cpp's VM-034 kMapFadeWindowSec tests.
+TEST(PathAdapter, FillStampsLastUpdateSecAnchoredToRowTimeoutNotRawReceipt)
+{
+    TfFixture kTf;
+    const auto row = mpviz_node::testing::urban_row(
+        "/behavior_path_planner/output_path_visualization");
+    mpviz_node::PathAdapter a(row, kTf.tf);
+    a.ingest(MakePath({{0, 0, 0}, {5, 0, 0}}), /*sim_time_sec=*/10.0);
+
+    SceneAssembly out;
+    a.fill(out);
+    ASSERT_EQ(out.paths.size(), 1u);
+    // stamp = receipt + (timeout_sec - 1.0): the fade window occupies the
+    // last second before the node's own timeout cutoff stops calling fill().
+    EXPECT_DOUBLE_EQ(out.paths.front().last_update_sec, 10.0 + (row.timeout_sec - 1.0));
+    EXPECT_GE(row.timeout_sec, 1.0);  // the validation premise the offset relies on
+}

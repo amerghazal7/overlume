@@ -10,6 +10,11 @@ namespace mpviz_node
 namespace
 {
 
+// Hand-kept mirror of the library's kStaleFadeTimeoutSec (renderer-internal,
+// unreachable from node code) -- if that constant moves, this moves with it.
+// Same contract as hd_map.cpp's kMapFadeWindowSec.
+constexpr double kPathFadeWindowSec = 1.0;
+
 mpviz::PathRole RoleFromString(const std::string& s)
 {
     if (s == "behavior") return mpviz::PathRole::BEHAVIOR;
@@ -73,7 +78,15 @@ void PathAdapter::ingest(const nav_msgs::msg::Path& msg, double sim_time_sec)
     // REPLACES the stored path wholesale, never appends/merges
     // (PathChangeReplacesRatherThanAppends).
     points_ = std::move(next);
-    last_update_sec_ = sim_time_sec;
+    // Anchored stamp (flicker root-cause hardening 2026-09-10): the fade
+    // window sits in the LAST kPathFadeWindowSec before this row's own
+    // timeout cutoff, not kStaleFadeTimeoutSec after raw receipt — the same
+    // hd_map.cpp kMapFadeWindowSec pattern (VM-034), which never covered
+    // path rows. Raw stamping had ZERO margin here: the recorded
+    // /local_vel_path max inter-message gap is 0.461 s vs the library's
+    // 0.5 s fade start. profile.cpp validates timeout_sec >= 1.0, so the
+    // offset is never negative.
+    last_update_sec_ = sim_time_sec + (row_.timeout_sec - kPathFadeWindowSec);
     stats_.last_msg_sec = sim_time_sec;
 }
 
