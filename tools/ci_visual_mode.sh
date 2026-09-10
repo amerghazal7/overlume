@@ -25,9 +25,12 @@
 # GPU-less run is expected to reach stage 5 green.
 #
 # What this script deliberately does NOT do (validate_visual_mode.sh's own
-# --live lesson): it never plays a bag, never starts vcam_ws_bridge.py /
-# vcam_gui.py / the live node against real topics, and never touches the
-# live rig. Every stage below is a build+test invocation only.
+# --live lesson): no bag is ever played, and nothing here touches a rig this
+# script didn't itself start. Stage 4's two E2E tests DO start
+# rendering_node, visualization_node and vcam_ws_bridge.py as their own
+# child processes -- but as their own isolated processes on an isolated
+# ROS_DOMAIN_ID, killed via killpg of the session they themselves started
+# (never a process the script did not start).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -189,7 +192,19 @@ WS_LOG="${LOG_DIR}/ws_bridge_pytest.log"
 # collection entirely before a single test runs -- confirmed the hard way.
 # The WS bridge tests need no anyio fixture, so disabling that one autoload
 # plugin is the whole fix.
-if python3 -m pytest "${REPO_ROOT}/tools/test_vcam_ws_bridge.py" -q -p no:anyio \
+#
+# ROS_DOMAIN_ID: two of these tests (test_bridge_e2e_*) start real
+# rendering_node / visualization_node / vcam_ws_bridge.py processes and
+# drive them over ROS 2 by node name (ros2 lifecycle set, ros2 param
+# get/set). _ros_env() in test_vcam_ws_bridge.py copies this process's
+# environment into every one of those child processes, so pinning the
+# domain here is what keeps this stage off whatever ROS_DOMAIN_ID an
+# operator's shell already exports for a live rig -- CI_VISUAL_MODE_DOMAIN_ID
+# overrides it, but the default must never be a domain a real rig uses
+# (this repo's own tools default to 93/94, see validate_visual_mode.sh and
+# flicker_measure.sh).
+if ROS_DOMAIN_ID="${CI_VISUAL_MODE_DOMAIN_ID:-77}" \
+        python3 -m pytest "${REPO_ROOT}/tools/test_vcam_ws_bridge.py" -q -p no:anyio \
         > "${WS_LOG}" 2>&1; then
     WS_SUMMARY="$(tail -1 "${WS_LOG}")"
     echo "PASS  WS bridge pytest suite  (${WS_SUMMARY})"
@@ -207,6 +222,15 @@ if [[ -f "${LIB_CTEST_LOG}" ]]; then
     # only -- ctest -V also reprints every SKIPPED/FAILED name in its
     # end-of-run summary list (no "(N ms)" suffix there), so without this
     # anchor every skip/fail is counted twice.
+    #
+    # "Golden" here is a naming convention, not the full set of
+    # pixel-comparison tests -- a handful (MapElements.*PixelsVsBaseline,
+    # Fog.ColorAffectsRenderedOutput*, ThemeTransition.*) call
+    # render_and_compare() against a committed PNG without "Golden" in their
+    # name, so this breakdown undercounts. Nothing is silently hidden by
+    # that: stage 2's suite-wide ok/skipped line above already covers every
+    # test including these. Treat this stage as the golden-named subset,
+    # and stage 2's line as the complete skip check.
     GOLDEN_OK=$(grep -cE '\[ *OK *\].*Golden.*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
     GOLDEN_SKIPPED=$(grep -cE '\[ *SKIPPED *\].*Golden.*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
     GOLDEN_FAILED=$(grep -cE '\[ *FAILED *\].*Golden.*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)

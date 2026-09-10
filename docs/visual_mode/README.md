@@ -23,8 +23,8 @@ It runs, in order, and labels each stage PASS/FAIL:
 2. **Library ctest suite** — configures + builds `visual_renderer`
    incrementally into `cuda/src/libs/visual_renderer/build` (clang/libc++
    toolchain) and runs its full `ctest` suite. Set `CI_VISUAL_MODE_CLEAN=1`
-   to wipe that build dir first — the clean-checkout run VM-041's AC calls
-   for; a stale build dir can otherwise mask a broken clean build.
+   to wipe that build dir first, so a stale library build can't mask a
+   broken clean build — the node stage (3) still builds incrementally.
 3. **Node gtests** — `colcon build` + `colcon test` for
    `micropilot_visualization_node`. Needs a ROS install and
    `micropilot_rendering_node` already built+installed somewhere sourceable
@@ -34,14 +34,28 @@ It runs, in order, and labels each stage PASS/FAIL:
    infra **fails this stage loudly** — a pre-merge gate never silently skips
    the node.
 4. **WS bridge pytest suite** — `tools/test_vcam_ws_bridge.py` (53 tests).
+   Two of them (`test_bridge_e2e_mode3_orbit_and_frames`,
+   `test_bridge_e2e_set_layers_hides_and_shows`) start real
+   `rendering_node` / `visualization_node` / `vcam_ws_bridge.py` processes
+   and drive them by node name over ROS 2 — this stage pins them to an
+   isolated `ROS_DOMAIN_ID` (default `77`, override with
+   `CI_VISUAL_MODE_DOMAIN_ID`) so they can never resolve onto a live rig's
+   domain.
 5. **Golden suite (GPU-skip)** — some renderer gtests (goldens included)
    `GTEST_SKIP()` with no GPU/EGL and exit 0 either way, so a plain `ctest`
    summary can't tell a skip from a real pass. This stage re-derives OK vs.
    SKIPPED counts from stage 2's own gtest output and reports them as their
-   own line — skipped is never folded into "passed".
+   own line — skipped is never folded into "passed". "Golden" here is a
+   naming convention: a handful of pixel-comparison tests
+   (`MapElements.*PixelsVsBaseline`, `Fog.ColorAffectsRenderedOutput*`,
+   `ThemeTransition.*`) sit outside it and aren't counted in this line —
+   stage 2's suite-wide ok/skipped line is the complete skip check.
 
-It never plays a bag or touches the live rig (`validate_visual_mode.sh`'s own
-`--live` lesson) — every stage above is a build+test invocation only.
+It never plays a bag, and it never touches a rig it didn't itself start —
+stage 4's two E2E tests start their own rendering_node / visualization_node
+/ bridge processes on an isolated ROS_DOMAIN_ID and tear down only the
+process group they themselves created (`validate_visual_mode.sh`'s own
+`--live` lesson: never a process the script didn't start).
 
 **This gate requires a GPU/EGL-capable box.** It is not GPU-optional: without
 a GPU/EGL, the gate FAILS at stage 2 (`visual_renderer`'s
