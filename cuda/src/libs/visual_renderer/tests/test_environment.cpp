@@ -104,6 +104,59 @@ TEST(Environment, ChunksFarFromEgoAreNotLoaded) {
     mpviz::destroy_renderer(r);
 }
 
+TEST(Environment, HysteresisBandKeepsChunksLoadedThenUnloadsAndReloads) {
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    mpviz::CameraPose pose{{0, -8, 3}, {0, 0, 0.5}, 60};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    mpviz::GeoAnchor a{25.0803, 55.3910, 0.0};
+    ASSERT_TRUE(mpviz::set_environment_source(r, kTestTownDir.c_str(), a));
+
+    std::vector<uint8_t> buf(320 * 240 * 3);
+    mpviz::SceneGraph s{};
+    s.ego.valid = 1;
+
+    // The fixture has a SECOND chunk 256 m north of kChunk0Center
+    // (chunk_-1_0) that would also load/unload alongside chunk_-1_-1 if the
+    // ego walked straight out from kChunk0Center, muddying a single-chunk
+    // hysteresis check. Basing every position below 150 m south of
+    // kChunk0Center keeps the second chunk beyond kLoadRadiusM/
+    // kUnloadRadiusM throughout (its distance from any position here is
+    // always > 400 m), so this test isolates chunk_-1_-1's own load/band/
+    // unload/reload transitions.
+    const mpviz::Vec3 base{kChunk0Center.x, kChunk0Center.y - 150.0, kChunk0Center.z};
+
+    // (1) 150 m from chunk_-1_-1's center -- loads.
+    s.ego.position = base;
+    mpviz::set_scene(r, s);
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {buf.data(), 320, 240}));
+    ASSERT_EQ(mpviz::testing::environment_loaded_chunk_count(r), 1u);
+
+    // (2) ~381 m from chunk_-1_-1's center -- inside the hysteresis band
+    // (> kLoadRadiusM 300, < kUnloadRadiusM 400): an already-loaded chunk
+    // must stay loaded. This is what fails if the two radii are ever
+    // collapsed to one.
+    s.ego.position = {base.x + 350.0, base.y, base.z};
+    mpviz::set_scene(r, s);
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {buf.data(), 320, 240}));
+    EXPECT_EQ(mpviz::testing::environment_loaded_chunk_count(r), 1u);
+
+    // (3) ~522 m from chunk_-1_-1's center -- beyond kUnloadRadiusM: the
+    // unload branch actually runs.
+    s.ego.position = {base.x + 500.0, base.y, base.z};
+    mpviz::set_scene(r, s);
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {buf.data(), 320, 240}));
+    EXPECT_EQ(mpviz::testing::environment_loaded_chunk_count(r), 0u);
+
+    // (4) Back at the 150 m base position -- reloads cleanly after teardown.
+    s.ego.position = base;
+    mpviz::set_scene(r, s);
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {buf.data(), 320, 240}));
+    EXPECT_EQ(mpviz::testing::environment_loaded_chunk_count(r), 1u);
+
+    mpviz::destroy_renderer(r);
+}
+
 TEST(Environment, InvalidEgoFreezesLoadedChunkCount) {
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     mpviz::CameraPose pose{{0, -8, 3}, {0, 0, 0.5}, 60};
@@ -219,3 +272,6 @@ TEST(EnvironmentPerf, RenderMsDeltaWithTestTownLoaded) {
 // anchor {25.0803, 55.3910, 0.0} -- 2 real baked chunks (chunk_-1_-1,
 // chunk_-1_0), not hand-authored geometry. See this task's own results/
 // deviation notes for the exact command and script commit.
+//
+// verification_overlay.png is the bake's own QA artifact, kept as-is from
+// the --out dir; no test reads it.
