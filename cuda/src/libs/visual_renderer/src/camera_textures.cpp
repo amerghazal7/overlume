@@ -103,9 +103,26 @@ bool set_camera_motion_delta(VisualRenderer* r, uint32_t cam_idx,
 bool set_camera_frame(VisualRenderer* r, uint32_t cam_idx, const uint8_t* rgb, uint32_t width,
                        uint32_t height, uint64_t frame_id,
                        void (*release)(void*, size_t, void*), void* user) {
-    if (r == nullptr || cam_idx >= r->cameraCount) return false;
+    // Ownership-transfer contract (ADR-0005): when `release` is non-null the
+    // library ALWAYS takes ownership of `rgb` -- release() fires exactly
+    // once per call, whether the upload happened, was skipped by the dirty
+    // gate, or was rejected outright. The caller must never free `rgb`
+    // itself. hand_back() is the one-line "reject/skip without uploading"
+    // exit; the actual-upload path hands the buffer to Filament instead.
+    const size_t byteCount = static_cast<size_t>(width) * height * 3;
+    auto hand_back = [&] {
+        if (release) release(const_cast<uint8_t*>(rgb), byteCount, user);
+    };
+
+    if (r == nullptr || cam_idx >= r->cameraCount) {
+        hand_back();
+        return false;
+    }
     CameraTextureSlot& slot = r->cameraSlots[cam_idx];
-    if (width != slot.width || height != slot.height) return false;
+    if (width != slot.width || height != slot.height) {
+        hand_back();
+        return false;
+    }
 
     // Dirty-tracking gate (Task 1 Step 2): O(1) integer compare, deliberately
     // NOT a content memcmp -- see scene.h's set_camera_frame() comment /
@@ -115,6 +132,8 @@ bool set_camera_frame(VisualRenderer* r, uint32_t cam_idx, const uint8_t* rgb, u
         slot.lastFrameId = frame_id;
         slot.hasUploaded = true;
         ++slot.uploadCount;
+    } else {
+        hand_back();
     }
     return true;
 }

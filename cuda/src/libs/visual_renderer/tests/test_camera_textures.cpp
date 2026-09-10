@@ -36,6 +36,17 @@ mpviz::BowlConfig one_camera_config(const mpviz::CameraExtrinsics& ext,
     return bc;
 }
 
+// Release-callback test double: increments a shared counter and frees the
+// heap-allocated vector `user` points at. `ptr`/`size` (the wrapped buffer
+// itself) are unused -- this only proves the callback fires and hands
+// ownership back, not the pixel contents.
+int g_release_count = 0;
+
+void count_and_delete_release(void* /*ptr*/, size_t /*size*/, void* user) {
+    ++g_release_count;
+    delete static_cast<std::vector<uint8_t>*>(user);
+}
+
 }  // namespace
 
 // ── Step 0: set_camera_frame() before any BowlConfig is a safe no-op ───────
@@ -64,6 +75,14 @@ TEST(CameraTextures, SetCameraFrameUploadsAfterBowlConfig) {
     std::vector<uint8_t> pixels(320 * 240 * 3, 200);
     EXPECT_TRUE(mpviz::set_camera_frame(r, 0, pixels.data(), 320, 240, 1));
     EXPECT_FALSE(mpviz::set_camera_frame(r, 1, pixels.data(), 320, 240, 1));  // cam_idx out of range
+
+    // Dims-mismatch guard: neither call below matches camera 0's configured
+    // 320x240 -- both must be rejected without bumping the upload count (a
+    // short buffer wrapped/copied against a larger RGB8 texture is a
+    // GPU-side out-of-bounds read of caller memory).
+    EXPECT_FALSE(mpviz::set_camera_frame(r, 0, pixels.data(), 320, 120, 2));
+    EXPECT_FALSE(mpviz::set_camera_frame(r, 0, pixels.data(), 160, 240, 3));
+    EXPECT_EQ(mpviz::testing::camera_frame_upload_count(r, 0), 1u);
     mpviz::destroy_renderer(r);
 }
 
@@ -79,6 +98,12 @@ TEST(CameraTextures, RepeatedFrameIdSkipsReupload) {
     mpviz::BowlConfig bc = one_camera_config(ext, in, w, h);
     ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
     std::vector<uint8_t> pixels(320 * 240 * 3, 200);
+
+    // hasUploaded pins the very-first upload regardless of frame_id -- a
+    // caller whose first real frame_id is 0 (a legitimate starting value,
+    // not "unchanged") must still upload once.
+    mpviz::set_camera_frame(r, 0, pixels.data(), 320, 240, /*frame_id=*/0);
+    EXPECT_EQ(mpviz::testing::camera_frame_upload_count(r, 0), 1u);
 
     mpviz::set_camera_frame(r, 0, pixels.data(), 320, 240, /*frame_id=*/1);
     auto count_after_first = mpviz::testing::camera_frame_upload_count(r, 0);
@@ -151,5 +176,79 @@ TEST(CameraTextures, SetBowlConfigRejectsInvalidCameraCount) {
     EXPECT_FALSE(mpviz::set_bowl_config(r, too_many));
 
     EXPECT_FALSE(mpviz::set_bowl_config(nullptr, zero));
+    mpviz::destroy_renderer(r);
+}
+
+// ── Ownership contract: `release` (ADR-0005) fires exactly once when the
+//    library actually hands the buffer to Filament ─────────────────────────
+
+TEST(CameraTextures, ReleaseCallbackFiresOncePerHandedInBuffer) {
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    mpviz::CameraExtrinsics ext{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0.5}};
+    mpviz::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
+    uint32_t w = 320, h = 240;
+    mpviz::BowlConfig bc = one_camera_config(ext, in, w, h);
+    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
+
+    g_release_count = 0;
+    auto* buf = new std::vector<uint8_t>(320 * 240 * 3, 200);
+    EXPECT_TRUE(mpviz::set_camera_frame(r, 0, buf->data(), 320, 240, /*frame_id=*/1,
+                                         &count_and_delete_release, buf));
+
+    // render_frame() flushes/waits for the readback, so by the time it
+    // returns the driver has executed the setImage command that consumes
+    // (and releases) the buffer.
+    mpviz::CameraPose pose{{12, -14, 10}, {12, 3, 0}, 70.0};
+    std::vector<uint8_t> out(320u * 240u * 3u);
+    mpviz::FrameView view{out.data(), 320, 240};
+    ASSERT_TRUE(mpviz::render_frame(r, pose, view));
+
+    EXPECT_EQ(g_release_count, 1);
+    mpviz::destroy_renderer(r);
+}
+
+// ── Ownership contract: `release` fires exactly once even when the call is
+//    skipped by the dirty gate or rejected by the dims guard -- ownership
+//    transfer is unconditional, not just on the successful-upload path ──────
+
+TEST(CameraTextures, ReleaseCallbackFiresOnSkipAndReject) {
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    mpviz::CameraExtrinsics ext{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0.5}};
+    mpviz::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
+    uint32_t w = 320, h = 240;
+    mpviz::BowlConfig bc = one_camera_config(ext, in, w, h);
+    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
+
+    // Prime the dirty gate with a real upload, and force its callback to
+    // fire before touching the counter again -- otherwise it could fire
+    // during a later render_frame() and pollute the counts below.
+    g_release_count = 0;
+    auto* primer = new std::vector<uint8_t>(320 * 240 * 3, 200);
+    ASSERT_TRUE(mpviz::set_camera_frame(r, 0, primer->data(), 320, 240, /*frame_id=*/1,
+                                         &count_and_delete_release, primer));
+    mpviz::CameraPose pose{{12, -14, 10}, {12, 3, 0}, 70.0};
+    std::vector<uint8_t> out(320u * 240u * 3u);
+    mpviz::FrameView view{out.data(), 320, 240};
+    ASSERT_TRUE(mpviz::render_frame(r, pose, view));
+    ASSERT_EQ(g_release_count, 1);
+
+    // Repeated frame_id -- dirty-gate skip -- still releases exactly once.
+    g_release_count = 0;
+    auto* repeat_buf = new std::vector<uint8_t>(320 * 240 * 3, 200);
+    EXPECT_TRUE(mpviz::set_camera_frame(r, 0, repeat_buf->data(), 320, 240, /*frame_id=*/1,
+                                         &count_and_delete_release, repeat_buf));
+    EXPECT_EQ(g_release_count, 1);
+
+    // Dims mismatch -- rejected call -- still releases exactly once.
+    g_release_count = 0;
+    auto* mismatched_buf = new std::vector<uint8_t>(320 * 120 * 3, 200);
+    EXPECT_FALSE(mpviz::set_camera_frame(r, 0, mismatched_buf->data(), 320, 120, /*frame_id=*/2,
+                                          &count_and_delete_release, mismatched_buf));
+    EXPECT_EQ(g_release_count, 1);
+
     mpviz::destroy_renderer(r);
 }

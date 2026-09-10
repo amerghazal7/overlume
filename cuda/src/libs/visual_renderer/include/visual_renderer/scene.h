@@ -468,9 +468,20 @@ bool set_camera_motion_delta(VisualRenderer*, uint32_t cam_idx,
 // keeps a copy-on-call contract (a heap copy freed synchronously, same
 // shape as ground_grid.cpp's own upload).
 //
+// Ownership is unconditional when `release` is non-null: set_camera_frame
+// ALWAYS takes ownership of `rgb` and invokes release() exactly once on
+// every call, whether the upload happened, was skipped by the dirty gate,
+// or was rejected (bad r/cam_idx/dims) -- the caller must never free `rgb`
+// itself.
+//
 // Threading: set_camera_frame()/set_bowl_config() both end in
 // filament::Engine calls and MUST be called from the same thread as
 // render_frame() -- the Engine thread, same contract as set_scene() above.
+// `release` itself is invoked from Filament's backend/driver thread, NOT
+// the Engine thread, so it must be thread-safe and must not call back into
+// this library -- a plain delete/free is fine, a shared frame pool needs
+// its own synchronization (or a filament CallbackHandler for Engine-thread
+// dispatch).
 //
 // false if r is null, cam_idx >= the configured camera_count, or
 // width/height mismatch the configured camera's dims.

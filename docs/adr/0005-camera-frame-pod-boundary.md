@@ -77,6 +77,15 @@ copy-on-call behavior; Task 2 Step 6 is the first real caller expected to
 supply a non-null `release` (dropping its converted `cv::Mat` once Filament's
 callback fires).
 
+**Ownership transfer through this POD boundary is unconditional.** When
+`release` is non-null, `set_camera_frame` ALWAYS takes ownership of `rgb`:
+`release()` is invoked exactly once on every call, whether the upload
+happened, was skipped by the dirty gate (repeated `frame_id`), or was
+rejected outright (null/unconfigured `r`, out-of-range `cam_idx`, or a
+width/height mismatch) -- the caller must never free `rgb` itself. A
+conditional release would leak Task 2 Step 6's converted `cv::Mat` on every
+skipped or rejected call.
+
 ### Wire-encoding check (Decision 2's third option)
 
 Before this decision, the plan named a conditional third option: if the six
@@ -113,6 +122,14 @@ same contract `scene.h`'s `set_scene()` already documents (Filament requires
 all Engine calls on one thread), and holds today because the merged node
 runs a single-threaded executor (`rclcpp::spin`); it must be revisited if the
 executor ever changes to multi-threaded.
+
+`release` itself is dispatched from a different thread than the caller of
+`set_camera_frame()`: Filament invokes a `PixelBufferDescriptor`'s `Callback`
+(no `CallbackHandler` supplied here) from its backend/driver thread, not the
+Engine thread. `release` must therefore be thread-safe and must not call
+back into this library -- a plain `delete`/`free` is safe as-is; a shared
+frame pool needs its own synchronization, or a Filament `CallbackHandler` if
+Task 2 wants Engine-thread dispatch instead.
 
 ## Consequences
 
