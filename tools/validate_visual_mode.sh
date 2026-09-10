@@ -313,6 +313,31 @@
 #               (duplicates or data-inconclusive) -- see the profile YAMLs'
 #               own comments and the VM-077 plan's D4 table. Net active urban
 #               row delta: 0 (−3 dormant collision, +1 carpet, +2 generic).
+#   2026-09-10  User directive: output_trajectory_carpet redirected from a
+#               flat translucent (0.7 alpha) TRIANGLE_LIST to a genuine
+#               ribbon STACKED into the existing path-ribbon z-order: a
+#               centerline (one station per dual-rail quad) extruded at a
+#               constant half-width from the new ribbon.margin_velocity_m
+#               theme token (soft default 1.05, between LOCAL's 0.8 and
+#               BEHAVIOR's 1.3), z-lifted between LOCAL (0.045) and BEHAVIOR
+#               (0.05). Per-vertex velocity color stays (the whole point of
+#               this element) and is now OPAQUE while fresh, not 0.7
+#               translucent. scene.h UNCHANGED (TrajectoryCarpet's existing
+#               points field already fit a centerline+color encoding) -- no
+#               kSceneVersion bump. layer_trajectory_carpet knob,
+#               adapter/category names all unchanged (only their internal
+#               meaning: raw wire vertex -> centerline station). Visually
+#               checkable: the velocity ribbon now renders as a distinct
+#               band nested between LOCAL and BEHAVIOR, correct
+#               geometry/z-stack. This redirect implements the user's
+#               prescription; the reported flicker itself was never
+#               reproduced to a stable measured signature (an early N=24
+#               rig comparison, and a follow-up re-measurement pass, both
+#               proved too confounded/noisy to trust — see the VM-077 plan's
+#               2026-09-10 section) and remains an OPEN QUESTION, not a
+#               closed one -- if it's still visible on the real rig, that's
+#               a fresh measurement pass to run, not a number already on
+#               file here.
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its

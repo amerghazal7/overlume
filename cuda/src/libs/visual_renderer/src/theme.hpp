@@ -134,12 +134,23 @@ struct Theme {
     // floor, ribbon.cpp's kRibbonMinHalfWidthM), so a lower ribbon peeks
     // out as a colored rim around a narrower one stacked above it (the
     // per-role z-stagger).
+    // margin_velocity_m: the velocity-profile ribbon (VM-077 carpet-as-ribbon
+    // redirect, 2026-09-10, user directive -- "I still prefer to treat it as
+    // [a] ribbon that can be stacked on top of local ribbon with margin").
+    // Soft-defaulted to 1.05 -- deliberately BETWEEN margin_local_m (0.8,
+    // dark_adas.yaml) and margin_behavior_m (1.3): the user asked for a
+    // strip narrower than LOCAL (so LOCAL's own color rim stays visible
+    // under it) but wider than BEHAVIOR (so the hero ribbon's rim shows
+    // through THIS one, not the other way around) -- see ribbon.cpp's
+    // kRibbonZLiftByRoleM-style stagger doc and trajectory_carpet.cpp's own
+    // z-slot constant for the matching z placement.
     struct Ribbon {
         float width_m = 0.24f;
         float lane_width_m = 3.5f;
         float margin_behavior_m = 1.63f;  // (lane_width_m - width_m) / 2 default -- see theme.cpp
         float margin_global_m = 1.63f;
         float margin_local_m = 1.63f;
+        float margin_velocity_m = 1.05f;
     } ribbon;
 };
 

@@ -209,6 +209,67 @@ TEST(ThemePalette, RibbonLaneWidthAndMarginsLerpLinearlyAcrossTransition) {
                 (dark->ribbon.margin_local_m + light->ribbon.margin_local_m) / 2.0f, 1e-4f);
 }
 
+// ── ribbon.margin_velocity_m (VM-077 carpet-as-ribbon redirect,
+//    2026-09-10): NOT derived from the width_m/marginDefault seed like the
+//    three role margins above -- a fixed 1.05 soft default, independent of
+//    whatever width_m/lane_width_m a theme authors ─────────────────────────
+
+TEST(ThemePalette, RibbonMarginVelocityFallsBackToOnePointZeroFiveWhenMissingFromYaml) {
+    // sun_dir_a.yaml has no `ribbon:` section at all -- unlike
+    // margin_{behavior,global,local}_m (which fall back to the width_m-seed
+    // formula), margin_velocity_m falls back to its own fixed 1.05,
+    // regardless of what width_m/lane_width_m this theme parsed to.
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<mpviz::detail::Theme> theme =
+        mpviz::detail::load_theme(fixtureDir, "sun_dir_a");
+    ASSERT_TRUE(theme.has_value())
+        << "a theme file missing the optional margin_velocity_m key must still parse";
+    EXPECT_NEAR(theme->ribbon.margin_velocity_m, 1.05f, 1e-4f);
+}
+
+TEST(ThemePalette, RibbonMarginVelocityLerpsLinearlyAcrossTransition) {
+    const std::optional<mpviz::detail::Theme> dark =
+        mpviz::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<mpviz::detail::Theme> light =
+        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    ASSERT_TRUE(dark.has_value());
+    ASSERT_TRUE(light.has_value());
+
+    const mpviz::detail::Theme mid = mpviz::detail::blend(*dark, *light, 0.5f);
+    EXPECT_NEAR(mid.ribbon.margin_velocity_m,
+                (dark->ribbon.margin_velocity_m + light->ribbon.margin_velocity_m) / 2.0f, 1e-4f);
+}
+
+TEST(ThemePalette, RibbonMarginVelocityParsesExplicitYamlValue) {
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<mpviz::detail::Theme> theme =
+        mpviz::detail::load_theme(fixtureDir, "ribbon_margin_velocity");
+    ASSERT_TRUE(theme.has_value());
+    EXPECT_NEAR(theme->ribbon.margin_velocity_m, 0.9f, 1e-4f)
+        << "an explicit ribbon.margin_velocity_m key must override the 1.05 soft default";
+}
+
+TEST(ThemePalette, ShippedThemesFallBackMarginVelocityBetweenLocalAndBehavior) {
+    // Neither shipped theme authors margin_velocity_m on disk -- both read
+    // the 1.05 soft default, which sits strictly between margin_local_m
+    // (0.8, wider ribbon) and margin_behavior_m (1.3, narrower ribbon) so
+    // the velocity ribbon's own fill is narrower than LOCAL's (LOCAL's rim
+    // stays visible under it) but wider than BEHAVIOR's (the hero's rim
+    // shows through it in turn) -- see theme.hpp's own comment.
+    const std::optional<mpviz::detail::Theme> dark =
+        mpviz::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<mpviz::detail::Theme> light =
+        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    ASSERT_TRUE(dark.has_value());
+    ASSERT_TRUE(light.has_value());
+
+    for (const auto* t : {&*dark, &*light}) {
+        EXPECT_NEAR(t->ribbon.margin_velocity_m, 1.05f, 1e-4f);
+        EXPECT_LT(t->ribbon.margin_local_m, t->ribbon.margin_velocity_m);
+        EXPECT_LT(t->ribbon.margin_velocity_m, t->ribbon.margin_behavior_m);
+    }
+}
+
 TEST(ThemePalette, ShippedThemesAuthorTheFillLookExplicitly) {
     // Both shipped themes drop the old width_m key and author the fill look
     // directly: lane_width_m 3.5, margins GLOBAL < LOCAL < BEHAVIOR

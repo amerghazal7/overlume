@@ -1,7 +1,9 @@
 // polyline.cpp — see polyline.hpp. Pure geometry, no Filament, no GPU.
 #include "polyline.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace mpviz::detail {
 
@@ -127,6 +129,71 @@ std::vector<Vec3> triangulate_convex_polygon(const Vec3* pts, uint32_t n, float 
         out.push_back(lift(pts[i]));
         out.push_back(lift(pts[i + 1]));
     }
+    return out;
+}
+
+std::pair<double, double> closest_arc_station(const Vec3* pts, uint32_t n, const Vec3& ego) {
+    if (n < 2) return {0.0, std::numeric_limits<double>::infinity()};
+    double cum = 0.0;
+    double bestStation = 0.0;
+    double bestDist = std::numeric_limits<double>::infinity();
+    for (uint32_t i = 0; i + 1 < n; ++i) {
+        const Vec3& a = pts[i];
+        const Vec3& b = pts[i + 1];
+        const double dx = b.x - a.x, dy = b.y - a.y;
+        const double segLen = std::sqrt(dx * dx + dy * dy);
+        double t = 0.0;
+        if (segLen > 0.0) {
+            t = ((ego.x - a.x) * dx + (ego.y - a.y) * dy) / (segLen * segLen);
+            t = std::clamp(t, 0.0, 1.0);
+        }
+        const double px = a.x + dx * t, py = a.y + dy * t;
+        const double dist = std::hypot(ego.x - px, ego.y - py);
+        if (dist < bestDist) {
+            bestDist = dist;
+            bestStation = cum + t * segLen;
+        }
+        cum += segLen;
+    }
+    return {bestStation, bestDist};
+}
+
+PolylineClip compute_polyline_clip(const Vec3* pts, uint32_t n, const Vec3& ego_position) {
+    PolylineClip clip;
+    const auto [station, dist] = closest_arc_station(pts, n, ego_position);
+    if (dist >= kPolylineEgoClipLateralM) return clip;  // proximity gate: too far, render whole
+    clip.active = true;
+    // ceil, not lround: round-to-nearest would land the cut up to 0.25m
+    // behind the closest-approach station about half the time, rendering
+    // part of the polyline behind the ego. ceil keeps the cut at-or-ahead,
+    // equally deterministic (parked-ego zero-rebuild property unchanged).
+    clip.quantized_units = static_cast<int64_t>(std::ceil(station / kPolylineClipQuantizeM));
+    clip.station_m = static_cast<double>(clip.quantized_units) * kPolylineClipQuantizeM;
+    return clip;
+}
+
+std::vector<Vec3> clip_polyline_forward(const Vec3* pts, uint32_t n, double s0) {
+    std::vector<Vec3> out;
+    if (n < 2) return out;
+    double cum = 0.0;
+    for (uint32_t i = 0; i + 1 < n; ++i) {
+        const Vec3& a = pts[i];
+        const Vec3& b = pts[i + 1];
+        const double dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+        const double segLen = std::sqrt(dx * dx + dy * dy);
+        const bool isLastSeg = (i + 2 == n);
+        if (cum + segLen >= s0 || isLastSeg) {
+            const double t = segLen > 0.0 ? std::clamp((s0 - cum) / segLen, 0.0, 1.0) : 0.0;
+            out.push_back(Vec3{a.x + dx * t, a.y + dy * t, a.z + dz * t});
+            for (uint32_t k = i + 1; k < n; ++k) out.push_back(pts[k]);
+            return out;
+        }
+        cum += segLen;
+    }
+    // Unreachable in practice (isLastSeg always fires by the final
+    // segment); kept as a defensive fallback so this renders something
+    // rather than silently dropping the polyline.
+    out.push_back(pts[n - 1]);
     return out;
 }
 

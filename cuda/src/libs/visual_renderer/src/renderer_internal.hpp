@@ -107,6 +107,14 @@ inline constexpr float kGridPitchM = 2.0f;
 inline constexpr double kStaleFadeStartSec = 0.5;
 inline constexpr double kStaleFadeTimeoutSec = 1.0;
 
+// Shared ribbon-family half-width floor: whatever a theme's margin math
+// derives, the extruded strip never goes narrower than this. Lives here
+// (not ribbon.cpp's anonymous namespace) because trajectory_carpet.cpp's
+// velocity ribbon (VM-077 carpet-as-ribbon redirect, 2026-09-10) clamps
+// against the identical floor and must not silently drift from ribbon.cpp's
+// own three roles if this value is ever retuned.
+inline constexpr float kRibbonMinHalfWidthM = 0.12f;
+
 // Constant per-severity alphas (info ghosted low, warning, critical) —
 // not a fade. AlertPolygon has no `role`, so a lower constant alpha is the
 // only way to express "info reads as background". alert_polygons.cpp
@@ -649,8 +657,10 @@ public:
     };
     std::vector<PointCloudSlot> pointCloudSlots;
 
-    // Trajectory carpets (VM-077): output_trajectory_carpet, a per-vertex
-    // velocity-colored TRIANGLE_LIST ribbon (D1). trajectoryCarpetMaterial is
+    // Trajectory carpets (VM-077, redirected 2026-09-10 to a velocity-colored
+    // RIBBON per the user's own directive -- see trajectory_carpet.cpp's file
+    // header for the full redirect rationale; layer/knob names kept
+    // unchanged, only the geometry path changed). trajectoryCarpetMaterial is
     // trajectory_carpet.mat (built once); trajectoryCarpetMaterialInstance is
     // the SINGLE instance the whole layer shares -- same "a layer that fades
     // as one unit needs no per-entity/per-chunk instancing" reasoning as
@@ -663,14 +673,21 @@ public:
     // One (possibly chunked, past kMaxPointsPerMesh) set of Filament meshes
     // per live TrajectoryCarpet, keyed by slot index into
     // active().trajectory_carpets -- same reasoning as PointCloudSlot above
-    // (TrajectoryCarpet has no id). `signature` is a content signature
-    // (point count + first/last point) so an unchanged carpet causes zero
-    // rebuilds.
+    // (TrajectoryCarpet has no id). `signature` mirrors ribbon_signature()'s
+    // shape (point count + first/last point + half-width + ego-clip state,
+    // deliberately NO color term -- see the plan's 2026-09-10 section for
+    // why this property is pinned independent of the disproven H2 root-cause
+    // theory) so an unchanged carpet (or one whose color alone drifted)
+    // causes zero rebuilds.
     struct TrajectoryCarpetSlot {
         uint64_t signature = 0;
         bool has_signature = false;
         std::vector<Mesh> meshes;
         uint32_t totalVertexCount = 0;
+        // The actual half-width build_slot_meshes() used for this slot's
+        // geometry the last time it rebuilt -- same "not a Filament AABB
+        // query" reasoning as RibbonSlot::halfWidthM.
+        float halfWidthM = 0.0f;
         // Test-hook mirror ONLY (trajectory_carpet_test_hooks.hpp) -- the
         // resolved (post alpha-zero-sentinel substitution) per-vertex rgba
         // of the FIRST built mesh, kept purely so a test can prove the
@@ -679,7 +696,7 @@ public:
         // firstPointM/halfWidthM above.
         std::vector<uint32_t> firstMeshRgba;
         // Test-hook mirror ONLY: the actual world-space z each first-mesh
-        // vertex was built with, INCLUDING kTrajectoryCarpetZLiftM --
+        // vertex was built with, INCLUDING the velocity-ribbon z-lift --
         // catches the "adapter flattens to 0.0, renderer must lift it above
         // the opaque ground plane or it z-fights invisible" regression a
         // live-bag verification pass found (VM-077, 2026-09-09): every
@@ -688,6 +705,13 @@ public:
         std::vector<float> firstMeshZ;
     };
     std::vector<TrajectoryCarpetSlot> trajectoryCarpetSlots;
+    // Incremented once per slot rebuild (content, half-width, or quantized
+    // ego-clip station changed) -- same cache-miss-counter pattern as
+    // ribbonRebuildCount above. TrajectoryCarpet.SameStationPositionsWith
+    // DriftingColorAloneCausesNoRebuild (test_trajectory_carpet.cpp) reads
+    // this to pin the signature property: a message that only changes
+    // per-vertex color, with identical positions, must NOT bump this counter.
+    uint64_t trajectoryCarpetRebuildCount = 0;
 };
 
 // Namespace-scope free function so a different translation unit (ego.cpp,

@@ -1,15 +1,20 @@
-// test_trajectory_carpet.cpp — output_trajectory_carpet (VM-077). Same
-// "no Filament type" boundary as every other tests/*.cpp -- see
+// test_trajectory_carpet.cpp — output_trajectory_carpet, REDIRECTED
+// 2026-09-10 to a velocity-colored ribbon stacked into the ribbon stack
+// (user directive; see trajectory_carpet.cpp's file header for the full
+// rationale). Same "no Filament type" boundary as every other tests/*.cpp -- see
 // trajectory_carpet_test_hooks.hpp. Every scene in this file is hand-built
-// synthetic data (mirrors test_point_cloud.cpp's own fixture style).
+// synthetic data: each mpviz::PointCloudPoint here represents one
+// CENTERLINE STATION (position + packed rgba), not a raw wire vertex --
+// see the node-side adapter for how real messages become this shape.
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
 
 #include "trajectory_carpet_test_hooks.hpp"
 #include "test_paths.hpp"
-#include "polyline.hpp"  // detail::kMaxPointsPerMesh only -- Filament-free, see its own header comment
+#include "polyline.hpp"  // detail::kMaxPointsPerMesh/polyline_chunks -- Filament-free
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -23,14 +28,11 @@ std::vector<uint8_t> render_once(mpviz::VisualRenderer* r, const mpviz::CameraPo
     return pixels;
 }
 
-// One flat triangle per "n/3" group, laid out along +X so an oversized
-// carpet (Step 1's chunk test) spans a wide bounding volume like a real
-// planning-horizon ribbon would.
-std::vector<mpviz::PointCloudPoint> make_triangles(uint32_t n_points, uint32_t rgba) {
-    std::vector<mpviz::PointCloudPoint> pts(n_points);
-    for (uint32_t i = 0; i < n_points; ++i) {
-        const double tri = static_cast<double>(i / 3);
-        pts[i].position = {tri * 0.01, static_cast<double>(i % 3) * 0.01, 0.0};
+// n stations along +X, 1m apart, all the same supplied (non-sentinel) color.
+std::vector<mpviz::PointCloudPoint> make_stations(uint32_t n, uint32_t rgba) {
+    std::vector<mpviz::PointCloudPoint> pts(n);
+    for (uint32_t i = 0; i < n; ++i) {
+        pts[i].position = {static_cast<double>(i), 0.0, 0.0};
         pts[i].rgba = rgba;
     }
     return pts;
@@ -38,16 +40,15 @@ std::vector<mpviz::PointCloudPoint> make_triangles(uint32_t n_points, uint32_t r
 
 }  // namespace
 
-// ── Step 1: one TRIANGLES mesh from a flat multiple-of-three point list ────
+// ── Ribbon geometry: extruded from centerline stations, half-width from
+//    the theme's ribbon.margin_velocity_m token ────────────────────────────
 
-TEST(TrajectoryCarpet, BuildsOneTriangleMeshFromAFlatMultipleOfThreePointList) {
+TEST(TrajectoryCarpet, BuildsExtrudedRibbonFromCenterlineStations) {
     mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    // 2 triangles = 6 points, opaque red (a==255 -> real color, not the flat
-    // sentinel).
-    std::vector<mpviz::PointCloudPoint> pts = make_triangles(6, 0xFF0000FFu);
+    std::vector<mpviz::PointCloudPoint> pts = make_stations(4, 0xFF0000FFu);
     mpviz::TrajectoryCarpet tc{};
     tc.points = pts.data();
     tc.point_count = static_cast<uint32_t>(pts.size());
@@ -60,29 +61,76 @@ TEST(TrajectoryCarpet, BuildsOneTriangleMeshFromAFlatMultipleOfThreePointList) {
     render_once(r, mpviz::CameraPose{{0, -10, 10}, {0, 0, 0}, 60.0});
 
     EXPECT_EQ(mpviz::testing::trajectory_carpet_mesh_count(r, 0), 1u);
-    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_count(r, 0), 6u);
+    // 4 stations extruded (left/right rail per station) -> 8 vertices, NOT
+    // the old flat-triangle-list's 1:1 point-to-vertex count.
+    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_count(r, 0), 8u);
+    // dark_adas.yaml doesn't author margin_velocity_m -> soft default 1.05 ->
+    // (3.5 - 2*1.05) / 2 == 0.7.
+    EXPECT_NEAR(mpviz::testing::trajectory_carpet_half_width_m(r, 0), 0.7f, 1e-4f);
     mpviz::destroy_renderer(r);
 }
 
-// ── Step 1: per-vertex color passes through unchanged when alpha!=0 ────────
+TEST(TrajectoryCarpet, MarginVelocityChangeRebuildsGeometryAtNewHalfWidth) {
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, fixtureDir.c_str(), "ribbon_margin_velocity"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    std::vector<mpviz::PointCloudPoint> pts = make_stations(4, 0xFF0000FFu);
+    mpviz::TrajectoryCarpet tc{};
+    tc.points = pts.data();
+    tc.point_count = static_cast<uint32_t>(pts.size());
+    mpviz::SceneGraph s{};
+    s.trajectory_carpets = &tc;
+    s.trajectory_carpet_count = 1;
+    mpviz::set_scene(r, s);
+    render_once(r, mpviz::CameraPose{{0, -10, 10}, {0, 0, 0}, 60.0});
+    // ribbon_margin_velocity.yaml: (3.5 - 2*0.9) / 2 == 0.85.
+    EXPECT_NEAR(mpviz::testing::trajectory_carpet_half_width_m(r, 0), 0.85f, 1e-4f);
+    mpviz::destroy_renderer(r);
+}
+
+TEST(TrajectoryCarpet, EffectiveHalfWidthClampsToTheHalfWidthFloor) {
+    // ribbon_margin_velocity_extreme.yaml: margin_velocity_m 1.74 -> raw
+    // half-width (3.5 - 2*1.74) / 2 == 0.01, must clamp UP to
+    // kRibbonMinHalfWidthM (0.12).
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, fixtureDir.c_str(),
+                            "ribbon_margin_velocity_extreme"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    std::vector<mpviz::PointCloudPoint> pts = make_stations(2, 0xFF0000FFu);
+    mpviz::TrajectoryCarpet tc{};
+    tc.points = pts.data();
+    tc.point_count = static_cast<uint32_t>(pts.size());
+    mpviz::SceneGraph s{};
+    s.trajectory_carpets = &tc;
+    s.trajectory_carpet_count = 1;
+    mpviz::set_scene(r, s);
+    render_once(r, mpviz::CameraPose{{0, -10, 10}, {0, 0, 0}, 60.0});
+    EXPECT_NEAR(mpviz::testing::trajectory_carpet_half_width_m(r, 0), 0.12f, 1e-4f);
+    mpviz::destroy_renderer(r);
+}
+
+// ── Per-vertex color passes through unchanged; alpha==0 sentinel ───────────
 
 TEST(TrajectoryCarpet, PerVertexColorPassesThroughUnchangedWhenAlphaByteIsNonzero) {
     mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    // 3-point triangle, each vertex a DISTINCT supplied color (the measured
-    // velocity-gradient shape: r/g vary, b==0, a==0.70*255≈179 -- but this
-    // library's own sentinel rule only cares whether a byte is zero, so 179
-    // exercises the real "supplied, non-255" alpha this producer actually
-    // sends, not just the point_cloud fixture convention of 255).
+    // 3 stations, each a DISTINCT supplied color (the measured velocity-
+    // gradient shape: r/g vary, b==0). Alpha 0xB3 (179), not 0 or 255 --
+    // this library's own sentinel rule only cares whether the byte is
+    // zero, so this exercises a real "supplied, non-255" alpha.
     std::vector<mpviz::PointCloudPoint> pts(3);
     pts[0].position = {0, 0, 0};
-    pts[0].rgba = 0xB30000FFu;           // a=0xB3(179) b=0 g=0 r=0xFF
+    pts[0].rgba = 0xB30000FFu;  // a=0xB3 b=0 g=0 r=0xFF
     pts[1].position = {1, 0, 0};
-    pts[1].rgba = 0xB300FF00u;           // a=0xB3 b=0 g=0xFF r=0
-    pts[2].position = {1, 1, 0};
-    pts[2].rgba = 0xB3FF0080u;           // a=0xB3 b=0xFF g=0 r=0x80
+    pts[1].rgba = 0xB300FF00u;  // a=0xB3 b=0 g=0xFF r=0
+    pts[2].position = {2, 0, 0};
+    pts[2].rgba = 0xB3FF0080u;  // a=0xB3 b=0xFF g=0 r=0x80
 
     mpviz::TrajectoryCarpet tc{};
     tc.points = pts.data();
@@ -93,20 +141,23 @@ TEST(TrajectoryCarpet, PerVertexColorPassesThroughUnchangedWhenAlphaByteIsNonzer
     mpviz::set_scene(r, s);
     render_once(r, mpviz::CameraPose{{0, -10, 10}, {0, 0, 0}, 60.0});
 
+    // Each station's color lands on BOTH extruded rail vertices (0/1 for
+    // station 0, 2/3 for station 1, 4/5 for station 2) -- color is
+    // per-station, not per-rail, per the measurement report.
     EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_rgba(r, 0, 0), 0xB30000FFu);
-    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_rgba(r, 0, 1), 0xB300FF00u);
-    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_rgba(r, 0, 2), 0xB3FF0080u);
+    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_rgba(r, 0, 1), 0xB30000FFu);
+    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_rgba(r, 0, 2), 0xB300FF00u);
+    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_rgba(r, 0, 3), 0xB300FF00u);
+    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_rgba(r, 0, 4), 0xB3FF0080u);
+    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_rgba(r, 0, 5), 0xB3FF0080u);
     mpviz::destroy_renderer(r);
 }
 
-// ── Step 1: alpha==0 substitutes palette.object_tints.unknown ──────────────
-
 TEST(TrajectoryCarpet, AlphaZeroSentinelSubstitutesPaletteObjectTintsUnknown) {
     // Same substitution point_cloud.cpp's resolve_rgba() already implements
-    // -- reuse that free function or an identical one-line copy (it's three
-    // lines, not worth extracting into a shared header for one second
-    // caller yet -- ponytail: duplicate the 3-line helper, promote to a
-    // shared header if a third caller ever needs it).
+    // -- reuse that free function or an identical one-line copy (ponytail:
+    // duplicate the 3-line helper, promote to a shared header if a third
+    // caller ever needs it).
     mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
@@ -114,8 +165,8 @@ TEST(TrajectoryCarpet, AlphaZeroSentinelSubstitutesPaletteObjectTintsUnknown) {
     std::vector<mpviz::PointCloudPoint> pts(3);
     pts[0].position = {0, 0, 0};
     pts[1].position = {1, 0, 0};
-    pts[2].position = {1, 1, 0};
-    // rgba left at zero-init (a==0) -- "no real per-point color supplied".
+    pts[2].position = {2, 0, 0};
+    // rgba left at zero-init (a==0) -- "no real per-station color supplied".
 
     mpviz::TrajectoryCarpet tc{};
     tc.points = pts.data();
@@ -127,46 +178,26 @@ TEST(TrajectoryCarpet, AlphaZeroSentinelSubstitutesPaletteObjectTintsUnknown) {
     render_once(r, mpviz::CameraPose{{0, -10, 10}, {0, 0, 0}, 60.0});
 
     // dark_adas.yaml's palette.object_tints.unknown == [0.5, 0.5, 0.5] ->
-    // to_byte(0.5) == 128 (round(0.5*255+0.5)==128.0), alpha forced to 255
-    // (real, substituted color): 128 | (128<<8) | (128<<16) | (255<<24).
+    // to_byte(0.5) == 128, alpha forced to 255 (real, substituted color).
     constexpr uint32_t kExpected = 128u | (128u << 8) | (128u << 16) | (255u << 24);
-    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_rgba(r, 0, 0), kExpected);
-    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_rgba(r, 0, 1), kExpected);
-    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_rgba(r, 0, 2), kExpected);
+    for (size_t i = 0; i < 6; ++i) {
+        EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_rgba(r, 0, i), kExpected);
+    }
     mpviz::destroy_renderer(r);
 }
 
-// ── Step 1: chunked past the per-mesh vertex ceiling, triangle-aligned ─────
-//
-// Regression test for the VM-077 review fix (2026-09-09): this test
-// originally asserted vertexCount == kN + (meshCount - 1), baking in
-// polyline_chunks()'s LINE_STRIP overlap-by-one-point convention as if it
-// were correct for a TRIANGLES primitive. It passed even though the
-// implementation was reusing polyline_chunks() (whose 32000-point ceiling
-// is not a multiple of 3) on a flat triangle list -- which drops an
-// incomplete triangle at 32000 and then stitches every triangle after it
-// from three different source triangles. A test that cannot fail is not a
-// check: the assertions below read back real per-vertex data at the chunk
-// boundary instead of trusting an invariant carried over from the wrong
-// primitive type.
-TEST(TrajectoryCarpet, TrianglesChunkExactlyWithNoOverlapPastThePerMeshVertexCeiling) {
+// ── Chunked past the per-mesh vertex ceiling ────────────────────────────────
+
+TEST(TrajectoryCarpet, RibbonChunksAcrossMeshesWithoutTruncation) {
     mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    // > kMaxPointsPerMesh (32000, polyline.hpp) and a multiple of 3, so this
-    // must chunk across more than one mesh -- none truncated. Per-vertex
-    // rgba encodes the vertex's own source index in its low 24 bits with
-    // alpha forced to 0xFF (a real, non-sentinel color -- see
-    // PerVertexColorPassesThroughUnchangedWhenAlphaByteIsNonzero), so the
-    // chunk-boundary vertex read back below can be checked against the
-    // exact source index it must map to, not just assumed.
-    constexpr uint32_t kN = 40002;
+    constexpr uint32_t kN = 40000;
     std::vector<mpviz::PointCloudPoint> pts(kN);
     for (uint32_t i = 0; i < kN; ++i) {
-        const double tri = static_cast<double>(i / 3);
-        pts[i].position = {tri * 0.01, static_cast<double>(i % 3) * 0.01, 0.0};
-        pts[i].rgba = 0xFF000000u | (i & 0x00FFFFFFu);
+        pts[i].position = {static_cast<double>(i) * 0.1, 0.0, 0.0};
+        pts[i].rgba = 0xFF0000FFu;
     }
     mpviz::TrajectoryCarpet tc{};
     tc.points = pts.data();
@@ -177,37 +208,19 @@ TEST(TrajectoryCarpet, TrianglesChunkExactlyWithNoOverlapPastThePerMeshVertexCei
     s.trajectory_carpets = &tc;
     s.trajectory_carpet_count = 1;
     mpviz::set_scene(r, s);
-
     mpviz::CameraPose pose{{0, -20, 20}, {2, 0, 0}, 60.0};
     render_once(r, pose);
 
-    const size_t meshCount = mpviz::testing::trajectory_carpet_mesh_count(r, 0);
-    EXPECT_GT(meshCount, 1u)
-        << "a carpet past the per-mesh vertex ceiling must split across multiple meshes";
+    const auto chunks = mpviz::detail::polyline_chunks(kN);
+    ASSERT_EQ(chunks.size(), 2u) << "40000 stations should split into exactly 2 chunks at "
+                                     "kMaxPointsPerMesh=32000 -- fixture assumption changed?";
+    size_t expectedVerts = 0;
+    for (const auto& [a, b] : chunks) expectedVerts += 2 * static_cast<size_t>(b - a);
 
-    // Triangle-aligned, non-overlapping chunks (trajectory_carpet.cpp's
-    // triangle_chunks(), NOT polyline.hpp's polyline_chunks() -- a triangle
-    // list has no shared join vertex between chunks the way a line strip
-    // does): total vertex count must equal the source count EXACTLY, no
-    // "+ (meshCount - 1)" overlap term.
-    const size_t vertexCount = mpviz::testing::trajectory_carpet_vertex_count(r, 0);
-    EXPECT_EQ(vertexCount, static_cast<size_t>(kN))
-        << "chunking must conserve every vertex exactly once -- no overlap, none dropped";
-
-    // The first mesh's last vertex must be the source vertex at index
-    // kMaxPointsPerMesh/3*3 - 1 == 31997 -- a multiple-of-3 chunk boundary
-    // (ending on a whole triangle), not the old ceiling (32000, NOT a
-    // multiple of 3) that split a triangle in half and misaligned every
-    // triangle in the next chunk.
-    constexpr uint32_t kFirstChunkLastIndex = (mpviz::detail::kMaxPointsPerMesh / 3) * 3 - 1;
-    static_assert(kFirstChunkLastIndex == 31997u);
-    const uint32_t rgba =
-        mpviz::testing::trajectory_carpet_vertex_rgba(r, 0, kFirstChunkLastIndex);
-    EXPECT_EQ(rgba & 0x00FFFFFFu, kFirstChunkLastIndex)
-        << "first mesh's last vertex (idx " << kFirstChunkLastIndex
-        << ") must map to that same source vertex, not one stitched from the wrong triangle "
-           "across the chunk seam";
-
+    EXPECT_EQ(mpviz::testing::trajectory_carpet_mesh_count(r, 0), chunks.size());
+    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_count(r, 0), expectedVerts)
+        << "vertex count doesn't match polyline_chunks()'s own math -- a station was lost "
+           "at the chunk-split seam";
     mpviz::destroy_renderer(r);
 }
 
@@ -218,7 +231,7 @@ TEST(TrajectoryCarpet, SlotReleasedWhenCarpetCountDrops) {
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    std::vector<mpviz::PointCloudPoint> pts = make_triangles(9, 0xFF0000FFu);
+    std::vector<mpviz::PointCloudPoint> pts = make_stations(3, 0xFF0000FFu);
     mpviz::TrajectoryCarpet tc{};
     tc.points = pts.data();
     tc.point_count = static_cast<uint32_t>(pts.size());
@@ -238,14 +251,16 @@ TEST(TrajectoryCarpet, SlotReleasedWhenCarpetCountDrops) {
     mpviz::destroy_renderer(r);
 }
 
-// ── Staleness fade is the ONE shared MaterialInstance's alpha uniform ───────
+// ── Staleness fade is the ONE shared MaterialInstance's alpha uniform,
+//    OPAQUE while fresh (2026-09-10 redirect -- the old 0.7 producer-alpha
+//    parity is superseded) ───────────────────────────────────────────────────
 
-TEST(TrajectoryCarpet, MaterialAlphaFollowsStaleness) {
+TEST(TrajectoryCarpet, MaterialAlphaFollowsStalenessOpaqueWhileFresh) {
     mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    std::vector<mpviz::PointCloudPoint> pts = make_triangles(9, 0xFF0000FFu);
+    std::vector<mpviz::PointCloudPoint> pts = make_stations(3, 0xFF0000FFu);
     mpviz::TrajectoryCarpet tc{};
     tc.points = pts.data();
     tc.point_count = static_cast<uint32_t>(pts.size());
@@ -256,10 +271,9 @@ TEST(TrajectoryCarpet, MaterialAlphaFollowsStaleness) {
     s.trajectory_carpet_count = 1;
     mpviz::set_scene(r, s);
     render_once(r, mpviz::CameraPose{{0, -10, 10}, {0, 0, 0}, 60.0});
-    // 0.7, not 1.0 -- the measured producer opacity (m.color.a, VM-077
-    // review fix) is folded into the pushed alpha, not just the staleness
-    // ramp, so a fresh carpet is translucent rather than fully opaque.
-    EXPECT_FLOAT_EQ(mpviz::testing::trajectory_carpet_material_alpha(r), 0.7f);
+    // 1.0, not 0.7 -- the old measured producer opacity (m.color.a) is
+    // superseded by the user directive: fresh renders fully opaque.
+    EXPECT_FLOAT_EQ(mpviz::testing::trajectory_carpet_material_alpha(r), 1.0f);
 
     // Past kStaleFadeTimeoutSec (1.0s) with no new publish -- render_frame()
     // re-reads the same last-published scene every call (freeze-frame), so
@@ -274,21 +288,7 @@ TEST(TrajectoryCarpet, MaterialAlphaFollowsStaleness) {
     mpviz::destroy_renderer(r);
 }
 
-// ── Z-STACK: the adapter's flattened z=0.0 gets lifted above the opaque
-//    ground plane, or the carpet z-fights it into invisibility ───────────────
-//
-// Found live (VM-077 verification, 2026-09-09): a first pass left the
-// carpet at the adapter's flattened z=0.0 verbatim, coplanar with the
-// opaque ground -- every mesh/vertex-count assertion above stayed green
-// (the geometry IS built correctly), but on the real bag the carpet lost
-// the depth test against the ground almost everywhere and was invisible on
-// screen. A rendered-pixel check was tried too (a red triangle over the
-// default ground) and, verified BOTH ways (with and without the lift),
-// could not tell the two states apart at this synthetic scene's scale/
-// camera distance -- it passed regardless, so it would not actually have
-// caught this regression and is not worth keeping (a test that cannot
-// fail is not a check). The CPU-side z assertion below is the one that
-// FAILS without the fix (verified) and PASSES with it.
+// ── Z-STACK: lifted between LOCAL and BEHAVIOR, below alerts ───────────────
 
 TEST(TrajectoryCarpet, VertexZIsLiftedAboveTheFlattenedZeroTheAdapterSends) {
     mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
@@ -298,7 +298,7 @@ TEST(TrajectoryCarpet, VertexZIsLiftedAboveTheFlattenedZeroTheAdapterSends) {
     std::vector<mpviz::PointCloudPoint> pts(3);
     pts[0].position = {0, 0, 0.0};  // exactly the adapter's flatten_z output
     pts[1].position = {1, 0, 0.0};
-    pts[2].position = {1, 1, 0.0};
+    pts[2].position = {2, 0, 0.0};
     for (auto& p : pts) p.rgba = 0xFF0000FFu;
 
     mpviz::TrajectoryCarpet tc{};
@@ -310,22 +310,189 @@ TEST(TrajectoryCarpet, VertexZIsLiftedAboveTheFlattenedZeroTheAdapterSends) {
     mpviz::set_scene(r, s);
     render_once(r, mpviz::CameraPose{{0, -10, 10}, {0, 0, 0}, 60.0});
 
-    for (size_t i = 0; i < 3; ++i) {
+    for (size_t i = 0; i < 6; ++i) {
         const float z = mpviz::testing::trajectory_carpet_vertex_z(r, 0, i);
-        EXPECT_GT(z, 0.0f)
-            << "vertex " << i << " must be lifted above z==0.0 (the opaque ground plane), "
-               "not left at the adapter's flattened value verbatim";
-        // Regression guard for the VM-077 review fix (2026-09-09): keeping
-        // alerts topmost is still correct even though the carpet is
-        // translucent (0.7 alpha) while fresh, not opaque -- a partly
-        // see-through carpet sitting above an alert ring would still visually
-        // merge with it. Must stay strictly below alert_polygons.cpp's
-        // kAlertZLiftM (0.06). A future edit that pushes the carpet back
-        // above alerts should fail THIS assertion, not just leave the z>0
-        // check above vacuously green.
-        EXPECT_LT(z, 0.06f) << "vertex " << i
-                             << " carpet lift must stay below alert_polygons' kAlertZLiftM (0.06) "
-                                "so alerts remain the topmost overlay";
+        EXPECT_GT(z, 0.045f) << "vertex " << i
+                              << " must be lifted ABOVE LOCAL's own z-lift (0.045) -- "
+                                 "\"stacked on top of local ribbon\" per the user directive";
+        EXPECT_LT(z, 0.05f) << "vertex " << i
+                             << " must stay BELOW BEHAVIOR's z-lift (0.05) -- the hero ribbon "
+                                "must remain topmost of the path/ribbon stack";
     }
+    mpviz::destroy_renderer(r);
+}
+
+// ── Ego-proximity clip: identical mechanism every other ribbon uses ────────
+
+TEST(TrajectoryCarpet, ClipShrinksGeometryWhenEgoIsMidCarpet) {
+    // A straight carpet along +X; ego sits AT x=1 (well within the
+    // proximity gate) -- the behind-ego half must not appear in the built
+    // geometry.
+    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    std::vector<mpviz::PointCloudPoint> pts = make_stations(5, 0xFF0000FFu);  // x = 0,1,2,3,4
+    mpviz::TrajectoryCarpet tc{};
+    tc.points = pts.data();
+    tc.point_count = static_cast<uint32_t>(pts.size());
+    mpviz::SceneGraph s{};
+    s.ego = {{1, 0, 0}, 0.0, 0.0, /*valid=*/1};
+    s.trajectory_carpets = &tc;
+    s.trajectory_carpet_count = 1;
+    mpviz::set_scene(r, s);
+    render_once(r, mpviz::CameraPose{{0, -10, 10}, {2, 0, 0}, 60.0});
+
+    EXPECT_LT(mpviz::testing::trajectory_carpet_vertex_count(r, 0), 5u * 2)
+        << "clip did not actually shrink the built geometry";
+    mpviz::destroy_renderer(r);
+}
+
+TEST(TrajectoryCarpet, ProximityGateSkipsClipWhenEgoIsFarFromTheCarpet) {
+    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    std::vector<mpviz::PointCloudPoint> pts = make_stations(5, 0xFF0000FFu);
+    mpviz::TrajectoryCarpet tc{};
+    tc.points = pts.data();
+    tc.point_count = static_cast<uint32_t>(pts.size());
+    mpviz::SceneGraph s{};
+    s.ego = {{1, 20, 0}, 0.0, 0.0, /*valid=*/1};  // 20m off to the side
+    s.trajectory_carpets = &tc;
+    s.trajectory_carpet_count = 1;
+    mpviz::set_scene(r, s);
+    render_once(r, mpviz::CameraPose{{0, -10, 30}, {2, 0, 0}, 60.0});
+
+    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_count(r, 0), 5u * 2)
+        << "a carpet the ego is nowhere near must render whole, not clipped";
+    mpviz::destroy_renderer(r);
+}
+
+TEST(TrajectoryCarpet, ClipAppliesOnlyWhenEgoIsValid) {
+    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    std::vector<mpviz::PointCloudPoint> pts = make_stations(5, 0xFF0000FFu);
+    mpviz::TrajectoryCarpet tc{};
+    tc.points = pts.data();
+    tc.point_count = static_cast<uint32_t>(pts.size());
+    mpviz::SceneGraph s{};
+    s.ego = {{1, 0, 0}, 0.0, 0.0, /*valid=*/0};  // on the carpet, but invalid
+    s.trajectory_carpets = &tc;
+    s.trajectory_carpet_count = 1;
+    mpviz::set_scene(r, s);
+    render_once(r, mpviz::CameraPose{{0, -10, 10}, {2, 0, 0}, 60.0});
+
+    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_count(r, 0), 5u * 2)
+        << "an invalid ego must never clip a carpet";
+    mpviz::destroy_renderer(r);
+}
+
+TEST(TrajectoryCarpet, ParkedEgoCausesZeroTrajectoryCarpetRebuilds) {
+    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    std::vector<mpviz::PointCloudPoint> pts = make_stations(5, 0xFF0000FFu);
+    mpviz::TrajectoryCarpet tc{};
+    tc.points = pts.data();
+    tc.point_count = static_cast<uint32_t>(pts.size());
+    mpviz::SceneGraph s{};
+    s.ego = {{1, 0, 0}, 0.0, 0.0, /*valid=*/1};
+    s.trajectory_carpets = &tc;
+    s.trajectory_carpet_count = 1;
+    mpviz::CameraPose pose{{0, -10, 10}, {2, 0, 0}, 60.0};
+
+    mpviz::set_scene(r, s);
+    render_once(r, pose);
+    const uint64_t afterFirst = mpviz::testing::trajectory_carpet_rebuild_count(r);
+    EXPECT_GT(afterFirst, 0u);
+
+    for (int i = 0; i < 10; ++i) {
+        mpviz::set_scene(r, s);  // identical content + identical parked ego, every frame
+        render_once(r, pose);
+    }
+    EXPECT_EQ(mpviz::testing::trajectory_carpet_rebuild_count(r), afterFirst)
+        << "a parked ego re-triggered rebuilds -- the quantized clip station isn't stable";
+    mpviz::destroy_renderer(r);
+}
+
+// ── SIGNATURE PROPERTY PIN (VM-077): a message that changes ONLY per-vertex
+//    color, with byte-identical station positions, must NOT rebuild the
+//    mesh -- this property is independently worth pinning regardless of
+//    root cause (the plan's 2026-09-10 "Live verification, CORRECTED"
+//    section found H2 was NOT the demonstrated driver of the reported
+//    flicker; this test only pins that color-only drift is signature-inert).
+//    An accepted tradeoff, not silently invented around: colors freeze at
+//    the last-built values until the next position-changing rebuild (see
+//    trajectory_carpet.cpp's file header). ────────────────────────────────
+
+TEST(TrajectoryCarpet, SameStationPositionsWithDriftingColorAloneCausesNoRebuild) {
+    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    std::vector<mpviz::PointCloudPoint> pts = make_stations(4, 0xFF0000FFu);
+    mpviz::TrajectoryCarpet tc{};
+    tc.points = pts.data();
+    tc.point_count = static_cast<uint32_t>(pts.size());
+    tc.last_update_sec = 0.0;
+    mpviz::SceneGraph s{};
+    s.sim_time_sec = 0.0;
+    s.trajectory_carpets = &tc;
+    s.trajectory_carpet_count = 1;
+    mpviz::set_scene(r, s);
+    render_once(r, mpviz::CameraPose{{0, -10, 10}, {0, 0, 0}, 60.0});
+    const uint64_t afterFirst = mpviz::testing::trajectory_carpet_rebuild_count(r);
+    EXPECT_GT(afterFirst, 0u);
+    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_rgba(r, 0, 0), 0xFF0000FFu);
+
+    // Same positions, EVERY message's color drifts (exactly the measured
+    // "planner only advances the near station every 3-4 callbacks, but the
+    // packed rgba drifts every message" shape) -- 20 republishes, each a
+    // different color, none touching a single station's position.
+    for (uint32_t i = 0; i < 20; ++i) {
+        for (auto& p : pts) p.rgba = 0xFF000000u | (i + 1);  // distinct color each time
+        tc.last_update_sec = 0.0;
+        mpviz::set_scene(r, s);
+        render_once(r, mpviz::CameraPose{{0, -10, 10}, {0, 0, 0}, 60.0});
+    }
+
+    EXPECT_EQ(mpviz::testing::trajectory_carpet_rebuild_count(r), afterFirst)
+        << "color-only drift (identical station positions) rebuilt the mesh -- this is the "
+           "exact VM-077 H2 flicker regression: color must not be part of the content signature";
+    // The displayed color stays frozen at the first-built value -- the
+    // explicit, accepted tradeoff (see trajectory_carpet.cpp's file header).
+    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_rgba(r, 0, 0), 0xFF0000FFu);
+    mpviz::destroy_renderer(r);
+}
+
+TEST(TrajectoryCarpet, IdenticalRepublishCausesNoRebuild) {
+    // Baseline hygiene: even a byte-identical republish (same positions,
+    // same colors) must not rebuild.
+    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    std::vector<mpviz::PointCloudPoint> pts = make_stations(4, 0xFF0000FFu);
+    mpviz::TrajectoryCarpet tc{};
+    tc.points = pts.data();
+    tc.point_count = static_cast<uint32_t>(pts.size());
+    mpviz::SceneGraph s{};
+    s.trajectory_carpets = &tc;
+    s.trajectory_carpet_count = 1;
+
+    mpviz::set_scene(r, s);
+    render_once(r, mpviz::CameraPose{{0, -10, 10}, {0, 0, 0}, 60.0});
+    const uint64_t afterFirst = mpviz::testing::trajectory_carpet_rebuild_count(r);
+    EXPECT_GT(afterFirst, 0u);
+
+    for (int i = 0; i < 5; ++i) {
+        mpviz::set_scene(r, s);
+        render_once(r, mpviz::CameraPose{{0, -10, 10}, {0, 0, 0}, 60.0});
+    }
+    EXPECT_EQ(mpviz::testing::trajectory_carpet_rebuild_count(r), afterFirst);
     mpviz::destroy_renderer(r);
 }

@@ -1,32 +1,49 @@
 #pragma once
 /** @file trajectory_carpet.hpp
- *  @brief TrajectoryCarpetAdapter (VM-077): MarkerArray -> mpviz::TrajectoryCarpet.
+ *  @brief TrajectoryCarpetAdapter (VM-077, REDIRECTED 2026-09-10): MarkerArray
+ *         -> mpviz::TrajectoryCarpet, now carrying CENTERLINE STATIONS
+ *         (one per dual-rail quad) instead of the raw wire triangle list.
  *
  *  Ctor shape matches every adapter in this node (row, tf).
  *
- *  Measured against the real recorded `output_trajectory_carpet` (VM-077
- *  measurement report §1): ONE persistent marker
- *  (`ns='output_trajectory_carpet' id=0`), refreshed every tick via
- *  `DELETE_ALL` + one `ADD`, never fanned across ns/id -- so, unlike
- *  CollisionAdapter/GenericMarkerAdapter, this adapter needs no `Key{ns,id}`
- *  map: it tracks exactly one stored carpet, wholesale-replaced on every
- *  valid ingest (same "REPLACES, never merges" contract as PathAdapter).
+ *  REDIRECT (user directive, 2026-09-10, verbatim: "I just noticed a major
+ *  flickering for the local path ribbon after adding the velocity profile
+ *  rendering this way, I think i still prefer to treat it as [a] ribbon
+ *  that can be stacked on top of local ribbon with margin"): the library
+ *  side now renders this as an extruded RIBBON (trajectory_carpet.cpp), not
+ *  a flat triangle list -- it needs a CENTERLINE, not the raw dual-rail
+ *  geometry. The VM-077 flicker measurement report's own vertex-pairing
+ *  finding supplies the exact extraction: every 6 wire points form one
+ *  "quad" = two triangles `(A,B,C)` then `(A,C,D)`, where `{A,D}`/`{B,C}`
+ *  are the two rails and consecutive quads share their trailing rail-pair
+ *  as the next quad's leading pair. For quad `k` (flat indices `6k..6k+5`
+ *  = `[A,B,C,A,C,D]`):
+ *    - `station_0 = midpoint(quad_0.A, quad_0.B)`, color from `quad_0.A`
+ *      (measured: A and B are bit-identical in color, every sampled quad).
+ *    - `station_{k+1} = midpoint(quad_k.D, quad_k.C)`, color from
+ *      `quad_k.D`.
+ *  `n_quads` quads (`points.size() == n_quads*6`, ALWAYS a multiple of 6,
+ *  not just 3 -- measured, 1647/1647 ADD markers) yield `n_quads+1`
+ *  stations. Each corner point is transformed individually (marker pose,
+ *  then the one per-message TF lookup, then flatten_z) before midpointing
+ *  -- same per-point composition every other adapter uses, just applied to
+ *  the two corners a station needs rather than every raw point.
  *
- *  ingest(): `type==TRIANGLE_LIST && points.size()%3==0 && points.size()>=3`
+ *  ingest(): `type==TRIANGLE_LIST && points.size()>=6 && points.size()%6==0`
  *  (else ++dropped_malformed, previous carpet -- if any -- keeps
- *  rendering). Marker pose composition and frame transform identical to
- *  every other marker adapter (points[] RELATIVE to marker.pose, composed
- *  BEFORE the frame transform; a zero/degenerate orientation quaternion is
- *  identity, matching rviz); flatten_z applies (frame_transform.hpp) -- the
- *  carpet's own z (~0.150 m, measured) sits on the same 2D plane every other
- *  category flattens to.
+ *  rendering). One persistent marker (`ns='output_trajectory_carpet' id=0`),
+ *  refreshed every tick via `DELETE_ALL` + one `ADD`, never fanned across
+ *  ns/id -- so, unlike CollisionAdapter/GenericMarkerAdapter, this adapter
+ *  needs no `Key{ns,id}` map: it tracks exactly one stored carpet,
+ *  wholesale-replaced on every valid ingest (same "REPLACES, never merges"
+ *  contract as PathAdapter).
  *
  *  Color: `colors[i]` packed via `PackRgba()` (reused from
  *  point_cloud.hpp's adapter -- point_cloud.cpp's `resolve_rgba()`
  *  alpha-zero-sentinel convention is what the RENDERER does with the
  *  result, not this adapter) with alpha forced to 255 ("a real color was
  *  supplied" sentinel) WHEN `colors.size() == points.size()`; otherwise
- *  every point's packed rgba is `0` (alpha byte 0 -- "no real per-point
+ *  every station's packed rgba is `0` (alpha byte 0 -- "no real per-station
  *  color was computed", a WHOLE-MESSAGE fallback since a length mismatch
  *  means the whole array is suspect, not a per-point one).
  *

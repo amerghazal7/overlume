@@ -299,13 +299,18 @@ rows:
      adapter: point_cloud, role: points, color_mode: auto, max_points: 60000,
      stride: 2, best_effort: true, timeout_sec: 2.0}
 
-  # Trajectory carpet (VM-077, 2026-09-09) -- per-vertex velocity gradient,
-  # TRIANGLE_LIST, refreshed every tick (DELETE_ALL + ADD). See the plan's
-  # D1 for why this needs its own adapter/category rather than riding on
-  # generic_marker or collision. Disable knob: layer_trajectory_carpet
-  # param (STANDING directive); style: per-vertex color IS the data, the
-  # only themed piece is the malformed-colors fallback tint, which reuses
-  # palette.object_tints.unknown verbatim (zero new theme field).
+  # Trajectory carpet (VM-077, 2026-09-09; REDIRECTED 2026-09-10 per user
+  # directive -- see the plan's 2026-09-10 "carpet-as-ribbon redirect"
+  # section) -- per-vertex velocity gradient, wire TRIANGLE_LIST refreshed
+  # every tick (DELETE_ALL + ADD), but rendered as a lane-fill RIBBON
+  # extruded from a derived centerline (one station per dual-rail quad),
+  # stacked into the same z-order as the three PathRole ribbons (between
+  # LOCAL and BEHAVIOR). Disable knob: layer_trajectory_carpet param
+  # (STANDING directive, name unchanged by the redirect); style: per-vertex
+  # color IS the data, ribbon width from the new ribbon.margin_velocity_m
+  # theme token (soft default 1.05), malformed-colors fallback tint reuses
+  # palette.object_tints.unknown verbatim (zero new theme field for that
+  # part).
   - {topic: /navigation_motion_obstacle_planner_node/output_trajectory_carpet,
      type: visualization_msgs/msg/MarkerArray, adapter: trajectory_carpet,
      role: carpet, timeout_sec: 2.0}

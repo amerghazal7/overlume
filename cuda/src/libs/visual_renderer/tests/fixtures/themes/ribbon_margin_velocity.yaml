@@ -1,0 +1,41 @@
+# ribbon_margin_velocity.yaml — test fixture (VM-077 carpet-as-ribbon
+# redirect, 2026-09-10). Byte-for-byte identical to ribbon_margin_a.yaml
+# except an explicit `ribbon.margin_velocity_m`, proving the new token
+# actually reaches parse() (not just its soft default) and, via
+# trajectory_carpet.cpp's build_effective_half_width()-style clamp, the
+# velocity ribbon's built geometry.
+name: ribbon_margin_velocity
+palette:
+  ground:      [0.05, 0.06, 0.08]
+  sky:         [0.02, 0.02, 0.05]
+  fog:         [0.02, 0.02, 0.05]
+  lane_paint:  [0.45, 0.5, 0.55]
+  ribbon_core: [0.10, 1.00, 0.40]
+  ribbon_glow: [0.10, 1.00, 0.40]
+  ribbon_global: [0.25, 0.55, 0.95]
+  ribbon_local: [0.95, 0.70, 0.15]
+  ego: [0.82, 0.80, 0.76]
+  object_tints:
+    car: [0.25, 0.35, 0.9]
+    truck_van: [0.30, 0.35, 0.85]
+    bus: [0.85, 0.6, 0.15]
+    pedestrian: [0.9, 0.2, 0.2]
+    cyclist: [0.9, 0.55, 0.1]
+    unknown: [0.5, 0.5, 0.5]
+  alert:
+    info: [0.2, 0.6, 1.0]
+    warning: [1.0, 0.7, 0.1]
+    critical: [1.0, 0.15, 0.1]
+material: { roughness: 0.85, metallic: 0.0 }
+emissive: { ribbon_strength: 4.0 }
+grid: { line_color: [0.12, 0.14, 0.18], fade_start_m: 15.0, fade_end_m: 40.0 }
+hud: { text_color: [0.9, 0.95, 1.0], accent_color: [0.10, 1.0, 0.4], scale: 1.0 }
+sun: { direction: [-0.5, -0.3, -1.0], color: [0.55, 0.6, 0.75], intensity: 480000.0 }
+ibl:
+  sky_color:    [0.05, 0.06, 0.12]
+  ground_color: [0.02, 0.02, 0.03]
+  intensity: 256000.0
+fog: { density: 0.015 }
+# Velocity ribbon half-width = (3.5 - 2*0.9) / 2 = 0.85m.
+ribbon: { lane_width_m: 3.5, margin_behavior_m: 0.8, margin_global_m: 0.2, margin_local_m: 0.5,
+          margin_velocity_m: 0.9 }

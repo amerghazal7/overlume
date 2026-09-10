@@ -18,7 +18,6 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
-#include <limits>
 #include <utility>
 #include <vector>
 
@@ -94,14 +93,17 @@ uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float half
 // trace the same route (planner output vs velocity path), and at a shared
 // z they z-fight into a patchy interleave. Order: GLOBAL lowest, LOCAL
 // middle, BEHAVIOR (the hero) on top.
+//
+// trajectory_carpet.cpp's velocity ribbon (VM-077 carpet-as-ribbon redirect,
+// 2026-09-10) is NOT a PathRole and so isn't in this array, but it stacks
+// INTO this same z-order: its own kVelocityRibbonZLiftM sits at 0.0475,
+// strictly between LOCAL (0.045) and BEHAVIOR (0.05) -- "on top of local
+// ribbon" (user directive) while the hero ribbon stays topmost of the whole
+// stack. Full order, lowest to highest: GLOBAL 0.04 < LOCAL 0.045 <
+// velocity 0.0475 < BEHAVIOR 0.05 < alert_polygons.cpp's kAlertZLiftM 0.06.
 constexpr float kRibbonZLiftByRoleM[3] = {0.05f,   // BEHAVIOR (PathRole 0)
                                           0.040f,  // GLOBAL   (PathRole 1)
                                           0.045f}; // LOCAL    (PathRole 2)
-
-// Fixed half-width floor: per-role effective half-width is clamped to
-// never go narrower than this, however aggressively a theme authors its
-// margins.
-constexpr float kRibbonMinHalfWidthM = 0.12f;
 
 // Per-role extruded half-width: a ribbon doesn't fully occupy
 // theme.ribbon.lane_width_m -- each role's own margin
@@ -129,101 +131,21 @@ float build_effective_half_width(const detail::Theme::Ribbon& cfg, PathRole role
 }
 
 // Ego-proximity ribbon clip: never render the part of the ribbon behind
-// the ego. Finds the ribbon polyline's closest-approach arc-station to
-// `ego` (2D -- x/y only, map frame) by walking every segment once; returns
-// {station, min lateral distance}. n<2 -> {0, +inf} (nothing to clip
-// against -- the +inf distance also fails the proximity gate below, so an
-// empty/degenerate ribbon is never clipped).
-std::pair<double, double> closest_arc_station(const Vec3* pts, uint32_t n, const Vec3& ego) {
-    if (n < 2) return {0.0, std::numeric_limits<double>::infinity()};
-    double cum = 0.0;
-    double bestStation = 0.0;
-    double bestDist = std::numeric_limits<double>::infinity();
-    for (uint32_t i = 0; i + 1 < n; ++i) {
-        const Vec3& a = pts[i];
-        const Vec3& b = pts[i + 1];
-        const double dx = b.x - a.x, dy = b.y - a.y;
-        const double segLen = std::sqrt(dx * dx + dy * dy);
-        double t = 0.0;
-        if (segLen > 0.0) {
-            t = ((ego.x - a.x) * dx + (ego.y - a.y) * dy) / (segLen * segLen);
-            t = std::clamp(t, 0.0, 1.0);
-        }
-        const double px = a.x + dx * t, py = a.y + dy * t;
-        const double dist = std::hypot(ego.x - px, ego.y - py);
-        if (dist < bestDist) {
-            bestDist = dist;
-            bestStation = cum + t * segLen;
-        }
-        cum += segLen;
-    }
-    return {bestStation, bestDist};
-}
-
-// Proximity gate: only clip a ribbon the ego is actually near -- a
-// far-away GLOBAL route (the planned destination route, routinely
-// kilometers of it loaded at once) must render whole, untouched. 5.0m is
-// deliberately generous versus the ~0.1-0.5m half-widths ribbons actually
-// draw at -- this is "is the ego riding this route at all", not a precise
-// lateral-offset threshold.
-constexpr float kRibbonEgoClipLateralM = 5.0f;
-// Arc-length quantization: the clip station folds into ribbon_signature()
-// only at this granularity, so a parked ego causes zero rebuilds and a
-// moving one rebuilds a few times a second, not every frame for a
-// sub-millimeter station drift.
-constexpr float kRibbonClipQuantizeM = 0.5f;
-
-struct RibbonClip {
-    bool active = false;
-    int64_t quantizedUnits = 0;  // station / kRibbonClipQuantizeM, rounded -- meaningful iff active
-    double stationM = 0.0;       // quantizedUnits * kRibbonClipQuantizeM -- meaningful iff active
-};
+// the ego. The arc-length walk/quantization/interpolated-cut machinery
+// (closest_arc_station/compute_polyline_clip/clip_polyline_forward) is
+// shared with trajectory_carpet.cpp's velocity ribbon (VM-077
+// carpet-as-ribbon redirect, 2026-09-10) via polyline.hpp -- promoted out
+// of this file rather than duplicated, since it's the exact same "never
+// render behind the ego" mechanism both need. RibbonClip stays a thin
+// PathRibbon/EgoState-flavored wrapper here so update_ribbons() below
+// (and its call site's ergonomics) is unchanged.
+using RibbonClip = detail::PolylineClip;
 
 // Clip applies only when ego.valid -- an invalid ego has no real position
 // to clip against (EgoState::valid's "0 = no TF yet" contract, scene.h).
 RibbonClip compute_ribbon_clip(const PathRibbon& ribbon, const EgoState& ego) {
-    RibbonClip clip;
-    if (!ego.valid) return clip;
-    const auto [station, dist] = closest_arc_station(ribbon.points, ribbon.point_count, ego.position);
-    if (dist >= kRibbonEgoClipLateralM) return clip;  // proximity gate: too far, render whole
-    clip.active = true;
-    // ceil, not lround: round-to-nearest would land the cut up to 0.25m
-    // behind the closest-approach station about half the time, rendering
-    // part of the ribbon behind the ego. ceil keeps the cut at-or-ahead,
-    // equally deterministic (parked-ego zero-rebuild property unchanged).
-    clip.quantizedUnits = static_cast<int64_t>(std::ceil(station / kRibbonClipQuantizeM));
-    clip.stationM = static_cast<double>(clip.quantizedUnits) * kRibbonClipQuantizeM;
-    return clip;
-}
-
-// Truncates `pts`/`n` to the forward half starting at arc-length `s0`,
-// with an interpolated point at the cut (not a snap to the nearest
-// original vertex). Walks the same 2D arc length closest_arc_station()
-// computed `s0` against, so the cut lands exactly where that search says
-// it should. n<2 -> empty.
-std::vector<Vec3> clip_ribbon_forward(const Vec3* pts, uint32_t n, double s0) {
-    std::vector<Vec3> out;
-    if (n < 2) return out;
-    double cum = 0.0;
-    for (uint32_t i = 0; i + 1 < n; ++i) {
-        const Vec3& a = pts[i];
-        const Vec3& b = pts[i + 1];
-        const double dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
-        const double segLen = std::sqrt(dx * dx + dy * dy);
-        const bool isLastSeg = (i + 2 == n);
-        if (cum + segLen >= s0 || isLastSeg) {
-            const double t = segLen > 0.0 ? std::clamp((s0 - cum) / segLen, 0.0, 1.0) : 0.0;
-            out.push_back(Vec3{a.x + dx * t, a.y + dy * t, a.z + dz * t});
-            for (uint32_t k = i + 1; k < n; ++k) out.push_back(pts[k]);
-            return out;
-        }
-        cum += segLen;
-    }
-    // Unreachable in practice (isLastSeg always fires by the final
-    // segment); kept as a defensive fallback so this renders something
-    // rather than silently dropping the ribbon.
-    out.push_back(pts[n - 1]);
-    return out;
+    if (!ego.valid) return RibbonClip{};
+    return detail::compute_polyline_clip(ribbon.points, ribbon.point_count, ego.position);
 }
 
 // Destroys every mesh in `slot.meshes` (independent of role/fade state --
@@ -335,7 +257,7 @@ void update_ribbons(VisualRenderer& r, const SceneGraph& s) {
         const float effectiveHalfWidthM = build_effective_half_width(r.active_theme.ribbon, ribbon.role);
         const uint64_t sig =
             ribbon_signature(ribbon.role, ribbon.points, ribbon.point_count,
-                             effectiveHalfWidthM, clip.active, clip.quantizedUnits);
+                             effectiveHalfWidthM, clip.active, clip.quantized_units);
         if (!slot.has_signature || slot.signature != sig) {
             // Clipped geometry is materialized only on a rebuild -- the
             // clip station is already in the signature, so the rebuild
@@ -346,7 +268,8 @@ void update_ribbons(VisualRenderer& r, const SceneGraph& s) {
             const Vec3* geomPts = ribbon.points;
             uint32_t geomN = ribbon.point_count;
             if (clip.active) {
-                clippedStorage = clip_ribbon_forward(ribbon.points, ribbon.point_count, clip.stationM);
+                clippedStorage =
+                    detail::clip_polyline_forward(ribbon.points, ribbon.point_count, clip.station_m);
                 geomPts = clippedStorage.data();
                 geomN = static_cast<uint32_t>(clippedStorage.size());
             }

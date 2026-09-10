@@ -1,13 +1,17 @@
 /** @file test_trajectory_carpet_adapter.cpp
- *  @brief TrajectoryCarpetAdapter tests (VM-077).
+ *  @brief TrajectoryCarpetAdapter tests (VM-077, REDIRECTED 2026-09-10).
  *
  *  Measured against the real recorded output_trajectory_carpet (VM-077
- *  measurement report §1) -- every fixture below reproduces that shape by
- *  hand (TRIANGLE_LIST, one persistent ns='output_trajectory_carpet' id=0
- *  marker, DELETE_ALL + one ADD per tick).
+ *  measurement report) -- every fixture below reproduces that shape by hand
+ *  (TRIANGLE_LIST, one persistent ns='output_trajectory_carpet' id=0
+ *  marker, DELETE_ALL + one ADD per tick, always a multiple of 6 points:
+ *  dual-rail quads, two triangles each). See the adapter's own header
+ *  comment for the full station-extraction pairing algorithm this file
+ *  pins down.
  */
 #include "micropilot_visualization_node/adapters/trajectory_carpet.hpp"
 
+#include <cmath>
 #include <memory>
 #include <string>
 
@@ -32,10 +36,9 @@ struct TfFixture
     FrameTransformer tf{buffer};
 };
 
-// No shipped profile row exists YET for adapter: trajectory_carpet at the
-// point these tests are written (Step 0 precedes Step 3's row) -- hand-built
-// directly here, same "no urban_row()/sim_row() to borrow" shape
-// test_point_cloud_adapter.cpp already uses for its own row.
+// No shipped profile row is needed by these tests -- hand-built directly,
+// same "no urban_row()/sim_row() to borrow" shape test_point_cloud_adapter.
+// cpp already uses for its own row.
 mpviz_node::ProfileRow MakeRow()
 {
     mpviz_node::ProfileRow row;
@@ -82,48 +85,75 @@ constexpr int32_t kActionDeleteAll = 3;
 constexpr int32_t kTypeTriangleList = 11;
 constexpr int32_t kTypeLineStrip = 4;
 
+// Two dual-rail quads (12 points, n_quads=2 -> 3 stations), straight along
+// +X at y=0.5, mirroring the measurement report's own pairing example:
+// quad_k = [A,B,C,A,C,D]; quad_0.{D,C} == quad_1.{A,B} IN VALUE (not
+// array-index sharing -- the wire re-emits them, per the measurement's own
+// "n_quads*6 points" arithmetic).
+visualization_msgs::msg::Marker MakeTwoQuadCarpetMarker()
+{
+    auto m = MakeTriangleMarker(kActionAdd, kTypeTriangleList);
+    m.points = {
+        MakePoint(0, 0, 0.15), MakePoint(0, 1, 0.15), MakePoint(1, 1, 0.15),  // quad0 tri A,B,C
+        MakePoint(0, 0, 0.15), MakePoint(1, 1, 0.15), MakePoint(1, 0, 0.15), // quad0 tri A,C,D
+        MakePoint(1, 0, 0.15), MakePoint(1, 1, 0.15), MakePoint(2, 1, 0.15),  // quad1 tri A,B,C
+        MakePoint(1, 0, 0.15), MakePoint(2, 1, 0.15), MakePoint(2, 0, 0.15), // quad1 tri A,C,D
+    };
+    for (int i = 0; i < 12; ++i)
+    {
+        m.colors.push_back(MakeColor(static_cast<float>(i) * 0.05f, 0.5f, 0.0f, 0.7f));
+    }
+    return m;
+}
+
 }  // namespace
 
-// ── Step 0: per-vertex color packed from colors[] ───────────────────────────
+// ── Station extraction: centerline midpoint + per-station color pairing ───
 
-TEST(TrajectoryCarpetAdapter, IngestPacksPerVertexColorFromMarkerColorsArray)
+TEST(TrajectoryCarpetAdapter, IngestExtractsCenterlineStationsFromDualRailQuadPairing)
 {
     TfFixture kTf;
     auto row = MakeRow();
     mpviz_node::TrajectoryCarpetAdapter a(row, kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
-    auto m = MakeTriangleMarker(kActionAdd, kTypeTriangleList);
-    m.points = {MakePoint(0, 0, 0.15), MakePoint(1, 0, 0.15), MakePoint(1, 1, 0.15),
-                MakePoint(1, 1, 0.15), MakePoint(2, 0, 0.15), MakePoint(2, 1, 0.15)};
-    m.colors = {MakeColor(1.0f, 0.0f, 0.0f, 0.7f), MakeColor(0.0f, 1.0f, 0.0f, 0.7f),
-                MakeColor(0.5f, 0.5f, 0.0f, 0.7f), MakeColor(0.5f, 0.5f, 0.0f, 0.7f),
-                MakeColor(0.0f, 1.0f, 0.0f, 0.7f), MakeColor(1.0f, 0.0f, 0.0f, 0.7f)};
-    arr.markers = {m};
-
+    arr.markers = {MakeTwoQuadCarpetMarker()};
     a.ingest(arr, 1.0);
+
     SceneAssembly out;
     a.fill(out);
     ASSERT_EQ(out.trajectory_carpets.size(), 1u);
-    ASSERT_EQ(out.trajectory_carpets[0].point_count, 6u);
+    // n_quads=2 -> n_quads+1=3 stations, NOT the raw 12 wire points.
+    ASSERT_EQ(out.trajectory_carpets[0].point_count, 3u);
 
-    // Unpacks back to the marker's own colors[i].{r,g,b}, alpha forced to
-    // 255 ("supplied" sentinel) regardless of the marker's own (documented
-    // "not yet used") colors[].a -- same convention
-    // GenericMarkerAdapter's fan_colors already uses.
-    const uint32_t rgba0 = out.trajectory_carpets[0].points[0].rgba;
-    EXPECT_EQ(rgba0 & 0xFFu, 255u);          // r
-    EXPECT_EQ((rgba0 >> 8) & 0xFFu, 0u);     // g
-    EXPECT_EQ((rgba0 >> 16) & 0xFFu, 0u);    // b
-    EXPECT_EQ((rgba0 >> 24) & 0xFFu, 255u);  // a (forced)
+    const auto* pts = out.trajectory_carpets[0].points;
+    // station_0 = midpoint(A_0=(0,0), B_0=(0,1)) = (0, 0.5).
+    EXPECT_DOUBLE_EQ(pts[0].position.x, 0.0);
+    EXPECT_DOUBLE_EQ(pts[0].position.y, 0.5);
+    // station_1 = midpoint(D_0=(1,0), C_0=(1,1)) = (1, 0.5).
+    EXPECT_DOUBLE_EQ(pts[1].position.x, 1.0);
+    EXPECT_DOUBLE_EQ(pts[1].position.y, 0.5);
+    // station_2 = midpoint(D_1=(2,0), C_1=(2,1)) = (2, 0.5).
+    EXPECT_DOUBLE_EQ(pts[2].position.x, 2.0);
+    EXPECT_DOUBLE_EQ(pts[2].position.y, 0.5);
 
-    const uint32_t rgba1 = out.trajectory_carpets[0].points[1].rgba;
-    EXPECT_EQ(rgba1 & 0xFFu, 0u);
-    EXPECT_EQ((rgba1 >> 8) & 0xFFu, 255u);
-    EXPECT_EQ((rgba1 >> 24) & 0xFFu, 255u);
+    // Color pairing: station_0 from colors[0] (A_0); station_1 from
+    // colors[5] (D_0, quad0's 6th point, index base+5=5); station_2 from
+    // colors[11] (D_1, quad1's 6th point, index base+5=11). Alpha forced
+    // to 255 regardless of the marker's own colors[].a (documented "not
+    // yet used").
+    auto expected_r = [](int idx) {
+        return static_cast<uint8_t>(static_cast<float>(idx) * 0.05f * 255.0f + 0.5f);
+    };
+    EXPECT_EQ(pts[0].rgba & 0xFFu, expected_r(0));
+    EXPECT_EQ((pts[0].rgba >> 24) & 0xFFu, 255u);
+    EXPECT_EQ(pts[1].rgba & 0xFFu, expected_r(5));
+    EXPECT_EQ((pts[1].rgba >> 24) & 0xFFu, 255u);
+    EXPECT_EQ(pts[2].rgba & 0xFFu, expected_r(11));
+    EXPECT_EQ((pts[2].rgba >> 24) & 0xFFu, 255u);
 }
 
-// ── Step 0: mismatched colors[]/points[] lengths -> alpha==0 sentinel ───────
+// ── Mismatched colors[]/points[] lengths -> alpha==0 sentinel ───────────────
 
 TEST(TrajectoryCarpetAdapter, MismatchedColorsLengthBakesAlphaZeroSentinel)
 {
@@ -132,9 +162,8 @@ TEST(TrajectoryCarpetAdapter, MismatchedColorsLengthBakesAlphaZeroSentinel)
     mpviz_node::TrajectoryCarpetAdapter a(row, kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
-    auto m = MakeTriangleMarker(kActionAdd, kTypeTriangleList);
-    m.points = {MakePoint(0, 0, 0), MakePoint(1, 0, 0), MakePoint(1, 1, 0)};
-    m.colors = {MakeColor(1.0f, 0.0f, 0.0f, 0.7f)};  // 1 color, 3 points -- mismatched
+    auto m = MakeTwoQuadCarpetMarker();
+    m.colors = {MakeColor(1.0f, 0.0f, 0.0f, 0.7f)};  // 1 color, 12 points -- mismatched
     arr.markers = {m};
 
     a.ingest(arr, 1.0);
@@ -145,14 +174,14 @@ TEST(TrajectoryCarpetAdapter, MismatchedColorsLengthBakesAlphaZeroSentinel)
     for (uint32_t i = 0; i < 3; ++i)
     {
         EXPECT_EQ(out.trajectory_carpets[0].points[i].rgba, 0u)
-            << "every point's packed rgba must be 0 (alpha byte 0) on a whole-message "
-               "colors[]/points[] length mismatch, index " << i;
+            << "every station's packed rgba must be 0 (alpha byte 0) on a whole-message "
+               "colors[]/points[] length mismatch, station " << i;
     }
 }
 
-// ── Step 0: point count not a multiple of 3 is dropped as malformed ────────
+// ── Point count not a multiple of 6 (or wrong type) is dropped ─────────────
 
-TEST(TrajectoryCarpetAdapter, PointCountNotMultipleOfThreeDropsMalformed)
+TEST(TrajectoryCarpetAdapter, PointCountNotMultipleOfSixDropsMalformed)
 {
     TfFixture kTf;
     auto row = MakeRow();
@@ -160,7 +189,11 @@ TEST(TrajectoryCarpetAdapter, PointCountNotMultipleOfThreeDropsMalformed)
 
     visualization_msgs::msg::MarkerArray arr;
     auto m = MakeTriangleMarker(kActionAdd, kTypeTriangleList);
-    m.points = {MakePoint(0, 0, 0), MakePoint(1, 0, 0), MakePoint(1, 1, 0), MakePoint(2, 0, 0)};
+    // 9 points: a multiple of 3 (would have been legal under the OLD
+    // %3==0 rule) but NOT of 6 -- must be rejected under the new rule.
+    m.points = {MakePoint(0, 0, 0), MakePoint(1, 0, 0), MakePoint(1, 1, 0),
+                MakePoint(0, 0, 0), MakePoint(1, 1, 0), MakePoint(1, 0, 0),
+                MakePoint(1, 0, 0), MakePoint(1, 1, 0), MakePoint(2, 1, 0)};
     arr.markers = {m};
 
     a.ingest(arr, 1.0);
@@ -169,19 +202,30 @@ TEST(TrajectoryCarpetAdapter, PointCountNotMultipleOfThreeDropsMalformed)
     a.fill(out);
     EXPECT_EQ(out.trajectory_carpets.size(), 0u);
 
-    // A non-TRIANGLE_LIST type is malformed too -- this adapter has no
-    // representation for anything else.
+    // Fewer than 6 points (a single triangle, the old %3 floor) is also
+    // malformed now -- one quad is the minimum unit.
     TfFixture kTf2;
     mpviz_node::TrajectoryCarpetAdapter b(row, kTf2.tf);
     visualization_msgs::msg::MarkerArray arr2;
-    auto lineStrip = MakeTriangleMarker(kActionAdd, kTypeLineStrip);
-    lineStrip.points = {MakePoint(0, 0, 0), MakePoint(1, 0, 0), MakePoint(1, 1, 0)};
-    arr2.markers = {lineStrip};
+    auto three = MakeTriangleMarker(kActionAdd, kTypeTriangleList);
+    three.points = {MakePoint(0, 0, 0), MakePoint(1, 0, 0), MakePoint(1, 1, 0)};
+    arr2.markers = {three};
     b.ingest(arr2, 1.0);
     EXPECT_EQ(b.stats().dropped_malformed, 1u);
+
+    // A non-TRIANGLE_LIST type is malformed too -- this adapter has no
+    // representation for anything else.
+    TfFixture kTf3;
+    mpviz_node::TrajectoryCarpetAdapter c(row, kTf3.tf);
+    visualization_msgs::msg::MarkerArray arr3;
+    auto lineStrip = MakeTriangleMarker(kActionAdd, kTypeLineStrip);
+    lineStrip.points = {MakePoint(0, 0, 0), MakePoint(1, 0, 0), MakePoint(1, 1, 0)};
+    arr3.markers = {lineStrip};
+    c.ingest(arr3, 1.0);
+    EXPECT_EQ(c.stats().dropped_malformed, 1u);
 }
 
-// ── Step 0: DELETE_ALL clears the stored carpet ─────────────────────────────
+// ── DELETE_ALL clears the stored carpet ─────────────────────────────────────
 
 TEST(TrajectoryCarpetAdapter, DeleteAllClearsStoredCarpet)
 {
@@ -190,9 +234,7 @@ TEST(TrajectoryCarpetAdapter, DeleteAllClearsStoredCarpet)
     mpviz_node::TrajectoryCarpetAdapter a(row, kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
-    auto m = MakeTriangleMarker(kActionAdd, kTypeTriangleList);
-    m.points = {MakePoint(0, 0, 0), MakePoint(1, 0, 0), MakePoint(1, 1, 0)};
-    arr.markers = {m};
+    arr.markers = {MakeTwoQuadCarpetMarker()};
     a.ingest(arr, 1.0);
     SceneAssembly first;
     a.fill(first);
@@ -208,7 +250,7 @@ TEST(TrajectoryCarpetAdapter, DeleteAllClearsStoredCarpet)
     EXPECT_EQ(second.trajectory_carpets.size(), 0u);
 }
 
-// ── Step 0: a second ingest() REPLACES wholesale, never appends ────────────
+// ── A second ingest() REPLACES wholesale, never appends ────────────────────
 
 TEST(TrajectoryCarpetAdapter, ReplacesStoredCarpetWholesaleNotAppend)
 {
@@ -219,25 +261,56 @@ TEST(TrajectoryCarpetAdapter, ReplacesStoredCarpetWholesaleNotAppend)
     mpviz_node::TrajectoryCarpetAdapter a(row, kTf.tf);
 
     visualization_msgs::msg::MarkerArray first_arr;
-    auto first_m = MakeTriangleMarker(kActionAdd, kTypeTriangleList);
-    first_m.points = {MakePoint(0, 0, 0), MakePoint(1, 0, 0), MakePoint(1, 1, 0),
-                       MakePoint(2, 0, 0), MakePoint(2, 1, 0), MakePoint(3, 0, 0)};  // 6 points
-    first_arr.markers = {first_m};
+    first_arr.markers = {MakeTwoQuadCarpetMarker()};  // 2 quads -> 3 stations
     a.ingest(first_arr, 1.0);
     SceneAssembly first;
     a.fill(first);
-    ASSERT_EQ(first.trajectory_carpets[0].point_count, 6u);
+    ASSERT_EQ(first.trajectory_carpets[0].point_count, 3u);
 
     visualization_msgs::msg::MarkerArray second_arr;
     auto second_m = MakeTriangleMarker(kActionAdd, kTypeTriangleList);
-    second_m.points = {MakePoint(10, 0, 0), MakePoint(11, 0, 0), MakePoint(11, 1, 0)};  // 3 points
+    second_m.points = {MakePoint(10, 0, 0), MakePoint(10, 1, 0), MakePoint(11, 1, 0),
+                        MakePoint(10, 0, 0), MakePoint(11, 1, 0), MakePoint(11, 0, 0)};  // 1 quad
     second_arr.markers = {second_m};
     a.ingest(second_arr, 2.0);
 
     SceneAssembly second;
     a.fill(second);
     ASSERT_EQ(second.trajectory_carpets.size(), 1u);
-    EXPECT_EQ(second.trajectory_carpets[0].point_count, 3u)
+    EXPECT_EQ(second.trajectory_carpets[0].point_count, 2u)
         << "a second valid message must REPLACE the stored carpet, not append to it";
+    // station_0 = midpoint((10,0),(10,1)) = (10, 0.5).
     EXPECT_DOUBLE_EQ(second.trajectory_carpets[0].points[0].position.x, 10.0);
+    EXPECT_DOUBLE_EQ(second.trajectory_carpets[0].points[0].position.y, 0.5);
+}
+
+// ── A NaN corner drops the whole message, previous carpet keeps rendering ──
+
+TEST(TrajectoryCarpetAdapter, NanCornerDropsWholeMessageKeepingThePreviousCarpet)
+{
+    TfFixture kTf;
+    auto row = MakeRow();
+    mpviz_node::TrajectoryCarpetAdapter a(row, kTf.tf);
+
+    visualization_msgs::msg::MarkerArray first_arr;
+    first_arr.markers = {MakeTwoQuadCarpetMarker()};
+    a.ingest(first_arr, 1.0);
+    SceneAssembly first;
+    a.fill(first);
+    ASSERT_EQ(first.trajectory_carpets[0].point_count, 3u);
+
+    visualization_msgs::msg::MarkerArray bad_arr;
+    auto bad = MakeTriangleMarker(kActionAdd, kTypeTriangleList);
+    bad.points = {MakePoint(0, 0, 0), MakePoint(0, 1, 0), MakePoint(1, 1, 0),
+                  MakePoint(0, 0, 0), MakePoint(1, 1, 0),
+                  MakePoint(std::nan(""), 0, 0)};  // D corner is NaN
+    bad_arr.markers = {bad};
+    a.ingest(bad_arr, 2.0);
+    EXPECT_EQ(a.stats().dropped_malformed, 1u);
+
+    SceneAssembly second;
+    a.fill(second);
+    ASSERT_EQ(second.trajectory_carpets.size(), 1u);
+    EXPECT_EQ(second.trajectory_carpets[0].point_count, 3u)
+        << "a NaN-corner message must drop wholesale, leaving the previous valid carpet intact";
 }
