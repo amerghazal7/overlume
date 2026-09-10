@@ -21,7 +21,16 @@ namespace mpviz {
 // scene.h change; the node-side static_assert mirror (test_scene_layout.cpp)
 // fails loudly on a layout mismatch instead of silently reading garbage
 // across the ABI boundary at the node's next rebuild.
-constexpr uint32_t kSceneVersion = 3;
+//
+// Appended VM-050 (Epic 4 Task 1, 2026-09-10) -- kSceneVersion 3 -> 4, for
+// GeoAnchor below. SEQUENCING DEVIATION (dated, see the Epic 4 plan): this
+// struct is spec'd under Task 3 (VM-052)'s Files list, but Task 1's
+// geo_anchor.hpp is its FIRST consumer (GeoAnchorSolver::anchor() returns
+// it) -- a type lands with its first consumer, so Task 1 performs this
+// append (+ both toolchains' layout tables) and Task 3 (VM-052) only
+// consumes the type + adds `set_environment_source`, which does NOT bump
+// the version again (one struct, one bump).
+constexpr uint32_t kSceneVersion = 4;
 
 struct Vec3 { double x, y, z; };
 
@@ -357,5 +366,21 @@ bool project_to_screen(VisualRenderer*, Vec3 world_point, float* out_x, float* o
 // Null/empty `dir` or `theme_name` -> false. Cheap enough to call from a
 // test; not intended for the render loop.
 bool theme_parses(const char* dir, const char* theme_name);
+
+// ── GeoAnchor (VM-050, Epic 4 Task 1; ADR-0004 additive) ────────────────────
+// WGS84 <-> map-frame datum, solved node-side by GeoAnchorSolver
+// (geo_anchor.hpp) from NavSatFix + the `gps_link`/`base_link` TF (PRIMARY),
+// or set directly from the `geo_datum_*` param override (GPS-denied
+// replays). No SceneGraph field (Decision 1: baked-environment content is
+// read-once-at-startup, like the ego model and ground plane, not per-tick
+// autonomy data) -- appended here, standalone, because Task 3 (VM-052)'s
+// `set_environment_source(VisualRenderer*, const char*, GeoAnchor)` takes
+// one by value, and Task 1's node-side geo_anchor.hpp needs the SAME type
+// (not a local duplicate) to hand back from GeoAnchorSolver::anchor().
+struct GeoAnchor {
+    double origin_lat_deg;
+    double origin_lon_deg;
+    double heading_rad;   // bearing of map-frame +X from true north, radians
+};
 
 }  // namespace mpviz

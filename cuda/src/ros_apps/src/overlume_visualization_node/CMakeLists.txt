@@ -231,6 +231,7 @@ add_library(visualization_node_lib SHARED
   src/adapters/tf_axes.cpp
   src/adapters/point_cloud.cpp
   src/adapters/trajectory_carpet.cpp
+  src/geo_anchor.cpp
   src/diagnostics.cpp
   src/hud_overlay.cpp
   src/callouts.cpp)
@@ -552,6 +553,20 @@ if(BUILD_TESTING)
     ${VISUAL_RENDERER_DIR}/include)
   ament_target_dependencies(test_trajectory_carpet_adapter ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_trajectory_carpet_adapter ${yaml_cpp_vendor_TARGETS} mpviz_node_test_paths)
+
+  # VM-050 (Epic 4 Task 1): GeoAnchor pure math + GeoAnchorSolver. Hand-
+  # written-list trap (Global Constraints): src/geo_anchor.cpp is appended
+  # to visualization_node_lib's sources above AND here -- both, or this
+  # target silently links against a stale copy. No visual_renderer_prebuilt
+  # link needed (GeoAnchor/Vec3 are POD-only, same as test_ego_anchor/
+  # test_scene_layout above); needs MPVIZ_NODE_FIXTURES_DIR for the
+  # committed geo_anchor_samples_0.csv fixture (Step 1).
+  ament_add_gtest(test_geo_anchor test/test_geo_anchor.cpp src/geo_anchor.cpp)
+  target_include_directories(test_geo_anchor PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${VISUAL_RENDERER_DIR}/include)
+  ament_target_dependencies(test_geo_anchor ${THIS_PACKAGE_DEPS})
+  target_link_libraries(test_geo_anchor mpviz_node_test_paths)
 endif()
 
 ament_package()
