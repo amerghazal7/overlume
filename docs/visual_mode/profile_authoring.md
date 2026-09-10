@@ -16,7 +16,12 @@ Every field named here exists in `ValidateRow`; nothing here is aspirational.
 `visualization_node.cpp`'s `on_configure()` reads two parameters:
 
 - `profile` (default `"urban"`)
-- `profile_dir` (default `""` → the package's installed `config/` share dir)
+- `profile_dir` (default `""` → the package's installed `config/` share dir).
+  Note: that installed dir is a symlink back to the source-tree `config/`
+  only because `cuda/scripts/ros_apps_build/colcon_build.sh` builds with
+  `--symlink-install` — with that build, a source-tree YAML edit is live on
+  the next node restart; a non-symlink install space needs a rebuild (or an
+  explicit `profile_dir` pointing at the source tree) before edits show up.
 
 and loads `<profile_dir>/<profile>_profile.yaml`, e.g.
 `cuda/src/ros_apps/src/micropilot_visualization_node/config/urban_profile.yaml`.
