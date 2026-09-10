@@ -11,18 +11,8 @@
 #   4. WS bridge pytest      (tools/test_vcam_ws_bridge.py, 53 tests)
 #   5. Golden suite          (GPU-skip breakdown, honestly reported)
 #
-# GPU/EGL required: this gate needs a GPU/EGL-capable box. Without one it
-# FAILS -- visual_renderer's ProjectToScreen.* and RendererQuality.* tests,
-# and the node's test_callouts / test_hud_overlay / test_point_cloud_adapter
-# golden tests, all deliberately assert create_renderer() succeeds (see the
-# header comment of tests/test_renderer_quality_presets.cpp) and do not
-# GTEST_SKIP(). Some other renderer gtests (goldens included) do
-# GTEST_SKIP() with no GPU/EGL and exit 0 when they do -- ctest alone can't
-# tell that kind of skip from a real pass, so stage 5 re-derives skip/ok
-# counts from stage 2's own gtest output and prints them as their own
-# summary line, never folded into "passed". That breakdown exists so a
-# partially-skipping run can't read as a full pass -- it does not mean a
-# GPU-less run is expected to reach stage 5 green.
+# GPU/EGL required -- a GPU-less box fails at stage 2/3 by design; see
+# docs/visual_mode/README.md (the single home of the GPU/skip rationale).
 #
 # What this script deliberately does NOT do (validate_visual_mode.sh's own
 # --live lesson): no bag is ever played, and nothing here touches a rig this
@@ -221,16 +211,8 @@ if [[ -f "${LIB_CTEST_LOG}" ]]; then
     # `.*\([0-9]+ ms\)$` anchors each grep to gtest's inline per-test line
     # only -- ctest -V also reprints every SKIPPED/FAILED name in its
     # end-of-run summary list (no "(N ms)" suffix there), so without this
-    # anchor every skip/fail is counted twice.
-    #
-    # "Golden" here is a naming convention, not the full set of
-    # pixel-comparison tests -- a handful (MapElements.*PixelsVsBaseline,
-    # Fog.ColorAffectsRenderedOutput*, ThemeTransition.*) call
-    # render_and_compare() against a committed PNG without "Golden" in their
-    # name, so this breakdown undercounts. Nothing is silently hidden by
-    # that: stage 2's suite-wide ok/skipped line above already covers every
-    # test including these. Treat this stage as the golden-named subset,
-    # and stage 2's line as the complete skip check.
+    # anchor every skip/fail is counted twice. Golden-NAMED subset only;
+    # see docs/visual_mode/README.md for what sits outside it.
     GOLDEN_OK=$(grep -cE '\[ *OK *\].*Golden.*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
     GOLDEN_SKIPPED=$(grep -cE '\[ *SKIPPED *\].*Golden.*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
     GOLDEN_FAILED=$(grep -cE '\[ *FAILED *\].*Golden.*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
@@ -244,8 +226,10 @@ if [[ -f "${LIB_CTEST_LOG}" ]]; then
     else
         # PASS whether every golden ran (GPU present) or every golden skipped
         # (no GPU/EGL) -- skipped is reported as its own count, never as "ok".
-        echo "PASS  golden suite: ${GOLDEN_OK} ok, ${GOLDEN_SKIPPED} skipped (no GPU/EGL)"
-        record_stage "golden suite" PASS "${GOLDEN_OK} ok / ${GOLDEN_SKIPPED} skipped (no GPU/EGL)"
+        SKIP_NOTE=""
+        [[ "${GOLDEN_SKIPPED}" -gt 0 ]] && SKIP_NOTE=" (no GPU/EGL)"
+        echo "PASS  golden suite: ${GOLDEN_OK} ok, ${GOLDEN_SKIPPED} skipped${SKIP_NOTE}"
+        record_stage "golden suite" PASS "${GOLDEN_OK} ok / ${GOLDEN_SKIPPED} skipped${SKIP_NOTE}"
     fi
 else
     echo "FAIL  golden suite: stage 2's ctest log is missing (library stage never ran)"
