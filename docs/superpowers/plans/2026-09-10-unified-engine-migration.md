@@ -119,6 +119,12 @@ Epic 5's VM-043 ("on-robot budget rerun") and the CUDA-node-co-residence half of
 
 ---
 
+## Decision resolutions (user input, 2026-09-10 — after plan approval "proceed to the migration plan")
+
+- **Decision 2's copy-semantics half — RESOLVED: release-callback `set_camera_frame` ships** (user choice, offered with the recommended framing). Wire-encoding check gathered first, per the plan's own instruction: all six `*/raw_images` topics in `stack_v2_full_sensors_2026-09-09` publish **`bgra8`** (1440×928, step 5760) — NOT `rgb8` — so the conditional third option (`toCvShare` + `Image::SharedPtr` capture, true zero-copy) is off the table; `cv_bridge` conversion is unavoidable and the decision was exactly the honest one-copy-vs-two. `release`/`user` default to `nullptr` (copy-on-call, `ground_grid.cpp` shape) so every pre-Task-2 call site passes six args and is unaffected; Task 2 Step 6 is the first real `release` supplier. ADR-0005 (Task 1 Step 4) records this outcome including the bgra8 finding. Note the worst-case per-tick figures scale with the REAL wire dims: 6×1440×928×3 ≈ 24 MB/tick converted (not the plan's 1280×720-derived ~16.6 MB) — Task 2 Step 5's budget lines should carry the measured-at-fixture-dims figure.
+- **Decision 2's vertex-bake-vs-shader-sampling half — still open by design**, decided at Task 2's review gate on the perf-gate numbers (unchanged).
+- **Decision 9 — RESOLVED: Epic 4 proceeds in parallel** (user choice). VM-051/052 run on their own workflow alongside this epic; disjoint file sets, independent merges.
+
 ## Named fixture gaps (this epic)
 
 1. **No on-robot GPU model/class is stated anywhere in the repo** (research §7.1) — every perf number in Tasks 2/3/4/5 stays dev-box-proxy-only; Task 6 is this epic's first and only on-robot measurement, and it is also the first on-robot measurement Epic 0/5 ever got (closing VM-043, not just this epic's own gate).
