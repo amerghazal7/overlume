@@ -1,0 +1,509 @@
+// bowl.mat — VM-091 (unified-engine migration Task 2). The camera bowl's
+// material: per-fragment sampling (Decision resolution 2, 2026-09-11) of up
+// to kMaxBowlCameras (6) camera textures, matching reproject.cu's bowl_kernel
+// per-camera loop (right/down/fwd/t projection, plumb_bob distortion, border
+// feather x alignment^2 weight) as closely as a rasterizer material can.
+//
+// UNLIT: the bowl's color IS the camera pixels, same rationale as
+// point_cloud.mat/trajectory_carpet.mat -- PBR shading would add a
+// light-direction term nobody asked for.
+//
+// The interpolant budget (MATERIAL_VARIABLES_COUNT = 4, Decision 3) holds
+// TWO custom vec4s here, well inside budget:
+//   CUSTOM0 (via `requires: [ color ]`, vertex passes material.color
+//     through) = {weight_a, index_a, weight_b, index_b} -- the per-vertex
+//     bake's output (bowl_mesh.cpp). index_a/index_b are LITERALLY IDENTICAL
+//     across a triangle's three vertices by construction (Decision 3's
+//     per-triangle-uniform-index rule), so linearly interpolating them
+//     reproduces the same integer everywhere in the triangle -- safe to
+//     round-trip through int(x + 0.5) in the fragment shader.
+//   CUSTOM1 (via `requires: [ uv0, uv1 ]`, packing two vec2 attributes) =
+//     the vertex's RIG-FRAME position (bowl_mesh.cpp bakes/generates
+//     positions in rig frame -- Decision 3's frame convention). This is
+//     NOT the same as Filament's own getWorldPosition(): the bowl entity's
+//     TransformManager transform is the map<-rig ego pose (renderer.cpp's
+//     update_bowl, matching update_ego_transform), so getWorldPosition()
+//     would be MAP frame -- wrong frame for camera extrinsics, which are
+//     rig-frame (scene.h). Carrying rig-frame position as its own
+//     interpolant is what makes "per-fragment sampling from the rasterized
+//     [rig-frame] position" (Decision resolution 2) mean the position is
+//     interpolated PER FRAGMENT across the triangle (much finer than the
+//     per-vertex bake this decision replaced), not merely read once per
+//     vertex.
+//
+// PARAMETER BUDGET, empirically discovered, not assumed: this matc build
+// (1.56.5) aborts with "Too many parameters" past a per-material uniform
+// float-count ceiling well below what MAX_SAMPLER_COUNT/interpolant-budget
+// math alone would predict (verified experimentally: a material with 6
+// cameras' full right/down/fwd/t + K + dist(4) + widthHeightK3(4) [24
+// floats/camera, 148 total] aborts; 5 cameras at that footprint [124 total]
+// does not). This material is therefore deliberately trimmed to 18
+// floats/camera (108 total + 4 shared = 112):
+//   - Per-camera parameters are 6 SEPARATELY NAMED uniforms each (camRightN/
+//     camFwdN/camTN/camKN/camDistN/camK3_N/camTexN), not a `size:`-declared
+//     array: this matc build does not correctly support array-typed
+//     material parameters at all (verified separately -- a
+//     `{ type: float4, name: arr, size: 6 }` parameter compiles, but
+//     `materialParams.arr[i]` type-checks as a scalar float / single-vec4
+//     access, not an array index, for both constant and dynamic indices).
+//     This also sidesteps a real hazard the plan names for a SAMPLER
+//     array: selecting a sampler by a fragment-computed index is
+//     non-dynamically-uniform sampler indexing (illegal/UB in GLSL) -- the
+//     fragment shader below instead unrolls a static (compile-time-
+//     constant) per-camera block for each of the 6 cameras, each gated by
+//     a runtime equality check (`idxA == N`) against the baked index
+//     rather than by indexing a sampler array, so no dynamic sampler
+//     indexing ever occurs.
+//   - NO per-camera `down` uniform: reconstructed in-shader as
+//     cross(fwd, right) -- exact for an orthonormal right-handed basis
+//     (which right/down/fwd always are, being columns of a rotation
+//     matrix), not an approximation.
+//   - NO per-camera width/height uniform: read via textureSize() on the
+//     already-bound camera texture, which is exactly the camera's real
+//     pixel dimensions (BowlConfig's cam_width/cam_height are what sized
+//     the texture in the first place, camera_textures.cpp).
+//   - NO per-camera mat4 ego-motion-delta uniform: an earlier draft
+//     carried one (Task 1's set_camera_motion_delta), but composing it
+//     into the EFFECTIVE right/fwd/t above on the CPU (bowl.cpp's
+//     update_bowl, once per render_frame call -- a 3x3 transpose-multiply
+//     per camera, no matrix inverse needed since an ego-motion delta's
+//     rotation is orthonormal) is both well inside this budget and
+//     cheaper than a GPU-side mat4 multiply per fragment would have been.
+//
+// skyColor mirrors BowlConfig's own sky_color field -- bowl.cpp pushes it
+// once per set_bowl_config() call. feather_margin is NOT a material
+// parameter at all: the feather weight is baked into weight_a/weight_b at
+// bake time (bowl_mesh.cpp's BorderFeather call), not recomputed per
+// fragment, so this material never needs to know the margin itself.
+//
+// OPAQUE (no `blending:` line -- Filament's default): the STANDING
+// opaque-while-fresh convention (ribbon_emissive.mat's header) applies here
+// too -- the bowl is either fully covered (alpha 1, some camera contributed)
+// or shows sky_color (also alpha 1); it is never a blended/translucent
+// surface, so it must never sit in Filament's blended queue.
+material {
+    name : bowl,
+    shadingModel : unlit,
+    parameters : [
+        { type : sampler2d, name : camTex0 },
+        { type : sampler2d, name : camTex1 },
+        { type : sampler2d, name : camTex2 },
+        { type : sampler2d, name : camTex3 },
+        { type : sampler2d, name : camTex4 },
+        { type : sampler2d, name : camTex5 },
+        { type : float3, name : camRight0 },
+        { type : float3, name : camFwd0 },
+        { type : float3, name : camT0 },
+        { type : float4, name : camK0 },
+        { type : float4, name : camDist0 },
+        { type : float, name : camK3_0 },
+        { type : float3, name : camRight1 },
+        { type : float3, name : camFwd1 },
+        { type : float3, name : camT1 },
+        { type : float4, name : camK1 },
+        { type : float4, name : camDist1 },
+        { type : float, name : camK3_1 },
+        { type : float3, name : camRight2 },
+        { type : float3, name : camFwd2 },
+        { type : float3, name : camT2 },
+        { type : float4, name : camK2 },
+        { type : float4, name : camDist2 },
+        { type : float, name : camK3_2 },
+        { type : float3, name : camRight3 },
+        { type : float3, name : camFwd3 },
+        { type : float3, name : camT3 },
+        { type : float4, name : camK3 },
+        { type : float4, name : camDist3 },
+        { type : float, name : camK3_3 },
+        { type : float3, name : camRight4 },
+        { type : float3, name : camFwd4 },
+        { type : float3, name : camT4 },
+        { type : float4, name : camK4 },
+        { type : float4, name : camDist4 },
+        { type : float, name : camK3_4 },
+        { type : float3, name : camRight5 },
+        { type : float3, name : camFwd5 },
+        { type : float3, name : camT5 },
+        { type : float4, name : camK5 },
+        { type : float4, name : camDist5 },
+        { type : float, name : camK3_5 },
+        { type : float3, name : skyColor }
+    ],
+    requires : [ color, uv0, uv1 ],
+    variables : [ custom0, custom1 ]
+}
+vertex {
+    void materialVertex(inout MaterialVertexInputs material) {
+        material.custom0 = material.color;
+        material.custom1 = vec4(material.uv0, material.uv1);
+    }
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        vec4 c0 = variable_custom0;
+        vec3 rigPos = variable_custom1.xyz;
+        float weightA = c0.x;
+        int idxA = int(c0.y + 0.5);
+        float weightB = c0.z;
+        int idxB = int(c0.w + 0.5);
+
+        vec3 colorSum = vec3(0.0);
+        float wsum = 0.0;
+
+        // -- camera 0 -- right/fwd/t are the EFFECTIVE (ego-motion-delta
+        // -composed) extrinsics bowl.cpp uploads each render_frame call;
+        // `down` is reconstructed as cross(fwd,right) rather than uploaded
+        // (an orthonormal right-handed basis's third axis, exact -- see
+        // bowl.mat's header for the parameter-budget reason). width/height
+        // come from textureSize(), not a uniform.
+        {
+            float wgt = (idxA == 0) ? weightA : ((idxB == 0) ? weightB : 0.0);
+            if (wgt > 0.0) {
+                vec3 fwd = materialParams.camFwd0;
+                vec3 right = materialParams.camRight0;
+                vec3 down = cross(fwd, right);
+                vec3 rel = rigPos - materialParams.camT0;
+                float zc = dot(fwd, rel);
+                if (zc > 1e-9) {
+                    float xn = dot(right, rel) / zc;
+                    float yn = dot(down, rel) / zc;
+                    float k1 = materialParams.camDist0.x;
+                    float k2 = materialParams.camDist0.y;
+                    float p1 = materialParams.camDist0.z;
+                    float p2 = materialParams.camDist0.w;
+                    float k3 = materialParams.camK3_0;
+                    bool distorted = (k1 != 0.0 || k2 != 0.0 || p1 != 0.0 || p2 != 0.0 || k3 != 0.0);
+                    float r2 = xn * xn + yn * yn;
+                    bool inField = true;
+                    if (distorted) {
+                        if (r2 > 3.0) {
+                            inField = false;
+                        } else {
+                            float radial = 1.0 + r2 * (k1 + r2 * (k2 + r2 * k3));
+                            float xd = xn * radial + 2.0 * p1 * xn * yn + p2 * (r2 + 2.0 * xn * xn);
+                            float yd = yn * radial + p1 * (r2 + 2.0 * yn * yn) + 2.0 * p2 * xn * yn;
+                            xn = xd;
+                            yn = yd;
+                        }
+                    }
+                    if (inField) {
+                        float fx = materialParams.camK0.x;
+                        float fy = materialParams.camK0.y;
+                        float cx = materialParams.camK0.z;
+                        float cy = materialParams.camK0.w;
+                        ivec2 dims = textureSize(materialParams_camTex0, 0);
+                        float width = float(dims.x);
+                        float height = float(dims.y);
+                        float xp = fx * xn + cx;
+                        float yp = fy * yn + cy;
+                        if (xp >= 0.0 && xp <= width - 1.0 && yp >= 0.0 && yp <= height - 1.0) {
+                            vec2 uv = vec2(xp / width, yp / height);
+                            colorSum += wgt * texture(materialParams_camTex0, uv).rgb;
+                            wsum += wgt;
+                        }
+                    }
+                }
+            }
+        }
+        // -- camera 1 -- right/fwd/t are the EFFECTIVE (ego-motion-delta
+        // -composed) extrinsics bowl.cpp uploads each render_frame call;
+        // `down` is reconstructed as cross(fwd,right) rather than uploaded
+        // (an orthonormal right-handed basis's third axis, exact -- see
+        // bowl.mat's header for the parameter-budget reason). width/height
+        // come from textureSize(), not a uniform.
+        {
+            float wgt = (idxA == 1) ? weightA : ((idxB == 1) ? weightB : 0.0);
+            if (wgt > 0.0) {
+                vec3 fwd = materialParams.camFwd1;
+                vec3 right = materialParams.camRight1;
+                vec3 down = cross(fwd, right);
+                vec3 rel = rigPos - materialParams.camT1;
+                float zc = dot(fwd, rel);
+                if (zc > 1e-9) {
+                    float xn = dot(right, rel) / zc;
+                    float yn = dot(down, rel) / zc;
+                    float k1 = materialParams.camDist1.x;
+                    float k2 = materialParams.camDist1.y;
+                    float p1 = materialParams.camDist1.z;
+                    float p2 = materialParams.camDist1.w;
+                    float k3 = materialParams.camK3_1;
+                    bool distorted = (k1 != 0.0 || k2 != 0.0 || p1 != 0.0 || p2 != 0.0 || k3 != 0.0);
+                    float r2 = xn * xn + yn * yn;
+                    bool inField = true;
+                    if (distorted) {
+                        if (r2 > 3.0) {
+                            inField = false;
+                        } else {
+                            float radial = 1.0 + r2 * (k1 + r2 * (k2 + r2 * k3));
+                            float xd = xn * radial + 2.0 * p1 * xn * yn + p2 * (r2 + 2.0 * xn * xn);
+                            float yd = yn * radial + p1 * (r2 + 2.0 * yn * yn) + 2.0 * p2 * xn * yn;
+                            xn = xd;
+                            yn = yd;
+                        }
+                    }
+                    if (inField) {
+                        float fx = materialParams.camK1.x;
+                        float fy = materialParams.camK1.y;
+                        float cx = materialParams.camK1.z;
+                        float cy = materialParams.camK1.w;
+                        ivec2 dims = textureSize(materialParams_camTex1, 0);
+                        float width = float(dims.x);
+                        float height = float(dims.y);
+                        float xp = fx * xn + cx;
+                        float yp = fy * yn + cy;
+                        if (xp >= 0.0 && xp <= width - 1.0 && yp >= 0.0 && yp <= height - 1.0) {
+                            vec2 uv = vec2(xp / width, yp / height);
+                            colorSum += wgt * texture(materialParams_camTex1, uv).rgb;
+                            wsum += wgt;
+                        }
+                    }
+                }
+            }
+        }
+        // -- camera 2 -- right/fwd/t are the EFFECTIVE (ego-motion-delta
+        // -composed) extrinsics bowl.cpp uploads each render_frame call;
+        // `down` is reconstructed as cross(fwd,right) rather than uploaded
+        // (an orthonormal right-handed basis's third axis, exact -- see
+        // bowl.mat's header for the parameter-budget reason). width/height
+        // come from textureSize(), not a uniform.
+        {
+            float wgt = (idxA == 2) ? weightA : ((idxB == 2) ? weightB : 0.0);
+            if (wgt > 0.0) {
+                vec3 fwd = materialParams.camFwd2;
+                vec3 right = materialParams.camRight2;
+                vec3 down = cross(fwd, right);
+                vec3 rel = rigPos - materialParams.camT2;
+                float zc = dot(fwd, rel);
+                if (zc > 1e-9) {
+                    float xn = dot(right, rel) / zc;
+                    float yn = dot(down, rel) / zc;
+                    float k1 = materialParams.camDist2.x;
+                    float k2 = materialParams.camDist2.y;
+                    float p1 = materialParams.camDist2.z;
+                    float p2 = materialParams.camDist2.w;
+                    float k3 = materialParams.camK3_2;
+                    bool distorted = (k1 != 0.0 || k2 != 0.0 || p1 != 0.0 || p2 != 0.0 || k3 != 0.0);
+                    float r2 = xn * xn + yn * yn;
+                    bool inField = true;
+                    if (distorted) {
+                        if (r2 > 3.0) {
+                            inField = false;
+                        } else {
+                            float radial = 1.0 + r2 * (k1 + r2 * (k2 + r2 * k3));
+                            float xd = xn * radial + 2.0 * p1 * xn * yn + p2 * (r2 + 2.0 * xn * xn);
+                            float yd = yn * radial + p1 * (r2 + 2.0 * yn * yn) + 2.0 * p2 * xn * yn;
+                            xn = xd;
+                            yn = yd;
+                        }
+                    }
+                    if (inField) {
+                        float fx = materialParams.camK2.x;
+                        float fy = materialParams.camK2.y;
+                        float cx = materialParams.camK2.z;
+                        float cy = materialParams.camK2.w;
+                        ivec2 dims = textureSize(materialParams_camTex2, 0);
+                        float width = float(dims.x);
+                        float height = float(dims.y);
+                        float xp = fx * xn + cx;
+                        float yp = fy * yn + cy;
+                        if (xp >= 0.0 && xp <= width - 1.0 && yp >= 0.0 && yp <= height - 1.0) {
+                            vec2 uv = vec2(xp / width, yp / height);
+                            colorSum += wgt * texture(materialParams_camTex2, uv).rgb;
+                            wsum += wgt;
+                        }
+                    }
+                }
+            }
+        }
+        // -- camera 3 -- right/fwd/t are the EFFECTIVE (ego-motion-delta
+        // -composed) extrinsics bowl.cpp uploads each render_frame call;
+        // `down` is reconstructed as cross(fwd,right) rather than uploaded
+        // (an orthonormal right-handed basis's third axis, exact -- see
+        // bowl.mat's header for the parameter-budget reason). width/height
+        // come from textureSize(), not a uniform.
+        {
+            float wgt = (idxA == 3) ? weightA : ((idxB == 3) ? weightB : 0.0);
+            if (wgt > 0.0) {
+                vec3 fwd = materialParams.camFwd3;
+                vec3 right = materialParams.camRight3;
+                vec3 down = cross(fwd, right);
+                vec3 rel = rigPos - materialParams.camT3;
+                float zc = dot(fwd, rel);
+                if (zc > 1e-9) {
+                    float xn = dot(right, rel) / zc;
+                    float yn = dot(down, rel) / zc;
+                    float k1 = materialParams.camDist3.x;
+                    float k2 = materialParams.camDist3.y;
+                    float p1 = materialParams.camDist3.z;
+                    float p2 = materialParams.camDist3.w;
+                    float k3 = materialParams.camK3_3;
+                    bool distorted = (k1 != 0.0 || k2 != 0.0 || p1 != 0.0 || p2 != 0.0 || k3 != 0.0);
+                    float r2 = xn * xn + yn * yn;
+                    bool inField = true;
+                    if (distorted) {
+                        if (r2 > 3.0) {
+                            inField = false;
+                        } else {
+                            float radial = 1.0 + r2 * (k1 + r2 * (k2 + r2 * k3));
+                            float xd = xn * radial + 2.0 * p1 * xn * yn + p2 * (r2 + 2.0 * xn * xn);
+                            float yd = yn * radial + p1 * (r2 + 2.0 * yn * yn) + 2.0 * p2 * xn * yn;
+                            xn = xd;
+                            yn = yd;
+                        }
+                    }
+                    if (inField) {
+                        float fx = materialParams.camK3.x;
+                        float fy = materialParams.camK3.y;
+                        float cx = materialParams.camK3.z;
+                        float cy = materialParams.camK3.w;
+                        ivec2 dims = textureSize(materialParams_camTex3, 0);
+                        float width = float(dims.x);
+                        float height = float(dims.y);
+                        float xp = fx * xn + cx;
+                        float yp = fy * yn + cy;
+                        if (xp >= 0.0 && xp <= width - 1.0 && yp >= 0.0 && yp <= height - 1.0) {
+                            vec2 uv = vec2(xp / width, yp / height);
+                            colorSum += wgt * texture(materialParams_camTex3, uv).rgb;
+                            wsum += wgt;
+                        }
+                    }
+                }
+            }
+        }
+        // -- camera 4 -- right/fwd/t are the EFFECTIVE (ego-motion-delta
+        // -composed) extrinsics bowl.cpp uploads each render_frame call;
+        // `down` is reconstructed as cross(fwd,right) rather than uploaded
+        // (an orthonormal right-handed basis's third axis, exact -- see
+        // bowl.mat's header for the parameter-budget reason). width/height
+        // come from textureSize(), not a uniform.
+        {
+            float wgt = (idxA == 4) ? weightA : ((idxB == 4) ? weightB : 0.0);
+            if (wgt > 0.0) {
+                vec3 fwd = materialParams.camFwd4;
+                vec3 right = materialParams.camRight4;
+                vec3 down = cross(fwd, right);
+                vec3 rel = rigPos - materialParams.camT4;
+                float zc = dot(fwd, rel);
+                if (zc > 1e-9) {
+                    float xn = dot(right, rel) / zc;
+                    float yn = dot(down, rel) / zc;
+                    float k1 = materialParams.camDist4.x;
+                    float k2 = materialParams.camDist4.y;
+                    float p1 = materialParams.camDist4.z;
+                    float p2 = materialParams.camDist4.w;
+                    float k3 = materialParams.camK3_4;
+                    bool distorted = (k1 != 0.0 || k2 != 0.0 || p1 != 0.0 || p2 != 0.0 || k3 != 0.0);
+                    float r2 = xn * xn + yn * yn;
+                    bool inField = true;
+                    if (distorted) {
+                        if (r2 > 3.0) {
+                            inField = false;
+                        } else {
+                            float radial = 1.0 + r2 * (k1 + r2 * (k2 + r2 * k3));
+                            float xd = xn * radial + 2.0 * p1 * xn * yn + p2 * (r2 + 2.0 * xn * xn);
+                            float yd = yn * radial + p1 * (r2 + 2.0 * yn * yn) + 2.0 * p2 * xn * yn;
+                            xn = xd;
+                            yn = yd;
+                        }
+                    }
+                    if (inField) {
+                        float fx = materialParams.camK4.x;
+                        float fy = materialParams.camK4.y;
+                        float cx = materialParams.camK4.z;
+                        float cy = materialParams.camK4.w;
+                        ivec2 dims = textureSize(materialParams_camTex4, 0);
+                        float width = float(dims.x);
+                        float height = float(dims.y);
+                        float xp = fx * xn + cx;
+                        float yp = fy * yn + cy;
+                        if (xp >= 0.0 && xp <= width - 1.0 && yp >= 0.0 && yp <= height - 1.0) {
+                            vec2 uv = vec2(xp / width, yp / height);
+                            colorSum += wgt * texture(materialParams_camTex4, uv).rgb;
+                            wsum += wgt;
+                        }
+                    }
+                }
+            }
+        }
+        // -- camera 5 -- right/fwd/t are the EFFECTIVE (ego-motion-delta
+        // -composed) extrinsics bowl.cpp uploads each render_frame call;
+        // `down` is reconstructed as cross(fwd,right) rather than uploaded
+        // (an orthonormal right-handed basis's third axis, exact -- see
+        // bowl.mat's header for the parameter-budget reason). width/height
+        // come from textureSize(), not a uniform.
+        {
+            float wgt = (idxA == 5) ? weightA : ((idxB == 5) ? weightB : 0.0);
+            if (wgt > 0.0) {
+                vec3 fwd = materialParams.camFwd5;
+                vec3 right = materialParams.camRight5;
+                vec3 down = cross(fwd, right);
+                vec3 rel = rigPos - materialParams.camT5;
+                float zc = dot(fwd, rel);
+                if (zc > 1e-9) {
+                    float xn = dot(right, rel) / zc;
+                    float yn = dot(down, rel) / zc;
+                    float k1 = materialParams.camDist5.x;
+                    float k2 = materialParams.camDist5.y;
+                    float p1 = materialParams.camDist5.z;
+                    float p2 = materialParams.camDist5.w;
+                    float k3 = materialParams.camK3_5;
+                    bool distorted = (k1 != 0.0 || k2 != 0.0 || p1 != 0.0 || p2 != 0.0 || k3 != 0.0);
+                    float r2 = xn * xn + yn * yn;
+                    bool inField = true;
+                    if (distorted) {
+                        if (r2 > 3.0) {
+                            inField = false;
+                        } else {
+                            float radial = 1.0 + r2 * (k1 + r2 * (k2 + r2 * k3));
+                            float xd = xn * radial + 2.0 * p1 * xn * yn + p2 * (r2 + 2.0 * xn * xn);
+                            float yd = yn * radial + p1 * (r2 + 2.0 * yn * yn) + 2.0 * p2 * xn * yn;
+                            xn = xd;
+                            yn = yd;
+                        }
+                    }
+                    if (inField) {
+                        float fx = materialParams.camK5.x;
+                        float fy = materialParams.camK5.y;
+                        float cx = materialParams.camK5.z;
+                        float cy = materialParams.camK5.w;
+                        ivec2 dims = textureSize(materialParams_camTex5, 0);
+                        float width = float(dims.x);
+                        float height = float(dims.y);
+                        float xp = fx * xn + cx;
+                        float yp = fy * yn + cy;
+                        if (xp >= 0.0 && xp <= width - 1.0 && yp >= 0.0 && yp <= height - 1.0) {
+                            vec2 uv = vec2(xp / width, yp / height);
+                            colorSum += wgt * texture(materialParams_camTex5, uv).rgb;
+                            wsum += wgt;
+                        }
+                    }
+                }
+            }
+        }
+        // EXPOSURE_COMPENSATION: this renderer's fixed camera exposure
+        // (renderer.cpp's setExposure(16, 1/500, 100), tuned against SUN-lit
+        // clay surfaces) crushes an UNLIT material's raw baseColor -- an
+        // unlit (1,1,1) renders at only ~15% output brightness (measured
+        // empirically against this exact material, no lighting to
+        // compensate the way clay.mat's albedo relies on the sun). The CUDA
+        // reference (reproject.cu) writes camera RGB straight to its output
+        // buffer with NO exposure/tonemap step at all, so passing sampled
+        // camera pixels through unscaled would make the bowl read as a
+        // dim, washed-out image compared to the CUDA node's own output --
+        // a real fidelity regression, not just a test-sentinel artifact.
+        // 10.0x was picked empirically (matc/this build's tonemap curve is
+        // nonlinear/saturating, so this is a working compensation, not a
+        // precise inverse) to bring a well-lit camera pixel back into a
+        // normal-looking display range; Task 2 Step 7's golden comparison
+        // against the CUDA node's own output is the real check on whether
+        // this constant needs retuning.
+        const float EXPOSURE_COMPENSATION = 10.0;
+        if (wsum > 0.0) {
+            material.baseColor.rgb = (colorSum / wsum) * EXPOSURE_COMPENSATION;
+        } else {
+            material.baseColor.rgb = materialParams.skyColor * EXPOSURE_COMPENSATION;
+        }
+        material.baseColor.a = 1.0;
+    }
+}
