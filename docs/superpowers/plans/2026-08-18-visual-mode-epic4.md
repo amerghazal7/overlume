@@ -7,6 +7,8 @@
 
 ## Status ledger
 
+**Plan APPROVED by the user 2026-09-10 ("Approve Epic 4 plan, proceed").** Execution starts with Task 1 (VM-050) once the in-flight carpet-as-ribbon redirect (vm077 plan, 2026-09-10) lands — that work edits the same node files Task 1 wires into, and this project runs tasks sequentially against a green tree.
+
 | Task | Backlog | Status | Notes |
 |---|---|---|---|
 | 1 Geo-anchor: NavSatFix (WGS84, PRIMARY) + `gps_link` TF → map↔WGS84 anchor; `geo_datum` param override | VM-050 | **Not started** | — |
