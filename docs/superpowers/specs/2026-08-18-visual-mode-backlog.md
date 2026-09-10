@@ -220,6 +220,17 @@ that on 2026-09-07 — it stays committed v1.1.
 
 ## Epic 5 — Hardening & delivery
 
+- **VM-064 Google Photorealistic 3D Tiles: original-materials mode + 3-preset
+  source config** (added 2026-09-11, user decision). `materials=original|clay`
+  query key on the `ion://` source URI; `original` skips the clay
+  `buildingMaterial` remap so Google's textured photoreal tiles keep their own
+  materials; config file documents all three presets (OSM Buildings 96188 clay
+  / own clipped clay / Google photorealistic). Includes attribution surfacing
+  + cache-terms compliance (documented checks) and a fixture-redistribution
+  legality check before any golden.
+  AC: switching between the three documented presets is a one-line YAML edit;
+  `original` mode provably skips the remap (test); attribution + cache terms
+  recorded in the runbook.
 - **VM-040 Quality auto-drop with hysteresis.** `[review 2026-09-07]` Depends
   on VM-034's `render_ms`; the governor lives node-side (it already owns
   `quality` as a parameter and the lib's `RenderConfig` is create-time only —
