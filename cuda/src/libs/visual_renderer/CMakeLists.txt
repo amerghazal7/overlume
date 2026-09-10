@@ -305,3 +305,15 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples")
         target_link_libraries(${_example_name} PRIVATE visual_renderer)
     endforeach()
 endif()
+
+# tools/ — standalone binaries linking visual_renderer, same glob pattern as
+# examples/ above (VM-041, Epic 5: viz_benchmark.cpp prints render_ms
+# p50/p99 per quality preset for VM-040's governor to tune against later).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools")
+    file(GLOB _visual_renderer_tool_srcs CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/*.cpp")
+    foreach(_tool_src ${_visual_renderer_tool_srcs})
+        get_filename_component(_tool_name "${_tool_src}" NAME_WE)
+        add_executable(${_tool_name} "${_tool_src}")
+        target_link_libraries(${_tool_name} PRIVATE visual_renderer)
+    endforeach()
+endif()
