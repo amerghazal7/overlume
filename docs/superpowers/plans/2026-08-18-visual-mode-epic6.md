@@ -1,0 +1,627 @@
+# Visual Mode — Epic 6 Implementation Plan (3D Tiles streaming / cesium-native)
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Execution model (project directive 2026-08-18):** run this epic as a dynamic Workflow — orchestrator Fable, implementer agents `model: "sonnet"`, reviewer agents `model: "opus"`.
+
+**Status: NOT STARTED.** Verified 2026-09-11: no cesium symbol exists anywhere under `cuda/` (`git grep -lni cesium -- cuda` returns nothing). The Cesium ion **registration is DONE** (user, 2026-09-11) — the token lives in the env var `CESIUM_ION_TOKEN` (in `~/.bashrc`; referenced by NAME only, never committed, never echoed into any file or log — the Mapbox-token precedent, Epic 4 Decision 8). This plan is authored from the current, verified state of the repo (`kSceneVersion == 5`, VM-090's bowl PODs already landed) — no code has been written against it yet.
+
+## Status ledger
+
+**Plan NOT YET approved.** Authored 2026-09-11.
+
+> **USER DECISION FLAG (scheduling):** the master plan says Epic 6 "starts immediately after v1.0 ships" and its plan "is authored at v1.0 sign-off (VM-043)". Neither Epic 5's bite-sized plan nor `docs/visual_mode/` exists yet (verified 2026-09-11), and the 2026-09-10 strategic directive names the **unified-engine migration** as the most important next goal. This plan is authored early because the VM-060 prerequisite (ion registration) is already done — but WHEN Epic 6 executes relative to Epic 5 (v1.0 sign-off) and the unified-engine migration is the user's call, not this document's. At kickoff, re-verify the `EnvironmentSource` seam files against HEAD (the migration touches `renderer.cpp`/`renderer_internal.hpp`, though not the seam itself as of `760d4ab`). Every REPO `file:line` citation in this document is a HEAD-of-2026-09-11 pointer — if a line has moved by kickoff, re-resolve it by symbol name rather than trusting the number. UPSTREAM `file:line` citations (cesium-native paths like `Tileset.h:82-87`) are frozen by the v0.64.0 pin and only change on a version bump — no re-resolution needed while the pin holds.
+
+| Task | Backlog | Status | Notes |
+|---|---|---|---|
+| 1 Cesium ion runbook + token smoke check | VM-060 | Not started | Registration itself already done by the user 2026-09-11; this task is the runbook + smoke check only. |
+| 2 `GetCesiumNative.cmake` pinned source build (clang/libc++, POD rules, symbol hygiene) | VM-061 | Not started | |
+| 3 `StreamingEnvironmentSource` behind the existing seam (clay re-materialize, geo placement, disk cache) | VM-062 | Not started | |
+| 4 Source selection param plumbing + baked fallback on network loss + e2e | VM-063 | Not started | |
+
+**Parent plan:** `docs/superpowers/plans/2026-08-18-visual-mode.md` (Global Constraints bind this doc too — re-read them before starting; restated below). Master table: "Epic 6 — v1.1: 3D Tiles streaming".
+**ADRs:** `docs/adr/0001-*` (Filament pin precedent — the exact pin-form `GetCesiumNative.cmake` mirrors), `docs/adr/0003-*` (POD/toolchain boundary — cesium types must NEVER appear in `api.h`/`scene.h`), `docs/adr/0004-scene-interface-versioning.md` (additive-only; this epic appends one enum + one free function — Decision 12 — bumping `kSceneVersion` 5 → 6 for the appended type, free functions bump nothing per the VM-090 precedent).
+**Spec:** `docs/superpowers/specs/2026-08-18-visual-mode-design.md` §4.5 (verbatim: "a cesium-native-based OGC 3D Tiles streaming adapter (Cesium OSM Buildings via Cesium ion — user handles registration) replaces/augments the baked source, with clay re-materialization, geo placement via the same anchor, a disk tile cache, and automatic fallback to baked chunks on network loss — **renderer code unchanged**"), §8 (frame budget), §9 (missing data renders nothing).
+**Backlog:** `docs/visual_mode_project_backlog.md`, E06 section (VM-060…VM-063, B06.1.1…B06.4.2).
+**Prerequisites:** Epic 4 CLOSED (VM-050/051/052 all landed 2026-09-10 — the seam, the bake, and the baked source this epic streams against all exist and are green). Cesium ion registration done (above). v1.0 sign-off (Epic 5) is a master-plan prerequisite — see the scheduling USER DECISION flag.
+
+**Goal:** Stream Cesium 3D Tiles building geometry through cesium-native behind the **existing, unchanged** `EnvironmentSource` seam (VM-052): pin and build cesium-native under the library's clang/libc++ discipline (VM-061), implement a `StreamingEnvironmentSource` that re-materializes tile glTF in the same clay `buildingMaterial`, geo-places it at runtime via the VM-050 anchor, and caches tiles on disk (VM-062), then wire source selection and automatic baked fallback on network loss (VM-063). VM-060 documents the ion account/asset/token contract and proves the token reaches the tileset endpoint. Four tasks, master-table order: **VM-060 → VM-061 → VM-062 → VM-063** (each is a hard prerequisite for the next: the smoke-checked endpoint is what VM-062 fetches; VM-061's archives are what VM-062 links; VM-063 selects between VM-062's source and Epic 4's).
+
+---
+
+## Global Constraints (from the master plan — bind this epic too)
+
+- Existing modes 1–2 and every current test stay green; this epic touches neither `micropilot_rendering_node` nor the mode mux.
+- Output contract frozen: unaffected by this epic (no vcam/image-format change).
+- `visual_renderer` public headers: no `std::` types beyond `<cstdint>`/`<cstddef>` (POD boundary), checked by `scripts/check_pod_header.sh`. **Cesium types must NEVER appear in `scene.h`/`api.h`** — `StreamingEnvironmentSource` and every cesium-native header stay library-internal, same status as `renderer_internal.hpp`/`environment.hpp`. The one `scene.h` addition this epic makes (`EnvironmentSourceState` enum + `environment_source_state()` free function, Task 4) is POD-only.
+- Filament version pinned: `FILAMENT_VERSION = 1.56.5` (unchanged). cesium-native gets the same never-floating treatment: `CESIUM_NATIVE_VERSION = 0.64.0` + SHA256, single-sourced in `cmake/GetCesiumNative.cmake` (Decision 1).
+- **Toolchain (ADR-0003):** library builds clang/libc++ (`CMakeLists.txt:20-34` hard `FATAL_ERROR` guards), node builds gcc/libstdc++; nothing but POD types cross `api.h`/`scene.h`. cesium-native and every one of its vcpkg dependencies must be compiled with THIS project's clang/libc++ flags — "a prebuilt system lib would be gcc/libstdc++" (the yaml-cpp/GoogleTest precedent, `CMakeLists.txt:77-93,240-261`).
+- **Symbol-hygiene rule (Epic 2's two-yaml-cpp lesson, generalized):** ANY shared symbol name between two differently-ABI'd copies of a library in one process is a latent hazard — symbols with no `std::` type in their signature mangle IDENTICALLY under libc++ and libstdc++, COMDAT folding picks ONE survivor program-wide, and the empirical result was wrong data then a segfault (`scripts/merge_yamlcpp.sh` header, recipes 1–3, read it before touching this). ROS 2 Humble's `rcl_logging_spdlog` puts a gcc/libstdc++ spdlog in the same node process; cesium-native compiles a clang/libc++ spdlog. Task 2 extends the verified rename recipe (`ld -r` merge + `objcopy --redefine-syms` + fresh `ar crs`) to `spdlog::`/`fmt::` — Decision 4.
+- **Hand-written CMake source lists** (`micropilot_visualization_node/CMakeLists.txt:215`): this epic adds **no new node-side `.cpp`** (Task 4 edits `visualization_node.cpp` only), so the trap does not bite — stated explicitly. The library side globs `src/*.cpp` with `CONFIGURE_DEPENDS` (`CMakeLists.txt:158`) — the new `src/environment_stream.cpp` is `list(REMOVE_ITEM …)`-ed out of that C++17 glob and compiled in its own C++20 OBJECT library instead (Decision 3 / Task 2 Step 2). The materials glob (`CMakeLists.txt:127`) has no `CONFIGURE_DEPENDS` — this epic adds **no new `.mat` file** (streaming buildings reuse `clay.mat` via `buildingMaterial`, Decision 7), so the trap does not apply, stated so nobody goes looking for a missing material.
+- **Fresh-opaque material convention (2026-09-10 flicker root cause):** no fade-blended always-on materials. Streamed buildings, like baked ones, are **OPAQUE clay the entire time they're loaded** (`environment.cpp:4`, `renderer.cpp:787` "Always OPAQUE") — tiles load/unload by selection, never stale-fade, so no translucent twin exists anywhere in this epic.
+- **STANDING element-config directive (2026-09-09):** every rendered element ships style tokens + a disable knob. Streamed buildings are the SAME rendered element as baked buildings and **reuse the existing `palette.building` token and `environment_enabled` node param** — no new token, no new knob needed for the element itself; stated explicitly per the directive rather than silently assumed. (The new params Task 4 adds — `environment_source_uri`, `environment_tile_cache_dir` — are source-selection config, not element styling.)
+- **Token security:** `CESIUM_ION_TOKEN` is referenced by NAME only — never committed, never echoed into any file, log, test output, or this plan; smoke/scripts read it via the environment and print PASS/FAIL only, never the token or any response body carrying a session token (Task 1). Same for `MAPBOX_TOKEN`.
+- **Network discipline in tests:** no ctest/gtest ever requires live network or the token. Network-dependent checks are runbook steps (Task 1) or use committed fixtures / injectable accessors (Tasks 3–4), the same "GPU tests skip cleanly without a GPU" honesty applied to the network.
+- TDD per repo convention; Python tests `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest`; ROS build `cuda/scripts/ros_apps_build/colcon_build.sh`.
+- **ADR-0004:** append, never rename/reorder/remove. `set_environment_source`'s signature is **UNCHANGED** by this entire epic (its own `scene.h` contract: "THIS ENTRY POINT'S SIGNATURE DOES NOT CHANGE between v1 (baked) and a future streamed backend — only the concrete EnvironmentSource this call constructs internally does"). Task 3 changes only which concrete source it constructs (comment text updated to match — comments are not ABI); Task 4 appends one enum + one free function, `kSceneVersion` 5 → 6, both layout tables updated.
+
+---
+
+## Decisions (grounded in the research fact sheet + independently re-verified against the repo, 2026-09-11)
+
+### 1. cesium-native pin: **v0.64.0**, source tarball + SHA256 — the Filament pin form, adapted to a source build
+
+**PIN: cesium-native v0.64.0** (released 2026-09-01, latest as of 2026-09-11; verified via upstream `CHANGES.md` — v0.63.0 was 2026-08-03, v0.62.0 2026-07-01, a monthly cadence). cesium-native publishes **git tags only** — no GitHub Releases page and **no prebuilt binary SDK** (github.com/CesiumGS/cesium-native/releases literally says "There aren't any releases here") — so unlike Filament 1.56.5 the pin is a **source-tarball URL + SHA256** (`https://github.com/CesiumGS/cesium-native/archive/refs/tags/v0.64.0.tar.gz`), and the glibc-2.38/`__isoc23_sscanf` prebuilt hazard that forced Filament's bisect (`GetFilament.cmake:10-23`) **does not apply**: we compile it ourselves with our own toolchain. The pin form follows `cmake/GetFilament.cmake` exactly: version variable + URL + SHA256, fetched at configure time, header comment warning "re-verify before ever bumping — don't assume newer-is-safer" (that file's own words; MEMORY records the Filament pin as never-floating). **The SHA256 for the v0.64.0 tarball is computed at implementation time** (`sha256sum` on the downloaded tarball, cross-checked by a second independent download) — it is deliberately NOT written in this plan, because a fabricated hash is worse than a blank one. Upstream requirements verified: **C++20 required since v0.42.0** (2024-12-02, `CHANGES.md`: "Cesium Native now requires C++20 and uses vcpkg 2024.11.16"); CMake 3.15+; compilers "VS2019+, GCC 11+, or Clang 12+" (`doc/topics/developer-setup.md` — this repo's clang-14 qualifies); dependencies managed by **vcpkg in manifest mode** (`vcpkg.json`), with EZVCPKG auto-bootstrap on by default (`-DCESIUM_USE_EZVCPKG=OFF` documented to use an external `VCPKG_ROOT`). Also verified at this tag: `Tileset::updateView` is `[[deprecated]]` (`Tileset.h:261-264` — "Instead of `tileset.updateView(...)`, call `tileset.updateViewGroup(tileset.getDefaultViewGroup(), ...)` followed by `tileset.loadTiles()`"), so Decision 9 and Task 3 use the `updateViewGroup` + `loadTiles()` form — re-check this fact on any future version bump. Sources: github.com/CesiumGS/cesium-native `CHANGES.md`, `README.md`, `doc/topics/developer-setup.md`, `vcpkg.json@v0.64.0`, `Tileset.h@v0.64.0`.
+
+### 2. Build shape: FetchContent source build inside the visual_renderer project, vcpkg deps forced onto clang/libc++ via an overlay triplet
+
+`visual_renderer` is its own CMake project (not `add_subdirectory`'d into the gcc `cuda/` build), `CMAKE_CXX_STANDARD 17`, with hard `FATAL_ERROR` guards requiring `CMAKE_CXX_COMPILER_ID == Clang` AND `-stdlib=libc++` in `CMAKE_CXX_FLAGS` (`CMakeLists.txt:1-34`), linking libc++/libc++abi/libunwind as explicit static archives resolved via `clang++ -stdlib=libc++ -print-file-name=libc++.a` (never hardcoded; `libc++abi.a`/`libunwind.a` must be siblings of `libc++.a` because this box has an ABI-incompatible nongnu libunwind that a bare `-lunwind` resolves to — `CMakeLists.txt:36-73`). `GetCesiumNative.cmake` follows the established configure-time-fetch convention (GetFilament + yaml-cpp/stb blocks): exact version variable + URL + SHA256 via `FetchContent_Declare(URL … URL_HASH …)`, available at configure time, **dependency built with THIS project's clang/libc++ flags**, dep's tools/tests disabled (`YAML_CPP_BUILD_TOOLS OFF` precedent — a stray tool exe linking system defaults broke the link "confirmed the hard way", `CMakeLists.txt:89-93`), linked **PRIVATE**, never leaking past the POD `api.h`/`scene.h` boundary.
+
+The vcpkg wrinkle: cesium-native's ~28 ports on this platform (verified `vcpkg.json@v0.64.0`: asyncplusplus, spdlog, expected-lite, glm, ms-gsl, rapidjson, stb, ada-url, draco, ktx, modp-base64, meshoptimizer, openssl, s2geometry, libjpeg-turbo, sqlite3, tinyxml2, libwebp, zlib-ng, zlib, picosha2, earcut-hpp, libmorton, zstd, spz, plus curl and cpp-httplib on non-wasm; **blend2d + asmjit are platform-gated (`!ios&!wasm32`) and therefore REQUIRED on x64-linux — JIT-heavy C++ ports, the most likely libc++-triplet failures; doctest installs regardless of `CESIUM_TESTS_ENABLED=OFF` because vcpkg resolves the whole manifest; no async++/spdlog opt-out — both are hard deps; no documented non-vcpkg dependency path exists**) are built by vcpkg with its own triplet, NOT with the enclosing project's flags. So Task 2 ships a **custom overlay triplet** (`x64-linux-clang-libcxx`) whose `VCPKG_CHAINLOAD_TOOLCHAIN_FILE` forces the same clang++ + `-stdlib=libc++` the parent project enforces, `VCPKG_LIBRARY_LINKAGE static`. EZVCPKG stays ON (default) — vcpkg self-bootstraps at configure time, matching the configure-time-fetch convention; `-DCESIUM_USE_EZVCPKG=OFF` + external `VCPKG_ROOT` is the documented escape if the bootstrap misbehaves on this box. **Verified (15.2b, demoted from open unknown):** EZVCPKG reads `VCPKG_TARGET_TRIPLET`/`VCPKG_OVERLAY_TRIPLETS` set as cache vars before `FetchContent_MakeAvailable` — cesium's `CMakeLists.txt:56-58` + `ezvcpkg.cmake:164,175-181`, whose own comment (lines 17-19) anticipates exactly the enclosing-project shape. Task 2 Step 1's `strings … __1` / `nm … std::__cxx11` check is the catcher; the documented escape is `-DCESIUM_USE_EZVCPKG=OFF` plus an external `VCPKG_ROOT` whose install is driven with the overlay triplet explicitly. **Open unknown (named):** whether every one of the 25 ports compiles under the libc++ triplet on Ubuntu 22.04/clang-14 — verified at implementation, first configure; a port that fails gets investigated individually (most are C libraries, immune), not silently switched to a system copy.
+
+First configure needs network (tarball + vcpkg ports) — the same class of dependency `GetFilament.cmake`'s `file(DOWNLOAD)` already has; subsequent configures hit the on-disk copies.
+
+### 3. C++ standard seam: cesium headers are quarantined to `environment_stream.cpp`, the one TU compiled at C++20
+
+cesium-native requires C++20 (Decision 1); `visual_renderer` is C++17. Cesium headers (`std::span` since v0.42.0's `gsl::span` removal) force any TU that includes them to `-std=c++20`. Rather than bump the whole library (a wider change than this epic needs, and a silent behavioral surface for every existing TU), **only `src/environment_stream.cpp` compiles at C++20**, as an OBJECT library that receives cesium-native's FULL usage requirements from CMake rather than hand-copied fragments: `add_library(visual_renderer_stream OBJECT src/environment_stream.cpp)` + `target_link_libraries(visual_renderer_stream PRIVATE Cesium3DTilesSelection CesiumCurl …)` + `target_compile_features(visual_renderer_stream PRIVATE cxx_std_20)`, with `$<TARGET_OBJECTS:visual_renderer_stream>` folded into `visual_renderer`'s sources and `environment_stream.cpp` `list(REMOVE_ITEM …)`-ed out of the C++17 `src/*.cpp` glob. **Why not the earlier per-source-property mechanism (superseded, review round 3):** forwarding only `INTERFACE_INCLUDE_DIRECTORIES` silently drops cesium-native's PUBLIC compile definitions — `cmake/macros/configure_cesium_library.cmake:27-41` at v0.64.0 sets `GLM_FORCE_XYZW_ONLY`, `GLM_FORCE_EXPLICIT_CTOR` (under `CESIUM_GLM_STRICT_ENABLED`, default ON), `GLM_FORCE_INTRINSICS`, `GLM_ENABLE_EXPERIMENTAL` as PUBLIC on every cesium target, and `CesiumAsync/CMakeLists.txt:50-51` adds `PRIVATE_CESIUM_SQLITE` PUBLIC — and `GLM_FORCE_INTRINSICS` changes glm's SIMD storage/alignment, so every `glm::dvec3`/`dmat4` (and every cesium type holding one: `ViewState`, `TilesetExternals` payloads, `Model` accessors, the `ecef_to_map` dmat4) would have a DIFFERENT layout in our TU than inside the cesium archives — a silent ODR/ABI corruption, not a compile error. An OBJECT library gets includes, definitions AND the language standard from usage requirements; nothing is hand-copied to drift. Enforcement that the quarantine holds: any OTHER TU that tries `#include <Cesium…>` fails to compile (the cesium include dirs exist only on `visual_renderer_stream`). A **grep gate in the review checklist** stays as belt-and-suspenders — `#include <Cesium…>`/`environment_stream.hpp` must appear in no TU other than `environment_stream.cpp`, and `environment_stream.hpp` itself carries a `static_assert(__cplusplus >= 202002L, "environment_stream.hpp is C++20-only — include it from environment_stream.cpp, nowhere else")`. The C++17 side talks to the streaming source through a **cesium-free factory** declared in `environment.hpp` (Decision 5's dispatch) returning `std::unique_ptr<EnvironmentSource>` — the same factory shape (unique_ptr + nullptr-on-failure) as `open_baked_environment_source` (`environment.hpp:106`). Note the return types differ deliberately: the baked factory returns `std::unique_ptr<BakedEnvironmentSource>` (its concrete type is visible to `environment.cpp`); the streaming factory must return the BASE `std::unique_ptr<EnvironmentSource>` to stay cesium-free (the concrete `StreamingEnvironmentSource` lives only in the C++20 TU).
+
+### 4. Symbol hygiene across the gcc/libstdc++ node boundary: extend the verified rename recipe to spdlog/fmt; audit the rest
+
+The yaml-cpp precedent (`scripts/merge_yamlcpp.sh`, header comment recipes 1–3 with concrete failing evidence for each): ANY shared symbol name between two differently-ABI'd copies in one process is a latent hazard — symbols with no `std::` type in their signature mangle IDENTICALLY under libc++ and libstdc++, COMDAT folding picks ONE survivor program-wide, and the empirical result was wrong data then a segfault; **the recipe that finally worked is `objcopy --redefine-syms` RENAMING every vendored defined symbol inside an `ld -r`-merged object, then rebuilding the archive FRESH with `ar crs`**. Applied to this epic's new third-party surface:
+
+1. **spdlog — HIGHEST risk:** ROS 2 Humble's `rcl_logging_spdlog` puts a gcc/libstdc++ spdlog in the same node process; cesium-native compiles a clang/libc++ spdlog (a compiled lib under vcpkg, not header-only). Mitigation: Task 2 extends the merge script's rename pass to `spdlog::` and `fmt::` symbols. Crucially, the cesium-native archives that **reference** spdlog symbols must be inside the same `ld -r` merge as the spdlog/fmt archives that define them — a rename applied only to definitions would leave the cesium archives' references dangling (unresolvable, or worse, resolved from the node's `libspdlog.so` across the ABI boundary). So the merged object grows to: visual_renderer objects + yaml-cpp (as today) + every cesium-native archive + vcpkg spdlog + vcpkg fmt; the rename token list grows from `YAML` to `YAML`, `_ZN6spdlog`, `_ZN3fmt` (mangled-prefix match, same `nm`-driven sed the script already uses).
+2. **sqlite3, curl, openssl, zlib/zlib-ng — C libraries,** immune to the C++ mangling hazard but subject to plain duplicate-symbol/version interposition if the ROS process also loads system `libsqlite3`/`libcurl`/`libssl` dynamically. cesium-native ships `CesiumAsync/cesium-sqlite3.h` (renamed sqlite symbols, enabled via the `PRIVATE_CESIUM_SQLITE` PUBLIC compile definition — `CesiumAsync/CMakeLists.txt:50-51`) — **verify the option defaults ON in this build** (15.3); for curl/openssl/zlib, the Task 2 `nm` audit records whether the node process's `ldd` set overlaps, and any overlap is a review-gate finding, not silently shipped.
+3. **draco/ktx/meshoptimizer/s2geometry — C++** but only hazardous if the node ever links its own copy (none today; verified `git grep -il "draco\|meshoptimizer\|s2geometry" -- cuda/src/ros_apps` empty at authoring). Included in the rename sweep's `nm` audit (`nm --defined-only`, anchored column-3 check per `merge_yamlcpp.sh`'s verified recipe), not preemptively renamed.
+
+### 5. Source selection WITHOUT touching `set_environment_source`'s signature: a URI scheme prefix on the existing `source_uri` string
+
+`set_environment_source(VisualRenderer*, const char* source_uri, GeoAnchor)` has a documented contract that its signature never changes (contract comment scene.h:505-524, declaration at :524; verbatim: "THIS ENTRY POINT'S SIGNATURE DOES NOT CHANGE between v1 (baked) and a future streamed backend — only the concrete EnvironmentSource this call constructs internally does"), and the Epic 4 plan's Decision 2 designed `source_uri` as exactly this: "a **source-shaped string whose meaning** depends on which EnvironmentSource backend this build links: v1 … a local directory holding bake_environment.py's chunk index + glTF files; v1.1 (Epic 6, VM-062) it is a cesium-native tileset reference." **Decision: dispatch on a scheme prefix inside the existing function** (`environment.cpp:163`, which today constructs the baked backend unconditionally and whose own comment says "Epic 6's VM-063 adds baked|streamed selection logic"):
+
+- `source_uri` with no `ion://` prefix → `open_baked_environment_source(source_uri, anchor)` — **byte-for-byte today's behavior**, every existing caller/config/test unaffected.
+- `source_uri` = `ion://<assetId>[?cache=<dir>][&fallback=<baked_dir>][&max_cache_items=<n>]` → `open_streaming_environment_source(...)` (Task 3). The query parameters carry the two extra pieces of source-shaped config a stream needs (cache location, fallback bake dir) **inside the one string the contract already provides**, so no second entry point and no signature change is needed. Parsed by a ~30-line library-side splitter (no URL library; `?`/`&`/`=` split only). Known ceiling, commented at the parser: paths containing `?` or `&` are unsupported (`// ponytail: split-only parser; percent-encoding if a real path ever needs it`).
+- The ion **access token is deliberately NOT a URI component**: the library reads `getenv("CESIUM_ION_TOKEN")` at open time (Decision 6) so the token can never end up in a params file, a launch log, or a `ros2 param dump`.
+
+The `scene.h` comment on `set_environment_source` is updated (Task 3) to document both forms — a comment-only edit, not ABI.
+
+### 6. Token contract: `CESIUM_ION_TOKEN`, environment-only, read library-side at open time
+
+The registration is done and the token already lives in the env var `CESIUM_ION_TOKEN` (user, 2026-09-11) — so unlike Epic 4's `MAPBOX_TOKEN` (which was a new name decision), this epic documents an **existing** convention. `open_streaming_environment_source` calls `std::getenv("CESIUM_ION_TOKEN")` once; missing/empty → open fails → `set_environment_source` returns `false` → node WARNs once (spec §9's "missing data renders nothing", the same non-fatal shape as a missing bake dir). The token value is never logged, never stored beyond the accessor's in-memory `Authorization: Bearer` header, never written to the disk cache's key material in cleartext beyond what the HTTP layer requires (the cache keys request URLs — ion tile URLs embed a short-lived session token, not `CESIUM_ION_TOKEN` itself; verified at implementation and asserted in the review gate). The `/v1/assets/<assetId>/endpoint` handshake itself (token → tileset URL + short-lived session token) is performed upstream by the `Tileset` itself when constructed with its ion overload — `Tileset(externals, int64_t ionAssetID, const std::string& ionAccessToken, options, ionAssetEndpointUrl = "https://api.cesium.com/")` (`Tileset.h:82-87`), which internally creates the session-token-refresh accessor it needs (Decision 15.6) — the library hands the token to that constructor and never re-implements the exchange.
+
+### 7. Tile ingestion REUSES the baked path byte-for-byte from `createAsset` down: cesium `Model` → GLB bytes → the existing gltfio + `buildingMaterial` remap sequence
+
+Verified: `BakedEnvironmentSource`'s load path is `ifstream` → `sharedAssetLoader->createAsset(bytes, size)` → `sharedResourceLoader->loadResources(asset)` → `asset->releaseSourceData()` → remap every primitive to `r.buildingMaterial` via `rm.setMaterialInstanceAt(inst, p, r.buildingMaterial)` (`environment.cpp:63-84`), where `buildingMaterial` is an eager `clay.mat` instance themed from `palette.building` (`renderer_internal.hpp:812-821`, `renderer.cpp:787` — "Always OPAQUE"). cesium-native hands loaded tile content over as a parsed `CesiumGltf::Model`, not GLB bytes — so the streaming source **re-serializes the Model to GLB once per tile, on the load thread**: construct a `CesiumGltfWriter::GltfWriter` and call `writeGlb(model, bufferData)` — at v0.64.0 `writeGlb` is a `GltfWriter` member taking the binary chunk as an explicit second `std::span<const std::byte>` argument (`CesiumGltfWriter/GltfWriter.h:102-105`), NOT a one-argument free call. The reader leaves each tile's bytes in `model.buffers[i].cesium.data`: a single-buffer Model passes `buffers[0].cesium.data` directly; a Model with MORE than one buffer is skipped (counted, recorded in the results block) — if real OSM Buildings tiles turn out multi-buffer (Decision 15.4's verify step), a consolidate-into-one-contiguous-chunk pass (bufferView offsets rebased) replaces the skip. `GltfWriterResult::errors` is checked before the bytes go anywhere. The source then feeds those bytes into the **exact same** `createAsset → loadResources → releaseSourceData → remap` sequence on the render thread. This buys: zero new Filament ingestion code, automatic texture-stripping via the same remap (clay re-materialization = the remap loop, B06.3.2), and one place where all building geometry enters the scene. Cost: one encode+decode round trip per tile load — acceptable for clay-scale building tiles (`// ponytail: Model->GLB->gltfio round trip; a direct Model->Filament builder is the upgrade if tile-load CPU ever shows up in render_ms`). **Open unknown (named):** `writeGlb` fidelity for OSM Buildings tile content (draco/quantized attributes must be decoded by cesium's reader before write — `CesiumGltfReader` applies `decodeDraco` etc. during content load, so the Model handed to us is already expanded; verified at implementation against a real tile).
+
+### 8. Geo placement: the stored-but-never-read `anchor` finally does its job — one ECEF→map transform per asset root, no per-vertex math
+
+Baked chunks were placed in the map frame at bake time; the baked source stores the anchor and never reads it, and both `environment.hpp:8-11` and `scene.h`'s contract say why: "`anchor` is stored for a future streaming backend's on-the-fly WGS84->map placement." This epic IS that backend. Cesium tile geometry arrives in **ECEF** (earth-centered, earth-fixed). The streaming source computes, once at open, a single rigid `ecef_to_map` 4×4: `CesiumGeospatial::LocalHorizontalCoordinateSystem` at `(origin_lat_deg, origin_lon_deg, h=0)` with east-north-up axes gives ENU→ECEF; invert; then rotate about +Z by `-heading_rad` to align ENU-east/north with the map frame's own axes (`heading_rad` = "bearing of map-frame +X from true north", `scene.h:386` — the same convention `WgsToMap` implements node-side, cross-pinned in Task 3 Step 3's test). Each loaded tile's Filament asset gets `ecef_to_map * tileTransform` set **once** on its root entity via `filament::TransformManager` — no per-vertex, per-tick geo math, honoring Epic 4 Decision 3's "no per-tick geo math in the hot render loop" for the streaming case too. Altitude: the anchor has no height field; map-frame z=0 is assumed at the anchor's WGS84 ellipsoid h=0 plus a `kStreamHeightOffsetM` named constant (default `0.0`) — if real tiles float/sink visibly in the validation rig, that constant (not new API) absorbs it, recorded in the results block.
+
+### 9. Tile selection is driven from ego position through a synthesized view — cesium's traversal, our radius semantics
+
+`EnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos)` (verbatim seam, `environment.hpp:33-43` — one update() per tick, gated by the CALLER on `ego.valid`) receives only the ego position, and cesium's tile selection wants a camera `ViewState` — driven, at v0.64.0, through the non-deprecated view-group API (`updateView` is `[[deprecated]]` at this tag, `Tileset.h:261-264` — Decision 1's fact list): the source holds a `Cesium3DTilesSelection::TilesetViewGroup&` from `tileset->getDefaultViewGroup()` and, per tick, calls `const ViewUpdateResult& result = tileset->updateViewGroup(viewGroup, {view}, deltaTimeSeconds);` followed by `tileset->loadTiles();` (without which no tile ever loads), reading `result.tilesToRenderThisFrame` (field verified present, `ViewUpdateResult.h:30`); `deltaTimeSeconds` is the tick period, since `update()` runs once per tick and `updateViewGroup` takes the delta explicitly. The streaming source synthesizes the view: eye at `map_to_ecef(ego + (0,0,kStreamViewHeightM))`, direction nadir (ellipsoid-down at the anchor), up = local north, viewport `kStreamViewportPx²` (256), vertical FOV `kStreamViewFovRad` (1.3 — from that height a ~`kLoadRadiusM`-radius footprint, matching the baked source's own load radius semantics, `environment.hpp:51`), `maximumScreenSpaceError = kStreamMaxSseErr` (48.0 — generous; these are flat clay masses, not photogrammetry). All named constants in `environment_stream.cpp` with this reasoning attached (`// ponytail: nadir synthetic view sized to kLoadRadiusM; driving selection from the real render camera is the upgrade if building pop-in bothers anyone`). Dev-box proxy values, tuned in the validation rig, recorded in the results block — the same honesty `kLoadRadiusM` itself ships with.
+
+### 10. Disk cache: cesium-native's own `CachingAssetAccessor` + `SqliteCache`, not a hand-rolled cache
+
+`CesiumAsync` ships a sqlite-backed HTTP cache (`SqliteCache` + `CachingAssetAccessor`) — reuse it (ladder: the already-fetched dependency solves it). The network accessor is wrapped as `CachingAssetAccessor(inner, SqliteCache(dbPath, maxItems))`. `dbPath` comes from the URI's `?cache=` param (Decision 5); when absent, default `${XDG_CACHE_HOME:-$HOME/.cache}/mpviz-tile-cache/cesium-tiles.sqlite` (the `mpviz-toolchain` rootless-prefix precedent, `scripts/setup_toolchain.sh`); `maxItems` from `&max_cache_items=`, default `4096`.
+
+> **USER DECISION FLAG (tile cache location + size budget):** the defaults above (`~/.cache/mpviz-tile-cache`, 4096 cached responses — order 0.5 GB for building tiles) are dev-box-shaped proposals. The on-robot disk location and size budget are the user's call — a robot with a small or write-sensitive root disk may want the cache on specific media or capped lower. The knobs exist either way (`?cache=`/`&max_cache_items=` via the params Task 4 adds); only the shipped defaults need the decision.
+
+**Open unknown (named):** offline replay via this cache (B06.3.4's AC "second run loads with network disabled") depends on ion's HTTP caching headers — `CachingAssetAccessor` honors freshness, and a stale-but-present entry may still trigger a revalidation request that fails offline. Verified at implementation; if ion's headers defeat offline reuse, the accessor wrapper (Decision 11's `CountingAssetAccessor` — already in the stack) grows serve-stale-on-network-error behavior, recorded as a deviation.
+
+### 11. Baked fallback on network loss lives INSIDE `StreamingEnvironmentSource`; the node observes it through one new POD entry point
+
+The library can't WARN (POD-boundary logging convention: `set_environment_source` "logs nothing itself, caller WARNs" — `environment.cpp:149`, scene.h contract), and the node can't see inside the seam — but network loss happens mid-run, long after `set_environment_source` returned `true`. Resolution, additive per ADR-0004:
+
+- **Detection:** every tile-content request runs through a thin `CountingAssetAccessor` wrapper (ours, ~40 lines) that tracks consecutive completed-with-error requests. `kNetworkLossConsecutiveFailures = 8` consecutive failures with zero interleaved successes → network considered lost. Named constant, `// ponytail: consecutive-failure counter; a time-windowed health score is the upgrade if flapping links need hysteresis`.
+- **Fallback action:** tear down every streamed tile's Filament resources (the same teardown discipline the seam already mandates), open `open_baked_environment_source(fallback_dir, anchor_)` using the `&fallback=` dir from the URI (Decision 5), and delegate every subsequent `update()` to it. No automatic recovery to streaming (restart recovers) — `// ponytail: one-way fallback; auto-resume when the link returns is the upgrade`. No `&fallback=` given → tiles simply stop appearing (frozen at whatever the cache still serves, then nothing new), state still reported.
+- **Observability:** Task 4 appends to `scene.h`: `enum class EnvironmentSourceState : uint8_t { NONE=0, BAKED=1, STREAMING=2, STREAMING_FALLBACK=3 };` and `EnvironmentSourceState environment_source_state(VisualRenderer*);` (POD-clean; enum-class-uint8_t precedent: `ObjectClass`, scene.h). The node polls it once per tick (one virtual call + integer compare) and `RCLCPP_WARN`s exactly once on the `STREAMING → STREAMING_FALLBACK` transition — a bool latch, the Task-1-Step-4 (Epic 4) precedent. Appending the enum (a new type) bumps `kSceneVersion` 5 → 6 per the GeoAnchor precedent; the free function itself bumps nothing (VM-090's "Free-function-only addition: bumps nothing" precedent, scene.h:449).
+
+### 12. The `environment_loaded_chunk_count` test hook's downcast becomes unsafe the moment a second concrete source exists — fixed by a virtual, not a second hook
+
+Verified: `environment.cpp:183-190` `static_cast`s `r->environmentSource.get()` to `BakedEnvironmentSource*`, with a comment saying the downcast is safe only because "the only EnvironmentSource concrete type this epic ever constructs is BakedEnvironmentSource (a future streamed backend, Epic 6, is a different concrete type this hook doesn't need to see yet)". Epic 6 is now. Task 3 adds `virtual size_t loaded_count() const = 0;` to `EnvironmentSource` (library-internal C++, NOT the POD boundary — the seam's `update`/`teardown` signatures stay verbatim; an added accessor breaks no implementor because both implementors are in this repo), `BakedEnvironmentSource::loaded_count()` forwards to the existing `loaded_chunk_count()`, `StreamingEnvironmentSource::loaded_count()` reports tiles currently in the scene, and the hook drops the downcast. Every existing test keeps passing (same numbers through a virtual).
+
+### 13. Streaming goldens: deterministic via a committed tile fixture + injectable accessor; baked goldens untouched
+
+E06's AC says "Baked-source goldens still pass with the streaming source swapped in over the same area". A live network in a golden test is nondeterminism by construction, so: `Cesium3DTilesSelection::Tileset` takes its `IAssetAccessor` via `TilesetExternals` — **injectable by design**. Task 3 ships a `FileFixtureAssetAccessor` (test-only, serves `tests/fixtures/environment_ion_fixture_0/` — a hand-small tileset.json + a few real tiles over the operating area, fetched ONCE at implementation time with the real token and committed, the `environment_overpass_cache_0.json` convention) and one new golden, **one theme** (`environment_stream_dark_adas.png`) per the P3 golden-scoping rule — this is a lit-geometry category golden, same class as Epic 4's `environment_test_town_dark_adas.png`. Literal pixel-parity between baked and streamed over the same area is NOT automatable (OSM-bake footprints vs ion tile geometry differ); what the golden proves is the clay re-materialization + placement pipeline, and baked-vs-streamed *look* parity is the validation-rig human check the backlog's own AC anticipates ("Tiles appear in the validation rig") — stated honestly, not faked with a tolerance big enough to pass anything. Every baked-source golden and test is untouched by this epic (dispatch Decision 5 keeps the non-`ion://` path byte-identical).
+
+### 14. Ion asset: Cesium OSM Buildings (curated asset **96188**) is the shipped default; a custom clipped tileset is the documented alternative
+
+Spec §4.5 names "Cesium OSM Buildings via Cesium ion" explicitly; asset 96188 is ion's curated global OSM Buildings tileset, available to every ion account with `assets:read`, needs no upload, and covers the Dubai/Sharjah operating area (Epic 4 Decision 6's verified fix location). Task 1's runbook documents BOTH paths (use 96188 / upload-and-clip your own for tighter tiles and offline-friendlier size).
+
+> **USER DECISION FLAG (ion asset choice):** default `ion://96188` (Cesium OSM Buildings, zero upload work) vs. uploading a clipped operating-area tileset to the user's own ion account (smaller, faster, cache-friendlier, but a per-deployment asset-management step). The runbook documents both; the shipped default param and the smoke-check default use 96188 until the user says otherwise.
+
+### 15. Open unknowns, consolidated (each named where it bites; none silently absorbed)
+
+1. **v0.64.0 tarball SHA256** — computed at implementation (Decision 1), never fabricated here.
+2. **vcpkg ports under the clang/libc++ overlay triplet on this box** — first-configure verification (Decision 2).
+   - **2c. cesium-native's OWN sources under clang-14/libc++-14 at C++20** — bounded, not open-ended: the pinned tag uses `<span>` and concepts/`requires` (both present in clang-14/libc++-14) and its warning set cannot hard-stop the build (`CMAKE_COMPILE_WARNING_AS_ERROR OFF` in `GetCesiumNative.cmake`, Task 2 Step 0 — upstream CI never tests this compiler, so diagnostic differences are expected and non-fatal). Residual risk is a genuine C++20-library-coverage miss in libc++-14; named fallbacks: a newer local clang via `scripts/setup_toolchain.sh`, or pinning an older cesium-native tag.
+   - **2b. EZVCPKG triplet-variable timing — VERIFIED against the pinned tree, demoted from open unknown:** cesium-native's top-level `CMakeLists.txt:56-58` copies `VCPKG_TARGET_TRIPLET` into `VCPKG_TRIPLET` after the ezvcpkg include, `cmake/ezvcpkg/ezvcpkg.cmake:164` passes `--triplet ${VCPKG_TRIPLET}`, lines 175-181 export `VCPKG_OVERLAY_TRIPLETS` into the install command's environment, and the file's own comment at lines 17-19 explicitly anticipates "a higher level project that has added cesium-native as a subdirectory" — cache vars set before `FetchContent_MakeAvailable` are read as intended. Step 1's `strings … __1` / `nm … std::__cxx11` check stays as the belt-and-suspenders catcher; `-DCESIUM_USE_EZVCPKG=OFF` + external `VCPKG_ROOT` stays the documented escape (Decision 2).
+3. **sqlite symbol prefixing — mechanism identified:** the option is not named `CESIUM_SQLITE`; `CesiumAsync/CMakeLists.txt:50-51` adds the `PRIVATE_CESIUM_SQLITE` compile definition PUBLIC when the corresponding option is on, routing sqlite calls through `cesium-sqlite3.h`'s renamed symbols. Verify at implementation that the option defaults ON in this build (Decision 4.2); affects only the C-lib interposition audit, not the design.
+4. **`writeGlb` fidelity for real OSM Buildings tiles** (draco/EXT_meshopt already expanded by the reader?) — verify against one real tile (Decision 7); in the SAME step: the buffer count of a real tile's Model — Decision 7's skip-vs-consolidate branch for multi-buffer Models is settled by what real tiles actually carry.
+5. **Ion HTTP cache headers vs offline replay** — verify; serve-stale-on-error fallback named if needed (Decision 10).
+6. **Which shipped `IAssetAccessor` to use / who performs the ion handshake** — **RESOLVED (verified against the v0.64.0 tree):** the tag ships a top-level `CesiumCurl` module (curl-based network accessor) alongside `CachingAssetAccessor.h`, `SqliteCache.h`, and `ITaskProcessor.h`. The hand-composed stack in `TilesetExternals` is: `CesiumCurl` network accessor → `CountingAssetAccessor` (ours; Task 3 Step 2) → `CachingAssetAccessor(SqliteCache)`. **`CesiumAsync/CesiumIonAssetAccessor.h` is NOT part of that stack and does NOT implement the `/v1/assets/<id>/endpoint` handshake** — its own doc says it "wraps another one and handles Cesium ion token refresh when an asset returns a 401 error" and "It's rarely necessary to use this class directly. It's created by `Cesium3DTilesSelection::CesiumIonTilesetContentLoaderFactory` ... as needed"; its ctor already requires an `assetEndpointUrl` and an updated-token callback, i.e. it PRESUPPOSES the handshake. The handshake comes from the `Tileset` itself: `Tileset(externals, int64_t ionAssetID, const std::string& ionAccessToken, options, ionAssetEndpointUrl = "https://api.cesium.com/")` (`Tileset.h:82-87`) — or `Tileset(externals, CesiumIonTilesetContentLoaderFactory{...}, options)` if the factory form proves preferable; either constructs the refresh accessor internally. The budgeted ~100-line libcurl `IAssetAccessor` contingency and any hand-rolled ion handshake are DROPPED; `CesiumCurl` (plus `CesiumUtility` if the link demands it) joins Task 2 Step 2's link set, and `CesiumIonClient` drops OUT of it (nothing calls the REST client directly). Side fact banked for Decision 4: `CesiumIonAssetAccessor`'s ctor takes a `std::shared_ptr<spdlog::logger>` — further confirmation that cesium's spdlog is live in-process. Task 1's smoke check still proves the same endpoint path; the library does not re-implement it.
+
+---
+
+## Named fixture gaps (this epic)
+
+1. **No committed ion tile fixture exists yet** — Task 3 Step 0 produces `tests/fixtures/environment_ion_fixture_0/` (a tiny tileset.json + a handful of real tiles over the operating area, fetched once at implementation with the live token, committed; token itself appears nowhere in the fixture — verified by grep before commit, review gate). Until then no streaming test can run.
+2. **No real network-loss recording exists** — VM-063's "kill network mid-run" e2e is realized library-side with an injectable accessor that fails on command (deterministic, CI-safe), plus a manual launch-level check in the validation rig (the Epic 4 Task 3 "no lifecycle-node gtest harness" honesty, unchanged since).
+3. **The operating-area visual quality of ion's OSM Buildings tiles is unverifiable offline** — same class as Epic 4's gap 3; the validation-rig human check is the AC's own judgment step.
+
+---
+
+## Task 1 (VM-060): Cesium ion runbook + token smoke check
+
+**The registration itself is DONE** (user, 2026-09-11; token in `CESIUM_ION_TOKEN`). This task ships the runbook a NEW deployment follows, plus a smoke check that the token actually reaches the tileset endpoint.
+
+**Files:**
+- Create: `docs/visual_mode/cesium.md` (this also creates `docs/visual_mode/` — the directory VM-042 (Epic 5) is slated to populate; whichever task lands first creates it, no conflict — stated so nobody waits on Epic 5 for a `mkdir`)
+- Create: `cuda/src/libs/visual_renderer/scripts/check_cesium_token.sh` (sibling of `check_pod_header.sh`/`merge_yamlcpp.sh`; NOT wired into ctest — network + secret, so it is a runbook step, per Global Constraints' network discipline)
+
+**Interfaces:**
+- Consumes: `CESIUM_ION_TOKEN` (env; by name only), ion REST endpoint `https://api.cesium.com/v1/assets/<assetId>/endpoint` (returns the tileset URL + a short-lived session token for the asset — the exact handshake the `Tileset` ion constructor performs UPSTREAM for VM-062, Decision 15.6; this smoke check proves the same path the renderer will use, while the library itself never re-implements the exchange), and then the returned tileset URL itself — the AC is "token retrieves `tileset.json`", which an endpoint 200 alone does not prove.
+- Produces: PASS/FAIL exit status + one line of output. **Never prints the token, the session token, or any response body** (the endpoint body contains a session `accessToken`; it is captured into a shell variable, parsed, and discarded).
+
+- [ ] **Step 0: The smoke script.** Write `check_cesium_token.sh`:
+```bash
+#!/usr/bin/env bash
+# Smoke check (VM-060): does CESIUM_ION_TOKEN retrieve the asset's tileset.json?
+# Usage: check_cesium_token.sh [asset_id]   (default 96188, Cesium OSM Buildings)
+# Two stages: (1) the /v1/assets/<id>/endpoint handshake, (2) fetching the
+# tileset.json URL that handshake returned, with its short-lived session token.
+# PASS requires BOTH to be HTTP 200 -- an endpoint 200 alone only proves
+# assets:read, not the AC ("Token retrieves tileset.json").
+# Prints PASS/FAIL only. NEVER prints the token, the session token, or any
+# response body -- the endpoint body embeds a short-lived session accessToken.
+set -u  # deliberately no -x, ever, in this file
+ASSET_ID="${1:-96188}"
+if [ -z "${CESIUM_ION_TOKEN:-}" ]; then
+    echo "SKIP: CESIUM_ION_TOKEN is not set (see docs/visual_mode/cesium.md)"
+    exit 2
+fi
+# Stage 1: the endpoint handshake. The token reaches curl via --config on
+# stdin, NOT argv: argv is world-readable through /proc on a shared box for
+# the request's lifetime. The body lands in a shell variable, never on stdout.
+response=$(printf 'header = "Authorization: Bearer %s"\n' "${CESIUM_ION_TOKEN}" \
+    | curl -sS --config - -w '\n%{http_code}' \
+        "https://api.cesium.com/v1/assets/${ASSET_ID}/endpoint")
+endpoint_code="${response##*$'\n'}"
+body="${response%$'\n'*}"
+if [ "${endpoint_code}" != "200" ]; then
+    echo "FAIL: HTTP ${endpoint_code} from /v1/assets/${ASSET_ID}/endpoint (401=bad/expired token, 404=no access to asset)"
+    exit 1
+fi
+# Stage 2: pull url + accessToken out of the body (no jq dependency; ion's
+# endpoint JSON is flat for these two string fields) and fetch tileset.json
+# with the SESSION token -- same stdin --config argv-avoidance as stage 1.
+tileset_url=$(printf '%s' "${body}" | grep -o '"url"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+session_token=$(printf '%s' "${body}" | grep -o '"accessToken"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+if [ -z "${tileset_url}" ] || [ -z "${session_token}" ]; then
+    echo "FAIL: endpoint 200 but could not parse url/accessToken from the response (body not printed by design)"
+    exit 1
+fi
+tileset_code=$(printf 'header = "Authorization: Bearer %s"\n' "${session_token}" \
+    | curl -sS --config - -o /dev/null -w '%{http_code}' "${tileset_url}")
+if [ "${tileset_code}" = "200" ]; then
+    echo "PASS: token retrieves tileset.json for asset ${ASSET_ID} (endpoint 200, tileset 200)"
+    exit 0
+fi
+echo "FAIL: endpoint 200 but tileset.json fetch returned HTTP ${tileset_code} (session token accepted by the endpoint, rejected or unroutable at the tileset URL)"
+exit 1
+```
+  Chmod +x. Run it with the env var deliberately unset (`env -u CESIUM_ION_TOKEN ./check_cesium_token.sh`) — expect the SKIP line, exit 2, and confirm no token-shaped string in the output. Then run it for real (the var exists on this box) — expect PASS. Distinct exit codes: 0 pass / 1 fail / 2 skip, so the runbook (and any future wrapper) can tell "broken" from "not configured".
+
+- [ ] **Step 1: The runbook**, `docs/visual_mode/cesium.md`, written for a NEW deployment (someone standing up a second robot/site with no access to this box). Sections, each with the concrete steps — not prose about steps:
+  1. **Account + token**: create an account at ion.cesium.com; Access Tokens → Create token; scope needed: `assets:read` (that is all the renderer uses — listing/uploading scopes only if choosing the custom-tileset path below). Store as `export CESIUM_ION_TOKEN=...` in the deploy user's `~/.bashrc` (or the launch environment). **Never commit it, never echo it into a file or log** — the repo-wide token rule (Mapbox precedent, restated with both var names).
+  2. **Choosing the tileset for the operating area**: Path A (default) — Cesium OSM Buildings, ion curated asset **96188**: add it to the account's assets from the ion Asset Depot, done; global coverage, includes the Dubai/Sharjah operating area. Path B (custom) — upload a clipped city/area tileset (ion My Assets → Add data), note its numeric asset id; smaller + cache-friendlier, at the cost of a per-deployment asset step. Record the chosen `<assetId>` — it is the `ion://<assetId>` the node param takes (VM-063). *(USER DECISION flag in Decisions §14 — the shipped default is 96188 until decided.)*
+  3. **The env var contract**: exact name `CESIUM_ION_TOKEN`; read by the renderer library at `set_environment_source()` time via `getenv`; absent/empty → environment layer disabled with one WARN, nothing else affected (spec §9). Token rotation = replace the env var + restart the node; nothing else stores it.
+  4. **Smoke check**: run `cuda/src/libs/visual_renderer/scripts/check_cesium_token.sh <assetId>`; PASS = BOTH stages returned 200 — the endpoint handshake AND the fetch of the returned `tileset.json` URL with the session token (the VM-060 AC, verbatim: "Token retrieves `tileset.json` for the operating area" — proven literally, not by endpoint-200 proxy). Include the three exit codes, the 401-vs-404 hint, and the endpoint-ok-but-tileset-failed FAIL line's meaning.
+  5. **What this does NOT cover**: bake-pipeline setup (`bake_environment.py` — Epic 4 / the VM-042 runbook), cache/fallback params (pointer to VM-063's param table in `default_params.yaml`).
+
+- [ ] **Step 2: Prove it end to end on this box.** Run the smoke check against the chosen default asset (96188): record PASS + BOTH HTTP codes (endpoint, tileset.json) in the results block below (nothing else — no body, no token, no session token). If 404: the account hasn't added OSM Buildings from the Asset Depot yet — that is runbook step 2's own instruction, do it, re-run, and note that the runbook caught a real gap (that's the runbook working).
+
+- [ ] **Step 3: Commit** `docs(visual): cesium ion runbook + token smoke check (VM-060)`.
+
+---
+
+## Task 2 (VM-061): `GetCesiumNative.cmake` — pinned source build under clang/libc++, POD boundary held, symbols hygienic
+
+**Files:**
+- Create: `cuda/src/libs/visual_renderer/cmake/GetCesiumNative.cmake`
+- Create: `cuda/src/libs/visual_renderer/cmake/vcpkg-triplets/x64-linux-clang-libcxx.cmake`
+- Create: `cuda/src/libs/visual_renderer/cmake/vcpkg-clang-libcxx-toolchain.cmake` (the chainloaded compiler-forcing file the triplet points at)
+- Create: `cuda/src/libs/visual_renderer/smoke/cesium_link_probe.cpp`
+- Modify: `cuda/src/libs/visual_renderer/CMakeLists.txt` (include the new cmake file after `GetFilament.cmake`; link cesium targets PRIVATE; the `visual_renderer_stream` C++20 OBJECT-library block (Decision 3) for the — Task 3 — `src/environment_stream.cpp`; probe executable block mirroring `filament_link_probe`'s)
+- Modify: `cuda/src/libs/visual_renderer/scripts/merge_yamlcpp.sh` (extend the merge inputs + rename token list — Decision 4; the script's header comment gains a dated section for the spdlog/fmt extension)
+
+**Interfaces:** none new at the POD boundary — this task is build-integration only. Its ACs (backlog, verbatim): "Builds alongside Filament; POD header check still passes"; "Lib builds; hello-frame unchanged"; "`check_pod_header.sh` green; colcon green".
+
+- [ ] **Step 0: Compute the real SHA256, then write `GetCesiumNative.cmake`.** First: `curl -L -o /tmp/cn.tgz https://github.com/CesiumGS/cesium-native/archive/refs/tags/v0.64.0.tar.gz && sha256sum /tmp/cn.tgz`, then a second independent download to a different path and compare — only a twice-agreeing hash goes in the file (Decision 1: never fabricated). The file, following `GetFilament.cmake`'s exact conventions (pin header comment, version variable, configure-time availability, FATAL on failure):
+```cmake
+# GetCesiumNative.cmake — fetches and builds the pinned cesium-native release
+# from source, under THIS project's clang/libc++ toolchain.
+#
+# Pin (Epic 6, VM-061 — see docs/superpowers/plans/2026-08-18-visual-mode-epic6.md):
+#   CESIUM_NATIVE_VERSION = 0.64.0 (git tag v0.64.0, 2026-09-01). cesium-native
+#   publishes git tags only — no prebuilt binary SDK exists — so unlike
+#   GetFilament.cmake this is a SOURCE pin (tarball URL + sha256), and the
+#   prebuilt-glibc hazard that forced Filament's bisect does not apply: we
+#   compile everything here with our own toolchain. Requirements at this tag
+#   (upstream CHANGES.md / doc/topics/developer-setup.md): C++20 (since
+#   v0.42.0), CMake 3.15+, Clang 12+. Dependencies come from vcpkg in
+#   manifest mode (vcpkg.json), bootstrapped by EZVCPKG at configure time;
+#   the overlay triplet below forces every port onto clang/libc++ so no
+#   gcc/libstdc++ object ever enters this library's link (ADR-0003).
+#   Re-verify the toolchain build + the node-side symbol audit
+#   (scripts/merge_yamlcpp.sh header) before ever bumping — don't assume
+#   newer-is-safer.
+set(CESIUM_NATIVE_VERSION "0.64.0")
+set(CESIUM_NATIVE_URL
+    "https://github.com/CesiumGS/cesium-native/archive/refs/tags/v${CESIUM_NATIVE_VERSION}.tar.gz")
+set(CESIUM_NATIVE_SHA256
+    "<computed at implementation — Step 0; a fabricated hash is a FATAL_ERROR waiting to lie>")
+
+# Force every vcpkg port onto clang/libc++ (Decision 2 in the epic plan).
+set(VCPKG_OVERLAY_TRIPLETS "${CMAKE_CURRENT_LIST_DIR}/vcpkg-triplets" CACHE STRING "" FORCE)
+set(VCPKG_TARGET_TRIPLET "x64-linux-clang-libcxx" CACHE STRING "" FORCE)
+set(VCPKG_HOST_TRIPLET "x64-linux-clang-libcxx" CACHE STRING "" FORCE)
+
+# No tests, no tools — the YAML_CPP_BUILD_TOOLS lesson (CMakeLists.txt:89-93).
+set(CESIUM_TESTS_ENABLED OFF CACHE BOOL "" FORCE)
+set(CESIUM_COVERAGE_ENABLED OFF CACHE BOOL "" FORCE)
+# Same lesson: no third-party lint targets, no install pollution in our build —
+# all three default ON at v0.64.0 (upstream top-level CMakeLists 226-228, 302).
+set(CESIUM_ENABLE_CLANG_TIDY OFF CACHE BOOL "" FORCE)
+set(CESIUM_INSTALL_STATIC_LIBS OFF CACHE BOOL "" FORCE)
+set(CESIUM_INSTALL_HEADERS OFF CACHE BOOL "" FORCE)
+
+# cesium-native's cmake/macros/configure_cesium_library.cmake sets
+# COMPILE_WARNING_AS_ERROR YES plus -Wconversion/-Wsign-conversion/-Wshadow
+# on its own targets; we are not upstream's CI and do not gate our build on
+# their warning set under a compiler (clang-14/libc++-14) they never test.
+set(CMAKE_COMPILE_WARNING_AS_ERROR OFF)
+
+include(FetchContent)
+FetchContent_Declare(
+    cesium-native
+    URL "${CESIUM_NATIVE_URL}"
+    URL_HASH SHA256=${CESIUM_NATIVE_SHA256})
+FetchContent_MakeAvailable(cesium-native)
+```
+  (Exact option names `CESIUM_TESTS_ENABLED`/coverage/EZVCPKG re-verified against the tag's top-level CMakeLists at implementation — upstream renames happen; a wrong name here silently builds tests, which the probe step would catch as doctest link objects in the audit.)
+
+- [ ] **Step 1: The overlay triplet + chainload toolchain.** `vcpkg-triplets/x64-linux-clang-libcxx.cmake`:
+```cmake
+set(VCPKG_TARGET_ARCHITECTURE x64)
+set(VCPKG_CRT_LINKAGE dynamic)
+set(VCPKG_LIBRARY_LINKAGE static)
+set(VCPKG_CMAKE_SYSTEM_NAME Linux)
+set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/../vcpkg-clang-libcxx-toolchain.cmake")
+```
+  `vcpkg-clang-libcxx-toolchain.cmake` mirrors `toolchain-clang-libcxx.cmake`'s selection logic (PATH clang++ with co-located libc++.a, else the rootless prefix `${XDG_CACHE_HOME:-$HOME/.cache}/mpviz-toolchain` from `scripts/setup_toolchain.sh`) but in the minimal form vcpkg's chainload wants: set `CMAKE_C_COMPILER`/`CMAKE_CXX_COMPILER` and append `-stdlib=libc++` to `CMAKE_CXX_FLAGS_INIT`. Do NOT duplicate the selection logic twice — factor the compiler-finding into the existing `toolchain-clang-libcxx.cmake` via an `include()`d helper if the two files would otherwise diverge (checked at implementation; if the existing file's structure makes the include awkward, a comment in EACH file naming the OTHER as its must-stay-in-sync twin is the fallback, per the two-copies-cited convention Epic 3/4 used for `point_at`).
+  Configure the library fresh (`cmake --toolchain cmake/toolchain-clang-libcxx.cmake -B build-cesium -S .`) — expect a long first configure (vcpkg bootstrap + ~28 ports). **This step's own test:** after configure, verify the built ports are actually libc++: `strings <vcpkg_installed>/x64-linux-clang-libcxx/lib/libspdlog.a | grep -c __1` is nonzero (libc++'s `std::__1::` inline namespace) AND `nm -C libspdlog.a | grep -c 'std::__cxx11'` is zero (libstdc++'s ABI namespace). Record both numbers. Any port that fails to build: investigate that port individually (Decision 2's named unknown; blend2d and asmjit — JIT-heavy, platform-gated in, never tested by upstream under libc++ triplets — are the expected first failures) — do not fall back to a system copy.
+
+- [ ] **Step 2: Link + the C++20 OBJECT-library seam.** In `CMakeLists.txt`, after `include(cmake/GetFilament.cmake)`:
+```cmake
+include(cmake/GetCesiumNative.cmake)
+
+# C++20 quarantine (Decision 3): environment_stream.cpp compiles in its own
+# OBJECT library so it inherits cesium-native's FULL usage requirements --
+# include dirs, PUBLIC compile definitions (GLM_FORCE_INTRINSICS et al.,
+# configure_cesium_library.cmake:27-41 -- hand-copying only the include dirs
+# would silently change glm's SIMD layout in this TU vs the archives), and
+# the C++20 standard -- with nothing hand-copied to drift.
+list(REMOVE_ITEM _visual_renderer_srcs "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
+add_library(visual_renderer_stream OBJECT src/environment_stream.cpp)
+target_compile_features(visual_renderer_stream PRIVATE cxx_std_20)
+target_link_libraries(visual_renderer_stream PRIVATE
+    Cesium3DTilesSelection CesiumGltfWriter CesiumGltfReader CesiumAsync
+    CesiumCurl   # the shipped curl network accessor (Decision 15.6, resolved);
+                 # add CesiumUtility here too if the link demands it.
+                 # CesiumIonClient deliberately ABSENT: the ion handshake is the
+                 # Tileset ion ctor's job (Decision 15.6) -- nothing calls the
+                 # REST client directly; re-add only if the link proves otherwise.
+)
+target_include_directories(visual_renderer_stream PRIVATE src include)
+target_sources(visual_renderer PRIVATE $<TARGET_OBJECTS:visual_renderer_stream>)
+target_link_libraries(visual_renderer PRIVATE
+    Cesium3DTilesSelection CesiumGltfWriter CesiumGltfReader CesiumAsync CesiumCurl)
+```
+  (Target names re-verified against the tag — cesium-native exports plain target names from `add_subdirectory`; the exact minimal set is settled by what the probe + Task 3 actually reference, pruned before commit rather than linking all modules by reflex. The archives still link on `visual_renderer` itself — the OBJECT library only compiles, it does not carry link dependencies into the final archive.) `src/environment_stream.cpp` does not exist yet — to keep this task green standalone, the OBJECT-library block lands guarded by `if(EXISTS …/src/environment_stream.cpp)` with a comment saying Task 3 owns the file, and Step 3's probe is the compile proof. Build — the library itself compiles exactly as before (no TU includes cesium yet).
+
+- [ ] **Step 3: The link probe** — `smoke/cesium_link_probe.cpp`, same purpose as `filament_link_probe.cpp` (`CMakeLists.txt:230-239`): prove the archive set actually LINKS and RUNS, since a static-lib build alone never invokes the linker.
+```cpp
+// Links and exercises cesium-native across several of its archives
+// (Geospatial math, GltfReader parse, Async continuation) without network,
+// GPU, or Filament -- the link-recipe proof, per filament_link_probe's own
+// precedent. C++20 TU (cesium headers require it).
+#include <CesiumGeospatial/Ellipsoid.h>
+#include <CesiumGeospatial/LocalHorizontalCoordinateSystem.h>
+#include <CesiumGltfReader/GltfReader.h>
+#include <cstdio>
+int main() {
+    const auto& wgs84 = CesiumGeospatial::Ellipsoid::WGS84;
+    // ECEF of the recorded operating area's anchor (Epic 4 Decision 6) --
+    // real math through CesiumGeospatial, checked for sanity, not goldens.
+    CesiumGeospatial::LocalHorizontalCoordinateSystem enu(
+        CesiumGeospatial::Cartographic::fromDegrees(55.3910, 25.0803, 0.0));
+    auto ecef = enu.localPositionToEcef(glm::dvec3(0.0, 0.0, 0.0));
+    if (!(ecef.x > 5.0e6 && ecef.x < 7.0e6)) { std::puts("FAIL ecef"); return 1; }
+    CesiumGltfReader::GltfReader reader;  // constructing it pulls reader+deps archives
+    (void)reader; (void)wgs84;
+    std::puts("cesium_link_probe OK");
+    return 0;
+}
+```
+  CMake block mirrors `filament_link_probe`'s (explicit `add_executable`, cesium includes granted explicitly to the probe, `-std=c++20` property, `add_test`). Run — FAIL to even configure/link until Steps 0-2 are right; then PASS. This step also maps B06.2.1's "cyclic archive handling" AC: cesium-native's archives are consumed as CMake targets, so link ordering is dependency-driven rather than hand-listed like `FILAMENT`'s; if the probe surfaces an undefined-reference cycle anyway, the named fix is `-Wl,--start-group … -Wl,--end-group` around the cesium archive set (or `LINK_INTERFACE_MULTIPLICITY`), recorded in the results block — not a redesign. Also run `examples/hello_frame` — unchanged output (the "hello-frame unchanged" AC: cesium linked but unused must perturb nothing).
+
+- [ ] **Step 4: POD boundary checks.** `ctest -R check_pod_header` — green (nothing in `include/` changed). Add the belt-and-suspenders grep to this task's verification (and the review gate): `grep -rn "Cesium\|cesium" cuda/src/libs/visual_renderer/include/` → empty.
+
+- [ ] **Step 5: Symbol hygiene — extend the merge+rename pass (Decision 4).** Modify `scripts/merge_yamlcpp.sh`: the merge inputs grow from {yaml-cpp archive + visual_renderer objects} to also take, as additional trailing archive arguments, every cesium-native module archive plus vcpkg's `libspdlog.a` — plus `libfmt.a` IF the port set produced a separate one: spdlog's vcpkg port bundles fmt by default (`SPDLOG_FMT_EXTERNAL` off), so the `_ZN3fmt` definitions may live inside `libspdlog.a` itself, and the same prefix rename applies either way — the `nm --defined-only` audit is what decides which case this box is in (archives passed from the POST_BUILD command via `$<TARGET_FILE:...>` / the vcpkg lib dir — exact form settled at implementation, the archives' on-disk names verified there); the rename-token extraction grows from mangled names containing the `YAML` token to also match the prefixes `_ZN6spdlog` and `_ZN3fmt` (definitions AND the references inside the co-merged cesium objects, which `--redefine-syms` on the single `ld -r` object handles together — the property the yaml recipe already proved). The script's header comment gains a dated paragraph: why spdlog/fmt (rcl_logging_spdlog in-process, gcc/libstdc++), and why the cesium archives ride along in the merge (their spdlog references must be renamed in lockstep with the definitions). **Verification, per the script's own established recipe:** `nm --defined-only` anchored-column-3 audit on the fresh archive — zero un-renamed `spdlog::`/`fmt::`/`YAML::` defined symbols; plus the new audit list from Decision 4.3: record (not necessarily rename) defined-symbol namespace overlap for draco/ktx/meshoptimizer/s2geometry against the node process's loaded set (`ldd` on the node executable + `nm -D` of `librcl_logging_spdlog.so`'s dependency chain). Any C++ overlap found beyond spdlog/fmt = a review-gate finding.
+
+- [ ] **Step 6: The node still builds and runs — the real ABI test.** `cuda/scripts/ros_apps_build/colcon_build.sh` — green; the node's full gtest suite — green (the merged archive with cesium inside is now on the node's gcc link line, which is exactly where recipe-2's "defined in discarded section" and recipe-3's silent corruption showed up last time; a green suite here is the empirical all-clear, per the merge script's own history). Record link time + archive size in the results block (this merge grows the archive substantially; if link time becomes obnoxious it is a finding, not a silent cost).
+
+- [ ] **Step 7: Commit** `build(visual): GetCesiumNative.cmake — cesium-native v0.64.0 source pin under clang/libc++, spdlog/fmt symbol rename (VM-061)`.
+
+---
+
+## Task 3 (VM-062): `StreamingEnvironmentSource` — 3D Tiles behind the existing seam
+
+**Files:**
+- Create: `cuda/src/libs/visual_renderer/src/environment_stream.hpp` (library-internal AND C++20-only — included by `environment_stream.cpp` and nothing else, enforced by its own `static_assert(__cplusplus >= 202002L, ...)` — Decision 3)
+- Create: `cuda/src/libs/visual_renderer/src/environment_stream.cpp` (the ONE C++20 TU; master plan's named deliverable)
+- Modify: `cuda/src/libs/visual_renderer/src/environment.hpp` (append the cesium-free factory declaration + `virtual size_t loaded_count() const = 0;` on `EnvironmentSource` + `loaded_count()` override on `BakedEnvironmentSource` forwarding to `loaded_chunk_count()` — Decisions 3, 12; `update`/`teardown` signatures VERBATIM-untouched)
+- Modify: `cuda/src/libs/visual_renderer/src/environment.cpp` (the `ion://` dispatch in `set_environment_source` — Decision 5; drop the test hook's downcast — Decision 12)
+- Modify: `cuda/src/libs/visual_renderer/include/visual_renderer/scene.h` (COMMENT-ONLY: `set_environment_source`'s doc block gains the `ion://` form + `CESIUM_ION_TOKEN` contract; no declaration changes, no version bump)
+- Create: `cuda/src/libs/visual_renderer/tests/test_environment_stream.cpp`
+- Create: `cuda/src/libs/visual_renderer/tests/fixtures/environment_ion_fixture_0/` (Named fixture gap 1 — small committed tileset.json + tiles; grep-verified token-free before commit)
+- Modify: `cuda/src/libs/visual_renderer/src/environment_test_hooks.hpp` — APPEND the streaming test hooks (exact signatures in Interfaces below); the existing `environment_loaded_chunk_count(VisualRenderer*)` declaration is unchanged (so `test_environment.cpp` is untouched) and its definition now routes through the `loaded_count()` virtual. Every appended hook is DEFINED in `environment_stream.cpp` (the single C++20 TU) — the header stays C++17-safe and cesium-free, so the Decision 3 quarantine and its grep gate still hold
+
+**Interfaces (library-internal; the POD boundary gains NOTHING in this task):**
+```cpp
+// environment.hpp appends (C++17-safe, cesium-free -- Decision 3):
+// Streaming backend factory, defined in environment_stream.cpp (the C++20
+// TU). `ion_spec` is source_uri with the "ion://" prefix already stripped:
+// "<assetId>[?cache=<dir>][&fallback=<baked_dir>][&max_cache_items=<n>]".
+// Reads CESIUM_ION_TOKEN from the environment; nullptr on missing/empty
+// token, unparseable asset id, or cache-open failure -- same non-fatal
+// contract as open_baked_environment_source above (caller WARNs).
+std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::string& ion_spec,
+                                                                     GeoAnchor anchor);
+
+// environment_test_hooks.hpp APPENDS (C++17-safe, cesium-free — the test TUs
+// are plain C++17 with no cesium include dirs AND no Filament include dirs,
+// so they can never include environment.hpp: EnvironmentSource is an
+// INCOMPLETE type in every test TU, and no std::unique_ptr<EnvironmentSource>
+// may cross this surface (instantiating ~unique_ptr on an incomplete type —
+// which a local variable, a structured binding, or even a by-value parameter
+// the caller destroys under the Itanium ABI all do — hits default_delete's
+// "can not delete incomplete type" static_assert). So construction AND
+// install both happen inside environment_stream.cpp; the hooks trade only a
+// bool / an opaque handle. The header #includes "visual_renderer/scene.h"
+// for GeoAnchor (POD public header, safe). EVERY function below is DEFINED
+// in environment_stream.cpp, the single C++20 TU — and the concrete
+// FileFixtureAssetAccessor / KillableFixtureAccessor (IAssetAccessor
+// implementations, hence cesium types) are file-local THERE, never in tests/,
+// so Decision 3's quarantine + grep gate hold unchanged.
+namespace mpviz { namespace testing {
+struct FixtureStreamHandle;  // opaque kill-switch handle; owned by the source
+                             // it came from, valid until that source's teardown
+// Build a streaming source served entirely from a committed fixture dir
+// (Decision 13) and install it on the renderer (teardown-first, replacing any
+// current source) — construction + install in ONE call, entirely inside the
+// C++20 TU. No network, no token. Returns false on failure (renderer untouched).
+bool install_fixture_streaming_source(VisualRenderer*, const char* fixture_dir,
+                                      GeoAnchor anchor);
+// Same, plus a baked fallback dir and a kill switch for Task 4's network-loss
+// e2e. Returns the kill-switch handle; nullptr on failure.
+FixtureStreamHandle* install_fixture_streaming_source_with_fallback(
+    VisualRenderer*, const char* fixture_dir, const char* fallback_baked_dir,
+    GeoAnchor anchor);
+// Flip the kill switch: every subsequent fixture "network" request fails.
+void kill_fixture_network(FixtureStreamHandle*);
+}}  // namespace mpviz::testing
+
+// environment_stream.hpp (C++20-only, cesium types allowed):
+class StreamingEnvironmentSource : public EnvironmentSource {
+public:
+    // externals carry the composed accessor stack (CesiumCurl -> Counting ->
+    // Caching(SqliteCache), built by the factory -- the cache db path lives in
+    // that stack, not here) + task processor + AsyncSystem, so externals ARE
+    // the test seam: the fixture install hooks pass externals whose accessor
+    // is FileFixtureAssetAccessor / KillableFixtureAccessor with asset_id = 0
+    // and root_tileset_uri pointing at the fixture's tileset.json (the Tileset
+    // URL ctor); the real factory passes asset_id > 0 + the env token and an
+    // empty root_tileset_uri (the Tileset ion ctor, Decision 15.6).
+    StreamingEnvironmentSource(Cesium3DTilesSelection::TilesetExternals externals,
+                               int64_t asset_id,
+                               std::string ion_access_token,
+                               std::string root_tileset_uri,
+                               std::string fallback_baked_dir,
+                               GeoAnchor anchor);
+    void update(VisualRenderer& r, Vec3 ego_map_pos) override;   // VERBATIM seam signature
+    void teardown(VisualRenderer& r) override;                    // VERBATIM seam signature
+    size_t loaded_count() const override;  // tiles currently added to r.scene
+};
+```
+
+- [ ] **Step 0: Fixture first.** Fetch, once, with the live token: the chosen asset's endpoint → root tileset.json → follow to a leaf subtree covering ~one city block at the recorded anchor (`25.0803, 55.3910`) → save tileset.json (rewritten with RELATIVE uris so no ion host/session appears in it) + 2-4 content tiles into `tests/fixtures/environment_ion_fixture_0/`. Add a `PROVENANCE.md` (asset id, fetch date, the rewrite applied — the `ATTRIBUTION.md` convention; OSM-derived data ⇒ ODbL note, same as Epic 4's). **Gate before staging:** `grep -rIn "eyJ\|access_token\|Bearer" tests/fixtures/environment_ion_fixture_0/` → empty (ion tokens are JWTs — `eyJ` catches them), and total size sanity `du -sh` recorded (this must stay a small fixture, < ~2 MB; pick a smaller leaf if not).
+
+- [ ] **Step 1: Failing test — dispatch + factory skeleton, no cesium behavior yet.** `test_environment_stream.cpp`:
+```cpp
+TEST(EnvironmentStream, IonUriWithoutTokenIsNonFatalFalse) {
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP();
+    ::unsetenv("CESIUM_ION_TOKEN");  // this test binary's env only; never touches the box's shell
+    GeoAnchor a{25.0803, 55.3910, 0.0};
+    EXPECT_FALSE(mpviz::set_environment_source(r, "ion://96188", a));  // no token -> false, no crash
+    std::vector<uint8_t> buf(320 * 240 * 3);
+    EXPECT_TRUE(mpviz::render_frame(r, pose, {buf.data(), 320, 240}));  // spec §9: renders, no buildings
+    mpviz::destroy_renderer(r);
+}
+TEST(EnvironmentStream, NonIonUriStillOpensBakedSource) {
+    // Regression pin for Decision 5's "byte-identical baked path": the
+    // existing fixture town still opens through the SAME entry point (this
+    // test exists so the DISPATCH edit has a failing test of its own, not to
+    // re-prove the baked source -- test_environment.cpp does that).
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP();
+    GeoAnchor a{25.0803, 55.3910, 0.0};
+    EXPECT_TRUE(mpviz::set_environment_source(r, kTestTownDir, a));
+    mpviz::SceneGraph s{}; s.ego.valid = 1; s.ego.position = kChunk0Center;
+    mpviz::set_scene(r, s);
+    std::vector<uint8_t> buf(320 * 240 * 3);
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {buf.data(), 320, 240}));  // one update() pump
+    EXPECT_GT(mpviz::testing::environment_loaded_chunk_count(r), 0u);
+    mpviz::destroy_renderer(r);
+}
+```
+  Run — FAIL. This step pins exactly ONE observable: `ion://` returns `false` without a token while a plain path still returns `true`, both through the one unchanged entry point. Implement: the ~30-line prefix/query splitter + dispatch in `set_environment_source` (`environment.cpp:163` — the function's own comment updated: the "Epic 6's VM-063 adds selection" note comes true here), factory skeleton in `environment_stream.cpp` that validates token + asset id and returns nullptr (no tileset yet). Also land Decision 12's `loaded_count()` virtual + hook de-downcast now (pure refactor; `test_environment.cpp` stays green as its own proof). Run — PASS.
+
+- [ ] **Step 2: The cesium plumbing — externals, accessor stack, tileset, fixture-served tiles reach the Filament scene.** Failing test:
+```cpp
+TEST(EnvironmentStream, FixtureTilesLoadRenderAsClayAndCount) {
+    // FileFixtureAssetAccessor serves tests/fixtures/environment_ion_fixture_0/
+    // (test-only accessor injected through the internal ctor; the public
+    //  ion:// path is exercised by Task 1's smoke check + the validation rig,
+    //  never by ctest -- Global Constraints' network discipline).
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP();
+    ASSERT_TRUE(mpviz::testing::install_fixture_streaming_source(
+        r, kIonFixtureDir, GeoAnchor{25.0803, 55.3910, 0.0}));  // internal test hook, environment_test_hooks.hpp
+    mpviz::SceneGraph s{}; s.ego.valid = 1; s.ego.position = kFixtureBlockCenterMap;  // from PROVENANCE.md
+    mpviz::set_scene(r, s);
+    for (int i = 0; i < 200 && mpviz::testing::environment_loaded_chunk_count(r) == 0; ++i) {
+        ASSERT_TRUE(mpviz::render_frame(r, pose, {buf.data(), 320, 240}));  // update() pumps cesium's main-thread work
+    }
+    EXPECT_GT(mpviz::testing::environment_loaded_chunk_count(r), 0u);
+}
+```
+  Run — FAIL. Implement, in `environment_stream.cpp`:
+  - **Accessor stack** (bottom-up): `CesiumCurl`'s network accessor → `CountingAssetAccessor` (ours; consecutive-failure counter for Task 4) → `CachingAssetAccessor(SqliteCache(dbPath, maxItems))` (Decision 10), handed to `TilesetExternals`. The ion handshake is NOT in this stack: the `Tileset` ion ctor — `Tileset(externals, asset_id, ion_access_token, options)` — performs it and constructs its own session-token-refresh accessor internally (Decision 15.6; nothing hand-rolled; the fixture path uses the URL ctor with the fixture's tileset.json instead). A 2-thread `ITaskProcessor` (std::thread pool, ~20 lines). `AsyncSystem` from that.
+  - **`IPrepareRendererResources`**: `prepareInLoadThread` = construct a `CesiumGltfWriter::GltfWriter`, call `writeGlb(model, bufferData)` with the model's binary chunk passed explicitly from `model.buffers[i].cesium.data` (single buffer → pass `buffers[0].cesium.data`; more than one buffer → skip the tile, counted, per Decision 7 — until 15.4's real-tile verify says consolidation is needed), check `GltfWriterResult::errors` before handing the bytes on → bytes (Decision 7's re-serialize; NO Filament calls off-thread); `prepareInMainThread` = the verbatim baked ingestion sequence `createAsset → loadResources → releaseSourceData → remap every primitive to r.buildingMaterial` (mirroring `environment.cpp:63-84` — cite it in a comment, don't paraphrase it) + root transform `ecef_to_map * tileTransform` via `TransformManager` (Decision 8); `free()` = enqueue the asset onto a main-thread destruction queue drained at the top of `update()` (Filament is single-threaded; `free` can arrive from any thread).
+  - **`update(r, ego_map_pos)`**: drain the destruction queue; synthesize the nadir `ViewState` from `ego_map_pos` (Decision 9's named constants); `const Cesium3DTilesSelection::ViewUpdateResult& result = tileset->updateViewGroup(viewGroup_, {view}, deltaTimeSeconds);` then `tileset->loadTiles();` — `viewGroup_` is the `TilesetViewGroup&` from `tileset->getDefaultViewGroup()` held since open, `deltaTimeSeconds` is the tick period, and the `loadTiles()` call is NOT optional (without it no tile ever loads; `updateView` is deprecated at v0.64.0 — Decision 9 / Decision 1's fact list); add entities of `result.tilesToRenderThisFrame` (`ViewUpdateResult.h:30`) whose prepared asset exists, remove entities of tiles that left the render set. `loaded_count()` = tiles currently in-scene.
+  - **`teardown(r)`**: `~Tileset()` does NOT join in-flight async work — upstream's own doc at the pinned tag says tiles currently loading "cannot be unloaded immediately. These tiles will be unloaded asynchronously some time after this destructor returns", pointing at `getAsyncDestructionCompleteEvent()`. A late async `IPrepareRendererResources::free()` after teardown returned would land on the destroyed `r.sharedAssetLoader`/`sharedResourceLoader` — a use-after-free in `destroy_renderer()`, precisely the failure the seam contract exists to prevent (`environment.hpp:37-42`). So the wait is EXPLICIT, not assumed: (1) set a torn-down flag — it turns `free()` and the main-thread destruction queue into safe no-ops for anything arriving after this point; (2) capture `getAsyncDestructionCompleteEvent()`, destroy the tileset, then pump `asyncSystem.dispatchMainThreadTasks()` in a bounded loop until that event has fired (`kTeardownPumpBound` named constant — `// ponytail: bounded join; hitting the bound means cesium's async work is wedged, so we leak its in-flight tiles rather than hang destroy_renderer, and log-count the leak in the results block`); (3) only THEN remove + destroy every remaining in-scene and queued asset via `r.sharedAssetLoader->destroyAsset` and return — teardown provably outlives cesium's async destruction before the shared loaders die.
+  Run — PASS. Also re-run the FULL existing suite — `test_environment.cpp` and every golden untouched (Decision 13's "baked path byte-identical" claim, empirically).
+
+- [ ] **Step 3: Placement cross-pin — cesium's ECEF→map agrees with the repo's own `WgsToMap` math**, asserted against the committed cross-language pin fixture `tests/fixtures/geo_anchor_cpp_pin_0.json` (Epic 4 Task 2 Step 2's artifact) — against the data that fixture ACTUALLY holds, both halves of it: **(a)** the `probes` array — the four offsets `{0,0}, {0.01,0}, {0,0.01}, {-0.015,0.02}` at anchor `{25.0803, 55.3910, heading_rad=0.0}` — pins the projection term; **(b)** the single `probes_nonzero_heading` entry — anchor `heading_rad=0.35`, probe `lat 25.085, lon 55.395` — pins the heading-rotation term (the fixture's own `_provenance` note says exactly this split: "pins the heading-rotation term, which the heading-0 probes cannot see"). For each probe, assert `ecef_to_map * wgs_to_ecef(lat, lon, 0)` (the streaming transform chain) lands within **0.5 m** of the fixture's recorded `map_x`/`map_y`/`map_z` (one truth table, three implementations — the established convention for exactly this drift risk; the 0.5 m bar is wider than the Python pin's 1e-3 m because equirectangular-vs-ellipsoidal genuinely diverge over 2 km, and 0.5 m is well under a building footprint). The fixture is consumed AS-IS, never regenerated by this step; if a wider nonzero-heading table ever proves necessary, that is an explicit new deliverable (regenerate + commit, with `geo_anchor.cpp`'s `WgsToMap` as the source of truth), not something this step pretends already exists. Run — FAIL until the transform composition is right (sign/axis-order bugs in heading rotation are THE classic failure here, and the single nonzero-heading probe is what catches them) — then PASS.
+
+- [ ] **Step 4: Disk cache proves itself.** Failing test: construct the fixture streaming source with a `CountingAssetAccessor` wrapping the fixture accessor and a real `SqliteCache` in a temp dir; load the block (as Step 2); tear down; construct a SECOND source over the same cache dir but with the fixture accessor replaced by an always-fails accessor; pump; assert `loaded_count() > 0` (tiles came from the sqlite cache with the "network" dead — B06.3.4's AC "second run loads with network disabled", realized deterministically). Run — FAIL then PASS. If `CachingAssetAccessor`'s freshness rules block the offline read (Decision 10's named unknown), implement serve-stale-on-error in `CountingAssetAccessor` and record the deviation here with the header evidence.
+
+- [ ] **Step 5: Golden + theming.** One golden, one theme (`environment_stream_dark_adas.png`, fixture block, `kThemeDir` real theme dir — the Epic 4 Step 4 lesson: a stubbed theme path passes for the wrong reason), P3 golden-scoping (Decision 13). No new theme token, no new `.mat` — assert the rendered buildings read `palette.building` clay by the golden itself. Run — FAIL (no golden yet) → render, human-check, promote per the promotion convention → PASS.
+
+- [ ] **Step 6: Perf check (dev-box proxy, same status as every `budget_probe.md` number).** `render_ms` with the fixture stream loaded vs no environment, default preset: record the delta against Epic 4's same `< 2 ms` bar, PLUS the worst single-frame spike during tile load (the new failure mode streaming adds — `prepareInMainThread` does `createAsset` on the render thread; if a spike exceeds the frame budget, cap main-thread tile creations per tick (`kMaxTileCreatesPerTick`, start 1) and re-measure — the knob is named here so the fix is a constant, not a redesign). Record both numbers in the results block.
+
+- [ ] **Step 7: Commit** `feat(visual): StreamingEnvironmentSource — 3D Tiles via cesium-native behind the VM-052 seam, ion:// dispatch, disk cache (VM-062)`.
+
+---
+
+## Task 4 (VM-063): Source selection param plumbing + baked fallback on network loss + e2e
+
+**Files:**
+- Modify: `cuda/src/libs/visual_renderer/include/visual_renderer/scene.h` (append `EnvironmentSourceState` enum + `environment_source_state()` free function — Decision 11; `kSceneVersion` 5 → 6 for the appended type, GeoAnchor precedent)
+- Modify: `cuda/src/libs/visual_renderer/tests/test_scene_buffer.cpp` + `cuda/src/ros_apps/src/micropilot_visualization_node/test/test_scene_layout.cpp` (`static_assert(kSceneVersion == 5, ...)` → `== 6` in BOTH; `sizeof(EnvironmentSourceState) == 1` assert in both layout tables)
+- Modify: `cuda/src/libs/visual_renderer/src/environment_stream.cpp` + `src/environment.hpp`/`.cpp` (fallback machinery + state reporting — Decision 11; `EnvironmentSource` gains `virtual EnvironmentSourceState state() const` with the obvious two-liner overrides)
+- Modify: `cuda/src/libs/visual_renderer/tests/test_environment_stream.cpp` (the fallback e2e)
+- Modify: `cuda/src/ros_apps/src/micropilot_visualization_node/config/default_params.yaml` (append `environment_source_uri: ""` — empty = keep using `environment_chunks_dir` as a baked dir, existing deployments unchanged; `environment_tile_cache_dir: ""` — empty = the library default, Decision 10)
+- Modify: `cuda/src/ros_apps/src/micropilot_visualization_node/src/visualization_node.cpp` (param declares; URI composition; per-tick state poll + WARN-once latch). **No new node-side `.cpp`** — no hand-written-source-list edit (Global Constraints), stated explicitly.
+
+**Interfaces:**
+```cpp
+// scene.h, appended (ADR-0004 additive; enum-class-uint8_t precedent: ObjectClass):
+enum class EnvironmentSourceState : uint8_t {
+    NONE = 0,                // no source configured (set_environment_source never succeeded)
+    BAKED = 1,               // BakedEnvironmentSource active (a plain-path source_uri)
+    STREAMING = 2,           // ion:// source active, network healthy (or untested)
+    STREAMING_FALLBACK = 3,  // ion:// source declared network loss and switched to its
+                             // &fallback= baked dir (one-way until restart -- Decision 11)
+};
+// Free function, POD-only, bumps nothing by itself (VM-090 precedent); the
+// appended ENUM above is what bumps kSceneVersion 5 -> 6. Returns NONE on
+// null r / no source. One virtual call + integer -- safe to poll per tick.
+EnvironmentSourceState environment_source_state(VisualRenderer*);
+```
+Node param composition (visualization_node.cpp, `on_activate()`, replacing the current single-arg call site at the existing `set_environment_source` block, `visualization_node.cpp:596-629`): if `environment_source_uri_` is empty → pass `environment_chunks_dir_` exactly as today; else compose `environment_source_uri_ + "?cache=" + tile_cache_dir (if set) + "&fallback=" + environment_chunks_dir_ (if set)` — so a streamed deployment's baked bake (Epic 4's own output) is automatically its fallback with zero extra config. **The not-configured gate CHANGES** (this is a concrete edit, not kept as-is): today's first branch at `visualization_node.cpp:605` is `if (environment_enabled_ && environment_chunks_dir_.empty())` → WARN "environment_chunks_dir is empty -- environment layer disabled this run", and only its else-branch calls `set_environment_source` — which would silently disable a streaming-only deployment (`ion://` URI, no bake; a supported config, since Decision 11 makes `&fallback=` optional and this task's `default_params.yaml` ships `environment_source_uri: ""` alongside an unchanged chunks dir). The branch becomes `environment_enabled_ && environment_chunks_dir_.empty() && environment_source_uri_.empty()`, and its WARN names BOTH params ("neither environment_chunks_dir nor environment_source_uri is set -- environment layer disabled this run"). The composed-URI branch must be reachable with an empty chunks dir: then no `&fallback=` is appended (Decision 11's no-fallback path — tiles freeze at whatever the cache serves, state still reported). The `solved()`-anchor gate is the ONLY gating that stays verbatim. Known ceiling from Decision 5 restated at the composition site: paths containing `?`/`&` unsupported, commented.
+
+- [ ] **Step 0: The POD append, both layout tables, version bump.** Failing state: both `static_assert(kSceneVersion == 5)` sites. Append the enum + free-function declaration to `scene.h` (comment block as in Interfaces above); bump 5 → 6; update BOTH asserts + add the `sizeof == 1` line to both layout tables. Implement `environment_source_state()` in `environment.cpp` (NONE / delegate to the new `state()` virtual). `ctest -R check_pod_header` green; library + node layout tests green.
+
+- [ ] **Step 1: Failing library test — fallback fires, baked chunks appear, state transitions.** The e2e (deterministic realization of "kill network mid-run", Named fixture gap 2):
+```cpp
+TEST(EnvironmentStream, NetworkLossFallsBackToBakedChunksOnce) {
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP();
+    // Fixture source with a kill switch (KillableFixtureAccessor is a cesium
+    // type living inside environment_stream.cpp -- this C++17 test sees only
+    // the opaque FixtureStreamHandle, Task 3's Interfaces), fallback pointed at
+    // Epic 4's committed baked test town (the REAL fallback content path, not a stub).
+    auto* killable = mpviz::testing::install_fixture_streaming_source_with_fallback(
+        r, kIonFixtureDir, kTestTownDir, GeoAnchor{25.0803, 55.3910, 0.0});
+    ASSERT_NE(killable, nullptr);
+    // Phase 1: healthy -- stream tiles in (Task 3 Step 2's pump loop).
+    pump_until_loaded(r);
+    EXPECT_EQ(mpviz::environment_source_state(r), mpviz::EnvironmentSourceState::STREAMING);
+    // Phase 2: kill the network mid-run; keep ego moving so new tile
+    // requests actually fire (a stationary ego issues none and would pass vacuously).
+    mpviz::testing::kill_fixture_network(killable);
+    drive_ego_across_fixture_and_town(r);  // helper: advances s.ego.position each tick toward kChunk0Center
+    // Fallback declared after kNetworkLossConsecutiveFailures failed requests:
+    EXPECT_EQ(mpviz::environment_source_state(r), mpviz::EnvironmentSourceState::STREAMING_FALLBACK);
+    // AC: "baked chunks appear" -- the count now reports the BAKED town's chunks:
+    EXPECT_GT(mpviz::testing::environment_loaded_chunk_count(r), 0u);
+    // And the streamed tiles are GONE (torn down, not orphaned -- the teardown
+    // discipline): loaded_count is the baked source's number, and render_frame
+    // still succeeds every tick throughout (asserted inside the pump helpers).
+}
+```
+  Run — FAIL. Implement Decision 11's machinery: `CountingAssetAccessor::kill()`-visible failure counting, the one-way switch (teardown streamed assets → `open_baked_environment_source(fallback_dir_, anchor_)` → delegate), `state()` overrides. Run — PASS. Add the negative test: no `&fallback=` given → state still transitions to `STREAMING_FALLBACK`, `loaded_chunk_count` goes to 0, no crash, `render_frame` keeps returning true (spec §9 all the way down).
+
+- [ ] **Step 2: Node param plumbing + WARN-once.** Declare `environment_source_uri`/`environment_tile_cache_dir` in `on_configure()` next to the existing `environment_enabled`/`environment_chunks_dir` block (`visualization_node.cpp:282-283`); compose the URI at the existing `on_activate()` call site per Interfaces above — including the gating edit spelled out there: the not-configured branch at `visualization_node.cpp:605` becomes `environment_enabled_ && environment_chunks_dir_.empty() && environment_source_uri_.empty()` with a WARN naming both params, and the composed-URI branch is reachable with an empty chunks dir (no `&fallback=` appended, Decision 11). The `solved()`-anchor gate is the only gating that stays verbatim (streaming needs the anchor MORE than baked does, Decision 8, so that gate is already correct); add the per-tick `environment_source_state()` poll with a `bool fallback_warned_` latch → `RCLCPP_WARN` exactly once on transition to `STREAMING_FALLBACK` (message names the fallback dir it switched to, or "none configured — environment now empty"). Node-side gtest for the WARN: none exists for lifecycle WARN paths in this suite (Epic 4 Task 3 deviation 2's standing gap, unchanged) — documented as the launch-level/manual check in the validation rig, honestly, same as `hud_enabled` was.
+  `default_params.yaml`: the two new keys, each with the comment convention the file already uses (what it does, what empty means, the `?`/`&` path ceiling, and for the cache dir: the USER-DECISION-pending default + `ion://` example referencing `docs/visual_mode/cesium.md` — by name, never by token value).
+
+- [ ] **Step 3: Full-suite regression + colcon.** Library ctest suite green (goldens untouched by the state addition); `colcon_build.sh` + node gtests green (`test_scene_layout.cpp`'s `== 6` mirror is the cross-toolchain agreement proof). Run the validation rig manually with `environment_source_uri: ion://96188` on this box (live network, real token): tiles appear (B06.3.1's AC), then `sudo ip link set <iface> down` mid-run (or pull the cable) → the one WARN fires and baked chunks appear — record in the results block. This is the one genuinely-live check in the epic and it is a manual runbook-style step, not ctest.
+
+- [ ] **Step 4: Commit** `feat(visual): environment source selection (ion:// param) + baked fallback on network loss + state hook (VM-063)`.
+
+---
+
+## Golden scoping (P3, applied to this epic)
+
+One new golden (`environment_stream_dark_adas.png`, Task 3 Step 5), **one theme** — a lit-geometry category golden, the same class Epic 4's `environment_test_town_dark_adas.png` shipped as, per the 2026-09-07 user decision. No theming-subject golden exists in this epic (no new palette token — `palette.building` already ships in both themes since Epic 4).
+
+## Review gate
+
+Opus reviewer signs off against:
+
+- **The pin is real:** `CESIUM_NATIVE_SHA256` in `GetCesiumNative.cmake` matches an independently re-downloaded v0.64.0 tarball (the reviewer re-downloads and re-hashes — a plan-time hash was deliberately never written).
+- **ADR-0004 held; exactly one `kSceneVersion` bump (5 → 6), justified by the appended `EnvironmentSourceState` enum.** `git diff <epic-start> -- include/visual_renderer/` shows ONLY: the enum, `environment_source_state`, and comment-text edits on `set_environment_source`. **`set_environment_source`'s declaration line is byte-identical before and after this epic** — diff the declaration specifically, don't take this document's word.
+- **POD boundary held:** `check_pod_header.sh` green AND `grep -rn "Cesium\|cesium" include/` empty AND no TU other than `environment_stream.cpp` includes a cesium header or `environment_stream.hpp` (`git grep -ln "include <Cesium\|environment_stream.hpp" -- cuda/src/libs/visual_renderer/src cuda/src/libs/visual_renderer/tests` → exactly `environment_stream.cpp` plus, for the hpp, nothing else).
+- **The libc++ discipline reached the vcpkg ports** — the reviewer re-runs Step 1's `strings`/`nm` check on at least libspdlog.a and one C++ port (draco or s2geometry): `std::__1::` present, `std::__cxx11` absent.
+- **The symbol rename is complete on the risk set:** `nm --defined-only` on the shipped `libvisual_renderer.a` shows zero un-renamed `spdlog::`/`fmt::`/`YAML::` defined symbols, AND zero unresolved `_ZN6spdlog`/`_ZN3fmt` references escaping the archive (`nm -u`), AND the node's full gtest suite is green (the empirical ABI test recipe-3's failure taught us to trust over any static check).
+- **`CESIUM_ION_TOKEN` never lands anywhere:** `git grep -rn CESIUM_ION_TOKEN` across the diff shows only `getenv` call sites, the runbook/param-comment references by name, and the smoke script; the committed fixture passes the `eyJ`/`Bearer` grep; no test output, log line, or comment carries a token-shaped string.
+- **The baked path is untouched:** every Epic 4 environment test and golden passes unmodified (not re-recorded); the dispatch's non-`ion://` branch is `open_baked_environment_source` verbatim.
+- **Ingestion reuse is real, not parallel code:** `environment_stream.cpp`'s main-thread prepare uses the same `createAsset → loadResources → releaseSourceData → setMaterialInstanceAt(..., r.buildingMaterial)` sequence — the reviewer diffs it against `environment.cpp:63-84` for drift, and confirms **no new `.mat` file** and no non-opaque material anywhere in the diff (fresh-opaque convention).
+- **No Filament call off the render thread:** `prepareInLoadThread` and the accessor/task-processor threads touch no `filament::`/`gltfio` API; `free()` routes through the main-thread destruction queue — verified by reading, plus a TSAN-or-assert spot check if the harness allows.
+- **Placement is one root transform, no per-tick geo math:** `git grep -n "WgsToMap\|LocalHorizontal" -- cuda/src/libs/visual_renderer/src/environment_stream.cpp` shows the transform built at open, applied per-asset-load only; `update()` does selection + queue-drain, nothing trigonometric per tick. The Step 3 cross-pin test passes against the SAME committed truth table Epic 4 created.
+- **Fallback is provable and one-way:** the e2e passes; the no-fallback-dir negative test passes; the WARN fires exactly once (latch, not `_ONCE` sugar — the Epic 4 Step 4 precedent); state transitions are the observable, not log-scraping.
+- **The teardown discipline holds under fallback and re-entry:** a second `set_environment_source` call over a live streaming source tears down every streamed asset (the Epic 4 review-round-1 re-entry lesson, re-checked for the new concrete type); `destroy_renderer` with a mid-flight tileset neither leaks nor use-after-frees. **Teardown must be PROVEN to outlive cesium's async destruction, not assumed to:** `~Tileset()` does not join in-flight work (upstream doc), so the reviewer verifies teardown pumps `dispatchMainThreadTasks()` until `getAsyncDestructionCompleteEvent()` has fired (bounded by `kTeardownPumpBound`) BEFORE touching the shared loaders, and that `free()` + the destruction queue are no-ops behind the torn-down flag.
+- **Element-config directive honored by reuse:** streamed buildings obey `environment_enabled` (never reaching `set_environment_source` at all when false — existing node gate) and render in `palette.building` — the reviewer flips the theme in the rig and watches the streamed clay follow it.
+- **Network discipline:** `ctest` passes on a box with networking disabled and no `CESIUM_ION_TOKEN` set — the whole suite, not just the new tests.
+- **No task exceeded scope:** no camera-driven tile selection, no auto-recovery from fallback, no direct Model→Filament builder, no Epic 5 work smuggled in — each named ceiling appears as its `ponytail:`-style comment at the site, not silently built.
+- **Every named fixture gap and open unknown from this plan is resolved-with-evidence or restated in the artifact** (code/script comments and the results block), not dropped.
+
+## Epic 6 results (fill at close)
+
+- v0.64.0 tarball SHA256 as computed (twice) at implementation: ____
+- vcpkg port set built under `x64-linux-clang-libcxx`: all green? ports needing intervention: ____
+- `CESIUM_SQLITE` prefixing confirmed? C-lib interposition audit outcome (curl/openssl/sqlite3/zlib vs node's `ldd` set): ____
+- Accessor stack composed as `CesiumCurl` → `CountingAssetAccessor` → `CachingAssetAccessor(SqliteCache)`, ion handshake via the `Tileset` ion ctor (Decision 15.6, resolved pre-implementation)? deviations: ____ ; teardown `kTeardownPumpBound` ever hit (leaked-tile count): ____
+- `writeGlb` fidelity vs a real OSM Buildings tile: ____
+- Offline-cache behavior: `CachingAssetAccessor` alone, or serve-stale-on-error added (Decision 10 unknown): ____
+- Merged-archive size + node link time before/after cesium fold-in: ____
+- `render_ms` delta streaming vs none (dev-box proxy, AC < 2 ms): ____ ; worst single-frame tile-load spike + whether `kMaxTileCreatesPerTick` was needed: ____
+- Placement cross-pin worst error vs the Epic 4 truth table (bar 0.5 m): ____ ; `kStreamHeightOffsetM` needed? ____
+- Live rig check (Task 4 Step 3): tiles appeared ____ ; cable-pull fallback WARN + baked chunks ____
+- Smoke check (Task 1 Step 2): HTTP codes for asset 96188 (endpoint / tileset.json): ____ / ____
+- USER DECISIONS resolved during execution: scheduling (vs Epic 5 / unified-engine migration): ____ ; ion asset (96188 vs custom): ____ ; tile cache dir + size budget: ____
+- Any finding the review gate surfaced that this document did not anticipate: ____
