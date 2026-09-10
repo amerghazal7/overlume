@@ -1,12 +1,12 @@
 // environment.cpp — see environment.hpp. Runtime chunk load/unload behind
 // EnvironmentSource, distance-culled against SceneGraph::EgoState::position
-// (Decision 1: no per-tick SceneGraph field needed -- ego position is
-// already there). Buildings are OPAQUE clay (r.buildingMaterial, Decision
-// 4) the entire time they're loaded -- chunks load/unload by distance, they
-// never stale-fade, so there is no fade-blended building material to
-// introduce (the standing library convention since the 2026-09-10 flicker
-// root-cause fix: a fade-blended always-on material on a category with no
-// real staleness concept is exactly the mistake that bit ribbon/carpet).
+// (no per-tick SceneGraph field needed -- ego position is already there).
+// Buildings are OPAQUE clay (r.buildingMaterial) the entire time they're
+// loaded -- chunks load/unload by distance, they never stale-fade, so there
+// is no fade-blended building material to introduce (the standing library
+// convention since the flicker root-cause fix: a fade-blended always-on
+// material on a category with no real staleness concept is exactly the
+// mistake that bit ribbon/carpet).
 #include "environment.hpp"
 #include "environment_test_hooks.hpp"
 #include "renderer_internal.hpp"
@@ -60,9 +60,9 @@ void BakedEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
         asset->releaseSourceData();
 
         // Material remap: every primitive reads as building clay
-        // (r.buildingMaterial, Decision 4) -- same ifstream -> createAsset
-        // -> loadResources -> releaseSourceData + remap sequence
-        // set_ego_model() (ego.cpp) uses, per Task 3's own Files list.
+        // (r.buildingMaterial) -- same ifstream -> createAsset ->
+        // loadResources -> releaseSourceData + remap sequence
+        // set_ego_model() (ego.cpp) uses.
         filament::RenderableManager& rm = r.engine->getRenderableManager();
         const utils::Entity* renderables = asset->getRenderableEntities();
         const size_t renderableCount = asset->getRenderableEntityCount();
@@ -144,6 +144,13 @@ bool set_environment_source(VisualRenderer* r, const char* source_uri, GeoAnchor
     if (r == nullptr || source_uri == nullptr || source_uri[0] == '\0') return false;
     std::unique_ptr<BakedEnvironmentSource> source = open_baked_environment_source(source_uri, anchor);
     if (!source) return false;
+    // on_activate() runs again after on_deactivate() on the SAME renderer
+    // (on_deactivate does not destroy it), so this entry point is
+    // re-entrant -- the old source's chunks must be released here, its
+    // destructor cannot.
+    if (r->environmentSource) {
+        r->environmentSource->teardown(*r);
+    }
     r->environmentSource = std::move(source);
     return true;
 }
