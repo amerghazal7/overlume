@@ -813,6 +813,11 @@ void VisualizationNode::timer_callback()
     // All seven gates -- this one included -- are exercised directly by
     // test_scene_assembly.cpp's ApplyLayerGates* cases; the other six are
     // additionally covered end-to-end by test_bridge_e2e_set_layers_hides_and_shows.
+    // Velocity ribbon nests WITHIN the local ribbon (user directive
+    // 2026-09-10) -- re-spine it onto the local path's own geometry so the
+    // two strips are concentric instead of ~1m-offset crisscrossing edges.
+    micropilot::visualization_app::respine_velocity_ribbon_onto_local_path(scene_asm_);
+
     apply_layer_gates(scene_asm_, {layer_objects_, layer_paths_, layer_map_elements_,
                                    layer_grids_, layer_alerts_, layer_markers_,
                                    layer_point_clouds_, layer_trajectory_carpet_});

@@ -169,3 +169,70 @@ TEST(SceneAssembly, ApplyLayerGatesTrajectoryCarpetOnLeavesItIntact)
     asm_.point_at(scene);
     EXPECT_EQ(scene.trajectory_carpet_count, 1u);
 }
+
+// ── Velocity-ribbon re-spine (user directive 2026-09-10) ────────────────────
+
+namespace {
+mpviz::PointCloudPoint CarpetPt(double x, double y, uint32_t rgba)
+{
+    mpviz::PointCloudPoint p{};
+    p.position = {x, y, 0.0};
+    p.rgba = rgba;
+    return p;
+}
+}  // namespace
+
+TEST(SceneAssembly, RespineMovesVelocityRibbonOntoLocalSpineWithStationColors)
+{
+    using micropilot::visualization_app::SceneAssembly;
+    SceneAssembly a;
+    // Local path: straight, 5 points, 2m apart (stations 0,2,4,6,8).
+    const mpviz::Vec3 lp[] = {{0, 1, 0}, {2, 1, 0}, {4, 1, 0}, {6, 1, 0}, {8, 1, 0}};
+    mpviz::PathRibbon local{};
+    local.role = mpviz::PathRole::LOCAL;
+    local.points = lp;
+    local.point_count = 5;
+    a.paths.push_back(local);
+    // Carpet: its OWN offset spine (y=0), 3 stations at 0/3/6m, colors R,G,B.
+    const mpviz::PointCloudPoint cp[] = {CarpetPt(0, 0, 0xff0000ffu), CarpetPt(3, 0, 0xff00ff00u),
+                                          CarpetPt(6, 0, 0xffff0000u)};
+    mpviz::TrajectoryCarpet carpet{};
+    carpet.points = cp;
+    carpet.point_count = 3;
+    a.trajectory_carpets.push_back(carpet);
+
+    micropilot::visualization_app::respine_velocity_ribbon_onto_local_path(a);
+
+    ASSERT_EQ(a.trajectory_carpets[0].point_count, 5u);
+    const auto* pts = a.trajectory_carpets[0].points;
+    for (uint32_t i = 0; i < 5; ++i)
+    {
+        // Geometry = the LOCAL spine verbatim (y=1), not the carpet's y=0.
+        EXPECT_DOUBLE_EQ(pts[i].position.x, lp[i].x);
+        EXPECT_DOUBLE_EQ(pts[i].position.y, 1.0);
+    }
+    // Station-nearest colors: 0->R(0), 2->G(3 vs 0: |3-2|<|2-0|), 4->G(3),
+    // 6->B(6), 8->B held past the carpet's end.
+    EXPECT_EQ(pts[0].rgba, 0xff0000ffu);
+    EXPECT_EQ(pts[1].rgba, 0xff00ff00u);
+    EXPECT_EQ(pts[2].rgba, 0xff00ff00u);
+    EXPECT_EQ(pts[3].rgba, 0xffff0000u);
+    EXPECT_EQ(pts[4].rgba, 0xffff0000u);
+}
+
+TEST(SceneAssembly, RespineWithoutLocalRibbonLeavesCarpetOnItsOwnSpine)
+{
+    using micropilot::visualization_app::SceneAssembly;
+    SceneAssembly a;
+    const mpviz::PointCloudPoint cp[] = {CarpetPt(0, 0, 1u), CarpetPt(3, 0, 2u)};
+    mpviz::TrajectoryCarpet carpet{};
+    carpet.points = cp;
+    carpet.point_count = 2;
+    a.trajectory_carpets.push_back(carpet);
+
+    micropilot::visualization_app::respine_velocity_ribbon_onto_local_path(a);
+
+    EXPECT_EQ(a.trajectory_carpets[0].points, cp);  // untouched pointer
+    EXPECT_EQ(a.trajectory_carpets[0].point_count, 2u);
+    EXPECT_TRUE(a.respined_carpet_points.empty());
+}

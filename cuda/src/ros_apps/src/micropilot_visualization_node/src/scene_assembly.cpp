@@ -1,5 +1,7 @@
 #include "micropilot_visualization_node/scene_assembly.hpp"
 
+#include <cmath>
+
 namespace micropilot::visualization_app
 {
 
@@ -13,6 +15,67 @@ void SceneAssembly::clear()
     markers.clear();
     point_clouds.clear();
     trajectory_carpets.clear();
+    respined_carpet_points.clear();
+}
+
+void respine_velocity_ribbon_onto_local_path(SceneAssembly& a)
+{
+    if (a.trajectory_carpets.empty()) return;
+    const mpviz::PathRibbon* local = nullptr;
+    for (const auto& r : a.paths)
+    {
+        if (r.role == mpviz::PathRole::LOCAL && r.point_count >= 2)
+        {
+            local = &r;
+            break;
+        }
+    }
+    if (local == nullptr) return;  // no local spine this tick -- keep own spine
+
+    // Local path cumulative stations.
+    std::vector<double> lcum(local->point_count, 0.0);
+    for (uint32_t i = 1; i < local->point_count; ++i)
+    {
+        const auto& p0 = local->points[i - 1];
+        const auto& p1 = local->points[i];
+        lcum[i] = lcum[i - 1] + std::hypot(p1.x - p0.x, p1.y - p0.y);
+    }
+
+    for (auto& carpet : a.trajectory_carpets)
+    {
+        if (carpet.point_count < 2) continue;
+        // Carpet's own stations (color lookup key).
+        std::vector<double> ccum(carpet.point_count, 0.0);
+        for (uint32_t i = 1; i < carpet.point_count; ++i)
+        {
+            const auto& c0 = carpet.points[i - 1];
+            const auto& c1 = carpet.points[i];
+            ccum[i] = ccum[i - 1] + std::hypot(c1.position.x - c0.position.x,
+                                                c1.position.y - c0.position.y);
+        }
+        a.respined_carpet_points.emplace_back();
+        auto& out = a.respined_carpet_points.back();
+        out.reserve(local->point_count);
+        uint32_t ci = 0;  // both station arrays are monotone -- one forward walk
+        for (uint32_t i = 0; i < local->point_count; ++i)
+        {
+            while (ci + 1 < carpet.point_count && ccum[ci + 1] <= lcum[i]) ++ci;
+            // nearest of ci/ci+1 by station; past the carpet's end this
+            // naturally holds the last color.
+            uint32_t pick = ci;
+            if (ci + 1 < carpet.point_count &&
+                (ccum[ci + 1] - lcum[i]) < (lcum[i] - ccum[ci]))
+            {
+                pick = ci + 1;
+            }
+            mpviz::PointCloudPoint pt{};
+            pt.position = local->points[i];
+            pt.rgba = carpet.points[pick].rgba;
+            out.push_back(pt);
+        }
+        carpet.points = out.data();
+        carpet.point_count = static_cast<uint32_t>(out.size());
+    }
 }
 
 void SceneAssembly::point_at(mpviz::SceneGraph& scene) const

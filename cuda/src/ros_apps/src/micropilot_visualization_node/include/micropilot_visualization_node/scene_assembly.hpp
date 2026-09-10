@@ -46,6 +46,13 @@ struct SceneAssembly
     // VM-077: TrajectoryCarpetAdapter rows append here, same shape as every
     // category above.
     std::vector<mpviz::TrajectoryCarpet> trajectory_carpets;
+    // Storage for RespineVelocityRibbonOntoLocalPath()'s rebuilt centerline
+    // stations (user directive 2026-09-10: the velocity ribbon nests WITHIN
+    // the local ribbon, so it must ride the local path's own spine). Owned
+    // here, not in an adapter: the respine crosses two adapters' outputs.
+    // Lifetime matches the aliasing contract above (cleared by clear(),
+    // stable through point_at() -> set_scene()).
+    std::vector<std::vector<mpviz::PointCloudPoint>> respined_carpet_points;
 
     // Cleared at the top of every timer_callback(), before any adapter's
     // fill() runs -- this is what makes "ClearBetweenTicksDoesNotAccumulate"
@@ -62,6 +69,18 @@ struct SceneAssembly
 // Epic 3 Task 5 (VM-032) / Task 6 (VM-035): one flag per SceneAssembly
 // category, node-side visibility gates. See timer_callback()'s call site for
 // why this is a node-side clear rather than a renderer API.
+// Re-spines every velocity ribbon (trajectory_carpets) onto the FIRST
+// LOCAL-role PathRibbon's own geometry (user directive 2026-09-10: "stacking
+// the velocity on top of local and within it"): the carpet trajectory runs
+// ~1m laterally offset from the local path, so two independently-spined
+// strips crisscross at their edges and every unsynchronized update wiggles
+// the overlap boundary. New points = the local path's points; each rgba is
+// sampled from the carpet's own stations by arc length (nearest station,
+// last color held past the carpet's end). No LOCAL ribbon, or an empty
+// carpet -> untouched (the carpet keeps its own spine). Call after every
+// fill() and before apply_layer_gates()/point_at().
+void respine_velocity_ribbon_onto_local_path(SceneAssembly& a);
+
 struct LayerFlags
 {
     bool objects = true;
