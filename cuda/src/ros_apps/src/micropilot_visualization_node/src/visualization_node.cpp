@@ -602,7 +602,16 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
     // gap this step's own WARN names, not silently patched around (spec
     // §4.5/§9: "no anchor from either source -> environment layer disabled
     // with one WARN").
-    if (environment_enabled_ && geo_anchor_solver_->solved())
+    if (environment_enabled_ && environment_chunks_dir_.empty())
+    {
+        // The shipped default ("" -- per-checkout path, VM-044 gap) means
+        // "not configured", not "failed": never call the entry point, and
+        // the warning says so instead of reading as an open failure.
+        RCLCPP_WARN(get_logger(),
+                    "environment_enabled but environment_chunks_dir is empty -- "
+                    "environment layer disabled this run");
+    }
+    else if (environment_enabled_ && geo_anchor_solver_->solved())
     {
         if (!mpviz::set_environment_source(renderer_, environment_chunks_dir_.c_str(),
                                             geo_anchor_solver_->anchor()))

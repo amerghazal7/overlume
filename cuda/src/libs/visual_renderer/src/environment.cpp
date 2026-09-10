@@ -39,22 +39,32 @@ void BakedEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
     // Load: any indexed chunk within kLoadRadiusM not already loaded.
     for (const EnvironmentChunk& chunk : chunks_) {
         if (loaded_.find(chunk.id) != loaded_.end()) continue;
+        // A chunk that failed to load is memoed, not retried per tick -- a
+        // truncated .glb would otherwise cost a full file read + createAsset
+        // attempt at frame rate. The memo clears when the ego leaves the
+        // unload radius (see the unload loop), so a fixed file is retried on
+        // the next approach.
+        if (failed_.count(chunk.id) != 0) continue;
         if (distance(chunk.center, ego_map_pos) > kLoadRadiusM) continue;
 
-        if (!ensure_gltf_loader(r)) continue;  // non-fatal: this chunk stays unloaded this tick
+        if (!ensure_gltf_loader(r)) continue;  // global, not per-chunk: keep retrying
         std::ifstream file(dir_ + "/" + chunk.path, std::ios::binary | std::ios::ate);
-        if (!file) continue;
+        if (!file) { failed_.insert(chunk.id); continue; }
         const std::streamsize size = file.tellg();
-        if (size <= 0) continue;
+        if (size <= 0) { failed_.insert(chunk.id); continue; }
         std::vector<uint8_t> bytes(static_cast<size_t>(size));
         file.seekg(0);
-        if (!file.read(reinterpret_cast<char*>(bytes.data()), size)) continue;
+        if (!file.read(reinterpret_cast<char*>(bytes.data()), size)) {
+            failed_.insert(chunk.id);
+            continue;
+        }
 
         filament::gltfio::FilamentAsset* asset =
             r.sharedAssetLoader->createAsset(bytes.data(), static_cast<uint32_t>(bytes.size()));
-        if (asset == nullptr) continue;
+        if (asset == nullptr) { failed_.insert(chunk.id); continue; }
         if (!r.sharedResourceLoader->loadResources(asset)) {
             r.sharedAssetLoader->destroyAsset(asset);
+            failed_.insert(chunk.id);
             continue;
         }
         asset->releaseSourceData();
@@ -90,6 +100,16 @@ void BakedEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
             r.scene->removeEntities(asset->getEntities(), asset->getEntityCount());
             r.sharedAssetLoader->destroyAsset(asset);
             it = loaded_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    // Retry-on-re-approach: a failed chunk's memo clears once the ego is
+    // beyond the unload radius, mirroring the loaded-chunk lifecycle.
+    for (auto it = failed_.begin(); it != failed_.end();) {
+        const EnvironmentChunk* chunk = find_chunk(*it);
+        if (chunk == nullptr || distance(chunk->center, ego_map_pos) > kUnloadRadiusM) {
+            it = failed_.erase(it);
         } else {
             ++it;
         }
