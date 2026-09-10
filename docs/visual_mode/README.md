@@ -20,8 +20,11 @@ It runs, in order, and labels each stage PASS/FAIL:
 
 1. **POD header check** — `visual_renderer/scripts/check_pod_header.sh`
    (the public `include/visual_renderer/*.h` boundary stays `std::`-free).
-2. **Library ctest suite** — configures + builds `visual_renderer` fresh
-   (clang/libc++ toolchain) and runs its full `ctest` suite.
+2. **Library ctest suite** — configures + builds `visual_renderer`
+   incrementally into `cuda/src/libs/visual_renderer/build` (clang/libc++
+   toolchain) and runs its full `ctest` suite. Set `CI_VISUAL_MODE_CLEAN=1`
+   to wipe that build dir first — the clean-checkout run VM-041's AC calls
+   for; a stale build dir can otherwise mask a broken clean build.
 3. **Node gtests** — `colcon build` + `colcon test` for
    `micropilot_visualization_node`. Needs a ROS install and
    `micropilot_rendering_node` already built+installed somewhere sourceable
@@ -31,16 +34,35 @@ It runs, in order, and labels each stage PASS/FAIL:
    infra **fails this stage loudly** — a pre-merge gate never silently skips
    the node.
 4. **WS bridge pytest suite** — `tools/test_vcam_ws_bridge.py` (53 tests).
-5. **Golden suite (GPU-skip)** — most renderer gtests (goldens included)
+5. **Golden suite (GPU-skip)** — some renderer gtests (goldens included)
    `GTEST_SKIP()` with no GPU/EGL and exit 0 either way, so a plain `ctest`
    summary can't tell a skip from a real pass. This stage re-derives OK vs.
    SKIPPED counts from stage 2's own gtest output and reports them as their
-   own line — skipped is never folded into "passed". A GPU-less box passing
-   this stage means every golden skipped, not that it was silently let
-   through.
+   own line — skipped is never folded into "passed".
 
 It never plays a bag or touches the live rig (`validate_visual_mode.sh`'s own
 `--live` lesson) — every stage above is a build+test invocation only.
+
+**This gate requires a GPU/EGL-capable box.** It is not GPU-optional: without
+a GPU/EGL, the gate FAILS at stage 2 (`visual_renderer`'s
+`ProjectToScreen.*` and `RendererQuality.*` tests) and stage 3 (the node's
+`test_callouts` / `test_hud_overlay` / `test_point_cloud_adapter` golden
+tests) — those deliberately assert `create_renderer()` succeeds on this box
+(see the header comment of `tests/test_renderer_quality_presets.cpp`) and do
+not skip. Stage 5's OK-vs-SKIPPED breakdown exists so a partially-skipping
+run on a GPU box can't misread as a full pass; it does not mean a GPU-less
+run is expected to reach green.
+
+## What green does not cover
+
+- The node package's six Python integration tests (`test/smoke_test.py`,
+  `test_vcam_contract.py`, `test_theme_ws.py`, `test_tf_adapter.py`,
+  `test_ego_anchored_vcam.py`, `test_extra_topic_parity.py`) are not
+  registered in `micropilot_visualization_node/CMakeLists.txt`, so stage 3's
+  `colcon test` never runs them. Run them by hand against a live node.
+- Stage 4's WS bridge suite has 2 tests that skip whenever
+  `cuda/install/ros_apps` isn't built — the normal state in a worktree — and
+  the stage still reports PASS.
 
 ## Benchmark (VM-041)
 

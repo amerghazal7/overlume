@@ -11,11 +11,18 @@
 #   4. WS bridge pytest      (tools/test_vcam_ws_bridge.py, 53 tests)
 #   5. Golden suite          (GPU-skip breakdown, honestly reported)
 #
-# GPU-skip honesty: goldens (and most renderer gtests) GTEST_SKIP() with no
-# GPU/EGL, and exit 0 when they do — ctest alone can't tell a skip from a
-# real pass. Stage 5 re-derives skip/ok counts from stage 2's own gtest
-# output and prints them as their own summary line, never folded into
-# "passed".
+# GPU/EGL required: this gate needs a GPU/EGL-capable box. Without one it
+# FAILS -- visual_renderer's ProjectToScreen.* and RendererQuality.* tests,
+# and the node's test_callouts / test_hud_overlay / test_point_cloud_adapter
+# golden tests, all deliberately assert create_renderer() succeeds (see the
+# header comment of tests/test_renderer_quality_presets.cpp) and do not
+# GTEST_SKIP(). Some other renderer gtests (goldens included) do
+# GTEST_SKIP() with no GPU/EGL and exit 0 when they do -- ctest alone can't
+# tell that kind of skip from a real pass, so stage 5 re-derives skip/ok
+# counts from stage 2's own gtest output and prints them as their own
+# summary line, never folded into "passed". That breakdown exists so a
+# partially-skipping run can't read as a full pass -- it does not mean a
+# GPU-less run is expected to reach stage 5 green.
 #
 # What this script deliberately does NOT do (validate_visual_mode.sh's own
 # --live lesson): it never plays a bag, never starts vcam_ws_bridge.py /
@@ -73,6 +80,7 @@ LIB_BUILD_LOG="${LOG_DIR}/lib_build.log"
 LIB_CTEST_LOG="${LOG_DIR}/lib_ctest.log"
 LIB_STAGE_OK=1
 
+[[ -n "${CI_VISUAL_MODE_CLEAN:-}" ]] && rm -rf "${LIB_BUILD_DIR}"
 mkdir -p "${LIB_BUILD_DIR}"
 if ! cmake --toolchain "${LIB_DIR}/cmake/toolchain-clang-libcxx.cmake" \
         -S "${LIB_DIR}" -B "${LIB_BUILD_DIR}" > "${LIB_CONFIGURE_LOG}" 2>&1; then
@@ -94,6 +102,13 @@ if [[ "${LIB_STAGE_OK}" == "1" ]]; then
     # gtest "[ OK ]"/"[ SKIPPED ]" line, not just the failing ones.
     if ctest --test-dir "${LIB_BUILD_DIR}" -V > "${LIB_CTEST_LOG}" 2>&1; then
         LIB_SUMMARY="$(grep -E '^[0-9]+% tests passed' "${LIB_CTEST_LOG}" || true)"
+        # Suite-wide ok/skipped, not just goldens -- ctest's own "100% tests
+        # passed" line folds every GTEST_SKIP() (~125 GPU-gated guard sites)
+        # into "passed", which reads as full coverage on a degraded box.
+        # Same inline-line anchor as stage 5, no Golden filter.
+        SUITE_OK=$(grep -cE '\[ *OK *\].*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
+        SUITE_SKIPPED=$(grep -cE '\[ *SKIPPED *\].*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
+        LIB_SUMMARY="${LIB_SUMMARY} (${SUITE_OK} ok / ${SUITE_SKIPPED} skipped)"
         echo "PASS  library ctest suite  (${LIB_SUMMARY:-see log})"
         record_stage "library ctest suite" PASS "${LIB_SUMMARY}"
     else
@@ -188,9 +203,13 @@ fi
 # ── stage 5: golden suite, GPU-skip reported honestly ───────────────────────
 banner 5/5 "golden suite (GPU-skip)"
 if [[ -f "${LIB_CTEST_LOG}" ]]; then
-    GOLDEN_OK=$(grep -cE '\[ *OK *\].*Golden' "${LIB_CTEST_LOG}" || true)
-    GOLDEN_SKIPPED=$(grep -cE '\[ *SKIPPED *\].*Golden' "${LIB_CTEST_LOG}" || true)
-    GOLDEN_FAILED=$(grep -cE '\[ *FAILED *\].*Golden' "${LIB_CTEST_LOG}" || true)
+    # `.*\([0-9]+ ms\)$` anchors each grep to gtest's inline per-test line
+    # only -- ctest -V also reprints every SKIPPED/FAILED name in its
+    # end-of-run summary list (no "(N ms)" suffix there), so without this
+    # anchor every skip/fail is counted twice.
+    GOLDEN_OK=$(grep -cE '\[ *OK *\].*Golden.*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
+    GOLDEN_SKIPPED=$(grep -cE '\[ *SKIPPED *\].*Golden.*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
+    GOLDEN_FAILED=$(grep -cE '\[ *FAILED *\].*Golden.*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
     if [[ "${GOLDEN_FAILED}" -gt 0 ]]; then
         echo "FAIL  golden suite: ${GOLDEN_OK} ok, ${GOLDEN_SKIPPED} skipped (no GPU/EGL)," \
              "${GOLDEN_FAILED} FAILED"

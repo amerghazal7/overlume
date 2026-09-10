@@ -65,13 +65,15 @@ std::vector<mpviz::PointCloudPoint> make_point_cloud(uint32_t n) {
     return pts;
 }
 
-struct Frame {
-    std::chrono::duration<double, std::milli> render_ms;
-};
-
+// Nearest-rank percentile (not linear interpolation): idx = ceil(p * n) - 1,
+// clamped to the array. For n=120, p=0.99 -> idx 118 (the 119th of 120
+// samples), the conventional definition of "p99" that VM-040's governor is
+// tuned against.
 double percentile(std::vector<double>& sorted_ms, double p) {
     if (sorted_ms.empty()) return 0.0;
-    size_t idx = static_cast<size_t>(p * static_cast<double>(sorted_ms.size() - 1));
+    size_t idx = static_cast<size_t>(std::ceil(p * static_cast<double>(sorted_ms.size())));
+    if (idx > 0) --idx;
+    if (idx >= sorted_ms.size()) idx = sorted_ms.size() - 1;
     return sorted_ms[idx];
 }
 
