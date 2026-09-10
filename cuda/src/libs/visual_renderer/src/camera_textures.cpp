@@ -22,15 +22,25 @@ namespace mpviz {
 
 namespace {
 
-filament::Texture* build_camera_texture(filament::Engine& engine, uint32_t w, uint32_t h) {
-    // RGB8, three channels -- the camera pixels this task's Interfaces block
-    // documents (Task 2 Step 4 is where the isTextureFormatSupported/RGBA8
-    // fallback check lands, alongside the first real sampler binding).
+// Chooses RGB8 (three channels -- the camera pixels this task's Interfaces
+// block documents) when the backend supports it, falling back to RGBA8
+// (review round 1 minor finding) when it doesn't. The upload path
+// (upload_camera_frame below) stays PixelDataFormat::RGB either way -- see
+// CameraTextureSlot::format's comment.
+filament::Texture::InternalFormat choose_camera_format(filament::Engine& engine) {
+    return filament::Texture::isTextureFormatSupported(
+               engine, filament::Texture::InternalFormat::RGB8)
+               ? filament::Texture::InternalFormat::RGB8
+               : filament::Texture::InternalFormat::RGBA8;
+}
+
+filament::Texture* build_camera_texture(filament::Engine& engine, uint32_t w, uint32_t h,
+                                         filament::Texture::InternalFormat format) {
     return filament::Texture::Builder()
         .width(w)
         .height(h)
         .levels(1)
-        .format(filament::Texture::InternalFormat::RGB8)
+        .format(format)
         .sampler(filament::Texture::Sampler::SAMPLER_2D)
         .build(engine);
 }
@@ -77,13 +87,18 @@ bool set_bowl_config(VisualRenderer* r, const BowlConfig& cfg) {
         if (slot.texture != nullptr) r->engine->destroy(slot.texture);
         slot = CameraTextureSlot{};
     }
+    // Queried once per set_bowl_config() call (a rare, gated re-bake path,
+    // not per-camera or per-tick) -- a capability query, not a per-camera
+    // cost worth caching further.
+    const filament::Texture::InternalFormat format = choose_camera_format(*r->engine);
     for (uint32_t i = 0; i < cfg.camera_count; ++i) {
         CameraTextureSlot& slot = r->cameraSlots[i];
         slot.width = cfg.cam_width[i];
         slot.height = cfg.cam_height[i];
         slot.extrinsics = cfg.extrinsics[i];
         slot.intrinsics = cfg.intrinsics[i];
-        slot.texture = build_camera_texture(*r->engine, slot.width, slot.height);
+        slot.format = format;
+        slot.texture = build_camera_texture(*r->engine, slot.width, slot.height, format);
     }
     r->cameraCount = cfg.camera_count;
     // Task 2's half of this function's documented contract: bake the bowl

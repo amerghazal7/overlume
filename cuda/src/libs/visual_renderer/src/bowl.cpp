@@ -37,12 +37,19 @@ using filament::math::quatf;
 // per-camera math -- see bowl.mat's header for why the latter can't just
 // reuse Filament's own getWorldPosition()) + the bake's weight/index
 // payload, reused through the COLOR channel (bowl.mat's `requires: [
-// color, uv0, uv1 ]`).
+// color, custom0 ]`).
+//
+// Review round 1 (blocking finding): rigPos used to ride uv0/uv1, but
+// Filament's generated vertex shader V-flips BOTH (`vec2(mesh_uv0.x,
+// 1.0 - mesh_uv0.y)`) -- fine for an actual texture UV, corrupting for an
+// arbitrary position payload smuggled through the same channel. A real
+// custom vertex attribute (CUSTOM0, bound FLOAT3) passes through
+// untouched -- Filament does no per-component arithmetic on CUSTOM
+// attributes -- so rigPos rides that instead.
 struct BowlGpuVertex {
     float3 position;
-    float4 color;  // weight_a, index_a, weight_b, index_b
-    float2 uv0;    // rig position xy
-    float2 uv1;    // rig position z, unused
+    float4 color;    // coverage_a, index_a, coverage_b, index_b
+    float3 rigPos;   // == position, verbatim -- CUSTOM0, untouched by Filament
 };
 
 filament::VertexBuffer* make_bowl_vertex_buffer(filament::Engine& engine,
@@ -58,12 +65,9 @@ filament::VertexBuffer* make_bowl_vertex_buffer(filament::Engine& engine,
             .attribute(filament::VertexAttribute::COLOR, 0,
                        filament::VertexBuffer::AttributeType::FLOAT4,
                        offsetof(BowlGpuVertex, color), sizeof(BowlGpuVertex))
-            .attribute(filament::VertexAttribute::UV0, 0,
-                       filament::VertexBuffer::AttributeType::FLOAT2,
-                       offsetof(BowlGpuVertex, uv0), sizeof(BowlGpuVertex))
-            .attribute(filament::VertexAttribute::UV1, 0,
-                       filament::VertexBuffer::AttributeType::FLOAT2,
-                       offsetof(BowlGpuVertex, uv1), sizeof(BowlGpuVertex))
+            .attribute(filament::VertexAttribute::CUSTOM0, 0,
+                       filament::VertexBuffer::AttributeType::FLOAT3,
+                       offsetof(BowlGpuVertex, rigPos), sizeof(BowlGpuVertex))
             .build(engine);
     vb->setBufferAt(engine, 0,
                      filament::VertexBuffer::BufferDescriptor(
@@ -119,8 +123,7 @@ bool build_bowl(VisualRenderer& r, const BowlConfig& cfg) {
     bowl::BowlMeshParams params;
     const bowl::BowlMesh baked =
         bowl::BakeBowlMesh(params, cfg.bowl_R0, cfg.bowl_k, cfg.bowl_Rmax, cfg.camera_count,
-                           cfg.extrinsics, cfg.intrinsics, cfg.cam_width, cfg.cam_height,
-                           cfg.feather_margin);
+                           cfg.extrinsics, cfg.intrinsics, cfg.cam_width, cfg.cam_height);
     if (baked.vertices.empty() || baked.indices.empty()) return false;
     if (baked.vertices.size() > 65535) {
         // ponytail: uint16 index buffer ceiling, same class of limit
@@ -146,10 +149,9 @@ bool build_bowl(VisualRenderer& r, const BowlConfig& cfg) {
         const bowl::BowlVertex& bv = baked.vertices[i];
         verts[i].position = {static_cast<float>(bv.position.x), static_cast<float>(bv.position.y),
                               static_cast<float>(bv.position.z)};
-        verts[i].color = {bv.weight_a, static_cast<float>(bv.index_a), bv.weight_b,
+        verts[i].color = {bv.coverage_a, static_cast<float>(bv.index_a), bv.coverage_b,
                            static_cast<float>(bv.index_b)};
-        verts[i].uv0 = {static_cast<float>(bv.position.x), static_cast<float>(bv.position.y)};
-        verts[i].uv1 = {static_cast<float>(bv.position.z), 0.0f};
+        verts[i].rigPos = verts[i].position;
     }
     std::vector<uint16_t> indices(baked.indices.begin(), baked.indices.end());
 
@@ -223,6 +225,12 @@ bool build_bowl(VisualRenderer& r, const BowlConfig& cfg) {
     }
     owned->instance->setParameter(
         "skyColor", float3{cfg.sky_color[0], cfg.sky_color[1], cfg.sky_color[2]});
+    // Per-fragment feather (review round 1 blocking finding) + the
+    // exposure-compensation style knob (review round 1 minor finding) --
+    // both node-side style knobs alongside sky_color, per the STANDING
+    // "every rendered element ships style tokens" directive.
+    owned->instance->setParameter("featherMargin", static_cast<float>(cfg.feather_margin));
+    owned->instance->setParameter("exposureCompensation", cfg.exposure_compensation);
 
     r.bowl = std::move(owned);
     return true;

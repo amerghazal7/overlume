@@ -25,6 +25,15 @@ namespace mpviz {
 // (renderer_internal.hpp's GroundGridSlot, RibbonSlot, ...).
 struct CameraTextureSlot {
     filament::Texture* texture = nullptr;
+    // Chosen once per allocation by build_camera_texture()'s
+    // isTextureFormatSupported(RGB8) check (review round 1 minor finding) --
+    // recorded here for introspection/tests. Upload always uses
+    // PixelDataFormat::RGB regardless of this value (camera_textures.cpp's
+    // upload_camera_frame comment explains why: the source cv::Mat stays
+    // 3-channel either way, so an RGBA8 fallback texture is filled via
+    // Filament's own RGB-source-into-RGBA8-internal-format upload path, not
+    // by expanding the buffer to 4 channels).
+    filament::Texture::InternalFormat format = filament::Texture::InternalFormat::RGB8;
     uint32_t width = 0, height = 0;
     // false = never uploaded, so the FIRST set_camera_frame() call for this
     // camera always uploads regardless of frame_id (Task 1 Step 2).

@@ -420,6 +420,15 @@ struct BowlConfig {
     uint8_t fill_blind_zone;
     uint8_t exposure_match;
     float sky_color[3];
+    // bowl.mat's `exposureCompensation` material parameter (review round 1,
+    // 2026-09-11): the fixed camera exposure this renderer's unlit bowl
+    // material has to counteract (bowl.mat's own header explains why).
+    // Default member initializer keeps every pre-existing call site (this
+    // field predates Step 6's node-side param wiring) at the same 10.0
+    // value bowl.mat used as a hardcoded constant before this field existed
+    // -- a style knob, alongside sky_color/feather_margin, not yet plumbed
+    // to a ROS parameter.
+    float exposure_compensation = 10.0f;
 };
 
 // (Re)builds the bowl's camera textures (this task) and, once Task 2 lands,

@@ -26,10 +26,11 @@ constexpr double kBowlZLiftM = 0.01;
 
 struct LogicalVertex {
     mpviz::Vec3 position;
-    // Raw per-camera weight (feather * alignment^2, 0 if uncovered),
+    // Raw per-camera alignment^2 coverage weight (0 if uncovered),
     // camera_count entries -- retained per logical vertex so the
     // per-triangle pair decision below can look up any vertex's weight for
-    // any candidate camera without re-projecting.
+    // any candidate camera without re-projecting. Border feather is NOT
+    // included here (review round 1) -- bowl.mat computes it per-fragment.
     std::vector<float> camWeight;
 };
 
@@ -39,7 +40,7 @@ BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double 
                       double bowl_Rmax, uint32_t camera_count,
                       const mpviz::CameraExtrinsics* extrinsics,
                       const mpviz::CameraIntrinsics* intrinsics, const uint32_t* cam_width,
-                      const uint32_t* cam_height, double feather_margin) {
+                      const uint32_t* cam_height) {
     BowlMesh mesh;
     const uint32_t rings = std::max<uint32_t>(mesh_params.radial_rings, 1);
     const uint32_t segs = std::max<uint32_t>(mesh_params.theta_segments, 3);
@@ -66,12 +67,12 @@ BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double 
                                         lv.position, &u, &v)) {
                     continue;
                 }
-                const float xp = u * static_cast<float>(cam_width[c]);
-                const float yp = v * static_cast<float>(cam_height[c]);
-                const float feather =
-                    BorderFeather(xp, yp, cam_width[c], cam_height[c], feather_margin);
+                // Alignment^2 coverage only -- border feather is computed
+                // per-fragment by bowl.mat now (review round 1 blocking
+                // finding: a vertex-baked feather doesn't match a
+                // per-fragment-sampled UV's own pixel-exact border).
                 const float align = CameraAlignment(extrinsics[c], lv.position);
-                lv.camWeight[c] = feather * align * align;
+                lv.camWeight[c] = align * align;
             }
         }
     }
@@ -82,7 +83,7 @@ BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double 
         // Per-triangle camera-pair decision (Decision 3's construction
         // rule): sum each camera's weight across the triangle's three
         // corners, keep the top 2. A triangle with fewer than 2 cameras
-        // carrying any weight gets index_b == index_a with weight_b
+        // carrying any weight gets index_b == index_a with coverage_b
         // forced to 0 below (never double-counts one camera as both
         // slots).
         uint32_t pairA = 0, pairB = 0;
@@ -107,9 +108,9 @@ BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double 
             BowlVertex bv;
             bv.position = corners[t]->position;
             bv.index_a = pairA;
-            bv.weight_a = corners[t]->camWeight[pairA];
+            bv.coverage_a = corners[t]->camWeight[pairA];
             bv.index_b = has_second ? pairB : pairA;
-            bv.weight_b = has_second ? corners[t]->camWeight[pairB] : 0.0f;
+            bv.coverage_b = has_second ? corners[t]->camWeight[pairB] : 0.0f;
             mesh.vertices.push_back(bv);
         }
         mesh.indices.push_back(base);
@@ -117,6 +118,15 @@ BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double 
         mesh.indices.push_back(base + 2);
     };
 
+    // Winding (review round 1 blocking finding): e1 = P01-P00 is +theta,
+    // e2 = P10-P00 is +r, and theta_hat x r_hat = -z_hat -- so
+    // (i00,i01,i10) has its normal pointing DOWN/outward, back-facing the
+    // bowl's interior (matinfo confirms this material's raster state is
+    // `Culling: back`, and RenderableManager's `.culling(false)` in
+    // bowl.cpp is frustum culling, not face culling). Swapped to
+    // (i00,i10,i01)/(i01,i10,i11) so the interior surface is front-facing;
+    // no `doubleSided` override (Task 3 depth-composites the ego mesh over
+    // the bowl and wants correct facing, not a double-sided patch).
     for (uint32_t ring = 0; ring < rings; ++ring) {
         for (uint32_t seg = 0; seg < segs; ++seg) {
             const uint32_t seg1 = (seg + 1) % segs;
@@ -124,8 +134,8 @@ BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double 
             const uint32_t i01 = ring * segs + seg1;
             const uint32_t i10 = (ring + 1) * segs + seg;
             const uint32_t i11 = (ring + 1) * segs + seg1;
-            emit_triangle(i00, i01, i10);
-            emit_triangle(i01, i11, i10);
+            emit_triangle(i00, i10, i01);
+            emit_triangle(i01, i10, i11);
         }
     }
     return mesh;

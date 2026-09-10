@@ -94,7 +94,7 @@ static_assert(offsetof(mpviz::CameraIntrinsics, cy) == 24, "node/library scene.h
 static_assert(offsetof(mpviz::CameraIntrinsics, dist) == 32,
               "node/library scene.h version drifted");
 
-static_assert(sizeof(mpviz::BowlConfig) == 88, "node/library scene.h version drifted");
+static_assert(sizeof(mpviz::BowlConfig) == 96, "node/library scene.h version drifted");
 static_assert(offsetof(mpviz::BowlConfig, camera_count) == 0,
               "node/library scene.h version drifted");
 static_assert(offsetof(mpviz::BowlConfig, extrinsics) == 8,
@@ -118,6 +118,8 @@ static_assert(offsetof(mpviz::BowlConfig, fill_blind_zone) == 72,
 static_assert(offsetof(mpviz::BowlConfig, exposure_match) == 73,
               "node/library scene.h version drifted");
 static_assert(offsetof(mpviz::BowlConfig, sky_color) == 76,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::BowlConfig, exposure_compensation) == 88,
               "node/library scene.h version drifted");
 
 // static_asserts above do the real work; this TEST body only exists so
