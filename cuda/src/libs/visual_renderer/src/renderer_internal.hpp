@@ -94,6 +94,16 @@ struct Mesh {
     float fadeAlpha = 1.0f;
 };
 
+// Re-uploads `verts` into `mesh`'s EXISTING VertexBuffer via setBufferAt --
+// no VertexBuffer::Builder, no entity/RenderableManager touch, so the
+// mesh's identity and scene membership never change. Used by
+// ribbon.cpp/trajectory_carpet.cpp to apply the ego-proximity clip as a
+// same-buffer position update instead of a mesh rebuild.
+// `verts.size()` must equal the buffer's original vertex count -- callers
+// only ever pass back a same-sized copy of what add_mesh() built. No-op if
+// `mesh.vb` is null.
+void update_mesh_positions(filament::Engine& engine, Mesh& mesh, std::vector<Vertex> verts);
+
 // Shared by the ego-following ground/grid patch and map_elements.cpp's
 // per-element geometry (measured in whole meters). build_grid_lines()'s
 // own `step` (renderer.cpp) IS this same symbol — not a hand-kept copy —
@@ -416,8 +426,35 @@ public:
         // PathRibbon::points[0], so this mirrors what was really built
         // (same "not a Filament read-back" reasoning as halfWidthM).
         // ribbon_test_hooks.hpp's ribbon_slot_first_point() reads it to
-        // prove a clipped ribbon starts at the interpolated clip point.
+        // prove a clipped ribbon starts at the interpolated clip point. Set
+        // at build time to the raw first point (unclipped baseline);
+        // apply_ribbon_clip() (ribbon.cpp) overwrites it with the CURRENT
+        // effective first vertex whenever a clip is actually applied, so it
+        // always mirrors what's really on screen, not just what was last
+        // built.
         Vec3 firstPointM{};
+        // Per-mesh CPU copies of the FULL, unclipped extruded strip (2*m
+        // positions) and each of its m points' own arc-length station --
+        // retained so the ego-proximity clip can be re-applied EVERY frame
+        // as a degenerate-vertex collapse (polyline.hpp's
+        // collapse_clipped_positions()) instead of folding into the
+        // content signature and forcing a rebuild. Populated only at
+        // build_slot_meshes() (content-change, ~8Hz message rate); parallel
+        // to `meshes`.
+        std::vector<std::vector<Vec3>> baseStripPositions;
+        std::vector<std::vector<double>> pointStations;
+        // The clip state actually painted onto the GPU buffers last time
+        // apply_ribbon_clip() ran -- lets it skip a redundant
+        // setBufferAt() when the ego hasn't crossed a new quantized
+        // station since the previous frame (parked ego -> zero uploads).
+        // Compared by quantized_units (an exact integer), not the derived
+        // station_m double -- same "hash the integer, not its float
+        // expansion" reasoning polyline.hpp's PolylineClip comment gives.
+        // has_applied_clip false forces one apply right after a rebuild
+        // (whose fresh buffers are always unclipped).
+        bool has_applied_clip = false;
+        bool appliedClipActive = false;
+        int64_t appliedClipUnits = 0;
     };
     std::vector<RibbonSlot> ribbonSlots;
     // Incremented once per slot rebuild (content, role, or quantized
@@ -703,6 +740,20 @@ public:
         // other vertex-count/mesh-count assertion in this file would have
         // stayed green even with the lift silently removed.
         std::vector<float> firstMeshZ;
+        // Same "clip via degenerate-vertex collapse, applied every frame,
+        // no rebuild" mechanism as RibbonSlot -- see its own comment.
+        // baseStripRgba is the resolved (post alpha-zero-sentinel) per-
+        // vertex color, parallel to baseStripPositions; collapse only ever
+        // touches position, so color is copied back verbatim on re-upload.
+        std::vector<std::vector<Vec3>> baseStripPositions;
+        std::vector<std::vector<uint32_t>> baseStripRgba;
+        std::vector<std::vector<double>> pointStations;
+        bool has_applied_clip = false;
+        bool appliedClipActive = false;
+        int64_t appliedClipUnits = 0;
+        // Mirrors RibbonSlot::firstPointM -- the current effective first
+        // vertex (post-collapse), for the same test-hook reasoning.
+        Vec3 firstPointM{};
     };
     std::vector<TrajectoryCarpetSlot> trajectoryCarpetSlots;
     // Incremented once per slot rebuild (content, half-width, or quantized

@@ -172,29 +172,63 @@ PolylineClip compute_polyline_clip(const Vec3* pts, uint32_t n, const Vec3& ego_
     return clip;
 }
 
-std::vector<Vec3> clip_polyline_forward(const Vec3* pts, uint32_t n, double s0) {
-    std::vector<Vec3> out;
-    if (n < 2) return out;
+std::vector<double> clean_polyline_stations(const Vec3* pts, uint32_t n) {
+    std::vector<double> out;
+    if (pts == nullptr) return out;
+    out.reserve(n);
+    Vec3 prev{};
+    bool havePrev = false;
     double cum = 0.0;
-    for (uint32_t i = 0; i + 1 < n; ++i) {
-        const Vec3& a = pts[i];
-        const Vec3& b = pts[i + 1];
-        const double dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
-        const double segLen = std::sqrt(dx * dx + dy * dy);
-        const bool isLastSeg = (i + 2 == n);
-        if (cum + segLen >= s0 || isLastSeg) {
-            const double t = segLen > 0.0 ? std::clamp((s0 - cum) / segLen, 0.0, 1.0) : 0.0;
-            out.push_back(Vec3{a.x + dx * t, a.y + dy * t, a.z + dz * t});
-            for (uint32_t k = i + 1; k < n; ++k) out.push_back(pts[k]);
-            return out;
+    for (uint32_t i = 0; i < n; ++i) {
+        if (!is_finite(pts[i])) break;  // truncate, don't propagate -- mirrors clean_polyline()
+        if (havePrev && nearly_equal(prev, pts[i])) continue;  // zero-length segment, adds 0 arc
+        if (havePrev) {
+            const double dx = pts[i].x - prev.x, dy = pts[i].y - prev.y;
+            cum += std::sqrt(dx * dx + dy * dy);
         }
-        cum += segLen;
+        out.push_back(cum);
+        prev = pts[i];
+        havePrev = true;
     }
-    // Unreachable in practice (isLastSeg always fires by the final
-    // segment); kept as a defensive fallback so this renders something
-    // rather than silently dropping the polyline.
-    out.push_back(pts[n - 1]);
     return out;
+}
+
+void collapse_clipped_positions(std::vector<Vec3>& positions, const std::vector<double>& stations,
+                                 bool clip_active, double clip_station_m) {
+    const size_t m = stations.size();
+    if (!clip_active || m == 0) return;
+    if (positions.size() != 2 * m) return;  // caller contract violated -- no-op, not a crash
+
+    // Last point index still behind the cut (station < clip_station_m); -1
+    // (via the m sentinel below) means the whole strip is already ahead.
+    size_t behind = m;  // m == "none behind" sentinel
+    for (size_t i = 0; i < m; ++i) {
+        if (stations[i] < clip_station_m) behind = i; else break;
+    }
+    if (behind == m) return;  // nothing behind the cut in this strip
+
+    Vec3 cutL, cutR;
+    if (behind + 1 >= m) {
+        // The cut itself lies beyond this strip (only possible across a
+        // >kMaxPointsPerMesh chunk boundary) -- collapse the whole strip to
+        // its own last pair, a zero-area sliver; the chunk that actually
+        // contains the cut draws the real edge.
+        cutL = positions[2 * (m - 1)];
+        cutR = positions[2 * (m - 1) + 1];
+        behind = m - 1;
+    } else {
+        const double span = stations[behind + 1] - stations[behind];
+        const double t = span > 1e-9 ? (clip_station_m - stations[behind]) / span : 0.0;
+        const auto lerp = [t](const Vec3& a, const Vec3& b) {
+            return Vec3{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t};
+        };
+        cutL = lerp(positions[2 * behind], positions[2 * (behind + 1)]);
+        cutR = lerp(positions[2 * behind + 1], positions[2 * (behind + 1) + 1]);
+    }
+    for (size_t i = 0; i <= behind; ++i) {
+        positions[2 * i] = cutL;
+        positions[2 * i + 1] = cutR;
+    }
 }
 
 std::vector<std::pair<uint32_t, uint32_t>> polyline_chunks(uint32_t n) {

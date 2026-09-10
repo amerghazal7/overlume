@@ -324,10 +324,10 @@ TEST(TrajectoryCarpet, VertexZIsLiftedAboveTheFlattenedZeroTheAdapterSends) {
 
 // ── Ego-proximity clip: identical mechanism every other ribbon uses ────────
 
-TEST(TrajectoryCarpet, ClipShrinksGeometryWhenEgoIsMidCarpet) {
+TEST(TrajectoryCarpet, ClipCollapsesGeometryWhenEgoIsMidCarpet) {
     // A straight carpet along +X; ego sits AT x=1 (well within the
-    // proximity gate) -- the behind-ego half must not appear in the built
-    // geometry.
+    // proximity gate) -- the behind-ego half must collapse to a degenerate
+    // point, not disappear from the mesh.
     mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
@@ -343,8 +343,18 @@ TEST(TrajectoryCarpet, ClipShrinksGeometryWhenEgoIsMidCarpet) {
     mpviz::set_scene(r, s);
     render_once(r, mpviz::CameraPose{{0, -10, 10}, {2, 0, 0}, 60.0});
 
-    EXPECT_LT(mpviz::testing::trajectory_carpet_vertex_count(r, 0), 5u * 2)
-        << "clip did not actually shrink the built geometry";
+    // The clip is a degenerate-vertex collapse on the FULL, always-unclipped
+    // mesh (trajectory_carpet.cpp's apply_carpet_clip()), never a
+    // truncate-then-rebuild -- vertex/mesh count stay the unclipped 5*2=10
+    // always. The first vertex landing at the interpolated cut (~x=1)
+    // proves the clip happened, not a vertex-count drop.
+    EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_count(r, 0), 5u * 2)
+        << "clip must not change vertex/mesh count -- it's a position collapse, never a rebuild";
+    mpviz::Vec3 firstPoint{};
+    ASSERT_TRUE(mpviz::testing::trajectory_carpet_slot_first_point(r, 0, &firstPoint));
+    EXPECT_NEAR(firstPoint.x, 1.0, 0.5) << "clip station should land near x=1, the ego's own "
+                                            "closest-approach point on the carpet";
+    EXPECT_GE(firstPoint.x, 1.0) << "clipped geometry still starts behind the ego";
     mpviz::destroy_renderer(r);
 }
 

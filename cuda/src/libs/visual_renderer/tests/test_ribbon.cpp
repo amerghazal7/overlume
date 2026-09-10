@@ -420,11 +420,12 @@ TEST(Ribbon, ClipStartsAtInterpolatedPointWhenEgoIsMidRibbon) {
     // 0.0, not -0.5: compute_ribbon_clip ceils the quantized station, so
     // the cut is always AT or AHEAD of closest approach -- never behind.
     EXPECT_GE(firstPoint.x, 0.0) << "clipped geometry still starts behind the ego";
-    // Two whole surviving points (x=5,10) plus the interpolated cut -> 3
-    // surviving polyline points -> 6 extruded vertices, fewer than the
-    // unclipped 4*2=8.
-    EXPECT_LT(mpviz::testing::ribbon_vertex_count(r, 0), 4u * 2)
-        << "clip did not actually shrink the built geometry";
+    // The clip is a degenerate-vertex collapse on the FULL, always-unclipped
+    // mesh (ribbon.cpp's apply_ribbon_clip()), never a truncate-then-rebuild
+    // -- vertex count stays the unclipped 4*2=8 always. firstPoint above
+    // landing at the cut proves the clip happened, not a vertex-count drop.
+    EXPECT_EQ(mpviz::testing::ribbon_vertex_count(r, 0), 4u * 2)
+        << "clip must not change vertex/mesh count -- it's a position collapse, never a rebuild";
     mpviz::destroy_renderer(r);
 }
 

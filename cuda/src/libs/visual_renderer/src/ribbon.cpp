@@ -45,25 +45,19 @@ uint64_t hash_vec3(const Vec3& v) {
 
 // Content signature for one ribbon slot (not a chunk-within-the-ribbon —
 // see renderer_internal.hpp's RibbonSlot comment): role + point count +
-// first/last point + half-width + clip state. Role is included so a slot
-// re-homed to a different role still rebuilds and re-binds to the new
-// role's material, even if point data happened to be identical.
-// half_width_m is included because a set_theme() that changes only a
-// margin touches no PathRibbon point data at all — without the effective
-// width in the signature, a mid-transition margin change would be
-// silently ignored until some unrelated content change forced a rebuild.
-// Hashed as its bit pattern (not the float value): exact reproducibility
-// across calls with the same width matters here, not numeric comparison.
+// first/last point + half-width. Role is included so a slot re-homed to a
+// different role still rebuilds and re-binds to the new role's material,
+// even if point data happened to be identical. half_width_m is included
+// because a set_theme() that changes only a margin touches no PathRibbon
+// point data at all — without the effective width in the signature, a
+// mid-transition margin change would be silently ignored until some
+// unrelated content change forced a rebuild. Hashed as its bit pattern (not
+// the float value): exact reproducibility across calls with the same width
+// matters here, not numeric comparison.
 //
-// clip_active/clip_units (ego-proximity ribbon clip) fold in so a slot
-// rebuilds when the quantized clip station moves. clip_units is hashed as
-// a plain integer (not the quantized station's float bit pattern) — it's
-// already an exact multiple of kRibbonClipQuantizeM by construction, so
-// two frames landing on the same station always hash identically; a
-// parked ego (or one outside the proximity gate) recomputes the same pair
-// every call, so this causes zero rebuilds (see update_ribbons()).
-uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float half_width_m,
-                           bool clip_active, int64_t clip_units) {
+// Clip state deliberately excluded; applied per-frame as a position
+// collapse, see apply_ribbon_clip().
+uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float half_width_m) {
     uint64_t h = hash_combine(0, static_cast<uint64_t>(role));
     h = hash_combine(h, static_cast<uint64_t>(n));
     if (n > 0) {
@@ -73,8 +67,6 @@ uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float half
     uint32_t widthBits;
     std::memcpy(&widthBits, &half_width_m, sizeof(widthBits));
     h = hash_combine(h, static_cast<uint64_t>(widthBits));
-    h = hash_combine(h, clip_active ? 1ULL : 0ULL);
-    h = hash_combine(h, static_cast<uint64_t>(clip_units));
     return h;
 }
 
@@ -134,10 +126,9 @@ float build_effective_half_width(const detail::Theme::Ribbon& cfg, PathRole role
 }
 
 // Ego-proximity ribbon clip: never render the part of the ribbon behind
-// the ego. The arc-length walk/quantization/interpolated-cut machinery
-// (closest_arc_station/compute_polyline_clip/clip_polyline_forward) is
-// shared with trajectory_carpet.cpp's velocity ribbon (VM-077
-// carpet-as-ribbon redirect, 2026-09-10) via polyline.hpp -- promoted out
+// the ego. The arc-length walk/quantization machinery
+// (closest_arc_station/compute_polyline_clip) is shared with
+// trajectory_carpet.cpp's velocity ribbon via polyline.hpp -- promoted out
 // of this file rather than duplicated, since it's the exact same "never
 // render behind the ego" mechanism both need. RibbonClip stays a thin
 // PathRibbon/EgoState-flavored wrapper here so update_ribbons() below
@@ -157,6 +148,9 @@ RibbonClip compute_ribbon_clip(const PathRibbon& ribbon, const EgoState& ego) {
 void destroy_slot_meshes(VisualRenderer& r, VisualRenderer::RibbonSlot& slot) {
     for (auto& m : slot.meshes) destroy_mesh(*r.engine, *r.scene, m);
     slot.meshes.clear();
+    slot.baseStripPositions.clear();
+    slot.pointStations.clear();
+    slot.has_applied_clip = false;
 }
 
 // Rebuilds `slot`'s geometry from `ribbon`'s current point data, chunked at
@@ -176,10 +170,9 @@ void destroy_slot_meshes(VisualRenderer& r, VisualRenderer::RibbonSlot& slot) {
 // extrude_polyline_indices()'s index list (values 0..2n-1, always < 65536
 // for n <= kMaxPointsPerMesh) straight to the IndexBuffer -- no
 // flattening, no per-corner duplication.
-// pts/n is whatever update_ribbons() decided the slot's geometry should be
-// built from -- the raw PathRibbon points, or an ego-clipped
-// forward-truncated subset. `role` picks the material and the per-role
-// margin.
+// pts/n is always the FULL, unclipped PathRibbon points -- the ego-clip is
+// applied afterward, every frame, as a position collapse (apply_ribbon_clip
+// below). `role` picks the material and the per-role margin.
 void build_slot_meshes(VisualRenderer& r, VisualRenderer::RibbonSlot& slot, PathRole role,
                        const Vec3* pts, uint32_t n) {
     destroy_slot_meshes(r, slot);
@@ -197,7 +190,16 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::RibbonSlot& slot, Path
     // culling box, unrelated to the strip's real extent).
     const float halfWidthM = build_effective_half_width(r.active_theme.ribbon, role);
     slot.halfWidthM = halfWidthM;
-    slot.firstPointM = n > 0 ? pts[0] : Vec3{};
+    slot.firstPointM = n > 0 ? pts[0] : Vec3{};  // baseline; apply_ribbon_clip() overwrites if clipped
+    // Global arc-length offset carried across chunks so `pointStations`
+    // stays index-aligned with compute_polyline_clip()'s own station
+    // measure even for a >kMaxPointsPerMesh ribbon (each chunk's own
+    // cleaning starts fresh -- clean_polyline_stations() mirrors
+    // extrude_polyline()'s internal per-chunk clean exactly, see its own
+    // comment -- so this offset is what stitches those chunk-local walks
+    // back into one global measure). A no-op (stays 0.0) for the
+    // overwhelmingly common single-chunk case.
+    double chunkStationOffset = 0.0;
     for (auto [a, b] : detail::polyline_chunks(n)) {
         const uint32_t chunkN = b - a;
         std::vector<Vec3> strip = detail::extrude_polyline(
@@ -206,6 +208,10 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::RibbonSlot& slot, Path
         std::vector<uint16_t> idx =
             detail::extrude_polyline_indices(static_cast<uint32_t>(strip.size() / 2));
         if (idx.empty()) continue;
+
+        std::vector<double> stations = detail::clean_polyline_stations(pts + a, chunkN);
+        for (double& s : stations) s += chunkStationOffset;
+        if (!stations.empty()) chunkStationOffset = stations.back();
 
         std::vector<Vertex> verts(strip.size());
         for (size_t i = 0; i < strip.size(); ++i) verts[i].position = to_f3(strip[i]);
@@ -217,7 +223,38 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::RibbonSlot& slot, Path
                  filament::RenderableManager::PrimitiveType::TRIANGLES, mat,
                  /*cast_shadows=*/false, /*receive_shadows=*/true);
         slot.meshes.push_back(std::move(mesh));
+        slot.baseStripPositions.push_back(std::move(strip));
+        slot.pointStations.push_back(std::move(stations));
     }
+}
+
+// Applies (or re-applies) the ego-proximity clip to every mesh in `slot` by
+// collapsing degenerate vertices onto the interpolated cut and re-uploading
+// via update_mesh_positions() -- see polyline.hpp's
+// collapse_clipped_positions() for why this replaces the old
+// destroy-then-rebuild clip path. Called every render_frame() (through
+// update_ribbons() below); the GPU upload itself only happens when the
+// clip state actually moved since the last call, or right after a fresh
+// (always-unclipped) content rebuild, which forces one. A parked ego
+// causes zero uploads. Also keeps RibbonSlot::firstPointM (the test-hook
+// mirror) in sync with what's actually on screen.
+void apply_ribbon_clip(VisualRenderer& r, VisualRenderer::RibbonSlot& slot, const RibbonClip& clip) {
+    const bool changed = !slot.has_applied_clip || slot.appliedClipActive != clip.active ||
+                          (clip.active && slot.appliedClipUnits != clip.quantized_units);
+    if (!changed) return;
+    for (size_t i = 0; i < slot.meshes.size(); ++i) {
+        std::vector<Vec3> positions = slot.baseStripPositions[i];
+        detail::collapse_clipped_positions(positions, slot.pointStations[i], clip.active,
+                                            clip.station_m);
+        if (i == 0 && !positions.empty()) slot.firstPointM = positions[0];
+        std::vector<Vertex> verts(positions.size());
+        for (size_t v = 0; v < positions.size(); ++v) verts[v].position = to_f3(positions[v]);
+        fill_tangent_frames(verts, std::vector<float3>(positions.size(), float3{0.0f, 0.0f, 1.0f}));
+        update_mesh_positions(*r.engine, slot.meshes[i], std::move(verts));
+    }
+    slot.has_applied_clip = true;
+    slot.appliedClipActive = clip.active;
+    slot.appliedClipUnits = clip.quantized_units;
 }
 
 // Rebinds every primitive in `slot.meshes` to `mat` for the GLOBAL/LOCAL
@@ -250,47 +287,35 @@ void update_ribbons(VisualRenderer& r, const SceneGraph& s) {
         VisualRenderer::RibbonSlot& slot = r.ribbonSlots[i];
 
         // Ego-proximity clip, recomputed every frame from the ribbon's own
-        // points and the current ego -- cheap (one segment walk), and this
-        // per-frame recomputation is exactly what makes "parked ego -> zero
-        // rebuilds" true: a stationary ego against unchanged ribbon points
-        // always lands on the same quantized station, so the signature
-        // below never changes even though this runs every call.
+        // points and the current ego -- cheap (one segment walk). No
+        // longer feeds the content signature (see ribbon_signature()'s
+        // comment); applied below via apply_ribbon_clip() as a position
+        // collapse on whatever geometry the signature check just decided
+        // (rebuilt or not).
         const RibbonClip clip = compute_ribbon_clip(ribbon, s.ego);
 
         const float effectiveHalfWidthM = build_effective_half_width(r.active_theme.ribbon, ribbon.role);
         const uint64_t sig =
-            ribbon_signature(ribbon.role, ribbon.points, ribbon.point_count,
-                             effectiveHalfWidthM, clip.active, clip.quantized_units);
+            ribbon_signature(ribbon.role, ribbon.points, ribbon.point_count, effectiveHalfWidthM);
         if (!slot.has_signature || slot.signature != sig) {
-            // Clipped geometry is materialized only on a rebuild -- the
-            // clip station is already in the signature, so the rebuild
-            // branch is the only consumer. Computing the clipped copy every
-            // frame would allocate and discard the whole point list of a
-            // long ridden GLOBAL route ~30x/s for nothing.
-            std::vector<Vec3> clippedStorage;
-            const Vec3* geomPts = ribbon.points;
-            uint32_t geomN = ribbon.point_count;
-            if (clip.active) {
-                clippedStorage =
-                    detail::clip_polyline_forward(ribbon.points, ribbon.point_count, clip.station_m);
-                geomPts = clippedStorage.data();
-                geomN = static_cast<uint32_t>(clippedStorage.size());
-            }
-            // Content, role, or clip station changed -- full rebuild. Drop
-            // any live fade instance (stale bookkeeping for the old
-            // geometry) and let the staleness pass below re-decide from
-            // scratch.
+            // Content, role, or width changed -- full rebuild (always the
+            // FULL unclipped ribbon; apply_ribbon_clip() below handles the
+            // clip). Drop any live fade instance (stale bookkeeping for the
+            // old geometry) and let the staleness pass below re-decide
+            // from scratch.
             if (slot.fadeInstance != nullptr) {
                 r.engine->destroy(slot.fadeInstance);
                 slot.fadeInstance = nullptr;
                 slot.fadeAlpha = 1.0f;
             }
             ++r.ribbonRebuildCount;
-            build_slot_meshes(r, slot, ribbon.role, geomPts, geomN);
+            build_slot_meshes(r, slot, ribbon.role, ribbon.points, ribbon.point_count);
             slot.role = ribbon.role;
             slot.signature = sig;
             slot.has_signature = true;
         }
+
+        apply_ribbon_clip(r, slot, clip);
 
         const auto alpha = static_cast<float>(detail::SceneBuffer::staleness_alpha(
             s.sim_time_sec, ribbon.last_update_sec, kStaleFadeStartSec, kStaleFadeTimeoutSec));
