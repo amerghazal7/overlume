@@ -70,6 +70,12 @@ class HeadlessEglPlatform;
 // definition lives in environment.hpp (library-internal, same
 // "never #included by node code" status as this header itself).
 class EnvironmentSource;
+// Forward-declared for the same reason as EnvironmentSource above:
+// VisualRenderer::bowl (VM-091, Task 2) is a std::unique_ptr member whose
+// destructor is only instantiated where bowl.hpp's full BowlState
+// definition is visible (destroy_renderer(), renderer.cpp -- which
+// #includes bowl.hpp before `delete r` runs).
+struct BowlState;
 
 // One interleaved vertex: world-space position + the Filament "TANGENTS"
 // quaternion that encodes the surface normal (see VertexBuffer::Builder::
@@ -798,6 +804,11 @@ public:
     // it; Task 2's update_bowl() is what actually adds/removes the bowl
     // entity from the scene based on this flag.
     bool bowlVisible = false;
+    // Bowl mesh/material (VM-091, Task 2): null until build_bowl() (bowl.cpp,
+    // called from camera_textures.cpp's set_bowl_config()) succeeds. A full
+    // re-bake destroys and replaces this outright -- see build_bowl()'s own
+    // comment.
+    std::unique_ptr<BowlState> bowl;
     // Environment (VM-052): buildingMaterial is an eager clay.mat instance
     // (Decision 4 -- no new .mat file), themed from palette.building in
     // push_theme_to_scene() alongside every other eager instance above.

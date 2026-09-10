@@ -20,6 +20,7 @@
 #include "visual_renderer/scene.h"
 #include "alert_polygons.hpp"
 #include "alert_polygons_test_hooks.hpp"
+#include "bowl.hpp"
 #include "ego.hpp"
 #include "ego_test_hooks.hpp"
 #include "environment.hpp"
@@ -1434,9 +1435,18 @@ void destroy_renderer(VisualRenderer* r) {
     }
     if (r->groundGridMaterial) r->engine->destroy(r->groundGridMaterial);
 
-    // Every live camera-bowl texture (VM-090/ADR-0005) -- no bowl mesh/
-    // material exists yet at this task, only the per-camera textures
-    // set_bowl_config() allocates.
+    // Bowl mesh + material (VM-091, Task 2) -- must run before the camera
+    // textures just below (bowl.mat's per-camera samplers reference them,
+    // though destroy order between an unrelated Texture* and a
+    // MaterialInstance/Material doesn't itself matter here -- this is just
+    // "tear down the bowl's own GPU resources, then its cameras").
+    if (r->bowl) {
+        destroy_mesh(*r->engine, *r->scene, r->bowl->mesh);
+        if (r->bowl->instance) r->engine->destroy(r->bowl->instance);
+        if (r->bowl->material) r->engine->destroy(r->bowl->material);
+        r->bowl.reset();
+    }
+    // Every live camera-bowl texture (VM-090/ADR-0005).
     for (auto& slot : r->cameraSlots) {
         if (slot.texture) r->engine->destroy(slot.texture);
     }
@@ -1551,6 +1561,14 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     // last-published active() scene every call -- set_ego_model()
     // builds/loads the entity once and never touches its transform itself.
     update_ego_transform(*r, r->scene_buffer.active().ego);
+    // Bowl (VM-091, Task 2): re-derives the ego-motion-delta-composed
+    // effective per-camera extrinsics, syncs scene membership with
+    // r->bowlVisible, and anchors the rig-frame bowl mesh into the map-frame
+    // scene from the SAME ego pose update_ego_transform just consumed
+    // (Decision 3's frame convention -- keeps bowl-vs-ego depth compositing,
+    // Task 3, aligned wherever the robot is on the map). No-op if
+    // set_bowl_config() has never succeeded (r->bowl is null).
+    update_bowl(*r, r->scene_buffer.active().ego);
     // Same re-derive-every-call split as the ego transform and theme blend
     // above -- set_scene() never touches Filament state itself.
     update_ground_grid_transform(*r, r->scene_buffer.active().ego);

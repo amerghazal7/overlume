@@ -1,8 +1,10 @@
 // camera_textures.cpp — VM-090 (unified-engine migration Task 1, ADR-0005):
-// the POD-boundary camera-texture mechanism. Owns camera texture
-// allocation/upload/dirty-tracking; no bowl mesh/material exists yet (that's
-// Task 2's bowl.cpp) -- set_bowl_visible()/set_camera_motion_delta() here
-// only store state Task 2 will read.
+// the POD-boundary camera-texture mechanism, now also (VM-091, Task 2) the
+// call site that hands a freshly-(re)allocated camera-texture set off to
+// bowl.cpp's build_bowl() for the mesh/material half of set_bowl_config()'s
+// documented contract. set_bowl_visible()/set_camera_motion_delta() here
+// only store state bowl.cpp's update_bowl() reads every render_frame() call.
+#include "bowl.hpp"
 #include "camera_textures.hpp"
 #include "camera_textures_test_hooks.hpp"
 #include "renderer_internal.hpp"
@@ -84,6 +86,16 @@ bool set_bowl_config(VisualRenderer* r, const BowlConfig& cfg) {
         slot.texture = build_camera_texture(*r->engine, slot.width, slot.height);
     }
     r->cameraCount = cfg.camera_count;
+    // Task 2's half of this function's documented contract: bake the bowl
+    // mesh + per-vertex weight/index attributes and (re)build the bowl.mat
+    // material instance, now that this camera set's textures exist for it
+    // to sample. A bake failure (e.g. degenerate mesh params) leaves
+    // r->bowl null -- the bowl renders nothing, same "missing config
+    // renders nothing" convention set_bowl_config's own null/invalid-input
+    // checks above already follow -- but the camera textures this function
+    // just (re)built stay valid regardless, so this function still returns
+    // true: the textures/dirty-tracking half of its contract succeeded.
+    build_bowl(*r, cfg);
     return true;
 }
 
