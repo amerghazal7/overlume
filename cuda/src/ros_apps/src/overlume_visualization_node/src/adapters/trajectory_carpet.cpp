@@ -75,7 +75,10 @@ void TrajectoryCarpetAdapter::ingest(const visualization_msgs::msg::MarkerArray&
         }
         if (m.action != kActionAdd) continue;  // ignore DELETE(ns,id) -- one persistent marker
 
-        if (m.type != kTypeTriangleList || m.points.size() < 3 || m.points.size() % 3 != 0)
+        // Always a multiple of 6 (measured, 1647/1647 ADD markers) -- two
+        // triangles per dual-rail quad, not just "a multiple of 3" (this
+        // file's own header comment has the full pairing algorithm).
+        if (m.type != kTypeTriangleList || m.points.size() < 6 || m.points.size() % 6 != 0)
         {
             ++stats_.dropped_malformed;
             continue;
@@ -98,37 +101,74 @@ void TrajectoryCarpetAdapter::ingest(const visualization_msgs::msg::MarkerArray&
         }
 
         // A length mismatch means the WHOLE colors[] array is suspect (not
-        // a per-point concern) -- every point falls back to the alpha==0
-        // sentinel together, same "whole-message fallback" rule this file's
-        // header comment states.
+        // a per-station concern) -- every station falls back to the
+        // alpha==0 sentinel together, same "whole-message fallback" rule
+        // this file's header comment states.
         const bool per_point_colors = m.colors.size() == m.points.size();
 
-        std::vector<mpviz::PointCloudPoint> pts;
-        pts.reserve(m.points.size());
-        bool ok = true;
-        for (size_t i = 0; i < m.points.size(); ++i)
-        {
-            const auto& p = m.points[i];
+        // Transforms ONE raw wire point (marker pose, then the message's
+        // one TF lookup, then flatten_z) -- same per-point composition
+        // every other adapter uses. Returns false (NaN) rather than
+        // throwing; the whole message is dropped on any NaN, same "no
+        // partial carpet" rule the old flat path used.
+        auto transform_point = [&](size_t idx, tf2::Vector3* out) -> bool {
+            const auto& p = m.points[idx];
             const tf2::Vector3 local(p.x, p.y, p.z);
             const tf2::Vector3 posed = identity_pose ? local : marker_tf * local;
             const tf2::Vector3 tp = xform * posed;
             const double z = tf_.flatten_z() ? 0.0 : tp.z();
-            if (HasNan(tp.x(), tp.y(), z))
+            if (HasNan(tp.x(), tp.y(), z)) return false;
+            *out = tf2::Vector3(tp.x(), tp.y(), z);
+            return true;
+        };
+
+        // One centerline station from two raw corner indices (position:
+        // their midpoint) + one color index (colors[] alpha documented
+        // "not yet used"; force 255 so a supplied color always reads as
+        // "real", same convention GenericMarkerAdapter's fan_colors uses).
+        auto make_station = [&](size_t idx_a, size_t idx_b, size_t color_idx,
+                                 mpviz::PointCloudPoint* out) -> bool {
+            tf2::Vector3 a, b;
+            if (!transform_point(idx_a, &a) || !transform_point(idx_b, &b)) return false;
+            out->position = {(a.x() + b.x()) / 2.0, (a.y() + b.y()) / 2.0, (a.z() + b.z()) / 2.0};
+            out->rgba = per_point_colors
+                            ? PackRgba(static_cast<uint8_t>(m.colors[color_idx].r * 255.0f + 0.5f),
+                                       static_cast<uint8_t>(m.colors[color_idx].g * 255.0f + 0.5f),
+                                       static_cast<uint8_t>(m.colors[color_idx].b * 255.0f + 0.5f),
+                                       255)
+                            : 0u;
+            return true;
+        };
+
+        const size_t n_quads = m.points.size() / 6;
+        std::vector<mpviz::PointCloudPoint> stations;
+        stations.reserve(n_quads + 1);
+        bool ok = true;
+
+        // station_0 = midpoint(quad_0.A, quad_0.B) = midpoint(points[0],
+        // points[1]), color from A (points[0]/colors[0]).
+        mpviz::PointCloudPoint s0{};
+        if (!make_station(0, 1, 0, &s0))
+        {
+            ok = false;
+        }
+        else
+        {
+            stations.push_back(s0);
+        }
+
+        for (size_t k = 0; ok && k < n_quads; ++k)
+        {
+            const size_t base = 6 * k;
+            // station_{k+1} = midpoint(quad_k.D, quad_k.C) = midpoint(
+            // points[base+5], points[base+4]), color from D (points[base+5]).
+            mpviz::PointCloudPoint sk1{};
+            if (!make_station(base + 5, base + 4, base + 5, &sk1))
             {
                 ok = false;
                 break;
             }
-            mpviz::PointCloudPoint pt{};
-            pt.position = {tp.x(), tp.y(), z};
-            // colors[] alpha is documented "not yet used" (Marker.msg); force
-            // 255 so a supplied colors[i] always reads as "real color", same
-            // convention GenericMarkerAdapter's fan_colors already uses.
-            pt.rgba = per_point_colors
-                          ? PackRgba(static_cast<uint8_t>(m.colors[i].r * 255.0f + 0.5f),
-                                     static_cast<uint8_t>(m.colors[i].g * 255.0f + 0.5f),
-                                     static_cast<uint8_t>(m.colors[i].b * 255.0f + 0.5f), 255)
-                          : 0u;
-            pts.push_back(pt);
+            stations.push_back(sk1);
         }
         if (!ok)
         {
@@ -138,7 +178,7 @@ void TrajectoryCarpetAdapter::ingest(const visualization_msgs::msg::MarkerArray&
 
         // REPLACES wholesale, never appends/merges -- same contract as
         // PathAdapter (this file's own header comment).
-        storage_ = std::move(pts);
+        storage_ = std::move(stations);
         has_data_ = true;
         last_update_sec_ = sim_time_sec;
     }

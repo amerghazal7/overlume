@@ -161,6 +161,8 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.ribbon.margin_behavior_m = lerpf(a.ribbon.margin_behavior_m, b.ribbon.margin_behavior_m, w);
     out.ribbon.margin_global_m = lerpf(a.ribbon.margin_global_m, b.ribbon.margin_global_m, w);
     out.ribbon.margin_local_m = lerpf(a.ribbon.margin_local_m, b.ribbon.margin_local_m, w);
+    out.ribbon.margin_velocity_m =
+        lerpf(a.ribbon.margin_velocity_m, b.ribbon.margin_velocity_m, w);
 
     return out;
 }

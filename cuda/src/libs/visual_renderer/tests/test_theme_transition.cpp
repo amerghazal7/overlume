@@ -299,6 +299,7 @@ mpviz::detail::Theme MakeSentinelTheme(float scalar, const std::string& name) {
     t.ribbon.margin_behavior_m = scalar;
     t.ribbon.margin_global_m = scalar;
     t.ribbon.margin_local_m = scalar;
+    t.ribbon.margin_velocity_m = scalar;
     return t;
 }
 
@@ -378,6 +379,7 @@ TEST(ThemeTransition, SentinelThemesDetectAnyUnblendedField) {
     ExpectBetweenSentinels(mid.ribbon.margin_behavior_m, "ribbon.margin_behavior_m");
     ExpectBetweenSentinels(mid.ribbon.margin_global_m, "ribbon.margin_global_m");
     ExpectBetweenSentinels(mid.ribbon.margin_local_m, "ribbon.margin_local_m");
+    ExpectBetweenSentinels(mid.ribbon.margin_velocity_m, "ribbon.margin_velocity_m");
 }
 
 TEST(ThemeTransition, UnknownThemeName_ReturnsFalseAndLeavesActiveThemeUnchanged) {

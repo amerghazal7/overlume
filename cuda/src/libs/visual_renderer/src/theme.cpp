@@ -132,6 +132,15 @@ Theme parse(const YAML::Node& root) {
     t.ribbon.margin_local_m =
         (ribbon && ribbon["margin_local_m"]) ? ribbon["margin_local_m"].as<float>() : marginDefault;
 
+    // margin_velocity_m: NOT derived from marginDefault (unlike the three
+    // role margins above) -- it's a fixed 1.05 soft default, deliberately
+    // between margin_local_m (0.8) and margin_behavior_m (1.3), independent
+    // of whatever width_m/lane_width_m this theme authors (see theme.hpp's
+    // own comment on why 1.05).
+    t.ribbon.margin_velocity_m = (ribbon && ribbon["margin_velocity_m"])
+                                     ? ribbon["margin_velocity_m"].as<float>()
+                                     : 1.05f;
+
     return t;
 }
 
@@ -222,6 +231,9 @@ const Theme& kFallbackTheme() {
         t.ribbon.margin_behavior_m = 1.3f;  // narrowest -- top of the z-stagger, the hero ribbon
         t.ribbon.margin_global_m = 0.3f;    // widest -- bottom of the z-stagger
         t.ribbon.margin_local_m = 0.8f;
+        // Between margin_local_m and margin_behavior_m -- see theme.hpp's
+        // own comment (VM-077 carpet-as-ribbon redirect, 2026-09-10).
+        t.ribbon.margin_velocity_m = 1.05f;
         return t;
     }();
     return theme;

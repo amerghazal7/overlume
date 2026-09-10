@@ -42,9 +42,23 @@ uint32_t trajectory_carpet_vertex_rgba(mpviz::VisualRenderer* r, size_t slot,
                                         size_t vertex_idx);
 
 // The actual world-space z (INCLUDING the renderer's own z-stack lift --
-// see trajectory_carpet.cpp's kTrajectoryCarpetZLiftM) vertex `vertex_idx`
+// see trajectory_carpet.cpp's velocity-ribbon z-lift) vertex `vertex_idx`
 // within slot `slot`'s first built mesh was given. 0.0f if `r`/`slot`/
 // `vertex_idx` is out of range.
 float trajectory_carpet_vertex_z(mpviz::VisualRenderer* r, size_t slot, size_t vertex_idx);
+
+// The actual half-width (theme ribbon.margin_velocity_m, clamped)
+// build_slot_meshes() used for slot `slot`'s geometry the last time it
+// rebuilt -- not a Filament AABB query, same "mirror what was really built"
+// reasoning as ribbon_test_hooks.hpp's ribbon_slot_half_width_m(). 0.0f if
+// `r` is null or `slot` is out of range.
+float trajectory_carpet_half_width_m(mpviz::VisualRenderer* r, size_t slot);
+
+// Total number of times ANY trajectory-carpet slot has rebuilt its geometry
+// (content, half-width, or ego-clip station changed) since create_renderer()
+// -- the H2 flicker-fix regression pin: a publish that changes only
+// per-vertex color, with identical station positions, must NOT bump this.
+// 0 if `r` is null.
+uint64_t trajectory_carpet_rebuild_count(mpviz::VisualRenderer* r);
 
 }  // namespace mpviz::testing

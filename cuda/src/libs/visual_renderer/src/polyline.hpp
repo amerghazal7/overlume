@@ -73,6 +73,37 @@ std::vector<Vec3> triangulate_convex_polygon(const Vec3* pts, uint32_t n, float 
 inline constexpr uint32_t kMaxPointsPerMesh = 32000;  // 2 verts/pt, < 65535/2
 std::vector<std::pair<uint32_t, uint32_t>> polyline_chunks(uint32_t n);
 
+// Ego-proximity clip: promoted out of ribbon.cpp (VM-077 carpet-as-ribbon
+// redirect) so a second caller (the velocity ribbon) shares the identical
+// "never render behind the ego" mechanism instead of a second arc-length
+// walk. Values unchanged from ribbon.cpp's originals, renamed only for
+// their shared home.
+
+// Closest-approach arc-station to `ego` (2D, map frame); returns {station,
+// min lateral distance}. n<2 -> {0, +inf} (fails the proximity gate below).
+std::pair<double, double> closest_arc_station(const Vec3* pts, uint32_t n, const Vec3& ego);
+
+// Proximity gate: only clip a polyline the ego is actually near (a far-away
+// route must render whole). Generous vs. the ~0.1-0.5m half-widths ribbons
+// draw at -- "is the ego riding this route", not a precise offset.
+inline constexpr float kPolylineEgoClipLateralM = 5.0f;
+// Clip station granularity, so a parked ego causes zero signature changes.
+inline constexpr float kPolylineClipQuantizeM = 0.5f;
+
+struct PolylineClip {
+    bool active = false;
+    int64_t quantized_units = 0;  // station / kPolylineClipQuantizeM, rounded -- meaningful iff active
+    double station_m = 0.0;       // quantized_units * kPolylineClipQuantizeM -- meaningful iff active
+};
+
+// Clip decision for a polyline the ego may be riding. Caller gates on ego
+// validity first -- this function has no notion of EgoState::valid.
+PolylineClip compute_polyline_clip(const Vec3* pts, uint32_t n, const Vec3& ego_position);
+
+// Truncates `pts`/`n` to the forward half starting at arc-length `s0`, with
+// an interpolated cut point (not a snap to the nearest vertex). n<2 -> empty.
+std::vector<Vec3> clip_polyline_forward(const Vec3* pts, uint32_t n, double s0);
+
 // Lazy crosswalk hatch: painted bars with ground visible in the gaps
 // between them -- the visual differentiation is the geometry, not a
 // second material. Bilinear-interpolated stripes between the quad's two
