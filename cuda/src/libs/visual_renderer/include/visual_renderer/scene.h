@@ -371,12 +371,12 @@ bool theme_parses(const char* dir, const char* theme_name);
 // WGS84 <-> map-frame datum, solved node-side by GeoAnchorSolver
 // (geo_anchor.hpp) from NavSatFix + the `gps_link`/`base_link` TF (PRIMARY),
 // or set directly from the `geo_datum_*` param override (GPS-denied
-// replays). No SceneGraph field -- baked-environment content is
+// replays). No SceneGraph field (Decision 1: baked-environment content is
 // read-once-at-startup, like the ego model and ground plane, not per-tick
-// autonomy data -- appended here, standalone, because
-// `set_environment_source(VisualRenderer*, const char*, GeoAnchor)` below
-// takes one by value, and geo_anchor.hpp needs the SAME type (not a local
-// duplicate) to hand back from GeoAnchorSolver::anchor().
+// autonomy data) -- appended here, standalone, because Task 3 (VM-052)'s
+// `set_environment_source(VisualRenderer*, const char*, GeoAnchor)` takes
+// one by value, and Task 1's node-side geo_anchor.hpp needs the SAME type
+// (not a local duplicate) to hand back from GeoAnchorSolver::anchor().
 struct GeoAnchor {
     double origin_lat_deg;
     double origin_lon_deg;

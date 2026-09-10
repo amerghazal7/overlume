@@ -16,6 +16,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <gltfio/FilamentAsset.h>
@@ -86,6 +87,17 @@ private:
         Vec3 center{};  // mirrors the index entry -- avoids a chunks_ re-lookup per unload check
     };
     std::unordered_map<std::string, LoadedChunk> loaded_;  // keyed by chunk id
+    // Chunks whose load failed (missing/truncated .glb, createAsset/
+    // loadResources failure) -- memoed so a bad file isn't re-read at frame
+    // rate; cleared when the ego leaves kUnloadRadiusM (retry on the next
+    // approach). See update()'s own comments.
+    std::unordered_set<std::string> failed_;
+    const EnvironmentChunk* find_chunk(const std::string& id) const {
+        for (const EnvironmentChunk& c : chunks_) {
+            if (c.id == id) return &c;
+        }
+        return nullptr;
+    }
 };
 
 // Parses `<dir>/index.yaml` and returns a ready BakedEnvironmentSource, or
