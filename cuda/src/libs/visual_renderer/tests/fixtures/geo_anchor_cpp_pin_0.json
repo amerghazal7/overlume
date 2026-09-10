@@ -1,0 +1,10 @@
+{
+  "_provenance": "Generated once (2026-09-10) from the C++ source of truth: cuda/src/ros_apps/src/micropilot_visualization_node/src/geo_anchor.cpp's WgsToMap, verified against the built test_geo_anchor binary's GeoAnchor.RoundTripWgsToMapAndBackWithin0p1mOver2km (PASS). Same anchor + same 4 probe offsets as that test (test_geo_anchor.cpp) -- not re-derived independently. bake_environment.py's --selfcheck asserts its own Python wgs_to_map() matches map_x/map_y/map_z here within 1e-3 m per point (Epic 4 plan Task 2 Step 2, cross-language pin).",
+  "anchor": {"origin_lat_deg": 25.0803, "origin_lon_deg": 55.3910, "heading_rad": 0.0},
+  "probes": [
+    {"dlat": 0.0, "dlon": 0.0, "lat": 25.0803000000, "lon": 55.3910000000, "map_x": 0.0000000000, "map_y": 0.0000000000, "map_z": 0.0},
+    {"dlat": 0.01, "dlon": 0.0, "lat": 25.0903000000, "lon": 55.3910000000, "map_x": 1111.9492664458, "map_y": 0.0000000000, "map_z": 0.0},
+    {"dlat": 0.0, "dlon": 0.01, "lat": 25.0803000000, "lon": 55.4010000000, "map_x": 0.0000000000, "map_y": -1007.1086827547, "map_z": 0.0},
+    {"dlat": -0.015, "dlon": 0.02, "lat": 25.0653000000, "lon": 55.4110000000, "map_x": -1667.9238996684, "map_y": -2014.2173655101, "map_z": 0.0}
+  ]
+}
