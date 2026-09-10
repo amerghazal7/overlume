@@ -326,6 +326,18 @@ bag, so VM-050 has real fixture data. A Mapbox token is available to the user
 | Runtime chunk load + distance culling | VM-052 | lib `src/environment.cpp` behind `EnvironmentSource` seam, goldens, perf check |
 
 ### Epic 5 — Hardening & delivery
+
+`[user decision 2026-09-11]` Epic 5 runs PARTIALLY in parallel with the
+unified-engine migration (2026-09-10 plan, Decision 10), per its file-overlap
+analysis: **VM-041** and **VM-042's docs half** (profile-authoring + bake
+runbook; deployment notes deferred to post-cutover) pulled forward NOW in
+worktrees; **VM-044** slots after migration Task 2/VM-091 (same
+`visualization_node.cpp` files, and it feeds Task 6's M02P-glTF sign-off
+exception); **VM-040** slots after migration Task 5/VM-094 (the governor
+tunes against the perf envelope the camera/bowl work is changing); **VM-043**
+is superseded — its on-robot rerun and parity checklist close inside
+migration Task 6 (VM-095), not as a separate run.
+
 | Task | Backlog | Files |
 |---|---|---|
 | Quality auto-drop w/ hysteresis | VM-040 | lib `src/quality_governor.cpp`, load test |
