@@ -272,7 +272,8 @@ static_assert(offsetof(mpviz::CameraIntrinsics, cy) == 24,
 static_assert(offsetof(mpviz::CameraIntrinsics, dist) == 32,
               "CameraIntrinsics layout, ADR-0004 additive");
 
-static_assert(sizeof(mpviz::BowlConfig) == 88, "BowlConfig layout, ADR-0004 additive");
+static_assert(sizeof(mpviz::BowlConfig) == 96,
+              "BowlConfig layout, ADR-0004 additive (review round 1: +exposure_compensation)");
 static_assert(offsetof(mpviz::BowlConfig, camera_count) == 0,
               "BowlConfig layout, ADR-0004 additive");
 static_assert(offsetof(mpviz::BowlConfig, extrinsics) == 8,
@@ -297,6 +298,8 @@ static_assert(offsetof(mpviz::BowlConfig, exposure_match) == 73,
               "BowlConfig layout, ADR-0004 additive");
 static_assert(offsetof(mpviz::BowlConfig, sky_color) == 76,
               "BowlConfig layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::BowlConfig, exposure_compensation) == 88,
+              "BowlConfig layout, ADR-0004 additive (review round 1)");
 
 // RenderConfig (api.h) — also crosses the prebuilt-archive ABI boundary.
 static_assert(sizeof(mpviz::RenderConfig) == 32, "RenderConfig layout frozen");

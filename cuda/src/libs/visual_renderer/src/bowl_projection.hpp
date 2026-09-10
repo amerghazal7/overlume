@@ -31,6 +31,17 @@ namespace mpviz::bowl {
 // calibrated field (r2 > 3.0, same guard as the CUDA kernel), or projects
 // outside the camera's pixel bounds -- the caller then treats this
 // camera/vertex pair as zero weight (Decision 3/4).
+//
+// PIXEL-CORNER convention (review round 1 minor finding, stated explicitly
+// per that finding's request since Task 5's colorization reuses this
+// function): u/v divide by the raw width/height with no +0.5 texel-center
+// offset, so (xp,yp)=(0,0) maps to (0,0), not to a half-texel-inset point.
+// bowl.mat's fragment shader applies its OWN +0.5 pixel-center offset when
+// it converts a fragment's own xp/yp back into a sampler UV (matching GL's
+// texel-center convention and reproject.cu's bilinear()) -- that offset is
+// shader-local, not part of this function's contract. A caller that feeds
+// this function's u/v output directly into a LINEAR-filtered sampler
+// should apply the same +0.5 conversion itself first.
 bool ProjectToCameraUv(const mpviz::CameraExtrinsics& ext, const mpviz::CameraIntrinsics& in,
                        uint32_t width, uint32_t height, mpviz::Vec3 rig_point, float* out_u,
                        float* out_v);

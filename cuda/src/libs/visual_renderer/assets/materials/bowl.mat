@@ -11,16 +11,17 @@
 // The interpolant budget (MATERIAL_VARIABLES_COUNT = 4, Decision 3) holds
 // TWO custom vec4s here, well inside budget:
 //   CUSTOM0 (via `requires: [ color ]`, vertex passes material.color
-//     through) = {weight_a, index_a, weight_b, index_b} -- the per-vertex
+//     through) = {coverage_a, index_a, coverage_b, index_b} -- the per-vertex
 //     bake's output (bowl_mesh.cpp). index_a/index_b are LITERALLY IDENTICAL
 //     across a triangle's three vertices by construction (Decision 3's
 //     per-triangle-uniform-index rule), so linearly interpolating them
 //     reproduces the same integer everywhere in the triangle -- safe to
 //     round-trip through int(x + 0.5) in the fragment shader.
-//   CUSTOM1 (via `requires: [ uv0, uv1 ]`, packing two vec2 attributes) =
-//     the vertex's RIG-FRAME position (bowl_mesh.cpp bakes/generates
-//     positions in rig frame -- Decision 3's frame convention). This is
-//     NOT the same as Filament's own getWorldPosition(): the bowl entity's
+//   CUSTOM2 (via `requires: [ custom0 ]`, a real vertex attribute, NOT
+//     packed through uv0/uv1 -- see the review-round-1 note below) = the
+//     vertex's RIG-FRAME position (bowl_mesh.cpp bakes/generates positions
+//     in rig frame -- Decision 3's frame convention). This is NOT the same
+//     as Filament's own getWorldPosition(): the bowl entity's
 //     TransformManager transform is the map<-rig ego pose (renderer.cpp's
 //     update_bowl, matching update_ego_transform), so getWorldPosition()
 //     would be MAP frame -- wrong frame for camera extrinsics, which are
@@ -31,6 +32,22 @@
 //     per-vertex bake this decision replaced), not merely read once per
 //     vertex.
 //
+// REVIEW ROUND 1 (2026-09-11) BLOCKING FINDING -- rigPos does NOT ride
+// uv0/uv1 anymore: Filament's generated vertex shader V-FLIPS both
+// (`vec2(mesh_uv0.x, 1.0 - mesh_uv0.y)`, confirmed via
+// `matc -a opengl -p desktop -o /tmp/bowl.filamat bowl.mat && matinfo
+// --print-glsl=0 /tmp/bowl.filamat`) -- correct for an actual texture UV,
+// silently corrupting for a position payload smuggled through the same
+// channel (every fragment sampled from (x, 1-y, z) instead of (x, y, z),
+// wrong everywhere y != 0.5). rigPos now rides a REAL custom vertex
+// attribute instead: `filament::VertexAttribute::CUSTOM0` (FLOAT3, bound in
+// bowl.cpp's make_bowl_vertex_buffer), requested here via `requires: [
+// custom0 ]` and read with `getCustom0()` in materialVertex -- Filament
+// passes CUSTOM attributes through with no per-component arithmetic. It is
+// then carried across the rasterizer on its own interpolant, `custom2`
+// (custom1 is not declared -- nothing uses it), exactly like weight/index
+// use custom0.
+//
 // PARAMETER BUDGET, empirically discovered, not assumed: this matc build
 // (1.56.5) aborts with "Too many parameters" past a per-material uniform
 // float-count ceiling well below what MAX_SAMPLER_COUNT/interpolant-budget
@@ -38,7 +55,7 @@
 // cameras' full right/down/fwd/t + K + dist(4) + widthHeightK3(4) [24
 // floats/camera, 148 total] aborts; 5 cameras at that footprint [124 total]
 // does not). This material is therefore deliberately trimmed to 18
-// floats/camera (108 total + 4 shared = 112):
+// floats/camera (108 total + 6 shared = 114):
 //   - Per-camera parameters are 6 SEPARATELY NAMED uniforms each (camRightN/
 //     camFwdN/camTN/camKN/camDistN/camK3_N/camTexN), not a `size:`-declared
 //     array: this matc build does not correctly support array-typed
@@ -70,11 +87,51 @@
 //     rotation is orthonormal) is both well inside this budget and
 //     cheaper than a GPU-side mat4 multiply per fragment would have been.
 //
+// REVIEW ROUND 1 BLOCKING FINDING -- border feather is now computed
+// PER-FRAGMENT, from a new `featherMargin` parameter (bowl.cpp pushes
+// BowlConfig::feather_margin), ported verbatim from blend.cuh's
+// border_feather/smoothstep01 at the fragment's own xp/yp. It used to be
+// baked per-vertex into coverage_a/coverage_b, which does not match a
+// per-fragment-sampled UV: the fragment hard-rejects at `xp > width-1`
+// carrying the full interpolated vertex weight right up to that line,
+// turning each camera's image edge into a step instead of the smoothstep
+// feather reproject.cu produces. coverage_a/coverage_b (bowl_mesh.cpp) now
+// carry ONLY the alignment^2 term (renamed from weight_a/weight_b).
+//
+// REVIEW ROUND 1 MINOR FINDING -- texture UV is pixel-CENTER sampled
+// (`(xp,yp) + 0.5`), not pixel-CORNER (`xp/width`): matches GL's own texel
+// center convention and reproject.cu's `bilinear()`, which samples at xp
+// exactly. `bowl_projection.cpp`'s `ProjectToCameraUv` keeps its own
+// pixel-CORNER convention (its header comment states this explicitly) --
+// this +0.5 is applied here, shader-side, only, converting xp/yp (which
+// bowl_mesh.cpp already derives as `u*width`/`v*height`) back to a
+// pixel-center-sampled UV.
+//
 // skyColor mirrors BowlConfig's own sky_color field -- bowl.cpp pushes it
-// once per set_bowl_config() call. feather_margin is NOT a material
-// parameter at all: the feather weight is baked into weight_a/weight_b at
-// bake time (bowl_mesh.cpp's BorderFeather call), not recomputed per
-// fragment, so this material never needs to know the margin itself.
+// once per set_bowl_config() call.
+//
+// REVIEW ROUND 1 MINOR FINDING -- exposureCompensation is now a material
+// PARAMETER (BowlConfig::exposure_compensation, default 10.0, bowl.cpp
+// pushes it), not a hardcoded shader constant: a style knob alongside
+// sky_color/feather_margin, per the STANDING "every rendered element ships
+// style tokens" directive. It intentionally does NOT multiply skyColor
+// (see the fragment code below) -- sky_color is authored already in
+// display/post-tonemap space (what a user picks in a color swatch), not in
+// the same pre-tonemap space sampled camera pixels live in, so multiplying
+// it by exposureCompensation would make any sky_color above ~0.1 clip to
+// white for no reason a user configuring sky_color would expect.
+//
+// REVIEW ROUND 1 MINOR FINDING -- this material contributes at most 2
+// cameras per fragment (CUSTOM0/CUSTOM2 are both spoken for: weight/index
+// and rigPos), and the top-2 pair is chosen PER TRIANGLE (bowl_mesh.cpp),
+// so across a triple-camera-overlap band adjacent triangles can switch
+// from blending (A,B) to (A,C) at equal summed weight -- a mesh-aligned
+// faceted seam reproject.cu's all-camera blend does not have. Recorded as
+// a NAMED PARITY EXCEPTION (Task 4 Step 1's checklist, migration plan doc)
+// rather than fixed here -- test_bowl.cpp's
+// ThreeCameraOverlapStillPicksAConsistentPairPerTriangle documents the
+// current (2-camera) behavior at a real triple-overlap triangle so a
+// future fix has a test to change deliberately, not silently.
 //
 // OPAQUE (no `blending:` line -- Filament's default): the STANDING
 // opaque-while-fresh convention (ribbon_emissive.mat's header) applies here
@@ -127,25 +184,27 @@ material {
         { type : float4, name : camK5 },
         { type : float4, name : camDist5 },
         { type : float, name : camK3_5 },
-        { type : float3, name : skyColor }
+        { type : float3, name : skyColor },
+        { type : float, name : featherMargin },
+        { type : float, name : exposureCompensation }
     ],
-    requires : [ color, uv0, uv1 ],
-    variables : [ custom0, custom1 ]
+    requires : [ color, custom0 ],
+    variables : [ custom0, custom2 ]
 }
 vertex {
     void materialVertex(inout MaterialVertexInputs material) {
         material.custom0 = material.color;
-        material.custom1 = vec4(material.uv0, material.uv1);
+        material.custom2 = vec4(getCustom0().xyz, 0.0);
     }
 }
 fragment {
     void material(inout MaterialInputs material) {
         prepareMaterial(material);
         vec4 c0 = variable_custom0;
-        vec3 rigPos = variable_custom1.xyz;
-        float weightA = c0.x;
+        vec3 rigPos = variable_custom2.xyz;
+        float coverageA = c0.x;
         int idxA = int(c0.y + 0.5);
-        float weightB = c0.z;
+        float coverageB = c0.z;
         int idxB = int(c0.w + 0.5);
 
         vec3 colorSum = vec3(0.0);
@@ -156,10 +215,16 @@ fragment {
         // `down` is reconstructed as cross(fwd,right) rather than uploaded
         // (an orthonormal right-handed basis's third axis, exact -- see
         // bowl.mat's header for the parameter-budget reason). width/height
-        // come from textureSize(), not a uniform.
+        // come from textureSize(), not a uniform. Feather (review round 1
+        // blocking finding) is computed HERE, per fragment, from
+        // featherMargin -- ported verbatim from blend.cuh's
+        // border_feather/smoothstep01 -- not baked per-vertex, so the
+        // border falls off smoothly instead of stepping hard at the
+        // vertex-baked cutoff. UV (review round 1 minor finding) is
+        // pixel-CENTER sampled (+0.5), matching reproject.cu's bilinear().
         {
-            float wgt = (idxA == 0) ? weightA : ((idxB == 0) ? weightB : 0.0);
-            if (wgt > 0.0) {
+            float coverage = (idxA == 0) ? coverageA : ((idxB == 0) ? coverageB : 0.0);
+            if (coverage > 0.0) {
                 vec3 fwd = materialParams.camFwd0;
                 vec3 right = materialParams.camRight0;
                 vec3 down = cross(fwd, right);
@@ -198,23 +263,41 @@ fragment {
                         float xp = fx * xn + cx;
                         float yp = fy * yn + cy;
                         if (xp >= 0.0 && xp <= width - 1.0 && yp >= 0.0 && yp <= height - 1.0) {
-                            vec2 uv = vec2(xp / width, yp / height);
-                            colorSum += wgt * texture(materialParams_camTex0, uv).rgb;
-                            wsum += wgt;
+                            float d = min(min(xp, (width - 1.0) - xp), min(yp, (height - 1.0) - yp));
+                            float feather;
+                            if (materialParams.featherMargin <= 0.0) {
+                                feather = step(0.0, d);
+                            } else {
+                                float ratio = clamp(d / materialParams.featherMargin, 0.0, 1.0);
+                                feather = ratio * ratio * (3.0 - 2.0 * ratio);
+                            }
+                            float wgt = coverage * feather;
+                            if (wgt > 0.0) {
+                                vec2 uv = (vec2(xp, yp) + 0.5) / vec2(width, height);
+                                colorSum += wgt * texture(materialParams_camTex0, uv).rgb;
+                                wsum += wgt;
+                            }
                         }
                     }
                 }
             }
         }
+
         // -- camera 1 -- right/fwd/t are the EFFECTIVE (ego-motion-delta
         // -composed) extrinsics bowl.cpp uploads each render_frame call;
         // `down` is reconstructed as cross(fwd,right) rather than uploaded
         // (an orthonormal right-handed basis's third axis, exact -- see
         // bowl.mat's header for the parameter-budget reason). width/height
-        // come from textureSize(), not a uniform.
+        // come from textureSize(), not a uniform. Feather (review round 1
+        // blocking finding) is computed HERE, per fragment, from
+        // featherMargin -- ported verbatim from blend.cuh's
+        // border_feather/smoothstep01 -- not baked per-vertex, so the
+        // border falls off smoothly instead of stepping hard at the
+        // vertex-baked cutoff. UV (review round 1 minor finding) is
+        // pixel-CENTER sampled (+0.5), matching reproject.cu's bilinear().
         {
-            float wgt = (idxA == 1) ? weightA : ((idxB == 1) ? weightB : 0.0);
-            if (wgt > 0.0) {
+            float coverage = (idxA == 1) ? coverageA : ((idxB == 1) ? coverageB : 0.0);
+            if (coverage > 0.0) {
                 vec3 fwd = materialParams.camFwd1;
                 vec3 right = materialParams.camRight1;
                 vec3 down = cross(fwd, right);
@@ -253,23 +336,41 @@ fragment {
                         float xp = fx * xn + cx;
                         float yp = fy * yn + cy;
                         if (xp >= 0.0 && xp <= width - 1.0 && yp >= 0.0 && yp <= height - 1.0) {
-                            vec2 uv = vec2(xp / width, yp / height);
-                            colorSum += wgt * texture(materialParams_camTex1, uv).rgb;
-                            wsum += wgt;
+                            float d = min(min(xp, (width - 1.0) - xp), min(yp, (height - 1.0) - yp));
+                            float feather;
+                            if (materialParams.featherMargin <= 0.0) {
+                                feather = step(0.0, d);
+                            } else {
+                                float ratio = clamp(d / materialParams.featherMargin, 0.0, 1.0);
+                                feather = ratio * ratio * (3.0 - 2.0 * ratio);
+                            }
+                            float wgt = coverage * feather;
+                            if (wgt > 0.0) {
+                                vec2 uv = (vec2(xp, yp) + 0.5) / vec2(width, height);
+                                colorSum += wgt * texture(materialParams_camTex1, uv).rgb;
+                                wsum += wgt;
+                            }
                         }
                     }
                 }
             }
         }
+
         // -- camera 2 -- right/fwd/t are the EFFECTIVE (ego-motion-delta
         // -composed) extrinsics bowl.cpp uploads each render_frame call;
         // `down` is reconstructed as cross(fwd,right) rather than uploaded
         // (an orthonormal right-handed basis's third axis, exact -- see
         // bowl.mat's header for the parameter-budget reason). width/height
-        // come from textureSize(), not a uniform.
+        // come from textureSize(), not a uniform. Feather (review round 1
+        // blocking finding) is computed HERE, per fragment, from
+        // featherMargin -- ported verbatim from blend.cuh's
+        // border_feather/smoothstep01 -- not baked per-vertex, so the
+        // border falls off smoothly instead of stepping hard at the
+        // vertex-baked cutoff. UV (review round 1 minor finding) is
+        // pixel-CENTER sampled (+0.5), matching reproject.cu's bilinear().
         {
-            float wgt = (idxA == 2) ? weightA : ((idxB == 2) ? weightB : 0.0);
-            if (wgt > 0.0) {
+            float coverage = (idxA == 2) ? coverageA : ((idxB == 2) ? coverageB : 0.0);
+            if (coverage > 0.0) {
                 vec3 fwd = materialParams.camFwd2;
                 vec3 right = materialParams.camRight2;
                 vec3 down = cross(fwd, right);
@@ -308,23 +409,41 @@ fragment {
                         float xp = fx * xn + cx;
                         float yp = fy * yn + cy;
                         if (xp >= 0.0 && xp <= width - 1.0 && yp >= 0.0 && yp <= height - 1.0) {
-                            vec2 uv = vec2(xp / width, yp / height);
-                            colorSum += wgt * texture(materialParams_camTex2, uv).rgb;
-                            wsum += wgt;
+                            float d = min(min(xp, (width - 1.0) - xp), min(yp, (height - 1.0) - yp));
+                            float feather;
+                            if (materialParams.featherMargin <= 0.0) {
+                                feather = step(0.0, d);
+                            } else {
+                                float ratio = clamp(d / materialParams.featherMargin, 0.0, 1.0);
+                                feather = ratio * ratio * (3.0 - 2.0 * ratio);
+                            }
+                            float wgt = coverage * feather;
+                            if (wgt > 0.0) {
+                                vec2 uv = (vec2(xp, yp) + 0.5) / vec2(width, height);
+                                colorSum += wgt * texture(materialParams_camTex2, uv).rgb;
+                                wsum += wgt;
+                            }
                         }
                     }
                 }
             }
         }
+
         // -- camera 3 -- right/fwd/t are the EFFECTIVE (ego-motion-delta
         // -composed) extrinsics bowl.cpp uploads each render_frame call;
         // `down` is reconstructed as cross(fwd,right) rather than uploaded
         // (an orthonormal right-handed basis's third axis, exact -- see
         // bowl.mat's header for the parameter-budget reason). width/height
-        // come from textureSize(), not a uniform.
+        // come from textureSize(), not a uniform. Feather (review round 1
+        // blocking finding) is computed HERE, per fragment, from
+        // featherMargin -- ported verbatim from blend.cuh's
+        // border_feather/smoothstep01 -- not baked per-vertex, so the
+        // border falls off smoothly instead of stepping hard at the
+        // vertex-baked cutoff. UV (review round 1 minor finding) is
+        // pixel-CENTER sampled (+0.5), matching reproject.cu's bilinear().
         {
-            float wgt = (idxA == 3) ? weightA : ((idxB == 3) ? weightB : 0.0);
-            if (wgt > 0.0) {
+            float coverage = (idxA == 3) ? coverageA : ((idxB == 3) ? coverageB : 0.0);
+            if (coverage > 0.0) {
                 vec3 fwd = materialParams.camFwd3;
                 vec3 right = materialParams.camRight3;
                 vec3 down = cross(fwd, right);
@@ -363,23 +482,41 @@ fragment {
                         float xp = fx * xn + cx;
                         float yp = fy * yn + cy;
                         if (xp >= 0.0 && xp <= width - 1.0 && yp >= 0.0 && yp <= height - 1.0) {
-                            vec2 uv = vec2(xp / width, yp / height);
-                            colorSum += wgt * texture(materialParams_camTex3, uv).rgb;
-                            wsum += wgt;
+                            float d = min(min(xp, (width - 1.0) - xp), min(yp, (height - 1.0) - yp));
+                            float feather;
+                            if (materialParams.featherMargin <= 0.0) {
+                                feather = step(0.0, d);
+                            } else {
+                                float ratio = clamp(d / materialParams.featherMargin, 0.0, 1.0);
+                                feather = ratio * ratio * (3.0 - 2.0 * ratio);
+                            }
+                            float wgt = coverage * feather;
+                            if (wgt > 0.0) {
+                                vec2 uv = (vec2(xp, yp) + 0.5) / vec2(width, height);
+                                colorSum += wgt * texture(materialParams_camTex3, uv).rgb;
+                                wsum += wgt;
+                            }
                         }
                     }
                 }
             }
         }
+
         // -- camera 4 -- right/fwd/t are the EFFECTIVE (ego-motion-delta
         // -composed) extrinsics bowl.cpp uploads each render_frame call;
         // `down` is reconstructed as cross(fwd,right) rather than uploaded
         // (an orthonormal right-handed basis's third axis, exact -- see
         // bowl.mat's header for the parameter-budget reason). width/height
-        // come from textureSize(), not a uniform.
+        // come from textureSize(), not a uniform. Feather (review round 1
+        // blocking finding) is computed HERE, per fragment, from
+        // featherMargin -- ported verbatim from blend.cuh's
+        // border_feather/smoothstep01 -- not baked per-vertex, so the
+        // border falls off smoothly instead of stepping hard at the
+        // vertex-baked cutoff. UV (review round 1 minor finding) is
+        // pixel-CENTER sampled (+0.5), matching reproject.cu's bilinear().
         {
-            float wgt = (idxA == 4) ? weightA : ((idxB == 4) ? weightB : 0.0);
-            if (wgt > 0.0) {
+            float coverage = (idxA == 4) ? coverageA : ((idxB == 4) ? coverageB : 0.0);
+            if (coverage > 0.0) {
                 vec3 fwd = materialParams.camFwd4;
                 vec3 right = materialParams.camRight4;
                 vec3 down = cross(fwd, right);
@@ -418,23 +555,41 @@ fragment {
                         float xp = fx * xn + cx;
                         float yp = fy * yn + cy;
                         if (xp >= 0.0 && xp <= width - 1.0 && yp >= 0.0 && yp <= height - 1.0) {
-                            vec2 uv = vec2(xp / width, yp / height);
-                            colorSum += wgt * texture(materialParams_camTex4, uv).rgb;
-                            wsum += wgt;
+                            float d = min(min(xp, (width - 1.0) - xp), min(yp, (height - 1.0) - yp));
+                            float feather;
+                            if (materialParams.featherMargin <= 0.0) {
+                                feather = step(0.0, d);
+                            } else {
+                                float ratio = clamp(d / materialParams.featherMargin, 0.0, 1.0);
+                                feather = ratio * ratio * (3.0 - 2.0 * ratio);
+                            }
+                            float wgt = coverage * feather;
+                            if (wgt > 0.0) {
+                                vec2 uv = (vec2(xp, yp) + 0.5) / vec2(width, height);
+                                colorSum += wgt * texture(materialParams_camTex4, uv).rgb;
+                                wsum += wgt;
+                            }
                         }
                     }
                 }
             }
         }
+
         // -- camera 5 -- right/fwd/t are the EFFECTIVE (ego-motion-delta
         // -composed) extrinsics bowl.cpp uploads each render_frame call;
         // `down` is reconstructed as cross(fwd,right) rather than uploaded
         // (an orthonormal right-handed basis's third axis, exact -- see
         // bowl.mat's header for the parameter-budget reason). width/height
-        // come from textureSize(), not a uniform.
+        // come from textureSize(), not a uniform. Feather (review round 1
+        // blocking finding) is computed HERE, per fragment, from
+        // featherMargin -- ported verbatim from blend.cuh's
+        // border_feather/smoothstep01 -- not baked per-vertex, so the
+        // border falls off smoothly instead of stepping hard at the
+        // vertex-baked cutoff. UV (review round 1 minor finding) is
+        // pixel-CENTER sampled (+0.5), matching reproject.cu's bilinear().
         {
-            float wgt = (idxA == 5) ? weightA : ((idxB == 5) ? weightB : 0.0);
-            if (wgt > 0.0) {
+            float coverage = (idxA == 5) ? coverageA : ((idxB == 5) ? coverageB : 0.0);
+            if (coverage > 0.0) {
                 vec3 fwd = materialParams.camFwd5;
                 vec3 right = materialParams.camRight5;
                 vec3 down = cross(fwd, right);
@@ -473,36 +628,50 @@ fragment {
                         float xp = fx * xn + cx;
                         float yp = fy * yn + cy;
                         if (xp >= 0.0 && xp <= width - 1.0 && yp >= 0.0 && yp <= height - 1.0) {
-                            vec2 uv = vec2(xp / width, yp / height);
-                            colorSum += wgt * texture(materialParams_camTex5, uv).rgb;
-                            wsum += wgt;
+                            float d = min(min(xp, (width - 1.0) - xp), min(yp, (height - 1.0) - yp));
+                            float feather;
+                            if (materialParams.featherMargin <= 0.0) {
+                                feather = step(0.0, d);
+                            } else {
+                                float ratio = clamp(d / materialParams.featherMargin, 0.0, 1.0);
+                                feather = ratio * ratio * (3.0 - 2.0 * ratio);
+                            }
+                            float wgt = coverage * feather;
+                            if (wgt > 0.0) {
+                                vec2 uv = (vec2(xp, yp) + 0.5) / vec2(width, height);
+                                colorSum += wgt * texture(materialParams_camTex5, uv).rgb;
+                                wsum += wgt;
+                            }
                         }
                     }
                 }
             }
         }
-        // EXPOSURE_COMPENSATION: this renderer's fixed camera exposure
-        // (renderer.cpp's setExposure(16, 1/500, 100), tuned against SUN-lit
-        // clay surfaces) crushes an UNLIT material's raw baseColor -- an
-        // unlit (1,1,1) renders at only ~15% output brightness (measured
-        // empirically against this exact material, no lighting to
-        // compensate the way clay.mat's albedo relies on the sun). The CUDA
-        // reference (reproject.cu) writes camera RGB straight to its output
-        // buffer with NO exposure/tonemap step at all, so passing sampled
-        // camera pixels through unscaled would make the bowl read as a
-        // dim, washed-out image compared to the CUDA node's own output --
-        // a real fidelity regression, not just a test-sentinel artifact.
-        // 10.0x was picked empirically (matc/this build's tonemap curve is
-        // nonlinear/saturating, so this is a working compensation, not a
-        // precise inverse) to bring a well-lit camera pixel back into a
-        // normal-looking display range; Task 2 Step 7's golden comparison
+        // EXPOSURE_COMPENSATION (materialParams.exposureCompensation, review
+        // round 1 -- was a hardcoded shader constant): this renderer's fixed
+        // camera exposure (renderer.cpp's setExposure(16, 1/500, 100), tuned
+        // against SUN-lit clay surfaces) crushes an UNLIT material's raw
+        // baseColor -- an unlit (1,1,1) renders at only ~15% output
+        // brightness (measured empirically against this exact material, no
+        // lighting to compensate the way clay.mat's albedo relies on the
+        // sun). The CUDA reference (reproject.cu) writes camera RGB straight
+        // to its output buffer with NO exposure/tonemap step at all, so
+        // passing sampled camera pixels through unscaled would make the bowl
+        // read as a dim, washed-out image compared to the CUDA node's own
+        // output -- a real fidelity regression, not just a test-sentinel
+        // artifact. 10.0x was picked empirically (matc/this build's tonemap
+        // curve is nonlinear/saturating, so this is a working compensation,
+        // not a precise inverse) to bring a well-lit camera pixel back into
+        // a normal-looking display range; Task 2 Step 7's golden comparison
         // against the CUDA node's own output is the real check on whether
-        // this constant needs retuning.
-        const float EXPOSURE_COMPENSATION = 10.0;
+        // this constant needs retuning. skyColor is deliberately NOT
+        // multiplied by it (see this material's header) -- sky_color is
+        // authored in display space already, not the pre-tonemap camera-
+        // pixel space exposureCompensation corrects for.
         if (wsum > 0.0) {
-            material.baseColor.rgb = (colorSum / wsum) * EXPOSURE_COMPENSATION;
+            material.baseColor.rgb = (colorSum / wsum) * materialParams.exposureCompensation;
         } else {
-            material.baseColor.rgb = materialParams.skyColor * EXPOSURE_COMPENSATION;
+            material.baseColor.rgb = materialParams.skyColor;
         }
         material.baseColor.a = 1.0;
     }
