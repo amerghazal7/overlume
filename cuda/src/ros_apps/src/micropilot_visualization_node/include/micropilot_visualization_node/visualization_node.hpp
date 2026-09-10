@@ -22,6 +22,7 @@
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <map_msgs/msg/occupancy_grid_update.hpp>
@@ -49,6 +50,7 @@
 #include "micropilot_visualization_node/callouts.hpp"
 #include "micropilot_visualization_node/diagnostics.hpp"
 #include "micropilot_visualization_node/frame_transform.hpp"
+#include "micropilot_visualization_node/geo_anchor.hpp"
 #include "micropilot_visualization_node/hud_overlay.hpp"
 #include "micropilot_visualization_node/profile.hpp"
 #include "micropilot_visualization_node/scene_assembly.hpp"
@@ -335,6 +337,18 @@ private:
     // walk has no "message" to go stale) -- fill() runs every tick,
     // unconditionally, for every row here.
     std::vector<std::unique_ptr<mpviz_node::TfAxesAdapter>> tf_axes_rows_;
+
+    // ── Geo-anchor (VM-050) ───────────────────────────────────────────────────
+    // Reuses tf_buffer_ above (the SAME buffer TfAdapter reads) -- no second
+    // TransformListener. Fed every /sim/feedback/gps callback until solved
+    // (kMinAnchorSamples reached) or overridden by geo_datum_* params
+    // (on_configure, validated all-or-nothing). Task 3 (VM-052) reads
+    // geo_anchor_solver_->solved()/anchor() at on_activate() time; this task
+    // only solves and logs the transition (geo_anchor_logged_ latches the
+    // one-shot RCLCPP_INFO on solved() first flipping true).
+    std::unique_ptr<GeoAnchorSolver> geo_anchor_solver_;
+    rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
+    bool geo_anchor_logged_{false};
 
     SceneAssembly scene_asm_;
 

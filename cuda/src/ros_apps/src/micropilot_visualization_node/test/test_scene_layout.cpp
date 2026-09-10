@@ -21,7 +21,7 @@
 
 #include <gtest/gtest.h>
 
-static_assert(mpviz::kSceneVersion == 3, "node/library scene.h version drifted");
+static_assert(mpviz::kSceneVersion == 4, "node/library scene.h version drifted");
 
 static_assert(sizeof(mpviz::MapElement) == 32, "node/library scene.h version drifted");
 static_assert(offsetof(mpviz::MapElement, points) == 0, "node/library scene.h version drifted");
@@ -67,6 +67,16 @@ static_assert(offsetof(mpviz::TrajectoryCarpet, last_update_sec) == 16,
 static_assert(offsetof(mpviz::SceneGraph, trajectory_carpets) == 200,
               "node/library scene.h version drifted");
 static_assert(offsetof(mpviz::SceneGraph, trajectory_carpet_count) == 208,
+              "node/library scene.h version drifted");
+
+// GeoAnchor, appended VM-050 (Epic 4 Task 1, ADR-0004) -- kSceneVersion
+// 3 -> 4. NOT a SceneGraph field (Decision 1) -- standalone POD.
+static_assert(sizeof(mpviz::GeoAnchor) == 24, "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::GeoAnchor, origin_lat_deg) == 0,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::GeoAnchor, origin_lon_deg) == 8,
+              "node/library scene.h version drifted");
+static_assert(offsetof(mpviz::GeoAnchor, heading_rad) == 16,
               "node/library scene.h version drifted");
 
 // static_asserts above do the real work; this TEST body only exists so

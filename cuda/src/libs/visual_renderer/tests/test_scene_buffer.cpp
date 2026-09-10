@@ -85,7 +85,7 @@ TEST(StalenessAlpha, PastTimeoutIsFullyFaded) {
     EXPECT_FLOAT_EQ(mpviz::detail::SceneBuffer::staleness_alpha(13.0, 10.0, 0.5, 2.0), 0.0f);
 }
 
-static_assert(mpviz::kSceneVersion == 3,
+static_assert(mpviz::kSceneVersion == 4,
               "bump this alongside every additive scene.h change, and update the "
               "node-side test_scene_layout.cpp mirror");
 
@@ -236,6 +236,17 @@ static_assert(offsetof(mpviz::SceneGraph, trajectory_carpets) == 200,
               "SceneGraph layout, ADR-0004 additive");
 static_assert(offsetof(mpviz::SceneGraph, trajectory_carpet_count) == 208,
               "SceneGraph layout, ADR-0004 additive");
+
+// GeoAnchor, appended VM-050 (Epic 4 Task 1, ADR-0004) -- kSceneVersion
+// 3 -> 4. NOT a SceneGraph field (Decision 1) -- standalone POD, three
+// doubles, no padding.
+static_assert(sizeof(mpviz::GeoAnchor) == 24, "GeoAnchor layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::GeoAnchor, origin_lat_deg) == 0,
+              "GeoAnchor layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::GeoAnchor, origin_lon_deg) == 8,
+              "GeoAnchor layout, ADR-0004 additive");
+static_assert(offsetof(mpviz::GeoAnchor, heading_rad) == 16,
+              "GeoAnchor layout, ADR-0004 additive");
 
 // RenderConfig (api.h) — also crosses the prebuilt-archive ABI boundary.
 static_assert(sizeof(mpviz::RenderConfig) == 32, "RenderConfig layout frozen");

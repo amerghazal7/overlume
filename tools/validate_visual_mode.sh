@@ -338,6 +338,27 @@
 #               closed one -- if it's still visible on the real rig, that's
 #               a fresh measurement pass to run, not a number already on
 #               file here.
+#
+#   2026-09-10  Epic 4 Task 1/VM-050: geo-anchor lands -- the node now
+#               solves a real WGS84<->map-frame anchor from
+#               /sim/feedback/gps (50 Hz NavSatFix, PRIMARY) + the
+#               map->base_link TF (kMinAnchorSamples=500 AND
+#               kMinAnchorBaselineM=20.0 of map-frame displacement -- at
+#               this recording's ~0.5 m/s mean speed the 20 m baseline is
+#               the binding gate, so expect the anchor log ~40 s into
+#               motion, not 10 s), or from the geo_datum_lat_deg/lon_deg/heading_deg
+#               param override (all-or-nothing, GPS-denied replays). NOT
+#               YET visually checkable on its own -- no rendered element
+#               reads the anchor yet (Task 3/VM-052 is the first consumer
+#               that draws anything from it); this milestone is the solved
+#               anchor + its one-shot RCLCPP_INFO log
+#               ("--anchor-lat/--anchor-lon/--anchor-heading-deg ..."),
+#               confirmable via `ros2 topic echo /rosout` or the node's own
+#               log while this rig is up. scene.h gained one appended POD
+#               struct (GeoAnchor) and kSceneVersion 3->4 (sequencing
+#               deviation, dated 2026-09-10: performed in Task 1, not
+#               Task 3, since Task 1 is GeoAnchor's first consumer) -- no
+#               existing struct/enum touched, no rendering behavior change.
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its

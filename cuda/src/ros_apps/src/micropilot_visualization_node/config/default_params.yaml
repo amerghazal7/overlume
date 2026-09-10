@@ -64,3 +64,11 @@
     # absolute path to point at a hand-edited profile instead (VM-042).
     profile: urban
     profile_dir: ""
+    # VM-050 (Epic 4 Task 1): manual geo-anchor override, for GPS-denied
+    # replays -- NaN (all three) means "no override, sample NavSatFix+TF
+    # instead" (the spec's PRIMARY path). All-or-nothing: setting only one
+    # or two of these three is a config ERROR (visualization_node.cpp logs
+    # it once at startup and does not apply a partial/blended anchor).
+    geo_datum_lat_deg: .nan
+    geo_datum_lon_deg: .nan
+    geo_datum_heading_deg: .nan

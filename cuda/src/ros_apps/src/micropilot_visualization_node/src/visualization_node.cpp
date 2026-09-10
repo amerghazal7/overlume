@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <std_msgs/msg/header.hpp>
@@ -208,6 +209,69 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     tf_adapter_ = std::make_unique<TfAdapter>(*tf_buffer_, "map", "base_link",
                                               ego_speed_smoothing_alpha, flatten_z);
     pub_ego_state_ = create_publisher<std_msgs::msg::Float64MultiArray>("~/ego_state", 1);
+
+    // VM-050 (Epic 4 Task 1): geo-anchor. Reuses tf_buffer_ above -- the
+    // SAME buffer TfAdapter reads -- no second TransformListener.
+    // gps_link == base_link (identity TF, Epic 4 plan Decision 7), so this
+    // samples map->base_link directly, same frames as tf_adapter_.
+    geo_anchor_solver_ = std::make_unique<GeoAnchorSolver>(*tf_buffer_, "map", "base_link");
+    const double geo_datum_lat_deg = declare_parameter<double>("geo_datum_lat_deg",
+                                                                std::numeric_limits<double>::quiet_NaN());
+    const double geo_datum_lon_deg = declare_parameter<double>("geo_datum_lon_deg",
+                                                                std::numeric_limits<double>::quiet_NaN());
+    const double geo_datum_heading_deg = declare_parameter<double>(
+        "geo_datum_heading_deg", std::numeric_limits<double>::quiet_NaN());
+    switch (ClassifyGeoDatum(geo_datum_lat_deg, geo_datum_lon_deg, geo_datum_heading_deg))
+    {
+        case GeoDatumOverride::Complete:
+            geo_anchor_solver_->set_override(geo_datum_lat_deg, geo_datum_lon_deg,
+                                             geo_datum_heading_deg);
+            // set_override() makes solved() true synchronously (Step 2) --
+            // log the transition right here, same one-shot field order as
+            // the on_fix()-driven log below (gps_sub_'s lambda never fires
+            // this block too, since geo_anchor_logged_ is already latched).
+            geo_anchor_logged_ = true;
+            RCLCPP_INFO(get_logger(),
+                        "geo-anchor solved (geo_datum override): --anchor-lat %.8f --anchor-lon "
+                        "%.8f --anchor-heading-deg %.4f",
+                        geo_datum_lat_deg, geo_datum_lon_deg, geo_datum_heading_deg);
+            break;
+        case GeoDatumOverride::Partial:
+            // All-or-nothing (spec): a partial override is a config ERROR,
+            // not a silently-applied partial anchor. Logged once at
+            // startup; sampling from NavSatFix+TF proceeds as if no
+            // override was given.
+            RCLCPP_ERROR(get_logger(),
+                        "geo_datum_lat_deg/lon_deg/heading_deg must be given all three or none "
+                        "-- ignoring the partial override, sampling from NavSatFix+TF instead");
+            break;
+        case GeoDatumOverride::None:
+            break;
+    }
+    // Global (not "~/..."), same reasoning as robot_speed_sub_ below --
+    // the robot's own live feedback. BEST_EFFORT: the bag records this
+    // publisher as BEST_EFFORT (Epic 2 Task 1's own QoS finding, same root
+    // cause as robot_speed_sub_'s own comment) -- RELIABLE here would
+    // silently never connect.
+    gps_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
+        "/sim/feedback/gps", rclcpp::QoS(10).best_effort(),
+        [this](const sensor_msgs::msg::NavSatFix::SharedPtr msg)
+        {
+            geo_anchor_solver_->on_fix(*msg);
+            if (!geo_anchor_logged_ && geo_anchor_solver_->solved())
+            {
+                geo_anchor_logged_ = true;
+                const mpviz::GeoAnchor a = geo_anchor_solver_->anchor();
+                // Field order matches bake_environment.py's --anchor-lat/
+                // --anchor-lon/--anchor-heading-deg flags exactly (Task 2's
+                // Interfaces section) -- an operator copies these three
+                // numbers straight onto that script's command line.
+                RCLCPP_INFO(get_logger(),
+                            "geo-anchor solved: --anchor-lat %.8f --anchor-lon %.8f "
+                            "--anchor-heading-deg %.4f",
+                            a.origin_lat_deg, a.origin_lon_deg, a.heading_rad * 180.0 / M_PI);
+            }
+        });
 
     // ── HD-map adapters ───────────────────────────────────────────────────────
     // One HdMapAdapter per profile row with adapter: hd_map. fill() APPENDS
@@ -972,6 +1036,9 @@ VisualizationNode::CallbackReturn VisualizationNode::on_cleanup(
     vcam_.reset();
     theme_sub_.reset();
     robot_speed_sub_.reset();
+    gps_sub_.reset();
+    geo_anchor_solver_.reset();
+    geo_anchor_logged_ = false;
     hd_map_subs_.clear();
     hd_map_rows_.clear();
     dynamic_objects_subs_.clear();
@@ -1007,6 +1074,9 @@ VisualizationNode::CallbackReturn VisualizationNode::on_shutdown(
     vcam_.reset();
     theme_sub_.reset();
     robot_speed_sub_.reset();
+    gps_sub_.reset();
+    geo_anchor_solver_.reset();
+    geo_anchor_logged_ = false;
     hd_map_subs_.clear();
     hd_map_rows_.clear();
     dynamic_objects_subs_.clear();
