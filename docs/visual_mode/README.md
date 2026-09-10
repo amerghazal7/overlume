@@ -46,10 +46,11 @@ It runs, in order, and labels each stage PASS/FAIL:
    summary can't tell a skip from a real pass. This stage re-derives OK vs.
    SKIPPED counts from stage 2's own gtest output and reports them as their
    own line — skipped is never folded into "passed". "Golden" here is a
-   naming convention: a handful of pixel-comparison tests
-   (`MapElements.*PixelsVsBaseline`, `Fog.ColorAffectsRenderedOutput*`,
-   `ThemeTransition.*`) sit outside it and aren't counted in this line —
-   stage 2's suite-wide ok/skipped line is the complete skip check.
+   naming convention: some pixel-comparison tests sit outside it and aren't
+   counted in this line (e.g. `MapElements.*`, `Fog.ColorAffectsRenderedOutput*`,
+   three of the `ThemeTransition.*` tests — an illustrative list, not a
+   complete one) — stage 2's suite-wide ok/skipped line is the complete
+   skip check.
 
 It never plays a bag, and it never touches a rig it didn't itself start —
 stage 4's two E2E tests start their own rendering_node / visualization_node
