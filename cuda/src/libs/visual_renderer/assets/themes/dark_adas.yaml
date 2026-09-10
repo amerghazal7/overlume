@@ -33,6 +33,9 @@ palette:
   # Road's outer boundary (MapKind::ROAD_EDGE), renders SOLID never dashed
   # -- saturated yellow, distinct from lane_centerline's faint fade above.
   road_edge: [0.95, 0.75, 0.05]
+  # Baked-environment buildings (VM-052): near-black-navy flat clay blocks --
+  # a touch bluer/lighter than road, distinct from both road and ground.
+  building: [0.06, 0.07, 0.11]
   object_tints:
     car: [0.25, 0.35, 0.9]
     truck_van: [0.30, 0.35, 0.85]

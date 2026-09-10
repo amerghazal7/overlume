@@ -60,6 +60,11 @@ Theme parse(const YAML::Node& root) {
     t.palette.road_edge =
         palette["road_edge"] ? to_float3(palette["road_edge"]) : t.palette.lane_paint;
 
+    // building: same soft-default convention as road_edge above -- falls
+    // back to `road`; both shipped themes author an explicit value (Decision
+    // 10, VM-052).
+    t.palette.building = palette["building"] ? to_float3(palette["building"]) : t.palette.road;
+
     const YAML::Node tints = palette["object_tints"];
     t.palette.object_tints.car = to_float3(tints["car"]);
     t.palette.object_tints.truck_van = to_float3(tints["truck_van"]);
@@ -195,6 +200,9 @@ const Theme& kFallbackTheme() {
         t.palette.lane_boundary = {0.85f, 0.85f, 0.88f};
         t.palette.crosswalk = {0.95f, 0.90f, 0.70f};  // authored warm ivory, matches dark_adas.yaml
         t.palette.road_edge = {0.95f, 0.75f, 0.05f};
+        // Must match dark_adas.yaml exactly, same convention as road/
+        // lane_boundary/etc above (VM-052, Decision 10).
+        t.palette.building = {0.06f, 0.07f, 0.11f};
         t.palette.object_tints.car = {0.25f, 0.35f, 0.9f};
         t.palette.object_tints.truck_van = {0.30f, 0.35f, 0.85f};
         t.palette.object_tints.bus = {0.85f, 0.6f, 0.15f};
