@@ -296,10 +296,13 @@ install(DIRECTORY assets/fonts
 # been run -- a missing file here is a real, honestly-recorded gap
 # (ego_model_path resolves "" and the node's existing clay-box fallback
 # takes over), not a build error.
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets/ego/M02P.glb")
-  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/ego/M02P.glb"
-    DESTINATION share/${PROJECT_NAME}/assets/ego)
-else()
+# OPTIONAL = evaluated at INSTALL time, not configure time: the natural
+# new-box flow is build (not yet provisioned) -> provision_ego_model.sh ->
+# rebuild, and that second build does NOT re-run cmake -- a configure-time
+# if(EXISTS) would silently keep installing nothing (VM-044 gate minor 2).
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/ego/M02P.glb"
+  DESTINATION share/${PROJECT_NAME}/assets/ego OPTIONAL)
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets/ego/M02P.glb")
   message(WARNING
     "micropilot_visualization_node: assets/ego/M02P.glb not provisioned -- "
     "run scripts/provision_ego_model.sh first (needs the real M02P.obj). "
