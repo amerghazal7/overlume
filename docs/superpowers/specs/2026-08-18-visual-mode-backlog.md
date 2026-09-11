@@ -381,6 +381,7 @@ that on 2026-09-07 — it stays committed v1.1.
   Includes the on-robot budget table (VM-004(b)) as a blocking checklist item.
   AC: product + autonomy sign-off checklist complete, budget table recorded.
 
+  `[2026-09-11]` **CLOSED via the unified-engine migration Task 6 (Decision 10):** the parity sign-off (user-approved 2026-09-11) and the perf rerun (all 3 modes PASS on the sole merged node; dev-box RTX 3090 proxy, on-actual-robot rerun a named deployment item) close this item — there is no second process left to co-measure. See the migration plan's Task 6 row + budget_probe.md Results (b).
 - **VM-078 Object-rendering opacity control** (added 2026-09-11, user request:
   "can we offer apacity control for the objects rendering? (boxes or clay
   models)"). A theme style token `objects.opacity` (soft-default 1.0,
