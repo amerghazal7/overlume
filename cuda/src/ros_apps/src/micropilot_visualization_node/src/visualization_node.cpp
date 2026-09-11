@@ -436,6 +436,8 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // hud_enabled_/callouts_enabled_ below) -- false means CameraIngest's
     // image callbacks never touch cv_bridge and set_bowl_config()/
     // set_camera_frame()/set_camera_motion_delta() are never called.
+    // Declare-default stays OFF deliberately (bare-run safety);
+    // config/default_params.yaml ships true since VM-095 Step 6.
     bowl_enabled_ = declare_parameter<bool>("bowl_enabled", false);
     const int n_cameras = declare_parameter<int>("n_cameras", 6);
     if (n_cameras <= 0 || static_cast<uint32_t>(n_cameras) > mpviz::kMaxBowlCameras)
@@ -572,6 +574,8 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // lives in timer_callback(), not here, so the subscription can still be
     // created independently (harmless if bowl_enabled_ is false: the topic
     // is buffered but never colorized).
+    // Declare-default stays OFF deliberately (bare-run safety);
+    // config/default_params.yaml ships true since VM-095 Step 6.
     hybrid_enabled_ = declare_parameter<bool>("hybrid_enabled", false);
     if (camera_ingest_) camera_ingest_->set_hybrid_enabled(hybrid_enabled_);
     pointcloud_topic_ = declare_parameter<std::string>("pointcloud_topic", "");

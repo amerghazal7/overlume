@@ -48,7 +48,7 @@ hybrid-vs-CUDA, self-view/robot-proxy) are user-APPROVED, 2026-09-11.
   prototype (`tpsprojector/app.py` and its eight `import tpscuda` pytest
   files), unaffected by this ADR; this decision is scoped to the ROS
   rendering pipeline only.
-- `bowl_enabled`/`hybrid_enabled` ship `true` by default — the migration is
+- `bowl_enabled`/`hybrid_enabled` ship `true` by default — the migration is (the SHIPPED CONFIG `default_params.yaml` is the surface that carries `true`; the declare-time code defaults stay `false` deliberately, so a bare `ros2 run` without a params file comes up camera-quiet).
   complete, not merely capable.
 
 ## Consequences

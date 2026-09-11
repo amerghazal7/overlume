@@ -119,17 +119,16 @@
     # set_environment_source() (no anchor solved / no dir given -- same
     # "missing data renders nothing" convention, spec §9).
     environment_chunks_dir: ""
-    # VM-091 (unified-engine migration Task 2 Step 6): mode-1 bowl camera
-    # ingest. bowl_enabled default OFF (STANDING disable-knob rule) --
-    # nothing below runs (no camera subs' cv_bridge conversion cost, no
-    # set_bowl_config/set_camera_frame/set_camera_motion_delta calls) until
-    # this is set true. n_cameras/image_topics/info_topics/camera_extrinsics
-    # and bowl_R0/k/Rmax/feather_margin/sky_color below are ported verbatim
-    # from micropilot_rendering_node's own default_params.yaml (the CARLA-sim
-    # config -- same six real camera topics this epic's own fixture bag,
-    # stack_v3_full_sensors_2026-09-11, publishes), not reinvented.
-    # true since the VM-095 cutover (Step 6): modes 1/2 are live by default
-    # in the one surviving node.
+    # VM-091 (unified-engine migration Task 2): mode-1 bowl camera ingest.
+    # The disable knob per the STANDING rule (declare-default off; false
+    # means no camera subs, no cv_bridge cost, no set_bowl_config/
+    # set_camera_frame/set_camera_motion_delta calls) -- but THIS shipped
+    # config sets it true since the VM-095 cutover (Step 6): modes 1/2 are
+    # live by default in the one surviving node.
+    # n_cameras/image_topics/info_topics/camera_extrinsics and
+    # bowl_R0/k/Rmax/feather_margin/sky_color below are ported verbatim from
+    # the retired CUDA node's default_params.yaml (the CARLA-sim config --
+    # same six camera topics the fixture bag publishes), not reinvented.
     bowl_enabled: true
     n_cameras: 6
     image_topics:
@@ -266,14 +265,14 @@
     # VM-094 (unified-engine migration Task 5): mode-2 hybrid rendering --
     # camera-colorized lidar (lidar_colorize.hpp's ColorizeFromCameras()),
     # first-match-camera-wins (a NAMED fidelity regression vs the CUDA
-    # node's own feather-blended colorization, Decision 5). hybrid_enabled
-    # default OFF (STANDING disable-knob rule, same shape as bowl_enabled
-    # above): false means no PointCloud2 subscription is even created, and
-    # HYBRID mode renders bowl-only (Decision 5's fallback). Needs
-    # bowl_enabled true too -- the camera rig geometry and last-ingested RGB
-    # buffers it colorizes from come from the SAME camera_ingest_ the bowl
-    # uses (Task 2), not a second ingest path.
-    # true since the VM-095 cutover (Step 6), same as bowl_enabled.
+    # node's own feather-blended colorization, Decision 5). The disable knob
+    # per the STANDING rule (declare-default off; false means no PointCloud2
+    # subscription and HYBRID renders bowl-only, Decision 5's fallback) --
+    # but THIS shipped config sets it true since the VM-095 cutover
+    # (Step 6), same as bowl_enabled. Needs bowl_enabled true too -- the
+    # camera rig geometry and last-ingested RGB buffers it colorizes from
+    # come from the SAME camera_ingest_ the bowl uses (Task 2), not a
+    # second ingest path.
     hybrid_enabled: true
     # "" disables (bowl-only, no lidar subscription) -- this epic's fixture
     # bag's own lidar topic is /iv_points_fusion (stack_v3_full_sensors_2026-09-11).

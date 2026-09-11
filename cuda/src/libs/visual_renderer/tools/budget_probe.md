@@ -1,7 +1,7 @@
 # GPU budget probe (Epic 0 Task 6 / VM-004)
 
 Two tables live here. **(a) PROXY** was measured on the dev box on 2026-09-07
-during the plan review. **(b) ON-ROBOT** is open and blocks VM-043 sign-off.
+**(b) ON-ROBOT** closed 2026-09-11 by the VM-095 Step 1 rerun (dev-box RTX 3090 proxy; on-actual-robot rerun a named deployment item) — closes VM-043 per Decision 10.
 
 ## Why a proxy
 
@@ -17,7 +17,7 @@ running its pipeline with no input.
 Script: `budget_probe.sh` (kept next to this file). **Single-process shape as
 of the unified-engine migration's Task 6 (VM-095) cutover** —
 `micropilot_rendering_node` no longer exists to optionally start; the
-`visualization_node`/`rnode`-cased branches this procedure used to describe
+`rendering_node`/`rnode`-cased branches this procedure used to describe
 (`q1_rnode_idle`/`q1_rnode_mode2`) are gone from the script (Step 5), and
 this text is reworded to match rather than describing a step someone would
 otherwise try to follow against a deleted package. For each case the script

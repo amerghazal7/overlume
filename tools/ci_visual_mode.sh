@@ -17,7 +17,7 @@
 # What this script deliberately does NOT do (validate_visual_mode.sh's own
 # --live lesson): no bag is ever played, and nothing here touches a rig this
 # script didn't itself start. Stage 4's two E2E tests DO start
-# rendering_node, visualization_node and vcam_ws_bridge.py as their own
+# visualization_node and vcam_ws_bridge.py as their own
 # child processes -- but as their own isolated processes on an isolated
 # ROS_DOMAIN_ID, killed via killpg of the session they themselves started
 # (never a process the script did not start).
@@ -182,7 +182,7 @@ WS_LOG="${LOG_DIR}/ws_bridge_pytest.log"
 # plugin is the whole fix.
 #
 # ROS_DOMAIN_ID: two of these tests (test_bridge_e2e_*) start real
-# rendering_node / visualization_node / vcam_ws_bridge.py processes and
+# visualization_node / vcam_ws_bridge.py processes and
 # drive them over ROS 2 by node name (ros2 lifecycle set, ros2 param
 # get/set). _ros_env() in test_vcam_ws_bridge.py copies this process's
 # environment into every one of those child processes, so pinning the

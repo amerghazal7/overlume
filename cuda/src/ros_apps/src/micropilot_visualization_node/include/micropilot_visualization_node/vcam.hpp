@@ -20,9 +20,9 @@
 
 #include "visual_renderer/api.h"
 
-// Existing srv package (spec §6 / plan Task 5) — dependency, not a copy: this
-// node re-implements the CUDA node's vcam surface under its own namespace but
-// shares the exact same service type.
+// SetVirtualCam is OWNED by this package since the VM-095 cutover (Step 4:
+// the .srv moved in with rosidl generation; the qualified type name changed
+// with it). The wire layout is byte-identical to the retired node's.
 #include "micropilot_visualization_node/srv/set_virtual_cam.hpp"
 
 namespace micropilot::visualization_app

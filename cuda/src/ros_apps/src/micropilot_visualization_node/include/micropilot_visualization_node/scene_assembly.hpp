@@ -103,11 +103,9 @@ struct LayerFlags
 // the live-node bridge E2E. Call this right before point_at().
 void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags);
 
-// Task 4 (VM-093): the node's local render-mode switch, independent of the
-// global /rendering/set_mode mux's active_mode_ (mirrors
-// micropilot_rendering_node's own render_mode_/active_mode_ split -- see
-// that node's rendering_node.hpp for the precedent this one didn't have
-// until now).
+// The node's render-mode selector -- driven directly by /rendering/set_mode
+// since the VM-095 cutover (no mux, no active_mode_; this enum is the single
+// source of mode truth).
 enum class RenderMode
 {
     BOWL = 1,

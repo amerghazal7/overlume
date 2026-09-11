@@ -7,7 +7,7 @@
  *
  *  Two pieces:
  *   - `PopulateHud()`: copies `scene.ego.speed_mps`/the node's own
- *     `active_mode_` into `scene.hud` (Step 0). A free function, not
+ *     the node's `render_mode_` into `scene.hud` (Step 0). A free function, not
  *     inlined at the `timer_callback()` call site, purely so it has a
  *     unit-testable seam without standing up a full VisualizationNode/
  *     rclcpp/tf2 harness -- the plan's own escape valve for Step 0's test
@@ -37,8 +37,8 @@
 namespace mpviz_node
 {
 
-// Step 0: scene.hud.speed_mps/active_mode only -- chips are Task 4 scope.
-void PopulateHud(mpviz::SceneGraph& scene, int active_mode);
+// Step 0: scene.hud.speed_mps + the render mode only -- chips are Task 4 scope.
+void PopulateHud(mpviz::SceneGraph& scene, int render_mode);
 
 // A plain RGB triplet, 0..1 float -- not mpviz::Vec3 (that's doubles, a
 // world-space point type); not std::array (this header is node-only, no

@@ -236,15 +236,8 @@ def main() -> int:
     from diagnostic_msgs.msg import DiagnosticArray
     from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
     from rcl_interfaces.srv import GetParameters, SetParameters
-    # NOT YET repointed to micropilot_visualization_node.srv (Task 6/VM-095
-    # Step 4 -- moving SetVirtualCam.srv into the merged package -- is a
-    # package-layout change intentionally held for a separate follow-up
-    # pass; the .srv file physically still lives under
-    # micropilot_rendering_node today, and importing from the merged
-    # package here would raise ModuleNotFoundError). The service NAME
-    # below is still namespaced under /visualization_node (VCAM_NAMESPACES)
-    # -- only the TYPE's import path is unaffected by which node currently
-    # advertises it.
+    # SetVirtualCam is owned by micropilot_visualization_node since the VM-095
+    # cutover (Step 4) -- the type's qualified name changed with the .srv move.
     from micropilot_visualization_node.srv import SetVirtualCam
     import websockets
 
@@ -268,9 +261,8 @@ def main() -> int:
     VCAM_NAMESPACES = ["/visualization_node"]
 
     class BridgeNode(Node):
-        def __init__(self, local_mode: bool = False):
+        def __init__(self):
             super().__init__("vcam_ws_bridge")
-            self._local_mode = local_mode
             self.state: list[float] | None = None  # [eye3, target3, preset, mode]
             # Post-cutover: exactly one namespace publishes ~/vcam_state, so
             # the old "whichever arrived last" ambiguity (and the
@@ -491,7 +483,7 @@ def main() -> int:
     # which would leave the process unkillable except by SIGKILL — restore default.
     import signal
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
-    node = BridgeNode(local_mode=args.local_mode)
+    node = BridgeNode()
     spin_thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
     spin_thread.start()
 

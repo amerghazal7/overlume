@@ -39,8 +39,7 @@
   <depend>tf2_geometry_msgs</depend>
   <depend>ament_index_cpp</depend>
   <!-- Epic 3 Task 2 (VM-034): ~/diagnostics message type. ROS2 Humble core
-       package, already present in this distro; no new interface-generation
-       package needed (this node still has zero .msg/.srv files of its own). -->
+       package, already present in this distro. -->
   <depend>diagnostic_msgs</depend>
   <!-- VM-091 (unified-engine migration Task 2 Step 6): camera_ingest.cpp's
        cv_bridge::toCvCopy(msg, "rgb8") call, the same dependency
