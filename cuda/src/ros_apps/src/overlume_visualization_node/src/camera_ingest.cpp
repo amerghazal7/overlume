@@ -222,9 +222,23 @@ void IngestState::store_rgb(uint32_t cam_idx, const uint8_t* data, uint32_t widt
     cams_[cam_idx].rgb.assign(data, data + n);
 }
 
+// VM-094 review round 1 finding 2: CameraInfo (state_.width(i)/height(i),
+// what fill_bowl_intrinsics() hands BowlConfig::cam_width/cam_height) can
+// advertise different dims than the actual published image stream (a
+// routine calibration-res-vs-downscaled-stream ROS setup) -- ColorizeFromCameras
+// indexes this buffer with the BowlConfig dims, so a buffer ingested at the
+// image's own (possibly smaller) dims must never be handed out under a
+// larger CameraInfo size, or that indexing reads past the end of it. Only
+// hand out a buffer whose byte length still matches width(i)*height(i)*3
+// exactly; a stale/mismatched buffer reads as "this camera has never
+// delivered an image", which ColorizeFromCameras already treats as "covers
+// nothing" (falls through to the next configured camera).
 const uint8_t* IngestState::rgb(uint32_t cam_idx) const
 {
     if (cam_idx >= camera_count_ || cams_[cam_idx].rgb.empty()) return nullptr;
+    const size_t expected =
+        static_cast<size_t>(width(cam_idx)) * static_cast<size_t>(height(cam_idx)) * 3;
+    if (cams_[cam_idx].rgb.size() != expected) return nullptr;
     return cams_[cam_idx].rgb.data();
 }
 

@@ -156,12 +156,29 @@ private:
     // unchanged) -- same disable-knob shape as every layer_* bool above,
     // just not a SceneAssembly category (it gates set_bowl_visible()
     // instead). surround_stitching_profile_ picks which content backs the
-    // overlay: "bowl" = Task 2's bowl path; "hybrid" = Task 5's hybrid
-    // content, which falls back to "bowl" until VM-094 lands (there is
-    // nothing hybrid-specific to render yet -- noted, not silently
-    // absorbed).
+    // overlay: "bowl" = Task 2's bowl path alone; "hybrid" = the bowl PLUS
+    // Task 5's camera-colorized lidar (visualization_node.cpp's HYBRID-lidar
+    // block in timer_callback() also fires for FREE_LOOK when this profile
+    // is "hybrid" -- VM-094 review round 1 finding 4; before that fix this
+    // profile value was inert and silently rendered bowl-only).
     bool layer_surround_stitching_{false};
     std::string surround_stitching_profile_{"bowl"};
+    // VM-094 review round 1 finding 7: the one place that decides "is
+    // camera-colorized lidar actually consumed this tick" -- HYBRID mode, or
+    // FREE_LOOK with Surround Stitching's hybrid profile (finding 4's fix).
+    // Shared by the PointCloud2 callback (skip the whole per-point transform
+    // in modes that never sample it) and timer_callback()'s HYBRID-lidar
+    // block (single source of truth instead of two copies of this
+    // condition) -- both read render_mode_/layer_surround_stitching_/
+    // surround_stitching_profile_ live, so a mode switch via on_params()
+    // takes effect on the very next PointCloud2 message and the very next
+    // tick, no restart.
+    bool hybrid_cloud_consumed() const
+    {
+        return render_mode_ == kRenderModeHybrid ||
+               (render_mode_ == kRenderModeFreeLook && layer_surround_stitching_ &&
+                surround_stitching_profile_ == "hybrid");
+    }
 
     // ── theme (Epic 1 Task 3 / VM-014) ───────────────────────────────────────
     // Node-private (not global like set_mode_sub_ above) -- a mode-3-only
