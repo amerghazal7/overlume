@@ -135,12 +135,6 @@ LayerFlags mode_content_mask(RenderMode mode);
 // exactly, not whatever BOWL/HYBRID happened to force them to).
 LayerFlags compose_layer_gates(const LayerFlags& user, const LayerFlags& mask);
 
-// Review round 1 (2026-09-11): pulled out of timer_callback() so the actual
-// per-mode dispatch is unit-testable (test_scene_assembly.cpp's
-// BowlVisibleFor*/OverlaysVisibleFor* cases) instead of only exercised by
-// param accept/reject checks and frame-shape smoke tests, neither of which
-// fails if this predicate is inverted or deleted.
-//
 // Bowl is visible in BOWL/HYBRID unconditionally (USER DIRECTIVE
 // 2026-09-11: those modes render the CUDA-parity bowl); in FREE_LOOK, visible
 // ONLY when the operator's Surround Stitching toggle (`layer_surround_stitching`)

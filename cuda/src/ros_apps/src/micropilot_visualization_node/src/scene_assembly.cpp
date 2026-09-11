@@ -110,11 +110,9 @@ void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags)
     if (!flags.trajectory_carpet) asm_.trajectory_carpets.clear();
 }
 
-// Review round 1 (2026-09-11): LayerFlags' members all default to TRUE
-// (NSDMI) -- a 9th category added later without extending the BOWL/HYBRID
-// masks below would aggregate-init to true in both (the new category
-// silently rendering in modes that must show bowl+ego only), with no
-// compiler complaint and no test failure. This assert is the tripwire.
+// LayerFlags members default to true, so a 9th category would aggregate-init
+// true in the BOWL/HYBRID masks below with no compiler complaint and no test
+// failure. This assert is the tripwire.
 static_assert(sizeof(LayerFlags) == 8, "LayerFlags gained a category -- extend "
               "mode_content_mask()'s BOWL/HYBRID masks below or it renders in modes 1/2");
 

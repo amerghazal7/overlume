@@ -124,6 +124,11 @@ LAYER_NAMES = [
 # (P4, deferred to Epic 5): see the "takes effect on next restart" label at
 # its call site.
 QUALITY_PRESETS = ["low", "medium", "high"]
+# Surround Stitching content profile (Task 4/VM-093 follow-up USER
+# DIRECTIVE) -- live, same as LAYER_NAMES above; "hybrid" renders identically
+# to "bowl" until Task 5/VM-094 lands (noted at the dropdown's own section
+# label, not silently absorbed).
+SURROUND_PROFILES = ["bowl", "hybrid"]
 
 # A numeric tuning row: slider + value box sharing one Adjustment, plus
 # editable min/max boxes that rewrite the slider's range on the fly.
@@ -380,6 +385,18 @@ class VcamWindow(Gtk.Window):
             panel.pack_start(row, False, False, 0)
             self._layer_switches[name] = sw
 
+        # Task 4/VM-093 follow-up USER DIRECTIVE: which content backs the
+        # Surround Stitching layer above. Live, same contract as layer_*
+        # (unlike the quality dropdown below) -- "hybrid" falls back to
+        # "bowl" content until Task 5/VM-094 lands.
+        section("Surround Stitching profile (visual mode)")
+        profile_combo = Gtk.ComboBoxText()
+        for profile in SURROUND_PROFILES:
+            profile_combo.append_text(profile)
+        profile_combo.set_active(0)  # matches default_params.yaml's surround_stitching_profile: bowl
+        profile_combo.connect("changed", self._on_surround_profile_changed)
+        panel.pack_start(profile_combo, False, False, 0)
+
         # Epic 3 Task 5 (VM-032): quality preset -- NOT live (P4, Epic 5's
         # own set_quality() entry point is what would make this live); the
         # label says so here, not just in the plan, so a user doesn't file
@@ -436,6 +453,14 @@ class VcamWindow(Gtk.Window):
         if self._loading:
             return
         self._ws.send({"cmd": "set_layers", "layers": {name: bool(sw.get_active())}})
+
+    def _on_surround_profile_changed(self, combo):
+        if self._loading:
+            return
+        profile = combo.get_active_text()
+        if profile is None:
+            return
+        self._ws.send({"cmd": "set_surround_profile", "profile": profile})
 
     def _on_quality_changed(self, combo):
         if self._loading:

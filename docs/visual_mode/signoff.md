@@ -19,7 +19,7 @@ item below being closed or explicitly accepted.
 | Hybrid-vs-CUDA visual parity | Task 5 (VM-094)'s golden | Not started (Task 5 not yet landed) |
 | Self-view/robot-proxy parity | Task 3 (VM-092)'s golden | Not started (Task 3 not yet landed) |
 | Perf parity at each milestone | This epic's own perf-gate steps (Task 2 Step 5, Task 4 Steps 2/3, Task 5's own gate, Task 6's on-robot rerun) | Task 2 Step 5 + Task 4 Steps 2/3 closed (see `tools/budget_probe.md` Results (c)/(d)); Task 5/Task 6 rows open |
-| Node-level bowl-visible/bowl-hidden pixel assertions for the per-mode dispatch (BOWL renders bowl, FREE_LOOK hides it, FREE_LOOK+Surround-Stitching shows it alongside the autonomy scene) + node-level "autonomy layers do not render in BOWL with live data flowing" + BOWL→FREE_LOOK→BOWL `layer_*` restore, all reusing Task 2's sentinel-magenta check against a LIVE node render | Task 4 (VM-093) review round 1, deferred to Task 6's golden captures | Not started -- no node-level camera-publishing/render-readback harness exists in this package today (`test_bowl.cpp`'s pixel/sentinel machinery is library-side, fenced by the concurrent VM-092 task for this task's duration); `bowl_visible_for_mode()`/`overlays_visible_for_mode()` are unit-tested directly (`test_scene_assembly.cpp`) as the cheaper stand-in, but that is a mask/predicate check, not a live-pixel one |
+| Node-level bowl-visible/bowl-hidden pixel assertions for the per-mode dispatch (BOWL renders bowl, FREE_LOOK hides it, FREE_LOOK+Surround-Stitching shows it alongside the autonomy scene) + node-level "autonomy layers do not render in BOWL with live data flowing" pixel check, both reusing Task 2's sentinel-magenta check against a LIVE node render | Task 4 (VM-093) review round 1, deferred to Task 6's golden captures | Not started -- no node-level camera-publishing/render-readback harness exists in this package today (`test_bowl.cpp`'s pixel/sentinel machinery is library-side, fenced by the concurrent VM-092 task for this task's duration); `bowl_visible_for_mode()`/`overlays_visible_for_mode()` are unit-tested directly (`test_scene_assembly.cpp`) as the cheaper stand-in, but that is a mask/predicate check, not a live-pixel one. **BOWL→FREE_LOOK→BOWL `layer_*` restore is NOT part of this deferral** — it's a pure ROS-param round trip needing no render readback, closed by `test_mode_dispatch.py` check 5 (review round 2, 2026-09-11). |
 
 ### Named exceptions the sign-off explicitly accepts (not parity gaps to close)
 
@@ -67,3 +67,23 @@ item below being closed or explicitly accepted.
    CUDA-node characteristic that Task 6's cutover moots (there will be only
    one process left to measure) or escalates it as its own investigation —
    a call for whoever runs Task 6's own on-robot rerun, not blocking Task 4.
+7. **The environment/buildings layer (Epic 4/VM-052) is NOT gated per
+   render_mode_, contrary to what Task 4's round-1 commit claimed (review
+   round 2, 2026-09-11).** `set_environment_source(renderer, nullptr, ...)`
+   cannot hide a live source: `environment.cpp`'s null/empty-`source_uri`
+   guard (`if (r == nullptr || source_uri == nullptr || source_uri[0] ==
+   '\0') return false;`) returns *before* the `if (r->environmentSource)
+   teardown()` line ever runs, so a null call after a real one is a no-op,
+   not a hide — `render_frame()` only checks `environmentSource != nullptr`.
+   The node-side per-mode gate this round-1 commit added was therefore dead
+   code (it flipped its own bookkeeping flag but never actually stopped
+   buildings from rendering) and has been deleted rather than kept as
+   false cover. **Buildings render in BOWL/HYBRID too, whenever
+   `environment_chunks_dir` is provisioned and the geo-anchor has solved** —
+   an accepted gap, not silently patched, since the fix needs a library-side
+   `set_environment_visible()` (or a reordered `set_environment_source()`
+   that tears down before its null/empty-uri early return) and the library
+   is fenced by the concurrent VM-092 task for this task's duration. Sign-off
+   either accepts buildings appearing behind the bowl in BOWL/HYBRID when
+   `environment_chunks_dir` is set, or a follow-up task adds the library-side
+   toggle.

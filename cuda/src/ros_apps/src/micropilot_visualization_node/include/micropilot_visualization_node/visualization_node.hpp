@@ -396,23 +396,15 @@ private:
     // mpviz::set_environment_source() iff environment_enabled_ AND
     // geo_anchor_solver_->solved() -- else WARNs once
     // (environment_warned_) and never calls it, per spec §4.5/§9's "no
-    // anchor -> environment layer disabled with one WARN".
+    // anchor -> environment layer disabled with one WARN". NOT gated per
+    // render_mode_ once armed: there is no library-side way to hide a live
+    // environment source without tearing down its loaded chunk index (see
+    // timer_callback()'s comment above the bowl-visibility dispatch) --
+    // buildings render in BOWL/HYBRID too whenever this succeeds. Named
+    // exception 7, docs/visual_mode/signoff.md.
     bool environment_enabled_{true};
     std::string environment_chunks_dir_;
     bool environment_warned_{false};
-    // Review round 1 (2026-09-11): environment_configured_ is set true the
-    // one time on_activate()'s set_environment_source() call above actually
-    // succeeds (never re-set false -- a failed call just means nothing to
-    // gate). environment_rendering_ tracks which side of
-    // set_environment_source()'s null-source toggle is currently live;
-    // timer_callback()'s per-mode environment gate (Task 4/VM-093 review)
-    // flips it only on a render_mode edge, not every tick. Starts true: a
-    // successful on_activate() call means buildings ARE rendering the
-    // instant the timer starts, whatever render_mode_ the node was
-    // constructed with -- the first tick's edge check corrects it from there
-    // if render_mode_ isn't FREE_LOOK.
-    bool environment_configured_{false};
-    bool environment_rendering_{true};
 
     SceneAssembly scene_asm_;
 
@@ -499,12 +491,11 @@ private:
     // both on_configure() and on_params() below, with a WARN whenever a
     // config or set_parameters() call carries `true`.
     bool bowl_enabled_{false};
-    // Review round 1 (2026-09-11): one-shot WARN latch -- render_mode
-    // BOWL/HYBRID while bowl_enabled_ is false (the shipped default) masks
-    // the whole autonomy scene for a bowl that was never configured, a near-
-    // empty frame with no diagnostic otherwise. See on_configure()'s
-    // close-out check and on_params()'s render_mode branch, both of which
-    // set this the first time they warn.
+    // One-shot WARN latch -- render_mode BOWL/HYBRID while bowl_enabled_ is
+    // false (the shipped default) masks the whole autonomy scene for a bowl
+    // that was never configured, a near-empty frame with no diagnostic
+    // otherwise. See on_configure()'s close-out check and on_params()'s
+    // render_mode branch, both of which set this the first time they warn.
     bool bowl_mode_warned_{false};
     // GUI-tunable; in this merged node it is the ego-motion re-alignment/
     // staleness window (Step 6's redefined frame-sync gate semantics) --
