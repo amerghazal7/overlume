@@ -215,6 +215,19 @@ bool IngestState::newest_stamp(double& out_t_max) const
     return any;
 }
 
+void IngestState::store_rgb(uint32_t cam_idx, const uint8_t* data, uint32_t width, uint32_t height)
+{
+    if (cam_idx >= camera_count_ || data == nullptr) return;
+    const size_t n = static_cast<size_t>(width) * static_cast<size_t>(height) * 3;
+    cams_[cam_idx].rgb.assign(data, data + n);
+}
+
+const uint8_t* IngestState::rgb(uint32_t cam_idx) const
+{
+    if (cam_idx >= camera_count_ || cams_[cam_idx].rgb.empty()) return nullptr;
+    return cams_[cam_idx].rgb.data();
+}
+
 // ── CameraIngest ─────────────────────────────────────────────────────────────
 namespace
 {
@@ -271,9 +284,14 @@ CameraIngest::CameraIngest(rclcpp_lifecycle::LifecycleNode* node, uint32_t camer
                 }
                 const double stamp_sec = rclcpp::Time(msg->header.stamp).seconds();
                 const uint64_t frame_id = state_.record_image_stamp(i, stamp_sec);
-                if (renderer_ == nullptr) return;
                 const uint32_t w = static_cast<uint32_t>(cv_img->image.cols);
                 const uint32_t h = static_cast<uint32_t>(cv_img->image.rows);
+                // VM-094 (Task 5): retain a copy for lidar_colorize.hpp,
+                // independent of whether a renderer is attached yet -- a
+                // WARN-once-free no-op copy when hybrid rendering is off
+                // (the common case, STANDING disable knob).
+                if (hybrid_enabled_) state_.store_rgb(i, cv_img->image.data, w, h);
+                if (renderer_ == nullptr) return;
                 // Release-callback set_camera_frame (Decision resolution 1):
                 // hand Filament the SAME buffer cv_bridge already converted
                 // into -- one copy total (the toCvCopy conversion), not two.
@@ -340,6 +358,13 @@ void CameraIngest::fill_bowl_intrinsics(std::vector<mpviz::CameraExtrinsics>& ou
         out_w[i] = state_.width(i);
         out_h[i] = state_.height(i);
     }
+}
+
+void CameraIngest::fill_camera_rgb_buffers(std::vector<const uint8_t*>& out) const
+{
+    const uint32_t n = state_.camera_count();
+    out.resize(n);
+    for (uint32_t i = 0; i < n; ++i) out[i] = state_.rgb(i);
 }
 
 bool CameraIngest::consume_info_dirty()

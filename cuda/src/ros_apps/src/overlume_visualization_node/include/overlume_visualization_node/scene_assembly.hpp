@@ -117,11 +117,13 @@ enum class RenderMode
 
 // USER DIRECTIVE 2026-09-11 (mode content exclusivity, "Decision
 // resolutions"): BOWL renders bowl+ego ONLY, HYBRID renders bowl+lidar+ego
-// ONLY (the lidar category is point_clouds -- until Task 5/VM-094 replaces
-// its feed with camera-colorized points, the shipped profile's EXISTING
-// autonomy point-cloud row flows through it, so HYBRID currently shows an
-// un-colorized cloud, not an empty layer), FREE_LOOK renders the full
-// autonomy scene unmasked. Neither
+// ONLY (the lidar category is point_clouds -- Task 5/VM-094 replaced its
+// feed: visualization_node.cpp's timer_callback() replaces this category's
+// content with lidar_colorize.hpp's camera-colorized cloud, first-match-
+// camera-wins, whenever render_mode is HYBRID and hybrid_enabled is true;
+// hybrid_enabled false, the shipped default, falls back to whatever mode
+// 3's own PointCloudAdapter rows already appended, same as before Task 5),
+// FREE_LOOK renders the full autonomy scene unmasked. Neither
 // bowl nor ego is a SceneAssembly category (bowl visibility is
 // set_bowl_visible(), ego is scene.ego) -- this mask only ever touches the
 // eight SceneAssembly/LayerFlags categories. The environment/buildings layer

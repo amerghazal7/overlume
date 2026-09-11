@@ -127,7 +127,9 @@ LayerFlags mode_content_mask(RenderMode mode)
         case RenderMode::HYBRID:
             // CUDA node's own mode 2: bowl + camera-colorized lidar + ego --
             // point_clouds is the one category HYBRID content rides (Task
-            // 5/VM-094 feeds it; empty until then, the mask still applies).
+            // 5/VM-094's visualization_node.cpp replaces this category's
+            // content with lidar_colorize.hpp's colorized cloud each tick;
+            // this mask only decides visibility, not what fills the row).
             return LayerFlags{false, false, false, false, false, false, true, false};
         case RenderMode::FREE_LOOK:
         default:
