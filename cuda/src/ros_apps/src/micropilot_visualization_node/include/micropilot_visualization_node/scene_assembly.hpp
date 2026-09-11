@@ -103,4 +103,32 @@ struct LayerFlags
 // the live-node bridge E2E. Call this right before point_at().
 void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags);
 
+// Task 4 (VM-093): the node's local render-mode switch, independent of the
+// global /rendering/set_mode mux's active_mode_ (mirrors
+// micropilot_rendering_node's own render_mode_/active_mode_ split -- see
+// that node's rendering_node.hpp for the precedent this one didn't have
+// until now).
+enum class RenderMode
+{
+    BOWL = 1,
+    HYBRID = 2,
+    FREE_LOOK = 3,
+};
+
+// USER DIRECTIVE 2026-09-11 (mode content exclusivity, "Decision
+// resolutions"): BOWL renders bowl+ego ONLY, HYBRID renders bowl+lidar+ego
+// ONLY (the lidar category is point_clouds -- Task 5/VM-094 is what
+// actually feeds it; until then this mask still applies, the category is
+// just empty), FREE_LOOK renders the full autonomy scene unmasked. Neither
+// bowl nor ego is a SceneAssembly category (bowl visibility is
+// set_bowl_visible(), ego is scene.ego) -- this mask only ever touches the
+// eight SceneAssembly/LayerFlags categories.
+LayerFlags mode_content_mask(RenderMode mode);
+
+// AND `mask` over `user`, field by field -- composes without ever
+// overwriting the user's own layer_* params (the same directive: switching
+// back to FREE_LOOK must restore the user's persisted layer_* settings
+// exactly, not whatever BOWL/HYBRID happened to force them to).
+LayerFlags compose_layer_gates(const LayerFlags& user, const LayerFlags& mask);
+
 }  // namespace micropilot::visualization_app

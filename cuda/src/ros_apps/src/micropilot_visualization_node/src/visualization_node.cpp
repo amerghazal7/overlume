@@ -196,6 +196,33 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // timer_callback() below.
     layer_trajectory_carpet_ = declare_parameter<bool>("layer_trajectory_carpet", true);
 
+    // ── Local render-mode switch (Task 4 / VM-093) ───────────────────────────
+    // SEPARATE from initial_mode_/active_mode_ above (mux authority stays
+    // untouched, Decision 7) -- a plain node param, live-tunable below, that
+    // decides WHAT this node renders once it IS mux-selected. Default
+    // FREE_LOOK(3): a fresh node with no render_mode override behaves
+    // exactly as it did before this task.
+    render_mode_ = declare_parameter<int>("render_mode", kRenderModeFreeLook);
+    if (render_mode_ < kRenderModeBowl || render_mode_ > kRenderModeFreeLook)
+    {
+        RCLCPP_WARN(get_logger(), "render_mode must be 1 (bowl), 2 (hybrid) or 3 (free_look), "
+                    "got %d -- defaulting to 3 (free_look)", render_mode_);
+        render_mode_ = kRenderModeFreeLook;
+    }
+    // Surround Stitching (follow-up USER DIRECTIVE 2026-09-11): a mode-3-only
+    // layer, default off (mode 3's current look is unchanged). Same STANDING
+    // disable-knob shape as every layer_* bool above, just not a
+    // SceneAssembly category -- see the .hpp field comment.
+    layer_surround_stitching_ = declare_parameter<bool>("layer_surround_stitching", false);
+    surround_stitching_profile_ = declare_parameter<std::string>("surround_stitching_profile",
+                                                                  "bowl");
+    if (surround_stitching_profile_ != "bowl" && surround_stitching_profile_ != "hybrid")
+    {
+        RCLCPP_WARN(get_logger(), "surround_stitching_profile must be 'bowl' or 'hybrid', got "
+                    "'%s' -- defaulting to 'bowl'", surround_stitching_profile_.c_str());
+        surround_stitching_profile_ = "bowl";
+    }
+
     // map->base_link -> SceneGraph.ego, finite-differenced + EMA-smoothed
     // speed. Buffer/TransformListener live on the node (need its
     // NodeInterfaces to construct); TfAdapter wraps the lookup + smoothing on top.
@@ -791,6 +818,39 @@ rcl_interfaces::msg::SetParametersResult VisualizationNode::on_params(
             else if (n == "layer_markers") layer_markers_ = p.as_bool();
             else if (n == "layer_point_clouds") layer_point_clouds_ = p.as_bool();
             else if (n == "layer_trajectory_carpet") layer_trajectory_carpet_ = p.as_bool();
+            // ── Local render-mode switch (Task 4 / VM-093) ───────────────────
+            // Unlike the layer_* bools above (any bool value is valid), an
+            // out-of-range render_mode is a bad REQUEST, not a value to
+            // silently clamp -- reject it (res.successful=false) so the
+            // caller (GUI/WS bridge/`ros2 param set`) sees the failure
+            // instead of a silently-ignored mode switch.
+            else if (n == "render_mode")
+            {
+                const int v = static_cast<int>(p.as_int());
+                if (v < kRenderModeBowl || v > kRenderModeFreeLook)
+                {
+                    res.successful = false;
+                    res.reason = "render_mode must be 1 (bowl), 2 (hybrid) or 3 (free_look)";
+                }
+                else
+                {
+                    render_mode_ = v;
+                }
+            }
+            else if (n == "layer_surround_stitching") layer_surround_stitching_ = p.as_bool();
+            else if (n == "surround_stitching_profile")
+            {
+                const std::string v = p.as_string();
+                if (v != "bowl" && v != "hybrid")
+                {
+                    res.successful = false;
+                    res.reason = "surround_stitching_profile must be 'bowl' or 'hybrid'";
+                }
+                else
+                {
+                    surround_stitching_profile_ = v;
+                }
+            }
             // ── Camera bowl live tuning (VM-091 Task 2 Step 6) ───────────────
             // Same fall-through-unmatched-names-as-successful shape as the
             // rest of this handler; extends the ALREADY-registered
@@ -892,14 +952,15 @@ void VisualizationNode::timer_callback()
     vcam_->advance_tween();
     pose_ = vcam_->pose();
 
-    // [eye xyz | target xyz | active_preset | active_mode | mux_mode] (9
-    // elements -- Step (d), VM-037 appended mux_mode at index 8, duplicating
-    // active_mode_ at index 7 for this node -- see the hpp field comment).
+    // [eye xyz | target xyz | active_preset | render_mode | mux_mode] (9
+    // elements -- Step (d), VM-037 appended mux_mode at index 8; Task 4/
+    // VM-093 gave this node its own render_mode_, so index 7 is that now,
+    // not a duplicate of active_mode_ -- see the hpp field comment).
     std_msgs::msg::Float64MultiArray state;
     state.data = {pose_.eye[0],    pose_.eye[1],    pose_.eye[2],
                   pose_.target[0], pose_.target[1], pose_.target[2],
                   static_cast<double>(vcam_->active_preset()),
-                  static_cast<double>(active_mode_),
+                  static_cast<double>(render_mode_),
                   static_cast<double>(active_mode_)};
     pub_vcam_state_->publish(state);
 
@@ -951,12 +1012,9 @@ void VisualizationNode::timer_callback()
                 if (apply_bowl_config())
                 {
                     camera_ingest_->mark_bowl_config_applied();
-                    // Task 4 owns the real per-mode set_bowl_visible()
-                    // switch (visible in BOWL/HYBRID, hidden in FREE_LOOK);
-                    // until it lands, visibility mirrors bowl_enabled_
-                    // directly so this task's own perf gate (Step 5) and
-                    // golden (Step 7) can actually see/measure the bowl.
-                    mpviz::set_bowl_visible(renderer_, true);
+                    // Visibility itself is now dispatched every tick, below
+                    // (Task 4/VM-093's per-mode set_bowl_visible() call) --
+                    // nothing to do here beyond marking the config applied.
                     RCLCPP_INFO(get_logger(), "bowl: configured");
                 }
                 else
@@ -999,6 +1057,22 @@ void VisualizationNode::timer_callback()
         // touch) -- identity deltas until config_applied()/odometry exist.
         camera_ingest_->update_motion_deltas();
     }
+
+    // ── Bowl visibility dispatch (Task 4 / VM-093) ────────────────────────────
+    // Runs every tick regardless of bowl_enabled_/active_mode_ (same "warm
+    // state, cheap flag flip" philosophy as the bowl block above) --
+    // set_bowl_visible() itself no-ops when the bowl was never configured
+    // (cameraCount==0, scene.h's own contract), so this is safe even with
+    // bowl_enabled_ false. Visible in BOWL/HYBRID (USER DIRECTIVE
+    // 2026-09-11: those modes render the CUDA-parity bowl unconditionally);
+    // in FREE_LOOK, visible ONLY when the operator's layer_surround_stitching
+    // toggle is on (the follow-up USER DIRECTIVE's Surround Stitching layer)
+    // -- surround_stitching_profile_ picks bowl-vs-hybrid CONTENT (Task 5
+    // owns the hybrid half; until VM-094 lands both profile values render
+    // identically, the bowl alone, noted rather than silently absorbed).
+    const bool bowl_visible = render_mode_ == kRenderModeBowl || render_mode_ == kRenderModeHybrid ||
+                               (render_mode_ == kRenderModeFreeLook && layer_surround_stitching_);
+    mpviz::set_bowl_visible(renderer_, bowl_visible);
 
     // scene_asm_.clear() must run before any adapter's fill(), or last tick's
     // elements pile up on top of this tick's. MapElement fades via the
@@ -1146,9 +1220,18 @@ void VisualizationNode::timer_callback()
     // two strips are concentric instead of ~1m-offset crisscrossing edges.
     micropilot::visualization_app::respine_velocity_ribbon_onto_local_path(scene_asm_);
 
-    apply_layer_gates(scene_asm_, {layer_objects_, layer_paths_, layer_map_elements_,
-                                   layer_grids_, layer_alerts_, layer_markers_,
-                                   layer_point_clouds_, layer_trajectory_carpet_});
+    // Task 4 (VM-093), USER DIRECTIVE 2026-09-11 (mode content exclusivity):
+    // AND the per-mode content mask over the user's own layer_* params --
+    // never overwriting layer_objects_ etc. themselves, so switching back to
+    // FREE_LOOK restores exactly what the user had (compose_layer_gates()
+    // reads `user`, returns a new value, mutates nothing).
+    const LayerFlags user_layer_flags{layer_objects_,       layer_paths_,
+                                       layer_map_elements_,  layer_grids_,
+                                       layer_alerts_,        layer_markers_,
+                                       layer_point_clouds_,  layer_trajectory_carpet_};
+    apply_layer_gates(scene_asm_,
+                       compose_layer_gates(user_layer_flags,
+                                           mode_content_mask(static_cast<RenderMode>(render_mode_))));
 
     scene_asm_.point_at(scene);
     mpviz::set_scene(renderer_, scene);
@@ -1208,8 +1291,13 @@ void VisualizationNode::timer_callback()
     // hud_enabled_ gates the whole block (disable knob, STANDING directive):
     // false means CompositeHud() is never called at all and frame_buf_ is
     // passed through untouched -- distinct from the font-path fallback
-    // above, which still calls CompositeHud() every tick.
-    if (hud_enabled_)
+    // above, which still calls CompositeHud() every tick. Task 4/VM-093,
+    // USER DIRECTIVE 2026-09-11: BOWL/HYBRID never had a HUD in the CUDA
+    // reference (it's a mode-3-only Filament-node addition), so it's
+    // force-suppressed there regardless of hud_enabled_ -- never touching
+    // hud_enabled_ itself, so it's restored exactly on returning to
+    // FREE_LOOK.
+    if (hud_enabled_ && render_mode_ == kRenderModeFreeLook)
     {
         const mpviz::HudColors hud_colors = mpviz::get_hud_colors(renderer_);
         const mpviz_node::HudSnapshot hud_snapshot{scene.hud.speed_mps, scene.hud.active_mode};
@@ -1246,7 +1334,10 @@ void VisualizationNode::timer_callback()
     // hidden, not a clay box at origin" (scene.h's contract; the render pose
     // above branches on it the same way) -- a distance measured from a
     // non-existent ego would label the frame confidently wrong.
-    if (callouts_enabled_ && scene.ego.valid != 0)
+    // Task 4/VM-093, USER DIRECTIVE 2026-09-11: same force-suppression as
+    // the HUD block above -- BOWL/HYBRID never had a callout in the CUDA
+    // reference, and callouts_enabled_ itself is left untouched.
+    if (callouts_enabled_ && render_mode_ == kRenderModeFreeLook && scene.ego.valid != 0)
     {
         mpviz_node::Callout callout{};
         if (mpviz_node::BuildNearestCallout(renderer_, scene.alerts, scene.alert_count,

@@ -170,6 +170,100 @@ TEST(SceneAssembly, ApplyLayerGatesTrajectoryCarpetOnLeavesItIntact)
     EXPECT_EQ(scene.trajectory_carpet_count, 1u);
 }
 
+// ── Task 4 (VM-093) per-mode content mask, USER DIRECTIVE 2026-09-11 ───────
+
+using micropilot::visualization_app::compose_layer_gates;
+using micropilot::visualization_app::mode_content_mask;
+using micropilot::visualization_app::RenderMode;
+
+TEST(SceneAssembly, ModeContentMaskBowlIsAllFalse)
+{
+    // BOWL = bowl + ego ONLY (Decision resolutions, mode content
+    // exclusivity): every SceneAssembly/LayerFlags category is masked off,
+    // regardless of the user's own layer_* settings (checked by
+    // compose_layer_gates below, not here).
+    LayerFlags mask = mode_content_mask(RenderMode::BOWL);
+    EXPECT_FALSE(mask.objects);
+    EXPECT_FALSE(mask.paths);
+    EXPECT_FALSE(mask.map_elements);
+    EXPECT_FALSE(mask.grids);
+    EXPECT_FALSE(mask.alerts);
+    EXPECT_FALSE(mask.markers);
+    EXPECT_FALSE(mask.point_clouds);
+    EXPECT_FALSE(mask.trajectory_carpet);
+}
+
+TEST(SceneAssembly, ModeContentMaskHybridAllowsOnlyPointClouds)
+{
+    // HYBRID = bowl + camera-colorized lidar + ego ONLY -- lidar rides the
+    // point_clouds category (Task 5/VM-094); everything else stays masked
+    // off, same as BOWL.
+    LayerFlags mask = mode_content_mask(RenderMode::HYBRID);
+    EXPECT_FALSE(mask.objects);
+    EXPECT_FALSE(mask.paths);
+    EXPECT_FALSE(mask.map_elements);
+    EXPECT_FALSE(mask.grids);
+    EXPECT_FALSE(mask.alerts);
+    EXPECT_FALSE(mask.markers);
+    EXPECT_TRUE(mask.point_clouds);
+    EXPECT_FALSE(mask.trajectory_carpet);
+}
+
+TEST(SceneAssembly, ModeContentMaskFreeLookIsAllTrue)
+{
+    // FREE_LOOK = the full autonomy scene, unmasked -- AND-ing this over the
+    // user's own flags in compose_layer_gates() must be a true no-op.
+    LayerFlags mask = mode_content_mask(RenderMode::FREE_LOOK);
+    EXPECT_TRUE(mask.objects);
+    EXPECT_TRUE(mask.paths);
+    EXPECT_TRUE(mask.map_elements);
+    EXPECT_TRUE(mask.grids);
+    EXPECT_TRUE(mask.alerts);
+    EXPECT_TRUE(mask.markers);
+    EXPECT_TRUE(mask.point_clouds);
+    EXPECT_TRUE(mask.trajectory_carpet);
+}
+
+TEST(SceneAssembly, ComposeLayerGatesBowlMasksEverythingEvenWhenUserWantsItOn)
+{
+    // The user has every layer turned ON (their persisted layer_* params) --
+    // BOWL must still mask everything off. This is the "AND, never
+    // overwrite" contract: composing must not touch `user` itself.
+    LayerFlags user;  // all true, default member initializers
+    LayerFlags effective = compose_layer_gates(user, mode_content_mask(RenderMode::BOWL));
+    EXPECT_FALSE(effective.objects);
+    EXPECT_FALSE(effective.paths);
+    EXPECT_FALSE(effective.point_clouds);
+    // `user` itself is untouched -- compose_layer_gates takes it by const&
+    // and returns a new value, never mutates the caller's copy.
+    EXPECT_TRUE(user.objects);
+    EXPECT_TRUE(user.point_clouds);
+}
+
+TEST(SceneAssembly, ComposeLayerGatesNeverTurnsOnWhatTheUserTurnedOff)
+{
+    // The user turned `objects` off themselves (their own layer_objects
+    // param) -- FREE_LOOK's all-true mask must not resurrect it. This is
+    // the "switching back to FREE_LOOK restores the user's own settings
+    // exactly" half of the directive.
+    LayerFlags user;
+    user.objects = false;
+    LayerFlags effective = compose_layer_gates(user, mode_content_mask(RenderMode::FREE_LOOK));
+    EXPECT_FALSE(effective.objects);
+    EXPECT_TRUE(effective.paths);  // everything else the user left on stays on
+}
+
+TEST(SceneAssembly, ComposeLayerGatesHybridLeavesUsersPointCloudsChoiceUnion)
+{
+    // HYBRID's mask allows point_clouds through, but composition is still
+    // an AND against the user's own setting -- if the user had turned
+    // point_clouds off themselves, HYBRID must not turn it back on.
+    LayerFlags user;
+    user.point_clouds = false;
+    LayerFlags effective = compose_layer_gates(user, mode_content_mask(RenderMode::HYBRID));
+    EXPECT_FALSE(effective.point_clouds);
+}
+
 // ── Velocity-ribbon re-spine (user directive 2026-09-10) ────────────────────
 
 namespace {

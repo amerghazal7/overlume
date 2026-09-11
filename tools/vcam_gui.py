@@ -110,12 +110,15 @@ RENDER_SPINS = [
 ]
 RENDER_BOOLS = ["fill_blind_zone", "exposure_match"]
 
-# Epic 3 Task 5 (VM-032) + VM-077: visualization_node's eight layer_<name>
-# params -- trajectory_carpet added VM-077 (output_trajectory_carpet). All
-# live: takes effect on the node's very next tick, no restart.
+# Epic 3 Task 5 (VM-032) + VM-077 + Task 4/VM-093: visualization_node's
+# layer_<name> params -- trajectory_carpet added VM-077
+# (output_trajectory_carpet), surround_stitching added VM-093 (Surround
+# Stitching, follow-up USER DIRECTIVE 2026-09-11: toggles Task 2's
+# camera-textured bowl IN THE SAME FRAME as the full mode-3 autonomy scene).
+# All live: takes effect on the node's very next tick, no restart.
 LAYER_NAMES = [
     "objects", "paths", "map_elements", "grids", "alerts", "markers", "point_clouds",
-    "trajectory_carpet",
+    "trajectory_carpet", "surround_stitching",
 ]
 # quality preset dropdown -- unlike LAYER_NAMES above, this one is NOT live
 # (P4, deferred to Epic 5): see the "takes effect on next restart" label at

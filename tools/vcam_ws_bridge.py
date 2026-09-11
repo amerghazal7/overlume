@@ -47,12 +47,17 @@ STATE_HZ = 15.0
 PRESET_RANGE = (1, 5)
 RENDER_MODES = {"bowl": 1, "pointcloud": 2, "visual": 3, 1: 1, 2: 2, 3: 3}
 
-# Epic 3 Task 5 (VM-032) + VM-077: the eight layer_<name> bool params
-# visualization_node declares (scene_assembly.hpp's live categories --
-# trajectory_carpet added VM-077, see that node's on_configure()).
+# Epic 3 Task 5 (VM-032) + VM-077 + Task 4/VM-093: the layer_<name> bool
+# params visualization_node declares (scene_assembly.hpp's live categories --
+# trajectory_carpet added VM-077, surround_stitching added VM-093 (Surround
+# Stitching, follow-up USER DIRECTIVE 2026-09-11) -- see that node's
+# on_configure()). surround_stitching is the one entry here that doesn't gate
+# a SceneAssembly category (it gates set_bowl_visible() instead); it's a
+# plain layer_* bool param, same live-tuning contract as every other name
+# here, so it belongs in the same set.
 LAYER_NAMES = {
     "objects", "paths", "map_elements", "grids", "alerts", "markers", "point_clouds",
-    "trajectory_carpet",
+    "trajectory_carpet", "surround_stitching",
 }
 # quality preset name -> visualization_node's `quality` param encoding
 # (0=low, 1=med, 2=high, api.h's RenderConfig::quality).

@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# Task 4 (VM-093) Step 3 perf gate: old node (micropilot_rendering_node,
+# UNMODIFIED, run from the MAIN checkout's already-built install, READ-ONLY --
+# this task never edits or rebuilds that checkout) + this worktree's merged
+# node (micropilot_visualization_node, camera-ingesting) running together --
+# the actual state production is in for the whole rollout window (Decision 7).
+#
+# Baseline to compare against: Task 2 Step 5a's own same-bag `bowl_off` row
+# (budget_probe.md Results (c)) -- NOT budget_probe.md's `q1_rnode_idle`/
+# `q1_rnode_mode2` rows, which were measured on epic2_fixtures_full (no
+# camera topics at all).
+#
+# Old node authoritative for modes 1/2 via the mux (initial_mode:=2 on BOTH
+# nodes -- old node actually renders CUDA mode 2, fed by real cameras +
+# /iv_points_fusion; new node's own active_mode_==2 early-return skips its
+# render/publish loop, same as production -- but bowl_enabled:=true keeps its
+# camera_ingest_ doing real per-tick work, "still-camera-ingesting", per the
+# plan's own Step 3 text).
+set -o pipefail
+MAIN_REPO=/home/ag7/Documents/TPSProjector
+WORKTREE_REPO=/home/ag7/Documents/TPSProjector-vm093
+BAG=$HOME/TPSProjector-fixtures/stack_v2_full_sensors_2026-09-09
+OUT="${OUT:-$(mktemp -d)}"
+SAMPLER="$(dirname "$0")/sample_diagnostics.py"
+mkdir -p "$OUT"
+export ROS_DOMAIN_ID=93
+source /opt/ros/humble/setup.bash
+# Old node: MAIN checkout's install, READ-ONLY (never rebuilt/edited here).
+source "$MAIN_REPO/cuda/install/ros_apps/setup.bash"
+# New node: this worktree's own scratch colcon install, layered on top.
+source "$WORKTREE_REPO/.colcon_scratch/install/setup.bash"
+ros2 daemon stop >/dev/null 2>&1; ros2 daemon start >/dev/null 2>&1; sleep 2
+VPARAMS="$(ros2 pkg prefix micropilot_visualization_node)/share/micropilot_visualization_node/config/default_params.yaml"
+RPARAMS="$(ros2 pkg prefix micropilot_rendering_node)/share/micropilot_rendering_node/config/default_params.yaml"
+
+cleanup(){
+  for pat in "visualization_[n]ode" "rendering_[n]ode" "bag pla[y]"; do
+    for p in $(pgrep -f "$pat"); do [ "$p" != "$$" ] && kill "$p" 2>/dev/null; done
+  done
+  sleep 2
+  for pat in "visualization_[n]ode" "rendering_[n]ode" "bag pla[y]"; do
+    for p in $(pgrep -f "$pat"); do [ "$p" != "$$" ] && kill -9 "$p" 2>/dev/null; done
+  done
+}
+trap cleanup EXIT
+set -m
+
+lc(){ local n=$1 t=$2 i; for i in $(seq 1 20); do out=$(ros2 lifecycle set "$n" "$t" 2>&1); grep -q "Transitioning successful" <<<"$out" && return 0; grep -q "Transitioning failed" <<<"$out" && { echo "$n $t FAILED: $out"; return 1; }; sleep 1; done; echo "$n $t timeout"; return 1; }
+hz(){ timeout 14 ros2 topic hz "$1" --window 100 2>/dev/null | grep -oE "average rate: [0-9.]+" | tail -1 | awk '{print $3}'; }
+gpu(){ nvidia-smi dmon -s um -c 8 2>/dev/null | awk 'NR>2 && $1!~/#/ {s+=$2; m+=$4; n++} END{ if(n) printf "%.0f %.0f", s/n, m/n; else print "na na"}'; }
+cpu(){ top -b -n 3 -d 2 -p "$1" 2>/dev/null | awk -v p="$1" '$1==p {c=$9} END{print c+0}'; }
+
+cleanup >/dev/null 2>&1
+: > "$OUT/results.txt"
+
+echo "=== co-residence case: old node (mode 2, real cameras) + new node (bowl_enabled, idling for publish)"
+
+ros2 run micropilot_rendering_node rendering_node --ros-args --params-file "$RPARAMS" \
+  -p initial_mode:=2 -p use_sim_time:=true \
+  > "$OUT/rnode.log" 2>&1 &
+sleep 2
+rpid=$(pgrep -f "lib/micropilot_rendering_node/rendering_[n]ode" | head -1)
+if ! lc /rendering_node configure || ! lc /rendering_node activate; then cleanup; exit 1; fi
+
+ros2 run micropilot_visualization_node visualization_node --ros-args --params-file "$VPARAMS" \
+  -p initial_mode:=2 -p use_sim_time:=true -p quality:=1 -p out_width:=1280 -p out_height:=720 \
+  -p profile:=urban -p bowl_enabled:=true \
+  > "$OUT/viz.log" 2>&1 &
+sleep 3
+vpid=$(pgrep -f "lib/micropilot_visualization_node/visualization_[n]ode" | head -1)
+if ! lc /visualization_node configure || ! lc /visualization_node activate; then cleanup; exit 1; fi
+
+# Fresh single-pass playback (no --loop), best_effort sensor QoS on both
+# recorder and subscriber sides (SensorDataQoS).
+ros2 bag play "$BAG" --clock --rate 1.0 < /dev/null > "$OUT/bag.log" 2>&1 &
+sleep 15  # steady playback + camera info/first frames arrived on both nodes
+
+python3 "$SAMPLER" 14 > "$OUT/viz.diag.log" 2>&1 &
+diag_pid=$!
+h=$(hz /rendering/image)
+g=$(gpu)
+c_r=$(cpu "$rpid")
+c_v=$(cpu "$vpid")
+wait "$diag_pid"
+diag=$(cat "$OUT/viz.diag.log")
+echo "RESULT co_residence image_hz(old_node_publish)=${h:-0} gpu_sm%_mem%=$g rnode_cpu%=$c_r viz_cpu%=$c_v viz_$diag" | tee -a "$OUT/results.txt"
+grep -ciE "warn|error" "$OUT/viz.log" | sed 's/^/  viz log warn+err lines: /'
+grep -ciE "warn|error" "$OUT/rnode.log" | sed 's/^/  rnode log warn+err lines: /'
+
+cleanup
+echo DONE
+echo "OUT=$OUT"

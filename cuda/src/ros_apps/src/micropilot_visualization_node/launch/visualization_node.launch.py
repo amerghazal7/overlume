@@ -13,10 +13,21 @@ triggers configure + activate programmatically. For manual activation:
 
 Mirrors micropilot_rendering_node/launch/rendering_node.launch.py's
 autostart-lifecycle pattern so both mode-mux nodes come up the same way.
+
+Task 4 (VM-093), Global Constraints (`rendering_node.launch.py:36-45`, fix
+commit `69b5a3a`): this node now ingests the same 6 raw CARLA camera streams
+(camera_ingest.cpp, VM-091) rendering_node always has, over the identical
+CYCLONEDDS_URI shared-memory transport -- a transport-layer fact, unrelated
+to which process subscribes, that is trivial to silently lose when copying
+launch files (rendering_node.launch.py's own comment: default loopback-UDP
+collapsed sim FPS 32->8 Hz for 6x ~4 MB frames). Carried forward here
+identically, not reinvented.
 """
 
+import os
+
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler, SetEnvironmentVariable
 from launch.conditions import IfCondition
 from launch.events import matches_action
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -31,6 +42,17 @@ def generate_launch_description() -> LaunchDescription:
     default_params = PathJoinSubstitution(
         [FindPackageShare("micropilot_visualization_node"), "config", "default_params.yaml"]
     )
+
+    # Same SHM-forcing config as rendering_node.launch.py:36-45, carried
+    # forward verbatim (Global Constraints / Task 4 Step 2) -- SHM only
+    # engages when BOTH this node AND the publisher (CARLA bridge) have it
+    # enabled; without it, every ~4 MB frame is copied per-subscriber and
+    # collapses the synchronous-mode sim FPS. Skip if already set.
+    pre_actions = []
+    if "CYCLONEDDS_URI" not in os.environ:
+        pre_actions.append(SetEnvironmentVariable(
+            "CYCLONEDDS_URI",
+            "file://" + os.path.expanduser("~/.config/cyclonedds/cyclonedds.xml")))
 
     args = [
         DeclareLaunchArgument(
@@ -74,4 +96,4 @@ def generate_launch_description() -> LaunchDescription:
         ),
     ]
 
-    return LaunchDescription(args + [node] + auto)
+    return LaunchDescription(pre_actions + args + [node] + auto)

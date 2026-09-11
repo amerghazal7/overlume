@@ -110,4 +110,40 @@ void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags)
     if (!flags.trajectory_carpet) asm_.trajectory_carpets.clear();
 }
 
+LayerFlags mode_content_mask(RenderMode mode)
+{
+    switch (mode)
+    {
+        case RenderMode::BOWL:
+            // CUDA node's own mode 1: bowl + ego only -- nothing from the
+            // autonomy scene.
+            return LayerFlags{false, false, false, false, false, false, false, false};
+        case RenderMode::HYBRID:
+            // CUDA node's own mode 2: bowl + camera-colorized lidar + ego --
+            // point_clouds is the one category HYBRID content rides (Task
+            // 5/VM-094 feeds it; empty until then, the mask still applies).
+            return LayerFlags{false, false, false, false, false, false, true, false};
+        case RenderMode::FREE_LOOK:
+        default:
+            // All-true -- AND-ing this over the user's own flags below is a
+            // no-op, so FREE_LOOK sees exactly what the user's layer_*
+            // params already said.
+            return LayerFlags{true, true, true, true, true, true, true, true};
+    }
+}
+
+LayerFlags compose_layer_gates(const LayerFlags& user, const LayerFlags& mask)
+{
+    return LayerFlags{
+        user.objects && mask.objects,
+        user.paths && mask.paths,
+        user.map_elements && mask.map_elements,
+        user.grids && mask.grids,
+        user.alerts && mask.alerts,
+        user.markers && mask.markers,
+        user.point_clouds && mask.point_clouds,
+        user.trajectory_carpet && mask.trajectory_carpet,
+    };
+}
+
 }  // namespace micropilot::visualization_app
