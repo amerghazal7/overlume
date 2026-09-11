@@ -41,14 +41,12 @@
     # it -- every adapter zeroes z while this is true (frame_transform.hpp,
     # tf_adapter.hpp). Set false once the HD-map layer has real 3D coords.
     flatten_z: true
-    # HUD compositor font (VM-030). Per-checkout absolute path, same CLASS of
-    # gap as theme_assets_dir/ego_model_path used to be -- but VM-044's own
-    # backlog text (docs/superpowers/specs/2026-08-18-visual-mode-backlog.md)
-    # scopes that task to themes + the ego mesh only, so this path is a
-    # STILL-OPEN gap, not closed by VM-044; a future task would resolve it
-    # the same way. Missing/unloadable is non-fatal (CompositeHud() WARNs
-    # once, HUD just isn't drawn that tick).
-    hud_font_path: /home/ag7/Documents/TPSProjector/cuda/src/ros_apps/src/micropilot_visualization_node/assets/fonts/NotoSans-Regular.ttf
+    # HUD compositor font (VM-030/VM-044): "" resolves via ament_index to
+    # this package's own installed share/assets/fonts (visualization_node.cpp's
+    # on_configure) instead of a per-checkout absolute path. Missing/
+    # unloadable is non-fatal (CompositeHud() WARNs once, HUD just isn't
+    # drawn that tick). Set an absolute path to point at a different font.
+    hud_font_path: ""
     # HUD disable knob (STANDING directive, visual-mode-epic3.md): false
     # skips CompositeHud() entirely, frame passes through untouched.
     hud_enabled: true

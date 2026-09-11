@@ -271,20 +271,23 @@ install(DIRECTORY include/
 install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME})
 
-# VM-044: package the theme YAMLs + class-model glTF pack (both small,
-# already plain-git-committed in visual_renderer, same convention this line
-# follows) into THIS package's own share dir, so on_configure()'s
-# ament_index_cpp resolution (theme_assets_dir/initial_theme, both default
-# "") finds a real install instead of silently landing on
-# DEFAULT_THEME_ASSETS_DIR's compiled-in path to this checkout's source tree.
+# VM-044: package the theme YAMLs (plain-git-committed in visual_renderer,
+# same convention this line follows) into THIS package's own share dir, so
+# on_configure()'s ament_index_cpp resolution (theme_assets_dir/
+# initial_theme, both default "") finds a real install instead of silently
+# landing on DEFAULT_THEME_ASSETS_DIR's compiled-in path to this checkout's
+# source tree.
 install(DIRECTORY "${VISUAL_RENDERER_DIR}/assets/themes"
   DESTINATION share/${PROJECT_NAME}/assets)
-install(DIRECTORY "${VISUAL_RENDERER_DIR}/assets/models"
-  DESTINATION share/${PROJECT_NAME}/assets
-  PATTERN "environment" EXCLUDE)  # VM-051/052's baked-environment chunks -- a separate feature, not this task's
 
-# VM-044: the converted M02P ego glTF. NOT committed to git like the class
-# models above -- the source OBJ is ~143 MB and the converted glb ~72 MB,
+# HUD compositor font (VM-030/VM-044): same ament_index resolution as the
+# themes above -- installed so on_configure()'s hud_font_path fallback finds
+# a real share/ path instead of a per-checkout one.
+install(DIRECTORY assets/fonts
+  DESTINATION share/${PROJECT_NAME}/assets)
+
+# VM-044: the converted M02P ego glTF. NOT committed to git like the themes/
+# fonts above -- the source OBJ is ~143 MB and the converted glb ~72 MB,
 # past the plain-git convention's practical size (the backlog's own
 # documented alternative for an "enormous" binary asset: a fetch/provision
 # script instead of Git LFS, since this repo has no LFS remote configured).

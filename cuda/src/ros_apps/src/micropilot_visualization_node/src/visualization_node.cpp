@@ -221,7 +221,24 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
 
     // HUD compositor font (VM-030 Step 2); missing/unloadable is non-fatal
     // (CompositeHud() in timer_callback() WARNs once, HUD just isn't drawn).
+    // "" resolves via ament_index to this package's own installed
+    // share/assets/fonts (VM-044), same shape as theme_assets_dir/
+    // ego_model_path above, instead of a per-checkout absolute path.
     hud_font_path_ = declare_parameter<std::string>("hud_font_path", "");
+    if (hud_font_path_.empty())
+    {
+        const std::string installed_font =
+            ament_index_cpp::get_package_share_directory("micropilot_visualization_node") +
+            "/assets/fonts/NotoSans-Regular.ttf";
+        if (std::ifstream(installed_font).good())
+        {
+            hud_font_path_ = installed_font;
+        }
+    }
+    // Resolved (or still-empty-and-honest-about-it) value visible via
+    // `ros2 param get hud_font_path` (VM-044 AC), same as theme_assets_dir/
+    // ego_model_path above.
+    set_parameter(rclcpp::Parameter("hud_font_path", hud_font_path_));
     // HUD disable knob (STANDING directive, visual-mode-epic3.md): default
     // true, unrelated to hud_font_path_ -- an empty/unloadable font path is
     // an accidental side effect that still calls CompositeHud() every tick;
