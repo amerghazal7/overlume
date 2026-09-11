@@ -25,7 +25,8 @@ third-party client — can drive the virtual camera:
         param; live, same on_params() live-tuning contract as layer_*)
   server -> client:
     {"type": "state", "eye": [...], "target": [...], "preset": 0..5,
-     "render_mode": 1|2}  (~15 Hz)
+     "render_mode": 1|2, "mux_mode": 1|2|3|null}  (~15 Hz; render_mode is
+     the publishing node's own local mode, mux_mode the global mux owner)
     {"type": "params", "values": {name: value, ...}}
     {"type": "ack", "cmd": "save_params", "success": bool, "path": str}
     {"type": "ack", "cmd": "set_preset", "success": bool, "active": str}
@@ -634,7 +635,11 @@ def main() -> int:
                     "type": "state",
                     "eye": s[0:3], "target": s[3:6],
                     "preset": int(s[6]) if len(s) > 6 else 0,
-                    "render_mode": int(s[7]) if len(s) > 7 else 2})
+                    "render_mode": int(s[7]) if len(s) > 7 else 2,
+                    # The MUX mode (which node owns /rendering/image) -- index
+                    # 7 is the node's own local render_mode since VM-093, so
+                    # the GUI's mode-cycle button needs this separately.
+                    "mux_mode": int(s[8]) if len(s) > 8 else None})
                 await asyncio.gather(
                     *(ws.send(frame) for ws in list(clients)), return_exceptions=True)
             # Same "send only on change" shape as state above, its own frame

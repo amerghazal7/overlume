@@ -559,7 +559,10 @@ class VcamWindow(Gtk.Window):
     # ── telemetry → UI ─────────────────────────────────────────────────────────
     def _apply_state(self, s: dict):
         self._state = s
-        mode = s.get("render_mode", 2)
+        # Mode-cycle targets follow the MUX mode (who owns /rendering/image);
+        # index 7 is the node's own local render_mode since VM-093. Fall back
+        # to render_mode for a pre-VM-093 bridge (mux_mode absent/None).
+        mode = s.get("mux_mode") or s.get("render_mode", 2)
         if mode != self._render_mode:
             self._render_mode = mode
             self._mode_btn.set_label(

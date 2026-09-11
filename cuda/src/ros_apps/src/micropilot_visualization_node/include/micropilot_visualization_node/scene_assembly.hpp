@@ -117,16 +117,20 @@ enum class RenderMode
 
 // USER DIRECTIVE 2026-09-11 (mode content exclusivity, "Decision
 // resolutions"): BOWL renders bowl+ego ONLY, HYBRID renders bowl+lidar+ego
-// ONLY (the lidar category is point_clouds -- Task 5/VM-094 is what
-// actually feeds it; until then this mask still applies, the category is
-// just empty), FREE_LOOK renders the full autonomy scene unmasked. Neither
+// ONLY (the lidar category is point_clouds -- until Task 5/VM-094 replaces
+// its feed with camera-colorized points, the shipped profile's EXISTING
+// autonomy point-cloud row flows through it, so HYBRID currently shows an
+// un-colorized cloud, not an empty layer), FREE_LOOK renders the full
+// autonomy scene unmasked. Neither
 // bowl nor ego is a SceneAssembly category (bowl visibility is
 // set_bowl_visible(), ego is scene.ego) -- this mask only ever touches the
 // eight SceneAssembly/LayerFlags categories. The environment/buildings layer
 // (Epic 4/VM-052) is a THIRD thing outside this mask -- renderer-internal,
-// not a SceneAssembly category either -- gated separately in
-// timer_callback() (toggling set_environment_source()'s null-source path
-// per mode) precisely so it does NOT silently keep rendering in BOWL/HYBRID.
+// not a SceneAssembly category either -- and NOT per-mode gated: the
+// round-1 null-source gate was dead code (the library treats a null source
+// as a no-op, not a hide) and was deleted in round 2; a live environment
+// source renders in every mode today (signoff.md exception 7, latent until
+// a chunks dir is provisioned).
 LayerFlags mode_content_mask(RenderMode mode);
 
 // AND `mask` over `user`, field by field -- composes without ever
