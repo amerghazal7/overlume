@@ -34,4 +34,21 @@ struct QualityRenderSize {
 // output size itself. {0, 0} if `r` is null.
 QualityRenderSize quality_internal_render_size(mpviz::VisualRenderer* r);
 
+struct QualitySsao {
+    bool enabled = false;
+    float resolution = 0.0f;
+};
+
+// View::getAmbientOcclusionOptions() read back -- {false, 0} if `r` is null.
+QualitySsao quality_ssao(mpviz::VisualRenderer* r);
+
+// View::getTemporalAntiAliasingOptions().enabled -- false if `r` is null.
+bool quality_taa_enabled(mpviz::VisualRenderer* r);
+
+// Mirrors filament::AntiAliasing without leaking a <filament/...> include
+// into this Filament-free test header (same convention as the rest of this
+// file). NONE if `r` is null.
+enum class QualityAntiAliasing : uint8_t { NONE = 0, FXAA = 1 };
+QualityAntiAliasing quality_antialiasing(mpviz::VisualRenderer* r);
+
 }  // namespace mpviz::testing

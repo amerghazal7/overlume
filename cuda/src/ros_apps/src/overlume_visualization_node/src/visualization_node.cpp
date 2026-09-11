@@ -51,26 +51,21 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
         return CallbackReturn::FAILURE;
     }
 
-    // ── quality auto-drop governor (VM-040, Epic 5) ──────────────────────────
-    // governor_enabled_ default false: a new auto-behavior ships opt-in
-    // (this task's own AC). Every threshold/window is its own param, tunable
-    // without a code change; defaults mirror quality_governor.hpp's own
-    // (budget_probe.md-derived) documented defaults -- declared explicitly
-    // here rather than left to QualityGovernorParams{}'s in-class
-    // initializers so `ros2 param get` shows every one of them, same
-    // "declared, not silently defaulted" convention every other param on
-    // this node follows.
+    // ── quality auto-drop governor (VM-040, see backlog Done note) ───────────
+    // Opt-in (default false). Every threshold/window is its own declared
+    // param (not left to QualityGovernorParams{}'s in-class defaults) so
+    // `ros2 param get` shows each one.
     governor_enabled_ = declare_parameter<bool>("governor_enabled", false);
     mpviz_node::QualityGovernorParams governor_params;
-    governor_params.window_size = static_cast<uint32_t>(
-        declare_parameter<int>("governor_window_size", static_cast<int>(governor_params.window_size)));
+    const int governor_window_size_param = declare_parameter<int>(
+        "governor_window_size", static_cast<int>(governor_params.window_size));
     governor_params.drop_threshold_ms =
         declare_parameter<double>("governor_drop_threshold_ms", governor_params.drop_threshold_ms);
     governor_params.recover_threshold_ms = declare_parameter<double>(
         "governor_recover_threshold_ms", governor_params.recover_threshold_ms);
-    governor_params.recover_windows_required =
-        static_cast<uint32_t>(declare_parameter<int>("governor_recover_windows_required",
-                                     static_cast<int>(governor_params.recover_windows_required)));
+    const int governor_recover_windows_required_param = declare_parameter<int>(
+        "governor_recover_windows_required",
+        static_cast<int>(governor_params.recover_windows_required));
     governor_params.min_dwell_windows = static_cast<uint32_t>(declare_parameter<int>(
         "governor_min_dwell_windows", static_cast<int>(governor_params.min_dwell_windows)));
     if (governor_params.drop_threshold_ms <= governor_params.recover_threshold_ms)
@@ -81,6 +76,21 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
                      governor_params.drop_threshold_ms, governor_params.recover_threshold_ms);
         return CallbackReturn::FAILURE;
     }
+    // Validated as `int` BEFORE the uint32_t cast below: a negative value
+    // wraps to a huge window/streak-length that never closes, so the
+    // governor goes silently dead with no log -- the uint32_t field itself
+    // can no longer catch that once it's been cast.
+    if (governor_window_size_param < 1 || governor_recover_windows_required_param < 1)
+    {
+        RCLCPP_ERROR(get_logger(),
+                     "governor_window_size (%d) and governor_recover_windows_required (%d) "
+                     "must both be >= 1",
+                     governor_window_size_param, governor_recover_windows_required_param);
+        return CallbackReturn::FAILURE;
+    }
+    governor_params.window_size = static_cast<uint32_t>(governor_window_size_param);
+    governor_params.recover_windows_required =
+        static_cast<uint32_t>(governor_recover_windows_required_param);
     quality_governor_ = std::make_unique<mpviz_node::QualityGovernor>(
         governor_params, static_cast<uint32_t>(quality_));
 
@@ -1027,11 +1037,14 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
 }
 
 // ── Live parameter updates (Epic 3 Task 5 / VM-032 Step 1) ──────────────────
-// Only the seven layer_* bools are live-tunable here (quality is create-time
-// only, per this task's Interfaces note -- set_quality writes the `quality`
-// param but nothing re-reads it until the next create_renderer()). Same
-// name-match-and-assign shape as rendering_node.cpp's on_params(); unmatched
-// param names fall through untouched (accepted, nothing to apply live).
+// The eight layer_* bools are live-tunable here. `quality` itself is still
+// not wired into on_params (VM-032's open scope) -- setting it by hand via
+// `ros2 param set` still takes effect only on the next restart. But since
+// VM-040, mpviz::set_quality() DOES apply a preset live at the library level,
+// and the quality governor (quality_governor.hpp) uses exactly that path
+// every mode-3 tick, bypassing on_params entirely. Same name-match-and-assign
+// shape as rendering_node.cpp's on_params(); unmatched param names fall
+// through untouched (accepted, nothing to apply live).
 rcl_interfaces::msg::SetParametersResult VisualizationNode::on_params(
     const std::vector<rclcpp::Parameter>& params)
 {
@@ -1705,16 +1718,9 @@ void VisualizationNode::timer_callback()
                                                              render_start)
                      .count();
 
-    // ── quality auto-drop governor (VM-040, Epic 5) ──────────────────────────
-    // Opt-in (governor_enabled_ default false) so this ships with zero
-    // behavior change for every existing deployment. Feeds this tick's
-    // render_ms_ into the pure hysteresis state machine (quality_governor.hpp)
-    // and, on an actual transition, applies it live via mpviz::set_quality()
-    // (the appended VM-040 entry point -- NOT a renderer re-create, see that
-    // function's own comment) and WARNs (the backlog AC: "synthetic-load
-    // test triggers drop + log"). quality_ is updated too so a live
-    // `ros2 param get quality` reflects what the governor actually did,
-    // not the value on_configure() started with.
+    // ── quality auto-drop governor (VM-040, see backlog Done note) ───────────
+    // Opt-in. On a transition, applies it live via mpviz::set_quality() and
+    // mirrors quality_ onto the ROS param too.
     if (governor_enabled_)
     {
         const mpviz_node::QualityTransition transition =
@@ -1724,11 +1730,7 @@ void VisualizationNode::timer_callback()
             const uint32_t new_preset = quality_governor_->current_preset();
             mpviz::set_quality(renderer_, new_preset);
             quality_ = static_cast<int>(new_preset);
-            // Mirrors quality_ back onto the live ROS parameter too (VM-044's
-            // own "write the resolved value back" convention) -- a
-            // `ros2 param get quality` after a governor transition reports
-            // what the renderer is actually doing, not the on_configure()
-            // starting value.
+            // So `ros2 param get quality` reflects the governor's own change.
             set_parameter(rclcpp::Parameter("quality", quality_));
             RCLCPP_WARN(get_logger(), "quality governor: %s -> preset %u (render_ms p95 over window)",
                         transition == mpviz_node::QualityTransition::DROPPED ? "DROPPED" : "RECOVERED",

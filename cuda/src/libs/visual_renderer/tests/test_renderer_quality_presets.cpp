@@ -84,6 +84,10 @@ TEST(RendererQuality, SetQualitySwitchesLivePresetsWithoutRecreate) {
     ASSERT_NE(r, nullptr);
     EXPECT_EQ(mpviz::testing::quality_shadow_map_size(r), 2048u);
     EXPECT_TRUE(mpviz::testing::quality_shadows_enabled(r));
+    EXPECT_TRUE(mpviz::testing::quality_ssao(r).enabled);
+    EXPECT_FLOAT_EQ(mpviz::testing::quality_ssao(r).resolution, 1.0f);
+    EXPECT_EQ(mpviz::testing::quality_antialiasing(r), mpviz::testing::QualityAntiAliasing::NONE);
+    EXPECT_TRUE(mpviz::testing::quality_taa_enabled(r));
 
     mpviz::set_quality(r, 0);  // drop to low -- same renderer, no re-create
     EXPECT_FALSE(mpviz::testing::quality_shadows_enabled(r));
@@ -91,6 +95,9 @@ TEST(RendererQuality, SetQualitySwitchesLivePresetsWithoutRecreate) {
     const mpviz::testing::QualityRenderSize low = mpviz::testing::quality_internal_render_size(r);
     EXPECT_EQ(low.width, 960u);
     EXPECT_EQ(low.height, 540u);
+    EXPECT_FALSE(mpviz::testing::quality_ssao(r).enabled);
+    EXPECT_EQ(mpviz::testing::quality_antialiasing(r), mpviz::testing::QualityAntiAliasing::FXAA);
+    EXPECT_FALSE(mpviz::testing::quality_taa_enabled(r));
 
     mpviz::set_quality(r, 2);  // recover to high -- still the same renderer
     EXPECT_TRUE(mpviz::testing::quality_shadows_enabled(r));
@@ -98,6 +105,10 @@ TEST(RendererQuality, SetQualitySwitchesLivePresetsWithoutRecreate) {
     const mpviz::testing::QualityRenderSize high = mpviz::testing::quality_internal_render_size(r);
     EXPECT_EQ(high.width, 1280u);
     EXPECT_EQ(high.height, 720u);
+    EXPECT_TRUE(mpviz::testing::quality_ssao(r).enabled);
+    EXPECT_FLOAT_EQ(mpviz::testing::quality_ssao(r).resolution, 1.0f);
+    EXPECT_EQ(mpviz::testing::quality_antialiasing(r), mpviz::testing::QualityAntiAliasing::NONE);
+    EXPECT_TRUE(mpviz::testing::quality_taa_enabled(r));
 
     mpviz::destroy_renderer(r);
 }

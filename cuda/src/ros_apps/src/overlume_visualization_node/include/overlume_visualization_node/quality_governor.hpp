@@ -15,30 +15,12 @@
  *  record_render_ms() synthetic samples directly -- deterministic, CI-safe,
  *  no GPU, no timer, no real overload needed to prove drop+recover.
  *
- *  Design (P4-style decision, recorded here since VM-040's own backlog
- *  entry names no separate governor-tuning doc):
- *   - Samples are grouped into fixed-size windows (window_size samples,
- *     ~1s of ticks at the node's 30 Hz publish timer); a window closes and
- *     is evaluated by its p95 (nearest-rank, same percentile() shape
- *     tools/viz_benchmark.cpp already uses for render_ms p50/p99).
- *   - DROP reacts fast: any window whose p95 exceeds drop_threshold_ms
- *     drops one preset (once the dwell floor below has elapsed).
- *   - RECOVER is cautious: only after recover_windows_required CONSECUTIVE
- *     windows read below recover_threshold_ms does the governor raise one
- *     preset back -- "sustained headroom", not a single lucky window.
- *   - HYSTERESIS: drop_threshold_ms > recover_threshold_ms by construction
- *     (defaults below, derived from budget_probe.md's 33 ms wall-timer
- *     ceiling and the real bowl-on-driving render_ms p99 numbers it
- *     recorded, ~21-22 ms) -- a window landing between the two thresholds
- *     is neither overloaded nor headroom and moves nothing. min_dwell_windows
- *     additionally floors HOW SOON any transition can follow the previous
- *     one, in either direction, so a burst of noisy windows right at a
- *     threshold can't flap the preset back and forth.
- *   - Defaults are deliberately conservative (comfortably under the 33 ms
- *     ceiling for DROP, comfortably under typical bowl-on-driving load for
- *     RECOVER) and every one of them is a constructor parameter -- the node
- *     exposes each as its own ROS param (visualization_node.cpp), tunable
- *     without a code change.
+ *  Windows close by count (window_size samples) and are evaluated by p95
+ *  (nearest-rank, same percentile() shape tools/viz_benchmark.cpp already
+ *  uses); DROP/RECOVER/hysteresis/dwell semantics are the backlog VM-040
+ *  Done note's decision of record -- see that note for the design rationale,
+ *  not restated here. Per-field threshold justifications are on each param
+ *  below.
  */
 
 #include <cstdint>
