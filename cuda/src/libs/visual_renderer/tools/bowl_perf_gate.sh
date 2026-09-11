@@ -62,6 +62,19 @@ run_case(){ # name bowl_enabled [odom_topic]
       > "$OUT/$name.odom.log" 2>&1 &
   fi
 
+  # Live re-bake check (VM-091 close-out review, minor 1): a bowl-param edit
+  # mid-run must actually re-bake -- asserted against the node's own INFO
+  # line, only on the plain bowl_on case (bowl active, no other churn).
+  if [ "$name" = "bowl_on" ]; then
+    ros2 param set /visualization_node bowl_R0 12.0 > /dev/null 2>&1 || true
+    sleep 1
+    if grep -q "bowl: re-baked (live param change)" "$OUT/$name.viz.log"; then
+      echo "  live re-bake: OK" | tee -a "$OUT/results.txt"
+    else
+      echo "  live re-bake: FAILED (no re-bake log line after ros2 param set)" | tee -a "$OUT/results.txt"
+    fi
+  fi
+
   python3 "$SAMPLER" 14 > "$OUT/$name.diag.log" 2>&1 &
   local diag_pid=$!
   local h g c
