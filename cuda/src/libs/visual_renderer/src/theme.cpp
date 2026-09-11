@@ -1,5 +1,7 @@
 #include "theme.hpp"
 
+#include <algorithm>
+
 #include <yaml-cpp/yaml.h>
 
 #include <stdexcept>
@@ -151,7 +153,10 @@ Theme parse(const YAML::Node& root) {
     // still parses, at the fully-opaque 1.0 default.
     const YAML::Node objects = root["objects"];
     t.objects.opacity =
-        (objects && objects["opacity"]) ? objects["opacity"].as<float>() : 1.0f;
+        std::clamp(
+        (objects && objects["opacity"]) ? objects["opacity"].as<float>() : 1.0f, 0.0f, 1.0f);
+    // Clamped: >1 would keep alpha >= 1 and silently SUPPRESS the staleness
+    // fade for most of its window; <0 would bind a negative baseColor alpha.
 
     return t;
 }

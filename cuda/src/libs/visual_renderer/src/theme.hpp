@@ -161,17 +161,13 @@ struct Theme {
         float margin_velocity_m = 1.05f;
     } ribbon;
 
-    // objects.opacity: TrackedObject rendering opacity (VM-078, user
-    // request "can we offer opacity control for the objects rendering?").
-    // Soft-defaulted like every other token in this file (theme.cpp's
-    // parse()) -- falls back to 1.0, today's fully-opaque look, so a theme
-    // YAML predating this key still parses byte-identically. At 1.0,
-    // objects.cpp's update_entity_staleness() never touches the translucent
-    // path (unchanged from before this token existed). Below 1.0, every
-    // TrackedObject entity (glTF class model or procedural clay box) binds
-    // the EXISTING per-entity clay_translucent fadeInstance swap (never a
-    // new material) with alpha = opacity * staleness_alpha, so the
-    // staleness fade still ramps DOWN from this ceiling, never up past it.
+    // objects.opacity (VM-078): TrackedObject BODY opacity (glTF model or
+    // clay box; the velocity arrow and predicted-path ribbon stay opaque --
+    // see objects.cpp's own note). Soft default 1.0 = today's look, alpha ==
+    // staleness_alpha exactly; below 1.0 the body rides the existing
+    // per-entity clay_translucent swap at alpha = opacity * staleness_alpha
+    // (fade ramps down from the opacity ceiling, never past it). Parsed
+    // CLAMPED to [0,1] (theme.cpp).
     struct Objects {
         float opacity = 1.0f;
     } objects;

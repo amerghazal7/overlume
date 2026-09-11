@@ -230,9 +230,12 @@ void ensure_shared_arrow_mesh(VisualRenderer& r) {
 // shared unit-arrow vb/ib, rotated to the velocity heading and scaled in
 // length by (clamped) speed, floating just above the object's own roof.
 //
-// ponytail: the arrow doesn't participate in the staleness fade (only the
-// object's own body does); revisit if a fading arrow ever shows up as a
-// visual bug.
+// ponytail: the arrow (and the predicted-path ribbon -- same shared opaque
+// objectClassMaterial binding) participates in NEITHER the staleness fade
+// NOR objects.opacity: the token governs the object BODY only, so a
+// translucent body keeps a solid arrow/ribbon. Upgrade path if orphan
+// arrows over see-through bodies ever read as a bug: gate a translucent
+// rebind on opacity < 1.0.
 void update_entity_arrow(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& e) {
     filament::TransformManager& tm = r.engine->getTransformManager();
     if (is_zero_vec3(obj.velocity)) {
@@ -350,14 +353,8 @@ void update_entity_path(VisualRenderer& r, const TrackedObject& obj, ObjectEntit
 // objects.opacity (VM-078) multiplies straight into this same alpha rather
 // than adding a parallel opacity path: at the theme's default 1.0 it's a
 // no-op (alpha == staleness, byte-identical to before this token existed).
-// Below 1.0, alpha < 1.0 even while staleness == 1.0 (fresh), so the
-// `alpha >= 1.0f` branch below never takes the opaque path and every
-// TrackedObject entity rides the existing translucent swap instead — with
-// the staleness fade still ramping DOWN from the opacity ceiling, never up
-// past it (opacity * staleness_alpha can only shrink toward 0, never grow
-// past opacity). r.active_theme is kept live every render_frame() call by
-// apply_current_theme() (renderer.cpp), including mid-transition, so a live
-// theme switch picks up the blended opacity with no separate wiring.
+// alpha = objects.opacity * staleness_alpha -- see Theme::Objects
+// (theme.hpp) for the token's contract; r.active_theme is live per frame.
 void update_entity_staleness(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& e,
                               double sim_time_sec) {
     const auto staleness = static_cast<float>(detail::SceneBuffer::staleness_alpha(
