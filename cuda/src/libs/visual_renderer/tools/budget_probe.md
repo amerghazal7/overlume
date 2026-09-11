@@ -14,19 +14,23 @@ running its pipeline with no input.
 
 ## Procedure (a) — reproducible
 
-Script: `budget_probe.sh` (kept next to this file). For each case it
+Script: `budget_probe.sh` (kept next to this file). **Single-process shape as
+of the unified-engine migration's Task 6 (VM-095) cutover** —
+`micropilot_rendering_node` no longer exists to optionally start; the
+`visualization_node`/`rnode`-cased branches this procedure used to describe
+(`q1_rnode_idle`/`q1_rnode_mode2`) are gone from the script (Step 5), and
+this text is reworded to match rather than describing a step someone would
+otherwise try to follow against a deleted package. For each case the script
 1. starts `visualization_node` with `--params-file default_params.yaml`,
    `initial_mode:=3 use_sim_time:=true out_width:=1280 out_height:=720
    profile:=urban quality:=<q>`, configures + activates it (lifecycle),
-2. optionally starts `micropilot_rendering_node` (default params) and either
-   leaves it on mode 2 or publishes `/rendering/set_mode 3` so it idles,
-3. starts `tools/tf_flatten_fixture.py` and
+2. starts `tools/tf_flatten_fixture.py` and
    `ros2 bag play $HOME/TPSProjector-fixtures/epic2_fixtures_full --loop --clock
    --qos-profile-overrides-path qos_full.yaml --remap /tf:=/tf_raw`,
-4. after a 12 s warm-up samples `ros2 topic hz /rendering/image --window 100`
+3. after a 12 s warm-up samples `ros2 topic hz /rendering/image --window 100`
    (~14 s), `nvidia-smi dmon -s um -c 8` (GPU SM % and memory-controller %,
    whole GPU), and `top` CPU % of each node process,
-5. tears everything down. Isolated on `ROS_DOMAIN_ID=93`.
+4. tears everything down. Isolated on `ROS_DOMAIN_ID=93`.
 
 The node's publish timer is a fixed 33 ms wall timer, so `image_hz` saturates
 at ~30 Hz; headroom must be read from GPU SM % (fraction of the 33 ms budget
@@ -69,12 +73,53 @@ Interpretation (proxy only):
   the on-robot table (b) shows headroom. No resolution reduction is warranted
   by the proxy.
 
-## Results (b) — ON-ROBOT (open; VM-043 blocker)
+## Results (b) — ON-ROBOT (closed 2026-09-11, Task 6/VM-095 Step 1)
 
-Same matrix on robot hardware with perception + cameras feeding the CUDA node,
-plus `render_ms` p50/p99 from the VM-034 diagnostic, CUDA-node fps delta and
-perception fps delta. Record the go/adjust decision on the 720p30 assumption
-in the master plan's "Epic 0 results" line.
+**Closes VM-043 for real** (Decision 10) — there is only one process left to
+measure: the merged `visualization_node` as the ONLY rendering process, all
+three modes, real camera+lidar input from the fixture bag, `bowl_enabled`
+AND `hybrid_enabled` both `true` (this is what production runs post-Step-6,
+not an isolated capability check).
+
+No robot hardware was reachable from this session — run on this dev box
+(**GPU: NVIDIA GeForce RTX 3090, 24576 MiB** — named fixture gap #1, the
+first time this repo records a GPU model/class) as the most
+robot-representative box available, per the plan's own allowance. This row
+is the dev-box proxy standing in for the robot; the on-actual-robot rerun
+stays a named open item for deployment (see `deviations`/on_robot_rerun in
+this pass's own report).
+
+Harness: `on_robot_perf_gate.sh`, fixture bag `stack_v3_full_sensors_2026-09-11`
+(67s, fresh single-pass playback, `--rate 1.0`, ROS_DOMAIN_ID=93), 20s warm-up
+(6 cameras' CameraInfo complete + bowl bake + lidar flowing, same warm-up
+`hybrid_perf_gate.sh` uses), 14s sampling window, `quality:=1`.
+
+| Mode | image_hz | render_ms p50 | render_ms p99 | GPU SM% / mem-ctrl% | viz CPU% | Pass/fail (`>=30.0 Hz`, `<=33ms` p99) |
+|---|---|---|---|---|---|---|
+| BOWL (1) | 30.260 | 16.445 ms | 21.191 ms | 38 / 0 | 78.1% | **PASS** |
+| HYBRID (2) | 30.237 | 15.781 ms | 21.062 ms | 33 / 0 | 82.5% | **PASS** |
+| FREE_LOOK (3) | 30.296 | 11.600 ms | 13.229 ms | 28 / 0 | 66.7% | **PASS** |
+
+All three modes clear both bars on this dev-box proxy, with real headroom
+under the 33ms p99 ceiling (BOWL/HYBRID's own worst case, 21.2ms, is ~64% of
+budget; FREE_LOOK sits at ~40%). `image_hz` saturates at the fixed 33ms
+publish timer in every case (as table (a) already established), so the real
+signal here is `render_ms` p99 and GPU SM%, both comfortably clear.
+
+Benign warnings seen in every case's log (not a regression, both pre-exist
+this pass): `camera bowl: stamp spread 0.150s exceeds max_sync_latency
+0.120s` (this bag's bm/br cameras under-deliver at 67%/77% of the best
+camera — the named fixture-bag recording deficit, not a rig bug, stated
+here rather than chased) and `/perception/dynamic_objects_list: dropped N
+malformed` (this bag's own real marker stream, unrelated to this node's
+render path).
+
+**Go decision on the 720p30 assumption:** GO — every mode clears 30Hz/33ms
+on the dev-box proxy with the full production default (`bowl_enabled` AND
+`hybrid_enabled` true) and real six-camera + lidar load, no resolution
+reduction warranted. The on-robot rerun (real hardware, not this proxy)
+remains the deployment-time confirmation, named as a deviation in this
+pass's own report.
 
 ## Results (c) — VM-091 Task 2 Step 5: bowl camera-ingest gate, real camera bag, 2026-09-11
 
