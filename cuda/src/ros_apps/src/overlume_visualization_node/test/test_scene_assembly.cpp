@@ -125,6 +125,35 @@ TEST(SceneAssembly, ApplyLayerGatesPointCloudsOnLeavesItIntact)
     EXPECT_EQ(scene.point_cloud_count, 1u);
 }
 
+TEST(SceneAssembly, ContentPushedAfterApplyLayerGatesSurvivesPointCloudsGateFalse)
+{
+    // VM-094 review round 2 finding 1: visualization_node.cpp's hybrid block
+    // now pushes its colorized-lidar row AFTER apply_layer_gates() has
+    // already run for this tick (hoisted above the hybrid block, never
+    // re-applied later) -- this pins the general mechanism that immunity
+    // relies on: a category cleared by a false gate can still receive new
+    // content afterward, because clearing only affects what is in the
+    // container at the moment apply_layer_gates() runs, not what arrives
+    // later in the same tick.
+    SceneAssembly asm_;
+    asm_.point_clouds.push_back(mpviz::PointCloud{});  // e.g. a stale autonomy row
+
+    LayerFlags flags;  // all true by default
+    flags.point_clouds = false;  // user's own layer_point_clouds:=false
+    apply_layer_gates(asm_, flags);
+
+    mpviz::SceneGraph mid{};
+    asm_.point_at(mid);
+    EXPECT_EQ(mid.point_cloud_count, 0u);  // gate cleared the stale row
+
+    // Hybrid content pushed AFTER the gate call -- must survive.
+    asm_.point_clouds.push_back(mpviz::PointCloud{});
+
+    mpviz::SceneGraph scene{};
+    asm_.point_at(scene);
+    EXPECT_EQ(scene.point_cloud_count, 1u);
+}
+
 TEST(SceneAssembly, TrajectoryCarpetRowAppendsIntoSceneTrajectoryCarpets)
 {
     // Same shape as PointCloudRowAppendsIntoScenePointClouds above, for the
