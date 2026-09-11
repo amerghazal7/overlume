@@ -359,6 +359,28 @@ void CameraIngest::update_motion_deltas()
         std::lock_guard<std::mutex> lk(odom_mtx_);
         twists_snapshot = twists_;
     }
+    // VM-091 gate close-out finding 3: max_sync_latency was stored on the
+    // node but never read anywhere in this file. A camera whose last-image
+    // stamp is staler than max_sync_latency_ behind t_max keeps its last-
+    // uploaded texture (no upload happens here regardless -- this loop only
+    // ever calls set_camera_motion_delta, never set_camera_frame) AND keeps
+    // being delta-compensated to t_max below, same as every other camera --
+    // the merged node's redefined gate semantics (Task 2 Step 6) never
+    // withhold either for it. The one carryover from the old node's gate is
+    // this THROTTLED WARN when the spread exceeds the window.
+    double max_spread = 0.0;
+    for (uint32_t i = 0; i < state_.camera_count(); ++i)
+    {
+        if (!state_.has_stamp(i)) continue;
+        max_spread = std::max(max_spread, t_max - state_.stamp(i));
+    }
+    if (max_spread > max_sync_latency_)
+    {
+        RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 5000,
+                              "camera bowl: stamp spread %.3fs exceeds max_sync_latency %.3fs -- "
+                              "stalest camera(s) still delta-compensated to t_max, not withheld",
+                              max_spread, max_sync_latency_);
+    }
     for (uint32_t i = 0; i < state_.camera_count(); ++i)
     {
         double delta[16];

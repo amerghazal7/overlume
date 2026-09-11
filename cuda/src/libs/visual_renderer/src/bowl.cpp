@@ -48,6 +48,13 @@ struct BowlGpuVertex {
     float3 position;
     float4 color;    // coverage_a, index_a, coverage_b, index_b
     float3 rigPos;   // == position, verbatim -- CUSTOM0, untouched by Filament
+    // Third camera slot (VM-091 gate close-out finding 7, Decision
+    // resolution 2's "2-3 contributing cameras per fragment"): coverage_c,
+    // index_c -- CUSTOM1, a physically separate raw-attribute slot from
+    // CUSTOM0 above (Filament reserves 8 raw attribute slots against only 4
+    // varying slots, bowl.mat's header), carried to the fragment shader on
+    // the spare custom3 interpolant.
+    float2 covIdxC;
 };
 
 filament::VertexBuffer* make_bowl_vertex_buffer(filament::Engine& engine,
@@ -66,6 +73,9 @@ filament::VertexBuffer* make_bowl_vertex_buffer(filament::Engine& engine,
             .attribute(filament::VertexAttribute::CUSTOM0, 0,
                        filament::VertexBuffer::AttributeType::FLOAT3,
                        offsetof(BowlGpuVertex, rigPos), sizeof(BowlGpuVertex))
+            .attribute(filament::VertexAttribute::CUSTOM1, 0,
+                       filament::VertexBuffer::AttributeType::FLOAT2,
+                       offsetof(BowlGpuVertex, covIdxC), sizeof(BowlGpuVertex))
             .build(engine);
     vb->setBufferAt(engine, 0,
                      filament::VertexBuffer::BufferDescriptor(
@@ -150,6 +160,7 @@ bool build_bowl(VisualRenderer& r, const BowlConfig& cfg) {
         verts[i].color = {bv.coverage_a, static_cast<float>(bv.index_a), bv.coverage_b,
                            static_cast<float>(bv.index_b)};
         verts[i].rigPos = verts[i].position;
+        verts[i].covIdxC = {bv.coverage_c, static_cast<float>(bv.index_c)};
     }
     std::vector<uint16_t> indices(baked.indices.begin(), baked.indices.end());
 

@@ -69,10 +69,11 @@ TEST(BowlMeshBake, InnerRingCoveredOuterRingUncoveredBySingleCamera) {
     for (const auto& v : mesh.vertices) {
         const double r = std::sqrt(v.position.x * v.position.x + v.position.y * v.position.y);
         // Only one camera is configured -- every vertex's index_a must be
-        // camera 0, and coverage_b must be forced to 0 (never double-counts
-        // the single camera as both slots).
+        // camera 0, and coverage_b/coverage_c must be forced to 0 (never
+        // double-counts the single camera across slots).
         EXPECT_EQ(v.index_a, 0u);
         EXPECT_FLOAT_EQ(v.coverage_b, 0.0f);
+        EXPECT_FLOAT_EQ(v.coverage_c, 0.0f);
         if (r < 1.0 && v.coverage_a > 0.0f) found_covered = true;
         if (r > max_r * 0.9 && v.coverage_a == 0.0f) found_uncovered = true;
     }
@@ -121,9 +122,9 @@ TEST(BowlMeshBake, MidEdgeWeightInterpolationIsBoundedByTessellation) {
 
 TEST(BowlMeshBake, EveryTriangleCarriesIdenticalCameraIndexPairAcrossAllThreeVertices) {
     // Decision 3's construction rule, checked as a whole-mesh invariant: no
-    // triangle may have vertices that disagree on (index_a, index_b) --
-    // that's exactly the "index interpolated into fractional garbage"
-    // corruption class the rule exists to prevent. Two cameras with
+    // triangle may have vertices that disagree on (index_a, index_b,
+    // index_c) -- that's exactly the "index interpolated into fractional
+    // garbage" corruption class the rule exists to prevent. Two cameras with
     // different placements (splitting bowl coverage) exercise this at a
     // real seam, not just trivially with one camera.
     const CameraExtrinsics extA{{1, 0, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 10.0}};
@@ -147,58 +148,63 @@ TEST(BowlMeshBake, EveryTriangleCarriesIdenticalCameraIndexPairAcrossAllThreeVer
         EXPECT_EQ(v0.index_a, v2.index_a);
         EXPECT_EQ(v0.index_b, v1.index_b);
         EXPECT_EQ(v0.index_b, v2.index_b);
+        EXPECT_EQ(v0.index_c, v1.index_c);
+        EXPECT_EQ(v0.index_c, v2.index_c);
     }
 }
 
-TEST(BowlMeshBake, ThreeCameraOverlapStillPicksAConsistentPairPerTriangle) {
+TEST(BowlMeshBake, FourCameraOverlapStillPicksAConsistentTripletPerTriangle) {
     // Named parity exception (migration plan doc's Task 4 Step 1
-    // checklist): this material contributes at most 2
-    // cameras per fragment (CUSTOM0/CUSTOM2 are both spoken for), so a
-    // genuine triple-overlap region -- three cameras all covering the same
-    // vertex -- can only ever surface 2 of the 3. Three IDENTICAL overhead
-    // cameras (same extrinsics/intrinsics, different slot indices) is the
-    // simplest real triple-overlap: every vertex they cover, all three
-    // cover with EQUAL weight, so this isn't a near-miss, it's exact.
+    // checklist, VM-091 gate close-out finding 7): this material contributes
+    // at most 3 cameras per fragment (CUSTOM0/CUSTOM2/CUSTOM3 are all spoken
+    // for), so a genuine FOUR-way overlap region -- four cameras all
+    // covering the same vertex -- can only ever surface 3 of the 4. Four
+    // IDENTICAL overhead cameras (same extrinsics/intrinsics, different slot
+    // indices) is the simplest real 4-way overlap: every vertex they cover,
+    // all four cover with EQUAL weight, so this isn't a near-miss, it's exact.
     const CameraExtrinsics ext = OverheadCamera();
     const CameraIntrinsics in{800, 800, 320, 240, {0, 0, 0, 0, 0}};
-    const CameraExtrinsics exts[3] = {ext, ext, ext};
-    const CameraIntrinsics ins[3] = {in, in, in};
-    const uint32_t widths[3] = {640, 640, 640};
-    const uint32_t heights[3] = {480, 480, 480};
+    const CameraExtrinsics exts[4] = {ext, ext, ext, ext};
+    const CameraIntrinsics ins[4] = {in, in, in, in};
+    const uint32_t widths[4] = {640, 640, 640, 640};
+    const uint32_t heights[4] = {480, 480, 480, 480};
 
     bowl::BowlMeshParams params;
     params.theta_segments = 16;
     params.radial_rings = 8;
     const bowl::BowlMesh mesh =
-        bowl::BakeBowlMesh(params, 0.5, 0.3, 8.0, 3, exts, ins, widths, heights);
+        bowl::BakeBowlMesh(params, 0.5, 0.3, 8.0, 4, exts, ins, widths, heights);
 
-    bool found_triple_overlap_triangle = false;
+    bool found_quad_overlap_triangle = false;
     for (size_t t = 0; t + 2 < mesh.indices.size(); t += 3) {
         const auto& v0 = mesh.vertices[mesh.indices[t]];
         const auto& v1 = mesh.vertices[mesh.indices[t + 1]];
         const auto& v2 = mesh.vertices[mesh.indices[t + 2]];
-        // Existing per-triangle-uniform-index invariant still holds with 3
-        // configured cameras, not just 2.
+        // Existing per-triangle-uniform-index invariant still holds with 4
+        // configured cameras, not just 2/3.
         EXPECT_EQ(v0.index_a, v1.index_a);
         EXPECT_EQ(v0.index_a, v2.index_a);
         EXPECT_EQ(v0.index_b, v1.index_b);
         EXPECT_EQ(v0.index_b, v2.index_b);
+        EXPECT_EQ(v0.index_c, v1.index_c);
+        EXPECT_EQ(v0.index_c, v2.index_c);
 
-        if (v0.coverage_a > 0.0f && v0.index_a != v0.index_b) {
-            found_triple_overlap_triangle = true;
+        if (v0.coverage_a > 0.0f && v0.index_a != v0.index_b && v0.index_a != v0.index_c) {
+            found_quad_overlap_triangle = true;
             // Identical cameras -> ties resolve to the lowest slot indices
             // examined first (bowl_mesh.cpp's strict `>` comparisons never
-            // displace a first-seen max on a tie) -- camera 2 is excluded
+            // displace a first-seen max on a tie) -- camera 3 is excluded
             // even though it covers this triangle exactly as strongly as
-            // cameras 0/1. This is the named parity exception, pinned so a
-            // future 3-camera-per-fragment fix changes this test
+            // cameras 0/1/2. This is the named parity exception, pinned so
+            // a future 4-camera-per-fragment fix changes this test
             // deliberately instead of silently.
             EXPECT_EQ(v0.index_a, 0u);
             EXPECT_EQ(v0.index_b, 1u);
+            EXPECT_EQ(v0.index_c, 2u);
         }
     }
-    ASSERT_TRUE(found_triple_overlap_triangle)
-        << "no triangle found where all 3 identical cameras genuinely overlap";
+    ASSERT_TRUE(found_quad_overlap_triangle)
+        << "no triangle found where all 4 identical cameras genuinely overlap";
 }
 
 // ---- Step 4: set_bowl_config() + set_camera_frame() + render_frame() -----

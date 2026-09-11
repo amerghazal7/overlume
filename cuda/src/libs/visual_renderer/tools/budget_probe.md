@@ -96,30 +96,45 @@ from the VM-034 `~/diagnostics` topic instead of estimated). 1280×720, quality 
 |---|---|---|---|---|---|---|---|---|
 | bowl_off (5a baseline) | false | 30.30 | 27 | 0 | 45.5 | 10.505 | 11.694 | 425 |
 | bowl_on | true | 30.28 | 34 | 0 | 85.0 | 16.820 | 22.358 | 425 |
+| bowl_on_driving (synthetic-odometry) | true | 30.26 | 36 | 0 | 78.5 | 17.048 | 21.689 | 425 |
 
-**Pass/fail:** `image_hz >= 30.0` holds in both cases (30.30, 30.28 — the
-fixed 33ms publish timer, same rule as table (a)). `render_ms` p99 stays well
-under the 33ms ceiling in both cases (11.694ms bowl-off, 22.358ms bowl-on).
-GPU SM % delta over the bowl-off baseline is +7 points (27→34); viz CPU %
-delta is +39.5 points (45.5%→85.0%, one core) — real and worth tracking as
-this epic's own per-fragment-sampling cost grows (more cameras dirty per
+**Pass/fail:** `image_hz >= 30.0` holds in all three cases (30.30, 30.28,
+30.26 — the fixed 33ms publish timer, same rule as table (a)). `render_ms`
+p99 stays well under the 33ms ceiling in every case (11.694ms bowl-off,
+22.358ms bowl-on, 21.689ms bowl-on-driving). GPU SM % delta over the
+bowl-off baseline is +7 points (27→34) bowl-on, +9 points (27→36)
+bowl-on-driving; viz CPU % delta is +39.5 points (45.5%→85.0%, one core)
+bowl-on, +33 points (45.5%→78.5%) bowl-on-driving — real and worth tracking
+as this epic's own per-fragment-sampling cost grows (more cameras dirty per
 tick, higher tessellation), but not over budget today. **No bar is missed;
 nothing here is absorbed silently.**
 
-**`bowl_on_static` vs `bowl_on_driving`: NOT separately measurable on this
-fixture** — a real, named gap, not a step skipped. `stack_v2_full_sensors_
-2026-09-09` carries **no odometry topic at all** (`ros2 bag info` lists no
-`nav_msgs/msg/Odometry` topic), so `camera_ingest_`'s twist buffer stays
-empty for the whole run regardless of `odom_topic` — `compensation_delta_
-4x4()` returns the identity matrix for every camera, every tick, the same
-path `bowl_on_static` would have exercised. The single `bowl_on` row above
-already includes the real per-tick cost of `update_motion_deltas()`'s loop
-(6 `set_camera_motion_delta()` calls/tick, each a cheap identity write here)
-plus real per-tick camera-dirty `set_camera_frame()` uploads (the bag's
-cameras run ~9 Hz each, so most ticks see 0–2 cameras dirty, not all 6) — it
-is the honest ceiling this fixture can produce, not a stand-in for the
-odometry-driven `rig_delta()` integration cost, which stays unmeasured until
-a bag (or live rig) with real odometry is available.
+**`bowl_on_driving` (VM-091 gate close-out finding 6) — measured 2026-09-11
+with a SYNTHETIC odometry publisher, labeled as such:** `stack_v2_full_
+sensors_2026-09-09` carries **no odometry topic at all** (`ros2 bag info`
+lists no `nav_msgs/msg/Odometry` topic), so `camera_ingest_`'s twist buffer
+stayed empty for every other row in this table regardless of `odom_topic`
+— `compensation_delta_4x4()` returns the identity matrix for every camera,
+every tick, on those rows. This row instead runs `tools/
+synthetic_odom_publisher.py` (committed alongside this script, ~20 lines) at
+50 Hz on `/synthetic/odom` with constant `vx=2.0 m/s`, `wz=0.1 rad/s`,
+`use_sim_time` honored (subscribes `/clock` so its stamps land in the same
+sim-time base as the bag's camera images) — this is what makes
+`rig_delta()`'s per-tick Euler integration and a genuinely non-identity
+`compensation_delta_4x4()` matrix actually run and upload, not the
+identity-matrix fallback every other row measures. Result: **no measurable
+regression vs. `bowl_on`** (render_ms p50 17.048 vs 16.820, p99 21.689 vs
+22.358 — within this rig's own run-to-run noise; GPU SM% +2, viz CPU% -6.5)
+— the per-tick `rig_delta()` integration cost is small next to the
+per-fragment sampling cost the `bowl_on` row already measures, at this bag's
+own camera dirty rate. **Worst-case caveat, stated rather than assumed
+away:** this bag's six cameras publish at **~9 Hz each** (not the node's
+30 Hz render tick), so most ticks see only 0–2 cameras dirty (`set_camera_
+frame()` calls), not all 6 simultaneously-dirty-and-driving at once — the
+theoretical worst case named in the plan's own Step 5 text (~6×1440×928×3 ≈
+24 MB/tick, Decision resolution 1's measured wire dims) is NOT what this row
+measures; it measures this fixture's real (sparser) dirty-camera cadence
+under real per-tick ego-motion compensation instead.
 
 **Upload/conversion bandwidth, at the REAL wire dims (not the plan's
 1280×720-derived ~16.6 MB estimate):**

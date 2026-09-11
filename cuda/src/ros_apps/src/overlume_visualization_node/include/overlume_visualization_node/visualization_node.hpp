@@ -450,14 +450,30 @@ private:
     bool bowl_enabled_{false};
     // GUI-tunable; in this merged node it is the ego-motion re-alignment/
     // staleness window (Step 6's redefined frame-sync gate semantics) --
-    // camera_ingest_ does not currently read this (identity/rig_delta
-    // compensation runs every tick regardless), reserved for Task 4's
-    // staleness-WARN carryover from the old node's gate.
+    // handed to camera_ingest_ via set_max_sync_latency() (VM-091 gate
+    // close-out finding 3): update_motion_deltas() compares each camera's
+    // (t_max - stamp) spread against it and THROTTLE-WARNs when exceeded,
+    // carrying over the old node's gate WARN even though delta-compensation
+    // and rendering both proceed regardless (identity/rig_delta
+    // compensation runs every tick either way).
     double max_sync_latency_{0.12};
     double bowl_R0_{6.0}, bowl_k_{0.08}, bowl_Rmax_{20.0};
     double feather_margin_{30.0};
     bool fill_blind_zone_{false};
     bool exposure_match_{false};
+    // VM-091 gate close-out finding 2: on_params() stores a live edit to
+    // any of bowl_R0_/bowl_k_/bowl_Rmax_/feather_margin_/sky_color_/
+    // bowl_exposure_compensation_ into these very members, but nothing used
+    // to re-call apply_bowl_config() -- the timer's own bowl block only
+    // re-baked on a CameraInfo change (consume_info_dirty()), so a GUI
+    // slider drag was silently inert until some unrelated camera reconnect
+    // happened to re-bake. Set true by on_params() on any such edit;
+    // consumed (and cleared) by timer_callback()'s bowl block, which
+    // re-calls apply_bowl_config() (a full re-bake, same contract as the
+    // CameraInfo-change path) once all_info_ready() -- the same "GUI edit
+    // costs at most one dropped frame" budget the plan's own set_bowl_config
+    // contract already accepts for a slider drag.
+    bool bowl_config_dirty_{false};
     float sky_color_[3]{0.53f, 0.70f, 0.92f};
     // Retuned 10.0 -> 1.5 at Task 2 Step 7's golden capture (see
     // default_params.yaml's own comment).
