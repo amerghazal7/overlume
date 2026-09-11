@@ -23,7 +23,7 @@
 // Existing srv package (spec §6 / plan Task 5) — dependency, not a copy: this
 // node re-implements the CUDA node's vcam surface under its own namespace but
 // shares the exact same service type.
-#include "overlume_rendering_node/srv/set_virtual_cam.hpp"
+#include "overlume_visualization_node/srv/set_virtual_cam.hpp"
 
 namespace overlume::visualization_app
 {
@@ -48,7 +48,7 @@ struct LookPoint
 class Vcam
 {
 public:
-    using SetVirtualCam = overlume_rendering_node::srv::SetVirtualCam;
+    using SetVirtualCam = overlume_visualization_node::srv::SetVirtualCam;
 
     /// node: owning LifecycleNode, used only to create the service/subscription
     /// against (never stored beyond that — no timer/lifecycle callbacks live
