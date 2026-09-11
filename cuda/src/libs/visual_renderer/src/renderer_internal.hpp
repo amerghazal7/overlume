@@ -262,6 +262,13 @@ public:
     Mesh grid;
     uint32_t width = 0;
     uint32_t height = 0;
+    // The quality preset (RenderConfig::quality's own 0/1/2 contract) last
+    // applied by create_renderer() or a later set_quality() (VM-040) --
+    // mirrors what Filament's View/LightManager were actually last told,
+    // read back by get_quality() (scene.h). Overwritten unconditionally by
+    // both call sites; never derived from Filament state itself (some of
+    // that state, e.g. AntiAliasing::FXAA, is shared by two presets).
+    uint32_t qualityPreset = 0;
 
     // laneMaterial is a clay.mat instance (tinted differently from
     // ground/grid) created eagerly in create_renderer() and registered in

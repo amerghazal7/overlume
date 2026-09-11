@@ -572,4 +572,32 @@ bool set_camera_frame(VisualRenderer*, uint32_t cam_idx,
 // data renders nothing"). VM-052 (Epic 4 Task 3).
 bool set_environment_source(VisualRenderer*, const char* source_uri, GeoAnchor anchor);
 
+// VM-040 (Epic 5 hardening): live quality-preset switch for the node-side
+// governor (which drops/recovers a preset off render_ms's own p95 -- see
+// that governor's own header). An APPENDED free function per ADR-0004, NOT
+// a renderer re-create -- decided (2026-09-07 plan review, P4) and RECORDED
+// here rather than in a never-authored separate "Epic 5 plan": a re-create
+// would tear down every texture/mesh/camera slot mid-run (multi-frame
+// stutter + warm-state loss), exactly what a governor reacting to load must
+// never add. Re-applies the identical RenderConfig::quality dispatch
+// create_renderer() applies at construction (SSAO enable+resolution,
+// FXAA-vs-TAA, shadow enable+map size, low-preset 960x540
+// dynamic-resolution upscale) against the ALREADY-LIVE renderer, via
+// Filament's own live View/LightManager setters. Every one of those Filament
+// options has a live setter (View::setAmbientOcclusionOptions/
+// setAntiAliasing/setTemporalAntiAliasingOptions/
+// setDynamicResolutionOptions; LightManager::setShadowCaster/
+// setShadowOptions) -- there is no knob in this preset table that is
+// genuinely create-time-only, so no limitation note is owed here.
+// `preset` above 2 is clamped to 2 (high), matching RenderConfig::quality's
+// own 0-2 contract (api.h). No-op if r is null.
+// Free-function-only addition: bumps nothing (no scene.h layout touched),
+// same convention as set_bowl_visible/set_self_view_masks above.
+void set_quality(VisualRenderer*, uint32_t preset);
+
+// Mirrors the preset last applied by create_renderer() or set_quality() --
+// 0 if r is null. Lets the node-side governor (and tests) read back what is
+// actually active instead of keeping its own shadow copy that could drift.
+uint32_t get_quality(VisualRenderer*);
+
 }  // namespace mpviz
