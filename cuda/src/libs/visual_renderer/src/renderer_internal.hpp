@@ -806,8 +806,8 @@ public:
     bool bowlVisible = false;
     // Self-view masks (VM-092, Task 3, Decision 4) -- set_self_view_masks()
     // only stores this; build_bowl() reads it at its next bake to decide
-    // whether to call bowl_mesh.cpp's ApplyEgoOcclusion(). Off by default,
-    // same reason and same param name as the CUDA node's own
+    // whether to pass a real EgoBox into bowl_mesh.cpp's BakeBowlMesh(). Off
+    // by default, same reason and same param name as the CUDA node's own
     // self_view_masks_ (rendering_node.cpp:80-85).
     bool selfViewMasksEnabled = false;
     // Bowl mesh/material (VM-091, Task 2): null until build_bowl() (bowl.cpp,

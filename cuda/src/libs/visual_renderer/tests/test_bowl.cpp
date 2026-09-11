@@ -42,6 +42,36 @@ CameraIntrinsics TightFovIntrinsics() {
     return CameraIntrinsics{5000, 5000, 320, 240, {0, 0, 0, 0, 0}};
 }
 
+// Builds a CameraExtrinsics whose R aims exactly at `to` from `from`
+// (fwd == normalize(to - from)) -- CameraAlignment is then exactly 1.0 for
+// that one point by construction, and ProjectToCameraUv lands it exactly
+// at the intrinsics' principal point, regardless of camera position. Used
+// to get an exact, non-approximated per-camera weight without hand-deriving
+// R by hand for several cameras at once.
+CameraExtrinsics LookAtCamera(mpviz::Vec3 from, mpviz::Vec3 to) {
+    auto sub = [](mpviz::Vec3 a, mpviz::Vec3 b) {
+        return mpviz::Vec3{a.x - b.x, a.y - b.y, a.z - b.z};
+    };
+    auto norm = [](mpviz::Vec3 v) {
+        const double len = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+        return mpviz::Vec3{v.x / len, v.y / len, v.z / len};
+    };
+    auto cross = [](mpviz::Vec3 a, mpviz::Vec3 b) {
+        return mpviz::Vec3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+    };
+    const mpviz::Vec3 fwd = norm(sub(to, from));
+    mpviz::Vec3 up{0, 0, 1};
+    if (std::abs(fwd.z) > 0.999) up = mpviz::Vec3{0, 1, 0};  // fwd near-vertical -- pick another up
+    const mpviz::Vec3 right = norm(cross(fwd, up));
+    const mpviz::Vec3 down = cross(fwd, right);
+    CameraExtrinsics ext{};
+    ext.R[0] = right.x; ext.R[1] = down.x; ext.R[2] = fwd.x;
+    ext.R[3] = right.y; ext.R[4] = down.y; ext.R[5] = fwd.y;
+    ext.R[6] = right.z; ext.R[7] = down.z; ext.R[8] = fwd.z;
+    ext.t[0] = from.x; ext.t[1] = from.y; ext.t[2] = from.z;
+    return ext;
+}
+
 }  // namespace
 
 // ---- Step 3: CPU-only bake -------------------------------------------
@@ -207,63 +237,222 @@ TEST(BowlMeshBake, FourCameraOverlapStillPicksAConsistentTripletPerTriangle) {
         << "no triangle found where all 4 identical cameras genuinely overlap";
 }
 
-// ---- VM-092 (Task 3) Step 1: analytic ego-occlusion, Filament-free -------
+// ---- VM-092 (Task 3) Step 1: analytic ego-occlusion, now inside the bake -
 
-TEST(Bowl, VertexOccludedByEgoBoxGetsZeroWeightForThatCamera) {
-    // Decision 4's analytic occlusion test, exercised directly against
-    // ApplyEgoOcclusion() (bowl_mesh.cpp) with hand-picked, exactly
-    // verifiable geometry rather than BakeBowlMesh()'s own tessellation --
-    // the occluded-vs-clear cases below are true by construction:
-    //   - camera 0 sits on the FAR side of the ego box from the vertex
-    //     (straight line from camera to vertex passes through the box);
-    //   - camera 1 sits well clear of the box's shadow for that SAME
-    //     vertex (the line misses the box entirely).
-    // ApplyEgoOcclusion only reads CameraExtrinsics::t (camera position) --
-    // R is irrelevant to this geometric test -- so an identity rotation is
-    // fine here even though it wouldn't be for a real projection.
-    bowl::BowlMesh mesh;
-    bowl::BowlVertex v;
-    v.position = {0.0, 3.0, 0.05};  // a bowl-surface point well outside the
-                                     // ego box's own footprint
-    v.index_a = 0;
-    v.coverage_a = 0.8f;
-    v.index_b = 1;
-    v.coverage_b = 0.6f;
-    v.index_c = 0;  // unused third slot -- mirrors index_a with 0 coverage,
-                     // same convention bowl_mesh.cpp's emit_triangle uses
-    v.coverage_c = 0.0f;
-    // A degenerate but valid "triangle": Decision 3's per-triangle-
-    // uniform-index rule trivially holds when all three vertices are
-    // copies of the same one.
-    mesh.vertices = {v, v, v};
-    mesh.indices = {0, 1, 2};
+TEST(BowlMeshBake, EgoOcclusionZeroesCoverageForTheOccludedCameraOnly) {
+    // Retargeted (review round 1 finding 2) from the pre-refactor
+    // ApplyEgoOcclusion() unit test: occlusion now runs INSIDE
+    // BakeBowlMesh's own per-vertex weight loop rather than a separate
+    // post-pass, so it's exercised here through the public bake API. A
+    // minimal (2-ring, 4-seg) mesh puts a known vertex exactly at
+    // (r=Rmax=1.0, theta=90deg) -- BowlSurfacePoint's own formula gives its
+    // z, plus the bake's 1cm cosmetic lift.
+    //   - camera 0 sits on the FAR side of the ego box from that vertex
+    //     (straight line from camera to vertex crosses the box);
+    //   - camera 1 sits well clear of the box's shadow for the SAME vertex
+    //     (the line misses the box entirely).
+    // Both cameras are aimed exactly at the vertex (LookAtCamera) so their
+    // pre-occlusion weights are both == 1.0 -- the only difference the
+    // result can be attributed to is the occlusion test itself.
+    constexpr double kR0 = 0.1, kK = 0.3, kRmax = 1.0;
+    const mpviz::Vec3 vertex{0.0, 1.0, kK * (kRmax - kR0) * (kRmax - kR0) + 0.01};
 
-    const CameraExtrinsics extrinsics[2] = {
-        {{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0.0, -3.0, 0.5}},   // camera 0 -- occluded
-        {{1, 0, 0, 0, 1, 0, 0, 0, 1}, {10.0, -3.0, 0.5}},  // camera 1 -- clear
+    const CameraExtrinsics exts[2] = {
+        LookAtCamera({0.0, -3.0, 0.5}, vertex),   // 0 -- occluded
+        LookAtCamera({10.0, -3.0, 0.5}, vertex),  // 1 -- clear
     };
+    const CameraIntrinsics in{800, 800, 320, 240, {0, 0, 0, 0, 0}};
+    const CameraIntrinsics ins[2] = {in, in};
+    const uint32_t widths[2] = {640, 640};
+    const uint32_t heights[2] = {480, 480};
+
+    bowl::BowlMeshParams params;
+    params.theta_segments = 4;
+    params.radial_rings = 1;
     const bowl::EgoBox ego_box{{0.0, 0.0, 0.5}, {0.5, 0.5, 0.5}};
 
-    bowl::ApplyEgoOcclusion(mesh, /*camera_count=*/2, extrinsics, ego_box);
+    const bowl::BowlMesh mesh =
+        bowl::BakeBowlMesh(params, kR0, kK, kRmax, 2, exts, ins, widths, heights, ego_box);
 
-    EXPECT_FLOAT_EQ(mesh.vertices[0].coverage_a, 0.0f)
-        << "camera 0's line of sight to this vertex passes through the ego box -- its "
-           "coverage must be zeroed";
-    EXPECT_FLOAT_EQ(mesh.vertices[0].coverage_b, 0.6f)
-        << "camera 1's line of sight clears the box entirely -- its weight must be untouched";
-    // Never perturbed -- Decision 3's per-triangle-uniform-index rule is a
-    // bake-time invariant this function must not touch, only coverage does.
-    EXPECT_EQ(mesh.vertices[0].index_a, 0u);
-    EXPECT_EQ(mesh.vertices[0].index_b, 1u);
+    bool checked = false;
+    for (const auto& v : mesh.vertices) {
+        if (std::abs(v.position.x - vertex.x) > 1e-6 || std::abs(v.position.y - vertex.y) > 1e-6 ||
+            std::abs(v.position.z - vertex.z) > 1e-6) {
+            continue;
+        }
+        checked = true;
+        const uint32_t idx[2] = {v.index_a, v.index_b};
+        const float cov[2] = {v.coverage_a, v.coverage_b};
+        for (int slot = 0; slot < 2; ++slot) {
+            if (idx[slot] == 0) {
+                EXPECT_FLOAT_EQ(cov[slot], 0.0f)
+                    << "camera 0's line of sight to this vertex crosses the ego box -- its "
+                       "coverage must be zeroed";
+            } else {
+                EXPECT_NEAR(cov[slot], 1.0f, 1e-4f)
+                    << "camera 1's line of sight clears the box entirely -- its weight must be "
+                       "untouched";
+            }
+        }
+    }
+    ASSERT_TRUE(checked) << "expected vertex not found in the baked mesh";
 
     // A zero-extent box (bowl.cpp's "no ego configured" convention) is a
     // documented no-op -- pin it so a future change can't silently start
     // occluding everything when no ego was ever set.
-    bowl::BowlMesh noop_mesh;
-    noop_mesh.vertices = {v};
-    bowl::ApplyEgoOcclusion(noop_mesh, 2, extrinsics, bowl::EgoBox{});
-    EXPECT_FLOAT_EQ(noop_mesh.vertices[0].coverage_a, 0.8f);
-    EXPECT_FLOAT_EQ(noop_mesh.vertices[0].coverage_b, 0.6f);
+    const bowl::BowlMesh noop_mesh =
+        bowl::BakeBowlMesh(params, kR0, kK, kRmax, 2, exts, ins, widths, heights, bowl::EgoBox{});
+    bool noop_checked = false;
+    for (const auto& v : noop_mesh.vertices) {
+        if (std::abs(v.position.x - vertex.x) > 1e-6 || std::abs(v.position.y - vertex.y) > 1e-6 ||
+            std::abs(v.position.z - vertex.z) > 1e-6) {
+            continue;
+        }
+        noop_checked = true;
+        EXPECT_NEAR(v.coverage_a, 1.0f, 1e-4f);
+        EXPECT_NEAR(v.coverage_b, 1.0f, 1e-4f);
+    }
+    ASSERT_TRUE(noop_checked);
+}
+
+TEST(BowlMeshBake, OccludedCameraNeverBurnsATopThreeSlotAVisibleCameraCouldHaveTaken) {
+    // Review round 1 finding 2: the old code ran ApplyEgoOcclusion() AFTER
+    // BakeBowlMesh's per-triangle top-3 camera selection, so a self-occluded
+    // camera still WON a slot (ranked by its pre-occlusion weight) and then
+    // had its coverage zeroed there -- burning a slot instead of ever
+    // letting a genuinely visible, lower-ranked camera take it. Folding the
+    // occlusion test into the same per-vertex loop that FEEDS the selection
+    // fixes this by construction: a zeroed-out camera can't win a slot in
+    // the first place.
+    //
+    // Four cameras all aimed exactly at the same known vertex (LookAtCamera
+    // -> weight == 1.0 each, a genuine 4-way tie). Camera 3 loses the tie
+    // (FourCameraOverlapStillPicksAConsistentTripletPerTriangle's own
+    // documented strict-`>` tie-break) UNLESS camera 0 -- occluded here --
+    // is zeroed first, in which case camera 3 must be promoted into the
+    // freed slot.
+    constexpr double kR0 = 0.1, kK = 0.3, kRmax = 1.0;
+    const mpviz::Vec3 vertex{0.0, 1.0, kK * (kRmax - kR0) * (kRmax - kR0) + 0.01};
+
+    const CameraExtrinsics exts[4] = {
+        LookAtCamera({0.0, -3.0, 0.5}, vertex),    // 0 -- occluded, would win the tie-break first
+        LookAtCamera({10.0, -3.0, 0.5}, vertex),   // 1 -- clear
+        LookAtCamera({10.0, 3.0, 0.5}, vertex),    // 2 -- clear
+        LookAtCamera({-10.0, -3.0, 0.5}, vertex),  // 3 -- clear, loses the tie-break pre-occlusion
+    };
+    const CameraIntrinsics in{800, 800, 320, 240, {0, 0, 0, 0, 0}};
+    const CameraIntrinsics ins[4] = {in, in, in, in};
+    const uint32_t widths[4] = {640, 640, 640, 640};
+    const uint32_t heights[4] = {480, 480, 480, 480};
+
+    bowl::BowlMeshParams params;
+    params.theta_segments = 4;
+    params.radial_rings = 1;
+    const bowl::EgoBox ego_box{{0.0, 0.0, 0.5}, {0.5, 0.5, 0.5}};
+
+    const bowl::BowlMesh mesh =
+        bowl::BakeBowlMesh(params, kR0, kK, kRmax, 4, exts, ins, widths, heights, ego_box);
+
+    bool checked = false;
+    for (const auto& v : mesh.vertices) {
+        if (std::abs(v.position.x - vertex.x) > 1e-6 || std::abs(v.position.y - vertex.y) > 1e-6 ||
+            std::abs(v.position.z - vertex.z) > 1e-6) {
+            continue;
+        }
+        checked = true;
+        const uint32_t idx[3] = {v.index_a, v.index_b, v.index_c};
+        const float cov[3] = {v.coverage_a, v.coverage_b, v.coverage_c};
+        for (int slot = 0; slot < 3; ++slot) {
+            EXPECT_NE(idx[slot], 0u)
+                << "camera 0 is occluded for this vertex -- it must never win a slot";
+            EXPECT_GT(cov[slot], 0.9f)
+                << "every occupied slot should be a genuinely visible, high-weight camera";
+        }
+        EXPECT_TRUE(idx[0] == 3 || idx[1] == 3 || idx[2] == 3)
+            << "camera 3 loses the tie-break pre-occlusion -- once occlusion demotes camera 0, "
+               "camera 3 must be promoted into the freed slot instead of staying excluded";
+    }
+    ASSERT_TRUE(checked) << "expected vertex not found in the baked mesh";
+}
+
+TEST(BowlMeshBake, DeployedRigWithEveryCameraInsideItsOwnEgoBoxIsNotWholesaleZeroed) {
+    // Review round 1 finding 1: every camera in the deployed 6-camera rig
+    // (default_params.yaml's camera_extrinsics) sits INSIDE the
+    // ego_fallback_dims box -- before the fix, SegmentIntersectsAabb's tmin
+    // stayed clamped at 0 whenever a segment started inside the box, so
+    // EVERY (camera, vertex) pair read as occluded and the whole bake
+    // zeroed to sky_color. A segment starting inside a convex box can never
+    // be occluded BY that box, so the fixed test returns false immediately
+    // for a camera in this configuration, and the bake below must retain
+    // real coverage.
+    const CameraExtrinsics exts[6] = {
+        {{0.9961946980917455, -0.06269459458646724, 0.06054346623323177, -0.08715574274765814,
+          -0.7166024952237391, 0.6920149856363047, 0.0, -0.6946583704589973,
+          -0.7193398003386511},
+         {0.1594, 0.90401, 1.314}},
+        {{0.0, -0.7193398003386511, 0.6946583704589973, -1.0, 0.0, 0.0, 0.0,
+          -0.6946583704589973, -0.7193398003386511},
+         {1.05472, 0.0, 0.854}},
+        {{-0.9961946980917455, -0.06269459458646724, 0.06054346623323177, -0.08715574274765814,
+          0.7166024952237391, -0.6920149856363047, 0.0, -0.6946583704589973,
+          -0.7193398003386511},
+         {0.16735, -0.94909, 1.314}},
+        {{0.9961946980917455, 0.06269459458646731, -0.06054346623323184, 0.08715574274765824,
+          -0.7166024952237391, 0.6920149856363047, 0.0, -0.6946583704589973,
+          -0.7193398003386511},
+         {-0.15922, 0.90298, 1.314}},
+        {{1.2246467991473532e-16, 0.7193398003386511, -0.6946583704589973, 1.0,
+          -8.809371839840251e-17, 8.507111498835273e-17, 0.0, -0.6946583704589973,
+          -0.7193398003386511},
+         {-1.05472, 0.0, 0.854}},
+        {{-0.9961946980917455, 0.06269459458646731, -0.06054346623323184, 0.08715574274765824,
+          0.7166024952237391, -0.6920149856363047, 0.0, -0.6946583704589973,
+          -0.7193398003386511},
+         {-0.16731, -0.94884, 1.314}},
+    };
+    const CameraIntrinsics in{800, 800, 640, 480, {0, 0, 0, 0, 0}};
+    const CameraIntrinsics ins[6] = {in, in, in, in, in, in};
+    const uint32_t widths[6] = {1280, 1280, 1280, 1280, 1280, 1280};
+    const uint32_t heights[6] = {960, 960, 960, 960, 960, 960};
+
+    bowl::BowlMeshParams params;
+    params.theta_segments = 64;
+    params.radial_rings = 24;
+    // ego_fallback_dims: [4.5, 2.0, 1.8] (default_params.yaml) -- centered on
+    // X/Y, resting on the ground plane, the same box ego_rig_frame_box()
+    // builds for the clay-box fallback (bowl.cpp).
+    const bowl::EgoBox ego_box{{0.0, 0.0, 0.9}, {2.25, 1.0, 0.9}};
+
+    // bowl_R0/bowl_k/bowl_Rmax: default_params.yaml's own deployed values.
+    auto count_covered = [](const bowl::BowlMesh& m) {
+        size_t covered = 0;
+        for (const auto& v : m.vertices) {
+            if (v.coverage_a > 0.0f || v.coverage_b > 0.0f || v.coverage_c > 0.0f) ++covered;
+        }
+        return covered;
+    };
+    // Baseline: no ego configured at all -- how much of the bowl these 6
+    // cameras cover before self-view masking enters the picture (this rig's
+    // narrow-ish assumed intrinsics don't cover the whole 40m-radius bowl,
+    // which is expected and irrelevant to what this test checks).
+    const bowl::BowlMesh baseline =
+        bowl::BakeBowlMesh(params, /*bowl_R0=*/17.0, /*bowl_k=*/0.06, /*bowl_Rmax=*/40.0, 6, exts,
+                           ins, widths, heights, bowl::EgoBox{});
+    const bowl::BowlMesh mesh =
+        bowl::BakeBowlMesh(params, /*bowl_R0=*/17.0, /*bowl_k=*/0.06, /*bowl_Rmax=*/40.0, 6, exts,
+                           ins, widths, heights, ego_box);
+    ASSERT_FALSE(mesh.vertices.empty());
+    ASSERT_GT(count_covered(baseline), 0u) << "sanity: these 6 cameras should cover something";
+
+    // Every camera sits inside the box, so self-view masking must be a
+    // complete no-op here -- before the fix, it zeroed the bake to nothing
+    // (4320/4320 sampled camera/vertex pairs occluded, review round 1
+    // finding 1's own measurement); after the fix it must match the
+    // no-ego-configured baseline exactly.
+    EXPECT_EQ(count_covered(mesh), count_covered(baseline))
+        << "every deployed camera sits inside its own ego AABB -- a camera positioned inside the "
+           "box can never be occluded by it, so enabling self-view masks on this rig must not "
+           "change coverage at all, let alone zero the bake wholesale";
 }
 
 // ---- VM-092 (Task 3) Step 0: shared Filament Scene composites -----------
@@ -369,8 +558,9 @@ TEST(Bowl, EgoMeshOccludesBowlSurfaceBehindIt) {
 
 TEST(Bowl, SelfViewMasksOffByDefaultThenEnabledSuppressesOccludedCameraViaExistingSkyColorPath) {
     // Decision 4: with self_view_masks left at its shipped default
-    // (false), ApplyEgoOcclusion never runs -- the bake behaves exactly as
-    // Task 2 left it. Force-enabling it for this test only must suppress
+    // (false), build_bowl() bakes with a zero-extent EgoBox, so the
+    // occlusion test never fires -- the bake behaves exactly as Task 2 left
+    // it. Force-enabling it for this test only must suppress
     // the occluded camera's contribution; the "falls back to sky_color,
     // not left unshaded" half of Decision 4's requirement is a STRUCTURAL
     // property of bowl.mat's existing `if (wsum > 0.0) ... else skyColor`

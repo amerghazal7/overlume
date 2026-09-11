@@ -3,10 +3,10 @@
 // bowl_mesh.hpp's CPU-only bake, and does the per-tick ego-motion-delta ->
 // effective-extrinsics composition bowl.mat's header explains.
 //
-// VM-092 (Task 3, Decision 4) extends build_bowl()'s bake step with the
-// analytic self-view occlusion test (bowl_mesh.cpp's ApplyEgoOcclusion,
-// gated on r.selfViewMasksEnabled/set_self_view_masks, off by default) --
-// see ego_rig_frame_box() below for how the ego's bounding box is read.
+// VM-092 (Task 3, Decision 4) extends build_bowl()'s bake call with the
+// analytic self-view occlusion test (bowl_mesh.cpp's BakeBowlMesh, gated on
+// r.selfViewMasksEnabled/set_self_view_masks, off by default) -- see
+// ego_rig_frame_box() below for how the ego's bounding box is read.
 // Robot-proxy compositing itself (the OTHER half of Task 3, Decision 4)
 // needed no code here at all: the ego entity (ego.cpp's set_ego_model)
 // and the bowl entity both already live in the one r.scene this file's
@@ -128,17 +128,10 @@ float3 delta_translation(const double delta[16]) {
 
 std::string cam_param(const char* prefix, uint32_t i) { return std::string(prefix) + std::to_string(i); }
 
-// VM-092 (Task 3, Decision 4): the ego's bounding box, RIG FRAME -- read
-// from whichever of set_ego_model()'s two outcomes populated r (egoAsset
-// for a loaded glTF, egoFallback for the themed clay-box degenerate case;
-// see ego.cpp), so the analytic occlusion test works whether the real
-// robot mesh or the box fallback is in play. A zero-extent box (ego never
-// configured -- neither egoAsset nor egoFallback.entity set) is
-// bowl_mesh.hpp's own "no ego configured" no-op convention. Both the ego
-// mesh and the bowl mesh are baked/loaded in the SAME rig-frame origin
-// (Decision 3's frame convention -- the per-tick ego pose transform is
-// applied identically to both, update_ego_transform/update_bowl), so no
-// frame conversion is needed here.
+// VM-092: the ego's bounding box, RIG FRAME -- from whichever of
+// set_ego_model()'s two outcomes populated r (a loaded glTF's own AABB, or
+// the clay-box fallback's dims). A zero-extent box (neither populated)
+// means no ego configured, BakeBowlMesh's own no-op convention.
 bowl::EgoBox ego_rig_frame_box(const VisualRenderer& r) {
     if (r.egoAsset != nullptr) {
         const filament::Aabb box = r.egoAsset->getBoundingBox();
@@ -152,7 +145,7 @@ bowl::EgoBox ego_rig_frame_box(const VisualRenderer& r) {
         const Vec3& d = r.egoFallbackDims;
         return {{0.0, 0.0, d.z * 0.5}, {d.x * 0.5, d.y * 0.5, d.z * 0.5}};
     }
-    return {};  // no ego configured -- zero-extent, ApplyEgoOcclusion no-ops
+    return {};  // no ego configured -- zero-extent, BakeBowlMesh no-ops
 }
 
 }  // namespace
@@ -170,19 +163,15 @@ bool build_bowl(VisualRenderer& r, const BowlConfig& cfg) {
     }
 
     bowl::BowlMeshParams params;
+    // VM-092: self-view masks, off by default (set_self_view_masks/
+    // r.selfViewMasksEnabled) -- a zero-extent EgoBox when disabled, same
+    // no-op convention BakeBowlMesh already applies when no ego is
+    // configured (ego_rig_frame_box() returns zero-extent in that case too).
+    const bowl::EgoBox ego_box = r.selfViewMasksEnabled ? ego_rig_frame_box(r) : bowl::EgoBox{};
     bowl::BowlMesh baked =
         bowl::BakeBowlMesh(params, cfg.bowl_R0, cfg.bowl_k, cfg.bowl_Rmax, cfg.camera_count,
-                           cfg.extrinsics, cfg.intrinsics, cfg.cam_width, cfg.cam_height);
+                           cfg.extrinsics, cfg.intrinsics, cfg.cam_width, cfg.cam_height, ego_box);
     if (baked.vertices.empty() || baked.indices.empty()) return false;
-    // VM-092 (Task 3, Decision 4): self-view masks, off by default
-    // (set_self_view_masks/r.selfViewMasksEnabled). A no-op call when
-    // disabled or when no ego is configured (ego_rig_frame_box() returns a
-    // zero-extent box in that case, which ApplyEgoOcclusion itself no-ops
-    // on) -- so this is safe to call unconditionally on the enabled flag
-    // alone.
-    if (r.selfViewMasksEnabled) {
-        bowl::ApplyEgoOcclusion(baked, cfg.camera_count, cfg.extrinsics, ego_rig_frame_box(r));
-    }
     if (baked.vertices.size() > 65535) {
         // ponytail: uint16 index buffer ceiling, same class of limit
         // point_cloud.cpp's chunk-split already works around elsewhere in

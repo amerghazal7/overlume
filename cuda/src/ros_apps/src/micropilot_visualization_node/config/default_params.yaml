@@ -218,8 +218,8 @@
     - -0.94884
     - 1.314
     # VM-092 (unified-engine migration Task 3): self-view masks (the
-    # analytic ego-occlusion test on the bowl bake, bowl_mesh.cpp's
-    # ApplyEgoOcclusion). Keeps the CUDA node's exact param name and exact
+    # analytic ego-occlusion test folded into bowl_mesh.cpp's BakeBowlMesh).
+    # Keeps the CUDA node's exact param name and exact
     # default -- rendering_node.cpp:85 declares self_view_masks_ default
     # false, and its comment at :80-84 is the reason it stays off here too
     # (Decision 4): correct masks require the rig origin to be exactly the
