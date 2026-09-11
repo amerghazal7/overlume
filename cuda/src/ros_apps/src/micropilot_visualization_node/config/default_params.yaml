@@ -262,8 +262,9 @@
     # calib-ego/top-lidar frame and needs the same +z ground offset the
     # camera extrinsics bake in. Identity here would place this node's
     # colorized cloud 1.15 m away from the CUDA node's own on the SAME bag.
-    # m2o1_params.yaml does not override this key -- it is not an
-    # m2o1-only concern, it is the shipped default for every deployment.
+    # m2o1_params.yaml (the deployed robot config, :36-48) carries this SAME
+    # t=(0,0,1.15) -- not an m2o1-only override, this is the universal
+    # deployed value across every config source, which is the actual point.
     pointcloud_transform:
     - 1.0
     - 0.0

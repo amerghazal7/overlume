@@ -1371,6 +1371,29 @@ void VisualizationNode::timer_callback()
     // two strips are concentric instead of ~1m-offset crisscrossing edges.
     micropilot::visualization_app::respine_velocity_ribbon_onto_local_path(scene_asm_);
 
+    // Task 4 (VM-093), USER DIRECTIVE 2026-09-11 (mode content exclusivity):
+    // AND the per-mode content mask over the user's own layer_* params --
+    // never overwriting layer_objects_ etc. themselves, so switching back to
+    // FREE_LOOK restores exactly what the user had (compose_layer_gates()
+    // reads `user`, returns a new value, mutates nothing).
+    // VM-094 review round 2 finding 1: hoisted to run BEFORE the hybrid
+    // block below (it used to run after, at the tail of this function) --
+    // that let the user's own layer_point_clouds_ param clear HYBRID's (and
+    // Surround-Stitching-hybrid's) colorized-lidar row right back out after
+    // it was pushed, silently reproducing bowl-only rendering under the
+    // follow-up directive's own parity-golden procedure (c), which disables
+    // every layer except Surround Stitching before a capture. Applying the
+    // gate here, before that content exists, and never re-applying it later
+    // this tick, makes the hybrid row immune to the autonomy layer_* gate by
+    // construction -- it is CUDA-parity content, not an autonomy layer the
+    // user's layer_* params are meant to toggle.
+    const LayerFlags user_layer_flags{layer_objects_,       layer_paths_,
+                                       layer_map_elements_,  layer_grids_,
+                                       layer_alerts_,        layer_markers_,
+                                       layer_point_clouds_,  layer_trajectory_carpet_};
+    apply_layer_gates(scene_asm_,
+                       compose_layer_gates(user_layer_flags, mode_content_mask(render_mode)));
+
     // ── Hybrid lidar colorization (VM-094, unified-engine migration Task 5) ──
     // USER DIRECTIVE 2026-09-11 (mode content exclusivity): HYBRID renders
     // bowl + camera-colorized lidar + ego ONLY -- this is that content, now
@@ -1385,11 +1408,19 @@ void VisualizationNode::timer_callback()
     // HYBRID-only, so `surround_stitching_profile:=hybrid` silently
     // rendered bowl-only in FREE_LOOK). The two cases differ in how the
     // colorized cloud reaches scene_asm_.point_clouds: HYBRID still
-    // clear-and-replaces the category outright (mode_content_mask(HYBRID)
-    // has already zeroed it, so there's nothing else in it); FREE_LOOK
-    // APPENDS instead, because mode 3's own PointCloudAdapter rows (VM-035,
-    // the loop above) must survive here -- the clear-and-replace discipline
-    // is HYBRID-only by design, not a general rule.
+    // clear-and-replaces the category outright (VM-094 review round 2
+    // finding 4: mode_content_mask(HYBRID) does NOT clear this category --
+    // point_clouds is the one category its mask keeps visible, precisely so
+    // this content isn't hidden -- so this clear is what actually enforces
+    // exclusivity, not a belt-and-braces no-op; without it, any autonomy
+    // point_cloud row the gate call above left untouched would survive
+    // alongside the colorized cloud); FREE_LOOK APPENDS instead, because
+    // mode 3's own PointCloudAdapter rows (VM-035, the loop above) must
+    // survive here -- the clear-and-replace discipline is HYBRID-only by
+    // design, not a general rule. Either way, this happens strictly AFTER
+    // the gate call above and nothing re-applies that gate later this tick,
+    // so the row pushed below is immune to layer_point_clouds_ regardless of
+    // which branch runs.
     // hybrid_enabled_ false (shipped default) or camera_ingest_ null (bowl
     // disabled) means this block does nothing, and scene_asm_.point_clouds
     // keeps whatever mode 3's own PointCloudAdapter rows already appended.
@@ -1476,10 +1507,16 @@ void VisualizationNode::timer_callback()
             hybrid_points.clear();
         }
 
-        // HYBRID: clear-and-replace (mode_content_mask(HYBRID) already
-        // zeroed this category, so there's nothing else in it anyway).
-        // FREE_LOOK+Surround-Stitching-hybrid: APPEND -- mode 3's own
-        // PointCloudAdapter rows must survive alongside the colorized cloud.
+        // HYBRID: clear-and-replace -- mode_content_mask(HYBRID) does NOT
+        // clear this category (point_clouds is the one it keeps visible),
+        // so without this explicit clear any autonomy point_cloud row the
+        // gate call above left standing would survive into mode 2 alongside
+        // the colorized cloud, a content-exclusivity violation. This clear
+        // runs AFTER that gate call and nothing re-applies the gate later
+        // this tick, so it is load-bearing, not belt-and-braces.
+        // FREE_LOOK+Surround-Stitching-hybrid: APPEND instead -- mode 3's
+        // own PointCloudAdapter rows must survive alongside the colorized
+        // cloud there.
         if (render_mode == RenderMode::HYBRID) scene_asm_.point_clouds.clear();
         if (!hybrid_points.empty())
         {
@@ -1490,18 +1527,6 @@ void VisualizationNode::timer_callback()
             scene_asm_.point_clouds.push_back(row);
         }
     }
-
-    // Task 4 (VM-093), USER DIRECTIVE 2026-09-11 (mode content exclusivity):
-    // AND the per-mode content mask over the user's own layer_* params --
-    // never overwriting layer_objects_ etc. themselves, so switching back to
-    // FREE_LOOK restores exactly what the user had (compose_layer_gates()
-    // reads `user`, returns a new value, mutates nothing).
-    const LayerFlags user_layer_flags{layer_objects_,       layer_paths_,
-                                       layer_map_elements_,  layer_grids_,
-                                       layer_alerts_,        layer_markers_,
-                                       layer_point_clouds_,  layer_trajectory_carpet_};
-    apply_layer_gates(scene_asm_,
-                       compose_layer_gates(user_layer_flags, mode_content_mask(render_mode)));
 
     scene_asm_.point_at(scene);
     mpviz::set_scene(renderer_, scene);

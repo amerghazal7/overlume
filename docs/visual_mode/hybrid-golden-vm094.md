@@ -67,19 +67,39 @@ Steady state at this frame: **~93k of ~155k input points colorized per tick
 (`lidar_colorize.cpp`'s Decision 5 first-match-or-drop rule: a point no
 configured camera's frustum covers this tick is simply omitted).
 
-So ~93k real colored points ARE pushed into the scene every tick, but they
-sit ON the bowl surface carrying the SAME camera pixels the bowl mesh is
-already textured with at that surface point — camera-colorized lidar
-painted back onto the photograph it was sampled from is close to invisible,
-unlike the CUDA reference's splats, which visibly reveal 3D structure (the
-blocky overturned car silhouette) because the CUDA renderer does not also
-texture that same surface with the matching camera image underneath. This
-is the thing the human-sanity reviewer must actually judge here: not "do you
-see speckle" (present either way) but "does the merged node's hybrid content
-add any visible 3D structure over its own bowl-only capture" — on this frame,
-at this transform/exposure, it does not, by design of first-match
-same-surface colorization (Decision 5's fidelity regression is INVISIBILITY
-here, not a seam artifact).
+So ~93k real colored points ARE pushed into the scene every tick, but on
+this frame they sit ON the bowl surface. **Review round 2 correction:** the
+previous version of this section claimed the CUDA reference frame has no
+bowl underneath its splats — false, and contradicted by this doc's own
+header above: the reference capture is `micropilot_rendering_node
+initial_mode:=2`, i.e. CUDA mode 2, which is bowl + colorized lidar, same as
+the merged node. Both frames are bowl-textured underneath.
+
+The real mechanism is on-surface vs. off-surface: a lidar point that lands
+ON the bowl surface (the ground, in this frame — the intersection is empty
+of near-field 3-D structure) projects to essentially the SAME screen
+position and SAME camera pixel the bowl fragment shader already shows
+there, in both renderers — camera-colorized lidar painted back onto the
+photograph it was sampled from reads as close to invisible regardless of
+which renderer does it. A lidar point on real 3-D structure ABOVE the bowl
+floor (a vehicle, a pedestrian, anything inside `Rmax` that isn't ground)
+would project to a DIFFERENT screen position than the bowl surface's own
+smear of that same geometry, and the splat would be visible there in either
+renderer. **This frame contains no such object** — the previous version's
+"blocky overturned car silhouette" is retracted: no such object is
+identifiable in the committed reference PNG, and the claim should not have
+been made.
+
+This is the thing the human-sanity reviewer must actually judge, stated
+honestly: this frame cannot demonstrate whether hybrid content adds visible
+3D structure, because it contains no near-field 3-D object to demonstrate
+it on — both renderers show near-invisible on-surface colorization here, by
+construction, not by a property specific to this node. Human sign-off on
+the ON-surface/OFF-surface distinction itself should be taken on a
+re-captured frame containing a near-field object inside `Rmax` (a vehicle or
+pedestrian in the intersection), where the two renderers' splats would
+diverge from the bowl's own texture in a visually checkable way. That
+re-capture has not been done as part of this fix.
 
 ## Perf gate (Task 5 Step 4, `hybrid_perf_gate.sh`)
 
