@@ -102,15 +102,20 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     quality_governor_ = std::make_unique<mpviz_node::QualityGovernor>(
         governor_params, static_cast<uint32_t>(quality_));
 
-    // Both nodes default to the same mode so exactly one publisher is active
-    // from the first frame (spec §3.1 "race handling").
+    // Post-cutover (VM-095): the two-process race-handling this parameter
+    // used to serve (spec §3.1, "both nodes default to the same mode so
+    // exactly one publisher is active from the first frame") no longer
+    // applies -- there is only one process. Kept as the launch-arg seed for
+    // this node's own render_mode_ (below): a bare `-p initial_mode:=1`
+    // still selects bowl at startup, same CLI shape every existing
+    // launch/test invocation already uses, now driving the single mode
+    // variable directly instead of a since-removed mux-arbitration one.
     initial_mode_ = declare_parameter<int>("initial_mode", 1);
     if (initial_mode_ < 1 || initial_mode_ > 3)
     {
         RCLCPP_ERROR(get_logger(), "initial_mode must be 1, 2, or 3, got %d", initial_mode_);
         return CallbackReturn::FAILURE;
     }
-    active_mode_ = initial_mode_;
 
     // [eye xyz | target xyz], matches mpviz::CameraPose's own layout.
     auto vp = declare_parameter<std::vector<double>>(
@@ -319,11 +324,18 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // timer_callback() below.
     layer_trajectory_carpet_ = declare_parameter<bool>("layer_trajectory_carpet", true);
 
-    // Local render-mode switch (Task 4 / VM-093) -- full contract at the
+    // Local render-mode switch (Task 4 / VM-093; the ONLY mode-selection
+    // mechanism post-cutover, Task 6/VM-095) -- full contract at the
     // render_mode_ field comment, visualization_node.hpp. Declare-time
     // out-of-range WARNs and clamps to FREE_LOOK; the live on_params() path
     // below rejects instead (a bad request, not a value to silently coerce).
-    render_mode_ = declare_parameter<int>("render_mode", kRenderModeFreeLook);
+    // Default is `initial_mode_` (already validated above), not a bare
+    // literal -- a launch that only passes `-p initial_mode:=1` still
+    // starts in BOWL; one that also passes `-p render_mode:=X` has that
+    // value win (declare_parameter's 2nd arg is only the fallback when no
+    // override was given), and `/rendering/set_mode` (below) drives this
+    // same variable live thereafter.
+    render_mode_ = declare_parameter<int>("render_mode", initial_mode_);
     if (render_mode_ < kRenderModeBowl || render_mode_ > kRenderModeFreeLook)
     {
         RCLCPP_WARN(get_logger(), "render_mode must be 1 (bowl), 2 (hybrid) or 3 (free_look), "
@@ -913,8 +925,10 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
         { tf_adapter_->set_robot_speed_mps(msg->data); });
 
     // ── publishers (created here, activated in on_activate) ─────────────────
-    // Same global topic names as rendering_node — exactly one node publishes
-    // at a time (mode mux, spec §3.1); consumers never re-subscribe.
+    // Same global topic names the now-decommissioned micropilot_rendering_node
+    // used to publish (ADR-0002) -- kept unchanged post-cutover (ADR-0006) so
+    // consumers never re-subscribe; this is now the ONLY publisher, not one
+    // of two arbitrated by a mux.
     pub_image_ = create_publisher<sensor_msgs::msg::Image>("/rendering/image", 1);
     pub_info_ = create_publisher<sensor_msgs::msg::CameraInfo>("/rendering/camera_info", 1);
     pub_vcam_state_ = create_publisher<std_msgs::msg::Float64MultiArray>("~/vcam_state", 1);
@@ -928,14 +942,20 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // not leave a live vcam control surface advertised.
     vcam_ = std::make_unique<Vcam>(this, pose_);
 
-    // ── mode mux subscription (global, not "~/...") ──────────────────────────
-    // transient_local + reliable, depth 1 (Step (a), VM-037): a restarted or
-    // late-joining subscriber on the default VOLATILE QoS never receives the
-    // last-published mode, so it silently stays wherever initial_mode left it
-    // instead of rejoining the live mux state. Every publisher of this topic
-    // (rendering_node's own subscription/legacy-republish, and any external
-    // tooling) must match this durability or QoS negotiation simply drops
-    // the connection.
+    // ── render-mode subscription (global, not "~/...") ───────────────────────
+    // Post-cutover (Task 6/VM-095 Step 2): a normal single-subscriber topic,
+    // no mux semantics -- this is the ONLY thing that selects render_mode_
+    // at runtime, direct assignment, no arbitration in between. Topic name/
+    // type/QoS are UNCHANGED from the mux era so every existing external
+    // publisher (the WS bridge, GUI, operator tooling) keeps working with no
+    // edit of its own: transient_local + reliable, depth 1 (VM-037 Step
+    // (a)) -- a restarted node is itself a late-joiner against the bridge's
+    // durable publisher, and that durability is what resumes the operator's
+    // last-published mode after a crash/lifecycle restart instead of
+    // falling back to initial_mode/render_mode's own declare-time default
+    // (the behavior micropilot_rendering_node/test/smoke_test.py's
+    // test_restart_rejoins_live_mode hardened, now this node's alone to
+    // keep).
     set_mode_sub_ = create_subscription<std_msgs::msg::Int32>(
         "/rendering/set_mode", rclcpp::QoS(1).transient_local().reliable(),
         [this](const std_msgs::msg::Int32::SharedPtr msg)
@@ -945,8 +965,8 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
                 RCLCPP_WARN(get_logger(), "set_mode: expected 1|2|3, got %d", msg->data);
                 return;
             }
-            active_mode_ = msg->data;
-            RCLCPP_INFO(get_logger(), "visualization_node: mode -> %d", active_mode_);
+            render_mode_ = msg->data;
+            RCLCPP_INFO(get_logger(), "visualization_node: render_mode -> %d", render_mode_);
         });
 
     // ── theme control ─────────────────────────────────────────────────────────
@@ -1245,15 +1265,19 @@ void VisualizationNode::timer_callback()
     pose_ = vcam_->pose();
 
     // [eye xyz | target xyz | active_preset | render_mode | mux_mode] (9
-    // elements -- Step (d), VM-037 appended mux_mode at index 8; Task 4/
-    // VM-093 gave this node its own render_mode_, so index 7 is that now,
-    // not a duplicate of active_mode_ -- see the hpp field comment).
+    // elements -- Step (d), VM-037 appended mux_mode at index 8). Index 8
+    // is a PERMANENT MIRROR of index 7 post-cutover (Decision 8, Task 6/
+    // VM-095): there is no second process's mode to distinguish it from
+    // any more, but the wire shape stays 9 elements -- every consumer
+    // (vcam_ws_bridge.py, test_vcam_contract.py, test_ego_anchored_vcam.py)
+    // only asserts `len(vcam_state) >= 9`, so shrinking the format would
+    // cost more than it saves.
     std_msgs::msg::Float64MultiArray state;
     state.data = {pose_.eye[0],    pose_.eye[1],    pose_.eye[2],
                   pose_.target[0], pose_.target[1], pose_.target[2],
                   static_cast<double>(vcam_->active_preset()),
                   static_cast<double>(render_mode_),
-                  static_cast<double>(active_mode_)};
+                  static_cast<double>(render_mode_)};
     pub_vcam_state_->publish(state);
 
     // Runs every tick regardless of mode, before the mode gate below. Without
@@ -1351,8 +1375,8 @@ void VisualizationNode::timer_callback()
     }
 
     // ── Bowl visibility dispatch (Task 4 / VM-093) ────────────────────────────
-    // Runs every tick regardless of bowl_enabled_/active_mode_ (same "warm
-    // state, cheap flag flip" philosophy as the bowl block above) --
+    // Runs every tick regardless of bowl_enabled_ (same "warm state, cheap
+    // flag flip" philosophy as the bowl block above) --
     // set_bowl_visible() itself no-ops when the bowl was never configured
     // (cameraCount==0, scene.h's own contract), so this is safe even with
     // bowl_enabled_ false. Predicate lives in scene_assembly.hpp/.cpp
@@ -1507,8 +1531,9 @@ void VisualizationNode::timer_callback()
     scene.ego = tf_adapter_->update();
     // speed_mps/active_mode only -- chips/chip_count stay zero-init (Task 4
     // / VM-031 scope). See hud_overlay.hpp's own comment for why this is a
-    // free function, not the two lines inlined here.
-    mpviz_node::PopulateHud(scene, active_mode_);
+    // free function, not the two lines inlined here. Post-cutover, this
+    // node's render_mode_ IS the active mode (no separate mux value).
+    mpviz_node::PopulateHud(scene, render_mode_);
 
     // Epic 3 Task 5 (VM-032) Step 0: layer visibility is a NODE-SIDE gate,
     // not a renderer API -- clearing a category's vector right before
@@ -1687,17 +1712,13 @@ void VisualizationNode::timer_callback()
                       static_cast<double>(scene.ego.valid)};
     pub_ego_state_->publish(ego_state);
 
-    // Render/readback/publish only while this node is the active mux output
-    // (spec §3.1) — costs ~zero GPU otherwise. Diagnostics still publish every
-    // tick regardless. render_ms_ is explicitly zeroed here, not left at
-    // whatever the last mode-3 tick measured, so a diagnostics consumer never
-    // mistakes a stale number for a live one.
-    if (active_mode_ != 3)
-    {
-        render_ms_ = 0.0;
-        publish_diagnostics();
-        return;
-    }
+    // Post-cutover (Task 6/VM-095 Step 3): the mux-arbitration early return
+    // that used to gate render/readback/publish on `active_mode_ != 3` --
+    // i.e. only actually rendering while this node was the mux-selected
+    // free-look renderer, deferring modes 1/2 to micropilot_rendering_node
+    // (Decision 7) -- is DELETED. This node now renders and publishes every
+    // tick regardless of render_mode_; it is the sole rendering authority
+    // for all three modes, not one of two arbitrated by a mux.
 
     // Composed HERE ONLY, right before handing the pose to the renderer --
     // pose_ itself is never touched, so orbits/presets keep adjusting the
@@ -1713,7 +1734,7 @@ void VisualizationNode::timer_callback()
     mpviz::FrameView view{frame_buf_.data(), static_cast<uint32_t>(out_width_),
                           static_cast<uint32_t>(out_height_)};
     // render_ms_ instrumentation wraps render_frame() without changing the
-    // call; measured only in this branch (active_mode_==3).
+    // call; measured every tick now (post-cutover, this branch always runs).
     const auto render_start = std::chrono::steady_clock::now();
     if (!mpviz::render_frame(renderer_, render_pose, view))
     {
