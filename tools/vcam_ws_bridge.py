@@ -245,7 +245,7 @@ def main() -> int:
     # below is still namespaced under /visualization_node (VCAM_NAMESPACES)
     # -- only the TYPE's import path is unaffected by which node currently
     # advertises it.
-    from micropilot_rendering_node.srv import SetVirtualCam
+    from micropilot_visualization_node.srv import SetVirtualCam
     import websockets
 
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])

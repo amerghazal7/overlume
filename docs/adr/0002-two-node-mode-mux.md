@@ -1,6 +1,9 @@
 # ADR-0002: Visual mode is a separate lifecycle node muxed on one stream
 
-**Status:** Accepted (2026-08-18, recorded 2026-09-07)
+**Status:** Superseded by ADR-0006 (2026-09-11 — unified-engine migration
+Task 6 / VM-095 cutover). Kept, not deleted, per this repo's own ADR
+convention (ADR-0004's own header does the same for the language it
+replaced) — the mux this ADR describes is what the cutover commit deletes.
 **Re-argued in:** spec §3.1; master plan Epic 0 Tasks 3–5; WS bridge fix-ups.
 
 ## Context

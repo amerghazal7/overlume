@@ -235,10 +235,9 @@ def test_bridge_e2e_mode3_orbit_and_frames():
     import websockets
 
     port = 18765  # fixed test port; distinct from the default 8765
-    rendering_cmd = (
-        f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
-        f"ros2 run micropilot_rendering_node rendering_node --ros-args "
-        f"-p out_width:={E2E_OUT_W} -p out_height:={E2E_OUT_H} -p initial_mode:=1")
+    # Post-cutover (VM-095): the merged node is the ONLY rendering process --
+    # it serves every mode via its local render_mode dispatch, and
+    # /rendering/set_mode assigns render_mode directly (Step 2).
     viz_cmd = (
         f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
         f"ros2 run micropilot_visualization_node visualization_node --ros-args "
@@ -247,7 +246,6 @@ def test_bridge_e2e_mode3_orbit_and_frames():
         f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
         f"python3 {BRIDGE_SCRIPT} --port {port}")
 
-    rendering_proc = _popen(rendering_cmd)
     viz_proc = _popen(viz_cmd)
 
     rclpy.init()
@@ -264,12 +262,9 @@ def test_bridge_e2e_mode3_orbit_and_frames():
     counter = FrameCounter()
     bridge_proc = None
     try:
-        for proc, name in ((rendering_proc, "rendering_node"), (viz_proc, "visualization_node")):
-            assert _wait_running(proc), (
-                f"{name} exited early:\n"
-                f"{proc.stderr.read().decode(errors='replace')[-2000:]}")
-        assert _lifecycle("/rendering_node", "configure")
-        assert _lifecycle("/rendering_node", "activate")
+        assert _wait_running(viz_proc), (
+            f"visualization_node exited early:\n"
+            f"{viz_proc.stderr.read().decode(errors='replace')[-2000:]}")
         assert _lifecycle("/visualization_node", "configure")
         assert _lifecycle("/visualization_node", "activate")
 
@@ -304,44 +299,25 @@ def test_bridge_e2e_mode3_orbit_and_frames():
                 return frames
 
             try:
-                # rendering_node's own frame-sync gate needs real per-camera
-                # images before it ever renders (not this test's concern —
-                # covered by rendering_node's own smoke test); this test only
-                # needs both nodes ALIVE so the mux + WS fan-out are real.
-
                 # --- Regression: default config (no set_render_mode sent
-                # yet) must still emit state, sourced from rendering_node
-                # (the only node an un-configured client can mean) — bug: a
-                # stale `_last_mode` filter initialized to 1 rejected this
-                # forever. render_mode expected here is 1 (bowl), not
-                # rendering_node's raw hardcoded member default (2): this
-                # node is launched with initial_mode:=1 (below), and VM-037
-                # Step (c) fixed on_configure() to also sync render_mode_
-                # from initial_mode_ (it previously only set active_mode_,
-                # so render_mode_ silently stayed at its hardcoded default
-                # regardless of initial_mode). ---
+                # yet) must still emit state from the sole node (bug: a stale
+                # `_last_mode` filter initialized to 1 rejected this forever).
+                # render_mode expected: 1 (this launch's initial_mode). ---
                 default_states = await collect_states(3.0)
                 assert default_states, (
                     "no vcam_state telemetry in the default configuration "
                     "(before any set_render_mode) — regression of shipped "
                     "GUI behavior")
                 assert all(s["render_mode"] == 1 for s in default_states), (
-                    f"default-config state should read rendering_node's "
-                    f"render_mode synced from initial_mode:=1 (1, bowl): {default_states}")
+                    f"default-config state should read render_mode synced "
+                    f"from initial_mode:=1 (1, bowl): {default_states}")
 
-                # --- Regression: modes 1/2 must show ONLY rendering_node's
-                # pose, never flicker with visualization_node's (different)
-                # default pose — bug: filtering on vcam_state[7] passed both
-                # nodes' messages through in modes 1/2 since rendering_node
-                # reports render_mode_ and visualization_node reports
-                # active_mode_, which read the same (1) while both are
-                # configured with initial_mode:=1. ---
-                # Drive to 2 first so the mode-1 command right below is a
-                # REAL value change: broadcast_state() only emits a WS frame
-                # on change, and (post-VM-037 Step (c)) rendering_node already
-                # starts at render_mode 1 with initial_mode:=1 (this test's
-                # own launch args), so sending mode 1 again with no
-                # intervening change would otherwise be a silent no-op here.
+                # --- Single-process pose stability: mode switches must not
+                # oscillate the reported pose (the two-node flicker this
+                # once guarded is gone with the mux; a stable pose per mode
+                # is still the contract). Drive to 2 first so the mode-1
+                # command below is a REAL value change (broadcast_state()
+                # emits only on change). ---
                 await ws.send(json.dumps({"cmd": "set_render_mode", "mode": 2}))
                 await collect_states(0.5)
                 await ws.send(json.dumps({"cmd": "set_render_mode", "mode": 1}))
@@ -375,7 +351,7 @@ def test_bridge_e2e_mode3_orbit_and_frames():
                     f"frames did not keep flowing after set_render_mode 3: "
                     f"{len(counter.frames)} in 3s")
                 assert all(fid == "visualization_virtual_cam" for _, fid in counter.frames), (
-                    "expected only visualization_node frames while mode == 3")
+                    "unexpected frame_id from the sole rendering process")
                 assert mode3_state is not None, "no {'type':'state'} frame observed"
                 assert mode3_state["render_mode"] == 3, (
                     f"vcam_state.mode != 3: {mode3_state}")
@@ -388,7 +364,6 @@ def test_bridge_e2e_mode3_orbit_and_frames():
         rclpy.shutdown()
         if bridge_proc is not None:
             _kill(bridge_proc)
-        _kill(rendering_proc)
         _kill(viz_proc)
 
 

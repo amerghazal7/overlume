@@ -22,9 +22,11 @@
        may spuriously succeed without it. -->
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
-  <!-- SetVirtualCam.srv (plan Task 5 / spec §6) — existing srv package,
-       a dependency not a copy. -->
-  <depend>micropilot_rendering_node</depend>
+  <!-- SetVirtualCam.srv (VM-095 cutover Step 4): owned by THIS package since
+       the old node's retirement — rosidl generation plumbing below. -->
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
 
   <!-- Epic 2 Task 1 (VM-020): profile YAML loader + the message types every
        profile row's `type:` and every later adapter need. Every

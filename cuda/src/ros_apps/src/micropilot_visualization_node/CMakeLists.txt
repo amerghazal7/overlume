@@ -12,11 +12,14 @@ find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
-# SetVirtualCam.srv (plan Task 5 / spec §6) — existing srv package, a
-# dependency not a copy; micropilot_rendering_node is a
-# rosidl_interface_packages member so find_package resolves its generated
-# C++ headers (micropilot_rendering_node/srv/set_virtual_cam.hpp).
-find_package(micropilot_rendering_node REQUIRED)
+# SetVirtualCam.srv (VM-095 cutover Step 4): OWNED here since the old node's
+# retirement — this package generates its own interface (the type's
+# fully-qualified name changed with the move; every consumer repointed in
+# the same step).
+find_package(rosidl_default_generators REQUIRED)
+rosidl_generate_interfaces(${PROJECT_NAME}
+  srv/SetVirtualCam.srv)
+ament_export_dependencies(rosidl_default_runtime)
 # Epic 2 Task 1 (VM-020): profile loader (yaml_cpp_vendor -- NOT
 # find_package(yaml-cpp) directly, see the long comment on _yamlcpp_a below
 # for why that distinction matters) + the message types the profile's
@@ -45,7 +48,6 @@ set(THIS_PACKAGE_DEPS
   geometry_msgs
   tf2
   tf2_ros
-  micropilot_rendering_node
   yaml_cpp_vendor
   visualization_msgs
   nav_msgs
@@ -264,6 +266,10 @@ target_include_directories(visualization_node_lib PRIVATE "${VISUAL_RENDERER_DIR
 
 ament_target_dependencies(visualization_node_lib ${THIS_PACKAGE_DEPS})
 target_link_libraries(visualization_node_lib visual_renderer_prebuilt)
+# Own generated SetVirtualCam typesupport (VM-095 Step 4) -- the rosidl
+# recommended pattern for using a package's own interfaces from its libs.
+rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
+target_link_libraries(visualization_node_lib "${cpp_typesupport_target}")
 
 # ── Executable ───────────────────────────────────────────────────────────────
 add_executable(visualization_node src/main.cpp)

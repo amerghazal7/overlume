@@ -127,8 +127,10 @@
     # and bowl_R0/k/Rmax/feather_margin/sky_color below are ported verbatim
     # from micropilot_rendering_node's own default_params.yaml (the CARLA-sim
     # config -- same six real camera topics this epic's own fixture bag,
-    # stack_v2_full_sensors_2026-09-09, publishes), not reinvented.
-    bowl_enabled: false
+    # stack_v3_full_sensors_2026-09-11, publishes), not reinvented.
+    # true since the VM-095 cutover (Step 6): modes 1/2 are live by default
+    # in the one surviving node.
+    bowl_enabled: true
     n_cameras: 6
     image_topics:
     - /fl_camera/raw_images
@@ -271,9 +273,10 @@
     # bowl_enabled true too -- the camera rig geometry and last-ingested RGB
     # buffers it colorizes from come from the SAME camera_ingest_ the bowl
     # uses (Task 2), not a second ingest path.
-    hybrid_enabled: false
+    # true since the VM-095 cutover (Step 6), same as bowl_enabled.
+    hybrid_enabled: true
     # "" disables (bowl-only, no lidar subscription) -- this epic's fixture
-    # bag's own lidar topic is /iv_points_fusion (stack_v2_full_sensors_2026-09-09).
+    # bag's own lidar topic is /iv_points_fusion (stack_v3_full_sensors_2026-09-11).
     pointcloud_topic: ""
     # [R(9 row-major)|t(3)] cloud-frame -> rig-frame -- same param name and
     # convention as micropilot_rendering_node's own pointcloud_transform.
