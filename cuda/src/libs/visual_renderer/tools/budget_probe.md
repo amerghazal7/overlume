@@ -241,12 +241,18 @@ not rendering) and its own 30.4 Hz internal tick rate (diagnostics sample
 count 425/14s) are both healthy — Task 4's own dispatch code adds no
 measurable regression.
 
-**Known measurement gap, named rather than silently accepted:** the CONTROL
-row's old-node CPU% reads 0 — a `pgrep` timing artifact in the throwaway
-control script (the sampled pid window landed before/after the actual
-`ros2 run`-wrapped process settled), not a real reading; the co-residence
-row's 112.5% (over one core, plausible for a multi-threaded CUDA pipeline)
-is the trustworthy CPU figure here. Re-run with a more robust pid-capture
-retry loop if the old node's alone-case CPU% is ever needed precisely — not
-blocking this gate's own pass/fail line, which turns on `image_hz`/GPU SM %,
-not old-node CPU.
+**Known measurement gap, named rather than silently accepted -- FIXED, 2026-09-11
+review round 1:** the CONTROL row's old-node CPU% originally read 0 — a
+`pgrep` timing artifact (the sampled pid window landed before/after the
+actual `ros2 run`-wrapped process settled), not a real reading, from a
+throwaway one-off control script that has since been folded into
+`tools/mode_consolidation_perf_gate.sh` itself as its `run_rnode_alone()`
+case (`CASE=rnode_alone`, or `CASE=both` to run co-residence then the
+control in one invocation) with a `wait_pid()` retry loop that polls until
+`pgrep` finds the pid AND `top` returns a real (non-empty) sample for it,
+instead of a fixed `sleep` before one `pgrep` call. The co-residence row's
+112.5% (over one core, plausible for a multi-threaded CUDA pipeline) was
+already the trustworthy CPU figure; the control row's CPU% is now
+re-runnable and auditable from the checked-in script rather than a one-off
+that produced the 0 artifact above. Not blocking this gate's own pass/fail
+line, which turns on `image_hz`/GPU SM %, not old-node CPU.

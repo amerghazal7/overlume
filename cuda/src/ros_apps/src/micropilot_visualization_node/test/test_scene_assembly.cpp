@@ -264,6 +264,45 @@ TEST(SceneAssembly, ComposeLayerGatesHybridLeavesUsersPointCloudsChoiceUnion)
     EXPECT_FALSE(effective.point_clouds);
 }
 
+// ── Bowl visibility / overlay-suppression dispatch (review round 1, 2026-09-11) ──
+// Pulled out of visualization_node.cpp's timer_callback() so the actual
+// dispatch predicates -- not just the LayerFlags mask above -- are directly
+// unit-tested. Before this, nothing failed if `bowl_visible_for_mode()`'s
+// predicate were inverted or deleted (test_mode_dispatch.py only checks
+// param accept/reject; smoke_test.py only checks frame SHAPE).
+
+using micropilot::visualization_app::bowl_visible_for_mode;
+using micropilot::visualization_app::overlays_visible_for_mode;
+
+TEST(SceneAssembly, BowlVisibleForBowlMode)
+{
+    EXPECT_TRUE(bowl_visible_for_mode(RenderMode::BOWL, /*surround_stitching=*/false));
+    EXPECT_TRUE(bowl_visible_for_mode(RenderMode::BOWL, /*surround_stitching=*/true));
+}
+
+TEST(SceneAssembly, BowlVisibleForHybridMode)
+{
+    EXPECT_TRUE(bowl_visible_for_mode(RenderMode::HYBRID, /*surround_stitching=*/false));
+    EXPECT_TRUE(bowl_visible_for_mode(RenderMode::HYBRID, /*surround_stitching=*/true));
+}
+
+TEST(SceneAssembly, BowlHiddenInFreeLookWithSurroundStitchingOff)
+{
+    EXPECT_FALSE(bowl_visible_for_mode(RenderMode::FREE_LOOK, /*surround_stitching=*/false));
+}
+
+TEST(SceneAssembly, BowlVisibleInFreeLookWithSurroundStitchingOn)
+{
+    EXPECT_TRUE(bowl_visible_for_mode(RenderMode::FREE_LOOK, /*surround_stitching=*/true));
+}
+
+TEST(SceneAssembly, OverlaysVisibleOnlyInFreeLook)
+{
+    EXPECT_FALSE(overlays_visible_for_mode(RenderMode::BOWL));
+    EXPECT_FALSE(overlays_visible_for_mode(RenderMode::HYBRID));
+    EXPECT_TRUE(overlays_visible_for_mode(RenderMode::FREE_LOOK));
+}
+
 // ── Velocity-ribbon re-spine (user directive 2026-09-10) ────────────────────
 
 namespace {

@@ -110,6 +110,14 @@ void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags)
     if (!flags.trajectory_carpet) asm_.trajectory_carpets.clear();
 }
 
+// Review round 1 (2026-09-11): LayerFlags' members all default to TRUE
+// (NSDMI) -- a 9th category added later without extending the BOWL/HYBRID
+// masks below would aggregate-init to true in both (the new category
+// silently rendering in modes that must show bowl+ego only), with no
+// compiler complaint and no test failure. This assert is the tripwire.
+static_assert(sizeof(LayerFlags) == 8, "LayerFlags gained a category -- extend "
+              "mode_content_mask()'s BOWL/HYBRID masks below or it renders in modes 1/2");
+
 LayerFlags mode_content_mask(RenderMode mode)
 {
     switch (mode)
@@ -125,11 +133,23 @@ LayerFlags mode_content_mask(RenderMode mode)
             return LayerFlags{false, false, false, false, false, false, true, false};
         case RenderMode::FREE_LOOK:
         default:
-            // All-true -- AND-ing this over the user's own flags below is a
-            // no-op, so FREE_LOOK sees exactly what the user's layer_*
-            // params already said.
-            return LayerFlags{true, true, true, true, true, true, true, true};
+            // All-true by NSDMI -- AND-ing this over the user's own flags
+            // below is a no-op, so FREE_LOOK sees exactly what the user's
+            // layer_* params already said. A 9th category defaults true here
+            // for free, same as every existing one.
+            return LayerFlags{};
     }
+}
+
+bool bowl_visible_for_mode(RenderMode mode, bool surround_stitching)
+{
+    return mode == RenderMode::BOWL || mode == RenderMode::HYBRID ||
+           (mode == RenderMode::FREE_LOOK && surround_stitching);
+}
+
+bool overlays_visible_for_mode(RenderMode mode)
+{
+    return mode == RenderMode::FREE_LOOK;
 }
 
 LayerFlags compose_layer_gates(const LayerFlags& user, const LayerFlags& mask)

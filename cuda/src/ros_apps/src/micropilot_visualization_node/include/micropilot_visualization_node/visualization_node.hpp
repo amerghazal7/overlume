@@ -127,11 +127,16 @@ private:
     // ── local render-mode switch (Task 4 / VM-093) ───────────────────────────
     // SEPARATE from active_mode_ above -- active_mode_ decides WHETHER this
     // node is the mux-authoritative renderer (untouched by this task,
-    // Decision 7); render_mode_ decides WHAT this node renders once it is
-    // (i.e. only takes visible effect while active_mode_==3, today's only
-    // way this node is ever mux-selected -- see timer_callback()'s own
-    // comment on why the dispatch lives inside that branch). A plain node
-    // param (`render_mode`), not a topic -- mirrors rendering_node's own
+    // Decision 7); render_mode_ decides WHAT this node renders once it is.
+    // The dispatch (bowl visibility + the per-mode layer mask,
+    // scene_assembly.hpp's bowl_visible_for_mode()/mode_content_mask()) runs
+    // every tick in timer_callback(), UNCONDITIONALLY, before the
+    // `active_mode_ != 3` early return -- it is not gated on active_mode_ at
+    // all. What active_mode_==3 actually gates is only render_frame()/the
+    // published image downstream of that dispatch, so render_mode_'s effect
+    // becomes VISIBLE only while this node is the mux-selected renderer, even
+    // though the dispatch itself always runs. A plain node param
+    // (`render_mode`), not a topic -- mirrors rendering_node's own
     // render_mode_/active_mode_ split (rendering_node.hpp:191/203), which
     // this node never had before this task. Live-tunable via on_params(),
     // same as the layer_* bools below -- a mode switch is a `ros2 param
@@ -395,6 +400,19 @@ private:
     bool environment_enabled_{true};
     std::string environment_chunks_dir_;
     bool environment_warned_{false};
+    // Review round 1 (2026-09-11): environment_configured_ is set true the
+    // one time on_activate()'s set_environment_source() call above actually
+    // succeeds (never re-set false -- a failed call just means nothing to
+    // gate). environment_rendering_ tracks which side of
+    // set_environment_source()'s null-source toggle is currently live;
+    // timer_callback()'s per-mode environment gate (Task 4/VM-093 review)
+    // flips it only on a render_mode edge, not every tick. Starts true: a
+    // successful on_activate() call means buildings ARE rendering the
+    // instant the timer starts, whatever render_mode_ the node was
+    // constructed with -- the first tick's edge check corrects it from there
+    // if render_mode_ isn't FREE_LOOK.
+    bool environment_configured_{false};
+    bool environment_rendering_{true};
 
     SceneAssembly scene_asm_;
 
@@ -481,6 +499,13 @@ private:
     // both on_configure() and on_params() below, with a WARN whenever a
     // config or set_parameters() call carries `true`.
     bool bowl_enabled_{false};
+    // Review round 1 (2026-09-11): one-shot WARN latch -- render_mode
+    // BOWL/HYBRID while bowl_enabled_ is false (the shipped default) masks
+    // the whole autonomy scene for a bowl that was never configured, a near-
+    // empty frame with no diagnostic otherwise. See on_configure()'s
+    // close-out check and on_params()'s render_mode branch, both of which
+    // set this the first time they warn.
+    bool bowl_mode_warned_{false};
     // GUI-tunable; in this merged node it is the ego-motion re-alignment/
     // staleness window (Step 6's redefined frame-sync gate semantics) --
     // handed to camera_ingest_ via set_max_sync_latency() (VM-091 gate

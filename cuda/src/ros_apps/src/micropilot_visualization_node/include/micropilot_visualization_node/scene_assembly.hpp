@@ -122,7 +122,11 @@ enum class RenderMode
 // just empty), FREE_LOOK renders the full autonomy scene unmasked. Neither
 // bowl nor ego is a SceneAssembly category (bowl visibility is
 // set_bowl_visible(), ego is scene.ego) -- this mask only ever touches the
-// eight SceneAssembly/LayerFlags categories.
+// eight SceneAssembly/LayerFlags categories. The environment/buildings layer
+// (Epic 4/VM-052) is a THIRD thing outside this mask -- renderer-internal,
+// not a SceneAssembly category either -- gated separately in
+// timer_callback() (toggling set_environment_source()'s null-source path
+// per mode) precisely so it does NOT silently keep rendering in BOWL/HYBRID.
 LayerFlags mode_content_mask(RenderMode mode);
 
 // AND `mask` over `user`, field by field -- composes without ever
@@ -130,5 +134,23 @@ LayerFlags mode_content_mask(RenderMode mode);
 // back to FREE_LOOK must restore the user's persisted layer_* settings
 // exactly, not whatever BOWL/HYBRID happened to force them to).
 LayerFlags compose_layer_gates(const LayerFlags& user, const LayerFlags& mask);
+
+// Review round 1 (2026-09-11): pulled out of timer_callback() so the actual
+// per-mode dispatch is unit-testable (test_scene_assembly.cpp's
+// BowlVisibleFor*/OverlaysVisibleFor* cases) instead of only exercised by
+// param accept/reject checks and frame-shape smoke tests, neither of which
+// fails if this predicate is inverted or deleted.
+//
+// Bowl is visible in BOWL/HYBRID unconditionally (USER DIRECTIVE
+// 2026-09-11: those modes render the CUDA-parity bowl); in FREE_LOOK, visible
+// ONLY when the operator's Surround Stitching toggle (`layer_surround_stitching`)
+// is on.
+bool bowl_visible_for_mode(RenderMode mode, bool surround_stitching);
+
+// HUD and the nearest-obstacle callout are FREE_LOOK-only overlays -- BOWL/
+// HYBRID never had either in the CUDA reference (same USER DIRECTIVE), so
+// both are force-suppressed there without touching hud_enabled_/
+// callouts_enabled_ themselves.
+bool overlays_visible_for_mode(RenderMode mode);
 
 }  // namespace micropilot::visualization_app

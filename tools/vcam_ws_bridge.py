@@ -241,11 +241,13 @@ def main() -> int:
             self.state: list[float] | None = None  # [eye3, target3, preset, mode]
             # Both nodes publish ~/vcam_state continuously (spec §9), so
             # picking "whichever arrived last" flickers between them. Index 7
-            # means something different per publisher (rendering_node's
-            # render_mode_ 1|2 vs. visualization_node's active_mode_ 1|2|3),
-            # so it can't be a shared filter value -- instead track which
-            # NAMESPACE is authoritative for the last commanded mode. Starts
-            # at rendering_node, matching its default render_mode_ (2).
+            # is render_mode_ on BOTH namespaces as of VM-093 (rendering_node's
+            # own 1|2, visualization_node's own local 1|2|3 -- see that node's
+            # scene_assembly.hpp RenderMode) -- that parity is exactly what
+            # VM-093 bought, but it still can't be a shared filter value
+            # (rendering_node has no mode 3) -- instead track which NAMESPACE
+            # is authoritative for the last commanded mode. Starts at
+            # rendering_node, matching its default render_mode_ (2).
             self._active_ns = VCAM_NAMESPACES[0]
             # diagnostics only exists on visualization_node (mode 3) -- no
             # mux needed, harmless if it keeps arriving while mode 1/2 is
