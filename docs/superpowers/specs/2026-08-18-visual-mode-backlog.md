@@ -258,6 +258,20 @@ that on 2026-09-07 — it stays committed v1.1.
   Includes the on-robot budget table (VM-004(b)) as a blocking checklist item.
   AC: product + autonomy sign-off checklist complete, budget table recorded.
 
+- **VM-078 Object-rendering opacity control** (added 2026-09-11, user request:
+  "can we offer apacity control for the objects rendering? (boxes or clay
+  models)"). A theme style token `objects.opacity` (soft-default 1.0,
+  explicit in both shipped themes) controlling TrackedObject entity opacity —
+  boxes and glTF class models alike. Fresh-opaque convention holds: at 1.0
+  (default) objects render on today's opaque clay path byte-identically; below
+  1.0 they ride the EXISTING per-entity clay_translucent staleness-swap
+  machinery with alpha = opacity * staleness_alpha (never a permanently
+  fade-blended material — the 2026-09-10 flicker rule). Blended into theme
+  transitions (sentinel field-coverage test extended, not a parallel test).
+  AC: default renders pixel-identical to today; a 0.5 opacity theme shows
+  see-through objects whose staleness fade still works; both theme YAMLs
+  carry explicit values.
+
 ## Future (explicitly deferred)
 
 `[review 2026-09-07]` IDs and re-entry triggers so other docs can cite them:
