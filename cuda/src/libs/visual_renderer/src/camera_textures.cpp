@@ -120,6 +120,18 @@ bool set_bowl_visible(VisualRenderer* r, bool visible) {
     return true;
 }
 
+bool set_self_view_masks(VisualRenderer* r, bool enabled) {
+    // Unlike set_bowl_visible, this does NOT gate on r->cameraCount -- it's
+    // legitimate (and expected: on_activate() ordering isn't guaranteed) to
+    // call this before the first set_bowl_config(), same as it's legitimate
+    // to declare the ROS param before any camera has ever configured the
+    // bowl. build_bowl() reads r->selfViewMasksEnabled at its next bake,
+    // whenever that happens.
+    if (r == nullptr) return false;
+    r->selfViewMasksEnabled = enabled;
+    return true;
+}
+
 bool set_camera_motion_delta(VisualRenderer* r, uint32_t cam_idx,
                               const double delta_4x4_row_major[16]) {
     if (r == nullptr || cam_idx >= r->cameraCount) return false;

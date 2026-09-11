@@ -155,4 +155,64 @@ BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double 
     return mesh;
 }
 
+namespace {
+
+// Slab-method segment/AABB intersection (Kay/Kajiya): does the CLOSED
+// segment [from, to] intersect the axis-aligned box [center-half,
+// center+half]? Per-axis, intersect the segment's parametric interval with
+// that axis's slab, then intersect all three axis-intervals together; a
+// non-empty result overlapping [0,1] means the segment crosses the box
+// somewhere between `from` and `to` inclusive. A near-zero direction
+// component on some axis (segment parallel to that axis's slab faces) is
+// handled as "the segment's constant coordinate on that axis must already
+// lie inside the slab" rather than a divide-by-zero branch.
+bool SegmentIntersectsAabb(const mpviz::Vec3& from, const mpviz::Vec3& to,
+                           const mpviz::Vec3& center, const mpviz::Vec3& half) {
+    const double d[3] = {to.x - from.x, to.y - from.y, to.z - from.z};
+    const double o[3] = {from.x - center.x, from.y - center.y, from.z - center.z};
+    const double h[3] = {half.x, half.y, half.z};
+    double tmin = 0.0, tmax = 1.0;
+    for (int i = 0; i < 3; ++i) {
+        if (std::abs(d[i]) < 1e-12) {
+            if (o[i] < -h[i] || o[i] > h[i]) return false;
+            continue;
+        }
+        double t1 = (-h[i] - o[i]) / d[i];
+        double t2 = (h[i] - o[i]) / d[i];
+        if (t1 > t2) std::swap(t1, t2);
+        tmin = std::max(tmin, t1);
+        tmax = std::min(tmax, t2);
+        if (tmin > tmax) return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+void ApplyEgoOcclusion(BowlMesh& mesh, uint32_t camera_count,
+                       const mpviz::CameraExtrinsics* extrinsics, const EgoBox& ego_box) {
+    // Zero-extent on every axis is this function's own "no ego configured"
+    // convention (bowl_mesh.hpp) -- nothing to occlude against.
+    if (ego_box.half_extents.x <= 0.0 && ego_box.half_extents.y <= 0.0 &&
+        ego_box.half_extents.z <= 0.0) {
+        return;
+    }
+    for (BowlVertex& v : mesh.vertices) {
+        // index_a/b/c are triangle-uniform by construction (the loop above);
+        // this function only ever zeroes a coverage float, never touches an
+        // index, so that invariant is untouched.
+        const uint32_t idx[3] = {v.index_a, v.index_b, v.index_c};
+        float* const cov[3] = {&v.coverage_a, &v.coverage_b, &v.coverage_c};
+        for (int slot = 0; slot < 3; ++slot) {
+            if (*cov[slot] <= 0.0f) continue;  // already uncovered/unused slot
+            const uint32_t c = idx[slot];
+            if (c >= camera_count) continue;
+            const mpviz::Vec3 cam_pos{extrinsics[c].t[0], extrinsics[c].t[1], extrinsics[c].t[2]};
+            if (SegmentIntersectsAabb(cam_pos, v.position, ego_box.center, ego_box.half_extents)) {
+                *cov[slot] = 0.0f;
+            }
+        }
+    }
+}
+
 }  // namespace mpviz::bowl
