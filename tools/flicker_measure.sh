@@ -16,7 +16,7 @@ set -m  # own process group per background job -- see validate_visual_mode.sh's
         # own comment on this; same teardown hazard applies here.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BAG="${HOME}/TPSProjector-fixtures/stack_v2_full_sensors_2026-09-09"
+BAG="${HOME}/TPSProjector-fixtures/stack_v3_full_sensors_2026-09-11"
 QOS="${HOME}/TPSProjector-fixtures/qos_full.yaml"
 OUT_DIR="/tmp/mpviz_flicker_measure_after"
 ROS_DOMAIN_ID_RIG="94"

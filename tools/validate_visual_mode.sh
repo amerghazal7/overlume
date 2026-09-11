@@ -399,7 +399,7 @@
 #               the new libvisual_renderer.a automatically) -- node's own
 #               19/19 tests unaffected (adapter-level, not rendering-level).
 #               LIVE evidence (ROS_DOMAIN_ID=93, urban profile,
-#               stack_v2_full_sensors_2026-09-09 bag, 24-frame burst ~45s
+#               stack_v3_full_sensors_2026-09-11 bag, 24-frame burst ~45s
 #               in, crop rows 260-560/cols 440-840 -- docs/evidence/
 #               vm077-flicker-2026-09-10/rebuild_clip_fix_burst_after.*):
 #               HONEST SPLIT VERDICT, STILL OPEN, not a clean close. The
@@ -480,6 +480,11 @@
 #               drives the merged node's render_mode param; the mux would idle the rig's
 #               only publisher until VM-095); node launched hybrid_enabled:=true so
 #               mode 2 shows the colorized cloud.
+#   2026-09-11  Fixture default -> stack_v3_full_sensors_2026-09-11 (user decision; v2
+#               removed). KNOWN CAVEATS carried honestly: v3 is 67s (v2 was 217s) and
+#               still under-delivers bm/br camera frames (67%/77% of the best camera --
+#               same deficit as v2; recorder-transport mismatch is the untested suspect,
+#               see the session notes). A better recording is planned.
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its
@@ -501,7 +506,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # them). Stored DECOMPRESSED for instant playback start (the .zstd archive
 # sits alongside). Lighter fallbacks on disk: stack_v2_fixtures_2026-09-09
 # (no sensors), epic2_fixtures_full (old stack).
-BAG="${HOME}/TPSProjector-fixtures/stack_v2_full_sensors_2026-09-09"
+BAG="${HOME}/TPSProjector-fixtures/stack_v3_full_sensors_2026-09-11"
 QOS="${HOME}/TPSProjector-fixtures/qos_full.yaml"
 NO_GUI=0
 DO_BUILD=0

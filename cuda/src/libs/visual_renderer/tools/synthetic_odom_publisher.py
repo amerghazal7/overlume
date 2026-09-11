@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Publish constant-vx/wz nav_msgs/Odometry at 50Hz. VM-091 Task 2 Step 5
-perf gate (finding 6): stack_v2_full_sensors_2026-09-09 carries no odometry
+perf gate (finding 6): stack_v3_full_sensors_2026-09-11 carries no odometry
 topic at all, so camera_ingest_'s rig_delta()/compensation_delta_4x4() never
 run their real integration path without this -- this stand-in makes the
 "bowl_on_driving" perf row exercise that per-tick math instead of the
