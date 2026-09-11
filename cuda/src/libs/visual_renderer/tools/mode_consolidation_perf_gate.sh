@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+# ── HISTORICAL HARNESS (frozen at the VM-095 cutover, 2026-09-11) ─────────
+# This gate measured CUDA-node/Filament-node CO-RESIDENCE during the
+# migration rollout window (Task 4 Step 3; results recorded in
+# budget_probe.md Results (d) and signoff.md item 6). micropilot_rendering_node
+# is retired -- this script can no longer run and is kept as the record of
+# HOW that measurement was taken, not as a runnable tool.
+echo "mode_consolidation_perf_gate.sh is a HISTORICAL harness: micropilot_rendering_node" >&2
+echo "was retired at the VM-095 cutover; the co-residence measurement it took is recorded" >&2
+echo "in budget_probe.md Results (d). Nothing to run." >&2
+exit 2
 # Task 4 (VM-093) Step 3 perf gate: old node (micropilot_rendering_node,
 # UNMODIFIED, run from the MAIN checkout's already-built install, READ-ONLY --
 # this task never edits or rebuilds that checkout) + this worktree's merged

@@ -119,13 +119,11 @@ fi
 # a skip — this is the pre-merge gate, not an optional convenience check.
 banner 3/5 "node gtests (colcon test)"
 ROS_SETUP="/opt/ros/humble/setup.bash"
-# micropilot_rendering_node (a sibling ROS package the node depends on, see
-# its CMakeLists.txt/package.xml) must already be built+installed somewhere
-# this script can source read-only. Default: this same checkout's own
-# cuda/install/ros_apps (the normal case -- build it there first with
-# cuda/scripts/ros_apps_build/colcon_build.sh). CI_VISUAL_MODE_ROS_APPS_INSTALL
-# overrides this for a worktree that only builds micropilot_visualization_node
-# and borrows another checkout's install space for the rest, read-only.
+# Post-cutover (VM-095): the node has no sibling ROS package dependency --
+# SetVirtualCam.srv is generated in-package. The install space sourced here
+# is the node's OWN prior install (needed for the srv typesupport at test
+# time). CI_VISUAL_MODE_ROS_APPS_INSTALL still overrides for a worktree
+# borrowing another checkout's install, read-only.
 MAIN_INSTALL="${CI_VISUAL_MODE_ROS_APPS_INSTALL:-${REPO_ROOT}/cuda/install/ros_apps/setup.bash}"
 NODE_WS="${REPO_ROOT}/cuda/src/ros_apps"
 NODE_LOG="${LOG_DIR}/node_colcon.log"
@@ -136,8 +134,8 @@ if [[ ! -f "${ROS_SETUP}" ]]; then
     record_stage "node gtests" FAIL
     NODE_STAGE_OK=0
 elif [[ ! -f "${MAIN_INSTALL}" ]]; then
-    echo "FAIL  node gtests: ${MAIN_INSTALL} not found (main checkout's install/ros_apps," \
-         "needed read-only for micropilot_rendering_node) -- build it there first"
+    echo "FAIL  node gtests: ${MAIN_INSTALL} not found (this checkout's install/ros_apps," \
+         "needed for the node's own generated interfaces) -- build it first"
     record_stage "node gtests" FAIL
     NODE_STAGE_OK=0
 elif ! command -v colcon > /dev/null 2>&1; then
