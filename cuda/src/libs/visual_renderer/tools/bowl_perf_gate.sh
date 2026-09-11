@@ -4,7 +4,7 @@
 # rows are not a valid baseline here, see the plan's Step 5).
 set -o pipefail
 REPO=/home/ag7/Documents/TPSProjector
-BAG=$HOME/TPSProjector-fixtures/stack_v2_full_sensors_2026-09-09
+BAG=$HOME/TPSProjector-fixtures/stack_v3_full_sensors_2026-09-11
 # VM-091 gate close-out finding 5: OUT defaults to a fresh mktemp -d dir (the
 # usual ${OUT:-...} pattern) instead of a hardcoded session-scratchpad path
 # outside the repo -- override with OUT=... to keep results. SAMPLER is the

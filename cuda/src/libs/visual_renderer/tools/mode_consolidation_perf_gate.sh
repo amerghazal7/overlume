@@ -19,7 +19,7 @@
 set -o pipefail
 MAIN_REPO=/home/ag7/Documents/TPSProjector
 WORKTREE_REPO=/home/ag7/Documents/TPSProjector-vm093
-BAG=$HOME/TPSProjector-fixtures/stack_v2_full_sensors_2026-09-09
+BAG=$HOME/TPSProjector-fixtures/stack_v3_full_sensors_2026-09-11
 OUT="${OUT:-$(mktemp -d)}"
 SAMPLER="$(dirname "$0")/sample_diagnostics.py"
 # Review round 1 (2026-09-11): CASE selects which case(s) run --
