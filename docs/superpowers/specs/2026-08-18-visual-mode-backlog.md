@@ -253,6 +253,33 @@ that on 2026-09-07 — it stays committed v1.1.
   AC: autonomy-team member can add a topic via profile YAML using only docs.
 - **VM-044 Package theme + ego assets for a real install** (`[review 2026-09-07]`). Today `DEFAULT_THEME_ASSETS_DIR` compiles in this checkout's path, the node leaves `RenderConfig::theme_assets_dir` null, no ROS param selects the initial theme (always dark_adas at launch), and `ego_model_path` defaults to a per-user `~/Downloads` path — off this dev box the node silently runs the compiled-in fallback theme with a clay-box ego (WARN only). Install `assets/themes` and the converted ego `.glb` (Git LFS or a fetch script), resolve them via `ament_index`, add an `initial_theme` param.
   AC: clean clone + build on another machine shows both themes and the ego mesh; `ros2 param get` shows the resolved paths. Blocks VM-043.
+
+  **Done (2026-09-11):** `micropilot_visualization_node/CMakeLists.txt` installs
+  `assets/themes` and the class-model glTF pack (both plain-git, following the
+  existing car/pedestrian/truck_van convention) from `visual_renderer` into
+  this package's own `share/`; the converted M02P ego glTF (~72 MB, past that
+  convention's practical size, and no Git LFS remote is configured in this
+  repo) is provisioned instead by a new
+  `scripts/provision_ego_model.sh` (runs the existing
+  `obj2gltf_m02p.py` against the real `M02P.obj`; gitignored output,
+  installed only if present, WARNs at configure time otherwise — an honest
+  gap, not a build error). `visualization_node.cpp`'s `on_configure()` gained
+  `theme_assets_dir` (default `""` → resolved via `ament_index_cpp` to the
+  installed `assets/themes`), `initial_theme` (default `dark_adas`, configure
+  FAILS if the yaml isn't actually installed), and resolves `ego_model_path`
+  (default `""`) to the installed `assets/ego/M02P.glb` when present; all
+  three write the resolved value back via `set_parameter()` so `ros2 param
+  get` reports it, not the `""` default. No `visual_renderer` change needed —
+  `RenderConfig::theme_assets_dir`/`initial_theme` already existed, the node
+  simply never populated them. AC verified by running the node from a scratch
+  colcon install with `HOME` pointed at an empty temp dir (empty
+  `~/Downloads`, simulating a clean machine): both `dark_adas` and
+  `light_clay` load with no fallback WARN, `ros2 param get` shows
+  `theme_assets_dir`/`ego_model_path` resolved into the install `share/`
+  path, not a per-user one. Node suite green (20/20 ctest). `hud_font_path`/
+  `environment_chunks_dir` are the same CLASS of per-checkout-path gap but
+  outside this entry's verbatim scope — left open, comments updated to say so
+  honestly rather than implying VM-044 closed them.
 - **VM-043 Live validation.** Full stack on CARLA bridge + a real-robot bag;
   side-by-side review vs rviz for parity sign-off. `[review 2026-09-07]`
   Includes the on-robot budget table (VM-004(b)) as a blocking checklist item.

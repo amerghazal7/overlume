@@ -16,11 +16,24 @@
     - 0.0
     - -0.5
     virtual_vfov_deg: 80.0
+    # Theme assets (VM-044): "" resolves via ament_index to this package's
+    # own installed share/assets/themes (visualization_node.cpp's
+    # on_configure) instead of DEFAULT_THEME_ASSETS_DIR's compiled-in
+    # absolute path to THIS checkout's source tree. Set an absolute path to
+    # point at a hand-edited theme dir instead.
+    theme_assets_dir: ""
+    # Which shipped theme (yaml stem) loads at startup. Validated against
+    # theme_assets_dir's actual contents -- configure FAILS on an unknown name.
+    initial_theme: dark_adas
     # Ego robot mesh (VM-012); mirrors micropilot_rendering_node's
     # robot_model_path convention. "" is not "disabled": mpviz::set_ego_model
     # always renders something (a themed clay box at ego_fallback_dims on
-    # load failure); this just swaps in the real M02P mesh.
-    ego_model_path: /home/ag7/Downloads/M02P.glb
+    # load failure) -- "" resolves via ament_index to this package's own
+    # installed share/assets/ego/M02P.glb (VM-044) if
+    # scripts/provision_ego_model.sh has provisioned one, else stays "" and
+    # the clay-box fallback is honest about the gap. Set an absolute path to
+    # override with a different mesh.
+    ego_model_path: ""
     ego_fallback_dims: [4.5, 2.0, 1.8]
     ego_speed_smoothing_alpha: 0.2
     # flatten_z: the HD-map layer is a 2D plane, so real z (live TF altitude,
@@ -28,11 +41,13 @@
     # it -- every adapter zeroes z while this is true (frame_transform.hpp,
     # tf_adapter.hpp). Set false once the HD-map layer has real 3D coords.
     flatten_z: true
-    # HUD compositor font (VM-030). Per-checkout absolute path, same class of
-    # gap as ego_model_path above (installed-package asset resolution) --
-    # VM-044 (Epic 5) closes it with a real install path; this task doesn't
-    # attempt ament_index_cpp resolution itself. Missing/unloadable is
-    # non-fatal (CompositeHud() WARNs once, HUD just isn't drawn that tick).
+    # HUD compositor font (VM-030). Per-checkout absolute path, same CLASS of
+    # gap as theme_assets_dir/ego_model_path used to be -- but VM-044's own
+    # backlog text (docs/superpowers/specs/2026-08-18-visual-mode-backlog.md)
+    # scopes that task to themes + the ego mesh only, so this path is a
+    # STILL-OPEN gap, not closed by VM-044; a future task would resolve it
+    # the same way. Missing/unloadable is non-fatal (CompositeHud() WARNs
+    # once, HUD just isn't drawn that tick).
     hud_font_path: /home/ag7/Documents/TPSProjector/cuda/src/ros_apps/src/micropilot_visualization_node/assets/fonts/NotoSans-Regular.ttf
     # HUD disable knob (STANDING directive, visual-mode-epic3.md): false
     # skips CompositeHud() entirely, frame passes through untouched.
@@ -88,10 +103,11 @@
     # mpviz::set_environment_source() at all, same "config for every
     # rendered element" shape as hud_enabled/callouts_enabled above.
     environment_enabled: true
-    # Per-checkout absolute path to Task 2 (VM-051)'s baked chunk index dir
-    # (index.yaml + chunks/*.glb) -- same class of gap as ego_model_path/
-    # hud_font_path above (VM-044, Epic 5, closes real ament_index
-    # resolution). "" is non-fatal: on_activate() WARNs once and never calls
+    # Path to Task 2 (VM-051)'s baked chunk index dir (index.yaml +
+    # chunks/*.glb) -- same CLASS of gap theme_assets_dir/ego_model_path used
+    # to be, but VM-044's backlog text scopes that task to themes + the ego
+    # mesh only, so this one stays a per-run manual path, not ament-resolved.
+    # "" is non-fatal: on_activate() WARNs once and never calls
     # set_environment_source() (no anchor solved / no dir given -- same
     # "missing data renders nothing" convention, spec §9).
     environment_chunks_dir: ""

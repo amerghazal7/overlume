@@ -271,6 +271,38 @@ install(DIRECTORY include/
 install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME})
 
+# VM-044: package the theme YAMLs + class-model glTF pack (both small,
+# already plain-git-committed in visual_renderer, same convention this line
+# follows) into THIS package's own share dir, so on_configure()'s
+# ament_index_cpp resolution (theme_assets_dir/initial_theme, both default
+# "") finds a real install instead of silently landing on
+# DEFAULT_THEME_ASSETS_DIR's compiled-in path to this checkout's source tree.
+install(DIRECTORY "${VISUAL_RENDERER_DIR}/assets/themes"
+  DESTINATION share/${PROJECT_NAME}/assets)
+install(DIRECTORY "${VISUAL_RENDERER_DIR}/assets/models"
+  DESTINATION share/${PROJECT_NAME}/assets
+  PATTERN "environment" EXCLUDE)  # VM-051/052's baked-environment chunks -- a separate feature, not this task's
+
+# VM-044: the converted M02P ego glTF. NOT committed to git like the class
+# models above -- the source OBJ is ~143 MB and the converted glb ~72 MB,
+# past the plain-git convention's practical size (the backlog's own
+# documented alternative for an "enormous" binary asset: a fetch/provision
+# script instead of Git LFS, since this repo has no LFS remote configured).
+# scripts/provision_ego_model.sh converts it from the real M02P.obj into
+# assets/ego/M02P.glb (gitignored); install it only if that has actually
+# been run -- a missing file here is a real, honestly-recorded gap
+# (ego_model_path resolves "" and the node's existing clay-box fallback
+# takes over), not a build error.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets/ego/M02P.glb")
+  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/ego/M02P.glb"
+    DESTINATION share/${PROJECT_NAME}/assets/ego)
+else()
+  message(WARNING
+    "micropilot_visualization_node: assets/ego/M02P.glb not provisioned -- "
+    "run scripts/provision_ego_model.sh first (needs the real M02P.obj). "
+    "ego_model_path will resolve empty and the node falls back to the clay-box ego.")
+endif()
+
 # ── Tests ────────────────────────────────────────────────────────────────────
 # compose_ego_anchored_pose/kEgoForwardYaw (ego_anchor.hpp) unit coverage
 # (review finding: the yaw convention already regressed once with zero

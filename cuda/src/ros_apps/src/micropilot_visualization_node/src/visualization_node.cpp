@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <fstream>
 #include <limits>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
@@ -75,11 +76,47 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // puts no sky above the horizon.
     pose_.vfov_deg = declare_parameter<double>("virtual_vfov_deg", 80.0);
 
+    // ── theme assets (VM-044) ─────────────────────────────────────────────────
+    // Resolve via ament_index instead of relying on DEFAULT_THEME_ASSETS_DIR
+    // (visual_renderer/CMakeLists.txt compiles THIS CHECKOUT's own absolute
+    // source path into the library -- silently wrong off this dev box).
+    // "" is the honest default: it means "use what this package installed",
+    // not "use whatever machine happened to build the library".
+    auto theme_assets_dir_param = declare_parameter<std::string>("theme_assets_dir", "");
+    std::string theme_assets_dir = theme_assets_dir_param;
+    if (theme_assets_dir.empty())
+    {
+        theme_assets_dir =
+            ament_index_cpp::get_package_share_directory("micropilot_visualization_node") +
+            "/assets/themes";
+    }
+    // Write the resolved value back so `ros2 param get theme_assets_dir`
+    // reports where the node actually looked (VM-044 AC), not the "" default.
+    set_parameter(rclcpp::Parameter("theme_assets_dir", theme_assets_dir));
+
+    auto initial_theme = declare_parameter<std::string>("initial_theme", "dark_adas");
+    // Validated against what this install actually shipped -- an
+    // unrecognized name silently landing on the compiled-in fallback theme
+    // (the same failure mode this task closes for theme_assets_dir) would be
+    // a confusing regression to debug from a `ros2 param get` that then lies
+    // about which theme is live.
+    const std::string initial_theme_yaml = theme_assets_dir + "/" + initial_theme + ".yaml";
+    if (!std::ifstream(initial_theme_yaml).good())
+    {
+        RCLCPP_ERROR(get_logger(),
+                     "initial_theme '%s' not found under theme_assets_dir '%s' (expected '%s')",
+                     initial_theme.c_str(), theme_assets_dir.c_str(), initial_theme_yaml.c_str());
+        return CallbackReturn::FAILURE;
+    }
+    set_parameter(rclcpp::Parameter("initial_theme", initial_theme));
+
     // ── renderer ──────────────────────────────────────────────────────────────
     mpviz::RenderConfig config{};
     config.width = static_cast<uint32_t>(out_width_);
     config.height = static_cast<uint32_t>(out_height_);
     config.quality = static_cast<uint8_t>(quality_);
+    config.theme_assets_dir = theme_assets_dir.c_str();
+    config.initial_theme = initial_theme.c_str();
     renderer_ = mpviz::create_renderer(config);
     if (renderer_ == nullptr)
     {
@@ -88,17 +125,16 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     }
     frame_buf_.assign(static_cast<size_t>(out_width_) * out_height_ * 3, 0);
 
-    // create_renderer() silently falls back to its compiled-in theme if
-    // theme_assets_dir/initial_theme fails to load (non-fatal by design);
-    // config.theme_assets_dir is null here since this node exposes no such
-    // parameter yet, so the dir actually tried is the library's own default.
+    // create_renderer() copies theme_assets_dir/initial_theme into its own
+    // storage (api.h's RenderConfig doc comment) -- theme_assets_loaded()
+    // can still non-fatal-WARN here (e.g. a corrupt yaml on an otherwise
+    // resolved path); the path named below is now the real, resolved one.
     if (!mpviz::theme_assets_loaded(renderer_))
     {
         RCLCPP_WARN(get_logger(),
                     "theme assets failed to load from '%s' -- rendering with the "
                     "compiled-in fallback theme instead",
-                    config.theme_assets_dir ? config.theme_assets_dir
-                                             : "<compiled-in default theme dir>");
+                    theme_assets_dir.c_str());
     }
 
     // ── profile YAML loader ───────────────────────────────────────────────────
@@ -150,6 +186,25 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // legal default, load failure is non-fatal (set_ego_model() falls back to
     // a themed clay box at fallback_dims; the WARN below is informational only).
     auto ego_model_path = declare_parameter<std::string>("ego_model_path", "");
+    if (ego_model_path.empty())
+    {
+        // VM-044: resolve to the installed M02P glTF (provisioned into this
+        // package's own share dir by scripts/provision_ego_model.sh) instead
+        // of a per-user ~/Downloads path baked into default_params.yaml.
+        // Genuinely not provisioned on this install -> stays "" and falls
+        // through to the clay-box fallback below, honestly (no fabricated
+        // path to a file that isn't there).
+        const std::string installed_ego =
+            ament_index_cpp::get_package_share_directory("micropilot_visualization_node") +
+            "/assets/ego/M02P.glb";
+        if (std::ifstream(installed_ego).good())
+        {
+            ego_model_path = installed_ego;
+        }
+    }
+    // Resolved (or still-empty-and-honest-about-it) value visible via
+    // `ros2 param get ego_model_path` (VM-044 AC), same as theme_assets_dir above.
+    set_parameter(rclcpp::Parameter("ego_model_path", ego_model_path));
     auto ego_dims = declare_parameter<std::vector<double>>("ego_fallback_dims", {4.5, 2.0, 1.8});
     if (ego_dims.size() != 3)
     {
