@@ -132,11 +132,6 @@
     - -0.16731
     - -0.94884
     - 1.314
-    # VM-092 (unified-engine migration Task 3): self-view masks, off by
-    # default. rendering_node.cpp:85 already declares this same param name
-    # with this same default via declare_parameter<bool> -- this line makes
-    # that default explicit here rather than relying on the code default.
-    self_view_masks: false
     virtual_pose:
     - 0.0
     - -0.5372996083468239
