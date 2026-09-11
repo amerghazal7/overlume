@@ -99,11 +99,12 @@ private:
     // Task 5 Scope-addition block).
     std::unique_ptr<Vcam> vcam_;
 
-    // vcam telemetry: [eye xyz | target xyz | active_preset | active_mode |
-    // mux_mode] (9 elements -- Step (d), VM-037 appended mux_mode at index 8;
-    // here it duplicates active_mode_ at index 7, since this node has no
-    // separate local-view mode the way rendering_node's render_mode_ is),
-    // one per timer tick — identical layout to rendering_node's ~/vcam_state.
+    // vcam telemetry: [eye xyz | target xyz | active_preset | render_mode |
+    // mux_mode] (9 elements -- Step (d), VM-037 appended mux_mode at index 8).
+    // Index 7 is now render_mode_ (Task 4/VM-093 gave this node its own
+    // local-view mode, mirroring rendering_node's render_mode_/active_mode_
+    // split) instead of duplicating active_mode_ the way it used to before
+    // Task 4 landed -- identical layout to rendering_node's ~/vcam_state.
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr
         pub_vcam_state_;
 
@@ -122,6 +123,38 @@ private:
     // same topic (spec §3.1). Renders+publishes only while == 3.
     int active_mode_{1};
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr set_mode_sub_;
+
+    // ── local render-mode switch (Task 4 / VM-093) ───────────────────────────
+    // SEPARATE from active_mode_ above -- active_mode_ decides WHETHER this
+    // node is the mux-authoritative renderer (untouched by this task,
+    // Decision 7); render_mode_ decides WHAT this node renders once it is
+    // (i.e. only takes visible effect while active_mode_==3, today's only
+    // way this node is ever mux-selected -- see timer_callback()'s own
+    // comment on why the dispatch lives inside that branch). A plain node
+    // param (`render_mode`), not a topic -- mirrors rendering_node's own
+    // render_mode_/active_mode_ split (rendering_node.hpp:191/203), which
+    // this node never had before this task. Live-tunable via on_params(),
+    // same as the layer_* bools below -- a mode switch is a `ros2 param
+    // set`/set_parameters() call, no ROS message on any topic.
+    static constexpr int kRenderModeBowl = 1;
+    static constexpr int kRenderModeHybrid = 2;
+    static constexpr int kRenderModeFreeLook = 3;
+    int render_mode_{kRenderModeFreeLook};
+
+    // ── Surround Stitching (Task 4 / VM-093, follow-up USER DIRECTIVE
+    // 2026-09-11) ─────────────────────────────────────────────────────────────
+    // A mode-3 (FREE_LOOK) ONLY layer: renders Task 2's camera-textured bowl
+    // IN THE SAME FRAME as the full autonomy scene, toggled independently of
+    // render_mode_/BOWL. Default false (mode 3's current look is
+    // unchanged) -- same disable-knob shape as every layer_* bool above,
+    // just not a SceneAssembly category (it gates set_bowl_visible()
+    // instead). surround_stitching_profile_ picks which content backs the
+    // overlay: "bowl" = Task 2's bowl path; "hybrid" = Task 5's hybrid
+    // content, which falls back to "bowl" until VM-094 lands (there is
+    // nothing hybrid-specific to render yet -- noted, not silently
+    // absorbed).
+    bool layer_surround_stitching_{false};
+    std::string surround_stitching_profile_{"bowl"};
 
     // ── theme (Epic 1 Task 3 / VM-014) ───────────────────────────────────────
     // Node-private (not global like set_mode_sub_ above) -- a mode-3-only
@@ -478,12 +511,12 @@ private:
     // Retuned 10.0 -> 1.5 at Task 2 Step 7's golden capture (see
     // default_params.yaml's own comment).
     float bowl_exposure_compensation_{1.5f};
-    // Task 2 (this task) ships the bowl BUILT but not yet mode-dispatched
-    // (Task 4 owns the real per-mode set_bowl_visible() switch: visible in
-    // BOWL/HYBRID, hidden in FREE_LOOK). Until then, visibility just
-    // mirrors bowl_enabled_ directly -- the simplest thing that makes the
-    // bowl's real per-fragment cost show up in Step 5's perf gate without
-    // waiting on Task 4.
+    // Task 4/VM-093 owns the real per-mode set_bowl_visible() dispatch (see
+    // timer_callback()): visible in BOWL/HYBRID, hidden in FREE_LOOK unless
+    // layer_surround_stitching_ is on -- computed fresh every tick from
+    // render_mode_/layer_surround_stitching_ above, regardless of
+    // bowl_enabled_/active_mode_ (set_bowl_visible() itself no-ops when the
+    // bowl was never configured, scene.h's own contract).
     std::unique_ptr<CameraIngest> camera_ingest_;
 
     rclcpp::TimerBase::SharedPtr timer_;
