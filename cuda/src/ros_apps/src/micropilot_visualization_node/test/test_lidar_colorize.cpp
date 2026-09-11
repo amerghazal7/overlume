@@ -79,9 +79,11 @@ TEST(LidarColorize, PointInSingleCameraFovGetsThatCamerasColor)
     ASSERT_EQ(out.size(), 1u);
     uint8_t r, g, b, a;
     Unpack(out[0].rgba, r, g, b, a);
-    EXPECT_EQ(r, 10);
-    EXPECT_EQ(g, 20);
-    EXPECT_EQ(b, 30);
+    // Expected bytes are the sRGB->linear LUT of the sampled camera bytes
+    // (pack_rgba linearizes camera samples -- see lidar_colorize.cpp).
+    EXPECT_EQ(r, 1);
+    EXPECT_EQ(g, 2);
+    EXPECT_EQ(b, 3);
     EXPECT_EQ(a, 255);
     EXPECT_DOUBLE_EQ(out[0].position.x, 0.0);
     EXPECT_DOUBLE_EQ(out[0].position.y, 0.0);
@@ -151,9 +153,11 @@ TEST(LidarColorize, PointVisibleToTwoCamerasPicksFirstConfiguredMatch)
     ASSERT_EQ(out.size(), 1u);
     uint8_t r, g, b, a;
     Unpack(out[0].rgba, r, g, b, a);
-    EXPECT_EQ(r, 111);  // camera 0's color, not camera 1's (200,201,202)
-    EXPECT_EQ(g, 112);
-    EXPECT_EQ(b, 113);
+    // Expected bytes are the sRGB->linear LUT of the sampled camera bytes
+    // (pack_rgba linearizes camera samples -- see lidar_colorize.cpp).
+    EXPECT_EQ(r, 41);  // camera 0's color (sRGB 111,112,113 linearized), not camera 1's
+    EXPECT_EQ(g, 41);
+    EXPECT_EQ(b, 42);
 }
 
 // A null buffer entry (camera never delivered a frame) is skipped, not
@@ -186,7 +190,9 @@ TEST(LidarColorize, NullBufferForACoveringCameraFallsThroughToTheNextOne)
     ASSERT_EQ(out.size(), 1u);
     uint8_t r, g, b, a;
     Unpack(out[0].rgba, r, g, b, a);
-    EXPECT_EQ(r, 7);
-    EXPECT_EQ(g, 8);
-    EXPECT_EQ(b, 9);
+    // Expected bytes are the sRGB->linear LUT of the sampled camera bytes
+    // (pack_rgba linearizes camera samples -- see lidar_colorize.cpp).
+    EXPECT_EQ(r, 1);
+    EXPECT_EQ(g, 1);
+    EXPECT_EQ(b, 1);
 }
