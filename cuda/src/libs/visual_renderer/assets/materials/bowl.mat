@@ -127,21 +127,10 @@
 // sky_color above ~0.1 clip to white for no reason a user configuring
 // sky_color would expect.
 //
-// 1.56 is MEASURED, not a "working approximation" anymore (bowl color
-// fidelity fix, 2026-09-11): tools/bowl_exposure_probe.cpp renders flat
-// sRGB gray camera frames through this exact material (with
-// camera_textures.cpp's SRGB8 texture format fix also landed -- see that
-// file's choose_camera_format() comment) and binary-searches this
-// parameter until mid-gray (sRGB byte 128) round-trips through the full
-// pipeline to within +/-1 output byte (measured: 128 -> 129). The two
-// earlier values here (10.0, then 1.5) were both eyeballed against a real
-// bag while the camera textures were still sampled as LINEAR (no sRGB
-// decode at sample time) -- that double-encoding bug is exactly what made
-// this whole material read washed/too bright, and it made any exposure
-// value tuned against it a guess calibrated against the wrong linear
-// input, not a measurement. See scene.h's BowlConfig::exposure_compensation
-// and tests/test_bowl_exposure_calibration.cpp (the standing regression
-// that locks this value's round-trip in).
+// 1.56 default, MEASURED by tools/bowl_exposure_probe.cpp (gray-ramp
+// bisection, not a guess) -- full derivation and history at scene.h's
+// BowlConfig::exposure_compensation; regression-locked by
+// tests/test_bowl_exposure_calibration.cpp.
 //
 // This material contributes at most 3 cameras per fragment (VM-091 gate
 // close-out finding 7: CUSTOM0/CUSTOM2/CUSTOM3 are all spoken for -- weight/
@@ -344,29 +333,15 @@ fragment {
                (idxA == 5) ? coverageA : ((idxB == 5) ? coverageB : ((idxC == 5) ? coverageC : 0.0)),
                rigPos, colorSum, wsum);
 
-        // This renderer's fixed camera exposure (renderer.cpp's
-        // setExposure(16, 1/500, 100), tuned against SUN-lit clay surfaces)
-        // crushes an UNLIT material's raw baseColor -- an unlit (1,1,1)
-        // renders at only ~15% output brightness (measured empirically
-        // against this exact material, no lighting to compensate the way
-        // clay.mat's albedo relies on the sun). The CUDA reference
-        // (reproject.cu) writes camera RGB straight to its output buffer
-        // with NO exposure/tonemap step at all, so passing sampled camera
-        // pixels through unscaled would make the bowl read as a dim,
-        // washed-out image compared to the CUDA node's own output -- a real
-        // fidelity regression, not just a test-sentinel artifact. 1.56x
-        // (MEASURED via tools/bowl_exposure_probe.cpp's gray-ramp binary
-        // search against this material's real render path, post the
-        // camera-texture SRGB8 fix -- see this material's header) brings a
-        // well-lit camera pixel back into the CUDA node's own display
-        // range; matc/this build's ACES tonemap curve is nonlinear/
-        // saturating (shoulder-compresses highlights, measured honestly:
-        // sRGB byte 224 in -> 192 out at this compensation, not a round
-        // trip), so this is a measured match at mid-gray, not a precise
-        // inverse everywhere. skyColor is deliberately NOT multiplied
-        // by it (see this material's header) -- sky_color is authored in
-        // display space already, not the pre-tonemap camera-pixel space
-        // exposureCompensation corrects for.
+        // exposureCompensation brings this UNLIT material's raw camera
+        // baseColor back into the CUDA reference's own display range against
+        // THIS build's ACES tonemap + output OETF -- NOT renderer.cpp's
+        // setExposure (bowl.mat has no lighting/exposure input at all;
+        // matinfo confirms the compiled fragment never reads
+        // frameUniforms.exposure). Default 1.56, MEASURED, not a precise
+        // inverse everywhere (the tonemap curve compresses both ends: see
+        // this material's header / scene.h's BowlConfig::exposure_compensation
+        // for the full derivation and the measured ramp).
         if (wsum > 0.0) {
             material.baseColor.rgb = (colorSum / wsum) * materialParams.exposureCompensation;
         } else {

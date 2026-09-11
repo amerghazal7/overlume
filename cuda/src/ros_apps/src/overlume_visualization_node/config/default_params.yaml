@@ -163,18 +163,10 @@
     - 0.7
     - 0.92
     # Style knob alongside sky_color/feather_margin (bowl.mat's
-    # exposureCompensation parameter, BowlConfig::exposure_compensation).
-    # MEASURED (bowl color fidelity fix, 2026-09-11), not guessed: the two
-    # prior values here (10.0, then 1.5) were both eyeballed against a real
-    # bag while camera_textures.cpp was still sampling camera pixels as
-    # LINEAR RGB8/RGBA8 -- reading sRGB-encoded camera bytes as if already
-    # linear, then re-applying the output OETF on top, a double-encoding
-    # bug that made the whole bowl read washed/too bright (now fixed:
-    # SRGB8/SRGB8_A8). 1.56 is tools/bowl_exposure_probe.cpp's binary-search
-    # result against the CORRECTED pipeline: it feeds flat sRGB gray camera
-    # frames through the real render path and picks the value that
-    # round-trips mid-gray (byte 128) back to within +/-1 byte (128 -> 129).
-    # This param remains the live fine-tune knob over that measured default.
+    # exposureCompensation parameter). Default 1.56, MEASURED by
+    # tools/bowl_exposure_probe.cpp, not guessed -- full derivation and
+    # history at scene.h's BowlConfig::exposure_compensation. This param
+    # remains the live fine-tune knob over that measured default.
     bowl_exposure_compensation: 1.56
     camera_extrinsics:
     - 0.9961946980917455
