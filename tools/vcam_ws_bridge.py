@@ -25,8 +25,11 @@ third-party client — can drive the virtual camera:
         param; live, same on_params() live-tuning contract as layer_*)
   server -> client:
     {"type": "state", "eye": [...], "target": [...], "preset": 0..5,
-     "render_mode": 1|2, "mux_mode": 1|2|3|null}  (~15 Hz; render_mode is
-     the publishing node's own local mode, mux_mode the global mux owner)
+     "render_mode": 1|2|3, "mux_mode": 1|2|3|null}  (~15 Hz; render_mode is
+     the node's own render_mode_ (Decision 8's index 7); mux_mode is index
+     8, which post-cutover (VM-095) is a permanent MIRROR of render_mode —
+     the two-node mux that gave mux_mode a distinct meaning is gone, the
+     wire field stays for shape/consumer compatibility (VM-037 Step (d)))
     {"type": "params", "values": {name: value, ...}}
     {"type": "ack", "cmd": "save_params", "success": bool, "path": str}
     {"type": "ack", "cmd": "set_preset", "success": bool, "active": str}
@@ -233,6 +236,15 @@ def main() -> int:
     from diagnostic_msgs.msg import DiagnosticArray
     from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
     from rcl_interfaces.srv import GetParameters, SetParameters
+    # NOT YET repointed to micropilot_visualization_node.srv (Task 6/VM-095
+    # Step 4 -- moving SetVirtualCam.srv into the merged package -- is a
+    # package-layout change intentionally held for a separate follow-up
+    # pass; the .srv file physically still lives under
+    # micropilot_rendering_node today, and importing from the merged
+    # package here would raise ModuleNotFoundError). The service NAME
+    # below is still namespaced under /visualization_node (VCAM_NAMESPACES)
+    # -- only the TYPE's import path is unaffected by which node currently
+    # advertises it.
     from micropilot_rendering_node.srv import SetVirtualCam
     import websockets
 
@@ -240,36 +252,30 @@ def main() -> int:
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--local-mode", action="store_true",
-                    help="Route set_render_mode to the visualization node's own "
-                         "local `render_mode` param (VM-093 dispatch) instead of "
-                         "the global /rendering/set_mode mux. For single-node "
-                         "rigs (the validate script) until the VM-095 cutover "
-                         "retires the mux; production co-residence keeps the "
-                         "default mux routing.")
+                    help="DEPRECATED, no-op post-cutover (VM-095): local-node "
+                         "render-mode control is now the ONLY behavior -- the "
+                         "two-node mux this flag used to opt out of no longer "
+                         "exists (micropilot_rendering_node is decommissioned). "
+                         "Kept accepted, not removed, so an existing launch "
+                         "command that still passes it keeps working unchanged.")
     args = ap.parse_args()
 
-    # Both the CUDA node (modes 1-2) and the visualization node (mode 3)
-    # implement an identical vcam surface under their own namespaces (spec
-    # §6) — camera commands fan out to BOTH; the inactive one just updates
-    # state, so a client orbiting in one mode keeps its viewpoint after
-    # switching modes.
-    VCAM_NAMESPACES = ["/rendering_node", "/visualization_node"]
+    # Post-cutover (VM-095): micropilot_rendering_node is decommissioned --
+    # visualization_node is the ONLY node implementing the vcam surface
+    # (spec §6). One namespace, not a fan-out list, but kept as a list (not
+    # a bare constant) so every VCAM_NAMESPACES call site below is
+    # untouched -- the collapse is in what the list CONTAINS, not its shape.
+    VCAM_NAMESPACES = ["/visualization_node"]
 
     class BridgeNode(Node):
         def __init__(self, local_mode: bool = False):
             super().__init__("vcam_ws_bridge")
             self._local_mode = local_mode
             self.state: list[float] | None = None  # [eye3, target3, preset, mode]
-            # Both nodes publish ~/vcam_state continuously (spec §9), so
-            # picking "whichever arrived last" flickers between them. Index 7
-            # is render_mode_ on BOTH namespaces as of VM-093 (rendering_node's
-            # own 1|2, visualization_node's own local 1|2|3 -- see that node's
-            # scene_assembly.hpp RenderMode) -- that parity is exactly what
-            # VM-093 bought, but it still can't be a shared filter value
-            # (rendering_node has no mode 3) -- instead track which NAMESPACE
-            # is authoritative for the last commanded mode. Starts at
-            # rendering_node, matching its default render_mode_ (2).
-            self._active_ns = VCAM_NAMESPACES[0]
+            # Post-cutover: exactly one namespace publishes ~/vcam_state, so
+            # the old "whichever arrived last" ambiguity (and the
+            # namespace-authority tracking it needed) is gone -- _on_state
+            # below just takes every message from the single namespace.
             # diagnostics only exists on visualization_node (mode 3) -- no
             # mux needed, harmless if it keeps arriving while mode 1/2 is
             # active, same "ingest continues regardless of mode" philosophy
@@ -282,14 +288,15 @@ def main() -> int:
             self._pub_look = [
                 self.create_publisher(Float64MultiArray, f"{ns}/set_look", 10)
                 for ns in VCAM_NAMESPACES]
-            # Global mux topic: 1|2|3, shared by both nodes -- switches which
-            # one owns /rendering/image AND (for 1|2) the CUDA node's
-            # bowl/pointcloud view, same semantics as the old per-node
-            # "~/set_render_mode" it replaces here. transient_local + reliable,
-            # depth 1 (VM-037 Step (a)): both nodes' subscriptions are now the
-            # same durable QoS, and a VOLATILE publisher is QoS-INCOMPATIBLE
-            # with a transient_local subscription (DDS won't match them at
-            # all), so this publisher must match or nothing gets delivered.
+            # Post-cutover (VM-095 Step 2): with the mux arbitration deleted,
+            # this is a normal single-subscriber topic -- the merged node's
+            # ONLY subscriber assigns msg.data directly to its own
+            # render_mode_, no mux decision in between. Topic name/type/QoS
+            # are UNCHANGED (transient_local + reliable, depth 1, VM-037 Step
+            # (a)) specifically so this publisher needs no edit at all: a
+            # restarted node is a late-joiner against this durable publisher,
+            # which is what lets it resume the operator's last-published mode
+            # instead of its own declare-time default after a crash/restart.
             self._pub_mode = self.create_publisher(
                 Int32, "/rendering/set_mode",
                 QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
@@ -302,12 +309,21 @@ def main() -> int:
             self._cli = [
                 self.create_client(SetVirtualCam, f"{ns}/set_virtual_cam")
                 for ns in VCAM_NAMESPACES]
+            # Post-cutover (VM-095 Step 5): TUNABLE_PARAMS (bowl_R0/k/Rmax,
+            # feather_margin, sky_color, camera_extrinsics, etc.) are ALL
+            # already declared on visualization_node (Tasks 1/2/5 ported
+            # them verbatim from the old node) -- repointed from
+            # /rendering_node, which no longer exists. Kept as a separate
+            # client pair from _cli_setp_viz/_cli_getp_viz below (same
+            # target node, different param GROUP) rather than merged into
+            # one, to keep this diff to the repoint the plan actually asks
+            # for.
             self._cli_getp = self.create_client(
-                GetParameters, "/rendering_node/get_parameters")
+                GetParameters, "/visualization_node/get_parameters")
             self._cli_setp = self.create_client(
-                SetParameters, "/rendering_node/set_parameters")
+                SetParameters, "/visualization_node/set_parameters")
             # Epic 3 Task 5 (VM-032): layer_*/quality are visualization_node's
-            # own params, not rendering_node's TUNABLE_PARAMS above -- a
+            # own params, not the TUNABLE_PARAMS group above -- a
             # separate client, same SetParameters service type.
             self._cli_setp_viz = self.create_client(
                 SetParameters, "/visualization_node/set_parameters")
@@ -316,17 +332,13 @@ def main() -> int:
             # defaults -- see get_layers_async()/the get_params handler.
             self._cli_getp_viz = self.create_client(
                 GetParameters, "/visualization_node/get_parameters")
-            # State telemetry is only meaningful from whichever node is
-            # currently active; both publish the same [eye|target|preset|mode]
-            # layout, so the GUI/WS clients don't care which one it came from.
             for ns in VCAM_NAMESPACES:
                 self.create_subscription(
                     Float64MultiArray, f"{ns}/vcam_state",
                     lambda msg, ns=ns: self._on_state(ns, msg), 10)
 
         def _on_state(self, ns, msg):
-            if ns == self._active_ns:
-                self.state = list(msg.data)
+            self.state = list(msg.data)
 
         def _on_diagnostics(self, msg):
             # DiagnosticStatus.level is `byte` (rclpy: a 1-length bytes
@@ -357,20 +369,13 @@ def main() -> int:
                 pub.publish(m)
 
         def set_render_mode(self, mode: int):
-            if self._local_mode:
-                # Single-node rig (pre-cutover): the merged node renders every
-                # mode locally via its VM-093 `render_mode` param; publishing
-                # the mux message here would idle its publisher (it publishes
-                # only at mux mode 3) and blank the stream.
-                if self._cli_setp_viz.service_is_ready():
-                    req = SetParameters.Request()
-                    req.parameters = [Parameter(
-                        name="render_mode",
-                        value=ParameterValue(type=ParameterType.PARAMETER_INTEGER,
-                                              integer_value=mode))]
-                    self._cli_setp_viz.call_async(req)
-                return
-            self._active_ns = "/visualization_node" if mode == 3 else "/rendering_node"
+            # Post-cutover (VM-095 Step 2): the merged node's ONLY subscriber
+            # on /rendering/set_mode assigns msg.data straight to its own
+            # render_mode_ -- no mux, no second node to idle, no
+            # SetParameters detour needed (that path predates Step 2's
+            # topic-drives-render_mode_ change and is gone with it; the
+            # --local-mode flag is now a no-op kept only for CLI
+            # compatibility, see its help text above).
             m = Int32()
             m.data = mode
             self._pub_mode.publish(m)

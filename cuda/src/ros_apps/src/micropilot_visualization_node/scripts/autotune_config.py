@@ -195,7 +195,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", default="carla:/home/ag7/micropilot/micropilot_sim/config/carla_interface_config.yaml")
     ap.add_argument("--names", default=",".join(DEF_NAMES))
-    ap.add_argument("--out", default=f"{REPO}/cuda/src/ros_apps/src/micropilot_rendering_node/config/default_params.yaml")
+    ap.add_argument("--out", default=f"{REPO}/cuda/src/ros_apps/src/micropilot_visualization_node/config/default_params.yaml")
     ap.add_argument("--frames", default="")     # npz to skip live capture
     ap.add_argument("--montage", default="/tmp/autotune_montage.png")
     ap.add_argument("--out-width", type=int, default=1280)
@@ -223,12 +223,16 @@ def main():
     ap.add_argument("--ground-z", default="auto",
                     help="global camera-height offset (m) correcting rig-origin-vs-ground "
                          "error; 'auto' sweeps for the overlap-disagreement minimum")
-    ap.add_argument("--robot-model", default="/home/ag7/Downloads/M02P.obj",
-                    help="robot proxy OBJ path written to robot_model_path ('' disables)")
-    ap.add_argument("--robot-transform",
-                    default="1.0,0,0,0,0,-1.0,0,1.0,0,0,0,0",
-                    help="12 floats [R(9)|t(3)] OBJ->rig for robot_model_transform "
-                         "(1.0x scale: visually calibrated against the camera-projected body)")
+    # ego_model_path (merged-node schema, Task 6 Step 2b): the OBJ->glTF
+    # conversion + OBJ->rig transform this generator used to emit
+    # (robot_model_path/robot_model_transform) are gone -- the merged node
+    # takes a pre-converted glTF path directly (obj2gltf_m02p.py,
+    # provision_ego_model.sh) and has no robot_model_transform-shaped param
+    # at all. "" (the merged node's own default) falls back to the clay-box
+    # ego, same honesty as every other unprovisioned-box case.
+    ap.add_argument("--ego-model", default="",
+                    help="path to the converted M02P glTF written to "
+                         "ego_model_path ('' falls back to the clay-box ego)")
     a = ap.parse_args()
     names = a.names.split(",")
 
@@ -355,11 +359,23 @@ def main():
         grid[rr*th:(rr+1)*th, cc*tw:(cc+1)*tw] = t
     cv2.imwrite(a.montage, grid)
 
-    # 5. write config
+    # 5. write config (merged-node schema, unified-engine migration Task 6
+    # Step 2b): virtual_pose is the 6-float [eye|target] mpviz::CameraPose
+    # convention -- `eye`/`target` are already plain vectors in this scope
+    # (driving_pose()'s own return, before vcam() converts them to the OLD
+    # node's 12-float [R|t] `pose` for tpscuda's own render calls above), so
+    # this is a direct pass-through, not a re-derivation from R/t.
+    # ego_model_path replaces robot_model_path/robot_model_transform -- this
+    # generator no longer emits an OBJ->rig transform at all (the merged
+    # node consumes a pre-converted glTF, per-box-provisioned, VM-044).
+    # fill_blind_zone/exposure_match are explicit `False` -- neither has a
+    # Filament-side implementation (Decision 3); the node's own clamp would
+    # coerce a `True` here regardless, this keeps the generator's OWN output
+    # honest rather than relying on that runtime WARN.
     ext_flat = []
     for (R, t) in ext:
         ext_flat += [float(v) for v in np.asarray(R).reshape(-1)] + [float(v) for v in t]
-    vpose = [float(v) for v in list(pose.R.reshape(-1)) + list(pose.t)]
+    vpose = [float(v) for v in list(eye)] + [float(v) for v in list(target)]
     params = {"/**": {"ros__parameters": {
         "n_cameras": len(names),
         "out_width": OW, "out_height": OH,
@@ -367,9 +383,9 @@ def main():
         "odom_topic": a.odom_topic,
         "bowl_R0": float(R0), "bowl_k": float(k), "bowl_Rmax": float(Rmax),
         "feather_margin": float(a.feather),
-        "fill_blind_zone": True,
-        "robot_model_path": a.robot_model,
-        "robot_model_transform": [float(x) for x in a.robot_transform.split(",")],
+        "fill_blind_zone": False,
+        "exposure_match": False,
+        "ego_model_path": a.ego_model,
         "virtual_vfov_deg": float(a.vfov),
         "sky_color": [float(x) for x in a.sky.split(",")],
         "image_topics": [f"/{n}/raw_images" for n in names],

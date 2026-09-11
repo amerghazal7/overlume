@@ -3,6 +3,37 @@
 # camera_extrinsics hand-updated 2026-07-09 from the new deployment calib.
 # Calib ego origin sits +1.15 up of the robot origin (no fwd offset), so
 # t = calib t + [0, 0, 1.15]. Supersedes the 07-08 bl/br refits.
+#
+# Migrated from micropilot_rendering_node/config/m2o1_params.yaml at the
+# unified-engine migration's Task 6 (VM-095) Step 2b — the old node's schema
+# cannot launch the merged node as written, so this is a translation, not a
+# plain move:
+#   - virtual_pose: the old 12-float [R(9 row-major)|t(3)] -> the merged
+#     node's 6-float [eye xyz|target xyz] (mpviz::CameraPose). eye = t;
+#     target = eye + fwd, fwd = R's third column (R[2],R[5],R[8]), d=1.0 —
+#     the same conversion sanity-checked against rendering_node.cpp's own
+#     compiled-in default pose, which converts to exactly the
+#     eye=(0,-4,0)/target=(0,-5,0) pair test_vcam_contract.py already
+#     documents. Here: eye=(-3.0,0.0,3.0),
+#     target=(-2.1566085541871143,0.0,2.4627003916531761).
+#   - robot_model_path/robot_model_transform -> ego_model_path: left "" —
+#     this robot's M02P glTF is provisioned per-box by
+#     micropilot_visualization_node/scripts/provision_ego_model.sh (VM-044),
+#     not carried forward as the old per-user ~/Downloads path; a box that
+#     hasn't run that script gets the clay-box fallback (ego.cpp), an
+#     accepted, named parity exception (signoff.md #3), not silently fixed
+#     here.
+#   - fill_blind_zone/exposure_match: forced false (both were true) —
+#     neither has a Filament-side implementation (Decision 3); the node's
+#     own clamp would coerce them to false anyway, this keeps the file
+#     honest instead of relying on the runtime WARN.
+#   - out_width/out_height/virtual_vfov_deg: kept as deployed (unchanged
+#     names/types, override the merged node's 1280x720/80 deg defaults).
+#   - n_cameras/image_topics/info_topics/camera_extrinsics/bowl_R0/bowl_k/
+#     bowl_Rmax/feather_margin/sky_color/max_sync_latency/odom_topic/
+#     pointcloud_topic/pointcloud_transform/splat_radius: unchanged — these
+#     were already ported verbatim to the merged node's own param schema
+#     (Tasks 1/2/5).
 /**:
   ros__parameters:
     n_cameras: 6
@@ -14,22 +45,9 @@
     bowl_k: 0.2
     bowl_Rmax: 22.0
     feather_margin: 480.0
-    fill_blind_zone: true
-    exposure_match: true
-    robot_model_path: /home/ag7/Downloads/M02P.obj
-    robot_model_transform:
-    - 1.0
-    - 0.0
-    - 0.0
-    - 0.0
-    - 0.0
-    - -1.0
-    - 0.0
-    - 1.0
-    - 0.0
-    - 0.0
-    - 0.0
-    - 0.0
+    fill_blind_zone: false
+    exposure_match: false
+    ego_model_path: ""
     # Fused lidar cloud (frame: seyond = calib ego origin). Lifted by the same
     # +1.15 z offset as camera_extrinsics t (no fwd offset).
     pointcloud_topic: /iv_points_fusion
@@ -140,15 +158,9 @@
     - -0.3059
     - 0.8103
     virtual_pose:
-    - 0.0
-    - -0.5372996083468239
-    - 0.8433914458128857
-    - -1.0
-    - -0.0
-    - 0.0
-    - 0.0
-    - -0.8433914458128857
-    - -0.5372996083468239
     - -3.0
     - 0.0
     - 3.0
+    - -2.1566085541871143
+    - 0.0
+    - 2.4627003916531761
