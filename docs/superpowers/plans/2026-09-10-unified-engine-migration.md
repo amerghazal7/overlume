@@ -662,7 +662,7 @@ TEST(LidarColorize, PointInSingleCameraFovGetsThatCamerasColor) {
 
 - [ ] **Step 5: Golden — visual check against the CUDA hybrid mode's own output**, one capture from this epic's camera fixture bag (`~/TPSProjector-fixtures/stack_v2_full_sensors_2026-09-09`, Global Constraints), human-sanity-approved, same convention as Task 2 Step 7.
 
-- [ ] **Step 6: Commit** `feat(visual): mode-2 hybrid migrated — camera-colorized PointCloud, hybrid_enabled default off (VM-094)`.
+- [x] **Step 6: Commit** `feat(visual): mode-2 hybrid migrated — camera-colorized PointCloud, hybrid_enabled default off (VM-094)`. (48bcb63)
 
 ---
 
