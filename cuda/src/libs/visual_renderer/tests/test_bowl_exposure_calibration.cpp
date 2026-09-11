@@ -66,7 +66,16 @@ int render_gray(mpviz::VisualRenderer* r, uint8_t gray_byte) {
         int R = buf[i], G = buf[i + 1], B = buf[i + 2];
         int lo = std::min({R, G, B});
         int hi = std::max({R, G, B});
-        if (hi - lo <= 6) {  // near-neutral: the bowl's gray sample, not the green sky
+        // Widened from `hi - lo <= 6`: that tighter band silently dropped
+        // most of the bowl above ~gray 200 (the ACES shoulder pushes a flat
+        // gray bowl 7-20 bytes off neutral there), keeping a <1% edge
+        // subsample one AA/driver nudge from failing spuriously -- see
+        // tools/bowl_exposure_probe.cpp's render_gray_probe() comment for the
+        // measured counts and for why a pure "exclude the green sky" filter
+        // is NOT a safe alternative (this render target's uncovered area is
+        // the renderer's own non-green clear color, not sky_color). 24 is
+        // still comfortably under that clear color's own hi-lo (measured 45).
+        if (hi - lo <= 24) {
             sum += (R + G + B);
             count += 3;
         }
@@ -110,7 +119,7 @@ TEST(BowlExposureCalibration, BrightGrayIsShoulderCompressedNotClipped) {
 
     int out = render_gray(r, 224);
     ASSERT_GE(out, 0) << "no bowl-surface pixels found in the rendered frame";
-    // Measured 224 -> 192 (bowl_exposure_probe.cpp): well below a clipped
+    // Measured 224 -> 208 (bowl_exposure_probe.cpp): well below a clipped
     // 255, and below the input itself -- the ACES shoulder rolling off
     // highlights, not a bug.
     EXPECT_LT(out, 224) << "expected the ACES shoulder to compress the bright end, not "

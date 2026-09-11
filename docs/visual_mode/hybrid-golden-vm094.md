@@ -154,16 +154,33 @@ does not mention (`timer_callback()`'s `active_mode_ != 3` gate, which the
 mux-cutover prep work added after this doc's original capture, requires it
 for `/rendering/image` to publish at all regardless of `render_mode`); the
 `--start-offset` change is an unrelated, harmless choice made while getting
-the rig up, not a finding about the fix itself. The frame content is
-therefore a different moment in the bag than the original capture (a
-different intersection/scene layout) — the thing to judge is the same
-exposure/contrast comparison against the CUDA reference, not a pixel match
-against the prior capture.
+the rig up, not a finding about the fix itself.
+
+**Review round 1 finding 2 — this pair is NOT scene-matched:** the reference
+PNG above is still the original `--start-offset 40` capture, never
+re-shot, so this recapture pairs a `--start-offset 0` merged-node frame
+against a `--start-offset 40` CUDA-reference frame — two different moments
+in the bag (different intersection/scene layout), not just a different
+moment than the *prior* merged-node capture. Only gross exposure/contrast
+character can be judged from this pair, not scene-matched color — the same
+limitation the Golden scoping rule already accepts for the mechanism
+difference, now compounded by a timing difference too.
 
 Visual result: same shape as the bowl recapture — normal daytime asphalt
 contrast (visible lane paint, parked-car color) replacing the prior
 washed-out/faded look, much closer to the CUDA reference's own exposure.
 Full library suite green (202/202), node rebuilt.
+
+**Known remaining (review round 1 finding 4):** the camera-colorized lidar
+splats in `hybrid_test_town_merged_node.png` above are NOT part of what this
+recapture fixed. `lidar_colorize.cpp` packs raw sRGB camera bytes straight
+into `PointCloudPoint::rgba`, and `point_cloud.cpp` binds that as a plain
+UBYTE4-normalized vertex COLOR attribute with no sRGB decode (unlike a
+`sampler2d` texture) — `point_cloud.mat` is unlit and consumes that value
+verbatim, so the splats still carry the same linear-vs-sRGB double-encoding
+bug this commit fixed for the bowl's camera *textures* specifically. Human
+sign-off on this capture covers the bowl ground plane's exposure/contrast
+only, not the colorized point splats sitting on it.
 
 **This recapture is produced; it has not been human-sanity-approved yet**
 (same Golden scoping rule) — committed as a candidate per the promotion

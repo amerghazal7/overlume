@@ -1,8 +1,13 @@
 // bowl_exposure_probe.cpp — measures the bowl.mat `exposureCompensation`
-// value this renderer's fixed camera exposure (renderer.cpp's
-// setExposure(16, 1/500, 100)) + ACES tonemap + output OETF actually need,
-// now that camera_textures.cpp samples camera pixels as SRGB8 (decoded to
-// linear at sample time) instead of a linear internal format. Replaces the
+// value this renderer's ACES tonemap + output OETF actually need to bring an
+// UNLIT material's raw baseColor back into a display-referred range (NOT
+// renderer.cpp's setExposure(16, 1/500, 100) — bowl.mat is shadingModel:
+// unlit, and matinfo confirms its compiled fragment shader never reads
+// frameUniforms.exposure; a photometric recompute of that camera's EV100
+// gives a ~6.5e-6 Filament exposure factor, five orders of magnitude away
+// from 1.56, which is itself the proof setExposure isn't in this path), now
+// that camera_textures.cpp samples camera pixels as SRGB8 (decoded to linear
+// at sample time) instead of a linear internal format. Replaces the
 // empirical eyeball-against-a-bag guess bowl.mat/scene.h's comments
 // documented (10.0 -> 1.5) with a real measurement: feed a flat sRGB gray
 // frame through the real set_bowl_config+set_camera_frame+render_frame
@@ -10,7 +15,9 @@
 // exposureCompensation until mid-gray (sRGB byte 128) round-trips back to
 // ~128 in the output. Prints the full 32/64/128/192/224 ramp at the found
 // value afterward so the ACES shoulder compression at the bright end is on
-// the record, not assumed.
+// the record, not assumed — shadows are compressed too (not just highlights):
+// measured 32->18 and 64->48, ~40% dark, at this same mid-gray-matched value
+// (a single scalar compensation cannot invert a nonlinear tonemap curve).
 //
 // GPU-less box: create_renderer() returns nullptr; this prints one line and
 // exits nonzero rather than fabricating a number.
@@ -61,9 +68,24 @@ mpviz::BowlConfig make_bowl_config(const mpviz::CameraExtrinsics& ext,
 
 // Renders one flat sRGB `gray_byte` camera frame through the bowl at
 // `exposure_compensation` and returns the mean output byte over pixels that
-// are the bowl's sampled surface (near-neutral: R/G/B all close to each
-// other), not the green sky. Returns -1 if no such pixel is found (config
-// rejected, or GPU-less).
+// are the bowl's sampled surface. The naive near-neutral filter (`hi - lo <=
+// 6`) silently drops most of the bowl at the bright end -- the ACES shoulder
+// pushes a flat gray bowl 7-20 bytes off neutral there, so at gray=224 it
+// kept only 563 of ~26,300 bowl pixels (0.7% of the frame, mean 192, an
+// edge/fringe subsample) instead of the bulk 25,769 px (mean 208), one AA/
+// driver nudge from keeping zero pixels and failing spuriously. A pure
+// "exclude the green sky" filter is NOT a safe replacement here: this probe's
+// render target is NOT fully covered by the bowl mesh + its sky_color fill --
+// a substantial fraction (measured ~66% at this pose) is the renderer's own
+// clear color (kFallbackTheme's dark navy sky, since this probe runs with no
+// theme_assets_dir), which is not green-dominant and would be silently
+// counted as "bowl" by a green-only exclusion (verified: it moved the
+// mid-gray round-trip target from 1.56 to ~18.8, a 12x error). Widening the
+// near-neutral band to `hi - lo <= 24` instead is what actually holds: the
+// measured background corner is (35, 43, 80) (hi-lo=45, safely excluded)
+// while the bowl's own bright-end shoulder deviation tops out at 20 (safely
+// included) across the whole 32/64/128/192/224 ramp.
+// Returns -1 if no such pixel is found (config rejected, or GPU-less).
 int render_gray_probe(mpviz::VisualRenderer* r, const mpviz::CameraExtrinsics& ext,
                        const mpviz::CameraIntrinsics& in, uint8_t gray_byte,
                        float exposure_compensation) {
@@ -86,10 +108,7 @@ int render_gray_probe(mpviz::VisualRenderer* r, const mpviz::CameraExtrinsics& e
         int R = buf[i], G = buf[i + 1], B = buf[i + 2];
         int lo = std::min({R, G, B});
         int hi = std::max({R, G, B});
-        // Near-neutral (gray in, gray out): reject anything green-skewed
-        // (the sky) or otherwise saturated (feather/AA edge pixels blending
-        // sky into bowl).
-        if (hi - lo <= 6) {
+        if (hi - lo <= 24) {
             sum += (R + G + B);
             count += 3;
         }
