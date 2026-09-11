@@ -20,6 +20,9 @@ third-party client — can drive the virtual camera:
     {"cmd": "set_quality", "preset": "low"|"medium"|"high"|0|1|2}  (VM-032 --
         writes visualization_node's `quality` param only; takes effect on
         its NEXT restart, not live -- see that node's create_renderer())
+    {"cmd": "set_surround_profile", "profile": "bowl"|"hybrid"}  (Task 4/
+        VM-093 -- writes visualization_node's `surround_stitching_profile`
+        param; live, same on_params() live-tuning contract as layer_*)
   server -> client:
     {"type": "state", "eye": [...], "target": [...], "preset": 0..5,
      "render_mode": 1|2}  (~15 Hz)
@@ -62,6 +65,10 @@ LAYER_NAMES = {
 # quality preset name -> visualization_node's `quality` param encoding
 # (0=low, 1=med, 2=high, api.h's RenderConfig::quality).
 QUALITY_PRESETS = {"low": 0, "medium": 1, "high": 2, 0: 0, 1: 1, 2: 2}
+# Surround Stitching content profile (Task 4/VM-093 follow-up USER
+# DIRECTIVE) -- visualization_node's on_params() accepts exactly these two,
+# rejecting anything else (test_mode_dispatch.py check 3).
+SURROUND_PROFILES = {"bowl", "hybrid"}
 
 # Params the GUI tuning panel may read/write, with their declared ROS types.
 TUNABLE_PARAMS = {
@@ -209,6 +216,11 @@ def parse_cmd(text: str):
             raise ValueError(
                 'set_quality: preset must be "low", "medium", "high", or 0/1/2')
         return "set_quality", QUALITY_PRESETS[preset]
+    if cmd == "set_surround_profile":
+        profile = msg.get("profile")
+        if profile not in SURROUND_PROFILES:
+            raise ValueError('set_surround_profile: profile must be "bowl" or "hybrid"')
+        return "set_surround_profile", profile
     raise ValueError(f"unknown cmd {cmd!r}")
 
 
@@ -388,7 +400,7 @@ def main() -> int:
             return self._cli_setp.call_async(req)
 
         def get_layers_async(self):
-            """GetParameters for the seven layer_* bools from
+            """GetParameters for the nine layer_* bools from
             visualization_node -- the read twin of set_layers_async below,
             so the GUI can show real values instead of asserted defaults."""
             if not self._cli_getp_viz.service_is_ready():
@@ -422,6 +434,17 @@ def main() -> int:
             pv = ParameterValue(type=ParameterType.PARAMETER_INTEGER, integer_value=preset)
             req = SetParameters.Request()
             req.parameters = [Parameter(name="quality", value=pv)]
+            return self._cli_setp_viz.call_async(req)
+
+        def set_surround_profile_async(self, profile: str):
+            """Writes visualization_node's `surround_stitching_profile`
+            param -- live, same on_params() contract as layer_* (unlike
+            set_quality_async above, which only takes effect on restart)."""
+            if not self._cli_setp_viz.service_is_ready():
+                return None
+            pv = ParameterValue(type=ParameterType.PARAMETER_STRING, string_value=profile)
+            req = SetParameters.Request()
+            req.parameters = [Parameter(name="surround_stitching_profile", value=pv)]
             return self._cli_setp_viz.call_async(req)
 
         @staticmethod
@@ -548,6 +571,21 @@ def main() -> int:
                     except Exception as e:
                         await ws.send(json.dumps({
                             "type": "error", "message": f"set_quality: {e}"}))
+                elif cmd == "set_surround_profile":
+                    fut = node.set_surround_profile_async(payload)
+                    if fut is None:
+                        await ws.send(json.dumps({
+                            "type": "error",
+                            "message": "visualization_node set_parameters unavailable"}))
+                        continue
+                    try:
+                        res = await await_ros(fut)
+                        ok = all(r.successful for r in res.results)
+                        await ws.send(json.dumps({
+                            "type": "ack", "cmd": "set_surround_profile", "success": ok}))
+                    except Exception as e:
+                        await ws.send(json.dumps({
+                            "type": "error", "message": f"set_surround_profile: {e}"}))
                 elif cmd == "save_params":
                     try:
                         dst = await do_save_params(payload)

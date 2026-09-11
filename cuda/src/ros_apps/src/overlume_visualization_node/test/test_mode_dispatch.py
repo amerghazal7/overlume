@@ -20,6 +20,15 @@ convention exists here):
      of the above ever touches /rendering/set_mode, and the node stays alive
      throughout (this file's own repro for "no ROS message exchanged for a
      mode switch").
+  5. **A render_mode switch never clobbers the user's own layer_* prefs.**
+     `compose_layer_gates()` masks per mode but must never overwrite --
+     `layer_objects`/`layer_paths` are seeded to non-default values, then
+     read back via `ros2 param get` across a BOWL->FREE_LOOK round trip and
+     asserted unchanged. This is a pure ROS-param round trip (no pixel
+     readback needed), so it is NOT covered by the pixel/sentinel deferral
+     the plan's Task 4 Step 0 and signoff.md still name as open -- that
+     deferral is scoped to the pixel-level bowl-visible/hidden assertions,
+     which do need a render-readback harness this package doesn't have.
 
 Run (ROS + this repo's ros_apps install sourced first):
     source /opt/ros/humble/setup.bash
@@ -89,6 +98,13 @@ def _param_set(name: str, value_literal: str) -> bool:
     return result.returncode == 0 and "Set parameter successful" in result.stdout
 
 
+def _param_get(name: str) -> str:
+    """Last ':'-delimited token of `ros2 param get`'s one-line output,
+    lowercased -- e.g. "Boolean value is: True" -> "true"."""
+    result = _run(f"ros2 param get {NODE_NAME} {name}")
+    return result.stdout.strip().rsplit(":", 1)[-1].strip().lower()
+
+
 def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -134,7 +150,7 @@ def main() -> int:
                 print(f"FAIL: `ros2 param set render_mode {mode}` was rejected -- "
                       f"expected accepted.", file=sys.stderr)
                 return 1
-        print("PASS (1a/4): render_mode accepts 1, 2, 3.")
+        print("PASS (1a/5): render_mode accepts 1, 2, 3.")
 
         # ---- 1b. render_mode: rejects out of range ----
         for bad in (0, 4):
@@ -142,7 +158,7 @@ def main() -> int:
                 print(f"FAIL: `ros2 param set render_mode {bad}` was ACCEPTED -- "
                       f"expected rejected (out of range 1-3).", file=sys.stderr)
                 return 1
-        print("PASS (1b/4): render_mode rejects 0 and 4.")
+        print("PASS (1b/5): render_mode rejects 0 and 4.")
 
         # ---- 2. layer_surround_stitching round-trips ----
         if not _param_set("layer_surround_stitching", "true"):
@@ -153,7 +169,7 @@ def main() -> int:
             print("FAIL: `ros2 param set layer_surround_stitching false` was rejected.",
                   file=sys.stderr)
             return 1
-        print("PASS (2/4): layer_surround_stitching round-trips true/false.")
+        print("PASS (2/5): layer_surround_stitching round-trips true/false.")
 
         # ---- 3. surround_stitching_profile: accepts bowl/hybrid, rejects other ----
         for profile in ("bowl", "hybrid"):
@@ -165,7 +181,7 @@ def main() -> int:
             print("FAIL: `ros2 param set surround_stitching_profile lidar` was ACCEPTED -- "
                   "expected rejected (only 'bowl'/'hybrid' are valid).", file=sys.stderr)
             return 1
-        print("PASS (3/4): surround_stitching_profile accepts bowl/hybrid, rejects lidar.")
+        print("PASS (3/5): surround_stitching_profile accepts bowl/hybrid, rejects lidar.")
 
         # ---- 4. node stayed alive throughout, no /rendering/set_mode touched ----
         time.sleep(0.5)
@@ -175,8 +191,27 @@ def main() -> int:
             print(f"FAIL: visualization_node crashed during the param cycle:\n{tail}",
                   file=sys.stderr)
             return 1
-        print("PASS (4/4): node stayed alive throughout -- no ROS message on any topic was "
+        print("PASS (4/5): node stayed alive throughout -- no ROS message on any topic was "
               "needed for any of the above.")
+
+        # ---- 5. BOWL<->FREE_LOOK does not clobber the user's own layer_* prefs
+        # ----  (the mask composes, it must never overwrite -- see
+        #        scene_assembly.hpp's compose_layer_gates()) ----
+        if not _param_set("layer_objects", "false") or not _param_set("layer_paths", "true"):
+            print("FAIL: could not seed layer_objects/layer_paths for the restore check.",
+                  file=sys.stderr)
+            return 1
+        for mode in (1, 3):
+            if not _param_set("render_mode", str(mode)):
+                print(f"FAIL: render_mode {mode} rejected mid-restore-check.", file=sys.stderr)
+                return 1
+            objects, paths = _param_get("layer_objects"), _param_get("layer_paths")
+            if objects != "false" or paths != "true":
+                print(f"FAIL: render_mode={mode} left layer_objects={objects!r} "
+                      f"layer_paths={paths!r}, expected false/true unchanged.", file=sys.stderr)
+                return 1
+        print("PASS (5/5): layer_objects/layer_paths survive a BOWL->FREE_LOOK round trip "
+              "unchanged.")
 
         print("PASS: visualization_node local render-mode/Surround Stitching param test passed.")
         return 0

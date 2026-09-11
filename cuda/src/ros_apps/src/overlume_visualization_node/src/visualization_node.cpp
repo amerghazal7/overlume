@@ -730,10 +730,10 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     layer_param_cb_ = add_on_set_parameters_callback(
         std::bind(&VisualizationNode::on_params, this, std::placeholders::_1));
 
-    // Review round 1 (2026-09-11): render_mode BOWL/HYBRID with bowl_enabled_
-    // false (the shipped default) masks the whole autonomy scene for a bowl
-    // that was never configured -- sky + a box ego, no diagnostic. One-shot,
-    // bowl_mode_warned_ shared with on_params()'s render_mode branch below.
+    // render_mode BOWL/HYBRID with bowl_enabled_ false (the shipped default)
+    // masks the whole autonomy scene for a bowl that was never configured --
+    // sky + a box ego, no diagnostic. One-shot, bowl_mode_warned_ shared with
+    // on_params()'s render_mode branch below.
     if ((render_mode_ == kRenderModeBowl || render_mode_ == kRenderModeHybrid) && !bowl_enabled_ &&
         !bowl_mode_warned_)
     {
@@ -788,13 +788,9 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
                         "set_environment_source: failed to open '%s' -- no buildings this run",
                         environment_chunks_dir_.c_str());
         }
-        else
-        {
-            // Review round 1 (2026-09-11): armed -- timer_callback()'s
-            // per-mode environment gate takes over from here (BOWL/HYBRID
-            // must not show buildings around the bowl).
-            environment_configured_ = true;
-        }
+        // No per-mode gate on success: see timer_callback()'s comment above
+        // the bowl-visibility dispatch -- buildings render regardless of
+        // render_mode_ once armed here (named exception 7, signoff.md).
     }
     else if (environment_enabled_ && !environment_warned_)
     {
@@ -852,11 +848,11 @@ rcl_interfaces::msg::SetParametersResult VisualizationNode::on_params(
                 else
                 {
                     render_mode_ = v;
-                    // Review round 1 (2026-09-11): same one-shot WARN as
-                    // on_configure()'s close-out check -- a live switch INTO
-                    // BOWL/HYBRID with the bowl never configured is the same
-                    // near-empty-frame trap, just reached via `ros2 param
-                    // set` instead of a declare-time default.
+                    // Same one-shot WARN as on_configure()'s close-out check
+                    // -- a live switch INTO BOWL/HYBRID with the bowl never
+                    // configured is the same near-empty-frame trap, just
+                    // reached via `ros2 param set` instead of a declare-time
+                    // default.
                     const bool bowl_ready =
                         bowl_enabled_ && camera_ingest_ && camera_ingest_->config_applied();
                     if ((render_mode_ == kRenderModeBowl || render_mode_ == kRenderModeHybrid) &&
@@ -1109,24 +1105,16 @@ void VisualizationNode::timer_callback()
 
     // Environment/buildings layer (Epic 4/VM-052) is renderer-internal, not a
     // SceneAssembly/LayerFlags category (scene_assembly.hpp's mode_content_mask
-    // comment) -- review round 1 finding: left ungated, BOWL/HYBRID would show
-    // baked buildings around the bowl, contradicting "only bowl and ego are
-    // rendered". Toggled via set_environment_source()'s documented null-source
-    // "renders nothing" path, only when on_activate() actually armed it
-    // (environment_configured_) -- re-arms with the SAME chunks dir/anchor on
-    // return to FREE_LOOK. Cheap edge-triggered flip, same shape as the bowl
-    // visibility dispatch above.
-    if (environment_configured_)
-    {
-        const bool want_environment = render_mode == RenderMode::FREE_LOOK;
-        if (want_environment != environment_rendering_)
-        {
-            mpviz::set_environment_source(
-                renderer_, want_environment ? environment_chunks_dir_.c_str() : nullptr,
-                geo_anchor_solver_->anchor());
-            environment_rendering_ = want_environment;
-        }
-    }
+    // comment) -- NOT gated per mode. set_environment_source(nullptr, ...)
+    // cannot hide a live source: environment.cpp's null/empty-uri guard
+    // returns false BEFORE reaching the `if (r->environmentSource) teardown()`
+    // line, so a null call after a real one is a no-op, not a hide. There is
+    // no library-side visibility toggle to call instead. Buildings therefore
+    // keep rendering in BOWL/HYBRID whenever environment_chunks_dir is
+    // provisioned -- named exception 7, docs/visual_mode/signoff.md. Needs
+    // either set_environment_visible() or a fixed teardown-before-return
+    // order in set_environment_source() (library side, out of this node-only
+    // task's scope).
 
     // scene_asm_.clear() must run before any adapter's fill(), or last tick's
     // elements pile up on top of this tick's. MapElement fades via the
