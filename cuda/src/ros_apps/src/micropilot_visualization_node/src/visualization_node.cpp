@@ -427,6 +427,83 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
         camera_ingest_->set_max_sync_latency(max_sync_latency_);
     }
 
+    // ── Hybrid lidar colorization (VM-094, unified-engine migration Task 5) ──
+    // hybrid_enabled_: STANDING disable knob (same shape as bowl_enabled_
+    // above) -- false means no PointCloud2 subscription is created at all
+    // and timer_callback()'s HYBRID block never runs (HYBRID mode falls
+    // back to bowl-only, Decision 5). Real colorization also needs
+    // camera_ingest_ (bowl_enabled_ true) -- ColorizeFromCameras() has no
+    // camera rig geometry or RGB buffers to sample without it; that gate
+    // lives in timer_callback(), not here, so the subscription can still be
+    // created independently (harmless if bowl_enabled_ is false: the topic
+    // is buffered but never colorized).
+    hybrid_enabled_ = declare_parameter<bool>("hybrid_enabled", false);
+    if (camera_ingest_) camera_ingest_->set_hybrid_enabled(hybrid_enabled_);
+    pointcloud_topic_ = declare_parameter<std::string>("pointcloud_topic", "");
+    auto pc_tf = declare_parameter<std::vector<double>>(
+        "pointcloud_transform", {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0});
+    if (pc_tf.size() != 12)
+    {
+        RCLCPP_ERROR(get_logger(), "pointcloud_transform must be 12 floats [R(9)|t(3)], got %zu",
+                     pc_tf.size());
+        return CallbackReturn::FAILURE;
+    }
+    for (int i = 0; i < 12; ++i) pointcloud_tf_[i] = static_cast<float>(pc_tf[i]);
+    // VESTIGIAL (Decision 5): declared for GUI/TUNABLE_PARAMS compatibility
+    // only -- point size is owned by the theme token
+    // point_cloud.point_size_px, never read by this node's own code. See
+    // default_params.yaml's own comment on this key for the full reasoning.
+    declare_parameter<int>("splat_radius", 2);
+    if (hybrid_enabled_ && !pointcloud_topic_.empty())
+    {
+        cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
+            pointcloud_topic_, rclcpp::SensorDataQoS(),
+            [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg)
+            {
+                // Locate float32 x/y/z field offsets -- same layout-
+                // agnostic scan as micropilot_rendering_node's own lidar
+                // callback (rendering_node.cpp:479-486).
+                int ox = -1, oy = -1, oz = -1;
+                for (const auto& f : msg->fields)
+                {
+                    if (f.datatype != sensor_msgs::msg::PointField::FLOAT32) continue;
+                    if (f.name == "x") ox = static_cast<int>(f.offset);
+                    else if (f.name == "y") oy = static_cast<int>(f.offset);
+                    else if (f.name == "z") oz = static_cast<int>(f.offset);
+                }
+                if (ox < 0 || oy < 0 || oz < 0)
+                {
+                    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                                         "hybrid: point cloud lacks float32 x/y/z fields; ignoring");
+                    return;
+                }
+                const float* T = pointcloud_tf_;
+                const size_t n = static_cast<size_t>(msg->width) * msg->height;
+                std::vector<mpviz::Vec3> pts;
+                pts.reserve(n);
+                const uint8_t* base = msg->data.data();
+                for (size_t p = 0; p < n; ++p)
+                {
+                    const uint8_t* rec = base + p * msg->point_step;
+                    float x, y, z;
+                    std::memcpy(&x, rec + ox, 4);
+                    std::memcpy(&y, rec + oy, 4);
+                    std::memcpy(&z, rec + oz, 4);
+                    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) continue;
+                    // cloud -> rig, same [R(9)|t(3)] convention as
+                    // rendering_node.cpp's own lidar callback (Decision 3's
+                    // frame convention: colorization happens in rig frame).
+                    pts.push_back(mpviz::Vec3{T[0] * x + T[1] * y + T[2] * z + T[9],
+                                               T[3] * x + T[4] * y + T[5] * z + T[10],
+                                               T[6] * x + T[7] * y + T[8] * z + T[11]});
+                }
+                std::lock_guard<std::mutex> lk(cloud_mtx_);
+                cloud_pts_rig_.swap(pts);
+            });
+        RCLCPP_INFO(get_logger(), "hybrid rendering enabled (point cloud: %s)",
+                    pointcloud_topic_.c_str());
+    }
+
     // VM-052 (Epic 4 Task 3): environment disable knob + per-checkout chunks
     // dir, same read-once shape as hud_enabled_/hud_font_path_ below.
     // Actually wiring set_environment_source() happens in on_activate()
@@ -1261,6 +1338,83 @@ void VisualizationNode::timer_callback()
     // 2026-09-10) -- re-spine it onto the local path's own geometry so the
     // two strips are concentric instead of ~1m-offset crisscrossing edges.
     micropilot::visualization_app::respine_velocity_ribbon_onto_local_path(scene_asm_);
+
+    // ── Hybrid lidar colorization (VM-094, unified-engine migration Task 5) ──
+    // USER DIRECTIVE 2026-09-11 (mode content exclusivity): HYBRID renders
+    // bowl + camera-colorized lidar + ego ONLY -- this is that content, now
+    // real (mode_content_mask()'s own comment used to note this category
+    // carried an un-colorized autonomy PointCloud row until this task
+    // landed; see that comment for the updated, honest state).
+    // hybrid_enabled_ false (shipped default) or camera_ingest_ null (bowl
+    // disabled) means this block does nothing, and scene_asm_.point_clouds
+    // keeps whatever mode 3's own PointCloudAdapter rows (VM-035, the loop
+    // above) already appended -- named interaction (Task 5 Step 3), not
+    // silently overwritten: HYBRID is the ONLY render mode whose tick
+    // replaces this category from ColorizeFromCameras(); every other
+    // mode's point_clouds row is untouched by this block. `hybrid_points`
+    // is declared here (not inside the `if` below) so its backing storage
+    // stays alive through scene_asm_.point_at(scene)/set_scene() further
+    // down -- those pointers alias into it, same aliasing-lifetime contract
+    // scene_assembly.hpp's own header comment documents for every adapter.
+    std::vector<mpviz::PointCloudPoint> hybrid_points;
+    if (render_mode == RenderMode::HYBRID && hybrid_enabled_ && camera_ingest_)
+    {
+        std::vector<mpviz::Vec3> cloud_snapshot;
+        {
+            std::lock_guard<std::mutex> lk(cloud_mtx_);
+            cloud_snapshot = cloud_pts_rig_;
+        }
+        std::vector<mpviz::CameraExtrinsics> ext;
+        std::vector<mpviz::CameraIntrinsics> in;
+        std::vector<uint32_t> cw, ch;
+        camera_ingest_->fill_bowl_intrinsics(ext, in, cw, ch);
+        std::vector<const uint8_t*> rgb_bufs;
+        camera_ingest_->fill_camera_rgb_buffers(rgb_bufs);
+
+        mpviz::BowlConfig cams{};
+        cams.camera_count = static_cast<uint32_t>(ext.size());
+        cams.extrinsics = ext.data();
+        cams.intrinsics = in.data();
+        cams.cam_width = cw.data();
+        cams.cam_height = ch.data();
+
+        hybrid_points = ColorizeFromCameras(cloud_snapshot, cams, rgb_bufs);
+
+        // rig -> map: same yaw-rotate-then-translate convention as
+        // ego_anchor.hpp's compose_ego_anchored_pose (Decision 3's frame
+        // convention -- colorize in rig frame, anchor by the SAME ego pose
+        // this tick feeds set_scene() below via `scene.ego`, set above).
+        if (scene.ego.valid)
+        {
+            const double c = std::cos(scene.ego.heading_rad);
+            const double s = std::sin(scene.ego.heading_rad);
+            for (auto& p : hybrid_points)
+            {
+                const double x = p.position.x, y = p.position.y, z = p.position.z;
+                p.position.x = x * c - y * s + scene.ego.position.x;
+                p.position.y = x * s + y * c + scene.ego.position.y;
+                p.position.z = z + scene.ego.position.z;
+            }
+        }
+        else
+        {
+            // No valid ego pose this tick -- don't anchor lidar points at a
+            // garbage (identity) origin; same "ego.valid==0 hides content
+            // rather than mis-placing it" convention ego.cpp's own
+            // update_ego_transform() uses for the ego mesh itself.
+            hybrid_points.clear();
+        }
+
+        scene_asm_.point_clouds.clear();
+        if (!hybrid_points.empty())
+        {
+            mpviz::PointCloud row{};
+            row.points = hybrid_points.data();
+            row.point_count = static_cast<uint32_t>(hybrid_points.size());
+            row.last_update_sec = sim_clock_sec_;
+            scene_asm_.point_clouds.push_back(row);
+        }
+    }
 
     // Task 4 (VM-093), USER DIRECTIVE 2026-09-11 (mode content exclusivity):
     // AND the per-mode content mask over the user's own layer_* params --

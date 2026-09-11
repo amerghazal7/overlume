@@ -13,6 +13,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -53,6 +54,7 @@
 #include "micropilot_visualization_node/frame_transform.hpp"
 #include "micropilot_visualization_node/geo_anchor.hpp"
 #include "micropilot_visualization_node/hud_overlay.hpp"
+#include "micropilot_visualization_node/lidar_colorize.hpp"
 #include "micropilot_visualization_node/profile.hpp"
 #include "micropilot_visualization_node/scene_assembly.hpp"
 #include "micropilot_visualization_node/tf_adapter.hpp"
@@ -534,6 +536,27 @@ private:
     // bowl_enabled_/active_mode_ (set_bowl_visible() itself no-ops when the
     // bowl was never configured, scene.h's own contract).
     std::unique_ptr<CameraIngest> camera_ingest_;
+
+    // ── Hybrid lidar colorization (VM-094, unified-engine migration Task 5) ──
+    // hybrid_enabled_ is the STANDING disable knob (read once in
+    // on_configure, same shape as bowl_enabled_ above): false means
+    // cloud_sub_ is never created and timer_callback()'s HYBRID block never
+    // runs -- render_mode HYBRID then falls back to bowl-only (Decision 5).
+    // Meaningless without camera_ingest_ (bowl_enabled_ true): the rig
+    // geometry and last-ingested RGB buffers ColorizeFromCameras() samples
+    // both come from it.
+    bool hybrid_enabled_{false};
+    std::string pointcloud_topic_;
+    // [R(9 row-major)|t(3)] cloud-frame -> rig-frame -- same param name/
+    // convention as micropilot_rendering_node's own pointcloud_transform
+    // (rendering_node.cpp:95-96).
+    float pointcloud_tf_[12]{1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
+    // Guards cloud_pts_rig_: written by cloud_sub_'s callback, read (and
+    // swapped out) by timer_callback() -- same mutex-around-a-snapshot
+    // shape as camera_ingest.cpp's own odom_mtx_/twists_.
+    std::mutex cloud_mtx_;
+    std::vector<mpviz::Vec3> cloud_pts_rig_;  // rig frame (post pointcloud_transform)
 
     rclcpp::TimerBase::SharedPtr timer_;
 };

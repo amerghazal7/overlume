@@ -119,6 +119,21 @@ public:
     // camera has delivered an image yet.
     bool newest_stamp(double& out_t_max) const;
 
+    // VM-094 (unified-engine migration Task 5): retains a copy of the
+    // last-ingested tightly-packed WxHx3 RGB8 buffer per camera, for
+    // lidar_colorize.hpp's ColorizeFromCameras() to sample at render-tick
+    // time -- separate from (and a further copy beyond) the buffer handed
+    // to set_camera_frame()'s release callback, because that buffer's
+    // lifetime belongs to Filament once handed off (released whenever the
+    // GPU upload completes, not necessarily by the next tick). Only called
+    // when hybrid rendering is actually enabled (see CameraIngest's
+    // hybrid_enabled_ gate below) -- bowl-only configurations never pay
+    // this extra copy.
+    void store_rgb(uint32_t cam_idx, const uint8_t* data, uint32_t width, uint32_t height);
+    // nullptr if cam_idx is out of range or this camera has never delivered
+    // an image since store_rgb() started being called.
+    const uint8_t* rgb(uint32_t cam_idx) const;
+
 private:
     struct PerCam
     {
@@ -129,6 +144,7 @@ private:
         double stamp = 0.0;
         bool has_stamp = false;
         uint64_t frame_id = 0;
+        std::vector<uint8_t> rgb;  // VM-094: last-ingested frame, WxHx3, empty until first store_rgb()
     };
     uint32_t camera_count_;
     std::vector<PerCam> cams_;
@@ -157,6 +173,15 @@ public:
     // shows up).
     void set_renderer(mpviz::VisualRenderer* r) { renderer_ = r; }
     void set_bowl_enabled(bool enabled) { bowl_enabled_ = enabled; }
+    // VM-094 (Task 5): STANDING disable knob for the extra per-tick RGB
+    // retention (store_rgb()) below -- false (default) means the image
+    // callback does the SAME work it always did (cv_bridge convert +
+    // set_camera_frame), nothing more; true adds one more copy per dirty
+    // camera frame so lidar_colorize.hpp has a buffer to sample. Independent
+    // of bowl_enabled_ in principle, but meaningless without it (no camera
+    // ingest at all runs when bowl_enabled_ is false) -- the node only ever
+    // sets this true alongside bowl_enabled_.
+    void set_hybrid_enabled(bool enabled) { hybrid_enabled_ = enabled; }
     // VM-091 gate close-out finding 3: max_sync_latency was declared/stored
     // on the node but never read anywhere -- update_motion_deltas() below
     // now compares each camera's (t_max - stamp) spread against this window
@@ -174,6 +199,13 @@ public:
     void fill_bowl_intrinsics(std::vector<mpviz::CameraExtrinsics>& out_ext,
                                std::vector<mpviz::CameraIntrinsics>& out_in,
                                std::vector<uint32_t>& out_w, std::vector<uint32_t>& out_h) const;
+    // VM-094 (Task 5): parallel to fill_bowl_intrinsics() above -- one
+    // pointer per configured camera (nullptr if that camera has never
+    // delivered an image, or if hybrid_enabled_ was false when it did), for
+    // lidar_colorize.hpp's ColorizeFromCameras(). Not a second ingest path:
+    // these are the SAME image callback's buffers (store_rgb() above),
+    // reused, not re-subscribed.
+    void fill_camera_rgb_buffers(std::vector<const uint8_t*>& out) const;
     void mark_bowl_config_applied() { config_applied_ = true; info_dirty_ = false; }
     bool config_applied() const { return config_applied_; }
     // True once since the last mark_bowl_config_applied() call -- a NEW
@@ -194,6 +226,7 @@ private:
     IngestState state_;
     mpviz::VisualRenderer* renderer_ = nullptr;
     bool bowl_enabled_ = false;
+    bool hybrid_enabled_ = false;
     bool config_applied_ = false;
     bool info_dirty_ = false;
     double max_sync_latency_ = 0.12;

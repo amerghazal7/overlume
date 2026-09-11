@@ -241,7 +241,8 @@ add_library(visualization_node_lib SHARED
   src/diagnostics.cpp
   src/hud_overlay.cpp
   src/callouts.cpp
-  src/camera_ingest.cpp)
+  src/camera_ingest.cpp
+  src/lidar_colorize.cpp)
 
 target_include_directories(visualization_node_lib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -251,6 +252,14 @@ target_include_directories(visualization_node_lib PUBLIC
 # stays an implementation detail of this target, not part of this
 # library's own public include/ surface).
 target_include_directories(visualization_node_lib PRIVATE "${MPVIZ_NODE_STB_DIR}")
+# VM-094 (unified-engine migration Task 5): lidar_colorize.cpp includes
+# bowl_projection.hpp, which lives in visual_renderer's SRC tree (private,
+# not part of its installed include/ surface) -- Decision 3 designed that
+# header to be reused by exactly this file ("one implementation, two call
+# sites"), so this package's include path is extended to reach it, same
+# PRIVATE-only visibility as the STB include above (an implementation
+# detail of this one file, not part of this library's own public surface).
+target_include_directories(visualization_node_lib PRIVATE "${VISUAL_RENDERER_DIR}/src")
 
 ament_target_dependencies(visualization_node_lib ${THIS_PACKAGE_DEPS})
 target_link_libraries(visualization_node_lib visual_renderer_prebuilt)
@@ -595,6 +604,19 @@ if(BUILD_TESTING)
   # needs the symbols to link. Same documented-exception shape as
   # test_profile/test_hud_overlay/test_callouts above.
   target_link_libraries(test_camera_ingest visual_renderer_prebuilt)
+
+  # VM-094 (unified-engine migration Task 5): ColorizeFromCameras() is pure
+  # camera math (no ROS types), but it calls mpviz::bowl::ProjectToCameraUv,
+  # a compiled symbol in libvisual_renderer.a -- same documented-exception
+  # link shape as test_profile/test_camera_ingest above. No
+  # ament_target_dependencies needed: lidar_colorize.cpp/.hpp include only
+  # scene.h/bowl_projection.hpp, no rclcpp/sensor_msgs.
+  ament_add_gtest(test_lidar_colorize test/test_lidar_colorize.cpp src/lidar_colorize.cpp)
+  target_include_directories(test_lidar_colorize PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${VISUAL_RENDERER_DIR}/include
+    ${VISUAL_RENDERER_DIR}/src)
+  target_link_libraries(test_lidar_colorize visual_renderer_prebuilt)
 endif()
 
 ament_package()

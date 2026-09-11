@@ -238,3 +238,48 @@
     # so an occluded vertex would become an uncovered hole rather than a
     # filled one if this were left on.
     self_view_masks: false
+    # VM-094 (unified-engine migration Task 5): mode-2 hybrid rendering --
+    # camera-colorized lidar (lidar_colorize.hpp's ColorizeFromCameras()),
+    # first-match-camera-wins (a NAMED fidelity regression vs the CUDA
+    # node's own feather-blended colorization, Decision 5). hybrid_enabled
+    # default OFF (STANDING disable-knob rule, same shape as bowl_enabled
+    # above): false means no PointCloud2 subscription is even created, and
+    # HYBRID mode renders bowl-only (Decision 5's fallback). Needs
+    # bowl_enabled true too -- the camera rig geometry and last-ingested RGB
+    # buffers it colorizes from come from the SAME camera_ingest_ the bowl
+    # uses (Task 2), not a second ingest path.
+    hybrid_enabled: false
+    # "" disables (bowl-only, no lidar subscription) -- this epic's fixture
+    # bag's own lidar topic is /iv_points_fusion (stack_v2_full_sensors_2026-09-09).
+    pointcloud_topic: ""
+    # [R(9 row-major)|t(3)] cloud-frame -> rig-frame -- same param name and
+    # convention as micropilot_rendering_node's own pointcloud_transform
+    # (rendering_node.cpp:95-96), ported verbatim, not reinvented. Identity
+    # here: this fixture's fused cloud is not yet known to need a real
+    # offset; a real deployment overrides it exactly like m2o1_params.yaml
+    # does for the CUDA node's own copy of this same param.
+    pointcloud_transform:
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    # VESTIGIAL (Decision 5): declared for GUI/TUNABLE_PARAMS compatibility
+    # only (tools/vcam_ws_bridge.py's TUNABLE_PARAMS still carries this
+    # name) -- NOT read by this node's own code anywhere. Rendered point
+    # size is owned by the theme token point_cloud.point_size_px
+    # (point_cloud.cpp re-applies it every frame); there is no mechanism to
+    # wire a node-side param into that uniform without either a second
+    # kSceneVersion bump this epic's review gate forbids, or a free
+    # function whose only job mirrors a value the theme token already owns
+    # (the STANDING directive's own "style = theme tokens" rule). The GUI
+    # tuning panel's splat_radius row is inert; noted here, not silently
+    # absorbed.
+    splat_radius: 2
