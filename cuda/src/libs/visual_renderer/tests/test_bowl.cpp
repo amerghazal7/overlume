@@ -240,13 +240,11 @@ TEST(BowlMeshBake, FourCameraOverlapStillPicksAConsistentTripletPerTriangle) {
 // ---- VM-092 (Task 3) Step 1: analytic ego-occlusion, now inside the bake -
 
 TEST(BowlMeshBake, EgoOcclusionZeroesCoverageForTheOccludedCameraOnly) {
-    // Retargeted (review round 1 finding 2) from the pre-refactor
-    // ApplyEgoOcclusion() unit test: occlusion now runs INSIDE
-    // BakeBowlMesh's own per-vertex weight loop rather than a separate
-    // post-pass, so it's exercised here through the public bake API. A
-    // minimal (2-ring, 4-seg) mesh puts a known vertex exactly at
-    // (r=Rmax=1.0, theta=90deg) -- BowlSurfacePoint's own formula gives its
-    // z, plus the bake's 1cm cosmetic lift.
+    // Occlusion runs INSIDE BakeBowlMesh's own per-vertex weight loop
+    // rather than a separate post-pass, so it's exercised here through the
+    // public bake API. A minimal (2-ring, 4-seg) mesh puts a known vertex
+    // exactly at (r=Rmax=1.0, theta=90deg) -- BowlSurfacePoint's own
+    // formula gives its z, plus the bake's 1cm cosmetic lift.
     //   - camera 0 sits on the FAR side of the ego box from that vertex
     //     (straight line from camera to vertex crosses the box);
     //   - camera 1 sits well clear of the box's shadow for the SAME vertex
@@ -316,29 +314,38 @@ TEST(BowlMeshBake, EgoOcclusionZeroesCoverageForTheOccludedCameraOnly) {
 }
 
 TEST(BowlMeshBake, OccludedCameraNeverBurnsATopThreeSlotAVisibleCameraCouldHaveTaken) {
-    // Review round 1 finding 2: the old code ran ApplyEgoOcclusion() AFTER
-    // BakeBowlMesh's per-triangle top-3 camera selection, so a self-occluded
-    // camera still WON a slot (ranked by its pre-occlusion weight) and then
-    // had its coverage zeroed there -- burning a slot instead of ever
-    // letting a genuinely visible, lower-ranked camera take it. Folding the
-    // occlusion test into the same per-vertex loop that FEEDS the selection
-    // fixes this by construction: a zeroed-out camera can't win a slot in
-    // the first place.
+    // Folding the occlusion test into the same per-vertex loop that FEEDS
+    // the per-triangle top-3 selection (rather than a post-hoc pass applied
+    // after selection) fixes "an occluded camera burns a slot a genuinely
+    // visible one could have taken" BY CONSTRUCTION: a zeroed-out camera
+    // can't win a slot in the first place. Proving that needs a camera that
+    // is a genuine top-3 pick by the selection's own rule (summed
+    // alignment^2 across a triangle's three corners) WITHOUT occlusion, so
+    // that occlusion is the only thing that can explain its exclusion --
+    // this test is self-proving: it bakes the SAME 4-camera set twice, once
+    // with no ego configured (baseline) and once with the ego box that
+    // occludes camera 0, and asserts both halves of the premise before
+    // asserting the fix.
     //
-    // Four cameras all aimed exactly at the same known vertex (LookAtCamera
-    // -> weight == 1.0 each, a genuine 4-way tie). Camera 3 loses the tie
-    // (FourCameraOverlapStillPicksAConsistentTripletPerTriangle's own
-    // documented strict-`>` tie-break) UNLESS camera 0 -- occluded here --
-    // is zeroed first, in which case camera 3 must be promoted into the
-    // freed slot.
+    // Camera 0 sits on the far side of the ego box from the target vertex
+    // (occluded), but at a distance that gives it near-parallel (square)
+    // incidence to all three of every touching triangle's corners, which is
+    // what makes its triangle-summed weight a genuine top-3 pick pre-
+    // occlusion (ASSERTed below, not assumed) -- a lower-fidelity
+    // pre-occlusion setup does not exercise the bug this test targets, per
+    // Decision 4's own selection rule. Camera 3 is deliberately the
+    // weakest of the three clear cameras (shorter range -> more angular
+    // parallax to the same corners), so it is the one camera 0 must
+    // displace pre-occlusion and the one that must be promoted once
+    // occlusion removes camera 0.
     constexpr double kR0 = 0.1, kK = 0.3, kRmax = 1.0;
     const mpviz::Vec3 vertex{0.0, 1.0, kK * (kRmax - kR0) * (kRmax - kR0) + 0.01};
 
     const CameraExtrinsics exts[4] = {
-        LookAtCamera({0.0, -3.0, 0.5}, vertex),    // 0 -- occluded, would win the tie-break first
-        LookAtCamera({10.0, -3.0, 0.5}, vertex),   // 1 -- clear
-        LookAtCamera({10.0, 3.0, 0.5}, vertex),    // 2 -- clear
-        LookAtCamera({-10.0, -3.0, 0.5}, vertex),  // 3 -- clear, loses the tie-break pre-occlusion
+        LookAtCamera({0.0, -11.0, 0.5}, vertex),  // 0 -- occluded, genuine top-3 pick pre-occlusion
+        LookAtCamera({14.0, -3.0, 0.5}, vertex),  // 1 -- clear
+        LookAtCamera({10.0, 3.0, 0.5}, vertex),   // 2 -- clear
+        LookAtCamera({-6.0, -3.0, 0.5}, vertex),  // 3 -- clear, deliberately the weakest of 1/2/3
     };
     const CameraIntrinsics in{800, 800, 320, 240, {0, 0, 0, 0, 0}};
     const CameraIntrinsics ins[4] = {in, in, in, in};
@@ -350,16 +357,45 @@ TEST(BowlMeshBake, OccludedCameraNeverBurnsATopThreeSlotAVisibleCameraCouldHaveT
     params.radial_rings = 1;
     const bowl::EgoBox ego_box{{0.0, 0.0, 0.5}, {0.5, 0.5, 0.5}};
 
+    auto idx_has = [](const bowl::BowlVertex& v, uint32_t cam) {
+        return v.index_a == cam || v.index_b == cam || v.index_c == cam;
+    };
+
+    // Baseline: no ego configured -- proves the PREMISE, not the fix. If
+    // camera 0 isn't a genuine top-3 pick here (or camera 3 already is
+    // one), the occluded assertions below would pass for the wrong reason
+    // (or vacuously), so this half is ASSERT, not EXPECT: the premise must
+    // never be allowed to silently rot.
+    const bowl::BowlMesh baseline =
+        bowl::BakeBowlMesh(params, kR0, kK, kRmax, 4, exts, ins, widths, heights, bowl::EgoBox{});
+    int baseline_rows = 0;
+    for (const auto& v : baseline.vertices) {
+        if (std::abs(v.position.x - vertex.x) > 1e-6 || std::abs(v.position.y - vertex.y) > 1e-6 ||
+            std::abs(v.position.z - vertex.z) > 1e-6) {
+            continue;
+        }
+        ++baseline_rows;
+        ASSERT_TRUE(idx_has(v, 0))
+            << "premise broken: camera 0 must be a genuine top-3 pick BEFORE occlusion is even "
+               "considered, or the occluded case below proves nothing about occlusion";
+        ASSERT_FALSE(idx_has(v, 3))
+            << "premise broken: camera 3 must NOT be a pre-occlusion top-3 pick, or its "
+               "post-occlusion promotion below proves nothing";
+    }
+    ASSERT_GT(baseline_rows, 0) << "expected vertex not found in the baseline mesh";
+
+    // Occluded: the actual fix under test. Camera 0 must lose the slot the
+    // baseline just proved it would otherwise win, and camera 3 -- excluded
+    // pre-occlusion -- must be promoted into the freed slot.
     const bowl::BowlMesh mesh =
         bowl::BakeBowlMesh(params, kR0, kK, kRmax, 4, exts, ins, widths, heights, ego_box);
-
-    bool checked = false;
+    int occluded_rows = 0;
     for (const auto& v : mesh.vertices) {
         if (std::abs(v.position.x - vertex.x) > 1e-6 || std::abs(v.position.y - vertex.y) > 1e-6 ||
             std::abs(v.position.z - vertex.z) > 1e-6) {
             continue;
         }
-        checked = true;
+        ++occluded_rows;
         const uint32_t idx[3] = {v.index_a, v.index_b, v.index_c};
         const float cov[3] = {v.coverage_a, v.coverage_b, v.coverage_c};
         for (int slot = 0; slot < 3; ++slot) {
@@ -368,23 +404,21 @@ TEST(BowlMeshBake, OccludedCameraNeverBurnsATopThreeSlotAVisibleCameraCouldHaveT
             EXPECT_GT(cov[slot], 0.9f)
                 << "every occupied slot should be a genuinely visible, high-weight camera";
         }
-        EXPECT_TRUE(idx[0] == 3 || idx[1] == 3 || idx[2] == 3)
-            << "camera 3 loses the tie-break pre-occlusion -- once occlusion demotes camera 0, "
-               "camera 3 must be promoted into the freed slot instead of staying excluded";
+        EXPECT_TRUE(idx_has(v, 3))
+            << "camera 3 was demoted out of the top 3 pre-occlusion -- once occlusion removes "
+               "camera 0, camera 3 must be promoted into the freed slot instead of staying "
+               "excluded";
     }
-    ASSERT_TRUE(checked) << "expected vertex not found in the baked mesh";
+    ASSERT_GT(occluded_rows, 0) << "expected vertex not found in the occluded mesh";
 }
 
 TEST(BowlMeshBake, DeployedRigWithEveryCameraInsideItsOwnEgoBoxIsNotWholesaleZeroed) {
-    // Review round 1 finding 1: every camera in the deployed 6-camera rig
-    // (default_params.yaml's camera_extrinsics) sits INSIDE the
-    // ego_fallback_dims box -- before the fix, SegmentIntersectsAabb's tmin
-    // stayed clamped at 0 whenever a segment started inside the box, so
-    // EVERY (camera, vertex) pair read as occluded and the whole bake
-    // zeroed to sky_color. A segment starting inside a convex box can never
-    // be occluded BY that box, so the fixed test returns false immediately
-    // for a camera in this configuration, and the bake below must retain
-    // real coverage.
+    // Every camera in the deployed 6-camera rig (default_params.yaml's
+    // camera_extrinsics) sits INSIDE the ego_fallback_dims box. A segment
+    // starting inside a convex box is never occluded by it -- pin that
+    // this rig's own camera placement stays a genuine self-view-masking
+    // no-op rather than reading every (camera, vertex) pair as occluded and
+    // zeroing the whole bake to sky_color.
     const CameraExtrinsics exts[6] = {
         {{0.9961946980917455, -0.06269459458646724, 0.06054346623323177, -0.08715574274765814,
           -0.7166024952237391, 0.6920149856363047, 0.0, -0.6946583704589973,
@@ -445,10 +479,8 @@ TEST(BowlMeshBake, DeployedRigWithEveryCameraInsideItsOwnEgoBoxIsNotWholesaleZer
     ASSERT_GT(count_covered(baseline), 0u) << "sanity: these 6 cameras should cover something";
 
     // Every camera sits inside the box, so self-view masking must be a
-    // complete no-op here -- before the fix, it zeroed the bake to nothing
-    // (4320/4320 sampled camera/vertex pairs occluded, review round 1
-    // finding 1's own measurement); after the fix it must match the
-    // no-ego-configured baseline exactly.
+    // complete no-op here -- it must match the no-ego-configured baseline
+    // exactly, not zero the bake to nothing.
     EXPECT_EQ(count_covered(mesh), count_covered(baseline))
         << "every deployed camera sits inside its own ego AABB -- a camera positioned inside the "
            "box can never be occluded by it, so enabling self-view masks on this rig must not "
@@ -637,13 +669,32 @@ TEST(Bowl, SelfViewMasksOffByDefaultThenEnabledSuppressesOccludedCameraViaExisti
         << "camera 0's own body between it and part of the bowl should have its contribution "
            "suppressed once self_view_masks is enabled (declared off by default, Decision 4)";
 
-    size_t nonblack_pixels = 0;
-    for (size_t i = 0; i < masks_on.size(); i += 3) {
-        if (masks_on[i] > 5 || masks_on[i + 1] > 5 || masks_on[i + 2] > 5) ++nonblack_pixels;
+    // Decision 4's "falls back to sky_color, not left unshaded" half, made
+    // discriminating: restrict to the pixels that actually LOST their
+    // camera-0 contribution (magenta in masks_off, not magenta in
+    // masks_on) rather than the whole 320x240 frame -- dark_adas's own
+    // ground/sky already covers most of the frame above a bare >5-channel
+    // threshold, so a wholesale-unshaded (black) bowl would pass a
+    // whole-frame check just as easily as a correctly-repainted one.
+    size_t unmasked_pixels = 0;
+    size_t unmasked_and_shaded = 0;
+    for (size_t i = 0; i < masks_off.size(); i += 3) {
+        const bool was_magenta = masks_off[i] > 150 && masks_off[i + 2] > 150;
+        const bool now_magenta = masks_on[i] > 150 && masks_on[i + 2] > 150;
+        if (!was_magenta || now_magenta) continue;
+        ++unmasked_pixels;
+        uint8_t maxc = masks_on[i];
+        if (masks_on[i + 1] > maxc) maxc = masks_on[i + 1];
+        if (masks_on[i + 2] > maxc) maxc = masks_on[i + 2];
+        if (maxc > 5) ++unmasked_and_shaded;
     }
-    EXPECT_GT(nonblack_pixels, masks_on.size() / 3 / 10)
-        << "expected sky_color/theme background to still cover a meaningful fraction of the "
-           "frame, not a mostly-black frame from uncovered/unshaded vertices";
+    ASSERT_GT(unmasked_pixels, 0u)
+        << "sanity: expected some pixel to lose its magenta camera-0 contribution once "
+           "self_view_masks suppressed it";
+    EXPECT_EQ(unmasked_and_shaded, unmasked_pixels)
+        << "every pixel that lost its occluded-camera contribution must fall back to "
+           "sky_color/theme shading (bowl.mat's `if (wsum > 0.0) ... else skyColor`), not be "
+           "left black/unshaded";
     mpviz::destroy_renderer(r);
 }
 

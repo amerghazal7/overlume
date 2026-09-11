@@ -132,6 +132,14 @@ std::string cam_param(const char* prefix, uint32_t i) { return std::string(prefi
 // set_ego_model()'s two outcomes populated r (a loaded glTF's own AABB, or
 // the clay-box fallback's dims). A zero-extent box (neither populated)
 // means no ego configured, BakeBowlMesh's own no-op convention.
+//
+// Ordering contract: set_ego_model() must have run before the
+// set_bowl_config() that bakes with masks enabled -- build_bowl() reads
+// this box ONCE per bake, so an ego model set after that bake silently
+// no-ops the self-view mask until the next re-bake (same on_activate()
+// ordering hazard camera_textures.cpp's set_self_view_masks() comment
+// already names for the enable flag; it applies just as much to the ego
+// model itself).
 bowl::EgoBox ego_rig_frame_box(const VisualRenderer& r) {
     if (r.egoAsset != nullptr) {
         const filament::Aabb box = r.egoAsset->getBoundingBox();
@@ -168,7 +176,7 @@ bool build_bowl(VisualRenderer& r, const BowlConfig& cfg) {
     // no-op convention BakeBowlMesh already applies when no ego is
     // configured (ego_rig_frame_box() returns zero-extent in that case too).
     const bowl::EgoBox ego_box = r.selfViewMasksEnabled ? ego_rig_frame_box(r) : bowl::EgoBox{};
-    bowl::BowlMesh baked =
+    const bowl::BowlMesh baked =
         bowl::BakeBowlMesh(params, cfg.bowl_R0, cfg.bowl_k, cfg.bowl_Rmax, cfg.camera_count,
                            cfg.extrinsics, cfg.intrinsics, cfg.cam_width, cfg.cam_height, ego_box);
     if (baked.vertices.empty() || baked.indices.empty()) return false;
