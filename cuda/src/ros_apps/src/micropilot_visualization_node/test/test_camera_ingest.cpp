@@ -213,7 +213,7 @@ TEST(IngestState, ImageArrivalBumpsAMonotonicPerCameraFrameId) {
 }
 
 // ---- IngestState::rgb: CameraInfo/image-stream dim-mismatch guard ---------
-// VM-094 review round 1 finding 2: CameraInfo can advertise different dims
+// CameraInfo can advertise different dims
 // than the image stream actually publishes (calibration-res CameraInfo +
 // a downscaled stream) -- rgb() must not hand out a buffer ingested at one
 // size once width(i)/height(i) says another, or ColorizeFromCameras' raw

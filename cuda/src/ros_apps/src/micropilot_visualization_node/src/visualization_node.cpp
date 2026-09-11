@@ -442,13 +442,20 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     pointcloud_topic_ = declare_parameter<std::string>("pointcloud_topic", "");
     auto pc_tf = declare_parameter<std::vector<double>>(
         "pointcloud_transform", {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0});
-    if (pc_tf.size() != 12)
+    // Validated only when the hybrid feed is on -- same convention as the
+    // bowl's own camera_extrinsics check living inside if (bowl_enabled_):
+    // a disabled feature's malformed param must not refuse configure.
+    if (hybrid_enabled_)
     {
-        RCLCPP_ERROR(get_logger(), "pointcloud_transform must be 12 floats [R(9)|t(3)], got %zu",
-                     pc_tf.size());
-        return CallbackReturn::FAILURE;
+        if (pc_tf.size() != 12)
+        {
+            RCLCPP_ERROR(get_logger(),
+                         "pointcloud_transform must be 12 floats [R(9)|t(3)], got %zu",
+                         pc_tf.size());
+            return CallbackReturn::FAILURE;
+        }
+        for (int i = 0; i < 12; ++i) pointcloud_tf_[i] = static_cast<float>(pc_tf[i]);
     }
-    for (int i = 0; i < 12; ++i) pointcloud_tf_[i] = static_cast<float>(pc_tf[i]);
     // VESTIGIAL (Decision 5): declared for GUI/TUNABLE_PARAMS compatibility
     // only -- point size is owned by the theme token
     // point_cloud.point_size_px, never read by this node's own code. See
@@ -460,13 +467,13 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
             pointcloud_topic_, rclcpp::SensorDataQoS(),
             [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg)
             {
-                // VM-094 review round 1 finding 7: this transform runs over
-                // the full ~155k-point cloud on every message -- skip it
-                // entirely (render_mode_ is live-mutable via on_params(), so
-                // this tracks a mode switch on the very next message) in
-                // every mode that never samples cloud_pts_rig_ (BOWL, or
-                // FREE_LOOK without Surround Stitching's hybrid profile).
-                if (!hybrid_cloud_consumed()) return;
+                // Skip the full ~155k-point transform in every mode
+                // that never samples cloud_pts_rig_ (BOWL, or FREE_LOOK
+                // without Surround Stitching's hybrid profile) and when the
+                // camera ingest that would color it doesn't exist;
+                // render_mode_ is live-mutable, so this tracks a mode
+                // switch on the very next message.
+                if (!camera_ingest_ || !hybrid_cloud_consumed()) return;
                 // Locate float32 x/y/z field offsets -- same layout-
                 // agnostic scan as micropilot_rendering_node's own lidar
                 // callback (rendering_node.cpp:479-486).
@@ -712,7 +719,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
         point_cloud_rows_.push_back(PointCloudRow{std::move(adapter), row.timeout_sec, row.topic});
     }
     RCLCPP_INFO(get_logger(), "point_cloud: %zu row(s) subscribed", point_cloud_rows_.size());
-    // VM-094 review round 1 finding 7: hybrid_enabled_'s own cloud_sub_
+    // hybrid_enabled_'s own cloud_sub_
     // (pointcloud_topic_, below) is a SEPARATE subscription from this
     // profile-row loop's own PointCloudAdapter subs -- a profile (e.g.
     // urban_profile.yaml) that declares a point_cloud row on the SAME topic
@@ -1203,12 +1210,12 @@ void VisualizationNode::timer_callback()
     // set_bowl_visible() itself no-ops when the bowl was never configured
     // (cameraCount==0, scene.h's own contract), so this is safe even with
     // bowl_enabled_ false. Predicate lives in scene_assembly.hpp/.cpp
-    // (review round 1: unit-tested there instead of only smoke-tested here)
+    // (unit-tested there instead of only smoke-tested here)
     // -- surround_stitching_profile_ picks bowl-vs-hybrid CONTENT: "bowl"
     // shows Task 2's camera-textured bowl alone; "hybrid" additionally
     // appends Task 5's camera-colorized lidar (see the HYBRID-lidar block
     // below, which now also fires for FREE_LOOK + this profile -- VM-094
-    // review round 1 finding 4).
+    // ).
     const auto render_mode = static_cast<RenderMode>(render_mode_);
     mpviz::set_bowl_visible(renderer_, bowl_visible_for_mode(render_mode, layer_surround_stitching_));
 
@@ -1376,7 +1383,7 @@ void VisualizationNode::timer_callback()
     // never overwriting layer_objects_ etc. themselves, so switching back to
     // FREE_LOOK restores exactly what the user had (compose_layer_gates()
     // reads `user`, returns a new value, mutates nothing).
-    // VM-094 review round 2 finding 1: hoisted to run BEFORE the hybrid
+    // hoisted to run BEFORE the hybrid
     // block below (it used to run after, at the tail of this function) --
     // that let the user's own layer_point_clouds_ param clear HYBRID's (and
     // Surround-Stitching-hybrid's) colorized-lidar row right back out after
@@ -1400,7 +1407,7 @@ void VisualizationNode::timer_callback()
     // real (mode_content_mask()'s own comment used to note this category
     // carried an un-colorized autonomy PointCloud row until this task
     // landed; see that comment for the updated, honest state).
-    // VM-094 review round 1 finding 4: this block ALSO fires for FREE_LOOK
+    // this block ALSO fires for FREE_LOOK
     // when Surround Stitching is on with the "hybrid" profile -- the
     // 2026-09-11 follow-up directive's own parity-golden procedure (c)
     // needs a REAL hybrid capture in mode 3 (all layers off except Surround
@@ -1408,8 +1415,7 @@ void VisualizationNode::timer_callback()
     // HYBRID-only, so `surround_stitching_profile:=hybrid` silently
     // rendered bowl-only in FREE_LOOK). The two cases differ in how the
     // colorized cloud reaches scene_asm_.point_clouds: HYBRID still
-    // clear-and-replaces the category outright (VM-094 review round 2
-    // finding 4: mode_content_mask(HYBRID) does NOT clear this category --
+    // clear-and-replaces the category outright (mode_content_mask(HYBRID) does NOT clear this category --
     // point_clouds is the one category its mask keeps visible, precisely so
     // this content isn't hidden -- so this clear is what actually enforces
     // exclusivity, not a belt-and-braces no-op; without it, any autonomy
@@ -1429,7 +1435,7 @@ void VisualizationNode::timer_callback()
     // set_scene() further down -- those pointers alias into it, same
     // aliasing-lifetime contract scene_assembly.hpp's own header comment
     // documents for every adapter.
-    // VM-094 review round 1 finding 7: camera_ingest_'s own retention copy
+    // camera_ingest_'s own retention copy
     // (store_rgb(), ~24 MB/full-camera-set) is meaningless outside a tick
     // that actually samples it -- re-drive it every tick from the SAME
     // condition the point cloud callback and the block below already gate
@@ -1437,6 +1443,15 @@ void VisualizationNode::timer_callback()
     // stops/starts that extra per-camera-frame copy on the next image, not
     // only at on_configure() time.
     if (camera_ingest_) camera_ingest_->set_hybrid_enabled(hybrid_enabled_ && hybrid_cloud_consumed());
+
+    // HYBRID content exclusivity holds regardless of hybrid_enabled_:
+    // mode_content_mask(HYBRID) deliberately keeps point_clouds visible
+    // (it is HYBRID's own category), so the autonomy rows are cleared here
+    // UNCONDITIONALLY -- with the hybrid feed disabled, mode 2 shows
+    // bowl+ego and an empty cloud, never the autonomy point-cloud rows.
+    // Runs after the gate call above; nothing re-applies the gate later
+    // this tick.
+    if (render_mode == RenderMode::HYBRID) scene_asm_.point_clouds.clear();
 
     std::vector<mpviz::PointCloudPoint> hybrid_points;
     if (hybrid_cloud_consumed() && hybrid_enabled_ && camera_ingest_)
@@ -1455,13 +1470,10 @@ void VisualizationNode::timer_callback()
         cams.cam_width = cw.data();
         cams.cam_height = ch.data();
 
-        // review round 1 finding 7: this used to copy the whole ~155k-point
-        // vector under the lock every tick (`cloud_snapshot = cloud_pts_rig_`)
-        // -- ColorizeFromCameras only reads it, and this node's single
-        // executor thread (main.cpp's plain `rclcpp::spin`) already
-        // serializes this tick against the PointCloud2 callback above, so
-        // holding the lock for the read itself (no separate snapshot) is
-        // exactly as safe and pays no copy.
+        // ColorizeFromCameras only reads the cloud, and the node's single
+        // executor thread already serializes this tick against the
+        // PointCloud2 callback -- reading under the lock without a snapshot
+        // copy is exactly as safe and pays no ~155k-point copy per tick.
         std::vector<mpviz::PointCloudPoint> colorized;
         size_t cloud_input_count = 0;
         {
@@ -1470,9 +1482,8 @@ void VisualizationNode::timer_callback()
             colorized = ColorizeFromCameras(cloud_pts_rig_, cams, rgb_bufs);
         }
         hybrid_points = std::move(colorized);
-        // Golden-doc honesty (VM-094 review round 1 finding 3): the doc
-        // needs real measured coverage, not a guess -- first-match drops any
-        // lidar point no configured camera's frustum covers (lidar_colorize.cpp),
+        // Coverage is measured, not guessed: first-match drops any lidar
+        // point no configured camera's frustum covers (lidar_colorize.cpp),
         // so this is usually well under 100%.
         if (cloud_input_count > 0)
         {
@@ -1507,17 +1518,10 @@ void VisualizationNode::timer_callback()
             hybrid_points.clear();
         }
 
-        // HYBRID: clear-and-replace -- mode_content_mask(HYBRID) does NOT
-        // clear this category (point_clouds is the one it keeps visible),
-        // so without this explicit clear any autonomy point_cloud row the
-        // gate call above left standing would survive into mode 2 alongside
-        // the colorized cloud, a content-exclusivity violation. This clear
-        // runs AFTER that gate call and nothing re-applies the gate later
-        // this tick, so it is load-bearing, not belt-and-braces.
-        // FREE_LOOK+Surround-Stitching-hybrid: APPEND instead -- mode 3's
-        // own PointCloudAdapter rows must survive alongside the colorized
-        // cloud there.
-        if (render_mode == RenderMode::HYBRID) scene_asm_.point_clouds.clear();
+        // HYBRID's autonomy rows were already cleared unconditionally
+        // above; here the colorized cloud is APPENDED, which in
+        // FREE_LOOK+Surround-Stitching-hybrid lets mode 3's own
+        // PointCloudAdapter rows survive alongside it.
         if (!hybrid_points.empty())
         {
             mpviz::PointCloud row{};
