@@ -104,10 +104,11 @@ private:
 
     // vcam telemetry: [eye xyz | target xyz | active_preset | render_mode |
     // mux_mode] (9 elements -- Step (d), VM-037 appended mux_mode at index 8).
-    // Index 7 is now render_mode_ (Task 4/VM-093 gave this node its own
-    // local-view mode, mirroring rendering_node's render_mode_/active_mode_
-    // split) instead of duplicating active_mode_ the way it used to before
-    // Task 4 landed -- identical layout to rendering_node's ~/vcam_state.
+    // Index 7 is render_mode_ below. Index 8 (mux_mode) is a PERMANENT
+    // MIRROR of index 7 post-cutover (Decision 8, Task 6/VM-095) -- kept at
+    // its wire position rather than removed, since every consumer
+    // (vcam_ws_bridge.py, test_vcam_contract.py, test_ego_anchored_vcam.py)
+    // only asserts `len(vcam_state) >= 9`, not a distinct value there.
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr
         pub_vcam_state_;
 
@@ -115,35 +116,42 @@ private:
     int out_width_{1280};
     int out_height_{720};
     int quality_{2};       // 0=low, 1=med, 2=high (mpviz::RenderConfig::quality)
-    int initial_mode_{1};  // last-configured global mux mode; matches rendering_node's default
+    // Launch-arg seed for render_mode_'s own declare_parameter default
+    // (below) -- see on_configure()'s own comment. Post-cutover (Task 6/
+    // VM-095) this no longer selects a global mux mode shared with a
+    // second process (there is no second process); it is this node's own
+    // starting mode, kept under its historical name for CLI/test
+    // compatibility (every existing launch/test invocation already passes
+    // `-p initial_mode:=N`).
+    int initial_mode_{1};
     // Current (possibly tweening) pose -- mirrors vcam_->pose() each tick
     // (timer_callback); virtual_pose + virtual_vfov_deg params seed vcam_'s
     // own preset table at construction (on_configure).
     mpviz::CameraPose pose_{};
 
-    // ── mode mux ──────────────────────────────────────────────────────────────
-    // Global (not "~/...") — both this node and rendering_node subscribe the
-    // same topic (spec §3.1). Renders+publishes only while == 3.
-    int active_mode_{1};
+    // ── render-mode subscription ──────────────────────────────────────────────
+    // Global (not "~/...") -- kept at this name/topic/QoS from the mux era
+    // (ADR-0002) so no external publisher needs an edit; post-cutover
+    // (ADR-0006) this is a normal single-subscriber topic with no mux
+    // arbitration behind it, see its construction site (on_configure) for
+    // the full contract.
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr set_mode_sub_;
 
-    // ── local render-mode switch (Task 4 / VM-093) ───────────────────────────
-    // SEPARATE from active_mode_ above -- active_mode_ decides WHETHER this
-    // node is the mux-authoritative renderer (untouched by this task,
-    // Decision 7); render_mode_ decides WHAT this node renders once it is.
-    // The dispatch (bowl visibility + the per-mode layer mask,
-    // scene_assembly.hpp's bowl_visible_for_mode()/mode_content_mask()) runs
-    // every tick in timer_callback(), UNCONDITIONALLY, before the
-    // `active_mode_ != 3` early return -- it is not gated on active_mode_ at
-    // all. What active_mode_==3 actually gates is only render_frame()/the
-    // published image downstream of that dispatch, so render_mode_'s effect
-    // becomes VISIBLE only while this node is the mux-selected renderer, even
-    // though the dispatch itself always runs. A plain node param
-    // (`render_mode`), not a topic -- mirrors rendering_node's own
-    // render_mode_/active_mode_ split (rendering_node.hpp:191/203), which
-    // this node never had before this task. Live-tunable via on_params(),
-    // same as the layer_* bools below -- a mode switch is a `ros2 param
-    // set`/set_parameters() call, no ROS message on any topic.
+    // ── local render-mode switch (Task 4 / VM-093; the ONLY mode-selection
+    // mechanism post-cutover, Task 6 / VM-095) ────────────────────────────────
+    // Decides WHAT this node renders -- and, since the mux-arbitration early
+    // return that used to gate render/readback/publish on a separate
+    // `active_mode_` is deleted (Task 6 Step 3), this is now the ONLY mode
+    // value there is: the dispatch (bowl visibility + the per-mode layer
+    // mask, scene_assembly.hpp's bowl_visible_for_mode()/mode_content_mask())
+    // and the actual render/publish both run off it, every tick,
+    // unconditionally. A plain node param (`render_mode`), not a topic for
+    // the live-tuning path -- but ALSO driven by `/rendering/set_mode`
+    // (above), which assigns straight to this variable (Step 2). Live-
+    // tunable via on_params(), same as the layer_* bools below -- a mode
+    // switch is a `ros2 param set`/set_parameters() call OR a
+    // `/rendering/set_mode` publish, no distinction between the two paths'
+    // effect.
     static constexpr int kRenderModeBowl = 1;
     static constexpr int kRenderModeHybrid = 2;
     static constexpr int kRenderModeFreeLook = 3;
@@ -436,11 +444,11 @@ private:
     rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::CameraInfo>::SharedPtr pub_info_;
 
     // ── diagnostics (Epic 3 Task 2 / VM-034) ─────────────────────────────────
-    // render_ms_ is measured around mpviz::render_frame() in timer_callback()
-    // and fed into publish_diagnostics() -- ONLY while active_mode_==3
-    // (spec's own render/readback/publish gate); every other tick explicitly
-    // zeros it rather than leaving the last mode-3 tick's number in place, so
-    // a diagnostics consumer never mistakes a stale number for a live one.
+    // render_ms_ is measured around mpviz::render_frame() in timer_callback(),
+    // every tick (post-cutover, Task 6/VM-095 -- the old mux-gated "only
+    // while active_mode_==3, zero otherwise" behavior no longer applies:
+    // there is no other tick to zero it on, render/readback/publish now
+    // always runs).
     double render_ms_{0.0};
     rclcpp_lifecycle::LifecyclePublisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr
         pub_diagnostics_;
@@ -565,7 +573,7 @@ private:
     // timer_callback()): visible in BOWL/HYBRID, hidden in FREE_LOOK unless
     // layer_surround_stitching_ is on -- computed fresh every tick from
     // render_mode_/layer_surround_stitching_ above, regardless of
-    // bowl_enabled_/active_mode_ (set_bowl_visible() itself no-ops when the
+    // bowl_enabled_ (set_bowl_visible() itself no-ops when the
     // bowl was never configured, scene.h's own contract).
     std::unique_ptr<CameraIngest> camera_ingest_;
 
