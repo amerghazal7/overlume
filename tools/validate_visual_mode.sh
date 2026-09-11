@@ -695,10 +695,13 @@ PROFILE_ARGS=()
 if [[ -n "${PROFILE}" ]]; then
     PROFILE_ARGS=(-p "profile:=${PROFILE}")
 fi
-# --params-file: without it the node runs on built-in defaults and
-# ego_model_path arrives EMPTY -> clay-box ego with a "failed to load ''"
-# WARN even though default_params.yaml points at the converted M02P.glb
-# (user report 2026-08-20). CLI -p overrides still win over the file.
+# --params-file: still passed for the OTHER params it carries (bowl camera
+# topics/extrinsics, layer flags, profile, etc). It is no longer why
+# ego_model_path/hud_font_path/theme_assets_dir resolve correctly post-VM-044:
+# those three now default to "" in default_params.yaml too, and
+# on_configure() resolves "" via ament_index to this package's own installed
+# share/assets/{ego,fonts,themes} regardless of whether --params-file is
+# passed at all. CLI -p overrides still win over the file.
 # use_sim_time: the bag publishes /clock (played with --clock), so bag mode
 # runs on sim time. A live stack usually does NOT publish /clock -- sim time
 # there freezes the node's clock at 0 and breaks staleness gating (seen live
