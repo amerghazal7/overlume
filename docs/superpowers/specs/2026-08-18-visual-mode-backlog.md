@@ -272,6 +272,16 @@ that on 2026-09-07 — it stays committed v1.1.
   see-through objects whose staleness fade still works; both theme YAMLs
   carry explicit values.
 
+  **Done (2026-09-11):** `objects.opacity` added to `Theme`/parse()/
+  blend()/both YAMLs; `update_entity_staleness()` (objects.cpp) now binds
+  alpha = staleness_alpha * objects.opacity through the existing
+  clay_translucent swap — a two-line change, no new material or path.
+  Sentinel field-coverage test extended (test_theme_transition.cpp), not
+  duplicated. New tests: ThemeObjects.* (test_theme.cpp, parse/soft-default/
+  blend) and Objects.HalfOpacity* (test_objects.cpp, fresh-translucent +
+  staleness-ramps-down-from-ceiling), plus the `objects_half_opacity.yaml`
+  fixture. Full suite green (199/199), goldens pixel-identical.
+
 ## Future (explicitly deferred)
 
 `[review 2026-09-07]` IDs and re-entry triggers so other docs can cite them:

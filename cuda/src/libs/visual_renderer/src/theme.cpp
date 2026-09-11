@@ -146,6 +146,13 @@ Theme parse(const YAML::Node& root) {
                                      ? ribbon["margin_velocity_m"].as<float>()
                                      : 1.05f;
 
+    // objects.opacity: soft-defaulted (VM-078), same convention as
+    // point_cloud.point_size_px above -- a theme YAML predating this key
+    // still parses, at the fully-opaque 1.0 default.
+    const YAML::Node objects = root["objects"];
+    t.objects.opacity =
+        (objects && objects["opacity"]) ? objects["opacity"].as<float>() : 1.0f;
+
     return t;
 }
 
@@ -242,6 +249,8 @@ const Theme& kFallbackTheme() {
         // Between margin_local_m and margin_behavior_m -- see theme.hpp's
         // own comment (VM-077 carpet-as-ribbon redirect, 2026-09-10).
         t.ribbon.margin_velocity_m = 1.05f;
+        // Must match dark_adas.yaml exactly (VM-078).
+        t.objects.opacity = 1.0f;
         return t;
     }();
     return theme;

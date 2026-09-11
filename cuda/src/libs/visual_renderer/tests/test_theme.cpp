@@ -294,6 +294,56 @@ TEST(ThemePalette, ShippedThemesAuthorTheFillLookExplicitly) {
     }
 }
 
+// ── objects.opacity: TrackedObject rendering opacity (VM-078) ────────────
+
+TEST(ThemeObjects, OpacityFallsBackToOnePointZeroWhenMissingFromYaml) {
+    // sun_dir_a.yaml predates the whole `objects:` section -- same
+    // "prove the soft default, don't retrofit every old fixture" reasoning
+    // as EgoFallsBackToBuiltinDefaultWhenMissingFromYaml above.
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<mpviz::detail::Theme> theme =
+        mpviz::detail::load_theme(fixtureDir, "sun_dir_a");
+    ASSERT_TRUE(theme.has_value())
+        << "a theme file missing the whole optional objects: section must still parse";
+    EXPECT_NEAR(theme->objects.opacity, 1.0f, 1e-4f);
+}
+
+TEST(ThemeObjects, OpacityParsesExplicitYamlValue) {
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<mpviz::detail::Theme> theme =
+        mpviz::detail::load_theme(fixtureDir, "objects_half_opacity");
+    ASSERT_TRUE(theme.has_value());
+    EXPECT_NEAR(theme->objects.opacity, 0.5f, 1e-4f)
+        << "an explicit objects.opacity key must override the 1.0 soft default";
+}
+
+TEST(ThemeObjects, ShippedThemesAuthorOpacityExplicitly) {
+    // AC: both theme YAMLs carry an explicit value (today's fully-opaque
+    // look), not a silent fall-through to the soft default.
+    const std::optional<mpviz::detail::Theme> dark =
+        mpviz::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<mpviz::detail::Theme> light =
+        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    ASSERT_TRUE(dark.has_value());
+    ASSERT_TRUE(light.has_value());
+    EXPECT_NEAR(dark->objects.opacity, 1.0f, 1e-4f);
+    EXPECT_NEAR(light->objects.opacity, 1.0f, 1e-4f);
+}
+
+TEST(ThemeObjects, OpacityLerpsLinearlyAcrossTransition) {
+    const std::optional<mpviz::detail::Theme> dark =
+        mpviz::detail::load_theme(kThemeDir, "dark_adas");
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<mpviz::detail::Theme> half =
+        mpviz::detail::load_theme(fixtureDir, "objects_half_opacity");
+    ASSERT_TRUE(dark.has_value());
+    ASSERT_TRUE(half.has_value());
+
+    const mpviz::detail::Theme mid = mpviz::detail::blend(*dark, *half, 0.5f);
+    EXPECT_NEAR(mid.objects.opacity, (dark->objects.opacity + half->objects.opacity) / 2.0f,
+                1e-4f);
+}
+
 // ── palette.road/lane_centerline/lane_boundary/crosswalk: soft-defaulted
 //    tokens ────────────────────────────────────────────────────────────────
 

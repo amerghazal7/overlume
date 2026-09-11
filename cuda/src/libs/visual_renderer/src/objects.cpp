@@ -346,10 +346,23 @@ void update_entity_path(VisualRenderer& r, const TrackedObject& obj, ObjectEntit
 // r.clayTranslucentMaterial (never MaterialInstance::duplicate() of the
 // opaque template), seeded from the stored class tint (objectClassTint —
 // MaterialInstance has no getter), alpha set every call.
+//
+// objects.opacity (VM-078) multiplies straight into this same alpha rather
+// than adding a parallel opacity path: at the theme's default 1.0 it's a
+// no-op (alpha == staleness, byte-identical to before this token existed).
+// Below 1.0, alpha < 1.0 even while staleness == 1.0 (fresh), so the
+// `alpha >= 1.0f` branch below never takes the opaque path and every
+// TrackedObject entity rides the existing translucent swap instead — with
+// the staleness fade still ramping DOWN from the opacity ceiling, never up
+// past it (opacity * staleness_alpha can only shrink toward 0, never grow
+// past opacity). r.active_theme is kept live every render_frame() call by
+// apply_current_theme() (renderer.cpp), including mid-transition, so a live
+// theme switch picks up the blended opacity with no separate wiring.
 void update_entity_staleness(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& e,
                               double sim_time_sec) {
-    const auto alpha = static_cast<float>(detail::SceneBuffer::staleness_alpha(
+    const auto staleness = static_cast<float>(detail::SceneBuffer::staleness_alpha(
         sim_time_sec, obj.last_update_sec, kStaleFadeStartSec, kStaleFadeTimeoutSec));
+    const float alpha = staleness * r.active_theme.objects.opacity;
     filament::RenderableManager& rm = r.engine->getRenderableManager();
     const auto clsIdx = static_cast<uint8_t>(e.cls);
 
