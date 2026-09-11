@@ -5,7 +5,10 @@
 // which supersedes the old "frozen after Epic N / freeze lift" language:
 // fields are appended to structs, enum values are appended, entry points are
 // added -- nothing here is ever renamed, reordered, or removed within a
-// major version. `kSceneVersion` below is bumped on every additive change;
+// major version. `kSceneVersion` below is bumped on every LAYOUT change
+// (struct fields, enum values -- anything the sizeof/offsetof tables guard);
+// free-function additions bump NOTHING (a stale library fails loudly at
+// link/load, so there is no silent-garbage risk for them);
 // tests/test_scene_buffer.cpp's sizeof/offsetof static_asserts (and the
 // node-side test_scene_layout.cpp mirror) are the layout guard that makes a
 // version bump without a matching rebuild fail loudly instead of silently

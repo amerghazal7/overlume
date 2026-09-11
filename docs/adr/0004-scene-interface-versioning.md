@@ -19,7 +19,12 @@ entry points anyway as "legal additive" (`theme_assets_loaded`, `theme_parses`,
 - Public headers are **additive-only**: new fields are appended to structs, new
   enum values are appended, new entry points are added; nothing is renamed,
   reordered or removed within a major version.
-- `scene.h` carries `constexpr uint32_t kSceneVersion` bumped on every change.
+- `scene.h` carries `constexpr uint32_t kSceneVersion` bumped on every LAYOUT
+  change (struct fields, enum values -- what the sizeof/offsetof static_assert
+  tables guard). Free-function-only additions bump nothing: a stale library
+  fails loudly at link/load, so the version's silent-ABI-garbage protection
+  is not needed for them (precedents: set_bowl_visible/set_camera_motion_delta
+  VM-090, set_environment_source VM-052, set_quality VM-040).
   The `sizeof`/`offsetof` `static_assert` tables that already exist in
   `tests/test_scene_buffer.cpp` (Epic 1 Task 1) stay the layout guard; a node-side
   gtest mirrors them so the gcc build fails loudly on a mismatch too.

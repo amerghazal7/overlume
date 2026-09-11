@@ -55,6 +55,11 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // Opt-in (default false). Every threshold/window is its own declared
     // param (not left to QualityGovernorParams{}'s in-class defaults) so
     // `ros2 param get` shows each one.
+    // governor_enabled and the five threshold/window params below are read
+    // ONCE here -- `ros2 param set` updates the stored value but takes effect
+    // only on the next configure/restart (they are not in on_params()'s
+    // handled set; a live-retunable governor is future scope, stated rather
+    // than implied).
     governor_enabled_ = declare_parameter<bool>("governor_enabled", false);
     mpviz_node::QualityGovernorParams governor_params;
     const int governor_window_size_param = declare_parameter<int>(
@@ -66,8 +71,8 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     const int governor_recover_windows_required_param = declare_parameter<int>(
         "governor_recover_windows_required",
         static_cast<int>(governor_params.recover_windows_required));
-    governor_params.min_dwell_windows = static_cast<uint32_t>(declare_parameter<int>(
-        "governor_min_dwell_windows", static_cast<int>(governor_params.min_dwell_windows)));
+    const int governor_min_dwell_windows_param = declare_parameter<int>(
+        "governor_min_dwell_windows", static_cast<int>(governor_params.min_dwell_windows));
     if (governor_params.drop_threshold_ms <= governor_params.recover_threshold_ms)
     {
         RCLCPP_ERROR(get_logger(),
@@ -80,17 +85,20 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // wraps to a huge window/streak-length that never closes, so the
     // governor goes silently dead with no log -- the uint32_t field itself
     // can no longer catch that once it's been cast.
-    if (governor_window_size_param < 1 || governor_recover_windows_required_param < 1)
+    if (governor_window_size_param < 1 || governor_recover_windows_required_param < 1 ||
+        governor_min_dwell_windows_param < 1)
     {
         RCLCPP_ERROR(get_logger(),
-                     "governor_window_size (%d) and governor_recover_windows_required (%d) "
-                     "must both be >= 1",
-                     governor_window_size_param, governor_recover_windows_required_param);
+                     "governor_window_size (%d), governor_recover_windows_required (%d) and "
+                     "governor_min_dwell_windows (%d) must all be >= 1",
+                     governor_window_size_param, governor_recover_windows_required_param,
+                     governor_min_dwell_windows_param);
         return CallbackReturn::FAILURE;
     }
     governor_params.window_size = static_cast<uint32_t>(governor_window_size_param);
     governor_params.recover_windows_required =
         static_cast<uint32_t>(governor_recover_windows_required_param);
+    governor_params.min_dwell_windows = static_cast<uint32_t>(governor_min_dwell_windows_param);
     quality_governor_ = std::make_unique<mpviz_node::QualityGovernor>(
         governor_params, static_cast<uint32_t>(quality_));
 

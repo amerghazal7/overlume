@@ -261,7 +261,7 @@ that on 2026-09-07 — it stays committed v1.1.
   `setTemporalAntiAliasingOptions`/`setDynamicResolutionOptions`;
   `LightManager::setShadowCaster`/`setShadowOptions`). Every knob in this
   preset table turned out to have a live Filament setter — no genuinely
-  create-time-only knob, so no limitation note is owed. 4 new cases in
+  create-time-only knob, so no limitation note is owed. Bloom is deliberately PRESET-INDEPENDENT (not a low-row drop): it drives the emissive hero-ribbon glow (renderer.cpp's BloomOptions), and spec §8's low row never listed it — the preset table's scope is chosen, not overlooked. 4 new cases in
   `tests/test_renderer_quality_presets.cpp` (7 total in the file — the
   other 3 shipped in VM-032/bb8d5e6) prove live switch without re-create,
   `render_frame()` keeps working across a switch, `get_quality()` mirrors
