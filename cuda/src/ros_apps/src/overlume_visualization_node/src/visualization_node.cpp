@@ -969,6 +969,8 @@ void VisualizationNode::timer_callback()
         {
             if (apply_bowl_config())
                 RCLCPP_INFO(get_logger(), "bowl: re-baked (CameraInfo changed)");
+            else
+                RCLCPP_WARN(get_logger(), "bowl: re-bake after CameraInfo change failed");
         }
         // VM-091 gate close-out finding 2: a live bowl_R0_/bowl_k_/
         // bowl_Rmax_/feather_margin_/sky_color_/bowl_exposure_compensation_
@@ -979,9 +981,19 @@ void VisualizationNode::timer_callback()
         // budget the plan's own set_bowl_config contract accepts.
         else if (bowl_config_dirty_)
         {
-            bowl_config_dirty_ = false;
+            // Cleared only on SUCCESS -- a failed re-bake keeps the request
+            // pending and retries next tick instead of silently discarding
+            // the operator's edit.
             if (apply_bowl_config())
+            {
+                bowl_config_dirty_ = false;
                 RCLCPP_INFO(get_logger(), "bowl: re-baked (live param change)");
+            }
+            else
+            {
+                RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                                     "bowl: live-param re-bake failed -- retrying");
+            }
         }
         // Cheap per-tick ego-motion re-alignment (no re-bake, no texture
         // touch) -- identity deltas until config_applied()/odometry exist.
