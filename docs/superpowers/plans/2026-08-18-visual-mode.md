@@ -338,6 +338,11 @@ tunes against the perf envelope the camera/bowl work is changing); **VM-043**
 is superseded — its on-robot rerun and parity checklist close inside
 migration Task 6 (VM-095), not as a separate run.
 
+**VM-044 done (2026-09-11, `TPSProjector-vm044` worktree):** see the backlog
+entry's own Done note (`docs/superpowers/specs/2026-08-18-visual-mode-backlog.md`)
+for the full record; feeds migration Task 6 Step 1's named exception (3) —
+noted there too.
+
 | Task | Backlog | Files |
 |---|---|---|
 | Quality auto-drop w/ hysteresis | VM-040 | lib `src/quality_governor.cpp`, load test |
