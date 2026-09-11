@@ -326,8 +326,9 @@ TEST(ThemeObjects, ShippedThemesAuthorOpacityExplicitly) {
         mpviz::detail::load_theme(kThemeDir, "light_clay");
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
-    EXPECT_NEAR(dark->objects.opacity, 1.0f, 1e-4f);
-    EXPECT_NEAR(light->objects.opacity, 1.0f, 1e-4f);
+    // 0.5 since the 2026-09-11 user decision (semi-transparent by default).
+    EXPECT_NEAR(dark->objects.opacity, 0.5f, 1e-4f);
+    EXPECT_NEAR(light->objects.opacity, 0.5f, 1e-4f);
 }
 
 TEST(ThemeObjects, OpacityLerpsLinearlyAcrossTransition) {
