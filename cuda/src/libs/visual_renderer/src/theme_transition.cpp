@@ -165,6 +165,15 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.ribbon.margin_velocity_m =
         lerpf(a.ribbon.margin_velocity_m, b.ribbon.margin_velocity_m, w);
 
+    // objects.opacity: plain scalar lerp (VM-078), same as roughness/
+    // metallic/hud.scale above -- not a color, no Oklab involved. A live
+    // theme switch mid-transition must see the blended value ramp alongside
+    // every other token; render_frame()'s apply_current_theme() re-runs
+    // this blend() every frame while animating and stores the result in
+    // r.active_theme, which objects.cpp's update_entity_staleness() reads
+    // every frame -- no separate wiring needed.
+    out.objects.opacity = lerpf(a.objects.opacity, b.objects.opacity, w);
+
     return out;
 }
 

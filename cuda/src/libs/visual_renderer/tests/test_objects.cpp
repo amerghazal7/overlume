@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -94,6 +95,65 @@ TEST(Objects, StaleObjectFadesViaSharedStalenessAlpha) {
     EXPECT_TRUE(stale.bound_to_translucent)
         << "a stale object's renderable must be bound to clay_translucent.mat, not clay.mat";
     EXPECT_NEAR(stale.alpha, 0.5f, 0.02f);
+
+    mpviz::destroy_renderer(r);
+}
+
+// ── objects.opacity theme token (VM-078) ──────────────────────────────────
+// Reuses the exact staleness-swap machinery above -- no parallel path. At
+// the shipped themes' default 1.0, alpha == staleness_alpha exactly (proven
+// by StaleObjectFadesViaSharedStalenessAlpha above, byte-identical to
+// before this token existed -- also why the existing goldens, unchanged by
+// this feature, stay pixel-identical). Below 1.0 (objects_half_opacity.yaml
+// fixture, VM-078's own theme.cpp test fixture), a FRESH object must now
+// also bind translucent, at alpha == opacity.
+
+TEST(Objects, HalfOpacityBindsTranslucentEvenWhileFresh) {
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    mpviz::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), "objects_half_opacity"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    mpviz::TrackedObject obj = make_car(1, 0.0);  // fresh: last_update_sec == sim_time_sec
+    mpviz::SceneGraph s{};
+    s.sim_time_sec = 10.0;
+    s.objects = &obj;
+    s.object_count = 1;
+    mpviz::set_scene(r, s);
+    render_once(r, kPose);
+
+    const auto info = mpviz::testing::object_material_info(r, 1);
+    EXPECT_TRUE(info.bound_to_translucent)
+        << "at objects.opacity 0.5 even a FRESH object must ride the translucent swap, "
+           "not stay on the fully-opaque shared template";
+    EXPECT_NEAR(info.alpha, 0.5f, 1e-4f);
+
+    mpviz::destroy_renderer(r);
+}
+
+TEST(Objects, HalfOpacityStalenessRampsDownFromTheOpacityCeilingNeverAboveIt) {
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    mpviz::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), "objects_half_opacity"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    mpviz::TrackedObject obj = make_car(1, 0.0);
+    obj.last_update_sec = 10.0 - 0.75;  // same offset as StaleObjectFadesViaSharedStalenessAlpha
+                                        // above -> staleness_alpha ~0.5
+    mpviz::SceneGraph s{};
+    s.sim_time_sec = 10.0;
+    s.objects = &obj;
+    s.object_count = 1;
+    mpviz::set_scene(r, s);
+    render_once(r, kPose);
+
+    const auto info = mpviz::testing::object_material_info(r, 1);
+    EXPECT_TRUE(info.bound_to_translucent);
+    // alpha = opacity(0.5) * staleness_alpha(~0.5) ~= 0.25 -- strictly below
+    // the 0.5 opacity ceiling, proving the fade still ramps DOWN from it
+    // rather than the opacity floor being clamped away.
+    EXPECT_NEAR(info.alpha, 0.25f, 0.02f);
+    EXPECT_LT(info.alpha, 0.5f);
 
     mpviz::destroy_renderer(r);
 }
