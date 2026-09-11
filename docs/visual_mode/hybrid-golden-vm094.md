@@ -187,3 +187,16 @@ only, not the colorized point splats sitting on it.
 convention. Task 5 Step 5's judgment call resets to this new capture, and
 still needs the near-field-object re-capture this doc's review-round-2
 section already called out as outstanding (unrelated to this fix).
+
+
+## 2026-09-11 (later): lidar point colors linearized
+
+The bowl color-fidelity review found the SAME sRGB double-encoding in the
+lidar path through a different mechanism: `point_cloud.mat` binds per-vertex
+rgba as plain normalized bytes (no sampler, no hardware sRGB decode), and
+`lidar_colorize` packed raw sRGB camera bytes into it. `pack_rgba` now
+linearizes camera samples via a 256-entry LUT (adapter-baked colormap
+colors untouched — authored against the existing pipeline). **The hybrid
+golden's cloud colors are stale again as of this fix** — re-shoot at the
+next rig session (the fair Surround-Stitching parity capture) before the
+Step 5 human judgment.
