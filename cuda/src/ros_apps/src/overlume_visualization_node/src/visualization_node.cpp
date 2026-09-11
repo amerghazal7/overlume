@@ -196,12 +196,10 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // timer_callback() below.
     layer_trajectory_carpet_ = declare_parameter<bool>("layer_trajectory_carpet", true);
 
-    // ── Local render-mode switch (Task 4 / VM-093) ───────────────────────────
-    // SEPARATE from initial_mode_/active_mode_ above (mux authority stays
-    // untouched, Decision 7) -- a plain node param, live-tunable below, that
-    // decides WHAT this node renders once it IS mux-selected. Default
-    // FREE_LOOK(3): a fresh node with no render_mode override behaves
-    // exactly as it did before this task.
+    // Local render-mode switch (Task 4 / VM-093) -- full contract at the
+    // render_mode_ field comment, visualization_node.hpp. Declare-time
+    // out-of-range WARNs and clamps to FREE_LOOK; the live on_params() path
+    // below rejects instead (a bad request, not a value to silently coerce).
     render_mode_ = declare_parameter<int>("render_mode", kRenderModeFreeLook);
     if (render_mode_ < kRenderModeBowl || render_mode_ > kRenderModeFreeLook)
     {
@@ -209,10 +207,8 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
                     "got %d -- defaulting to 3 (free_look)", render_mode_);
         render_mode_ = kRenderModeFreeLook;
     }
-    // Surround Stitching (follow-up USER DIRECTIVE 2026-09-11): a mode-3-only
-    // layer, default off (mode 3's current look is unchanged). Same STANDING
-    // disable-knob shape as every layer_* bool above, just not a
-    // SceneAssembly category -- see the .hpp field comment.
+    // Surround Stitching (Task 4/VM-093 follow-up directive) -- full contract
+    // at the layer_surround_stitching_ field comment, visualization_node.hpp.
     layer_surround_stitching_ = declare_parameter<bool>("layer_surround_stitching", false);
     surround_stitching_profile_ = declare_parameter<std::string>("surround_stitching_profile",
                                                                   "bowl");
@@ -734,6 +730,20 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     layer_param_cb_ = add_on_set_parameters_callback(
         std::bind(&VisualizationNode::on_params, this, std::placeholders::_1));
 
+    // Review round 1 (2026-09-11): render_mode BOWL/HYBRID with bowl_enabled_
+    // false (the shipped default) masks the whole autonomy scene for a bowl
+    // that was never configured -- sky + a box ego, no diagnostic. One-shot,
+    // bowl_mode_warned_ shared with on_params()'s render_mode branch below.
+    if ((render_mode_ == kRenderModeBowl || render_mode_ == kRenderModeHybrid) && !bowl_enabled_ &&
+        !bowl_mode_warned_)
+    {
+        bowl_mode_warned_ = true;
+        RCLCPP_WARN(get_logger(),
+                    "render_mode=%d masks the whole autonomy scene but bowl_enabled is false -- "
+                    "the frame will be near-empty (sky + ego) until the bowl is configured",
+                    render_mode_);
+    }
+
     RCLCPP_INFO(get_logger(), "on_configure() succeeded. out=%dx%d quality=%d initial_mode=%d "
                 "flatten_z=%s",
                 out_width_, out_height_, quality_, initial_mode_, flatten_z ? "true" : "false");
@@ -777,6 +787,13 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
             RCLCPP_WARN(get_logger(),
                         "set_environment_source: failed to open '%s' -- no buildings this run",
                         environment_chunks_dir_.c_str());
+        }
+        else
+        {
+            // Review round 1 (2026-09-11): armed -- timer_callback()'s
+            // per-mode environment gate takes over from here (BOWL/HYBRID
+            // must not show buildings around the bowl).
+            environment_configured_ = true;
         }
     }
     else if (environment_enabled_ && !environment_warned_)
@@ -835,6 +852,25 @@ rcl_interfaces::msg::SetParametersResult VisualizationNode::on_params(
                 else
                 {
                     render_mode_ = v;
+                    // Review round 1 (2026-09-11): same one-shot WARN as
+                    // on_configure()'s close-out check -- a live switch INTO
+                    // BOWL/HYBRID with the bowl never configured is the same
+                    // near-empty-frame trap, just reached via `ros2 param
+                    // set` instead of a declare-time default.
+                    const bool bowl_ready =
+                        bowl_enabled_ && camera_ingest_ && camera_ingest_->config_applied();
+                    if ((render_mode_ == kRenderModeBowl || render_mode_ == kRenderModeHybrid) &&
+                        !bowl_ready && !bowl_mode_warned_)
+                    {
+                        bowl_mode_warned_ = true;
+                        RCLCPP_WARN(get_logger(),
+                                    "render_mode=%d masks the whole autonomy scene but the bowl "
+                                    "is not configured (bowl_enabled=%s, config_applied=%s) -- "
+                                    "the frame will be near-empty (sky + ego)",
+                                    render_mode_, bowl_enabled_ ? "true" : "false",
+                                    (camera_ingest_ && camera_ingest_->config_applied()) ? "true"
+                                                                                          : "false");
+                    }
                 }
             }
             else if (n == "layer_surround_stitching") layer_surround_stitching_ = p.as_bool();
@@ -1063,16 +1099,34 @@ void VisualizationNode::timer_callback()
     // state, cheap flag flip" philosophy as the bowl block above) --
     // set_bowl_visible() itself no-ops when the bowl was never configured
     // (cameraCount==0, scene.h's own contract), so this is safe even with
-    // bowl_enabled_ false. Visible in BOWL/HYBRID (USER DIRECTIVE
-    // 2026-09-11: those modes render the CUDA-parity bowl unconditionally);
-    // in FREE_LOOK, visible ONLY when the operator's layer_surround_stitching
-    // toggle is on (the follow-up USER DIRECTIVE's Surround Stitching layer)
+    // bowl_enabled_ false. Predicate lives in scene_assembly.hpp/.cpp
+    // (review round 1: unit-tested there instead of only smoke-tested here)
     // -- surround_stitching_profile_ picks bowl-vs-hybrid CONTENT (Task 5
     // owns the hybrid half; until VM-094 lands both profile values render
     // identically, the bowl alone, noted rather than silently absorbed).
-    const bool bowl_visible = render_mode_ == kRenderModeBowl || render_mode_ == kRenderModeHybrid ||
-                               (render_mode_ == kRenderModeFreeLook && layer_surround_stitching_);
-    mpviz::set_bowl_visible(renderer_, bowl_visible);
+    const auto render_mode = static_cast<RenderMode>(render_mode_);
+    mpviz::set_bowl_visible(renderer_, bowl_visible_for_mode(render_mode, layer_surround_stitching_));
+
+    // Environment/buildings layer (Epic 4/VM-052) is renderer-internal, not a
+    // SceneAssembly/LayerFlags category (scene_assembly.hpp's mode_content_mask
+    // comment) -- review round 1 finding: left ungated, BOWL/HYBRID would show
+    // baked buildings around the bowl, contradicting "only bowl and ego are
+    // rendered". Toggled via set_environment_source()'s documented null-source
+    // "renders nothing" path, only when on_activate() actually armed it
+    // (environment_configured_) -- re-arms with the SAME chunks dir/anchor on
+    // return to FREE_LOOK. Cheap edge-triggered flip, same shape as the bowl
+    // visibility dispatch above.
+    if (environment_configured_)
+    {
+        const bool want_environment = render_mode == RenderMode::FREE_LOOK;
+        if (want_environment != environment_rendering_)
+        {
+            mpviz::set_environment_source(
+                renderer_, want_environment ? environment_chunks_dir_.c_str() : nullptr,
+                geo_anchor_solver_->anchor());
+            environment_rendering_ = want_environment;
+        }
+    }
 
     // scene_asm_.clear() must run before any adapter's fill(), or last tick's
     // elements pile up on top of this tick's. MapElement fades via the
@@ -1230,8 +1284,7 @@ void VisualizationNode::timer_callback()
                                        layer_alerts_,        layer_markers_,
                                        layer_point_clouds_,  layer_trajectory_carpet_};
     apply_layer_gates(scene_asm_,
-                       compose_layer_gates(user_layer_flags,
-                                           mode_content_mask(static_cast<RenderMode>(render_mode_))));
+                       compose_layer_gates(user_layer_flags, mode_content_mask(render_mode)));
 
     scene_asm_.point_at(scene);
     mpviz::set_scene(renderer_, scene);
@@ -1293,11 +1346,11 @@ void VisualizationNode::timer_callback()
     // passed through untouched -- distinct from the font-path fallback
     // above, which still calls CompositeHud() every tick. Task 4/VM-093,
     // USER DIRECTIVE 2026-09-11: BOWL/HYBRID never had a HUD in the CUDA
-    // reference (it's a mode-3-only Filament-node addition), so it's
-    // force-suppressed there regardless of hud_enabled_ -- never touching
-    // hud_enabled_ itself, so it's restored exactly on returning to
-    // FREE_LOOK.
-    if (hud_enabled_ && render_mode_ == kRenderModeFreeLook)
+    // reference (it's a mode-3-only Filament-node addition), so
+    // overlays_visible_for_mode() (scene_assembly.hpp) force-suppresses it
+    // there regardless of hud_enabled_ -- never touching hud_enabled_
+    // itself, so it's restored exactly on returning to FREE_LOOK.
+    if (hud_enabled_ && overlays_visible_for_mode(render_mode))
     {
         const mpviz::HudColors hud_colors = mpviz::get_hud_colors(renderer_);
         const mpviz_node::HudSnapshot hud_snapshot{scene.hud.speed_mps, scene.hud.active_mode};
@@ -1335,9 +1388,10 @@ void VisualizationNode::timer_callback()
     // above branches on it the same way) -- a distance measured from a
     // non-existent ego would label the frame confidently wrong.
     // Task 4/VM-093, USER DIRECTIVE 2026-09-11: same force-suppression as
-    // the HUD block above -- BOWL/HYBRID never had a callout in the CUDA
-    // reference, and callouts_enabled_ itself is left untouched.
-    if (callouts_enabled_ && render_mode_ == kRenderModeFreeLook && scene.ego.valid != 0)
+    // the HUD block above (overlays_visible_for_mode()) -- BOWL/HYBRID never
+    // had a callout in the CUDA reference, and callouts_enabled_ itself is
+    // left untouched.
+    if (callouts_enabled_ && overlays_visible_for_mode(render_mode) && scene.ego.valid != 0)
     {
         mpviz_node::Callout callout{};
         if (mpviz_node::BuildNearestCallout(renderer_, scene.alerts, scene.alert_count,
