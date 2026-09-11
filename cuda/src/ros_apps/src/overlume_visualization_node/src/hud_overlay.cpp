@@ -18,10 +18,10 @@
 namespace mpviz_node
 {
 
-void PopulateHud(mpviz::SceneGraph& scene, int active_mode)
+void PopulateHud(mpviz::SceneGraph& scene, int render_mode)
 {
     scene.hud.speed_mps = scene.ego.speed_mps;
-    scene.hud.active_mode = static_cast<uint8_t>(active_mode);
+    scene.hud.active_mode = static_cast<uint8_t>(render_mode);
 }
 
 namespace

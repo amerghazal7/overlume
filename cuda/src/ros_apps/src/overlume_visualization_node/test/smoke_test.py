@@ -12,14 +12,13 @@ by the unified-engine migration's Task 6 (VM-095) Step 2/3:
     Step 3 deleted that early return -- this node now renders and publishes
     EVERY tick regardless of render_mode_, the sole rendering authority for
     all three modes. Scenario 2 below is rewritten to assert frames DO flow
-    at initial_mode:=1 too. **Still an interim assertion, not the final
-    one**: `bowl_enabled`/`hybrid_enabled` ship default `false` until Step 6
-    (a later, package-layout-changing pass) flips them, so a BOWL/HYBRID
-    frame today is content-blank (sky_color, no bowl mesh) rather than an
-    actual bowl capture -- this scenario only proves frames keep flowing,
-    the same thing Scenario 3 below already proves for the local param
-    path. The "bowl frames at initial_mode:=1" content assertion the plan
-    names belongs to that later pass, once Step 6 lands.
+    at initial_mode:=1 too. **Frames-flow only, by design**: this scenario
+    launches the node BARE (no params file, no camera topics), so the
+    declare-time defaults apply and the frame is content-blank regardless
+    of the shipped default -- config/default_params.yaml ships
+    bowl_enabled/hybrid_enabled TRUE since the VM-095 cutover (Step 6), but
+    a real bowl-content assertion needs the six-camera fixture bag; that
+    coverage lives in test_mode_dispatch_pixels.py, not here.
 
 Task 4 (VM-093):
   - Scenario 3 -- with initial_mode:=3 held fixed (this node stays the
@@ -279,8 +278,8 @@ def main() -> int:
               file=sys.stderr)
         return 1
     print(f"INFO: got {len(frames)} frames at initial_mode=1 -- OK "
-          "(content-blank until Step 6 flips bowl_enabled, frames-flow is "
-          "the scope of this scenario).")
+          "(bare launch: declare-defaults, no cameras -- content-blank by "
+          "design; frames-flow is this scenario's whole scope).")
 
     # ── Scenario 3 (Task 4/VM-093): local render_mode cycle, no topic ────────
     print("INFO: scenario 3 -- initial_mode=3 fixed, cycling render_mode "
