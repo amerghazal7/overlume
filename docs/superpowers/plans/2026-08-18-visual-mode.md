@@ -343,9 +343,25 @@ entry's own Done note (`docs/superpowers/specs/2026-08-18-visual-mode-backlog.md
 for the full record; feeds migration Task 6 Step 1's named exception (3) —
 noted there too.
 
+**VM-040 done (2026-09-11):** migration Task 5/VM-094's perf gate had
+already landed (implementation complete, only its golden's human-sanity
+approval was pending — see the migration plan's own Status ledger row 5),
+so this task's own "slots after Task 5/VM-094" sequencing note above was
+satisfied and it proceeded. Files actually used: lib `set_quality()`/
+`get_quality()` (`include/visual_renderer/scene.h`, `src/renderer.cpp` —
+NOT a new `quality_governor.cpp` in the library, see below) + node
+`micropilot_visualization_node/{include,src}/.../quality_governor.{hpp,cpp}`
+(the governor is node-side, per this row's own original file list's intent
+— `render_ms` and the mux/timer loop it reacts to both live there). See the
+backlog entry's own Done note
+(`docs/superpowers/specs/2026-08-18-visual-mode-backlog.md`) for the full
+record, including the set_quality-over-re-create design decision this row's
+own text left to "the Epic 5 plan" (that plan was never separately
+authored; the backlog Done note is the decision of record).
+
 | Task | Backlog | Files |
 |---|---|---|
-| Quality auto-drop w/ hysteresis | VM-040 | lib `src/quality_governor.cpp`, load test |
+| Quality auto-drop w/ hysteresis | VM-040 | node `include/.../quality_governor.hpp` + `src/quality_governor.cpp`, load test (`test/test_quality_governor.cpp`); lib `set_quality()`/`get_quality()` (`scene.h`/`renderer.cpp`) |
 | Perf benchmark + **repo-local CI gate** (`[review 2026-09-07]` the repo has no hosted CI — no `.github/workflows`, no GitLab CI; "CI wiring" therefore means one `tools/ci_visual_mode.sh` that runs POD check, lib ctest, node gtests, WS bridge tests and the golden suite with GPU-skip, documented as the pre-merge gate; hosted CI is a follow-up once a platform exists) | VM-041 | `tools/viz_benchmark.cpp`, `tools/ci_visual_mode.sh` |
 | Docs + profile-authoring + bake runbooks | VM-042 | `README.md` section, `docs/visual_mode/*.md` (directory created by this task; ADRs stay in `docs/adr/`) |
 | Live validation: CARLA + real bag, rviz side-by-side parity sign-off; **on-robot budget rerun (Epic 0 Task 6 Step 3) is a checklist item and blocks sign-off** | VM-043 | checklist in `docs/visual_mode/signoff.md`, `budget_probe.md` |

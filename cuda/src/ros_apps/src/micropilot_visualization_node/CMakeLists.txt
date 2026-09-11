@@ -242,7 +242,8 @@ add_library(visualization_node_lib SHARED
   src/hud_overlay.cpp
   src/callouts.cpp
   src/camera_ingest.cpp
-  src/lidar_colorize.cpp)
+  src/lidar_colorize.cpp
+  src/quality_governor.cpp)
 
 target_include_directories(visualization_node_lib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -655,6 +656,14 @@ if(BUILD_TESTING)
     ${VISUAL_RENDERER_DIR}/include
     ${VISUAL_RENDERER_DIR}/src)
   target_link_libraries(test_lidar_colorize visual_renderer_prebuilt)
+
+  # VM-040 (Epic 5): QualityGovernor is a pure hysteresis state machine over
+  # a render_ms stream (quality_governor.hpp's own header comment) -- no ROS
+  # types, no renderer pointer -- same "header/POD only, no
+  # visual_renderer_prebuilt link needed" shape as test_diagnostics above.
+  ament_add_gtest(test_quality_governor test/test_quality_governor.cpp src/quality_governor.cpp)
+  target_include_directories(test_quality_governor PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
 endif()
 
 ament_package()

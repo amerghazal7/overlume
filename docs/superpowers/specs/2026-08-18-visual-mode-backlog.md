@@ -93,6 +93,7 @@ Status per task: the **Status ledger** at the top of each epic plan.
 - **VM-032 Layer visibility + quality presets** end to end (params + WS
   commands + GUI panel; theme toggle already shipped in VM-014).
   `[review 2026-09-07]` `RenderConfig::quality` today drives only SSAO enable+resolution and FXAA-vs-TAA. This item must also map spec §8's three deferred knobs: shadow-map resolution (2048 high / 1024 medium), shadow enable (low = none), and the 960×540 render-scale upscale for `low`. Live switching needs an appended `set_quality()` entry point or a renderer re-create (see VM-040, decision P4 accepted: settle it in the Epic 5 plan).
+  `[2026-09-11]` This item's own three deferred knobs are now implemented at `create_renderer()` time (VM-032's own construction-time dispatch, unchanged) AND live: VM-040's Done note (below) shipped the appended `set_quality()` entry point over a renderer re-create and re-applies this exact preset table live. This item's own remaining scope (params + WS commands + GUI panel end-to-end, the WS E2E AC) is unchanged/still open.
   AC: WS E2E test toggles each layer and preset; each preset measurably changes frame cost (`render_ms`).
 - **VM-033 (moved into VM-011/VM-014 — both themes + animated toggle ship
   in Epic 1.)**
@@ -237,6 +238,56 @@ that on 2026-09-07 — it stays committed v1.1.
   a live preset change needs either a `set_quality()` entry point (appended,
   ADR-0004) or a renderer re-create; decide in the Epic 5 plan).
   AC: synthetic-load test triggers drop + log; recovers.
+
+  **Done (2026-09-11):** **DESIGN DECISION (orchestrator-resolved, recorded
+  here since no separate Epic 5 plan was ever authored — this note plus this
+  tick IS the record P4/the quality-knobs item above both point back to):
+  the live preset switch ships as an APPENDED `set_quality(VisualRenderer*,
+  uint32_t preset)` free function (ADR-0004 additive; no `kSceneVersion`
+  bump — the VM-090 `set_camera_frame`/VM-052 `set_environment_source`
+  free-function precedent), NOT a renderer re-create.** A re-create would
+  tear down every texture/mesh/camera slot mid-run (multi-frame stutter +
+  warm-state loss) — exactly what a governor reacting to load must never
+  add.
+  Library (`cuda/src/libs/visual_renderer`): `set_quality()`/`get_quality()`
+  appended to `scene.h`; `create_renderer()`'s existing quality dispatch
+  (SSAO enable+resolution, FXAA-vs-TAA, shadow-map resolution 2048/1024,
+  shadow enable off at low, 960x540 low-preset dynamic-resolution upscale —
+  VM-032's own construction-time-only implementation of spec §8's full
+  preset table) is factored into two shared functions
+  (`ApplyQualityViewOptions`/`ShadowOptionsForQuality`, `renderer.cpp`) so
+  `set_quality()` re-applies the IDENTICAL mapping live, through Filament's
+  own live setters (`View::setAmbientOcclusionOptions`/`setAntiAliasing`/
+  `setTemporalAntiAliasingOptions`/`setDynamicResolutionOptions`;
+  `LightManager::setShadowCaster`/`setShadowOptions`). Every knob in this
+  preset table turned out to have a live Filament setter — no genuinely
+  create-time-only knob, so no limitation note is owed. 7 new cases in
+  `tests/test_renderer_quality_presets.cpp` (live switch without
+  re-create, `render_frame()` keeps working across a switch,
+  `get_quality()` mirrors the active preset, null-safety); full library
+  suite green (206/206 `ctest`, incl. `check_pod_header`).
+  Node (`micropilot_visualization_node`): a new ROS-free
+  `QualityGovernor` (`quality_governor.hpp`/`.cpp`) is a pure hysteresis
+  state machine over a `render_ms` stream — window→p95, DROP reacts within
+  one window past `governor_drop_threshold_ms`, RECOVER requires
+  `governor_recover_windows_required` CONSECUTIVE windows under
+  `governor_recover_threshold_ms`, and `governor_min_dwell_windows` floors
+  how soon any transition can follow the previous one. Defaults (window 30
+  samples ≈1s @30Hz, drop 28ms, recover 18ms, 3 recover windows, 3 dwell
+  windows) are derived from `tools/viz_benchmark.cpp`'s own committed
+  render_ms numbers and `budget_probe.md`'s 33ms wall-timer ceiling (real
+  bowl-on-driving `render_ms` p99 there is ~21.7ms — the gap between that
+  and the ceiling is exactly the headroom these thresholds are tuned
+  against). `governor_enabled` param defaults **false** (new auto-behavior
+  ships opt-in); `timer_callback()` feeds it `render_ms_` every mode-3 tick
+  and, on a transition, calls `mpviz::set_quality()` + `RCLCPP_WARN`s +
+  mirrors `quality_` back onto the live ROS param. 10 new cases in
+  `test_quality_governor.cpp` (window boundaries, hysteresis-gap no-op,
+  drop/recover floors and ceilings, streak-breaking, min-dwell, a combined
+  synthetic drop-then-recover proving the AC directly); full node suite
+  green (291/291, `colcon test`). Manual evidence (the real
+  `QualityGovernor` + the shipped defaults, sustained overload then
+  sustained headroom) is recorded in this task's own commit message.
 - **VM-041 Perf benchmark + repo-local CI gate.** `[review 2026-09-07]` The
   repo has no hosted CI (no `.github/workflows`, no `.gitlab-ci.yml`). "CI
   wiring" means one `tools/ci_visual_mode.sh` running POD check, lib ctest,

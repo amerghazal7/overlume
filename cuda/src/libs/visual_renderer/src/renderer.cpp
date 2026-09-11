@@ -938,6 +938,86 @@ void add_mesh(VisualRenderer& r, Mesh& mesh, std::vector<Vertex> verts,
     r.scene->addEntity(mesh.entity);
 }
 
+namespace {
+
+// Epic 3 Task 5 (VM-032) Step 3 originally baked this dispatch straight into
+// create_renderer() -- one-shot, construction-time only. VM-040 (Epic 5)
+// pulls the View-level half of it (SSAO, AA, dynamic-resolution upscale)
+// out into its own function so set_quality() (scene.h) can re-apply it
+// live, against an already-running View, with the identical mapping
+// create_renderer() uses -- one preset->options mapping, two call sites,
+// same "no drift between create-time and live" reasoning ShadowOptionsForQuality
+// below applies to the shadow half. Always calls setDynamicResolutionOptions
+// (even to explicitly turn it back off) so a live low->medium/high switch
+// clears a prior low-preset scale instead of leaving it stuck; construction
+// time behaves identically since a fresh View defaults to disabled anyway.
+void ApplyQualityViewOptions(filament::View& view, uint32_t quality, uint32_t width,
+                              uint32_t height) {
+    filament::AmbientOcclusionOptions ao{};
+    ao.enabled = quality >= 1;
+    ao.resolution = quality >= 2 ? 1.0f : 0.5f;  // Options.h: must be 0.5 or 1.0
+    view.setAmbientOcclusionOptions(ao);
+
+    filament::TemporalAntiAliasingOptions taa{};
+    if (quality >= 2) {
+        // high: TAA replaces FXAA -- NONE here, TAA enabled separately.
+        view.setAntiAliasing(filament::AntiAliasing::NONE);
+        taa.enabled = true;
+    } else {
+        // low and medium both use FXAA; this is also Filament's own default,
+        // so this call is one line of explicitness, not new behavior. TAA is
+        // explicitly disabled too (not just left unused) so a live
+        // high->low/medium switch doesn't keep accumulating its history
+        // buffer for a pass that's no longer selected.
+        view.setAntiAliasing(filament::AntiAliasing::FXAA);
+        taa.enabled = false;
+    }
+    view.setTemporalAntiAliasingOptions(taa);
+
+    // Epic 3 Task 5 (VM-032) Step 3: low-preset internal render scale --
+    // spec §8 pins low to a fixed 960x540 internal target, upscaled to
+    // whatever output size was requested. Filament's dynamic-resolution
+    // path does this for free: pinning minScale == maxScale forces a
+    // constant scale factor instead of the frame-time-driven scaling this
+    // option exists for. LOW quality = bilinear blit (cheapest upscale,
+    // matching the "low" preset's own budget). Medium/high leave dynamic
+    // resolution off -- they render at the requested output size directly.
+    filament::View::DynamicResolutionOptions dynRes{};
+    if (quality == 0 && width > 0 && height > 0) {
+        dynRes.enabled = true;
+        dynRes.homogeneousScaling = true;
+        dynRes.quality = filament::QualityLevel::LOW;
+        // ONE homogeneous scale for both axes (review 2026-09-09):
+        // homogeneousScaling=true makes Filament force a single factor, so
+        // per-axis values would silently disagree with the hook off-16:9;
+        // min() keeps the internal target within 960x540 at any aspect.
+        const float scale = std::min(960.0f / static_cast<float>(width),
+                                     540.0f / static_cast<float>(height));
+        dynRes.minScale = {scale, scale};
+        dynRes.maxScale = {scale, scale};
+    }
+    // dynRes.enabled stays false (its default) for medium/high -- calling
+    // this unconditionally (not only inside the `quality == 0` branch above)
+    // is what lets a LIVE switch away from low actually clear a previously
+    // pinned scale; at construction time this is a no-op against a fresh
+    // View's own default.
+    view.setDynamicResolutionOptions(dynRes);
+}
+
+// Epic 3 Task 5 (VM-032) Step 3's shadow half of the same preset table:
+// disabled entirely at low, a 1024 shadow map at medium, 2048 at high. Both
+// castShadows and ShadowOptions::mapSize have live LightManager setters
+// (setShadowCaster/setShadowOptions) as well as Builder-time equivalents, so
+// this one mapping function feeds both create_renderer()'s Builder call and
+// set_quality()'s live update -- never duplicated between the two.
+filament::LightManager::ShadowOptions ShadowOptionsForQuality(uint32_t quality) {
+    filament::LightManager::ShadowOptions opts{};
+    opts.mapSize = quality >= 2 ? 2048 : 1024;
+    return opts;
+}
+
+}  // namespace
+
 VisualRenderer* create_renderer(const RenderConfig& config) {
     if (config.width == 0 || config.height == 0) return nullptr;
 
@@ -1004,50 +1084,12 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     bloom.enabled = true;
     r->view->setBloomOptions(bloom);
 
-    // SSAO + anti-aliasing, driven by config.quality (0=low, 1=med,
-    // 2=high) -- both move pixels in committed goldens, so decided here,
-    // not deferred.
-    filament::AmbientOcclusionOptions ao{};
-    ao.enabled = config.quality >= 1;
-    ao.resolution = config.quality >= 2 ? 1.0f : 0.5f;  // Options.h: must be 0.5 or 1.0
-    r->view->setAmbientOcclusionOptions(ao);
-
-    if (config.quality >= 2) {
-        // high: TAA replaces FXAA -- NONE here, TAA enabled separately.
-        r->view->setAntiAliasing(filament::AntiAliasing::NONE);
-        filament::TemporalAntiAliasingOptions taa{};
-        taa.enabled = true;
-        r->view->setTemporalAntiAliasingOptions(taa);
-    } else {
-        // low and medium both use FXAA; this is also Filament's own default,
-        // so this call is one line of explicitness, not new behavior.
-        r->view->setAntiAliasing(filament::AntiAliasing::FXAA);
-    }
-
-    // Epic 3 Task 5 (VM-032) Step 3: low-preset internal render scale --
-    // spec §8 pins low to a fixed 960x540 internal target, upscaled to
-    // whatever output size was requested. Filament's dynamic-resolution
-    // path does this for free: pinning minScale == maxScale forces a
-    // constant scale factor instead of the frame-time-driven scaling this
-    // option exists for. LOW quality = bilinear blit (cheapest upscale,
-    // matching the "low" preset's own budget). Medium/high leave dynamic
-    // resolution off (Filament default) -- they render at the requested
-    // output size directly.
-    if (config.quality == 0 && config.width > 0 && config.height > 0) {
-        filament::View::DynamicResolutionOptions dynRes{};
-        dynRes.enabled = true;
-        dynRes.homogeneousScaling = true;
-        dynRes.quality = filament::QualityLevel::LOW;
-        // ONE homogeneous scale for both axes (review 2026-09-09):
-        // homogeneousScaling=true makes Filament force a single factor, so
-        // per-axis values would silently disagree with the hook off-16:9;
-        // min() keeps the internal target within 960x540 at any aspect.
-        const float scale = std::min(960.0f / static_cast<float>(config.width),
-                                     540.0f / static_cast<float>(config.height));
-        dynRes.minScale = {scale, scale};
-        dynRes.maxScale = {scale, scale};
-        r->view->setDynamicResolutionOptions(dynRes);
-    }
+    // SSAO + anti-aliasing + low-preset render scale, driven by
+    // config.quality (0=low, 1=med, 2=high) -- all three move pixels in
+    // committed goldens, so decided here, not deferred. VM-040 (Epic 5):
+    // shared with set_quality()'s live path, see ApplyQualityViewOptions's
+    // own comment for why this is a function now instead of inline code.
+    ApplyQualityViewOptions(*r->view, config.quality, config.width, config.height);
 
     utils::EntityManager& em = utils::EntityManager::get();
 
@@ -1081,19 +1123,18 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // sun/ibl/fog/clear-color actually is.
     // Epic 3 Task 5 (VM-032) Step 3: shadows are the other two §8 preset
     // knobs -- disabled entirely at low (quality == 0), a 1024 shadow map
-    // at medium, 2048 at high. Both are Builder-time-only LightManager
-    // properties (see the comment above), so this is the same
-    // config.quality dispatch as the SSAO/AA block above, just for a
-    // different Filament option.
-    filament::LightManager::ShadowOptions shadowOptions{};
-    shadowOptions.mapSize = config.quality >= 2 ? 2048 : 1024;
+    // at medium, 2048 at high. Builder-time here (entity doesn't exist
+    // yet); set_quality() (VM-040) re-applies the SAME ShadowOptionsForQuality
+    // mapping live, through LightManager's setShadowCaster/setShadowOptions,
+    // once this entity exists.
     r->sunEntity = em.create();
     filament::LightManager::Builder(filament::LightManager::Type::SUN)
         .sunAngularRadius(1.9f)
         .castShadows(config.quality >= 1)
-        .shadowOptions(shadowOptions)
+        .shadowOptions(ShadowOptionsForQuality(config.quality))
         .build(*engine, r->sunEntity);
     r->scene->addEntity(r->sunEntity);
+    r->qualityPreset = config.quality;
 
     // clay.mat (shared, opaque -- ground here, ego clay-box fallback + glTF
     // remap) and clay_faded.mat (grid-only, per-vertex alpha) -- see those
@@ -1281,6 +1322,25 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
 
     return r;
 }
+
+// VM-040 (Epic 5): see this entry point's own comment in scene.h for the
+// re-create-vs-live-switch decision (P4, 2026-09-07 review) this answers.
+// Re-applies ApplyQualityViewOptions/ShadowOptionsForQuality -- the EXACT
+// same mapping create_renderer() applied at construction -- against the
+// already-live View and the already-built sun LightManager instance, via
+// Filament's live setters (no Builder/no re-create).
+void set_quality(VisualRenderer* r, uint32_t preset) {
+    if (r == nullptr) return;
+    const uint32_t clamped = preset > 2 ? 2 : preset;  // api.h's own 0-2 contract
+    ApplyQualityViewOptions(*r->view, clamped, r->width, r->height);
+    filament::LightManager& lm = r->engine->getLightManager();
+    const auto sun = lm.getInstance(r->sunEntity);
+    lm.setShadowCaster(sun, clamped >= 1);
+    lm.setShadowOptions(sun, ShadowOptionsForQuality(clamped));
+    r->qualityPreset = clamped;
+}
+
+uint32_t get_quality(VisualRenderer* r) { return r == nullptr ? 0 : r->qualityPreset; }
 
 void destroy_renderer(VisualRenderer* r) {
     if (r == nullptr) return;

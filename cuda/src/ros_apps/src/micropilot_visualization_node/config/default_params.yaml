@@ -3,6 +3,16 @@
     out_width: 1280
     out_height: 720
     quality: 1
+    # VM-040 (Epic 5): quality auto-drop with hysteresis. Opt-in (a new
+    # auto-behavior ships default off); the governor otherwise never touches
+    # `quality` above. Thresholds/windows are their own tunable params --
+    # see quality_governor.hpp for the reasoning behind these defaults.
+    governor_enabled: false
+    governor_window_size: 30
+    governor_drop_threshold_ms: 28.0
+    governor_recover_threshold_ms: 18.0
+    governor_recover_windows_required: 3
+    governor_min_dwell_windows: 3
     # 1 = rendering_node bowl, 2 = hybrid, 3 = this node (visual). Both nodes
     # must agree at startup (spec §3.1) so exactly one publisher is active
     # on /rendering/image from the first frame.

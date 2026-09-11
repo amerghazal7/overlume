@@ -56,6 +56,7 @@
 #include "micropilot_visualization_node/hud_overlay.hpp"
 #include "micropilot_visualization_node/lidar_colorize.hpp"
 #include "micropilot_visualization_node/profile.hpp"
+#include "micropilot_visualization_node/quality_governor.hpp"
 #include "micropilot_visualization_node/scene_assembly.hpp"
 #include "micropilot_visualization_node/tf_adapter.hpp"
 #include "micropilot_visualization_node/vcam.hpp"
@@ -443,6 +444,19 @@ private:
     double render_ms_{0.0};
     rclcpp_lifecycle::LifecyclePublisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr
         pub_diagnostics_;
+
+    // ── quality auto-drop governor (VM-040, Epic 5) ──────────────────────────
+    // Reads render_ms_ (above) every mode-3 tick once governor_enabled_ is
+    // true (declared in on_configure(), default false -- a new auto-behavior
+    // ships opt-in per this task's own AC). quality_governor_ is constructed
+    // in on_configure() with quality_ as its initial preset and every
+    // threshold/window below as ROS params (tunable without a code change);
+    // timer_callback() feeds it render_ms_ and, on a DROPPED/RECOVERED
+    // transition, calls mpviz::set_quality() (VM-040's own appended library
+    // entry point -- no renderer re-create) and RCLCPP_WARNs, then updates
+    // quality_ so `ros2 param get quality` reports what is actually live.
+    bool governor_enabled_{false};
+    std::unique_ptr<mpviz_node::QualityGovernor> quality_governor_;
 
     // ── HUD overlay (Epic 3 Task 3 / VM-030) ─────────────────────────────────
     // hud_font_path_ read once in on_configure() (VM-044 closes the

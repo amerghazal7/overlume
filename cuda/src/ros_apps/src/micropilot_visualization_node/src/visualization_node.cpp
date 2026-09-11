@@ -51,6 +51,39 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
         return CallbackReturn::FAILURE;
     }
 
+    // ── quality auto-drop governor (VM-040, Epic 5) ──────────────────────────
+    // governor_enabled_ default false: a new auto-behavior ships opt-in
+    // (this task's own AC). Every threshold/window is its own param, tunable
+    // without a code change; defaults mirror quality_governor.hpp's own
+    // (budget_probe.md-derived) documented defaults -- declared explicitly
+    // here rather than left to QualityGovernorParams{}'s in-class
+    // initializers so `ros2 param get` shows every one of them, same
+    // "declared, not silently defaulted" convention every other param on
+    // this node follows.
+    governor_enabled_ = declare_parameter<bool>("governor_enabled", false);
+    mpviz_node::QualityGovernorParams governor_params;
+    governor_params.window_size = static_cast<uint32_t>(
+        declare_parameter<int>("governor_window_size", static_cast<int>(governor_params.window_size)));
+    governor_params.drop_threshold_ms =
+        declare_parameter<double>("governor_drop_threshold_ms", governor_params.drop_threshold_ms);
+    governor_params.recover_threshold_ms = declare_parameter<double>(
+        "governor_recover_threshold_ms", governor_params.recover_threshold_ms);
+    governor_params.recover_windows_required =
+        static_cast<uint32_t>(declare_parameter<int>("governor_recover_windows_required",
+                                     static_cast<int>(governor_params.recover_windows_required)));
+    governor_params.min_dwell_windows = static_cast<uint32_t>(declare_parameter<int>(
+        "governor_min_dwell_windows", static_cast<int>(governor_params.min_dwell_windows)));
+    if (governor_params.drop_threshold_ms <= governor_params.recover_threshold_ms)
+    {
+        RCLCPP_ERROR(get_logger(),
+                     "governor_drop_threshold_ms (%.3f) must be > "
+                     "governor_recover_threshold_ms (%.3f) -- that gap IS the hysteresis",
+                     governor_params.drop_threshold_ms, governor_params.recover_threshold_ms);
+        return CallbackReturn::FAILURE;
+    }
+    quality_governor_ = std::make_unique<mpviz_node::QualityGovernor>(
+        governor_params, static_cast<uint32_t>(quality_));
+
     // Both nodes default to the same mode so exactly one publisher is active
     // from the first frame (spec §3.1 "race handling").
     initial_mode_ = declare_parameter<int>("initial_mode", 1);
@@ -1671,6 +1704,37 @@ void VisualizationNode::timer_callback()
     render_ms_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
                                                              render_start)
                      .count();
+
+    // ── quality auto-drop governor (VM-040, Epic 5) ──────────────────────────
+    // Opt-in (governor_enabled_ default false) so this ships with zero
+    // behavior change for every existing deployment. Feeds this tick's
+    // render_ms_ into the pure hysteresis state machine (quality_governor.hpp)
+    // and, on an actual transition, applies it live via mpviz::set_quality()
+    // (the appended VM-040 entry point -- NOT a renderer re-create, see that
+    // function's own comment) and WARNs (the backlog AC: "synthetic-load
+    // test triggers drop + log"). quality_ is updated too so a live
+    // `ros2 param get quality` reflects what the governor actually did,
+    // not the value on_configure() started with.
+    if (governor_enabled_)
+    {
+        const mpviz_node::QualityTransition transition =
+            quality_governor_->record_render_ms(render_ms_);
+        if (transition != mpviz_node::QualityTransition::NONE)
+        {
+            const uint32_t new_preset = quality_governor_->current_preset();
+            mpviz::set_quality(renderer_, new_preset);
+            quality_ = static_cast<int>(new_preset);
+            // Mirrors quality_ back onto the live ROS parameter too (VM-044's
+            // own "write the resolved value back" convention) -- a
+            // `ros2 param get quality` after a governor transition reports
+            // what the renderer is actually doing, not the on_configure()
+            // starting value.
+            set_parameter(rclcpp::Parameter("quality", quality_));
+            RCLCPP_WARN(get_logger(), "quality governor: %s -> preset %u (render_ms p95 over window)",
+                        transition == mpviz_node::QualityTransition::DROPPED ? "DROPPED" : "RECOVERED",
+                        new_preset);
+        }
+    }
 
     // Composited in place on frame_buf_, after the render but before the
     // image message is built below -- operates on the exact bytes about to
