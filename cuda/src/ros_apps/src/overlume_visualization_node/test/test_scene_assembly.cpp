@@ -127,7 +127,7 @@ TEST(SceneAssembly, ApplyLayerGatesPointCloudsOnLeavesItIntact)
 
 TEST(SceneAssembly, ContentPushedAfterApplyLayerGatesSurvivesPointCloudsGateFalse)
 {
-    // VM-094 review round 2 finding 1: visualization_node.cpp's hybrid block
+    // visualization_node.cpp's hybrid block
     // now pushes its colorized-lidar row AFTER apply_layer_gates() has
     // already run for this tick (hoisted above the hybrid block, never
     // re-applied later) -- this pins the general mechanism that immunity
@@ -293,7 +293,7 @@ TEST(SceneAssembly, ComposeLayerGatesHybridLeavesUsersPointCloudsChoiceUnion)
     EXPECT_FALSE(effective.point_clouds);
 }
 
-// ── Bowl visibility / overlay-suppression dispatch (review round 1, 2026-09-11) ──
+// ── Bowl visibility / overlay-suppression dispatch ──
 // Pulled out of visualization_node.cpp's timer_callback() so the actual
 // dispatch predicates -- not just the LayerFlags mask above -- are directly
 // unit-tested. Before this, nothing failed if `bowl_visible_for_mode()`'s

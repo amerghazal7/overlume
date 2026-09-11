@@ -222,7 +222,7 @@ void IngestState::store_rgb(uint32_t cam_idx, const uint8_t* data, uint32_t widt
     cams_[cam_idx].rgb.assign(data, data + n);
 }
 
-// VM-094 review round 1 finding 2: CameraInfo (state_.width(i)/height(i),
+// CameraInfo (state_.width(i)/height(i),
 // what fill_bowl_intrinsics() hands BowlConfig::cam_width/cam_height) can
 // advertise different dims than the actual published image stream (a
 // routine calibration-res-vs-downscaled-stream ROS setup) -- ColorizeFromCameras
