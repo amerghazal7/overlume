@@ -29,7 +29,9 @@ Three cases:
      legitimately come back "" (scripts/provision_ego_model.sh not run on
      this install): assert exactly one of the two so an unprovisioned box
      still passes honestly instead of the test silently accepting either
-     without checking. No "theme assets failed to load" WARN in the log.
+     without checking. No "theme assets failed to load" WARN in the log,
+     and (when the ego path resolved) no "set_ego_model: failed to load"
+     clay-box fallback WARN either.
   2. Relaunch with -p initial_theme:=light_clay -- configure succeeds,
      `ros2 param get initial_theme` reads back light_clay, still no
      fallback WARN.
@@ -201,6 +203,13 @@ def main() -> int:
         if "theme assets failed to load" in log_text:
             print(f"FAIL: unexpected theme-fallback WARN in log:\n{log_text[-3000:]}",
                   file=sys.stderr)
+            return 1
+        # A resolved ego path that then silently clay-boxes is the exact
+        # failure mode VM-044 exists to kill (gate minor 1): the WARN string
+        # is real and reachable (verified against a bogus ego_model_path).
+        if ego_resolved and "set_ego_model: failed to load" in log_text:
+            print(f"FAIL: ego path resolved but the model fell back to the "
+                  f"clay box:\n{log_text[-3000:]}", file=sys.stderr)
             return 1
         print(f"PASS (1/3): theme_assets_dir='{theme_dir}', hud_font_path='{hud_font}', "
               f"ego_model_path='{ego_path}' (resolved={ego_resolved}), no fallback WARN.")
