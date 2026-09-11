@@ -46,3 +46,46 @@ reprojector artifact at extreme viewing angles, unrelated to this port.
 human-sanity-approved yet** (Golden scoping rule: this step's actual
 acceptance criterion). Plan Step 7 is left unchecked pending that review —
 see both PNGs above.
+
+## Recapture, 2026-09-11: bowl color fidelity fix (sRGB camera textures + measured exposure)
+
+User report: "the resulted stitching colors seems washed or way brighter
+than the original frames." Two confirmed root causes, both fixed:
+
+1. `camera_textures.cpp`'s `choose_camera_format()` was picking LINEAR
+   RGB8/RGBA8 for camera pixels that are sRGB-encoded bytes (cv_bridge rgb8
+   from the bgra8 wire) — sampled as linear, they got this renderer's own
+   output OETF applied ON TOP of their own existing sRGB encoding, a
+   double-encoding that reads as washed/brightened mid-tones. Fixed: SRGB8
+   (fallback SRGB8_A8), so the sampler hardware-decodes sRGB->linear at
+   sample time.
+2. `bowl.mat`'s `exposureCompensation` was an EMPIRICAL GUESS (10.0, then
+   1.5) picked by eyeballing a real bag capture — never a measurement, and
+   specifically never re-measured against the corrected (post-fix) linear
+   camera samples above. Replaced with a MEASURED value, 1.56
+   (`tools/bowl_exposure_probe.cpp`'s gray-ramp binary search; see
+   `scene.h`'s `BowlConfig::exposure_compensation` comment and
+   `tests/test_bowl_exposure_calibration.cpp`, the standing regression).
+   1.56 happens to sit very close to the prior 1.5 guess — a coincidence of
+   this particular bag's midtones, not evidence the guess was secretly
+   correct: the guess was never validated against a controlled input the
+   way the gray ramp is.
+
+`bowl_test_town_dark_adas.png` above is RECAPTURED against this fix (same
+rig, same fixture bag, single-pass playback, `bowl_enabled:=true
+initial_mode:=3 layer_surround_stitching:=true` — note `layer_surround_stitching`
+is now required for the bowl to show under mode 3's free-look view; it did
+not exist as a separate gate at the time of the original capture above).
+`bowl_test_town_cuda_reference.png` is UNCHANGED (this fix touches only the
+Filament port, never `micropilot_rendering_node`/reproject.cu).
+
+Visual result: the new capture's road surface/buildings read as normal
+daytime asphalt contrast, matching the CUDA reference far more closely than
+the prior washed-out capture. Full library suite green (202/202, up from
+188/188 at the time of the original capture — more tests landed since, plus
+the 2 new exposure-calibration tests this fix adds), node rebuilt
+(`visualization_node.hpp`'s `bowl_exposure_compensation_` default changed).
+
+**This recapture is produced; it has not been human-sanity-approved yet**
+(same Golden scoping rule as above) — committed as a candidate per the
+promotion convention. Step 7's judgment call resets to this new capture.
