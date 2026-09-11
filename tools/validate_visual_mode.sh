@@ -476,6 +476,10 @@
 #               ingest, no bowl entity); node-side WARN added for that state; M02P ego
 #               glb re-provisioned on main (the vm044 worktree's gitignored copy died
 #               with the worktree).
+#   2026-09-11  GUI mode button pre-cutover: bridge launched --local-mode (set_render_mode
+#               drives the merged node's render_mode param; the mux would idle the rig's
+#               only publisher until VM-095); node launched hybrid_enabled:=true so
+#               mode 2 shows the colorized cloud.
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its
@@ -724,7 +728,7 @@ fi
 # forever -- harmless, and the node WARNs when the toggle is flipped anyway.
 ros2 run micropilot_visualization_node visualization_node --ros-args \
     --params-file "$(ros2 pkg prefix micropilot_visualization_node)/share/micropilot_visualization_node/config/default_params.yaml" \
-    -p initial_mode:=3 -p use_sim_time:="${USE_SIM_TIME}" -p bowl_enabled:=true "${PROFILE_ARGS[@]}" \
+    -p initial_mode:=3 -p use_sim_time:="${USE_SIM_TIME}" -p bowl_enabled:=true -p hybrid_enabled:=true "${PROFILE_ARGS[@]}" \
     > "${LOG_DIR}/visualization_node.log" 2>&1 &
 track_child "$!"
 
@@ -784,7 +788,10 @@ else
 fi
 
 echo "[launch] vcam_ws_bridge.py (log: ${LOG_DIR}/vcam_ws_bridge.log)"
-python3 "${REPO_ROOT}/tools/vcam_ws_bridge.py" \
+# --local-mode: this rig runs the merged node alone, so the GUI's mode
+# button drives its local render_mode param (VM-093) -- publishing the mux
+# mode here would idle the only publisher (pre-VM-095 cutover reality).
+python3 "${REPO_ROOT}/tools/vcam_ws_bridge.py" --local-mode \
     > "${LOG_DIR}/vcam_ws_bridge.log" 2>&1 &
 track_child "$!"
 

@@ -239,6 +239,13 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--local-mode", action="store_true",
+                    help="Route set_render_mode to the visualization node's own "
+                         "local `render_mode` param (VM-093 dispatch) instead of "
+                         "the global /rendering/set_mode mux. For single-node "
+                         "rigs (the validate script) until the VM-095 cutover "
+                         "retires the mux; production co-residence keeps the "
+                         "default mux routing.")
     args = ap.parse_args()
 
     # Both the CUDA node (modes 1-2) and the visualization node (mode 3)
@@ -249,8 +256,9 @@ def main() -> int:
     VCAM_NAMESPACES = ["/rendering_node", "/visualization_node"]
 
     class BridgeNode(Node):
-        def __init__(self):
+        def __init__(self, local_mode: bool = False):
             super().__init__("vcam_ws_bridge")
+            self._local_mode = local_mode
             self.state: list[float] | None = None  # [eye3, target3, preset, mode]
             # Both nodes publish ~/vcam_state continuously (spec §9), so
             # picking "whichever arrived last" flickers between them. Index 7
@@ -349,6 +357,19 @@ def main() -> int:
                 pub.publish(m)
 
         def set_render_mode(self, mode: int):
+            if self._local_mode:
+                # Single-node rig (pre-cutover): the merged node renders every
+                # mode locally via its VM-093 `render_mode` param; publishing
+                # the mux message here would idle its publisher (it publishes
+                # only at mux mode 3) and blank the stream.
+                if self._cli_setp_viz.service_is_ready():
+                    req = SetParameters.Request()
+                    req.parameters = [Parameter(
+                        name="render_mode",
+                        value=ParameterValue(type=ParameterType.PARAMETER_INTEGER,
+                                              integer_value=mode))]
+                    self._cli_setp_viz.call_async(req)
+                return
             self._active_ns = "/visualization_node" if mode == 3 else "/rendering_node"
             m = Int32()
             m.data = mode
@@ -465,7 +486,7 @@ def main() -> int:
     # which would leave the process unkillable except by SIGKILL — restore default.
     import signal
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
-    node = BridgeNode()
+    node = BridgeNode(local_mode=args.local_mode)
     spin_thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
     spin_thread.start()
 
