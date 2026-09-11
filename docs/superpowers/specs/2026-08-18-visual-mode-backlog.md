@@ -284,6 +284,17 @@ that on 2026-09-07 — it stays committed v1.1.
   (20/20 ctest). `environment_chunks_dir` is the same CLASS of
   per-checkout-path gap but outside this entry's verbatim scope — left open,
   comments say so honestly rather than implying VM-044 closed it.
+
+  **Record-only, found at review round 2:** `mpviz::set_object_model_dir()`
+  (the class-model glTF loader) has no production caller anywhere in
+  `visualization_node` -- grepped: only `visual_renderer`'s own
+  `tests/test_objects.cpp` calls it. This package's `CMakeLists.txt`
+  deliberately does not install `assets/models/*.glb` (correct, YAGNI, since
+  nothing loads them), which means every tracked object renders as a clay
+  box in production today despite backlog B02.3.1 claiming instanced clay
+  models. Packaging them was deliberately skipped as YAGNI; wiring the call
+  (plus an install rule for `assets/models`) is a separate item whenever
+  object model fidelity is actually wanted -- not done here.
 - **VM-043 Live validation.** Full stack on CARLA bridge + a real-robot bag;
   side-by-side review vs rviz for parity sign-off. `[review 2026-09-07]`
   Includes the on-robot budget table (VM-004(b)) as a blocking checklist item.
