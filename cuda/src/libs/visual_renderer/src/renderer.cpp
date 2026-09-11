@@ -976,6 +976,17 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     r->swapChain = engine->createSwapChain(config.width, config.height,
                                             filament::SwapChain::CONFIG_READABLE);
     r->renderer = engine->createRenderer();
+    // ONE Scene for the whole renderer -- every renderable this library ever
+    // creates (ground/grid, objects, map elements, the ego mesh, the camera
+    // bowl, ...) is added to this same r->scene, never a second one. VM-092
+    // (Task 3, Decision 4) leans on exactly this fact for robot-proxy
+    // compositing: the ego entity (ego.cpp's set_ego_model) and the bowl
+    // entity (bowl.cpp's update_bowl) both live here, both opaque and
+    // depth-tested (bowl.mat has no `blending:` line; the ego's clay
+    // fallback/glTF remap is likewise opaque), so Filament's own depth test
+    // composites robot-over-bowl correctly regardless of which was added to
+    // the scene first -- no new compositing code needed, confirmed by
+    // test_bowl.cpp's EgoMeshOccludesBowlSurfaceBehindIt.
     r->scene = engine->createScene();
     r->view = engine->createView();
     r->view->setScene(r->scene);

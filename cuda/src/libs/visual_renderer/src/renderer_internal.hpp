@@ -804,6 +804,12 @@ public:
     // it; Task 2's update_bowl() is what actually adds/removes the bowl
     // entity from the scene based on this flag.
     bool bowlVisible = false;
+    // Self-view masks (VM-092, Task 3, Decision 4) -- set_self_view_masks()
+    // only stores this; build_bowl() reads it at its next bake to decide
+    // whether to call bowl_mesh.cpp's ApplyEgoOcclusion(). Off by default,
+    // same reason and same param name as the CUDA node's own
+    // self_view_masks_ (rendering_node.cpp:80-85).
+    bool selfViewMasksEnabled = false;
     // Bowl mesh/material (VM-091, Task 2): null until build_bowl() (bowl.cpp,
     // called from camera_textures.cpp's set_bowl_config()) succeeds. A full
     // re-bake destroys and replaces this outright -- see build_bowl()'s own

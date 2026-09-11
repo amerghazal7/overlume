@@ -207,6 +207,256 @@ TEST(BowlMeshBake, FourCameraOverlapStillPicksAConsistentTripletPerTriangle) {
         << "no triangle found where all 4 identical cameras genuinely overlap";
 }
 
+// ---- VM-092 (Task 3) Step 1: analytic ego-occlusion, Filament-free -------
+
+TEST(Bowl, VertexOccludedByEgoBoxGetsZeroWeightForThatCamera) {
+    // Decision 4's analytic occlusion test, exercised directly against
+    // ApplyEgoOcclusion() (bowl_mesh.cpp) with hand-picked, exactly
+    // verifiable geometry rather than BakeBowlMesh()'s own tessellation --
+    // the occluded-vs-clear cases below are true by construction:
+    //   - camera 0 sits on the FAR side of the ego box from the vertex
+    //     (straight line from camera to vertex passes through the box);
+    //   - camera 1 sits well clear of the box's shadow for that SAME
+    //     vertex (the line misses the box entirely).
+    // ApplyEgoOcclusion only reads CameraExtrinsics::t (camera position) --
+    // R is irrelevant to this geometric test -- so an identity rotation is
+    // fine here even though it wouldn't be for a real projection.
+    bowl::BowlMesh mesh;
+    bowl::BowlVertex v;
+    v.position = {0.0, 3.0, 0.05};  // a bowl-surface point well outside the
+                                     // ego box's own footprint
+    v.index_a = 0;
+    v.coverage_a = 0.8f;
+    v.index_b = 1;
+    v.coverage_b = 0.6f;
+    v.index_c = 0;  // unused third slot -- mirrors index_a with 0 coverage,
+                     // same convention bowl_mesh.cpp's emit_triangle uses
+    v.coverage_c = 0.0f;
+    // A degenerate but valid "triangle": Decision 3's per-triangle-
+    // uniform-index rule trivially holds when all three vertices are
+    // copies of the same one.
+    mesh.vertices = {v, v, v};
+    mesh.indices = {0, 1, 2};
+
+    const CameraExtrinsics extrinsics[2] = {
+        {{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0.0, -3.0, 0.5}},   // camera 0 -- occluded
+        {{1, 0, 0, 0, 1, 0, 0, 0, 1}, {10.0, -3.0, 0.5}},  // camera 1 -- clear
+    };
+    const bowl::EgoBox ego_box{{0.0, 0.0, 0.5}, {0.5, 0.5, 0.5}};
+
+    bowl::ApplyEgoOcclusion(mesh, /*camera_count=*/2, extrinsics, ego_box);
+
+    EXPECT_FLOAT_EQ(mesh.vertices[0].coverage_a, 0.0f)
+        << "camera 0's line of sight to this vertex passes through the ego box -- its "
+           "coverage must be zeroed";
+    EXPECT_FLOAT_EQ(mesh.vertices[0].coverage_b, 0.6f)
+        << "camera 1's line of sight clears the box entirely -- its weight must be untouched";
+    // Never perturbed -- Decision 3's per-triangle-uniform-index rule is a
+    // bake-time invariant this function must not touch, only coverage does.
+    EXPECT_EQ(mesh.vertices[0].index_a, 0u);
+    EXPECT_EQ(mesh.vertices[0].index_b, 1u);
+
+    // A zero-extent box (bowl.cpp's "no ego configured" convention) is a
+    // documented no-op -- pin it so a future change can't silently start
+    // occluding everything when no ego was ever set.
+    bowl::BowlMesh noop_mesh;
+    noop_mesh.vertices = {v};
+    bowl::ApplyEgoOcclusion(noop_mesh, 2, extrinsics, bowl::EgoBox{});
+    EXPECT_FLOAT_EQ(noop_mesh.vertices[0].coverage_a, 0.8f);
+    EXPECT_FLOAT_EQ(noop_mesh.vertices[0].coverage_b, 0.6f);
+}
+
+// ---- VM-092 (Task 3) Step 0: shared Filament Scene composites -----------
+// ---- robot-over-bowl with zero new code ---------------------------------
+
+TEST(Bowl, EgoMeshOccludesBowlSurfaceBehindIt) {
+    // Decision 4: robot-proxy compositing needs no bowl-specific rasterizer
+    // at all -- the ego entity (set_ego_model) and the bowl entity both
+    // live in the SAME r->scene (renderer.cpp), so Filament's own depth
+    // test composites robot-over-bowl for free. Proven with a NONZERO
+    // map-frame ego pose (not the origin): both entities are anchored from
+    // the SAME scene.ego every render_frame() call (update_ego_transform /
+    // update_bowl, Decision 3's frame convention), so this also catches a
+    // bug where one of them stayed at the map origin while the other moved.
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    const mpviz::Vec3 ego_pos{3.0, 2.0, 0.0};
+    mpviz::CameraPose pose{{ego_pos.x, ego_pos.y - 6.0, 6.0}, {ego_pos.x, ego_pos.y, 0.0}, 70.0};
+    mpviz::SceneGraph scene{};
+    scene.ego = {ego_pos, /*heading_rad=*/0.0, /*speed_mps=*/0.0, /*valid=*/1};
+
+    mpviz::CameraExtrinsics ext{{1, 0, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 10.0}};
+    mpviz::CameraIntrinsics in{200, 200, 160, 120, {0, 0, 0, 0, 0}};
+    uint32_t w = 320, h = 240;
+    mpviz::BowlConfig bc{};
+    bc.camera_count = 1;
+    bc.extrinsics = &ext;
+    bc.intrinsics = &in;
+    bc.cam_width = &w;
+    bc.cam_height = &h;
+    bc.bowl_R0 = 0.5;
+    bc.bowl_k = 0.3;
+    bc.bowl_Rmax = 4.0;
+    bc.feather_margin = 5.0;
+    bc.sky_color[0] = 0.05f;
+    bc.sky_color[1] = 0.05f;
+    bc.sky_color[2] = 0.05f;
+
+    std::vector<uint8_t> cam_pixels(static_cast<size_t>(w) * h * 3);
+    for (size_t i = 0; i < cam_pixels.size(); i += 3) {
+        cam_pixels[i] = 255;
+        cam_pixels[i + 1] = 0;
+        cam_pixels[i + 2] = 255;
+    }
+
+    // Baseline: bowl only, no ego -- how much of the frame the bowl's own
+    // camera-texture sentinel covers.
+    auto* base_r = mpviz::create_renderer(cfg);
+    if (!base_r) GTEST_SKIP() << "no GPU/EGL";
+    ASSERT_TRUE(mpviz::set_bowl_config(base_r, bc));
+    ASSERT_TRUE(mpviz::set_bowl_visible(base_r, true));
+    ASSERT_TRUE(mpviz::set_camera_frame(base_r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
+    mpviz::set_scene(base_r, scene);
+    std::vector<uint8_t> baseline(320 * 240 * 3);
+    ASSERT_TRUE(mpviz::render_frame(base_r, pose, {baseline.data(), 320, 240}));
+    // R>150 && B>150 && G<100: the dark_adas theme's own ego color
+    // ([0.82, 0.80, 0.76], near-white clay) would ALSO satisfy a bare
+    // R>150&&B>150 check once the ego renders into this same frame --
+    // requiring G to stay low is what keeps this a genuine "the bowl
+    // sampled its camera texture" signature rather than "any bright pixel".
+    auto is_magenta = [](uint8_t r8, uint8_t g8, uint8_t b8) {
+        return r8 > 150 && b8 > 150 && g8 < 100;
+    };
+    size_t baseline_magenta = 0;
+    for (size_t i = 0; i < baseline.size(); i += 3) {
+        if (is_magenta(baseline[i], baseline[i + 1], baseline[i + 2])) ++baseline_magenta;
+    }
+    mpviz::destroy_renderer(base_r);
+    ASSERT_GT(baseline_magenta, 0u) << "bowl-only baseline should show its magenta sentinel";
+
+    // Same setup, plus a known-size fallback ego box (build_ego_fallback,
+    // no glTF file needed) at the SAME nonzero ego pose -- sitting well
+    // inside the bowl's own small inner-ring radius, so it sits squarely
+    // in front of a meaningful chunk of the magenta surface checked above.
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
+    ASSERT_TRUE(mpviz::set_bowl_visible(r, true));
+    ASSERT_TRUE(mpviz::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
+    mpviz::set_ego_model(r, "/nonexistent/path.glb", {1.5, 1.5, 1.2});
+    mpviz::set_scene(r, scene);
+    std::vector<uint8_t> with_ego(320 * 240 * 3);
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {with_ego.data(), 320, 240}));
+
+    size_t with_ego_magenta = 0;
+    size_t differing_from_baseline = 0;
+    for (size_t i = 0; i < with_ego.size(); i += 3) {
+        if (is_magenta(with_ego[i], with_ego[i + 1], with_ego[i + 2])) ++with_ego_magenta;
+        if (with_ego[i] != baseline[i] || with_ego[i + 1] != baseline[i + 1] ||
+            with_ego[i + 2] != baseline[i + 2]) {
+            ++differing_from_baseline;
+        }
+    }
+    EXPECT_LT(with_ego_magenta, baseline_magenta)
+        << "adding the ego should occlude some of the bowl's own magenta sentinel -- proving "
+           "robot-over-bowl depth compositing, not the reverse (or no compositing at all)";
+    EXPECT_GT(differing_from_baseline, 0u)
+        << "the ego mesh produced no visible difference at all -- it may not share the bowl's "
+           "scene, or may not be rendering";
+    mpviz::destroy_renderer(r);
+}
+
+// ---- VM-092 (Task 3) Step 2: disable knob, shipped default off ----------
+
+TEST(Bowl, SelfViewMasksOffByDefaultThenEnabledSuppressesOccludedCameraViaExistingSkyColorPath) {
+    // Decision 4: with self_view_masks left at its shipped default
+    // (false), ApplyEgoOcclusion never runs -- the bake behaves exactly as
+    // Task 2 left it. Force-enabling it for this test only must suppress
+    // the occluded camera's contribution; the "falls back to sky_color,
+    // not left unshaded" half of Decision 4's requirement is a STRUCTURAL
+    // property of bowl.mat's existing `if (wsum > 0.0) ... else skyColor`
+    // fragment code (untouched by this task -- a vertex whose only
+    // covering camera(s) all get zeroed by occlusion already has wsum==0,
+    // same as a vertex outside every camera's FOV), so this test's pixel
+    // checks are a smoke test on top of that, not the only proof of it.
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    mpviz::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
+
+    // Camera 0 sits off to one side (rig frame), looking across the bowl --
+    // NOT overhead -- so a body-sized ego box between it and the far side
+    // of the bowl casts a real shadow (col0=right=(0,-1,0),
+    // col1=down=(0,0,-1), col2=fwd=(1,0,0): looking in +x, same
+    // column-extraction convention as OverheadCamera() above).
+    mpviz::CameraExtrinsics ext{{0, 0, 1, -1, 0, 0, 0, -1, 0}, {-5.0, 0, 0.3}};
+    mpviz::CameraIntrinsics in{250, 250, 320, 240, {0, 0, 0, 0, 0}};
+    uint32_t w = 640, h = 480;
+    mpviz::BowlConfig bc{};
+    bc.camera_count = 1;
+    bc.extrinsics = &ext;
+    bc.intrinsics = &in;
+    bc.cam_width = &w;
+    bc.cam_height = &h;
+    bc.bowl_R0 = 0.5;
+    bc.bowl_k = 0.3;
+    bc.bowl_Rmax = 4.0;
+    bc.feather_margin = 0.0;  // isolate the weight question, no border feather
+    bc.sky_color[0] = 0.05f;
+    bc.sky_color[1] = 0.05f;
+    bc.sky_color[2] = 0.05f;
+
+    std::vector<uint8_t> cam_pixels(static_cast<size_t>(w) * h * 3);
+    for (size_t i = 0; i < cam_pixels.size(); i += 3) {
+        cam_pixels[i] = 255;
+        cam_pixels[i + 1] = 0;
+        cam_pixels[i + 2] = 255;
+    }
+
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    // A body-sized fallback box (no glTF needed), squarely between camera 0
+    // and a real chunk of the bowl on the far side.
+    mpviz::set_ego_model(r, "/nonexistent/path.glb", {1.6, 1.6, 0.7});
+    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));  // self_view_masks defaults false
+    ASSERT_TRUE(mpviz::set_bowl_visible(r, true));
+    ASSERT_TRUE(mpviz::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
+
+    std::vector<uint8_t> masks_off(320 * 240 * 3);
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {masks_off.data(), 320, 240}));
+    size_t magenta_off = 0;
+    for (size_t i = 0; i < masks_off.size(); i += 3) {
+        if (masks_off[i] > 150 && masks_off[i + 2] > 150) ++magenta_off;
+    }
+    ASSERT_GT(magenta_off, masks_off.size() / 3 / 100)
+        << "sanity: the bowl should show its magenta sentinel with masks off";
+
+    // Force-enable for this test only (shipped default stays false) and
+    // re-bake -- set_self_view_masks() only stores the flag; build_bowl()
+    // reads it at the NEXT set_bowl_config() call, same convention as
+    // every other bake-time-only knob on this POD boundary.
+    ASSERT_TRUE(mpviz::set_self_view_masks(r, true));
+    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
+    ASSERT_TRUE(mpviz::set_bowl_visible(r, true));
+    ASSERT_TRUE(mpviz::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/2));
+
+    std::vector<uint8_t> masks_on(320 * 240 * 3);
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {masks_on.data(), 320, 240}));
+    size_t magenta_on = 0;
+    for (size_t i = 0; i < masks_on.size(); i += 3) {
+        if (masks_on[i] > 150 && masks_on[i + 2] > 150) ++magenta_on;
+    }
+    EXPECT_LT(magenta_on, magenta_off)
+        << "camera 0's own body between it and part of the bowl should have its contribution "
+           "suppressed once self_view_masks is enabled (declared off by default, Decision 4)";
+
+    size_t nonblack_pixels = 0;
+    for (size_t i = 0; i < masks_on.size(); i += 3) {
+        if (masks_on[i] > 5 || masks_on[i + 1] > 5 || masks_on[i + 2] > 5) ++nonblack_pixels;
+    }
+    EXPECT_GT(nonblack_pixels, masks_on.size() / 3 / 10)
+        << "expected sky_color/theme background to still cover a meaningful fraction of the "
+           "frame, not a mostly-black frame from uncovered/unshaded vertices";
+    mpviz::destroy_renderer(r);
+}
+
 // ---- Step 4: set_bowl_config() + set_camera_frame() + render_frame() -----
 
 TEST(Bowl, RenderFrameWithBowlConfiguredProducesSentinelPixels) {
