@@ -941,11 +941,7 @@ void add_mesh(VisualRenderer& r, Mesh& mesh, std::vector<Vertex> verts,
 namespace {
 
 // Shared by create_renderer() and set_quality() -- one preset->options
-// mapping, no drift between create-time and live. Always calls
-// setDynamicResolutionOptions (even to explicitly turn it back off) so a
-// live low->medium/high switch clears a prior low-preset scale instead of
-// leaving it stuck; construction time behaves identically since a fresh
-// View defaults to disabled anyway.
+// mapping, no drift between create-time and live.
 void ApplyQualityViewOptions(filament::View& view, uint32_t quality, uint32_t width,
                               uint32_t height) {
     filament::AmbientOcclusionOptions ao{};
