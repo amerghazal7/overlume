@@ -200,3 +200,44 @@ colors untouched — authored against the existing pipeline). **The hybrid
 golden's cloud colors are stale again as of this fix** — re-shoot at the
 next rig session (the fair Surround-Stitching parity capture) before the
 Step 5 human judgment.
+
+## Recapture, 2026-09-11 (later still): re-shot with linearized lidar colors
+
+`hybrid_test_town_merged_node.png` above is RE-SHOT against the e8e0eec
+build (lidar `pack_rgba` sRGB→linear LUT), closing the "stale again" flag
+the section above raised. Same recipe as this doc's own recapture section:
+same fixture bag, `ROS_DOMAIN_ID=93`, fresh single-pass playback
+(`--start-offset 0`, `--clock`, qos overrides, `/tf:=/tf_raw` +
+`tf_flatten_fixture.py`), node launched `--params-file` (installed share)
+`initial_mode:=3 render_mode:=2 use_sim_time:=true profile:=urban
+bowl_enabled:=true hybrid_enabled:=true pointcloud_topic:=/iv_points_fusion`,
+all other params at shipped defaults. Frame grabbed at **~40.0 s of
+playback** (2026-09-11T17:00:36+04:00); colorization live at capture time
+(`hybrid: colorized 93711/162348 lidar points (57.7% coverage)`).
+`hybrid_test_town_cuda_reference.png` remains UNTOUCHED (still the original
+`--start-offset 40` CUDA capture — the review-round-1 "NOT scene-matched"
+caveat above still applies to the pair).
+
+Two honest observations on the new frame, neither cropped out:
+
+- Unlike the prior offset-0 recapture's frame, this one DOES contain
+  near-field 3-D structure inside `Rmax` (a red car front-left, a black
+  police car front-right, mid-pass through the intersection) — visible
+  splat stippling rides the black vehicle's silhouette/edges, so the
+  ON-surface/OFF-surface judgment this doc's review-round-2 section asked
+  for is now possible on this frame. The near-field vehicles also show the
+  bowl's usual large-object smear (camera-seam/projection distortion — the
+  NAMED exception class), same as the CUDA renderer's own bowl behavior.
+- Node WARNs during the session, both benign and pre-existing in kind:
+  `pointcloud_topic '/iv_points_fusion' matches a profile point_cloud row --
+  this node holds TWO subscriptions to it` (urban profile's own VM-035
+  point_cloud row + hybrid's cloud_sub_; in `render_mode:=2` the profile
+  row's content is cleared by HYBRID's exclusivity anyway), and the usual
+  `camera bowl: stamp spread` / `/perception/dynamic_objects_list ...
+  malformed` fixture-gap warnings.
+
+**This recapture is produced; it has not been human-sanity-approved yet**
+(same Golden scoping rule as every capture above). The fair
+Surround-Stitching parity set this session also produced (all autonomy
+layers off + ego, profiles bowl and hybrid, `/tmp/parity_capture/`) is the
+judgment package this golden pairs with.
