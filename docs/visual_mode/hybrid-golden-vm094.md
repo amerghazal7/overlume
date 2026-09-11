@@ -133,3 +133,40 @@ present in both cases, a known fixture-format gap).
 bowl-golden-vm091.md's own closing line). Plan Task 5 Step 5 is left
 unchecked pending that review — see both PNGs above, and the honest A/B
 framing above for what to actually judge.
+
+## Recapture, 2026-09-11: bowl color fidelity fix (sRGB camera textures + measured exposure)
+
+Same fix as bowl-golden-vm091.md's own 2026-09-11 recapture section (read
+that for the two root causes and the measured-1.56 exposure value) — the
+bowl-textured ground plane under the hybrid-colorized lidar splats was
+washed out by the exact same double-encoding bug, since it samples the same
+camera textures.
+
+`hybrid_test_town_merged_node.png` above is RECAPTURED (same fixture bag,
+`bowl_enabled:=true render_mode:=2 hybrid_enabled:=true
+pointcloud_topic:=/iv_points_fusion`, `default_params.yaml`'s
+`pointcloud_transform` unchanged). `hybrid_test_town_cuda_reference.png` is
+UNCHANGED (untouched by this fix). One deviation from the original
+recipe: recaptured at `--start-offset 0` (single-pass from the start of the
+bag), not `--start-offset 40` — this session's rig also needed an explicit
+`initial_mode:=3` alongside `render_mode:=2` that the original recipe above
+does not mention (`timer_callback()`'s `active_mode_ != 3` gate, which the
+mux-cutover prep work added after this doc's original capture, requires it
+for `/rendering/image` to publish at all regardless of `render_mode`); the
+`--start-offset` change is an unrelated, harmless choice made while getting
+the rig up, not a finding about the fix itself. The frame content is
+therefore a different moment in the bag than the original capture (a
+different intersection/scene layout) — the thing to judge is the same
+exposure/contrast comparison against the CUDA reference, not a pixel match
+against the prior capture.
+
+Visual result: same shape as the bowl recapture — normal daytime asphalt
+contrast (visible lane paint, parked-car color) replacing the prior
+washed-out/faded look, much closer to the CUDA reference's own exposure.
+Full library suite green (202/202), node rebuilt.
+
+**This recapture is produced; it has not been human-sanity-approved yet**
+(same Golden scoping rule) — committed as a candidate per the promotion
+convention. Task 5 Step 5's judgment call resets to this new capture, and
+still needs the near-field-object re-capture this doc's review-round-2
+section already called out as outstanding (unrelated to this fix).

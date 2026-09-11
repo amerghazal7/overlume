@@ -117,7 +117,7 @@
 // once per set_bowl_config() call.
 //
 // exposureCompensation is a material PARAMETER (BowlConfig::
-// exposure_compensation, default 1.5, bowl.cpp pushes it), not a hardcoded
+// exposure_compensation, default 1.56, bowl.cpp pushes it), not a hardcoded
 // shader constant: a style knob alongside sky_color/feather_margin, per the
 // STANDING "every rendered element ships style tokens" directive. It
 // intentionally does NOT multiply skyColor (see the fragment code below) --
@@ -126,6 +126,22 @@
 // pixels live in, so multiplying it by exposureCompensation would make any
 // sky_color above ~0.1 clip to white for no reason a user configuring
 // sky_color would expect.
+//
+// 1.56 is MEASURED, not a "working approximation" anymore (bowl color
+// fidelity fix, 2026-09-11): tools/bowl_exposure_probe.cpp renders flat
+// sRGB gray camera frames through this exact material (with
+// camera_textures.cpp's SRGB8 texture format fix also landed -- see that
+// file's choose_camera_format() comment) and binary-searches this
+// parameter until mid-gray (sRGB byte 128) round-trips through the full
+// pipeline to within +/-1 output byte (measured: 128 -> 129). The two
+// earlier values here (10.0, then 1.5) were both eyeballed against a real
+// bag while the camera textures were still sampled as LINEAR (no sRGB
+// decode at sample time) -- that double-encoding bug is exactly what made
+// this whole material read washed/too bright, and it made any exposure
+// value tuned against it a guess calibrated against the wrong linear
+// input, not a measurement. See scene.h's BowlConfig::exposure_compensation
+// and tests/test_bowl_exposure_calibration.cpp (the standing regression
+// that locks this value's round-trip in).
 //
 // This material contributes at most 3 cameras per fragment (VM-091 gate
 // close-out finding 7: CUSTOM0/CUSTOM2/CUSTOM3 are all spoken for -- weight/
@@ -338,15 +354,16 @@ fragment {
         // with NO exposure/tonemap step at all, so passing sampled camera
         // pixels through unscaled would make the bowl read as a dim,
         // washed-out image compared to the CUDA node's own output -- a real
-        // fidelity regression, not just a test-sentinel artifact. 1.5x
-        // (retuned from an initial 10.0x guess at Task 2 Step 7's golden
-        // capture, real six-camera bag stack_v2_full_sensors_2026-09-09 --
-        // 10.0x blew the bowl out to near-white against this bag's real
-        // daytime CARLA exposure; matc/this build's tonemap curve is
-        // nonlinear/saturating, so this is a working compensation matched
-        // against the CUDA reference's own brightness, not a precise
-        // inverse) brings a well-lit camera pixel back into the CUDA node's
-        // own display range. skyColor is deliberately NOT multiplied
+        // fidelity regression, not just a test-sentinel artifact. 1.56x
+        // (MEASURED via tools/bowl_exposure_probe.cpp's gray-ramp binary
+        // search against this material's real render path, post the
+        // camera-texture SRGB8 fix -- see this material's header) brings a
+        // well-lit camera pixel back into the CUDA node's own display
+        // range; matc/this build's ACES tonemap curve is nonlinear/
+        // saturating (shoulder-compresses highlights, measured honestly:
+        // sRGB byte 224 in -> 192 out at this compensation, not a round
+        // trip), so this is a measured match at mid-gray, not a precise
+        // inverse everywhere. skyColor is deliberately NOT multiplied
         // by it (see this material's header) -- sky_color is authored in
         // display space already, not the pre-tonemap camera-pixel space
         // exposureCompensation corrects for.

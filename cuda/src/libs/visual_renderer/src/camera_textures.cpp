@@ -22,16 +22,29 @@ namespace mpviz {
 
 namespace {
 
-// Chooses RGB8 (three channels -- the camera pixels this task's Interfaces
-// block documents) when the backend supports it, falling back to RGBA8
-// when it doesn't. The upload path
-// (upload_camera_frame below) stays PixelDataFormat::RGB either way -- see
-// CameraTextureSlot::format's comment.
+// Chooses SRGB8 (three channels -- the camera pixels this task's Interfaces
+// block documents) when the backend supports it, falling back to SRGB8_A8
+// when it doesn't (mirrors the RGB8->RGBA8 fallback shape this used to
+// have). Camera pixels arrive as sRGB-encoded bytes (cv_bridge rgb8, itself
+// from the wire's bgra8) -- an SRGB* internal format is what makes the
+// sampler hardware-decode sRGB->linear at sample time, matching what every
+// other sampled color input in this material set (theme textures) already
+// gets for free. The plain RGB8/RGBA8 this used to pick are LINEAR internal
+// formats: sampling sRGB-encoded bytes through one skips that decode
+// entirely, so the byte value is read as if it were already linear -- too
+// bright pre-tonemap, and then this renderer's own OETF re-encodes that
+// already-too-bright linear value AGAIN on the way to the display buffer.
+// That double-application is the root cause of "washed/brighter than the
+// original frames" (bowl.mat samples these textures for the camera bowl).
+// The upload path (upload_camera_frame below) stays PixelDataFormat::RGB
+// either way -- see CameraTextureSlot::format's comment; PixelDataFormat
+// describes the incoming buffer's channel layout, not whether the GPU
+// decodes it, so it is unaffected by this choice.
 filament::Texture::InternalFormat choose_camera_format(filament::Engine& engine) {
     return filament::Texture::isTextureFormatSupported(
-               engine, filament::Texture::InternalFormat::RGB8)
-               ? filament::Texture::InternalFormat::RGB8
-               : filament::Texture::InternalFormat::RGBA8;
+               engine, filament::Texture::InternalFormat::SRGB8)
+               ? filament::Texture::InternalFormat::SRGB8
+               : filament::Texture::InternalFormat::SRGB8_A8;
 }
 
 filament::Texture* build_camera_texture(filament::Engine& engine, uint32_t w, uint32_t h,

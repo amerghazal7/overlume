@@ -439,14 +439,21 @@ struct BowlConfig {
     // POD boundary with a default member initializer -- deliberately, not
     // an oversight: it predates Step 6's node-side param wiring, and the
     // default keeps every existing call site (every test in this suite
-    // that builds a BowlConfig without setting it) at a real, golden-
-    // capture-checked value rather than zero. Retuned 10.0 -> 1.5 at Task 2
-    // Step 7 (real bowl golden vs. the CUDA node's own output,
-    // stack_v2_full_sensors_2026-09-09): 10.0 (picked before any real
-    // camera frame had been sampled through this material) blew the bowl
-    // out to near-white against this bag's actual daytime CARLA exposure;
-    // 1.5 matches the CUDA reference's brightness on the same frame.
-    float exposure_compensation = 1.5f;
+    // that builds a BowlConfig without setting it) at a real, measured
+    // value rather than zero.
+    //
+    // MEASURED, not guessed (bowl color fidelity fix, 2026-09-11):
+    // tools/bowl_exposure_probe.cpp feeds flat sRGB gray camera frames
+    // through the real set_bowl_config+set_camera_frame+render_frame
+    // pipeline (with camera_textures.cpp's SRGB8 texture fix already
+    // landed -- this value is calibrated against a CORRECTLY sRGB-decoded
+    // camera sample, not the double-encoded one the two prior guesses
+    // (10.0, then 1.5) were eyeballed against) and binary-searches
+    // exposureCompensation until mid-gray (sRGB byte 128) round-trips
+    // through output within +/-1 byte. Measured 1.56 (128 -> 129).
+    // tests/test_bowl_exposure_calibration.cpp is the standing regression
+    // that keeps this value honest.
+    float exposure_compensation = 1.56f;
 };
 
 // (Re)builds the bowl's camera textures (this task) and, once Task 2 lands,

@@ -543,9 +543,10 @@ private:
     // contract already accepts for a slider drag.
     bool bowl_config_dirty_{false};
     float sky_color_[3]{0.53f, 0.70f, 0.92f};
-    // Retuned 10.0 -> 1.5 at Task 2 Step 7's golden capture (see
-    // default_params.yaml's own comment).
-    float bowl_exposure_compensation_{1.5f};
+    // MEASURED (bowl color fidelity fix, 2026-09-11), not guessed -- see
+    // scene.h's BowlConfig::exposure_compensation / default_params.yaml's
+    // own comment for the gray-ramp probe methodology behind 1.56.
+    float bowl_exposure_compensation_{1.56f};
     // Task 4/VM-093 owns the real per-mode set_bowl_visible() dispatch (see
     // timer_callback()): visible in BOWL/HYBRID, hidden in FREE_LOOK unless
     // layer_surround_stitching_ is on -- computed fresh every tick from
