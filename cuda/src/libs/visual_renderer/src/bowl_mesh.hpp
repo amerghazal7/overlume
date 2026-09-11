@@ -79,49 +79,42 @@ struct BowlMeshParams {
     uint32_t radial_rings = 24;
 };
 
-// Generates the bowl's radial-grid topology (rig frame, robot at origin,
-// theta in [0, 2*pi), r from a small inner radius up to bowl_Rmax) and
-// bakes each vertex's up-to-2 covering cameras' ALIGNMENT-SQUARED coverage
-// weight (bowl_projection::CameraAlignment, squared -- border feather is
-// NOT baked, see this header's comment) + camera-slot index, enforcing the
-// per-triangle-uniform-index construction rule above. `camera_count` <=
-// kMaxBowlCameras; `extrinsics`/`intrinsics`/`cam_width`/`cam_height` are
-// `camera_count`-entry arrays, same contract as BowlConfig.
-BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double bowl_k,
-                      double bowl_Rmax, uint32_t camera_count,
-                      const mpviz::CameraExtrinsics* extrinsics,
-                      const mpviz::CameraIntrinsics* intrinsics, const uint32_t* cam_width,
-                      const uint32_t* cam_height);
-
 // VM-092 (Task 3, Decision 4): the ego's axis-aligned bounding box, RIG
 // FRAME -- the same frame this bake operates in (Decision 3's frame
 // convention), so it composes directly with BowlVertex::position and
 // CameraExtrinsics::t with no transform. A zero-extent box on every axis
-// (the default) means "no ego configured" -- ApplyEgoOcclusion treats that
-// as a no-op, same "missing data does nothing" convention as the rest of
-// this POD boundary.
+// (the default) means "no ego configured" -- BakeBowlMesh treats that as a
+// no-op, same "missing data does nothing" convention as the rest of this
+// POD boundary.
 struct EgoBox {
     mpviz::Vec3 center{0.0, 0.0, 0.0};
     mpviz::Vec3 half_extents{0.0, 0.0, 0.0};
 };
 
-// Decision 4's analytic self-view occlusion test, applied to an already-
-// baked mesh (bowl.cpp calls this right after BakeBowlMesh, only when
-// self-view masks are enabled -- declared off by default, per Decision 4).
-// For every vertex and each of its (up to 3) covering-camera slots, zeroes
-// that slot's coverage if the straight segment from the covering camera's
-// rig-frame position (extrinsics[slot's camera].t) to the vertex's own
-// rig-frame position intersects ego_box -- a cheap box/segment test, not a
-// full per-camera depth-render pass (the fidelity/complexity simplification
-// Decision 4 names explicitly; the golden at Task 3 Step 3 is the check
-// that catches it if the approximation reads as visibly wrong). Never
-// touches index_a/index_b/index_c: Decision 3's per-triangle-uniform-index
-// construction rule is a bake-time invariant of BakeBowlMesh's OUTPUT, and
-// this function only ever changes a slot's coverage magnitude (which was
-// always meant to vary per vertex/interpolate), never which camera a slot
-// names. ego_box with zero extent on every axis (no ego configured) is a
-// no-op.
-void ApplyEgoOcclusion(BowlMesh& mesh, uint32_t camera_count,
-                       const mpviz::CameraExtrinsics* extrinsics, const EgoBox& ego_box);
+// Generates the bowl's radial-grid topology (rig frame, robot at origin,
+// theta in [0, 2*pi), r from a small inner radius up to bowl_Rmax) and
+// bakes each vertex's up-to-3 covering cameras' ALIGNMENT-SQUARED coverage
+// weight (bowl_projection::CameraAlignment, squared -- border feather is
+// NOT baked, see this header's comment) + camera-slot index, enforcing the
+// per-triangle-uniform-index construction rule above. `camera_count` <=
+// kMaxBowlCameras; `extrinsics`/`intrinsics`/`cam_width`/`cam_height` are
+// `camera_count`-entry arrays, same contract as BowlConfig.
+//
+// `ego_box` (Decision 4): an analytic self-view occlusion test folded into
+// this same per-vertex loop, before the per-triangle top-3 selection above
+// -- a camera's weight for a vertex is zeroed here if the straight segment
+// from that camera's rig-frame position to the vertex crosses ego_box, so
+// an occluded camera never wins a slot a genuinely visible one could have
+// taken (review round 1 finding: a post-hoc pass applied after selection
+// let an occluded camera keep a slot it had already won). A cheap
+// box/segment test, not a full per-camera depth-render pass (the
+// fidelity/complexity simplification Decision 4 names explicitly). Defaults
+// to a zero-extent box, this bake's own "no ego configured" no-op
+// convention.
+BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double bowl_k,
+                      double bowl_Rmax, uint32_t camera_count,
+                      const mpviz::CameraExtrinsics* extrinsics,
+                      const mpviz::CameraIntrinsics* intrinsics, const uint32_t* cam_width,
+                      const uint32_t* cam_height, const EgoBox& ego_box = EgoBox{});
 
 }  // namespace mpviz::bowl

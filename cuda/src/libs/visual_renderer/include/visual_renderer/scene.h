@@ -467,20 +467,15 @@ bool set_bowl_config(VisualRenderer*, const BowlConfig&);
 // only kSceneVersion bump this migration makes.
 bool set_bowl_visible(VisualRenderer*, bool visible);
 
-// VM-092 (Task 3, Decision 4): enables/disables the analytic self-view
-// occlusion test (bowl_mesh.cpp's ApplyEgoOcclusion) that build_bowl()
-// applies during its next bake. Keeps the CUDA node's exact param name
-// (`self_view_masks`, rendering_node.cpp:85) and its exact default --
-// declared OFF: correct masks require the rig origin to be exactly the
-// body center (same comment, :80-84), and this epic ships `fill_blind_zone`
-// forced false, so an occluded vertex would otherwise become an
-// uncovered hole rather than a filled one (Decision 4's coupling). Takes
-// effect on the NEXT set_bowl_config() call, same as every other bake-time
-// knob on this POD boundary (bowl_R0/k/Rmax, camera calibration) -- this is
-// deliberately NOT a live per-tick toggle like set_bowl_visible, since
-// changing it changes per-vertex weights the bake alone produces. false
-// (no-op) if r is null. Free-function-only addition: per ADR-0004 it bumps
-// nothing.
+// VM-092: enables/disables the analytic self-view occlusion test that
+// build_bowl() applies during its next bake. Keeps the CUDA node's exact
+// param name (`self_view_masks`) and its exact default -- declared OFF:
+// correct masks require the rig origin to be exactly the body center, and
+// this epic ships `fill_blind_zone` forced false, so an occluded vertex
+// would otherwise become an uncovered hole rather than a filled one. Takes
+// effect on the NEXT set_bowl_config() call, not live per-tick (changing it
+// changes per-vertex weights the bake alone produces). false (no-op) if r
+// is null. Free-function-only addition: per ADR-0004 it bumps nothing.
 bool set_self_view_masks(VisualRenderer*, bool enabled);
 
 // Cheap per-tick ego-motion-delta update. Sets ONLY camera cam_idx's 4x4
