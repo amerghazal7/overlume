@@ -110,4 +110,58 @@ void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags)
     if (!flags.trajectory_carpet) asm_.trajectory_carpets.clear();
 }
 
+// LayerFlags members default to true, so a 9th category would aggregate-init
+// true in the BOWL/HYBRID masks below with no compiler complaint and no test
+// failure. This assert is the tripwire.
+static_assert(sizeof(LayerFlags) == 8, "LayerFlags gained a category -- extend "
+              "mode_content_mask()'s BOWL/HYBRID masks below or it renders in modes 1/2");
+
+LayerFlags mode_content_mask(RenderMode mode)
+{
+    switch (mode)
+    {
+        case RenderMode::BOWL:
+            // CUDA node's own mode 1: bowl + ego only -- nothing from the
+            // autonomy scene.
+            return LayerFlags{false, false, false, false, false, false, false, false};
+        case RenderMode::HYBRID:
+            // CUDA node's own mode 2: bowl + camera-colorized lidar + ego --
+            // point_clouds is the one category HYBRID content rides (Task
+            // 5/VM-094 feeds it; empty until then, the mask still applies).
+            return LayerFlags{false, false, false, false, false, false, true, false};
+        case RenderMode::FREE_LOOK:
+        default:
+            // All-true by NSDMI -- AND-ing this over the user's own flags
+            // below is a no-op, so FREE_LOOK sees exactly what the user's
+            // layer_* params already said. A 9th category defaults true here
+            // for free, same as every existing one.
+            return LayerFlags{};
+    }
+}
+
+bool bowl_visible_for_mode(RenderMode mode, bool surround_stitching)
+{
+    return mode == RenderMode::BOWL || mode == RenderMode::HYBRID ||
+           (mode == RenderMode::FREE_LOOK && surround_stitching);
+}
+
+bool overlays_visible_for_mode(RenderMode mode)
+{
+    return mode == RenderMode::FREE_LOOK;
+}
+
+LayerFlags compose_layer_gates(const LayerFlags& user, const LayerFlags& mask)
+{
+    return LayerFlags{
+        user.objects && mask.objects,
+        user.paths && mask.paths,
+        user.map_elements && mask.map_elements,
+        user.grids && mask.grids,
+        user.alerts && mask.alerts,
+        user.markers && mask.markers,
+        user.point_clouds && mask.point_clouds,
+        user.trajectory_carpet && mask.trajectory_carpet,
+    };
+}
+
 }  // namespace micropilot::visualization_app

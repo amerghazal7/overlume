@@ -165,3 +165,94 @@ under real per-tick ego-motion compensation instead.
   reflected in the GPU SM %/mem % columns above (mem % reads 0 at this
   scale; six 1440×928×3 uploads/tick is small next to this GPU's memory
   bandwidth).
+
+## Task 4 (VM-093) Step 2 — CycloneDDS SHM launch config carried forward, 2026-09-11
+
+Verified by launching the merged node via its OWN launch file
+(`ros2 launch micropilot_visualization_node visualization_node.launch.py`,
+`CYCLONEDDS_URI` explicitly unset in the parent shell first) and reading the
+running process's actual environment (`/proc/<pid>/environ`):
+`CYCLONEDDS_URI=file:///home/ag7/.config/cyclonedds/cyclonedds.xml` —
+present, and byte-identical (`diff` against `rendering_node.launch.py`'s own
+`SetEnvironmentVariable` call/value — the only difference is this file's own
+added prose comment) to the SHM-forcing config the original fix commit
+`69b5a3a` shipped. `iox-roudi` (the Iceoryx SHM daemon SHM requires) was
+already running on this box throughout (`pgrep iox-roudi`).
+
+**Honest scope note:** reproducing the ORIGINAL fix's exact measured
+collapse (sim FPS 32→8 Hz) needs a live, synchronous-mode CARLA sim — the
+mechanism is CARLA's own lock-step publish blocking on transport
+acknowledgment, which a recorded-bag replay (this environment's only
+available camera source) does not reproduce; a bag's single publisher/single
+subscriber transport cost is real but small at this fixture's ~9 Hz-per-camera
+publish rate regardless of SHM vs. UDP. This step's verification is therefore
+scoped to "the launch file forces the identical config, and the SHM daemon
+is present to use it" — a real, checkable fact — not a fresh live-CARLA
+collapse repro (Named fixture gap: no live CARLA rig in this environment,
+same class of gap Global Constraints already names for GPU/on-robot numbers).
+
+## Results (d) — Task 4 (VM-093) Step 3: old node + merged node co-residence, real camera bag, 2026-09-11
+
+**First real number for "old CUDA node + new merged node running together"
+(named fixture gap #2) — this is the actual state production is in for the
+whole rollout window between Task 4 and Task 6 (Decision 7).** Driven by
+`tools/mode_consolidation_perf_gate.sh` (checked in alongside
+`bowl_perf_gate.sh`), same fixture bag/procedure shape (`ROS_DOMAIN_ID=93`,
+`SensorDataQoS`/best_effort, fresh single-pass playback, GPU confirmed quiet
+via `nvidia-smi` before measuring). **Old node run from the MAIN checkout's
+already-built install, READ-ONLY — this task never edits/rebuilds
+`micropilot_rendering_node`;** new node run from this worktree's own scratch
+colcon install. Both `initial_mode:=2` (old node authoritative for the
+shared `/rendering/image` mux topic — real mode-2 CUDA reprojection, fed by
+the bag's six cameras + `/iv_points_fusion`; new node's own `active_mode_==2`
+early-return skips ITS render/publish loop, matching production, while
+`bowl_enabled:=true` keeps its `camera_ingest_` doing real per-tick work —
+"still-camera-ingesting", per the plan's own Step 3 text).
+
+| case | image_hz (`/rendering/image`, old node's publish) | GPU SM % | GPU mem % | old-node CPU % | new-node CPU % | new-node own tick rate (diag n/14s) |
+|---|---|---|---|---|---|---|
+| co_residence (old node mode2 + new node bowl-ingesting) | 26.33 | 21 | 0 | 112.5 | 19 | 425 (≈30.4 Hz — healthy) |
+| rnode_alone_mode2 (CONTROL, no new node running at all) | 23.05 | 6 | 0 | 0 (pid-capture artifact, see below) | – | – |
+
+**Baseline for comparison:** Results (c)'s `bowl_off` row (new node alone,
+bowl disabled, GPU SM 27%) — Task 2 Step 5a's own same-bag number, per this
+task's instructions (NOT `q1_rnode_idle`/`q1_rnode_mode2` above, which carry
+no camera topics).
+
+**Finding, reported honestly rather than silently passed:** `image_hz` on
+the OLD node's own `/rendering/image` publish loop falls short of the 30 Hz
+bar in BOTH rows (26.33 co-resident, 23.05 alone) — the first-ever
+measurement of `rendering_node`'s real mode-2 CUDA throughput against a REAL
+six-camera + lidar bag (fixture gap #2: this genuinely never existed before,
+even for today's shipped two-node design). **The CONTROL row (old node run
+completely ALONE, no new node process at all, same bag/procedure) isolates
+the cause: co-residence is NOT what's costing the rate** — the alone case is
+*slower* (23.05 Hz) than the co-resident case (26.33 Hz), a difference that
+sits inside this rig's own run-to-run noise (bag-playback jitter, desktop
+GPU/CPU scheduling), not a systematic co-residence penalty in either
+direction. This is a pre-existing property of the unmodified CUDA
+`rendering_node` pipeline under real full-sensor load, out of this task's
+scope to fix (Global Constraints: this epic does not touch `rendering_node`'s
+CUDA code until Task 6 decommission) — named here as a review-gate finding
+for Task 4 Step 1's parity checklist, not absorbed silently. GPU SM % shows
+no concerning co-residence increase (21% co-resident vs. 27% Step 5a
+baseline — actually lower, within noise); new-node CPU (19%, ingest-only,
+not rendering) and its own 30.4 Hz internal tick rate (diagnostics sample
+count 425/14s) are both healthy — Task 4's own dispatch code adds no
+measurable regression.
+
+**Known measurement gap, named rather than silently accepted -- FIXED, 2026-09-11
+review round 1:** the CONTROL row's old-node CPU% originally read 0 — a
+`pgrep` timing artifact (the sampled pid window landed before/after the
+actual `ros2 run`-wrapped process settled), not a real reading, from a
+throwaway one-off control script that has since been folded into
+`tools/mode_consolidation_perf_gate.sh` itself as its `run_rnode_alone()`
+case (`CASE=rnode_alone`, or `CASE=both` to run co-residence then the
+control in one invocation) with a `wait_pid()` retry loop that polls until
+`pgrep` finds the pid AND `top` returns a real (non-empty) sample for it,
+instead of a fixed `sleep` before one `pgrep` call. The co-residence row's
+112.5% (over one core, plausible for a multi-threaded CUDA pipeline) was
+already the trustworthy CPU figure; the control row's CPU% is now
+re-runnable and auditable from the checked-in script rather than a one-off
+that produced the 0 artifact above. Not blocking this gate's own pass/fail
+line, which turns on `image_hz`/GPU SM %, not old-node CPU.

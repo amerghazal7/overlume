@@ -70,6 +70,8 @@ def test_set_theme_valid(theme):
     '{"cmd": "set_quality", "preset": "ultra"}',           # unknown preset
     '{"cmd": "set_quality", "preset": 3}',                 # out of range
     '{"cmd": "set_quality", "preset": true}',              # bool is not a preset
+    '{"cmd": "set_surround_profile"}',                    # missing profile
+    '{"cmd": "set_surround_profile", "profile": "lidar"}',  # unknown profile
 ])
 def test_rejects_malformed(text):
     with pytest.raises(ValueError):
@@ -91,6 +93,12 @@ def test_set_layers_valid():
 def test_set_quality_valid(preset, expect):
     assert parse_cmd(json.dumps({"cmd": "set_quality", "preset": preset})) == \
         ("set_quality", expect)
+
+
+@pytest.mark.parametrize("profile", ["bowl", "hybrid"])
+def test_set_surround_profile_valid(profile):
+    assert parse_cmd(json.dumps({"cmd": "set_surround_profile", "profile": profile})) == \
+        ("set_surround_profile", profile)
 
 
 def test_param_cmds_valid():

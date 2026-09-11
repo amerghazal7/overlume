@@ -20,9 +20,13 @@ third-party client — can drive the virtual camera:
     {"cmd": "set_quality", "preset": "low"|"medium"|"high"|0|1|2}  (VM-032 --
         writes visualization_node's `quality` param only; takes effect on
         its NEXT restart, not live -- see that node's create_renderer())
+    {"cmd": "set_surround_profile", "profile": "bowl"|"hybrid"}  (Task 4/
+        VM-093 -- writes visualization_node's `surround_stitching_profile`
+        param; live, same on_params() live-tuning contract as layer_*)
   server -> client:
     {"type": "state", "eye": [...], "target": [...], "preset": 0..5,
-     "render_mode": 1|2}  (~15 Hz)
+     "render_mode": 1|2, "mux_mode": 1|2|3|null}  (~15 Hz; render_mode is
+     the publishing node's own local mode, mux_mode the global mux owner)
     {"type": "params", "values": {name: value, ...}}
     {"type": "ack", "cmd": "save_params", "success": bool, "path": str}
     {"type": "ack", "cmd": "set_preset", "success": bool, "active": str}
@@ -47,16 +51,25 @@ STATE_HZ = 15.0
 PRESET_RANGE = (1, 5)
 RENDER_MODES = {"bowl": 1, "pointcloud": 2, "visual": 3, 1: 1, 2: 2, 3: 3}
 
-# Epic 3 Task 5 (VM-032) + VM-077: the eight layer_<name> bool params
-# visualization_node declares (scene_assembly.hpp's live categories --
-# trajectory_carpet added VM-077, see that node's on_configure()).
+# Epic 3 Task 5 (VM-032) + VM-077 + Task 4/VM-093: the layer_<name> bool
+# params visualization_node declares (scene_assembly.hpp's live categories --
+# trajectory_carpet added VM-077, surround_stitching added VM-093 (Surround
+# Stitching, follow-up USER DIRECTIVE 2026-09-11) -- see that node's
+# on_configure()). surround_stitching is the one entry here that doesn't gate
+# a SceneAssembly category (it gates set_bowl_visible() instead); it's a
+# plain layer_* bool param, same live-tuning contract as every other name
+# here, so it belongs in the same set.
 LAYER_NAMES = {
     "objects", "paths", "map_elements", "grids", "alerts", "markers", "point_clouds",
-    "trajectory_carpet",
+    "trajectory_carpet", "surround_stitching",
 }
 # quality preset name -> visualization_node's `quality` param encoding
 # (0=low, 1=med, 2=high, api.h's RenderConfig::quality).
 QUALITY_PRESETS = {"low": 0, "medium": 1, "high": 2, 0: 0, 1: 1, 2: 2}
+# Surround Stitching content profile (Task 4/VM-093 follow-up USER
+# DIRECTIVE) -- visualization_node's on_params() accepts exactly these two,
+# rejecting anything else (test_mode_dispatch.py check 3).
+SURROUND_PROFILES = {"bowl", "hybrid"}
 
 # Params the GUI tuning panel may read/write, with their declared ROS types.
 TUNABLE_PARAMS = {
@@ -204,6 +217,11 @@ def parse_cmd(text: str):
             raise ValueError(
                 'set_quality: preset must be "low", "medium", "high", or 0/1/2')
         return "set_quality", QUALITY_PRESETS[preset]
+    if cmd == "set_surround_profile":
+        profile = msg.get("profile")
+        if profile not in SURROUND_PROFILES:
+            raise ValueError('set_surround_profile: profile must be "bowl" or "hybrid"')
+        return "set_surround_profile", profile
     raise ValueError(f"unknown cmd {cmd!r}")
 
 
@@ -236,11 +254,13 @@ def main() -> int:
             self.state: list[float] | None = None  # [eye3, target3, preset, mode]
             # Both nodes publish ~/vcam_state continuously (spec §9), so
             # picking "whichever arrived last" flickers between them. Index 7
-            # means something different per publisher (rendering_node's
-            # render_mode_ 1|2 vs. visualization_node's active_mode_ 1|2|3),
-            # so it can't be a shared filter value -- instead track which
-            # NAMESPACE is authoritative for the last commanded mode. Starts
-            # at rendering_node, matching its default render_mode_ (2).
+            # is render_mode_ on BOTH namespaces as of VM-093 (rendering_node's
+            # own 1|2, visualization_node's own local 1|2|3 -- see that node's
+            # scene_assembly.hpp RenderMode) -- that parity is exactly what
+            # VM-093 bought, but it still can't be a shared filter value
+            # (rendering_node has no mode 3) -- instead track which NAMESPACE
+            # is authoritative for the last commanded mode. Starts at
+            # rendering_node, matching its default render_mode_ (2).
             self._active_ns = VCAM_NAMESPACES[0]
             # diagnostics only exists on visualization_node (mode 3) -- no
             # mux needed, harmless if it keeps arriving while mode 1/2 is
@@ -381,7 +401,7 @@ def main() -> int:
             return self._cli_setp.call_async(req)
 
         def get_layers_async(self):
-            """GetParameters for the seven layer_* bools from
+            """GetParameters for the nine layer_* bools from
             visualization_node -- the read twin of set_layers_async below,
             so the GUI can show real values instead of asserted defaults."""
             if not self._cli_getp_viz.service_is_ready():
@@ -415,6 +435,17 @@ def main() -> int:
             pv = ParameterValue(type=ParameterType.PARAMETER_INTEGER, integer_value=preset)
             req = SetParameters.Request()
             req.parameters = [Parameter(name="quality", value=pv)]
+            return self._cli_setp_viz.call_async(req)
+
+        def set_surround_profile_async(self, profile: str):
+            """Writes visualization_node's `surround_stitching_profile`
+            param -- live, same on_params() contract as layer_* (unlike
+            set_quality_async above, which only takes effect on restart)."""
+            if not self._cli_setp_viz.service_is_ready():
+                return None
+            pv = ParameterValue(type=ParameterType.PARAMETER_STRING, string_value=profile)
+            req = SetParameters.Request()
+            req.parameters = [Parameter(name="surround_stitching_profile", value=pv)]
             return self._cli_setp_viz.call_async(req)
 
         @staticmethod
@@ -541,6 +572,21 @@ def main() -> int:
                     except Exception as e:
                         await ws.send(json.dumps({
                             "type": "error", "message": f"set_quality: {e}"}))
+                elif cmd == "set_surround_profile":
+                    fut = node.set_surround_profile_async(payload)
+                    if fut is None:
+                        await ws.send(json.dumps({
+                            "type": "error",
+                            "message": "visualization_node set_parameters unavailable"}))
+                        continue
+                    try:
+                        res = await await_ros(fut)
+                        ok = all(r.successful for r in res.results)
+                        await ws.send(json.dumps({
+                            "type": "ack", "cmd": "set_surround_profile", "success": ok}))
+                    except Exception as e:
+                        await ws.send(json.dumps({
+                            "type": "error", "message": f"set_surround_profile: {e}"}))
                 elif cmd == "save_params":
                     try:
                         dst = await do_save_params(payload)
@@ -589,7 +635,11 @@ def main() -> int:
                     "type": "state",
                     "eye": s[0:3], "target": s[3:6],
                     "preset": int(s[6]) if len(s) > 6 else 0,
-                    "render_mode": int(s[7]) if len(s) > 7 else 2})
+                    "render_mode": int(s[7]) if len(s) > 7 else 2,
+                    # The MUX mode (which node owns /rendering/image) -- index
+                    # 7 is the node's own local render_mode since VM-093, so
+                    # the GUI's mode-cycle button needs this separately.
+                    "mux_mode": int(s[8]) if len(s) > 8 else None})
                 await asyncio.gather(
                     *(ws.send(frame) for ws in list(clients)), return_exceptions=True)
             # Same "send only on change" shape as state above, its own frame

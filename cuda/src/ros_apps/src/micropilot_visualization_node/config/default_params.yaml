@@ -58,6 +58,17 @@
     # VM-077: gates the output_trajectory_carpet category. Singular knob
     # name, matching the category's own singular topic/adapter/role.
     layer_trajectory_carpet: true
+    # Task 4 (VM-093): local render-mode switch, 1=BOWL/2=HYBRID/3=FREE_LOOK
+    # (default). Declare-time out-of-range WARNs and defaults to 3; a LIVE
+    # `ros2 param set`/set_parameters() out-of-range value is REJECTED
+    # instead -- see visualization_node.hpp's render_mode_ field comment for
+    # the full contract (mode content exclusivity, mux interaction).
+    render_mode: 3
+    # Surround Stitching (Task 4/VM-093 follow-up directive): mode-3-only
+    # bowl-in-same-frame toggle, off by default -- see visualization_node.hpp's
+    # layer_surround_stitching_ field comment.
+    layer_surround_stitching: false
+    surround_stitching_profile: bowl
     # Which shipped profile to load (urban|offroad|sim -> <profile>_profile.yaml).
     # profile_dir: "" means this package's own installed share/config
     # (resolved via ament_index_cpp in visualization_node.cpp); set an

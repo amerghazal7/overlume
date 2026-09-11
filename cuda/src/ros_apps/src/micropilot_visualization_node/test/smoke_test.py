@@ -8,6 +8,15 @@ Epic 0 Task 3 (docs/superpowers/plans/2026-08-18-visual-mode.md):
   - initial_mode:=1 -> the node stays idle (mode mux not "3"); assert ZERO
     frames arrive within 2 s.
 
+Task 4 (VM-093):
+  - Scenario 3 -- with initial_mode:=3 held fixed (this node stays the
+    mux-authoritative renderer throughout, Decision 7 untouched), drive the
+    LOCAL render_mode param through 1 (BOWL) -> 2 (HYBRID) -> 3 (FREE_LOOK)
+    -> 1 (BOWL) via `ros2 param set` -- no message on any topic, matching
+    the plan's own "no ROS message exchanged" framing for this switch --
+    and assert frames of the same configured shape keep flowing with no
+    crash at every step.
+
 Mirrors micropilot_rendering_node/test/smoke_test.py's subprocess + rclpy
 pattern. Headless — no GUI, no blocking loop. Hard timeout per scenario.
 """
@@ -78,6 +87,12 @@ def lifecycle(transition: str, timeout: float = 15.0) -> bool:
     return result.returncode == 0
 
 
+def param_set(name: str, value_literal: str) -> bool:
+    cmd = f"source /opt/ros/humble/setup.bash && ros2 param set /visualization_node {name} {value_literal}"
+    result = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, timeout=15.0)
+    return result.returncode == 0 and "Set parameter successful" in result.stdout
+
+
 def wait_for_start(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -107,6 +122,48 @@ def run_scenario(initial_mode: int, watch_s: float) -> list:
         while time.time() < deadline:
             rclpy.spin_once(counter, timeout_sec=0.1)
         return counter.frames
+    finally:
+        if counter is not None:
+            counter.destroy_node()
+            rclpy.shutdown()
+        kill(node_proc)
+
+
+def run_mode_cycle_scenario(sequence: list, watch_s: float = 1.5) -> str:
+    """Launch once with initial_mode:=3 (mux-authoritative throughout), then
+    drive the LOCAL render_mode param through `sequence` via `ros2 param
+    set` -- NO message on /rendering/set_mode or any other topic -- and
+    check frames of the configured shape keep flowing with no crash at
+    every step. Returns "" on success, else a failure message."""
+    node_proc = launch_node(initial_mode=3)
+    counter = None
+    try:
+        if not wait_for_start(node_proc):
+            stderr = node_proc.stderr.read().decode(errors="replace")
+            return f"node exited early (code {node_proc.returncode}):\n{stderr[-2000:]}"
+        if not lifecycle("configure"):
+            return "configure transition failed"
+        if not lifecycle("activate"):
+            return "activate transition failed"
+
+        rclpy.init()
+        counter = FrameCounter()
+        for mode in sequence:
+            if not param_set("render_mode", str(mode)):
+                return f"ros2 param set render_mode {mode} was rejected"
+            counter.frames.clear()
+            deadline = time.time() + watch_s
+            while time.time() < deadline:
+                rclpy.spin_once(counter, timeout_sec=0.1)
+            if node_proc.poll() is not None:
+                return f"node crashed after render_mode:={mode}"
+            if len(counter.frames) == 0:
+                return f"expected frames to keep flowing after render_mode:={mode}, got 0"
+            f0 = counter.frames[0]
+            if f0.encoding != "rgb8" or f0.width != OUT_W or f0.height != OUT_H:
+                return (f"render_mode:={mode}: expected rgb8 {OUT_W}x{OUT_H}, got "
+                        f"{f0.encoding} {f0.width}x{f0.height}")
+        return ""
     finally:
         if counter is not None:
             counter.destroy_node()
@@ -146,6 +203,16 @@ def main() -> int:
         print(f"FAIL: expected 0 frames with initial_mode=1, got {len(frames)}", file=sys.stderr)
         return 1
     print("INFO: 0 frames with initial_mode=1 -- OK.")
+
+    # ── Scenario 3 (Task 4/VM-093): local render_mode cycle, no topic ────────
+    print("INFO: scenario 3 -- initial_mode=3 fixed, cycling render_mode "
+          "1(BOWL)->2(HYBRID)->3(FREE_LOOK)->1(BOWL) via `ros2 param set` ...")
+    err = run_mode_cycle_scenario([1, 2, 3, 1])
+    if err:
+        print(f"FAIL: {err}", file=sys.stderr)
+        return 1
+    print("INFO: frames kept flowing at the configured shape through the whole "
+          "render_mode cycle, no crash -- OK.")
 
     print("PASS: visualization_node mode-mux smoke test passed.")
     return 0

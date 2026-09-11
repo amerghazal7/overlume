@@ -103,4 +103,52 @@ struct LayerFlags
 // the live-node bridge E2E. Call this right before point_at().
 void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags);
 
+// Task 4 (VM-093): the node's local render-mode switch, independent of the
+// global /rendering/set_mode mux's active_mode_ (mirrors
+// micropilot_rendering_node's own render_mode_/active_mode_ split -- see
+// that node's rendering_node.hpp for the precedent this one didn't have
+// until now).
+enum class RenderMode
+{
+    BOWL = 1,
+    HYBRID = 2,
+    FREE_LOOK = 3,
+};
+
+// USER DIRECTIVE 2026-09-11 (mode content exclusivity, "Decision
+// resolutions"): BOWL renders bowl+ego ONLY, HYBRID renders bowl+lidar+ego
+// ONLY (the lidar category is point_clouds -- until Task 5/VM-094 replaces
+// its feed with camera-colorized points, the shipped profile's EXISTING
+// autonomy point-cloud row flows through it, so HYBRID currently shows an
+// un-colorized cloud, not an empty layer), FREE_LOOK renders the full
+// autonomy scene unmasked. Neither
+// bowl nor ego is a SceneAssembly category (bowl visibility is
+// set_bowl_visible(), ego is scene.ego) -- this mask only ever touches the
+// eight SceneAssembly/LayerFlags categories. The environment/buildings layer
+// (Epic 4/VM-052) is a THIRD thing outside this mask -- renderer-internal,
+// not a SceneAssembly category either -- and NOT per-mode gated: the
+// round-1 null-source gate was dead code (the library treats a null source
+// as a no-op, not a hide) and was deleted in round 2; a live environment
+// source renders in every mode today (signoff.md exception 7, latent until
+// a chunks dir is provisioned).
+LayerFlags mode_content_mask(RenderMode mode);
+
+// AND `mask` over `user`, field by field -- composes without ever
+// overwriting the user's own layer_* params (the same directive: switching
+// back to FREE_LOOK must restore the user's persisted layer_* settings
+// exactly, not whatever BOWL/HYBRID happened to force them to).
+LayerFlags compose_layer_gates(const LayerFlags& user, const LayerFlags& mask);
+
+// Bowl is visible in BOWL/HYBRID unconditionally (USER DIRECTIVE
+// 2026-09-11: those modes render the CUDA-parity bowl); in FREE_LOOK, visible
+// ONLY when the operator's Surround Stitching toggle (`layer_surround_stitching`)
+// is on.
+bool bowl_visible_for_mode(RenderMode mode, bool surround_stitching);
+
+// HUD and the nearest-obstacle callout are FREE_LOOK-only overlays -- BOWL/
+// HYBRID never had either in the CUDA reference (same USER DIRECTIVE), so
+// both are force-suppressed there without touching hud_enabled_/
+// callouts_enabled_ themselves.
+bool overlays_visible_for_mode(RenderMode mode);
+
 }  // namespace micropilot::visualization_app
