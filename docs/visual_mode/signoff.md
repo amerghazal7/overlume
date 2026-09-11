@@ -16,9 +16,9 @@ item below being closed or explicitly accepted.
 | Item | Owner | Status |
 |---|---|---|
 | Bowl-vs-CUDA visual parity | Task 2 (VM-091)'s golden (`docs/visual_mode/bowl-golden-vm091.md`) + a live side-by-side | Golden captured; still needs human-sanity approval (Task 2 Step 7 left unchecked pending that, not code work) |
-| Hybrid-vs-CUDA visual parity | Task 5 (VM-094)'s golden | Not started (Task 5 not yet landed) |
+| Hybrid-vs-CUDA visual parity | Task 5 (VM-094)'s golden (`docs/visual_mode/hybrid-golden-vm094.md`) | Golden captured; still needs human-sanity approval (Task 5 Step 5 left unchecked pending that, not code work) |
 | Self-view/robot-proxy parity | Task 3 (VM-092)'s golden | Not started (Task 3 not yet landed) |
-| Perf parity at each milestone | This epic's own perf-gate steps (Task 2 Step 5, Task 4 Steps 2/3, Task 5's own gate, Task 6's on-robot rerun) | Task 2 Step 5 + Task 4 Steps 2/3 closed (see `tools/budget_probe.md` Results (c)/(d)); Task 5/Task 6 rows open |
+| Perf parity at each milestone | This epic's own perf-gate steps (Task 2 Step 5, Task 4 Steps 2/3, Task 5's own gate, Task 6's on-robot rerun) | Task 2 Step 5 + Task 4 Steps 2/3 closed (see `tools/budget_probe.md` Results (c)/(d)); Task 5's gate closed too (`hybrid_perf_gate.sh`: image_hz 30.271, render_ms p99 23.071 ms — see `docs/visual_mode/hybrid-golden-vm094.md`); only Task 6's on-robot rerun row is still open |
 | Node-level bowl-visible/bowl-hidden pixel assertions for the per-mode dispatch (BOWL renders bowl, FREE_LOOK hides it, FREE_LOOK+Surround-Stitching shows it alongside the autonomy scene) + node-level "autonomy layers do not render in BOWL with live data flowing" pixel check, both reusing Task 2's sentinel-magenta check against a LIVE node render | Task 4 (VM-093) review round 1, deferred to Task 6's golden captures | Not started -- no node-level camera-publishing/render-readback harness exists in this package today (`test_bowl.cpp`'s pixel/sentinel machinery is library-side, fenced by the concurrent VM-092 task for this task's duration); `bowl_visible_for_mode()`/`overlays_visible_for_mode()` are unit-tested directly (`test_scene_assembly.cpp`) as the cheaper stand-in, but that is a mask/predicate check, not a live-pixel one. **BOWL→FREE_LOOK→BOWL `layer_*` restore is NOT part of this deferral** — it's a pure ROS-param round trip needing no render readback, check 5 of `test_mode_dispatch.py` proves a mode switch performs no param write-back; the member-level AND-never-overwrite guarantee is GTest-covered by `compose_layer_gates()` (test_scene_assembly.cpp) (review round 2, 2026-09-11). |
 
 ### Named exceptions the sign-off explicitly accepts (not parity gaps to close)
@@ -87,3 +87,24 @@ item below being closed or explicitly accepted.
    either accepts buildings appearing behind the bowl in BOWL/HYBRID when
    `environment_chunks_dir` is set, or a follow-up task adds the library-side
    toggle.
+8. **Lidar colorization samples cameras through BASE extrinsics; the bowl
+   samples through ego-motion-delta-compensated extrinsics** (VM-094 review
+   round 1 minor finding, 2026-09-11). `camera_ingest_->fill_bowl_intrinsics()`
+   returns `state_.extrinsics(i)` verbatim, while `bowl.cpp`'s `update_bowl`
+   composes each camera's `motionDelta` (from `update_motion_deltas()`) into
+   right/fwd/t before the bowl shader projects. The CUDA reference feeds one
+   compensated `scaled_params` array to both the bowl kernel and the splat
+   colorization (`rendering_node.cpp:747-793`); this node's two consumers
+   diverge. On a moving robot with odometry flowing, the same physical
+   surface gets bowl pixels sampled from a compensated pose and splat colors
+   from an uncompensated one -- the plan's own figure for that spread is
+   ~0.5 m of travel at this bag's real camera-phase spread. **Not exercised
+   by any capture taken so far**: this epic's fixture bag
+   (`stack_v2_full_sensors_2026-09-09`) carries no odometry topic, so
+   `update_motion_deltas()` computes identity deltas throughout and this gap
+   is latent, not visible, in every golden captured against it. Accepted as
+   a named parity exception rather than chased in this task; closing it
+   means applying `camera_ingest_`'s own per-camera `compensation_delta_4x4`
+   to the extrinsics handed to `ColorizeFromCameras` too, a follow-up task
+   once a bag (or live robot) with real odometry is available to verify
+   against.

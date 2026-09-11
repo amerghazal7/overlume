@@ -253,11 +253,17 @@
     # bag's own lidar topic is /iv_points_fusion (stack_v2_full_sensors_2026-09-09).
     pointcloud_topic: ""
     # [R(9 row-major)|t(3)] cloud-frame -> rig-frame -- same param name and
-    # convention as micropilot_rendering_node's own pointcloud_transform
-    # (rendering_node.cpp:95-96), ported verbatim, not reinvented. Identity
-    # here: this fixture's fused cloud is not yet known to need a real
-    # offset; a real deployment overrides it exactly like m2o1_params.yaml
-    # does for the CUDA node's own copy of this same param.
+    # convention as micropilot_rendering_node's own pointcloud_transform.
+    # t=(0,0,1.15) here matches micropilot_rendering_node's own SHIPPED
+    # default_params.yaml (its declare_parameter<> default is identity, but
+    # its checked-in yaml overrides that to tz=1.15 for every deployment,
+    # this fixture's stack_v2_full_sensors_2026-09-09 bag included) -- see
+    # rendering_node.cpp:91-94: the fused /iv_points_fusion cloud is in the
+    # calib-ego/top-lidar frame and needs the same +z ground offset the
+    # camera extrinsics bake in. Identity here would place this node's
+    # colorized cloud 1.15 m away from the CUDA node's own on the SAME bag.
+    # m2o1_params.yaml does not override this key -- it is not an
+    # m2o1-only concern, it is the shipped default for every deployment.
     pointcloud_transform:
     - 1.0
     - 0.0
@@ -270,7 +276,7 @@
     - 1.0
     - 0.0
     - 0.0
-    - 0.0
+    - 1.15
     # VESTIGIAL (Decision 5): declared for GUI/TUNABLE_PARAMS compatibility
     # only (tools/vcam_ws_bridge.py's TUNABLE_PARAMS still carries this
     # name) -- NOT read by this node's own code anywhere. Rendered point

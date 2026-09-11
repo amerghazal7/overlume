@@ -1,41 +1,85 @@
 # Hybrid golden — VM-094 Task 5 Step 5
 
 Same fixture (`~/TPSProjector-fixtures/stack_v2_full_sensors_2026-09-09`,
-`ROS_DOMAIN_ID=93`, single-pass playback), 1280×720 — captured from two
-independently-running nodes, not a pixel diff (same Golden scoping rule and
-same reason bowl-golden-vm091.md gives: first-match colorization is a
-genuinely different mechanism than the CUDA feather-blended sampler,
-Decision 5's own named fidelity exception):
+`ROS_DOMAIN_ID=93`, single-pass playback, `--start-offset 40`), 1280×720 —
+captured from two independently-running nodes, not a pixel diff (same Golden
+scoping rule and same reason bowl-golden-vm091.md gives: first-match
+colorization is a genuinely different mechanism than the CUDA feather-blended
+sampler, Decision 5's own named fidelity exception):
 
 - `cuda/src/libs/visual_renderer/tests/goldens/hybrid_test_town_cuda_reference.png`
   — `micropilot_rendering_node`, `initial_mode:=2` (CUDA hybrid: bowl +
   every-camera feather-blended lidar colorization), default params
-  (`pointcloud_topic: /iv_points_fusion` is already its shipped default).
+  (`pointcloud_transform` t=(0,0,1.15) is the shipped default — see review
+  round 1 finding 1 below).
 - `cuda/src/libs/visual_renderer/tests/goldens/hybrid_test_town_merged_node.png`
   — `micropilot_visualization_node` (this epic's Filament port),
   `bowl_enabled:=true render_mode:=2 hybrid_enabled:=true
-  pointcloud_topic:=/iv_points_fusion` (mode content exclusivity, USER
-  DIRECTIVE 2026-09-11: bowl + camera-colorized lidar + ego only, enforced
-  by `mode_content_mask(HYBRID)`).
+  pointcloud_topic:=/iv_points_fusion` with `default_params.yaml`'s
+  `pointcloud_transform` (mode content exclusivity, USER DIRECTIVE
+  2026-09-11: bowl + camera-colorized lidar + ego only, enforced by
+  `mode_content_mask(HYBRID)`).
 
-## Sanity check (not a pixel diff)
+## Review round 1 finding 1: pointcloud_transform now matches across nodes
 
-Both captures show the same recognizable close chase-cam scene (paved
-road, lane markings, the ego robot's rear proxy, nearby crashed/parked
-vehicles, roadside buildings) with a visibly speckled point texture
-scattered across the road and vehicle surfaces in BOTH captures — the
-camera-colorized lidar splats, present in both the CUDA reference and the
-merged node's own output. The merged node's capture shows the SAME
-camera-boundary artifacts the bowl golden already named (glitchy/rotated
-vehicle sprites where two camera projections meet) — expected here too,
-since HYBRID's bowl fallback is Task 2's own bowl, unchanged. The named
-Decision 5 fidelity regression (first-match camera-colorization vs. the
-CUDA reference's every-camera feather blend) is not distinguishable by eye
-at this resolution/exposure in this one frame — a seam artifact specific to
-first-match (a lidar point's color flipping between two cameras' pixel
-values at a coverage boundary) would need a frame with a point cloud
-concentration exactly straddling two cameras' overlap to show clearly; not
-hunted for in this one capture.
+The prior capture ran the merged node with an IDENTITY `pointcloud_transform`
+while the CUDA node's own shipped `default_params.yaml` carries t=(0,0,1.15)
+(`rendering_node.cpp:91-94`: the fused `/iv_points_fusion` cloud is in the
+calib-ego/top-lidar frame and needs the same +z ground offset the camera
+extrinsics bake in) — the two nodes placed the same cloud 1.15 m apart under
+their own defaults. `micropilot_visualization_node/config/default_params.yaml`
+now ships t=(0,0,1.15) too (not an `m2o1_params.yaml`-only override — the old
+node's OWN shipped default carries it), and both PNGs above were re-captured
+against that same transform.
+
+## Review round 1 finding 3: honest hybrid-on/hybrid-off A/B
+
+The previous sanity section claimed the visible road/vehicle-surface speckle
+in the merged-node capture WAS the camera-colorized lidar. It is not: a
+same-offset, same-bag, same-params A/B (`render_mode:=2`, identical except
+`hybrid_enabled:=true` vs `hybrid_enabled:=false`) shows that speckle is
+present with hybrid OFF too — it is the camera-textured bowl's own per-camera
+photographic noise/JPEG-ish artifacting, not lidar splats.
+
+Measured over two fixed road-surface ROI strips (excluding the ego proxy),
+same capture session as the two golden PNGs above:
+
+| | hybrid_on | hybrid_off |
+|---|---|---|
+| Road-region high-frequency energy (Laplacian variance) | 95.662 | 94.969 |
+
+Mean absolute per-pixel delta between the two full frames: **0.493** (8-bit
+scale) — the two captures are visually indistinguishable. The colorized
+splats DO render — this node's own `hybrid: colorized N/M lidar points
+(P% coverage)` log line (throttled every 5s) confirms real, substantial
+per-tick output during the capture window:
+
+```
+hybrid: colorized 78826/159927 lidar points (49.3% coverage)
+hybrid: colorized 92972/157555 lidar points (59.0% coverage)
+hybrid: colorized 93338/156959 lidar points (59.5% coverage)
+hybrid: colorized 92459/154355 lidar points (59.9% coverage)
+hybrid: colorized 92463/153132 lidar points (60.4% coverage)
+```
+
+Steady state at this frame: **~93k of ~155k input points colorized per tick
+(~60% coverage)** — the rest are dropped, not appended with a sentinel color
+(`lidar_colorize.cpp`'s Decision 5 first-match-or-drop rule: a point no
+configured camera's frustum covers this tick is simply omitted).
+
+So ~93k real colored points ARE pushed into the scene every tick, but they
+sit ON the bowl surface carrying the SAME camera pixels the bowl mesh is
+already textured with at that surface point — camera-colorized lidar
+painted back onto the photograph it was sampled from is close to invisible,
+unlike the CUDA reference's splats, which visibly reveal 3D structure (the
+blocky overturned car silhouette) because the CUDA renderer does not also
+texture that same surface with the matching camera image underneath. This
+is the thing the human-sanity reviewer must actually judge here: not "do you
+see speckle" (present either way) but "does the merged node's hybrid content
+add any visible 3D structure over its own bowl-only capture" — on this frame,
+at this transform/exposure, it does not, by design of first-match
+same-surface colorization (Decision 5's fidelity regression is INVISIBILITY
+here, not a seam artifact).
 
 ## Perf gate (Task 5 Step 4, `hybrid_perf_gate.sh`)
 
@@ -67,4 +111,5 @@ present in both cases, a known fixture-format gap).
 **This capture is produced; it has not been human-sanity-approved yet**
 (Golden scoping rule: this step's actual acceptance criterion, same as
 bowl-golden-vm091.md's own closing line). Plan Task 5 Step 5 is left
-unchecked pending that review — see both PNGs above.
+unchecked pending that review — see both PNGs above, and the honest A/B
+framing above for what to actually judge.

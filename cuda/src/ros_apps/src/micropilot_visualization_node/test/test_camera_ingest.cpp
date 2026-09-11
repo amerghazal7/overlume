@@ -212,6 +212,35 @@ TEST(IngestState, ImageArrivalBumpsAMonotonicPerCameraFrameId) {
     EXPECT_EQ(state.record_image_stamp(0, 10.2), 3u);
 }
 
+// ---- IngestState::rgb: CameraInfo/image-stream dim-mismatch guard ---------
+// VM-094 review round 1 finding 2: CameraInfo can advertise different dims
+// than the image stream actually publishes (calibration-res CameraInfo +
+// a downscaled stream) -- rgb() must not hand out a buffer ingested at one
+// size once width(i)/height(i) says another, or ColorizeFromCameras' raw
+// pointer indexing reads past the end of it.
+TEST(IngestState, RgbReturnsNullptrWhenStoredBufferDimsDisagreeWithCameraInfo) {
+    std::vector<mpviz::CameraExtrinsics> ext(1);
+    mpviz_test::IngestState state(1, ext);
+    mpviz::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
+    // CameraInfo advertises 320x240 (e.g. the sensor's calibration resolution)...
+    ASSERT_TRUE(state.record_camera_info(0, in, 320, 240));
+    std::vector<uint8_t> frame(160 * 120 * 3, 42);
+    // ...but the actual published image stream is downscaled to 160x120.
+    state.store_rgb(0, frame.data(), 160, 120);
+    EXPECT_EQ(state.rgb(0), nullptr)
+        << "mismatched dims must read as 'no image', not sample past the buffer's end";
+}
+
+TEST(IngestState, RgbReturnsTheBufferWhenDimsMatchCameraInfo) {
+    std::vector<mpviz::CameraExtrinsics> ext(1);
+    mpviz_test::IngestState state(1, ext);
+    mpviz::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
+    ASSERT_TRUE(state.record_camera_info(0, in, 320, 240));
+    std::vector<uint8_t> frame(320 * 240 * 3, 42);
+    state.store_rgb(0, frame.data(), 320, 240);
+    EXPECT_NE(state.rgb(0), nullptr);
+}
+
 TEST(IngestState, NewestStampIsTheFrameSyncGatesTMax) {
     std::vector<mpviz::CameraExtrinsics> ext(2);
     mpviz_test::IngestState state(2, ext);
