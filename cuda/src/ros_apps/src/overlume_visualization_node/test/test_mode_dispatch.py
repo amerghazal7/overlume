@@ -20,15 +20,16 @@ convention exists here):
      of the above ever touches /rendering/set_mode, and the node stays alive
      throughout (this file's own repro for "no ROS message exchanged for a
      mode switch").
-  5. **A render_mode switch never clobbers the user's own layer_* prefs.**
-     `compose_layer_gates()` masks per mode but must never overwrite --
-     `layer_objects`/`layer_paths` are seeded to non-default values, then
-     read back via `ros2 param get` across a BOWL->FREE_LOOK round trip and
-     asserted unchanged. This is a pure ROS-param round trip (no pixel
-     readback needed), so it is NOT covered by the pixel/sentinel deferral
-     the plan's Task 4 Step 0 and signoff.md still name as open -- that
-     deferral is scoped to the pixel-level bowl-visible/hidden assertions,
-     which do need a render-readback harness this package doesn't have.
+  5. **A render_mode switch performs no set_parameter()-style write-back of
+     the user's layer_* params.** `layer_objects`/`layer_paths` are seeded
+     to non-default values, then read back via `ros2 param get` across a
+     BOWL->FREE_LOOK round trip and asserted unchanged. HONEST SCOPE: `ros2
+     param get` reads the parameter server, and no mode-switch code path
+     writes it -- so this check proves the absence of a param write-back,
+     NOT the member-level "AND, never overwrite" guarantee. That guarantee
+     rests on compose_layer_gates()'s GTest coverage
+     (test_scene_assembly.cpp), where the mask/compose semantics are
+     asserted directly against the member values.
 
 Run (ROS + this repo's ros_apps install sourced first):
     source /opt/ros/humble/setup.bash
