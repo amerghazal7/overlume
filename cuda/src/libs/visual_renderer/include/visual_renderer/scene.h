@@ -433,24 +433,37 @@ struct BowlConfig {
     uint8_t fill_blind_zone;
     uint8_t exposure_match;
     float sky_color[3];
-    // bowl.mat's `exposureCompensation` material parameter: the fixed
-    // camera exposure this renderer's unlit bowl material has to counteract
-    // (bowl.mat's own header explains why). This is the one field on this
-    // POD boundary with a default member initializer -- deliberately, not
-    // an oversight: it predates Step 6's node-side param wiring, and the
-    // default keeps every existing call site (every test in this suite
-    // that builds a BowlConfig without setting it) at a real, measured
-    // value rather than zero.
+    // bowl.mat's `exposureCompensation` material parameter. THE canonical
+    // derivation -- bowl.mat's header, default_params.yaml, and
+    // visualization_node.hpp all point HERE, not to each other.
     //
-    // MEASURED, not guessed (bowl color fidelity fix, 2026-09-11):
-    // tools/bowl_exposure_probe.cpp feeds flat sRGB gray camera frames
-    // through the real set_bowl_config+set_camera_frame+render_frame
-    // pipeline (with camera_textures.cpp's SRGB8 texture fix already
-    // landed -- this value is calibrated against a CORRECTLY sRGB-decoded
-    // camera sample, not the double-encoded one the two prior guesses
-    // (10.0, then 1.5) were eyeballed against) and binary-searches
-    // exposureCompensation until mid-gray (sRGB byte 128) round-trips
-    // through output within +/-1 byte. Measured 1.56 (128 -> 129).
+    // Corrected attribution (bowl color fidelity fix, 2026-09-11): bowl.mat
+    // is shadingModel unlit and its compiled fragment never reads
+    // frameUniforms.exposure (matinfo-verified). This does NOT counteract
+    // renderer.cpp's setExposure(16, 1/500, 100) -- that guess is retracted.
+    // What it actually counteracts is this build's ACES tonemap + output
+    // OETF being applied to an already-final, unlit baseColor.
+    //
+    // MEASURED, not guessed: tools/bowl_exposure_probe.cpp feeds flat sRGB
+    // gray camera frames through the real
+    // set_bowl_config+set_camera_frame+render_frame pipeline (with
+    // camera_textures.cpp's SRGB8 texture fix already landed -- calibrated
+    // against a CORRECTLY sRGB-decoded camera sample, not the
+    // double-encoded one the two prior guesses (10.0, then 1.5) were
+    // eyeballed against) and binary-searches exposureCompensation until
+    // mid-gray (sRGB byte 128) round-trips through output within +/-1
+    // byte. Measured 1.56.
+    //
+    // The measured ramp at 1.56, in -> out: 32->18, 64->48, 128->129,
+    // 192->190, 224->208. Both ends are compressed (~40% dark at the
+    // shadow end): a single scalar cannot invert a nonlinear tonemap, so
+    // this is a mid-gray match only, not a full-curve fix.
+    //
+    // This is the one field on this POD boundary with a default member
+    // initializer -- deliberately, not an oversight: it predates Step 6's
+    // node-side param wiring, and the default keeps every existing call
+    // site (every test in this suite that builds a BowlConfig without
+    // setting it) at a real, measured value rather than zero.
     // tests/test_bowl_exposure_calibration.cpp is the standing regression
     // that keeps this value honest.
     float exposure_compensation = 1.56f;

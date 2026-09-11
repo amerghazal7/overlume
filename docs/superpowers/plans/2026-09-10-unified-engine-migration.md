@@ -662,6 +662,8 @@ TEST(LidarColorize, PointInSingleCameraFovGetsThatCamerasColor) {
 
 - [ ] **Step 5: Golden — visual check against the CUDA hybrid mode's own output**, one capture from this epic's camera fixture bag (`~/TPSProjector-fixtures/stack_v2_full_sensors_2026-09-09`, Global Constraints), human-sanity-approved, same convention as Task 2 Step 7. **Known remaining (bowl color fidelity fix, 2026-09-11):** `lidar_colorize.cpp` packs raw sRGB camera bytes into `PointCloudPoint::rgba`, and `point_cloud.cpp`'s plain UBYTE4-normalized COLOR vertex attribute has no sRGB decode of its own (unlike a `sampler2d` texture) — the colorized splats this step's capture shows still carry the same linear-vs-sRGB double-encoding bug that fix corrected for the bowl's camera *textures* only; see `docs/visual_mode/hybrid-golden-vm094.md`'s recapture section.
 
+- [ ] **Follow-up (tracked, not fixed this round): decode sRGB->linear for `PointCloudPoint::rgba`** — either in `point_cloud.mat`'s fragment or by converting in `lidar_colorize.cpp` before packing. The bowl's camera-*texture* half of the double-encoding bug was fixed in 7049a9e; this lidar-splat vertex-color path was not.
+
 - [x] **Step 6: Commit** `feat(visual): mode-2 hybrid migrated — camera-colorized PointCloud, hybrid_enabled default off (VM-094)`. (48bcb63)
 
 ---
