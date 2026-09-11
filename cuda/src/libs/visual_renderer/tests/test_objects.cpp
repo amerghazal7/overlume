@@ -67,7 +67,12 @@ TEST(ObjectsGolden, MixedClassScene_DarkAdas) {
 // ── Staleness fade: shared clay_translucent.mat swap, CPU-mirrored alpha ──
 
 TEST(Objects, StaleObjectFadesViaSharedStalenessAlpha) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    // objects_overrange_opacity clamps to EXACTLY 1.0 -- the fresh-opaque
+    // invariant this test pins holds only at opacity 1.0 (the shipped
+    // themes author 0.5 since 2026-09-11, under which fresh objects bind
+    // translucent by design -- covered by the HalfOpacity tests).
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    mpviz::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), "objects_overrange_opacity"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
