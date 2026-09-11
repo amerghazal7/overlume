@@ -27,9 +27,10 @@ namespace {
 // when it doesn't (mirrors the RGB8->RGBA8 fallback shape this used to
 // have). Camera pixels arrive as sRGB-encoded bytes (cv_bridge rgb8, itself
 // from the wire's bgra8) -- an SRGB* internal format is what makes the
-// sampler hardware-decode sRGB->linear at sample time, matching what every
-// other sampled color input in this material set (theme textures) already
-// gets for free. The plain RGB8/RGBA8 this used to pick are LINEAR internal
+// sampler hardware-decode sRGB->linear at sample time. These are the only
+// sRGB-encoded color textures this renderer creates (ground_grid.cpp's R8
+// occupancy mask is the sole other Texture::Builder call site, and it is
+// not a color input). The plain RGB8/RGBA8 this used to pick are LINEAR internal
 // formats: sampling sRGB-encoded bytes through one skips that decode
 // entirely, so the byte value is read as if it were already linear -- too
 // bright pre-tonemap, and then this renderer's own OETF re-encodes that
