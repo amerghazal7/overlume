@@ -80,28 +80,40 @@ BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double 
     auto emit_triangle = [&](uint32_t i0, uint32_t i1, uint32_t i2) {
         const LogicalVertex* corners[3] = {&grid[i0], &grid[i1], &grid[i2]};
 
-        // Per-triangle camera-pair decision (Decision 3's construction
-        // rule): sum each camera's weight across the triangle's three
-        // corners, keep the top 2. A triangle with fewer than 2 cameras
-        // carrying any weight gets index_b == index_a with coverage_b
-        // forced to 0 below (never double-counts one camera as both
-        // slots).
-        uint32_t pairA = 0, pairB = 0;
-        float bestA = -1.0f, bestB = -1.0f;
+        // Per-triangle camera-triplet decision (Decision 3's construction
+        // rule, extended to 3 slots per Decision resolution 2's "2-3
+        // contributing cameras per fragment" and VM-091 gate close-out
+        // finding 7): sum each camera's weight across the triangle's three
+        // corners, keep the top 3. A triangle with fewer than 3 cameras
+        // carrying any weight gets the missing slot(s) mirror index_a with
+        // coverage forced to 0 below (never double-counts one camera across
+        // slots). Ties resolve to the lowest-index camera examined first
+        // (strict `>` never displaces a first-seen max) -- same documented
+        // behavior the 2-slot version had, now extended one slot further.
+        uint32_t pairA = 0, pairB = 0, pairC = 0;
+        float bestA = -1.0f, bestB = -1.0f, bestC = -1.0f;
         for (uint32_t c = 0; c < camera_count; ++c) {
             float sum = 0.0f;
             for (int t = 0; t < 3; ++t) sum += corners[t]->camWeight[c];
             if (sum > bestA) {
+                bestC = bestB;
+                pairC = pairB;
                 bestB = bestA;
                 pairB = pairA;
                 bestA = sum;
                 pairA = c;
             } else if (sum > bestB) {
+                bestC = bestB;
+                pairC = pairB;
                 bestB = sum;
                 pairB = c;
+            } else if (sum > bestC) {
+                bestC = sum;
+                pairC = c;
             }
         }
         const bool has_second = camera_count > 1 && pairB != pairA;
+        const bool has_third = camera_count > 2 && pairC != pairA && pairC != pairB;
 
         const uint32_t base = static_cast<uint32_t>(mesh.vertices.size());
         for (int t = 0; t < 3; ++t) {
@@ -111,6 +123,8 @@ BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double 
             bv.coverage_a = corners[t]->camWeight[pairA];
             bv.index_b = has_second ? pairB : pairA;
             bv.coverage_b = has_second ? corners[t]->camWeight[pairB] : 0.0f;
+            bv.index_c = has_third ? pairC : pairA;
+            bv.coverage_c = has_third ? corners[t]->camWeight[pairC] : 0.0f;
             mesh.vertices.push_back(bv);
         }
         mesh.indices.push_back(base);

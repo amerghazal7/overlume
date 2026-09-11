@@ -9,7 +9,10 @@
 // light-direction term nobody asked for.
 //
 // The interpolant budget (MATERIAL_VARIABLES_COUNT = 4, Decision 3) holds
-// TWO custom vec4s here, well inside budget:
+// THREE custom vec4s here (VM-091 gate close-out finding 7 added the third,
+// `custom3` below -- Decision resolution 2's own text calls for "2-3
+// contributing cameras per fragment"; this material had shipped only 2),
+// still one interpolant (custom1) spare:
 //   CUSTOM0 (via `requires: [ color ]`, vertex passes material.color
 //     through) = {coverage_a, index_a, coverage_b, index_b} -- the per-vertex
 //     bake's output (bowl_mesh.cpp). index_a/index_b are LITERALLY IDENTICAL
@@ -36,8 +39,23 @@
 //     `requires: [ custom0 ]` and read with `getCustom0()` in
 //     materialVertex -- Filament passes CUSTOM attributes through with no
 //     per-component arithmetic. It is then carried across the rasterizer on
-//     its own interpolant, `custom2` (custom1 is not declared -- nothing
-//     uses it), exactly like weight/index use custom0.
+//     its own interpolant, `custom2`, exactly like weight/index use custom0.
+//   CUSTOM3 (via `requires: [ custom1 ]`, a SECOND real vertex attribute,
+//     FLOAT2 -- physically distinct from the raw-attribute pool `custom0`
+//     above draws from: Filament reserves 8 raw CUSTOM attribute slots
+//     (`MAX_CUSTOM_ATTRIBUTES`) against only 4 varying/interpolant slots
+//     (`MATERIAL_VARIABLES_COUNT`), so this is a second attribute, not reuse
+//     of the one custom0 already claims) = {coverage_c, index_c} -- the
+//     THIRD covering camera's bake output (bowl_mesh.cpp), bound in
+//     bowl.cpp as `filament::VertexAttribute::CUSTOM1`. Read with
+//     `getCustom1()` and carried on its own interpolant, `custom3` (left
+//     spare until this finding), zero-padded to a vec4 the same way rigPos
+//     zero-pads its own unused 4th component. index_c is LITERALLY
+//     IDENTICAL across a triangle's three vertices by the same
+//     per-triangle-uniform-index construction rule index_a/index_b already
+//     rely on (bowl_mesh.cpp's emit_triangle), so it round-trips through
+//     int(x + 0.5) exactly like they do. custom1 (the varying slot, not the
+//     attribute of the same name) stays spare.
 //
 // PARAMETER BUDGET, empirically discovered, not assumed: this matc build
 // (1.56.5) aborts with "Too many parameters" past a per-material uniform
@@ -109,16 +127,20 @@
 // sky_color above ~0.1 clip to white for no reason a user configuring
 // sky_color would expect.
 //
-// This material contributes at most 2 cameras per fragment (CUSTOM0/CUSTOM2
-// are both spoken for: weight/index and rigPos), and the top-2 pair is
-// chosen PER TRIANGLE (bowl_mesh.cpp), so across a triple-camera-overlap
-// band adjacent triangles can switch from blending (A,B) to (A,C) at equal
-// summed weight -- a mesh-aligned faceted seam reproject.cu's all-camera
-// blend does not have. Recorded as a NAMED PARITY EXCEPTION (Task 4 Step 1's
-// checklist, migration plan doc) rather than fixed here --
-// test_bowl.cpp's ThreeCameraOverlapStillPicksAConsistentPairPerTriangle
-// documents the current (2-camera) behavior at a real triple-overlap
-// triangle so a future fix has a test to change deliberately, not silently.
+// This material contributes at most 3 cameras per fragment (VM-091 gate
+// close-out finding 7: CUSTOM0/CUSTOM2/CUSTOM3 are all spoken for -- weight/
+// index pair A/B, rigPos, and weight/index C), and the top-3 triple is
+// chosen PER TRIANGLE (bowl_mesh.cpp), so across a genuine FOUR-camera
+// overlap band adjacent triangles can switch from blending (A,B,C) to
+// (A,B,D) at equal summed weight -- a mesh-aligned faceted seam reproject.cu's
+// all-camera blend does not have. This rig's real cameras never produce a
+// 4-way overlap (6 cameras arranged around one ring, per-neighbor overlap
+// only), so this exception is theoretical for the shipped rig geometry, but
+// recorded as a NAMED PARITY EXCEPTION (Task 4 Step 1's checklist, migration
+// plan doc) rather than assumed away -- test_bowl.cpp's
+// FourCameraOverlapStillPicksAConsistentTripletPerTriangle documents the
+// current (3-camera) behavior at a real 4-way-overlap triangle so a future
+// fix has a test to change deliberately, not silently.
 //
 // OPAQUE (no `blending:` line -- Filament's default): the STANDING
 // opaque-while-fresh convention (ribbon_emissive.mat's header) applies here
@@ -175,13 +197,19 @@ material {
         { type : float, name : featherMargin },
         { type : float, name : exposureCompensation }
     ],
-    requires : [ color, custom0 ],
-    variables : [ custom0, custom2 ]
+    requires : [ color, custom0, custom1 ],
+    variables : [ custom0, custom2, custom3 ]
 }
 vertex {
     void materialVertex(inout MaterialVertexInputs material) {
         material.custom0 = material.color;
         material.custom2 = vec4(getCustom0().xyz, 0.0);
+        // Third camera slot (VM-091 gate close-out finding 7): getCustom1()
+        // reads the raw CUSTOM1 attribute (coverage_c/index_c, bound FLOAT2
+        // in bowl.cpp) -- a physically separate attribute slot from the
+        // custom0 attribute rigPos already claims above, carried on the
+        // spare custom3 varying.
+        material.custom3 = vec4(getCustom1().xy, 0.0, 0.0);
     }
 }
 fragment {
@@ -192,7 +220,7 @@ fragment {
     // parameter-budget reason and the orthonormality guarantee). width/
     // height come from textureSize(tex), not a uniform. `coverage` is
     // this camera's already-selected per-triangle baked weight (0 if this
-    // camera isn't one of the triangle's top-2, computed by the caller).
+    // camera isn't one of the triangle's top-3, computed by the caller).
     // No dynamic sampler indexing: `tex` is passed in already bound to a
     // statically-named sampler at each of the 6 call sites below.
     void addCam(sampler2D tex, vec3 right, vec3 fwd, vec3 t, vec4 K, vec4 dist, float k3,
@@ -248,39 +276,57 @@ fragment {
     void material(inout MaterialInputs material) {
         prepareMaterial(material);
         vec4 c0 = variable_custom0;
+        vec4 c1 = variable_custom3;
         vec3 rigPos = variable_custom2.xyz;
         float coverageA = c0.x;
         int idxA = int(c0.y + 0.5);
         float coverageB = c0.z;
         int idxB = int(c0.w + 0.5);
+        // Third camera slot (VM-091 gate close-out finding 7, Decision
+        // resolution 2's "2-3 contributing cameras per fragment").
+        float coverageC = c1.x;
+        int idxC = int(c1.y + 0.5);
 
         vec3 colorSum = vec3(0.0);
         float wsum = 0.0;
 
+        // Per-camera coverage selection: a camera contributes only if it's
+        // one of this triangle's baked top-3 slots (idxA/idxB/idxC); the
+        // per-triangle-uniform-index rule (bowl_mesh.cpp) guarantees these
+        // three never collide within one triangle when they're distinct
+        // slots (has_second/has_third false collapses a slot onto idxA with
+        // its own coverage forced to 0 already, so checking idxA first is
+        // always safe and never double-counts).
         addCam(materialParams_camTex0, materialParams.camRight0, materialParams.camFwd0,
                materialParams.camT0, materialParams.camK0, materialParams.camDist0,
                materialParams.camK3_0,
-               (idxA == 0) ? coverageA : ((idxB == 0) ? coverageB : 0.0), rigPos, colorSum, wsum);
+               (idxA == 0) ? coverageA : ((idxB == 0) ? coverageB : ((idxC == 0) ? coverageC : 0.0)),
+               rigPos, colorSum, wsum);
         addCam(materialParams_camTex1, materialParams.camRight1, materialParams.camFwd1,
                materialParams.camT1, materialParams.camK1, materialParams.camDist1,
                materialParams.camK3_1,
-               (idxA == 1) ? coverageA : ((idxB == 1) ? coverageB : 0.0), rigPos, colorSum, wsum);
+               (idxA == 1) ? coverageA : ((idxB == 1) ? coverageB : ((idxC == 1) ? coverageC : 0.0)),
+               rigPos, colorSum, wsum);
         addCam(materialParams_camTex2, materialParams.camRight2, materialParams.camFwd2,
                materialParams.camT2, materialParams.camK2, materialParams.camDist2,
                materialParams.camK3_2,
-               (idxA == 2) ? coverageA : ((idxB == 2) ? coverageB : 0.0), rigPos, colorSum, wsum);
+               (idxA == 2) ? coverageA : ((idxB == 2) ? coverageB : ((idxC == 2) ? coverageC : 0.0)),
+               rigPos, colorSum, wsum);
         addCam(materialParams_camTex3, materialParams.camRight3, materialParams.camFwd3,
                materialParams.camT3, materialParams.camK3, materialParams.camDist3,
                materialParams.camK3_3,
-               (idxA == 3) ? coverageA : ((idxB == 3) ? coverageB : 0.0), rigPos, colorSum, wsum);
+               (idxA == 3) ? coverageA : ((idxB == 3) ? coverageB : ((idxC == 3) ? coverageC : 0.0)),
+               rigPos, colorSum, wsum);
         addCam(materialParams_camTex4, materialParams.camRight4, materialParams.camFwd4,
                materialParams.camT4, materialParams.camK4, materialParams.camDist4,
                materialParams.camK3_4,
-               (idxA == 4) ? coverageA : ((idxB == 4) ? coverageB : 0.0), rigPos, colorSum, wsum);
+               (idxA == 4) ? coverageA : ((idxB == 4) ? coverageB : ((idxC == 4) ? coverageC : 0.0)),
+               rigPos, colorSum, wsum);
         addCam(materialParams_camTex5, materialParams.camRight5, materialParams.camFwd5,
                materialParams.camT5, materialParams.camK5, materialParams.camDist5,
                materialParams.camK3_5,
-               (idxA == 5) ? coverageA : ((idxB == 5) ? coverageB : 0.0), rigPos, colorSum, wsum);
+               (idxA == 5) ? coverageA : ((idxB == 5) ? coverageB : ((idxC == 5) ? coverageC : 0.0)),
+               rigPos, colorSum, wsum);
 
         // This renderer's fixed camera exposure (renderer.cpp's
         // setExposure(16, 1/500, 100), tuned against SUN-lit clay surfaces)

@@ -290,14 +290,28 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
         declare_parameter<std::vector<std::string>>("image_topics", std::vector<std::string>{});
     auto info_topics =
         declare_parameter<std::vector<std::string>>("info_topics", std::vector<std::string>{});
-    if (bowl_enabled_ && (static_cast<int>(image_topics.size()) != n_cameras ||
-                          static_cast<int>(info_topics.size()) != n_cameras))
+    // VM-091 gate close-out finding 1: a hard FAILURE here used to be the
+    // only guard, and it only fired when bowl_enabled_ was already true --
+    // CameraIngest's constructor (below) indexed image_topics[i]/
+    // info_topics[i] for i in [0, n_cameras) UNCONDITIONALLY, regardless of
+    // bowl_enabled_, so a default-params configure (bowl_enabled_ false,
+    // image_topics/info_topics both the declared empty defaults, n_cameras
+    // defaulting to 6) walked off the end of two empty vectors and
+    // segfaulted before this check was ever consulted. Fix: validate here
+    // (WARN-once + force bowl_enabled_ false, not a fatal configure) and
+    // gate CONSTRUCTION of CameraIngest on bowl_enabled_ AND valid sizes
+    // below, so a misconfigured/absent topic list disables the bowl instead
+    // of crashing the node, and zero camera subscriptions are created
+    // whenever the bowl is disabled or unconfigured.
+    const bool bowl_topics_valid = static_cast<int>(image_topics.size()) == n_cameras &&
+                                    static_cast<int>(info_topics.size()) == n_cameras;
+    if (bowl_enabled_ && !bowl_topics_valid)
     {
-        RCLCPP_ERROR(get_logger(),
-                     "bowl_enabled but image_topics/info_topics don't have n_cameras (%d) entries "
-                     "(%zu/%zu)",
-                     n_cameras, image_topics.size(), info_topics.size());
-        return CallbackReturn::FAILURE;
+        RCLCPP_WARN(get_logger(),
+                    "bowl_enabled requested but image_topics/info_topics don't have n_cameras (%d) "
+                    "entries (%zu/%zu) -- bowl disabled this run",
+                    n_cameras, image_topics.size(), info_topics.size());
+        bowl_enabled_ = false;
     }
     const std::string odom_topic = declare_parameter<std::string>("odom_topic", "");
     // Read back by the GUI bridge's config-save path; nothing in this node
@@ -374,11 +388,21 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
         // land -- Task 4/6 concern, not exercised by this task's own gate.
         declare_parameter<std::vector<double>>("camera_extrinsics", std::vector<double>{});
     }
-    camera_ingest_ = std::make_unique<CameraIngest>(this, static_cast<uint32_t>(n_cameras),
-                                                     image_topics, info_topics, odom_topic,
-                                                     camera_extrinsics);
-    camera_ingest_->set_renderer(renderer_);
-    camera_ingest_->set_bowl_enabled(bowl_enabled_);
+    // VM-091 gate close-out finding 1: construct CameraIngest ONLY under
+    // bowl_enabled_ (already validated true only alongside valid topic-list
+    // sizes above) -- when the bowl is disabled or unconfigured,
+    // camera_ingest_ stays null and NO camera subscriptions are ever
+    // created (every call site below already guards on
+    // `bowl_enabled_ && camera_ingest_`/reset()-safety).
+    if (bowl_enabled_)
+    {
+        camera_ingest_ = std::make_unique<CameraIngest>(this, static_cast<uint32_t>(n_cameras),
+                                                         image_topics, info_topics, odom_topic,
+                                                         camera_extrinsics);
+        camera_ingest_->set_renderer(renderer_);
+        camera_ingest_->set_bowl_enabled(bowl_enabled_);
+        camera_ingest_->set_max_sync_latency(max_sync_latency_);
+    }
 
     // VM-052 (Epic 4 Task 3): environment disable knob + per-checkout chunks
     // dir, same read-once shape as hud_enabled_/hud_font_path_ below.
@@ -774,17 +798,36 @@ rcl_interfaces::msg::SetParametersResult VisualizationNode::on_params(
             // every registered callback, and a second one that doesn't fall
             // through unmatched names would reintroduce the reject-unknowns
             // bug this node's own on_params already avoids).
-            else if (n == "bowl_R0") bowl_R0_ = p.as_double();
-            else if (n == "bowl_k") bowl_k_ = p.as_double();
-            else if (n == "bowl_Rmax") bowl_Rmax_ = p.as_double();
-            else if (n == "feather_margin") feather_margin_ = p.as_double();
+            // VM-091 gate close-out finding 2: each of these six params
+            // used to be stored and nothing else -- timer_callback()'s bowl
+            // block only re-baked on a CameraInfo change, so a live
+            // set_parameters() edit here was inert until an unrelated
+            // camera reconnect happened to re-bake. bowl_config_dirty_
+            // makes timer_callback() re-call apply_bowl_config() on the
+            // very next tick once all_info_ready() -- a full re-bake, same
+            // as the CameraInfo-change path, accepted per the plan's own
+            // one-dropped-frame GUI-edit budget.
+            else if (n == "bowl_R0") { bowl_R0_ = p.as_double(); bowl_config_dirty_ = true; }
+            else if (n == "bowl_k") { bowl_k_ = p.as_double(); bowl_config_dirty_ = true; }
+            else if (n == "bowl_Rmax") { bowl_Rmax_ = p.as_double(); bowl_config_dirty_ = true; }
+            else if (n == "feather_margin")
+            {
+                feather_margin_ = p.as_double();
+                bowl_config_dirty_ = true;
+            }
             else if (n == "bowl_exposure_compensation")
+            {
                 bowl_exposure_compensation_ = static_cast<float>(p.as_double());
+                bowl_config_dirty_ = true;
+            }
             else if (n == "sky_color")
             {
                 auto v = p.as_double_array();
                 if (v.size() == 3)
+                {
                     for (int i = 0; i < 3; ++i) sky_color_[i] = static_cast<float>(v[i]);
+                    bowl_config_dirty_ = true;
+                }
             }
             // Decision 3's root-cause guard, restated here: a live
             // set_parameters() call (not just the initial declare) carrying
@@ -926,6 +969,19 @@ void VisualizationNode::timer_callback()
         {
             if (apply_bowl_config())
                 RCLCPP_INFO(get_logger(), "bowl: re-baked (CameraInfo changed)");
+        }
+        // VM-091 gate close-out finding 2: a live bowl_R0_/bowl_k_/
+        // bowl_Rmax_/feather_margin_/sky_color_/bowl_exposure_compensation_
+        // edit (on_params()) re-bakes here on the very next tick -- once
+        // config_applied() is true, all_info_ready() stays true forever
+        // (IngestState never un-sets info_ready), so no extra readiness
+        // check is needed. A full re-bake per edit, same one-dropped-frame
+        // budget the plan's own set_bowl_config contract accepts.
+        else if (bowl_config_dirty_)
+        {
+            bowl_config_dirty_ = false;
+            if (apply_bowl_config())
+                RCLCPP_INFO(get_logger(), "bowl: re-baked (live param change)");
         }
         // Cheap per-tick ego-motion re-alignment (no re-bake, no texture
         // touch) -- identity deltas until config_applied()/odometry exist.

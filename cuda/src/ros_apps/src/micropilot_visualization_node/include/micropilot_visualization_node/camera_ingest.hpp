@@ -157,6 +157,14 @@ public:
     // shows up).
     void set_renderer(mpviz::VisualRenderer* r) { renderer_ = r; }
     void set_bowl_enabled(bool enabled) { bowl_enabled_ = enabled; }
+    // VM-091 gate close-out finding 3: max_sync_latency was declared/stored
+    // on the node but never read anywhere -- update_motion_deltas() below
+    // now compares each camera's (t_max - stamp) spread against this window
+    // and THROTTLE-WARNs when it's exceeded (carried over from the old
+    // node's frame-sync gate, rendering_node.cpp's own spread WARN), even
+    // though the merged node's redefined gate semantics (Task 2 Step 6)
+    // never withhold the render or the stale camera's texture for it.
+    void set_max_sync_latency(double seconds) { max_sync_latency_ = seconds; }
 
     bool all_info_ready() const { return state_.all_info_ready(); }
     // Fills camera_count/extrinsics/intrinsics/cam_width/cam_height from
@@ -188,6 +196,7 @@ private:
     bool bowl_enabled_ = false;
     bool config_applied_ = false;
     bool info_dirty_ = false;
+    double max_sync_latency_ = 0.12;
 
     std::string odom_topic_;
     std::deque<StampedTwist> twists_;

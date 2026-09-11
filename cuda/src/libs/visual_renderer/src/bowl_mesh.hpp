@@ -13,20 +13,21 @@
 // from the rasterized world position via the per-camera K/plumb_bob
 // uniforms and the ego-motion-delta uniform (bowl.mat/bowl.cpp). What this
 // bake DOES produce, unchanged by that resolution, is each vertex's up to
-// two covering cameras' baked ALIGNMENT-SQUARED coverage weight and
-// camera-slot index -- Decision 3's own construction rule: camera-slot
-// assignment is uniform per TRIANGLE (all three vertices carry the
-// identical (index_a, index_b) pair, coverage 0 where a slot's camera
-// doesn't cover that vertex), because CUSTOM0's index components are
-// linearly interpolated by the rasterizer and an index that varies within
-// one triangle would read as fractional garbage. This bake enforces that
-// rule by never sharing a logical grid vertex across triangles -- each of
-// a triangle's three corners gets its own duplicated BowlVertex record,
-// its coverage_a/b computed against that ONE triangle's own camera-pair
-// decision (ponytail: bowl tessellation only needs to approximate the
-// surface shape, per Decision resolution 2 -- the extra vertex-buffer
-// memory this trades for is cheaper than detecting cross-triangle
-// agreement first).
+// THREE covering cameras' (Decision resolution 2's own text: "2-3
+// contributing cameras per fragment") baked ALIGNMENT-SQUARED coverage
+// weight and camera-slot index -- Decision 3's own construction rule:
+// camera-slot assignment is uniform per TRIANGLE (all three vertices carry
+// the identical (index_a, index_b, index_c) triple, coverage 0 where a
+// slot's camera doesn't cover that vertex), because CUSTOM0/CUSTOM1's index
+// components are linearly interpolated by the rasterizer and an index that
+// varies within one triangle would read as fractional garbage. This bake
+// enforces that rule by never sharing a logical grid vertex across
+// triangles -- each of a triangle's three corners gets its own duplicated
+// BowlVertex record, its coverage_a/b/c computed against that ONE
+// triangle's own camera-triplet decision (ponytail: bowl tessellation only
+// needs to approximate the surface shape, per Decision resolution 2 -- the
+// extra vertex-buffer memory this trades for is cheaper than detecting
+// cross-triangle agreement first).
 //
 // The border feather is NOT baked here -- a bake step happens once per
 // vertex while the fragment shader samples per-fragment, so a vertex-baked
@@ -54,8 +55,14 @@ struct BowlVertex {
     // bowl.mat's featherMargin parameter -- see this header's comment).
     float coverage_a = 0.0f;
     float coverage_b = 0.0f;
+    // Third camera slot (VM-091 gate close-out, finding 7): Decision
+    // resolution 2 states "2-3 contributing cameras per fragment" -- bowl.mat
+    // had shipped only 2 (CUSTOM0), one short of that range. coverage_c/
+    // index_c carry the third slot via a second interpolant (CUSTOM1).
+    float coverage_c = 0.0f;
     uint32_t index_a = 0;
     uint32_t index_b = 0;
+    uint32_t index_c = 0;
 };
 
 struct BowlMesh {
