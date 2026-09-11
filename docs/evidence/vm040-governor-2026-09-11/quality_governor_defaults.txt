@@ -1,0 +1,50 @@
+# VM-040 quality governor -- shipped-defaults evidence
+# Command: cuda/build/src/ros_apps/micropilot_visualization_node/test_quality_governor
+# Captured: 2026-09-11T13:25:09Z
+# Host: Linux ag7-micropolis 6.8.0-138-generic #138~22.04.1-Ubuntu SMP PREEMPT_DYNAMIC Fri Aug  7 13:43:15 UTC  x86_64 x86_64 x86_64 GNU/Linux
+#
+# QualityGovernor.DefaultParamsWalkDownThenUpAcrossASyntheticTrace constructs
+# QualityGovernorParams{} with NO overrides (window_size=30, drop_threshold_ms=28.0,
+# recover_threshold_ms=18.0, recover_windows_required=3, min_dwell_windows=3 -- the
+# SHIPPED defaults, not SmallParams()) and feeds it a synthetic render_ms trace:
+# 5 windows of 30 samples at 40ms (sustained overload, > 28.0) walks preset
+# 2 -> 1 -> 0 (high -> medium -> low), then 12 windows of 30 samples at 12ms
+# (sustained headroom, < 18.0) walks it back 0 -> 1 -> 2, gated by the real
+# recover-streak (3 consecutive good windows) and dwell floor (3 windows) together.
+# Full suite run below for context (12/12 -- the 10 cases from the original VM-040
+# commit plus this evidence test and the review-round anti-flap oscillation test).
+#
+----------------------------------------------------------------------
+Running main() from /opt/ros/humble/src/gtest_vendor/src/gtest_main.cc
+[==========] Running 12 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 12 tests from QualityGovernor
+[ RUN      ] QualityGovernor.NoTransitionUntilAWindowActuallyCloses
+[       OK ] QualityGovernor.NoTransitionUntilAWindowActuallyCloses (0 ms)
+[ RUN      ] QualityGovernor.StaysPutInsideTheHysteresisGap
+[       OK ] QualityGovernor.StaysPutInsideTheHysteresisGap (0 ms)
+[ RUN      ] QualityGovernor.DropsOnePresetWhenAWindowsP95ExceedsTheDropThreshold
+[       OK ] QualityGovernor.DropsOnePresetWhenAWindowsP95ExceedsTheDropThreshold (0 ms)
+[ RUN      ] QualityGovernor.DropNeverGoesBelowLow
+[       OK ] QualityGovernor.DropNeverGoesBelowLow (0 ms)
+[ RUN      ] QualityGovernor.RecoverRequiresConsecutiveGoodWindowsNotJustOne
+[       OK ] QualityGovernor.RecoverRequiresConsecutiveGoodWindowsNotJustOne (0 ms)
+[ RUN      ] QualityGovernor.AHysteresisGapWindowBreaksAnInProgressRecoveryStreak
+[       OK ] QualityGovernor.AHysteresisGapWindowBreaksAnInProgressRecoveryStreak (0 ms)
+[ RUN      ] QualityGovernor.RecoverNeverGoesAboveHigh
+[       OK ] QualityGovernor.RecoverNeverGoesAboveHigh (0 ms)
+[ RUN      ] QualityGovernor.SyntheticLoadTriggersADropThenARecovery
+[       OK ] QualityGovernor.SyntheticLoadTriggersADropThenARecovery (0 ms)
+[ RUN      ] QualityGovernor.MinDwellBlocksASecondTransitionTooSoonAfterTheFirst
+[       OK ] QualityGovernor.MinDwellBlocksASecondTransitionTooSoonAfterTheFirst (0 ms)
+[ RUN      ] QualityGovernor.ConstructorClampsAnOutOfRangeInitialPreset
+[       OK ] QualityGovernor.ConstructorClampsAnOutOfRangeInitialPreset (0 ms)
+[ RUN      ] QualityGovernor.AlternatingOverloadAndHeadroomNeverBouncesThePresetUp
+[       OK ] QualityGovernor.AlternatingOverloadAndHeadroomNeverBouncesThePresetUp (0 ms)
+[ RUN      ] QualityGovernor.DefaultParamsWalkDownThenUpAcrossASyntheticTrace
+[       OK ] QualityGovernor.DefaultParamsWalkDownThenUpAcrossASyntheticTrace (0 ms)
+[----------] 12 tests from QualityGovernor (0 ms total)
+
+[----------] Global test environment tear-down
+[==========] 12 tests from 1 test suite ran. (0 ms total)
+[  PASSED  ] 12 tests.

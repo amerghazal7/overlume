@@ -175,3 +175,60 @@ TEST(QualityGovernor, ConstructorClampsAnOutOfRangeInitialPreset)
     QualityGovernor gov(SmallParams(), /*initial_preset=*/99);
     EXPECT_EQ(gov.current_preset(), 2u);
 }
+
+// Anti-flap AC, directly: a trace that alternates overload and headroom
+// windows must never bounce the preset upward mid-trace -- it can only hold
+// or ratchet down, because no run of good windows here is ever long enough
+// to satisfy recover_windows_required (a bad window always resets the good
+// streak). Uses SmallParams()'s real min_dwell_windows/recover_windows_
+// required (not zeroed out, unlike the isolation tests above).
+TEST(QualityGovernor, AlternatingOverloadAndHeadroomNeverBouncesThePresetUp)
+{
+    QualityGovernor gov(SmallParams(), /*initial_preset=*/2);
+    uint32_t last_preset = gov.current_preset();
+    for (int i = 0; i < 10; ++i)
+    {
+        const double ms = (i % 2 == 0) ? 45.0 : 5.0;  // alternate overload / headroom
+        FeedWindow(gov, ms, 4);
+        EXPECT_LE(gov.current_preset(), last_preset)
+            << "preset rose mid-trace at window " << i;
+        last_preset = gov.current_preset();
+    }
+}
+
+// Evidence for the VM-040 backlog Done note (docs/evidence/
+// vm040-governor-2026-09-11/quality_governor_defaults.txt): unlike every
+// case above, this one uses the SHIPPED defaults (QualityGovernorParams{},
+// no overrides) -- window 30, drop 28.0, recover 18.0, 3 recover windows,
+// 3 dwell windows -- not SmallParams(). Sustained overload (40ms, > 28.0)
+// walks high->medium->low; sustained headroom (12ms, < 18.0) then walks
+// low->medium->high, gated by the real recover-streak and dwell floor
+// together.
+TEST(QualityGovernor, DefaultParamsWalkDownThenUpAcrossASyntheticTrace)
+{
+    QualityGovernor gov(QualityGovernorParams{}, /*initial_preset=*/2);
+    EXPECT_EQ(gov.current_preset(), 2u);
+
+    EXPECT_EQ(FeedWindow(gov, 40.0, 30), QualityTransition::DROPPED);
+    EXPECT_EQ(gov.current_preset(), 1u);
+    EXPECT_EQ(FeedWindow(gov, 40.0, 30), QualityTransition::NONE);
+    EXPECT_EQ(FeedWindow(gov, 40.0, 30), QualityTransition::NONE);
+    EXPECT_EQ(FeedWindow(gov, 40.0, 30), QualityTransition::DROPPED);
+    EXPECT_EQ(gov.current_preset(), 0u);
+    EXPECT_EQ(FeedWindow(gov, 40.0, 30), QualityTransition::NONE);
+    EXPECT_EQ(gov.current_preset(), 0u);
+
+    EXPECT_EQ(FeedWindow(gov, 12.0, 30), QualityTransition::NONE);
+    EXPECT_EQ(FeedWindow(gov, 12.0, 30), QualityTransition::NONE);
+    EXPECT_EQ(FeedWindow(gov, 12.0, 30), QualityTransition::RECOVERED);
+    EXPECT_EQ(gov.current_preset(), 1u);
+    EXPECT_EQ(FeedWindow(gov, 12.0, 30), QualityTransition::NONE);
+    EXPECT_EQ(FeedWindow(gov, 12.0, 30), QualityTransition::NONE);
+    EXPECT_EQ(FeedWindow(gov, 12.0, 30), QualityTransition::RECOVERED);
+    EXPECT_EQ(gov.current_preset(), 2u);
+    for (int i = 0; i < 6; ++i)
+    {
+        EXPECT_EQ(FeedWindow(gov, 12.0, 30), QualityTransition::NONE);
+    }
+    EXPECT_EQ(gov.current_preset(), 2u);
+}

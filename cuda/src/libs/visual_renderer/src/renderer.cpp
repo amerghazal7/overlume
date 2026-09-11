@@ -940,17 +940,12 @@ void add_mesh(VisualRenderer& r, Mesh& mesh, std::vector<Vertex> verts,
 
 namespace {
 
-// Epic 3 Task 5 (VM-032) Step 3 originally baked this dispatch straight into
-// create_renderer() -- one-shot, construction-time only. VM-040 (Epic 5)
-// pulls the View-level half of it (SSAO, AA, dynamic-resolution upscale)
-// out into its own function so set_quality() (scene.h) can re-apply it
-// live, against an already-running View, with the identical mapping
-// create_renderer() uses -- one preset->options mapping, two call sites,
-// same "no drift between create-time and live" reasoning ShadowOptionsForQuality
-// below applies to the shadow half. Always calls setDynamicResolutionOptions
-// (even to explicitly turn it back off) so a live low->medium/high switch
-// clears a prior low-preset scale instead of leaving it stuck; construction
-// time behaves identically since a fresh View defaults to disabled anyway.
+// Shared by create_renderer() and set_quality() -- one preset->options
+// mapping, no drift between create-time and live. Always calls
+// setDynamicResolutionOptions (even to explicitly turn it back off) so a
+// live low->medium/high switch clears a prior low-preset scale instead of
+// leaving it stuck; construction time behaves identically since a fresh
+// View defaults to disabled anyway.
 void ApplyQualityViewOptions(filament::View& view, uint32_t quality, uint32_t width,
                               uint32_t height) {
     filament::AmbientOcclusionOptions ao{};
@@ -1004,12 +999,9 @@ void ApplyQualityViewOptions(filament::View& view, uint32_t quality, uint32_t wi
     view.setDynamicResolutionOptions(dynRes);
 }
 
-// Epic 3 Task 5 (VM-032) Step 3's shadow half of the same preset table:
-// disabled entirely at low, a 1024 shadow map at medium, 2048 at high. Both
-// castShadows and ShadowOptions::mapSize have live LightManager setters
-// (setShadowCaster/setShadowOptions) as well as Builder-time equivalents, so
-// this one mapping function feeds both create_renderer()'s Builder call and
-// set_quality()'s live update -- never duplicated between the two.
+// Shadow half of the same preset table: disabled entirely at low, a 1024
+// shadow map at medium, 2048 at high. Feeds both create_renderer()'s
+// Builder call and set_quality()'s live update -- never duplicated.
 filament::LightManager::ShadowOptions ShadowOptionsForQuality(uint32_t quality) {
     filament::LightManager::ShadowOptions opts{};
     opts.mapSize = quality >= 2 ? 2048 : 1024;
@@ -1086,9 +1078,7 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
 
     // SSAO + anti-aliasing + low-preset render scale, driven by
     // config.quality (0=low, 1=med, 2=high) -- all three move pixels in
-    // committed goldens, so decided here, not deferred. VM-040 (Epic 5):
-    // shared with set_quality()'s live path, see ApplyQualityViewOptions's
-    // own comment for why this is a function now instead of inline code.
+    // committed goldens, so decided here, not deferred.
     ApplyQualityViewOptions(*r->view, config.quality, config.width, config.height);
 
     utils::EntityManager& em = utils::EntityManager::get();
@@ -1121,12 +1111,10 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // own defaults; push_theme_to_scene() overwrites them immediately
     // after, so there is exactly one place that decides what a theme's
     // sun/ibl/fog/clear-color actually is.
-    // Epic 3 Task 5 (VM-032) Step 3: shadows are the other two §8 preset
-    // knobs -- disabled entirely at low (quality == 0), a 1024 shadow map
-    // at medium, 2048 at high. Builder-time here (entity doesn't exist
-    // yet); set_quality() (VM-040) re-applies the SAME ShadowOptionsForQuality
-    // mapping live, through LightManager's setShadowCaster/setShadowOptions,
-    // once this entity exists.
+    // Shadows are the other two §8 preset knobs -- disabled entirely at low
+    // (quality == 0), a 1024 shadow map at medium, 2048 at high. Builder-time
+    // here (entity doesn't exist yet); set_quality() re-applies the same
+    // mapping live once this entity exists.
     r->sunEntity = em.create();
     filament::LightManager::Builder(filament::LightManager::Type::SUN)
         .sunAngularRadius(1.9f)
@@ -1323,12 +1311,9 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     return r;
 }
 
-// VM-040 (Epic 5): see this entry point's own comment in scene.h for the
-// re-create-vs-live-switch decision (P4, 2026-09-07 review) this answers.
-// Re-applies ApplyQualityViewOptions/ShadowOptionsForQuality -- the EXACT
-// same mapping create_renderer() applied at construction -- against the
-// already-live View and the already-built sun LightManager instance, via
-// Filament's live setters (no Builder/no re-create).
+// See scene.h's set_quality() comment for the live-switch decision. Re-applies
+// ApplyQualityViewOptions/ShadowOptionsForQuality against the already-live
+// View and sun LightManager instance -- no Builder, no re-create.
 void set_quality(VisualRenderer* r, uint32_t preset) {
     if (r == nullptr) return;
     const uint32_t clamped = preset > 2 ? 2 : preset;  // api.h's own 0-2 contract
@@ -1933,6 +1918,29 @@ QualityRenderSize quality_internal_render_size(mpviz::VisualRenderer* r) {
     size.width = static_cast<uint32_t>(std::lround(r->width * opts.minScale.x));
     size.height = static_cast<uint32_t>(std::lround(r->height * opts.minScale.x));
     return size;
+}
+
+// {false, 0} if `r` is null.
+QualitySsao quality_ssao(mpviz::VisualRenderer* r) {
+    QualitySsao out;
+    if (r == nullptr) return out;
+    const filament::View::AmbientOcclusionOptions& ao = r->view->getAmbientOcclusionOptions();
+    out.enabled = ao.enabled;
+    out.resolution = ao.resolution;
+    return out;
+}
+
+// false if `r` is null.
+bool quality_taa_enabled(mpviz::VisualRenderer* r) {
+    if (r == nullptr) return false;
+    return r->view->getTemporalAntiAliasingOptions().enabled;
+}
+
+// NONE if `r` is null.
+QualityAntiAliasing quality_antialiasing(mpviz::VisualRenderer* r) {
+    if (r == nullptr) return QualityAntiAliasing::NONE;
+    return r->view->getAntiAliasing() == filament::AntiAliasing::FXAA ? QualityAntiAliasing::FXAA
+                                                                       : QualityAntiAliasing::NONE;
 }
 
 }  // namespace mpviz::testing

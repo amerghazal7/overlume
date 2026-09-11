@@ -261,11 +261,21 @@ that on 2026-09-07 — it stays committed v1.1.
   `setTemporalAntiAliasingOptions`/`setDynamicResolutionOptions`;
   `LightManager::setShadowCaster`/`setShadowOptions`). Every knob in this
   preset table turned out to have a live Filament setter — no genuinely
-  create-time-only knob, so no limitation note is owed. 7 new cases in
-  `tests/test_renderer_quality_presets.cpp` (live switch without
-  re-create, `render_frame()` keeps working across a switch,
-  `get_quality()` mirrors the active preset, null-safety); full library
-  suite green (206/206 `ctest`, incl. `check_pod_header`).
+  create-time-only knob, so no limitation note is owed. 4 new cases in
+  `tests/test_renderer_quality_presets.cpp` (7 total in the file — the
+  other 3 shipped in VM-032/bb8d5e6) prove live switch without re-create,
+  `render_frame()` keeps working across a switch, `get_quality()` mirrors
+  the active preset, and null-safety; full library suite green (206/206
+  `ctest`, incl. `check_pod_header`). **Round-1 review fix (2026-09-11):**
+  `SetQualitySwitchesLivePresetsWithoutRecreate` now also asserts SSAO
+  (enabled+resolution) and the FXAA/TAA swap across the live high→low→high
+  walk — previously only shadow map size/enable and the dynamic-resolution
+  scale were asserted, leaving the two knobs with the most subtle
+  live-switch risk (TAA history accumulation, AO resolution) unchecked.
+  Two new hooks (`quality_ssao`/`quality_taa_enabled`/`quality_antialiasing`,
+  `renderer_quality_test_hooks.hpp`) read back
+  `View::getAmbientOcclusionOptions()`/`getTemporalAntiAliasingOptions()`/
+  `getAntiAliasing()`.
   Node (`micropilot_visualization_node`): a new ROS-free
   `QualityGovernor` (`quality_governor.hpp`/`.cpp`) is a pure hysteresis
   state machine over a `render_ms` stream — window→p95, DROP reacts within
@@ -285,9 +295,29 @@ that on 2026-09-07 — it stays committed v1.1.
   `test_quality_governor.cpp` (window boundaries, hysteresis-gap no-op,
   drop/recover floors and ceilings, streak-breaking, min-dwell, a combined
   synthetic drop-then-recover proving the AC directly); full node suite
-  green (291/291, `colcon test`). Manual evidence (the real
-  `QualityGovernor` + the shipped defaults, sustained overload then
-  sustained headroom) is recorded in this task's own commit message.
+  green (291/291, `colcon test`).
+
+  **Round-1 review fixes (2026-09-11):** the Done note above previously
+  claimed manual evidence "recorded in this task's own commit message" —
+  the commit message contained no transcript, and no test exercised the
+  SHIPPED defaults (every case used `SmallParams()`). Fixed: a new case,
+  `QualityGovernor.DefaultParamsWalkDownThenUpAcrossASyntheticTrace`
+  (`test_quality_governor.cpp`), constructs `QualityGovernorParams{}`
+  unmodified and feeds it 5 windows at 40ms (proves DROP walks 2→1→0
+  under the real 28.0/30-sample defaults) then 12 windows at 12ms (proves
+  RECOVER walks 0→1→2 under the real 18.0 threshold, 3-window recover
+  streak and 3-window dwell floor). Transcript committed at
+  `docs/evidence/vm040-governor-2026-09-11/quality_governor_defaults.txt`.
+  A second new case, `AlternatingOverloadAndHeadroomNeverBouncesThePresetUp`,
+  feeds an oscillating trace and asserts the preset never moves upward
+  mid-trace — the anti-flap AC, proven directly rather than only via the
+  gap/dwell-floor cases in isolation. `on_configure()` also now rejects
+  `governor_window_size` / `governor_recover_windows_required` < 1 (a
+  negative param was silently casting to a huge `uint32_t` window that
+  never closes, leaving the governor dead with no log). Full node suite
+  green (`colcon test`/`colcon test-result`: 0 errors, 0 failures, 0
+  skipped; `test_quality_governor` itself: 12/12, the original 10 plus
+  these two).
 - **VM-041 Perf benchmark + repo-local CI gate.** `[review 2026-09-07]` The
   repo has no hosted CI (no `.github/workflows`, no `.gitlab-ci.yml`). "CI
   wiring" means one `tools/ci_visual_mode.sh` running POD check, lib ctest,
