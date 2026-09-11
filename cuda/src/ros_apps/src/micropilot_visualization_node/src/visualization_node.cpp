@@ -1055,7 +1055,27 @@ rcl_interfaces::msg::SetParametersResult VisualizationNode::on_params(
                     }
                 }
             }
-            else if (n == "layer_surround_stitching") layer_surround_stitching_ = p.as_bool();
+            else if (n == "layer_surround_stitching")
+            {
+                layer_surround_stitching_ = p.as_bool();
+                // A silent no-op here cost a live debugging session
+                // (2026-09-11): the toggle flips visibility on a bowl entity
+                // that only exists once bowl_enabled + camera ingest have
+                // configured one -- say so instead of doing nothing.
+                if (layer_surround_stitching_ &&
+                    (!camera_ingest_ || !camera_ingest_->config_applied()))
+                {
+                    RCLCPP_WARN(get_logger(),
+                                "layer_surround_stitching enabled but no bowl is configured "
+                                "(bowl_enabled=%s, camera ingest %s) -- nothing will render "
+                                "until the bowl is enabled and every camera_info has arrived",
+                                bowl_enabled_ ? "true" : "false",
+                                camera_ingest_ ? (camera_ingest_->config_applied()
+                                                      ? "configured"
+                                                      : "waiting on camera_info")
+                                               : "absent");
+                }
+            }
             else if (n == "surround_stitching_profile")
             {
                 const std::string v = p.as_string();

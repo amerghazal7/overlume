@@ -471,6 +471,11 @@
 #               scope, not claimed. Library + node rebuilt, all suites
 #               green; live burst evidence re-captured against the fixed
 #               build.
+#   2026-09-11  Surround-Stitching usability: node launched with bowl_enabled:=true
+#               (default false left the stitching toggle a silent no-op -- no camera
+#               ingest, no bowl entity); node-side WARN added for that state; M02P ego
+#               glb re-provisioned on main (the vm044 worktree's gitignored copy died
+#               with the worktree).
 # ==========================================================================
 set -euo pipefail
 set -m  # each backgrounded job gets its OWN process group (job leader = its
@@ -711,9 +716,15 @@ USE_SIM_TIME=true
 if [[ "${LIVE}" == "1" ]]; then
     USE_SIM_TIME="${LIVE_SIM_TIME:-false}"
 fi
+# bowl_enabled:=true so Surround Stitching / modes 1-2 are actually usable
+# from this rig: the shipped default is false, under which the camera ingest
+# never constructs, set_bowl_config() never runs, and the stitching toggle
+# is a no-op on a bowl entity that doesn't exist (live finding, 2026-09-11).
+# On a camera-less bag this only means the ingest waits on camera_info
+# forever -- harmless, and the node WARNs when the toggle is flipped anyway.
 ros2 run micropilot_visualization_node visualization_node --ros-args \
     --params-file "$(ros2 pkg prefix micropilot_visualization_node)/share/micropilot_visualization_node/config/default_params.yaml" \
-    -p initial_mode:=3 -p use_sim_time:="${USE_SIM_TIME}" "${PROFILE_ARGS[@]}" \
+    -p initial_mode:=3 -p use_sim_time:="${USE_SIM_TIME}" -p bowl_enabled:=true "${PROFILE_ARGS[@]}" \
     > "${LOG_DIR}/visualization_node.log" 2>&1 &
 track_child "$!"
 
