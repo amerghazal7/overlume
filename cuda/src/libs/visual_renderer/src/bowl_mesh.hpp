@@ -105,10 +105,11 @@ struct EgoBox {
 // -- a camera's weight for a vertex is zeroed here if the straight segment
 // from that camera's rig-frame position to the vertex crosses ego_box, so
 // an occluded camera never wins a slot a genuinely visible one could have
-// taken (review round 1 finding: a post-hoc pass applied after selection
-// let an occluded camera keep a slot it had already won). A cheap
-// box/segment test, not a full per-camera depth-render pass (the
-// fidelity/complexity simplification Decision 4 names explicitly). Defaults
+// taken. Occlusion MUST be resolved before ranking, or an occluded camera
+// burns a slot: applying the test after selection would only zero an
+// already-chosen slot's coverage, never let a genuinely visible camera take
+// it instead. A cheap box/segment test, not a full per-camera depth-render
+// pass (the fidelity/complexity simplification Decision 4 names explicitly). Defaults
 // to a zero-extent box, this bake's own "no ego configured" no-op
 // convention.
 BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double bowl_k,

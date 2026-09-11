@@ -47,11 +47,11 @@ struct LogicalVertex {
 // the general test: tmin would stay clamped at 0 and the interval would
 // always be non-empty, reporting every such segment as occluded -- exactly
 // wrong for a camera mounted inside its own ego box (every deployed camera
-// in this rig is, review round 1 finding 1), which would then read as
-// self-occluded against every vertex it looks at. A convex box can't be
-// re-entered once exited, so a segment leaving from inside it is never
-// occluded BY it; check that first and return false rather than folding it
-// into the slab math.
+// in this rig is), which would then read as self-occluded against every
+// vertex it looks at. A segment starting inside a convex box is never
+// occluded by it -- a convex box can't be re-entered once exited, so a
+// segment leaving from inside it is never occluded BY it; check that first
+// and return false rather than folding it into the slab math.
 bool SegmentIntersectsAabb(const mpviz::Vec3& from, const mpviz::Vec3& to,
                            const mpviz::Vec3& center, const mpviz::Vec3& half) {
     const double d[3] = {to.x - from.x, to.y - from.y, to.z - from.z};
