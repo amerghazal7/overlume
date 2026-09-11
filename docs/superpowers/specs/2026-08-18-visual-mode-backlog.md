@@ -272,7 +272,7 @@ that on 2026-09-07 — it stays committed v1.1.
   see-through objects whose staleness fade still works; both theme YAMLs
   carry explicit values.
 
-  **Done (2026-09-11):** `objects.opacity` added to `Theme`/parse()/
+  **Done (2026-09-11):** `objects.opacity` added to `Theme`/parse()/ Known ceiling (gate minor, deliberate): `objects.opacity` governs the object BODY only — the velocity arrow and predicted-path ribbon keep their shared opaque material (see objects.cpp's own note; upgrade path recorded there).
   blend()/both YAMLs; `update_entity_staleness()` (objects.cpp) now binds
   alpha = staleness_alpha * objects.opacity through the existing
   clay_translucent swap — a two-line change, no new material or path.

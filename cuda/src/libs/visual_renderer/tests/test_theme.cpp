@@ -347,6 +347,16 @@ TEST(ThemeObjects, OpacityLerpsLinearlyAcrossTransition) {
 // ── palette.road/lane_centerline/lane_boundary/crosswalk: soft-defaulted
 //    tokens ────────────────────────────────────────────────────────────────
 
+// Out-of-range authored values clamp (VM-078 gate minor 2): >1 would keep
+// alpha >= 1 and suppress the staleness fade; <0 binds a negative alpha.
+TEST(ThemeObjects, OpacityOutOfRangeClampsToUnitInterval) {
+    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const auto theme = mpviz::detail::load_theme(fixtureDir, "objects_overrange_opacity");
+    ASSERT_TRUE(theme.has_value());
+    EXPECT_FLOAT_EQ(theme->objects.opacity, 1.0f)
+        << "objects.opacity 1.5 must clamp to 1.0, not suppress the staleness fade";
+}
+
 TEST(ThemePalette, RoadLaneCenterlineLaneBoundaryCrosswalkFallBackWhenMissingFromYaml) {
     // sun_dir_a.yaml predates these four tokens, same "prove the soft
     // default, don't retrofit every old fixture" reasoning as
