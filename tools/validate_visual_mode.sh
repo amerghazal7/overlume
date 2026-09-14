@@ -725,6 +725,19 @@ USE_SIM_TIME=true
 if [[ "${LIVE}" == "1" ]]; then
     USE_SIM_TIME="${LIVE_SIM_TIME:-false}"
 fi
+# --live + SHM: CycloneDDS 0.10 never delivers /tf_static late-joiner
+# history over iceoryx, so a node started after the stack can't resolve any
+# static frame (map<-seyond fails 100%, every point cloud drops "without
+# TF"; proven live 2026-09-14, see tools/tf_static_relay.py's header). The
+# relay reads the real statics over the network path (CYCLONEDDS_URI
+# stripped) and re-broadcasts them at 1 Hz so late joiners get fresh
+# samples. Bag mode doesn't need it: bag play republishes tf_static after
+# the node is up.
+if [[ "${LIVE}" == "1" ]]; then
+    env -u CYCLONEDDS_URI python3 "${REPO_ROOT}/tools/tf_static_relay.py" \
+        > "${LOG_DIR}/tf_static_relay.log" 2>&1 &
+    track_child "$!"
+fi
 # bowl_enabled:=true so Surround Stitching / modes 1-2 are actually usable
 # from this rig: the shipped default is false, under which the camera ingest
 # never constructs, set_bowl_config() never runs, and the stitching toggle
