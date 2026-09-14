@@ -618,7 +618,7 @@ if [[ "${LIVE}" == "1" ]]; then
     # stale-TF symptoms that fight causes.
     if [[ "${LIVE_SIM_TIME:-false}" != "true" ]]; then
         set +u; source /opt/ros/humble/setup.bash >/dev/null 2>&1; set -u
-        _clock_pubs="$(timeout 5 ros2 topic info /clock 2>/dev/null | sed -n 's/^Publisher count: //p' || true)"
+        _clock_pubs="$(timeout -k 2 5 ros2 topic info /clock 2>/dev/null | sed -n 's/^Publisher count: //p' || true)"
         if [[ -n "${_clock_pubs}" && "${_clock_pubs}" != "0" ]]; then
             echo "[live] FATAL: /clock has ${_clock_pubs} publisher(s) on this ROS domain." >&2
             echo "       Something is playing a bag or publishing sim time. Stop it, or" >&2
@@ -833,14 +833,14 @@ else
 fi
 
 read_hz() {
-    timeout 4 ros2 topic hz /rendering/image 2>/dev/null \
+    timeout -k 2 4 ros2 topic hz /rendering/image 2>/dev/null \
         | grep -o "average rate: [0-9.]*" | tail -1 | awk '{print $3}'
 }
 
 # ego_state is std_msgs/Float64MultiArray: data = [x, y, z, heading, speed, valid]
 read_ego_z_valid() {
     local out z valid
-    out="$(timeout 3 ros2 topic echo --once /visualization_node/ego_state 2>/dev/null || true)"
+    out="$(timeout -k 2 3 ros2 topic echo --once /visualization_node/ego_state 2>/dev/null || true)"
     z="$(printf '%s\n' "${out}" | awk '/^data:/{f=1;next} f&&/^- /{n++; if(n==3){print $2; exit}}')"
     valid="$(printf '%s\n' "${out}" | awk '/^data:/{f=1;next} f&&/^- /{n++; if(n==6){print $2; exit}}')"
     printf '%s %s\n' "${z:-}" "${valid:-}"
@@ -854,7 +854,7 @@ read_ego_z_valid() {
 # Step 12) -- `ros2 topic hz` counts publishes regardless of who, if
 # anyone, is subscribed.
 read_hd_map_hz() {
-    timeout 4 ros2 topic hz /hd_map_local_elements 2>/dev/null \
+    timeout -k 2 4 ros2 topic hz /hd_map_local_elements 2>/dev/null \
         | grep -o "average rate: [0-9.]*" | tail -1 | awk '{print $3}'
 }
 
@@ -866,7 +866,7 @@ read_hd_map_hz() {
 # and a human/golden looking at the actual number) -- `ros2 topic hz` counts
 # publishes regardless of content.
 read_diagnostics_hz() {
-    timeout 4 ros2 topic hz /visualization_node/diagnostics 2>/dev/null \
+    timeout -k 2 4 ros2 topic hz /visualization_node/diagnostics 2>/dev/null \
         | grep -o "average rate: [0-9.]*" | tail -1 | awk '{print $3}'
 }
 
