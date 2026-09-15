@@ -13,17 +13,22 @@ Epic 0 Task 1 notes for the full rationale.
 Three commands, from a clean shell, no manual exports:
 
 ```bash
-scripts/setup_toolchain.sh
+scripts/setup_toolchain_cesium.sh
 cmake --toolchain cmake/toolchain-clang-libcxx.cmake -B build -S .
 cmake --build build && ctest --test-dir build --output-on-failure
 ```
 
-- **`scripts/setup_toolchain.sh`** — root-less bootstrap of clang-14/libc++-14
-  (`apt-get download` + `dpkg-deb -x` into
-  `${XDG_CACHE_HOME:-$HOME/.cache}/mpviz-toolchain`; no `apt install`, no
-  root). Idempotent: exits immediately if that prefix already has a working
-  clang++. Skip this step entirely if `clang++` on `PATH` already has a
-  co-located libc++ (a normal root-installed `clang` + `libc++-dev`).
+- **`scripts/setup_toolchain_cesium.sh`** — root-less bootstrap of
+  clang-18/libc++-18 from apt.llvm.org (no `apt install`, no root) into
+  `${XDG_CACHE_HOME:-$HOME/.cache}/mpviz-toolchain-cesium`. Idempotent: exits
+  immediately if that prefix already has a working clang++. Skip this step
+  entirely if `clang++` on `PATH` already has a co-located libc++ (a normal
+  root-installed `clang` + `libc++-dev`). (VM-061 Step 6, user decision
+  2026-09-15: this is now the PRIMARY toolchain, not just the cesium/vcpkg
+  one — `scripts/setup_toolchain.sh`'s older clang-14 prefix is no longer
+  used here; clang-18 is required because cesium-native's vcpkg dependency
+  ada-url needs `std::ranges::replace`, which libc++-14/-15 don't
+  implement.)
 - **`cmake --toolchain cmake/toolchain-clang-libcxx.cmake`** — selects that
   clang++ (or the PATH one) and bakes in `-stdlib=libc++`. `GetFilament.cmake`
   then fetches the pinned Filament 1.56.5 prebuilt SDK (sha256-verified) on

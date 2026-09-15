@@ -14,7 +14,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Configure with `cmake --toolchain cmake/toolchain-clang-libcxx.cmake` (see
-# that file + scripts/setup_toolchain.sh + README.md) — it selects a working
+# that file + scripts/setup_toolchain_cesium.sh + README.md) — it selects a working
 # clang++/libc++ and bakes in -stdlib=libc++. These are defensive checks in
 # case someone configures by hand instead.
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
@@ -22,7 +22,7 @@ if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         "visual_renderer must be built with clang++ (got CMAKE_CXX_COMPILER_ID="
         "'${CMAKE_CXX_COMPILER_ID}'). Configure with:\n"
         "  cmake --toolchain cmake/toolchain-clang-libcxx.cmake -B build -S . \n"
-        "(run scripts/setup_toolchain.sh first if you have no system clang++/libc++). "
+        "(run scripts/setup_toolchain_cesium.sh first if you have no system clang++/libc++). "
         "See README.md.")
 endif()
 if(NOT CMAKE_CXX_FLAGS MATCHES "-stdlib=libc\\+\\+")
@@ -81,30 +81,34 @@ include(cmake/GetFilament.cmake)
 # overlay triplet. See cmake/GetCesiumNative.cmake for the pin + SHA256
 # provenance and the vcpkg wiring.
 #
-# VM-061 gate round 2, Finding 3: this project's PRIMARY toolchain (clang-14,
-# see toolchain-clang-libcxx.cmake / setup_toolchain.sh, what
-# ci_visual_mode.sh/colcon_build.sh configure `build/` with) cannot compile
-# cesium-native's vcpkg dependency ada-url -- its url_search_params-inl.h
-# calls std::ranges::replace, a <ranges> algorithm overload libc++-14 does
-# not implement (reproduced directly: a trivial std::ranges::replace program
-# fails to compile under -stdlib=libc++ -std=gnu++20 with clang-14, "no
-# member named 'replace' in namespace 'std::ranges'"). Cesium-native is only
-# buildable today under the SEPARATE clang-18 toolchain
-# scripts/setup_toolchain_cesium.sh bootstraps for build-cesium/ (see that
-# script's header for the full story + why clang-18 specifically). Until the
-# plan-level call is made (land clang-18 as the PRIMARY toolchain, or keep
-# the two-toolchain split permanently), this stays OFF by default so the
-# ordinary `build/` tree configured with the primary toolchain keeps working
-# -- configure with -DMPVIZ_ENABLE_CESIUM=ON (under the clang-18 toolchain)
-# to build the cesium path. Gates every cesium-touching piece below: this
-# include, the visual_renderer_stream C++20 OBJECT library, the cesium
-# target_link_libraries/link_options on visual_renderer, the vendor-merge
-# archive walk, and cesium_link_probe.
+# VM-061 gate round 2, Finding 3 (ORIGINAL blocker, RESOLVED at Step 6 —
+# USER DECISION a, 2026-09-15): this project's primary toolchain was
+# clang-14 (toolchain-clang-libcxx.cmake / scripts/setup_toolchain.sh, what
+# ci_visual_mode.sh/colcon_build.sh configure `build/` with), which cannot
+# compile cesium-native's vcpkg dependency ada-url -- its
+# url_search_params-inl.h calls std::ranges::replace, a <ranges> algorithm
+# overload libc++-14 does not implement (reproduced directly: a trivial
+# std::ranges::replace program fails to compile under -stdlib=libc++
+# -std=gnu++20 with clang-14, "no member named 'replace' in namespace
+# 'std::ranges'"). Cesium-native was only buildable under the SEPARATE
+# clang-18 toolchain scripts/setup_toolchain_cesium.sh bootstraps (see that
+# script's header for the full story + why clang-18 specifically).
+#
+# RESOLVED: the primary toolchain itself (toolchain-clang-libcxx.cmake) now
+# resolves to that same clang-18 prefix (option (a) of the two named — (b),
+# an ExternalProject_Add nested build keeping the primary at clang-14, was
+# REJECTED by the user as an unwarranted rewrite). So `build/` and
+# `build-cesium/` are now the SAME compiler; this option still gates every
+# cesium-touching piece below (this include, the visual_renderer_stream
+# C++20 OBJECT library, the cesium target_link_libraries/link_options on
+# visual_renderer, the vendor-merge archive walk, and cesium_link_probe) —
+# default stays OFF so an ordinary `build/` configure (no `-D` override)
+# keeps behaving exactly as it did pre-Epic-6; pass -DMPVIZ_ENABLE_CESIUM=ON
+# to build the cesium path (no longer needs a different toolchain to do so).
 option(MPVIZ_ENABLE_CESIUM
-    "Build the cesium-native path (Epic 6 / VM-061). Requires the clang-18 \
-toolchain (scripts/setup_toolchain_cesium.sh) -- the primary clang-14 \
-toolchain cannot compile cesium's ada-url dependency. OFF keeps the ordinary \
-build/ tree (primary toolchain) configurable." OFF)
+    "Build the cesium-native path (Epic 6 / VM-061). Requires the (now \
+primary) clang-18 toolchain (scripts/setup_toolchain_cesium.sh). OFF keeps \
+the ordinary build/ tree buildable without ever touching cesium-native." OFF)
 if(MPVIZ_ENABLE_CESIUM)
     include(cmake/GetCesiumNative.cmake)
 endif()
@@ -294,6 +298,32 @@ target_include_directories(visual_renderer PRIVATE "${CMAKE_BINARY_DIR}/generate
 # handles static-lib link dependencies) must never leak to the gcc/
 # libstdc++ ROS node that links this library — it only ever sees the POD
 # api.h include/ dir above. See spec §2 / api.h's header comment.
+# VM-061 Step 6 (2026-09-15): when MPVIZ_ENABLE_CESIUM is ON, the static
+# runtime archives below are opened in a "-Wl,--start-group" here and closed
+# with a matching "-Wl,--end-group" AFTER cesium's own archives are linked
+# (below, once MPVIZ_ENABLE_CESIUM's target_link_libraries calls have run) --
+# see that closing marker's own comment for the full root-cause story
+# (cesium's vcpkg debug archives need a libc++ symbol that's positioned too
+# early otherwise). Gated on MPVIZ_ENABLE_CESIUM so the OFF path's link line
+# is BYTE-IDENTICAL to before this fix (proven green, untouched).
+#
+# Tried and reverted first: repeating the SAME three archive paths a second
+# time (self-wrapped in their own start/end group) after the cesium links,
+# instead of wrapping the ORIGINAL single occurrence. This does NOT work --
+# confirmed directly against a generated link.txt: CMake's link-line
+# computation treats identical repeated raw-path items across separate
+# target_link_libraries calls as ONE logical entry and collapses them back
+# together at the FIRST call's position, while the (non-duplicated, so never
+# collapsed) "-Wl,--start-group"/"-Wl,--end-group" marker strings stayed at
+# the SECOND call's position -- producing an EMPTY group at the very end of
+# the command line and the original ungrouped triple sitting right where it
+# always was, so the fix silently did nothing. Wrapping the one, singular
+# occurrence (this block) and closing the group only after everything that
+# might need it has been linked is what actually works with CMake's
+# behavior instead of fighting it.
+if(MPVIZ_ENABLE_CESIUM)
+    target_link_libraries(visual_renderer PRIVATE "-Wl,--start-group")
+endif()
 target_link_libraries(visual_renderer PRIVATE
     Filament::filament
     yaml-cpp::yaml-cpp
@@ -416,6 +446,50 @@ if(MPVIZ_ENABLE_CESIUM)
     _mpviz_collect_vendor_merge_archives(_mpviz_vendor_merge_archives
         ${_mpviz_vendor_merge_direct_targets})
     list(REMOVE_DUPLICATES _mpviz_vendor_merge_archives)
+
+    # VM-061 Step 6 (2026-09-15): finding, root-caused directly against a
+    # generated link.txt. cesium's own transitive closure carries vcpkg's
+    # DEBUG-build libktx.a (Decision 4.3: ktx is "recorded, not renamed" --
+    # it stays a plain standalone archive on the link line, unlike the
+    # spdlog/fmt/Cesium* set that gets ld -r-merged above) whose
+    # basisu_transcoder.cpp.o references std::__1::__sort<...> (a libc++
+    # extern-template instantiation that DOES exist, as a weak symbol, in
+    # libc++.a). But libc++.a/libc++abi.a/libunwind.a are linked ABOVE
+    # (Filament::filament / yaml-cpp::yaml-cpp's own target_link_libraries
+    # call), i.e. BEFORE this cesium block on the final executable's link
+    # line -- confirmed directly: build/CMakeFiles/cesium_link_probe.dir/
+    # link.txt lists libc++.a at position 51, libktx.a at position 145.
+    # GNU ld's single-pass archive resolution processes archives strictly
+    # left-to-right, so a later archive's need for an earlier archive's
+    # symbol is never satisfied -- "undefined reference to
+    # std::__1::__sort<...>" at link time for every executable that links
+    # visual_renderer. This never surfaced in build-cesium/ because that
+    # tree's OWN project toolchain (vcpkg-clang-libcxx-toolchain.cmake) links
+    # libc++ DYNAMICALLY, where position doesn't gate archive-member
+    # extraction the same way -- a genuinely new failure mode from combining
+    # cesium's vcpkg debug archives with the primary toolchain's static/
+    # -nostdlib++ convention (VM-061 Step 6, first time these two ever
+    # combined). Fix: the ORIGINAL libc++.a/libc++abi.a/libunwind.a
+    # target_link_libraries call (above) opens a "-Wl,--start-group" right
+    # before them when this option is ON; closed here, once every
+    # MPVIZ_ENABLE_CESIUM link addition (this whole block, including its
+    # transitive ktx/draco/spdlog/fmt/curl/... closure) has actually been
+    # appended -- so GNU ld repeatedly re-scans the WHOLE bracketed region
+    # (runtime archives + the entire cesium closure) until every symbol
+    # inside it is resolved, regardless of which side references which.
+    #
+    # Tried and reverted first: repeating the three runtime archive paths a
+    # SECOND time here, self-wrapped in their own start/end group, instead
+    # of wrapping the original single occurrence. Does NOT work -- confirmed
+    # directly against a generated link.txt: CMake's link-line computation
+    # treats identical repeated raw-path items across separate
+    # target_link_libraries calls as ONE logical entry and collapses them
+    # back together at the FIRST call's position, while the (never-repeated,
+    # so never collapsed) "-Wl,--start-group"/"-Wl,--end-group" strings
+    # stayed at the SECOND call's position -- producing an EMPTY group at
+    # the very end of the command line and the original ungrouped triple
+    # sitting exactly where it always was; the fix silently did nothing.
+    target_link_libraries(visual_renderer PRIVATE "-Wl,--end-group")
 
     # VM-061 gate round 2, Finding 1: an empty-list check alone already missed a
     # real failure once (spdlog::spdlog/fmt::fmt are IMPORTED, non-GLOBAL targets
@@ -581,7 +655,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     # DEFINED only in environment_stream.cpp -- which itself is excluded
     # from this build entirely when MPVIZ_ENABLE_CESIUM is OFF (see that
     # option's own comment above). Without this exclusion, the ordinary
-    # clang-14 build/ tree (option OFF) would try to link a test binary
+    # build/ tree (option OFF) would try to link a test binary
     # against symbols that don't exist anywhere in it -- exactly the
     # "invisible in build/" hard rule this task is bound by.
     if(NOT MPVIZ_ENABLE_CESIUM)
