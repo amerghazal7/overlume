@@ -74,6 +74,14 @@ endforeach()
 
 include(cmake/GetFilament.cmake)
 
+# cesium-native (Epic 6, VM-061 — see
+# docs/superpowers/plans/2026-08-18-visual-mode-epic6.md Task 2): pinned
+# source build under this project's own clang/libc++ toolchain, its ~28
+# vcpkg ports forced onto the same toolchain via the x64-linux-clang-libcxx
+# overlay triplet. See cmake/GetCesiumNative.cmake for the pin + SHA256
+# provenance and the vcpkg wiring.
+include(cmake/GetCesiumNative.cmake)
+
 # yaml-cpp (Epic 1 Task 2 / VM-011): theme.cpp parses assets/themes/*.yaml.
 # FetchContent'd and built with this project's own clang/libc++ toolchain for
 # the same ABI-safety reason as GoogleTest below (a prebuilt system
@@ -156,8 +164,43 @@ endforeach()
 # a fresh `cmake` re-run picks them up.
 file(GLOB_RECURSE VISUAL_RENDERER_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
+# C++20 quarantine (Decision 3, VM-061/VM-062): environment_stream.cpp (Task
+# 3 owns the file; it does not exist yet at VM-061) compiles in its own
+# OBJECT library so it inherits cesium-native's FULL usage requirements --
+# include dirs, PUBLIC compile definitions (GLM_FORCE_INTRINSICS et al.,
+# configure_cesium_library.cmake:27-41 -- hand-copying only the include dirs
+# would silently change glm's SIMD layout in this TU vs the archives), and
+# the C++20 standard -- with nothing hand-copied to drift. Guarded by
+# EXISTS so this task stays green standalone; Step 3's link probe is the
+# compile proof that the cesium archive set itself is sound.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
+    list(REMOVE_ITEM VISUAL_RENDERER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
+endif()
+
 add_library(visual_renderer STATIC ${VISUAL_RENDERER_SOURCES})
 add_library(micropilot_visualization::visual_renderer ALIAS visual_renderer)
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
+    add_library(visual_renderer_stream OBJECT src/environment_stream.cpp)
+    target_compile_features(visual_renderer_stream PRIVATE cxx_std_20)
+    target_link_libraries(visual_renderer_stream PRIVATE
+        Cesium3DTilesSelection CesiumGltfWriter CesiumGltfReader CesiumAsync
+        CesiumCurl   # the shipped curl network accessor (Decision 15.6, resolved);
+                     # add CesiumUtility here too if the link demands it.
+                     # CesiumIonClient deliberately ABSENT: the ion handshake is the
+                     # Tileset ion ctor's job (Decision 15.6) -- nothing calls the
+                     # REST client directly; re-add only if the link proves otherwise.
+    )
+    target_include_directories(visual_renderer_stream PRIVATE src include)
+    target_sources(visual_renderer PRIVATE $<TARGET_OBJECTS:visual_renderer_stream>)
+endif()
+# Linked PRIVATE regardless of whether environment_stream.cpp exists yet
+# (Task 3 lands the only TU that actually #includes cesium headers) --
+# the OBJECT library above only compiles, it does not carry link
+# dependencies into the final archive, so visual_renderer itself must still
+# pull the cesium archives onto its own link line.
+target_link_libraries(visual_renderer PRIVATE
+    Cesium3DTilesSelection CesiumGltfWriter CesiumGltfReader CesiumAsync CesiumCurl)
 
 target_include_directories(visual_renderer PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -177,6 +220,25 @@ target_link_libraries(visual_renderer PRIVATE
     "${_libcxxabi_a}"
     "${_libunwind_a}"
 )
+
+# Decision 4.3's named overlap risk, confirmed at link time (VM-061 Task 2
+# Step 3/6): Filament's prebuilt SDK bundles its OWN draco (dracodec.a) and
+# cesium-native pulls in vcpkg's OWN, separately-built draco (libdraco.a) --
+# both land on every executable that links visual_renderer, both are
+# libc++/std::__1 (same ABI family, unlike the YAML/spdlog/fmt case, so this
+# is a plain duplicate-STRONG-symbol link error, not a silent-corruption
+# ABI hazard), and GNU ld's ordinary link refuses with "multiple definition
+# of draco::Options::GetString(...)" etc. INTERFACE so every consumer
+# (filament_link_probe, cesium_link_probe, every tests/*.cpp binary) that
+# links visual_renderer gets it too, since the collision only surfaces at
+# the FINAL executable link, never in visual_renderer's own static-archive
+# build. --allow-multiple-definition (first definition wins, matching link
+# order) is the deliberate, narrower alternative to extending
+# merge_yamlcpp.sh's rename recipe to draco too: draco's overlap here is
+# recorded (Decision 4.3), not renamed, because unlike spdlog/fmt nothing
+# reaches across this specific overlap from the gcc ROS node side -- both
+# copies are internal to visual_renderer's own clang/libc++ link graph.
+target_link_options(visual_renderer INTERFACE "-Wl,--allow-multiple-definition")
 
 # Default theme-assets dir baked into the library, used by create_renderer()
 # whenever RenderConfig::theme_assets_dir is null (Task 2 Step 5a/7).
@@ -204,16 +266,81 @@ target_compile_definitions(visual_renderer PRIVATE
 # two never share a symbol name at all, which scripts/merge_yamlcpp.sh now
 # does via `objcopy --redefine-syms` in place of `--localize-symbols`/
 # `--localize-hidden`. ---
+# --- 2026-09-15 extension (Epic 6 / VM-061 Task 2 Step 5, Decision 4):
+# collect every cesium-native module archive + spdlog (+ fmt, if separate)
+# reachable from the targets visual_renderer links, so merge_yamlcpp.sh can
+# `ld -r` + rename them alongside yaml-cpp -- see that script's own header
+# comment for why (the ROS node's gcc/libstdc++ spdlog vs. cesium's
+# clang/libc++ one, Decision 4). Walks INTERFACE_LINK_LIBRARIES/
+# LINK_LIBRARIES breadth-first but only RECURSES PAST (and collects the
+# archive of) a target whose short name (namespace prefix stripped) is
+# "Cesium*", "spdlog", or "fmt" -- the C/C++ leaf dependencies Decision 4.2/
+# 4.3 deliberately leaves merged-in-place and AUDITED instead (curl,
+# openssl, sqlite3, draco, ktx, meshoptimizer, s2geometry, ...) are neither
+# recursed into nor added here.
+function(_mpviz_vendor_merge_target_p _tgt _out)
+    string(REGEX REPLACE "^.*::" "" _short "${_tgt}")
+    if(_short MATCHES "^Cesium" OR _short STREQUAL "spdlog" OR _short STREQUAL "fmt")
+        set(${_out} TRUE PARENT_SCOPE)
+    else()
+        set(${_out} FALSE PARENT_SCOPE)
+    endif()
+endfunction()
+
+macro(_mpviz_collect_vendor_merge_archives _out_var)
+    set(_mpviz_cma_result "")
+    set(_mpviz_cma_seen "")
+    set(_mpviz_cma_queue ${ARGN})
+    while(_mpviz_cma_queue)
+        list(POP_FRONT _mpviz_cma_queue _mpviz_cma_cur)
+        if(NOT _mpviz_cma_cur IN_LIST _mpviz_cma_seen)
+            list(APPEND _mpviz_cma_seen "${_mpviz_cma_cur}")
+            if(TARGET "${_mpviz_cma_cur}")
+                _mpviz_vendor_merge_target_p("${_mpviz_cma_cur}" _mpviz_cma_is_vendor)
+                if(_mpviz_cma_is_vendor)
+                    get_target_property(_mpviz_cma_type "${_mpviz_cma_cur}" TYPE)
+                    if(_mpviz_cma_type STREQUAL "STATIC_LIBRARY")
+                        list(APPEND _mpviz_cma_result "$<TARGET_FILE:${_mpviz_cma_cur}>")
+                    endif()
+                    foreach(_mpviz_cma_prop IN ITEMS INTERFACE_LINK_LIBRARIES LINK_LIBRARIES)
+                        get_target_property(_mpviz_cma_deps "${_mpviz_cma_cur}" ${_mpviz_cma_prop})
+                        if(_mpviz_cma_deps)
+                            foreach(_mpviz_cma_dep ${_mpviz_cma_deps})
+                                string(REGEX REPLACE "^\\$<LINK_ONLY:(.*)>$" "\\1" _mpviz_cma_dep_clean "${_mpviz_cma_dep}")
+                                list(APPEND _mpviz_cma_queue "${_mpviz_cma_dep_clean}")
+                            endforeach()
+                        endif()
+                    endforeach()
+                endif()
+            endif()
+        endif()
+    endwhile()
+    set(${_out_var} "${_mpviz_cma_result}")
+endmacro()
+
+_mpviz_collect_vendor_merge_archives(_mpviz_vendor_merge_archives
+    Cesium3DTilesSelection CesiumGltfWriter CesiumGltfReader CesiumAsync CesiumCurl)
+list(REMOVE_DUPLICATES _mpviz_vendor_merge_archives)
+if(NOT _mpviz_vendor_merge_archives)
+    message(FATAL_ERROR
+        "visual_renderer: the cesium-native/spdlog vendor-merge archive walk "
+        "(VM-061 Step 5) found nothing -- either cesium's target names "
+        "changed at this pin, or the walk itself is broken. Never silently "
+        "skip the symbol-hygiene merge; fix the walk or the target list.")
+endif()
+
 add_custom_command(TARGET visual_renderer POST_BUILD
     COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/merge_yamlcpp.sh"
             "${CMAKE_AR}" "${CMAKE_LINKER}" "${CMAKE_OBJCOPY}" "${CMAKE_NM}"
             "${CMAKE_BINARY_DIR}/_yamlmerge"
             "${CMAKE_BINARY_DIR}/visual_renderer_merged.o"
-            "$<TARGET_FILE:yaml-cpp>"
             "$<TARGET_FILE:visual_renderer>"
             $<TARGET_OBJECTS:visual_renderer>
+            --
+            "$<TARGET_FILE:yaml-cpp>"
+            ${_mpviz_vendor_merge_archives}
     COMMAND_EXPAND_LISTS VERBATIM
-    COMMENT "visual_renderer: merging yaml-cpp + renaming its YAML:: symbols (Epic 2 Task 1 Step 0.2)")
+    COMMENT "visual_renderer: merging yaml-cpp + cesium-native + spdlog/fmt, renaming their vendored symbols (Epic 2 Task 1 Step 0.2; extended Epic 6 VM-061 Step 5)")
 
 enable_testing()
 
@@ -236,6 +363,26 @@ add_executable(filament_link_probe smoke/filament_link_probe.cpp)
 target_include_directories(filament_link_probe PRIVATE "${FILAMENT_ROOT}/include")
 target_link_libraries(filament_link_probe PRIVATE visual_renderer)
 add_test(NAME filament_link_probe COMMAND filament_link_probe)
+
+# Build-integration proof for cesium-native (VM-061 Task 2 Step 3), same
+# purpose as filament_link_probe above: prove the archive set actually
+# LINKS and RUNS, since a static-lib build alone never invokes the linker.
+# C++20 TU (cesium headers require it). Links visual_renderer PRIVATE too
+# (not just the two cesium targets it #includes directly) so this probe
+# exercises the SAME combined archive graph (Filament + yaml-cpp + cesium)
+# Task 3's real environment_stream.cpp will pull in through visual_renderer
+# -- the cyclic-archive-handling AC (B06.2.1) this step maps to. Unlike
+# Filament's raw .a-file target, cesium's CMake targets (CesiumGeospatial,
+# CesiumGltfReader) are real targets with their own PUBLIC include dirs, so
+# linking them directly is what "grants cesium includes to the probe" here
+# -- no manual -I needed the way FILAMENT_ROOT/include was for Filament.
+add_executable(cesium_link_probe smoke/cesium_link_probe.cpp)
+set_target_properties(cesium_link_probe PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED YES)
+target_link_libraries(cesium_link_probe PRIVATE
+    visual_renderer CesiumGeospatial CesiumGltfReader)
+add_test(NAME cesium_link_probe COMMAND cesium_link_probe)
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     # NOT find_package(GTest): this box's system libgtest.a (libgtest-dev) is

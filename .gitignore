@@ -18,6 +18,11 @@ graphify-out/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 **/build/
+# vcpkg/cesium-native build tree (VM-061 Task 2): **/build/ only matches a
+# dir literally named `build`, not `build-cesium/` -- without this the
+# fetched cesium-native source drop + Filament tarball under _deps/ would
+# get vendored into the repo on the next `git add`.
+**/build-*/
 # colcon run-from-anywhere artifacts (agents/tests)
 log/
 install/

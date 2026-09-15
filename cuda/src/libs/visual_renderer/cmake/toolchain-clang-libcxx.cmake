@@ -19,6 +19,18 @@
 #
 # This also bakes in -stdlib=libc++ for compile and link so the documented
 # configure line above needs no other flags.
+#
+# MUST-STAY-IN-SYNC TWIN: cmake/vcpkg-clang-libcxx-toolchain.cmake +
+# scripts/setup_toolchain_cesium.sh (Epic 6 / VM-061 Task 2) are a SEPARATE,
+# clang-18 toolchain used only for the vcpkg/cesium-native build
+# (build-cesium/) — this file's clang-14 stays the toolchain for
+# visual_renderer itself. They diverge because libc++-14 (and -15) lack
+# std::ranges::replace, which vcpkg's ada-url port requires; clang-16/17 are
+# unpackaged on this box's Ubuntu release, so clang-18 (apt.llvm.org,
+# rootless) is what ada-url gets. Cesium's clang-18/libc++ archives are
+# merged into libvisual_renderer.a by scripts/merge_yamlcpp.sh, which is
+# what actually keeps that ABI boundary from leaking into the gcc/libstdc++
+# ROS node process, not this toolchain choice.
 
 if(DEFINED ENV{XDG_CACHE_HOME} AND NOT "$ENV{XDG_CACHE_HOME}" STREQUAL "")
     set(_mpviz_cache_home "$ENV{XDG_CACHE_HOME}")
