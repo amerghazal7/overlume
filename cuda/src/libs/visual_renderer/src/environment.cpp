@@ -157,12 +157,38 @@ std::unique_ptr<BakedEnvironmentSource> open_baked_environment_source(const std:
 
 namespace mpviz {
 
-// Constructs the (currently only) baked backend unconditionally -- Epic 6's
-// VM-063 adds baked|streamed selection logic, not this epic's job (scene.h's
-// own comment on this function).
+namespace {
+// Epic 6 (VM-062) Decision 5: dispatch on a scheme prefix inside this
+// existing, otherwise-unchanged entry point. No URL library -- a literal
+// prefix compare, exactly as wide as the one distinction this function
+// needs to make.
+constexpr char kIonPrefix[] = "ion://";
+constexpr size_t kIonPrefixLen = sizeof(kIonPrefix) - 1;
+}  // namespace
+
+// Epic 6 (VM-062): `source_uri` with no "ion://" prefix opens the baked
+// backend, byte-for-byte today's behavior (Decision 5) -- every existing
+// caller/config/test unaffected. An "ion://" prefix opens the streaming
+// backend instead (`open_streaming_environment_source`, environment_stream.cpp,
+// the one C++20 TU); with MPVIZ_ENABLE_CESIUM off (the ordinary build/ tree,
+// see CMakeLists.txt), that TU isn't compiled in at all, so this branch
+// returns false rather than referencing an undefined symbol -- an "ion://"
+// source_uri configured against a cesium-less build degrades the same way
+// a missing bake dir does (non-fatal, caller WARNs).
 bool set_environment_source(VisualRenderer* r, const char* source_uri, GeoAnchor anchor) {
     if (r == nullptr || source_uri == nullptr || source_uri[0] == '\0') return false;
-    std::unique_ptr<BakedEnvironmentSource> source = open_baked_environment_source(source_uri, anchor);
+
+    std::unique_ptr<EnvironmentSource> source;
+    const std::string uri(source_uri);
+    if (uri.compare(0, kIonPrefixLen, kIonPrefix) == 0) {
+#ifdef MPVIZ_ENABLE_CESIUM
+        source = open_streaming_environment_source(uri.substr(kIonPrefixLen), anchor);
+#else
+        return false;  // cesium not compiled into this build (MPVIZ_ENABLE_CESIUM off)
+#endif
+    } else {
+        source = open_baked_environment_source(uri, anchor);
+    }
     if (!source) return false;
     // on_activate() runs again after on_deactivate() on the SAME renderer
     // (on_deactivate does not destroy it), so this entry point is
@@ -181,13 +207,14 @@ namespace mpviz::testing {
 
 uint64_t environment_loaded_chunk_count(mpviz::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return 0;
-    // Downcast is safe: the only EnvironmentSource concrete type this epic
-    // ever constructs is BakedEnvironmentSource (a future streamed backend,
-    // Epic 6, is a different concrete type this hook doesn't need to see
-    // yet).
-    return static_cast<uint64_t>(
-        static_cast<mpviz::BakedEnvironmentSource*>(r->environmentSource.get())
-            ->loaded_chunk_count());
+    // Epic 6 (VM-062) Decision 12: goes through the virtual now that a
+    // second concrete EnvironmentSource type (StreamingEnvironmentSource)
+    // exists -- a static_cast to BakedEnvironmentSource* here would be
+    // undefined behavior against a streaming source. Same numbers as
+    // before through the virtual (BakedEnvironmentSource::loaded_count()
+    // forwards to loaded_chunk_count()), so every existing test stays
+    // green unchanged.
+    return static_cast<uint64_t>(r->environmentSource->loaded_count());
 }
 
 }  // namespace mpviz::testing

@@ -559,20 +559,36 @@ bool set_camera_frame(VisualRenderer*, uint32_t cam_idx,
 // own already-linked yaml-cpp and gives render_frame() a live,
 // distance-culled BakedEnvironmentSource -- see src/environment.hpp/.cpp
 // (library-internal, never crosses this boundary -- EnvironmentSource/
-// BakedEnvironmentSource are not POD/ABI types, same status as
-// VisualRenderer's own internals, renderer_internal.hpp). `anchor` is
-// stored for a future streaming backend's on-the-fly WGS84->map placement --
-// this v1 baked backend does NOT re-derive placement from it: the bake
-// step already placed every chunk's vertices directly in the map frame,
-// offline, using this SAME anchor. THIS ENTRY POINT'S SIGNATURE DOES NOT
-// CHANGE between v1 (baked) and a future streamed backend -- only the
-// concrete EnvironmentSource this call constructs internally does (this
-// call always constructs the baked backend, unconditionally). Returns false
-// (no environment configured; render_frame's environment step becomes a
-// no-op) if `r` is null, `source_uri` is null/empty, or the backend fails
-// to open/parse its index -- non-fatal, logs nothing itself (POD boundary,
-// same convention as set_ego_model), caller WARNs once (spec §9's "missing
-// data renders nothing"). VM-052 (Epic 4 Task 3).
+// BakedEnvironmentSource/StreamingEnvironmentSource are not POD/ABI types,
+// same status as VisualRenderer's own internals, renderer_internal.hpp).
+// `anchor` is stored for on-the-fly WGS84->map placement.
+//
+// `source_uri` is a source-shaped string whose meaning depends on which
+// EnvironmentSource backend this build links (Epic 6/VM-062 Decision 5):
+//   - No "ion://" prefix -> the v1 BAKED backend (unchanged since VM-052):
+//     `<source_uri>` is a local directory holding bake_environment.py's
+//     chunk index + glTF files, already placed in the map frame offline
+//     using this SAME anchor -- this backend does NOT re-derive placement
+//     from `anchor` at runtime.
+//   - "ion://<assetId>[?cache=<dir>][&fallback=<baked_dir>][&max_cache_items=<n>]"
+//     -> the STREAMING backend (Epic 6/VM-062, cesium-native 3D Tiles):
+//     `anchor` now does real work, an on-the-fly ECEF->map placement per
+//     loaded tile. Reads `CESIUM_ION_TOKEN` from the environment at open
+//     time (by NAME only -- never a URI component, never logged). Only
+//     built when this library is compiled with `MPVIZ_ENABLE_CESIUM=ON`
+//     (CMakeLists.txt); an "ion://" source_uri against a build without it
+//     degrades the same way a missing bake dir does (returns false, no
+//     crash).
+// THIS ENTRY POINT'S SIGNATURE DOES NOT CHANGE between the baked and
+// streamed backends -- only the concrete EnvironmentSource this call
+// constructs internally does. Returns false (no environment configured;
+// render_frame's environment step becomes a no-op) if `r` is null,
+// `source_uri` is null/empty, the baked backend fails to open/parse its
+// index, or the streaming backend fails to open (missing/empty token,
+// unparseable asset id, or cache-open failure) -- non-fatal, logs nothing
+// itself (POD boundary, same convention as set_ego_model), caller WARNs
+// once (spec §9's "missing data renders nothing"). VM-052 (Epic 4 Task 3);
+// streaming dispatch VM-062 (Epic 6 Task 3).
 bool set_environment_source(VisualRenderer*, const char* source_uri, GeoAnchor anchor);
 
 // Live quality-preset switch for the node-side governor (VM-040): re-applies

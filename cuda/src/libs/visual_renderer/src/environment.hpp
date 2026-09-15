@@ -40,6 +40,14 @@ public:
     // bare C++ destructor has no VisualRenderer& to do this teardown with,
     // so relying on ~EnvironmentSource() alone would leak/use-after-free.
     virtual void teardown(VisualRenderer& r) = 0;
+    // Epic 6 (VM-062) Decision 12: the environment_loaded_chunk_count() test
+    // hook used to static_cast r->environmentSource.get() straight to
+    // BakedEnvironmentSource* -- safe only while that was the sole concrete
+    // type. A second concrete type (StreamingEnvironmentSource,
+    // environment_stream.cpp) now exists, so the hook goes through this
+    // virtual instead of a downcast. Library-internal only (not the POD
+    // seam) -- update()/teardown() above stay verbatim.
+    virtual size_t loaded_count() const = 0;
 };
 
 // Named hysteresis band: kUnloadRadiusM > kLoadRadiusM so a chunk sitting
@@ -76,6 +84,9 @@ public:
 
     // testing-only: environment_test_hooks.hpp's environment_loaded_chunk_count().
     size_t loaded_chunk_count() const { return loaded_.size(); }
+    // Decision 12: forwards to the above -- same numbers through a virtual,
+    // every existing test keeps passing unchanged.
+    size_t loaded_count() const override { return loaded_chunk_count(); }
 
 private:
     std::string dir_;
@@ -105,5 +116,20 @@ private:
 // non-fatal-on-missing-file shape; logs nothing itself, caller WARNs.
 std::unique_ptr<BakedEnvironmentSource> open_baked_environment_source(const std::string& dir,
                                                                        GeoAnchor anchor);
+
+// Epic 6 (VM-062) Decision 3/5: cesium-free factory for the streaming
+// backend, DEFINED in environment_stream.cpp (the one C++20 TU -- this
+// declaration itself stays C++17-safe, cesium-free). `ion_spec` is
+// source_uri with the "ion://" prefix already stripped:
+// "<assetId>[?cache=<dir>][&fallback=<baked_dir>][&max_cache_items=<n>]".
+// Reads CESIUM_ION_TOKEN from the environment at open time (Decision 6);
+// returns nullptr on missing/empty token, an unparseable asset id, or a
+// cache-open failure -- same non-fatal contract as
+// open_baked_environment_source above (caller WARNs, never this function).
+// Returns the BASE EnvironmentSource type deliberately (Decision 3): the
+// concrete StreamingEnvironmentSource stays cesium-only, visible nowhere
+// outside environment_stream.cpp.
+std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::string& ion_spec,
+                                                                      GeoAnchor anchor);
 
 }  // namespace mpviz
