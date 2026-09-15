@@ -85,7 +85,7 @@ TEST(StalenessAlpha, PastTimeoutIsFullyFaded) {
     EXPECT_FLOAT_EQ(mpviz::detail::SceneBuffer::staleness_alpha(13.0, 10.0, 0.5, 2.0), 0.0f);
 }
 
-static_assert(mpviz::kSceneVersion == 5,
+static_assert(mpviz::kSceneVersion == 6,
               "bump this alongside every additive scene.h change, and update the "
               "node-side test_scene_layout.cpp mirror");
 
@@ -300,6 +300,12 @@ static_assert(offsetof(mpviz::BowlConfig, sky_color) == 76,
               "BowlConfig layout, ADR-0004 additive");
 static_assert(offsetof(mpviz::BowlConfig, exposure_compensation) == 88,
               "BowlConfig layout, ADR-0004 additive (review round 1)");
+
+// EnvironmentSourceState, appended VM-063 (Epic 6 Task 4, ADR-0004) --
+// kSceneVersion 5 -> 6. enum class uint8_t, no offsetof members to guard
+// (same shape as ObjectClass/MapKind/PathRole above).
+static_assert(sizeof(mpviz::EnvironmentSourceState) == 1,
+              "EnvironmentSourceState layout, ADR-0004 additive");
 
 // RenderConfig (api.h) — also crosses the prebuilt-archive ABI boundary.
 static_assert(sizeof(mpviz::RenderConfig) == 32, "RenderConfig layout frozen");

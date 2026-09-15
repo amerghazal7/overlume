@@ -53,6 +53,12 @@ inline constexpr double kStreamMaxSseErr = 48.0;
 inline constexpr double kStreamHeightOffsetM = 0.0;   // Decision 8: absorbs any
                                                        // measured float/sink, none measured yet.
 inline constexpr uint64_t kDefaultMaxCacheItems = 4096;
+// Decision 11 (VM-063): consecutive completed-with-error requests, zero
+// interleaved successes, before network loss is declared and the source
+// falls back to its baked dir. ponytail: consecutive-failure counter; a
+// time-windowed health score is the upgrade if flapping links need
+// hysteresis.
+inline constexpr int kNetworkLossConsecutiveFailures = 8;
 // Bounded wait for cesium's async tile-destruction completion at teardown
 // (Decision, Task 3 Step 2) -- each iteration pumps
 // asyncSystem.dispatchMainThreadTasks() once. Hitting the bound means
@@ -288,15 +294,25 @@ public:
     // `ion_access_token` selects the Tileset's ion constructor (the real
     // path, Decision 15.6); `asset_id == 0` selects the URL constructor
     // against `root_tileset_uri` (the fixture path, test-only).
+    // `counting_accessor` is the SAME object build_externals() wrapped into
+    // `externals.pAssetAccessor`'s CachingAssetAccessor -- kept as its own
+    // shared_ptr here (not re-derived from `externals`, which only exposes
+    // the composed IAssetAccessor base) so update() can read its failure
+    // count (Decision 11 / VM-063 Task 4). May be null (the counting
+    // accessor is always built by build_externals() in practice, but a
+    // null-safe check costs nothing and means "network loss never
+    // detected" rather than a crash for any future caller that omits it).
     StreamingEnvironmentSource(Cesium3DTilesSelection::TilesetExternals externals,
                                int64_t asset_id, std::string ion_access_token,
                                std::string root_tileset_uri, std::string fallback_baked_dir,
-                               GeoAnchor anchor);
+                               GeoAnchor anchor,
+                               std::shared_ptr<CountingAssetAccessor> counting_accessor);
     ~StreamingEnvironmentSource() override;
 
     void update(VisualRenderer& r, Vec3 ego_map_pos) override;
     void teardown(VisualRenderer& r) override;
     size_t loaded_count() const override;
+    EnvironmentSourceState state() const override;
 
     // Recorded, not asserted (same class as budget_probe.md numbers) --
     // how many times teardown()'s bounded wait (kTeardownPumpBound) gave
@@ -306,6 +322,15 @@ public:
 
 private:
     void synthesize_view_and_pump(VisualRenderer& r, Vec3 ego_map_pos);
+    // Decision 11 (VM-063): tears down every streamed tile + the tileset
+    // itself (via teardown(), the same discipline destroy_renderer() uses),
+    // then opens `fallbackBakedDir_` (empty -> no fallback source, tiles
+    // just stop appearing -- the no-fallback-configured path) and switches
+    // fallenBack_ so every subsequent update()/teardown()/loaded_count()
+    // call delegates to it. One-way: no automatic recovery to streaming
+    // even if the link returns (restart recovers). ponytail: one-way
+    // fallback; auto-resume when the link returns is the upgrade.
+    void fall_back(VisualRenderer& r);
 
     CesiumAsync::AsyncSystem asyncSystem_;
     std::shared_ptr<StreamRendererResources> renderResources_;
@@ -319,6 +344,11 @@ private:
     int leakedOnTeardownBound_ = 0;
     std::optional<std::chrono::steady_clock::time_point> lastUpdate_;
     std::unordered_map<const void*, bool> inScene_;  // FilamentAsset* -> in r.scene
+
+    // ── VM-063 (Task 4): fallback state ──────────────────────────────────
+    std::shared_ptr<CountingAssetAccessor> countingAccessor_;
+    bool fallenBack_ = false;
+    std::unique_ptr<EnvironmentSource> fallbackSource_;  // null iff no &fallback= dir, or it failed to open
 };
 
 }  // namespace mpviz

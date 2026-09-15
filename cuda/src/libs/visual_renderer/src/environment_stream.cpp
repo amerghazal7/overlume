@@ -180,14 +180,20 @@ void strip_custom_vertex_attributes(CesiumGltf::Model& model) {
 // read by anything in Task 3 -- built into the stack now (Step 4's
 // disk-cache proof explicitly wants it present) so Task 4 doesn't have to
 // re-plumb this.
-Cesium3DTilesSelection::TilesetExternals build_externals(std::shared_ptr<CesiumAsync::IAssetAccessor> base,
-                                                          const CesiumAsync::AsyncSystem& asyncSystem,
-                                                          const std::string& cache_dir,
-                                                          uint64_t max_cache_items) {
+// `out_counting`, when non-null, receives the SAME CountingAssetAccessor
+// wrapped into the returned externals' pAssetAccessor chain (Decision 11 /
+// VM-063 Task 4: StreamingEnvironmentSource keeps its own shared_ptr to it
+// so update() can read consecutive_failures() -- the externals struct only
+// exposes the composed IAssetAccessor base, not this concrete type).
+Cesium3DTilesSelection::TilesetExternals build_externals(
+    std::shared_ptr<CesiumAsync::IAssetAccessor> base, const CesiumAsync::AsyncSystem& asyncSystem,
+    const std::string& cache_dir, uint64_t max_cache_items,
+    std::shared_ptr<CountingAssetAccessor>* out_counting = nullptr) {
     std::error_code ec;
     std::filesystem::create_directories(cache_dir, ec);  // best-effort; SqliteCache errors loudly if this fails for real
 
     auto counting = std::make_shared<CountingAssetAccessor>(std::move(base));
+    if (out_counting != nullptr) *out_counting = counting;
     auto logger = spdlog::default_logger();
     auto cacheDb =
         std::make_shared<CesiumAsync::SqliteCache>(logger, cache_dir + "/cesium-tiles.sqlite", max_cache_items);
@@ -313,7 +319,20 @@ constexpr char kFileScheme[] = "file://";
 
 std::shared_ptr<CesiumAsync::IAssetRequest> FileFixtureAssetAccessor::makeRequest(
     const std::string& verb, const std::string& url) {
-    if (killed_ && killed_->load()) {
+    // VM-063 (Task 4): the root tileset.json manifest is exempt from the
+    // kill switch -- it models the realistic shape of "network loss
+    // mid-run" (Decision 11): a real deployment resolves the root manifest
+    // ONCE at startup, while healthy, and every subsequent per-tile content
+    // request is what actually observes a later network loss. Without this
+    // exemption, killing from before the root ever resolves leaves cesium
+    // with no known children to request at all (root fetch fails once,
+    // permanently, with nothing to retry -- verified empirically, see
+    // environment_ion_fixture_fallback_0/PROVENANCE.md), which can never
+    // reach kNetworkLossConsecutiveFailures. Real ion tilesets don't
+    // special-case this (the accessor decorator stack has no such
+    // exemption) -- it exists only in this test-only fixture accessor.
+    const bool isRootManifest = url.size() >= 12 && url.compare(url.size() - 12, 12, "tileset.json") == 0;
+    if (killed_ && killed_->load() && !isRootManifest) {
         return std::make_shared<FixtureAssetRequest>(
             verb, url, std::make_unique<FixtureAssetResponse>(503, std::vector<std::byte>{}));
     }
@@ -457,12 +476,14 @@ std::vector<filament::gltfio::FilamentAsset*> StreamRendererResources::drain_pen
 // ── StreamingEnvironmentSource ────────────────────────────────────────────
 StreamingEnvironmentSource::StreamingEnvironmentSource(
     Cesium3DTilesSelection::TilesetExternals externals, int64_t asset_id, std::string ion_access_token,
-    std::string root_tileset_uri, std::string fallback_baked_dir, GeoAnchor anchor)
+    std::string root_tileset_uri, std::string fallback_baked_dir, GeoAnchor anchor,
+    std::shared_ptr<CountingAssetAccessor> counting_accessor)
     : asyncSystem_(externals.asyncSystem),
       anchor_(anchor),
       ecefToMap_(compute_ecef_to_map(anchor)),
       mapToEcef_(glm::inverse(ecefToMap_)),
-      fallbackBakedDir_(std::move(fallback_baked_dir)) {
+      fallbackBakedDir_(std::move(fallback_baked_dir)),
+      countingAccessor_(std::move(counting_accessor)) {
     // GltfConverters' magic-byte dispatch table (b3dm/glTF/cmpt/i3dm/pnts)
     // is empty until this is called once, process-wide -- cesium-native
     // deliberately leaves it to the embedding application (not every
@@ -495,6 +516,20 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
 StreamingEnvironmentSource::~StreamingEnvironmentSource() = default;
 
 void StreamingEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
+    // Decision 11 (VM-063): once fallen back, every subsequent update()
+    // delegates to the baked source (or is a no-op if none was configured
+    // -- Decision 11's "no &fallback= given" path). One-way: never
+    // re-checked against countingAccessor_ again.
+    if (fallenBack_) {
+        if (fallbackSource_) fallbackSource_->update(r, ego_map_pos);
+        return;
+    }
+    if (countingAccessor_ &&
+        countingAccessor_->consecutive_failures() >= kNetworkLossConsecutiveFailures) {
+        fall_back(r);
+        if (fallbackSource_) fallbackSource_->update(r, ego_map_pos);
+        return;
+    }
     renderResources_->set_renderer(&r);
     // VM-062 gate round 1, Finding 3: evict every just-destroyed asset from
     // inScene_ BEFORE synthesize_view_and_pump()'s reconcile loop runs --
@@ -506,6 +541,26 @@ void StreamingEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
         inScene_.erase(freed);
     }
     synthesize_view_and_pump(r, ego_map_pos);
+}
+
+void StreamingEnvironmentSource::fall_back(VisualRenderer& r) {
+    // teardown() with fallenBack_ still false at this point tears down ONLY
+    // the streamed tiles + tileset (fallbackSource_ is not yet set, so its
+    // own early-teardown branch is skipped) -- see teardown()'s own
+    // comment for why this ordering matters.
+    teardown(r);
+    fallenBack_ = true;
+    if (!fallbackBakedDir_.empty()) {
+        fallbackSource_ = open_baked_environment_source(fallbackBakedDir_, anchor_);
+        // A failed open (bad dir/missing index.yaml) is non-fatal, same as
+        // every other open_baked_environment_source() caller: fallbackSource_
+        // stays null, loaded_count() reports 0, state() still reports
+        // STREAMING_FALLBACK (network loss WAS declared -- the state names
+        // the transition, not whether the fallback dir itself was valid).
+    }
+    // No &fallback= configured (fallbackBakedDir_ empty): fallbackSource_
+    // stays null -- tiles simply stop appearing, state still reported
+    // (Decision 11's "no automatic recovery" + "no fallback dir" paths).
 }
 
 void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec3 ego_map_pos) {
@@ -567,6 +622,19 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
 }
 
 void StreamingEnvironmentSource::teardown(VisualRenderer& r) {
+    // VM-063 (Task 4): a fallen-back source's OWN teardown discipline
+    // (BakedEnvironmentSource::teardown, or a no-op if none was ever
+    // opened) runs first, every time -- fall_back() calls teardown()
+    // itself BEFORE fallbackSource_ is constructed, so that first call
+    // takes the tornDown_-guarded branch below (tearing down the streamed
+    // tiles + tileset exactly once); every LATER teardown() call (the
+    // node's normal destroy_renderer() path, or set_environment_source()
+    // re-entry) finds fallbackSource_ already set and tears IT down here,
+    // then returns early via the tornDown_ guard below (already true).
+    if (fallbackSource_) {
+        fallbackSource_->teardown(r);
+        fallbackSource_.reset();
+    }
     if (tornDown_) return;
     renderResources_->set_renderer(&r);
 
@@ -612,7 +680,15 @@ void StreamingEnvironmentSource::teardown(VisualRenderer& r) {
     tornDown_ = true;
 }
 
-size_t StreamingEnvironmentSource::loaded_count() const { return inScene_.size(); }
+size_t StreamingEnvironmentSource::loaded_count() const {
+    if (fallenBack_) return fallbackSource_ ? fallbackSource_->loaded_count() : 0;
+    return inScene_.size();
+}
+
+EnvironmentSourceState StreamingEnvironmentSource::state() const {
+    return fallenBack_ ? EnvironmentSourceState::STREAMING_FALLBACK
+                        : EnvironmentSourceState::STREAMING;
+}
 
 }  // namespace mpviz
 
@@ -637,11 +713,13 @@ std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::
     // refresh accessor internally (Decision 15.6) -- nothing hand-rolled.
     auto curl = std::make_shared<CesiumCurl::CurlAssetAccessor>();
     CesiumAsync::AsyncSystem asyncSystem(std::make_shared<SimpleTaskProcessor>());
+    std::shared_ptr<CountingAssetAccessor> counting;
     Cesium3DTilesSelection::TilesetExternals externals =
-        build_externals(curl, asyncSystem, cacheDir, spec->max_cache_items);
+        build_externals(curl, asyncSystem, cacheDir, spec->max_cache_items, &counting);
 
     return std::make_unique<StreamingEnvironmentSource>(externals, spec->asset_id, std::string(token),
-                                                          std::string(), spec->fallback_dir, anchor);
+                                                          std::string(), spec->fallback_dir, anchor,
+                                                          std::move(counting));
 }
 
 }  // namespace mpviz
@@ -698,12 +776,14 @@ std::unique_ptr<mpviz::EnvironmentSource> make_fixture_source(
     auto fileAccessor = std::make_shared<mpviz::FileFixtureAssetAccessor>(std::move(killed));
     CesiumAsync::AsyncSystem asyncSystem(std::make_shared<mpviz::SimpleTaskProcessor>());
     const std::string cacheDir = test_cache_dir();
-    Cesium3DTilesSelection::TilesetExternals externals =
-        mpviz::build_externals(fileAccessor, asyncSystem, cacheDir, mpviz::kDefaultMaxCacheItems);
+    std::shared_ptr<mpviz::CountingAssetAccessor> counting;
+    Cesium3DTilesSelection::TilesetExternals externals = mpviz::build_externals(
+        fileAccessor, asyncSystem, cacheDir, mpviz::kDefaultMaxCacheItems, &counting);
     const std::string tilesetUri = std::string("file://") + fixture_dir + "/tileset.json";
     return std::make_unique<mpviz::StreamingEnvironmentSource>(
         externals, /*asset_id=*/0, /*ion_access_token=*/std::string(),
-        tilesetUri, fallback_baked_dir ? std::string(fallback_baked_dir) : std::string(), anchor);
+        tilesetUri, fallback_baked_dir ? std::string(fallback_baked_dir) : std::string(), anchor,
+        std::move(counting));
 }
 
 }  // namespace

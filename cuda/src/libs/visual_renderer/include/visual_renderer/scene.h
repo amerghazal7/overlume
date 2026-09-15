@@ -36,7 +36,12 @@ namespace mpviz {
 //
 // Appended VM-090 (unified-engine migration Task 1, ADR-0005) -- kSceneVersion
 // 4 -> 5, for CameraExtrinsics/CameraIntrinsics/BowlConfig below.
-constexpr uint32_t kSceneVersion = 5;
+//
+// Appended VM-063 (Epic 6 Task 4, ADR-0004) -- kSceneVersion 5 -> 6, for
+// EnvironmentSourceState below. environment_source_state() itself, being a
+// free-function-only addition, bumps nothing (VM-090 precedent) -- the
+// appended ENUM is what bumps this constant.
+constexpr uint32_t kSceneVersion = 6;
 
 struct Vec3 { double x, y, z; };
 
@@ -590,6 +595,26 @@ bool set_camera_frame(VisualRenderer*, uint32_t cam_idx,
 // once (spec §9's "missing data renders nothing"). VM-052 (Epic 4 Task 3);
 // streaming dispatch VM-062 (Epic 6 Task 3).
 bool set_environment_source(VisualRenderer*, const char* source_uri, GeoAnchor anchor);
+
+// Epic 6 (VM-063), ADR-0004 additive: appended enum -- bumps kSceneVersion
+// 5 -> 6 (enum-class-uint8_t precedent: ObjectClass). Network loss happens
+// mid-run, long after set_environment_source() returned true, and the
+// library can't WARN itself (POD-boundary logging convention -- "logs
+// nothing itself, caller WARNs", same as set_environment_source above) --
+// this is the node's only window into a streaming source's live health.
+enum class EnvironmentSourceState : uint8_t {
+    NONE = 0,                // no source configured (set_environment_source never succeeded)
+    BAKED = 1,               // BakedEnvironmentSource active (a plain-path source_uri)
+    STREAMING = 2,           // ion:// source active, network healthy (or untested)
+    STREAMING_FALLBACK = 3,  // ion:// source declared network loss and switched to its
+                             // &fallback= baked dir (one-way until restart -- Decision 11)
+};
+
+// Free function, POD-only, bumps nothing by itself (VM-090 precedent); the
+// appended ENUM above is what bumps kSceneVersion. Returns NONE on null `r`
+// or when no source is configured. One virtual call + integer compare --
+// safe to poll once per tick.
+EnvironmentSourceState environment_source_state(VisualRenderer*);
 
 // Live quality-preset switch for the node-side governor (VM-040): re-applies
 // create_renderer()'s SSAO/AA/shadow/render-scale mapping against an

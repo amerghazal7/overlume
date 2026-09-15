@@ -665,6 +665,13 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // finished yet).
     environment_enabled_ = declare_parameter<bool>("environment_enabled", true);
     environment_chunks_dir_ = declare_parameter<std::string>("environment_chunks_dir", "");
+    // VM-063 (Epic 6 Task 4): source-selection config -- "" (shipped
+    // default for both) means "keep using environment_chunks_dir_ as a
+    // baked dir", byte-for-byte today's behavior. See on_activate()'s
+    // composition comment for how a non-empty environment_source_uri_
+    // combines with these.
+    environment_source_uri_ = declare_parameter<std::string>("environment_source_uri", "");
+    environment_tile_cache_dir_ = declare_parameter<std::string>("environment_tile_cache_dir", "");
 
     // ── HD-map adapters ───────────────────────────────────────────────────────
     // One HdMapAdapter per profile row with adapter: hd_map. fill() APPENDS
@@ -1031,23 +1038,51 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
     // gap this step's own WARN names, not silently patched around (spec
     // §4.5/§9: "no anchor from either source -> environment layer disabled
     // with one WARN").
-    if (environment_enabled_ && environment_chunks_dir_.empty())
+    if (environment_enabled_ && environment_chunks_dir_.empty() && environment_source_uri_.empty())
     {
-        // The shipped default ("" -- per-checkout path, VM-044 gap) means
-        // "not configured", not "failed": never call the entry point, and
-        // the warning says so instead of reading as an open failure.
+        // Neither knob configured ("" is the shipped default for both,
+        // VM-044-style per-checkout gap): "not configured", not "failed" --
+        // never call the entry point, and the warning names BOTH params
+        // instead of reading as an open failure (VM-063: a streaming-only
+        // deployment, ion:// URI with no bake, is now a supported config
+        // this gate must not silently disable).
         RCLCPP_WARN(get_logger(),
-                    "environment_enabled but environment_chunks_dir is empty -- "
+                    "neither environment_chunks_dir nor environment_source_uri is set -- "
                     "environment layer disabled this run");
     }
     else if (environment_enabled_ && geo_anchor_solver_->solved())
     {
-        if (!mpviz::set_environment_source(renderer_, environment_chunks_dir_.c_str(),
+        // VM-063 Decision 5: compose the ONE source_uri string
+        // set_environment_source() dispatches on. environment_source_uri_
+        // empty -> environment_chunks_dir_ verbatim, byte-for-byte today's
+        // behavior. Non-empty -> "<uri>[?cache=<dir>][&fallback=<dir>]" --
+        // a streamed deployment's own baked bake (Epic 4's own output) is
+        // automatically its fallback with zero extra config. Reachable
+        // with an empty chunks dir: then no &fallback= is appended
+        // (Decision 11's no-fallback path). Known ceiling (Decision 5,
+        // restated here): a path containing '?' or '&' is unsupported by
+        // the library's split-only parser -- not re-validated here, same
+        // as every other path param in this file.
+        std::string source_uri = environment_chunks_dir_;
+        if (!environment_source_uri_.empty())
+        {
+            source_uri = environment_source_uri_;
+            if (!environment_tile_cache_dir_.empty())
+            {
+                source_uri += "?cache=" + environment_tile_cache_dir_;
+            }
+            if (!environment_chunks_dir_.empty())
+            {
+                source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
+                source_uri += "fallback=" + environment_chunks_dir_;
+            }
+        }
+        if (!mpviz::set_environment_source(renderer_, source_uri.c_str(),
                                             geo_anchor_solver_->anchor()))
         {
             RCLCPP_WARN(get_logger(),
                         "set_environment_source: failed to open '%s' -- no buildings this run",
-                        environment_chunks_dir_.c_str());
+                        source_uri.c_str());
         }
         // No per-mode gate on success: see timer_callback()'s comment above
         // the bowl-visibility dispatch -- buildings render regardless of
@@ -1750,6 +1785,34 @@ void VisualizationNode::timer_callback()
     render_ms_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
                                                              render_start)
                      .count();
+
+    // ── environment source health poll (VM-063, Decision 11) ────────────────
+    // One virtual call + integer compare, safe every tick. The library
+    // can't WARN itself (POD-boundary logging convention) and network loss
+    // happens mid-run, long after on_activate()'s set_environment_source()
+    // call returned true -- this is the node's only window into it. Bool
+    // latch, not _ONCE sugar (the Epic 4 Task 1 Step 4 precedent,
+    // geo_anchor_logged_): fires exactly once on the STREAMING ->
+    // STREAMING_FALLBACK transition, never again this run (one-way,
+    // Decision 11 -- no auto-recovery to re-arm it).
+    if (!environment_fallback_warned_ &&
+        mpviz::environment_source_state(renderer_) ==
+            mpviz::EnvironmentSourceState::STREAMING_FALLBACK)
+    {
+        environment_fallback_warned_ = true;
+        if (environment_chunks_dir_.empty())
+        {
+            RCLCPP_WARN(get_logger(),
+                        "environment source: network loss detected -- switched to fallback, "
+                        "but none configured -- environment now empty");
+        }
+        else
+        {
+            RCLCPP_WARN(get_logger(),
+                        "environment source: network loss detected -- switched to fallback dir '%s'",
+                        environment_chunks_dir_.c_str());
+        }
+    }
 
     // ── quality auto-drop governor (VM-040, see backlog Done note) ───────────
     // Opt-in. On a transition, applies it live via mpviz::set_quality() and

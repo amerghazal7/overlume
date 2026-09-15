@@ -28,6 +28,15 @@ const std::string kTestTownDir =
     std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/environment_test_town_0";
 const std::string kIonFixtureDir =
     std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/environment_ion_fixture_0";
+// VM-063 (Task 4): a dedicated, synthetic 16-real-tile fixture for the
+// network-loss e2e -- see its own PROVENANCE.md for why
+// environment_ion_fixture_0's 3 tiles cannot produce
+// kNetworkLossConsecutiveFailures (8) distinct failing requests (a
+// succeeded/cached tile can't be forced to fail again inside one short
+// test process; a failed tile isn't auto-retried without a fresh
+// unload/redesire cycle) and why 16 real (duplicated) tiles fixes that.
+const std::string kIonFixtureFallbackDir =
+    std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/environment_ion_fixture_fallback_0";
 
 constexpr mpviz::Vec3 kChunk0Center{-128.0, -128.0, 0.0};
 
@@ -299,8 +308,102 @@ TEST(EnvironmentStreamPerf, RenderMsDeltaAndWorstFrameWithFixtureLoaded) {
     SUCCEED();
 }
 
+
+// ── Task 4 (VM-063): network-loss fallback e2e ──────────────────────────
+namespace {
+
+// Pumps until `stop_state` is observed or `max_ticks` pass, asserting every
+// tick's render_frame() still succeeds throughout (spec §9, never a crash).
+// Ego stays put at kFixtureBlockCenterMap the whole time -- with
+// environment_ion_fixture_fallback_0's 16 same-region tiles, the killed
+// accessor produces >= kNetworkLossConsecutiveFailures within the first
+// couple of ticks without any ego motion (unlike the original 3-tile
+// fixture, where a stationary ego issues no NEW tile requests once
+// whatever's already resident is loaded).
+void pump_until_state(mpviz::VisualRenderer* r, const mpviz::CameraPose& pose,
+                       std::vector<uint8_t>& buf, mpviz::EnvironmentSourceState stop_state,
+                       int max_ticks = 30) {
+    for (int i = 0; i < max_ticks; ++i) {
+        ASSERT_TRUE(mpviz::render_frame(r, pose, {buf.data(), 320, 240}));
+        if (mpviz::environment_source_state(r) == stop_state) return;
+    }
+}
+
+}  // namespace
+
+TEST(EnvironmentStream, NetworkLossFallsBackToBakedChunksOnce) {
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    // Fixture source with a kill switch, fallback pointed at Epic 4's
+    // committed baked test town (the REAL fallback content path, not a
+    // stub) -- kFixtureBlockCenterMap sits within kLoadRadiusM of the
+    // town's own chunk_-1_-1 (center (-128,-128,0), radius_m ~181 < 300),
+    // so the fallback loads real chunks with no ego motion needed.
+    auto* killable = mpviz::testing::install_fixture_streaming_source_with_fallback(
+        r, kIonFixtureFallbackDir.c_str(), kTestTownDir.c_str(), kFixtureAnchor);
+    ASSERT_NE(killable, nullptr);
+
+    mpviz::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kFixtureBlockCenterMap;
+    mpviz::set_scene(r, s);
+
+    // Phase 1: healthy -- construction alone reports STREAMING ("network
+    // healthy (or untested)", scene.h's own Interfaces comment) before a
+    // single tick has run.
+    EXPECT_EQ(mpviz::environment_source_state(r), mpviz::EnvironmentSourceState::STREAMING);
+
+    // Phase 2: kill the network; every one of the fixture's 16 real tiles
+    // is a first-ever, never-cached request, so each one fails once the
+    // killed accessor is hit -- real HTTP-shaped failures through the SAME
+    // CountingAssetAccessor -> CachingAssetAccessor(SqliteCache) stack
+    // production traffic runs, not a mocked counter.
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    mpviz::testing::kill_fixture_network(killable);
+    pump_until_state(r, kStdPose, buf, mpviz::EnvironmentSourceState::STREAMING_FALLBACK);
+
+    // Fallback declared after kNetworkLossConsecutiveFailures failed requests:
+    EXPECT_EQ(mpviz::environment_source_state(r), mpviz::EnvironmentSourceState::STREAMING_FALLBACK);
+    // AC: "baked chunks appear" -- the count now reports the BAKED town's
+    // chunks. The streamed tiles are GONE (torn down, not orphaned) --
+    // loaded_count is the baked source's number now.
+    EXPECT_GT(mpviz::testing::environment_loaded_chunk_count(r), 0u);
+    mpviz::destroy_renderer(r);
+}
+
+// Negative path (Decision 11): no &fallback= given -> state still
+// transitions to STREAMING_FALLBACK, loaded_chunk_count stays at 0, no
+// crash, render_frame keeps returning true (spec §9 all the way down).
+TEST(EnvironmentStream, NetworkLossWithNoFallbackDirStillTransitionsAndStaysEmpty) {
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    auto* killable = mpviz::testing::install_fixture_streaming_source_with_fallback(
+        r, kIonFixtureFallbackDir.c_str(), /*fallback_baked_dir=*/nullptr, kFixtureAnchor);
+    ASSERT_NE(killable, nullptr);
+
+    mpviz::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kFixtureBlockCenterMap;
+    mpviz::set_scene(r, s);
+
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    mpviz::testing::kill_fixture_network(killable);
+    pump_until_state(r, kStdPose, buf, mpviz::EnvironmentSourceState::STREAMING_FALLBACK);
+
+    EXPECT_EQ(mpviz::environment_source_state(r), mpviz::EnvironmentSourceState::STREAMING_FALLBACK);
+    EXPECT_EQ(mpviz::testing::environment_loaded_chunk_count(r), 0u);
+    EXPECT_TRUE(mpviz::render_frame(r, kStdPose, {buf.data(), 320, 240}));
+    mpviz::destroy_renderer(r);
+}
+
 // Fixture provenance (Step 0): tests/fixtures/environment_ion_fixture_0/ --
 // see that directory's own PROVENANCE.md (real ion OSM Buildings tiles,
 // fetched once with the live token, tileset.json hand-pruned to a
 // self-contained 3-tile subtree with relative local uris; token appears
-// nowhere in the fixture, verified by grep before commit).
+// nowhere in the fixture, verified by grep before commit). Task 4's own
+// environment_ion_fixture_fallback_0/PROVENANCE.md documents the
+// duplicated-tile fixture used by the network-loss e2e above.

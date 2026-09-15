@@ -48,6 +48,12 @@ public:
     // virtual instead of a downcast. Library-internal only (not the POD
     // seam) -- update()/teardown() above stay verbatim.
     virtual size_t loaded_count() const = 0;
+    // Epic 6 (VM-063) Decision 11: the environment_source_state() test/node
+    // hook goes through this virtual -- BAKED for BakedEnvironmentSource,
+    // STREAMING or STREAMING_FALLBACK for StreamingEnvironmentSource
+    // depending on whether it has fallen back to a baked dir after a
+    // network-loss detection.
+    virtual EnvironmentSourceState state() const = 0;
 };
 
 // Named hysteresis band: kUnloadRadiusM > kLoadRadiusM so a chunk sitting
@@ -87,6 +93,10 @@ public:
     // Decision 12: forwards to the above -- same numbers through a virtual,
     // every existing test keeps passing unchanged.
     size_t loaded_count() const override { return loaded_chunk_count(); }
+    // A plain-path source_uri always opens THIS class -- always BAKED,
+    // never a fallback state (fallback is a StreamingEnvironmentSource-only
+    // concept, VM-063 Decision 11).
+    EnvironmentSourceState state() const override { return EnvironmentSourceState::BAKED; }
 
 private:
     std::string dir_;

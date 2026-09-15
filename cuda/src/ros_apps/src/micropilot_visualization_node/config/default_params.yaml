@@ -119,6 +119,26 @@
     # set_environment_source() (no anchor solved / no dir given -- same
     # "missing data renders nothing" convention, spec §9).
     environment_chunks_dir: ""
+    # VM-063 (Epic 6 Task 4): source-selection config. "" (the shipped
+    # default) means keep using environment_chunks_dir_ above as a baked
+    # dir -- byte-for-byte today's behavior, every existing deployment
+    # unaffected. A non-empty value switches to the streamed backend:
+    # "ion://<assetId>" (e.g. "ion://96188" for Cesium OSM Buildings, see
+    # docs/visual_mode/cesium.md for the ion account/token setup -- by
+    # name, NEVER the token value itself; the library reads
+    # CESIUM_ION_TOKEN from the environment). environment_chunks_dir above,
+    # if also set, becomes the automatic fallback dir on network loss
+    # (Decision 11) -- zero extra config needed for a streamed deployment
+    # that already has its own Epic-4 bake. Known ceiling: a path
+    # containing '?' or '&' is unsupported by the library's split-only
+    # query parser (Decision 5).
+    environment_source_uri: ""
+    # VM-063: on-disk tile cache dir for the streamed backend (ignored by
+    # the baked backend). "" (the shipped default) uses the library's own
+    # default (${XDG_CACHE_HOME:-$HOME/.cache}/mpviz-tile-cache, Decision
+    # 10) -- set this only to override that location (e.g. a different
+    # disk/quota on a specific robot). Same '?'/'&' path ceiling as above.
+    environment_tile_cache_dir: ""
     # VM-091 (unified-engine migration Task 2): mode-1 bowl camera ingest.
     # The disable knob per the STANDING rule (declare-default off; false
     # means no camera subs, no cv_bridge cost, no set_bowl_config/
