@@ -16,6 +16,8 @@ backlog and `docs/superpowers/plans/` for the per-epic plans.
   visualization node via profile YAML only (autonomy-team audience).
 - [`environment_bake.md`](environment_bake.md) — bake OSM building footprints
   into the environment-chunk format the node loads at `on_activate()`.
+- [`cesium.md`](cesium.md) — Cesium ion account/token/asset contract + the
+  `CESIUM_ION_TOKEN` smoke check (Epic 6 / VM-060).
 
 ## Pre-merge gate (VM-041)
 
