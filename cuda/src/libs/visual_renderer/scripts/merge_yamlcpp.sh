@@ -202,3 +202,29 @@ fi
 
 rm -f "$target_archive"
 "$ar_tool" crs "$target_archive" "$merged_o"
+
+# Post-merge audit (VM-061 gate round 2, Finding 1 fix_instruction point 3):
+# a gate-round-1 pass audited ONLY `nm --defined-only` on this archive and
+# still missed a live hazard -- the archive can define zero un-renamed
+# symbols yet still reference (UNDEFINED) a vendor symbol by its raw name,
+# which is exactly as dangerous (it can resolve against the node process's
+# own separately-loaded gcc/libstdc++ libspdlog.so.1 at final link/load time
+# instead of this archive's own renamed copy). Check both directions here,
+# every build, automatically -- not just when a reviewer happens to think to.
+undefined_survivors=$("$nm_tool" --undefined-only "$target_archive" 2>/dev/null \
+  | awk '{print $2}' | grep -E '4YAML|6spdlog|N3fmt[0-9]' | grep -v '^mpviz_vendored_' | sort -u || true)
+defined_survivors=$("$nm_tool" --defined-only "$target_archive" 2>/dev/null \
+  | awk '{print $3}' | grep -E '^_Z.*(4YAML|6spdlog|N3fmt[0-9])' | sort -u || true)
+if [ -n "$undefined_survivors" ] || [ -n "$defined_survivors" ]; then
+  echo "merge_yamlcpp.sh: un-renamed YAML::/spdlog::/fmt:: symbols survive in $target_archive after the merge -- ABI hazard, not proceeding." >&2
+  [ -n "$undefined_survivors" ] && { echo "  undefined survivors:" >&2; echo "$undefined_survivors" >&2; }
+  [ -n "$defined_survivors" ] && { echo "  defined survivors:" >&2; echo "$defined_survivors" >&2; }
+  exit 1
+fi
+# NOTE: this audits only what THIS archive itself defines/references -- it
+# cannot see what a consumer's OWN link line additionally pulls in from the
+# raw, un-merged vcpkg archives (e.g. a probe that links a cesium CMake
+# target directly, for its headers, alongside visual_renderer). That is
+# checked separately, per-executable, where those consumers are defined
+# (CMakeLists.txt's cesium_link_probe test) -- an archive-only audit cannot
+# stand in for it.
