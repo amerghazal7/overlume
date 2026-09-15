@@ -192,15 +192,24 @@ endforeach()
 file(GLOB_RECURSE VISUAL_RENDERER_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
 # C++20 quarantine (Decision 3, VM-061/VM-062): environment_stream.cpp (Task
-# 3 owns the file; it does not exist yet at VM-061) compiles in its own
-# OBJECT library so it inherits cesium-native's FULL usage requirements --
-# include dirs, PUBLIC compile definitions (GLM_FORCE_INTRINSICS et al.,
-# configure_cesium_library.cmake:27-41 -- hand-copying only the include dirs
-# would silently change glm's SIMD layout in this TU vs the archives), and
-# the C++20 standard -- with nothing hand-copied to drift. Guarded by
-# EXISTS so this task stays green standalone; Step 3's link probe is the
-# compile proof that the cesium archive set itself is sound.
-if(MPVIZ_ENABLE_CESIUM AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
+# 3's file, now landed) compiles in its own OBJECT library so it inherits
+# cesium-native's FULL usage requirements -- include dirs, PUBLIC compile
+# definitions (GLM_FORCE_INTRINSICS et al., configure_cesium_library.cmake:
+# 27-41 -- hand-copying only the include dirs would silently change glm's
+# SIMD layout in this TU vs the archives), and the C++20 standard -- with
+# nothing hand-copied to drift.
+#
+# VM-062 fix (this task): the EXISTS-only removal below is UNCONDITIONAL on
+# MPVIZ_ENABLE_CESIUM, deliberately -- with the option OFF, environment_stream.cpp
+# must be excluded from the ordinary C++17 glob entirely (not compiled at
+# all, by either path) rather than fall through into VISUAL_RENDERER_SOURCES
+# and get compiled as a plain C++17 TU: the file's own
+# static_assert(__cplusplus >= 202002L, ...) (environment_stream.hpp) would
+# hard-fail that build, which is exactly the "your changes must be invisible
+# in build/" hard rule this file's own header comment already promises.
+# Only the OBJECT-library block two lines down stays gated on
+# MPVIZ_ENABLE_CESIUM -- that's what actually compiles the file.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
     list(REMOVE_ITEM VISUAL_RENDERER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
 endif()
 
@@ -217,6 +226,16 @@ if(MPVIZ_ENABLE_CESIUM AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_s
                      # CesiumIonClient deliberately ABSENT: the ion handshake is the
                      # Tileset ion ctor's job (Decision 15.6) -- nothing calls the
                      # REST client directly; re-add only if the link proves otherwise.
+        # VM-062: environment_stream.cpp includes renderer_internal.hpp +
+        # environment.hpp, both of which pull in <filament/...>/<gltfio/...>
+        # headers (the createAsset/loadResources/TransformManager/
+        # RenderableManager calls Decision 7/8 need) -- OBJECT libraries
+        # inherit usage requirements (include dirs) from what they link,
+        # same mechanism this file's own Decision-3 comment relies on for
+        # cesium's PUBLIC compile definitions, so this grants headers only,
+        # no extra link dependency (visual_renderer already links
+        # Filament::filament itself).
+        Filament::filament
     )
     target_include_directories(visual_renderer_stream PRIVATE src include)
     target_sources(visual_renderer PRIVATE $<TARGET_OBJECTS:visual_renderer_stream>)
@@ -255,6 +274,13 @@ if(MPVIZ_ENABLE_CESIUM)
     # from the project's own standard so a future bump carries through instead of
     # being silently clamped back.
     target_compile_options(visual_renderer PRIVATE -std=gnu++${CMAKE_CXX_STANDARD})
+    # VM-062: lets environment.cpp's ion:// dispatch (Decision 5) call
+    # open_streaming_environment_source() only when environment_stream.cpp
+    # was actually compiled in -- with the option OFF, that symbol has no
+    # definition anywhere in this build, so the call site is compiled out
+    # instead of becoming an undefined reference at every executable that
+    # links visual_renderer (hello_frame, every tests/*.cpp binary, ...).
+    target_compile_definitions(visual_renderer PRIVATE MPVIZ_ENABLE_CESIUM=1)
 endif()
 
 target_include_directories(visual_renderer PUBLIC
@@ -431,6 +457,26 @@ else()
     set(_mpviz_vendor_merge_archives "")
 endif()
 
+# VM-062 fix: $<TARGET_OBJECTS:visual_renderer> does NOT include
+# environment_stream.cpp.o even though it's added to visual_renderer's own
+# SOURCES via target_sources(... $<TARGET_OBJECTS:visual_renderer_stream>)
+# above -- confirmed directly (generated build.make's merge command line
+# lists every ordinary tests/*.cpp-glob .o file but not this one), a CMake
+# generator-expression quirk: TARGET_OBJECTS enumerates a target's objects
+# compiled from its own literal SOURCES list, not objects forwarded into it
+# through a nested TARGET_OBJECTS generator expression. Symptom this caused
+# before the fix: `open_streaming_environment_source` compiled fine
+# (visual_renderer_stream.cpp.o has the DEFINED symbol, verified with nm)
+# but never made it into visual_renderer_merged.o, so every executable
+# that links visual_renderer failed with an undefined reference the moment
+# environment.cpp's ion:// dispatch called it. Fixed by passing
+# visual_renderer_stream's own object list to the merge script explicitly,
+# alongside visual_renderer's.
+set(_mpviz_visual_renderer_stream_objects "")
+if(MPVIZ_ENABLE_CESIUM AND TARGET visual_renderer_stream)
+    set(_mpviz_visual_renderer_stream_objects $<TARGET_OBJECTS:visual_renderer_stream>)
+endif()
+
 add_custom_command(TARGET visual_renderer POST_BUILD
     COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/merge_yamlcpp.sh"
             "${CMAKE_AR}" "${CMAKE_LINKER}" "${CMAKE_OBJCOPY}" "${CMAKE_NM}"
@@ -438,6 +484,7 @@ add_custom_command(TARGET visual_renderer POST_BUILD
             "${CMAKE_BINARY_DIR}/visual_renderer_merged.o"
             "$<TARGET_FILE:visual_renderer>"
             $<TARGET_OBJECTS:visual_renderer>
+            ${_mpviz_visual_renderer_stream_objects}
             --
             "$<TARGET_FILE:yaml-cpp>"
             ${_mpviz_vendor_merge_archives}
@@ -529,6 +576,18 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     set(_golden_cpp "${CMAKE_CURRENT_SOURCE_DIR}/tests/golden.cpp")
     file(GLOB _visual_renderer_test_srcs CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp")
     list(REMOVE_ITEM _visual_renderer_test_srcs "${_golden_cpp}")
+    # VM-062: test_environment_stream.cpp calls the mpviz::testing streaming
+    # hooks (install_fixture_streaming_source, ecef_to_map_probe, ...),
+    # DEFINED only in environment_stream.cpp -- which itself is excluded
+    # from this build entirely when MPVIZ_ENABLE_CESIUM is OFF (see that
+    # option's own comment above). Without this exclusion, the ordinary
+    # clang-14 build/ tree (option OFF) would try to link a test binary
+    # against symbols that don't exist anywhere in it -- exactly the
+    # "invisible in build/" hard rule this task is bound by.
+    if(NOT MPVIZ_ENABLE_CESIUM)
+        list(REMOVE_ITEM _visual_renderer_test_srcs
+             "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_environment_stream.cpp")
+    endif()
     foreach(_test_src ${_visual_renderer_test_srcs})
         get_filename_component(_test_name "${_test_src}" NAME_WE)
         set(_test_extra_srcs "")
