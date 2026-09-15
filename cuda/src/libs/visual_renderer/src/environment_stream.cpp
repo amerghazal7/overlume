@@ -670,9 +670,18 @@ namespace {
 // cache within a run -- while a fresh process (a new ctest invocation) gets
 // a fresh, genuinely cold directory.
 std::string test_cache_dir() {
-    static const std::string dir = (std::filesystem::temp_directory_path() /
-                                     ("mpviz-stream-test-cache-" + std::to_string(::getpid())))
-                                        .string();
+    // remove_all on first use: a reused pid must not inherit an earlier
+    // run's warm cache (that would let DiskCacheServesTilesWithNetworkDead
+    // pass with a broken cache-write path -- the exact spurious-pass mode
+    // gate round 1 finding 4 closed). One-time per process, like the path.
+    static const std::string dir = [] {
+        const std::string d = (std::filesystem::temp_directory_path() /
+                               ("mpviz-stream-test-cache-" + std::to_string(::getpid())))
+                                  .string();
+        std::error_code ec;
+        std::filesystem::remove_all(d, ec);
+        return d;
+    }();
     return dir;
 }
 

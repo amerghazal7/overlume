@@ -155,10 +155,14 @@ TEST(EnvironmentStream, EcefToMapAgreesWithCppPinWithinHalfMeter) {
     // contrast, DOES report the true geometric sag below the tangent plane
     // (~0.54 m at this fixture's ~2.6 km probe, d^2/(2R) as expected) --
     // real curvature, not a bug, and not something the east/north sphere
-    // rescale above touches or should: it is the SAME already-named,
-    // already-accepted flat-map-frame approximation `kStreamHeightOffsetM`
-    // exists to absorb (see the Interfaces block's "Altitude" paragraph),
-    // not a placement error this test is checking for.
+    // rescale above touches or should. NOTE (gate round 2): the sag is
+    // d^2/(2R) -- 0.08 m at 1 km, 0.54 m at 2.6 km, 7.85 m at 10 km --
+    // quadratic in distance from the anchor, so the CONSTANT
+    // `kStreamHeightOffsetM` cannot cancel it, and it is not expressible in
+    // the single rigid 4x4 the design commits to; if streamed tiles visibly
+    // sink at long range, that is a Task 4 / follow-up item, not a knob
+    // that already exists. z IS asserted below, against the sag model
+    // itself, so an up-axis/z-scale regression still fails this test.
     for (const Probe& p : probes) {
         double x = 0, y = 0, z = 0;
         ASSERT_TRUE(mpviz::testing::ecef_to_map_probe(25.0803, 55.391, p.heading_rad, p.lat, p.lon,
@@ -167,6 +171,13 @@ TEST(EnvironmentStream, EcefToMapAgreesWithCppPinWithinHalfMeter) {
         EXPECT_LT(err, 0.5) << "lat=" << p.lat << " lon=" << p.lon << " heading=" << p.heading_rad
                              << " got=(" << x << "," << y << "," << z << ") want=(" << p.map_x << ","
                              << p.map_y << "," << p.map_z << ") err=" << err;
+        // z is asserted against the tangent-plane sag model itself,
+        // -d^2/(2R) (VM-062 gate round 2 minor): a genuine up-axis
+        // inversion or z-scale regression in compute_ecef_to_map must fail
+        // HERE -- the horizontal bar above cannot see it.
+        const double want_z = -(p.map_x * p.map_x + p.map_y * p.map_y) / (2.0 * 6371000.0);
+        EXPECT_NEAR(z, want_z, 0.05) << "lat=" << p.lat << " lon=" << p.lon
+                                     << " z=" << z << " want_z(sag)=" << want_z;
     }
 }
 
@@ -177,7 +188,9 @@ TEST(EnvironmentStream, DiskCacheServesTilesWithNetworkDead) {
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
     // Run 1: healthy fixture accessor, warms the on-disk sqlite cache
-    // (Decision 10) under kIonFixtureDir/.test_cache.
+    // (Decision 10) in the per-process temp dir test_cache_dir() names
+    // (under std::filesystem::temp_directory_path(), NOT the committed
+    // fixture tree -- gate round 1 finding 4).
     auto* handle1 = mpviz::testing::install_fixture_streaming_source_with_fallback(
         r, kIonFixtureDir.c_str(), /*fallback_baked_dir=*/nullptr, kFixtureAnchor);
     ASSERT_NE(handle1, nullptr);
@@ -193,7 +206,8 @@ TEST(EnvironmentStream, DiskCacheServesTilesWithNetworkDead) {
     // down, or the SECOND source below could race an incomplete cache.
     for (int i = 0; i < 30; ++i) mpviz::render_frame(r, kStdPose, {buf.data(), 320, 240});
 
-    // Run 2: SAME fixture dir (same cache path, Decision 10) but the
+    // Run 2: shares run 1's cache because test_cache_dir() is static
+    // within the process (same per-process temp path, Decision 10), but the
     // "network" killed from tick 0 -- any tile that still loads came from
     // the sqlite cache, not a live fetch.
     auto* handle2 = mpviz::testing::install_fixture_streaming_source_with_fallback(
