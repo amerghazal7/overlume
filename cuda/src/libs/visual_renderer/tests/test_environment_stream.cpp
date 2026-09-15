@@ -331,7 +331,36 @@ void pump_until_state(mpviz::VisualRenderer* r, const mpviz::CameraPose& pose,
 
 }  // namespace
 
-TEST(EnvironmentStream, NetworkLossFallsBackToBakedChunksOnce) {
+// VM-063 gate round 1, Finding 1: this test's real name is
+// NetworkDeadFromFirstRequestFallsBackToBakedChunksOnce, not
+// "...FallsBack...Once" read as "kills a live stream" -- reproduced
+// empirically (not assumed) that a genuinely mid-stream kill is NOT
+// reachable with this fixture: patching this test to pump_until_loaded()
+// first (real STREAMING with a non-empty inScene_), THEN kill, THEN pump
+// (tried up to 2000 ticks) never transitions to STREAMING_FALLBACK, because
+// pump_until_loaded()'s very first non-zero read already observes all 16
+// tiles loaded (loaded_chunk_count == 16 at that point, not 1) -- with only
+// 2 worker threads racing 16 near-instant local-file requests from the same
+// anchor, "first tile visible on the main thread" and "all 16 succeeded"
+// are, empirically, the same tick. There is no fixture-local timing window
+// between "some tiles streamed in" and "all of them did" to kill into. So
+// this test (and its e2e/negative sibling below) exercises Decision 11's
+// OTHER real regime: the network is already dead before the first content
+// request ever completes (the root tileset.json manifest is deliberately
+// exempted from the kill switch, per environment_ion_fixture_fallback_0's
+// own PROVENANCE.md, modeling "resolved once at startup, while healthy").
+// **Gap, named rather than silently dropped:** fallback from a truly live
+// STREAMING state with resident streamed assets -- and therefore the
+// teardown discipline (tearing down live Filament assets, not an
+// already-empty inScene_) under fallback -- has NO test coverage here. A
+// file fixture cannot produce it (this task's own empirical trail above);
+// closing the gap needs either a second, geographically-separate group of
+// never-cached tiles that only become desired after real ego motion (so
+// they're still unrequested when the kill lands), or an accessor with
+// injectable per-request latency -- both a fixture/harness change beyond
+// this round's scope, recorded here and in the Task 4 Step 1 plan ledger
+// entry rather than implied-but-untested.
+TEST(EnvironmentStream, NetworkDeadFromFirstRequestFallsBackToBakedChunksOnce) {
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
@@ -352,14 +381,17 @@ TEST(EnvironmentStream, NetworkLossFallsBackToBakedChunksOnce) {
 
     // Phase 1: healthy -- construction alone reports STREAMING ("network
     // healthy (or untested)", scene.h's own Interfaces comment) before a
-    // single tick has run.
+    // single tick has run. Nothing has streamed in yet (inScene_ is empty)
+    // -- see the test-level comment above for why this test cannot start
+    // from a genuinely loaded STREAMING state.
     EXPECT_EQ(mpviz::environment_source_state(r), mpviz::EnvironmentSourceState::STREAMING);
 
-    // Phase 2: kill the network; every one of the fixture's 16 real tiles
-    // is a first-ever, never-cached request, so each one fails once the
-    // killed accessor is hit -- real HTTP-shaped failures through the SAME
-    // CountingAssetAccessor -> CachingAssetAccessor(SqliteCache) stack
-    // production traffic runs, not a mocked counter.
+    // Phase 2: kill the network before any tile has ever been requested;
+    // every one of the fixture's 16 real tiles is then a first-ever,
+    // never-cached request that fails once the killed accessor is hit --
+    // real HTTP-shaped failures through the SAME CountingAssetAccessor ->
+    // CachingAssetAccessor(SqliteCache) stack production traffic runs, not
+    // a mocked counter.
     std::vector<uint8_t> buf(320u * 240u * 3u);
     mpviz::testing::kill_fixture_network(killable);
     pump_until_state(r, kStdPose, buf, mpviz::EnvironmentSourceState::STREAMING_FALLBACK);
@@ -367,8 +399,11 @@ TEST(EnvironmentStream, NetworkLossFallsBackToBakedChunksOnce) {
     // Fallback declared after kNetworkLossConsecutiveFailures failed requests:
     EXPECT_EQ(mpviz::environment_source_state(r), mpviz::EnvironmentSourceState::STREAMING_FALLBACK);
     // AC: "baked chunks appear" -- the count now reports the BAKED town's
-    // chunks. The streamed tiles are GONE (torn down, not orphaned) --
-    // loaded_count is the baked source's number now.
+    // chunks. NOTE: this does NOT prove the streamed tiles were "torn down,
+    // not orphaned" -- none were ever resident (no tile ever succeeded in
+    // this test), so there was nothing to tear down. That teardown-under-
+    // fallback claim is the named gap in the comment above, not covered
+    // here.
     EXPECT_GT(mpviz::testing::environment_loaded_chunk_count(r), 0u);
     mpviz::destroy_renderer(r);
 }
