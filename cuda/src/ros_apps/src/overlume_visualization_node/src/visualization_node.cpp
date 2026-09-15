@@ -1069,7 +1069,8 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
             source_uri = environment_source_uri_;
             if (!environment_tile_cache_dir_.empty())
             {
-                source_uri += "?cache=" + environment_tile_cache_dir_;
+                source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
+                source_uri += "cache=" + environment_tile_cache_dir_;
             }
             if (!environment_chunks_dir_.empty())
             {
@@ -2019,6 +2020,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_cleanup(
     geo_anchor_solver_.reset();
     geo_anchor_logged_ = false;
     environment_warned_ = false;
+    environment_fallback_warned_ = false;
     hd_map_subs_.clear();
     hd_map_rows_.clear();
     dynamic_objects_subs_.clear();
@@ -2059,6 +2061,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_shutdown(
     geo_anchor_solver_.reset();
     geo_anchor_logged_ = false;
     environment_warned_ = false;
+    environment_fallback_warned_ = false;
     hd_map_subs_.clear();
     hd_map_rows_.clear();
     dynamic_objects_subs_.clear();
