@@ -433,6 +433,21 @@ private:
     bool environment_enabled_{true};
     std::string environment_chunks_dir_;
     bool environment_warned_{false};
+    // VM-063 (Epic 6 Task 4): source-selection config, read once in
+    // on_configure() alongside the pair above. Empty environment_source_uri_
+    // (the shipped default) means "keep using environment_chunks_dir_ as a
+    // baked dir" -- byte-for-byte today's behavior, every existing
+    // deployment unaffected. Non-empty means an "ion://" URI is composed at
+    // on_activate() with `?cache=`/`&fallback=` from the two params below
+    // (Decision 5/11) -- see that call site's own comment for the exact
+    // composition and the changed not-configured gate.
+    std::string environment_source_uri_;
+    std::string environment_tile_cache_dir_;
+    // WARN-once latch on the STREAMING -> STREAMING_FALLBACK transition
+    // (Decision 11), polled once per tick in timer_callback() alongside
+    // render_ms_ -- same one-shot-bool shape as environment_warned_ above
+    // and the Epic 4 Task 1 Step 4 precedent (geo_anchor_logged_).
+    bool environment_fallback_warned_{false};
 
     SceneAssembly scene_asm_;
 

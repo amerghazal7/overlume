@@ -21,7 +21,7 @@
 
 #include <gtest/gtest.h>
 
-static_assert(mpviz::kSceneVersion == 5, "node/library scene.h version drifted");
+static_assert(mpviz::kSceneVersion == 6, "node/library scene.h version drifted");
 
 static_assert(sizeof(mpviz::MapElement) == 32, "node/library scene.h version drifted");
 static_assert(offsetof(mpviz::MapElement, points) == 0, "node/library scene.h version drifted");
@@ -120,6 +120,11 @@ static_assert(offsetof(mpviz::BowlConfig, exposure_match) == 73,
 static_assert(offsetof(mpviz::BowlConfig, sky_color) == 76,
               "node/library scene.h version drifted");
 static_assert(offsetof(mpviz::BowlConfig, exposure_compensation) == 88,
+              "node/library scene.h version drifted");
+
+// EnvironmentSourceState, appended VM-063 (Epic 6 Task 4, ADR-0004) --
+// kSceneVersion 5 -> 6.
+static_assert(sizeof(mpviz::EnvironmentSourceState) == 1,
               "node/library scene.h version drifted");
 
 // static_asserts above do the real work; this TEST body only exists so

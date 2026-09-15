@@ -201,6 +201,18 @@ bool set_environment_source(VisualRenderer* r, const char* source_uri, GeoAnchor
     return true;
 }
 
+// Epic 6 (VM-063) Decision 11: the node's only window into a streaming
+// source's live health, since the library can't WARN itself (POD-boundary
+// convention, same as set_environment_source above) and network loss
+// happens mid-run, long after set_environment_source() returned true.
+// NONE on null r or when no source is configured -- everything else goes
+// through the EnvironmentSource virtual (Decision 12's precedent: a
+// downcast here would be unsafe against a second concrete type).
+EnvironmentSourceState environment_source_state(VisualRenderer* r) {
+    if (r == nullptr || !r->environmentSource) return EnvironmentSourceState::NONE;
+    return r->environmentSource->state();
+}
+
 }  // namespace mpviz
 
 namespace mpviz::testing {
