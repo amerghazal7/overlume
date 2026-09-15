@@ -35,7 +35,12 @@ if [ ! -e "$system_libspdlog" ]; then
   exit 0
 fi
 
-probe_defined=$("$nm_tool" --defined-only "$probe_path" 2>/dev/null | awk '{print $3}' | grep -E '_ZN6spdlog|_ZN3fmt' | sort -u || true)
+# Unanchored, length-prefixed tokens (NOT _ZN-anchored): vtables (_ZTVN6spdlog...),
+# typeinfo (_ZTI/_ZTSN6spdlog...) and const methods (_ZNK6spdlog...) don't start
+# with _ZN, and those COMDAT-foldable symbols are exactly Decision 4's hazard.
+# MUST STAY IN SYNC with merge_yamlcpp.sh's rename-map token set (its twin).
+# Already-renamed mpviz_vendored_* symbols are ours, not overlap candidates.
+probe_defined=$("$nm_tool" --defined-only "$probe_path" 2>/dev/null | awk '{print $3}' | grep -E '6spdlog|N3fmt[0-9]' | grep -v '^mpviz_vendored_' | sort -u || true)
 system_defined=$("$nm_tool" -D --defined-only "$system_libspdlog" 2>/dev/null | awk '{print $3}' | sort -u || true)
 
 overlap=$(comm -12 <(printf '%s\n' "$probe_defined") <(printf '%s\n' "$system_defined") | sed '/^$/d')

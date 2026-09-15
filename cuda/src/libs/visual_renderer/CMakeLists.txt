@@ -250,7 +250,12 @@ endif()
 # a target's own COMPILE_OPTIONS after the auto-computed standard flag in
 # CXX_FLAGS, so this one line reliably wins over whatever cesium's compile
 # features bump the computed standard to.
-target_compile_options(visual_renderer PRIVATE -std=gnu++17)
+if(MPVIZ_ENABLE_CESIUM)
+    # Only needed when cesium's C++20 compile features are in the graph; derived
+    # from the project's own standard so a future bump carries through instead of
+    # being silently clamped back.
+    target_compile_options(visual_renderer PRIVATE -std=gnu++${CMAKE_CXX_STANDARD})
+endif()
 
 target_include_directories(visual_renderer PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
