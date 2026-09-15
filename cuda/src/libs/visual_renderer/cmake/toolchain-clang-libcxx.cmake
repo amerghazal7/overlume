@@ -1,10 +1,29 @@
-# toolchain-clang-libcxx.cmake — selects the clang-14/libc++ toolchain
+# toolchain-clang-libcxx.cmake — selects the clang-18/libc++ toolchain
 # visual_renderer must build with (spec §2: this lib is clang/libc++, the
 # gcc ROS node stays gcc/libstdc++, and the two must never mix at an ABI
 # boundary — see include/visual_renderer/api.h).
 #
-# Usage:
-#   scripts/setup_toolchain.sh   # once, bootstraps the fallback prefix below
+# VM-061 Step 6 (USER DECISION a, 2026-09-15): PRIMARY toolchain migrated
+# clang-14 -> clang-18. Reason: cesium-native's vcpkg dependency ada-url
+# hard-requires `std::ranges::replace`, which libc++-14 (and -15) do not
+# implement (verified directly; clang-16/17 aren't packaged on this box's
+# Ubuntu release) — clang-18 (apt.llvm.org, rootless,
+# scripts/setup_toolchain_cesium.sh) is the smallest packaged jump that has
+# it, and was already proven end-to-end in the dedicated `build-cesium/` tree
+# (Task 2 Steps 1-6). Option (b) from Task 2's gate-round blocker — restructure
+# GetCesiumNative.cmake around a nested ExternalProject_Add with its own
+# clang-18 toolchain, importing archives as IMPORTED targets, keeping this
+# file at clang-14 — was REJECTED by the user as a real architectural
+# rewrite for no runtime benefit. This file now resolves to the SAME
+# clang-18 rootless prefix `build-cesium/` already used: libc++'s ABI
+# (`std::__1::`) is stable 14->18 (this project's own merge-script ABI
+# check + Step 6's full node+gtest rebuild are the empirical proof, not just
+# the theory), and visual_renderer's own compiled objects never cross the
+# POD boundary as C++ types anyway — so migrating the compiler version
+# changes nothing about visual_renderer's own correctness.
+#
+# Usage (unchanged):
+#   scripts/setup_toolchain_cesium.sh   # once, bootstraps the clang-18 prefix
 #   cmake --toolchain cmake/toolchain-clang-libcxx.cmake -B build -S .
 #   cmake --build build
 #   ctest --test-dir build
@@ -13,31 +32,27 @@
 #   1. A clang++ already on PATH, but only if it actually has a co-located
 #      libc++ static archive (`clang++ -stdlib=libc++ -print-file-name=libc++.a`
 #      resolves to a real file) — so a box with a real (root-installed)
-#      clang+libc++-dev setup just works without the rootless prefix.
-#   2. scripts/setup_toolchain.sh's rootless bootstrap prefix
-#      (${XDG_CACHE_HOME:-$HOME/.cache}/mpviz-toolchain/bin/clang++).
+#      clang+libc++-dev setup just works without the rootless prefix. (Note:
+#      this escape hatch does not itself check for a C++20/std::ranges-capable
+#      clang; on this box nothing is on PATH, so it never fires — a future
+#      box that DOES have a system clang++ with libc++ but an old version
+#      would need MPVIZ_ENABLE_CESIUM=OFF, same constraint as before this
+#      migration, just newly worth naming now that ON is the common case.)
+#   2. clang18-toolchain-common.cmake's rootless clang-18 wrapper — the SAME
+#      resolution cmake/vcpkg-clang-libcxx-toolchain.cmake and the node's own
+#      cross-toolchain import (micropilot_visualization_node/CMakeLists.txt)
+#      use, factored into one file rather than duplicated a second/third time
+#      now that all three need clang-18 instead of just the vcpkg one.
 #
 # This also bakes in -stdlib=libc++ for compile and link so the documented
 # configure line above needs no other flags.
 #
-# MUST-STAY-IN-SYNC TWIN: cmake/vcpkg-clang-libcxx-toolchain.cmake +
-# scripts/setup_toolchain_cesium.sh (Epic 6 / VM-061 Task 2) are a SEPARATE,
-# clang-18 toolchain used only for the vcpkg/cesium-native build
-# (build-cesium/) — this file's clang-14 stays the toolchain for
-# visual_renderer itself. They diverge because libc++-14 (and -15) lack
-# std::ranges::replace, which vcpkg's ada-url port requires; clang-16/17 are
-# unpackaged on this box's Ubuntu release, so clang-18 (apt.llvm.org,
-# rootless) is what ada-url gets. Cesium's clang-18/libc++ archives are
-# merged into libvisual_renderer.a by scripts/merge_yamlcpp.sh, which is
-# what actually keeps that ABI boundary from leaking into the gcc/libstdc++
-# ROS node process, not this toolchain choice.
-
-if(DEFINED ENV{XDG_CACHE_HOME} AND NOT "$ENV{XDG_CACHE_HOME}" STREQUAL "")
-    set(_mpviz_cache_home "$ENV{XDG_CACHE_HOME}")
-else()
-    set(_mpviz_cache_home "$ENV{HOME}/.cache")
-endif()
-set(_mpviz_toolchain_prefix "${_mpviz_cache_home}/mpviz-toolchain")
+# scripts/setup_toolchain.sh's OLD clang-14 prefix (mpviz-toolchain/) is no
+# longer resolved by this file. It is left in place (harmless, unused) rather
+# than deleted — scripts/merge_yamlcpp.sh's own ABI check already proved
+# clang-14- and clang-18-built libc++ objects merge safely, so nothing
+# downstream needed the split kept once the primary toolchain itself could
+# just move to clang-18.
 
 find_program(_mpviz_path_clangxx NAMES clang++)
 set(_mpviz_chosen_clangxx "")
@@ -53,14 +68,8 @@ if(_mpviz_path_clangxx)
 endif()
 
 if(NOT _mpviz_chosen_clangxx)
-    set(_mpviz_prefix_clangxx "${_mpviz_toolchain_prefix}/bin/clang++")
-    if(NOT EXISTS "${_mpviz_prefix_clangxx}")
-        message(FATAL_ERROR
-            "visual_renderer: no clang++ on PATH with a co-located libc++, and "
-            "the rootless toolchain prefix (${_mpviz_prefix_clangxx}) doesn't "
-            "exist yet. Run scripts/setup_toolchain.sh first.")
-    endif()
-    set(_mpviz_chosen_clangxx "${_mpviz_prefix_clangxx}")
+    include("${CMAKE_CURRENT_LIST_DIR}/clang18-toolchain-common.cmake")
+    set(_mpviz_chosen_clangxx "${_mpviz_clang18_wrap_clangxx}")
 endif()
 
 set(CMAKE_CXX_COMPILER "${_mpviz_chosen_clangxx}" CACHE FILEPATH

@@ -11,3 +11,32 @@ set(VCPKG_CRT_LINKAGE dynamic)
 set(VCPKG_LIBRARY_LINKAGE static)
 set(VCPKG_CMAKE_SYSTEM_NAME Linux)
 set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/../vcpkg-clang-libcxx-toolchain.cmake")
+
+# VM-061 Step 6 (2026-09-15), finding: these static archives now end up
+# merged (ld -r, scripts/merge_yamlcpp.sh) into libvisual_renderer.a, which
+# the ROS node links into micropilot_visualization_node's OWN SHARED library
+# (visualization_node_lib) -- something no consumer of visual_renderer did
+# before Epic 6 (every prior consumer, including this library's own test
+# suite, is an EXECUTABLE, never a .so). Without -fPIC, spdlog's
+# thread_local `os.cpp` tid cache compiles with a TLS access model
+# ("Local Exec"/TPOFF32 relocations, confirmed via readelf -r -- NOT
+# "Initial Exec" as first assumed) that a shared object cannot carry --
+# confirmed directly: "relocation R_X86_64_TPOFF32 against
+# `mpviz_vendored__ZGVZN6spdlog7details2os9thread_idEvE3tid' can not be used
+# when making a shared object; recompile with -fPIC" building
+# visualization_node_lib.so.
+#
+# TRIED AND REVERTED: VCPKG_C_FLAGS/VCPKG_CXX_FLAGS set HERE (this triplet
+# file). Does NOTHING under this triplet -- those two variables are read and
+# injected into CMAKE_CXX_FLAGS_INIT only by vcpkg's OWN STOCK toolchain
+# script, and DEVIATION #2 in vcpkg-clang-libcxx-toolchain.cmake already
+# documents that VCPKG_CHAINLOAD_TOOLCHAIN_FILE REPLACES that stock script
+# ENTIRELY for this triplet, not layers on top of it -- so it never runs and
+# never reads these two variables. Confirmed directly: even after this
+# triplet file's own content changed (invalidating vcpkg's binary cache,
+# forcing a real rebuild) and the stale package-tracking DB was cleared too,
+# `vcpkg install spdlog --debug` showed zero `-fPIC` anywhere in the actual
+# compile command lines. The fix belongs in the CHAINLOADED file instead
+# (vcpkg-clang-libcxx-toolchain.cmake's own CMAKE_CXX_FLAGS_INIT/
+# CMAKE_C_FLAGS_INIT -- that file's own DEVIATION #5 records this same
+# story) -- it actually runs for every port build.

@@ -80,7 +80,7 @@ if(NOT EXISTS "${VISUAL_RENDERER_LIB}")
         "visual_renderer is not built. Build it first (see "
         "${VISUAL_RENDERER_DIR}/README.md):\n"
         "  cd ${VISUAL_RENDERER_DIR}\n"
-        "  scripts/setup_toolchain.sh\n"
+        "  scripts/setup_toolchain_cesium.sh\n"
         "  cmake --toolchain cmake/toolchain-clang-libcxx.cmake -B build -S .\n"
         "  cmake --build build\n"
         "then re-run this configure.")
@@ -114,24 +114,41 @@ set(FILAMENT_ROOT "${VISUAL_RENDERER_DIR}/build/_deps/filament-${FILAMENT_VERSIO
     CACHE PATH "Filament SDK root (reused from visual_renderer's own build)")
 include("${VISUAL_RENDERER_DIR}/cmake/GetFilament.cmake")
 
-# Locate the same rootless clang toolchain visual_renderer's own
-# scripts/setup_toolchain.sh bootstraps, purely as a TOOL to resolve the
-# static libc++/libc++abi/libunwind archive paths below — this package's own
-# sources still compile with gcc throughout; nothing here recompiles with
-# clang. See visual_renderer/CMakeLists.txt for why sibling-of-libc++.a (not
-# a bare -lunwind) is required: this box's system libunwind package is an
+# Locate the SAME clang toolchain that actually built
+# ${VISUAL_RENDERER_LIB}, purely as a TOOL to resolve the static libc++/
+# libc++abi/libunwind archive paths below — this package's own sources still
+# compile with gcc throughout; nothing here recompiles with clang. See
+# visual_renderer/CMakeLists.txt for why sibling-of-libc++.a (not a bare
+# -lunwind) is required: this box's system libunwind package is an
 # unrelated, ABI-incompatible library of the same name.
-find_program(MPVIZ_CLANGXX clang++
-    PATHS "$ENV{XDG_CACHE_HOME}/mpviz-toolchain/bin" "$ENV{HOME}/.cache/mpviz-toolchain/bin"
-    NO_DEFAULT_PATH)
-if(NOT MPVIZ_CLANGXX)
-    find_program(MPVIZ_CLANGXX clang++)
+#
+# VM-061 Step 6 (USER DECISION a, 2026-09-15): visual_renderer's own primary
+# toolchain migrated clang-14 -> clang-18 (cmake/toolchain-clang-libcxx.cmake).
+# This lookup MUST track that: resolving a stale clang-14 here (this box
+# still has that old rootless prefix on disk, unused but present) would
+# silently link a version-mismatched static libc++.a/libc++abi.a/libunwind.a
+# into this binary alongside the clang-18-built ${VISUAL_RENDERER_LIB} —
+# the exact cross-toolchain hazard this whole section exists to avoid, just
+# one step removed. So this uses the identical resolution order as
+# visual_renderer's own toolchain file: an on-PATH clang++ with a real
+# co-located libc++.a wins first (a real system install), else the SAME
+# rootless clang-18 wrapper clang18-toolchain-common.cmake resolves — shared
+# with visual_renderer's own toolchain file and the vcpkg overlay triplet's
+# chainload, ONE clang-18 resolution rather than a second/third copy.
+find_program(MPVIZ_CLANGXX clang++)
+if(MPVIZ_CLANGXX)
+    execute_process(
+        COMMAND "${MPVIZ_CLANGXX}" -stdlib=libc++ -print-file-name=libc++.a
+        OUTPUT_VARIABLE _mpviz_node_path_libcxx_a
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    if(NOT (_mpviz_node_path_libcxx_a AND EXISTS "${_mpviz_node_path_libcxx_a}"))
+        set(MPVIZ_CLANGXX "")
+    endif()
 endif()
 if(NOT MPVIZ_CLANGXX)
-    message(FATAL_ERROR
-        "No clang++ found (checked visual_renderer's rootless toolchain "
-        "prefix and PATH). Run ${VISUAL_RENDERER_DIR}/scripts/setup_toolchain.sh "
-        "first (it is idempotent).")
+    include("${VISUAL_RENDERER_DIR}/cmake/clang18-toolchain-common.cmake")
+    set(MPVIZ_CLANGXX "${_mpviz_clang18_wrap_clangxx}")
 endif()
 
 execute_process(
@@ -213,11 +230,63 @@ if(NOT EXISTS "${MPVIZ_NODE_STB_IMAGE_WRITE_H}")
          EXPECTED_HASH SHA256=cbd5f0ad7a9cf4468affb36354a1d2338034f2c12473cf1a8e32053cb6914a05)
 endif()
 
+# VM-061 Step 6 (2026-09-15), finding: when the imported archive above was
+# built with MPVIZ_ENABLE_CESIUM=ON, it embeds (via ld -r,
+# scripts/merge_yamlcpp.sh) only the symbol-hygiene-sensitive set (cesium's
+# own modules + spdlog + fmt, Decision 4) -- Decision 4.3's "recorded, not
+# renamed" C libraries (sqlite3, curl, openssl, draco, ktx + its own deps,
+# s2geometry + abseil, blend2d/asmjit, tinyxml2, ada-url, zlib/zlib-ng,
+# webp, meshoptimizer, modp-base64, zstd, spz) stay as ORDINARY, un-merged
+# archives that a normal CMake consumer of the `visual_renderer` TARGET
+# receives automatically via target_link_libraries' transitive-closure
+# propagation. This package instead imports the raw .a file directly (no
+# CMake target relationship to visual_renderer's own build) with a
+# hand-written INTERFACE_LINK_LIBRARIES -- confirmed missing exactly this
+# set the hard way: "undefined reference to `sqlite3_bind_text'" etc.
+# linking micropilot_visualization_node the first time MPVIZ_ENABLE_CESIUM
+# reached this package. Rather than hand-curate and maintain a duplicate
+# list of ~20 archive names (the exact "hand-written source list" trap this
+# project's own Global Constraints warn against elsewhere), this globs every
+# cesium-native module archive plus every vcpkg-installed archive from the
+# SAME build tree/ezvcpkg prefix the import above already resolves paths
+# from -- harmless if a listed archive is never referenced (the linker only
+# extracts members that satisfy an outstanding undefined symbol) and self-
+# updating if cesium's own dependency set ever changes at a version bump.
+# Read from visual_renderer's OWN CMakeCache (not re-derived by string
+# convention) so this stays correct if MPVIZ_ENABLE_CESIUM is OFF (the glob
+# results are simply unused then -- nothing in a cesium-free
+# libvisual_renderer.a references any of these symbols).
+set(_mpviz_node_extra_link_archives "")
+set(_mpviz_vr_cache "${VISUAL_RENDERER_DIR}/build/CMakeCache.txt")
+if(EXISTS "${_mpviz_vr_cache}")
+    file(STRINGS "${_mpviz_vr_cache}" _mpviz_vr_cesium_line
+         REGEX "^MPVIZ_ENABLE_CESIUM:BOOL=ON$")
+    if(_mpviz_vr_cesium_line)
+        file(GLOB _mpviz_node_cesium_module_archives
+             "${VISUAL_RENDERER_DIR}/build/_deps/cesium-native-build/*/*.a")
+        file(GLOB _mpviz_node_vcpkg_archives
+             "$ENV{HOME}/.ezvcpkg/*/installed/x64-linux-clang-libcxx/lib/*.a"
+             "$ENV{HOME}/.ezvcpkg/*/installed/x64-linux-clang-libcxx/debug/lib/*.a")
+        set(_mpviz_node_extra_link_archives
+            ${_mpviz_node_cesium_module_archives} ${_mpviz_node_vcpkg_archives})
+        if(NOT _mpviz_node_extra_link_archives)
+            message(FATAL_ERROR
+                "visual_renderer was built with MPVIZ_ENABLE_CESIUM=ON but "
+                "this package found no cesium-native/vcpkg archives to glob "
+                "at the expected paths -- the merged libvisual_renderer.a "
+                "needs them (sqlite3/curl/openssl/draco/ktx/... symbols) or "
+                "this package's own link will fail with undefined "
+                "references. Did the paths move at a cesium-native/vcpkg "
+                "version bump?")
+        endif()
+    endif()
+endif()
+
 add_library(visual_renderer_prebuilt STATIC IMPORTED)
 set_target_properties(visual_renderer_prebuilt PROPERTIES
     IMPORTED_LOCATION "${VISUAL_RENDERER_LIB}"
     INTERFACE_INCLUDE_DIRECTORIES "${VISUAL_RENDERER_DIR}/include"
-    INTERFACE_LINK_LIBRARIES "Filament::filament;${_libcxx_a};${_libcxxabi_a};${_libunwind_a}")
+    INTERFACE_LINK_LIBRARIES "Filament::filament;-Wl,--start-group;${_libcxx_a};${_libcxxabi_a};${_libunwind_a};${_mpviz_node_extra_link_archives};-Wl,--end-group")
 
 # ── Node library ─────────────────────────────────────────────────────────────
 # Hand-written list, NOT a glob (CONFIGURE_DEPENDS globs are used for the
