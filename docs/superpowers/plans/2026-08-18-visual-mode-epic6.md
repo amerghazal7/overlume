@@ -13,7 +13,7 @@
 
 | Task | Backlog | Status | Notes |
 |---|---|---|---|
-| 1 Cesium ion runbook + token smoke check | VM-060 | Not started | Registration itself already done by the user 2026-09-11; this task is the runbook + smoke check only. |
+| 1 Cesium ion runbook + token smoke check | VM-060 | Shipped, live check FAILing | `docs/visual_mode/cesium.md` + `check_cesium_token.sh` committed; skip-test (env unset) PASSes as designed (SKIP, exit 2). Live run against `CESIUM_ION_TOKEN` from `~/.bashrc` (2026-09-15): FAIL, HTTP 401 at the endpoint stage — the token itself is bad/expired (not the 404 "asset not added" case). Needs the user to regenerate the ion token (browser session, cesium.md §1); not attempted by the agent. Re-run `check_cesium_token.sh` once a valid token is exported. |
 | 2 `GetCesiumNative.cmake` pinned source build (clang/libc++, POD rules, symbol hygiene) | VM-061 | Not started | |
 | 3 `StreamingEnvironmentSource` behind the existing seam (clay re-materialize, geo placement, disk cache) | VM-062 | Not started | |
 | 4 Source selection param plumbing + baked fallback on network loss + e2e | VM-063 | Not started | |
@@ -162,7 +162,7 @@ Spec §4.5 names "Cesium OSM Buildings via Cesium ion" explicitly; asset 96188 i
 - Consumes: `CESIUM_ION_TOKEN` (env; by name only), ion REST endpoint `https://api.cesium.com/v1/assets/<assetId>/endpoint` (returns the tileset URL + a short-lived session token for the asset — the exact handshake the `Tileset` ion constructor performs UPSTREAM for VM-062, Decision 15.6; this smoke check proves the same path the renderer will use, while the library itself never re-implements the exchange), and then the returned tileset URL itself — the AC is "token retrieves `tileset.json`", which an endpoint 200 alone does not prove.
 - Produces: PASS/FAIL exit status + one line of output. **Never prints the token, the session token, or any response body** (the endpoint body contains a session `accessToken`; it is captured into a shell variable, parsed, and discarded).
 
-- [ ] **Step 0: The smoke script.** Write `check_cesium_token.sh`:
+- [x] **Step 0: The smoke script.** Write `check_cesium_token.sh`:
 ```bash
 #!/usr/bin/env bash
 # Smoke check (VM-060): does CESIUM_ION_TOKEN retrieve the asset's tileset.json?
@@ -211,16 +211,18 @@ exit 1
 ```
   Chmod +x. Run it with the env var deliberately unset (`env -u CESIUM_ION_TOKEN ./check_cesium_token.sh`) — expect the SKIP line, exit 2, and confirm no token-shaped string in the output. Then run it for real (the var exists on this box) — expect PASS. Distinct exit codes: 0 pass / 1 fail / 2 skip, so the runbook (and any future wrapper) can tell "broken" from "not configured".
 
-- [ ] **Step 1: The runbook**, `docs/visual_mode/cesium.md`, written for a NEW deployment (someone standing up a second robot/site with no access to this box). Sections, each with the concrete steps — not prose about steps:
+- [x] **Step 1: The runbook**, `docs/visual_mode/cesium.md`, written for a NEW deployment (someone standing up a second robot/site with no access to this box). Sections, each with the concrete steps — not prose about steps:
   1. **Account + token**: create an account at ion.cesium.com; Access Tokens → Create token; scope needed: `assets:read` (that is all the renderer uses — listing/uploading scopes only if choosing the custom-tileset path below). Store as `export CESIUM_ION_TOKEN=...` in the deploy user's `~/.bashrc` (or the launch environment). **Never commit it, never echo it into a file or log** — the repo-wide token rule (Mapbox precedent, restated with both var names).
   2. **Choosing the tileset for the operating area**: Path A (default) — Cesium OSM Buildings, ion curated asset **96188**: add it to the account's assets from the ion Asset Depot, done; global coverage, includes the Dubai/Sharjah operating area. Path B (custom) — upload a clipped city/area tileset (ion My Assets → Add data), note its numeric asset id; smaller + cache-friendlier, at the cost of a per-deployment asset step. Record the chosen `<assetId>` — it is the `ion://<assetId>` the node param takes (VM-063). *(USER DECISION flag in Decisions §14 — the shipped default is 96188 until decided.)*
   3. **The env var contract**: exact name `CESIUM_ION_TOKEN`; read by the renderer library at `set_environment_source()` time via `getenv`; absent/empty → environment layer disabled with one WARN, nothing else affected (spec §9). Token rotation = replace the env var + restart the node; nothing else stores it.
   4. **Smoke check**: run `cuda/src/libs/visual_renderer/scripts/check_cesium_token.sh <assetId>`; PASS = BOTH stages returned 200 — the endpoint handshake AND the fetch of the returned `tileset.json` URL with the session token (the VM-060 AC, verbatim: "Token retrieves `tileset.json` for the operating area" — proven literally, not by endpoint-200 proxy). Include the three exit codes, the 401-vs-404 hint, and the endpoint-ok-but-tileset-failed FAIL line's meaning.
   5. **What this does NOT cover**: bake-pipeline setup (`bake_environment.py` — Epic 4 / the VM-042 runbook), cache/fallback params (pointer to VM-063's param table in `default_params.yaml`).
 
-- [ ] **Step 2: Prove it end to end on this box.** Run the smoke check against the chosen default asset (96188): record PASS + BOTH HTTP codes (endpoint, tileset.json) in the results block below (nothing else — no body, no token, no session token). If 404: the account hasn't added OSM Buildings from the Asset Depot yet — that is runbook step 2's own instruction, do it, re-run, and note that the runbook caught a real gap (that's the runbook working).
+- [x] **Step 2: Prove it end to end on this box.** Run the smoke check against the chosen default asset (96188): record PASS + BOTH HTTP codes (endpoint, tileset.json) in the results block below (nothing else — no body, no token, no session token). If 404: the account hasn't added OSM Buildings from the Asset Depot yet — that is runbook step 2's own instruction, do it, re-run, and note that the runbook caught a real gap (that's the runbook working).
 
-- [ ] **Step 3: Commit** `docs(visual): cesium ion runbook + token smoke check (VM-060)`.
+  **Result (2026-09-15): FAIL — HTTP 401 at the endpoint stage** (`/v1/assets/96188/endpoint`), tileset stage not reached. `check_pod_header.sh`-style skip test passed first (env unset → `SKIP`, exit 2, no token-shaped string in output). The live run picked up `CESIUM_ION_TOKEN` correctly from `~/.bashrc` (confirmed non-empty, well-formed, no whitespace/quoting issue — verified without printing the value) and reached `api.cesium.com` (network path fine, an unauthenticated control request to the same endpoint returned the expected `401 InvalidCredentials` JSON shape). The script's own FAIL text names 401 as "bad/expired token" — this is an ion-account-side condition (the token itself), not the 404/"asset not added" case this runbook step anticipates, and not a script defect. Per the task's own security rule, no response body was inspected to go further (never prints/reads response bodies from the ion API). **Not attempted by the agent**: regenerating/rotating the ion token requires the user's own ion.cesium.com browser session (`docs/visual_mode/cesium.md` §1) — the same class of action the runbook explicitly reserves for the account owner. The script and docs are shipped and correct; re-run `check_cesium_token.sh` once a valid `CESIUM_ION_TOKEN` is in place.
+
+- [x] **Step 3: Commit** `docs(visual): cesium ion runbook + token smoke check (VM-060)`.
 
 ---
 
