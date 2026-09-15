@@ -129,6 +129,7 @@ endif()
 # overlay-triplet toolchain resolves, so it's the correct directory here too.
 set(ENV{LD_LIBRARY_PATH} "${_libcxx_lib_dir}:$ENV{LD_LIBRARY_PATH}")
 
+set(CMAKE_FIND_PACKAGE_TARGETS_GLOBAL TRUE)
 include(FetchContent)
 FetchContent_Declare(
     cesium-native

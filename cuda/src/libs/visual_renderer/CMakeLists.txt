@@ -80,7 +80,34 @@ include(cmake/GetFilament.cmake)
 # vcpkg ports forced onto the same toolchain via the x64-linux-clang-libcxx
 # overlay triplet. See cmake/GetCesiumNative.cmake for the pin + SHA256
 # provenance and the vcpkg wiring.
-include(cmake/GetCesiumNative.cmake)
+#
+# VM-061 gate round 2, Finding 3: this project's PRIMARY toolchain (clang-14,
+# see toolchain-clang-libcxx.cmake / setup_toolchain.sh, what
+# ci_visual_mode.sh/colcon_build.sh configure `build/` with) cannot compile
+# cesium-native's vcpkg dependency ada-url -- its url_search_params-inl.h
+# calls std::ranges::replace, a <ranges> algorithm overload libc++-14 does
+# not implement (reproduced directly: a trivial std::ranges::replace program
+# fails to compile under -stdlib=libc++ -std=gnu++20 with clang-14, "no
+# member named 'replace' in namespace 'std::ranges'"). Cesium-native is only
+# buildable today under the SEPARATE clang-18 toolchain
+# scripts/setup_toolchain_cesium.sh bootstraps for build-cesium/ (see that
+# script's header for the full story + why clang-18 specifically). Until the
+# plan-level call is made (land clang-18 as the PRIMARY toolchain, or keep
+# the two-toolchain split permanently), this stays OFF by default so the
+# ordinary `build/` tree configured with the primary toolchain keeps working
+# -- configure with -DMPVIZ_ENABLE_CESIUM=ON (under the clang-18 toolchain)
+# to build the cesium path. Gates every cesium-touching piece below: this
+# include, the visual_renderer_stream C++20 OBJECT library, the cesium
+# target_link_libraries/link_options on visual_renderer, the vendor-merge
+# archive walk, and cesium_link_probe.
+option(MPVIZ_ENABLE_CESIUM
+    "Build the cesium-native path (Epic 6 / VM-061). Requires the clang-18 \
+toolchain (scripts/setup_toolchain_cesium.sh) -- the primary clang-14 \
+toolchain cannot compile cesium's ada-url dependency. OFF keeps the ordinary \
+build/ tree (primary toolchain) configurable." OFF)
+if(MPVIZ_ENABLE_CESIUM)
+    include(cmake/GetCesiumNative.cmake)
+endif()
 
 # yaml-cpp (Epic 1 Task 2 / VM-011): theme.cpp parses assets/themes/*.yaml.
 # FetchContent'd and built with this project's own clang/libc++ toolchain for
@@ -173,14 +200,14 @@ file(GLOB_RECURSE VISUAL_RENDERER_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOU
 # the C++20 standard -- with nothing hand-copied to drift. Guarded by
 # EXISTS so this task stays green standalone; Step 3's link probe is the
 # compile proof that the cesium archive set itself is sound.
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
+if(MPVIZ_ENABLE_CESIUM AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
     list(REMOVE_ITEM VISUAL_RENDERER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
 endif()
 
 add_library(visual_renderer STATIC ${VISUAL_RENDERER_SOURCES})
 add_library(micropilot_visualization::visual_renderer ALIAS visual_renderer)
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
+if(MPVIZ_ENABLE_CESIUM AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
     add_library(visual_renderer_stream OBJECT src/environment_stream.cpp)
     target_compile_features(visual_renderer_stream PRIVATE cxx_std_20)
     target_link_libraries(visual_renderer_stream PRIVATE
@@ -199,8 +226,31 @@ endif()
 # the OBJECT library above only compiles, it does not carry link
 # dependencies into the final archive, so visual_renderer itself must still
 # pull the cesium archives onto its own link line.
-target_link_libraries(visual_renderer PRIVATE
-    Cesium3DTilesSelection CesiumGltfWriter CesiumGltfReader CesiumAsync CesiumCurl)
+#
+# VM-061 gate round 2, Finding 2: linked exactly as before ($<LINK_ONLY:>
+# wrapping was tried FIRST and empirically does NOT work -- reproduced with a
+# standalone 4-line CMake repro that CMake still bumps a STATIC library's OWN
+# required C++ standard to match a linked dependency's PUBLIC/INTERFACE
+# compile features regardless of PRIVATE/$<LINK_ONLY:> on OUR end; that
+# generator expression only strips usage requirements forwarded to
+# visual_renderer's CONSUMERS, it does nothing for visual_renderer's OWN
+# compile. A second attempt -- linking the raw resolved archive FILES
+# ($<TARGET_FILE:...>) instead of the CMake target names, which DOES avoid
+# the propagation -- was also tried and reverted: it forfeits CMake's own
+# link-line ordering/cycle handling for cesium's ~19-archive + spdlog/fmt/
+# draco/curl/absl/zlib/... closure, and even wrapped in
+# -Wl,--start-group/--end-group it broke unrelated, previously-working links
+# (Filament's own TangentSpaceMesh symbols, curl's zlib symbols) that aren't
+# this project's to debug as part of a C++-standard quarantine fix. What
+# actually holds, with NO change to how cesium is linked or ordered: force
+# the EFFECTIVE standard back down with an explicit, LATER `-std=` flag --
+# both gcc and clang resolve duplicate -std= flags by "last one wins" (
+# confirmed directly against this project's own clang++ wrapper: `-std=
+# gnu++20 -std=gnu++17` compiles as __cplusplus == 201703L), and CMake places
+# a target's own COMPILE_OPTIONS after the auto-computed standard flag in
+# CXX_FLAGS, so this one line reliably wins over whatever cesium's compile
+# features bump the computed standard to.
+target_compile_options(visual_renderer PRIVATE -std=gnu++17)
 
 target_include_directories(visual_renderer PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -238,7 +288,9 @@ target_link_libraries(visual_renderer PRIVATE
 # recorded (Decision 4.3), not renamed, because unlike spdlog/fmt nothing
 # reaches across this specific overlap from the gcc ROS node side -- both
 # copies are internal to visual_renderer's own clang/libc++ link graph.
-target_link_options(visual_renderer INTERFACE "-Wl,--allow-multiple-definition")
+if(MPVIZ_ENABLE_CESIUM)
+    target_link_options(visual_renderer INTERFACE "-Wl,--allow-multiple-definition")
+endif()
 
 # Default theme-assets dir baked into the library, used by create_renderer()
 # whenever RenderConfig::theme_assets_dir is null (Task 2 Step 5a/7).
@@ -318,15 +370,60 @@ macro(_mpviz_collect_vendor_merge_archives _out_var)
     set(${_out_var} "${_mpviz_cma_result}")
 endmacro()
 
-_mpviz_collect_vendor_merge_archives(_mpviz_vendor_merge_archives
-    Cesium3DTilesSelection CesiumGltfWriter CesiumGltfReader CesiumAsync CesiumCurl)
-list(REMOVE_DUPLICATES _mpviz_vendor_merge_archives)
-if(NOT _mpviz_vendor_merge_archives)
-    message(FATAL_ERROR
-        "visual_renderer: the cesium-native/spdlog vendor-merge archive walk "
-        "(VM-061 Step 5) found nothing -- either cesium's target names "
-        "changed at this pin, or the walk itself is broken. Never silently "
-        "skip the symbol-hygiene merge; fix the walk or the target list.")
+if(MPVIZ_ENABLE_CESIUM)
+    set(_mpviz_vendor_merge_direct_targets
+        Cesium3DTilesSelection CesiumGltfWriter CesiumGltfReader CesiumAsync CesiumCurl)
+
+    # Finding 2 is handled by the `target_compile_options(visual_renderer
+    # PRIVATE -std=gnu++17)` line above, not here -- this ordinary
+    # target-name link is exactly what round 1 shipped (needed as-is so
+    # CMake's own link-line ordering/cycle handling for cesium's ~19-archive
+    # + spdlog/fmt/draco/curl/absl/zlib/... closure keeps working; see that
+    # line's comment for the two approaches that were tried instead and
+    # reverted).
+    target_link_libraries(visual_renderer PRIVATE ${_mpviz_vendor_merge_direct_targets})
+    _mpviz_collect_vendor_merge_archives(_mpviz_vendor_merge_archives
+        ${_mpviz_vendor_merge_direct_targets})
+    list(REMOVE_DUPLICATES _mpviz_vendor_merge_archives)
+
+    # VM-061 gate round 2, Finding 1: an empty-list check alone already missed a
+    # real failure once (spdlog::spdlog/fmt::fmt are IMPORTED, non-GLOBAL targets
+    # -- find_package(spdlog CONFIG REQUIRED) runs deep inside cesium-native's own
+    # FetchContent'd directory scope, so the resulting imported target is visible
+    # only there and in its subdirectories, NOT back up here at the top level --
+    # `if(TARGET spdlog::spdlog)` silently returned FALSE at THIS scope even
+    # though the target existed, so the walk collected all ~19 Cesium* archives
+    # and quietly dropped spdlog/fmt with no error at all). Root-caused and fixed
+    # at the source in cmake/GetCesiumNative.cmake (CMAKE_FIND_PACKAGE_TARGETS_GLOBAL);
+    # this guard is the second, independent line of defense: require at least one
+    # spdlog archive AND at least as many Cesium archives as targets directly
+    # linked, so a similar silent partial-miss (this or any future cesium
+    # version) fails loudly instead of shipping a library that looks merged but
+    # isn't.
+    set(_mpviz_spdlog_archive_count 0)
+    set(_mpviz_cesium_archive_count 0)
+    foreach(_mpviz_cma_archive ${_mpviz_vendor_merge_archives})
+        if(_mpviz_cma_archive MATCHES "[Ss]pdlog")
+            math(EXPR _mpviz_spdlog_archive_count "${_mpviz_spdlog_archive_count} + 1")
+        endif()
+        if(_mpviz_cma_archive MATCHES "Cesium")
+            math(EXPR _mpviz_cesium_archive_count "${_mpviz_cesium_archive_count} + 1")
+        endif()
+    endforeach()
+    list(LENGTH _mpviz_vendor_merge_direct_targets _mpviz_vendor_merge_direct_target_count)
+    if(_mpviz_spdlog_archive_count LESS 1 OR _mpviz_cesium_archive_count LESS _mpviz_vendor_merge_direct_target_count)
+        message(FATAL_ERROR
+            "visual_renderer: the cesium-native/spdlog vendor-merge archive walk "
+            "(VM-061 Step 5) is unsound -- collected ${_mpviz_cesium_archive_count} "
+            "Cesium* archives (need >= ${_mpviz_vendor_merge_direct_target_count}, "
+            "one reachable per directly-linked target: ${_mpviz_vendor_merge_direct_targets}) "
+            "and ${_mpviz_spdlog_archive_count} spdlog archive(s) (need >= 1). "
+            "Either cesium's target names/link graph changed at this pin, or the "
+            "walk itself is broken again. Never silently skip the symbol-hygiene "
+            "merge; fix the walk or the target list.")
+    endif()
+else()
+    set(_mpviz_vendor_merge_archives "")
 endif()
 
 add_custom_command(TARGET visual_renderer POST_BUILD
@@ -376,13 +473,25 @@ add_test(NAME filament_link_probe COMMAND filament_link_probe)
 # CesiumGltfReader) are real targets with their own PUBLIC include dirs, so
 # linking them directly is what "grants cesium includes to the probe" here
 # -- no manual -I needed the way FILAMENT_ROOT/include was for Filament.
-add_executable(cesium_link_probe smoke/cesium_link_probe.cpp)
-set_target_properties(cesium_link_probe PROPERTIES
-    CXX_STANDARD 20
-    CXX_STANDARD_REQUIRED YES)
-target_link_libraries(cesium_link_probe PRIVATE
-    visual_renderer CesiumGeospatial CesiumGltfReader)
-add_test(NAME cesium_link_probe COMMAND cesium_link_probe)
+if(MPVIZ_ENABLE_CESIUM)
+    add_executable(cesium_link_probe smoke/cesium_link_probe.cpp)
+    set_target_properties(cesium_link_probe PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED YES)
+    target_link_libraries(cesium_link_probe PRIVATE
+        visual_renderer CesiumGeospatial CesiumGltfReader)
+    add_test(NAME cesium_link_probe COMMAND cesium_link_probe)
+
+    # VM-061 gate round 2, Finding 1 fix_instruction point 3: merge_yamlcpp.sh's
+    # own post-merge audit only sees libvisual_renderer.a itself -- this is the
+    # other half, checking a real LINKED EXECUTABLE that (unlike the ROS node)
+    # links a raw, un-merged cesium target directly for header access, so it
+    # can independently catch the "un-renamed spdlog lands somewhere it can
+    # collide" hazard the archive-only audit structurally cannot see.
+    add_test(NAME cesium_link_probe_symbol_hygiene
+             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_cesium_link_probe_symbols.sh
+                     "${CMAKE_NM}" "$<TARGET_FILE:cesium_link_probe>")
+endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     # NOT find_package(GTest): this box's system libgtest.a (libgtest-dev) is
