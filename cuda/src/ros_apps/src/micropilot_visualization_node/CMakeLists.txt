@@ -135,6 +135,17 @@ include("${VISUAL_RENDERER_DIR}/cmake/GetFilament.cmake")
 # rootless clang-18 wrapper clang18-toolchain-common.cmake resolves — shared
 # with visual_renderer's own toolchain file and the vcpkg overlay triplet's
 # chainload, ONE clang-18 resolution rather than a second/third copy.
+# VM-061 Step 6 gate round 1 finding (2026-09-15): find_program() writes
+# MPVIZ_CLANGXX to the CMake CACHE, and find_program() short-circuits
+# (does nothing, returns the cached value) once a cache entry already
+# exists -- so a build tree configured before ANY toolchain change (the
+# clang-14->18 migration this round, or a future one) would keep resolving
+# to that STALE path forever; this is exactly how a build tree here was
+# caught still pointing at the old clang-14 rootless prefix
+# (~/.cache/mpviz-toolchain/bin/clang++) after the migration landed.
+# unset() the cache entry first so this always re-resolves fresh from
+# scratch on every configure.
+unset(MPVIZ_CLANGXX CACHE)
 find_program(MPVIZ_CLANGXX clang++)
 if(MPVIZ_CLANGXX)
     execute_process(
@@ -162,6 +173,51 @@ if(NOT EXISTS "${_libcxx_a}")
         "(looked at '${_libcxx_a}').")
 endif()
 get_filename_component(_libcxx_lib_dir "${_libcxx_a}" DIRECTORY)
+
+# Positive check (VM-061 gate round 1 finding): a fresh, unstale resolution
+# above still only proves this package found *a* clang/libc++ -- not that
+# it is the SAME toolchain prefix that actually built ${VISUAL_RENDERER_LIB}.
+# Read the compiler visual_renderer's own configure recorded in ITS
+# CMakeCache.txt (the ground truth for what really built the archive) and
+# compare its libc++.a libdir against ours. A mismatch here means this
+# package is about to link a version/prefix-mismatched static
+# libc++.a/libc++abi.a/libunwind.a set against symbols
+# ${VISUAL_RENDERER_LIB} was actually compiled against -- silently accepting
+# that is exactly the cross-toolchain ABI hazard this whole section exists
+# to prevent, so this is FATAL_ERROR, not a warning.
+set(_mpviz_vr_toolchain_cache "${VISUAL_RENDERER_DIR}/build/CMakeCache.txt")
+if(NOT EXISTS "${_mpviz_vr_toolchain_cache}")
+    message(FATAL_ERROR
+        "Cannot verify toolchain match: '${_mpviz_vr_toolchain_cache}' not "
+        "found (visual_renderer's own build tree has no CMakeCache.txt).")
+endif()
+file(STRINGS "${_mpviz_vr_toolchain_cache}" _mpviz_vr_cxx_line
+     REGEX "^CMAKE_CXX_COMPILER:FILEPATH=")
+if(NOT _mpviz_vr_cxx_line)
+    message(FATAL_ERROR
+        "Cannot verify toolchain match: no CMAKE_CXX_COMPILER entry in "
+        "'${_mpviz_vr_toolchain_cache}'.")
+endif()
+string(REGEX REPLACE "^CMAKE_CXX_COMPILER:FILEPATH=" "" _mpviz_vr_cxx "${_mpviz_vr_cxx_line}")
+execute_process(
+    COMMAND "${_mpviz_vr_cxx}" -stdlib=libc++ -print-file-name=libc++.a
+    OUTPUT_VARIABLE _mpviz_vr_libcxx_a
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+get_filename_component(_mpviz_vr_libcxx_a "${_mpviz_vr_libcxx_a}" REALPATH)
+get_filename_component(_mpviz_vr_libcxx_lib_dir "${_mpviz_vr_libcxx_a}" DIRECTORY)
+if(NOT _mpviz_vr_libcxx_lib_dir STREQUAL _libcxx_lib_dir)
+    message(FATAL_ERROR
+        "Toolchain mismatch: this package resolved libc++.a at "
+        "'${_libcxx_lib_dir}' (via compiler '${MPVIZ_CLANGXX}'), but "
+        "${VISUAL_RENDERER_LIB} was built with compiler '${_mpviz_vr_cxx}' "
+        "whose libc++.a lives at '${_mpviz_vr_libcxx_lib_dir}'. Linking "
+        "these together would mix two different libc++ ABIs into one "
+        "binary. Delete this package's build directory and reconfigure "
+        "(the find_program() result above may be a stale CACHE entry, or "
+        "visual_renderer needs rebuilding with the same toolchain this "
+        "package resolves).")
+endif()
+
 set(_libcxxabi_a "${_libcxx_lib_dir}/libc++abi.a")
 set(_libunwind_a "${_libcxx_lib_dir}/libunwind.a")
 foreach(_rt_lib "${_libcxxabi_a}" "${_libunwind_a}")
@@ -282,11 +338,29 @@ if(EXISTS "${_mpviz_vr_cache}")
     endif()
 endif()
 
+# VM-061 Step 6 gate round 1 finding (2026-09-15): this used to be a second
+# raw `-Wl,--start-group ... -Wl,--end-group` pair. CMake's link-line
+# computation collapses identical repeated raw-flag *items* back to their
+# FIRST occurrence (the same behavior documented on the plan's own Step 6
+# deviation-1 writeup) -- since Filament::filament's own INTERFACE_LINK_
+# LIBRARIES (cmake/GetFilament.cmake) already emits the IDENTICAL literal
+# "-Wl,--start-group"/"-Wl,--end-group" strings, this second pair collapsed
+# into the first one, leaving every Filament archive stranded OUTSIDE any
+# group on the final link line -- the actual cause of the node's Filament
+# cross-reference link failures (undefined CommandBufferQueue symbols etc),
+# not a "pre-existing Filament SDK visibility gap". Fix: $<LINK_GROUP:...>
+# is a generator expression, not a literal flag string, so CMake never
+# de-dupes it against Filament::filament's own raw-flag group -- each
+# LINK_GROUP instance gets its own emitted group markers. Requires CMake
+# >= 3.24 (this repo pins 3.28, see cmake_minimum_required above).
+string(JOIN "," _mpviz_node_group_items
+    "${_libcxx_a}" "${_libcxxabi_a}" "${_libunwind_a}"
+    ${_mpviz_node_extra_link_archives})
 add_library(visual_renderer_prebuilt STATIC IMPORTED)
 set_target_properties(visual_renderer_prebuilt PROPERTIES
     IMPORTED_LOCATION "${VISUAL_RENDERER_LIB}"
     INTERFACE_INCLUDE_DIRECTORIES "${VISUAL_RENDERER_DIR}/include"
-    INTERFACE_LINK_LIBRARIES "Filament::filament;-Wl,--start-group;${_libcxx_a};${_libcxxabi_a};${_libunwind_a};${_mpviz_node_extra_link_archives};-Wl,--end-group")
+    INTERFACE_LINK_LIBRARIES "Filament::filament;$<LINK_GROUP:RESCAN,${_mpviz_node_group_items}>")
 
 # ── Node library ─────────────────────────────────────────────────────────────
 # Hand-written list, NOT a glob (CONFIGURE_DEPENDS globs are used for the
