@@ -39,9 +39,3 @@ cuda/src/ros_apps/install/
 # assets/ego/ATTRIBUTION.md (same convention as assets/fonts, assets/models)
 # can still be committed.
 cuda/src/ros_apps/src/micropilot_visualization_node/assets/ego/*.glb
-
-# VM-062: test-generated sqlite tile cache (StreamingEnvironmentSource's
-# disk-cache proof, tests/test_environment_stream.cpp) -- created fresh
-# under the committed fixture dir by whichever test runs it, not a fixture
-# artifact itself.
-cuda/src/libs/visual_renderer/tests/fixtures/environment_ion_fixture_0/.test_cache/

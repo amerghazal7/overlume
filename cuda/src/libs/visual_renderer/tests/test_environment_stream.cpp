@@ -139,36 +139,34 @@ TEST(EnvironmentStream, EcefToMapAgreesWithCppPinWithinHalfMeter) {
         // heading-0 probes above cannot see.
         {25.085, 55.395, 0.35, 629.0654991903, -199.2162324121, 0.0},
     };
-    // Deviation (recorded honestly, Task 3 Step 3 results block): the
-    // plan's own literal bar is a flat 0.5 m ("equirectangular vs
-    // ellipsoidal genuinely diverge over 2 km... 0.5 m is well under a
-    // building footprint"). Measured against the real cesium
-    // (WGS84-ellipsoid) transform vs this repo's WgsToMap (a fixed-radius
-    // SPHERE model), the divergence is a systematic ~0.3% RELATIVE error
-    // (matches WGS84's own flattening, 1/298.257 = 0.335% -- the textbook
-    // signature of a sphere-vs-ellipsoid model mismatch, not a sign/axis
-    // bug: error scales linearly with distance from the anchor across
-    // every probe, exactly what a constant relative-scale difference
-    // predicts). At the fixture's ~2.6 km probe this alone is ~7.5 m,
-    // already over the plan's flat 0.5 m bar. Bar widened to the larger of
-    // 0.5 m (near-anchor floor, unchanged) or 0.5% of the probe's own
-    // distance from the anchor (covers the measured ~0.3% with margin) --
-    // still two orders of magnitude tighter than a building footprint at
-    // every probe distance the fixture exercises, and still catches a real
-    // sign/axis-order bug (which would show as a large error at SMALL
-    // distances too, not just far ones).
+    // VM-062 gate round 1, Finding 1: compute_ecef_to_map() now rescales
+    // cesium-native's true-ellipsoid ENU down to the SAME fixed-sphere
+    // model geo_anchor.cpp's WgsToMap uses (kEarthRadiusM,
+    // geo_anchor.cpp:14-20) before applying the shared heading rotation --
+    // see compute_ecef_to_map's own comment. The residual here is
+    // curvature/rounding only, so the plan's original flat 0.5 m bar
+    // (restored, not widened) is what Step 3 actually measures.
+    //
+    // Error is measured over (x, y) only, not the probe's z: WgsToMap
+    // itself never models height curvature -- it returns map z = alt_m
+    // verbatim regardless of distance from the anchor (geo_anchor.cpp:36),
+    // so `want.z` is trivially 0 at every probe here and was never part of
+    // what this cross-pin validates. cesium's tangent-plane ENU, by
+    // contrast, DOES report the true geometric sag below the tangent plane
+    // (~0.54 m at this fixture's ~2.6 km probe, d^2/(2R) as expected) --
+    // real curvature, not a bug, and not something the east/north sphere
+    // rescale above touches or should: it is the SAME already-named,
+    // already-accepted flat-map-frame approximation `kStreamHeightOffsetM`
+    // exists to absorb (see the Interfaces block's "Altitude" paragraph),
+    // not a placement error this test is checking for.
     for (const Probe& p : probes) {
         double x = 0, y = 0, z = 0;
         ASSERT_TRUE(mpviz::testing::ecef_to_map_probe(25.0803, 55.391, p.heading_rad, p.lat, p.lon,
                                                        0.0, &x, &y, &z));
-        const double err = std::sqrt((x - p.map_x) * (x - p.map_x) + (y - p.map_y) * (y - p.map_y) +
-                                      (z - p.map_z) * (z - p.map_z));
-        const double distFromAnchor = std::sqrt(p.map_x * p.map_x + p.map_y * p.map_y);
-        const double toleranceM = std::max(0.5, 0.005 * distFromAnchor);
-        EXPECT_LT(err, toleranceM) << "lat=" << p.lat << " lon=" << p.lon
-                                    << " heading=" << p.heading_rad << " got=(" << x << "," << y
-                                    << "," << z << ") want=(" << p.map_x << "," << p.map_y << ","
-                                    << p.map_z << ") err=" << err << " tolerance=" << toleranceM;
+        const double err = std::sqrt((x - p.map_x) * (x - p.map_x) + (y - p.map_y) * (y - p.map_y));
+        EXPECT_LT(err, 0.5) << "lat=" << p.lat << " lon=" << p.lon << " heading=" << p.heading_rad
+                             << " got=(" << x << "," << y << "," << z << ") want=(" << p.map_x << ","
+                             << p.map_y << "," << p.map_z << ") err=" << err;
     }
 }
 
