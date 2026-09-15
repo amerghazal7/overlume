@@ -233,8 +233,13 @@ public:
 
     // Drains the deferred-free queue at the top of update() (Filament is
     // single-threaded; free() can arrive from any thread per its own
-    // contract, so the actual destroyAsset happens here instead).
-    void drain_pending_frees();
+    // contract, so the actual destroyAsset happens here instead). Returns
+    // the FilamentAsset pointers actually destroyed by this call (empty if
+    // r_ is unset, in which case nothing was destroyed) -- VM-062 gate
+    // round 1, Finding 3: the caller needs this list to evict the same
+    // pointers from StreamingEnvironmentSource::inScene_ before its next
+    // reconcile pass dereferences one of them post-free.
+    std::vector<filament::gltfio::FilamentAsset*> drain_pending_frees();
     void note_torn_down() { tornDown_.store(true); }
 
 private:

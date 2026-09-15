@@ -30,6 +30,8 @@
 #include <fstream>
 #include <optional>
 
+#include <unistd.h>  // getpid() -- test_cache_dir()'s per-process key (Linux-only build, fine here)
+
 namespace mpviz {
 
 namespace {
@@ -209,6 +211,38 @@ glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor) {
         CesiumGeospatial::Cartographic::fromDegrees(anchor.origin_lon_deg, anchor.origin_lat_deg, 0.0));
     const glm::dmat4 ecefToEnu = enu.getEcefToLocalTransformation();
 
+    // VM-062 gate round 1, Finding 1: getEcefToLocalTransformation() above
+    // returns ENU on the TRUE WGS84 ellipsoid, but geo_anchor.cpp's
+    // WgsToMap/MapToWgs -- the map-frame model every other map-frame
+    // consumer (baked chunks, GPS-derived ego) actually agrees with -- is a
+    // fixed-radius SPHERE (kEarthRadiusM = 6371000, geo_anchor.cpp:14-20).
+    // Left unreconciled, streamed tiles drift off everything else in the
+    // map frame by a curvature-vs-sphere error that grows linearly with
+    // distance from the anchor (measured ~7.5 m at a 2.6 km probe -- see
+    // this task's Step 3 results block). Rescale the ellipsoidal
+    // east/north axes by the ratio of the sphere model's radius to the
+    // ellipsoid's own local radii of curvature at the anchor's latitude
+    // (N = prime-vertical radius, M = meridian radius), so this transform
+    // reproduces geo_anchor.cpp's own east/north formulas
+    // (kEarthRadiusM * cos(lat0) * dlon, kEarthRadiusM * dlat) instead of
+    // the ellipsoid's -- BEFORE applying the same heading rotation
+    // geo_anchor.cpp:23-37 uses.
+    constexpr double kWgs84A = 6378137.0;              // WGS84 semi-major axis (m)
+    constexpr double kWgs84F = 1.0 / 298.257223563;    // WGS84 flattening
+    constexpr double kWgs84E2 = kWgs84F * (2.0 - kWgs84F);  // first eccentricity^2
+    // geo_anchor.cpp's own kEarthRadiusM, duplicated here rather than
+    // shared across the node/library boundary -- this TU cannot include
+    // geo_anchor.hpp (Decision 3's node/library quarantine).
+    constexpr double kMapSphereRadiusM = 6371000.0;
+    const double lat0_rad = anchor.origin_lat_deg * (M_PI / 180.0);
+    const double sin2Lat0 = std::sin(lat0_rad) * std::sin(lat0_rad);
+    const double denom = 1.0 - kWgs84E2 * sin2Lat0;
+    const double N = kWgs84A / std::sqrt(denom);                        // prime-vertical radius
+    const double M = kWgs84A * (1.0 - kWgs84E2) / (denom * std::sqrt(denom));  // meridian radius
+    glm::dmat4 sphereScale(1.0);
+    sphereScale[0][0] = kMapSphereRadiusM / N;  // east
+    sphereScale[1][1] = kMapSphereRadiusM / M;  // north
+
     const double s = std::sin(anchor.heading_rad), c = std::cos(anchor.heading_rad);
     // Same rotation geo_anchor.cpp's WgsToMap applies to (east, north):
     // map.x = east*s + north*c; map.y = -east*c + north*s; map.z = up
@@ -220,7 +254,7 @@ glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor) {
     rot[1][0] = c;
     rot[0][1] = -c;
     rot[1][1] = s;
-    return rot * ecefToEnu;
+    return rot * sphereScale * ecefToEnu;
 }
 
 // ── FileFixtureAssetAccessor (Decision 13; test-only) ────────────────────
@@ -406,17 +440,18 @@ void StreamRendererResources::free(Cesium3DTilesSelection::Tile& /*tile*/, void*
     pendingFrees_.push_back(asset);
 }
 
-void StreamRendererResources::drain_pending_frees() {
+std::vector<filament::gltfio::FilamentAsset*> StreamRendererResources::drain_pending_frees() {
     std::vector<filament::gltfio::FilamentAsset*> toFree;
     {
         std::lock_guard<std::mutex> lock(freeMutex_);
         toFree.swap(pendingFrees_);
     }
-    if (r_ == nullptr) return;
+    if (r_ == nullptr) return {};  // nothing actually destroyed -- report none
     for (filament::gltfio::FilamentAsset* asset : toFree) {
         r_->scene->removeEntities(asset->getEntities(), asset->getEntityCount());
         r_->sharedAssetLoader->destroyAsset(asset);
     }
+    return toFree;
 }
 
 // ── StreamingEnvironmentSource ────────────────────────────────────────────
@@ -461,7 +496,15 @@ StreamingEnvironmentSource::~StreamingEnvironmentSource() = default;
 
 void StreamingEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
     renderResources_->set_renderer(&r);
-    renderResources_->drain_pending_frees();
+    // VM-062 gate round 1, Finding 3: evict every just-destroyed asset from
+    // inScene_ BEFORE synthesize_view_and_pump()'s reconcile loop runs --
+    // otherwise a free() that lands between two ticks leaves a dangling
+    // pointer in inScene_ that the next tick's drain destroys and this
+    // tick's reconcile loop (stillPresent/removeEntities below) then
+    // dereferences again.
+    for (filament::gltfio::FilamentAsset* freed : renderResources_->drain_pending_frees()) {
+        inScene_.erase(freed);
+    }
     synthesize_view_and_pump(r, ego_map_pos);
 }
 
@@ -616,6 +659,23 @@ struct FixtureStreamHandle {
 
 namespace {
 
+// VM-062 gate round 1, Finding 4: a per-PROCESS cache dir under the system
+// temp path, NOT <fixture_dir>/.test_cache -- the old path wrote into the
+// committed fixture source tree and silently shared cache state across
+// separate ctest runs (a leftover cache from an earlier run made
+// DiskCacheServesTilesWithNetworkDead pass regardless of whether THIS run's
+// disk-cache write path actually worked). `static` gives every call in this
+// process the SAME path -- Step 4's proof needs its two
+// install_fixture_streaming_source_with_fallback() calls to share one
+// cache within a run -- while a fresh process (a new ctest invocation) gets
+// a fresh, genuinely cold directory.
+std::string test_cache_dir() {
+    static const std::string dir = (std::filesystem::temp_directory_path() /
+                                     ("mpviz-stream-test-cache-" + std::to_string(::getpid())))
+                                        .string();
+    return dir;
+}
+
 // Shared by both fixture install hooks: composes the SAME accessor stack
 // the production path uses (Decision 10/11's CachingAssetAccessor(SqliteCache)
 // over a CountingAssetAccessor) but rooted at the fixture's own
@@ -628,13 +688,7 @@ std::unique_ptr<mpviz::EnvironmentSource> make_fixture_source(
     if (fixture_dir == nullptr) return nullptr;
     auto fileAccessor = std::make_shared<mpviz::FileFixtureAssetAccessor>(std::move(killed));
     CesiumAsync::AsyncSystem asyncSystem(std::make_shared<mpviz::SimpleTaskProcessor>());
-    // Cache lives under the fixture dir itself: install_fixture_streaming_source()
-    // and install_fixture_streaming_source_with_fallback() called twice with
-    // the SAME fixture_dir therefore naturally share the same on-disk
-    // sqlite cache -- Step 4's proof needs exactly this, with no extra
-    // parameter on the test-hook surface (matches the plan's Interfaces
-    // block verbatim: neither function takes a cache-dir argument).
-    const std::string cacheDir = std::string(fixture_dir) + "/.test_cache";
+    const std::string cacheDir = test_cache_dir();
     Cesium3DTilesSelection::TilesetExternals externals =
         mpviz::build_externals(fileAccessor, asyncSystem, cacheDir, mpviz::kDefaultMaxCacheItems);
     const std::string tilesetUri = std::string("file://") + fixture_dir + "/tileset.json";
