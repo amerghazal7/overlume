@@ -10,6 +10,13 @@
 #include "golden.hpp"
 #include "test_paths.hpp"
 
+// Declarations only (no *_IMPLEMENTATION macro) -- golden.cpp already
+// defines STB_IMAGE_WRITE_IMPLEMENTATION and is linked into every test
+// binary as an extra source (CMakeLists.txt's `_golden_cpp`), so this just
+// gets us stbi_write_png's prototype for the capture tests below, same
+// one-implementation-many-includers shape stb itself is designed for.
+#include "stb_image_write.h"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -20,6 +27,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -706,6 +714,259 @@ TEST(EnvironmentStreamPerf, GooglePresetLiveRenderMsDeltaVsOsmClay) {
     std::cerr << "[EnvironmentStreamPerf/live] clay(96188) loaded=" << clayLoaded
               << " google(2275207,original) loaded=" << googleLoaded << "\n";
     SUCCEED();
+}
+
+// ── VM-096 comparison package: opt-in env-source capture tests ──────────
+// One human-eyeball render per GUI environment preset ("baked"/"osm"/
+// "clipped"/"google", VM-096), all at the SAME geo anchor (kFixtureAnchor,
+// already this file's own anchor constant above) and the SAME camera pose,
+// so a side-by-side comparison actually compares the sources and nothing
+// else. Gated on MPVIZ_CAPTURE_ENV_SOURCES=1, same opt-in shape as
+// EnvironmentStreamPerf.GooglePresetLiveRenderMsDeltaVsOsmClay above --
+// never required by ctest/ci_visual_mode.sh. osm/google additionally need
+// CESIUM_ION_TOKEN (real live ion network); baked needs neither (the
+// committed offline fixture town).
+namespace {
+
+// The BAKED fixture's own real footprint centroid -- test_environment.cpp's
+// kBuildingsCentroid (that file's own comment: "measured directly from the
+// fixture .glb," not re-derived here, just re-typed the same way
+// test_environment_stream.cpp's EcefToMapAgreesWithCppPinWithinHalfMeter
+// re-types its fixture's literals rather than re-deriving them). Chosen as
+// the ONE shared pose target because it's the only map-frame point that is
+// GUARANTEED non-empty for the baked source (it's the baked town's own
+// buildings) while ALSO being real, renderable ground truth for the live
+// ion sources: kFixtureAnchor sits in Dubai, and Cesium OSM
+// Buildings/Google Photorealistic 3D Tiles both have real-world coverage
+// there, so a point ~113 m from the anchor still has genuine tile content
+// to load -- unlike an arbitrary far-off point that might land on empty
+// ocean/desert for the live sources even though the baked fixture (which
+// only exists at this one location) would trivially still show its town.
+constexpr mpviz::Vec3 kCaptureBuildingsCentroid{-109.2, -17.1, 3.0};
+// Same eye/target offset test_environment.cpp's
+// SetEnvironmentVisibleFalseHidesLoadedChunksWithoutTearingDown already
+// uses to frame that exact centroid (+50/-70/40 eye offset, its own
+// comment: "frames the real footprint centroid so the buildings occupy a
+// real chunk of the image, not a corner") -- reused verbatim, not
+// re-derived, as the shared pose every source below is captured from.
+const mpviz::CameraPose kCapturePose{
+    {kCaptureBuildingsCentroid.x + 50, kCaptureBuildingsCentroid.y - 70, 40},
+    {kCaptureBuildingsCentroid.x, kCaptureBuildingsCentroid.y, kCaptureBuildingsCentroid.z},
+    60.0};
+
+// Generous size (per the task): these PNGs are for a human to look at side
+// by side, not for SSIM -- golden.hpp's render_and_compare() is fixed at
+// 320x240 for CI speed and is deliberately NOT used here.
+constexpr uint32_t kCaptureWidth = 960;
+constexpr uint32_t kCaptureHeight = 720;
+
+// MPVIZ_CAPTURE_OUT_DIR lets a caller redirect where the PNG lands; default
+// /tmp -- these are opt-in manual captures, not committed test artifacts.
+// The capture note (docs/visual_mode/env_source_captures.md) documents
+// copying the result into docs/visual_mode/env_source_captures/ for the
+// comparison package itself.
+std::string capture_out_path(const char* name) {
+    const char* dir = std::getenv("MPVIZ_CAPTURE_OUT_DIR");
+    return std::string(dir && *dir ? dir : "/tmp") + "/env_source_" + name + ".png";
+}
+
+// Resolution/pose-independent, no-golden-needed content check: a blank or
+// sky-only frame is nearly one flat color, so both (1) the luminance
+// std-deviation across the whole frame and (2) the fraction of pixels
+// differing from a corner-pixel background sample by more than a small
+// tolerance read near zero. Real building geometry -- edges, shadow,
+// distinct materials -- pushes both well above zero. Reported per image
+// (std::cerr below), never asserted on here: the capture's job is to
+// produce and HONESTLY report a result, not to gate on one (the task's own
+// "an empty render is reported as such, never presented as a successful
+// capture" rule is satisfied by the EXPECT_GT(loaded, 0u) checks in the
+// TESTs below, which is the real load-succeeded signal; this is
+// corroborating pixel evidence for the report, not a second gate).
+struct ContentStats {
+    double luminance_stddev = 0.0;
+    double non_background_fraction = 0.0;
+};
+
+ContentStats analyze_capture(const std::vector<uint8_t>& rgb, uint32_t width, uint32_t height) {
+    auto luminance = [](uint8_t r, uint8_t g, uint8_t b) {
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const size_t n = static_cast<size_t>(width) * height;
+    double sum = 0.0, sumSq = 0.0;
+    for (size_t i = 0; i < n; ++i) {
+        const double l = luminance(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]);
+        sum += l;
+        sumSq += l * l;
+    }
+    const double mean = sum / static_cast<double>(n);
+    const double variance = sumSq / static_cast<double>(n) - mean * mean;
+
+    const double bgL = luminance(rgb[0], rgb[1], rgb[2]);
+    constexpr double kTolerance = 10.0;
+    size_t differing = 0;
+    for (size_t i = 0; i < n; ++i) {
+        const double l = luminance(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]);
+        if (std::abs(l - bgL) > kTolerance) ++differing;
+    }
+    ContentStats stats;
+    stats.luminance_stddev = std::sqrt(std::max(0.0, variance));
+    stats.non_background_fraction = static_cast<double>(differing) / static_cast<double>(n);
+    return stats;
+}
+
+// Pumps render_frame() until environment_loaded_chunk_count(r) is nonzero
+// (bounded by `initial_deadline_sec` wall-clock -- a live network call that
+// never resolves must not hang this opt-in run indefinitely, same
+// convention as GooglePresetLiveRenderMsDeltaVsOsmClay's own pump_live()
+// above), THEN keeps rendering for `settle_seconds` MORE of REAL wall-clock
+// time (paced with a short sleep between ticks, not a tight loop) before
+// the capture frame.
+//
+// The settle phase's pacing is load-bearing, not cosmetic: at this
+// resolution render_frame() itself is sub-millisecond once nothing new is
+// happening (measured), so a tight tick-count loop (this function's first
+// draft) burns through hundreds of ticks in under a second of REAL time --
+// nowhere near enough for cesium's background thread pool to complete even
+// one more HTTP round trip. loaded_chunk_count() > 0 after the FIRST tile
+// (the tileset's coarse root, typically) is exactly that non-representative
+// case: reproduced directly against the real network, that first-tile
+// snapshot rendered as a totally flat, empty frame (no visible geometry at
+// all) -- the same thing EnvironmentStreamPerf/live's own "manual visual-
+// confidence artifact only" comment already flags as a known gap. Real
+// per-building tile detail only appears after several more rounds of
+// progressive LOD refinement, each gated on an actual network fetch
+// completing -- which needs elapsed wall-clock time between ticks, not more
+// ticks. The local, offline fixture path (FixtureBlock_DarkAdas et al.)
+// never hit this because disk reads have no meaningful latency to wait out.
+uint64_t pump_and_settle(mpviz::VisualRenderer* r, const mpviz::CameraPose& pose,
+                          std::vector<uint8_t>& buf, int initial_deadline_sec, int settle_seconds) {
+    const auto phase1Deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(initial_deadline_sec);
+    uint64_t loaded = 0;
+    while (std::chrono::steady_clock::now() < phase1Deadline) {
+        if (!mpviz::render_frame(r, pose, {buf.data(), kCaptureWidth, kCaptureHeight})) return loaded;
+        loaded = mpviz::testing::environment_loaded_chunk_count(r);
+        if (loaded > 0) break;
+    }
+    if (loaded == 0) return 0;
+    const auto settleDeadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(settle_seconds);
+    while (std::chrono::steady_clock::now() < settleDeadline) {
+        mpviz::render_frame(r, pose, {buf.data(), kCaptureWidth, kCaptureHeight});
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return mpviz::testing::environment_loaded_chunk_count(r);
+}
+
+// Renders ONE frame of `r`'s current scene from kCapturePose at the
+// generous kCaptureWidth x kCaptureHeight, writes it to
+// capture_out_path(name) via the same stb writer golden.cpp links into
+// this binary, and logs the content-verification numbers to stderr.
+void capture_and_report(mpviz::VisualRenderer* r, const char* name) {
+    std::vector<uint8_t> buf(static_cast<size_t>(kCaptureWidth) * kCaptureHeight * 3);
+    ASSERT_TRUE(mpviz::render_frame(r, kCapturePose, {buf.data(), kCaptureWidth, kCaptureHeight}));
+    const std::string outPath = capture_out_path(name);
+    stbi_write_png(outPath.c_str(), static_cast<int>(kCaptureWidth), static_cast<int>(kCaptureHeight), 3,
+                   buf.data(), static_cast<int>(kCaptureWidth) * 3);
+    const ContentStats stats = analyze_capture(buf, kCaptureWidth, kCaptureHeight);
+    std::cerr << "[EnvSourceCapture] " << name << " -> " << outPath
+              << " luminance_stddev=" << stats.luminance_stddev
+              << " non_background_fraction=" << stats.non_background_fraction << "\n";
+}
+
+}  // namespace
+
+TEST(EnvSourceCapture, Baked) {
+    if (std::getenv("MPVIZ_CAPTURE_ENV_SOURCES") == nullptr) {
+        GTEST_SKIP() << "opt-in visual comparison capture -- set MPVIZ_CAPTURE_ENV_SOURCES=1 to run "
+                        "(never required by ctest)";
+    }
+    mpviz::RenderConfig cfg{kCaptureWidth, kCaptureHeight, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    ASSERT_TRUE(mpviz::set_environment_source(r, kTestTownDir.c_str(), kFixtureAnchor));
+
+    mpviz::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kChunk0Center;  // within kLoadRadiusM of the buildings this pose frames
+    mpviz::set_scene(r, s);
+    std::vector<uint8_t> warm(static_cast<size_t>(kCaptureWidth) * kCaptureHeight * 3);
+    ASSERT_GT(pump_and_settle(r, kCapturePose, warm, /*initial_deadline_sec=*/5, /*settle_seconds=*/1), 0u)
+        << "baked fixture chunk never loaded at kChunk0Center";
+    capture_and_report(r, "baked");
+    mpviz::destroy_renderer(r);
+}
+
+TEST(EnvSourceCapture, Osm) {
+    if (std::getenv("MPVIZ_CAPTURE_ENV_SOURCES") == nullptr ||
+        std::getenv("CESIUM_ION_TOKEN") == nullptr) {
+        GTEST_SKIP() << "opt-in LIVE-network visual comparison capture -- set "
+                        "MPVIZ_CAPTURE_ENV_SOURCES=1 and CESIUM_ION_TOKEN to run "
+                        "(never required by ctest)";
+    }
+    mpviz::RenderConfig cfg{kCaptureWidth, kCaptureHeight, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    ASSERT_TRUE(mpviz::set_environment_source(r, "ion://96188", kFixtureAnchor));
+
+    mpviz::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = mpviz::Vec3{0, 0, 0};
+    mpviz::set_scene(r, s);
+    std::vector<uint8_t> warm(static_cast<size_t>(kCaptureWidth) * kCaptureHeight * 3);
+    const uint64_t loaded =
+        pump_and_settle(r, kCapturePose, warm, /*initial_deadline_sec=*/30, /*settle_seconds=*/60);
+    EXPECT_GT(loaded, 0u) << "osm preset (ion://96188) loaded no tiles at kFixtureAnchor within 30s "
+                             "-- would ship an empty/near-empty capture, reporting rather than faking "
+                             "it";
+    capture_and_report(r, "osm");
+    mpviz::destroy_renderer(r);
+}
+
+TEST(EnvSourceCapture, Google) {
+    if (std::getenv("MPVIZ_CAPTURE_ENV_SOURCES") == nullptr ||
+        std::getenv("CESIUM_ION_TOKEN") == nullptr) {
+        GTEST_SKIP() << "opt-in LIVE-network visual comparison capture -- set "
+                        "MPVIZ_CAPTURE_ENV_SOURCES=1 and CESIUM_ION_TOKEN to run "
+                        "(never required by ctest)";
+    }
+    mpviz::RenderConfig cfg{kCaptureWidth, kCaptureHeight, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    ASSERT_TRUE(
+        mpviz::set_environment_source(r, "ion://2275207?materials=original&cache=off", kFixtureAnchor));
+
+    mpviz::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = mpviz::Vec3{0, 0, 0};
+    mpviz::set_scene(r, s);
+    std::vector<uint8_t> warm(static_cast<size_t>(kCaptureWidth) * kCaptureHeight * 3);
+    const uint64_t loaded =
+        pump_and_settle(r, kCapturePose, warm, /*initial_deadline_sec=*/30, /*settle_seconds=*/60);
+    EXPECT_GT(loaded, 0u) << "google preset (ion://2275207) loaded no tiles at kFixtureAnchor within "
+                             "30s -- would ship an empty/near-empty capture, reporting rather than "
+                             "faking it";
+    capture_and_report(r, "google");
+    mpviz::destroy_renderer(r);
+}
+
+// "clipped" (VM-096's 4th GUI preset) resolves to the NODE's own
+// environment_own_asset_uri parameter (environment_source_uri.hpp), not a
+// fixed public ion asset id -- and that parameter defaults empty
+// (visualization_node.cpp:687) and is NOT configured on this box. There is
+// no real ion asset id to render here: fabricating one would silently ship
+// a picture of the WRONG preset (some other asset entirely), which is
+// worse than no picture. Always skips, even with the capture opt-in set,
+// with that exact reason -- the case is named and reported as
+// not-renderable, never silently dropped from the comparison package.
+TEST(EnvSourceCapture, Clipped) {
+    if (std::getenv("MPVIZ_CAPTURE_ENV_SOURCES") == nullptr) {
+        GTEST_SKIP() << "opt-in visual comparison capture -- set MPVIZ_CAPTURE_ENV_SOURCES=1 to run "
+                        "(never required by ctest)";
+    }
+    GTEST_SKIP() << "'clipped' preset resolves to the node's environment_own_asset_uri, which is NOT "
+                    "configured on this box (empty default) -- no real ion asset id exists to render, "
+                    "so this case is reported as not-renderable rather than faked with a made-up id";
 }
 
 // Fixture provenance (Step 0): tests/fixtures/environment_ion_fixture_0/ --
