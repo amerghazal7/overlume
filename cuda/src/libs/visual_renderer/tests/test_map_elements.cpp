@@ -918,3 +918,121 @@ TEST(MapElements, EgoInvalidFadesMapElementsRatherThanLeavingThemAtFullOpacity) 
 
     mpviz::destroy_renderer(r);
 }
+
+// ── crosswalk/boundary z-fight regression (flicker report, 2026-09-16) ───
+// Root cause: before the per-kind z-lift table, every non-ROAD_SURFACE
+// MapKind shared one z (the old kLaneZLiftM) -- a CROSSWALK polygon and a
+// boundary stripe crossing it were exactly coplanar, and the depth buffer
+// had no basis to order two coplanar triangles. The winning surface flips
+// per-pixel as the camera moves, even by millimetres -- classic
+// z-fighting, seen by the user as the thin LANE LINE flickering under the
+// crosswalk (the small-area loser).
+//
+// This finds the overlap region itself (pixels where a crosswalk-only
+// render AND a boundary-only render both differ from bare ground), then
+// renders the COMBINED scene from two camera positions 4mm apart and
+// asserts that region is STABLE between them. A coplanar pair flips there;
+// a staggered pair does not. Asserting only that the z-lift constants
+// differ would pass even if the renderer ignored them entirely -- this
+// checks actual rendered pixels instead.
+namespace {
+
+std::vector<uint8_t> RenderZFightScene(const mpviz::CameraPose& pose, mpviz::MapElement* elems,
+                                        uint32_t count) {
+    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) return {};  // no GPU/EGL
+    mpviz::SceneGraph s{};
+    s.ego.valid = 1;
+    s.map_elements = elems;
+    s.map_element_count = count;
+    mpviz::set_scene(r, s);
+    std::vector<uint8_t> pixels(320u * 240u * 3u);
+    mpviz::FrameView view{pixels.data(), 320, 240};
+    const bool ok = mpviz::render_frame(r, pose, view);
+    mpviz::destroy_renderer(r);
+    if (!ok) return {};
+    return pixels;
+}
+
+// True if pixel `px` (0-based, RGB-interleaved) differs by more than a
+// small tolerance in any channel -- tolerance absorbs incidental
+// anti-aliasing noise without absorbing an actual surface-color flip.
+bool PixelDiffers(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, size_t px) {
+    for (int c = 0; c < 3; ++c) {
+        int d = static_cast<int>(a[px * 3 + c]) - static_cast<int>(b[px * 3 + c]);
+        if (d < 0) d = -d;
+        if (d > 8) return true;
+    }
+    return false;
+}
+
+}  // namespace
+
+TEST(MapElementsZFight, CrosswalkOverBoundaryStaysStableAcrossTinyCameraMove) {
+    // Crosswalk: x in [-3,3], y in [-1,1]. A 5-point CLOSED ring, not the
+    // recorded-data 4-point quad -- build_crosswalk_hatch() only fires for
+    // n==4, so this falls to triangulate_convex_polygon()'s plain solid
+    // fill: a reliable opaque overlap area, not a hatch pattern that could
+    // dodge the fight by landing in a gap.
+    mpviz::Vec3 crosswalk_ring[] = {
+        {-3, -1, 0}, {3, -1, 0}, {3, 1, 0}, {-3, 1, 0}, {-3, -1, 0}};
+    // A lane boundary straight through the crosswalk's middle (y=0) --
+    // its kLaneHalfWidthM=0.05m ribbon overlaps the crosswalk fill for the
+    // whole x in [-3,3] span.
+    mpviz::Vec3 boundary_line[] = {{-5, 0, 0}, {5, 0, 0}};
+
+    mpviz::MapElement both[2]{};
+    both[0].points = crosswalk_ring;
+    both[0].point_count = 5;
+    both[0].is_polygon = 1;
+    both[0].kind = mpviz::MapKind::CROSSWALK;
+    both[1].points = boundary_line;
+    both[1].point_count = 2;
+    both[1].kind = mpviz::MapKind::LEFT_BOUNDARY;
+
+    mpviz::MapElement crosswalk_only[1]{both[0]};
+    mpviz::MapElement boundary_only[1]{both[1]};
+
+    const mpviz::CameraPose poseA{{0, -10, 6}, {0, 0, 0}, 60.0};
+    const mpviz::CameraPose poseB{{0.004, -10, 6}, {0, 0, 0}, 60.0};
+
+    const std::vector<uint8_t> background = RenderZFightScene(poseA, nullptr, 0);
+    if (background.empty()) GTEST_SKIP() << "no GPU/EGL";
+    const std::vector<uint8_t> cwOnly = RenderZFightScene(poseA, crosswalk_only, 1);
+    const std::vector<uint8_t> lineOnly = RenderZFightScene(poseA, boundary_only, 1);
+    ASSERT_EQ(background.size(), cwOnly.size());
+    ASSERT_EQ(background.size(), lineOnly.size());
+
+    const size_t numPixels = background.size() / 3;
+    std::vector<bool> overlapMask(numPixels, false);
+    size_t overlapCount = 0;
+    for (size_t px = 0; px < numPixels; ++px) {
+        if (PixelDiffers(cwOnly, background, px) && PixelDiffers(lineOnly, background, px)) {
+            overlapMask[px] = true;
+            ++overlapCount;
+        }
+    }
+    ASSERT_GT(overlapCount, 0u) << "the boundary/crosswalk fixture produced no screen-space "
+                                   "overlap at all -- test geometry/camera needs adjusting";
+
+    const std::vector<uint8_t> combinedA = RenderZFightScene(poseA, both, 2);
+    const std::vector<uint8_t> combinedB = RenderZFightScene(poseB, both, 2);
+    ASSERT_EQ(combinedA.size(), combinedB.size());
+
+    size_t flipped = 0;
+    for (size_t px = 0; px < numPixels; ++px) {
+        if (overlapMask[px] && PixelDiffers(combinedA, combinedB, px)) ++flipped;
+    }
+    // A coplanar overlap flips which surface wins across a real chunk of
+    // the mask between two camera positions 4mm apart: measured against
+    // the pre-fix shared-constant behavior (temporarily reverted while
+    // writing this test), 15 of 54 mask pixels (~28%) flip and this bound
+    // fails. Measured against the per-kind table above, 0 of 54 flip. 10%
+    // sits comfortably between the two and clear of both.
+    EXPECT_LT(flipped, overlapCount / 10)
+        << flipped << " of " << overlapCount
+        << " overlap pixels changed between two camera positions 4mm apart -- "
+           "z-fighting flip between the crosswalk and the boundary line, not a "
+           "camera-induced content change";
+}
