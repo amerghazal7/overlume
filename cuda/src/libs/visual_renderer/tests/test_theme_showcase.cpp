@@ -140,11 +140,10 @@ TEST(ThemeShowcase, Capture) {
     mpviz::RenderConfig cfg{kWidth, kHeight, /*quality=*/2, themeDir.c_str(), themeName.c_str()};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    if (!mpviz::theme_assets_loaded(r)) {
-        std::cerr << "[ThemeShowcase] WARNING: '" << themeName << "' failed to load from '"
-                  << themeDir << "' -- rendering the compiled-in fallback theme instead, NOT "
-                  << "the requested candidate. Check the theme name/dir.\n";
-    }
+    ASSERT_TRUE(mpviz::theme_assets_loaded(r))
+        << "[ThemeShowcase] '" << themeName << "' failed to load from '" << themeDir
+        << "' -- rendering the compiled-in fallback theme instead, NOT "
+        << "the requested candidate. Check the theme name/dir.";
 
     // ── Baked environment buildings (task requirement 1/6) ────────────────
     ASSERT_TRUE(mpviz::set_environment_source(r, kTestTownDir.c_str(), kAnchor))
@@ -223,8 +222,44 @@ TEST(ThemeShowcase, Capture) {
     //    every position/path point from its own "near world origin" frame
     //    into this scene's frame. ─────────────────────────────────────────
     mpviz::testing::ObjectScene objects = mpviz::testing::make_mixed_class_objects(now);
-    for (auto& p : objects.path_points) p = translated(p, kSceneOrigin.x, kSceneOrigin.y);
-    for (auto& obj : objects.objects) obj.position = translated(obj.position, kSceneOrigin.x, kSceneOrigin.y);
+    // Fan the six class boxes out (round-1 gate finding, blocking): a plain
+    // kSceneOrigin translation alone stacks every one of them, plus the
+    // ribbon corridor below, inside the same ~10m span centered on the
+    // ego -- directly on top of the 7m-wide road polygon, so the
+    // translucent boxes blanket the road/lane tokens under review and
+    // leave no clean pavement to judge them against. Deltas below are
+    // ADDITIONAL to kSceneOrigin, one per object in
+    // make_mixed_class_objects()'s own documented CAR/TRUCK_VAN/BUS/
+    // PEDESTRIAN/CYCLIST/UNKNOWN order (mpviz::ObjectClass's own enum
+    // order, scene.h). Objects stay near the ego's own x-range (the ribbon
+    // corridor already covers that stretch of road, so leaving objects at
+    // a similar depth doesn't newly occlude any otherwise-clean pavement)
+    // but move WAY out laterally -- well beyond kEdgeOffset (4.1m) -- onto
+    // open ground beside the road, split across the two shoulders (+y vs
+    // -y) so they read as two separated clusters rather than one pile.
+    // That leaves the entire un-ribboned stretch of road behind the ego
+    // (this camera's own near/bottom-left of frame, see the pose comment
+    // below) completely clean: nothing but road surface, lane paint,
+    // road_edge and centerline, confirmed by inspecting the actual
+    // capture, not just this offline placement math.
+    constexpr Vec3 kObjectFanOffsets[] = {
+        {0.0, -9.0, 0.0},    // CAR -- the -y shoulder
+        {0.0, 14.0, 0.0},    // TRUCK_VAN (path_points below get this same delta) -- the +y shoulder
+        {1.0, -25.0, 0.0},   // BUS -- the -y shoulder, further out (12m-long box)
+        {0.0, 23.0, 0.0},    // PEDESTRIAN -- the +y shoulder
+        {-2.0, -6.0, 0.0},   // CYCLIST -- the -y shoulder
+        {2.0, 25.0, 0.0},    // UNKNOWN -- the +y shoulder, further out
+    };
+    constexpr size_t kTruckVanIdx = static_cast<size_t>(mpviz::ObjectClass::TRUCK_VAN);
+    for (auto& p : objects.path_points) {
+        p = translated(p, kSceneOrigin.x + kObjectFanOffsets[kTruckVanIdx].x,
+                       kSceneOrigin.y + kObjectFanOffsets[kTruckVanIdx].y);
+    }
+    for (size_t i = 0; i < objects.objects.size(); ++i) {
+        objects.objects[i].position =
+            translated(objects.objects[i].position, kSceneOrigin.x + kObjectFanOffsets[i].x,
+                       kSceneOrigin.y + kObjectFanOffsets[i].y);
+    }
 
     // ── Critical alert on one TrackedObject (task requirement 4/6, "coral
     //    accent") -- no existing golden.hpp helper produces a CRITICAL
@@ -283,18 +318,22 @@ TEST(ThemeShowcase, Capture) {
     // above the ego, looking forward-and-across along the road toward the
     // buildings ahead -- NOT a top-down survey shot and NOT a ground-level
     // bumper cam, the same "elevated three-quarter" read ref-2 itself uses.
-    // eye is 14m behind/14m to the side of the ego and 12m up (a steep
-    // enough angle to also read the ground grid/road surface, not just
-    // vertical faces); target sits 18m ahead and 5m across from the ego, at
-    // ego-eye height (1.2m) rather than the ground, so the horizon/building
-    // fronts are framed rather than the pavement immediately underfoot --
-    // this lands just short of kBuildingsCentroid itself (by design: aiming
-    // exactly at it would center the buildings and crop the ego/road out of
-    // frame instead of "framing ego + road ahead + buildings" together).
+    // Pulled back/up and widened (round-1 gate finding, blocking) from the
+    // original (-14,-14,12)/(+18,+5,1.2)/55deg pose: that framing clipped
+    // the ribbon corridor's own near end (make_three_role_ribbons()'s
+    // GLOBAL role starts at local (-10,-3)) off the bottom-left edge, since
+    // the near end sits much closer to the eye than the look-at target and
+    // well off the forward axis -- verified by re-projecting every scene
+    // anchor (ribbon ends, ego, road shoulders, building centroid, the
+    // fanned-out objects above) through the same lookAt+perspective math
+    // renderer.cpp's render_frame() uses; every one of them now lands
+    // inside the frame with margin. eye is 20m behind/20m to the side of
+    // the ego and 15m up; target sits 20m ahead and 6m across from the
+    // ego, at ego-eye height (1.5m).
     const mpviz::CameraPose pose{
-        {kSceneOrigin.x - 14.0, kSceneOrigin.y - 14.0, 12.0},
-        {kSceneOrigin.x + 18.0, kSceneOrigin.y + 5.0, 1.2},
-        /*vfov_deg=*/55.0};
+        {kSceneOrigin.x - 20.0, kSceneOrigin.y - 20.0, 15.0},
+        {kSceneOrigin.x + 20.0, kSceneOrigin.y + 6.0, 1.5},
+        /*vfov_deg=*/60.0};
 
     // One warm-up frame to trigger the baked chunk load (same "one render
     // before the capture frame" shape as EnvironmentGolden.TestTown_DarkAdas

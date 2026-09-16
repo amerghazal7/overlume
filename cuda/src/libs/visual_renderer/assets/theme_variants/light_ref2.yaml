@@ -124,23 +124,31 @@ grid: { line_color: [0.50, 0.48, 0.54], fade_start_m: 15.0, fade_end_m: 40.0 }
 # hero azure so the HUD reads as "part of this palette", not a leftover
 # green/generic accent.
 hud: { text_color: [0.08, 0.10, 0.20], accent_color: [0.15, 0.40, 0.95], scale: 1.0 }
-# Sun: kept close to light_clay's own overhead-ish daytime angle (this is
-# ref-2's daytime, airy read, not a dusk one) with a touch more intensity —
-# ref-2's buildings/ground are BRIGHTER/paler than light_clay's own, so a
-# brighter direct sun keeps the "well lighted" read instead of looking flat
-# under identical light.
-sun: { direction: [-0.4, -0.2, -1.0], color: [1.0, 0.97, 0.90], intensity: 28000.0 }
+# Sun: RE-LIT 2026-09-16 (round-1 gate finding, blocking) -- a near-vertical
+# direction here left vertical facades lit by IBL alone while the ground
+# took the full direct key, inverting the authored albedo ordering
+# (building 0.855 > ground 0.747 on paper, but building rendered DARKER
+# than ground/sky in the capture). Mirrors dark_ref2.yaml's own fix: a
+# grazing angle so the visible facades actually catch the key light, same
+# daytime color, same overall intensity (this is still ref-2's airy
+# daytime read, not dusk).
+sun: { direction: [-0.6, -0.2, -0.5], color: [1.0, 0.97, 0.90], intensity: 28000.0 }
 ibl:
   # Tracks palette.sky/ground per the shipped convention (both existing
   # themes' own comments: "should track palette.sky/palette.ground").
+  # Intensity raised (was 9500) so ambient fill carries more of the facade
+  # lighting alongside the now-grazing sun -- same "more ambient, less
+  # harsh key" reasoning dark_ref2.yaml's own comment applies.
   sky_color:    [0.355, 0.518, 0.889]
   ground_color: [0.62, 0.60, 0.64]
-  intensity: 9500.0
-# Same order-of-magnitude as light_clay's own tuned value (that file's own
-# comment documents the exact failure modes at other densities: fog-milk,
-# hazed, or a hard horizon step) -- nudged up slightly for this palette's
-# airier, more atmospheric read.
-fog: { density: 0.0018 }
+  intensity: 15000.0
+# Density lowered (was 0.0018, back below light_clay's own 0.0015) -- at
+# 0.0018 with fog==sky (a fully saturated blue), the pale ground/building
+# tokens measured as blue-grey rather than ref-2's near-neutral pale tones.
+# Lower density keeps the fog==sky convergence convention (unbroken) while
+# letting the pale surfaces read closer to their authored near-neutral
+# albedo instead of being tinted by a highly saturated fog color.
+fog: { density: 0.0012 }
 # Unchanged from the shipped geometry convention -- this pass is a palette
 # direction, not a ribbon-shape change.
 ribbon: { lane_width_m: 3.5, margin_behavior_m: 1.3, margin_global_m: 0.3, margin_local_m: 0.8 }
