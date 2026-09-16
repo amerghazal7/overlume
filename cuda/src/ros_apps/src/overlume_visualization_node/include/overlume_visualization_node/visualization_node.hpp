@@ -448,6 +448,18 @@ private:
     // render_ms_ -- same one-shot-bool shape as environment_warned_ above
     // and the Epic 4 Task 1 Step 4 precedent (geo_anchor_logged_).
     bool environment_fallback_warned_{false};
+    // VM-064 (Epic 6 Task 5): Google Photorealistic 3D Tiles attribution --
+    // a plain on/off knob (STANDING directive), read once in on_configure().
+    // The actual draw (timer_callback()) is ADDITIONALLY gated on
+    // environment_source_uri_ containing "materials=original" -- this param
+    // alone does not force a line onto a plain clay preset's frames; it
+    // only controls whether original-materials mode is ALLOWED to draw one.
+    bool environment_attribution_{true};
+    // WARN-once latch mirroring hud_font_warned_'s own shape below -- both
+    // draw through the SAME font atlas/path, so a broken font warns once
+    // per knob, not once overall (independent of whether hud_enabled_ is
+    // also true this run).
+    bool environment_attribution_warned_{false};
 
     SceneAssembly scene_asm_;
 

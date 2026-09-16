@@ -206,7 +206,11 @@ private:
 //    streaming uses no raster overlays. ──────────────────────────────────
 class StreamRendererResources final : public Cesium3DTilesSelection::IPrepareRendererResources {
 public:
-    explicit StreamRendererResources(const glm::dmat4& ecefToMap) : ecefToMap_(ecefToMap) {}
+    // `materialsOriginal` (VM-064, Task 5): false (default) is today's clay
+    // remap; true skips it in prepareInMainThread() -- gltfio's own loaded
+    // ubershader materials stay bound (Google Photorealistic 3D Tiles).
+    explicit StreamRendererResources(const glm::dmat4& ecefToMap, bool materialsOriginal = false)
+        : ecefToMap_(ecefToMap), materialsOriginal_(materialsOriginal) {}
 
     // `r` is only valid for the duration of the StreamingEnvironmentSource
     // call that supplied it (update()/teardown() -- the seam's own
@@ -251,6 +255,7 @@ public:
 private:
     VisualRenderer* r_ = nullptr;
     glm::dmat4 ecefToMap_;
+    bool materialsOriginal_ = false;  // VM-064: gates the clay remap, see prepareInMainThread()
     std::mutex freeMutex_;
     std::vector<filament::gltfio::FilamentAsset*> pendingFrees_;
     std::atomic<bool> tornDown_{false};
@@ -302,11 +307,17 @@ public:
     // accessor is always built by build_externals() in practice, but a
     // null-safe check costs nothing and means "network loss never
     // detected" rather than a crash for any future caller that omits it).
+    // `materials_original` (VM-064, Task 5 Decision 14): false (default,
+    // every pre-VM-064 call site) is today's clay remap; true is the
+    // original-materials mode Google Photorealistic 3D Tiles needs --
+    // parsed from the ion:// URI's `materials=` key (production path) or
+    // passed directly by the fixture install hook (test path).
     StreamingEnvironmentSource(Cesium3DTilesSelection::TilesetExternals externals,
                                int64_t asset_id, std::string ion_access_token,
                                std::string root_tileset_uri, std::string fallback_baked_dir,
                                GeoAnchor anchor,
-                               std::shared_ptr<CountingAssetAccessor> counting_accessor);
+                               std::shared_ptr<CountingAssetAccessor> counting_accessor,
+                               bool materials_original = false);
     ~StreamingEnvironmentSource() override;
 
     void update(VisualRenderer& r, Vec3 ego_map_pos) override;
@@ -319,6 +330,14 @@ public:
     // up before cesium's async destruction event fired. 0 in every run
     // this task observed.
     int leaked_on_teardown_bound() const { return leakedOnTeardownBound_; }
+
+    // VM-064 test-hook mirrors (environment_test_hooks.hpp's
+    // environment_stream_materials_original() /
+    // environment_stream_first_primitive_is_clay()) -- not a Filament
+    // read-back, same "opaque hook" convention as every other test-only
+    // accessor in this file.
+    bool materials_original() const { return materialsOriginal_; }
+    bool first_primitive_is_building_material(VisualRenderer& r) const;
 
 private:
     void synthesize_view_and_pump(VisualRenderer& r, Vec3 ego_map_pos);
@@ -340,6 +359,7 @@ private:
     glm::dmat4 ecefToMap_;
     glm::dmat4 mapToEcef_;
     std::string fallbackBakedDir_;  // stored, acted on by Task 4
+    bool materialsOriginal_ = false;  // VM-064: threaded into renderResources_ at construction
     bool tornDown_ = false;
     int leakedOnTeardownBound_ = 0;
     std::optional<std::chrono::steady_clock::time_point> lastUpdate_;

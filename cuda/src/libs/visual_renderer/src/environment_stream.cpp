@@ -37,7 +37,8 @@ namespace mpviz {
 namespace {
 
 // ── Decision 5's ~30-line split-only parser: "<assetId>[?cache=<dir>]
-//    [&fallback=<baked_dir>][&max_cache_items=<n>]". No URL library --
+//    [&fallback=<baked_dir>][&max_cache_items=<n>][&materials=original|clay]"
+//    (the materials= key is VM-064/Task 5's one addition). No URL library --
 //    "?"/"&"/"=" split only.
 //    ponytail: split-only parser; percent-encoding if a real path ever
 //    needs it. ─────────────────────────────────────────────────────────
@@ -46,6 +47,10 @@ struct IonSpec {
     std::string cache_dir;
     std::string fallback_dir;
     uint64_t max_cache_items = kDefaultMaxCacheItems;
+    // VM-064 (Task 5): "original" keeps gltfio's own ubershader materials
+    // (Google Photorealistic 3D Tiles); "clay"/absent (default) is today's
+    // buildingMaterial remap, byte-identical to every pre-VM-064 URI.
+    bool materials_original = false;
 };
 
 std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
@@ -79,6 +84,23 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                     out.max_cache_items = std::stoull(val);
                 } catch (const std::exception&) {
                     // malformed -- keep the default rather than fail the whole open.
+                }
+            } else if (key == "materials") {
+                if (val == "original") {
+                    out.materials_original = true;
+                } else if (val == "clay") {
+                    out.materials_original = false;
+                } else {
+                    // Spec §9 "malformed data degrades, never crashes": an
+                    // unknown materials= value is treated as clay (today's
+                    // behavior) rather than failing the whole open --
+                    // WARNed once, process-wide (same std::call_once shape
+                    // as registerAllTileContentTypes() below).
+                    static std::once_flag unknownMaterialsWarnOnce;
+                    std::call_once(unknownMaterialsWarnOnce, [&val] {
+                        spdlog::warn("environment_stream: unknown materials='{}' -- treating as clay", val);
+                    });
+                    out.materials_original = false;
                 }
             }
         }
@@ -189,12 +211,28 @@ Cesium3DTilesSelection::TilesetExternals build_externals(
     std::shared_ptr<CesiumAsync::IAssetAccessor> base, const CesiumAsync::AsyncSystem& asyncSystem,
     const std::string& cache_dir, uint64_t max_cache_items,
     std::shared_ptr<CountingAssetAccessor>* out_counting = nullptr) {
-    std::error_code ec;
-    std::filesystem::create_directories(cache_dir, ec);  // best-effort; SqliteCache errors loudly if this fails for real
-
     auto counting = std::make_shared<CountingAssetAccessor>(std::move(base));
     if (out_counting != nullptr) *out_counting = counting;
     auto logger = spdlog::default_logger();
+
+    // VM-064 Decision 14 / Task 5 Step 2(b): "off" is a documented sentinel
+    // (not a directory) -- Google's Map Tiles terms bound how long tile
+    // responses may be cached, and the google preset's shipped default sets
+    // `cache=off` until those cache-lifetime terms are re-verified for this
+    // deployment (docs/visual_mode/cesium.md's Google section). No
+    // SqliteCache/CachingAssetAccessor is constructed in this branch --
+    // requests go straight through the counting decorator, nothing
+    // persisted to disk. ponytail: literal "off"/dir-path dispatch, an enum
+    // is the upgrade if a third cache mode is ever needed.
+    if (cache_dir == "off") {
+        Cesium3DTilesSelection::TilesetExternals externals{nullptr, nullptr, asyncSystem};
+        externals.pAssetAccessor = counting;
+        externals.pLogger = logger;
+        return externals;
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(cache_dir, ec);  // best-effort; SqliteCache errors loudly if this fails for real
     auto cacheDb =
         std::make_shared<CesiumAsync::SqliteCache>(logger, cache_dir + "/cesium-tiles.sqlite", max_cache_items);
     auto caching = std::make_shared<CesiumAsync::CachingAssetAccessor>(logger, counting, cacheDb);
@@ -422,8 +460,16 @@ void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile&
         const auto inst = rm.getInstance(renderables[i]);
         if (!inst.isValid()) continue;
         const size_t primCount = rm.getPrimitiveCount(inst);
-        for (size_t p = 0; p < primCount; ++p) {
-            rm.setMaterialInstanceAt(inst, p, r_->buildingMaterial);
+        // VM-064 (Task 5) Step 1: the one-line gate that IS the feature --
+        // gltfio's loadResources() above already loaded this tile's own
+        // ubershader materials/textures; the clay remap below was
+        // DISCARDING them. Google Photorealistic 3D Tiles (materials=
+        // original) keeps them; every other preset (materialsOriginal_
+        // false, the default) remaps exactly as before -- byte-identical.
+        if (!materialsOriginal_) {
+            for (size_t p = 0; p < primCount; ++p) {
+                rm.setMaterialInstanceAt(inst, p, r_->buildingMaterial);
+            }
         }
         rm.setCastShadows(inst, true);
         rm.setReceiveShadows(inst, true);
@@ -477,13 +523,14 @@ std::vector<filament::gltfio::FilamentAsset*> StreamRendererResources::drain_pen
 StreamingEnvironmentSource::StreamingEnvironmentSource(
     Cesium3DTilesSelection::TilesetExternals externals, int64_t asset_id, std::string ion_access_token,
     std::string root_tileset_uri, std::string fallback_baked_dir, GeoAnchor anchor,
-    std::shared_ptr<CountingAssetAccessor> counting_accessor)
+    std::shared_ptr<CountingAssetAccessor> counting_accessor, bool materials_original)
     : asyncSystem_(externals.asyncSystem),
       anchor_(anchor),
       ecefToMap_(compute_ecef_to_map(anchor)),
       mapToEcef_(glm::inverse(ecefToMap_)),
       fallbackBakedDir_(std::move(fallback_baked_dir)),
-      countingAccessor_(std::move(counting_accessor)) {
+      countingAccessor_(std::move(counting_accessor)),
+      materialsOriginal_(materials_original) {
     // GltfConverters' magic-byte dispatch table (b3dm/glTF/cmpt/i3dm/pnts)
     // is empty until this is called once, process-wide -- cesium-native
     // deliberately leaves it to the embedding application (not every
@@ -500,7 +547,7 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
     // reach it directly -- the SAME object also becomes
     // externals.pPrepareRendererResources below, so cesium's Tileset holds
     // the other half of this shared_ptr's ownership.
-    renderResources_ = std::make_shared<StreamRendererResources>(ecefToMap_);
+    renderResources_ = std::make_shared<StreamRendererResources>(ecefToMap_, materialsOriginal_);
     externals.pPrepareRendererResources = renderResources_;
 
     Cesium3DTilesSelection::TilesetOptions options;
@@ -690,6 +737,24 @@ EnvironmentSourceState StreamingEnvironmentSource::state() const {
                         : EnvironmentSourceState::STREAMING;
 }
 
+// VM-064 (Task 5) Step 1 test-hook mirror: the first currently-in-scene
+// tile's first renderable's first primitive, compared against
+// r.buildingMaterial -- true in every non-original-materials preset
+// (today's clay remap), false in original-materials mode. false (not a
+// crash) if nothing is loaded yet -- same null-safety shape as every other
+// test hook in this file.
+bool StreamingEnvironmentSource::first_primitive_is_building_material(VisualRenderer& r) const {
+    if (inScene_.empty()) return false;
+    auto* asset = static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(inScene_.begin()->first));
+    const size_t renderableCount = asset->getRenderableEntityCount();
+    if (renderableCount == 0) return false;
+    const utils::Entity* renderables = asset->getRenderableEntities();
+    filament::RenderableManager& rm = r.engine->getRenderableManager();
+    const auto inst = rm.getInstance(renderables[0]);
+    if (!inst.isValid() || rm.getPrimitiveCount(inst) == 0) return false;
+    return rm.getMaterialInstanceAt(inst, 0) == r.buildingMaterial;
+}
+
 }  // namespace mpviz
 
 // ── Public factory (production ion:// path, Decision 5/6/15.6) ───────────
@@ -719,7 +784,7 @@ std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::
 
     return std::make_unique<StreamingEnvironmentSource>(externals, spec->asset_id, std::string(token),
                                                           std::string(), spec->fallback_dir, anchor,
-                                                          std::move(counting));
+                                                          std::move(counting), spec->materials_original);
 }
 
 }  // namespace mpviz
@@ -771,7 +836,7 @@ std::string test_cache_dir() {
 // `killed` non-null makes the accessor honor kill_fixture_network().
 std::unique_ptr<mpviz::EnvironmentSource> make_fixture_source(
     const char* fixture_dir, const char* fallback_baked_dir, mpviz::GeoAnchor anchor,
-    std::shared_ptr<std::atomic<bool>> killed) {
+    std::shared_ptr<std::atomic<bool>> killed, bool materials_original) {
     if (fixture_dir == nullptr) return nullptr;
     auto fileAccessor = std::make_shared<mpviz::FileFixtureAssetAccessor>(std::move(killed));
     CesiumAsync::AsyncSystem asyncSystem(std::make_shared<mpviz::SimpleTaskProcessor>());
@@ -783,13 +848,13 @@ std::unique_ptr<mpviz::EnvironmentSource> make_fixture_source(
     return std::make_unique<mpviz::StreamingEnvironmentSource>(
         externals, /*asset_id=*/0, /*ion_access_token=*/std::string(),
         tilesetUri, fallback_baked_dir ? std::string(fallback_baked_dir) : std::string(), anchor,
-        std::move(counting));
+        std::move(counting), materials_original);
 }
 
 }  // namespace
 
 bool install_fixture_streaming_source(mpviz::VisualRenderer* r, const char* fixture_dir,
-                                       mpviz::GeoAnchor anchor) {
+                                       mpviz::GeoAnchor anchor, bool materials_original) {
     if (r == nullptr) return false;
     // Teardown-THEN-construct (not build-then-swap, unlike
     // set_environment_source()'s general baked/streaming dispatch): two
@@ -800,7 +865,8 @@ bool install_fixture_streaming_source(mpviz::VisualRenderer* r, const char* fixt
     // live. These test-only hooks aren't bound by set_environment_source's
     // re-entrant-swap contract, so they tear down first.
     if (r->environmentSource) r->environmentSource->teardown(*r);
-    auto source = make_fixture_source(fixture_dir, /*fallback_baked_dir=*/nullptr, anchor, /*killed=*/nullptr);
+    auto source = make_fixture_source(fixture_dir, /*fallback_baked_dir=*/nullptr, anchor,
+                                       /*killed=*/nullptr, materials_original);
     if (!source) {
         r->environmentSource.reset();
         return false;
@@ -816,7 +882,8 @@ FixtureStreamHandle* install_fixture_streaming_source_with_fallback(mpviz::Visua
     if (r == nullptr) return nullptr;
     if (r->environmentSource) r->environmentSource->teardown(*r);  // see install_fixture_streaming_source's comment
     auto killed = std::make_shared<std::atomic<bool>>(false);
-    auto source = make_fixture_source(fixture_dir, fallback_baked_dir, anchor, killed);
+    auto source = make_fixture_source(fixture_dir, fallback_baked_dir, anchor, killed,
+                                       /*materials_original=*/false);
     if (!source) {
         r->environmentSource.reset();
         return nullptr;
@@ -833,6 +900,26 @@ void kill_fixture_network(FixtureStreamHandle* handle) {
 
 void revive_fixture_network(FixtureStreamHandle* handle) {
     if (handle && handle->killed) handle->killed->store(false);
+}
+
+// VM-064 (Task 5) Step 0: mirrors the installed streaming source's own
+// materials_original flag. false on null r, no installed source, or a
+// non-streaming source (BakedEnvironmentSource) -- dynamic_cast is safe and
+// cheap here (this whole namespace lives in the one C++20 TU that has
+// StreamingEnvironmentSource's complete definition, Decision 3).
+bool environment_stream_materials_original(mpviz::VisualRenderer* r) {
+    if (r == nullptr || !r->environmentSource) return false;
+    auto* stream = dynamic_cast<mpviz::StreamingEnvironmentSource*>(r->environmentSource.get());
+    return stream != nullptr && stream->materials_original();
+}
+
+// VM-064 Step 1: see StreamingEnvironmentSource::first_primitive_is_building_material()'s
+// own comment. false on the same null/non-streaming conditions as the hook
+// above, or if nothing has loaded yet.
+bool environment_stream_first_primitive_is_clay(mpviz::VisualRenderer* r) {
+    if (r == nullptr || !r->environmentSource) return false;
+    auto* stream = dynamic_cast<mpviz::StreamingEnvironmentSource*>(r->environmentSource.get());
+    return stream != nullptr && stream->first_primitive_is_building_material(*r);
 }
 
 bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double heading_rad,

@@ -24,6 +24,7 @@
 #include <gltfio/FilamentAsset.h>
 #include <gltfio/MaterialProvider.h>
 #include <gltfio/ResourceLoader.h>
+#include <gltfio/TextureProvider.h>
 #include <gltfio/materials/uberarchive.h>
 
 #include <math/mat4.h>
@@ -418,6 +419,25 @@ bool ensure_gltf_loader(VisualRenderer& r) {
     resConfig.gltfPath = nullptr;
     resConfig.normalizeSkinningWeights = true;
     r.sharedResourceLoader = new gltfio::ResourceLoader(resConfig);
+
+    // VM-064 (Epic 6 Task 5): gltfio's ResourceLoader ships no texture
+    // decoder by default -- every consumer of this shared loader before
+    // this task either carried no embedded raster textures worth
+    // displaying or had them stripped by the clay remap (baked/streamed
+    // buildings), so the gap never mattered. Original-materials mode
+    // (Decision 14) is the first one that keeps an asset's OWN materials,
+    // and Google Photorealistic 3D Tiles content is JPEG-textured --
+    // confirmed against a live Google tile at implementation ("Missing
+    // texture provider for image/jpeg" without this). createStbProvider is
+    // Filament's own already-linked decoder (ladder: native feature, no
+    // new dependency) -- one instance, registered for both mime types it
+    // supports; a null provider (alloc failure) leaves textures unbound,
+    // same non-fatal shape as everything else in this function.
+    r.sharedTextureProvider = gltfio::createStbProvider(r.engine);
+    if (r.sharedTextureProvider != nullptr) {
+        r.sharedResourceLoader->addTextureProvider("image/jpeg", r.sharedTextureProvider);
+        r.sharedResourceLoader->addTextureProvider("image/png", r.sharedTextureProvider);
+    }
     return true;
 }
 

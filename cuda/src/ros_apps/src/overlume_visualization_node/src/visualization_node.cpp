@@ -672,6 +672,13 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // combines with these.
     environment_source_uri_ = declare_parameter<std::string>("environment_source_uri", "");
     environment_tile_cache_dir_ = declare_parameter<std::string>("environment_tile_cache_dir", "");
+    // VM-064 (Epic 6 Task 5): Google's Map Tiles terms require visible
+    // attribution wherever Photorealistic 3D Tiles content is shown -- a
+    // plain disable knob (STANDING directive), independent of whether this
+    // deployment's environment_source_uri_ actually uses materials=original
+    // (the draw site below checks that too; see docs/visual_mode/cesium.md's
+    // Google section).
+    environment_attribution_ = declare_parameter<bool>("environment_attribution", true);
 
     // ── HD-map adapters ───────────────────────────────────────────────────────
     // One HdMapAdapter per profile row with adapter: hd_map. fill() APPENDS
@@ -1872,6 +1879,45 @@ void VisualizationNode::timer_callback()
         }
     }
 
+    // VM-064 (Epic 6 Task 5) Step 2(a): Google Photorealistic 3D Tiles
+    // attribution. Google's Map Tiles terms require this to be visible
+    // whenever tiles are displayed -- drawn through the SAME DrawText()
+    // primitive callouts already share (no new compositor), independent of
+    // hud_enabled_/render_mode_ (buildings themselves render regardless of
+    // render_mode_ once armed, on_activate()'s own comment above -- the
+    // attribution notice follows that same "wherever the imagery shows"
+    // rule, not the HUD's per-mode suppression).
+    //
+    // environment_attribution_ alone does not draw anything: this ALSO
+    // requires environment_source_uri_ to actually be running in
+    // materials=original mode (Decision 14) -- a plain OSM-clay/clipped-clay
+    // preset draws nothing here even with the knob left on its default.
+    if (environment_attribution_ &&
+        environment_source_uri_.find("materials=original") != std::string::npos)
+    {
+        const mpviz::HudColors hud_colors = mpviz::get_hud_colors(renderer_);
+        // ponytail: a static compliance line, not ion's own live per-tile
+        // credits (cesium-native's CreditSystem) -- see
+        // docs/visual_mode/cesium.md's Google section for the
+        // verify-at-implementation note on confirming/updating this exact
+        // wording for a given deployment's ion asset before go-live.
+        if (!mpviz_node::DrawText(
+                frame_buf_.data(), static_cast<uint32_t>(out_width_),
+                static_cast<uint32_t>(out_height_), "3D Tiles data (c) Google", 8.0f,
+                static_cast<float>(out_height_) - 8.0f,
+                mpviz_node::HudRgb{hud_colors.text_color[0], hud_colors.text_color[1],
+                                   hud_colors.text_color[2]},
+                hud_colors.scale, hud_font_path_.c_str()) &&
+            !environment_attribution_warned_)
+        {
+            RCLCPP_WARN(get_logger(),
+                        "environment attribution: failed to load/use font '%s' -- "
+                        "Google attribution not drawn this run",
+                        hud_font_path_.c_str());
+            environment_attribution_warned_ = true;
+        }
+    }
+
     // Epic 3 Task 4 (VM-031): the nearest-obstacle distance callout --
     // leader line + chip, drawn through hud_overlay's DrawLine()/DrawText()
     // primitives (extended, Task 3) onto the same frame_buf_ the HUD block
@@ -2021,6 +2067,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_cleanup(
     geo_anchor_logged_ = false;
     environment_warned_ = false;
     environment_fallback_warned_ = false;
+    environment_attribution_warned_ = false;
     hd_map_subs_.clear();
     hd_map_rows_.clear();
     dynamic_objects_subs_.clear();
@@ -2062,6 +2109,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_shutdown(
     geo_anchor_logged_ = false;
     environment_warned_ = false;
     environment_fallback_warned_ = false;
+    environment_attribution_warned_ = false;
     hd_map_subs_.clear();
     hd_map_rows_.clear();
     dynamic_objects_subs_.clear();
