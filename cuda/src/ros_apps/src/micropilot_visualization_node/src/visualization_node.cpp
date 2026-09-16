@@ -1883,9 +1883,16 @@ void VisualizationNode::timer_callback()
     // environment_attribution_ alone does not draw anything: this ALSO
     // requires environment_source_uri_ to actually be running in
     // materials=original mode (Decision 14) -- a plain OSM-clay/clipped-clay
-    // preset draws nothing here even with the knob left on its default.
+    // preset draws nothing here even with the knob left on its default --
+    // AND the source to actually be STREAMING right now. The state conjunct
+    // is what keeps the notice honest: a configured-but-disabled
+    // environment (environment_enabled false, so set_environment_source was
+    // never called) and a source that has fallen back to baked chunks
+    // (STREAMING_FALLBACK, one-way per Decision 11) both show NO Google
+    // imagery, and neither may carry its credit.
     if (environment_attribution_ &&
-        environment_source_uri_.find("materials=original") != std::string::npos)
+        environment_source_uri_.find("materials=original") != std::string::npos &&
+        mpviz::environment_source_state(renderer_) == mpviz::EnvironmentSourceState::STREAMING)
     {
         const mpviz::HudColors hud_colors = mpviz::get_hud_colors(renderer_);
         // ponytail: a static compliance line, not ion's own live per-tile

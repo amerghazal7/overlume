@@ -154,9 +154,10 @@
     #     deployment has re-verified Google's Map Tiles cache-lifetime
     #     terms (cesium.md's Google section, Step 2(b)); attribution is
     #     drawn automatically once uncommented (environment_attribution
-    #     below, on by default). Heavier than either clay preset -- expect
-    #     a materially larger render_ms delta (cesium.md / this epic's
-    #     results block).
+    #     below, on by default). Expected to be heavier than either clay
+    #     preset (textured photoreal mesh); the one dev-box single-tile live
+    #     measurement was INCONCLUSIVE and did not confirm it -- read this
+    #     epic's results block before budgeting for it (cesium.md).
     environment_source_uri: ""
     # VM-063: on-disk tile cache dir for the streamed backend (ignored by
     # the baked backend; an inline cache= already present in
