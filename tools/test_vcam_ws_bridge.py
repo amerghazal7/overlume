@@ -72,6 +72,12 @@ def test_set_theme_valid(theme):
     '{"cmd": "set_quality", "preset": true}',              # bool is not a preset
     '{"cmd": "set_surround_profile"}',                    # missing profile
     '{"cmd": "set_surround_profile", "profile": "lidar"}',  # unknown profile
+    '{"cmd": "set_environment_enabled"}',                 # missing enabled
+    '{"cmd": "set_environment_enabled", "enabled": "true"}',  # non-bool
+    '{"cmd": "set_environment_enabled", "enabled": 1}',   # non-bool (int)
+    '{"cmd": "set_environment_source"}',                  # missing preset
+    '{"cmd": "set_environment_source", "preset": "satellite"}',  # unknown preset
+    '{"cmd": "set_environment_source", "preset": true}',  # bool is not a preset
 ])
 def test_rejects_malformed(text):
     with pytest.raises(ValueError):
@@ -99,6 +105,18 @@ def test_set_quality_valid(preset, expect):
 def test_set_surround_profile_valid(profile):
     assert parse_cmd(json.dumps({"cmd": "set_surround_profile", "profile": profile})) == \
         ("set_surround_profile", profile)
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_set_environment_enabled_valid(enabled):
+    assert parse_cmd(json.dumps({"cmd": "set_environment_enabled", "enabled": enabled})) == \
+        ("set_environment_enabled", enabled)
+
+
+@pytest.mark.parametrize("preset", ["baked", "osm", "clipped", "google"])
+def test_set_environment_source_valid(preset):
+    assert parse_cmd(json.dumps({"cmd": "set_environment_source", "preset": preset})) == \
+        ("set_environment_source", preset)
 
 
 def test_param_cmds_valid():

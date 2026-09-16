@@ -23,6 +23,18 @@ third-party client — can drive the virtual camera:
     {"cmd": "set_surround_profile", "profile": "bowl"|"hybrid"}  (Task 4/
         VM-093 -- writes visualization_node's `surround_stitching_profile`
         param; live, same on_params() live-tuning contract as layer_*)
+    {"cmd": "set_environment_enabled", "enabled": bool}  (this task -- vcam
+        GUI Environment Tiles toggle -- writes visualization_node's
+        `environment_enabled` param, the SAME disable knob VM-052 already
+        declared; live, same on_params() contract as layer_*)
+    {"cmd": "set_environment_source", "preset": "baked"|"osm"|"clipped"|"google"}
+        (this task -- resolves `preset` to visualization_node's
+        `environment_source_uri` string server-side: "baked"->"",
+        "osm"->"ion://96188", "google"->"ion://2275207?materials=original",
+        "clipped"->that node's OWN `environment_own_asset_uri` param
+        (fetched live, never fabricated -- an error if it is empty); live,
+        rejected while the geo-anchor hasn't solved, same as any other
+        environment_source_uri write)
   server -> client:
     {"type": "state", "eye": [...], "target": [...], "preset": 0..5,
      "render_mode": 1|2|3, "mux_mode": 1|2|3|null}  (~15 Hz; render_mode is
@@ -73,6 +85,16 @@ QUALITY_PRESETS = {"low": 0, "medium": 1, "high": 2, 0: 0, 1: 1, 2: 2}
 # DIRECTIVE) -- visualization_node's on_params() accepts exactly these two,
 # rejecting anything else (test_mode_dispatch.py check 3).
 SURROUND_PROFILES = {"bowl", "hybrid"}
+# Epic 6's four environment tile sources (this task -- vcam GUI Environment
+# Tiles toggle). Three resolve to a literal URI here; "clipped" is resolved
+# server-side against the node's OWN `environment_own_asset_uri` param
+# (handle_client's set_environment_source branch) -- never fabricated here.
+ENVIRONMENT_PRESETS = {"baked", "osm", "clipped", "google"}
+ENVIRONMENT_PRESET_URIS = {
+    "baked": "",                                  # Epic 4 baked chunks (today's default)
+    "osm": "ion://96188",                         # Cesium OSM Buildings, clay
+    "google": "ion://2275207?materials=original",  # Google Photorealistic, original textures
+}
 
 # Params the GUI tuning panel may read/write, with their declared ROS types.
 TUNABLE_PARAMS = {
@@ -225,6 +247,17 @@ def parse_cmd(text: str):
         if profile not in SURROUND_PROFILES:
             raise ValueError('set_surround_profile: profile must be "bowl" or "hybrid"')
         return "set_surround_profile", profile
+    if cmd == "set_environment_enabled":
+        enabled = msg.get("enabled")
+        if not isinstance(enabled, bool):
+            raise ValueError("set_environment_enabled: enabled must be a bool")
+        return "set_environment_enabled", enabled
+    if cmd == "set_environment_source":
+        preset = msg.get("preset")
+        if isinstance(preset, bool) or preset not in ENVIRONMENT_PRESETS:
+            raise ValueError(
+                'set_environment_source: preset must be "baked", "osm", "clipped" or "google"')
+        return "set_environment_source", preset
     raise ValueError(f"unknown cmd {cmd!r}")
 
 
@@ -466,6 +499,30 @@ def main() -> int:
             req.parameters = [Parameter(name="surround_stitching_profile", value=pv)]
             return self._cli_setp_viz.call_async(req)
 
+        def set_environment_enabled_async(self, enabled: bool):
+            """Writes visualization_node's `environment_enabled` param --
+            the SAME disable knob VM-052 already declared, now live (this
+            task): on_params() calls mpviz::set_environment_visible()."""
+            if not self._cli_setp_viz.service_is_ready():
+                return None
+            pv = ParameterValue(type=ParameterType.PARAMETER_BOOL, bool_value=enabled)
+            req = SetParameters.Request()
+            req.parameters = [Parameter(name="environment_enabled", value=pv)]
+            return self._cli_setp_viz.call_async(req)
+
+        def set_environment_source_async(self, uri: str):
+            """Writes visualization_node's `environment_source_uri` param
+            with an ALREADY-RESOLVED uri string (the preset->uri mapping,
+            including the "clipped" own-asset lookup, happens in
+            handle_client below -- this call is preset-agnostic, same
+            shape as set_param_async)."""
+            if not self._cli_setp_viz.service_is_ready():
+                return None
+            pv = ParameterValue(type=ParameterType.PARAMETER_STRING, string_value=uri)
+            req = SetParameters.Request()
+            req.parameters = [Parameter(name="environment_source_uri", value=pv)]
+            return self._cli_setp_viz.call_async(req)
+
         @staticmethod
         def param_value(pv):
             """ParameterValue -> python value (None for unset)."""
@@ -543,7 +600,16 @@ def main() -> int:
                             "message": "set_parameters service unavailable"}))
                 elif cmd == "get_params":
                     try:
-                        vals = await fetch_params(list(TUNABLE_PARAMS))
+                        # environment_enabled/environment_own_asset_uri live
+                        # on visualization_node (not TUNABLE_PARAMS -- they
+                        # go through the dedicated set_environment_* cmds
+                        # above, not set_param), fetched in the SAME call so
+                        # the GUI can reflect the real toggle state and grey
+                        # out "clipped" when there is no own asset yet
+                        # (design decision (c) -- never fabricate one).
+                        vals = await fetch_params(
+                            list(TUNABLE_PARAMS) +
+                            ["environment_enabled", "environment_own_asset_uri"])
                         # layer_* live on visualization_node, best-effort
                         # (review 2026-09-09): absent when that node isn't
                         # up (bowl/pointcloud-only sessions) -- the GUI
@@ -605,6 +671,63 @@ def main() -> int:
                     except Exception as e:
                         await ws.send(json.dumps({
                             "type": "error", "message": f"set_surround_profile: {e}"}))
+                elif cmd == "set_environment_enabled":
+                    fut = node.set_environment_enabled_async(payload)
+                    if fut is None:
+                        await ws.send(json.dumps({
+                            "type": "error",
+                            "message": "visualization_node set_parameters unavailable"}))
+                        continue
+                    try:
+                        res = await await_ros(fut)
+                        ok = all(r.successful for r in res.results)
+                        await ws.send(json.dumps({
+                            "type": "ack", "cmd": "set_environment_enabled", "success": ok}))
+                    except Exception as e:
+                        await ws.send(json.dumps({
+                            "type": "error", "message": f"set_environment_enabled: {e}"}))
+                elif cmd == "set_environment_source":
+                    preset = payload
+                    if preset == "clipped":
+                        # Resolved against the node's OWN param, never
+                        # fabricated (design decision (c)) -- an empty
+                        # value is a real error, not a silent no-op.
+                        try:
+                            own_vals = await fetch_params(["environment_own_asset_uri"])
+                        except Exception as e:
+                            await ws.send(json.dumps({
+                                "type": "error",
+                                "message": f"set_environment_source: {e}"}))
+                            continue
+                        own_uri = own_vals.get("environment_own_asset_uri")
+                        if not own_uri:
+                            await ws.send(json.dumps({
+                                "type": "error",
+                                "message": "set_environment_source: 'clipped' has no "
+                                           "environment_own_asset_uri configured on this "
+                                           "deployment (see docs/visual_mode/cesium.md)"}))
+                            continue
+                        uri = own_uri
+                    else:
+                        uri = ENVIRONMENT_PRESET_URIS[preset]
+                    fut = node.set_environment_source_async(uri)
+                    if fut is None:
+                        await ws.send(json.dumps({
+                            "type": "error",
+                            "message": "visualization_node set_parameters unavailable"}))
+                        continue
+                    try:
+                        res = await await_ros(fut)
+                        ok = all(r.successful for r in res.results)
+                        reason = None if ok else (res.results[0].reason if res.results else None)
+                        ack = {"type": "ack", "cmd": "set_environment_source", "success": ok,
+                               "preset": preset}
+                        if reason:
+                            ack["reason"] = reason
+                        await ws.send(json.dumps(ack))
+                    except Exception as e:
+                        await ws.send(json.dumps({
+                            "type": "error", "message": f"set_environment_source: {e}"}))
                 elif cmd == "save_params":
                     try:
                         dst = await do_save_params(payload)
