@@ -38,8 +38,8 @@ palette:
   # see this file's bottom-of-file note on the deliberate green->azure
   # change this makes relative to the SHIPPED dark_adas.yaml (untouched by
   # this pass).
-  ribbon_core: [0.100, 0.280, 0.850]
-  ribbon_glow: [0.100, 0.280, 0.850]
+  ribbon_core: [0.12, 0.55, 0.42]
+  ribbon_glow: [0.12, 0.55, 0.42]
   # GLOBAL/LOCAL: same blue/warm-tan pairing convention as every shipped
   # theme, muted well below the hero azure's saturation so the hero still
   # reads as THE accent, not one of three equals.
@@ -120,7 +120,7 @@ grid: { line_color: [0.130, 0.130, 0.180], fade_start_m: 15.0, fade_end_m: 40.0 
 # azure rather than dark_adas's neon-green accent -- ties the HUD to this
 # palette's own accent identity instead of carrying over a color this
 # theme deliberately moves away from (see the bottom-of-file note).
-hud: { text_color: [0.90, 0.92, 0.95], accent_color: [0.20, 0.45, 0.95], scale: 1.0 }
+hud: { text_color: [0.90, 0.92, 0.95], accent_color: [0.12, 0.60, 0.45], scale: 1.0 }
 # Sun: LOW, grazing angle (mostly-horizontal direction vector, unlike
 # dark_adas's near-straight-down -1.0 z) -- a genuine dusk sun sits near the
 # horizon, not overhead; a warm dusk color instead of dark_adas's cool
@@ -149,14 +149,12 @@ ribbon: { lane_width_m: 3.5, margin_behavior_m: 1.3, margin_global_m: 0.3, margi
 # decision) -- not part of this palette direction either.
 objects: { opacity: 0.25 }
 
-# ── Flagged deliberate change (not a silent drift) ──────────────────────────
-# The SHIPPED dark_adas.yaml's hero ribbon (palette.ribbon_core/ribbon_glow)
-# is GREEN ([0.12, 0.55, 0.42]) -- dark_adas and light_clay were
-# INTENTIONALLY split (dark green / light blue) per dark_adas.yaml's own
-# comment. This file makes both hero ribbons azure, per the user's own "same
-# vibes" direction for a dark/light pair drawn from the same reference.
-# Reverting the SHIPPED theme to match (if the user picks this direction) is
-# a ONE-TOKEN change: dark_adas.yaml's palette.ribbon_core/ribbon_glow only
-# -- nothing else in that file's schema is affected by this decision.
-# dark_adas.yaml itself is untouched by this pass (hard rule: shipped themes
-# stay byte-identical).
+# ── Hero ribbon: GREEN, per the user's explicit call (2026-09-16) ───────────
+# An earlier revision of this candidate made the hero azure to mirror
+# light_ref2, on the reading that "same vibes" meant one shared accent. The
+# user looked at it rendered and decided otherwise: dark KEEPS its green
+# hero ([0.12, 0.55, 0.42], the shipped dark_adas value). So the deliberate
+# dark-green / light-blue split that dark_adas.yaml's own comment describes
+# SURVIVES this re-palette -- the two themes share a ground/building/road
+# language and the coral+gold accents, but not the hero colour.
+# hud.accent_color tracks the hero, so it moved back with it.

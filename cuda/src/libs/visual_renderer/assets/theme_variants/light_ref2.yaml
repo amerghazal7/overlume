@@ -56,11 +56,11 @@ palette:
   # `ground` above (B > R, periwinkle lean), same "road reads as a distinct
   # painted surface under paler surroundings" role light_clay's own road
   # already plays, just re-measured against ref-2 directly.
-  road: [0.391, 0.458, 0.712]
+  road: [0.300, 0.350, 0.600]
   # Faint dot guidance: 25% lane_paint / 75% road (same mix convention as
   # every shipped theme) = 0.25*[0.92,0.92,0.90] + 0.75*[0.391,0.458,0.712]
   # = [0.523, 0.574, 0.759]. Recompute if either moves.
-  lane_centerline: [0.523, 0.574, 0.759]
+  lane_centerline: [0.455, 0.493, 0.675]
   # Ref-2's lane paint reads white on the road photo; boundaries dash this
   # same near-white per the shipped convention (lane_boundary ==
   # lane_paint in both existing themes).
@@ -158,7 +158,7 @@ hud: { text_color: [0.08, 0.10, 0.20], accent_color: [0.15, 0.40, 0.95], scale: 
 # measurement (building vs sky luminance at a building edge) cleared the
 # review's own >=35 bar with real margin (see ibl/fog below for the other
 # two levers moved together).
-sun: { direction: [-0.30, -0.25, -0.92], color: [1.0, 0.96, 0.88], intensity: 95000.0 }
+sun: { direction: [-0.30, -0.25, -0.92], color: [1.0, 0.96, 0.88], intensity: 112000.0 }
 ibl:
   # Tracks palette.sky/ground per the shipped convention (both existing
   # themes' own comments: "should track palette.sky/palette.ground").
@@ -168,7 +168,7 @@ ibl:
   # near-target luminance on building/ground, not just re-order it.
   sky_color:    [0.52, 0.63, 0.84]
   ground_color: [0.56, 0.51, 0.44]
-  intensity: 32000.0
+  intensity: 24000.0
 # Density lowered again (0.0012 -> 0.0002, round-2 gate finding, blocking)
 # -- even at 0.0012 with fog==sky (a fully saturated blue), enough fog
 # blended into the pale ground/building tokens at this scene's distances to
