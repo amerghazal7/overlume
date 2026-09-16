@@ -26,11 +26,16 @@ MPVIZ_SHOWCASE=1 MPVIZ_SHOWCASE_THEME=dark_adas \
 MPVIZ_SHOWCASE_OUT=/tmp/showcase_dark_adas.png \
     ./test_theme_showcase --gtest_filter='ThemeShowcase.Capture'
 
-# A candidate variant (assets/theme_variants/*.yaml) -- point
-# MPVIZ_SHOWCASE_THEME_DIR at the variants directory:
-MPVIZ_SHOWCASE=1 MPVIZ_SHOWCASE_THEME=dark_ref2 \
-MPVIZ_SHOWCASE_THEME_DIR=$(pwd)/../assets/theme_variants \
-MPVIZ_SHOWCASE_OUT=/tmp/showcase_dark_ref2.png \
+# A future candidate variant, kept in a scratch directory of your own
+# (there is no assets/theme_variants/ in the repo right now -- the ref-2
+# candidates that lived there were promoted into assets/themes/ on
+# 2026-09-16 and the directory was deleted so the promoted content
+# couldn't silently drift from a leftover copy). MPVIZ_SHOWCASE_THEME_DIR
+# still works for this the same way -- point it at wherever you keep the
+# next round of candidate YAMLs:
+MPVIZ_SHOWCASE=1 MPVIZ_SHOWCASE_THEME=my_candidate \
+MPVIZ_SHOWCASE_THEME_DIR=/path/to/your/candidate/dir \
+MPVIZ_SHOWCASE_OUT=/tmp/showcase_my_candidate.png \
     ./test_theme_showcase --gtest_filter='ThemeShowcase.Capture'
 ```
 
@@ -87,26 +92,26 @@ Every reused helper's own coordinates are defined relative to a local
 they land together with the (un-movable, already baked-in-map-frame)
 buildings in a single frame — see the test file's own `kSceneOrigin` comment.
 
-## The two candidates are NOT shipped
+## The ref-2 candidates: promoted 2026-09-16
 
-`assets/theme_variants/light_ref2.yaml` and `dark_ref2.yaml` are candidates
-under iteration, derived from the ref-2-measured palette the user approved.
-They live in a **separate** directory from `assets/themes/` on purpose:
-`theme.cpp`'s loader has no per-theme code branches, so any directory of
-schema-complete YAMLs works via `MPVIZ_SHOWCASE_THEME_DIR` — the shipped
-themes stay byte-identical until the user picks a winner and one gets
-promoted (copied into `assets/themes/`, at which point it also needs a
-schema-conformance pass through `test_theme_parses.cpp`-style checks).
+The `light_ref2`/`dark_ref2` candidates this harness was built to judge are
+no longer candidates — the user approved both by eye and they are now the
+shipped `assets/themes/light_clay.yaml` and `dark_adas.yaml` themselves
+(this pass also re-shot every golden the re-palette legitimately changed and
+fixed the handful of theme-test guards it tripped; see the promotion
+commit). `assets/theme_variants/` was deleted with the promotion — the
+showcase now renders the shipped themes directly (the `MPVIZ_SHOWCASE_THEME_DIR`
+example above still applies to whatever directory holds the *next* round of
+candidates).
 
-**Flagged deliberate change:** the shipped `dark_adas.yaml`'s hero ribbon is
-green (`[0.12, 0.55, 0.42]`) — `dark_adas`/`light_clay` were intentionally
-split (dark green / light blue) per that file's own comment. `dark_ref2.yaml`
-makes both hero ribbons azure, per the user's "same vibes" direction for a
-light/dark pair drawn from one reference. If the user picks this direction,
-reverting the *shipped* `dark_adas.yaml` to match is a **one-token change**
-(`palette.ribbon_core`/`ribbon_glow` only) — nothing else in that file's
-schema is touched by this decision. `dark_adas.yaml` itself is untouched by
-this pass.
+One decision from that round is worth restating since it's easy to miss by
+reading the YAML alone: an earlier revision of this same re-palette made
+BOTH hero ribbons azure, on the reading that "same vibes" meant one shared
+accent across light/dark. The user looked at it rendered and decided
+otherwise — `dark_adas.yaml` keeps its green hero
+(`palette.ribbon_core`/`ribbon_glow` = `[0.12, 0.55, 0.42]`,
+`hud.accent_color` tracks it), `light_clay.yaml` keeps its blue. Don't
+unify these two without seeing that decision again.
 
 ## Named gap: object_tint judging at opacity 0.25
 

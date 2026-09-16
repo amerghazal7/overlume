@@ -1,79 +1,160 @@
-# dark_adas.yaml — shipped default theme. All colors are LINEAR RGB (no
-# sRGB decode applied by theme.cpp) — see src/theme.hpp's header comment.
+# dark_adas.yaml — shipped default theme. Same key set as light_clay.yaml,
+# no exceptions (the "no per-theme code branches" AC: if a theme needs a
+# key the other doesn't, the schema is wrong, not the loader). All colors
+# are LINEAR RGB (no sRGB decode applied by theme.cpp) — see src/theme.hpp's
+# header comment.
+#
+# "Dark equivalent for the same vibes and looks" as light_clay.yaml: same
+# soft matte clay, same low-contrast/airy read, same three accents (hero
+# ribbon/hazard/lane gold), just re-keyed dark. NOT black-plus-neon: every
+# surface token stays a soft, muted clay tone, never a saturated
+# glow-in-the-dark hue. Palette measured off
+# assets/visualization-reference-2.jpg by color signature; promoted
+# 2026-09-16 as the shipped default after the user approved the rendered
+# look by eye.
+#
+# Core palette tokens keep ref-2's inverted-luminance relationships intact
+# (building lightest, road keeps its periwinkle DNA of B > R) relative to
+# light_clay, rather than being independently re-derived.
 name: dark_adas
 palette:
-  ground:      [0.05, 0.06, 0.08]
-  sky:         [0.02, 0.02, 0.05]
-  fog:         [0.02, 0.02, 0.05]
-  # Base tone for lane_boundary/crosswalk (both soft-default to this) --
-  # boundaries dash white per ref-1, centerline gets its own color below.
+  # Deep, cool near-black -- same role as this theme's previous near-black
+  # sky, re-keyed with the periwinkle-family B > R the whole palette shares.
+  sky:         [0.028, 0.036, 0.085]
+  # Ground: a touch lighter than sky (ambient-lit dusk read, not a flat
+  # single value) -- same B >= R periwinkle lean.
+  ground:      [0.055, 0.055, 0.078]
+  # Must equal palette.sky exactly -- fog==sky convergence convention every
+  # shipped theme follows.
+  fog:         [0.028, 0.036, 0.085]
+  # Ref-2's "lane white" -- IDENTICAL value whether the surrounding theme is
+  # light or dark: lane paint is retroreflective/bright by design in both
+  # daylight and dusk, which is exactly why it still pops here despite
+  # everything around it being near-black. Not toned down for the "low
+  # contrast" mandate -- lane markings are the one surface meant to break
+  # that low contrast on purpose (the whole reason they're painted).
   lane_paint:  [0.85, 0.85, 0.88]
-  # Cold (blue-leaning) green; emissive glow killed via
-  # emissive.ribbon_strength below.
+  # Cold (blue-leaning) green; emissive glow killed via emissive below. Kept
+  # GREEN per the user's explicit call (2026-09-16) after seeing this
+  # candidate rendered both ways: an earlier revision of this re-palette
+  # made the hero azure to mirror light_clay's own hero, on the reading
+  # that "same vibes" meant one shared accent. The user looked at it
+  # rendered and decided otherwise -- dark keeps its green hero, light
+  # keeps its blue. hud.accent_color tracks the hero, so it stayed green
+  # too. Do not unify this with light_clay's blue.
   ribbon_core: [0.12, 0.55, 0.42]
   ribbon_glow: [0.12, 0.55, 0.42]
-  # GLOBAL (coarse route/plan overlay) blue-ish, LOCAL (near-field path)
-  # amber -- both distinct from the green BEHAVIOR/hero ribbon above.
-  ribbon_global: [0.25, 0.55, 0.95]
-  ribbon_local: [0.95, 0.70, 0.15]
-  ego: [0.82, 0.80, 0.76]  # warm near-white clay so the ego pops on dark (was light_clay's ORIGINAL ground before its 2026-08-20 re-authoring to a road-gray; no longer an exact cross-theme swap)
-  # road is darker than palette.ground above -- the static road-surface
-  # base coat sits visibly below the ground it's painted on. lane_boundary
-  # reuses the lane_paint tone. crosswalk is AUTHORED warm ivory (Epic 3
-  # close finding 2026-09-09: it soft-defaulted to lane_paint, leaving
-  # crosswalks distinguishable by hatch geometry only) -- warm vs the cool
-  # white boundary dashes, far off road_edge's saturated yellow.
-  crosswalk: [0.95, 0.90, 0.70]
-  road: [0.03, 0.035, 0.045]
-  # Faint dot guidance: 25% lane_paint / 75% road = 0.25*[0.85,0.85,0.88] +
-  # 0.75*[0.03,0.035,0.045] = [0.235, 0.239, 0.254]. Recompute if either
-  # moves.
-  lane_centerline: [0.235, 0.239, 0.254]
+  # GLOBAL/LOCAL: same blue/warm-tan pairing convention as light_clay,
+  # muted well below the hero green's saturation so the hero still reads
+  # as THE accent, not one of three equals.
+  ribbon_global: [0.22, 0.30, 0.42]
+  ribbon_local:  [0.55, 0.42, 0.22]
+  # "Light clay, inverted contrast" -- the LIGHTEST token in this entire
+  # palette, deliberately brighter than `building` (the lightest SURFACE),
+  # so the ego still reads as a hard silhouette against every clay tone
+  # around it -- same contrast-pop INTENT as light_clay's own palette.ego,
+  # inverted because the whole scene it stands on is inverted. Unchanged
+  # from this theme's previous ego value.
+  ego: [0.82, 0.80, 0.76]
+  # Periwinkle DNA (B > R) kept deliberately -- the road plane stays
+  # legible as "the same road" whether the theme is light or dark, just at
+  # dusk luminance.
+  road: [0.034, 0.042, 0.078]
+  # Faint dot guidance: 25% lane_paint / 75% road (same mix convention as
+  # every shipped theme) = 0.25*[0.85,0.85,0.88] + 0.75*[0.034,0.042,0.078]
+  # = [0.238, 0.244, 0.279]. Recompute if either moves.
+  lane_centerline: [0.238, 0.244, 0.279]
   lane_boundary: [0.85, 0.85, 0.88]
-  # Road's outer boundary (MapKind::ROAD_EDGE), renders SOLID never dashed
-  # -- saturated yellow, distinct from lane_centerline's faint fade above.
-  road_edge: [0.95, 0.75, 0.05]
-  # Baked-environment buildings (VM-052): near-black-navy flat clay blocks --
-  # a touch bluer/lighter than road, distinct from both road and ground.
-  building: [0.06, 0.07, 0.11]
+  # Road's outer boundary, solid never dashed -- ref-2's "lane gold",
+  # authored nearer the de-JPEG-softened value rather than a re-softened
+  # guess.
+  road_edge: [0.720, 0.520, 0.090]
+  # Crosswalk: not named by ref-2 -- a warm tan in the same family as
+  # road_edge's gold but noticeably dimmer, so it reads as "lit road paint"
+  # rather than competing with road_edge's own solid stripe for the same
+  # visual role.
+  crosswalk: [0.42, 0.36, 0.22]
+  # Baked-environment buildings (VM-052): lightest MASS in the scene (not
+  # counting the lane paints or ego) -- mirrors ref-2's own inversion
+  # (buildings are the brightest surface there too).
+  building: [0.130, 0.135, 0.180]
   object_tints:
-    car: [0.25, 0.35, 0.9]
-    truck_van: [0.30, 0.35, 0.85]
-    bus: [0.85, 0.6, 0.15]
-    pedestrian: [0.9, 0.2, 0.2]
-    cyclist: [0.9, 0.55, 0.1]
-    unknown: [0.5, 0.5, 0.5]
+    # Ref-2's traffic vehicle, unchanged tint whether the theme is light or
+    # dark (same reasoning as lane_paint above: this is the one hue meant
+    # to read as "the same car", just under dusk light) -- pale and
+    # receding relative to the ego/hero/hazard accents.
+    car: [0.180, 0.210, 0.320]
+    truck_van: [0.28, 0.32, 0.55]
+    bus: [0.75, 0.55, 0.20]
+    pedestrian: [0.85, 0.25, 0.25]
+    cyclist: [0.80, 0.50, 0.15]
+    unknown: [0.45, 0.45, 0.50]
   alert:
-    info: [0.2, 0.6, 1.0]
-    warning: [1.0, 0.7, 0.1]
-    critical: [1.0, 0.15, 0.1]
+    # info/warning: not named by ref-2 -- conventional blue/amber, kept
+    # legible against the near-black ground without competing with the
+    # hero green or the critical coral below.
+    info: [0.20, 0.55, 0.85]
+    warning: [0.85, 0.60, 0.15]
+    # Ref-2's coral hazard halo, nudged more saturated than light_clay's
+    # own critical: this theme's alert blends over a near-black
+    # road/ground (unlike light_clay's bright periwinkle road), so the
+    # CRITICAL polygon's fixed 0.45 blend alpha (renderer_internal.hpp)
+    # doesn't fight a bright saturated background here -- a modest
+    # saturation bump was enough to clear the "reads as coral/rose, not
+    # magenta" bar with room, verified against the rendered (blended)
+    # result.
+    critical: [0.90, 0.20, 0.15]
+# Matte clay throughout, same as light_clay's own roughness family -- no
+# metal, no specular pop.
 material: { roughness: 0.85, metallic: 0.0 }
-# Hero ribbon no longer blooms; ribbon_emissive.mat still carries the
-# alpha-fade path, it just stops feeding the bloom pass.
+# Glow killed, same as light_clay AND explicitly what "not black-plus-neon"
+# rules out -- the hero ribbon reads as flat saturated paint, never a
+# bloom source.
 emissive: { ribbon_strength: 0.0 }
-grid: { line_color: [0.12, 0.14, 0.18], fade_start_m: 15.0, fade_end_m: 40.0 }
-hud: { text_color: [0.9, 0.95, 1.0], accent_color: [0.10, 1.0, 0.4], scale: 1.0 }
-sun: { direction: [-0.5, -0.3, -1.0], color: [0.55, 0.6, 0.75], intensity: 480000.0 }
-ibl:  # analytic 2-band hemisphere gradient — NOT raw SH coefficients
-  sky_color:    [0.05, 0.06, 0.12]
-  ground_color: [0.02, 0.02, 0.03]
-  intensity: 256000.0
-# density 0.015 clears the horizon/sky convergence guard (tests/
-# test_theme.cpp) 4x over (delta 62.1); the residual ~37.3 horizon/sky gap
-# (golden.cpp's [50,60) band) is expected from this theme's 40m ground
-# plane, not a miscalibration. See renderer.cpp setFogOptions() for the
-# color-scale fix this depends on.
-fog: { density: 0.015 }
-# margins: GLOBAL 0.3 (widest, bottom of z-stagger), LOCAL 0.8, BEHAVIOR 1.3
-# (narrowest, on top) -- each lower ribbon peeks out as a rim around the one
-# stacked above it. Old width_m key dropped; theme.cpp still parses it as
-# the soft-default seed for these margins if present.
+# Grid line: lighter than `ground` so it's readable against it, landing in
+# the same tonal family as `building` (both are "the lightest clay
+# surfaces" here) rather than a cooler steel-blue grid.
+grid: { line_color: [0.130, 0.130, 0.180], fade_start_m: 15.0, fade_end_m: 40.0 }
+# HUD ink light (reads against the dark scene); accent reuses the hero
+# green, ties the HUD to this palette's own accent identity.
+hud: { text_color: [0.90, 0.92, 0.95], accent_color: [0.12, 0.60, 0.45], scale: 1.0 }
+# Sun: LOW, grazing angle (mostly-horizontal direction vector) -- a genuine
+# dusk sun sits near the horizon, not overhead; a warm dusk color. Intensity
+# 350000 (nudged up from this palette's initial 300000, 2026-09-16 gate
+# fix): tests/test_theme.cpp's EmptyWorld_DarkAdas guard requires the
+# sunlit ground to read brighter than the flat sky backdrop
+# (bottom_third_mean > top_third_mean) with real margin; grid-color and
+# fog-density tuning were tried first and measurably do not move that
+# metric (grid lines cover too few pixels at this camera framing; fog
+# barely shifts it before 0.02+ starts visibly hazing the scene), so the
+# fix is here -- more overall key+fill light widens the ground-vs-sky gap
+# enough to clear the guard while the scene still reads as dusk, not
+# blown out (see this pass's report for the before/after render).
+sun: { direction: [-0.6, -0.2, -0.5], color: [0.85, 0.65, 0.55], intensity: 350000.0 }
+ibl:
+  # Tracks palette.sky/ground per the shipped convention. Intensity nudged
+  # up alongside sun above, same reasoning (widens the ground-vs-sky
+  # contrast the EmptyWorld_DarkAdas guard checks) -- also keeps pace with
+  # this palette's own "airy, not crushed black" mandate: ground/building
+  # tokens are measurably brighter than the previous dark theme's, so the
+  # ambient fill needs to be stronger to actually put that extra light in
+  # the scene rather than just raising the albedo numbers on paper.
+  sky_color:    [0.028, 0.036, 0.085]
+  ground_color: [0.030, 0.030, 0.045]
+  intensity: 350000.0
+# Same order of magnitude as this theme's previous 0.015 (still a dark,
+# somewhat hazy scene) but lower for the airier dusk read this palette
+# wants -- more atmosphere around the buildings, not a clearer/harder scene.
+fog: { density: 0.010 }
+# Unchanged from the shipped geometry convention -- this is a palette
+# direction, not a ribbon-shape change.
 ribbon: { lane_width_m: 3.5, margin_behavior_m: 1.3, margin_global_m: 0.3, margin_local_m: 0.8 }
-# TrackedObject rendering opacity (VM-078). Shipped default 0.5 (user
-# decision 2026-09-11): semi-transparent bodies by default. Objects are
-# spatially separated, so the permanent blended-queue residency this
-# implies is not the coincident-overpaint flicker case; 1.0 restores the
-# fully-opaque clay
+# TrackedObject rendering opacity (VM-078). Shipped default 0.25 (user's
+# own theme edit 2026-09-14, superseding the original 0.5 decision from
+# 2026-09-11): semi-transparent bodies by default. Objects are spatially
+# separated, so the permanent blended-queue residency this implies is not
+# the coincident-overpaint flicker case; 1.0 restores the fully-opaque clay
 # look. Below 1.0, objects ride the existing per-entity clay_translucent
-# staleness-swap with alpha = opacity * staleness_alpha.
+# staleness-swap with alpha = opacity * staleness_alpha. Not part of this
+# palette direction either.
 objects: { opacity: 0.25 }

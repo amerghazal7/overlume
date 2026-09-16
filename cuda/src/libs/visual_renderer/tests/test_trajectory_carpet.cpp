@@ -177,9 +177,10 @@ TEST(TrajectoryCarpet, AlphaZeroSentinelSubstitutesPaletteObjectTintsUnknown) {
     mpviz::set_scene(r, s);
     render_once(r, mpviz::CameraPose{{0, -10, 10}, {0, 0, 0}, 60.0});
 
-    // dark_adas.yaml's palette.object_tints.unknown == [0.5, 0.5, 0.5] ->
-    // to_byte(0.5) == 128, alpha forced to 255 (real, substituted color).
-    constexpr uint32_t kExpected = 128u | (128u << 8) | (128u << 16) | (255u << 24);
+    // dark_adas.yaml's palette.object_tints.unknown == [0.45, 0.45, 0.50]
+    // (ref-2 re-palette, 2026-09-16) -> to_byte(0.45) == 115, to_byte(0.50)
+    // == 128, alpha forced to 255 (real, substituted color).
+    constexpr uint32_t kExpected = 115u | (115u << 8) | (128u << 16) | (255u << 24);
     for (size_t i = 0; i < 6; ++i) {
         EXPECT_EQ(mpviz::testing::trajectory_carpet_vertex_rgba(r, 0, i), kExpected);
     }

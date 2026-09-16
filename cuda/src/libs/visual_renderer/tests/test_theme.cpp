@@ -672,8 +672,9 @@ TEST(ThemeGolden, EmptyWorld_DarkAdas) {
         mpviz::testing::analyze_png("/tmp/empty_world_dark_adas_actual.png");
     EXPECT_GT(stats.mean, 20.0) << "frame reads as crushed black";
     EXPECT_LT(stats.mean, 200.0) << "frame reads as clipped white";
-    // 15: the golden legitimately carries 22 distinct levels with the
-    // current 60m ground patch; a genuinely lost fade/grid collapses to
+    // 15: the golden legitimately carries ~26 distinct levels with the
+    // current 60m ground patch (ref-2 re-palette, 2026-09-16 -- was ~22
+    // under the previous palette); a genuinely lost fade/grid collapses to
     // ~2-5, so the tripwire still fires for the failure it was built to
     // catch.
     EXPECT_GT(stats.distinct_levels, 15)
@@ -681,6 +682,14 @@ TEST(ThemeGolden, EmptyWorld_DarkAdas) {
            "distance fade aren't visible";
     // The sunlit ground must read brighter than the flat ambient sky
     // backdrop -- regression guard for "sky 10x brighter than ground".
+    // ref-2 re-palette note (2026-09-16): this theme's much lower sun/IBL
+    // intensity than the previous dark_adas (a deliberate dusk-not-night
+    // read) left too little margin here at its first-tuned values -- grid
+    // color and fog density were swept first and neither one measurably
+    // moves this metric (grid lines cover too few pixels at this camera
+    // framing; fog only nudges it before 0.02+ starts visibly hazing the
+    // scene), so sun/ibl intensity (this file's actual light budget) is
+    // what widens the gap. See dark_adas.yaml's own sun/ibl comments.
     EXPECT_GT(stats.bottom_third_mean, stats.top_third_mean)
         << "sky backdrop is brighter than the sunlit ground";
     // dark_adas authors palette.fog == palette.sky, so the far-field ground
@@ -692,10 +701,12 @@ TEST(ThemeGolden, EmptyWorld_DarkAdas) {
     // 45.0: dark_adas's ground plane is only 40m across (kGroundHalfExtent),
     // so even the farthest on-plane ray never reaches near-total fog
     // extinction -- full convergence to sky-row-exact isn't physically
-    // reachable, and the honest live gap measures ~37.3. An un-scaled fog
-    // color bug measured a ~139-level gap, so this bound is still a real
-    // regression guard. See renderer.cpp's setFogOptions comment for the
-    // color-scale fix this depends on.
+    // reachable. The honest live gap measured ~37.3 under the previous
+    // palette/fog (0.015) and measures ~16 under this one (fog 0.010,
+    // ref-2 re-palette 2026-09-16) -- both comfortably inside this bound.
+    // An un-scaled fog color bug measured a ~139-level gap, so this bound
+    // is still a real regression guard. See renderer.cpp's setFogOptions
+    // comment for the color-scale fix this depends on.
     EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 45.0)
         << "far-field ground (" << stats.horizon_row_mean << ") doesn't fade "
            "into the sky (" << stats.sky_row_mean << ") -- fog is over/under-scaled";
@@ -722,15 +733,32 @@ TEST(ThemeGolden, EmptyWorld_LightClay) {
         mpviz::testing::analyze_png("/tmp/empty_world_light_clay_actual.png");
     EXPECT_GT(stats.mean, 60.0) << "frame reads as crushed black";
     EXPECT_LT(stats.mean, 235.0) << "frame reads as clipped white";
-    EXPECT_GT(stats.distinct_levels, 40)
+    // 12 (down from an earlier 40, ref-2 re-palette 2026-09-16): this
+    // theme's fixed sunny-16 exposure (renderer.cpp's setExposure, ~100k
+    // lux) needs a very high sun/IBL intensity to correctly expose ref-2's
+    // actual daylight brightness -- at that intensity the ACES tonemapper's
+    // highlight shoulder compresses most of the frame's luminance into a
+    // narrow near-white band (the same compression the theme's own comment
+    // documents for its residual roof-to-wall contrast gap). Verified this
+    // is an exposure/tonemap ceiling, not a fog/grid miscalibration this
+    // guard should catch instead: neither a 10x grid-color contrast swing
+    // nor an 80x fog-density sweep (0.00025 -> 0.02, well past "hazy") moved
+    // distinct_levels past ~29, and pushing fog that high visibly re-hazes
+    // ref-2's deliberately crisp-to-the-horizon look. The shipped value
+    // (fog 0.00025) measures 15-16 on this same camera/scene -- 12 keeps a
+    // real floor (an actually-lost fade/grid still collapses to ~2-5,
+    // tripping this) without asking for headroom this exposure regime
+    // cannot give. See this pass's report for the rendered frame this was
+    // judged against.
+    EXPECT_GT(stats.distinct_levels, 12)
         << "too few distinct luminance levels -- grid-vs-ground contrast and "
            "distance fade aren't visible";
     // Same "fog == sky" convergence guard as EmptyWorld_DarkAdas above.
-    // 55.0: light_clay deliberately runs a near-zero fog density (0.0015 --
-    // ref-2 is crisp to the horizon), so the honest residual horizon/sky
-    // gap measures ~44.6; manufacturing fog mass to force it lower would be
-    // the mistake dark_adas's own guard avoids. A genuinely over/
-    // under-scaled fog color still trips this at ~55+.
+    // 55.0: light_clay deliberately runs a near-zero fog density (0.00025 --
+    // ref-2 is crisp to the horizon); manufacturing fog mass to force a
+    // lower horizon/sky gap would be the mistake dark_adas's own guard
+    // avoids. A genuinely over/under-scaled fog color still trips this at
+    // ~55+.
     EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 55.0)
         << "far-field ground (" << stats.horizon_row_mean << ") doesn't fade "
            "into the sky (" << stats.sky_row_mean << ") -- fog is over/under-scaled";
