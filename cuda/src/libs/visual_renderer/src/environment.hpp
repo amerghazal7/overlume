@@ -131,8 +131,15 @@ std::unique_ptr<BakedEnvironmentSource> open_baked_environment_source(const std:
 // backend, DEFINED in environment_stream.cpp (the one C++20 TU -- this
 // declaration itself stays C++17-safe, cesium-free). `ion_spec` is
 // source_uri with the "ion://" prefix already stripped:
-// "<assetId>[?cache=<dir>][&fallback=<baked_dir>][&max_cache_items=<n>]".
-// Reads CESIUM_ION_TOKEN from the environment at open time (Decision 6);
+// "<assetId>[?cache=<dir>][&fallback=<baked_dir>][&max_cache_items=<n>]
+// [&materials=original|clay]". VM-064 (Task 5): `materials=original` keeps
+// gltfio's own ubershader materials instead of the buildingMaterial clay
+// remap (Google Photorealistic 3D Tiles); absent/`clay`/any unknown value
+// is today's remap, byte-identical to every pre-VM-064 URI -- this
+// factory's own SIGNATURE gains nothing, the mode rides entirely inside
+// this already-opaque string (Decision 5's design absorbing exactly this
+// kind of growth). Reads CESIUM_ION_TOKEN from the environment at open
+// time (Decision 6);
 // returns nullptr on missing/empty token, an unparseable asset id, or a
 // cache-open failure -- same non-fatal contract as
 // open_baked_environment_source above (caller WARNs, never this function).

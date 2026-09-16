@@ -1439,6 +1439,11 @@ void destroy_renderer(VisualRenderer* r) {
     // AssetLoader.h's own documented teardown order.
     if (r->egoAsset) r->sharedAssetLoader->destroyAsset(r->egoAsset);
     if (r->sharedResourceLoader) delete r->sharedResourceLoader;
+    // VM-064: sharedResourceLoader (just deleted above) is the only thing
+    // that referenced this provider (as a raw, non-owning pointer passed to
+    // addTextureProvider) -- safe to free now, same ordering rule as
+    // sharedMaterialProvider below.
+    if (r->sharedTextureProvider) delete r->sharedTextureProvider;
     if (r->sharedAssetLoader) filament::gltfio::AssetLoader::destroy(&r->sharedAssetLoader);
     if (r->sharedMaterialProvider) {
         r->sharedMaterialProvider->destroyMaterials();

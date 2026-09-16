@@ -33,9 +33,11 @@ struct FixtureStreamHandle;  // opaque kill-switch handle; owned by the
 // (Decision 13) and installs it on the renderer (teardown-first, replacing
 // any current source) -- construction + install in ONE call, entirely
 // inside the C++20 TU. No network, no token. false on failure (renderer
-// left untouched).
+// left untouched). `materials_original` (VM-064, Task 5): defaults false
+// (today's clay remap, every pre-VM-064 call site unaffected); true installs
+// in original-materials mode (the Google Photorealistic 3D Tiles path).
 bool install_fixture_streaming_source(mpviz::VisualRenderer* r, const char* fixture_dir,
-                                       mpviz::GeoAnchor anchor);
+                                       mpviz::GeoAnchor anchor, bool materials_original = false);
 
 // Same, plus a baked fallback dir and a kill switch for Task 4's
 // network-loss e2e. Returns the kill-switch handle; nullptr on failure.
@@ -64,5 +66,19 @@ void revive_fixture_network(FixtureStreamHandle* handle);
 bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double heading_rad,
                         double lat_deg, double lon_deg, double alt_m, double* out_x, double* out_y,
                         double* out_z);
+
+// VM-064 (Task 5) Step 0: true iff the installed source is a
+// StreamingEnvironmentSource running in original-materials mode. False if
+// `r` is null, no source is installed, or the installed source is not a
+// StreamingEnvironmentSource (e.g. BakedEnvironmentSource) -- same
+// null-safety class as every other hook in this header.
+bool environment_stream_materials_original(mpviz::VisualRenderer* r);
+
+// VM-064 Step 1: true iff the first currently-loaded tile's first
+// renderable's first primitive is bound to r->buildingMaterial (the clay
+// remap) -- false in original-materials mode. False on the same
+// null/non-streaming conditions as the hook above, or if nothing has
+// loaded yet.
+bool environment_stream_first_primitive_is_clay(mpviz::VisualRenderer* r);
 
 }  // namespace mpviz::testing

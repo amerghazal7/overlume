@@ -51,6 +51,7 @@
 #include <gltfio/FilamentAsset.h>
 #include <gltfio/MaterialProvider.h>
 #include <gltfio/ResourceLoader.h>
+#include <gltfio/TextureProvider.h>
 
 #include "camera_textures.hpp"
 #include "scene_buffer.hpp"
@@ -351,6 +352,14 @@ public:
     filament::gltfio::MaterialProvider* sharedMaterialProvider = nullptr;
     filament::gltfio::AssetLoader* sharedAssetLoader = nullptr;
     filament::gltfio::ResourceLoader* sharedResourceLoader = nullptr;
+    // VM-064 (Epic 6 Task 5): registered on sharedResourceLoader for
+    // "image/jpeg"/"image/png" the same ensure_gltf_loader() call that
+    // builds the loader above -- see that function's own comment for why
+    // (original-materials mode is the first consumer that needs an
+    // asset's OWN embedded raster textures to actually display). Owned
+    // here so destroy_renderer() can free it after sharedResourceLoader
+    // (which references it) is gone, same ordering as the other three.
+    filament::gltfio::TextureProvider* sharedTextureProvider = nullptr;
     filament::gltfio::FilamentAsset* egoAsset = nullptr;
     Mesh egoFallback;
     utils::Entity egoTransformEntity;

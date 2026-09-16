@@ -122,23 +122,57 @@
     # VM-063 (Epic 6 Task 4): source-selection config. "" (the shipped
     # default) means keep using environment_chunks_dir_ above as a baked
     # dir -- byte-for-byte today's behavior, every existing deployment
-    # unaffected. A non-empty value switches to the streamed backend:
-    # "ion://<assetId>" (e.g. "ion://96188" for Cesium OSM Buildings, see
-    # docs/visual_mode/cesium.md for the ion account/token setup -- by
-    # name, NEVER the token value itself; the library reads
-    # CESIUM_ION_TOKEN from the environment). environment_chunks_dir above,
-    # if also set, becomes the automatic fallback dir on network loss
-    # (Decision 11) -- zero extra config needed for a streamed deployment
-    # that already has its own Epic-4 bake. Known ceiling: a path
-    # containing '?' or '&' is unsupported by the library's split-only
-    # query parser (Decision 5).
+    # unaffected. A non-empty value switches to the streamed backend.
+    # environment_chunks_dir above, if also set, becomes the automatic
+    # fallback dir on network loss (Decision 11) -- zero extra config
+    # needed for a streamed deployment that already has its own Epic-4
+    # bake. Known ceiling: a path containing '?' or '&' is unsupported by
+    # the library's split-only query parser (Decision 5).
+    #
+    # THREE documented presets (Decision 14, VM-064/Epic 6 Task 5) -- see
+    # docs/visual_mode/cesium.md for the ion account/token setup in every
+    # case (by name, NEVER the token value itself; the library reads
+    # CESIUM_ION_TOKEN from the environment). Uncomment exactly one to pick
+    # a source; the shipped default below (plain "") keeps today's baked
+    # behavior.
+    #   ion://96188
+    #     Cesium OSM Buildings (curated, global coverage incl. this repo's
+    #     Dubai/Sharjah operating area) -- clay re-materialized, needs no
+    #     upload. The shipped default asset id (cesium.md Path A).
+    #   ion://<own-asset-id>
+    #     A clipped/uploaded tileset (cesium.md Path B) -- smaller,
+    #     cache-friendlier clay tiles at the cost of a per-deployment
+    #     upload step. Replace <own-asset-id> with the numeric id ion
+    #     assigned your upload.
+    #   ion://2275207?materials=original&cache=off
+    #     Google Photorealistic 3D Tiles (VM-064) -- textured photoreal
+    #     mesh, NOT clay: materials=original keeps gltfio's own loaded
+    #     materials instead of the buildingMaterial remap. Asset id 2275207
+    #     VERIFIED at VM-064 implementation against the live ion Asset
+    #     Depot API (name/type match, 2026-09-16) -- never guessed, per
+    #     this task's own factual rule. cache=off ships until this
+    #     deployment has re-verified Google's Map Tiles cache-lifetime
+    #     terms (cesium.md's Google section, Step 2(b)); attribution is
+    #     drawn automatically once uncommented (environment_attribution
+    #     below, on by default). Heavier than either clay preset -- expect
+    #     a materially larger render_ms delta (cesium.md / this epic's
+    #     results block).
     environment_source_uri: ""
     # VM-063: on-disk tile cache dir for the streamed backend (ignored by
-    # the baked backend). "" (the shipped default) uses the library's own
-    # default (${XDG_CACHE_HOME:-$HOME/.cache}/mpviz-tile-cache, Decision
-    # 10) -- set this only to override that location (e.g. a different
+    # the baked backend, and by the google preset above while it ships
+    # cache=off). "" (the shipped default) uses the library's own default
+    # (${XDG_CACHE_HOME:-$HOME/.cache}/mpviz-tile-cache, Decision 10) --
+    # set this only to override that location (e.g. a different
     # disk/quota on a specific robot). Same '?'/'&' path ceiling as above.
     environment_tile_cache_dir: ""
+    # VM-064 (Epic 6 Task 5): Google Photorealistic 3D Tiles attribution
+    # disable knob (STANDING directive) -- on by default, but only actually
+    # draws a line while environment_source_uri above is running in
+    # materials=original mode (Decision 14); a plain OSM-clay/clipped-clay
+    # preset draws nothing here even with this left true. See
+    # docs/visual_mode/cesium.md's Google section for the attribution
+    # requirement and the exact wording to verify before go-live.
+    environment_attribution: true
     # VM-091 (unified-engine migration Task 2): mode-1 bowl camera ingest.
     # The disable knob per the STANDING rule (declare-default off; false
     # means no camera subs, no cv_bridge cost, no set_bowl_config/

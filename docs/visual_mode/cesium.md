@@ -30,8 +30,7 @@ config knobs are VM-062/VM-063 (pointers below).
 
 ## 2. Choosing the tileset for the operating area
 
-Two supported paths (a third — Google Photorealistic 3D Tiles — ships with
-VM-064; not covered here):
+Three supported paths:
 
 - **Path A (default): Cesium OSM Buildings, ion curated asset `96188`.**
   Global coverage (includes the Dubai/Sharjah operating area), needs no
@@ -44,10 +43,78 @@ VM-064; not covered here):
   ion dashboard: **My Assets** → **Add data**, upload/clip the area of
   interest, note the numeric asset id ion assigns it. That id is what
   replaces `96188` in the `ion://<assetId>` source URI.
+- **Path C (VM-064): Google Photorealistic 3D Tiles, ion asset `2275207`,
+  original-materials mode.** See section 6 below.
 
 Record whichever `<assetId>` this deployment ends up using — it is the value
-the node's `source_uri` param takes (`ion://<assetId>`, VM-063; not
-implemented as of this runbook).
+the node's `source_uri` param takes (`ion://<assetId>`, VM-063).
+
+## 6. Google Photorealistic 3D Tiles (VM-064)
+
+A textured, photorealistic mesh, not clay — `default_params.yaml`'s
+`environment_source_uri` preset for it is
+`ion://2275207?materials=original&cache=off` (commented out by default;
+uncomment to switch). This section covers the three things that make it a
+different beast from Path A/B's clay tilesets.
+
+- **Asset id, verified, not guessed.** `2275207` was confirmed at VM-064
+  implementation (2026-09-16) directly against this account's live ion API
+  — `GET /v1/assets/2275207` returned HTTP 200 with `type: 3DTILES` and a
+  `name` field matching "Google", "Photorealistic", and "3D Tiles" (checked
+  as redacted boolean substring matches, per this repo's standing rule
+  never to print an ion response body — see section 3/4's own "never
+  prints ... any response body" discipline, which extends to this
+  verification too). `GET /v1/assets/2275207/endpoint` also returned HTTP
+  200 (this account already has access; no separate "Add to my assets"
+  step was needed for this asset, unlike Path A's `96188`) — note its
+  response shape differs from the flat `url`/`accessToken` pair
+  `check_cesium_token.sh` parses for a Cesium-hosted asset (it carries
+  `externalType`/`options` instead, no top-level `accessToken`): this is
+  why `check_cesium_token.sh 2275207` itself reports a parse FAIL even
+  though the endpoint accepted the token — that script only proves the
+  Cesium-hosted `assets:read` path (Path A/B); the renderer's own ingestion
+  never uses that script's flat-field parse at all, it hands the asset id
+  + token straight to cesium-native's `Tileset` ion constructor (Decision
+  15.6), which already knows how to route an `externalType` asset. Treat
+  `check_cesium_token.sh`'s FAIL on this one asset id as expected, not a
+  regression — PASS still means what it always meant for `96188`/a Path B
+  upload.
+- **Attribution (Google Map Tiles terms).** Must be visible wherever tiles
+  are displayed. The node draws a static line ("3D Tiles data (c) Google")
+  through the existing HUD text primitive (`environment_attribution` param,
+  on by default, drawn only while `materials=original` is active) — the
+  exact legal wording is NOT re-verified per deployment by this code path
+  (no ion credit text is parsed or rendered dynamically); before a real
+  go-live, confirm the current required wording against Google's Platform
+  Terms / the ion asset's own listed attribution and update the string in
+  `visualization_node.cpp` if it has changed. If the HUD text machinery
+  cannot carry a line for some deployment (font unavailable, etc. — see
+  `hud_font_path`), the manual fallback is a physical/on-screen overlay
+  sticker or a fixed compositing step downstream of this node; that gap
+  would show up as the node's own one-shot WARN
+  (`environment_attribution_warned_`).
+- **Cache terms.** The shipped preset ships `cache=off` (VM-063's existing
+  `?cache=` knob, given the literal value `off` rather than a directory —
+  Decision 14 / Task 5 Step 2(b)) until this deployment has verified
+  Google's current Map Tiles cache-lifetime policy allows the on-disk
+  SqliteCache's retention. `cache=off` means every tile request goes
+  straight through the network accessor, nothing persisted to
+  `mpviz-tile-cache` — a real compliance lever, not a placeholder; verify
+  the policy, then switch to a real `?cache=<dir>` (or drop the key for the
+  library default) once confirmed compliant.
+- **No golden ships for this mode.** A committed Google-tile fixture would
+  itself need to clear the same redistribution-terms question as the cache
+  policy above; this task does not fetch or commit any Google tile bytes.
+  Automated coverage is the parse (`materials=original` recognized) and the
+  no-remap behavior (both fixture-free, exercised via the existing OSM
+  fixture with the test-only `materials_original` hook param) — the visual
+  check against real Google content is the validation rig's live-token,
+  live-network human step, same as this runbook's own smoke check.
+- **Perf.** Expect a materially heavier `render_ms` delta than either clay
+  preset (textured photoreal vs. untextured extrusions) — record it in the
+  epic's results block the same way as the OSM-clay preset's own number;
+  `maximumScreenSpaceError`/load-radius tuning are the named first levers
+  on a miss.
 
 ## 3. The env var contract
 
