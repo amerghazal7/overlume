@@ -69,8 +69,16 @@ echoing `assets/visualization-reference-2.jpg`'s own framing), containing:
   `CRITICAL`-severity `AlertPolygon` (hand-built — no existing helper
   produces that severity) straddles the `CAR`, so the hazard/coral accent
   appears.
-- **All three ribbon roles** (`BEHAVIOR`/`GLOBAL`/`LOCAL`) — reused verbatim
-  from `make_three_role_ribbons()`.
+- **All three ribbon roles** (`BEHAVIOR`/`GLOBAL`/`LOCAL`) — hand-built,
+  NOT `golden.hpp`'s `make_three_role_ribbons()` (round-2 gate finding,
+  blocking): that helper stacks all three roles into one shared corridor
+  with the ego sitting exactly on it, so the ego-proximity clip
+  (`polyline.cpp`'s `compute_polyline_clip()`, which runs per-ribbon)
+  collapsed BEHAVIOR — the shortest, narrowest role — down to a stub
+  sitting entirely under the ego's own clay box, 0 visible pixels.
+  This test instead lays the three roles out as separate lateral lanes,
+  each starting just behind the ego and running well past it, so every
+  role keeps a long, unoccluded run to judge.
 - **The ground grid** — reused verbatim from `make_two_layer_grids()` (two
   OGM layers, dynamic + gradient).
 
@@ -99,6 +107,20 @@ reverting the *shipped* `dark_adas.yaml` to match is a **one-token change**
 (`palette.ribbon_core`/`ribbon_glow` only) — nothing else in that file's
 schema is touched by this decision. `dark_adas.yaml` itself is untouched by
 this pass.
+
+## Named gap: object_tint judging at opacity 0.25
+
+`objects: { opacity: 0.25 }` is the shipped repo-wide default (VM-078,
+unchanged by this pass) — every `TrackedObject` renders at 25% strength
+against its background, so the six per-class `object_tints` are also
+diluted to ~25% strength in this capture. A sentinel render (each tint set
+to a pure primary) confirms hue carries through the render path correctly;
+the dilution is a real, expected side effect of the shipped opacity value,
+not a bug in this harness. If a future palette review needs to judge
+`object_tints` at full strength, capture a second frame with
+`MPVIZ_SHOWCASE_THEME_DIR` pointed at a scratch copy of the candidate theme
+with `objects.opacity` set to `1.0` — do **not** change the shipped/
+candidate YAML's own opacity value for this.
 
 ## Named gap: vegetation
 

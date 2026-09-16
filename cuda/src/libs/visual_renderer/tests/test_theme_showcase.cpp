@@ -41,6 +41,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -242,13 +243,30 @@ TEST(ThemeShowcase, Capture) {
     // below) completely clean: nothing but road surface, lane paint,
     // road_edge and centerline, confirmed by inspecting the actual
     // capture, not just this offline placement math.
+    //
+    // Re-tuned (round-2 gate finding, minor): the round-1 fan overshot on
+    // BUS -- a 12m-long box heading ~120deg (golden.hpp's own spec) sits
+    // nearly BROADSIDE to this camera, so even at a similar distance to the
+    // other classes it filled 54,036px (7% of frame) and was cut by the
+    // right edge, while PEDESTRIAN (0.6m) shrank to ~530px. Measured via a
+    // pure-R/G/B/Y/M/C object_tint sentinel render + connected-region pixel
+    // counts (same method the finding itself used), not offline placement
+    // math alone: BUS moved much farther out (both axes) to shrink its
+    // silhouette and clear of the right edge; PEDESTRIAN moved closer (but
+    // still off the paved road/shoulder line and clear of the ribbon lanes
+    // above) so it's not a near-invisible speck. TRUCK_VAN/UNKNOWN nudged
+    // in slightly for the same "no class disappears" reason. A pedestrian
+    // will never match a bus's pixel footprint (they aren't the same size
+    // in real life either) -- the bar here is "no class dominates the
+    // frame or is cut by an edge, none is too small to sample a tint from",
+    // not identical apparent size.
     constexpr Vec3 kObjectFanOffsets[] = {
-        {0.0, -9.0, 0.0},    // CAR -- the -y shoulder
-        {0.0, 14.0, 0.0},    // TRUCK_VAN (path_points below get this same delta) -- the +y shoulder
-        {1.0, -25.0, 0.0},   // BUS -- the -y shoulder, further out (12m-long box)
-        {0.0, 23.0, 0.0},    // PEDESTRIAN -- the +y shoulder
-        {-2.0, -6.0, 0.0},   // CYCLIST -- the -y shoulder
-        {2.0, 25.0, 0.0},    // UNKNOWN -- the +y shoulder, further out
+        {0.0, -9.0, 0.0},     // CAR -- the -y shoulder
+        {0.0, 12.0, 0.0},     // TRUCK_VAN (path_points below get this same delta) -- the +y shoulder
+        {6.0, -55.0, 0.0},    // BUS -- pushed much farther out both axes (was {1,-25}, 54,036px/frame-edge-cut)
+        {-8.0, 11.0, 0.0},    // PEDESTRIAN -- pulled closer (was {0,23}, ~530px), still off-road
+        {-2.0, -6.0, 0.0},    // CYCLIST -- the -y shoulder
+        {2.0, 20.0, 0.0},     // UNKNOWN -- the +y shoulder, further out
     };
     constexpr size_t kTruckVanIdx = static_cast<size_t>(mpviz::ObjectClass::TRUCK_VAN);
     for (auto& p : objects.path_points) {
@@ -280,17 +298,62 @@ TEST(ThemeShowcase, Capture) {
     criticalAlert.severity = 2;  // critical -> theme.palette.alert.critical (the coral accent)
     criticalAlert.last_update_sec = now;  // fresh -- full severity alpha, not mid-fade
 
-    // ── All three ribbon roles (task requirement 5/6) -- reuse
-    //    golden.hpp's make_three_role_ribbons() verbatim (BEHAVIOR/GLOBAL/
-    //    LOCAL, one corridor, all fresh), translated the same way the
-    //    objects above are: that helper's own doc states its ego sits at
-    //    local (0,0,0), which is exactly kSceneOrigin's definition, so
-    //    translating its points by kSceneOrigin reproduces the SAME
-    //    corridor-relative-to-ego shape, just moved to sit on this scene's
-    //    road (the corridor already runs along the helper's local +X,
-    //    matching the road's own +X layout above). ──────────────────────
-    mpviz::testing::RibbonScene ribbons = mpviz::testing::make_three_role_ribbons(now);
-    for (auto& p : ribbons.point_storage) p = translated(p, kSceneOrigin.x, kSceneOrigin.y);
+    // ── All three ribbon roles (task requirement 5/6) -- hand-built, NOT a
+    //    reuse of golden.hpp's make_three_role_ribbons() (round-2 gate
+    //    finding, blocking). That helper stacks all three roles into ONE
+    //    shared corridor with the ego sitting exactly on it, so
+    //    compute_polyline_clip() (polyline.cpp) -- which runs per-ribbon,
+    //    independently, and collapses everything behind that ribbon's own
+    //    closest-approach-to-ego station -- collapses all three roles at
+    //    roughly the same point. BEHAVIOR (the shortest, narrowest role:
+    //    effective half-width = lane_width_m/2 - margin_behavior_m =
+    //    1.75 - 1.3 = 0.45m) survives as only a ~4m stub sitting entirely
+    //    under the 4.5m ego clay box -- 0 visible pixels, confirmed by a
+    //    magenta/green/red sentinel render.
+    //
+    //    Fix: three separate lateral lanes (not one shared corridor), each
+    //    starting just behind the ego -- so the clip still does its real
+    //    job of trimming the small behind-ego stub, this isn't a shortcut
+    //    that disables the mechanism -- and running well past it, so every
+    //    role keeps a long, clean, unoccluded run for the eye to judge.
+    struct RibbonLaneSpec {
+        mpviz::PathRole role;
+        double laneY;  // local, offset from the ego's own lane center
+    };
+    // BEHAVIOR (hero) stays dead center, straight ahead of the ego -- the
+    // most prominent placement, matching its "hero" role. GLOBAL/LOCAL get
+    // their own lanes to the left/right so no role's stub or clip boundary
+    // ever sits under another role or under the ego box.
+    constexpr std::array<RibbonLaneSpec, 3> kRibbonLanes{{
+        {mpviz::PathRole::BEHAVIOR, 0.0},
+        {mpviz::PathRole::GLOBAL, -3.0},
+        {mpviz::PathRole::LOCAL, 3.0},
+    }};
+    constexpr double kRibbonX0 = -2.0;  // 2m behind the ego -- enough for the
+                                        // clip to trim a real, visible stub
+    constexpr double kRibbonX1 = 18.0;  // well past the ego and the
+                                        // crosswalk -- plenty of judgeable
+                                        // length survives the clip
+
+    std::vector<Vec3> ribbonPoints;  // fixed capacity first, same
+                                      // no-reallocate-after-pointers-taken
+                                      // reasoning as golden.cpp's own scene
+                                      // builders
+    ribbonPoints.reserve(kRibbonLanes.size() * 2);
+    for (const auto& lane : kRibbonLanes) {
+        ribbonPoints.push_back(world(kRibbonX0, lane.laneY));
+        ribbonPoints.push_back(world(kRibbonX1, lane.laneY));
+    }
+    std::vector<mpviz::PathRibbon> ribbonList;
+    ribbonList.reserve(kRibbonLanes.size());
+    for (size_t i = 0; i < kRibbonLanes.size(); ++i) {
+        mpviz::PathRibbon r{};
+        r.role = kRibbonLanes[i].role;
+        r.points = ribbonPoints.data() + i * 2;
+        r.point_count = 2;
+        r.last_update_sec = now;
+        ribbonList.push_back(r);
+    }
 
     // ── Ground grid (task requirement 6/6) -- reuse golden.hpp's
     //    make_two_layer_grids() verbatim; GroundGridLayer::origin is a
@@ -304,8 +367,8 @@ TEST(ThemeShowcase, Capture) {
     s.ego = mpviz::EgoState{kSceneOrigin, /*heading_rad=*/0.0, /*speed_mps=*/8.0, /*valid=*/1};
     s.objects = objects.objects.data();
     s.object_count = static_cast<uint32_t>(objects.objects.size());
-    s.paths = ribbons.ribbons.data();
-    s.path_count = static_cast<uint32_t>(ribbons.ribbons.size());
+    s.paths = ribbonList.data();
+    s.path_count = static_cast<uint32_t>(ribbonList.size());
     s.map_elements = mapElements.data();
     s.map_element_count = static_cast<uint32_t>(mapElements.size());
     s.grids = grids.grids.data();
