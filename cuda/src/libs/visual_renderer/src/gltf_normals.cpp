@@ -296,10 +296,18 @@ std::optional<std::vector<uint32_t>> read_index_accessor(const YAML::Node& gltf,
     return out;
 }
 
-// Area-weighted flat normals: one normal per POSITION vertex, accumulated
+// Area-weighted VERTEX normals: one normal per POSITION vertex, accumulated
 // (unnormalized, so larger faces weigh more) from every triangle that
 // references it and normalized at the end -- glTF 2.0 spec §3.7.2.1's own
 // suggested fallback for meshes with no NORMAL attribute.
+//
+// NOTE (gate round 1): this is vertex-averaged (smooth) shading. It RENDERS
+// as crisp flat faces for the assets in play only because their exporters
+// emit one vertex per face corner (unwelded) -- so no vertex is shared
+// across faces and each normal ends up face-exact. A future POSITION-only
+// asset with WELDED vertices would get rounded-off building corners from
+// this same code. Kept as-is (correct for every producer we have); the
+// dependency is named here rather than left to be rediscovered.
 std::vector<float> compute_flat_normals(const std::vector<float>& positions,
                                         const std::vector<uint32_t>& indices) {
     const size_t vertex_count = positions.size() / 3;
@@ -350,6 +358,13 @@ std::vector<uint8_t> ensure_flat_normals(std::vector<uint8_t> glb_bytes) {
         const YAML::Node meshes = gltf["meshes"];
         if (!meshes || !meshes.IsSequence()) return glb_bytes;
         if (!gltf["buffers"] || gltf["buffers"].size() == 0) return glb_bytes;
+        // buffers[0] must BE the embedded BIN chunk. A legal glTF may point
+        // buffers[0] at an external or data: URI instead -- the accessor
+        // readers below index straight into the BIN bytes, so that shape
+        // would read unrelated bytes and synthesize GARBAGE normals (worse
+        // than the absent ones this exists to fix). Latent today: neither
+        // producer in this repo emits it.
+        if (gltf["buffers"][0]["uri"]) return glb_bytes;
 
         // Two-phase: first collect every primitive we can and know how to
         // fix, without mutating anything -- a read failure partway through
@@ -385,6 +400,13 @@ std::vector<uint8_t> ensure_flat_normals(std::vector<uint8_t> glb_bytes) {
             }
         }
         if (fixes.empty()) return glb_bytes;  // every primitive already has NORMAL -- no-op
+
+        // glTF requires a FLOAT accessor's byteOffset to be 4-aligned. The BIN
+        // chunk is normally already padded to 4 (trimesh and CesiumGltfWriter
+        // both pad), but an unpadded one would put our appended normals at a
+        // non-aligned offset and cgltf would reject the WHOLE asset -- the
+        // buildings would vanish entirely, a worse failure than flat shading.
+        bin.resize(bin.size() + (4 - bin.size() % 4) % 4);
 
         YAML::Node accessors = gltf["accessors"];
         YAML::Node buffer_views = gltf["bufferViews"];
