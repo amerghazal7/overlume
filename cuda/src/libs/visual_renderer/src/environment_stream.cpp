@@ -427,17 +427,24 @@ StreamRendererResources::prepareInLoadThread(const CesiumAsync::AsyncSystem& asy
                 writer.writeGlb(*model, std::span<const std::byte>(bufData.data(), bufData.size()));
             if (res.errors.empty()) {
                 // Defense-in-depth, not a known-needed fix: every committed
-                // environment_ion_fixture_*/*.b3dm already carries NORMAL,
-                // so this is a no-op on real tiles today (see
-                // gltf_normals.hpp) -- but it's the same load-time hook
-                // environment.cpp uses for baked chunks, and costs nothing
-                // on tiles that already have normals.
+                // Every committed ion b3dm already carries NORMAL, so this is
+                // a measured no-op on real tiles -- kept as the same
+                // load-time hook environment.cpp uses for baked chunks, so a
+                // normal-less tileset degrades to flat-shaded rather than
+                // unlit. It is NOT free though (gate round 1 correction to
+                // an earlier "costs nothing" claim): ensure_flat_normals()
+                // parses the JSON chunk before it can know there is nothing
+                // to do. That parse is the price of the guarantee; what we
+                // avoid below is the pointless second full-buffer copy --
+                // move the result straight into glbBytes instead of
+                // resize+memcpy (std::byte and uint8_t are layout-compatible
+                // but distinct types, so one conversion copy is unavoidable).
                 std::vector<uint8_t> bytes(reinterpret_cast<const uint8_t*>(res.gltfBytes.data()),
                                             reinterpret_cast<const uint8_t*>(res.gltfBytes.data() +
                                                                               res.gltfBytes.size()));
                 bytes = ensure_flat_normals(std::move(bytes));
-                pGlb->glbBytes.resize(bytes.size());
-                std::memcpy(pGlb->glbBytes.data(), bytes.data(), bytes.size());
+                pGlb->glbBytes.assign(reinterpret_cast<const std::byte*>(bytes.data()),
+                                       reinterpret_cast<const std::byte*>(bytes.data() + bytes.size()));
                 pGlb->ok = true;
             }
         }
