@@ -680,7 +680,7 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // (the draw site below checks that too; see docs/visual_mode/cesium.md's
     // Google section).
     environment_attribution_ = declare_parameter<bool>("environment_attribution", true);
-    // This task (vcam GUI Environment Tiles toggle): the deployment's own
+    // VM-096 (vcam GUI Environment Tiles toggle): the deployment's own
     // "clipped" ion asset -- read once, never dereferenced by this node
     // itself (the WS bridge reads it back via get_parameters() to resolve
     // the "clipped" preset name; see default_params.yaml's own comment).
@@ -1051,6 +1051,16 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
     // gap this step's own WARN names, not silently patched around (spec
     // §4.5/§9: "no anchor from either source -> environment layer disabled
     // with one WARN").
+    //
+    // VM-096 gate round 1 finding: push the configured environment_enabled_
+    // into the renderer's visibility flag BEFORE arming a source below --
+    // set_environment_source() syncs a newly-opened source from that flag
+    // (environment_stream.cpp), so a deployment shipping environment_enabled:
+    // false must have visible_ = false in place first, or a later live
+    // preset switch arms a fully VISIBLE source while the GUI switch reads
+    // OFF. VisualRenderer::environmentVisible defaults true, so this call is
+    // a real state change on that default configuration, not a no-op.
+    mpviz::set_environment_visible(renderer_, environment_enabled_);
     if (environment_enabled_ && environment_chunks_dir_.empty() && environment_source_uri_.empty())
     {
         // Neither knob configured ("" is the shipped default for both,
@@ -1088,6 +1098,17 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
             RCLCPP_WARN(get_logger(),
                         "set_environment_source: failed to open '%s' -- no buildings this run",
                         source_uri.c_str());
+        }
+        else
+        {
+            // VM-096: an honest one-shot arming log naming the visibility
+            // state this run actually starts in -- environment_enabled:=
+            // false now means the source is armed but HIDDEN (the
+            // set_environment_visible() call above this if/else chain),
+            // not "never armed". test_environment_live_switch.py's check 5
+            // greps this line for that word.
+            RCLCPP_INFO(get_logger(), "environment source armed: '%s' (%s)",
+                        source_uri.c_str(), environment_enabled_ ? "visible" : "hidden");
         }
         // No per-mode gate on success: see timer_callback()'s comment above
         // the bowl-visibility dispatch -- buildings render regardless of
@@ -1207,7 +1228,7 @@ rcl_interfaces::msg::SetParametersResult VisualizationNode::on_params(
                     surround_stitching_profile_ = v;
                 }
             }
-            // ── Environment tiles (this task -- vcam GUI Environment Tiles
+            // ── Environment tiles (VM-096 -- vcam GUI Environment Tiles
             //    toggle, Epic 6 follow-up) ─────────────────────────────────
             // environment_enabled reuses the SAME disable knob VM-052 already
             // declared (STANDING directive: don't invent a second one) --
@@ -1257,6 +1278,17 @@ rcl_interfaces::msg::SetParametersResult VisualizationNode::on_params(
                                                        geo_anchor_solver_->anchor()))
                     {
                         environment_source_uri_ = requested;
+                        // VM-096 gate round 1 finding: this live-switch arm
+                        // path doesn't gate on environment_enabled_ at all
+                        // (by design -- it only toggles VISIBILITY,
+                        // set_environment_source() syncs the new source from
+                        // r->environmentVisible itself). Same honest arming
+                        // log as on_activate()'s own success path, so a
+                        // switch made while environment_enabled_ is false
+                        // (this session's own launch value, or a prior live
+                        // toggle) is provably HIDDEN, not silently visible.
+                        RCLCPP_INFO(get_logger(), "environment source armed: '%s' (%s)",
+                                    source_uri.c_str(), environment_enabled_ ? "visible" : "hidden");
                     }
                     else
                     {
@@ -1950,12 +1982,16 @@ void VisualizationNode::timer_callback()
     // materials=original mode (Decision 14) -- a plain OSM-clay/clipped-clay
     // preset draws nothing here even with the knob left on its default --
     // AND the source to actually be STREAMING right now. The state conjunct
-    // is what keeps the notice honest: a configured-but-disabled
-    // environment (environment_enabled false, so set_environment_source was
-    // never called) and a source that has fallen back to baked chunks
-    // (STREAMING_FALLBACK, one-way per Decision 11) both show NO Google
-    // imagery, and neither may carry its credit.
-    if (environment_attribution_ &&
+    // is what keeps the notice honest: a source that has fallen back to
+    // baked chunks (STREAMING_FALLBACK, one-way per Decision 11) shows NO
+    // Google imagery and may not carry its credit.
+    //
+    // VM-096 gate round 1 finding: STREAMING alone is not enough any more --
+    // environment_enabled_ now means "visible" (set_environment_visible()),
+    // not just "armed", so a hidden-but-still-STREAMING source (the GUI
+    // toggle switched off) must also be excluded here, or this line draws
+    // attribution over frames with no Google imagery on screen.
+    if (environment_enabled_ && environment_attribution_ &&
         environment_source_uri_.find("materials=original") != std::string::npos &&
         mpviz::environment_source_state(renderer_) == mpviz::EnvironmentSourceState::STREAMING)
     {

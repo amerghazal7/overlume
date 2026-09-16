@@ -49,7 +49,7 @@ Three supported paths:
 Record whichever `<assetId>` this deployment ends up using — it is the value
 the node's `source_uri` param takes (`ion://<assetId>`, VM-063).
 
-**Path B + the vcam GUI's "clipped" preset (this task):** the GUI/WS bridge's
+**Path B + the vcam GUI's "clipped" preset (VM-096):** the GUI/WS bridge's
 Environment Tiles source select offers "clipped" as a one-click switch to
 THIS deployment's own Path B asset, but it never guesses or fabricates an
 id — set `environment_own_asset_uri` (`config/default_params.yaml`) to

@@ -605,7 +605,7 @@ void StreamingEnvironmentSource::fall_back(VisualRenderer& r) {
         // STREAMING_FALLBACK (network loss WAS declared -- the state names
         // the transition, not whether the fallback dir itself was valid).
         //
-        // This task: a freshly opened source defaults visible -- sync it
+        // VM-096: a freshly opened source defaults visible -- sync it
         // to this source's OWN current visible_ (whatever the node/GUI
         // last set via set_environment_visible()) so falling back while
         // hidden doesn't pop the fallback baked chunks into view.
@@ -658,7 +658,7 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
         if (res == nullptr) continue;  // prepareInMainThread hasn't produced it yet
         auto* asset = static_cast<filament::gltfio::FilamentAsset*>(res);
         stillPresent[res] = true;
-        // visible_ invariant (this task): only add if currently visible --
+        // visible_ invariant (VM-096): only add if currently visible --
         // a tile that finishes loading while hidden must not pop into
         // view. It's still tracked in stillPresent/inScene_ either way, so
         // loaded_count() is unaffected and a later set_visible(true) picks
@@ -779,7 +779,7 @@ size_t StreamingEnvironmentSource::loaded_count() const {
 
 size_t StreamingEnvironmentSource::scene_membership_count() const {
     if (fallenBack_) return fallbackSource_ ? fallbackSource_->scene_membership_count() : 0;
-    // visible_ invariant (this task): every inScene_ entry is actually
+    // visible_ invariant (VM-096): every inScene_ entry is actually
     // added to r.scene iff visible_ -- see synthesize_view_and_pump()'s
     // reconcile loop and set_visible() above.
     return visible_ ? inScene_.size() : 0;

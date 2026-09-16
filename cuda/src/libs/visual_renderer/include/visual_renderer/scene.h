@@ -616,7 +616,7 @@ enum class EnvironmentSourceState : uint8_t {
 // safe to poll once per tick.
 EnvironmentSourceState environment_source_state(VisualRenderer*);
 
-// This task (vcam GUI Environment Tiles toggle): free function, POD-only,
+// VM-096 (vcam GUI Environment Tiles toggle): free function, POD-only,
 // bumps nothing (ADR-0004/VM-090 precedent, same as set_environment_source
 // and environment_source_state above) -- closes docs/visual_mode/
 // signoff.md's named exception 7 ("environment/buildings not per-mode
@@ -642,6 +642,19 @@ EnvironmentSourceState environment_source_state(VisualRenderer*);
 // live target" contract callers should not mistake for "something is now
 // visibly different."
 bool set_environment_visible(VisualRenderer* r, bool visible);
+
+// VM-096 gate round 1 finding: read-only counterpart to
+// set_environment_visible() above -- a setter with no matching getter left
+// the persisted-flag-applies-to-a-source-armed-later contract unverifiable
+// from outside the library (this is what test_environment.cpp's
+// SetEnvironmentVisibleFalseBeforeArmingHidesNewlyOpenedSource asserts
+// against). Free function, POD-only, bumps nothing (ADR-0004/VM-090
+// precedent, same as set_environment_source/environment_source_state
+// above). Returns r->environmentVisible's current value (true by default,
+// even with no source armed yet -- same "stores intent" contract
+// set_environment_visible() documents) for any non-null `r`; false only
+// when `r` itself is null.
+bool environment_visible(VisualRenderer* r);
 
 // Live quality-preset switch for the node-side governor (VM-040): re-applies
 // create_renderer()'s SSAO/AA/shadow/render-scale mapping against an

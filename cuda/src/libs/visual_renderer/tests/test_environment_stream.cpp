@@ -293,7 +293,7 @@ TEST(EnvironmentStreamGolden, FixtureBlock_DarkAdas) {
     mpviz::destroy_renderer(r);
 }
 
-// ── set_environment_visible() (this task): the streaming backend must
+// ── set_environment_visible() (VM-096): the streaming backend must
 //    honor the same hide/show contract as BakedEnvironmentSource -- the
 //    GUI's environment_enabled toggle has to work with EVERY preset
 //    (baked/osm/clipped/google), not just the baked default. ────────────
