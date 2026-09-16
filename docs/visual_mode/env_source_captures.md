@@ -1,5 +1,13 @@
 # Environment-source comparison captures (VM-096)
 
+**Look at this first:**
+[`env_source_captures/env_source_contact_sheet.png`](env_source_captures/env_source_contact_sheet.png)
+— baked/osm/google side by side. The raw `dark_adas` captures below are the
+canonical, unmodified renders, but baked and osm are near-unjudgeable
+straight off disk (p99 luminance 38.9/255 — see "Display-aid contact sheet"
+below), so the contact sheet applies a documented gain lift to make the
+building massing visible without editing the canonical images.
+
 One render per GUI "Environment Tiles" preset, all at the **same geo anchor**
 and the **same camera pose**, for a human to judge side by side. Produced by
 the opt-in capture tests in
@@ -49,7 +57,7 @@ Renders are 960×720 (generous — for eyeballing, not SSIM; `golden.hpp`'s
 
 ## How to re-run each capture
 
-Offline (baked, no token needed):
+Offline (baked, no token needed). Run from the repo root:
 
 ```bash
 cd cuda/src/libs/visual_renderer/build
@@ -63,8 +71,11 @@ won't see (Ubuntu's `~/.bashrc` skips its exports under a non-interactive
 shell), so run it exactly like this (per the epic's own documented
 workaround):
 
+Run from the repo root (same starting directory as the offline block above —
+the inner `cd` below is the only one, so this block is self-contained and can
+be pasted as-is):
+
 ```bash
-cd cuda/src/libs/visual_renderer/build
 env -u CESIUM_ION_TOKEN bash -lic '
     export MPVIZ_CAPTURE_ENV_SOURCES=1
     export MPVIZ_CAPTURE_OUT_DIR=/tmp/env_source_capture
@@ -100,7 +111,7 @@ After running, copy the PNG(s) from `MPVIZ_CAPTURE_OUT_DIR` into
 
 | File | Preset | Content-verification (measured this run) |
 |---|---|---|
-| [`env_source_captures/env_source_baked.png`](env_source_captures/env_source_baked.png) | baked | luminance stddev 5.97, non-background fraction 11.7% |
+| [`env_source_captures/env_source_baked.png`](env_source_captures/env_source_baked.png) | baked | luminance stddev 5.90, non-background fraction 12.3% |
 | [`env_source_captures/env_source_osm.png`](env_source_captures/env_source_osm.png) | osm (live, ion://96188) | luminance stddev 6.02, non-background fraction 10.5% |
 | [`env_source_captures/env_source_google.png`](env_source_captures/env_source_google.png) | google (live, ion://2275207, original materials) | luminance stddev 24.60, non-background fraction 60.6% |
 
@@ -125,6 +136,61 @@ anything at all").
   rooftops, ground texture, at the LOD this box's network fetched within the
   60s settle window (still visibly low-resolution/blurry at close range —
   expected, not a bug: deeper LOD keeps refining with more real time).
+
+## Display-aid contact sheet
+
+The raw `dark_adas` captures above are the canonical, reproducible renders —
+but two of the three are close to unjudgeable as shipped: measured p99
+luminance is 38.9/255 for both **baked** and **osm** (only 0.08%/0.04% of
+pixels exceed luminance 40), vs. 117.2/255 for **google**. The content is
+genuinely present and correct for a dark ADAS theme — this is expected
+exposure, not a bug — but a human can't eyeball building massing at that
+brightness without display help.
+
+[`env_source_captures/env_source_contact_sheet.png`](env_source_captures/env_source_contact_sheet.png)
+applies a flat **3.0× linear gain** (`pixel * 3.0`, clipped to 255) to the
+**baked** and **osm** panels only — chosen so their p99 luminance
+(~117, `38.9 * 3.0`) lands near google's own p99 (117.2), putting all three
+panels at a comparable, readable brightness. **google** is shown unmodified
+(already well-exposed). This is a display aid only, generated from the
+already-committed PNGs above — not a re-render, not a replacement for them,
+and not asserted on by any test. Regenerate with (run from the repo root;
+needs Pillow + numpy):
+
+```bash
+python3 - <<'PYEOF'
+from PIL import Image, ImageDraw, ImageFont
+import numpy as np
+
+GAIN = 3.0  # documented display-aid multiplier -- baked/osm only, see note above
+SRC = {
+    "baked": ("docs/visual_mode/env_source_captures/env_source_baked.png", True),
+    "osm": ("docs/visual_mode/env_source_captures/env_source_osm.png", True),
+    "google": ("docs/visual_mode/env_source_captures/env_source_google.png", False),
+}
+PANEL_W, LABEL_H = 480, 34
+font = ImageFont.load_default()
+panels = []
+for name, (path, lift) in SRC.items():
+    im = Image.open(path).convert("RGB")
+    if lift:
+        arr = np.clip(np.asarray(im, dtype=np.float64) * GAIN, 0, 255).astype(np.uint8)
+        im = Image.fromarray(arr, "RGB")
+    im = im.resize((PANEL_W, int(im.height * PANEL_W / im.width)), Image.LANCZOS)
+    label = f"{name} ({GAIN:.1f}x gain, display aid)" if lift else f"{name} (as captured)"
+    panel = Image.new("RGB", (PANEL_W, im.height + LABEL_H), (20, 20, 20))
+    panel.paste(im, (0, LABEL_H))
+    ImageDraw.Draw(panel).text((6, 8), label, fill=(255, 255, 255), font=font)
+    panels.append(panel)
+sheet = Image.new("RGB", (sum(p.width for p in panels) + 8 * (len(panels) + 1),
+                           max(p.height for p in panels) + 16), (40, 40, 40))
+x = 8
+for p in panels:
+    sheet.paste(p, (x, 8))
+    x += p.width + 8
+sheet.save("docs/visual_mode/env_source_captures/env_source_contact_sheet.png")
+PYEOF
+```
 
 ## "clipped" — not renderable on this box
 

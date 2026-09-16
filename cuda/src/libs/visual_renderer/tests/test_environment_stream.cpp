@@ -23,6 +23,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -866,8 +867,20 @@ void capture_and_report(mpviz::VisualRenderer* r, const char* name) {
     std::vector<uint8_t> buf(static_cast<size_t>(kCaptureWidth) * kCaptureHeight * 3);
     ASSERT_TRUE(mpviz::render_frame(r, kCapturePose, {buf.data(), kCaptureWidth, kCaptureHeight}));
     const std::string outPath = capture_out_path(name);
-    stbi_write_png(outPath.c_str(), static_cast<int>(kCaptureWidth), static_cast<int>(kCaptureHeight), 3,
-                   buf.data(), static_cast<int>(kCaptureWidth) * 3);
+    // Gate round 1 finding: MPVIZ_CAPTURE_OUT_DIR is never told to exist by
+    // the doc's own re-run command -- create it so the documented command
+    // works as written, same as any other output-dir convention in this repo.
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(outPath).parent_path(), ec);
+    // Gate round 1 finding: a failed write must never be accompanied by
+    // plausible-looking stats -- check the return value BEFORE printing
+    // anything, so a silent no-op (e.g. nonexistent dir) can't masquerade as
+    // [ OK ] with genuine-looking numbers computed from the in-memory buffer.
+    const int wrote = stbi_write_png(outPath.c_str(), static_cast<int>(kCaptureWidth),
+                                      static_cast<int>(kCaptureHeight), 3, buf.data(),
+                                      static_cast<int>(kCaptureWidth) * 3);
+    ASSERT_NE(wrote, 0) << "failed to write capture PNG to " << outPath
+                         << " (does MPVIZ_CAPTURE_OUT_DIR exist?)";
     const ContentStats stats = analyze_capture(buf, kCaptureWidth, kCaptureHeight);
     std::cerr << "[EnvSourceCapture] " << name << " -> " << outPath
               << " luminance_stddev=" << stats.luminance_stddev
@@ -888,11 +901,18 @@ TEST(EnvSourceCapture, Baked) {
 
     mpviz::SceneGraph s{};
     s.ego.valid = 1;
-    s.ego.position = kChunk0Center;  // within kLoadRadiusM of the buildings this pose frames
+    // Gate round 1 finding: must match Osm/Google's ego position ({0,0,0}), not
+    // kChunk0Center -- an ego-anchored ground element is the largest/brightest
+    // feature in these dark-theme captures, and differing ego across presets
+    // moved it to a different corner of the frame, manufacturing a large
+    // apparent "difference" that had nothing to do with the environment
+    // source. Verified the fixture chunks still load fine (loaded>0 below,
+    // town renders unchanged) at {0,0,0}.
+    s.ego.position = mpviz::Vec3{0, 0, 0};
     mpviz::set_scene(r, s);
     std::vector<uint8_t> warm(static_cast<size_t>(kCaptureWidth) * kCaptureHeight * 3);
     ASSERT_GT(pump_and_settle(r, kCapturePose, warm, /*initial_deadline_sec=*/5, /*settle_seconds=*/1), 0u)
-        << "baked fixture chunk never loaded at kChunk0Center";
+        << "baked fixture chunk never loaded at ego {0,0,0}";
     capture_and_report(r, "baked");
     mpviz::destroy_renderer(r);
 }
