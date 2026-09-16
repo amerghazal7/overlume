@@ -183,64 +183,63 @@ const Theme& kFallbackTheme() {
         // theme-asset install can never take rendering down.
         Theme t;
         t.name = "dark_adas";
-        t.palette.ground = {0.05f, 0.06f, 0.08f};
-        t.palette.sky = {0.02f, 0.02f, 0.05f};
-        t.palette.fog = {0.02f, 0.02f, 0.05f};
+        t.palette.ground = {0.055f, 0.055f, 0.078f};
+        t.palette.sky = {0.028f, 0.036f, 0.085f};
+        t.palette.fog = {0.028f, 0.036f, 0.085f};
         // Must match dark_adas.yaml exactly (ThemeLoad.BuiltinFallbackMatchesDarkAdasYaml).
         t.palette.lane_paint = {0.85f, 0.85f, 0.88f};
         // Cold green; glow intentionally killed (no neon/high ribbon_strength).
         t.palette.ribbon_core = {0.12f, 0.55f, 0.42f};
         t.palette.ribbon_glow = {0.12f, 0.55f, 0.42f};
-        // Cross-theme swap: light_clay's ground color, same value
-        // dark_adas.yaml's `ego` key authors on disk -- see theme.hpp's
-        // Palette::ego comment.
+        // Cross-theme swap: light_clay's ego color, same value dark_adas.yaml's
+        // `ego` key authors on disk -- see theme.hpp's Palette::ego comment.
         t.palette.ego = {0.82f, 0.80f, 0.76f};
         // dark_adas.yaml's own authored values -- not a reuse of
         // ribbon_core/glow.
-        t.palette.ribbon_global = {0.25f, 0.55f, 0.95f};
-        t.palette.ribbon_local = {0.95f, 0.70f, 0.15f};
+        t.palette.ribbon_global = {0.22f, 0.30f, 0.42f};
+        t.palette.ribbon_local = {0.55f, 0.42f, 0.22f};
         // Must match dark_adas.yaml exactly (ThemeLoad.BuiltinFallbackMatchesDarkAdasYaml).
         // road is darker than palette.ground; lane_boundary is the same
-        // near-white as lane_paint; crosswalk is authored warm ivory
+        // near-white as lane_paint; crosswalk is authored warm tan
         // (distinct from boundaries by color, not just hatch geometry);
         // lane_centerline is a
         // low-contrast fade of lane_paint toward road (25%/75% -- faint dot
         // guidance, not a bold stroke); road_edge is a clear, saturated
-        // road-paint yellow, solid and readable on the dark road.
-        t.palette.road = {0.03f, 0.035f, 0.045f};
-        t.palette.lane_centerline = {0.235f, 0.239f, 0.254f};
+        // road-paint gold, solid and readable on the dark road.
+        t.palette.road = {0.034f, 0.042f, 0.078f};
+        t.palette.lane_centerline = {0.238f, 0.244f, 0.279f};
         t.palette.lane_boundary = {0.85f, 0.85f, 0.88f};
-        t.palette.crosswalk = {0.95f, 0.90f, 0.70f};  // authored warm ivory, matches dark_adas.yaml
-        t.palette.road_edge = {0.95f, 0.75f, 0.05f};
+        t.palette.crosswalk = {0.42f, 0.36f, 0.22f};  // authored warm tan, matches dark_adas.yaml
+        t.palette.road_edge = {0.720f, 0.520f, 0.090f};
         // Must match dark_adas.yaml exactly, same convention as road/
         // lane_boundary/etc above (VM-052, Decision 10).
-        t.palette.building = {0.06f, 0.07f, 0.11f};
-        t.palette.object_tints.car = {0.25f, 0.35f, 0.9f};
-        t.palette.object_tints.truck_van = {0.30f, 0.35f, 0.85f};
-        t.palette.object_tints.bus = {0.85f, 0.6f, 0.15f};
-        t.palette.object_tints.pedestrian = {0.9f, 0.2f, 0.2f};
-        t.palette.object_tints.cyclist = {0.9f, 0.55f, 0.1f};
-        t.palette.object_tints.unknown = {0.5f, 0.5f, 0.5f};
-        t.palette.alert.info = {0.2f, 0.6f, 1.0f};
-        t.palette.alert.warning = {1.0f, 0.7f, 0.1f};
-        t.palette.alert.critical = {1.0f, 0.15f, 0.1f};
+        t.palette.building = {0.130f, 0.135f, 0.180f};
+        t.palette.object_tints.car = {0.180f, 0.210f, 0.320f};
+        t.palette.object_tints.truck_van = {0.28f, 0.32f, 0.55f};
+        t.palette.object_tints.bus = {0.75f, 0.55f, 0.20f};
+        t.palette.object_tints.pedestrian = {0.85f, 0.25f, 0.25f};
+        t.palette.object_tints.cyclist = {0.80f, 0.50f, 0.15f};
+        t.palette.object_tints.unknown = {0.45f, 0.45f, 0.50f};
+        t.palette.alert.info = {0.20f, 0.55f, 0.85f};
+        t.palette.alert.warning = {0.85f, 0.60f, 0.15f};
+        t.palette.alert.critical = {0.90f, 0.20f, 0.15f};
         t.material.roughness = 0.85f;
         t.material.metallic = 0.0f;
         t.emissive.ribbon_strength = 0.0f;  // glow killed, matches dark_adas.yaml
-        t.grid.line_color = {0.12f, 0.14f, 0.18f};
+        t.grid.line_color = {0.130f, 0.130f, 0.180f};
         t.grid.fade_start_m = 15.0f;
         t.grid.fade_end_m = 40.0f;
-        t.hud.text_color = {0.9f, 0.95f, 1.0f};
-        t.hud.accent_color = {0.10f, 1.0f, 0.4f};
+        t.hud.text_color = {0.90f, 0.92f, 0.95f};
+        t.hud.accent_color = {0.12f, 0.60f, 0.45f};
         t.hud.scale = 1.0f;
         t.point_cloud.point_size_px = 2.0f;
-        t.sun.direction = {-0.5f, -0.3f, -1.0f};
-        t.sun.color = {0.55f, 0.6f, 0.75f};
-        t.sun.intensity = 480000.0f;
-        t.ibl.sky_color = {0.05f, 0.06f, 0.12f};
-        t.ibl.ground_color = {0.02f, 0.02f, 0.03f};
-        t.ibl.intensity = 256000.0f;
-        t.fog.density = 0.015f;
+        t.sun.direction = {-0.6f, -0.2f, -0.5f};
+        t.sun.color = {0.85f, 0.65f, 0.55f};
+        t.sun.intensity = 350000.0f;
+        t.ibl.sky_color = {0.028f, 0.036f, 0.085f};
+        t.ibl.ground_color = {0.030f, 0.030f, 0.045f};
+        t.ibl.intensity = 350000.0f;
+        t.fog.density = 0.010f;
         // width_m is no longer authored on disk (dark_adas.yaml drops the
         // key) so it parses via the soft-default seed (0.24);
         // lane_width_m/margins are explicit, matching dark_adas.yaml

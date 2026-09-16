@@ -13,9 +13,14 @@
 //   MPVIZ_SHOWCASE_THEME=<name>   -- theme name to load (default dark_adas)
 //   MPVIZ_SHOWCASE_THEME_DIR=<dir> -- theme assets dir (default the shipped
 //                                     assets/themes/ dir) -- point this at
-//                                     assets/theme_variants/ (or any other
-//                                     directory) to render a candidate theme
-//                                     that isn't shipped
+//                                     a scratch directory of your own to
+//                                     render a candidate theme that isn't
+//                                     shipped (there is no fixed candidates
+//                                     directory in this repo; the ref-2
+//                                     light_ref2/dark_ref2 pair that used
+//                                     to live in assets/theme_variants/ was
+//                                     promoted into assets/themes/ and that
+//                                     directory was deleted, 2026-09-16)
 //   MPVIZ_SHOWCASE_OUT=<path.png> -- where to write the PNG (default
 //                                     /tmp/theme_showcase_<theme>.png)
 //
