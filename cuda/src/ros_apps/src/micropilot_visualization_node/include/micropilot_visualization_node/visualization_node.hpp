@@ -460,6 +460,14 @@ private:
     // per knob, not once overall (independent of whether hud_enabled_ is
     // also true this run).
     bool environment_attribution_warned_{false};
+    // This task (vcam GUI Environment Tiles toggle): the deployment's own
+    // "clipped" ion asset ("ion://<id>", design decision (c)) -- read once
+    // in on_configure() alongside the block above. "" (shipped default)
+    // means this deployment has no own asset yet; the GUI/WS bridge grey
+    // out the "clipped" preset in that case rather than fabricate an id.
+    // Purely a value the bridge reads back (get_parameters) to resolve
+    // that one preset name -- this node never dereferences it itself.
+    std::string environment_own_asset_uri_;
 
     SceneAssembly scene_asm_;
 
