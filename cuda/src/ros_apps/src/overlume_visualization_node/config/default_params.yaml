@@ -159,8 +159,11 @@
     #     results block).
     environment_source_uri: ""
     # VM-063: on-disk tile cache dir for the streamed backend (ignored by
-    # the baked backend, and by the google preset above while it ships
-    # cache=off). "" (the shipped default) uses the library's own default
+    # the baked backend; an inline cache= already present in
+    # environment_source_uri, as the google preset above ships with
+    # cache=off, also takes precedence over this dir -- on_activate()
+    # only appends "cache=<this dir>" when the URI has no cache= key).
+    # "" (the shipped default) uses the library's own default
     # (${XDG_CACHE_HOME:-$HOME/.cache}/mpviz-tile-cache, Decision 10) --
     # set this only to override that location (e.g. a different
     # disk/quota on a specific robot). Same '?'/'&' path ceiling as above.
