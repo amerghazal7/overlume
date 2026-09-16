@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
 from vcam_ws_bridge import (  # noqa: E402
-    ENVIRONMENT_PRESET_URIS, parse_cmd, patch_yaml_text,
+    ENVIRONMENT_PRESET_URIS, ENVIRONMENT_PRESETS, parse_cmd, patch_yaml_text,
 )
 
 
@@ -593,3 +593,26 @@ def test_resolve_environment_preset():
     assert resolve_environment_preset("ion://12345", "") is None
     # a hand-edited URI matching nothing known -- leave the combo alone
     assert resolve_environment_preset("ion://99999?foo=bar", "ion://12345") is None
+
+
+def test_gui_and_bridge_environment_preset_tables_agree():
+    """The GUI keeps its own literal copy of the preset->URI table (it is a
+    pure WS client, deliberately not importing the bridge module). That
+    decoupling is fine; silent DRIFT is not -- edit the google URI's
+    cache=off compliance lever in one file only and the GUI's reverse map
+    stops recognizing the node's real source, so the combo silently stops
+    reflecting reality. This test is what makes that fail loudly instead."""
+    pytest.importorskip("gi")
+    from vcam_gui import ENVIRONMENT_PRESETS as GUI_PRESETS
+    from vcam_gui import ENVIRONMENT_PRESET_URIS_FIXED
+
+    # Same preset names on both sides (the GUI orders them for display; the
+    # bridge validates membership, hence list-vs-set).
+    assert set(GUI_PRESETS) == ENVIRONMENT_PRESETS
+    # "clipped" is per-deployment (environment_own_asset_uri), so it is
+    # absent from BOTH literal tables by design -- assert that too, so a
+    # future fabricated id in either file fails here.
+    assert "clipped" not in ENVIRONMENT_PRESET_URIS_FIXED
+    assert "clipped" not in ENVIRONMENT_PRESET_URIS
+    # Every fixed URI byte-identical across the two copies.
+    assert ENVIRONMENT_PRESET_URIS_FIXED == ENVIRONMENT_PRESET_URIS
