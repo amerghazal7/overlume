@@ -680,6 +680,11 @@ VisualizationNode::CallbackReturn VisualizationNode::on_configure(
     // (the draw site below checks that too; see docs/visual_mode/cesium.md's
     // Google section).
     environment_attribution_ = declare_parameter<bool>("environment_attribution", true);
+    // This task (vcam GUI Environment Tiles toggle): the deployment's own
+    // "clipped" ion asset -- read once, never dereferenced by this node
+    // itself (the WS bridge reads it back via get_parameters() to resolve
+    // the "clipped" preset name; see default_params.yaml's own comment).
+    environment_own_asset_uri_ = declare_parameter<std::string>("environment_own_asset_uri", "");
 
     // ── HD-map adapters ───────────────────────────────────────────────────────
     // One HdMapAdapter per profile row with adapter: hd_map. fill() APPENDS
@@ -1200,6 +1205,66 @@ rcl_interfaces::msg::SetParametersResult VisualizationNode::on_params(
                 else
                 {
                     surround_stitching_profile_ = v;
+                }
+            }
+            // ── Environment tiles (this task -- vcam GUI Environment Tiles
+            //    toggle, Epic 6 follow-up) ─────────────────────────────────
+            // environment_enabled reuses the SAME disable knob VM-052 already
+            // declared (STANDING directive: don't invent a second one) --
+            // this is what makes it LIVE. It only ever toggles VISIBILITY of
+            // whatever source on_activate() (or a later environment_source_uri
+            // switch below) already armed; it never arms one itself, same
+            // precondition as that arming path (geo-anchor solved).
+            else if (n == "environment_enabled")
+            {
+                environment_enabled_ = p.as_bool();
+                mpviz::set_environment_visible(renderer_, environment_enabled_);
+                // Honest reporting (this repo's own "view: pointcloud button
+                // does nothing" precedent): a toggle with no source armed
+                // yet silently does nothing to any rendered frame -- say so
+                // instead of letting the caller believe it took effect.
+                if (mpviz::environment_source_state(renderer_) ==
+                    mpviz::EnvironmentSourceState::NONE)
+                {
+                    RCLCPP_WARN(get_logger(),
+                                "environment_enabled set to %s but no environment source is "
+                                "configured yet -- nothing to show/hide this run",
+                                environment_enabled_ ? "true" : "false");
+                }
+            }
+            else if (n == "environment_source_uri")
+            {
+                const std::string requested = p.as_string();
+                // Same precondition on_activate()'s own environment-arming
+                // branch enforces (geo_anchor_solver_->solved()) -- reject/
+                // WARN rather than pretend a live switch happened (HARD
+                // RULE: a failed switch must leave the previous source
+                // intact, never a half-state). set_environment_source()
+                // itself only tears down the OLD source after the NEW one
+                // opens successfully, so a rejected switch here changes
+                // nothing about whatever is already rendering.
+                if (!geo_anchor_solver_ || !geo_anchor_solver_->solved())
+                {
+                    res.successful = false;
+                    res.reason = "environment_source_uri: geo-anchor not solved yet -- "
+                                 "cannot switch the environment source live";
+                }
+                else
+                {
+                    const std::string source_uri = compose_environment_source_uri(
+                        environment_chunks_dir_, requested, environment_tile_cache_dir_);
+                    if (mpviz::set_environment_source(renderer_, source_uri.c_str(),
+                                                       geo_anchor_solver_->anchor()))
+                    {
+                        environment_source_uri_ = requested;
+                    }
+                    else
+                    {
+                        res.successful = false;
+                        res.reason = "set_environment_source: failed to open '" + source_uri +
+                                     "' -- previous environment source left intact";
+                        RCLCPP_WARN(get_logger(), "%s", res.reason.c_str());
+                    }
                 }
             }
             // ── Camera bowl live tuning (VM-091 Task 2 Step 6) ───────────────
