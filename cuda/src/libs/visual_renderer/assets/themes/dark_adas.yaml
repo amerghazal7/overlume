@@ -123,7 +123,13 @@ hud: { text_color: [0.90, 0.92, 0.95], accent_color: [0.12, 0.60, 0.45], scale: 
 # 350000 (nudged up from this palette's initial 300000, 2026-09-16 gate
 # fix): tests/test_theme.cpp's EmptyWorld_DarkAdas guard requires the
 # sunlit ground to read brighter than the flat sky backdrop
-# (bottom_third_mean > top_third_mean) with real margin; grid-color and
+# (bottom_third_mean > top_third_mean). MEASURED MARGIN IS ~1.2 LEVELS,
+# not comfortable headroom: bottom_third 38.77 vs top_third 37.61 (it was
+# ~12.6 under the previous palette, so this shrank ~10x even after the
+# bump). The render is deterministic, so this does not flake -- but ANY
+# further darkening of ground/building, or brightening of sky, will trip
+# EmptyWorld_DarkAdas. Re-measure before touching these tokens.
+# Grid-color and
 # fog-density tuning were tried first and measurably do not move that
 # metric (grid lines cover too few pixels at this camera framing; fog
 # barely shifts it before 0.02+ starts visibly hazing the scene), so the

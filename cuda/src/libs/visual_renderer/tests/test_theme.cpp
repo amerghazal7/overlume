@@ -672,7 +672,7 @@ TEST(ThemeGolden, EmptyWorld_DarkAdas) {
         mpviz::testing::analyze_png("/tmp/empty_world_dark_adas_actual.png");
     EXPECT_GT(stats.mean, 20.0) << "frame reads as crushed black";
     EXPECT_LT(stats.mean, 200.0) << "frame reads as clipped white";
-    // 15: the golden legitimately carries ~26 distinct levels with the
+    // 15: the golden legitimately carries ~23 distinct levels with the
     // current 60m ground patch (ref-2 re-palette, 2026-09-16 -- was ~22
     // under the previous palette); a genuinely lost fade/grid collapses to
     // ~2-5, so the tripwire still fires for the failure it was built to
@@ -751,8 +751,11 @@ TEST(ThemeGolden, EmptyWorld_LightClay) {
     // cannot give. See this pass's report for the rendered frame this was
     // judged against.
     EXPECT_GT(stats.distinct_levels, 12)
-        << "too few distinct luminance levels -- grid-vs-ground contrast and "
-           "distance fade aren't visible";
+        << "frame luminance has collapsed to near-uniform. NOTE: at this "
+           "theme's exposure the grid and distance fade are ALREADY not "
+           "visible (the frame sits in a ~176-199 band), so passing this "
+           "does NOT prove grid contrast -- it only catches a total "
+           "(~2-5 level) collapse";
     // Same "fog == sky" convergence guard as EmptyWorld_DarkAdas above.
     // 55.0: light_clay deliberately runs a near-zero fog density (0.00025 --
     // ref-2 is crisp to the horizon); manufacturing fog mass to force a
