@@ -386,7 +386,15 @@ def bake(anchor: GeoAnchor, footprints: List[dict], out_dir: Path) -> dict:
         scene = build_chunk_scene(fps, anchor)
         if not scene.geometry:
             continue  # every footprint in this cell was unrepairable -- no empty chunk file
-        scene.export(chunks_dir / f"{chunk_id}.glb")
+        # include_normals=True: trimesh's glb exporter otherwise only writes
+        # NORMAL when something already touched mesh.vertex_normals before
+        # export (its own default is "include only if already cached" --
+        # nothing here ever reads .vertex_normals, so every chunk baked
+        # without this came out POSITION-only and rendered flat/unlit
+        # regardless of palette or lighting). The load-time fix
+        # (gltf_normals.hpp) still covers chunks already baked without this
+        # -- this is the cheap, correct-at-the-source half for future bakes.
+        scene.export(chunks_dir / f"{chunk_id}.glb", include_normals=True)
         index_chunks.append(
             {
                 "id": chunk_id,

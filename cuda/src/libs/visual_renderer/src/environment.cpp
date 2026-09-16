@@ -9,6 +9,7 @@
 // mistake that bit ribbon/carpet).
 #include "environment.hpp"
 #include "environment_test_hooks.hpp"
+#include "gltf_normals.hpp"
 #include "renderer_internal.hpp"
 #include "visual_renderer/api.h"
 
@@ -58,6 +59,15 @@ void BakedEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
             failed_.insert(chunk.id);
             continue;
         }
+
+        // Baked chunks carry POSITION only (scripts/bake_environment.py
+        // never wrote NORMAL) -- gltfio has no fallback for that (no
+        // flat-normal generation in libgltfio_core.a), so every building
+        // would otherwise get a degenerate default shading normal and
+        // render flat regardless of palette/lighting. ensure_flat_normals()
+        // is a no-op for any chunk that already has NORMAL (re-baked ones,
+        // eventually) -- see gltf_normals.hpp.
+        bytes = ensure_flat_normals(std::move(bytes));
 
         filament::gltfio::FilamentAsset* asset =
             r.sharedAssetLoader->createAsset(bytes.data(), static_cast<uint32_t>(bytes.size()));

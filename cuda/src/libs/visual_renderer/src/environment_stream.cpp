@@ -6,6 +6,7 @@
 #include "environment_stream.hpp"
 
 #include "environment_test_hooks.hpp"
+#include "gltf_normals.hpp"
 #include "renderer_internal.hpp"
 
 #include <Cesium3DTilesContent/registerAllTileContentTypes.h>
@@ -26,6 +27,7 @@
 #include <filament/TransformManager.h>
 
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -424,7 +426,18 @@ StreamRendererResources::prepareInLoadThread(const CesiumAsync::AsyncSystem& asy
             const CesiumGltfWriter::GltfWriterResult res =
                 writer.writeGlb(*model, std::span<const std::byte>(bufData.data(), bufData.size()));
             if (res.errors.empty()) {
-                pGlb->glbBytes = std::move(res.gltfBytes);
+                // Defense-in-depth, not a known-needed fix: every committed
+                // environment_ion_fixture_*/*.b3dm already carries NORMAL,
+                // so this is a no-op on real tiles today (see
+                // gltf_normals.hpp) -- but it's the same load-time hook
+                // environment.cpp uses for baked chunks, and costs nothing
+                // on tiles that already have normals.
+                std::vector<uint8_t> bytes(reinterpret_cast<const uint8_t*>(res.gltfBytes.data()),
+                                            reinterpret_cast<const uint8_t*>(res.gltfBytes.data() +
+                                                                              res.gltfBytes.size()));
+                bytes = ensure_flat_normals(std::move(bytes));
+                pGlb->glbBytes.resize(bytes.size());
+                std::memcpy(pGlb->glbBytes.data(), bytes.data(), bytes.size());
                 pGlb->ok = true;
             }
         }
