@@ -129,6 +129,15 @@ QUALITY_PRESETS = ["low", "medium", "high"]
 # to "bowl" until Task 5/VM-094 lands (noted at the dropdown's own section
 # label, not silently absorbed).
 SURROUND_PROFILES = ["bowl", "hybrid"]
+# Epic 6's four environment tile sources (this task -- vcam GUI Environment
+# Tiles toggle): "baked" (Epic 4 baked chunks, today's default), "osm"
+# (Cesium OSM Buildings, clay), "clipped" (this deployment's OWN uploaded
+# ion asset -- greyed out in the GUI whenever environment_own_asset_uri is
+# unset, see _update_clipped_availability()), "google" (Google
+# Photorealistic 3D Tiles, original textures). The bridge resolves each
+# name to a URI server-side (vcam_ws_bridge.py's ENVIRONMENT_PRESET_URIS) --
+# this GUI only ever sends the preset NAME, never a literal ion:// string.
+ENVIRONMENT_PRESETS = ["baked", "osm", "clipped", "google"]
 
 # A numeric tuning row: slider + value box sharing one Adjustment, plus
 # editable min/max boxes that rewrite the slider's range on the fly.
@@ -397,6 +406,42 @@ class VcamWindow(Gtk.Window):
         profile_combo.connect("changed", self._on_surround_profile_changed)
         panel.pack_start(profile_combo, False, False, 0)
 
+        # This task (vcam GUI Environment Tiles toggle, Epic 6 follow-up):
+        # a Switch for the SAME environment_enabled disable knob VM-052
+        # already declared (STANDING directive -- reused, not a second
+        # knob) + a ComboBoxText-equivalent for the 4 source presets. Both
+        # live, no restart -- same contract as the Surround Stitching
+        # controls above. Reflects real node state (_apply_params below);
+        # never asserts a fixed default the way the Surround Stitching/
+        # Quality combos above do (those predate this task).
+        section("Environment tiles (visual mode)")
+        env_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        env_label = Gtk.Label(label="enabled", xalign=0.0)
+        env_label.set_size_request(130, -1)
+        self._environment_enabled_switch = Gtk.Switch()
+        self._environment_enabled_switch.connect("notify::active",
+                                                  self._on_environment_enabled_changed)
+        env_row.pack_start(env_label, False, False, 0)
+        env_row.pack_start(self._environment_enabled_switch, False, False, 0)
+        panel.pack_start(env_row, False, False, 0)
+
+        # A plain Gtk.ComboBoxText has no per-row sensitivity, so this is a
+        # Gtk.ComboBox over a small ListStore instead -- (preset id, label,
+        # sensitive) -- the only way to actually grey out "clipped" (design
+        # decision (c)) rather than just leaving it clickable with no
+        # effect.
+        self._environment_store = Gtk.ListStore(str, str, bool)
+        for preset in ENVIRONMENT_PRESETS:
+            self._environment_store.append([preset, preset, True])
+        self._environment_combo = Gtk.ComboBox(model=self._environment_store)
+        env_renderer = Gtk.CellRendererText()
+        self._environment_combo.pack_start(env_renderer, True)
+        self._environment_combo.add_attribute(env_renderer, "text", 1)
+        self._environment_combo.add_attribute(env_renderer, "sensitive", 2)
+        self._environment_combo.set_active(0)  # matches default_params.yaml's "" -> baked
+        self._environment_combo.connect("changed", self._on_environment_source_changed)
+        panel.pack_start(self._environment_combo, False, False, 0)
+
         # Epic 3 Task 5 (VM-032): quality preset -- NOT live (P4, Epic 5's
         # own set_quality() entry point is what would make this live); the
         # label says so here, not just in the plan, so a user doesn't file
@@ -461,6 +506,33 @@ class VcamWindow(Gtk.Window):
         if profile is None:
             return
         self._ws.send({"cmd": "set_surround_profile", "profile": profile})
+
+    def _on_environment_enabled_changed(self, sw, _param):
+        if self._loading:
+            return
+        self._ws.send({"cmd": "set_environment_enabled", "enabled": bool(sw.get_active())})
+
+    def _on_environment_source_changed(self, combo):
+        if self._loading:
+            return
+        it = combo.get_active_iter()
+        if it is None:
+            return
+        preset = self._environment_store[it][0]
+        self._ws.send({"cmd": "set_environment_source", "preset": preset})
+
+    def _update_clipped_availability(self, available: bool):
+        """Greys out the "clipped" row (design decision (c)) whenever the
+        node's environment_own_asset_uri is empty -- never a fabricated
+        asset id, so the option itself is simply unusable until a
+        deployment sets one (docs/visual_mode/cesium.md)."""
+        for row in self._environment_store:
+            if row[0] == "clipped":
+                row[2] = available
+        self._environment_combo.set_tooltip_text(
+            None if available else
+            "clipped: this deployment has no environment_own_asset_uri configured -- "
+            "see docs/visual_mode/cesium.md")
 
     def _on_quality_changed(self, combo):
         if self._loading:
@@ -528,6 +600,23 @@ class VcamWindow(Gtk.Window):
                 v = values.get(f"layer_{name}")
                 if v is not None:
                     sw.set_active(bool(v))
+            # This task: environment_enabled reflects the node's REAL value,
+            # same "sync from real state, absent key leaves the shipped
+            # default" rule as the layer_* loop above (default_params.yaml's
+            # own environment_enabled default is true, matching the Switch's
+            # GTK-default-off... no: explicitly leaving it alone here means
+            # it stays whatever _build_panel initialized it to until a real
+            # value arrives, same as every other switch in this method).
+            env_enabled = values.get("environment_enabled")
+            if env_enabled is not None:
+                self._environment_enabled_switch.set_active(bool(env_enabled))
+            # "" (falsy but not None) is the real, meaningful "no own asset
+            # configured" value -- only an ABSENT key (node not up yet)
+            # skips this update, same distinction environment_source_uri's
+            # own on_activate() gate draws between "" and "not given".
+            own_asset = values.get("environment_own_asset_uri")
+            if own_asset is not None:
+                self._update_clipped_availability(bool(own_asset))
             ext = values.get("camera_extrinsics")
             if ext:
                 first = self._extrinsics is None
