@@ -79,14 +79,27 @@ item below being closed or explicitly accepted.
    code (it flipped its own bookkeeping flag but never actually stopped
    buildings from rendering) and has been deleted rather than kept as
    false cover. **Buildings render in BOWL/HYBRID too, whenever
-   `environment_chunks_dir` is provisioned and the geo-anchor has solved** —
-   an accepted gap, not silently patched, since the fix needs a library-side
-   `set_environment_visible()` (or a reordered `set_environment_source()`
-   that tears down before its null/empty-uri early return) and the library
-   is fenced by the concurrent VM-092 task for this task's duration. Sign-off
-   either accepts buildings appearing behind the bowl in BOWL/HYBRID when
-   `environment_chunks_dir` is set, or a follow-up task adds the library-side
-   toggle.
+   `environment_chunks_dir` is provisioned and the geo-anchor has solved.**
+
+   **CLOSED (library-side blocker) by the vcam GUI Environment Tiles
+   toggle task**: `set_environment_visible(VisualRenderer*, bool)`
+   (`scene.h`/`environment.cpp`) now exists -- a free function (ADR-0004:
+   bumps nothing) that hides/shows whatever `EnvironmentSource` is
+   installed without tearing it down, implemented identically for
+   `BakedEnvironmentSource` and `StreamingEnvironmentSource`. The node's
+   `on_params()` wires the ALREADY-declared `environment_enabled` param to
+   it live, and the vcam GUI/WS bridge expose it as a Switch. This closes
+   the blocker this finding named ("the fix needs a library-side
+   `set_environment_visible()`").
+
+   **Still open, by design, not silently patched**: this toggle is
+   OPERATOR-DRIVEN (a manual GUI/WS switch), not automatically tied to
+   `render_mode_` -- buildings still render in BOWL/HYBRID exactly as
+   before unless an operator explicitly hides them. Auto-gating
+   `environment_enabled` per render_mode (so BOWL/HYBRID never shows
+   buildings without an explicit opt-in) remains a follow-up task if
+   product wants that default changed; the primitive it would need
+   (`set_environment_visible()`) now exists.
 8. **Lidar colorization samples cameras through BASE extrinsics; the bowl
    samples through ego-motion-delta-compensated extrinsics** (VM-094 review
    round 1 minor finding, 2026-09-11). `camera_ingest_->fill_bowl_intrinsics()`

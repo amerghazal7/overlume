@@ -49,6 +49,14 @@ Three supported paths:
 Record whichever `<assetId>` this deployment ends up using — it is the value
 the node's `source_uri` param takes (`ion://<assetId>`, VM-063).
 
+**Path B + the vcam GUI's "clipped" preset (this task):** the GUI/WS bridge's
+Environment Tiles source select offers "clipped" as a one-click switch to
+THIS deployment's own Path B asset, but it never guesses or fabricates an
+id — set `environment_own_asset_uri` (`config/default_params.yaml`) to
+`ion://<assetId>` with the id recorded above once this deployment has
+uploaded one. Until then, "" (the shipped default) means "no own asset
+yet" and the GUI greys that option out with a tooltip pointing back here.
+
 ## 6. Google Photorealistic 3D Tiles (VM-064)
 
 A textured, photorealistic mesh, not clay — `default_params.yaml`'s
