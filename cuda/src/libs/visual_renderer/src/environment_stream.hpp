@@ -322,7 +322,9 @@ public:
 
     void update(VisualRenderer& r, Vec3 ego_map_pos) override;
     void teardown(VisualRenderer& r) override;
+    void set_visible(VisualRenderer& r, bool visible) override;
     size_t loaded_count() const override;
+    size_t scene_membership_count() const override;
     EnvironmentSourceState state() const override;
 
     // Recorded, not asserted (same class as budget_probe.md numbers) --
@@ -363,7 +365,15 @@ private:
     bool tornDown_ = false;
     int leakedOnTeardownBound_ = 0;
     std::optional<std::chrono::steady_clock::time_point> lastUpdate_;
-    std::unordered_map<const void*, bool> inScene_;  // FilamentAsset* -> in r.scene
+    // FilamentAsset* -> tracked (Cesium currently wants this tile rendered).
+    // This task (set_environment_visible()): the invariant is now
+    // "visible_ <=> every tracked entry is actually added to r.scene" --
+    // while hidden, entries are still tracked/reconciled every tick (so
+    // synthesize_view_and_pump's eviction logic keeps working unchanged),
+    // they just never get an addEntities call. See set_visible()'s own
+    // comment.
+    std::unordered_map<const void*, bool> inScene_;
+    bool visible_ = true;
 
     // ── VM-063 (Task 4): fallback state ──────────────────────────────────
     std::shared_ptr<CountingAssetAccessor> countingAccessor_;

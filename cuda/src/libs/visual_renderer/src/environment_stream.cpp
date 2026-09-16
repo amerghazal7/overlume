@@ -604,6 +604,12 @@ void StreamingEnvironmentSource::fall_back(VisualRenderer& r) {
         // stays null, loaded_count() reports 0, state() still reports
         // STREAMING_FALLBACK (network loss WAS declared -- the state names
         // the transition, not whether the fallback dir itself was valid).
+        //
+        // This task: a freshly opened source defaults visible -- sync it
+        // to this source's OWN current visible_ (whatever the node/GUI
+        // last set via set_environment_visible()) so falling back while
+        // hidden doesn't pop the fallback baked chunks into view.
+        if (fallbackSource_) fallbackSource_->set_visible(r, visible_);
     }
     // No &fallback= configured (fallbackBakedDir_ empty): fallbackSource_
     // stays null -- tiles simply stop appearing, state still reported
@@ -652,14 +658,23 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
         if (res == nullptr) continue;  // prepareInMainThread hasn't produced it yet
         auto* asset = static_cast<filament::gltfio::FilamentAsset*>(res);
         stillPresent[res] = true;
-        if (inScene_.find(res) == inScene_.end()) {
+        // visible_ invariant (this task): only add if currently visible --
+        // a tile that finishes loading while hidden must not pop into
+        // view. It's still tracked in stillPresent/inScene_ either way, so
+        // loaded_count() is unaffected and a later set_visible(true) picks
+        // it up without a re-fetch.
+        if (visible_ && inScene_.find(res) == inScene_.end()) {
             r.scene->addEntities(asset->getEntities(), asset->getEntityCount());
         }
     }
     for (auto it = inScene_.begin(); it != inScene_.end();) {
         if (stillPresent.find(it->first) == stillPresent.end()) {
             auto* asset = static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(it->first));
-            r.scene->removeEntities(asset->getEntities(), asset->getEntityCount());
+            // Only remove from the scene if it was ever added there (see
+            // the visible_ guard above) -- same invariant.
+            if (visible_) {
+                r.scene->removeEntities(asset->getEntities(), asset->getEntityCount());
+            }
             it = inScene_.erase(it);
         } else {
             ++it;
@@ -689,7 +704,12 @@ void StreamingEnvironmentSource::teardown(VisualRenderer& r) {
     // BakedEnvironmentSource::teardown) and flush any already-queued frees.
     for (auto& [res, _] : inScene_) {
         auto* asset = static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(res));
-        r.scene->removeEntities(asset->getEntities(), asset->getEntityCount());
+        // visible_ invariant, same as the reconcile loop above: nothing to
+        // remove from the scene for entries that were never added while
+        // hidden.
+        if (visible_) {
+            r.scene->removeEntities(asset->getEntities(), asset->getEntityCount());
+        }
     }
     inScene_.clear();
     renderResources_->drain_pending_frees();
@@ -727,9 +747,42 @@ void StreamingEnvironmentSource::teardown(VisualRenderer& r) {
     tornDown_ = true;
 }
 
+void StreamingEnvironmentSource::set_visible(VisualRenderer& r, bool visible) {
+    // Once fallen back, this source's own inScene_ is permanently empty
+    // (teardown() already ran, Decision 11) -- delegate to whichever baked
+    // source is standing in, same as every other fallenBack_ member
+    // function here. visible_ is still recorded (not merely delegated)
+    // so a hypothetical future caller reading it directly sees the truth,
+    // and so a null fallbackSource_ (no &fallback= configured) doesn't
+    // silently drop the request.
+    if (fallenBack_) {
+        visible_ = visible;
+        if (fallbackSource_) fallbackSource_->set_visible(r, visible);
+        return;
+    }
+    if (visible == visible_) return;  // no-op: matches the current state already
+    visible_ = visible;
+    for (auto& [res, _] : inScene_) {
+        auto* asset = static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(res));
+        if (visible_) {
+            r.scene->addEntities(asset->getEntities(), asset->getEntityCount());
+        } else {
+            r.scene->removeEntities(asset->getEntities(), asset->getEntityCount());
+        }
+    }
+}
+
 size_t StreamingEnvironmentSource::loaded_count() const {
     if (fallenBack_) return fallbackSource_ ? fallbackSource_->loaded_count() : 0;
     return inScene_.size();
+}
+
+size_t StreamingEnvironmentSource::scene_membership_count() const {
+    if (fallenBack_) return fallbackSource_ ? fallbackSource_->scene_membership_count() : 0;
+    // visible_ invariant (this task): every inScene_ entry is actually
+    // added to r.scene iff visible_ -- see synthesize_view_and_pump()'s
+    // reconcile loop and set_visible() above.
+    return visible_ ? inScene_.size() : 0;
 }
 
 EnvironmentSourceState StreamingEnvironmentSource::state() const {

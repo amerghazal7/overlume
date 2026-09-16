@@ -841,6 +841,15 @@ public:
     // it being non-null AND on ego.valid (renderer.cpp).
     filament::MaterialInstance* buildingMaterial = nullptr;
     std::unique_ptr<EnvironmentSource> environmentSource;
+    // This task (vcam GUI Environment Tiles toggle, scene.h's
+    // set_environment_visible()): persisted across environmentSource
+    // swaps -- set_environment_source() applies this to every newly
+    // constructed source BEFORE installing it, so switching presets
+    // (baked/osm/clipped/google) while hidden never pops the new one into
+    // view. Defaults true: byte-for-byte every pre-this-task call site's
+    // behavior (a source is visible the moment it's armed) until something
+    // calls set_environment_visible(r, false).
+    bool environmentVisible = true;
 };
 
 // Namespace-scope free function so a different translation unit (ego.cpp,
