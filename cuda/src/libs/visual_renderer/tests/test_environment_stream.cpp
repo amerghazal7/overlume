@@ -405,6 +405,17 @@ TEST(EnvironmentStream, NetworkDeadFromFirstRequestFallsBackToBakedChunksOnce) {
     // fallback claim is the named gap in the comment above, not covered
     // here.
     EXPECT_GT(mpviz::testing::environment_loaded_chunk_count(r), 0u);
+
+    // The "Once" in this test's name, asserted rather than left to review:
+    // Decision 11 makes the switch ONE-WAY for the process's life. Revive
+    // the fixture "network" and pump well past the tick count the original
+    // transition needed -- the source must NOT resume streaming.
+    mpviz::testing::revive_fixture_network(killable);
+    for (int i = 0; i < 10; ++i) mpviz::render_frame(r, kStdPose, {buf.data(), 320, 240});
+    EXPECT_EQ(mpviz::environment_source_state(r), mpviz::EnvironmentSourceState::STREAMING_FALLBACK)
+        << "a revived network must not un-do the fallback (Decision 11: one-way)";
+    EXPECT_GT(mpviz::testing::environment_loaded_chunk_count(r), 0u)
+        << "the baked chunks must stay resident after the network returns";
     mpviz::destroy_renderer(r);
 }
 
