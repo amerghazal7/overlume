@@ -46,6 +46,11 @@ FixtureStreamHandle* install_fixture_streaming_source_with_fallback(
 // Flips the kill switch: every subsequent fixture "network" request fails.
 void kill_fixture_network(FixtureStreamHandle* handle);
 
+// Un-flips it: requests succeed again. Exists so the e2e can assert the
+// one-way property Decision 11 commits to -- a source that has fallen back
+// STAYS fallen back for the process's life, even once the "network" returns.
+void revive_fixture_network(FixtureStreamHandle* handle);
+
 // Task 3 Step 3 (geo-placement cross-pin): computes the streaming source's
 // own ecef_to_map transform (Decision 8) for `anchor`, applies it to the
 // WGS84 point (lat_deg, lon_deg, alt_m), and writes the resulting map-frame

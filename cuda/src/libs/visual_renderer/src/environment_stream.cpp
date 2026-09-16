@@ -831,6 +831,10 @@ void kill_fixture_network(FixtureStreamHandle* handle) {
     if (handle && handle->killed) handle->killed->store(true);
 }
 
+void revive_fixture_network(FixtureStreamHandle* handle) {
+    if (handle && handle->killed) handle->killed->store(false);
+}
+
 bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double heading_rad,
                         double lat_deg, double lon_deg, double alt_m, double* out_x, double* out_y,
                         double* out_z) {
