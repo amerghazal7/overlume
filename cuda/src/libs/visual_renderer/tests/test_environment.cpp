@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -154,6 +155,163 @@ TEST(Environment, HysteresisBandKeepsChunksLoadedThenUnloadsAndReloads) {
     ASSERT_TRUE(mpviz::render_frame(r, pose, {buf.data(), 320, 240}));
     EXPECT_EQ(mpviz::testing::environment_loaded_chunk_count(r), 1u);
 
+    mpviz::destroy_renderer(r);
+}
+
+// ── set_environment_visible() (this task): hide/show without teardown ──────
+//
+// SSIM-against-a-fixed-golden (the pattern every other test in this file
+// uses) turns out to be the WRONG tool for proving a hide/show toggle: the
+// buildings occupy only part of the 320x240 frame, so removing them barely
+// moves the whole-frame SSIM (measured ~0.972 hidden vs ~0.99+ shown against
+// the SAME golden -- nowhere near a useful threshold). These tests instead
+// diff RAW PIXEL BUFFERS against each other, which is exactly what a
+// hide/show toggle needs proven: "this frame differs from that frame," not
+// "this frame resembles a fixed reference."
+namespace {
+// Count of byte positions where two equal-sized RGB8 buffers differ by more
+// than `tolerance` -- GPU rendering has a little bit-level dithering noise
+// frame to frame even with a fully static scene/camera (observed: lone
+// pixels off by 1), so an exact byte-for-byte compare is too strict for
+// "these two frames show the same content." tolerance=1 absorbs that noise
+// without hiding a real content change (buildings appearing/disappearing
+// moves thousands of bytes by far more than 1).
+size_t count_differing_bytes(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b,
+                              int tolerance = 1) {
+    size_t n = 0;
+    for (size_t i = 0; i < a.size() && i < b.size(); ++i) {
+        if (std::abs(static_cast<int>(a[i]) - static_cast<int>(b[i])) > tolerance) ++n;
+    }
+    return n;
+}
+}  // namespace
+
+TEST(Environment, SetEnvironmentVisibleNullRendererIsFalse) {
+    EXPECT_FALSE(mpviz::set_environment_visible(nullptr, true));
+    EXPECT_FALSE(mpviz::set_environment_visible(nullptr, false));
+}
+
+TEST(Environment, SetEnvironmentVisibleFalseHidesLoadedChunksWithoutTearingDown) {
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    mpviz::GeoAnchor a{25.0803, 55.3910, 0.0};
+    ASSERT_TRUE(mpviz::set_environment_source(r, kTestTownDir.c_str(), a));
+
+    mpviz::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kChunk0Center;
+    mpviz::set_scene(r, s);
+
+    // Same framing as EnvironmentGolden.TestTown_DarkAdas -- frames the
+    // real footprint centroid so the buildings occupy a real chunk of the
+    // image, not a corner.
+    mpviz::CameraPose pose{{kBuildingsCentroid.x + 50, kBuildingsCentroid.y - 70, 40},
+                            {kBuildingsCentroid.x, kBuildingsCentroid.y, kBuildingsCentroid.z},
+                            60.0};
+    const size_t nBytes = 320u * 240u * 3u;
+    std::vector<uint8_t> visibleBuf(nBytes);
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {visibleBuf.data(), 320, 240}));
+    const uint64_t loadedBefore = mpviz::testing::environment_loaded_chunk_count(r);
+    ASSERT_GT(loadedBefore, 0u);
+    ASSERT_EQ(mpviz::testing::environment_scene_membership_count(r), loadedBefore);
+    // Sanity check against the established golden: this IS the same known-
+    // good visible frame every other test in this file already trusts.
+    const double ssimVisible = mpviz::testing::render_and_compare(
+        r, pose, MPVIZ_TEST_DATA_DIR "/tests/goldens/environment_test_town_dark_adas.png",
+        "/tmp/environment_visible_before_hide_actual.png");
+    ASSERT_GT(ssimVisible, 0.98);
+
+    ASSERT_TRUE(mpviz::set_environment_visible(r, false));
+    std::vector<uint8_t> hiddenBuf(nBytes);
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {hiddenBuf.data(), 320, 240}));
+    // Not torn down: still "loaded" by the count hook (a re-show must not
+    // need a re-fetch/re-bake) -- but zero of it is actually in the scene.
+    EXPECT_EQ(mpviz::testing::environment_loaded_chunk_count(r), loadedBefore);
+    EXPECT_EQ(mpviz::testing::environment_scene_membership_count(r), 0u);
+    // At least 5% of the frame's bytes must have changed -- buildings
+    // filling a real chunk of frame, now replaced by sky/ground, is a
+    // large, unmistakable pixel delta, not sensor noise.
+    const size_t diffHidden = count_differing_bytes(visibleBuf, hiddenBuf);
+    EXPECT_GT(diffHidden, nBytes / 20)
+        << "buildings still visible in the rendered frame after "
+           "set_environment_visible(r, false) (only "
+        << diffHidden << "/" << nBytes << " bytes changed)";
+
+    // Re-show: same loaded chunks pop back without a reload, producing the
+    // EXACT same frame as before hiding (static scene/camera/theme, no
+    // TAA at this quality preset -- see ApplyQualityViewOptions).
+    ASSERT_TRUE(mpviz::set_environment_visible(r, true));
+    std::vector<uint8_t> shownAgainBuf(nBytes);
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {shownAgainBuf.data(), 320, 240}));
+    EXPECT_EQ(mpviz::testing::environment_loaded_chunk_count(r), loadedBefore);
+    EXPECT_EQ(mpviz::testing::environment_scene_membership_count(r), loadedBefore);
+    // Threshold: measured noise from one hide/show round trip through the
+    // SAME renderer (entities removed from and re-added to r.scene, which
+    // can shift edge-antialiasing/AO sampling by a level or two at
+    // silhouette pixels) is ~2.3% of bytes; a real "buildings still/again
+    // missing" content loss measures ~7% (diffHidden above) -- nBytes/20
+    // (5%) sits cleanly between the two with margin on both sides.
+    const size_t diffShownAgain = count_differing_bytes(shownAgainBuf, visibleBuf);
+    EXPECT_LT(diffShownAgain, nBytes / 20)
+        << "re-showing produced a different frame than before hiding (" << diffShownAgain << "/"
+        << nBytes << " bytes changed beyond dithering-level noise)";
+    mpviz::destroy_renderer(r);
+}
+
+TEST(Environment, ChunkLoadedWhileHiddenDoesNotPopIntoView) {
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    mpviz::GeoAnchor a{25.0803, 55.3910, 0.0};
+    ASSERT_TRUE(mpviz::set_environment_source(r, kTestTownDir.c_str(), a));
+    // Hidden BEFORE the ego ever gets close enough to load anything --
+    // proves the load path itself checks visibility, not just a
+    // post-hoc removeEntities on an already-visible chunk.
+    ASSERT_TRUE(mpviz::set_environment_visible(r, false));
+
+    mpviz::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kChunk0Center;
+    mpviz::set_scene(r, s);
+    mpviz::CameraPose pose{{kBuildingsCentroid.x + 50, kBuildingsCentroid.y - 70, 40},
+                            {kBuildingsCentroid.x, kBuildingsCentroid.y, kBuildingsCentroid.z},
+                            60.0};
+    const size_t nBytes = 320u * 240u * 3u;
+    std::vector<uint8_t> hiddenBuf(nBytes);
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {hiddenBuf.data(), 320, 240}));
+    ASSERT_GT(mpviz::testing::environment_loaded_chunk_count(r), 0u)
+        << "loading itself must still happen while hidden";
+    EXPECT_EQ(mpviz::testing::environment_scene_membership_count(r), 0u)
+        << "a chunk loaded while hidden was added to the Filament scene anyway";
+
+    // Reference: a SECOND renderer, same theme/pose, that never had an
+    // environment source at all -- the ground truth for "buildings not
+    // rendered." Byte-identical to hiddenBuf proves the chunk that loaded
+    // above never touched the Filament scene.
+    auto* rNoEnv = mpviz::create_renderer(cfg);
+    ASSERT_NE(rNoEnv, nullptr);
+    // Same ego publish as `r` -- controls for the ego model's own presence
+    // in the frame, so the ONLY variable left between the two renderers is
+    // the environment source.
+    mpviz::set_scene(rNoEnv, s);
+    std::vector<uint8_t> noEnvBuf(nBytes);
+    ASSERT_TRUE(mpviz::render_frame(rNoEnv, pose, {noEnvBuf.data(), 320, 240}));
+    mpviz::destroy_renderer(rNoEnv);
+    const size_t diffFromNoEnv = count_differing_bytes(hiddenBuf, noEnvBuf);
+    EXPECT_LT(diffFromNoEnv, nBytes / 100)
+        << "a chunk loaded while hidden popped into view (" << diffFromNoEnv << "/" << nBytes
+        << " bytes differ from a renderer with no environment source at all)";
+
+    ASSERT_TRUE(mpviz::set_environment_visible(r, true));
+    std::vector<uint8_t> shownBuf(nBytes);
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {shownBuf.data(), 320, 240}));
+    const size_t diffShown = count_differing_bytes(hiddenBuf, shownBuf);
+    EXPECT_GT(diffShown, nBytes / 20)
+        << "showing again produced no visible change (only " << diffShown << "/" << nBytes
+        << " bytes changed)";
+    EXPECT_EQ(mpviz::testing::environment_scene_membership_count(r),
+              mpviz::testing::environment_loaded_chunk_count(r));
     mpviz::destroy_renderer(r);
 }
 

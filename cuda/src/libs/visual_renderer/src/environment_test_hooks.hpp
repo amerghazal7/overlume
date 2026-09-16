@@ -18,6 +18,19 @@ namespace mpviz::testing {
 // map_element_rebuild_count().
 uint64_t environment_loaded_chunk_count(mpviz::VisualRenderer* r);
 
+// This task (vcam GUI Environment Tiles toggle): how many of the
+// currently-loaded chunks/tiles are ACTUALLY added to `r`'s Filament scene
+// right now -- 0 immediately after set_environment_visible(r, false), back
+// to environment_loaded_chunk_count(r)'s own value immediately after
+// set_environment_visible(r, true), with NO change in
+// environment_loaded_chunk_count(r) itself across either call (hiding
+// tears down nothing). 0 if `r` is null or no source is configured, same
+// null-safety class as the hook above. Deterministic and
+// camera-framing-independent -- unlike a rendered-pixel comparison, it
+// doesn't depend on how much screen area a loaded chunk/tile happens to
+// cover.
+uint64_t environment_scene_membership_count(mpviz::VisualRenderer* r);
+
 // Epic 6 (VM-062) streaming test hooks. This header stays C++17-safe and
 // cesium-free (included by test_environment_stream.cpp, a plain C++17 test
 // TU with no cesium/Filament include dirs) -- EVERY function below is

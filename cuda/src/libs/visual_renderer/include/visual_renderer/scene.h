@@ -616,6 +616,33 @@ enum class EnvironmentSourceState : uint8_t {
 // safe to poll once per tick.
 EnvironmentSourceState environment_source_state(VisualRenderer*);
 
+// This task (vcam GUI Environment Tiles toggle): free function, POD-only,
+// bumps nothing (ADR-0004/VM-090 precedent, same as set_environment_source
+// and environment_source_state above) -- closes docs/visual_mode/
+// signoff.md's named exception 7 ("environment/buildings not per-mode
+// gated -- needs library set_environment_visible()").
+//
+// Hides or shows whatever EnvironmentSource is currently installed WITHOUT
+// tearing it down: a hidden source keeps loading/unloading chunks by
+// distance exactly as before (loaded_count() is unaffected), it just stops
+// adding their renderables to the Filament scene -- a chunk that loads
+// while hidden does not pop into view, and re-showing needs no re-fetch/
+// re-bake. This is a plain scene-membership toggle (fresh-opaque
+// convention unchanged: hiding is not fading).
+//
+// The flag is ALSO remembered on `r` itself and re-applied to whatever
+// source set_environment_source() installs next (including a source swap
+// while hidden) -- so a GUI combo switching presets ("baked"/"osm"/
+// "clipped"/"google") while the toggle is off never pops the new preset
+// into view either.
+//
+// Returns false only if `r` is null; true otherwise, EVEN IF no
+// EnvironmentSource is currently configured (the flag is stored for
+// whenever one is armed later) -- same "stores intent, doesn't require a
+// live target" contract callers should not mistake for "something is now
+// visibly different."
+bool set_environment_visible(VisualRenderer* r, bool visible);
+
 // Live quality-preset switch for the node-side governor (VM-040): re-applies
 // create_renderer()'s SSAO/AA/shadow/render-scale mapping against an
 // already-live renderer instead of re-creating it -- see the backlog VM-040

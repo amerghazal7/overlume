@@ -87,7 +87,14 @@ void BakedEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
             rm.setReceiveShadows(inst, true);
         }
 
-        r.scene->addEntities(asset->getEntities(), asset->getEntityCount());
+        // visible_ invariant (environment.hpp): only add to the scene if
+        // currently visible -- a chunk that loads while hidden must not
+        // pop into view. It stays in loaded_ either way (loaded_count()
+        // doesn't care), so a later set_visible(true) picks it up without
+        // a reload.
+        if (visible_) {
+            r.scene->addEntities(asset->getEntities(), asset->getEntityCount());
+        }
         loaded_.emplace(chunk.id, LoadedChunk{asset, chunk.center});
     }
 
@@ -97,7 +104,14 @@ void BakedEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
     for (auto it = loaded_.begin(); it != loaded_.end();) {
         if (distance(it->second.center, ego_map_pos) > kUnloadRadiusM) {
             filament::gltfio::FilamentAsset* asset = it->second.asset;
-            r.scene->removeEntities(asset->getEntities(), asset->getEntityCount());
+            // visible_ invariant: only remove from the scene if it was
+            // ever added there (skipped entirely while hidden, see the
+            // load loop above) -- removing an entity never added would
+            // still be harmless in Filament, but this keeps the intent
+            // explicit rather than relying on that.
+            if (visible_) {
+                r.scene->removeEntities(asset->getEntities(), asset->getEntityCount());
+            }
             r.sharedAssetLoader->destroyAsset(asset);
             it = loaded_.erase(it);
         } else {
@@ -119,10 +133,25 @@ void BakedEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
 void BakedEnvironmentSource::teardown(VisualRenderer& r) {
     for (auto& [id, chunk] : loaded_) {
         (void)id;
-        r.scene->removeEntities(chunk.asset->getEntities(), chunk.asset->getEntityCount());
+        if (visible_) {
+            r.scene->removeEntities(chunk.asset->getEntities(), chunk.asset->getEntityCount());
+        }
         r.sharedAssetLoader->destroyAsset(chunk.asset);
     }
     loaded_.clear();
+}
+
+void BakedEnvironmentSource::set_visible(VisualRenderer& r, bool visible) {
+    if (visible == visible_) return;  // no-op: matches the current state already
+    visible_ = visible;
+    for (auto& [id, chunk] : loaded_) {
+        (void)id;
+        if (visible_) {
+            r.scene->addEntities(chunk.asset->getEntities(), chunk.asset->getEntityCount());
+        } else {
+            r.scene->removeEntities(chunk.asset->getEntities(), chunk.asset->getEntityCount());
+        }
+    }
 }
 
 std::unique_ptr<BakedEnvironmentSource> open_baked_environment_source(const std::string& dir,
@@ -190,6 +219,14 @@ bool set_environment_source(VisualRenderer* r, const char* source_uri, GeoAnchor
         source = open_baked_environment_source(uri, anchor);
     }
     if (!source) return false;
+    // This task: a freshly constructed source always defaults visible_ =
+    // true -- sync it to whatever set_environment_visible() last recorded
+    // on `r` BEFORE installing it, so a preset switch (baked/osm/clipped/
+    // google) made while the GUI's toggle is off doesn't pop the new
+    // source into view. Harmless no-op the very first time this ever runs
+    // (r->environmentVisible defaults true too, matching every pre-this-task
+    // call site's behavior byte-for-byte).
+    source->set_visible(*r, r->environmentVisible);
     // on_activate() runs again after on_deactivate() on the SAME renderer
     // (on_deactivate does not destroy it), so this entry point is
     // re-entrant -- the old source's chunks must be released here, its
@@ -198,6 +235,21 @@ bool set_environment_source(VisualRenderer* r, const char* source_uri, GeoAnchor
         r->environmentSource->teardown(*r);
     }
     r->environmentSource = std::move(source);
+    return true;
+}
+
+// This task (vcam GUI Environment Tiles toggle): see scene.h's own comment
+// for the full contract. r->environmentVisible is the persisted flag
+// set_environment_source() above re-applies to every newly installed
+// source; here it is also pushed live onto whatever source is installed
+// right now (a no-op inside EnvironmentSource::set_visible() if it already
+// matches).
+bool set_environment_visible(VisualRenderer* r, bool visible) {
+    if (r == nullptr) return false;
+    r->environmentVisible = visible;
+    if (r->environmentSource) {
+        r->environmentSource->set_visible(*r, visible);
+    }
     return true;
 }
 
@@ -227,6 +279,11 @@ uint64_t environment_loaded_chunk_count(mpviz::VisualRenderer* r) {
     // forwards to loaded_chunk_count()), so every existing test stays
     // green unchanged.
     return static_cast<uint64_t>(r->environmentSource->loaded_count());
+}
+
+uint64_t environment_scene_membership_count(mpviz::VisualRenderer* r) {
+    if (r == nullptr || !r->environmentSource) return 0;
+    return static_cast<uint64_t>(r->environmentSource->scene_membership_count());
 }
 
 }  // namespace mpviz::testing

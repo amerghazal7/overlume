@@ -40,6 +40,16 @@ public:
     // bare C++ destructor has no VisualRenderer& to do this teardown with,
     // so relying on ~EnvironmentSource() alone would leak/use-after-free.
     virtual void teardown(VisualRenderer& r) = 0;
+    // This task (vcam GUI Environment Tiles toggle): hide/show every
+    // currently-loaded renderable without touching loaded_/inScene_
+    // bookkeeping's underlying resources -- a loaded chunk stays loaded
+    // (still counted by loaded_count()) whether visible or not, so a
+    // re-show never re-fetches/re-bakes. Implementations must maintain the
+    // invariant "visible() <=> loaded content is actually in r.scene" at
+    // every call site that loads/unloads content, not just here -- see
+    // BakedEnvironmentSource::set_visible()'s own comment for the exact
+    // shape. A no-op if `visible` already matches the current state.
+    virtual void set_visible(VisualRenderer& r, bool visible) = 0;
     // Epic 6 (VM-062) Decision 12: the environment_loaded_chunk_count() test
     // hook used to static_cast r->environmentSource.get() straight to
     // BakedEnvironmentSource* -- safe only while that was the sole concrete
@@ -48,6 +58,17 @@ public:
     // virtual instead of a downcast. Library-internal only (not the POD
     // seam) -- update()/teardown() above stay verbatim.
     virtual size_t loaded_count() const = 0;
+    // This task (vcam GUI Environment Tiles toggle): how many of the
+    // currently-loaded/tracked entries are ACTUALLY added to r.scene right
+    // now -- 0 while hidden (set_visible(r, false)), loaded_count() again
+    // once shown. Test-hook-only concept (environment_test_hooks.hpp's
+    // environment_scene_membership_count()), same "goes through the
+    // virtual, no downcast" reasoning as loaded_count() (Decision 12): it
+    // is the deterministic, camera-framing-independent way to assert the
+    // set_visible() invariant (scene membership actually left the scene,
+    // not just a bookkeeping flag flipped) without depending on how much
+    // of a test's rendered frame a loaded chunk/tile happens to cover.
+    virtual size_t scene_membership_count() const = 0;
     // Epic 6 (VM-063) Decision 11: the environment_source_state() test/node
     // hook goes through this virtual -- BAKED for BakedEnvironmentSource,
     // STREAMING or STREAMING_FALLBACK for StreamingEnvironmentSource
@@ -87,12 +108,16 @@ public:
 
     void update(VisualRenderer& r, Vec3 ego_map_pos) override;
     void teardown(VisualRenderer& r) override;
+    void set_visible(VisualRenderer& r, bool visible) override;
 
     // testing-only: environment_test_hooks.hpp's environment_loaded_chunk_count().
     size_t loaded_chunk_count() const { return loaded_.size(); }
     // Decision 12: forwards to the above -- same numbers through a virtual,
     // every existing test keeps passing unchanged.
     size_t loaded_count() const override { return loaded_chunk_count(); }
+    // visible_ invariant (this class's own field comment): every loaded_
+    // entry is in r.scene iff visible_.
+    size_t scene_membership_count() const override { return visible_ ? loaded_.size() : 0; }
     // A plain-path source_uri always opens THIS class -- always BAKED,
     // never a fallback state (fallback is a StreamingEnvironmentSource-only
     // concept, VM-063 Decision 11).
@@ -108,6 +133,12 @@ private:
         Vec3 center{};  // mirrors the index entry -- avoids a chunks_ re-lookup per unload check
     };
     std::unordered_map<std::string, LoadedChunk> loaded_;  // keyed by chunk id
+    // Invariant this class maintains: visible_ <=> every entry in loaded_
+    // is currently added to r.scene. update()'s load/unload branches and
+    // teardown() all check it before add/removeEntities; set_visible()
+    // itself is the only place that flips it, and reconciles every
+    // currently-loaded chunk's scene membership to match in one pass.
+    bool visible_ = true;
     // Chunks whose load failed (missing/truncated .glb, createAsset/
     // loadResources failure) -- memoed so a bad file isn't re-read at frame
     // rate; cleared when the ego leaves kUnloadRadiusM (retry on the next

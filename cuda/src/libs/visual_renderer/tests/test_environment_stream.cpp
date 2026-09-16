@@ -293,6 +293,58 @@ TEST(EnvironmentStreamGolden, FixtureBlock_DarkAdas) {
     mpviz::destroy_renderer(r);
 }
 
+// ── set_environment_visible() (this task): the streaming backend must
+//    honor the same hide/show contract as BakedEnvironmentSource -- the
+//    GUI's environment_enabled toggle has to work with EVERY preset
+//    (baked/osm/clipped/google), not just the baked default. ────────────
+//
+// Asserted via environment_scene_membership_count() (environment_test_hooks.hpp),
+// not a rendered-pixel diff: this fixture's 3 tiles cover only a small
+// corner of FixtureBlock_DarkAdas's own {149,352,90}/60deg framing, so a
+// whole-frame pixel/SSIM comparison can't tell "hidden" apart from ordinary
+// frame-to-frame Cesium LOD-refinement noise with any real margin (measured
+// directly while developing this test: a same-pose before/after diff was
+// the SAME order of magnitude whether the source was actually toggled or
+// not). The scene-membership hook instead asserts the exact invariant
+// set_visible() is supposed to maintain -- deterministic, camera-framing
+// independent, and it also proves loaded_count() (still-loaded tiles) is
+// untouched by hiding, same as BakedEnvironmentSource's own tests.
+TEST(EnvironmentStreamGolden, SetVisibleFalseHidesFixtureTilesWithoutTearingDown) {
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    ASSERT_TRUE(
+        mpviz::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
+
+    mpviz::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kFixtureBlockCenterMap;
+    mpviz::set_scene(r, s);
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    ASSERT_GT(pump_until_loaded(r, kStdPose, buf), 0u);
+    for (int i = 0; i < 30; ++i) mpviz::render_frame(r, kStdPose, {buf.data(), 320, 240});
+    const uint64_t loadedBefore = mpviz::testing::environment_loaded_chunk_count(r);
+    ASSERT_GT(loadedBefore, 0u);
+    ASSERT_EQ(mpviz::testing::environment_scene_membership_count(r), loadedBefore)
+        << "every loaded tile should start out actually in the scene";
+
+    ASSERT_TRUE(mpviz::set_environment_visible(r, false));
+    ASSERT_TRUE(mpviz::render_frame(r, kStdPose, {buf.data(), 320, 240}));
+    // Not torn down: still "loaded" (a re-show must not need a re-fetch),
+    // but zero of it is actually in the Filament scene right now.
+    EXPECT_EQ(mpviz::testing::environment_loaded_chunk_count(r), loadedBefore);
+    EXPECT_EQ(mpviz::testing::environment_scene_membership_count(r), 0u)
+        << "streamed tiles are still in the Filament scene after "
+           "set_environment_visible(r, false)";
+
+    ASSERT_TRUE(mpviz::set_environment_visible(r, true));
+    ASSERT_TRUE(mpviz::render_frame(r, kStdPose, {buf.data(), 320, 240}));
+    EXPECT_EQ(mpviz::testing::environment_loaded_chunk_count(r), loadedBefore);
+    EXPECT_EQ(mpviz::testing::environment_scene_membership_count(r), loadedBefore)
+        << "re-showing did not put every already-loaded tile back into the scene";
+    mpviz::destroy_renderer(r);
+}
+
 // ── Step 6: perf check (dev-box proxy, same honesty class as
 //    EnvironmentPerf.RenderMsDeltaWithTestTownLoaded) ─────────────────────
 TEST(EnvironmentStreamPerf, RenderMsDeltaAndWorstFrameWithFixtureLoaded) {
