@@ -10,7 +10,9 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
-from vcam_ws_bridge import parse_cmd, patch_yaml_text  # noqa: E402
+from vcam_ws_bridge import (  # noqa: E402
+    ENVIRONMENT_PRESET_URIS, parse_cmd, patch_yaml_text,
+)
 
 
 def test_set_look_valid():
@@ -117,6 +119,14 @@ def test_set_environment_enabled_valid(enabled):
 def test_set_environment_source_valid(preset):
     assert parse_cmd(json.dumps({"cmd": "set_environment_source", "preset": preset})) == \
         ("set_environment_source", preset)
+
+
+def test_google_preset_ships_cache_off():
+    # Regression: the google preset must keep the shipped `cache=off`
+    # compliance lever (default_params.yaml, cesium.md's Google section) --
+    # dropping it silently starts persisting Google tiles to an on-disk
+    # SQLite cache on every deployment that picks this preset.
+    assert ENVIRONMENT_PRESET_URIS["google"].endswith("cache=off")
 
 
 def test_param_cmds_valid():
@@ -569,3 +579,17 @@ def test_pose_roundtrip():
     assert np.allclose(back, [0.21, 0.38, 0.72, 139.0, -2.2, 1.5], atol=1e-6)
     R = np.array(row[:9]).reshape(3, 3)
     assert np.allclose(R.T @ R, np.eye(3), atol=1e-9)  # orthonormal
+
+
+def test_resolve_environment_preset():
+    pytest.importorskip("gi")
+    from vcam_gui import resolve_environment_preset
+    assert resolve_environment_preset("", "") == "baked"
+    assert resolve_environment_preset("ion://96188", "") == "osm"
+    assert resolve_environment_preset(
+        "ion://2275207?materials=original&cache=off", "") == "google"
+    assert resolve_environment_preset("ion://12345", "ion://12345") == "clipped"
+    # no own asset configured yet -- must never guess "clipped"
+    assert resolve_environment_preset("ion://12345", "") is None
+    # a hand-edited URI matching nothing known -- leave the combo alone
+    assert resolve_environment_preset("ion://99999?foo=bar", "ion://12345") is None

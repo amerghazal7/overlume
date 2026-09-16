@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Live environment_enabled/environment_source_uri param regression test
-(this task -- vcam GUI Environment Tiles toggle, Epic 6 follow-up).
+(VM-096 -- vcam GUI Environment Tiles toggle, Epic 6 follow-up).
 
 Same standalone-subprocess pattern test_mode_dispatch.py/test_bowl_node_params.py
 already established for this package (no in-process rclcpp node-harness
@@ -26,19 +26,26 @@ guarded honestly:
      solved** (res.successful=false, reason names the anchor) -- the same
      precondition on_activate()'s own environment-arming branch already
      enforces, now also enforced on the LIVE path. This is the one check
-     that FAILS against the pre-this-task node (no case for this param name
+     that FAILS against the pre-VM-096 node (no case for this param name
      existed, so it fell through the on_params() catch-all as accepted).
   4. **node stays alive throughout.**
+  5. (separate run, _run_hidden_arm_check()) **environment_enabled:=false at
+     launch, then a LATER live environment_source_uri switch, arms the
+     environment source HIDDEN, not visible** (VM-096 gate round 1 finding)
+     -- a geo_datum_* override solves the anchor so the live switch is
+     accepted (this is the on_params() SUCCESS path checks 1-4 above don't
+     reach), asserting the "environment source armed" log names it 'hidden'.
 
-Honest scope: this file does NOT exercise the on_params() SUCCESS path for
+Honest scope: checks 1-4 do NOT exercise the on_params() SUCCESS path for
 environment_source_uri (that needs a solved geo-anchor, i.e. real
 NavSatFix+TF traffic, or a GeoDatumOverride -- out of this lightweight
 subprocess test's budget) or environment_enabled actually hiding a rendered
 building (that is the library-level proof, test_environment.cpp's
 SetEnvironmentVisibleFalseHidesLoadedChunksWithoutTearingDown/
 ChunkLoadedWhileHiddenDoesNotPopIntoView, and the streaming-backend twin in
-test_environment_stream.cpp). What this file proves is the PARAM-SURFACE
-contract: accept/reject shape and the honest-WARN discipline.
+test_environment_stream.cpp). Check 5 does reach the on_params() SUCCESS
+path (via a GeoDatumOverride) but still proves only the PARAM-SURFACE/log
+contract, not a rendered pixel -- same reasons.
 
 Run (ROS + this repo's ros_apps install sourced first):
     source /opt/ros/humble/setup.bash
@@ -64,6 +71,17 @@ REPO_ROOT = os.path.normpath(
 CUDA_ROOT = os.path.join(REPO_ROOT, "cuda")
 INSTALL_DIR = os.path.join(CUDA_ROOT, "install", "ros_apps")
 NODE_NAME = "/visualization_node"
+
+# The real, committed environment_test_town_0 fixture (test_environment.cpp's
+# own kTestTownDir) + its matching anchor -- a REAL baked dir, never a
+# fabricated path, so this run's geo-anchor solves via override and
+# on_activate()'s environment-arming branch actually fires (unlike main()'s
+# run above, which deliberately never arms a source).
+FIXTURE_CHUNKS_DIR = os.path.join(
+    CUDA_ROOT, "src", "libs", "visual_renderer", "tests", "fixtures", "environment_test_town_0")
+FIXTURE_LAT_DEG = 25.0803
+FIXTURE_LON_DEG = 55.3910
+FIXTURE_HEADING_DEG = 0.0
 
 
 def _popen(cmd: str) -> subprocess.Popen:
@@ -124,6 +142,103 @@ def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
         if proc.poll() is not None:
             return False
     return True
+
+
+def _run_hidden_arm_check() -> int:
+    """VM-096 gate round 1 finding: on_activate() must push environment_enabled_
+    into the renderer's visibility flag BEFORE arming anything, so that a
+    LATER live environment_source_uri switch -- which arms on its own
+    schedule, gated only on the geo-anchor, never on environment_enabled_
+    (on_params()'s own comment) -- picks up a HIDDEN flag rather than the
+    renderer's true default (environmentVisible=true).
+
+    Launches with environment_enabled:=false + a geo_datum_* override (no
+    environment_chunks_dir here -- deliberately: composing a live
+    environment_source_uri switch against a non-empty chunks dir appends
+    "?fallback=<dir>", corrupting a plain baked path with a '?' that path
+    doesn't have; Decision 5's own restated ceiling. So on_activate() itself
+    arms nothing this run (harmless "neither ... is set" WARN) -- the SAME
+    real fixture dir (kTestTownDir, test_environment.cpp) is instead pushed
+    live via `environment_source_uri`, the exact scenario the finding names).
+
+    HONEST SCOPE (this matters -- verified empirically while writing this
+    check): the "environment source armed" log's (hidden)/(visible) word is
+    derived from environment_enabled_ itself, so it is intent, not proof --
+    it would print '(hidden)' here even against a node built WITHOUT the
+    on_activate() fix (confirmed by temporarily reverting the fix and
+    re-running this exact check: it still passed). What THIS check actually
+    proves is the param-surface/plumbing path: environment_enabled:=false at
+    launch is preserved through to the live-switch log line, end to end,
+    through real ROS param get/set, not mocked. The ACTUAL proof that a
+    source armed after set_environment_visible(r, false) comes up hidden --
+    the thing the log line cannot verify from outside the library -- is
+    test_environment.cpp's
+    Environment.SetEnvironmentVisibleFalseBeforeArmingHidesNewlyOpenedSource,
+    which uses the new environment_visible() getter plus loaded/scene-
+    membership counts and a real pixel diff. That test is the regression
+    guard for this finding; this one is a wiring smoke check alongside it.
+    """
+    log_fd, log_path = tempfile.mkstemp(prefix="viz_environment_hidden_arm_", suffix=".log")
+    os.close(log_fd)
+
+    viz_cmd = (
+        f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
+        f"ros2 run micropilot_visualization_node visualization_node --ros-args "
+        f"-p out_width:=160 -p out_height:=120 -p initial_mode:=3 "
+        f"-p environment_enabled:=false "
+        f"-p geo_datum_lat_deg:={FIXTURE_LAT_DEG} "
+        f"-p geo_datum_lon_deg:={FIXTURE_LON_DEG} "
+        f"-p geo_datum_heading_deg:={FIXTURE_HEADING_DEG} "
+        f"> {log_path} 2>&1")
+    viz_proc = _popen(viz_cmd)
+
+    try:
+        if not _wait_running(viz_proc):
+            with open(log_path) as f:
+                tail = f.read()[-2000:]
+            print(f"FAIL: visualization_node (hidden-arm run) exited early:\n{tail}",
+                  file=sys.stderr)
+            return 1
+
+        if not _lifecycle("configure") or not _lifecycle("activate"):
+            print("FAIL: configure/activate failed (hidden-arm run).", file=sys.stderr)
+            return 1
+
+        # The real, committed fixture dir (a plain path, no '?'/'&') -- a
+        # LIVE switch, not the launch config, is what arms a source this
+        # run (see the docstring above for why).
+        if not _param_set_ok("environment_source_uri", FIXTURE_CHUNKS_DIR):
+            result = _param_set("environment_source_uri", FIXTURE_CHUNKS_DIR)
+            print(f"FAIL: live `environment_source_uri` switch to the real fixture dir was "
+                  f"rejected -- expected accepted (geo-anchor solved via override). "
+                  f"stdout={result.stdout!r} stderr={result.stderr!r}", file=sys.stderr)
+            return 1
+
+        time.sleep(0.3)
+        with open(log_path) as f:
+            log_text = f.read()
+
+        if "environment source armed" not in log_text:
+            print(f"FAIL: the live environment_source_uri switch was accepted but no "
+                  f"'environment source armed' log appeared -- expected the on_params() "
+                  f"success path to log it same as on_activate()'s. Log tail:\n"
+                  f"{log_text[-3000:]}", file=sys.stderr)
+            return 1
+        if "(hidden)" not in log_text:
+            print(f"FAIL: the arming log names this run 'visible' even though it was "
+                  f"launched with environment_enabled:=false -- environment_enabled_ isn't "
+                  f"reaching the live-switch log line. (This check's own docstring is honest "
+                  f"that the log word alone doesn't PROVE the renderer stays hidden -- see "
+                  f"test_environment.cpp's "
+                  f"SetEnvironmentVisibleFalseBeforeArmingHidesNewlyOpenedSource for that.) "
+                  f"Log tail:\n{log_text[-3000:]}", file=sys.stderr)
+            return 1
+        print("PASS (check 5, separate run): environment_enabled:=false at launch + a "
+              "later live environment_source_uri switch arms a HIDDEN source, not a "
+              "visible one.")
+        return 0
+    finally:
+        _kill(viz_proc)
 
 
 def main() -> int:
@@ -216,9 +331,10 @@ def main() -> int:
         print("PASS (4/4): node stayed alive throughout.")
 
         print("PASS: visualization_node environment live-switch param test passed.")
-        return 0
     finally:
         _kill(viz_proc)
+
+    return _run_hidden_arm_check()
 
 
 if __name__ == "__main__":

@@ -81,8 +81,8 @@ item below being closed or explicitly accepted.
    false cover. **Buildings render in BOWL/HYBRID too, whenever
    `environment_chunks_dir` is provisioned and the geo-anchor has solved.**
 
-   **CLOSED (library-side blocker) by the vcam GUI Environment Tiles
-   toggle task**: `set_environment_visible(VisualRenderer*, bool)`
+   **CLOSED (library-side blocker) by VM-096 (the vcam GUI Environment
+   Tiles toggle task)**: `set_environment_visible(VisualRenderer*, bool)`
    (`scene.h`/`environment.cpp`) now exists -- a free function (ADR-0004:
    bumps nothing) that hides/shows whatever `EnvironmentSource` is
    installed without tearing it down, implemented identically for

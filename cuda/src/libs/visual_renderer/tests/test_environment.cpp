@@ -158,7 +158,7 @@ TEST(Environment, HysteresisBandKeepsChunksLoadedThenUnloadsAndReloads) {
     mpviz::destroy_renderer(r);
 }
 
-// ── set_environment_visible() (this task): hide/show without teardown ──────
+// ── set_environment_visible() (VM-096): hide/show without teardown ─────────
 //
 // SSIM-against-a-fixed-golden (the pattern every other test in this file
 // uses) turns out to be the WRONG tool for proving a hide/show toggle: the
@@ -309,6 +309,64 @@ TEST(Environment, ChunkLoadedWhileHiddenDoesNotPopIntoView) {
     const size_t diffShown = count_differing_bytes(hiddenBuf, shownBuf);
     EXPECT_GT(diffShown, nBytes / 20)
         << "showing again produced no visible change (only " << diffShown << "/" << nBytes
+        << " bytes changed)";
+    EXPECT_EQ(mpviz::testing::environment_scene_membership_count(r),
+              mpviz::testing::environment_loaded_chunk_count(r));
+    mpviz::destroy_renderer(r);
+}
+
+TEST(Environment, SetEnvironmentVisibleFalseBeforeArmingHidesNewlyOpenedSource) {
+    // VM-096 gate round 1 finding: the two tests above both call
+    // set_environment_visible() AFTER a source is already open. This is the
+    // other ordering the visualization_node fix actually depends on -- a
+    // deployment launched with environment_enabled=false must end up with a
+    // HIDDEN source once one is later armed (on_activate(), or a live
+    // environment_source_uri switch), never a visible one just because
+    // r->environmentVisible still sat at its raw default. Exercises
+    // environment.cpp's set_environment_source() sync line directly
+    // (`source->set_visible(*r, r->environmentVisible)`), the exact code the
+    // node-level fix depends on.
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    ASSERT_TRUE(mpviz::environment_visible(r)) << "default must be true before anyone touches it";
+
+    // Hidden BEFORE set_environment_source() is ever called -- no source
+    // exists yet (environment_source_state() == NONE).
+    ASSERT_TRUE(mpviz::set_environment_visible(r, false));
+    ASSERT_FALSE(mpviz::environment_visible(r));
+    ASSERT_EQ(mpviz::environment_source_state(r), mpviz::EnvironmentSourceState::NONE);
+
+    mpviz::GeoAnchor a{25.0803, 55.3910, 0.0};
+    ASSERT_TRUE(mpviz::set_environment_source(r, kTestTownDir.c_str(), a));
+    // The flag itself must still read false (set_environment_source() must
+    // not silently reset it), AND the newly installed source must actually
+    // come up hidden, not just bookkeeping-hidden.
+    EXPECT_FALSE(mpviz::environment_visible(r));
+
+    mpviz::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kChunk0Center;
+    mpviz::set_scene(r, s);
+    mpviz::CameraPose pose{{kBuildingsCentroid.x + 50, kBuildingsCentroid.y - 70, 40},
+                            {kBuildingsCentroid.x, kBuildingsCentroid.y, kBuildingsCentroid.z},
+                            60.0};
+    const size_t nBytes = 320u * 240u * 3u;
+    std::vector<uint8_t> hiddenBuf(nBytes);
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {hiddenBuf.data(), 320, 240}));
+    ASSERT_GT(mpviz::testing::environment_loaded_chunk_count(r), 0u)
+        << "loading itself must still happen while hidden";
+    EXPECT_EQ(mpviz::testing::environment_scene_membership_count(r), 0u)
+        << "a source armed while environmentVisible was already false came up visible anyway";
+
+    // Now flip it live, same as the node's environment_enabled on_params()
+    // branch (or the GUI switch) would: the buildings must actually appear.
+    ASSERT_TRUE(mpviz::set_environment_visible(r, true));
+    std::vector<uint8_t> shownBuf(nBytes);
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {shownBuf.data(), 320, 240}));
+    const size_t diffShown = count_differing_bytes(hiddenBuf, shownBuf);
+    EXPECT_GT(diffShown, nBytes / 20)
+        << "showing produced no visible change (only " << diffShown << "/" << nBytes
         << " bytes changed)";
     EXPECT_EQ(mpviz::testing::environment_scene_membership_count(r),
               mpviz::testing::environment_loaded_chunk_count(r));

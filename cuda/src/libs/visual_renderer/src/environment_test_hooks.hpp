@@ -18,7 +18,7 @@ namespace mpviz::testing {
 // map_element_rebuild_count().
 uint64_t environment_loaded_chunk_count(mpviz::VisualRenderer* r);
 
-// This task (vcam GUI Environment Tiles toggle): how many of the
+// VM-096 (vcam GUI Environment Tiles toggle): how many of the
 // currently-loaded chunks/tiles are ACTUALLY added to `r`'s Filament scene
 // right now -- 0 immediately after set_environment_visible(r, false), back
 // to environment_loaded_chunk_count(r)'s own value immediately after

@@ -40,7 +40,7 @@ public:
     // bare C++ destructor has no VisualRenderer& to do this teardown with,
     // so relying on ~EnvironmentSource() alone would leak/use-after-free.
     virtual void teardown(VisualRenderer& r) = 0;
-    // This task (vcam GUI Environment Tiles toggle): hide/show every
+    // VM-096 (vcam GUI Environment Tiles toggle): hide/show every
     // currently-loaded renderable without touching loaded_/inScene_
     // bookkeeping's underlying resources -- a loaded chunk stays loaded
     // (still counted by loaded_count()) whether visible or not, so a
@@ -58,7 +58,7 @@ public:
     // virtual instead of a downcast. Library-internal only (not the POD
     // seam) -- update()/teardown() above stay verbatim.
     virtual size_t loaded_count() const = 0;
-    // This task (vcam GUI Environment Tiles toggle): how many of the
+    // VM-096 (vcam GUI Environment Tiles toggle): how many of the
     // currently-loaded/tracked entries are ACTUALLY added to r.scene right
     // now -- 0 while hidden (set_visible(r, false)), loaded_count() again
     // once shown. Test-hook-only concept (environment_test_hooks.hpp's

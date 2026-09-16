@@ -23,14 +23,16 @@ third-party client — can drive the virtual camera:
     {"cmd": "set_surround_profile", "profile": "bowl"|"hybrid"}  (Task 4/
         VM-093 -- writes visualization_node's `surround_stitching_profile`
         param; live, same on_params() live-tuning contract as layer_*)
-    {"cmd": "set_environment_enabled", "enabled": bool}  (this task -- vcam
+    {"cmd": "set_environment_enabled", "enabled": bool}  (VM-096 -- vcam
         GUI Environment Tiles toggle -- writes visualization_node's
         `environment_enabled` param, the SAME disable knob VM-052 already
         declared; live, same on_params() contract as layer_*)
     {"cmd": "set_environment_source", "preset": "baked"|"osm"|"clipped"|"google"}
-        (this task -- resolves `preset` to visualization_node's
+        (VM-096 -- resolves `preset` to visualization_node's
         `environment_source_uri` string server-side: "baked"->"",
-        "osm"->"ion://96188", "google"->"ion://2275207?materials=original",
+        "osm"->"ion://96188",
+        "google"->"ion://2275207?materials=original&cache=off" (cache=off
+        is the shipped compliance lever, see default_params.yaml/cesium.md),
         "clipped"->that node's OWN `environment_own_asset_uri` param
         (fetched live, never fabricated -- an error if it is empty); live,
         rejected while the geo-anchor hasn't solved, same as any other
@@ -85,7 +87,7 @@ QUALITY_PRESETS = {"low": 0, "medium": 1, "high": 2, 0: 0, 1: 1, 2: 2}
 # DIRECTIVE) -- visualization_node's on_params() accepts exactly these two,
 # rejecting anything else (test_mode_dispatch.py check 3).
 SURROUND_PROFILES = {"bowl", "hybrid"}
-# Epic 6's four environment tile sources (this task -- vcam GUI Environment
+# Epic 6's four environment tile sources (VM-096 -- vcam GUI Environment
 # Tiles toggle). Three resolve to a literal URI here; "clipped" is resolved
 # server-side against the node's OWN `environment_own_asset_uri` param
 # (handle_client's set_environment_source branch) -- never fabricated here.
@@ -93,7 +95,10 @@ ENVIRONMENT_PRESETS = {"baked", "osm", "clipped", "google"}
 ENVIRONMENT_PRESET_URIS = {
     "baked": "",                                  # Epic 4 baked chunks (today's default)
     "osm": "ion://96188",                         # Cesium OSM Buildings, clay
-    "google": "ion://2275207?materials=original",  # Google Photorealistic, original textures
+    # cache=off is the shipped compliance lever (default_params.yaml,
+    # cesium.md's Google section) -- ships until Google's Map Tiles
+    # cache-lifetime terms are re-verified for this deployment.
+    "google": "ion://2275207?materials=original&cache=off",  # Google Photorealistic
 }
 
 # Params the GUI tuning panel may read/write, with their declared ROS types.
@@ -600,16 +605,19 @@ def main() -> int:
                             "message": "set_parameters service unavailable"}))
                 elif cmd == "get_params":
                     try:
-                        # environment_enabled/environment_own_asset_uri live
-                        # on visualization_node (not TUNABLE_PARAMS -- they
-                        # go through the dedicated set_environment_* cmds
-                        # above, not set_param), fetched in the SAME call so
-                        # the GUI can reflect the real toggle state and grey
+                        # environment_enabled/environment_source_uri/
+                        # environment_own_asset_uri live on visualization_node
+                        # (not TUNABLE_PARAMS -- they go through the dedicated
+                        # set_environment_* cmds above, not set_param),
+                        # fetched in the SAME call so the GUI can reflect the
+                        # real toggle state, the real source-preset combo
+                        # selection (VM-096 gate round 1 finding), and grey
                         # out "clipped" when there is no own asset yet
                         # (design decision (c) -- never fabricate one).
                         vals = await fetch_params(
                             list(TUNABLE_PARAMS) +
-                            ["environment_enabled", "environment_own_asset_uri"])
+                            ["environment_enabled", "environment_source_uri",
+                             "environment_own_asset_uri"])
                         # layer_* live on visualization_node, best-effort
                         # (review 2026-09-09): absent when that node isn't
                         # up (bowl/pointcloud-only sessions) -- the GUI

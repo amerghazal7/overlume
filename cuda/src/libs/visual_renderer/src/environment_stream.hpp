@@ -366,7 +366,7 @@ private:
     int leakedOnTeardownBound_ = 0;
     std::optional<std::chrono::steady_clock::time_point> lastUpdate_;
     // FilamentAsset* -> tracked (Cesium currently wants this tile rendered).
-    // This task (set_environment_visible()): the invariant is now
+    // VM-096 (set_environment_visible()): the invariant is now
     // "visible_ <=> every tracked entry is actually added to r.scene" --
     // while hidden, entries are still tracked/reconciled every tick (so
     // synthesize_view_and_pump's eviction logic keeps working unchanged),

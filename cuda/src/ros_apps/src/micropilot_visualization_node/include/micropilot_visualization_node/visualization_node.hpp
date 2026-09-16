@@ -460,7 +460,7 @@ private:
     // per knob, not once overall (independent of whether hud_enabled_ is
     // also true this run).
     bool environment_attribution_warned_{false};
-    // This task (vcam GUI Environment Tiles toggle): the deployment's own
+    // VM-096 (vcam GUI Environment Tiles toggle): the deployment's own
     // "clipped" ion asset ("ion://<id>", design decision (c)) -- read once
     // in on_configure() alongside the block above. "" (shipped default)
     // means this deployment has no own asset yet; the GUI/WS bridge grey

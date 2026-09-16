@@ -219,12 +219,12 @@ bool set_environment_source(VisualRenderer* r, const char* source_uri, GeoAnchor
         source = open_baked_environment_source(uri, anchor);
     }
     if (!source) return false;
-    // This task: a freshly constructed source always defaults visible_ =
+    // VM-096: a freshly constructed source always defaults visible_ =
     // true -- sync it to whatever set_environment_visible() last recorded
     // on `r` BEFORE installing it, so a preset switch (baked/osm/clipped/
     // google) made while the GUI's toggle is off doesn't pop the new
     // source into view. Harmless no-op the very first time this ever runs
-    // (r->environmentVisible defaults true too, matching every pre-this-task
+    // (r->environmentVisible defaults true too, matching every pre-VM-096
     // call site's behavior byte-for-byte).
     source->set_visible(*r, r->environmentVisible);
     // on_activate() runs again after on_deactivate() on the SAME renderer
@@ -238,7 +238,7 @@ bool set_environment_source(VisualRenderer* r, const char* source_uri, GeoAnchor
     return true;
 }
 
-// This task (vcam GUI Environment Tiles toggle): see scene.h's own comment
+// VM-096 (vcam GUI Environment Tiles toggle): see scene.h's own comment
 // for the full contract. r->environmentVisible is the persisted flag
 // set_environment_source() above re-applies to every newly installed
 // source; here it is also pushed live onto whatever source is installed
@@ -251,6 +251,12 @@ bool set_environment_visible(VisualRenderer* r, bool visible) {
         r->environmentSource->set_visible(*r, visible);
     }
     return true;
+}
+
+// VM-096 gate round 1 finding: see scene.h's own comment.
+bool environment_visible(VisualRenderer* r) {
+    if (r == nullptr) return false;
+    return r->environmentVisible;
 }
 
 // Epic 6 (VM-063) Decision 11: the node's only window into a streaming

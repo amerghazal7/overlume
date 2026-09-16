@@ -150,7 +150,7 @@
     #     materials instead of the buildingMaterial remap. Asset id 2275207
     #     VERIFIED at VM-064 implementation against the live ion Asset
     #     Depot API (name/type match, 2026-09-16) -- never guessed, per
-    #     this task's own factual rule. cache=off ships until this
+    #     VM-064's own factual rule. cache=off ships until this
     #     deployment has re-verified Google's Map Tiles cache-lifetime
     #     terms (cesium.md's Google section, Step 2(b)); attribution is
     #     drawn automatically once uncommented (environment_attribution
@@ -159,7 +159,7 @@
     #     measurement was INCONCLUSIVE and did not confirm it -- read this
     #     epic's results block before budgeting for it (cesium.md).
     environment_source_uri: ""
-    # This task (vcam GUI Environment Tiles toggle): the deployment's OWN
+    # VM-096 (vcam GUI Environment Tiles toggle): the deployment's OWN
     # ion asset id for the "clipped" preset above (cesium.md Path B) --
     # "" (the shipped default, every checkout) means this deployment has
     # not uploaded/clipped its own tileset yet. NEVER a fabricated id: the

@@ -129,7 +129,7 @@ QUALITY_PRESETS = ["low", "medium", "high"]
 # to "bowl" until Task 5/VM-094 lands (noted at the dropdown's own section
 # label, not silently absorbed).
 SURROUND_PROFILES = ["bowl", "hybrid"]
-# Epic 6's four environment tile sources (this task -- vcam GUI Environment
+# Epic 6's four environment tile sources (VM-096 -- vcam GUI Environment
 # Tiles toggle): "baked" (Epic 4 baked chunks, today's default), "osm"
 # (Cesium OSM Buildings, clay), "clipped" (this deployment's OWN uploaded
 # ion asset -- greyed out in the GUI whenever environment_own_asset_uri is
@@ -138,6 +138,32 @@ SURROUND_PROFILES = ["bowl", "hybrid"]
 # name to a URI server-side (vcam_ws_bridge.py's ENVIRONMENT_PRESET_URIS) --
 # this GUI only ever sends the preset NAME, never a literal ion:// string.
 ENVIRONMENT_PRESETS = ["baked", "osm", "clipped", "google"]
+# Reverse of the bridge's ENVIRONMENT_PRESET_URIS (vcam_ws_bridge.py), kept
+# as its own literal rather than imported: this GUI is a pure WS client
+# (module docstring above), decoupled from the bridge process/module by
+# design. Used only to sync the combo FROM the node's real
+# environment_source_uri (_apply_params below) -- "clipped" isn't here
+# since its URI is per-deployment (environment_own_asset_uri), matched
+# separately.
+ENVIRONMENT_PRESET_URIS_FIXED = {
+    "baked": "",
+    "osm": "ion://96188",
+    "google": "ion://2275207?materials=original&cache=off",
+}
+
+
+def resolve_environment_preset(source_uri, own_asset_uri):
+    """Reverse-maps a node's real environment_source_uri (+ its
+    environment_own_asset_uri) back to a GUI preset name, or None when it
+    matches none of the known presets (a hand-edited URI) -- never guesses,
+    same discipline as the "clipped" own-asset design decision. Pure/no-GTK
+    so it's unit-testable without a display; see test_vcam_ws_bridge.py."""
+    for preset, uri in ENVIRONMENT_PRESET_URIS_FIXED.items():
+        if uri == source_uri:
+            return preset
+    if own_asset_uri and source_uri == own_asset_uri:
+        return "clipped"
+    return None
 
 # A numeric tuning row: slider + value box sharing one Adjustment, plus
 # editable min/max boxes that rewrite the slider's range on the fly.
@@ -406,14 +432,14 @@ class VcamWindow(Gtk.Window):
         profile_combo.connect("changed", self._on_surround_profile_changed)
         panel.pack_start(profile_combo, False, False, 0)
 
-        # This task (vcam GUI Environment Tiles toggle, Epic 6 follow-up):
+        # VM-096 (vcam GUI Environment Tiles toggle, Epic 6 follow-up):
         # a Switch for the SAME environment_enabled disable knob VM-052
         # already declared (STANDING directive -- reused, not a second
         # knob) + a ComboBoxText-equivalent for the 4 source presets. Both
         # live, no restart -- same contract as the Surround Stitching
         # controls above. Reflects real node state (_apply_params below);
         # never asserts a fixed default the way the Surround Stitching/
-        # Quality combos above do (those predate this task).
+        # Quality combos above do (those predate VM-096).
         section("Environment tiles (visual mode)")
         env_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         env_label = Gtk.Label(label="enabled", xalign=0.0)
@@ -600,13 +626,11 @@ class VcamWindow(Gtk.Window):
                 v = values.get(f"layer_{name}")
                 if v is not None:
                     sw.set_active(bool(v))
-            # This task: environment_enabled reflects the node's REAL value,
+            # VM-096: environment_enabled reflects the node's REAL value,
             # same "sync from real state, absent key leaves the shipped
-            # default" rule as the layer_* loop above (default_params.yaml's
-            # own environment_enabled default is true, matching the Switch's
-            # GTK-default-off... no: explicitly leaving it alone here means
-            # it stays whatever _build_panel initialized it to until a real
-            # value arrives, same as every other switch in this method).
+            # default" rule as the layer_* loop above: an absent key leaves
+            # the switch at whatever _build_panel initialized it to, same as
+            # every other switch in this method.
             env_enabled = values.get("environment_enabled")
             if env_enabled is not None:
                 self._environment_enabled_switch.set_active(bool(env_enabled))
@@ -617,6 +641,23 @@ class VcamWindow(Gtk.Window):
             own_asset = values.get("environment_own_asset_uri")
             if own_asset is not None:
                 self._update_clipped_availability(bool(own_asset))
+            # VM-096 gate round 1 finding: sync the source combo FROM the
+            # node's real environment_source_uri, same shape as the switch
+            # above -- otherwise a node launched on the osm/google/clipped
+            # preset always shows "baked" (the combo's build-time default,
+            # section comment above notwithstanding). "" -> baked, a fixed
+            # preset URI -> that row, a value equal to the deployment's OWN
+            # environment_own_asset_uri -> clipped; anything else (a hand-
+            # edited URI matching none of these) leaves the combo alone
+            # rather than guess.
+            env_source_uri = values.get("environment_source_uri")
+            if env_source_uri is not None:
+                preset = resolve_environment_preset(env_source_uri, own_asset)
+                if preset is not None:
+                    for i, row in enumerate(self._environment_store):
+                        if row[0] == preset:
+                            self._environment_combo.set_active(i)
+                            break
             ext = values.get("camera_extrinsics")
             if ext:
                 first = self._extrinsics is None
