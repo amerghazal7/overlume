@@ -92,10 +92,19 @@ palette:
     # hero azure or the critical coral below.
     info: [0.20, 0.55, 0.85]
     warning: [0.85, 0.60, 0.15]
-    # The seed's own hazard value -- ref-2's coral, unchanged from
-    # light_ref2's critical (same "one hue, both themes" reasoning as
-    # lane_paint/car above).
-    critical: [0.850, 0.300, 0.300]
+    # The seed's own hazard value -- ref-2's coral, was going to stay
+    # unchanged from light_ref2's critical (same "one hue, both themes"
+    # reasoning as lane_paint/car above), but nudged 2026-09-16 (round-2
+    # gate finding, minor -- "worth a nudge") once the review's own four
+    # alert-pixel samples showed R-B ~+19-20 here (#BD7FAA, magenta-pink,
+    # not coral) against the shipped-theme baselines it compared to
+    # (light_clay +10, dark_adas +73). Unlike light_ref2, this theme's
+    # alert blends over a near-black road/ground, so the CRITICAL polygon's
+    # fixed 0.45 blend alpha (renderer_internal.hpp) doesn't fight a bright
+    # saturated background -- a modest saturation bump was enough: R-B at
+    # the same four review pixels went from ~+19 to ~+55, clearing the
+    # >=+30 bar with room, and the crop reads as coral/rose, not magenta.
+    critical: [0.90, 0.20, 0.15]
 # Matte clay throughout, same as dark_adas's own roughness -- no metal, no
 # specular pop (user: "same soft matte clay").
 material: { roughness: 0.85, metallic: 0.0 }
