@@ -141,7 +141,7 @@ anything at all").
 
 The raw `dark_adas` captures above are the canonical, reproducible renders —
 but two of the three are close to unjudgeable as shipped: measured p99
-luminance is 38.9/255 for both **baked** and **osm** (only 0.08%/0.04% of
+luminance is 38.9/255 for both **baked** and **osm** (only 0.04% of
 pixels exceed luminance 40), vs. 117.2/255 for **google**. The content is
 genuinely present and correct for a dark ADAS theme — this is expected
 exposure, not a bug — but a human can't eyeball building massing at that
