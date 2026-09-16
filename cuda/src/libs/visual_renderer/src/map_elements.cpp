@@ -161,19 +161,68 @@ namespace {
 // constant, not a theme/wire field; promote the day a deployment actually
 // asks for it.
 constexpr float kLaneHalfWidthM = 0.05f;  // lane-paint stripe half-width
-constexpr float kLaneZLiftM = 0.02f;      // matches the ego-box/grid z-lift convention
 // Road-fill z-lift: between ground (0) and OGM's kGradientZLiftM (0.010,
 // ground_grid.cpp) -- the road surface is a static base coat, and OGM (a
 // live perception overlay) must sit above it so a dynamic occupancy
 // reading is never hidden behind the static road tint.
 constexpr float kRoadZLiftM = 0.005f;
 
+// Per-kind z-lift for everything drawn ON TOP of the road fill. Every kind
+// used to share ONE constant (kLaneZLiftM = 0.02f) -- so a CROSSWALK
+// polygon and a LEFT_/RIGHT_BOUNDARY (or CENTERLINE/STOPLINE/ROAD_EDGE)
+// stripe were EXACTLY coplanar wherever they geometrically overlapped (a
+// crosswalk straddling lane lines, a stopline crossing a boundary). With no
+// depth-buffer basis to order two coplanar triangles, the winner flipped
+// per-pixel per-frame as the camera moved -- z-fighting, seen as the thin
+// *line* flickering under the crosswalk (the small-area loser). Regression:
+// TEST(MapElementsZFight, ...) below.
+//
+// The order below encodes real paint order, bottom (painted first) to top
+// (painted last -- and painted-last wins ties, which is correct: it IS on
+// top on a real road):
+//   OTHER < CENTERLINE < LEFT_BOUNDARY < RIGHT_BOUNDARY < ROAD_EDGE
+//     < JUNCTION < STOPLINE < CROSSWALK
+// A stopline is repainted ACROSS the lane boundaries/centerline at an
+// intersection, so it sits above them. A crosswalk is repainted across the
+// stopline and boundaries at a crossing -- and the recorded map data does
+// not interrupt the lane lines through it itself -- so drawing the
+// crosswalk on top is the truthful look, not a fudge. Steps are 1 mm
+// (0.001f) apart: far below what's visible at any camera distance, but
+// enough for the depth buffer to pick a deterministic winner every time.
+constexpr float kOtherZLiftM = 0.016f;
+constexpr float kCenterlineZLiftM = 0.017f;
+constexpr float kLeftBoundaryZLiftM = 0.018f;
+constexpr float kRightBoundaryZLiftM = 0.019f;
+constexpr float kRoadEdgeZLiftM = 0.020f;  // == the old shared kLaneZLiftM value
+constexpr float kJunctionZLiftM = 0.021f;
+constexpr float kStoplineZLiftM = 0.022f;
+constexpr float kCrosswalkZLiftM = 0.023f;  // topmost: repainted over everything below it
+
 bool IsBoundaryKind(MapKind kind) {
     return kind == MapKind::LEFT_BOUNDARY || kind == MapKind::RIGHT_BOUNDARY;
 }
 
 float z_lift_for_kind(MapKind kind) {
-    return kind == MapKind::ROAD_SURFACE ? kRoadZLiftM : kLaneZLiftM;
+    switch (kind) {
+        case MapKind::ROAD_SURFACE:
+            return kRoadZLiftM;
+        case MapKind::CENTERLINE:
+            return kCenterlineZLiftM;
+        case MapKind::LEFT_BOUNDARY:
+            return kLeftBoundaryZLiftM;
+        case MapKind::RIGHT_BOUNDARY:
+            return kRightBoundaryZLiftM;
+        case MapKind::ROAD_EDGE:
+            return kRoadEdgeZLiftM;
+        case MapKind::JUNCTION:
+            return kJunctionZLiftM;
+        case MapKind::STOPLINE:
+            return kStoplineZLiftM;
+        case MapKind::CROSSWALK:
+            return kCrosswalkZLiftM;
+        default:
+            return kOtherZLiftM;
+    }
 }
 
 // Per-kind MaterialInstance dispatch. STOPLINE/JUNCTION/OTHER have no
