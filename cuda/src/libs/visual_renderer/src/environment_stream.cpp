@@ -913,6 +913,16 @@ bool environment_stream_materials_original(mpviz::VisualRenderer* r) {
     return stream != nullptr && stream->materials_original();
 }
 
+// VM-064 gate round 1 finding: exercises the REAL parser (parse_ion_spec(),
+// anonymous namespace above), unlike the hook above which only reads back an
+// already-installed source's flag -- the two Step 0 tests that reach
+// materials_original both go through install_fixture_streaming_source(),
+// which never calls parse_ion_spec() at all.
+bool environment_stream_parse_materials_original(const char* ion_spec) {
+    const std::optional<IonSpec> spec = parse_ion_spec(ion_spec ? ion_spec : "");
+    return spec.has_value() && spec->materials_original;
+}
+
 // VM-064 Step 1: see StreamingEnvironmentSource::first_primitive_is_building_material()'s
 // own comment. false on the same null/non-streaming conditions as the hook
 // above, or if nothing has loaded yet.

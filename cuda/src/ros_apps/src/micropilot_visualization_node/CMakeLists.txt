@@ -480,6 +480,13 @@ if(BUILD_TESTING)
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${VISUAL_RENDERER_DIR}/include)
 
+  # VM-064 gate round 1 finding: compose_environment_source_uri() (header-
+  # only, string logic, no ROS types) -- same "no visual_renderer_prebuilt
+  # link needed" shape as test_ego_anchor immediately above.
+  ament_add_gtest(test_environment_source_uri test/test_environment_source_uri.cpp)
+  target_include_directories(test_environment_source_uri PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
   # Epic 3 Task 1 (VM-036) / this epic's slice of VM-037(e): mirrors
   # tests/test_scene_buffer.cpp's sizeof/offsetof static_asserts, compiled
   # gcc/libstdc++, so a future scene.h layout drift fails the NODE build too,

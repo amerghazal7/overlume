@@ -14,6 +14,7 @@
 #include <std_msgs/msg/header.hpp>
 
 #include "micropilot_visualization_node/ego_anchor.hpp"
+#include "micropilot_visualization_node/environment_source_uri.hpp"
 
 namespace micropilot::visualization_app
 {
@@ -1070,21 +1071,12 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
         // restated here): a path containing '?' or '&' is unsupported by
         // the library's split-only parser -- not re-validated here, same
         // as every other path param in this file.
-        std::string source_uri = environment_chunks_dir_;
-        if (!environment_source_uri_.empty())
-        {
-            source_uri = environment_source_uri_;
-            if (!environment_tile_cache_dir_.empty())
-            {
-                source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
-                source_uri += "cache=" + environment_tile_cache_dir_;
-            }
-            if (!environment_chunks_dir_.empty())
-            {
-                source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
-                source_uri += "fallback=" + environment_chunks_dir_;
-            }
-        }
+        // environment_source_uri.hpp: cache=/fallback= are appended only
+        // when the configured URI doesn't already carry that key (VM-064
+        // gate round 1 finding -- an explicit cache=off from the google
+        // preset must not be silently overwritten by this separate dir).
+        const std::string source_uri = compose_environment_source_uri(
+            environment_chunks_dir_, environment_source_uri_, environment_tile_cache_dir_);
         if (!mpviz::set_environment_source(renderer_, source_uri.c_str(),
                                             geo_anchor_solver_->anchor()))
         {

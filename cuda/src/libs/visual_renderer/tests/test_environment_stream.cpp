@@ -47,6 +47,37 @@ constexpr mpviz::GeoAnchor kFixtureAnchor{25.0803, 55.3910, 0.0};
 
 mpviz::CameraPose kStdPose{{0, -8, 3}, {0, 0, 0.5}, 60};
 
+// VM-064 gate round 1 finding: two tests below unsetenv("CESIUM_ION_TOKEN")
+// to force the no-token path -- previously for the WHOLE PROCESS, so
+// GooglePresetLiveRenderMsDeltaVsOsmClay's opt-in skip condition
+// (getenv(...) == nullptr) could never see a caller-provided token in a
+// full-binary run if gtest happened to order either of these first (default
+// declaration order does). RAII save/restore removes the ordering
+// dependency: each test's own env edit undoes itself on scope exit,
+// success or failure.
+class ScopedUnsetEnv {
+public:
+    explicit ScopedUnsetEnv(const char* name) : name_(name) {
+        const char* v = std::getenv(name);
+        if (v) {
+            had_value_ = true;
+            saved_ = v;
+        }
+        ::unsetenv(name);
+    }
+    ~ScopedUnsetEnv() {
+        if (had_value_) ::setenv(name_, saved_.c_str(), 1);
+        else ::unsetenv(name_);
+    }
+    ScopedUnsetEnv(const ScopedUnsetEnv&) = delete;
+    ScopedUnsetEnv& operator=(const ScopedUnsetEnv&) = delete;
+
+private:
+    const char* name_;
+    bool had_value_ = false;
+    std::string saved_;
+};
+
 // Pumps render_frame() until either the streaming source has something
 // loaded or `max_frames` ticks pass (cesium's own async load pipeline needs
 // several ticks: request -> load thread -> main thread prepare -> next
@@ -69,7 +100,7 @@ TEST(EnvironmentStream, IonUriWithoutTokenIsNonFatalFalse) {
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ::unsetenv("CESIUM_ION_TOKEN");  // this test binary's env only
+    ScopedUnsetEnv no_token("CESIUM_ION_TOKEN");  // this test binary's env only, restored on scope exit
     mpviz::GeoAnchor a{25.0803, 55.3910, 0.0};
     EXPECT_FALSE(mpviz::set_environment_source(r, "ion://96188", a));
     std::vector<uint8_t> buf(320u * 240u * 3u);
@@ -476,6 +507,20 @@ TEST(EnvironmentStream, MaterialsOriginalTrueIsMirroredByHook) {
     mpviz::destroy_renderer(r);
 }
 
+// VM-064 gate round 1 finding: the two tests above both reach
+// materials_original via install_fixture_streaming_source()'s own bool
+// param, which bypasses parse_ion_spec() entirely -- neither one would
+// notice a typo in the parser's key match (e.g. "material" instead of
+// "materials"). This calls parse_ion_spec() directly (via the
+// environment_stream_parse_materials_original() hook) on the literal
+// ion:// query string, no renderer/GPU needed.
+TEST(EnvironmentStream, ParseMaterialsOriginalRecognizesTheRealKeyAndValue) {
+    EXPECT_TRUE(mpviz::testing::environment_stream_parse_materials_original("96188?materials=original"));
+    EXPECT_FALSE(mpviz::testing::environment_stream_parse_materials_original("96188"));
+    EXPECT_FALSE(mpviz::testing::environment_stream_parse_materials_original("96188?materials=clay"));
+    EXPECT_FALSE(mpviz::testing::environment_stream_parse_materials_original("96188?materials=bogus"));
+}
+
 // The real string-parser path (Decision 5's parse_ion_spec()), through the
 // public ion:// dispatch -- no token, so this only pins that an unknown/
 // absent materials= key never crashes the parse (spec §9); the true-token
@@ -487,7 +532,7 @@ TEST(EnvironmentStream, UnknownMaterialsValueOnIonUriIsNonFatalFalse) {
     mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = mpviz::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ::unsetenv("CESIUM_ION_TOKEN");
+    ScopedUnsetEnv no_token("CESIUM_ION_TOKEN");
     mpviz::GeoAnchor a{25.0803, 55.3910, 0.0};
     EXPECT_FALSE(mpviz::set_environment_source(r, "ion://96188?materials=bogus", a));
     std::vector<uint8_t> buf(320u * 240u * 3u);
@@ -536,8 +581,14 @@ TEST(EnvironmentStream, OriginalModeSkipsClayRemapOnFirstPrimitive) {
 // discipline: "no ctest/gtest ever requires live network or the token") --
 // this test SKIPs cleanly whenever CESIUM_ION_TOKEN is unset OR the
 // separate MPVIZ_LIVE_ION_PERF opt-in is unset, so a normal ctest/
-// ci_visual_mode.sh run (neither set) never depends on either. Run it
-// deliberately (`CESIUM_ION_TOKEN=... MPVIZ_LIVE_ION_PERF=1
+// ci_visual_mode.sh run (neither set) never depends on either. VM-064 gate
+// round 1 finding: this used to be unrunnable even with both vars set in a
+// full-binary run -- two earlier tests unsetenv("CESIUM_ION_TOKEN") for the
+// whole process (now fixed via ScopedUnsetEnv's save/restore above), so a
+// full run with both vars exported now reaches this test with the token
+// still present. --gtest_filter stays the recommended way to run it in
+// isolation (deliberate opt-in, not a workaround for that bug):
+// (`CESIUM_ION_TOKEN=... MPVIZ_LIVE_ION_PERF=1
 // ./test_environment_stream --gtest_filter='*GooglePresetLive*'`) to
 // record the real dev-box number this task's results block wants.
 TEST(EnvironmentStreamPerf, GooglePresetLiveRenderMsDeltaVsOsmClay) {

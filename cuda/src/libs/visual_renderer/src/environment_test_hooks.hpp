@@ -74,6 +74,15 @@ bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double head
 // null-safety class as every other hook in this header.
 bool environment_stream_materials_original(mpviz::VisualRenderer* r);
 
+// VM-064 gate round 1 finding: the production activation path -- parsing
+// "materials=original" out of the ion:// query string -- had zero coverage
+// through the real parser (both Step 0 tests reach materials_original via
+// install_fixture_streaming_source(), which bypasses parse_ion_spec()
+// entirely). Calls parse_ion_spec() directly on `ion_spec` and returns its
+// materials_original flag; false if `ion_spec` fails to parse at all (no
+// numeric asset id).
+bool environment_stream_parse_materials_original(const char* ion_spec);
+
 // VM-064 Step 1: true iff the first currently-loaded tile's first
 // renderable's first primitive is bound to r->buildingMaterial (the clay
 // remap) -- false in original-materials mode. False on the same
