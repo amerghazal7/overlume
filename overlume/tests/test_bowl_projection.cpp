@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_bowl_projection.cpp — VM-091 (unified-engine migration Task 2),
 // Steps 0-2: bowl_projection.hpp's portable pinhole + plumb_bob projection
 // and bowl-surface math. No Filament/GPU involved -- these link against

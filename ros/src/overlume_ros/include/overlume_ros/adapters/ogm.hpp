@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file ogm.hpp
  *  @brief OgmAdapter (Epic 2 Task 6 / VM-025): nav_msgs/OccupancyGrid +
@@ -81,16 +84,14 @@
 #include "overlume_ros/scene_assembly.hpp"
 #include "overlume/scene.h"
 
-namespace overlume_node
-{
+namespace overlume_node {
 
 // See this file's header comment: the ONE number shared across the frozen
 // POD boundary that nothing enforces except this comment mirror (here,
 // ground_grid.cpp, ground_grid.mat).
 inline constexpr uint8_t kUnknownCell = 255;
 
-class OgmAdapter
-{
+class OgmAdapter {
 public:
     OgmAdapter(const ProfileRow& row, const overlume::ros::FrameTransformer& tf);
 

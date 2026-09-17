@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file test_point_cloud_adapter.cpp
  *  @brief PointCloudAdapter tests + the three synthetic-scene point-cloud
  *  goldens (Epic 3 Task 6 / VM-035, Steps 3-4).
@@ -25,15 +28,13 @@
 using overlume::ros::FrameTransformer;
 using overlume::ros::SceneAssembly;
 
-namespace
-{
+namespace {
 
 // Hand-built tf2_ros::Buffer + FrameTransformer -- an empty buffer is
 // enough (every fixture below stays in the "map" frame, FrameTransformer's
 // identity shortcut). Same fixture style as test_ogm_adapter.cpp/
 // test_collision_adapter.cpp.
-struct TfFixture
-{
+struct TfFixture {
     std::shared_ptr<rclcpp::Clock> clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
     tf2_ros::Buffer buffer{clock};
     FrameTransformer tf{buffer};
@@ -43,8 +44,7 @@ struct TfFixture
 // -- hand-built directly here, same "no urban_row()/sim_row() to borrow"
 // shape test_tf_axes_adapter.cpp already uses for its own row.
 overlume_node::ProfileRow MakeRow(const std::string& color_mode = "auto", uint32_t max_points = 0,
-                               uint32_t stride = 1)
-{
+                                  uint32_t stride = 1) {
     overlume_node::ProfileRow row;
     row.topic = "/lidar/points";
     row.type = "sensor_msgs/msg/PointCloud2";
@@ -56,8 +56,7 @@ overlume_node::ProfileRow MakeRow(const std::string& color_mode = "auto", uint32
     return row;
 }
 
-sensor_msgs::msg::PointField MakeField(const std::string& name, uint32_t offset)
-{
+sensor_msgs::msg::PointField MakeField(const std::string& name, uint32_t offset) {
     sensor_msgs::msg::PointField f;
     f.name = name;
     f.offset = offset;
@@ -66,8 +65,7 @@ sensor_msgs::msg::PointField MakeField(const std::string& name, uint32_t offset)
     return f;
 }
 
-float BitsAsFloat(uint32_t bits)
-{
+float BitsAsFloat(uint32_t bits) {
     float f;
     std::memcpy(&f, &bits, 4);
     return f;
@@ -75,15 +73,13 @@ float BitsAsFloat(uint32_t bits)
 
 // PCL packed-float convention (this adapter's own header comment): the
 // field's bit pattern, reinterpreted as a uint32_t, is 0x00RRGGBB.
-float PackRgbFloat(uint8_t r, uint8_t g, uint8_t b)
-{
+float PackRgbFloat(uint8_t r, uint8_t g, uint8_t b) {
     const uint32_t bits = (static_cast<uint32_t>(r) << 16) | (static_cast<uint32_t>(g) << 8) |
                           static_cast<uint32_t>(b);
     return BitsAsFloat(bits);
 }
 
-struct SyntheticPoint
-{
+struct SyntheticPoint {
     float x, y, z;
     float extra = 0.0f;  // rgb (packed float) or intensity, per `extra_name`
 };
@@ -94,8 +90,7 @@ struct SyntheticPoint
 // carrying / intensity-only / bare-XYZ) are just this helper called with
 // "rgb", "intensity", or "" respectively.
 sensor_msgs::msg::PointCloud2 BuildCloud(const std::vector<SyntheticPoint>& pts,
-                                          const std::string& extra_name)
-{
+                                         const std::string& extra_name) {
     sensor_msgs::msg::PointCloud2 msg;
     msg.header.frame_id = "map";
     msg.height = 1;
@@ -103,8 +98,7 @@ sensor_msgs::msg::PointCloud2 BuildCloud(const std::vector<SyntheticPoint>& pts,
     msg.fields = {MakeField("x", 0), MakeField("y", 4), MakeField("z", 8)};
     uint32_t point_step = 12;
     const bool has_extra = !extra_name.empty();
-    if (has_extra)
-    {
+    if (has_extra) {
         msg.fields.push_back(MakeField(extra_name, 12));
         point_step = 16;
     }
@@ -113,8 +107,7 @@ sensor_msgs::msg::PointCloud2 BuildCloud(const std::vector<SyntheticPoint>& pts,
     msg.is_dense = true;
     msg.is_bigendian = false;
     msg.data.resize(static_cast<size_t>(point_step) * pts.size());
-    for (size_t i = 0; i < pts.size(); ++i)
-    {
+    for (size_t i = 0; i < pts.size(); ++i) {
         uint8_t* rec = msg.data.data() + i * point_step;
         std::memcpy(rec + 0, &pts[i].x, 4);
         std::memcpy(rec + 4, &pts[i].y, 4);
@@ -124,16 +117,14 @@ sensor_msgs::msg::PointCloud2 BuildCloud(const std::vector<SyntheticPoint>& pts,
     return msg;
 }
 
-void Unpack(uint32_t rgba, uint8_t* r, uint8_t* g, uint8_t* b, uint8_t* a)
-{
+void Unpack(uint32_t rgba, uint8_t* r, uint8_t* g, uint8_t* b, uint8_t* a) {
     *r = static_cast<uint8_t>(rgba & 0xFFu);
     *g = static_cast<uint8_t>((rgba >> 8) & 0xFFu);
     *b = static_cast<uint8_t>((rgba >> 16) & 0xFFu);
     *a = static_cast<uint8_t>((rgba >> 24) & 0xFFu);
 }
 
-const overlume::PointCloud* OnlyCloud(const SceneAssembly& asm_)
-{
+const overlume::PointCloud* OnlyCloud(const SceneAssembly& asm_) {
     return asm_.point_clouds.size() == 1 ? &asm_.point_clouds[0] : nullptr;
 }
 
@@ -141,8 +132,7 @@ const overlume::PointCloud* OnlyCloud(const SceneAssembly& asm_)
 
 // ── Step 3: color_mode: auto tier fallback ──────────────────────────────────
 
-TEST(PointCloudAdapter, AutoModePicksRgbWhenFieldPresent)
-{
+TEST(PointCloudAdapter, AutoModePicksRgbWhenFieldPresent) {
     std::vector<SyntheticPoint> pts = {
         {0.0f, 0.0f, 0.0f, PackRgbFloat(200, 10, 10)},
         {1.0f, 0.0f, 0.0f, PackRgbFloat(10, 200, 10)},
@@ -166,11 +156,10 @@ TEST(PointCloudAdapter, AutoModePicksRgbWhenFieldPresent)
     EXPECT_EQ(alpha, 255) << "a real per-point color is always opaque (a==0 is the flat sentinel)";
 }
 
-TEST(PointCloudAdapter, AutoModeFallsBackToIntensityRampWhenNoRgbFieldExists)
-{
+TEST(PointCloudAdapter, AutoModeFallsBackToIntensityRampWhenNoRgbFieldExists) {
     std::vector<SyntheticPoint> pts = {
-        {0.0f, 0.0f, 0.0f, 0.0f},    // min intensity -> the ramp's low endpoint
-        {1.0f, 0.0f, 0.0f, 10.0f},   // max intensity -> the ramp's high endpoint
+        {0.0f, 0.0f, 0.0f, 0.0f},   // min intensity -> the ramp's low endpoint
+        {1.0f, 0.0f, 0.0f, 10.0f},  // max intensity -> the ramp's high endpoint
     };
     auto msg = BuildCloud(pts, "intensity");
     TfFixture kTf;
@@ -193,11 +182,10 @@ TEST(PointCloudAdapter, AutoModeFallsBackToIntensityRampWhenNoRgbFieldExists)
         << "min/max intensity points must land at different ramp colors";
 }
 
-TEST(PointCloudAdapter, AutoModeFallsBackToHeightRampWhenNeitherRgbNorIntensityExists)
-{
+TEST(PointCloudAdapter, AutoModeFallsBackToHeightRampWhenNeitherRgbNorIntensityExists) {
     std::vector<SyntheticPoint> pts = {
-        {0.0f, 0.0f, 0.0f, 0.0f},     // z=0, the ramp's low endpoint
-        {0.0f, 0.0f, 10.0f, 0.0f},    // z=10, the ramp's high endpoint
+        {0.0f, 0.0f, 0.0f, 0.0f},   // z=0, the ramp's low endpoint
+        {0.0f, 0.0f, 10.0f, 0.0f},  // z=10, the ramp's high endpoint
     };
     auto msg = BuildCloud(pts, "");  // bare XYZ -- no rgb, no intensity field at all
     TfFixture kTf;
@@ -220,8 +208,7 @@ TEST(PointCloudAdapter, AutoModeFallsBackToHeightRampWhenNeitherRgbNorIntensityE
 
 // ── Step 3: intensity auto-ranges per message, not over a fixed assumption ──
 
-TEST(PointCloudAdapter, IntensityRangeAutoRangesWhenRowLeavesItUnset)
-{
+TEST(PointCloudAdapter, IntensityRangeAutoRangesWhenRowLeavesItUnset) {
     // An arbitrary, non-[0,1]/non-[0,100] intensity range -- proves the
     // ramp is stretched over THIS message's own observed min/max, not some
     // hardcoded assumed scale (no profile-level intensity_range key exists
@@ -257,16 +244,14 @@ TEST(PointCloudAdapter, IntensityRangeAutoRangesWhenRowLeavesItUnset)
 
 // ── Step 3: decimation ───────────────────────────────────────────────────────
 
-TEST(PointCloudAdapter, DecimationRespectsMaxPointsAndStride)
-{
+TEST(PointCloudAdapter, DecimationRespectsMaxPointsAndStride) {
     // 10 points, distinctly colored (index*20 in the red channel) so
     // survivors are identifiable; stride: 2 keeps indices 0,2,4,6,8;
     // max_points: 3 then caps that to the first three (0,2,4).
     std::vector<SyntheticPoint> pts;
-    for (int i = 0; i < 10; ++i)
-    {
-        pts.push_back({static_cast<float>(i), 0.0f, 0.0f,
-                       PackRgbFloat(static_cast<uint8_t>(i * 20), 0, 0)});
+    for (int i = 0; i < 10; ++i) {
+        pts.push_back(
+            {static_cast<float>(i), 0.0f, 0.0f, PackRgbFloat(static_cast<uint8_t>(i * 20), 0, 0)});
     }
     auto msg = BuildCloud(pts, "rgb");
     TfFixture kTf;
@@ -285,8 +270,7 @@ TEST(PointCloudAdapter, DecimationRespectsMaxPointsAndStride)
 
 // ── Step 3: malformed / no-tf guards ─────────────────────────────────────────
 
-TEST(PointCloudAdapter, MissingXyzFieldDropsWholeMessage)
-{
+TEST(PointCloudAdapter, MissingXyzFieldDropsWholeMessage) {
     std::vector<SyntheticPoint> pts = {{0, 0, 0, 0}};
     auto msg = BuildCloud(pts, "");
     msg.fields.erase(msg.fields.begin() + 2);  // drop "z"
@@ -300,8 +284,7 @@ TEST(PointCloudAdapter, MissingXyzFieldDropsWholeMessage)
     EXPECT_TRUE(asm_.point_clouds.empty());
 }
 
-TEST(PointCloudAdapter, FlatModeBakesTheAlphaZeroSentinel)
-{
+TEST(PointCloudAdapter, FlatModeBakesTheAlphaZeroSentinel) {
     std::vector<SyntheticPoint> pts = {{0, 0, 0, 0}, {1, 0, 0, 0}};
     auto msg = BuildCloud(pts, "");
     TfFixture kTf;
@@ -312,8 +295,7 @@ TEST(PointCloudAdapter, FlatModeBakesTheAlphaZeroSentinel)
     a.fill(asm_);
     const overlume::PointCloud* pc = OnlyCloud(asm_);
     ASSERT_NE(pc, nullptr);
-    for (uint32_t i = 0; i < pc->point_count; ++i)
-    {
+    for (uint32_t i = 0; i < pc->point_count; ++i) {
         EXPECT_EQ(pc->points[i].rgba, 0u)
             << "flat mode bakes rgba==0 -- point_cloud.cpp substitutes the theme token";
     }
@@ -337,8 +319,7 @@ TEST(PointCloudAdapter, FlatModeBakesTheAlphaZeroSentinel)
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-namespace
-{
+namespace {
 
 constexpr uint32_t kGoldenWidth = 320;
 constexpr uint32_t kGoldenHeight = 240;
@@ -351,23 +332,18 @@ double Luminance(uint8_t r, uint8_t g, uint8_t b) { return 0.2126 * r + 0.7152 *
 // file's comment for why each vendored-stb build tree reimplements this
 // small helper rather than sharing one).
 double BlockSsim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, uint32_t width,
-                 uint32_t height)
-{
+                 uint32_t height) {
     constexpr int kBlock = 8;
     constexpr double kC1 = (0.01 * 255) * (0.01 * 255);
     constexpr double kC2 = (0.03 * 255) * (0.03 * 255);
     double total = 0.0;
     int blockCount = 0;
-    for (uint32_t by = 0; by + kBlock <= height; by += kBlock)
-    {
-        for (uint32_t bx = 0; bx + kBlock <= width; bx += kBlock)
-        {
+    for (uint32_t by = 0; by + kBlock <= height; by += kBlock) {
+        for (uint32_t bx = 0; bx + kBlock <= width; bx += kBlock) {
             double sumA = 0, sumB = 0, sumAA = 0, sumBB = 0, sumAB = 0;
             const int n = kBlock * kBlock;
-            for (int y = 0; y < kBlock; ++y)
-            {
-                for (int x = 0; x < kBlock; ++x)
-                {
+            for (int y = 0; y < kBlock; ++y) {
+                for (int x = 0; x < kBlock; ++x) {
                     const uint32_t px = bx + x, py = by + y;
                     const size_t idx = (static_cast<size_t>(py) * width + px) * 3;
                     const double la = Luminance(a[idx], a[idx + 1], a[idx + 2]);
@@ -384,7 +360,7 @@ double BlockSsim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, u
             const double varB = sumBB / n - meanB * meanB;
             const double covAB = sumAB / n - meanA * meanB;
             const double ssim = ((2 * meanA * meanB + kC1) * (2 * covAB + kC2)) /
-                                 ((meanA * meanA + meanB * meanB + kC1) * (varA + varB + kC2));
+                                ((meanA * meanA + meanB * meanB + kC1) * (varA + varB + kC2));
             total += ssim;
             ++blockCount;
         }
@@ -396,31 +372,25 @@ double BlockSsim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, u
 // carrying the named extra field -- one synthetic scene per FIXTURE GAP
 // fixture shape, large enough to read as an actual point cloud rather than
 // a couple of dots.
-std::vector<SyntheticPoint> MakeGoldenGrid(const std::string& extra_name)
-{
+std::vector<SyntheticPoint> MakeGoldenGrid(const std::string& extra_name) {
     std::vector<SyntheticPoint> pts;
     constexpr int kN = 25;
     constexpr float kExtentM = 6.0f;
-    for (int iy = 0; iy < kN; ++iy)
-    {
-        for (int ix = 0; ix < kN; ++ix)
-        {
+    for (int iy = 0; iy < kN; ++iy) {
+        for (int ix = 0; ix < kN; ++ix) {
             const float x = (static_cast<float>(ix) / (kN - 1) * 2.0f - 1.0f) * kExtentM;
             const float y = (static_cast<float>(iy) / (kN - 1) * 2.0f - 1.0f) * kExtentM;
             const float dist = std::sqrt(x * x + y * y);
             const float z = 2.0f * std::exp(-dist * dist / 12.0f);  // a gentle central bump
             float extra = 0.0f;
-            if (extra_name == "rgb")
-            {
+            if (extra_name == "rgb") {
                 // Position-driven hue so the golden reads as an actual
                 // colored surface, not a flat tint.
                 const uint8_t r = static_cast<uint8_t>(128 + 127 * std::sin(x));
                 const uint8_t g = static_cast<uint8_t>(128 + 127 * std::sin(y));
                 const uint8_t b = static_cast<uint8_t>(128 + 127 * std::cos(dist));
                 extra = PackRgbFloat(r, g, b);
-            }
-            else if (extra_name == "intensity")
-            {
+            } else if (extra_name == "intensity") {
                 extra = dist;  // auto-ranged by the adapter itself
             }
             pts.push_back({x, y, z, extra});
@@ -429,8 +399,7 @@ std::vector<SyntheticPoint> MakeGoldenGrid(const std::string& extra_name)
     return pts;
 }
 
-void RenderGoldenAndAssert(const std::string& tier_name, const std::string& extra_field_name)
-{
+void RenderGoldenAndAssert(const std::string& tier_name, const std::string& extra_field_name) {
     auto msg = BuildCloud(MakeGoldenGrid(extra_field_name), extra_field_name);
     TfFixture kTf;
     overlume_node::PointCloudAdapter adapter(MakeRow("auto"), kTf.tf);
@@ -471,8 +440,7 @@ void RenderGoldenAndAssert(const std::string& tier_name, const std::string& extr
     uint8_t* golden = stbi_load(golden_path.c_str(), &golden_w, &golden_h, &golden_c, 3);
     double ssim = 0.0;  // no committed golden yet -- "missing golden -> 0.0" convention
     if (golden != nullptr && static_cast<uint32_t>(golden_w) == kGoldenWidth &&
-        static_cast<uint32_t>(golden_h) == kGoldenHeight)
-    {
+        static_cast<uint32_t>(golden_h) == kGoldenHeight) {
         const std::vector<uint8_t> golden_pixels(
             golden, golden + static_cast<size_t>(golden_w) * golden_h * 3);
         ssim = BlockSsim(frame, golden_pixels, kGoldenWidth, kGoldenHeight);

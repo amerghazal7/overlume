@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
 // point_cloud.mat — Epic 3 Task 6 (VM-035). A point cloud's per-point
 // color IS the signal (STANDING directive 2026-09-09), so this is UNLIT --
 // PBR shading would add a light-direction term nobody asked for and that

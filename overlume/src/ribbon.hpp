@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // ribbon.hpp — internal-only (`-I src`), not installed, not POD. Declares
 // the per-frame counterpart to the three ribbon-role MaterialInstances
 // renderer.cpp creates/themes; render_frame() calls this every tick.

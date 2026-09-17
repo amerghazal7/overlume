@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #include "theme.hpp"
 
 #include <algorithm>
@@ -97,9 +100,8 @@ Theme parse(const YAML::Node& root) {
 
     // point_cloud: soft-defaulted (a YAML predating the token parses fine).
     const YAML::Node pc = root["point_cloud"];
-    t.point_cloud.point_size_px = (pc && pc["point_size_px"])
-                                       ? pc["point_size_px"].as<float>()
-                                       : 2.0f;
+    t.point_cloud.point_size_px =
+        (pc && pc["point_size_px"]) ? pc["point_size_px"].as<float>() : 2.0f;
 
     const YAML::Node sun = root["sun"];
     t.sun.direction = to_float3(sun["direction"]);
@@ -130,12 +132,15 @@ Theme parse(const YAML::Node& root) {
     // exact equality here, tests use EXPECT_NEAR. Neither shipped theme
     // relies on this default; it exists for a third-party theme file
     // predating this directive.
-    t.ribbon.lane_width_m = (ribbon && ribbon["lane_width_m"]) ? ribbon["lane_width_m"].as<float>() : 3.5f;
+    t.ribbon.lane_width_m =
+        (ribbon && ribbon["lane_width_m"]) ? ribbon["lane_width_m"].as<float>() : 3.5f;
     const float marginDefault = (t.ribbon.lane_width_m - t.ribbon.width_m) / 2.0f;
-    t.ribbon.margin_behavior_m =
-        (ribbon && ribbon["margin_behavior_m"]) ? ribbon["margin_behavior_m"].as<float>() : marginDefault;
-    t.ribbon.margin_global_m =
-        (ribbon && ribbon["margin_global_m"]) ? ribbon["margin_global_m"].as<float>() : marginDefault;
+    t.ribbon.margin_behavior_m = (ribbon && ribbon["margin_behavior_m"])
+                                     ? ribbon["margin_behavior_m"].as<float>()
+                                     : marginDefault;
+    t.ribbon.margin_global_m = (ribbon && ribbon["margin_global_m"])
+                                   ? ribbon["margin_global_m"].as<float>()
+                                   : marginDefault;
     t.ribbon.margin_local_m =
         (ribbon && ribbon["margin_local_m"]) ? ribbon["margin_local_m"].as<float>() : marginDefault;
 
@@ -144,16 +149,14 @@ Theme parse(const YAML::Node& root) {
     // between margin_local_m (0.8) and margin_behavior_m (1.3), independent
     // of whatever width_m/lane_width_m this theme authors (see theme.hpp's
     // own comment on why 1.05).
-    t.ribbon.margin_velocity_m = (ribbon && ribbon["margin_velocity_m"])
-                                     ? ribbon["margin_velocity_m"].as<float>()
-                                     : 1.05f;
+    t.ribbon.margin_velocity_m =
+        (ribbon && ribbon["margin_velocity_m"]) ? ribbon["margin_velocity_m"].as<float>() : 1.05f;
 
     // objects.opacity: soft-defaulted (VM-078), same convention as
     // point_cloud.point_size_px above -- a theme YAML predating this key
     // still parses, at the fully-opaque 1.0 default.
     const YAML::Node objects = root["objects"];
-    t.objects.opacity =
-        std::clamp(
+    t.objects.opacity = std::clamp(
         (objects && objects["opacity"]) ? objects["opacity"].as<float>() : 1.0f, 0.0f, 1.0f);
     // Clamped: >1 would keep alpha >= 1 and silently SUPPRESS the staleness
     // fade for most of its window; <0 would bind a negative baseColor alpha.

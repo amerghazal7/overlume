@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #include "scene_buffer.hpp"
 
 #include <algorithm>
@@ -92,7 +95,7 @@ void OwnedScene::assign(const overlume::SceneGraph& src) {
     view.point_clouds = point_clouds.data();
 
     trajectory_carpets.assign(src.trajectory_carpets,
-                               src.trajectory_carpets + src.trajectory_carpet_count);
+                              src.trajectory_carpets + src.trajectory_carpet_count);
     trajectory_carpet_points.resize(src.trajectory_carpet_count);
     for (uint32_t i = 0; i < src.trajectory_carpet_count; ++i) {
         const TrajectoryCarpet& s = src.trajectory_carpets[i];
@@ -118,8 +121,8 @@ const overlume::SceneGraph& SceneBuffer::active() const {
     return slots_[active_idx_].view;
 }
 
-float SceneBuffer::staleness_alpha(double now_sec, double last_update_sec,
-                                    double fade_start_sec, double timeout_sec) {
+float SceneBuffer::staleness_alpha(double now_sec, double last_update_sec, double fade_start_sec,
+                                   double timeout_sec) {
     const double age = now_sec - last_update_sec;
     if (age <= fade_start_sec) return 1.0f;
     if (age >= timeout_sec) return 0.0f;

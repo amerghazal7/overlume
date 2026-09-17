@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // 03_themes.cpp — loads both shipped themes, starts a set_theme() transition
 // between them, and renders using the DETERMINISTIC clock the API exposes
 // (SceneGraph::sim_time_sec) rather than wall-clock time. Public headers
@@ -20,7 +23,8 @@
 namespace {
 
 bool render_at(overlume::VisualRenderer* r, const overlume::CameraPose& pose,
-                const overlume::RenderConfig& config, double sim_time_sec, std::vector<uint8_t>& rgb) {
+               const overlume::RenderConfig& config, double sim_time_sec,
+               std::vector<uint8_t>& rgb) {
     // Re-publishing the scene at each sim_time_sec is what actually moves
     // set_theme()'s ease forward — render_frame() alone reads whatever
     // scene was last published (freeze-frame, see 02_scene_population.cpp),
@@ -98,8 +102,9 @@ int main(int argc, char** argv) {
         overlume::destroy_renderer(renderer);
         return 1;
     }
-    std::printf("rendered t=0.0 (dark_adas), t=0.4 (mid-blend, written above), "
-                "t=0.8 (fully light_clay)\n");
+    std::printf(
+        "rendered t=0.0 (dark_adas), t=0.4 (mid-blend, written above), "
+        "t=0.8 (fully light_clay)\n");
 
     overlume::destroy_renderer(renderer);
     return wroteMid ? 0 : 1;

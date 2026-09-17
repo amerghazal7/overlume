@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file test_callouts.cpp
  *  @brief Epic 3 Task 4 (VM-031) Step 2: BuildNearestCallout()'s
  *  camera-tracking and behind-camera-suppression behavior. DrawCallout()
@@ -17,11 +20,9 @@
 #include "overlume/api.h"
 #include "overlume/scene.h"
 
-namespace
-{
+namespace {
 
-overlume::VisualRenderer* MakeRenderer(uint32_t width, uint32_t height)
-{
+overlume::VisualRenderer* MakeRenderer(uint32_t width, uint32_t height) {
     overlume::RenderConfig config{};
     config.width = width;
     config.height = height;
@@ -33,8 +34,7 @@ overlume::VisualRenderer* MakeRenderer(uint32_t width, uint32_t height)
 
 }  // namespace
 
-TEST(Callouts, NearestObstacleChipTracksAcrossCameraMove)
-{
+TEST(Callouts, NearestObstacleChipTracksAcrossCameraMove) {
     constexpr uint32_t kW = 320, kH = 240;
     overlume::VisualRenderer* r = MakeRenderer(kW, kH);
     ASSERT_NE(r, nullptr);
@@ -85,8 +85,7 @@ TEST(Callouts, NearestObstacleChipTracksAcrossCameraMove)
     overlume::destroy_renderer(r);
 }
 
-TEST(Callouts, ChipForAnObjectBehindCameraIsSuppressedNotMisdrawn)
-{
+TEST(Callouts, ChipForAnObjectBehindCameraIsSuppressedNotMisdrawn) {
     constexpr uint32_t kW = 320, kH = 240;
     overlume::VisualRenderer* r = MakeRenderer(kW, kH);
     ASSERT_NE(r, nullptr);
@@ -107,8 +106,8 @@ TEST(Callouts, ChipForAnObjectBehindCameraIsSuppressedNotMisdrawn)
     // construction as the library's own ProjectToScreen.PointBehindCamera
     // ReturnsFalse test.
     overlume::Vec3 behind{pose.eye[0] + (pose.eye[0] - pose.target[0]),
-                       pose.eye[1] + (pose.eye[1] - pose.target[1]),
-                       pose.eye[2] + (pose.eye[2] - pose.target[2])};
+                          pose.eye[1] + (pose.eye[1] - pose.target[1]),
+                          pose.eye[2] + (pose.eye[2] - pose.target[2])};
     overlume::AlertPolygon alert{};
     alert.points = &behind;
     alert.point_count = 1;
@@ -121,8 +120,7 @@ TEST(Callouts, ChipForAnObjectBehindCameraIsSuppressedNotMisdrawn)
     overlume::destroy_renderer(r);
 }
 
-TEST(Callouts, NoAlertsReturnsFalse)
-{
+TEST(Callouts, NoAlertsReturnsFalse) {
     // alert_count==0 short-circuits before ever touching `renderer` --
     // nullptr here is deliberate, not an oversight.
     overlume_node::Callout c{};
@@ -145,13 +143,9 @@ TEST(Callouts, NoAlertsReturnsFalse)
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-namespace
-{
+namespace {
 
-double luminance(uint8_t r, uint8_t g, uint8_t b)
-{
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
+double luminance(uint8_t r, uint8_t g, uint8_t b) { return 0.2126 * r + 0.7152 * g + 0.0722 * b; }
 
 // ponytail: block-wise (8x8, non-overlapping, luminance-only) mean/
 // variance/covariance SSIM -- same deliberately-simplified approximation as
@@ -159,23 +153,18 @@ double luminance(uint8_t r, uint8_t g, uint8_t b)
 // shared: separate test binary, same "no shared header between clang/libc++
 // and gcc/libstdc++ test trees" reason as everywhere else in this package).
 double block_ssim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, uint32_t width,
-                   uint32_t height)
-{
+                  uint32_t height) {
     constexpr int kBlock = 8;
     constexpr double kC1 = (0.01 * 255) * (0.01 * 255);
     constexpr double kC2 = (0.03 * 255) * (0.03 * 255);
     double total = 0.0;
     int blockCount = 0;
-    for (uint32_t by = 0; by + kBlock <= height; by += kBlock)
-    {
-        for (uint32_t bx = 0; bx + kBlock <= width; bx += kBlock)
-        {
+    for (uint32_t by = 0; by + kBlock <= height; by += kBlock) {
+        for (uint32_t bx = 0; bx + kBlock <= width; bx += kBlock) {
             double sumA = 0, sumB = 0, sumAA = 0, sumBB = 0, sumAB = 0;
             const int n = kBlock * kBlock;
-            for (int y = 0; y < kBlock; ++y)
-            {
-                for (int x = 0; x < kBlock; ++x)
-                {
+            for (int y = 0; y < kBlock; ++y) {
+                for (int x = 0; x < kBlock; ++x) {
                     const uint32_t px = bx + x, py = by + y;
                     const size_t idx = (static_cast<size_t>(py) * width + px) * 3;
                     const double la = luminance(a[idx], a[idx + 1], a[idx + 2]);
@@ -192,7 +181,7 @@ double block_ssim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, 
             const double varB = sumBB / n - meanB * meanB;
             const double covAB = sumAB / n - meanA * meanB;
             const double ssim = ((2 * meanA * meanB + kC1) * (2 * covAB + kC2)) /
-                                 ((meanA * meanA + meanB * meanB + kC1) * (varA + varB + kC2));
+                                ((meanA * meanA + meanB * meanB + kC1) * (varA + varB + kC2));
             total += ssim;
             ++blockCount;
         }
@@ -202,8 +191,7 @@ double block_ssim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, 
 
 }  // namespace
 
-TEST(CalloutsGolden, SyntheticFrameWithVisibleCallout720pLowPreset)
-{
+TEST(CalloutsGolden, SyntheticFrameWithVisibleCallout720pLowPreset) {
     constexpr uint32_t kW = 1280, kH = 720;
     overlume::RenderConfig config{};
     config.width = kW;
@@ -251,24 +239,24 @@ TEST(CalloutsGolden, SyntheticFrameWithVisibleCallout720pLowPreset)
         << "obstacle expected in view for this golden's own fixed pose";
 
     const overlume::HudColors colors = overlume::get_hud_colors(r);
-    overlume_node::DrawCallout(
-        frame.data(), kW, kH, callout,
-        overlume_node::HudRgb{colors.accent_color[0], colors.accent_color[1], colors.accent_color[2]},
-        colors.scale, OVERLUME_NODE_FONT_PATH);
+    overlume_node::DrawCallout(frame.data(), kW, kH, callout,
+                               overlume_node::HudRgb{colors.accent_color[0], colors.accent_color[1],
+                                                     colors.accent_color[2]},
+                               colors.scale, OVERLUME_NODE_FONT_PATH);
 
     const char* actual_path = "/tmp/callouts_720p_actual.png";
     stbi_write_png(actual_path, static_cast<int>(kW), static_cast<int>(kH), 3, frame.data(),
                    static_cast<int>(kW) * 3);
 
-    const std::string golden_path = std::string(OVERLUME_NODE_FIXTURES_DIR) + "/callouts_720p_golden.png";
+    const std::string golden_path =
+        std::string(OVERLUME_NODE_FIXTURES_DIR) + "/callouts_720p_golden.png";
     int golden_w = 0, golden_h = 0, golden_c = 0;
     uint8_t* golden = stbi_load(golden_path.c_str(), &golden_w, &golden_h, &golden_c, 3);
     double ssim = 0.0;  // no committed golden yet -- same "missing golden -> 0.0" convention
     if (golden != nullptr && static_cast<uint32_t>(golden_w) == kW &&
-        static_cast<uint32_t>(golden_h) == kH)
-    {
-        const std::vector<uint8_t> golden_pixels(golden,
-                                                  golden + static_cast<size_t>(golden_w) * golden_h * 3);
+        static_cast<uint32_t>(golden_h) == kH) {
+        const std::vector<uint8_t> golden_pixels(
+            golden, golden + static_cast<size_t>(golden_w) * golden_h * 3);
         ssim = block_ssim(frame, golden_pixels, kW, kH);
     }
     if (golden != nullptr) stbi_image_free(golden);

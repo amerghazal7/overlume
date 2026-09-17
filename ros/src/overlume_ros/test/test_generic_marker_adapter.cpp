@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file test_generic_marker_adapter.cpp
  *  @brief GenericMarkerAdapter tests: the spec's §7 parity guarantee.
  */
@@ -22,21 +25,18 @@ using overlume::ros::FrameTransformer;
 using overlume::ros::SceneAssembly;
 using overlume_node::GenericMarkerAdapter;
 
-namespace
-{
+namespace {
 
 // Same shape as test_hd_map_adapter.cpp/test_collision_adapter.cpp's
 // TfFixture -- an empty buffer is enough for every test whose markers
 // stay in the "map" frame.
-struct TfFixture
-{
+struct TfFixture {
     std::shared_ptr<rclcpp::Clock> clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
     tf2_ros::Buffer buffer{clock};
     FrameTransformer tf{buffer};
 };
 
-geometry_msgs::msg::Point Pt(double x, double y, double z = 0.0)
-{
+geometry_msgs::msg::Point Pt(double x, double y, double z = 0.0) {
     geometry_msgs::msg::Point p;
     p.x = x;
     p.y = y;
@@ -44,8 +44,7 @@ geometry_msgs::msg::Point Pt(double x, double y, double z = 0.0)
     return p;
 }
 
-std_msgs::msg::ColorRGBA Rgba(float r, float g, float b, float a)
-{
+std_msgs::msg::ColorRGBA Rgba(float r, float g, float b, float a) {
     std_msgs::msg::ColorRGBA c;
     c.r = r;
     c.g = g;
@@ -54,8 +53,7 @@ std_msgs::msg::ColorRGBA Rgba(float r, float g, float b, float a)
     return c;
 }
 
-visualization_msgs::msg::Marker BaseMarker(const std::string& ns, int32_t id, int32_t type)
-{
+visualization_msgs::msg::Marker BaseMarker(const std::string& ns, int32_t id, int32_t type) {
     visualization_msgs::msg::Marker m;
     m.header.frame_id = "map";
     m.ns = ns;
@@ -67,8 +65,7 @@ visualization_msgs::msg::Marker BaseMarker(const std::string& ns, int32_t id, in
     return m;
 }
 
-visualization_msgs::msg::Marker DeleteAll()
-{
+visualization_msgs::msg::Marker DeleteAll() {
     visualization_msgs::msg::Marker m;
     m.header.frame_id = "map";
     m.action = 3;
@@ -80,8 +77,7 @@ visualization_msgs::msg::Marker DeleteAll()
 // urban_row("/sim/ground_truth/boxes") throws for every test below. Build
 // the CANONICAL disabled row text directly instead (best_effort: true is
 // load-bearing), independent of the row's shipped state.
-overlume_node::ProfileRow GroundTruthBoxesRow()
-{
+overlume_node::ProfileRow GroundTruthBoxesRow() {
     std::vector<std::string> errs;
     auto p = overlume_node::load_profile_string(
         "name: t\nrows:\n  - {topic: /sim/ground_truth/boxes, "
@@ -96,8 +92,7 @@ overlume_node::ProfileRow GroundTruthBoxesRow()
 
 // ── Step 4: fan-out is the ONLY freeze-respecting route for CUBE_LIST ──────
 
-TEST(GenericMarkerAdapter, CubeListFansOutIntoOneMarkerPerPoint)
-{
+TEST(GenericMarkerAdapter, CubeListFansOutIntoOneMarkerPerPoint) {
     TfFixture kTf;
     auto row = GroundTruthBoxesRow();
     GenericMarkerAdapter a(row, kTf.tf);
@@ -115,8 +110,7 @@ TEST(GenericMarkerAdapter, CubeListFansOutIntoOneMarkerPerPoint)
     a.fill(out);
 
     ASSERT_EQ(out.markers.size(), 3u);
-    for (const auto& g : out.markers)
-    {
+    for (const auto& g : out.markers) {
         EXPECT_EQ(g.primitive, overlume::MarkerPrimitive::CUBE);
         EXPECT_DOUBLE_EQ(g.scale.x, 2.0);
         EXPECT_FLOAT_EQ(g.color[0], 0.1f);
@@ -127,8 +121,7 @@ TEST(GenericMarkerAdapter, CubeListFansOutIntoOneMarkerPerPoint)
     EXPECT_NEAR(out.markers[2].position.x, 3.0, 1e-9);
 }
 
-TEST(GenericMarkerAdapter, SphereListFanOutUsesPerPointColorsWhenPopulated)
-{
+TEST(GenericMarkerAdapter, SphereListFanOutUsesPerPointColorsWhenPopulated) {
     TfFixture kTf;
     auto row = GroundTruthBoxesRow();
     GenericMarkerAdapter a(row, kTf.tf);
@@ -156,8 +149,7 @@ TEST(GenericMarkerAdapter, SphereListFanOutUsesPerPointColorsWhenPopulated)
 
 // ── Frames: /sim/ground_truth/boxes publishes in base_link ─────────────────
 
-TEST(GenericMarkerAdapter, BaseLinkMarkersLandAroundTheEgoNotTheMapOrigin)
-{
+TEST(GenericMarkerAdapter, BaseLinkMarkersLandAroundTheEgoNotTheMapOrigin) {
     auto clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
     tf2_ros::Buffer buffer(clock);
     geometry_msgs::msg::TransformStamped xf;
@@ -187,8 +179,7 @@ TEST(GenericMarkerAdapter, BaseLinkMarkersLandAroundTheEgoNotTheMapOrigin)
     SceneAssembly out;
     a.fill(out);
     ASSERT_EQ(out.markers.size(), 2u);
-    for (const auto& g : out.markers)
-    {
+    for (const auto& g : out.markers) {
         // Around the ego (150 +- a few m), nowhere near the map origin.
         EXPECT_GT(g.position.x, 100.0);
         EXPECT_LT(g.position.x, 200.0);
@@ -197,8 +188,7 @@ TEST(GenericMarkerAdapter, BaseLinkMarkersLandAroundTheEgoNotTheMapOrigin)
 
 // ── Malformed / DELETEALL / namespace rule ──────────────────────────────────
 
-TEST(GenericMarkerAdapter, MalformedMarkersDroppedAndCountedNeighboursStillRender)
-{
+TEST(GenericMarkerAdapter, MalformedMarkersDroppedAndCountedNeighboursStillRender) {
     TfFixture kTf;
     auto row = GroundTruthBoxesRow();
     GenericMarkerAdapter a(row, kTf.tf);
@@ -220,8 +210,7 @@ TEST(GenericMarkerAdapter, MalformedMarkersDroppedAndCountedNeighboursStillRende
     EXPECT_EQ(a.stats().dropped_malformed, 3u);
 }
 
-TEST(GenericMarkerAdapter, DeleteAllClearsPreviousMarkers)
-{
+TEST(GenericMarkerAdapter, DeleteAllClearsPreviousMarkers) {
     TfFixture kTf;
     auto row = GroundTruthBoxesRow();
     GenericMarkerAdapter a(row, kTf.tf);
@@ -239,8 +228,7 @@ TEST(GenericMarkerAdapter, DeleteAllClearsPreviousMarkers)
     EXPECT_TRUE(out.markers.empty());
 }
 
-TEST(GenericMarkerAdapter, DroppedByRuleNamespaceNeverReachesStorage)
-{
+TEST(GenericMarkerAdapter, DroppedByRuleNamespaceNeverReachesStorage) {
     auto row = GroundTruthBoxesRow();
     row.namespaces.push_back(
         overlume_node::NsRule{"noisy_", overlume_node::NsRender::kDrop, overlume::MapKind::OTHER});
@@ -259,8 +247,7 @@ TEST(GenericMarkerAdapter, DroppedByRuleNamespaceNeverReachesStorage)
 
 // ── Non-zero lifetime expiry, judged against ingest sim time ───────────────
 
-TEST(GenericMarkerAdapter, NonZeroLifetimeExpiresOnALaterIngestPastIt)
-{
+TEST(GenericMarkerAdapter, NonZeroLifetimeExpiresOnALaterIngestPastIt) {
     TfFixture kTf;
     auto row = GroundTruthBoxesRow();
     GenericMarkerAdapter a(row, kTf.tf);
@@ -295,8 +282,7 @@ TEST(GenericMarkerAdapter, NonZeroLifetimeExpiresOnALaterIngestPastIt)
 
 // ── text/mesh_path storage outlives fill() ──────────────────────────────────
 
-TEST(GenericMarkerAdapter, TextAndMeshPathStorageSurvivesFill)
-{
+TEST(GenericMarkerAdapter, TextAndMeshPathStorageSurvivesFill) {
     TfFixture kTf;
     auto row = GroundTruthBoxesRow();
     GenericMarkerAdapter a(row, kTf.tf);
@@ -314,16 +300,13 @@ TEST(GenericMarkerAdapter, TextAndMeshPathStorageSurvivesFill)
     a.fill(out);
     ASSERT_EQ(out.markers.size(), 2u);
     bool found_text = false, found_mesh = false;
-    for (const auto& g : out.markers)
-    {
-        if (g.primitive == overlume::MarkerPrimitive::TEXT)
-        {
+    for (const auto& g : out.markers) {
+        if (g.primitive == overlume::MarkerPrimitive::TEXT) {
             ASSERT_NE(g.text, nullptr);
             EXPECT_STREQ(g.text, "hello");
             found_text = true;
         }
-        if (g.primitive == overlume::MarkerPrimitive::MESH)
-        {
+        if (g.primitive == overlume::MarkerPrimitive::MESH) {
             ASSERT_NE(g.mesh_path, nullptr);
             EXPECT_STREQ(g.mesh_path, "/tmp/some_mesh.glb");
             found_mesh = true;

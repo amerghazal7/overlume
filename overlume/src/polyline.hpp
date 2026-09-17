@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // polyline.hpp — shared CPU polyline/polygon geometry helper: predicted
 // paths, ribbons, and alert polygons all reuse this instead of each
 // writing their own extruder.
@@ -102,8 +105,9 @@ inline constexpr float kPolylineClipQuantizeM = 0.05f;
 
 struct PolylineClip {
     bool active = false;
-    int64_t quantized_units = 0;  // station / kPolylineClipQuantizeM, rounded -- meaningful iff active
-    double station_m = 0.0;       // quantized_units * kPolylineClipQuantizeM -- meaningful iff active
+    int64_t quantized_units =
+        0;                   // station / kPolylineClipQuantizeM, rounded -- meaningful iff active
+    double station_m = 0.0;  // quantized_units * kPolylineClipQuantizeM -- meaningful iff active
 };
 
 // Clip decision for a polyline the ego may be riding. Caller gates on ego
@@ -135,7 +139,7 @@ std::vector<double> clean_polyline_stations(const Vec3* pts, uint32_t n);
 // `positions.size() != 2*stations.size()` is treated as "nothing to do"
 // rather than an out-of-bounds read.
 void collapse_clipped_positions(std::vector<Vec3>& positions, const std::vector<double>& stations,
-                                 bool clip_active, double clip_station_m);
+                                bool clip_active, double clip_station_m);
 
 // Lazy crosswalk hatch: painted bars with ground visible in the gaps
 // between them -- the visual differentiation is the geometry, not a

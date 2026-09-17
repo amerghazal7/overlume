@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // environment_stream.cpp — the ONE C++20 TU (Decision 3). Cesium-native
 // types NEVER leak outside this file: environment.hpp's factory declaration
 // and environment_test_hooks.hpp's test hooks are the only surfaces the
@@ -103,7 +106,8 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                     // as registerAllTileContentTypes() below).
                     static std::once_flag unknownMaterialsWarnOnce;
                     std::call_once(unknownMaterialsWarnOnce, [&val] {
-                        spdlog::warn("environment_stream: unknown materials='{}' -- treating as clay", val);
+                        spdlog::warn(
+                            "environment_stream: unknown materials='{}' -- treating as clay", val);
                     });
                     out.materials_original = false;
                 }
@@ -160,7 +164,8 @@ bool consolidate_buffers(CesiumGltf::Model& model) {
     merged.reserve(total);
     for (const CesiumGltf::Buffer& buf : model.buffers) {
         merged.insert(merged.end(), buf.cesium.data.begin(), buf.cesium.data.end());
-        if (const size_t rem = merged.size() % 4; rem != 0) merged.resize(merged.size() + (4 - rem));
+        if (const size_t rem = merged.size() % 4; rem != 0)
+            merged.resize(merged.size() + (4 - rem));
     }
     for (CesiumGltf::BufferView& bv : model.bufferViews) {
         if (bv.buffer < 0 || static_cast<size_t>(bv.buffer) >= newOffset.size()) continue;
@@ -265,7 +270,8 @@ public:
 protected:
     void sink_it_(const spdlog::details::log_msg& msg) override {
         // Already under base_sink<std::mutex>::log()'s lock -- no re-lock here.
-        std::string redacted = redact_credentials(std::string(msg.payload.data(), msg.payload.size()));
+        std::string redacted =
+            redact_credentials(std::string(msg.payload.data(), msg.payload.size()));
         // ponytail: cap the test-capture buffer so a long-running process
         // with a flaky tileset (repeated cesium error/warn lines) can't grow
         // this string without bound -- redaction itself (above) stays
@@ -276,8 +282,9 @@ protected:
             captured_ += redacted;
             captured_ += '\n';
         }
-        spdlog::details::log_msg redactedMsg(msg.time, msg.source, msg.logger_name, msg.level,
-                                              spdlog::string_view_t(redacted.data(), redacted.size()));
+        spdlog::details::log_msg redactedMsg(
+            msg.time, msg.source, msg.logger_name, msg.level,
+            spdlog::string_view_t(redacted.data(), redacted.size()));
         inner_->log(redactedMsg);
     }
     void flush_() override { inner_->flush(); }
@@ -321,7 +328,7 @@ std::shared_ptr<spdlog::logger> make_redacting_logger() {
 class TokenBypassAssetAccessor final : public CesiumAsync::IAssetAccessor {
 public:
     TokenBypassAssetAccessor(std::shared_ptr<CesiumAsync::IAssetAccessor> cached,
-                              std::shared_ptr<CesiumAsync::IAssetAccessor> direct)
+                             std::shared_ptr<CesiumAsync::IAssetAccessor> direct)
         : cached_(std::move(cached)), direct_(std::move(direct)) {}
 
     CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> get(
@@ -330,8 +337,9 @@ public:
         return pick(url)->get(asyncSystem, url, headers);
     }
     CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> request(
-        const CesiumAsync::AsyncSystem& asyncSystem, const std::string& verb, const std::string& url,
-        const std::vector<THeader>& headers, const std::span<const std::byte>& payload) override {
+        const CesiumAsync::AsyncSystem& asyncSystem, const std::string& verb,
+        const std::string& url, const std::vector<THeader>& headers,
+        const std::span<const std::byte>& payload) override {
         return pick(url)->request(asyncSystem, verb, url, headers, payload);
     }
     void tick() noexcept override {
@@ -390,9 +398,10 @@ Cesium3DTilesSelection::TilesetExternals build_externals(
     }
 
     std::error_code ec;
-    std::filesystem::create_directories(cache_dir, ec);  // best-effort; SqliteCache errors loudly if this fails for real
-    auto cacheDb =
-        std::make_shared<CesiumAsync::SqliteCache>(logger, cache_dir + "/cesium-tiles.sqlite", max_cache_items);
+    std::filesystem::create_directories(
+        cache_dir, ec);  // best-effort; SqliteCache errors loudly if this fails for real
+    auto cacheDb = std::make_shared<CesiumAsync::SqliteCache>(
+        logger, cache_dir + "/cesium-tiles.sqlite", max_cache_items);
     auto caching = std::make_shared<CesiumAsync::CachingAssetAccessor>(logger, counting, cacheDb);
     // Finding #0/#6: any access_token=-bearing URL is diverted away from
     // `caching`/`cacheDb` regardless of the remote's own Cache-Control header
@@ -416,7 +425,8 @@ Cesium3DTilesSelection::TilesetExternals build_externals(
 // ── ECEF <-> map-frame (Decision 8) ──────────────────────────────────────
 glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor) {
     const CesiumGeospatial::LocalHorizontalCoordinateSystem enu(
-        CesiumGeospatial::Cartographic::fromDegrees(anchor.origin_lon_deg, anchor.origin_lat_deg, 0.0));
+        CesiumGeospatial::Cartographic::fromDegrees(anchor.origin_lon_deg, anchor.origin_lat_deg,
+                                                    0.0));
     const glm::dmat4 ecefToEnu = enu.getEcefToLocalTransformation();
 
     // VM-062 gate round 1, Finding 1: getEcefToLocalTransformation() above
@@ -435,8 +445,8 @@ glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor) {
     // (kEarthRadiusM * cos(lat0) * dlon, kEarthRadiusM * dlat) instead of
     // the ellipsoid's -- BEFORE applying the same heading rotation
     // geo_anchor.cpp:23-37 uses.
-    constexpr double kWgs84A = 6378137.0;              // WGS84 semi-major axis (m)
-    constexpr double kWgs84F = 1.0 / 298.257223563;    // WGS84 flattening
+    constexpr double kWgs84A = 6378137.0;                   // WGS84 semi-major axis (m)
+    constexpr double kWgs84F = 1.0 / 298.257223563;         // WGS84 flattening
     constexpr double kWgs84E2 = kWgs84F * (2.0 - kWgs84F);  // first eccentricity^2
     // geo_anchor.cpp's own kEarthRadiusM, duplicated here rather than
     // shared across the node/library boundary -- this TU cannot include
@@ -445,7 +455,7 @@ glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor) {
     const double lat0_rad = anchor.origin_lat_deg * (M_PI / 180.0);
     const double sin2Lat0 = std::sin(lat0_rad) * std::sin(lat0_rad);
     const double denom = 1.0 - kWgs84E2 * sin2Lat0;
-    const double N = kWgs84A / std::sqrt(denom);                        // prime-vertical radius
+    const double N = kWgs84A / std::sqrt(denom);  // prime-vertical radius
     const double M = kWgs84A * (1.0 - kWgs84E2) / (denom * std::sqrt(denom));  // meridian radius
     glm::dmat4 sphereScale(1.0);
     sphereScale[0][0] = kMapSphereRadiusM / N;  // east
@@ -498,7 +508,8 @@ private:
 
 class FixtureAssetRequest final : public CesiumAsync::IAssetRequest {
 public:
-    FixtureAssetRequest(std::string method, std::string url, std::unique_ptr<FixtureAssetResponse> resp)
+    FixtureAssetRequest(std::string method, std::string url,
+                        std::unique_ptr<FixtureAssetResponse> resp)
         : method_(std::move(method)), url_(std::move(url)), resp_(std::move(resp)) {}
     const std::string& method() const override { return method_; }
     const std::string& url() const override { return url_; }
@@ -533,7 +544,8 @@ std::shared_ptr<CesiumAsync::IAssetRequest> FileFixtureAssetAccessor::makeReques
     // reach kNetworkLossConsecutiveFailures. Real ion tilesets don't
     // special-case this (the accessor decorator stack has no such
     // exemption) -- it exists only in this test-only fixture accessor.
-    const bool isRootManifest = url.size() >= 12 && url.compare(url.size() - 12, 12, "tileset.json") == 0;
+    const bool isRootManifest =
+        url.size() >= 12 && url.compare(url.size() - 12, 12, "tileset.json") == 0;
     if (killed_ && killed_->load() && !isRootManifest) {
         return std::make_shared<FixtureAssetRequest>(
             verb, url, std::make_unique<FixtureAssetResponse>(503, std::vector<std::byte>{}));
@@ -549,15 +561,16 @@ std::shared_ptr<CesiumAsync::IAssetRequest> FileFixtureAssetAccessor::makeReques
     std::vector<std::byte> bytes(static_cast<size_t>(size));
     file.seekg(0);
     file.read(reinterpret_cast<char*>(bytes.data()), size);
-    return std::make_shared<FixtureAssetRequest>(verb, url,
-                                                  std::make_unique<FixtureAssetResponse>(200, std::move(bytes)));
+    return std::make_shared<FixtureAssetRequest>(
+        verb, url, std::make_unique<FixtureAssetResponse>(200, std::move(bytes)));
 }
 
 // ── StreamRendererResources (Decision 7) ─────────────────────────────────
 CesiumAsync::Future<Cesium3DTilesSelection::TileLoadResultAndRenderResources>
-StreamRendererResources::prepareInLoadThread(const CesiumAsync::AsyncSystem& asyncSystem,
-                                              Cesium3DTilesSelection::TileLoadResult&& tileLoadResult,
-                                              const glm::dmat4& transform, const std::any& /*rendererOptions*/) {
+StreamRendererResources::prepareInLoadThread(
+    const CesiumAsync::AsyncSystem& asyncSystem,
+    Cesium3DTilesSelection::TileLoadResult&& tileLoadResult, const glm::dmat4& transform,
+    const std::any& /*rendererOptions*/) {
     auto* pGlb = new LoadThreadGlb();
     // Real OSM Buildings b3dm content is Y-up (glTF's own convention,
     // TileLoadResult::glTFUpAxis, default Y) with vertex positions already
@@ -574,9 +587,8 @@ StreamRendererResources::prepareInLoadThread(const CesiumAsync::AsyncSystem& asy
     // a per-tile placement value). cesium-native ships the exact
     // conversion (Transforms::getUpAxisTransform) rather than a hand-rolled
     // one.
-    pGlb->transform =
-        transform * CesiumGeometry::Transforms::getUpAxisTransform(tileLoadResult.glTFUpAxis,
-                                                                     CesiumGeometry::Axis::Z);
+    pGlb->transform = transform * CesiumGeometry::Transforms::getUpAxisTransform(
+                                      tileLoadResult.glTFUpAxis, CesiumGeometry::Axis::Z);
     if (auto* model = std::get_if<CesiumGltf::Model>(&tileLoadResult.contentKind)) {
         // Decision 7/15.4: real OSM Buildings tiles are multi-buffer
         // (verified at implementation) -- consolidate before writeGlb,
@@ -601,12 +613,13 @@ StreamRendererResources::prepareInLoadThread(const CesiumAsync::AsyncSystem& asy
                 // move the result straight into glbBytes instead of
                 // resize+memcpy (std::byte and uint8_t are layout-compatible
                 // but distinct types, so one conversion copy is unavoidable).
-                std::vector<uint8_t> bytes(reinterpret_cast<const uint8_t*>(res.gltfBytes.data()),
-                                            reinterpret_cast<const uint8_t*>(res.gltfBytes.data() +
-                                                                              res.gltfBytes.size()));
+                std::vector<uint8_t> bytes(
+                    reinterpret_cast<const uint8_t*>(res.gltfBytes.data()),
+                    reinterpret_cast<const uint8_t*>(res.gltfBytes.data() + res.gltfBytes.size()));
                 bytes = ensure_flat_normals(std::move(bytes));
-                pGlb->glbBytes.assign(reinterpret_cast<const std::byte*>(bytes.data()),
-                                       reinterpret_cast<const std::byte*>(bytes.data() + bytes.size()));
+                pGlb->glbBytes.assign(
+                    reinterpret_cast<const std::byte*>(bytes.data()),
+                    reinterpret_cast<const std::byte*>(bytes.data() + bytes.size()));
                 pGlb->ok = true;
             }
         }
@@ -616,13 +629,14 @@ StreamRendererResources::prepareInLoadThread(const CesiumAsync::AsyncSystem& asy
 }
 
 void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile& /*tile*/,
-                                                    void* pLoadThreadResult) {
+                                                   void* pLoadThreadResult) {
     std::unique_ptr<LoadThreadGlb> glb(static_cast<LoadThreadGlb*>(pLoadThreadResult));
     if (tornDown_.load() || !glb || !glb->ok || r_ == nullptr) return nullptr;
     if (!ensure_gltf_loader(*r_)) return nullptr;
 
-    filament::gltfio::FilamentAsset* asset = r_->sharedAssetLoader->createAsset(
-        reinterpret_cast<const uint8_t*>(glb->glbBytes.data()), static_cast<uint32_t>(glb->glbBytes.size()));
+    filament::gltfio::FilamentAsset* asset =
+        r_->sharedAssetLoader->createAsset(reinterpret_cast<const uint8_t*>(glb->glbBytes.data()),
+                                           static_cast<uint32_t>(glb->glbBytes.size()));
     if (asset == nullptr) return nullptr;
     if (!r_->sharedResourceLoader->loadResources(asset)) {
         r_->sharedAssetLoader->destroyAsset(asset);
@@ -671,7 +685,7 @@ void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile&
 }
 
 void StreamRendererResources::free(Cesium3DTilesSelection::Tile& /*tile*/, void* pLoadThreadResult,
-                                    void* pMainThreadResult) noexcept {
+                                   void* pMainThreadResult) noexcept {
     delete static_cast<LoadThreadGlb*>(pLoadThreadResult);
     if (pMainThreadResult == nullptr) return;
     auto* asset = static_cast<filament::gltfio::FilamentAsset*>(pMainThreadResult);
@@ -703,9 +717,10 @@ std::vector<filament::gltfio::FilamentAsset*> StreamRendererResources::drain_pen
 
 // ── StreamingEnvironmentSource ────────────────────────────────────────────
 StreamingEnvironmentSource::StreamingEnvironmentSource(
-    Cesium3DTilesSelection::TilesetExternals externals, int64_t asset_id, std::string ion_access_token,
-    std::string root_tileset_uri, std::string fallback_baked_dir, GeoAnchor anchor,
-    std::shared_ptr<CountingAssetAccessor> counting_accessor, bool materials_original)
+    Cesium3DTilesSelection::TilesetExternals externals, int64_t asset_id,
+    std::string ion_access_token, std::string root_tileset_uri, std::string fallback_baked_dir,
+    GeoAnchor anchor, std::shared_ptr<CountingAssetAccessor> counting_accessor,
+    bool materials_original)
     : asyncSystem_(externals.asyncSystem),
       anchor_(anchor),
       ecefToMap_(compute_ecef_to_map(anchor)),
@@ -723,7 +738,8 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
     // own TilesetJsonLoader logged "Error when parsing JSON content" for
     // every real b3dm tile in the fixture).
     static std::once_flag registerContentTypesOnce;
-    std::call_once(registerContentTypesOnce, [] { Cesium3DTilesContent::registerAllTileContentTypes(); });
+    std::call_once(registerContentTypesOnce,
+                   [] { Cesium3DTilesContent::registerAllTileContentTypes(); });
 
     // Owned here (not passed in via `externals`) so update()/teardown() can
     // reach it directly -- the SAME object also becomes
@@ -735,9 +751,11 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
     Cesium3DTilesSelection::TilesetOptions options;
     options.maximumScreenSpaceError = kStreamMaxSseErr;
     if (asset_id > 0 && !ion_access_token.empty()) {
-        tileset_ = std::make_unique<Cesium3DTilesSelection::Tileset>(externals, asset_id, ion_access_token, options);
+        tileset_ = std::make_unique<Cesium3DTilesSelection::Tileset>(externals, asset_id,
+                                                                     ion_access_token, options);
     } else {
-        tileset_ = std::make_unique<Cesium3DTilesSelection::Tileset>(externals, root_tileset_uri, options);
+        tileset_ =
+            std::make_unique<Cesium3DTilesSelection::Tileset>(externals, root_tileset_uri, options);
     }
     viewGroup_ = &tileset_->getDefaultViewGroup();
 }
@@ -802,17 +820,19 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
     using Cesium3DTilesSelection::ViewState;
     using Cesium3DTilesSelection::ViewUpdateResult;
 
-    const glm::dvec4 eyeEcef4 =
-        mapToEcef_ * glm::dvec4(ego_map_pos.x, ego_map_pos.y, ego_map_pos.z + kStreamViewHeightM, 1.0);
+    const glm::dvec4 eyeEcef4 = mapToEcef_ * glm::dvec4(ego_map_pos.x, ego_map_pos.y,
+                                                        ego_map_pos.z + kStreamViewHeightM, 1.0);
     const glm::dvec3 eyeEcef(eyeEcef4);
     // Map frame +Z is "up" by this project's own convention (ego.cpp, bowl.cpp);
     // nadir direction is straight down that same axis, expressed in ECEF.
-    const glm::dvec3 downEcef = glm::normalize(glm::dvec3(mapToEcef_ * glm::dvec4(0.0, 0.0, -1.0, 0.0)));
-    const glm::dvec3 northEcef = glm::normalize(glm::dvec3(mapToEcef_ * glm::dvec4(0.0, 1.0, 0.0, 0.0)));
+    const glm::dvec3 downEcef =
+        glm::normalize(glm::dvec3(mapToEcef_ * glm::dvec4(0.0, 0.0, -1.0, 0.0)));
+    const glm::dvec3 northEcef =
+        glm::normalize(glm::dvec3(mapToEcef_ * glm::dvec4(0.0, 1.0, 0.0, 0.0)));
 
     const ViewState view(eyeEcef, downEcef, northEcef,
-                          glm::dvec2(kStreamViewportPx, kStreamViewportPx), kStreamViewFovRad,
-                          kStreamViewFovRad);
+                         glm::dvec2(kStreamViewportPx, kStreamViewportPx), kStreamViewFovRad,
+                         kStreamViewFovRad);
 
     const auto now = std::chrono::steady_clock::now();
     float deltaSeconds = 0.0f;
@@ -851,7 +871,8 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
     }
     for (auto it = inScene_.begin(); it != inScene_.end();) {
         if (stillPresent.find(it->first) == stillPresent.end()) {
-            auto* asset = static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(it->first));
+            auto* asset =
+                static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(it->first));
             // Only remove from the scene if it was ever added there (see
             // the visible_ guard above) -- same invariant.
             if (visible_) {
@@ -902,7 +923,8 @@ void StreamingEnvironmentSource::teardown(VisualRenderer& r) {
     // destructor returns", Tileset.h). Then destroy it (unloads
     // synchronously as much as it can) and pump main-thread tasks in a
     // bounded loop until the event fires.
-    CesiumAsync::SharedFuture<void> destructionComplete = tileset_->getAsyncDestructionCompleteEvent();
+    CesiumAsync::SharedFuture<void> destructionComplete =
+        tileset_->getAsyncDestructionCompleteEvent();
     tileset_.reset();
     renderResources_->drain_pending_frees();  // whatever ~Tileset() freed synchronously
 
@@ -980,7 +1002,7 @@ size_t StreamingEnvironmentSource::scene_membership_count(VisualRenderer& r) con
 
 EnvironmentSourceState StreamingEnvironmentSource::state() const {
     return fallenBack_ ? EnvironmentSourceState::STREAMING_FALLBACK
-                        : EnvironmentSourceState::STREAMING;
+                       : EnvironmentSourceState::STREAMING;
 }
 
 // VM-064 (Task 5) Step 1 test-hook mirror: the first currently-in-scene
@@ -991,7 +1013,8 @@ EnvironmentSourceState StreamingEnvironmentSource::state() const {
 // test hook in this file.
 bool StreamingEnvironmentSource::first_primitive_is_building_material(VisualRenderer& r) const {
     if (inScene_.empty()) return false;
-    auto* asset = static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(inScene_.begin()->first));
+    auto* asset =
+        static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(inScene_.begin()->first));
     const size_t renderableCount = asset->getRenderableEntityCount();
     if (renderableCount == 0) return false;
     const utils::Entity* renderables = asset->getRenderableEntities();
@@ -1007,7 +1030,7 @@ bool StreamingEnvironmentSource::first_primitive_is_building_material(VisualRend
 namespace overlume {
 
 std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::string& ion_spec,
-                                                                      GeoAnchor anchor) {
+                                                                     GeoAnchor anchor) {
     const std::optional<IonSpec> spec = parse_ion_spec(ion_spec);
     if (!spec) return nullptr;
 
@@ -1048,9 +1071,9 @@ std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::
     Cesium3DTilesSelection::TilesetExternals externals =
         build_externals(curl, asyncSystem, cacheDir, spec->max_cache_items, &counting);
 
-    return std::make_unique<StreamingEnvironmentSource>(externals, spec->asset_id, std::string(token),
-                                                          std::string(), spec->fallback_dir, anchor,
-                                                          std::move(counting), spec->materials_original);
+    return std::make_unique<StreamingEnvironmentSource>(
+        externals, spec->asset_id, std::string(token), std::string(), spec->fallback_dir, anchor,
+        std::move(counting), spec->materials_original);
 }
 
 }  // namespace overlume
@@ -1112,15 +1135,15 @@ std::unique_ptr<overlume::EnvironmentSource> make_fixture_source(
         fileAccessor, asyncSystem, cacheDir, overlume::kDefaultMaxCacheItems, &counting);
     const std::string tilesetUri = std::string("file://") + fixture_dir + "/tileset.json";
     return std::make_unique<overlume::StreamingEnvironmentSource>(
-        externals, /*asset_id=*/0, /*ion_access_token=*/std::string(),
-        tilesetUri, fallback_baked_dir ? std::string(fallback_baked_dir) : std::string(), anchor,
+        externals, /*asset_id=*/0, /*ion_access_token=*/std::string(), tilesetUri,
+        fallback_baked_dir ? std::string(fallback_baked_dir) : std::string(), anchor,
         std::move(counting), materials_original);
 }
 
 }  // namespace
 
 bool install_fixture_streaming_source(overlume::VisualRenderer* r, const char* fixture_dir,
-                                       overlume::GeoAnchor anchor, bool materials_original) {
+                                      overlume::GeoAnchor anchor, bool materials_original) {
     if (r == nullptr) return false;
     // Teardown-THEN-construct (not build-then-swap, unlike
     // set_environment_source()'s general baked/streaming dispatch): two
@@ -1132,7 +1155,7 @@ bool install_fixture_streaming_source(overlume::VisualRenderer* r, const char* f
     // re-entrant-swap contract, so they tear down first.
     if (r->environmentSource) r->environmentSource->teardown(*r);
     auto source = make_fixture_source(fixture_dir, /*fallback_baked_dir=*/nullptr, anchor,
-                                       /*killed=*/nullptr, materials_original);
+                                      /*killed=*/nullptr, materials_original);
     if (!source) {
         r->environmentSource.reset();
         return false;
@@ -1142,14 +1165,15 @@ bool install_fixture_streaming_source(overlume::VisualRenderer* r, const char* f
 }
 
 FixtureStreamHandle* install_fixture_streaming_source_with_fallback(overlume::VisualRenderer* r,
-                                                                     const char* fixture_dir,
-                                                                     const char* fallback_baked_dir,
-                                                                     overlume::GeoAnchor anchor) {
+                                                                    const char* fixture_dir,
+                                                                    const char* fallback_baked_dir,
+                                                                    overlume::GeoAnchor anchor) {
     if (r == nullptr) return nullptr;
-    if (r->environmentSource) r->environmentSource->teardown(*r);  // see install_fixture_streaming_source's comment
+    if (r->environmentSource)
+        r->environmentSource->teardown(*r);  // see install_fixture_streaming_source's comment
     auto killed = std::make_shared<std::atomic<bool>>(false);
     auto source = make_fixture_source(fixture_dir, fallback_baked_dir, anchor, killed,
-                                       /*materials_original=*/false);
+                                      /*materials_original=*/false);
     if (!source) {
         r->environmentSource.reset();
         return nullptr;
@@ -1199,8 +1223,8 @@ bool environment_stream_first_primitive_is_clay(overlume::VisualRenderer* r) {
 }
 
 bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double heading_rad,
-                        double lat_deg, double lon_deg, double alt_m, double* out_x, double* out_y,
-                        double* out_z) {
+                       double lat_deg, double lon_deg, double alt_m, double* out_x, double* out_y,
+                       double* out_z) {
     const overlume::GeoAnchor anchor{origin_lat_deg, origin_lon_deg, heading_rad};
     const glm::dmat4 ecefToMap = overlume::compute_ecef_to_map(anchor);
     const CesiumGeospatial::Cartographic carto =
@@ -1219,7 +1243,8 @@ bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double head
 // have received. Empty if make_redacting_logger() has never been called
 // (no build_externals() call yet in this process).
 std::string captured_cesium_log_text() {
-    return g_redactingSinkForTest ? g_redactingSinkForTest->captured_text_for_test() : std::string();
+    return g_redactingSinkForTest ? g_redactingSinkForTest->captured_text_for_test()
+                                  : std::string();
 }
 
 // Finding #0 test hook: drives the REAL ion-handshake error path (Decision
@@ -1247,11 +1272,11 @@ bool drive_ion_token_redaction_probe(const char* bogus_token, int64_t asset_id, 
     std::shared_ptr<overlume::CountingAssetAccessor> counting;
     // cache=off: this probe only cares about the log-redaction path, not the
     // disk cache -- no throwaway temp dir needed for it.
-    Cesium3DTilesSelection::TilesetExternals externals =
-        overlume::build_externals(fileAccessor, asyncSystem, "off", overlume::kDefaultMaxCacheItems, &counting);
+    Cesium3DTilesSelection::TilesetExternals externals = overlume::build_externals(
+        fileAccessor, asyncSystem, "off", overlume::kDefaultMaxCacheItems, &counting);
     Cesium3DTilesSelection::TilesetOptions options;
-    auto tileset =
-        std::make_unique<Cesium3DTilesSelection::Tileset>(externals, asset_id, std::string(bogus_token), options);
+    auto tileset = std::make_unique<Cesium3DTilesSelection::Tileset>(
+        externals, asset_id, std::string(bogus_token), options);
     for (int i = 0; i < max_ticks; ++i) {
         asyncSystem.dispatchMainThreadTasks();
         if (captured_cesium_log_text().find("access_token=") != std::string::npos) return true;

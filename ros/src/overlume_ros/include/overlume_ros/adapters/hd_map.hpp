@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file hd_map.hpp
  *  @brief HdMapAdapter (Epic 2 Task 2 / VM-024): MarkerArray -> MapElement.
@@ -60,11 +63,9 @@
 #include "overlume_ros/scene_assembly.hpp"
 #include "overlume/scene.h"
 
-namespace overlume_node
-{
+namespace overlume_node {
 
-class HdMapAdapter
-{
+class HdMapAdapter {
 public:
     HdMapAdapter(const ProfileRow& row, const overlume::ros::FrameTransformer& tf);
 
@@ -108,24 +109,20 @@ public:
     const AdapterStats& stats() const { return stats_; }
 
 private:
-    struct StoredElement
-    {
+    struct StoredElement {
         std::vector<overlume::Vec3> points;
         uint8_t is_polygon{0};
         overlume::MapKind kind{overlume::MapKind::OTHER};  // from the matched NsRule
-        uint32_t lane_id{0};                          // marker.id; lane kinds only, else 0
+        uint32_t lane_id{0};                               // marker.id; lane kinds only, else 0
     };
     // Dashing moved renderer-side (VM-036); every key maps to exactly one
     // StoredElement now (vector wrapper kept only to avoid reshaping
     // ingest()/fill(); always size 1). DELETE(m.ns, m.id) erases it in one
     // shot.
     using Key = std::pair<std::string, int32_t>;  // (marker.ns, marker.id)
-    struct KeyHash
-    {
-        size_t operator()(const Key& k) const noexcept
-        {
-            return std::hash<std::string>{}(k.first) ^
-                   (std::hash<int32_t>{}(k.second) << 1);
+    struct KeyHash {
+        size_t operator()(const Key& k) const noexcept {
+            return std::hash<std::string>{}(k.first) ^ (std::hash<int32_t>{}(k.second) << 1);
         }
     };
 

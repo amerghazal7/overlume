@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // ribbon.cpp — path ribbons in three roles (BEHAVIOR/GLOBAL/LOCAL), the
 // behavior ribbon as the emissive bloom hero. Geometry reuses
 // extrude_polyline/extrude_polyline_indices/polyline_chunks (polyline.hpp)
@@ -103,9 +106,9 @@ uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float half
 // Stagger widened 2026-09-10 (user: "Still flickering, increase the z a
 // bit and let me judge") -- gaps 6-8mm, was 2.5-5mm; whole stack stays
 // under alert_polygons' 0.06 so alerts remain topmost.
-constexpr float kRibbonZLiftByRoleM[3] = {0.058f,  // BEHAVIOR (PathRole 0)
-                                          0.038f,  // GLOBAL   (PathRole 1)
-                                          0.046f}; // LOCAL    (PathRole 2)
+constexpr float kRibbonZLiftByRoleM[3] = {0.058f,   // BEHAVIOR (PathRole 0)
+                                          0.038f,   // GLOBAL   (PathRole 1)
+                                          0.046f};  // LOCAL    (PathRole 2)
 
 // Per-role extruded half-width: a ribbon doesn't fully occupy
 // theme.ribbon.lane_width_m -- each role's own margin
@@ -197,7 +200,8 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::RibbonSlot& slot, Path
     // culling box, unrelated to the strip's real extent).
     const float halfWidthM = build_effective_half_width(r.active_theme.ribbon, role);
     slot.halfWidthM = halfWidthM;
-    slot.firstPointM = n > 0 ? pts[0] : Vec3{};  // baseline; apply_ribbon_clip() overwrites if clipped
+    slot.firstPointM =
+        n > 0 ? pts[0] : Vec3{};  // baseline; apply_ribbon_clip() overwrites if clipped
     // Global arc-length offset carried across chunks so `pointStations`
     // stays index-aligned with compute_polyline_clip()'s own station
     // measure even for a >kMaxPointsPerMesh ribbon (each chunk's own
@@ -245,14 +249,15 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::RibbonSlot& slot, Path
 // (always-unclipped) content rebuild, which forces one. A parked ego
 // causes zero uploads. Also keeps RibbonSlot::firstPointM (the test-hook
 // mirror) in sync with what's actually on screen.
-void apply_ribbon_clip(VisualRenderer& r, VisualRenderer::RibbonSlot& slot, const RibbonClip& clip) {
+void apply_ribbon_clip(VisualRenderer& r, VisualRenderer::RibbonSlot& slot,
+                       const RibbonClip& clip) {
     const bool changed = !slot.has_applied_clip || slot.appliedClipActive != clip.active ||
-                          (clip.active && slot.appliedClipUnits != clip.quantized_units);
+                         (clip.active && slot.appliedClipUnits != clip.quantized_units);
     if (!changed) return;
     for (size_t i = 0; i < slot.meshes.size(); ++i) {
         std::vector<Vec3> positions = slot.baseStripPositions[i];
         detail::collapse_clipped_positions(positions, slot.pointStations[i], clip.active,
-                                            clip.station_m);
+                                           clip.station_m);
         if (i == 0 && !positions.empty()) slot.firstPointM = positions[0];
         std::vector<Vertex> verts(positions.size());
         for (size_t v = 0; v < positions.size(); ++v) verts[v].position = to_f3(positions[v]);
@@ -269,7 +274,7 @@ void apply_ribbon_clip(VisualRenderer& r, VisualRenderer::RibbonSlot& slot, cons
 // objects.cpp's remap_to_material(), specialized for a ribbon slot's
 // (possibly several, post-chunking) single-primitive meshes.
 void rebind_slot_material(VisualRenderer& r, VisualRenderer::RibbonSlot& slot,
-                         filament::MaterialInstance* mat) {
+                          filament::MaterialInstance* mat) {
     filament::RenderableManager& rm = r.engine->getRenderableManager();
     for (auto& mesh : slot.meshes) {
         const auto ri = rm.getInstance(mesh.entity);
@@ -301,7 +306,8 @@ void update_ribbons(VisualRenderer& r, const SceneGraph& s) {
         // (rebuilt or not).
         const RibbonClip clip = compute_ribbon_clip(ribbon, s.ego);
 
-        const float effectiveHalfWidthM = build_effective_half_width(r.active_theme.ribbon, ribbon.role);
+        const float effectiveHalfWidthM =
+            build_effective_half_width(r.active_theme.ribbon, ribbon.role);
         const uint64_t sig =
             ribbon_signature(ribbon.role, ribbon.points, ribbon.point_count, effectiveHalfWidthM);
         if (!slot.has_signature || slot.signature != sig) {
@@ -365,7 +371,8 @@ void update_ribbons(VisualRenderer& r, const SceneGraph& s) {
 // why these live here.
 namespace overlume::testing {
 
-overlume::detail::Float3 ribbon_role_base_color(overlume::VisualRenderer* r, overlume::PathRole role) {
+overlume::detail::Float3 ribbon_role_base_color(overlume::VisualRenderer* r,
+                                                overlume::PathRole role) {
     if (r == nullptr) return {};
     return r->ribbonTint[static_cast<uint8_t>(role)];
 }
@@ -390,7 +397,8 @@ RibbonMaterialInfo ribbon_slot_material_info(overlume::VisualRenderer* r, size_t
     const auto ri = rm.getInstance(s.meshes.front().entity);
     if (!ri.isValid()) return info;
     filament::MaterialInstance* bound = rm.getMaterialInstanceAt(ri, 0);
-    info.bound_to_translucent = bound != nullptr && bound->getMaterial() == r->clayTranslucentMaterial;
+    info.bound_to_translucent =
+        bound != nullptr && bound->getMaterial() == r->clayTranslucentMaterial;
     return info;
 }
 

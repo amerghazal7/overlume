@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // golden.hpp — shared render+compare helper used by every golden-image
 // test. NOT a gtest file itself (see CMakeLists.txt: golden.cpp is compiled
 // as a plain extra source into every other test binary instead of its own
@@ -204,7 +207,7 @@ GridScene make_two_layer_grids(double now);
 // create_renderer() returns null, before ever reaching this call, same as
 // every other renderer test in this codebase.
 double render_and_compare(overlume::VisualRenderer* r, const overlume::CameraPose& pose,
-                           const char* golden_png_path, const char* out_png_path);
+                          const char* golden_png_path, const char* out_png_path);
 
 // Legibility stats for a rendered frame -- the numeric form of the plan's
 // Step 7a AC ("clay surfaces read as mid-gray-ish, not clipped white or

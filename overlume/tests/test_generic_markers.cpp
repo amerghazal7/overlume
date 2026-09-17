@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_generic_markers.cpp — the generic-marker fallback renderer, i.e.
 // the spec §7 parity guarantee. Same "no Filament type" boundary as every
 // other tests/*.cpp -- see generic_markers_test_hooks.hpp.
@@ -36,7 +39,8 @@ TEST(GenericMarkersGolden, EveryPrimitiveType_DarkAdas) {
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    const std::string meshPath = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/test_cube.glb";
+    const std::string meshPath =
+        std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/test_cube.glb";
     overlume::testing::GenericMarkerScene scene =
         overlume::testing::make_all_primitive_markers(/*now=*/10.0, meshPath.c_str());
     overlume::SceneGraph s{};
@@ -61,7 +65,8 @@ TEST(GenericMarkers, PooledRenderablesNoPerFrameAllocation) {
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    const std::string meshPath = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/test_cube.glb";
+    const std::string meshPath =
+        std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/test_cube.glb";
     overlume::testing::GenericMarkerScene scene =
         overlume::testing::make_all_primitive_markers(/*now=*/10.0, meshPath.c_str());
     overlume::SceneGraph s{};

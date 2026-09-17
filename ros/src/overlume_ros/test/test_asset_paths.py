@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """Asset-resolution regression test (VM-044 review round 2, blocking finding).
 
 B05.4.2's own acceptance criterion is literally "Param test" and none

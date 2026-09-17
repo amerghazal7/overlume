@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file test_hd_map_adapter.cpp
  *  @brief HdMapAdapter tests.
  */
@@ -22,15 +25,13 @@
 using overlume::ros::FrameTransformer;
 using overlume::ros::SceneAssembly;
 
-namespace
-{
+namespace {
 
 // Hand-built tf2_ros::Buffer + FrameTransformer, identical fixture style to
 // test_frame_transform.cpp -- an empty buffer is enough for every test
 // whose markers stay in the "map" frame (FrameTransformer's identity
 // shortcut never touches it).
-struct TfFixture
-{
+struct TfFixture {
     std::shared_ptr<rclcpp::Clock> clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
     tf2_ros::Buffer buffer{clock};
     FrameTransformer tf{buffer};
@@ -38,11 +39,11 @@ struct TfFixture
 
 }  // namespace
 
-TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks)
-{
+TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks) {
     auto msg = overlume_node::testing::load_marker_array("hd_map_local_elements_0.yaml");
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(overlume_node::testing::urban_row("/hd_map_local_elements"), kTf.tf);
+    overlume_node::HdMapAdapter a(overlume_node::testing::urban_row("/hd_map_local_elements"),
+                                  kTf.tf);
     a.ingest(msg, /*sim_time_sec=*/1.0);
     SceneAssembly out;
     a.fill(out);  // appends, never overwrites
@@ -77,27 +78,28 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks)
     // polygon) and from NOTHING else -- on the wire every hd_map marker in
     // this fixture is a LINE_STRIP.
     EXPECT_TRUE(std::any_of(out.map_elements.begin(), out.map_elements.end(),
-                             [](const overlume::MapElement& m) { return m.is_polygon == 1; }));
+                            [](const overlume::MapElement& m) { return m.is_polygon == 1; }));
     // ...and the crosswalk_stopline_ sibling is kept as a polyline, not
     // silently dropped.
     EXPECT_TRUE(std::any_of(out.map_elements.begin(), out.map_elements.end(),
-                             [](const overlume::MapElement& m) { return m.is_polygon == 0; }));
+                            [](const overlume::MapElement& m) { return m.is_polygon == 0; }));
     // centerline_ is hidden by default -- zero CENTERLINE elements reach
     // fill()'s output for this fixture.
     EXPECT_EQ(std::count_if(out.map_elements.begin(), out.map_elements.end(),
-                             [](const overlume::MapElement& m) { return m.kind == overlume::MapKind::CENTERLINE; }),
+                            [](const overlume::MapElement& m) {
+                                return m.kind == overlume::MapKind::CENTERLINE;
+                            }),
               0);
 
     // Road-surface fill: 16 synthesized ROAD_SURFACE elements, every one
     // point_count == 2*16 == 32 regardless of the real rail's own recorded
     // point count (lanes 813/955 are 10/11 and 8/9 on the wire -- resampling
     // is what makes this uniform).
-    const auto road_count =
-        std::count_if(out.map_elements.begin(), out.map_elements.end(),
-                       [](const overlume::MapElement& m) { return m.kind == overlume::MapKind::ROAD_SURFACE; });
+    const auto road_count = std::count_if(
+        out.map_elements.begin(), out.map_elements.end(),
+        [](const overlume::MapElement& m) { return m.kind == overlume::MapKind::ROAD_SURFACE; });
     EXPECT_EQ(road_count, 16);
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::ROAD_SURFACE) EXPECT_EQ(e.point_count, 32u);
     }
 
@@ -131,12 +133,11 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks)
     EXPECT_EQ(left_count + right_count + road_edge_count, 34);
     // Lane 934 is the measured fully-interior exemplar: both its boundaries
     // stay LEFT_BOUNDARY/RIGHT_BOUNDARY, never ROAD_EDGE.
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.lane_id != 934u) continue;
-        if (e.kind == overlume::MapKind::LEFT_BOUNDARY || e.kind == overlume::MapKind::RIGHT_BOUNDARY ||
-            e.kind == overlume::MapKind::ROAD_SURFACE)
-        {
+        if (e.kind == overlume::MapKind::LEFT_BOUNDARY ||
+            e.kind == overlume::MapKind::RIGHT_BOUNDARY ||
+            e.kind == overlume::MapKind::ROAD_SURFACE) {
             continue;
         }
         ADD_FAILURE() << "lane 934 has an unexpected kind " << static_cast<int>(e.kind)
@@ -152,8 +153,7 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks)
     // apart.
     {
         std::vector<overlume::MapElement> lane792;
-        for (const auto& e : out.map_elements)
-        {
+        for (const auto& e : out.map_elements) {
             if (e.kind == overlume::MapKind::ROAD_EDGE && e.lane_id == 792u) lane792.push_back(e);
         }
         ASSERT_EQ(lane792.size(), 2u);
@@ -171,16 +171,13 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks)
     // golden.hpp/golden.cpp). One element per line:
     // `<is_polygon> <kind> <lane_id> <n> <x1> <y1> <z1> ... <xn> <yn> <zn>`.
     // ponytail: a text dump, not a serializer.
-    if (const char* geom_path = std::getenv("OVERLUME_EMIT_GEOM"))
-    {
+    if (const char* geom_path = std::getenv("OVERLUME_EMIT_GEOM")) {
         std::ofstream geom(geom_path);
         geom << std::setprecision(12);
-        for (const auto& e : out.map_elements)
-        {
+        for (const auto& e : out.map_elements) {
             geom << static_cast<int>(e.is_polygon) << ' ' << static_cast<int>(e.kind) << ' '
                  << e.lane_id << ' ' << e.point_count;
-            for (uint32_t i = 0; i < e.point_count; ++i)
-            {
+            for (uint32_t i = 0; i < e.point_count; ++i) {
                 geom << ' ' << e.points[i].x << ' ' << e.points[i].y << ' ' << e.points[i].z;
             }
             geom << '\n';
@@ -188,8 +185,7 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks)
     }
 }
 
-TEST(HdMapAdapter, SimProfileRowMakesCrosswalksPolygonsToo)
-{
+TEST(HdMapAdapter, SimProfileRowMakesCrosswalksPolygonsToo) {
     // The assertion above covers ONE row's rules. /sim/hd_map/markers --
     // the only full-extent map source -- uses namespace "crosswalks"
     // (plural, no numeric suffix), which urban's "crosswalk_" prefix does
@@ -203,14 +199,13 @@ TEST(HdMapAdapter, SimProfileRowMakesCrosswalksPolygonsToo)
     a.fill(out);
 
     EXPECT_TRUE(std::any_of(out.map_elements.begin(), out.map_elements.end(),
-                             [](const overlume::MapElement& m) { return m.is_polygon == 1; }));
+                            [](const overlume::MapElement& m) { return m.is_polygon == 1; }));
 
     // Relationship, not a magic number -- this must survive a re-cut fixture:
     //   dropped_by_rule == count of fixture markers whose ns classifies kDrop
     //   dropped_malformed == 0
     uint64_t expected_drops = 0;
-    for (const auto& m : msg.markers)
-    {
+    for (const auto& m : msg.markers) {
         if (m.action == 3) continue;  // DELETEALL isn't a namespace decision
         if (overlume_node::classify(row, m.ns) == overlume_node::NsRender::kDrop) ++expected_drops;
     }
@@ -219,8 +214,7 @@ TEST(HdMapAdapter, SimProfileRowMakesCrosswalksPolygonsToo)
     EXPECT_EQ(a.stats().dropped_malformed, 0u);
 }
 
-TEST(HdMapAdapter, SimCrosswalksPluralUnsuffixedGetsCrosswalkKind)
-{
+TEST(HdMapAdapter, SimCrosswalksPluralUnsuffixedGetsCrosswalkKind) {
     // test_profile.cpp:157 only covers urban's "crosswalk_" rule at rule
     // level (match_rule/classify). Nothing exercises the ADAPTER on sim's
     // plural, unsuffixed "crosswalks" namespace -- map_elements.cpp gates
@@ -237,8 +231,7 @@ TEST(HdMapAdapter, SimCrosswalksPluralUnsuffixedGetsCrosswalkKind)
     a.fill(out);
 
     bool found = false;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.is_polygon != 1) continue;
         found = true;
         EXPECT_EQ(e.kind, overlume::MapKind::CROSSWALK);
@@ -246,8 +239,7 @@ TEST(HdMapAdapter, SimCrosswalksPluralUnsuffixedGetsCrosswalkKind)
     ASSERT_TRUE(found) << "no polygon (crosswalk) element found in sim fixture output";
 }
 
-TEST(HdMapAdapter, CrosswalkTrailingDuplicateVertexIsDeduped)
-{
+TEST(HdMapAdapter, CrosswalkTrailingDuplicateVertexIsDeduped) {
     // The real crosswalk_8043 marker (committed fixture) arrives with 5
     // points, point[0] == point[4] (a closed-polygon closing vertex). The
     // adapter's dedupe must drop that trailing duplicate so the STORED
@@ -255,7 +247,8 @@ TEST(HdMapAdapter, CrosswalkTrailingDuplicateVertexIsDeduped)
     // never fires on real data otherwise.
     auto msg = overlume_node::testing::load_marker_array("hd_map_local_elements_0.yaml");
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(overlume_node::testing::urban_row("/hd_map_local_elements"), kTf.tf);
+    overlume_node::HdMapAdapter a(overlume_node::testing::urban_row("/hd_map_local_elements"),
+                                  kTf.tf);
     a.ingest(msg, /*sim_time_sec=*/1.0);
     SceneAssembly out;
     a.fill(out);
@@ -264,12 +257,10 @@ TEST(HdMapAdapter, CrosswalkTrailingDuplicateVertexIsDeduped)
     // lane_id doesn't identify it); find it by its recorded first vertex
     // instead of depending on storage iteration order.
     bool found = false;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind != overlume::MapKind::CROSSWALK || e.point_count == 0) continue;
         if (std::abs(e.points[0].x - (-39.50850289011474)) < 1e-6 &&
-            std::abs(e.points[0].y - 45.33743457749722) < 1e-6)
-        {
+            std::abs(e.points[0].y - 45.33743457749722) < 1e-6) {
             found = true;
             EXPECT_EQ(e.point_count, 4u);
             // Crosswalks are not lane-paired -- KindCarriesLaneId()
@@ -281,8 +272,7 @@ TEST(HdMapAdapter, CrosswalkTrailingDuplicateVertexIsDeduped)
     ASSERT_TRUE(found) << "crosswalk_8043 element not found in fill() output";
 }
 
-TEST(HdMapAdapter, ArrowNamespaceIsDroppedByLongestPrefixWins)
-{
+TEST(HdMapAdapter, ArrowNamespaceIsDroppedByLongestPrefixWins) {
     // "centerline_" -> polyline and "centerline_arrows_" -> drop in the
     // same row: ns "centerline_arrows_0" matches BOTH by prefix and the
     // LONGER rule must win. A naive prefix include-list would admit every
@@ -302,8 +292,7 @@ TEST(HdMapAdapter, ArrowNamespaceIsDroppedByLongestPrefixWins)
     EXPECT_EQ(a.stats().dropped_malformed, 0u);
 }
 
-TEST(HdMapAdapter, NonMapFrameMessageIsTransformedNotCopied)
-{
+TEST(HdMapAdapter, NonMapFrameMessageIsTransformedNotCopied) {
     // /hd_map_local_elements is frame "map" today, but the adapter goes
     // through FrameTransformer like every other adapter: feed the same
     // fixture with header.frame_id = "base_link" and a known
@@ -334,18 +323,15 @@ TEST(HdMapAdapter, NonMapFrameMessageIsTransformedNotCopied)
     // ORIGIN (the fixture's own recorded coordinates); the transform
     // above must move all of them out past (900, 1900).
     bool any_far = false;
-    for (const auto& e : out.map_elements)
-    {
-        for (uint32_t i = 0; i < e.point_count; ++i)
-        {
+    for (const auto& e : out.map_elements) {
+        for (uint32_t i = 0; i < e.point_count; ++i) {
             if (e.points[i].x > 900.0 && e.points[i].y > 1900.0) any_far = true;
         }
     }
     EXPECT_TRUE(any_far);
 }
 
-TEST(HdMapAdapter, TfLookupFailureDropsTheMessageAndCounts)
-{
+TEST(HdMapAdapter, TfLookupFailureDropsTheMessageAndCounts) {
     TfFixture kTf;
     auto row = overlume_node::testing::urban_row("/hd_map_local_elements");
     overlume_node::HdMapAdapter a(row, kTf.tf);
@@ -369,8 +355,7 @@ TEST(HdMapAdapter, TfLookupFailureDropsTheMessageAndCounts)
     EXPECT_EQ(after.map_elements.size(), before.map_elements.size());
 }
 
-TEST(HdMapAdapter, DeleteAllClearsPreviousElements)
-{
+TEST(HdMapAdapter, DeleteAllClearsPreviousElements) {
     // Every real message starts with a DELETEALL marker (ns="", id=0);
     // ingesting two messages must not accumulate.
     TfFixture kTf;
@@ -391,8 +376,7 @@ TEST(HdMapAdapter, DeleteAllClearsPreviousElements)
     EXPECT_EQ(second.map_elements.size(), first.map_elements.size());
 }
 
-TEST(HdMapAdapter, MalformedMarkersAreDroppedAndCounted)
-{
+TEST(HdMapAdapter, MalformedMarkersAreDroppedAndCounted) {
     // Hand-edited fixture: a LINE_STRIP with 1 point, one with a NaN
     // point, one with an empty points[]. All three dropped; the valid
     // marker in the same message still comes through. Uses left_boundary_*
@@ -416,8 +400,7 @@ TEST(HdMapAdapter, MalformedMarkersAreDroppedAndCounted)
     for (const auto& e : out.map_elements) EXPECT_EQ(e.point_count, 2u);
 }
 
-TEST(HdMapAdapter, FillStampsLastUpdateSecOnEveryElementIncludingRoadSurface)
-{
+TEST(HdMapAdapter, FillStampsLastUpdateSecOnEveryElementIncludingRoadSurface) {
     // Every emitted element (including the synthesized ROAD_SURFACE one)
     // must carry MapElement::last_update_sec offset into the row's own
     // timeout_sec (see kMapFadeWindowSec in hd_map.cpp), not a bare
@@ -439,8 +422,7 @@ TEST(HdMapAdapter, FillStampsLastUpdateSecOnEveryElementIncludingRoadSurface)
     const double expected_stamp = kSimTime + (row.timeout_sec - kMapFadeWindowSec);
     ASSERT_GT(out.map_elements.size(), 0u);
     bool saw_road_surface = false;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         EXPECT_DOUBLE_EQ(e.last_update_sec, expected_stamp)
             << "element kind=" << static_cast<int>(e.kind) << " lane_id=" << e.lane_id
             << " was not stamped from the ingest sim time offset by (timeout_sec - "
@@ -450,8 +432,7 @@ TEST(HdMapAdapter, FillStampsLastUpdateSecOnEveryElementIncludingRoadSurface)
     EXPECT_TRUE(saw_road_surface) << "fixture no longer synthesizes a ROAD_SURFACE element";
 }
 
-TEST(HdMapAdapter, ThrottledRowStaysFreshOnReceiptNotOnAcceptedRebuildCadence)
-{
+TEST(HdMapAdapter, ThrottledRowStaysFreshOnReceiptNotOnAcceptedRebuildCadence) {
     // A row throttled by max_rate_hz (e.g. /hd_map_global_elements: 0.5 ->
     // 2.0s min rebuild gap) keeps RECEIVING at its real publish rate between
     // accepted rebuilds -- stamping last_update_sec from the throttled
@@ -466,7 +447,8 @@ TEST(HdMapAdapter, ThrottledRowStaysFreshOnReceiptNotOnAcceptedRebuildCadence)
     // rebuild's own time (0.0) offset the same way.
     TfFixture kTf;
     auto row = overlume_node::testing::urban_row("/hd_map_global_elements");
-    ASSERT_DOUBLE_EQ(row.max_rate_hz, 0.5) << "urban_profile.yaml's row no longer matches this test's premise";
+    ASSERT_DOUBLE_EQ(row.max_rate_hz, 0.5)
+        << "urban_profile.yaml's row no longer matches this test's premise";
     overlume_node::HdMapAdapter a(row, kTf.tf);
 
     // Same one-marker shape as RateLimitHonoursMaxRateHz above, built
@@ -483,8 +465,7 @@ TEST(HdMapAdapter, ThrottledRowStaysFreshOnReceiptNotOnAcceptedRebuildCadence)
     m.points = {p0, p1};
     msg.markers = {m};
 
-    for (double t = 0.0; t <= 1.5 + 1e-9; t += 0.3)
-    {
+    for (double t = 0.0; t <= 1.5 + 1e-9; t += 0.3) {
         a.ingest(msg, t);
     }
 
@@ -495,16 +476,14 @@ TEST(HdMapAdapter, ThrottledRowStaysFreshOnReceiptNotOnAcceptedRebuildCadence)
     constexpr double kMapFadeWindowSec = 1.0;
     const double expected_stamp = 1.5 + (row.timeout_sec - kMapFadeWindowSec);
     ASSERT_GT(out.map_elements.size(), 0u);
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         EXPECT_NEAR(e.last_update_sec, expected_stamp, 1e-9)
             << "stamp tracked the throttled rebuild cadence instead of topic liveness -- "
                "the map layer would blink dark between rebuilds";
     }
 }
 
-TEST(HdMapAdapter, LowRateReceiptDoesNotSawtoothBetweenReceipts)
-{
+TEST(HdMapAdapter, LowRateReceiptDoesNotSawtoothBetweenReceipts) {
     // ThrottledRowStaysFreshOnReceiptNotOnAcceptedRebuildCadence (above)
     // only ever ingests at 0.3s spacing (3.33 Hz) -- it never pins behaviour
     // in the 1-2 Hz regime. A straight last_update_sec == last_recv_sec_
@@ -534,9 +513,8 @@ TEST(HdMapAdapter, LowRateReceiptDoesNotSawtoothBetweenReceipts)
 
     constexpr double kStaleFadeStartSec = 0.5;  // mirrors renderer_internal.hpp, not included
     constexpr double kMapFadeWindowSec = 1.0;   // mirrors hd_map.cpp's own constant, not included
-    constexpr double kReceiptPeriodSec = 1.0;    // the 1 Hz regime under test
-    for (int receipt = 0; receipt < 5; ++receipt)
-    {
+    constexpr double kReceiptPeriodSec = 1.0;   // the 1 Hz regime under test
+    for (int receipt = 0; receipt < 5; ++receipt) {
         const double t_recv = receipt * kReceiptPeriodSec;
         a.ingest(msg, t_recv);
 
@@ -549,21 +527,20 @@ TEST(HdMapAdapter, LowRateReceiptDoesNotSawtoothBetweenReceipts)
         // this is what a bare straight-stamp implementation would fail.
         const double now_just_before_next_receipt = t_recv + kReceiptPeriodSec - 1e-3;
         const double expected_stamp = t_recv + (row.timeout_sec - kMapFadeWindowSec);
-        for (const auto& e : out.map_elements)
-        {
+        for (const auto& e : out.map_elements) {
             EXPECT_DOUBLE_EQ(e.last_update_sec, expected_stamp)
                 << "receipt #" << receipt << ": stamp is not the offset-into-timeout_sec value";
             const double age = now_just_before_next_receipt - e.last_update_sec;
             EXPECT_LT(age, kStaleFadeStartSec)
-                << "receipt #" << receipt << ": a 1 Hz-received row has already started "
+                << "receipt #" << receipt
+                << ": a 1 Hz-received row has already started "
                    "fading (age >= kStaleFadeStartSec) just before its next receipt -- "
                    "the fix does not hold in the 1-2 Hz regime";
         }
     }
 }
 
-TEST(HdMapAdapter, PublishOnceTransientLocalRowStaysOpaqueWellPastOldOneSecondFadeFloor)
-{
+TEST(HdMapAdapter, PublishOnceTransientLocalRowStaysOpaqueWellPastOldOneSecondFadeFloor) {
     // sim_profile.yaml's /sim/hd_map/markers is publish-once/transient_local
     // (timeout_sec: 5.0) -- last_recv_sec_ freezes at its one ingest while
     // sim_time keeps climbing. A straight last_update_sec == last_recv_sec_
@@ -575,7 +552,8 @@ TEST(HdMapAdapter, PublishOnceTransientLocalRowStaysOpaqueWellPastOldOneSecondFa
     // still FULLY opaque (age comfortably under kStaleFadeStartSec).
     TfFixture kTf;
     auto row = overlume_node::testing::sim_row("/sim/hd_map/markers");
-    ASSERT_DOUBLE_EQ(row.timeout_sec, 5.0) << "sim_profile.yaml's row no longer matches this test's premise";
+    ASSERT_DOUBLE_EQ(row.timeout_sec, 5.0)
+        << "sim_profile.yaml's row no longer matches this test's premise";
     overlume_node::HdMapAdapter a(row, kTf.tf);
 
     auto msg = overlume_node::testing::load_marker_array("sim_hd_map_markers_0.yaml");
@@ -586,9 +564,8 @@ TEST(HdMapAdapter, PublishOnceTransientLocalRowStaysOpaqueWellPastOldOneSecondFa
     ASSERT_GT(out.map_elements.size(), 0u);
 
     constexpr double kStaleFadeStartSec = 0.5;  // mirrors renderer_internal.hpp, not included
-    constexpr double kSimTimeNow = 2.0;          // well past the old 1.0s fade floor
-    for (const auto& e : out.map_elements)
-    {
+    constexpr double kSimTimeNow = 2.0;         // well past the old 1.0s fade floor
+    for (const auto& e : out.map_elements) {
         const double age = kSimTimeNow - e.last_update_sec;
         EXPECT_LT(age, kStaleFadeStartSec)
             << "the publish-once/transient_local row faded before its own timeout_sec cutoff -- "
@@ -596,8 +573,7 @@ TEST(HdMapAdapter, PublishOnceTransientLocalRowStaysOpaqueWellPastOldOneSecondFa
     }
 }
 
-TEST(HdMapAdapter, RateLimitHonoursMaxRateHz)
-{
+TEST(HdMapAdapter, RateLimitHonoursMaxRateHz) {
     // max_rate_hz: 2.0 -> ingesting faster than 2 Hz rebuilds at most
     // twice a second. Four single-marker messages (no DELETEALL between
     // them, so an accepted one always ADDs a new element) spaced closer
@@ -607,8 +583,7 @@ TEST(HdMapAdapter, RateLimitHonoursMaxRateHz)
     auto row = overlume_node::testing::urban_row("/hd_map_local_elements");
     overlume_node::HdMapAdapter a(row, kTf.tf);
 
-    auto make_one_marker = [](const char* ns, int32_t id, double x0)
-    {
+    auto make_one_marker = [](const char* ns, int32_t id, double x0) {
         visualization_msgs::msg::MarkerArray arr;
         visualization_msgs::msg::Marker m;
         m.header.frame_id = "map";
@@ -643,16 +618,14 @@ TEST(HdMapAdapter, RateLimitHonoursMaxRateHz)
     EXPECT_EQ(out.map_elements.size(), 2u);
 }
 
-namespace
-{
+namespace {
 
 // Builds a one-row profile with centerline_/left_boundary_/right_boundary_
 // namespace rules, for the pose-composition/flatten-z tests below --
 // independent of the shipped config so they exercise the geometry op in
 // isolation from urban_profile.yaml. right_boundary_ is needed by the
 // road-edge-detection tests below, which need both rails.
-overlume_node::ProfileRow MapRuleRow()
-{
+overlume_node::ProfileRow MapRuleRow() {
     std::vector<std::string> errs;
     const std::string yaml =
         "name: t\nrows:\n  - {topic: /hd_map, type: visualization_msgs/msg/MarkerArray,"
@@ -670,8 +643,7 @@ overlume_node::ProfileRow MapRuleRow()
 // lanes sharing painted lines: lane A's right rail == lane B's left rail,
 // lane B's right rail == lane C's left rail (road-edge-detection tests
 // below).
-visualization_msgs::msg::Marker RailMarker(const char* ns, int32_t id, double x)
-{
+visualization_msgs::msg::Marker RailMarker(const char* ns, int32_t id, double x) {
     visualization_msgs::msg::Marker m;
     m.header.frame_id = "map";
     m.ns = ns;
@@ -691,8 +663,7 @@ visualization_msgs::msg::Marker RailMarker(const char* ns, int32_t id, double x)
 // junction) for the junction-cleanup tests below -- optionally with
 // `junction_interior_boundaries: false` set at row level (default true,
 // matching every shipped profile).
-overlume_node::ProfileRow JunctionRuleRow(bool junction_interior_boundaries = true)
-{
+overlume_node::ProfileRow JunctionRuleRow(bool junction_interior_boundaries = true) {
     std::vector<std::string> errs;
     std::string yaml =
         "name: t\nrows:\n  - {topic: /hd_map, type: visualization_msgs/msg/MarkerArray,"
@@ -704,8 +675,9 @@ overlume_node::ProfileRow JunctionRuleRow(bool junction_interior_boundaries = tr
         "  {prefix: right_boundary_, render: polyline, kind: right_boundary},"
         "  {prefix: junction,        render: polyline, kind: junction}]}\n";
     auto p = overlume_node::load_profile_string(yaml, errs);
-    if (!p) throw std::runtime_error("JunctionRuleRow: profile failed to parse: " +
-                                      (errs.empty() ? "" : errs[0]));
+    if (!p)
+        throw std::runtime_error("JunctionRuleRow: profile failed to parse: " +
+                                 (errs.empty() ? "" : errs[0]));
     return p->rows[0];
 }
 
@@ -713,16 +685,14 @@ overlume_node::ProfileRow JunctionRuleRow(bool junction_interior_boundaries = tr
 // point spacing -- the junction-cleanup tests below need vertices that
 // straddle a polygon/crossing boundary without landing exactly on it.
 visualization_msgs::msg::Marker LineMarker(const char* ns, int32_t id,
-                                            const std::vector<std::pair<double, double>>& xy)
-{
+                                           const std::vector<std::pair<double, double>>& xy) {
     visualization_msgs::msg::Marker m;
     m.header.frame_id = "map";
     m.ns = ns;
     m.id = id;
     m.type = 4;
     m.action = 0;
-    for (const auto& [x, y] : xy)
-    {
+    for (const auto& [x, y] : xy) {
         geometry_msgs::msg::Point p;
         p.x = x;
         p.y = y;
@@ -733,8 +703,7 @@ visualization_msgs::msg::Marker LineMarker(const char* ns, int32_t id,
 
 // One straight 10 m LINE_STRIP marker under the given namespace -- the
 // same shape RateLimitHonoursMaxRateHz's make_one_marker uses above.
-visualization_msgs::msg::MarkerArray StraightTenMeterMarker(const char* ns)
-{
+visualization_msgs::msg::MarkerArray StraightTenMeterMarker(const char* ns) {
     visualization_msgs::msg::MarkerArray arr;
     visualization_msgs::msg::Marker m;
     m.header.frame_id = "map";
@@ -752,8 +721,7 @@ visualization_msgs::msg::MarkerArray StraightTenMeterMarker(const char* ns)
 
 }  // namespace
 
-TEST(HdMapAdapter, MarkerOfAnyKindStaysOneElementOutOfTheAdapter)
-{
+TEST(HdMapAdapter, MarkerOfAnyKindStaysOneElementOutOfTheAdapter) {
     // Dashing moved renderer-side, so the adapter never chops, for any kind
     // -- a straight 10 m marker stays ONE element under a boundary namespace
     // AND under a centerline namespace.
@@ -781,8 +749,7 @@ TEST(HdMapAdapter, MarkerOfAnyKindStaysOneElementOutOfTheAdapter)
     EXPECT_EQ(centerline_out.map_elements[0].kind, overlume::MapKind::CENTERLINE);
 }
 
-TEST(HdMapAdapter, CenterlineAndBoundaryKindAndLaneIdFromMarkerId)
-{
+TEST(HdMapAdapter, CenterlineAndBoundaryKindAndLaneIdFromMarkerId) {
     // The marker's own `id` field *is* `lane_id` directly, no ns-suffix
     // parsing: a centerline_934/id=934 marker and a left_boundary_934/id=934
     // marker carry the same lane_id purely via the marker's own `id`, not
@@ -812,10 +779,8 @@ TEST(HdMapAdapter, CenterlineAndBoundaryKindAndLaneIdFromMarkerId)
     ASSERT_EQ(out.map_elements.size(), 2u);
 
     bool found_centerline = false, found_boundary = false;
-    for (const auto& e : out.map_elements)
-    {
-        if (e.kind == overlume::MapKind::CENTERLINE)
-        {
+    for (const auto& e : out.map_elements) {
+        if (e.kind == overlume::MapKind::CENTERLINE) {
             found_centerline = true;
             EXPECT_EQ(e.lane_id, 934u);
         }
@@ -823,8 +788,7 @@ TEST(HdMapAdapter, CenterlineAndBoundaryKindAndLaneIdFromMarkerId)
         // this test's scene), so IsRoadEdge() promotes it to ROAD_EDGE --
         // this test's own point (lane_id carried via the marker's own `id`)
         // doesn't care which of the two kinds it ends up as.
-        else if (e.kind == overlume::MapKind::ROAD_EDGE)
-        {
+        else if (e.kind == overlume::MapKind::ROAD_EDGE) {
             found_boundary = true;
             EXPECT_EQ(e.lane_id, 934u);
         }
@@ -833,8 +797,7 @@ TEST(HdMapAdapter, CenterlineAndBoundaryKindAndLaneIdFromMarkerId)
     EXPECT_TRUE(found_boundary);
 }
 
-TEST(HdMapAdapter, LaneWithOnlyOneBoundaryProducesNoRoadSurfaceElement)
-{
+TEST(HdMapAdapter, LaneWithOnlyOneBoundaryProducesNoRoadSurfaceElement) {
     // The committed hd_map_local_elements_0.yaml has all 16 boundary-bearing
     // lanes fully paired, so fill()'s `if (it == right_by_lane.end())
     // continue;` branch has no real-fixture instance and is otherwise
@@ -848,15 +811,14 @@ TEST(HdMapAdapter, LaneWithOnlyOneBoundaryProducesNoRoadSurfaceElement)
 
     SceneAssembly out;
     a.fill(out);
-    const auto road_count =
-        std::count_if(out.map_elements.begin(), out.map_elements.end(),
-                       [](const overlume::MapElement& m) { return m.kind == overlume::MapKind::ROAD_SURFACE; });
+    const auto road_count = std::count_if(
+        out.map_elements.begin(), out.map_elements.end(),
+        [](const overlume::MapElement& m) { return m.kind == overlume::MapKind::ROAD_SURFACE; });
     EXPECT_EQ(road_count, 0);
     EXPECT_EQ(a.stats().dropped_malformed, 0u);
 }
 
-TEST(HdMapAdapter, MismatchedRailPointCountsResampledStationsSpanRecordedEndpoints)
-{
+TEST(HdMapAdapter, MismatchedRailPointCountsResampledStationsSpanRecordedEndpoints) {
     // LocalElementsFixtureYieldsLanesAndCrosswalks's aggregate (road_count
     // ==16, every point_count==32) proves resampling produced the right
     // SHAPE but never proves the resampled stations actually SPAN the
@@ -867,7 +829,8 @@ TEST(HdMapAdapter, MismatchedRailPointCountsResampledStationsSpanRecordedEndpoin
     // committed fixture.
     auto msg = overlume_node::testing::load_marker_array("hd_map_local_elements_0.yaml");
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(overlume_node::testing::urban_row("/hd_map_local_elements"), kTf.tf);
+    overlume_node::HdMapAdapter a(overlume_node::testing::urban_row("/hd_map_local_elements"),
+                                  kTf.tf);
     a.ingest(msg, /*sim_time_sec=*/1.0);
     SceneAssembly out;
     a.fill(out);
@@ -883,15 +846,11 @@ TEST(HdMapAdapter, MismatchedRailPointCountsResampledStationsSpanRecordedEndpoin
     const geometry_msgs::msg::Point* left_last = nullptr;
     const geometry_msgs::msg::Point* right_first = nullptr;
     const geometry_msgs::msg::Point* right_last = nullptr;
-    for (const auto& m : msg.markers)
-    {
-        if (m.ns == "left_boundary_955" && !m.points.empty())
-        {
+    for (const auto& m : msg.markers) {
+        if (m.ns == "left_boundary_955" && !m.points.empty()) {
             left_first = &m.points.front();
             left_last = &m.points.back();
-        }
-        else if (m.ns == "right_boundary_955" && !m.points.empty())
-        {
+        } else if (m.ns == "right_boundary_955" && !m.points.empty()) {
             right_first = &m.points.front();
             right_last = &m.points.back();
         }
@@ -900,10 +859,8 @@ TEST(HdMapAdapter, MismatchedRailPointCountsResampledStationsSpanRecordedEndpoin
     ASSERT_NE(right_first, nullptr) << "fixture no longer carries right_boundary_955";
 
     const overlume::MapElement* road = nullptr;
-    for (const auto& e : out.map_elements)
-    {
-        if (e.kind == overlume::MapKind::ROAD_SURFACE && e.lane_id == 955u)
-        {
+    for (const auto& e : out.map_elements) {
+        if (e.kind == overlume::MapKind::ROAD_SURFACE && e.lane_id == 955u) {
             road = &e;
             break;
         }
@@ -927,8 +884,7 @@ TEST(HdMapAdapter, MismatchedRailPointCountsResampledStationsSpanRecordedEndpoin
 // ── Road-edge detection: the road's outer edges render distinct from
 //    interior lane boundaries (see hd_map.cpp's IsRoadEdge()) ────────────
 
-TEST(HdMapAdapter, OuterBoundariesOfThreeAdjacentLanesPromoteToRoadEdge)
-{
+TEST(HdMapAdapter, OuterBoundariesOfThreeAdjacentLanesPromoteToRoadEdge) {
     // Three adjacent lanes sharing painted lines (A|B|C, each 3.2 m wide --
     // RailMarker's own comment): A's right rail == B's left rail (x=3.2),
     // B's right rail == C's left rail (x=6.4). Only the outermost two rails
@@ -940,12 +896,9 @@ TEST(HdMapAdapter, OuterBoundariesOfThreeAdjacentLanesPromoteToRoadEdge)
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
-        RailMarker("left_boundary_a", 1, 0.0),
-        RailMarker("right_boundary_a", 1, 3.2),
-        RailMarker("left_boundary_b", 2, 3.2),
-        RailMarker("right_boundary_b", 2, 6.4),
-        RailMarker("left_boundary_c", 3, 6.4),
-        RailMarker("right_boundary_c", 3, 9.6),
+        RailMarker("left_boundary_a", 1, 0.0), RailMarker("right_boundary_a", 1, 3.2),
+        RailMarker("left_boundary_b", 2, 3.2), RailMarker("right_boundary_b", 2, 6.4),
+        RailMarker("left_boundary_c", 3, 6.4), RailMarker("right_boundary_c", 3, 9.6),
     };
     a.ingest(arr, 1.0);
     SceneAssembly out;
@@ -954,8 +907,7 @@ TEST(HdMapAdapter, OuterBoundariesOfThreeAdjacentLanesPromoteToRoadEdge)
     // Direct scan by recorded X (simpler and unambiguous than re-deriving
     // "which side" from kind alone, since kind is exactly what's under test).
     auto kind_at_x = [&](double x) -> overlume::MapKind {
-        for (const auto& e : out.map_elements)
-        {
+        for (const auto& e : out.map_elements) {
             if (e.kind == overlume::MapKind::ROAD_SURFACE) continue;
             if (std::abs(e.points[0].x - x) < 1e-9) return e.kind;
         }
@@ -975,8 +927,7 @@ TEST(HdMapAdapter, OuterBoundariesOfThreeAdjacentLanesPromoteToRoadEdge)
     EXPECT_EQ(road_edge_count, 2);
 }
 
-TEST(HdMapAdapter, SingleIsolatedLaneHasBothBoundariesPromotedToRoadEdge)
-{
+TEST(HdMapAdapter, SingleIsolatedLaneHasBothBoundariesPromotedToRoadEdge) {
     // A lane with no neighbour on either side: BOTH its boundaries are road
     // edges (there is nothing to be interior to).
     TfFixture kTf;
@@ -984,14 +935,13 @@ TEST(HdMapAdapter, SingleIsolatedLaneHasBothBoundariesPromotedToRoadEdge)
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {RailMarker("left_boundary_solo", 1, 0.0),
-                    RailMarker("right_boundary_solo", 1, 3.2)};
+                   RailMarker("right_boundary_solo", 1, 3.2)};
     a.ingest(arr, 1.0);
     SceneAssembly out;
     a.fill(out);
 
     int road_edge_count = 0;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::ROAD_SURFACE) continue;
         EXPECT_EQ(e.kind, overlume::MapKind::ROAD_EDGE);
         ++road_edge_count;
@@ -1001,8 +951,7 @@ TEST(HdMapAdapter, SingleIsolatedLaneHasBothBoundariesPromotedToRoadEdge)
 
 // ---- Junction cleanup --
 
-TEST(HdMapAdapter, JunctionPolygonClipSplitsRoadEdgeIntoTwoSubElementsWithInterpolatedCuts)
-{
+TEST(HdMapAdapter, JunctionPolygonClipSplitsRoadEdgeIntoTwoSubElementsWithInterpolatedCuts) {
     // A single isolated (hence ROAD_EDGE-promoted) rail running straight
     // through a 6x6 m JUNCTION box centered on the origin: cut off inside
     // the box, resuming past it.
@@ -1019,8 +968,7 @@ TEST(HdMapAdapter, JunctionPolygonClipSplitsRoadEdgeIntoTwoSubElementsWithInterp
     a.fill(out);
 
     std::vector<overlume::MapElement> edges;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::ROAD_EDGE) edges.push_back(e);
     }
     ASSERT_EQ(edges.size(), 2u) << "one edge crossing the junction box splits into two";
@@ -1042,8 +990,7 @@ TEST(HdMapAdapter, JunctionPolygonClipSplitsRoadEdgeIntoTwoSubElementsWithInterp
     EXPECT_NE(edges[1].points[0].y, 5.0);
 }
 
-TEST(HdMapAdapter, MutualCrossingCutSplitsBothRoadEdgesWithBackoff)
-{
+TEST(HdMapAdapter, MutualCrossingCutSplitsBothRoadEdgesWithBackoff) {
     // Two isolated (ROAD_EDGE-promoted) rails from DIFFERENT lane_ids
     // crossing at the origin, no JUNCTION geometry at all -- the mechanism
     // that covers urban's real feed (verified: no `junction` namespace
@@ -1061,8 +1008,7 @@ TEST(HdMapAdapter, MutualCrossingCutSplitsBothRoadEdgesWithBackoff)
     a.fill(out);
 
     std::vector<overlume::MapElement> lane_a, lane_b;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind != overlume::MapKind::ROAD_EDGE) continue;
         (e.lane_id == 1u ? lane_a : lane_b).push_back(e);
     }
@@ -1088,8 +1034,7 @@ TEST(HdMapAdapter, MutualCrossingCutSplitsBothRoadEdgesWithBackoff)
     EXPECT_NEAR(lane_b[1].points[0].y, 2.0, 1e-9);
 }
 
-TEST(HdMapAdapter, ParallelRoadEdgesAreNeverCut)
-{
+TEST(HdMapAdapter, ParallelRoadEdgesAreNeverCut) {
     // A real road edge never legitimately crosses another -- two parallel
     // rails must render whole, unsplit, regardless of how close together
     // they run.
@@ -1106,8 +1051,7 @@ TEST(HdMapAdapter, ParallelRoadEdgesAreNeverCut)
     a.fill(out);
 
     int road_edge_count = 0;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind != overlume::MapKind::ROAD_EDGE) continue;
         ++road_edge_count;
         EXPECT_EQ(e.point_count, 2u) << "untouched -- no cut introduced";
@@ -1115,8 +1059,7 @@ TEST(HdMapAdapter, ParallelRoadEdgesAreNeverCut)
     EXPECT_EQ(road_edge_count, 2);
 }
 
-TEST(HdMapAdapter, AbuttingNearCollinearRoadEdgesAreNeverCut)
-{
+TEST(HdMapAdapter, AbuttingNearCollinearRoadEdgesAreNeverCut) {
     // A lanelet-chain node where two ROAD_EDGE rails from DIFFERENT lane_ids
     // share an endpoint with only a ~1 deg kink is NOT a junction crossing --
     // it is the ordinary case of one lanelet boundary handing off to the
@@ -1140,8 +1083,7 @@ TEST(HdMapAdapter, AbuttingNearCollinearRoadEdgesAreNeverCut)
     a.fill(out);
 
     int road_edge_count = 0;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind != overlume::MapKind::ROAD_EDGE) continue;
         ++road_edge_count;
         EXPECT_EQ(e.point_count, 2u) << "untouched -- a ~1 deg kink is not a crossing";
@@ -1158,8 +1100,7 @@ TEST(HdMapAdapter, AbuttingNearCollinearRoadEdgesAreNeverCut)
 // (2, 3) at two x positions; only lane 1's own resulting ROAD_EDGE pieces
 // are asserted on.
 
-TEST(HdMapAdapter, JunctionGapMergeCutsSliverBetweenCloseCrossings)
-{
+TEST(HdMapAdapter, JunctionGapMergeCutsSliverBetweenCloseCrossings) {
     // Crossings at x=-4.5 and x=4.5 (separation 9.0 m): each gets its own
     // [-2,+2] backoff window, [-6.5,-2.5] and [2.5,6.5] -- a 5.0 m gap
     // between them, UNDER kJunctionGapMergeM=6.6 -- so MergeWindows folds
@@ -1179,8 +1120,7 @@ TEST(HdMapAdapter, JunctionGapMergeCutsSliverBetweenCloseCrossings)
     a.fill(out);
 
     std::vector<overlume::MapElement> lane_a;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
     }
     ASSERT_EQ(lane_a.size(), 2u) << "the two close-together crossings merge into one cut -- "
@@ -1195,8 +1135,7 @@ TEST(HdMapAdapter, JunctionGapMergeCutsSliverBetweenCloseCrossings)
     EXPECT_DOUBLE_EQ(lane_a[1].points[lane_a[1].point_count - 1].x, 20.0);
 }
 
-TEST(HdMapAdapter, JunctionGapMergeAtThresholdStillMerges)
-{
+TEST(HdMapAdapter, JunctionGapMergeAtThresholdStillMerges) {
     // Crossings at x=-5.3/+5.3 (separation 10.6 m): windows [-7.3,-3.3] and
     // [3.3,7.3] -- the inter-window gap is kJunctionGapMergeM=6.6 m to
     // within floating-point noise (6.599999999999998 as the arc-length walk
@@ -1217,8 +1156,7 @@ TEST(HdMapAdapter, JunctionGapMergeAtThresholdStillMerges)
     a.fill(out);
 
     std::vector<overlume::MapElement> lane_a;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
     }
     ASSERT_EQ(lane_a.size(), 2u) << "gap exactly at the threshold still merges (inclusive test)";
@@ -1230,8 +1168,7 @@ TEST(HdMapAdapter, JunctionGapMergeAtThresholdStillMerges)
     EXPECT_NEAR(lane_a[1].points[0].x, 7.3, 1e-9);
 }
 
-TEST(HdMapAdapter, JunctionGapMergeKeepsLegitInteriorSpanAboveThreshold)
-{
+TEST(HdMapAdapter, JunctionGapMergeKeepsLegitInteriorSpanAboveThreshold) {
     // Crossings at x=-5.5/+5.5 (separation 11.0 m): windows [-7.5,-3.5] and
     // [3.5,7.5] -- a 7.0 m gap, ABOVE kJunctionGapMergeM=6.6, so the two
     // windows stay separate and the 7.0 m interior span between them
@@ -1251,11 +1188,11 @@ TEST(HdMapAdapter, JunctionGapMergeKeepsLegitInteriorSpanAboveThreshold)
     a.fill(out);
 
     std::vector<overlume::MapElement> lane_a;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
     }
-    ASSERT_EQ(lane_a.size(), 3u) << "head, kept interior span, tail -- the gap is too wide to merge";
+    ASSERT_EQ(lane_a.size(), 3u)
+        << "head, kept interior span, tail -- the gap is too wide to merge";
     std::sort(lane_a.begin(), lane_a.end(),
               [](const overlume::MapElement& a, const overlume::MapElement& b) {
                   return a.points[0].x < b.points[0].x;
@@ -1268,8 +1205,7 @@ TEST(HdMapAdapter, JunctionGapMergeKeepsLegitInteriorSpanAboveThreshold)
     EXPECT_DOUBLE_EQ(lane_a[2].points[lane_a[2].point_count - 1].x, 20.0);
 }
 
-TEST(HdMapAdapter, BoundariesUntouchedByJunctionCutsAtDefaultFlag)
-{
+TEST(HdMapAdapter, BoundariesUntouchedByJunctionCutsAtDefaultFlag) {
     // junction_interior_boundaries defaults to true: an INTERIOR boundary
     // -- lane 2's left rail coincides with lane 1's right rail (the shared
     // painted line between two adjacent lanes, same coincidence check
@@ -1290,8 +1226,7 @@ TEST(HdMapAdapter, BoundariesUntouchedByJunctionCutsAtDefaultFlag)
     a.fill(out);
 
     std::vector<overlume::MapElement> left;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::LEFT_BOUNDARY) left.push_back(e);
     }
     ASSERT_EQ(left.size(), 1u) << "not split -- the junction polygon clip never ran on it";
@@ -1301,8 +1236,7 @@ TEST(HdMapAdapter, BoundariesUntouchedByJunctionCutsAtDefaultFlag)
     EXPECT_DOUBLE_EQ(left[0].points[4].y, 10.0);
 }
 
-TEST(HdMapAdapter, JunctionInteriorBoundariesFalseDropsSegmentsInsideJunctionPolygon)
-{
+TEST(HdMapAdapter, JunctionInteriorBoundariesFalseDropsSegmentsInsideJunctionPolygon) {
     // Same interior (coincident, non-promoted) boundary + junction box as
     // above, but with junction_interior_boundaries: false -- the boundary
     // now gets the SAME polygon clip ROAD_EDGE always gets (never the
@@ -1322,8 +1256,7 @@ TEST(HdMapAdapter, JunctionInteriorBoundariesFalseDropsSegmentsInsideJunctionPol
     a.fill(out);
 
     std::vector<overlume::MapElement> left;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::LEFT_BOUNDARY) left.push_back(e);
     }
     ASSERT_EQ(left.size(), 2u) << "split by the polygon clip, same as ROAD_EDGE would be";
@@ -1345,8 +1278,7 @@ TEST(HdMapAdapter, JunctionInteriorBoundariesFalseDropsSegmentsInsideJunctionPol
 // checkable arc-length station, not just "some point past the fixed
 // backoff".
 
-TEST(HdMapAdapter, ArcSnapExtendsCutPastFixedBackoffToTheCornerArcsFarEdge)
-{
+TEST(HdMapAdapter, ArcSnapExtendsCutPastFixedBackoffToTheCornerArcsFarEdge) {
     // lane 1 crosses lane 2 near the origin; well past the fixed
     // kJunctionCutBackoffM=2.0 m cut point (x=2), lane 1's own recorded curb
     // geometry curves into a real corner arc (radius 8 m). The arc-snap must
@@ -1378,8 +1310,7 @@ TEST(HdMapAdapter, ArcSnapExtendsCutPastFixedBackoffToTheCornerArcsFarEdge)
     a.fill(out);
 
     std::vector<overlume::MapElement> lane_a;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
     }
     ASSERT_EQ(lane_a.size(), 2u) << "one crossing -- head piece and tail piece";
@@ -1408,8 +1339,7 @@ TEST(HdMapAdapter, ArcSnapExtendsCutPastFixedBackoffToTheCornerArcsFarEdge)
     EXPECT_NEAR(lane_a[1].points[2].y, 20.0, 1e-9);
 }
 
-TEST(HdMapAdapter, ArcSnapDoesNotFireOnTheMeasuredWorstCaseGentleOpenRoadCurve)
-{
+TEST(HdMapAdapter, ArcSnapDoesNotFireOnTheMeasuredWorstCaseGentleOpenRoadCurve) {
     // kArcMinTotalTurnDeg gates a maximal contiguous R<kArcRadiusThresholdM
     // RUN's own accumulated |TurnAngleDeg|, not one vertex's own kink --
     // TurnAngleDeg sums absolute per-vertex turns, so a multi-vertex
@@ -1440,8 +1370,7 @@ TEST(HdMapAdapter, ArcSnapDoesNotFireOnTheMeasuredWorstCaseGentleOpenRoadCurve)
     a.fill(out);
 
     std::vector<overlume::MapElement> lane_a;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
     }
     ASSERT_EQ(lane_a.size(), 2u);
@@ -1462,8 +1391,7 @@ TEST(HdMapAdapter, ArcSnapDoesNotFireOnTheMeasuredWorstCaseGentleOpenRoadCurve)
     EXPECT_NEAR(lane_a[1].points[4].x, 5.668105825743191, 1e-9);
 }
 
-TEST(HdMapAdapter, ArcSnapExtendsBothWindowBoundariesToTheirOwnCornerArcs)
-{
+TEST(HdMapAdapter, ArcSnapExtendsBothWindowBoundariesToTheirOwnCornerArcs) {
     // lane 1 approaches the crossing (near the origin) through an entry-side
     // corner arc AND leaves through an exit-side one (the same corner
     // geometry as the test above, mirrored) -- both directions of travel
@@ -1506,8 +1434,7 @@ TEST(HdMapAdapter, ArcSnapExtendsBothWindowBoundariesToTheirOwnCornerArcs)
     a.fill(out);
 
     std::vector<overlume::MapElement> lane_a;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
     }
     ASSERT_EQ(lane_a.size(), 2u);
@@ -1533,8 +1460,7 @@ TEST(HdMapAdapter, ArcSnapExtendsBothWindowBoundariesToTheirOwnCornerArcs)
     EXPECT_NEAR(lane_a[1].points[2].y, 20.0, 1e-9);
 }
 
-TEST(HdMapAdapter, ArcSnapAdjacentWindowsFromTwoCrossingsProduceOneContinuousCut)
-{
+TEST(HdMapAdapter, ArcSnapAdjacentWindowsFromTwoCrossingsProduceOneContinuousCut) {
     // Same crossing positions as JunctionGapMergeKeepsLegitInteriorSpanAboveThreshold
     // above (gap 7.0 m, ABOVE kJunctionGapMergeM=6.6 -- MergeWindows alone
     // leaves a legit interior span there). lane 1's own recorded geometry
@@ -1567,8 +1493,7 @@ TEST(HdMapAdapter, ArcSnapAdjacentWindowsFromTwoCrossingsProduceOneContinuousCut
     a.fill(out);
 
     std::vector<overlume::MapElement> lane_a;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
     }
     ASSERT_EQ(lane_a.size(), 2u)
@@ -1591,8 +1516,7 @@ TEST(HdMapAdapter, ArcSnapAdjacentWindowsFromTwoCrossingsProduceOneContinuousCut
     EXPECT_DOUBLE_EQ(lane_a[1].points[1].x, 50.0);
 }
 
-TEST(HdMapAdapter, PureArcCornerConnectorStillFramesItsOwnTwoRecordedEndpoints)
-{
+TEST(HdMapAdapter, PureArcCornerConnectorStillFramesItsOwnTwoRecordedEndpoints) {
     // Edge case never observed in real data: a SHORT connector whose entire
     // length between its own two recorded endpoints is one continuous
     // corner arc (radius 6 m, ~45 deg total turn), crossed once. Stated
@@ -1620,8 +1544,7 @@ TEST(HdMapAdapter, PureArcCornerConnectorStillFramesItsOwnTwoRecordedEndpoints)
     a.fill(out);
 
     std::vector<overlume::MapElement> lane_a;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
     }
     ASSERT_EQ(lane_a.size(), 2u) << "two minimal end-slivers, never zero pieces";
@@ -1647,8 +1570,7 @@ TEST(HdMapAdapter, PureArcCornerConnectorStillFramesItsOwnTwoRecordedEndpoints)
     EXPECT_NEAR(lane_a[1].points[1].y, 2.999999999999999, 1e-9);
 }
 
-TEST(HdMapAdapter, TerminalArcStubIsRemovedAndArcSnapStaysSafeAtTheClamp)
-{
+TEST(HdMapAdapter, TerminalArcStubIsRemovedAndArcSnapStaysSafeAtTheClamp) {
     // A crossing lands close enough to lane 1's own recorded END that the
     // fixed kJunctionCutBackoffM=2.0 m window already clamps past its own
     // total length (a terminal cut, not observed in the real bag but the
@@ -1685,8 +1607,7 @@ TEST(HdMapAdapter, TerminalArcStubIsRemovedAndArcSnapStaysSafeAtTheClamp)
     a.fill(out);
 
     std::vector<overlume::MapElement> lane_a;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
     }
     ASSERT_EQ(lane_a.size(), 1u) << "the tail stub is gone -- only the head piece survives";
@@ -1703,8 +1624,7 @@ TEST(HdMapAdapter, TerminalArcStubIsRemovedAndArcSnapStaysSafeAtTheClamp)
     EXPECT_NEAR(lane_a[0].points[2].y, 0.2725933896874535, 1e-9);
 }
 
-TEST(HdMapAdapter, ArcSnapReachesTheArcsTrueStartEvenBeyondTheOldSearchMargin)
-{
+TEST(HdMapAdapter, ArcSnapReachesTheArcsTrueStartEvenBeyondTheOldSearchMargin) {
     // When a qualifying arc run's own true start lies more than
     // kArcSearchMarginM=6.0 m before the fixed-backoff boundary,
     // FindArcSpanNear extends a run outward past the search margin while
@@ -1733,22 +1653,22 @@ TEST(HdMapAdapter, ArcSnapReachesTheArcsTrueStartEvenBeyondTheOldSearchMargin)
                     {-46.78021262964802, -9.742296952272927},
                     {-46.547218708994116, -12.837935483912194},
                     {-46.4658864625989, -14.974389719737527},   // vertex 4, station 17.114 --
-                                                                 // the arc's OWN true start
+                                                                // the arc's OWN true start
                     {-46.0651262769608, -17.148459112710047},   // vertex 5, station 19.324
                     {-44.95378149894339, -19.77721103359962},   // vertex 6, station 22.178 --
-                                                                 // the search margin's own reach
+                                                                // the search margin's own reach
                     {-42.79181672520813, -21.299520261110413},  // vertex 7, station 24.822
                     {-38.17917117284436, -22.437475517352055},
                     {-30.297919317257183, -23.46468621338738}}),
-        LineMarker("left_boundary_b", 685, {{-40.35957131078806, -50.0}, {-40.35957131078806, 50.0}}),
+        LineMarker("left_boundary_b", 685,
+                   {{-40.35957131078806, -50.0}, {-40.35957131078806, 50.0}}),
     };
     a.ingest(arr, 1.0);
     SceneAssembly out;
     a.fill(out);
 
     std::vector<overlume::MapElement> lane_a;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::ROAD_EDGE && e.lane_id == 792u) lane_a.push_back(e);
     }
     ASSERT_EQ(lane_a.size(), 2u);
@@ -1763,7 +1683,8 @@ TEST(HdMapAdapter, ArcSnapReachesTheArcsTrueStartEvenBeyondTheOldSearchMargin)
     const auto& head = lane_a[0];
     ASSERT_EQ(head.point_count, 5u);
     EXPECT_NEAR(head.points[0].x, -46.980491978360725, 1e-9) << "lane's own literal first vertex";
-    EXPECT_NEAR(head.points[4].x, -46.4658864625989, 1e-6) << "vertex 4 -- the arc's own true start";
+    EXPECT_NEAR(head.points[4].x, -46.4658864625989, 1e-6)
+        << "vertex 4 -- the arc's own true start";
     EXPECT_NEAR(head.points[4].y, -14.974389719737527, 1e-6);
 
     // Tail piece: untouched -- the arc-snap's own outward-only max() never
@@ -1776,8 +1697,7 @@ TEST(HdMapAdapter, ArcSnapReachesTheArcsTrueStartEvenBeyondTheOldSearchMargin)
     EXPECT_NEAR(tail.points[2].y, -23.46468621338738, 1e-9);
 }
 
-TEST(HdMapAdapter, RedundantArcTailTrimCutsBackToTheCornerArcsDepartureVertex)
-{
+TEST(HdMapAdapter, RedundantArcTailTrimCutsBackToTheCornerArcsDepartureVertex) {
     // lane 1's own recorded polyline: a straight lead-in, then the SAME
     // R=8 m/75 deg corner arc ArcSnapExtendsCutPastFixedBackoffToTheCorner
     // ArcsFarEdge above uses, then a straight tail continuing 12 m past the
@@ -1804,8 +1724,8 @@ TEST(HdMapAdapter, RedundantArcTailTrimCutsBackToTheCornerArcsDepartureVertex)
                     {6.65685424949238, 2.3431457505076194},
                     {7.928203230275509, 3.999999999999999},
                     {8.727406610312546, 5.929447639179834},  // v6 -- the arc's own rejoin vertex
-                    {9.0, 8.0},                               // redundant tail starts
-                    {9.0, 20.0}}),                             // redundant tail ends, shared vertex
+                    {9.0, 8.0},                              // redundant tail starts
+                    {9.0, 20.0}}),                           // redundant tail ends, shared vertex
         LineMarker("left_boundary_b", 2, {{9.3, 8.0}, {9.0, 20.0}}),
     };
     a.ingest(arr, 1.0);
@@ -1813,8 +1733,7 @@ TEST(HdMapAdapter, RedundantArcTailTrimCutsBackToTheCornerArcsDepartureVertex)
     a.fill(out);
 
     std::vector<overlume::MapElement> lane_a, lane_b;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind != overlume::MapKind::ROAD_EDGE) continue;
         if (e.lane_id == 1u) lane_a.push_back(e);
         if (e.lane_id == 2u) lane_b.push_back(e);
@@ -1834,8 +1753,7 @@ TEST(HdMapAdapter, RedundantArcTailTrimCutsBackToTheCornerArcsDepartureVertex)
     ASSERT_EQ(lane_b[0].point_count, 2u);
 }
 
-TEST(HdMapAdapter, RedundantArcTailTrimDoesNotFireOnAnOpenElbowConnector)
-{
+TEST(HdMapAdapter, RedundantArcTailTrimDoesNotFireOnAnOpenElbowConnector) {
     // Measured false-positive class: a tail's own last vertex CAN coincide
     // exactly with another piece's own endpoint (kSharedNodeEpsM does NOT
     // discriminate this case, see hd_map.cpp's own comment on that constant)
@@ -1871,8 +1789,7 @@ TEST(HdMapAdapter, RedundantArcTailTrimDoesNotFireOnAnOpenElbowConnector)
     a.fill(out);
 
     std::vector<overlume::MapElement> lane_a;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
     }
     ASSERT_EQ(lane_a.size(), 1u);
@@ -1882,8 +1799,7 @@ TEST(HdMapAdapter, RedundantArcTailTrimDoesNotFireOnAnOpenElbowConnector)
            "lane renders unmoved";
 }
 
-TEST(HdMapAdapter, RedundantArcTailTrimFiresOnTheWorstMeasuredTrueCase)
-{
+TEST(HdMapAdapter, RedundantArcTailTrimFiresOnTheWorstMeasuredTrueCase) {
     // Companion to the false-case test above: pins the OTHER side of the
     // real discriminating band. Lane 792 was the worst (largest lateral
     // offset) of the 14 real bag-wide true cases (re-derived per-message,
@@ -1921,8 +1837,7 @@ TEST(HdMapAdapter, RedundantArcTailTrimFiresOnTheWorstMeasuredTrueCase)
     a.fill(out);
 
     std::vector<overlume::MapElement> lane_a;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
     }
     ASSERT_EQ(lane_a.size(), 1u);
@@ -1932,8 +1847,7 @@ TEST(HdMapAdapter, RedundantArcTailTrimFiresOnTheWorstMeasuredTrueCase)
            "redundant tail is trimmed";
 }
 
-TEST(HdMapAdapter, RedundantArcTailTrimDoesNotFireJustOutsideTheSharedNodeEpsilon)
-{
+TEST(HdMapAdapter, RedundantArcTailTrimDoesNotFireJustOutsideTheSharedNodeEpsilon) {
     // Pins condition (a), kSharedNodeEpsM, for the piece that never shares
     // an endpoint at all: lane 2's near endpoint sits 0.20 m from lane 1's
     // own tail end -- outside kSharedNodeEpsM=0.10 m -- even though it
@@ -1962,8 +1876,7 @@ TEST(HdMapAdapter, RedundantArcTailTrimDoesNotFireJustOutsideTheSharedNodeEpsilo
     a.fill(out);
 
     std::vector<overlume::MapElement> lane_a;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::ROAD_EDGE && e.lane_id == 1u) lane_a.push_back(e);
     }
     ASSERT_EQ(lane_a.size(), 1u);
@@ -1971,8 +1884,7 @@ TEST(HdMapAdapter, RedundantArcTailTrimDoesNotFireJustOutsideTheSharedNodeEpsilo
         << "0.2 m gap at the tail's own far vertex is outside kSharedNodeEpsM -- no trim";
 }
 
-TEST(HdMapAdapter, NeighborArcDepartureSnapCutsBackAStraightEdgeOvershootingTheCorner)
-{
+TEST(HdMapAdapter, NeighborArcDepartureSnapCutsBackAStraightEdgeOvershootingTheCorner) {
     // A straight boundary sharing a corner-arc lane's start node, but
     // carrying no arc of its own, dead-ends past the corner's own departure
     // vertex under the plain fixed-backoff crossing cut -- this test targets
@@ -2009,8 +1921,7 @@ TEST(HdMapAdapter, NeighborArcDepartureSnapCutsBackAStraightEdgeOvershootingTheC
     a.fill(out);
 
     std::vector<overlume::MapElement> lane_a, lane_c;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind != overlume::MapKind::ROAD_EDGE) continue;
         if (e.lane_id == 1u) lane_a.push_back(e);
         if (e.lane_id == 3u) lane_c.push_back(e);
@@ -2042,8 +1953,7 @@ TEST(HdMapAdapter, NeighborArcDepartureSnapCutsBackAStraightEdgeOvershootingTheC
     EXPECT_NEAR(lane_c[1].points[1].x, 30.0, 1e-9);
 }
 
-TEST(HdMapAdapter, NeighborArcDepartureSnapDoesNotFireWithoutASharedNode)
-{
+TEST(HdMapAdapter, NeighborArcDepartureSnapDoesNotFireWithoutASharedNode) {
     // Pins the scoping condition: moving lane 3's own start 0.2 m away from
     // lane 1's start -- outside kSharedNodeEpsM=0.10 m, the SAME
     // node-coincidence gate TrimRedundantArcTails's own condition (a) uses
@@ -2071,8 +1981,7 @@ TEST(HdMapAdapter, NeighborArcDepartureSnapDoesNotFireWithoutASharedNode)
     a.fill(out);
 
     std::vector<overlume::MapElement> lane_c;
-    for (const auto& e : out.map_elements)
-    {
+    for (const auto& e : out.map_elements) {
         if (e.kind == overlume::MapKind::ROAD_EDGE && e.lane_id == 3u) lane_c.push_back(e);
     }
     ASSERT_EQ(lane_c.size(), 2u);
@@ -2087,8 +1996,7 @@ TEST(HdMapAdapter, NeighborArcDepartureSnapDoesNotFireWithoutASharedNode)
            "start offset)";
 }
 
-TEST(HdMapAdapter, OneMarkerCountsAsOneIngestedMarkerForStats)
-{
+TEST(HdMapAdapter, OneMarkerCountsAsOneIngestedMarkerForStats) {
     // A centerline marker is one MARKER on the wire and one ingest() call,
     // producing one MapElement (dashing moved renderer-side) -- msgs and
     // the dropped_* counters reflect that one marker.
@@ -2108,8 +2016,7 @@ TEST(HdMapAdapter, OneMarkerCountsAsOneIngestedMarkerForStats)
 
 // ── rviz-parity: points[] are RELATIVE to marker.pose ────────────────────
 
-TEST(HdMapAdapter, MarkerPoseComposesRotationBeforeTranslation)
-{
+TEST(HdMapAdapter, MarkerPoseComposesRotationBeforeTranslation) {
     // pose position (10,20,0), yaw +90 deg, points (0,0) and (5,0) -> stored
     // (10,20) and (10,25) -- rotation applied BEFORE translation, per
     // tf2::Transform's own point-multiply composition order. Single marker,
@@ -2147,8 +2054,7 @@ TEST(HdMapAdapter, MarkerPoseComposesRotationBeforeTranslation)
     EXPECT_NEAR(out.map_elements[0].points[1].y, 25.0, 1e-9);
 }
 
-TEST(HdMapAdapter, IdentityMarkerPoseIsByteIdenticalToRawPoints)
-{
+TEST(HdMapAdapter, IdentityMarkerPoseIsByteIdenticalToRawPoints) {
     // Same shape marker, pose left at its default (all-zero position,
     // identity quaternion -- geometry_msgs' own default, Quaternion.msg's
     // `float64 w 1`) -- must reproduce today's un-posed behaviour exactly:
@@ -2167,8 +2073,7 @@ TEST(HdMapAdapter, IdentityMarkerPoseIsByteIdenticalToRawPoints)
     EXPECT_DOUBLE_EQ(out.map_elements[0].points[1].y, 0.0);
 }
 
-TEST(HdMapAdapter, NanMarkerPoseIsDroppedAsMalformedNotAppliedRaw)
-{
+TEST(HdMapAdapter, NanMarkerPoseIsDroppedAsMalformedNotAppliedRaw) {
     // A pose on a marker is normal Marker semantics -- a NaN pose is not.
     // The malformed marker is dropped; a valid neighbour still comes
     // through (spec §9, "drop the one primitive, never propagate").
@@ -2197,8 +2102,7 @@ TEST(HdMapAdapter, NanMarkerPoseIsDroppedAsMalformedNotAppliedRaw)
 // composition -- no longer exists: chopping is entirely renderer-side now
 // and only ever sees already-posed points crossing the ABI boundary.
 
-TEST(HdMapAdapter, ZeroQuaternionPoseIsTreatedAsIdentityRotationNotNan)
-{
+TEST(HdMapAdapter, ZeroQuaternionPoseIsTreatedAsIdentityRotationNotNan) {
     // rviz renders a zero-filled orientation as identity (with a console
     // warning); handing it to tf2 NaNs every point and silently voids the
     // whole marker as dropped_malformed. Zero quat + translation -> points
@@ -2219,8 +2123,7 @@ TEST(HdMapAdapter, ZeroQuaternionPoseIsTreatedAsIdentityRotationNotNan)
     EXPECT_NEAR(out.map_elements[0].points[1].x, 10.0, 1e-9);
 }
 
-TEST(HdMapAdapter, NonZeroZPointsAreFlattenedToTheMapPlane)
-{
+TEST(HdMapAdapter, NonZeroZPointsAreFlattenedToTheMapPlane) {
     // flatten_z: the HD map is a 2D plane, so publisher z must not float
     // geometry above it. Default is ON.
     TfFixture kTf;
@@ -2236,8 +2139,7 @@ TEST(HdMapAdapter, NonZeroZPointsAreFlattenedToTheMapPlane)
     EXPECT_DOUBLE_EQ(out.map_elements[0].points[1].z, 0.0);
 }
 
-TEST(HdMapAdapter, FlattenZOffPreservesPublisherZ)
-{
+TEST(HdMapAdapter, FlattenZOffPreservesPublisherZ) {
     // A FrameTransformer built with flatten_z=false passes z through
     // untouched -- the switch to flip when the HD-map layer grows 3D
     // coordinates.

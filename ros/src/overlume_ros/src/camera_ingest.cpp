@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file camera_ingest.cpp
  *  @brief See camera_ingest.hpp. VM-091 Task 2 Step 6.
  */
@@ -10,8 +13,7 @@
 
 #include <cv_bridge/cv_bridge.h>
 
-namespace overlume::ros
-{
+namespace overlume::ros {
 
 // ── Pure math: odometry twist buffer + rig-pose-delta integration ──────────
 // Ported from micropilot_rendering_node/rendering_node.cpp:562-604, read in
@@ -19,13 +21,17 @@ namespace overlume::ros
 // std::deque<StampedTwist> parameter instead of a node member + its own
 // mutex (odom_mtx_ locking happens once at the CameraIngest call site, on a
 // snapshot, not per twist_at() call).
-bool twist_at(const std::deque<StampedTwist>& twists, double t, StampedTwist& out)
-{
+bool twist_at(const std::deque<StampedTwist>& twists, double t, StampedTwist& out) {
     if (twists.empty()) return false;
-    if (t <= twists.front().t) { out = twists.front(); return true; }
-    if (t >= twists.back().t) { out = twists.back(); return true; }
-    for (size_t i = 1; i < twists.size(); ++i)
-    {
+    if (t <= twists.front().t) {
+        out = twists.front();
+        return true;
+    }
+    if (t >= twists.back().t) {
+        out = twists.back();
+        return true;
+    }
+    for (size_t i = 1; i < twists.size(); ++i) {
         if (twists[i].t < t) continue;
         const auto& a = twists[i - 1];
         const auto& b = twists[i];
@@ -41,15 +47,13 @@ bool twist_at(const std::deque<StampedTwist>& twists, double t, StampedTwist& ou
 }
 
 bool rig_delta(const std::deque<StampedTwist>& twists, double t_from, double t_ref, double& th,
-               double& px, double& py)
-{
+               double& px, double& py) {
     th = px = py = 0.0;
     const double span = t_ref - t_from;
     if (std::abs(span) < 1e-4) return false;
     const int n = std::max(1, static_cast<int>(std::ceil(std::abs(span) / 0.005)));
     const double dt = span / n;
-    for (int i = 0; i < n; ++i)
-    {
+    for (int i = 0; i < n; ++i) {
         StampedTwist tw;
         if (!twist_at(twists, t_from + (i + 0.5) * dt, tw)) return false;
         const double c = std::cos(th), s = std::sin(th);
@@ -61,11 +65,9 @@ bool rig_delta(const std::deque<StampedTwist>& twists, double t_from, double t_r
 }
 
 void compensation_delta_4x4(const std::deque<StampedTwist>& twists, double t_cam, double t_ref,
-                             double out_delta_row_major[16])
-{
+                            double out_delta_row_major[16]) {
     double th, px, py;
-    if (!rig_delta(twists, t_cam, t_ref, th, px, py))
-    {
+    if (!rig_delta(twists, t_cam, t_ref, th, px, py)) {
         const double I[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
         std::memcpy(out_delta_row_major, I, sizeof(I));
         return;
@@ -81,18 +83,15 @@ void compensation_delta_4x4(const std::deque<StampedTwist>& twists, double t_cam
 }
 
 // ── Pure math: extrinsics orthonormalization ────────────────────────────────
-namespace
-{
+namespace {
 using Vec = std::array<double, 3>;
-Vec vsub(Vec a, const Vec& b, double s)
-{
+Vec vsub(Vec a, const Vec& b, double s) {
     a[0] -= s * b[0];
     a[1] -= s * b[1];
     a[2] -= s * b[2];
     return a;
 }
-Vec vscale(Vec a, double s)
-{
+Vec vscale(Vec a, double s) {
     a[0] *= s;
     a[1] *= s;
     a[2] *= s;
@@ -100,12 +99,10 @@ Vec vscale(Vec a, double s)
 }
 double vdot(const Vec& a, const Vec& b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 double vnorm(const Vec& a) { return std::sqrt(vdot(a, a)); }
-Vec vcross(const Vec& a, const Vec& b)
-{
+Vec vcross(const Vec& a, const Vec& b) {
     return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
 }
-double angle_between(const Vec& orig, const Vec& corrected_unit)
-{
+double angle_between(const Vec& orig, const Vec& corrected_unit) {
     const double n = vnorm(orig);
     if (n < 1e-12) return 0.0;
     const double d = std::clamp(vdot(vscale(orig, 1.0 / n), corrected_unit), -1.0, 1.0);
@@ -114,8 +111,7 @@ double angle_between(const Vec& orig, const Vec& corrected_unit)
 }  // namespace
 
 overlume::CameraExtrinsics OrthonormalizeExtrinsics(const overlume::CameraExtrinsics& in,
-                                                  double* out_max_correction_rad)
-{
+                                                    double* out_max_correction_rad) {
     // R columns = (right, down, fwd) -- bowl_projection.hpp's own convention.
     const Vec right{in.R[0], in.R[3], in.R[6]};
     const Vec down{in.R[1], in.R[4], in.R[7]};
@@ -136,10 +132,10 @@ overlume::CameraExtrinsics OrthonormalizeExtrinsics(const overlume::CameraExtrin
     const double fwd_n = vnorm(fwd_u);
     if (fwd_n > 1e-12) fwd_u = vscale(fwd_u, 1.0 / fwd_n);
 
-    if (out_max_correction_rad != nullptr)
-    {
-        *out_max_correction_rad = std::max({angle_between(right, right_u), angle_between(down, down_u),
-                                             angle_between(fwd, fwd_u)});
+    if (out_max_correction_rad != nullptr) {
+        *out_max_correction_rad =
+            std::max({angle_between(right, right_u), angle_between(down, down_u),
+                      angle_between(fwd, fwd_u)});
     }
 
     overlume::CameraExtrinsics out = in;
@@ -157,15 +153,13 @@ overlume::CameraExtrinsics OrthonormalizeExtrinsics(const overlume::CameraExtrin
 
 // ── IngestState ──────────────────────────────────────────────────────────────
 IngestState::IngestState(uint32_t camera_count, std::vector<overlume::CameraExtrinsics> extrinsics)
-    : camera_count_(camera_count), cams_(camera_count)
-{
+    : camera_count_(camera_count), cams_(camera_count) {
     for (uint32_t i = 0; i < camera_count_ && i < extrinsics.size(); ++i)
         cams_[i].extrinsics = extrinsics[i];
 }
 
 bool IngestState::record_camera_info(uint32_t cam_idx, const overlume::CameraIntrinsics& in,
-                                      uint32_t width, uint32_t height)
-{
+                                     uint32_t width, uint32_t height) {
     if (cam_idx >= camera_count_) return false;
     PerCam& c = cams_[cam_idx];
     const bool all_ready_before = all_info_ready();
@@ -184,16 +178,14 @@ bool IngestState::record_camera_info(uint32_t cam_idx, const overlume::CameraInt
     return changed;
 }
 
-bool IngestState::all_info_ready() const
-{
+bool IngestState::all_info_ready() const {
     if (camera_count_ == 0) return false;
     for (const auto& c : cams_)
         if (!c.info_ready) return false;
     return true;
 }
 
-uint64_t IngestState::record_image_stamp(uint32_t cam_idx, double stamp_sec)
-{
+uint64_t IngestState::record_image_stamp(uint32_t cam_idx, double stamp_sec) {
     if (cam_idx >= camera_count_) return 0;
     PerCam& c = cams_[cam_idx];
     c.stamp = stamp_sec;
@@ -201,12 +193,10 @@ uint64_t IngestState::record_image_stamp(uint32_t cam_idx, double stamp_sec)
     return ++c.frame_id;
 }
 
-bool IngestState::newest_stamp(double& out_t_max) const
-{
+bool IngestState::newest_stamp(double& out_t_max) const {
     bool any = false;
     double best = 0.0;
-    for (const auto& c : cams_)
-    {
+    for (const auto& c : cams_) {
         if (!c.has_stamp) continue;
         if (!any || c.stamp > best) best = c.stamp;
         any = true;
@@ -215,8 +205,8 @@ bool IngestState::newest_stamp(double& out_t_max) const
     return any;
 }
 
-void IngestState::store_rgb(uint32_t cam_idx, const uint8_t* data, uint32_t width, uint32_t height)
-{
+void IngestState::store_rgb(uint32_t cam_idx, const uint8_t* data, uint32_t width,
+                            uint32_t height) {
     if (cam_idx >= camera_count_ || data == nullptr) return;
     const size_t n = static_cast<size_t>(width) * static_cast<size_t>(height) * 3;
     cams_[cam_idx].rgb.assign(data, data + n);
@@ -233,8 +223,7 @@ void IngestState::store_rgb(uint32_t cam_idx, const uint8_t* data, uint32_t widt
 // exactly; a stale/mismatched buffer reads as "this camera has never
 // delivered an image", which ColorizeFromCameras already treats as "covers
 // nothing" (falls through to the next configured camera).
-const uint8_t* IngestState::rgb(uint32_t cam_idx) const
-{
+const uint8_t* IngestState::rgb(uint32_t cam_idx) const {
     if (cam_idx >= camera_count_ || cams_[cam_idx].rgb.empty()) return nullptr;
     const size_t expected =
         static_cast<size_t>(width(cam_idx)) * static_cast<size_t>(height(cam_idx)) * 3;
@@ -243,18 +232,14 @@ const uint8_t* IngestState::rgb(uint32_t cam_idx) const
 }
 
 // ── CameraIngest ─────────────────────────────────────────────────────────────
-namespace
-{
-std::vector<overlume::CameraExtrinsics> orthonormalize_all(rclcpp_lifecycle::LifecycleNode* node,
-                                                          const std::vector<overlume::CameraExtrinsics>& in)
-{
+namespace {
+std::vector<overlume::CameraExtrinsics> orthonormalize_all(
+    rclcpp_lifecycle::LifecycleNode* node, const std::vector<overlume::CameraExtrinsics>& in) {
     std::vector<overlume::CameraExtrinsics> out(in.size());
-    for (size_t i = 0; i < in.size(); ++i)
-    {
+    for (size_t i = 0; i < in.size(); ++i) {
         double max_corr = 0.0;
         out[i] = OrthonormalizeExtrinsics(in[i], &max_corr);
-        if (max_corr > kOrthonormalizeWarnThresholdRad)
-        {
+        if (max_corr > kOrthonormalizeWarnThresholdRad) {
             RCLCPP_WARN(node->get_logger(),
                         "camera_extrinsics[%zu]: R was not orthonormal (correction %.4f rad, "
                         "~%.2f deg) -- Gram-Schmidt-corrected before use",
@@ -266,32 +251,26 @@ std::vector<overlume::CameraExtrinsics> orthonormalize_all(rclcpp_lifecycle::Lif
 }  // namespace
 
 CameraIngest::CameraIngest(rclcpp_lifecycle::LifecycleNode* node, uint32_t camera_count,
-                            std::vector<std::string> image_topics,
-                            std::vector<std::string> info_topics, std::string odom_topic,
-                            std::vector<overlume::CameraExtrinsics> extrinsics)
+                           std::vector<std::string> image_topics,
+                           std::vector<std::string> info_topics, std::string odom_topic,
+                           std::vector<overlume::CameraExtrinsics> extrinsics)
     : node_(node),
       state_(camera_count, orthonormalize_all(node, extrinsics)),
-      odom_topic_(std::move(odom_topic))
-{
+      odom_topic_(std::move(odom_topic)) {
     img_subs_.resize(camera_count);
     info_subs_.resize(camera_count);
-    for (uint32_t i = 0; i < camera_count; ++i)
-    {
+    for (uint32_t i = 0; i < camera_count; ++i) {
         img_subs_[i] = node_->create_subscription<sensor_msgs::msg::Image>(
             image_topics[i], rclcpp::SensorDataQoS(),
-            [this, i](const sensor_msgs::msg::Image::SharedPtr msg)
-            {
+            [this, i](const sensor_msgs::msg::Image::SharedPtr msg) {
                 // bowl_enabled_ is the STANDING disable knob -- false means
                 // this callback does no cv_bridge conversion work at all,
                 // not merely skips the upload.
                 if (!bowl_enabled_) return;
                 cv_bridge::CvImagePtr cv_img;
-                try
-                {
+                try {
                     cv_img = cv_bridge::toCvCopy(msg, "rgb8");
-                }
-                catch (const cv_bridge::Exception& e)
-                {
+                } catch (const cv_bridge::Exception& e) {
                     RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 2000,
                                          "cv_bridge error cam %u: %s", i, e.what());
                     return;
@@ -318,15 +297,15 @@ CameraIngest::CameraIngest(rclcpp_lifecycle::LifecycleNode* node, uint32_t camer
                 auto* owned = new cv_bridge::CvImagePtr(cv_img);
                 overlume::set_camera_frame(
                     renderer_, i, cv_img->image.data, w, h, frame_id,
-                    [](void*, size_t, void* user)
-                    { delete static_cast<cv_bridge::CvImagePtr*>(user); },
+                    [](void*, size_t, void* user) {
+                        delete static_cast<cv_bridge::CvImagePtr*>(user);
+                    },
                     owned);
             });
 
         info_subs_[i] = node_->create_subscription<sensor_msgs::msg::CameraInfo>(
             info_topics[i], rclcpp::SensorDataQoS(),
-            [this, i](const sensor_msgs::msg::CameraInfo::SharedPtr msg)
-            {
+            [this, i](const sensor_msgs::msg::CameraInfo::SharedPtr msg) {
                 overlume::CameraIntrinsics in{};
                 in.fx = msg->k[0];
                 in.fy = msg->k[4];
@@ -337,12 +316,10 @@ CameraIngest::CameraIngest(rclcpp_lifecycle::LifecycleNode* node, uint32_t camer
             });
     }
 
-    if (!odom_topic_.empty())
-    {
+    if (!odom_topic_.empty()) {
         odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>(
             odom_topic_, rclcpp::SensorDataQoS(),
-            [this](const nav_msgs::msg::Odometry::SharedPtr msg)
-            {
+            [this](const nav_msgs::msg::Odometry::SharedPtr msg) {
                 StampedTwist tw;
                 tw.t = rclcpp::Time(msg->header.stamp).seconds();
                 tw.vx = msg->twist.twist.linear.x;
@@ -356,17 +333,15 @@ CameraIngest::CameraIngest(rclcpp_lifecycle::LifecycleNode* node, uint32_t camer
 }
 
 void CameraIngest::fill_bowl_intrinsics(std::vector<overlume::CameraExtrinsics>& out_ext,
-                                         std::vector<overlume::CameraIntrinsics>& out_in,
-                                         std::vector<uint32_t>& out_w,
-                                         std::vector<uint32_t>& out_h) const
-{
+                                        std::vector<overlume::CameraIntrinsics>& out_in,
+                                        std::vector<uint32_t>& out_w,
+                                        std::vector<uint32_t>& out_h) const {
     const uint32_t n = state_.camera_count();
     out_ext.resize(n);
     out_in.resize(n);
     out_w.resize(n);
     out_h.resize(n);
-    for (uint32_t i = 0; i < n; ++i)
-    {
+    for (uint32_t i = 0; i < n; ++i) {
         out_ext[i] = state_.extrinsics(i);
         out_in[i] = state_.intrinsics(i);
         out_w[i] = state_.width(i);
@@ -374,22 +349,19 @@ void CameraIngest::fill_bowl_intrinsics(std::vector<overlume::CameraExtrinsics>&
     }
 }
 
-void CameraIngest::fill_camera_rgb_buffers(std::vector<const uint8_t*>& out) const
-{
+void CameraIngest::fill_camera_rgb_buffers(std::vector<const uint8_t*>& out) const {
     const uint32_t n = state_.camera_count();
     out.resize(n);
     for (uint32_t i = 0; i < n; ++i) out[i] = state_.rgb(i);
 }
 
-bool CameraIngest::consume_info_dirty()
-{
+bool CameraIngest::consume_info_dirty() {
     if (!info_dirty_) return false;
     info_dirty_ = false;
     return true;
 }
 
-void CameraIngest::update_motion_deltas()
-{
+void CameraIngest::update_motion_deltas() {
     if (renderer_ == nullptr || !bowl_enabled_ || !config_applied_) return;
     double t_max;
     if (!state_.newest_stamp(t_max)) return;
@@ -408,27 +380,21 @@ void CameraIngest::update_motion_deltas()
     // withhold either for it. The one carryover from the old node's gate is
     // this THROTTLED WARN when the spread exceeds the window.
     double max_spread = 0.0;
-    for (uint32_t i = 0; i < state_.camera_count(); ++i)
-    {
+    for (uint32_t i = 0; i < state_.camera_count(); ++i) {
         if (!state_.has_stamp(i)) continue;
         max_spread = std::max(max_spread, t_max - state_.stamp(i));
     }
-    if (max_spread > max_sync_latency_)
-    {
+    if (max_spread > max_sync_latency_) {
         RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 5000,
-                              "camera bowl: stamp spread %.3fs exceeds max_sync_latency %.3fs -- "
-                              "stalest camera(s) still delta-compensated to t_max, not withheld",
-                              max_spread, max_sync_latency_);
+                             "camera bowl: stamp spread %.3fs exceeds max_sync_latency %.3fs -- "
+                             "stalest camera(s) still delta-compensated to t_max, not withheld",
+                             max_spread, max_sync_latency_);
     }
-    for (uint32_t i = 0; i < state_.camera_count(); ++i)
-    {
+    for (uint32_t i = 0; i < state_.camera_count(); ++i) {
         double delta[16];
-        if (state_.has_stamp(i))
-        {
+        if (state_.has_stamp(i)) {
             compensation_delta_4x4(twists_snapshot, state_.stamp(i), t_max, delta);
-        }
-        else
-        {
+        } else {
             const double I[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
             std::memcpy(delta, I, sizeof(I));
         }

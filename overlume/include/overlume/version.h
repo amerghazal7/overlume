@@ -1,14 +1,16 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // version.h — POD-only, additive (ADR-0004: a new header bumps
 // kSceneVersion nothing; this one carries release numbering, not scene.h/
 // api.h layout). Overlume's release version as compile-time constants —
-// the three component macros are hand-written here, and the same number `project(overlume VERSION ...)` in
-// overlume/CMakeLists.txt declares. That CMakeLists.txt has a configure-time
-// check (right after its `project()` call) that parses the three #defines
-// below and fails the configure step if they don't match
-// PROJECT_VERSION_{MAJOR,MINOR,PATCH} — the simplest honest mechanism that
-// keeps the two from silently drifting apart, with no generated header and
-// no runtime static_assert needed (nothing in src/ or examples/ includes
-// this header today, so a compiled check would never actually run).
+// the three component macros are hand-written here, and the same number `project(overlume VERSION
+// ...)` in overlume/CMakeLists.txt declares. That CMakeLists.txt has a configure-time check (right
+// after its `project()` call) that parses the three #defines below and fails the configure step if
+// they don't match PROJECT_VERSION_{MAJOR,MINOR,PATCH} — the simplest honest mechanism that keeps
+// the two from silently drifting apart, with no generated header and no runtime static_assert
+// needed (nothing in src/ or examples/ includes this header today, so a compiled check would never
+// actually run).
 
 /// @file
 /// @brief Overlume's release version, as macros and a dotted string.

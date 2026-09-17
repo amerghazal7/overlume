@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # Task 6 (VM-095) Step 1 -- the on-robot budget rerun, closing VM-043 for
 # real (Decision 10): merged node as the ONLY rendering process, all three
 # modes, real camera+lidar input, render_ms p50/p99 + GPU/CPU + GPU model.

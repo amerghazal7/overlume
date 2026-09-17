@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # validate_visual_mode.sh — one command to stand up the full visual-mode
 # validation rig (overlume_node + fixture bag + tf flattener + vcam
 # bridge/GUI) against the recorded fixture bag, and report PASS/FAIL.

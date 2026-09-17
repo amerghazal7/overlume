@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file quality_governor.hpp
  *  @brief VM-040 (Epic 5): quality auto-drop with hysteresis.
@@ -26,20 +29,17 @@
 #include <cstdint>
 #include <vector>
 
-namespace overlume_node
-{
+namespace overlume_node {
 
 // A no-op most ticks -- only set on the tick that CLOSES a window and that
 // window's own verdict actually changes the preset.
-enum class QualityTransition : uint8_t
-{
+enum class QualityTransition : uint8_t {
     NONE = 0,
     DROPPED = 1,
     RECOVERED = 2,
 };
 
-struct QualityGovernorParams
-{
+struct QualityGovernorParams {
     // render_ms samples per evaluation window. At the node's fixed 33 ms
     // publish timer (~30 Hz), 30 samples is ~1 s of ticks.
     uint32_t window_size{30};
@@ -67,8 +67,7 @@ struct QualityGovernorParams
 // Pure hysteresis state machine -- no ROS types, no Filament, no renderer
 // pointer. The node owns applying a returned transition (overlume::set_quality()
 // + a WARN log); this class only ever decides.
-class QualityGovernor
-{
+class QualityGovernor {
 public:
     QualityGovernor(QualityGovernorParams params, uint32_t initial_preset);
 

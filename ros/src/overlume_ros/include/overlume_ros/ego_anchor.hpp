@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file ego_anchor.hpp
  *  @brief Ego-anchored virtual-camera pose composition. Pulled out of
@@ -12,8 +15,7 @@
 #include "overlume/api.h"
 #include "overlume/scene.h"
 
-namespace overlume::ros
-{
+namespace overlume::ros {
 
 // The whole vcam pipeline (presets_, cur_/src_/dst_ tween, on_set_look,
 // ~/vcam_state) stays in an EGO-RELATIVE OFFSET frame: eye/target are
@@ -38,13 +40,11 @@ constexpr double kEgoForwardYaw = 0.0;
 // renderer -- never mutates any node state, so it cannot feed back into the
 // tween/telemetry state. Caller's responsibility to gate on ego.valid.
 inline overlume::CameraPose compose_ego_anchored_pose(const overlume::CameraPose& offset_pose,
-                                                    const overlume::EgoState& ego)
-{
+                                                      const overlume::EgoState& ego) {
     const double rot = ego.heading_rad - kEgoForwardYaw;
     const double c = std::cos(rot);
     const double s = std::sin(rot);
-    auto rotate_and_translate = [&](const double in[3], double out[3])
-    {
+    auto rotate_and_translate = [&](const double in[3], double out[3]) {
         out[0] = in[0] * c - in[1] * s + ego.position.x;
         out[1] = in[0] * s + in[1] * c + ego.position.y;
         out[2] = in[2] + ego.position.z;

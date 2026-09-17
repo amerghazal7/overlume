@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # x64-linux-clang-libcxx.vcpkg triplet (VM-061) — every cesium-native vcpkg
 # port on this platform is built by vcpkg with ITS OWN triplet, not with the
 # enclosing project's CMAKE_CXX_FLAGS, so a stock x64-linux port set would

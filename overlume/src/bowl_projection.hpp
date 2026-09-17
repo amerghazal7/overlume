@@ -1,8 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // bowl_projection.hpp — VM-091 (unified-engine migration Task 2). Portable
 // (no Filament/GL types, GPU-free-testable) pinhole + plumb_bob projection
 // and bowl-surface math, ported verbatim from
-// the retired CUDA reprojector's reproject.cu (rendering_reprojector, in git history before 2026-09-17), its own
-// bowl_kernel per-camera loop (read in full before porting; NOT re-derived
+// the retired CUDA reprojector's reproject.cu (rendering_reprojector, in git history before
+// 2026-09-17), its own bowl_kernel per-camera loop (read in full before porting; NOT re-derived
 // from a generic distortion reference, per Task 2 Step 0's own instruction --
 // Task 5's lidar colorization adapter reuses ProjectToCameraUv, so it must
 // stay bit-consistent with what the bowl itself does).
@@ -51,7 +54,7 @@ bool ProjectToCameraUv(const overlume::CameraExtrinsics& ext, const overlume::Ca
 // which is itself types.hpp's own documented BowlParams parity. theta is
 // measured about +Z (rig frame), r is radial distance from the rig origin.
 overlume::Vec3 BowlSurfacePoint(double bowl_R0, double bowl_k, double bowl_Rmax, double theta,
-                             double r);
+                                double r);
 
 // Feather weight from a pixel's distance to its image border -- ported
 // verbatim from blend.cuh's border_feather/smoothstep01 (reproject.cu's own

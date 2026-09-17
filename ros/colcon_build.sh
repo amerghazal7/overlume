@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
 # colcon_build.sh [pkg1 pkg2 ...]
 # Build the TPSProjector ROS2 packages via colcon.
 #

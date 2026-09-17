@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """GTK3 GUI: live view of the rendering node + realtime virtual-cam control.
 
 Video:   rosimagesrc (ros_gst_bridge) -> videoconvert -> gtksink, embedded.

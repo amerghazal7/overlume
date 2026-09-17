@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # GetCesiumNative.cmake — fetches and builds the pinned cesium-native release
 # from source, under THIS project's clang/libc++ toolchain.
 #

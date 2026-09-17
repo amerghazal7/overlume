@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_ribbon_dropout.cpp — regression pass for the live flicker report
 // ("the green LOCAL path disappears and reappears randomly"). Drives a
 // PathRibbon per role (BEHAVIOR/GLOBAL/LOCAL) plus a TrajectoryCarpet, all
@@ -65,7 +68,8 @@ std::vector<Vec3> make_spine(double startX, uint32_t n, double spacingM) {
     return pts;
 }
 
-std::vector<PointCloudPoint> make_carpet_points(const std::vector<Vec3>& spine, uint32_t colorTweak) {
+std::vector<PointCloudPoint> make_carpet_points(const std::vector<Vec3>& spine,
+                                                uint32_t colorTweak) {
     std::vector<PointCloudPoint> pts(spine.size());
     // Bright, saturated, and unlike the theme's amber ribbon_local tint --
     // "orange VELOCITY" per the user's own description of the flicker.
@@ -110,12 +114,18 @@ ProbeLayout locate_probe(const std::vector<uint8_t>& px, int width, int height) 
                 if (runStart < 0) runStart = x;
                 ++runLen;
             } else {
-                if (runLen > bestRowRunLen) { bestRowRunLen = runLen; bestRowRunStart = runStart; }
+                if (runLen > bestRowRunLen) {
+                    bestRowRunLen = runLen;
+                    bestRowRunStart = runStart;
+                }
                 runStart = -1;
                 runLen = 0;
             }
         }
-        if (runLen > bestRowRunLen) { bestRowRunLen = runLen; bestRowRunStart = runStart; }
+        if (runLen > bestRowRunLen) {
+            bestRowRunLen = runLen;
+            bestRowRunStart = runStart;
+        }
         if (bestRowRunLen > bestRunLen) {
             bestRunLen = bestRowRunLen;
             best.row = y;
@@ -153,11 +163,10 @@ void print_trace(const FrameRecord& f) {
             "carpetMesh=%zu ribbonVerts=[%zu,%zu,%zu] carpetVerts=%zu center=(%d,%d,%d)%s "
             "rimL=(%d,%d,%d)%s rimR=(%d,%d,%d)%s\n",
             f.frame, f.ribbonRebuilt, f.carpetRebuilt, f.ribbonMeshes[0], f.ribbonMeshes[1],
-            f.ribbonMeshes[2], f.carpetMeshes, f.ribbonVerts[0], f.ribbonVerts[1],
-            f.ribbonVerts[2], f.carpetVerts, f.center.r, f.center.g, f.center.b,
-            f.centerIsBackground ? " BG!" : "", f.rimLeft.r, f.rimLeft.g, f.rimLeft.b,
-            f.rimLeftIsBackground ? " BG!" : "", f.rimRight.r, f.rimRight.g, f.rimRight.b,
-            f.rimRightIsBackground ? " BG!" : "");
+            f.ribbonMeshes[2], f.carpetMeshes, f.ribbonVerts[0], f.ribbonVerts[1], f.ribbonVerts[2],
+            f.carpetVerts, f.center.r, f.center.g, f.center.b, f.centerIsBackground ? " BG!" : "",
+            f.rimLeft.r, f.rimLeft.g, f.rimLeft.b, f.rimLeftIsBackground ? " BG!" : "",
+            f.rimRight.r, f.rimRight.g, f.rimRight.b, f.rimRightIsBackground ? " BG!" : "");
 }
 
 // Drives N frames of ego motion (stepMinM..stepMaxM per frame, seeded RNG
@@ -172,7 +181,7 @@ struct RunResult {
 };
 
 RunResult drive(overlume::VisualRenderer* r, int numFrames, double stepMinM, double stepMaxM,
-                 uint32_t seed) {
+                uint32_t seed) {
     RunResult result;
     std::mt19937 rng(seed);
     std::uniform_real_distribution<double> step(stepMinM, stepMaxM);
@@ -192,7 +201,8 @@ RunResult drive(overlume::VisualRenderer* r, int numFrames, double stepMinM, dou
             spine.back().x += 0.01;
         }
         std::vector<Vec3> spineCopy = spine;  // fresh vector each frame either way
-        std::vector<PointCloudPoint> carpetPts = make_carpet_points(spineCopy, static_cast<uint32_t>(i));
+        std::vector<PointCloudPoint> carpetPts =
+            make_carpet_points(spineCopy, static_cast<uint32_t>(i));
 
         // Same spine for all three roles -- BEHAVIOR/GLOBAL/LOCAL routinely
         // trace the same route live (ribbon.cpp's own z-stagger comment), and
@@ -257,9 +267,8 @@ RunResult drive(overlume::VisualRenderer* r, int numFrames, double stepMinM, dou
         const bool anyRibbonSlotEmpty =
             std::any_of(std::begin(rec.ribbonMeshes), std::end(rec.ribbonMeshes),
                         [](size_t n) { return n == 0; });
-        const bool emptySlotDespiteContent =
-            (anyRibbonSlotEmpty || rec.carpetMeshes == 0) &&
-            ribbons[0].point_count >= 2 && carpet.point_count >= 2;
+        const bool emptySlotDespiteContent = (anyRibbonSlotEmpty || rec.carpetMeshes == 0) &&
+                                             ribbons[0].point_count >= 2 && carpet.point_count >= 2;
         const bool visiblyEmptyFrame =
             rec.centerIsBackground && rec.rimLeftIsBackground && rec.rimRightIsBackground;
         if (emptySlotDespiteContent || visiblyEmptyFrame) {
@@ -286,25 +295,29 @@ TEST(RibbonDropout, RealisticDrivingAtQuantize005DoesNotDropASingleThreadedFrame
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    fprintf(stderr, "\n=== RealisticDrivingAtQuantize005 (0.03-0.08m/frame, churn every 8th) ===\n");
+    fprintf(stderr,
+            "\n=== RealisticDrivingAtQuantize005 (0.03-0.08m/frame, churn every 8th) ===\n");
     RunResult res = drive(r, /*numFrames=*/60, /*stepMinM=*/0.03, /*stepMaxM=*/0.08, /*seed=*/1234);
 
     static constexpr const char* kRoleNames[kRibbonRoleCount] = {"BEHAVIOR", "GLOBAL", "LOCAL"};
     for (const auto& f : res.frames) {
         for (size_t slot = 0; slot < kRibbonRoleCount; ++slot) {
             EXPECT_GT(f.ribbonMeshes[slot], 0u)
-                << "frame " << f.frame << ": " << kRoleNames[slot] << " ribbon slot has ZERO "
+                << "frame " << f.frame << ": " << kRoleNames[slot]
+                << " ribbon slot has ZERO "
                    "meshes despite live content -- the exact reported dropout";
-            EXPECT_GT(f.ribbonVerts[slot], 0u)
-                << "frame " << f.frame << ": " << kRoleNames[slot] << " ribbon slot has ZERO "
-                   "vertices despite live content";
+            EXPECT_GT(f.ribbonVerts[slot], 0u) << "frame " << f.frame << ": " << kRoleNames[slot]
+                                               << " ribbon slot has ZERO "
+                                                  "vertices despite live content";
         }
-        EXPECT_GT(f.carpetMeshes, 0u) << "frame " << f.frame << ": trajectory carpet slot has ZERO "
-                                          "meshes despite live content";
+        EXPECT_GT(f.carpetMeshes, 0u) << "frame " << f.frame
+                                      << ": trajectory carpet slot has ZERO "
+                                         "meshes despite live content";
         EXPECT_FALSE(f.centerIsBackground && f.rimLeftIsBackground && f.rimRightIsBackground)
             << "frame " << f.frame << ": all 3 probes read background -- whole corridor vanished";
     }
-    fprintf(stderr, "ribbon rebuilds: %llu/%d frames, carpet rebuilds: %llu/%d frames, dropout=%d\n",
+    fprintf(stderr,
+            "ribbon rebuilds: %llu/%d frames, carpet rebuilds: %llu/%d frames, dropout=%d\n",
             static_cast<unsigned long long>(res.ribbonRebuildsTotal), 60,
             static_cast<unsigned long long>(res.carpetRebuildsTotal), 60, res.anyDropout);
     EXPECT_FALSE(res.anyDropout)
@@ -413,7 +426,8 @@ TEST(RibbonDropout, BehaviorRibbonNeverVanishesUnderCoLocatedCarpetChurn) {
         const int teal = count_teal_pixels(px, 320, 240);
         if (teal > 0) ++framesWithTeal;
         fprintf(stderr, "frame %2d: teal_pixels=%d\n", i, teal);
-        EXPECT_GT(teal, 0) << "frame " << i << ": the teal BEHAVIOR ribbon (z 0.058, above the "
+        EXPECT_GT(teal, 0) << "frame " << i
+                           << ": the teal BEHAVIOR ribbon (z 0.058, above the "
                               "carpet's 0.052) vanished -- the co-located strip drawn after it "
                               "overpainted it (blended-queue order dependence)";
     }

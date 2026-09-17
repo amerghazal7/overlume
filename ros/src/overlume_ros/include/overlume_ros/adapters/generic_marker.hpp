@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file generic_marker.hpp
  *  @brief GenericMarkerAdapter (Epic 2 Task 8 / VM-027): the spec §7
@@ -84,14 +87,11 @@
 #include "overlume_ros/scene_assembly.hpp"
 #include "overlume/scene.h"
 
-namespace overlume_node
-{
+namespace overlume_node {
 
-class GenericMarkerAdapter
-{
+class GenericMarkerAdapter {
 public:
-    GenericMarkerAdapter(const ProfileRow& row,
-                         const overlume::ros::FrameTransformer& tf);
+    GenericMarkerAdapter(const ProfileRow& row, const overlume::ros::FrameTransformer& tf);
 
     // ROS callback thread. See this file's own header comment for the
     // full type-mapping/fan-out/frame/lifetime/malformed rules.
@@ -125,15 +125,14 @@ private:
     // "storage holds raw geometry, fill() builds the output struct"
     // pattern as HdMapAdapter's StoredElement/CollisionAdapter's
     // StoredPolygon).
-    struct StoredMarker
-    {
+    struct StoredMarker {
         overlume::MarkerPrimitive primitive{overlume::MarkerPrimitive::CUBE};
         overlume::Vec3 position{};
         double heading_rad{0.0};
         overlume::Vec3 scale{1.0, 1.0, 1.0};
         float color[4]{0.0f, 0.0f, 0.0f, 0.0f};
-        std::string text;       // TEXT only
-        std::string mesh_path;  // MESH only
+        std::string text;                    // TEXT only
+        std::string mesh_path;               // MESH only
         std::vector<overlume::Vec3> points;  // LINE_*/POINTS/TRIANGLE_LIST only
 
         // CUBE_LIST/SPHERE_LIST fan-out source: one GenericMarker CUBE/

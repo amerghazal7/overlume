@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file hud_overlay.cpp
  *  @brief See hud_overlay.hpp. The ONE .cpp defining
  *  STB_TRUETYPE_IMPLEMENTATION (Step 1) -- stb_truetype.h itself is
@@ -15,17 +18,14 @@
 #include <string>
 #include <vector>
 
-namespace overlume_node
-{
+namespace overlume_node {
 
-void PopulateHud(overlume::SceneGraph& scene, int render_mode)
-{
+void PopulateHud(overlume::SceneGraph& scene, int render_mode) {
     scene.hud.speed_mps = scene.ego.speed_mps;
     scene.hud.active_mode = static_cast<uint8_t>(render_mode);
 }
 
-namespace
-{
+namespace {
 
 // Single-channel (coverage) atlas, ASCII ' '(32) through '~'(126).
 constexpr int kAtlasDim = 512;
@@ -37,8 +37,7 @@ constexpr int kNumChars = 95;
 // at any theme's scale.
 constexpr float kBasePixelHeight = 32.0f;
 
-struct FontAtlas
-{
+struct FontAtlas {
     std::string path;
     float scale = 0.0f;
     bool ok = false;
@@ -47,12 +46,11 @@ struct FontAtlas
     std::vector<stbtt_bakedchar> chars;
 };
 
-bool bake(const std::string& path, float pixel_height, FontAtlas& atlas)
-{
+bool bake(const std::string& path, float pixel_height, FontAtlas& atlas) {
     std::ifstream in(path, std::ios::binary);
     if (!in) return false;
     const std::vector<unsigned char> ttf((std::istreambuf_iterator<char>(in)),
-                                          std::istreambuf_iterator<char>());
+                                         std::istreambuf_iterator<char>());
     if (ttf.empty()) return false;
 
     atlas.bitmap.assign(static_cast<size_t>(kAtlasDim) * kAtlasDim, 0);
@@ -61,8 +59,8 @@ bool bake(const std::string& path, float pixel_height, FontAtlas& atlas)
     // negative count if the atlas was too small to fit every glyph --
     // either way, <=0 is the failure case (stb_truetype.h's own contract).
     const int rows_used =
-        stbtt_BakeFontBitmap(ttf.data(), 0, pixel_height, atlas.bitmap.data(), kAtlasDim,
-                              kAtlasDim, kFirstChar, kNumChars, atlas.chars.data());
+        stbtt_BakeFontBitmap(ttf.data(), 0, pixel_height, atlas.bitmap.data(), kAtlasDim, kAtlasDim,
+                             kFirstChar, kNumChars, atlas.chars.data());
     return rows_used > 0;
 }
 
@@ -74,8 +72,7 @@ bool bake(const std::string& path, float pixel_height, FontAtlas& atlas)
 // ponytail: one-entry cache, not an LRU keyed on every path ever seen --
 // this node loads exactly one font for its whole lifetime; revisit if a
 // future feature swaps fonts at runtime.
-const FontAtlas* get_atlas(const std::string& font_path, float scale)
-{
+const FontAtlas* get_atlas(const std::string& font_path, float scale) {
     // Scale is quantized to 0.1 steps for the cache test: a theme_transition
     // between two themes with DIFFERENT hud.scale values blends the scale
     // every tick, and an exact-float key would re-bake the whole atlas every
@@ -84,8 +81,7 @@ const FontAtlas* get_atlas(const std::string& font_path, float scale)
     // quantized height, so text stays crisp.
     const float qscale = std::round(scale * 10.0f) / 10.0f;
     static FontAtlas atlas;
-    if (atlas.path != font_path || atlas.scale != qscale)
-    {
+    if (atlas.path != font_path || atlas.scale != qscale) {
         FontAtlas next;
         next.path = font_path;
         next.scale = qscale;
@@ -97,8 +93,7 @@ const FontAtlas* get_atlas(const std::string& font_path, float scale)
 }
 
 void blend_pixel(uint8_t* rgb, uint32_t width, uint32_t height, int x, int y, float r, float g,
-                  float b, float coverage)
-{
+                 float b, float coverage) {
     if (x < 0 || y < 0 || x >= static_cast<int>(width) || y >= static_cast<int>(height)) return;
     if (coverage <= 0.0f) return;
     uint8_t* px = rgb + (static_cast<size_t>(y) * width + x) * 3;
@@ -113,18 +108,15 @@ void blend_pixel(uint8_t* rgb, uint32_t width, uint32_t height, int x, int y, fl
 // CompositeHud() today (each line starts at a fresh x), kept because
 // stbtt_GetBakedQuad's pen-advance is otherwise silently discarded.
 float draw_line(uint8_t* rgb, uint32_t width, uint32_t height, const FontAtlas& atlas,
-                 const std::string& text, float x, float y, float r, float g, float b)
-{
-    for (unsigned char c : text)
-    {
-        if (c < kFirstChar || c >= kFirstChar + kNumChars)
-        {
+                const std::string& text, float x, float y, float r, float g, float b) {
+    for (unsigned char c : text) {
+        if (c < kFirstChar || c >= kFirstChar + kNumChars) {
             x += atlas.pixel_height * 0.5f;  // unbaked char (e.g. control byte) -- blank advance
             continue;
         }
         stbtt_aligned_quad q;
         stbtt_GetBakedQuad(atlas.chars.data(), kAtlasDim, kAtlasDim, c - kFirstChar, &x, &y, &q,
-                            1 /*opengl_fillrule -- top-left origin, matches rgb's own row-major*/);
+                           1 /*opengl_fillrule -- top-left origin, matches rgb's own row-major*/);
         const int gx0 = static_cast<int>(std::floor(q.x0));
         const int gx1 = static_cast<int>(std::ceil(q.x1));
         const int gy0 = static_cast<int>(std::floor(q.y0));
@@ -132,13 +124,11 @@ float draw_line(uint8_t* rgb, uint32_t width, uint32_t height, const FontAtlas& 
         if (gx1 <= gx0 || gy1 <= gy0) continue;  // whitespace glyph -- nothing to blit
         const float u_span = q.s1 - q.s0, v_span = q.t1 - q.t0;
         const float gw = static_cast<float>(gx1 - gx0), gh = static_cast<float>(gy1 - gy0);
-        for (int py = gy0; py < gy1; ++py)
-        {
+        for (int py = gy0; py < gy1; ++py) {
             const float v = q.t0 + ((py - gy0) + 0.5f) / gh * v_span;
             const int ay = static_cast<int>(v * kAtlasDim);
             if (ay < 0 || ay >= kAtlasDim) continue;
-            for (int px = gx0; px < gx1; ++px)
-            {
+            for (int px = gx0; px < gx1; ++px) {
                 const float u = q.s0 + ((px - gx0) + 0.5f) / gw * u_span;
                 const int ax = static_cast<int>(u * kAtlasDim);
                 if (ax < 0 || ax >= kAtlasDim) continue;
@@ -154,11 +144,9 @@ float draw_line(uint8_t* rgb, uint32_t width, uint32_t height, const FontAtlas& 
 }  // namespace
 
 bool CompositeHud(uint8_t* rgb, uint32_t width, uint32_t height, const HudSnapshot& hud,
-                   HudRgb text_rgb, HudRgb accent_rgb, float scale, const char* font_path)
-{
+                  HudRgb text_rgb, HudRgb accent_rgb, float scale, const char* font_path) {
     if (rgb == nullptr || width == 0 || height == 0 || font_path == nullptr ||
-        font_path[0] == '\0')
-    {
+        font_path[0] == '\0') {
         return false;
     }
     const float safe_scale = scale > 0.0f ? scale : 1.0f;
@@ -172,11 +160,16 @@ bool CompositeHud(uint8_t* rgb, uint32_t width, uint32_t height, const HudSnapsh
     // toggle uses ({1: bowl, 2: pointcloud, 3: visual}); an id neither knows
     // falls back to the numeric form rather than rendering nothing.
     char mode_buf[16];
-    switch (hud.active_mode)
-    {
-        case 1: std::snprintf(mode_buf, sizeof(mode_buf), "BOWL"); break;
-        case 2: std::snprintf(mode_buf, sizeof(mode_buf), "POINTCLOUD"); break;
-        case 3: std::snprintf(mode_buf, sizeof(mode_buf), "VISUAL"); break;
+    switch (hud.active_mode) {
+        case 1:
+            std::snprintf(mode_buf, sizeof(mode_buf), "BOWL");
+            break;
+        case 2:
+            std::snprintf(mode_buf, sizeof(mode_buf), "POINTCLOUD");
+            break;
+        case 3:
+            std::snprintf(mode_buf, sizeof(mode_buf), "VISUAL");
+            break;
         default:
             std::snprintf(mode_buf, sizeof(mode_buf), "MODE %d", static_cast<int>(hud.active_mode));
             break;
@@ -198,11 +191,9 @@ bool CompositeHud(uint8_t* rgb, uint32_t width, uint32_t height, const HudSnapsh
 // See hud_overlay.hpp's comment. Thin wrapper over the same get_atlas()/
 // draw_line() this file's own CompositeHud() uses above.
 bool DrawText(uint8_t* rgb, uint32_t width, uint32_t height, const char* text, float x, float y,
-              HudRgb rgb_color, float scale, const char* font_path)
-{
+              HudRgb rgb_color, float scale, const char* font_path) {
     if (rgb == nullptr || width == 0 || height == 0 || text == nullptr || font_path == nullptr ||
-        font_path[0] == '\0')
-    {
+        font_path[0] == '\0') {
         return false;
     }
     const float safe_scale = scale > 0.0f ? scale : 1.0f;
@@ -215,9 +206,8 @@ bool DrawText(uint8_t* rgb, uint32_t width, uint32_t height, const char* text, f
 
 // See hud_overlay.hpp's comment. Plain integer Bresenham -- a callout's
 // leader line is short and cosmetic, no anti-aliasing needed.
-void DrawLine(uint8_t* rgb, uint32_t width, uint32_t height, float x0, float y0, float x1,
-              float y1, HudRgb rgb_color)
-{
+void DrawLine(uint8_t* rgb, uint32_t width, uint32_t height, float x0, float y0, float x1, float y1,
+              HudRgb rgb_color) {
     if (rgb == nullptr || width == 0 || height == 0) return;
     int x = static_cast<int>(std::lround(x0));
     int y = static_cast<int>(std::lround(y0));
@@ -226,13 +216,18 @@ void DrawLine(uint8_t* rgb, uint32_t width, uint32_t height, float x0, float y0,
     const int dx = std::abs(ix1 - x), sx = x < ix1 ? 1 : -1;
     const int dy = -std::abs(iy1 - y), sy = y < iy1 ? 1 : -1;
     int err = dx + dy;
-    for (;;)
-    {
+    for (;;) {
         blend_pixel(rgb, width, height, x, y, rgb_color.r, rgb_color.g, rgb_color.b, 1.0f);
         if (x == ix1 && y == iy1) break;
         const int e2 = 2 * err;
-        if (e2 >= dy) { err += dy; x += sx; }
-        if (e2 <= dx) { err += dx; y += sy; }
+        if (e2 >= dy) {
+            err += dy;
+            x += sx;
+        }
+        if (e2 <= dx) {
+            err += dx;
+            y += sy;
+        }
     }
 }
 

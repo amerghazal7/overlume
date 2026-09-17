@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file hud_overlay.hpp
  *  @brief Epic 3 Task 3 (VM-030): the node-side CPU HUD compositor -- the
@@ -34,8 +37,7 @@
 
 #include "overlume/scene.h"
 
-namespace overlume_node
-{
+namespace overlume_node {
 
 // Step 0: scene.hud.speed_mps + the render mode only -- chips are Task 4 scope.
 void PopulateHud(overlume::SceneGraph& scene, int render_mode);
@@ -44,8 +46,7 @@ void PopulateHud(overlume::SceneGraph& scene, int render_mode);
 // world-space point type); not std::array (this header is node-only, no
 // POD-boundary constraint, but there's no reason to reach for more than an
 // aggregate here).
-struct HudRgb
-{
+struct HudRgb {
     float r, g, b;
 };
 
@@ -54,8 +55,7 @@ struct HudRgb
 // carries chips/chip_count (Task 4), which CompositeHud() has no use for
 // yet, and a caller building one of these for a test needn't zero-init
 // fields it doesn't care about.
-struct HudSnapshot
-{
+struct HudSnapshot {
     double speed_mps;
     uint8_t active_mode;
 };
@@ -67,7 +67,7 @@ struct HudSnapshot
 // `width`/`height` must match `rgb`'s actual allocation; a null `rgb` or
 // `font_path`, or zero `width`/`height`, is also a (harmless) false return.
 bool CompositeHud(uint8_t* rgb, uint32_t width, uint32_t height, const HudSnapshot& hud,
-                   HudRgb text_rgb, HudRgb accent_rgb, float scale, const char* font_path);
+                  HudRgb text_rgb, HudRgb accent_rgb, float scale, const char* font_path);
 
 // Epic 3 Task 4 (VM-031): exposed so callouts.cpp can draw its chip/leader
 // line through the SAME font-atlas cache and glyph-blit path CompositeHud()
@@ -84,7 +84,7 @@ bool DrawText(uint8_t* rgb, uint32_t width, uint32_t height, const char* text, f
 // from (x0, y0) to (x1, y1). Pure raster, no font/atlas involved -- unlike
 // DrawText() this can't fail (out-of-bounds endpoints are simply clipped
 // pixel-by-pixel by the same bounds check blend_pixel() already applies).
-void DrawLine(uint8_t* rgb, uint32_t width, uint32_t height, float x0, float y0, float x1,
-              float y1, HudRgb rgb_color);
+void DrawLine(uint8_t* rgb, uint32_t width, uint32_t height, float x0, float y0, float x1, float y1,
+              HudRgb rgb_color);
 
 }  // namespace overlume_node

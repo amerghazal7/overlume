@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // ground_grid.hpp — internal-only (`-I src`), not installed, not POD.
 // Declares the per-frame update for the two per-kind ground_grid.mat
 // instances renderer.cpp creates/themes.

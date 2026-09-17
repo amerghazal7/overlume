@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # VM-094 (unified-engine migration Task 5) Step 4 perf gate. Real fixture
 # bag (six live cameras + /iv_points_fusion lidar), not epic2_fixtures_full
 # (no camera/lidar topics at all -- same reasoning as bowl_perf_gate.sh's

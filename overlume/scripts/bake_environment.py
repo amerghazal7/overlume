@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
 """Bake OSM building footprints into chunked, map-frame glTF + an index
 (Epic 4 Task 2 / VM-051).
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
 // trajectory_carpet.mat — VM-077. output_trajectory_carpet's per-vertex
 // color IS the signal (the producer's own baked velocity gradient,
 // STANDING directive 2026-09-09) -- UNLIT for the same reason

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_lidar_colorize.cpp -- VM-094 (unified-engine migration Task 5)
 // Steps 0-2. Pure camera math, no rclcpp/ROS involvement (same "no full
 // OverlumeNode/rclcpp harness in this suite" shape as
@@ -10,8 +13,7 @@
 
 #include <gtest/gtest.h>
 
-namespace
-{
+namespace {
 using overlume::ros::ColorizeFromCameras;
 using overlume::CameraExtrinsics;
 using overlume::CameraIntrinsics;
@@ -20,26 +22,22 @@ using overlume::CameraIntrinsics;
 // fwd=(0,0,1) -- R columns per bowl_projection.hpp's own convention
 // (row-major R, column j = (R[j],R[3+j],R[6+j])). A point at rig-frame
 // (0,0,depth) sits dead ahead.
-CameraExtrinsics IdentityCameraAt(double tx, double ty, double tz)
-{
+CameraExtrinsics IdentityCameraAt(double tx, double ty, double tz) {
     return CameraExtrinsics{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {tx, ty, tz}};
 }
 
 // No distortion, principal point centered -- (0,0,depth) projects exactly
 // to (cx,cy) regardless of depth.
-CameraIntrinsics ZeroDistIntrinsics(double fx, double fy, double cx, double cy)
-{
+CameraIntrinsics ZeroDistIntrinsics(double fx, double fy, double cx, double cy) {
     return CameraIntrinsics{fx, fy, cx, cy, {0, 0, 0, 0, 0}};
 }
 
 // Tightly-packed WxHx3 RGB8 buffer, every pixel the same color -- a
 // "test-pattern" solid fill, same fixture shape the Interfaces block's own
 // Step 0 comment describes.
-std::vector<uint8_t> SolidRgbBuffer(uint32_t w, uint32_t h, uint8_t r, uint8_t g, uint8_t b)
-{
+std::vector<uint8_t> SolidRgbBuffer(uint32_t w, uint32_t h, uint8_t r, uint8_t g, uint8_t b) {
     std::vector<uint8_t> buf(static_cast<size_t>(w) * h * 3);
-    for (size_t i = 0; i < buf.size(); i += 3)
-    {
+    for (size_t i = 0; i < buf.size(); i += 3) {
         buf[i] = r;
         buf[i + 1] = g;
         buf[i + 2] = b;
@@ -47,8 +45,7 @@ std::vector<uint8_t> SolidRgbBuffer(uint32_t w, uint32_t h, uint8_t r, uint8_t g
     return buf;
 }
 
-void Unpack(uint32_t rgba, uint8_t& r, uint8_t& g, uint8_t& b, uint8_t& a)
-{
+void Unpack(uint32_t rgba, uint8_t& r, uint8_t& g, uint8_t& b, uint8_t& a) {
     r = static_cast<uint8_t>(rgba & 0xFF);
     g = static_cast<uint8_t>((rgba >> 8) & 0xFF);
     b = static_cast<uint8_t>((rgba >> 16) & 0xFF);
@@ -58,8 +55,7 @@ void Unpack(uint32_t rgba, uint8_t& r, uint8_t& g, uint8_t& b, uint8_t& a)
 
 // Step 0: a lidar point visible to exactly one configured camera gets that
 // camera's pixel color.
-TEST(LidarColorize, PointInSingleCameraFovGetsThatCamerasColor)
-{
+TEST(LidarColorize, PointInSingleCameraFovGetsThatCamerasColor) {
     const CameraExtrinsics ext = IdentityCameraAt(0, 0, 0);
     const CameraIntrinsics in = ZeroDistIntrinsics(500, 500, 320, 240);
     const uint32_t w = 640, h = 480;
@@ -92,8 +88,7 @@ TEST(LidarColorize, PointInSingleCameraFovGetsThatCamerasColor)
 
 // Step 1: a point outside every configured camera's FOV is DROPPED from the
 // output, not emitted with any sentinel color.
-TEST(LidarColorize, PointOutsideEveryCameraFovIsDropped)
-{
+TEST(LidarColorize, PointOutsideEveryCameraFovIsDropped) {
     const CameraExtrinsics ext = IdentityCameraAt(0, 0, 0);
     const CameraIntrinsics in = ZeroDistIntrinsics(500, 500, 320, 240);
     const uint32_t w = 640, h = 480;
@@ -122,8 +117,7 @@ TEST(LidarColorize, PointOutsideEveryCameraFovIsDropped)
 // Step 2: a point visible to two cameras picks the first configured match,
 // deterministically -- the named parity-exception tie-break rule (first-
 // match-wins, not blended, per Decision 5/lidar_colorize.hpp's own doc).
-TEST(LidarColorize, PointVisibleToTwoCamerasPicksFirstConfiguredMatch)
-{
+TEST(LidarColorize, PointVisibleToTwoCamerasPicksFirstConfiguredMatch) {
     // Both cameras identical geometry (co-located, identical intrinsics) so
     // both genuinely cover the same point -- isolates the tie-break rule
     // from any FOV-overlap-geometry concern.
@@ -163,8 +157,7 @@ TEST(LidarColorize, PointVisibleToTwoCamerasPicksFirstConfiguredMatch)
 // A null buffer entry (camera never delivered a frame) is skipped, not
 // dereferenced -- the point falls through to the next configured camera
 // (or is dropped if none remain), never a crash.
-TEST(LidarColorize, NullBufferForACoveringCameraFallsThroughToTheNextOne)
-{
+TEST(LidarColorize, NullBufferForACoveringCameraFallsThroughToTheNextOne) {
     const CameraExtrinsics ext0 = IdentityCameraAt(0, 0, 0);
     const CameraExtrinsics ext1 = IdentityCameraAt(0, 0, 0);
     const CameraIntrinsics in = ZeroDistIntrinsics(500, 500, 320, 240);

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_theme.cpp — theme system on a real lit pipeline + golden-image
 // harness.
 #include "overlume/api.h"
@@ -19,9 +22,7 @@
 
 namespace {
 
-bool AnyDiffer(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
-    return a != b;
-}
+bool AnyDiffer(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) { return a != b; }
 
 }  // namespace
 
@@ -52,7 +53,8 @@ TEST(ThemePalette, EgoParsesFromYamlAsCrossThemeSwap) {
     // so it keeps popping against dark_adas's own near-black ground,
     // whatever light_clay does with its own palette.
     const float darkEgoLightness = overlume::detail::linear_srgb_to_oklab(dark->palette.ego).L;
-    const float darkGroundLightness = overlume::detail::linear_srgb_to_oklab(dark->palette.ground).L;
+    const float darkGroundLightness =
+        overlume::detail::linear_srgb_to_oklab(dark->palette.ground).L;
     EXPECT_GT(darkEgoLightness, darkGroundLightness + 0.3f)
         << "dark_adas's ego color no longer contrasts against its own ground";
 }
@@ -200,8 +202,8 @@ TEST(ThemePalette, RibbonLaneWidthAndMarginsLerpLinearlyAcrossTransition) {
 
     const overlume::detail::Theme mid = overlume::detail::blend(*dark, *light, 0.5f);
     // Plain scalar lerps, same as ribbon.width_m above -- not colors.
-    EXPECT_NEAR(mid.ribbon.lane_width_m, (dark->ribbon.lane_width_m + light->ribbon.lane_width_m) / 2.0f,
-                1e-4f);
+    EXPECT_NEAR(mid.ribbon.lane_width_m,
+                (dark->ribbon.lane_width_m + light->ribbon.lane_width_m) / 2.0f, 1e-4f);
     EXPECT_NEAR(mid.ribbon.margin_behavior_m,
                 (dark->ribbon.margin_behavior_m + light->ribbon.margin_behavior_m) / 2.0f, 1e-4f);
     EXPECT_NEAR(mid.ribbon.margin_global_m,
@@ -343,8 +345,7 @@ TEST(ThemeObjects, OpacityLerpsLinearlyAcrossTransition) {
     ASSERT_TRUE(half.has_value());
 
     const overlume::detail::Theme mid = overlume::detail::blend(*dark, *half, 0.5f);
-    EXPECT_NEAR(mid.objects.opacity, (dark->objects.opacity + half->objects.opacity) / 2.0f,
-                1e-4f);
+    EXPECT_NEAR(mid.objects.opacity, (dark->objects.opacity + half->objects.opacity) / 2.0f, 1e-4f);
 }
 
 // ── palette.road/lane_centerline/lane_boundary/crosswalk: soft-defaulted
@@ -539,8 +540,10 @@ TEST(Fog, ColorAffectsRenderedOutput) {
     // above.
     constexpr uint32_t kWidth = 320, kHeight = 240;
     const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    overlume::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "fog_color_black"};
-    overlume::RenderConfig cfgB{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "fog_color_white"};
+    overlume::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(),
+                                "fog_color_black"};
+    overlume::RenderConfig cfgB{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(),
+                                "fog_color_white"};
 
     overlume::VisualRenderer* rA = overlume::create_renderer(cfgA);
     if (rA == nullptr) {
@@ -554,9 +557,9 @@ TEST(Fog, ColorAffectsRenderedOutput) {
     // writes out_png_path unconditionally before checking it, and this test
     // only wants the render, not the (meaningless-here) SSIM return value.
     overlume::testing::render_and_compare(rA, pose, "/nonexistent/no_such_golden.png",
-                                        "/tmp/fog_color_black_actual.png");
+                                          "/tmp/fog_color_black_actual.png");
     overlume::testing::render_and_compare(rB, pose, "/nonexistent/no_such_golden.png",
-                                        "/tmp/fog_color_white_actual.png");
+                                          "/tmp/fog_color_white_actual.png");
 
     overlume::testing::FrameStats statsA =
         overlume::testing::analyze_png("/tmp/fog_color_black_actual.png");
@@ -565,8 +568,9 @@ TEST(Fog, ColorAffectsRenderedOutput) {
 
     EXPECT_GT(statsB.mean - statsA.mean, 15.0)
         << "black-fog vs white-fog fixtures (identical otherwise) rendered "
-           "near-identical mean brightness (" << statsA.mean
-        << " vs " << statsB.mean << ") -- FogOptions::color isn't reaching the screen.";
+           "near-identical mean brightness ("
+        << statsA.mean << " vs " << statsB.mean
+        << ") -- FogOptions::color isn't reaching the screen.";
 
     overlume::destroy_renderer(rA);
     overlume::destroy_renderer(rB);
@@ -586,9 +590,9 @@ TEST(Fog, ColorAffectsRenderedOutput_DarkAdas) {
     constexpr uint32_t kWidth = 320, kHeight = 240;
     const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
     overlume::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(),
-                             "fog_color_black_dark"};
+                                "fog_color_black_dark"};
     overlume::RenderConfig cfgB{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(),
-                             "fog_color_white_dark"};
+                                "fog_color_white_dark"};
 
     overlume::VisualRenderer* rA = overlume::create_renderer(cfgA);
     if (rA == nullptr) {
@@ -599,9 +603,9 @@ TEST(Fog, ColorAffectsRenderedOutput_DarkAdas) {
 
     overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
     overlume::testing::render_and_compare(rA, pose, "/nonexistent/no_such_golden.png",
-                                        "/tmp/fog_color_black_dark_actual.png");
+                                          "/tmp/fog_color_black_dark_actual.png");
     overlume::testing::render_and_compare(rB, pose, "/nonexistent/no_such_golden.png",
-                                        "/tmp/fog_color_white_dark_actual.png");
+                                          "/tmp/fog_color_white_dark_actual.png");
 
     overlume::testing::FrameStats statsA =
         overlume::testing::analyze_png("/tmp/fog_color_black_dark_actual.png");
@@ -610,8 +614,9 @@ TEST(Fog, ColorAffectsRenderedOutput_DarkAdas) {
 
     EXPECT_GT(statsB.mean - statsA.mean, 15.0)
         << "black-fog vs white-fog dark_adas-derived fixtures (identical otherwise) "
-           "rendered near-identical mean brightness (" << statsA.mean
-        << " vs " << statsB.mean << ") -- FogOptions::color isn't reaching the screen "
+           "rendered near-identical mean brightness ("
+        << statsA.mean << " vs " << statsB.mean
+        << ") -- FogOptions::color isn't reaching the screen "
            "on dark_adas's branch of the color-scale formula.";
 
     overlume::destroy_renderer(rA);
@@ -717,8 +722,10 @@ TEST(ThemeGolden, EmptyWorld_DarkAdas) {
     // is still a real regression guard. See renderer.cpp's setFogOptions
     // comment for the color-scale fix this depends on.
     EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 45.0)
-        << "far-field ground (" << stats.horizon_row_mean << ") doesn't fade "
-           "into the sky (" << stats.sky_row_mean << ") -- fog is over/under-scaled";
+        << "far-field ground (" << stats.horizon_row_mean
+        << ") doesn't fade "
+           "into the sky ("
+        << stats.sky_row_mean << ") -- fog is over/under-scaled";
     overlume::destroy_renderer(r);
 }
 
@@ -772,7 +779,9 @@ TEST(ThemeGolden, EmptyWorld_LightClay) {
     // avoids. A genuinely over/under-scaled fog color still trips this at
     // ~55+.
     EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 55.0)
-        << "far-field ground (" << stats.horizon_row_mean << ") doesn't fade "
-           "into the sky (" << stats.sky_row_mean << ") -- fog is over/under-scaled";
+        << "far-field ground (" << stats.horizon_row_mean
+        << ") doesn't fade "
+           "into the sky ("
+        << stats.sky_row_mean << ") -- fog is over/under-scaled";
     overlume::destroy_renderer(r);
 }

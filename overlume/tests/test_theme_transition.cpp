@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_theme_transition.cpp — animated theme toggle.
 #include "overlume/api.h"
 #include "overlume/scene.h"
@@ -20,7 +23,8 @@ namespace {
 double MaxAbsDiff(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
     double maxDiff = 0.0;
     for (size_t i = 0; i < a.size(); ++i) {
-        maxDiff = std::max(maxDiff, std::abs(static_cast<double>(a[i]) - static_cast<double>(b[i])));
+        maxDiff =
+            std::max(maxDiff, std::abs(static_cast<double>(a[i]) - static_cast<double>(b[i])));
     }
     return maxDiff;
 }
@@ -63,18 +67,17 @@ TEST(ThemeTransition, MidpointBlend_IsBetweenEndpointsInOklab) {
     const overlume::detail::Float3& b = light->palette.ground;
     const overlume::detail::Float3 oklabBlend = overlume::detail::blend_color(a, b, 0.5f);
     const overlume::detail::Float3 naiveLerp{(a.r + b.r) / 2.0f, (a.g + b.g) / 2.0f,
-                                           (a.b + b.b) / 2.0f};
+                                             (a.b + b.b) / 2.0f};
 
     // The two must differ measurably -- if this ever came back ~equal, either
     // blend_color() silently degenerated into a plain component lerp, or the
     // two ground colors stopped being far enough apart to tell the
     // difference (neither should happen for the shipped themes).
     const double delta = std::abs(oklabBlend.r - naiveLerp.r) +
-                          std::abs(oklabBlend.g - naiveLerp.g) +
-                          std::abs(oklabBlend.b - naiveLerp.b);
-    EXPECT_GT(delta, 0.01)
-        << "Oklab-space blend and naive sRGB lerp landed on ~the same color -- "
-           "blend_color() isn't actually blending in Oklab space.";
+                         std::abs(oklabBlend.g - naiveLerp.g) +
+                         std::abs(oklabBlend.b - naiveLerp.b);
+    EXPECT_GT(delta, 0.01) << "Oklab-space blend and naive sRGB lerp landed on ~the same color -- "
+                              "blend_color() isn't actually blending in Oklab space.";
 
     // Self-consistency: the result's Oklab lightness must sit between the
     // two endpoints' lightness (a genuinely "between" blend, not something
@@ -98,15 +101,16 @@ TEST(ThemeTransition, Smoothstep_EasesInAndOut) {
 }
 
 TEST(ThemeTransition, DeterministicClock_MatchesTargetAtDuration) {
-    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};  // medium, same as Task 2's goldens
+    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir,
+                               "dark_adas"};  // medium, same as Task 2's goldens
     overlume::VisualRenderer* r = overlume::create_renderer(cfg);
     if (r == nullptr) {
         GTEST_SKIP() << "no GPU/EGL";
     }
     overlume::SceneGraph scene{};
     scene.sim_time_sec = 0.0;
-    overlume::set_scene(r, scene);                     // t=0, still dark_adas
-    overlume::set_theme(r, "light_clay", 0.0, 0.8);     // begin transition at t=0
+    overlume::set_scene(r, scene);                   // t=0, still dark_adas
+    overlume::set_theme(r, "light_clay", 0.0, 0.8);  // begin transition at t=0
 
     overlume::CameraPose kFixedPose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
 
@@ -209,10 +213,10 @@ TEST(ThemeTransition, MidTransition_LuminanceDoesNotOvershootEndpoints) {
     // goldens (t=0.0 == still dark_adas, t=0.8 == fully settled light_clay)
     // -- no re-render needed, and this stays correct even if those two
     // goldens are regenerated later for an unrelated reason.
-    const overlume::testing::FrameStats endpointA = overlume::testing::analyze_png(
-        OVERLUME_TEST_DATA_DIR "/tests/goldens/transition_t0.png");
-    const overlume::testing::FrameStats endpointB = overlume::testing::analyze_png(
-        OVERLUME_TEST_DATA_DIR "/tests/goldens/transition_t0_8.png");
+    const overlume::testing::FrameStats endpointA =
+        overlume::testing::analyze_png(OVERLUME_TEST_DATA_DIR "/tests/goldens/transition_t0.png");
+    const overlume::testing::FrameStats endpointB =
+        overlume::testing::analyze_png(OVERLUME_TEST_DATA_DIR "/tests/goldens/transition_t0_8.png");
     ASSERT_GT(endpointA.mean, 0.0) << "couldn't load transition_t0.png golden";
     ASSERT_GT(endpointB.mean, 0.0) << "couldn't load transition_t0_8.png golden";
     const double loBound = std::min(endpointA.mean, endpointB.mean) - 3.0;
@@ -230,7 +234,7 @@ TEST(ThemeTransition, MidTransition_LuminanceDoesNotOvershootEndpoints) {
         const std::string outPath =
             "/tmp/transition_mid_t" + std::to_string(tOfDuration) + "_actual.png";
         overlume::testing::render_and_compare(r, pose, "/nonexistent/no_such_golden.png",
-                                            outPath.c_str());
+                                              outPath.c_str());
         const overlume::testing::FrameStats stats = overlume::testing::analyze_png(outPath.c_str());
         EXPECT_GE(stats.mean, loBound)
             << "t=" << tOfDuration << " mean " << stats.mean << " undershot endpoints ["
@@ -348,8 +352,7 @@ TEST(ThemeTransition, SentinelThemesDetectAnyUnblendedField) {
     ExpectBetweenSentinels(mid.palette.object_tints.car, "palette.object_tints.car");
     ExpectBetweenSentinels(mid.palette.object_tints.truck_van, "palette.object_tints.truck_van");
     ExpectBetweenSentinels(mid.palette.object_tints.bus, "palette.object_tints.bus");
-    ExpectBetweenSentinels(mid.palette.object_tints.pedestrian,
-                            "palette.object_tints.pedestrian");
+    ExpectBetweenSentinels(mid.palette.object_tints.pedestrian, "palette.object_tints.pedestrian");
     ExpectBetweenSentinels(mid.palette.object_tints.cyclist, "palette.object_tints.cyclist");
     ExpectBetweenSentinels(mid.palette.object_tints.unknown, "palette.object_tints.unknown");
     ExpectBetweenSentinels(mid.palette.alert.info, "palette.alert.info");

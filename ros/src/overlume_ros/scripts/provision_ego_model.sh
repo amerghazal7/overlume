@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # provision_ego_model.sh — VM-044: converts the real M02P.obj (the deployed
 # robot's ego proxy) into the glTF this package installs at
 # share/overlume_ros/assets/ego/M02P.glb.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file overlume_node.hpp
  *  @brief LifecycleNode wrapping overlume (Filament headless
@@ -61,13 +64,12 @@
 #include "overlume_ros/tf_adapter.hpp"
 #include "overlume_ros/vcam.hpp"
 
-namespace overlume::ros
-{
+namespace overlume::ros {
 
-class OverlumeNode : public rclcpp_lifecycle::LifecycleNode
-{
+class OverlumeNode : public rclcpp_lifecycle::LifecycleNode {
 public:
-    using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
+    using CallbackReturn =
+        rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
 
     explicit OverlumeNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
     ~OverlumeNode() override;
@@ -115,7 +117,7 @@ private:
     // ── configuration (declared in on_configure) ─────────────────────────────
     int out_width_{1280};
     int out_height_{720};
-    int quality_{2};       // 0=low, 1=med, 2=high (overlume::RenderConfig::quality)
+    int quality_{2};  // 0=low, 1=med, 2=high (overlume::RenderConfig::quality)
     // Launch-arg seed for render_mode_'s own declare_parameter default
     // (below) -- see on_configure()'s own comment. Post-cutover (Task 6/
     // VM-095) this no longer selects a global mux mode shared with a
@@ -182,8 +184,7 @@ private:
     // surround_stitching_profile_ live, so a mode switch via on_params()
     // takes effect on the very next PointCloud2 message and the very next
     // tick, no restart.
-    bool hybrid_cloud_consumed() const
-    {
+    bool hybrid_cloud_consumed() const {
         return render_mode_ == kRenderModeHybrid ||
                (render_mode_ == kRenderModeFreeLook && layer_surround_stitching_ &&
                 surround_stitching_profile_ == "hybrid");
@@ -234,8 +235,7 @@ private:
     // already appended). frame_transformer_ is heap-allocated because
     // FrameTransformer holds a `const tf2_ros::Buffer&` that can only bind
     // once tf_buffer_ exists (on_configure, not construction).
-    struct HdMapRow
-    {
+    struct HdMapRow {
         std::unique_ptr<overlume_node::HdMapAdapter> adapter;
         double timeout_sec;
         std::string topic;              // named in drop-growth WARNs
@@ -244,8 +244,7 @@ private:
     };
     std::unique_ptr<FrameTransformer> frame_transformer_;
     std::vector<HdMapRow> hd_map_rows_;
-    std::vector<rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr>
-        hd_map_subs_;
+    std::vector<rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr> hd_map_subs_;
 
     // ── Dynamic objects (Epic 2 Task 3 / VM-021) ─────────────────────────────
     // One DynamicObjectsAdapter per profile row with adapter: dynamic_objects
@@ -253,11 +252,10 @@ private:
     // class_inference_ is loaded once in on_configure and must outlive every
     // adapter, which holds a `const ClassInferenceTable&` (same reference-
     // member shape as FrameTransformer above).
-    struct DynamicObjectsRow
-    {
+    struct DynamicObjectsRow {
         std::unique_ptr<overlume_node::DynamicObjectsAdapter> adapter;
         double timeout_sec;
-        std::string topic;              // named in drop-growth WARNs
+        std::string topic;  // named in drop-growth WARNs
         uint64_t warned_malformed = 0;
         uint64_t warned_no_tf = 0;
     };
@@ -274,8 +272,7 @@ private:
     // last_update_sec, so this category gets the library's staleness
     // FADE -- mark_stale_tick() past timeout_sec, same as the
     // dynamic_objects loop.
-    struct PathRow
-    {
+    struct PathRow {
         std::unique_ptr<overlume_node::PathAdapter> adapter;
         double timeout_sec;
         std::string topic;              // named in drop-growth WARNs
@@ -298,8 +295,7 @@ private:
     // last_update_sec, so this category gets the library's staleness FADE
     // (ground_grid.mat's own alpha), same "stop filling past timeout_sec,
     // mark_stale_tick() instead" shape as dynamic_objects/path above.
-    struct OgmRow
-    {
+    struct OgmRow {
         std::unique_ptr<overlume_node::OgmAdapter> adapter;
         double timeout_sec;
         std::string topic;              // named in drop-growth WARNs (the base topic)
@@ -322,8 +318,7 @@ private:
     // last_update_sec, so this category gets the library's staleness FADE
     // (its severity's constant alpha, multiplied down) -- mark_stale_tick()
     // past timeout_sec, same as every other faded category.
-    struct CollisionRow
-    {
+    struct CollisionRow {
         std::unique_ptr<overlume_node::CollisionAdapter> adapter;
         double timeout_sec;
         std::string topic;              // named in drop-growth WARNs
@@ -343,8 +338,7 @@ private:
     // appends/timeout_sec/warn_on_drop_growth shape as every category
     // above -- GenericMarker carries last_update_sec, so this category
     // gets the library's staleness FADE.
-    struct GenericMarkerRow
-    {
+    struct GenericMarkerRow {
         std::unique_ptr<overlume_node::GenericMarkerAdapter> adapter;
         double timeout_sec;
         std::string topic;              // named in drop-growth WARNs
@@ -363,8 +357,7 @@ private:
     // warn_on_drop_growth shape as every category above. PointCloud
     // carries last_update_sec, so this category gets the library's
     // staleness FADE (point_cloud.mat's own settable alpha).
-    struct PointCloudRow
-    {
+    struct PointCloudRow {
         std::unique_ptr<overlume_node::PointCloudAdapter> adapter;
         double timeout_sec;
         std::string topic;              // named in drop-growth WARNs
@@ -372,8 +365,7 @@ private:
         uint64_t warned_no_tf = 0;      // warn_on_drop_growth()
     };
     std::vector<PointCloudRow> point_cloud_rows_;
-    std::vector<rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr>
-        point_cloud_subs_;
+    std::vector<rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr> point_cloud_subs_;
 
     // ── Trajectory carpet (VM-077) ────────────────────────────────────────────
     // One TrajectoryCarpetAdapter per profile row with adapter:
@@ -383,8 +375,7 @@ private:
     // category above. TrajectoryCarpet carries last_update_sec, so this
     // category gets the library's staleness FADE
     // (trajectory_carpet.mat's own settable alpha).
-    struct CarpetRow
-    {
+    struct CarpetRow {
         std::unique_ptr<overlume_node::TrajectoryCarpetAdapter> adapter;
         double timeout_sec;
         std::string topic;              // named in drop-growth WARNs
@@ -392,8 +383,7 @@ private:
         uint64_t warned_no_tf = 0;      // warn_on_drop_growth()
     };
     std::vector<CarpetRow> carpet_rows_;
-    std::vector<rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr>
-        carpet_subs_;
+    std::vector<rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr> carpet_subs_;
 
     // ── TF-axes debug layer (Epic 2 Task 8 Step 7 / VM-027) ──────────────────
     // One TfAxesAdapter per profile row with adapter: tf_axes -- a

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_quality_governor.cpp — VM-040 (Epic 5): QualityGovernor is a pure
 // hysteresis state machine over a render_ms stream (quality_governor.hpp's
 // own header comment) -- no ROS node, no clock, no renderer, so this is the
@@ -8,15 +11,13 @@
 
 #include <gtest/gtest.h>
 
-namespace
-{
+namespace {
 
 using overlume_node::QualityGovernor;
 using overlume_node::QualityGovernorParams;
 using overlume_node::QualityTransition;
 
-QualityGovernorParams SmallParams()
-{
+QualityGovernorParams SmallParams() {
     QualityGovernorParams p;
     p.window_size = 4;
     p.drop_threshold_ms = 30.0;
@@ -29,8 +30,7 @@ QualityGovernorParams SmallParams()
 // Feeds `n` copies of `ms` and returns the transition the LAST sample's
 // window close (if any) produced -- every case below chooses `n` as an
 // exact multiple of window_size so this is always a real window boundary.
-QualityTransition FeedWindow(QualityGovernor& gov, double ms, uint32_t n)
-{
+QualityTransition FeedWindow(QualityGovernor& gov, double ms, uint32_t n) {
     QualityTransition last = QualityTransition::NONE;
     for (uint32_t i = 0; i < n; ++i) last = gov.record_render_ms(ms);
     return last;
@@ -38,8 +38,7 @@ QualityTransition FeedWindow(QualityGovernor& gov, double ms, uint32_t n)
 
 }  // namespace
 
-TEST(QualityGovernor, NoTransitionUntilAWindowActuallyCloses)
-{
+TEST(QualityGovernor, NoTransitionUntilAWindowActuallyCloses) {
     QualityGovernor gov(SmallParams(), /*initial_preset=*/1);
     // window_size == 4 -- three samples never close a window, however
     // extreme.
@@ -49,8 +48,7 @@ TEST(QualityGovernor, NoTransitionUntilAWindowActuallyCloses)
     EXPECT_EQ(gov.current_preset(), 1u);
 }
 
-TEST(QualityGovernor, StaysPutInsideTheHysteresisGap)
-{
+TEST(QualityGovernor, StaysPutInsideTheHysteresisGap) {
     // Between recover_threshold_ms (20) and drop_threshold_ms (30):
     // neither overloaded nor headroom.
     QualityGovernor gov(SmallParams(), /*initial_preset=*/1);
@@ -58,23 +56,20 @@ TEST(QualityGovernor, StaysPutInsideTheHysteresisGap)
     EXPECT_EQ(gov.current_preset(), 1u);
 }
 
-TEST(QualityGovernor, DropsOnePresetWhenAWindowsP95ExceedsTheDropThreshold)
-{
+TEST(QualityGovernor, DropsOnePresetWhenAWindowsP95ExceedsTheDropThreshold) {
     QualityGovernor gov(SmallParams(), /*initial_preset=*/2);
     EXPECT_EQ(FeedWindow(gov, 40.0, 4), QualityTransition::DROPPED);
     EXPECT_EQ(gov.current_preset(), 1u);
 }
 
-TEST(QualityGovernor, DropNeverGoesBelowLow)
-{
+TEST(QualityGovernor, DropNeverGoesBelowLow) {
     QualityGovernor gov(SmallParams(), /*initial_preset=*/0);
     // Already at the floor -- an overloaded window has nowhere to drop to.
     EXPECT_EQ(FeedWindow(gov, 40.0, 4), QualityTransition::NONE);
     EXPECT_EQ(gov.current_preset(), 0u);
 }
 
-TEST(QualityGovernor, RecoverRequiresConsecutiveGoodWindowsNotJustOne)
-{
+TEST(QualityGovernor, RecoverRequiresConsecutiveGoodWindowsNotJustOne) {
     QualityGovernorParams params = SmallParams();
     params.min_dwell_windows = 0;  // isolate the recovery-streak behavior
     QualityGovernor gov(params, /*initial_preset=*/0);
@@ -90,8 +85,7 @@ TEST(QualityGovernor, RecoverRequiresConsecutiveGoodWindowsNotJustOne)
     EXPECT_EQ(gov.current_preset(), 1u);
 }
 
-TEST(QualityGovernor, AHysteresisGapWindowBreaksAnInProgressRecoveryStreak)
-{
+TEST(QualityGovernor, AHysteresisGapWindowBreaksAnInProgressRecoveryStreak) {
     QualityGovernorParams params = SmallParams();
     params.min_dwell_windows = 0;
     QualityGovernor gov(params, /*initial_preset=*/0);
@@ -109,8 +103,7 @@ TEST(QualityGovernor, AHysteresisGapWindowBreaksAnInProgressRecoveryStreak)
     EXPECT_EQ(gov.current_preset(), 1u);
 }
 
-TEST(QualityGovernor, RecoverNeverGoesAboveHigh)
-{
+TEST(QualityGovernor, RecoverNeverGoesAboveHigh) {
     QualityGovernorParams params = SmallParams();
     params.min_dwell_windows = 0;
     QualityGovernor gov(params, /*initial_preset=*/2);
@@ -125,8 +118,7 @@ TEST(QualityGovernor, RecoverNeverGoesAboveHigh)
 // instance, drop then recover, matching the backlog's own "synthetic-load
 // test triggers drop + log; recovers" acceptance criterion (the log is the
 // node's own responsibility at the call site -- see overlume_node.cpp).
-TEST(QualityGovernor, SyntheticLoadTriggersADropThenARecovery)
-{
+TEST(QualityGovernor, SyntheticLoadTriggersADropThenARecovery) {
     QualityGovernorParams params = SmallParams();
     params.min_dwell_windows = 0;  // no artificial delay between the two
     QualityGovernor gov(params, /*initial_preset=*/2);
@@ -147,8 +139,7 @@ TEST(QualityGovernor, SyntheticLoadTriggersADropThenARecovery)
     EXPECT_EQ(gov.current_preset(), 1u);
 }
 
-TEST(QualityGovernor, MinDwellBlocksASecondTransitionTooSoonAfterTheFirst)
-{
+TEST(QualityGovernor, MinDwellBlocksASecondTransitionTooSoonAfterTheFirst) {
     QualityGovernorParams params = SmallParams();
     params.min_dwell_windows = 2;
     QualityGovernor gov(params, /*initial_preset=*/2);
@@ -170,8 +161,7 @@ TEST(QualityGovernor, MinDwellBlocksASecondTransitionTooSoonAfterTheFirst)
     EXPECT_EQ(gov.current_preset(), 0u);
 }
 
-TEST(QualityGovernor, ConstructorClampsAnOutOfRangeInitialPreset)
-{
+TEST(QualityGovernor, ConstructorClampsAnOutOfRangeInitialPreset) {
     QualityGovernor gov(SmallParams(), /*initial_preset=*/99);
     EXPECT_EQ(gov.current_preset(), 2u);
 }
@@ -182,16 +172,13 @@ TEST(QualityGovernor, ConstructorClampsAnOutOfRangeInitialPreset)
 // to satisfy recover_windows_required (a bad window always resets the good
 // streak). Uses SmallParams()'s real min_dwell_windows/recover_windows_
 // required (not zeroed out, unlike the isolation tests above).
-TEST(QualityGovernor, AlternatingOverloadAndHeadroomNeverBouncesThePresetUp)
-{
+TEST(QualityGovernor, AlternatingOverloadAndHeadroomNeverBouncesThePresetUp) {
     QualityGovernor gov(SmallParams(), /*initial_preset=*/2);
     uint32_t last_preset = gov.current_preset();
-    for (int i = 0; i < 10; ++i)
-    {
+    for (int i = 0; i < 10; ++i) {
         const double ms = (i % 2 == 0) ? 45.0 : 5.0;  // alternate overload / headroom
         FeedWindow(gov, ms, 4);
-        EXPECT_LE(gov.current_preset(), last_preset)
-            << "preset rose mid-trace at window " << i;
+        EXPECT_LE(gov.current_preset(), last_preset) << "preset rose mid-trace at window " << i;
         last_preset = gov.current_preset();
     }
 }
@@ -204,8 +191,7 @@ TEST(QualityGovernor, AlternatingOverloadAndHeadroomNeverBouncesThePresetUp)
 // walks high->medium->low; sustained headroom (12ms, < 18.0) then walks
 // low->medium->high, gated by the real recover-streak and dwell floor
 // together.
-TEST(QualityGovernor, DefaultParamsWalkDownThenUpAcrossASyntheticTrace)
-{
+TEST(QualityGovernor, DefaultParamsWalkDownThenUpAcrossASyntheticTrace) {
     QualityGovernor gov(QualityGovernorParams{}, /*initial_preset=*/2);
     EXPECT_EQ(gov.current_preset(), 2u);
 
@@ -226,8 +212,7 @@ TEST(QualityGovernor, DefaultParamsWalkDownThenUpAcrossASyntheticTrace)
     EXPECT_EQ(FeedWindow(gov, 12.0, 30), QualityTransition::NONE);
     EXPECT_EQ(FeedWindow(gov, 12.0, 30), QualityTransition::RECOVERED);
     EXPECT_EQ(gov.current_preset(), 2u);
-    for (int i = 0; i < 6; ++i)
-    {
+    for (int i = 0; i < 6; ++i) {
         EXPECT_EQ(FeedWindow(gov, 12.0, 30), QualityTransition::NONE);
     }
     EXPECT_EQ(gov.current_preset(), 2u);

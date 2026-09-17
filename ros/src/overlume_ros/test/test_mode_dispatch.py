@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """Local render-mode / Surround Stitching param regression test (Task 4 /
 VM-093).
 

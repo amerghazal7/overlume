@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // environment_test_hooks.hpp — internal-only, not installed, not POD. Same
 // reasoning as map_elements_test_hooks.hpp: tests/test_environment.cpp
 // links only against `overlume` and has no access to its PRIVATE
@@ -55,13 +58,14 @@ struct FixtureStreamHandle;  // opaque kill-switch handle; owned by the
 // (today's clay remap, every pre-VM-064 call site unaffected); true installs
 // in original-materials mode (the Google Photorealistic 3D Tiles path).
 bool install_fixture_streaming_source(overlume::VisualRenderer* r, const char* fixture_dir,
-                                       overlume::GeoAnchor anchor, bool materials_original = false);
+                                      overlume::GeoAnchor anchor, bool materials_original = false);
 
 // Same, plus a baked fallback dir and a kill switch for Task 4's
 // network-loss e2e. Returns the kill-switch handle; nullptr on failure.
-FixtureStreamHandle* install_fixture_streaming_source_with_fallback(
-    overlume::VisualRenderer* r, const char* fixture_dir, const char* fallback_baked_dir,
-    overlume::GeoAnchor anchor);
+FixtureStreamHandle* install_fixture_streaming_source_with_fallback(overlume::VisualRenderer* r,
+                                                                    const char* fixture_dir,
+                                                                    const char* fallback_baked_dir,
+                                                                    overlume::GeoAnchor anchor);
 
 // Flips the kill switch: every subsequent fixture "network" request fails.
 void kill_fixture_network(FixtureStreamHandle* handle);
@@ -82,8 +86,8 @@ void revive_fixture_network(FixtureStreamHandle* handle);
 // returns true (kept bool, not void, for the same "hook reports success"
 // shape as the other hooks here).
 bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double heading_rad,
-                        double lat_deg, double lon_deg, double alt_m, double* out_x, double* out_y,
-                        double* out_z);
+                       double lat_deg, double lon_deg, double alt_m, double* out_x, double* out_y,
+                       double* out_z);
 
 // VM-064 (Task 5) Step 0: true iff the installed source is a
 // StreamingEnvironmentSource running in original-materials mode. False if

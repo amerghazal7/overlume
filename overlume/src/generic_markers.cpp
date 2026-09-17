@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // generic_markers.cpp — the generic-marker fallback renderer: any
 // MarkerArray topic renders via one YAML row. Unit meshes for the
 // primitives that don't carry their own point data (cube/sphere/cylinder/
@@ -117,7 +120,7 @@ void build_unit_cube(std::vector<Vertex>& verts, std::vector<uint16_t>& indices)
         int i[4];
     };
     const Face faces[6] = {
-        {{0, 0, -1}, {0, 3, 2, 1}}, {{0, 0, 1}, {4, 5, 6, 7}}, {{0, -1, 0}, {0, 1, 5, 4}},
+        {{0, 0, -1}, {0, 3, 2, 1}}, {{0, 0, 1}, {4, 5, 6, 7}},  {{0, -1, 0}, {0, 1, 5, 4}},
         {{0, 1, 0}, {3, 7, 6, 2}},  {{-1, 0, 0}, {0, 4, 7, 3}}, {{1, 0, 0}, {1, 2, 6, 5}},
     };
     std::vector<float3> normals;
@@ -128,8 +131,8 @@ void build_unit_cube(std::vector<Vertex>& verts, std::vector<uint16_t>& indices)
             normals.push_back(f.n);
         }
         indices.insert(indices.end(),
-                        {base, static_cast<uint16_t>(base + 1), static_cast<uint16_t>(base + 2),
-                         base, static_cast<uint16_t>(base + 2), static_cast<uint16_t>(base + 3)});
+                       {base, static_cast<uint16_t>(base + 1), static_cast<uint16_t>(base + 2),
+                        base, static_cast<uint16_t>(base + 2), static_cast<uint16_t>(base + 3)});
     }
     fill_tangent_frames(verts, normals);
 }
@@ -142,7 +145,8 @@ void build_unit_sphere(std::vector<Vertex>& verts, std::vector<uint16_t>& indice
     constexpr float kRadius = 0.5f;
     std::vector<float3> normals;
     for (int i = 0; i <= kStacks; ++i) {
-        const float phi = kPi * static_cast<float>(i) / static_cast<float>(kStacks);  // 0..pi from +Z
+        const float phi =
+            kPi * static_cast<float>(i) / static_cast<float>(kStacks);  // 0..pi from +Z
         const float z = std::cos(phi);
         const float ring = std::sin(phi);
         for (int j = 0; j <= kSlices; ++j) {
@@ -206,9 +210,9 @@ void build_unit_cylinder(std::vector<Vertex>& verts, std::vector<uint16_t>& indi
     }
     for (int i = 0; i < kSegs; ++i) {
         indices.insert(indices.end(), {topCenter, static_cast<uint16_t>(topRingStart + i),
-                                        static_cast<uint16_t>(topRingStart + i + 1)});
+                                       static_cast<uint16_t>(topRingStart + i + 1)});
         indices.insert(indices.end(), {botCenter, static_cast<uint16_t>(botRingStart + i + 1),
-                                        static_cast<uint16_t>(botRingStart + i)});
+                                       static_cast<uint16_t>(botRingStart + i)});
     }
     fill_tangent_frames(verts, normals);
 }
@@ -288,11 +292,12 @@ filament::RenderableManager::PrimitiveType to_filament_primitive(MarkerPrimitive
 // TransformManager component (update_slot_transform() drives it every
 // frame) -- a new GPU/ECS allocation, counted.
 void ensure_slot_shared_entity(VisualRenderer& r, VisualRenderer::GenericMarkerSlot& slot,
-                                const Mesh& shared, filament::MaterialInstance* initialMaterial) {
+                               const Mesh& shared, filament::MaterialInstance* initialMaterial) {
     if (slot.sharedGeomEntity) return;
     slot.sharedGeomEntity = utils::EntityManager::get().create();
     filament::RenderableManager::Builder(1)
-        .boundingBox({{0, 0, 0}, {50.0f, 50.0f, 50.0f}})  // culling(false) below -- exact box irrelevant
+        .boundingBox(
+            {{0, 0, 0}, {50.0f, 50.0f, 50.0f}})  // culling(false) below -- exact box irrelevant
         .geometry(0, filament::RenderableManager::PrimitiveType::TRIANGLES, shared.vb, shared.ib)
         .material(0, initialMaterial)
         .culling(false)
@@ -309,13 +314,14 @@ void ensure_slot_shared_entity(VisualRenderer& r, VisualRenderer::GenericMarkerS
 // TransformManager transform — see this file's header comment). Rebuilt
 // only when the content signature changes.
 void update_own_mesh_geometry(VisualRenderer& r, const GenericMarker& m,
-                               VisualRenderer::GenericMarkerSlot& slot) {
+                              VisualRenderer::GenericMarkerSlot& slot) {
     const uint64_t sig = points_signature(m.points, m.point_count);
     if (slot.hasGeomSignature && slot.geomSignature == sig) return;
     if (slot.ownMesh.vb != nullptr) destroy_mesh(*r.engine, *r.scene, slot.ownMesh);
     slot.hasGeomSignature = true;
     slot.geomSignature = sig;
-    if (m.points == nullptr || m.point_count == 0) return;  // malformed -- nothing to render this frame
+    if (m.points == nullptr || m.point_count == 0)
+        return;  // malformed -- nothing to render this frame
 
     std::vector<Vertex> verts(m.point_count);
     for (uint32_t i = 0; i < m.point_count; ++i) verts[i].position = to_f3(m.points[i]);
@@ -332,8 +338,9 @@ void update_own_mesh_geometry(VisualRenderer& r, const GenericMarker& m,
     }
     std::vector<uint16_t> indices(verts.size());
     for (size_t i = 0; i < indices.size(); ++i) indices[i] = static_cast<uint16_t>(i);
-    add_mesh(r, slot.ownMesh, std::move(verts), std::move(indices), to_filament_primitive(m.primitive),
-             r.genericMarkerMaterial, /*cast_shadows=*/false, /*receive_shadows=*/true);
+    add_mesh(r, slot.ownMesh, std::move(verts), std::move(indices),
+             to_filament_primitive(m.primitive), r.genericMarkerMaterial, /*cast_shadows=*/false,
+             /*receive_shadows=*/true);
     ++r.genericMarkerAllocCount;
 }
 
@@ -365,7 +372,8 @@ void update_mesh_geometry(VisualRenderer& r, const GenericMarker& m,
             if (size > 0) {
                 std::vector<uint8_t> bytes(static_cast<size_t>(size));
                 file.seekg(0);
-                if (file.read(reinterpret_cast<char*>(bytes.data()), size) && ensure_gltf_loader(r)) {
+                if (file.read(reinterpret_cast<char*>(bytes.data()), size) &&
+                    ensure_gltf_loader(r)) {
                     filament::gltfio::FilamentAsset* asset = r.sharedAssetLoader->createAsset(
                         bytes.data(), static_cast<uint32_t>(bytes.size()));
                     if (asset != nullptr) {
@@ -445,7 +453,7 @@ void update_slot_geometry(VisualRenderer& r, const GenericMarker& m,
 // already baked in world space -- see update_own_mesh_geometry()). TEXT is
 // translation-only (this file's build_text_billboard() comment).
 void update_slot_transform(VisualRenderer& r, const GenericMarker& m,
-                          VisualRenderer::GenericMarkerSlot& slot) {
+                           VisualRenderer::GenericMarkerSlot& slot) {
     utils::Entity xformEntity;
     switch (slot.primitive) {
         case MarkerPrimitive::CUBE:
@@ -456,9 +464,10 @@ void update_slot_transform(VisualRenderer& r, const GenericMarker& m,
             xformEntity = slot.sharedGeomEntity;
             break;
         case MarkerPrimitive::MESH:
-            xformEntity = slot.meshIsFallback
-                              ? slot.ownMesh.entity
-                              : (slot.meshAsset != nullptr ? slot.meshAsset->getRoot() : utils::Entity{});
+            xformEntity =
+                slot.meshIsFallback
+                    ? slot.ownMesh.entity
+                    : (slot.meshAsset != nullptr ? slot.meshAsset->getRoot() : utils::Entity{});
             break;
         default:
             return;  // LINE_*/POINTS/TRIANGLE_LIST -- no transform at all
@@ -483,7 +492,7 @@ void update_slot_transform(VisualRenderer& r, const GenericMarker& m,
 // VisualRenderer::genericMarkerColorInstances (see that map's ponytail
 // comment on the no-eviction ceiling).
 filament::MaterialInstance* resolve_marker_material(VisualRenderer& r, const GenericMarker& m,
-                                                     detail::Float3& outTint) {
+                                                    detail::Float3& outTint) {
     if (m.color[3] == 0.0f) {
         outTint = r.genericMarkerNeutralTint;
         return r.genericMarkerMaterial;
@@ -677,7 +686,8 @@ GenericMarkerMaterialInfo generic_marker_material_info(overlume::VisualRenderer*
     const auto ri = rm.getInstance(ent);
     if (!ri.isValid()) return info;
     filament::MaterialInstance* bound = rm.getMaterialInstanceAt(ri, 0);
-    info.bound_to_translucent = bound != nullptr && bound->getMaterial() == r->clayTranslucentMaterial;
+    info.bound_to_translucent =
+        bound != nullptr && bound->getMaterial() == r->clayTranslucentMaterial;
     return info;
 }
 

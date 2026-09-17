@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file diagnostics.cpp
  *  @brief See diagnostics.hpp. Pure data transform -- no ROS node, no clock,
  *  no publisher -- so it is unit-testable with nothing but the AdapterStats
@@ -7,21 +10,17 @@
 
 #include <sstream>
 
-namespace overlume_node
-{
+namespace overlume_node {
 
-namespace
-{
+namespace {
 
-std::string to_str(double v)
-{
+std::string to_str(double v) {
     std::ostringstream oss;
     oss << v;
     return oss.str();
 }
 
-diagnostic_msgs::msg::KeyValue kv(const std::string& key, const std::string& value)
-{
+diagnostic_msgs::msg::KeyValue kv(const std::string& key, const std::string& value) {
     diagnostic_msgs::msg::KeyValue out;
     out.key = key;
     out.value = value;
@@ -31,13 +30,11 @@ diagnostic_msgs::msg::KeyValue kv(const std::string& key, const std::string& val
 }  // namespace
 
 diagnostic_msgs::msg::DiagnosticArray BuildDiagnostics(const std::vector<RowStats>& rows,
-                                                        double render_ms)
-{
+                                                       double render_ms) {
     diagnostic_msgs::msg::DiagnosticArray msg;
     msg.status.reserve(rows.size() + 1);
 
-    for (const auto& row : rows)
-    {
+    for (const auto& row : rows) {
         diagnostic_msgs::msg::DiagnosticStatus status;
         status.name = row.topic;
         // ABSENT (never published) is not the same as STALE (published, then
@@ -53,14 +50,14 @@ diagnostic_msgs::msg::DiagnosticArray BuildDiagnostics(const std::vector<RowStat
         const bool stale =
             !absent && row.timeout_sec > 0.0 && row.last_msg_age_sec > row.timeout_sec;
         status.level = stale ? diagnostic_msgs::msg::DiagnosticStatus::WARN
-                              : diagnostic_msgs::msg::DiagnosticStatus::OK;
+                             : diagnostic_msgs::msg::DiagnosticStatus::OK;
         status.message = absent ? "no data yet" : (stale ? "stale" : "ok");
-        if (!absent)
-        {
+        if (!absent) {
             status.values.push_back(kv("last_msg_age_sec", to_str(row.last_msg_age_sec)));
         }
         status.values.push_back(kv("msgs", std::to_string(row.stats.msgs)));
-        status.values.push_back(kv("dropped_malformed", std::to_string(row.stats.dropped_malformed)));
+        status.values.push_back(
+            kv("dropped_malformed", std::to_string(row.stats.dropped_malformed)));
         status.values.push_back(kv("dropped_stale", std::to_string(row.stats.dropped_stale)));
         status.values.push_back(kv("dropped_no_tf", std::to_string(row.stats.dropped_no_tf)));
         // Separate from dropped_malformed -- adapter_stats.hpp's own header

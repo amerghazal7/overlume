@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // theme.hpp — internal-only (not installed, not POD). YAML -> Theme token
 // set consumed generically by renderer.cpp; no per-theme branch anywhere in
 // the renderer. std:: usage is fine here — it's a `.hpp` under `src/`,
@@ -115,7 +118,8 @@ struct Theme {
     // 720p. Soft-defaulted (palette.ego convention); STANDING-directive style
     // token for the point-cloud layer.
     struct PointCloudStyle {
-        float point_size_px = 2.0f;  // user-tuned 2026-09-09 ("Points are large, make default is 2px")
+        float point_size_px =
+            2.0f;  // user-tuned 2026-09-09 ("Points are large, make default is 2px")
     } point_cloud;
 
     struct Sun {

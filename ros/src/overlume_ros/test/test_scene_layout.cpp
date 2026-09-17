@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file test_scene_layout.cpp
  *  @brief Node-side (gcc/libstdc++) mirror of tests/test_scene_buffer.cpp's
  *  scene.h layout static_asserts. ADR-0004
@@ -30,7 +33,8 @@ static_assert(offsetof(overlume::MapElement, point_count) == 8,
 static_assert(offsetof(overlume::MapElement, is_polygon) == 12,
               "node/library scene.h version drifted");
 static_assert(offsetof(overlume::MapElement, kind) == 13, "node/library scene.h version drifted");
-static_assert(offsetof(overlume::MapElement, lane_id) == 16, "node/library scene.h version drifted");
+static_assert(offsetof(overlume::MapElement, lane_id) == 16,
+              "node/library scene.h version drifted");
 static_assert(offsetof(overlume::MapElement, last_update_sec) == 24,
               "node/library scene.h version drifted");
 
@@ -84,13 +88,18 @@ static_assert(offsetof(overlume::GeoAnchor, heading_rad) == 16,
 // SceneGraph fields, same reasoning as GeoAnchor above.
 static_assert(sizeof(overlume::CameraExtrinsics) == 96, "node/library scene.h version drifted");
 static_assert(offsetof(overlume::CameraExtrinsics, R) == 0, "node/library scene.h version drifted");
-static_assert(offsetof(overlume::CameraExtrinsics, t) == 72, "node/library scene.h version drifted");
+static_assert(offsetof(overlume::CameraExtrinsics, t) == 72,
+              "node/library scene.h version drifted");
 
 static_assert(sizeof(overlume::CameraIntrinsics) == 72, "node/library scene.h version drifted");
-static_assert(offsetof(overlume::CameraIntrinsics, fx) == 0, "node/library scene.h version drifted");
-static_assert(offsetof(overlume::CameraIntrinsics, fy) == 8, "node/library scene.h version drifted");
-static_assert(offsetof(overlume::CameraIntrinsics, cx) == 16, "node/library scene.h version drifted");
-static_assert(offsetof(overlume::CameraIntrinsics, cy) == 24, "node/library scene.h version drifted");
+static_assert(offsetof(overlume::CameraIntrinsics, fx) == 0,
+              "node/library scene.h version drifted");
+static_assert(offsetof(overlume::CameraIntrinsics, fy) == 8,
+              "node/library scene.h version drifted");
+static_assert(offsetof(overlume::CameraIntrinsics, cx) == 16,
+              "node/library scene.h version drifted");
+static_assert(offsetof(overlume::CameraIntrinsics, cy) == 24,
+              "node/library scene.h version drifted");
 static_assert(offsetof(overlume::CameraIntrinsics, dist) == 32,
               "node/library scene.h version drifted");
 
@@ -107,8 +116,7 @@ static_assert(offsetof(overlume::BowlConfig, cam_height) == 32,
               "node/library scene.h version drifted");
 static_assert(offsetof(overlume::BowlConfig, bowl_R0) == 40,
               "node/library scene.h version drifted");
-static_assert(offsetof(overlume::BowlConfig, bowl_k) == 48,
-              "node/library scene.h version drifted");
+static_assert(offsetof(overlume::BowlConfig, bowl_k) == 48, "node/library scene.h version drifted");
 static_assert(offsetof(overlume::BowlConfig, bowl_Rmax) == 56,
               "node/library scene.h version drifted");
 static_assert(offsetof(overlume::BowlConfig, feather_margin) == 64,

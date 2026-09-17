@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // renderer_quality_test_hooks.hpp — internal-only, not installed, not POD.
 // Epic 3 Task 5 (VM-032) Step 3: `create_renderer()`'s quality dispatch
 // (renderer.cpp) picks shadow-map resolution / shadow enable / low-preset

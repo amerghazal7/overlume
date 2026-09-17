@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // environment_stream.hpp — library-internal AND C++20-only (Decision 3,
 // docs/plans/2026-08-18-visual-mode-epic6.md). Included by
 // environment_stream.cpp and NOTHING else: the static_assert below makes
@@ -43,15 +46,15 @@ namespace overlume {
 
 // ── Named constants (Decision 9, dev-box proxies -- same honesty class as
 //    environment.hpp's kLoadRadiusM) ─────────────────────────────────────
-inline constexpr double kStreamViewHeightM = 300.0;   // synthetic-camera height above ego
+inline constexpr double kStreamViewHeightM = 300.0;  // synthetic-camera height above ego
 inline constexpr int kStreamViewportPx = 256;
-inline constexpr double kStreamViewFovRad = 1.3;      // vertical AND horizontal (square viewport)
+inline constexpr double kStreamViewFovRad = 1.3;  // vertical AND horizontal (square viewport)
 inline constexpr double kStreamMaxSseErr = 48.0;
 // ponytail: nadir synthetic view sized to kLoadRadiusM; driving selection
 // from the real render camera is the upgrade if building pop-in bothers
 // anyone.
-inline constexpr double kStreamHeightOffsetM = 0.0;   // Decision 8: absorbs any
-                                                       // measured float/sink, none measured yet.
+inline constexpr double kStreamHeightOffsetM = 0.0;  // Decision 8: absorbs any
+                                                     // measured float/sink, none measured yet.
 inline constexpr uint64_t kDefaultMaxCacheItems = 4096;
 // Decision 11 (VM-063): consecutive completed-with-error requests, zero
 // interleaved successes, before network loss is declared and the source
@@ -193,7 +196,7 @@ public:
 
 private:
     std::shared_ptr<CesiumAsync::IAssetRequest> makeRequest(const std::string& verb,
-                                                             const std::string& url);
+                                                            const std::string& url);
     std::shared_ptr<std::atomic<bool>> killed_;
 };
 
@@ -234,12 +237,14 @@ public:
     void* prepareRasterInMainThread(CesiumRasterOverlays::RasterOverlayTile&, void*) override {
         return nullptr;
     }
-    void freeRaster(const CesiumRasterOverlays::RasterOverlayTile&, void*, void*) noexcept override {}
+    void freeRaster(const CesiumRasterOverlays::RasterOverlayTile&, void*,
+                    void*) noexcept override {}
     void attachRasterInMainThread(const Cesium3DTilesSelection::Tile&, int32_t,
-                                   const CesiumRasterOverlays::RasterOverlayTile&, void*, const glm::dvec2&,
-                                   const glm::dvec2&) override {}
+                                  const CesiumRasterOverlays::RasterOverlayTile&, void*,
+                                  const glm::dvec2&, const glm::dvec2&) override {}
     void detachRasterInMainThread(const Cesium3DTilesSelection::Tile&, int32_t,
-                                   const CesiumRasterOverlays::RasterOverlayTile&, void*) noexcept override {}
+                                  const CesiumRasterOverlays::RasterOverlayTile&,
+                                  void*) noexcept override {}
 
     // Drains the deferred-free queue at the top of update() (Filament is
     // single-threaded; free() can arrive from any thread per its own
@@ -312,10 +317,9 @@ public:
     // original-materials mode Google Photorealistic 3D Tiles needs --
     // parsed from the ion:// URI's `materials=` key (production path) or
     // passed directly by the fixture install hook (test path).
-    StreamingEnvironmentSource(Cesium3DTilesSelection::TilesetExternals externals,
-                               int64_t asset_id, std::string ion_access_token,
-                               std::string root_tileset_uri, std::string fallback_baked_dir,
-                               GeoAnchor anchor,
+    StreamingEnvironmentSource(Cesium3DTilesSelection::TilesetExternals externals, int64_t asset_id,
+                               std::string ion_access_token, std::string root_tileset_uri,
+                               std::string fallback_baked_dir, GeoAnchor anchor,
                                std::shared_ptr<CountingAssetAccessor> counting_accessor,
                                bool materials_original = false);
     ~StreamingEnvironmentSource() override;
@@ -360,7 +364,7 @@ private:
     GeoAnchor anchor_;
     glm::dmat4 ecefToMap_;
     glm::dmat4 mapToEcef_;
-    std::string fallbackBakedDir_;  // stored, acted on by Task 4
+    std::string fallbackBakedDir_;    // stored, acted on by Task 4
     bool materialsOriginal_ = false;  // VM-064: threaded into renderResources_ at construction
     bool tornDown_ = false;
     int leakedOnTeardownBound_ = 0;
@@ -378,7 +382,8 @@ private:
     // ── VM-063 (Task 4): fallback state ──────────────────────────────────
     std::shared_ptr<CountingAssetAccessor> countingAccessor_;
     bool fallenBack_ = false;
-    std::unique_ptr<EnvironmentSource> fallbackSource_;  // null iff no &fallback= dir, or it failed to open
+    std::unique_ptr<EnvironmentSource>
+        fallbackSource_;  // null iff no &fallback= dir, or it failed to open
 };
 
 }  // namespace overlume

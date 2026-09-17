@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # GetFilament.cmake — fetches the pinned Google Filament prebuilt Linux SDK
 # and exposes it as the imported target `Filament::filament`.
 #

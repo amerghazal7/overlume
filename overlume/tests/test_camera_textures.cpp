@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_camera_textures.cpp — VM-090 (unified-engine migration Task 1,
 // ADR-0005): the POD-boundary camera-texture mechanism (set_bowl_config(),
 // set_camera_frame(), set_bowl_visible(), set_camera_motion_delta()). No
@@ -16,8 +19,8 @@
 namespace {
 
 overlume::BowlConfig one_camera_config(const overlume::CameraExtrinsics& ext,
-                                     const overlume::CameraIntrinsics& in, const uint32_t& w,
-                                     const uint32_t& h) {
+                                       const overlume::CameraIntrinsics& in, const uint32_t& w,
+                                       const uint32_t& h) {
     overlume::BowlConfig bc{};
     bc.camera_count = 1;
     bc.extrinsics = &ext;
@@ -74,7 +77,8 @@ TEST(CameraTextures, SetCameraFrameUploadsAfterBowlConfig) {
     ASSERT_TRUE(overlume::set_bowl_config(r, bc));
     std::vector<uint8_t> pixels(320 * 240 * 3, 200);
     EXPECT_TRUE(overlume::set_camera_frame(r, 0, pixels.data(), 320, 240, 1));
-    EXPECT_FALSE(overlume::set_camera_frame(r, 1, pixels.data(), 320, 240, 1));  // cam_idx out of range
+    EXPECT_FALSE(
+        overlume::set_camera_frame(r, 1, pixels.data(), 320, 240, 1));  // cam_idx out of range
 
     // Dims-mismatch guard: neither call below matches camera 0's configured
     // 320x240 -- both must be rejected without bumping the upload count (a
@@ -108,9 +112,11 @@ TEST(CameraTextures, RepeatedFrameIdSkipsReupload) {
     overlume::set_camera_frame(r, 0, pixels.data(), 320, 240, /*frame_id=*/1);
     auto count_after_first = overlume::testing::camera_frame_upload_count(r, 0);
     overlume::set_camera_frame(r, 0, pixels.data(), 320, 240, /*frame_id=*/1);  // same frame_id
-    EXPECT_EQ(overlume::testing::camera_frame_upload_count(r, 0), count_after_first);  // no re-upload
+    EXPECT_EQ(overlume::testing::camera_frame_upload_count(r, 0),
+              count_after_first);                                               // no re-upload
     overlume::set_camera_frame(r, 0, pixels.data(), 320, 240, /*frame_id=*/2);  // new frame_id
-    EXPECT_EQ(overlume::testing::camera_frame_upload_count(r, 0), count_after_first + 1);  // uploads
+    EXPECT_EQ(overlume::testing::camera_frame_upload_count(r, 0),
+              count_after_first + 1);  // uploads
     overlume::destroy_renderer(r);
 }
 
@@ -195,7 +201,7 @@ TEST(CameraTextures, ReleaseCallbackFiresOncePerHandedInBuffer) {
     g_release_count = 0;
     auto* buf = new std::vector<uint8_t>(320 * 240 * 3, 200);
     EXPECT_TRUE(overlume::set_camera_frame(r, 0, buf->data(), 320, 240, /*frame_id=*/1,
-                                         &count_and_delete_release, buf));
+                                           &count_and_delete_release, buf));
 
     // render_frame() flushes/waits for the readback, so by the time it
     // returns the driver has executed the setImage command that consumes
@@ -229,7 +235,7 @@ TEST(CameraTextures, ReleaseCallbackFiresOnSkipAndReject) {
     g_release_count = 0;
     auto* primer = new std::vector<uint8_t>(320 * 240 * 3, 200);
     ASSERT_TRUE(overlume::set_camera_frame(r, 0, primer->data(), 320, 240, /*frame_id=*/1,
-                                         &count_and_delete_release, primer));
+                                           &count_and_delete_release, primer));
     overlume::CameraPose pose{{12, -14, 10}, {12, 3, 0}, 70.0};
     std::vector<uint8_t> out(320u * 240u * 3u);
     overlume::FrameView view{out.data(), 320, 240};
@@ -240,14 +246,14 @@ TEST(CameraTextures, ReleaseCallbackFiresOnSkipAndReject) {
     g_release_count = 0;
     auto* repeat_buf = new std::vector<uint8_t>(320 * 240 * 3, 200);
     EXPECT_TRUE(overlume::set_camera_frame(r, 0, repeat_buf->data(), 320, 240, /*frame_id=*/1,
-                                         &count_and_delete_release, repeat_buf));
+                                           &count_and_delete_release, repeat_buf));
     EXPECT_EQ(g_release_count, 1);
 
     // Dims mismatch -- rejected call -- still releases exactly once.
     g_release_count = 0;
     auto* mismatched_buf = new std::vector<uint8_t>(320 * 120 * 3, 200);
     EXPECT_FALSE(overlume::set_camera_frame(r, 0, mismatched_buf->data(), 320, 120, /*frame_id=*/2,
-                                          &count_and_delete_release, mismatched_buf));
+                                            &count_and_delete_release, mismatched_buf));
     EXPECT_EQ(g_release_count, 1);
 
     overlume::destroy_renderer(r);

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #include "overlume_ros/adapters/tf_axes.hpp"
 
 #include <tf2/LinearMath/Transform.h>
@@ -5,15 +8,12 @@
 #include <tf2/exceptions.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
-namespace overlume_node
-{
-namespace
-{
+namespace overlume_node {
+namespace {
 
 constexpr double kAxisLengthM = 0.5;
 
-struct Axis
-{
+struct Axis {
     tf2::Vector3 dir;
     float color[3];
 };
@@ -28,12 +28,9 @@ const Axis kAxes[3] = {
 
 TfAxesAdapter::TfAxesAdapter(const ProfileRow& row, const tf2_ros::Buffer& buffer,
                              std::string target_frame)
-    : row_(row), buffer_(buffer), target_frame_(std::move(target_frame))
-{
-}
+    : row_(row), buffer_(buffer), target_frame_(std::move(target_frame)) {}
 
-void TfAxesAdapter::fill(overlume::ros::SceneAssembly& out, double sim_time_sec)
-{
+void TfAxesAdapter::fill(overlume::ros::SceneAssembly& out, double sim_time_sec) {
     point_storage_.clear();
     axis_markers_.clear();
 
@@ -45,19 +42,15 @@ void TfAxesAdapter::fill(overlume::ros::SceneAssembly& out, double sim_time_sec)
     point_storage_.reserve(frames.size() * 6);  // 3 axes * 2 points each
     axis_markers_.reserve(frames.size() * 3);
 
-    for (const auto& frame : frames)
-    {
+    for (const auto& frame : frames) {
         geometry_msgs::msg::TransformStamped msg;
-        try
-        {
+        try {
             // Always "latest available" -- this is a live debug view of
             // the CURRENT tf tree, not a message-stamped lookup (unlike
             // FrameTransformer::lookup(), which has a specific stamp to
             // try first).
             msg = buffer_.lookupTransform(target_frame_, frame, tf2::TimePointZero);
-        }
-        catch (const tf2::TransformException&)
-        {
+        } catch (const tf2::TransformException&) {
             // A TF tree mid-startup (a frame registered but not yet
             // resolvable against target_frame_) is normal, not an error.
             ++stats_.dropped_no_tf;
@@ -67,8 +60,7 @@ void TfAxesAdapter::fill(overlume::ros::SceneAssembly& out, double sim_time_sec)
         tf2::fromMsg(msg.transform, xform);
 
         const tf2::Vector3 origin = xform * tf2::Vector3(0, 0, 0);
-        for (const Axis& axis : kAxes)
-        {
+        for (const Axis& axis : kAxes) {
             const tf2::Vector3 tip = xform * (axis.dir * kAxisLengthM);
             const size_t offset = point_storage_.size();
             point_storage_.push_back(overlume::Vec3{origin.x(), origin.y(), origin.z()});

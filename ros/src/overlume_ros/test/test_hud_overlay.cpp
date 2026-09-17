@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file test_hud_overlay.cpp
  *  @brief Epic 3 Task 3 (VM-030) tests: Step 0's scene.hud population,
  *  Step 3's CompositeHud() presence/non-fatal-failure behavior, and the
@@ -18,8 +21,7 @@
 #include "overlume/scene.h"
 
 // ── Step 0 ───────────────────────────────────────────────────────────────────
-TEST(HudOverlay, PopulateHudCopiesEgoSpeedAndActiveMode)
-{
+TEST(HudOverlay, PopulateHudCopiesEgoSpeedAndActiveMode) {
     overlume::SceneGraph scene{};
     scene.ego.speed_mps = 12.3;
     overlume_node::PopulateHud(scene, /*active_mode=*/3);
@@ -31,22 +33,20 @@ TEST(HudOverlay, PopulateHudCopiesEgoSpeedAndActiveMode)
 }
 
 // ── Step 3 ───────────────────────────────────────────────────────────────────
-namespace
-{
+namespace {
 constexpr uint32_t kWidth = 1280;
 constexpr uint32_t kHeight = 720;
 constexpr uint8_t kBackground = 40;  // known mid-gray frame
 }  // namespace
 
-TEST(HudOverlay, CompositesLegibleTextAtLowPreset)
-{
+TEST(HudOverlay, CompositesLegibleTextAtLowPreset) {
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, kBackground);
     overlume_node::HudSnapshot hud{/*speed_mps=*/12.3, /*active_mode=*/3};
 
     ASSERT_TRUE(overlume_node::CompositeHud(rgb.data(), kWidth, kHeight, hud,
-                                          /*text_rgb=*/{0.9f, 0.95f, 1.0f},
-                                          /*accent_rgb=*/{0.1f, 1.0f, 0.4f},
-                                          /*scale=*/1.0f, OVERLUME_NODE_FONT_PATH));
+                                            /*text_rgb=*/{0.9f, 0.95f, 1.0f},
+                                            /*accent_rgb=*/{0.1f, 1.0f, 0.4f},
+                                            /*scale=*/1.0f, OVERLUME_NODE_FONT_PATH));
 
     // Presence check, not a pixel-exact glyph golden (font rasterization is
     // deterministic per stb_truetype version, but this test shouldn't need
@@ -58,27 +58,24 @@ TEST(HudOverlay, CompositesLegibleTextAtLowPreset)
     constexpr int kRegionY0 = 0, kRegionY1 = 100;
     constexpr int kLegibilityThreshold = 20;  // out of 255
     bool found_text_pixel = false;
-    for (int y = kRegionY0; y < kRegionY1 && !found_text_pixel; ++y)
-    {
-        for (int x = kRegionX0; x < kRegionX1; ++x)
-        {
+    for (int y = kRegionY0; y < kRegionY1 && !found_text_pixel; ++y) {
+        for (int x = kRegionX0; x < kRegionX1; ++x) {
             const size_t idx = (static_cast<size_t>(y) * kWidth + x) * 3;
-            const int diff = std::abs(static_cast<int>(rgb[idx]) - static_cast<int>(kBackground)) +
-                              std::abs(static_cast<int>(rgb[idx + 1]) - static_cast<int>(kBackground)) +
-                              std::abs(static_cast<int>(rgb[idx + 2]) - static_cast<int>(kBackground));
-            if (diff > kLegibilityThreshold)
-            {
+            const int diff =
+                std::abs(static_cast<int>(rgb[idx]) - static_cast<int>(kBackground)) +
+                std::abs(static_cast<int>(rgb[idx + 1]) - static_cast<int>(kBackground)) +
+                std::abs(static_cast<int>(rgb[idx + 2]) - static_cast<int>(kBackground));
+            if (diff > kLegibilityThreshold) {
                 found_text_pixel = true;
                 break;
             }
         }
     }
     EXPECT_TRUE(found_text_pixel) << "no pixel in the expected HUD region differs from the "
-                                      "uniform background -- text was not drawn";
+                                     "uniform background -- text was not drawn";
 }
 
-TEST(HudOverlay, MissingOrUnloadableFontIsNonFatalAndLeavesFrameUnchanged)
-{
+TEST(HudOverlay, MissingOrUnloadableFontIsNonFatalAndLeavesFrameUnchanged) {
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, kBackground);
     const std::vector<uint8_t> before = rgb;
     overlume_node::HudSnapshot hud{/*speed_mps=*/12.3, /*active_mode=*/3};
@@ -87,49 +84,45 @@ TEST(HudOverlay, MissingOrUnloadableFontIsNonFatalAndLeavesFrameUnchanged)
     // philosophy as set_ego_model's clay-box fallback, applied here as "no
     // HUD drawn, not a crash, not garbage pixels."
     const bool ok = overlume_node::CompositeHud(rgb.data(), kWidth, kHeight, hud,
-                                              /*text_rgb=*/{0.9f, 0.95f, 1.0f},
-                                              /*accent_rgb=*/{0.1f, 1.0f, 0.4f},
-                                              /*scale=*/1.0f, "/nonexistent/does_not_exist.ttf");
+                                                /*text_rgb=*/{0.9f, 0.95f, 1.0f},
+                                                /*accent_rgb=*/{0.1f, 1.0f, 0.4f},
+                                                /*scale=*/1.0f, "/nonexistent/does_not_exist.ttf");
     EXPECT_FALSE(ok);
     EXPECT_EQ(rgb, before);
 }
 
-TEST(HudOverlay, EmptyFontPathIsNonFatal)
-{
+TEST(HudOverlay, EmptyFontPathIsNonFatal) {
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, kBackground);
     const std::vector<uint8_t> before = rgb;
     overlume_node::HudSnapshot hud{12.3, 3};
     EXPECT_FALSE(overlume_node::CompositeHud(rgb.data(), kWidth, kHeight, hud, {0, 0, 0}, {0, 0, 0},
-                                           1.0f, ""));
+                                             1.0f, ""));
     EXPECT_EQ(rgb, before);
 }
 
 // ── Task 4 (VM-031): primitives exposed for callouts.cpp ────────────────────
-TEST(HudOverlay, DrawTextAndDrawLineComposeACallout)
-{
+TEST(HudOverlay, DrawTextAndDrawLineComposeACallout) {
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, kBackground);
 
     overlume_node::DrawLine(rgb.data(), kWidth, kHeight, /*x0=*/100, /*y0=*/100, /*x1=*/140,
-                          /*y1=*/60, overlume_node::HudRgb{1.0f, 0.2f, 0.2f});
+                            /*y1=*/60, overlume_node::HudRgb{1.0f, 0.2f, 0.2f});
     ASSERT_TRUE(overlume_node::DrawText(rgb.data(), kWidth, kHeight, "3.2 m", /*x=*/140, /*y=*/60,
-                                      overlume_node::HudRgb{1.0f, 0.2f, 0.2f}, /*scale=*/1.0f,
-                                      OVERLUME_NODE_FONT_PATH));
+                                        overlume_node::HudRgb{1.0f, 0.2f, 0.2f}, /*scale=*/1.0f,
+                                        OVERLUME_NODE_FONT_PATH));
 
     // One presence check over the whole region the line+text pair was drawn
     // into -- same legibility-threshold shape as CompositesLegibleTextAtLowPreset
     // above, not a pixel-exact golden.
     constexpr int kLegibilityThreshold = 20;
     bool found_drawn_pixel = false;
-    for (int y = 40; y < 100 && !found_drawn_pixel; ++y)
-    {
-        for (int x = 90; x < 300; ++x)
-        {
+    for (int y = 40; y < 100 && !found_drawn_pixel; ++y) {
+        for (int x = 90; x < 300; ++x) {
             const size_t idx = (static_cast<size_t>(y) * kWidth + x) * 3;
-            const int diff = std::abs(static_cast<int>(rgb[idx]) - static_cast<int>(kBackground)) +
-                              std::abs(static_cast<int>(rgb[idx + 1]) - static_cast<int>(kBackground)) +
-                              std::abs(static_cast<int>(rgb[idx + 2]) - static_cast<int>(kBackground));
-            if (diff > kLegibilityThreshold)
-            {
+            const int diff =
+                std::abs(static_cast<int>(rgb[idx]) - static_cast<int>(kBackground)) +
+                std::abs(static_cast<int>(rgb[idx + 1]) - static_cast<int>(kBackground)) +
+                std::abs(static_cast<int>(rgb[idx + 2]) - static_cast<int>(kBackground));
+            if (diff > kLegibilityThreshold) {
                 found_drawn_pixel = true;
                 break;
             }
@@ -138,13 +131,12 @@ TEST(HudOverlay, DrawTextAndDrawLineComposeACallout)
     EXPECT_TRUE(found_drawn_pixel) << "neither the leader line nor the chip text drew any pixel";
 }
 
-TEST(HudOverlay, DrawTextMissingFontIsNonFatal)
-{
+TEST(HudOverlay, DrawTextMissingFontIsNonFatal) {
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, kBackground);
     const std::vector<uint8_t> before = rgb;
     EXPECT_FALSE(overlume_node::DrawText(rgb.data(), kWidth, kHeight, "3.2 m", 10, 10,
-                                       overlume_node::HudRgb{1, 1, 1}, 1.0f,
-                                       "/nonexistent/does_not_exist.ttf"));
+                                         overlume_node::HudRgb{1, 1, 1}, 1.0f,
+                                         "/nonexistent/does_not_exist.ttf"));
     EXPECT_EQ(rgb, before);
 }
 
@@ -167,13 +159,9 @@ TEST(HudOverlay, DrawTextMissingFontIsNonFatal)
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-namespace
-{
+namespace {
 
-double luminance(uint8_t r, uint8_t g, uint8_t b)
-{
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
+double luminance(uint8_t r, uint8_t g, uint8_t b) { return 0.2126 * r + 0.7152 * g + 0.0722 * b; }
 
 // ponytail: block-wise (8x8, non-overlapping, luminance-only) mean/
 // variance/covariance SSIM, same deliberately-simplified approximation as
@@ -182,23 +170,18 @@ double luminance(uint8_t r, uint8_t g, uint8_t b)
 // -- reimplemented here at the same small size rather than promoted to a
 // shared header neither toolchain can safely include from the other).
 double block_ssim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, uint32_t width,
-                   uint32_t height)
-{
+                  uint32_t height) {
     constexpr int kBlock = 8;
     constexpr double kC1 = (0.01 * 255) * (0.01 * 255);
     constexpr double kC2 = (0.03 * 255) * (0.03 * 255);
     double total = 0.0;
     int blockCount = 0;
-    for (uint32_t by = 0; by + kBlock <= height; by += kBlock)
-    {
-        for (uint32_t bx = 0; bx + kBlock <= width; bx += kBlock)
-        {
+    for (uint32_t by = 0; by + kBlock <= height; by += kBlock) {
+        for (uint32_t bx = 0; bx + kBlock <= width; bx += kBlock) {
             double sumA = 0, sumB = 0, sumAA = 0, sumBB = 0, sumAB = 0;
             const int n = kBlock * kBlock;
-            for (int y = 0; y < kBlock; ++y)
-            {
-                for (int x = 0; x < kBlock; ++x)
-                {
+            for (int y = 0; y < kBlock; ++y) {
+                for (int x = 0; x < kBlock; ++x) {
                     const uint32_t px = bx + x, py = by + y;
                     const size_t idx = (static_cast<size_t>(py) * width + px) * 3;
                     const double la = luminance(a[idx], a[idx + 1], a[idx + 2]);
@@ -215,7 +198,7 @@ double block_ssim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, 
             const double varB = sumBB / n - meanB * meanB;
             const double covAB = sumAB / n - meanA * meanB;
             const double ssim = ((2 * meanA * meanB + kC1) * (2 * covAB + kC2)) /
-                                 ((meanA * meanA + meanB * meanB + kC1) * (varA + varB + kC2));
+                                ((meanA * meanA + meanB * meanB + kC1) * (varA + varB + kC2));
             total += ssim;
             ++blockCount;
         }
@@ -225,13 +208,12 @@ double block_ssim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, 
 
 }  // namespace
 
-TEST(HudOverlayGolden, SyntheticSceneWithHud720pLowPreset)
-{
+TEST(HudOverlayGolden, SyntheticSceneWithHud720pLowPreset) {
     overlume::RenderConfig config{};
     config.width = kWidth;
     config.height = kHeight;
-    config.quality = 0;  // low preset -- spec AC "text legible at 720p low preset"
-    config.theme_assets_dir = nullptr;   // compiled-in fallback theme -- no asset dir needed
+    config.quality = 0;                 // low preset -- spec AC "text legible at 720p low preset"
+    config.theme_assets_dir = nullptr;  // compiled-in fallback theme -- no asset dir needed
     config.initial_theme = nullptr;
     overlume::VisualRenderer* r = overlume::create_renderer(config);
     ASSERT_NE(r, nullptr);
@@ -263,21 +245,22 @@ TEST(HudOverlayGolden, SyntheticSceneWithHud720pLowPreset)
     ASSERT_TRUE(overlume_node::CompositeHud(
         frame.data(), kWidth, kHeight, hud,
         overlume_node::HudRgb{colors.text_color[0], colors.text_color[1], colors.text_color[2]},
-        overlume_node::HudRgb{colors.accent_color[0], colors.accent_color[1], colors.accent_color[2]},
+        overlume_node::HudRgb{colors.accent_color[0], colors.accent_color[1],
+                              colors.accent_color[2]},
         colors.scale, OVERLUME_NODE_FONT_PATH));
 
     const char* actual_path = "/tmp/hud_overlay_720p_actual.png";
     stbi_write_png(actual_path, static_cast<int>(kWidth), static_cast<int>(kHeight), 3,
                    frame.data(), static_cast<int>(kWidth) * 3);
 
-    const std::string golden_path = std::string(OVERLUME_NODE_FIXTURES_DIR) + "/hud_overlay_720p_golden.png";
+    const std::string golden_path =
+        std::string(OVERLUME_NODE_FIXTURES_DIR) + "/hud_overlay_720p_golden.png";
     int golden_w = 0, golden_h = 0, golden_c = 0;
     uint8_t* golden = stbi_load(golden_path.c_str(), &golden_w, &golden_h, &golden_c, 3);
     double ssim = 0.0;  // no committed golden yet -- same "missing golden -> 0.0" convention
-                         // as overlume/tests/golden.cpp's render_and_compare
+                        // as overlume/tests/golden.cpp's render_and_compare
     if (golden != nullptr && static_cast<uint32_t>(golden_w) == kWidth &&
-        static_cast<uint32_t>(golden_h) == kHeight)
-    {
+        static_cast<uint32_t>(golden_h) == kHeight) {
         const std::vector<uint8_t> golden_pixels(
             golden, golden + static_cast<size_t>(golden_w) * golden_h * 3);
         ssim = block_ssim(frame, golden_pixels, kWidth, kHeight);
@@ -286,8 +269,8 @@ TEST(HudOverlayGolden, SyntheticSceneWithHud720pLowPreset)
 
     // SANCTIONED RED (plan's own instruction): unpromoted until a human
     // looks at actual_path and copies it to golden_path.
-    EXPECT_GT(ssim, 0.98) << "actual frame written to " << actual_path
-                          << " -- promote to " << golden_path << " once reviewed";
+    EXPECT_GT(ssim, 0.98) << "actual frame written to " << actual_path << " -- promote to "
+                          << golden_path << " once reviewed";
 
     overlume::destroy_renderer(r);
 }

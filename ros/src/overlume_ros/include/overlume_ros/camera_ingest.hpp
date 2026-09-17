@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file camera_ingest.hpp
  *  @brief VM-091 (unified-engine migration Task 2 Step 6): 6-camera ingest
@@ -34,19 +37,17 @@
 
 #include "overlume/scene.h"
 
-namespace overlume::ros
-{
+namespace overlume::ros {
 
 // ── Pure math: odometry twist buffer + rig-pose-delta integration ──────────
 // Ported verbatim (signed-dt Euler integration, same 0.005s step target) from
 // micropilot_rendering_node/rendering_node.cpp:562-604's twist_at()/
 // rig_delta(), rewritten to take the twist deque as a plain parameter instead
 // of reading a node member (so it needs no ROS type and no mutex to test).
-struct StampedTwist
-{
-    double t;      // stamp (s)
-    double vx, vy; // body-frame linear velocity (m/s), x-fwd / y-left
-    double wz;     // body-frame yaw rate (rad/s), +z up
+struct StampedTwist {
+    double t;       // stamp (s)
+    double vx, vy;  // body-frame linear velocity (m/s), x-fwd / y-left
+    double wz;      // body-frame yaw rate (rad/s), +z up
 };
 
 // Interpolated planar twist at stamp t (clamps to buffer ends); false if
@@ -67,7 +68,7 @@ bool rig_delta(const std::deque<StampedTwist>& twists, double t_from, double t_r
 // == t_ref) -- this is what a camera with no odometry, or one whose stamp
 // already equals t_max, gets.
 void compensation_delta_4x4(const std::deque<StampedTwist>& twists, double t_cam, double t_ref,
-                             double out_delta_row_major[16]);
+                            double out_delta_row_major[16]);
 
 // ── Pure math: extrinsics orthonormalization ────────────────────────────────
 // Gram-Schmidt on R's three columns (right, down, fwd) -- bowl.mat's
@@ -78,13 +79,12 @@ void compensation_delta_4x4(const std::deque<StampedTwist>& twists, double t_cam
 // the largest angular correction applied to any column (radians) -- the
 // caller WARNs once if this exceeds a small threshold (see
 // kOrthonormalizeWarnThresholdRad below).
-constexpr double kOrthonormalizeWarnThresholdRad = 0.05; // ~3 degrees
+constexpr double kOrthonormalizeWarnThresholdRad = 0.05;  // ~3 degrees
 overlume::CameraExtrinsics OrthonormalizeExtrinsics(const overlume::CameraExtrinsics& in,
-                                                  double* out_max_correction_rad);
+                                                    double* out_max_correction_rad);
 
 // ── Pure bookkeeping: info_ready gate + per-camera frame_id/stamp ──────────
-class IngestState
-{
+class IngestState {
 public:
     // `extrinsics` (camera_count entries, already orthonormalized) is fixed
     // for this object's lifetime -- camera_extrinsics is a ROS param, not
@@ -98,7 +98,7 @@ public:
     // this call's K/dist/width/height differ from what's already stored (a
     // driver reconnect / live GUI extrinsics edit).
     bool record_camera_info(uint32_t cam_idx, const overlume::CameraIntrinsics& in, uint32_t width,
-                             uint32_t height);
+                            uint32_t height);
     bool all_info_ready() const;
     uint32_t camera_count() const { return camera_count_; }
     const overlume::CameraExtrinsics& extrinsics(uint32_t i) const { return cams_[i].extrinsics; }
@@ -135,8 +135,7 @@ public:
     const uint8_t* rgb(uint32_t cam_idx) const;
 
 private:
-    struct PerCam
-    {
+    struct PerCam {
         overlume::CameraExtrinsics extrinsics{};
         overlume::CameraIntrinsics intrinsics{};
         uint32_t width = 0, height = 0;
@@ -144,15 +143,15 @@ private:
         double stamp = 0.0;
         bool has_stamp = false;
         uint64_t frame_id = 0;
-        std::vector<uint8_t> rgb;  // VM-094: last-ingested frame, WxHx3, empty until first store_rgb()
+        std::vector<uint8_t>
+            rgb;  // VM-094: last-ingested frame, WxHx3, empty until first store_rgb()
     };
     uint32_t camera_count_;
     std::vector<PerCam> cams_;
 };
 
 // ── ROS wrapper: subscriptions + the overlume:: call sites ─────────────────────
-class CameraIngest
-{
+class CameraIngest {
 public:
     // `extrinsics` is camera_count entries, rig-frame, from the
     // camera_extrinsics ROS param (mirrors rendering_node.cpp's own param,
@@ -197,8 +196,8 @@ public:
     // remaining BowlConfig fields and calls set_bowl_config() itself, then
     // calls mark_bowl_config_applied() on success.
     void fill_bowl_intrinsics(std::vector<overlume::CameraExtrinsics>& out_ext,
-                               std::vector<overlume::CameraIntrinsics>& out_in,
-                               std::vector<uint32_t>& out_w, std::vector<uint32_t>& out_h) const;
+                              std::vector<overlume::CameraIntrinsics>& out_in,
+                              std::vector<uint32_t>& out_w, std::vector<uint32_t>& out_h) const;
     // VM-094 (Task 5): parallel to fill_bowl_intrinsics() above -- one
     // pointer per configured camera (nullptr if that camera has never
     // delivered an image, or if hybrid_enabled_ was false when it did), for
@@ -206,7 +205,10 @@ public:
     // these are the SAME image callback's buffers (store_rgb() above),
     // reused, not re-subscribed.
     void fill_camera_rgb_buffers(std::vector<const uint8_t*>& out) const;
-    void mark_bowl_config_applied() { config_applied_ = true; info_dirty_ = false; }
+    void mark_bowl_config_applied() {
+        config_applied_ = true;
+        info_dirty_ = false;
+    }
     bool config_applied() const { return config_applied_; }
     // True once since the last mark_bowl_config_applied() call -- a NEW
     // CameraInfo changed some camera's K/dist/dims after info was already

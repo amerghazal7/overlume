@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """Sample /overlume_node/diagnostics for `duration` seconds, print
 render_ms p50/p99 and sample count. VM-091 Task 2 Step 5 perf gate.
 ponytail: one-shot sampler script, not a reusable tool -- no CLI framework.

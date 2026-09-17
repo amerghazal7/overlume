@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // environment.cpp — see environment.hpp. Runtime chunk load/unload behind
 // EnvironmentSource, distance-culled against SceneGraph::EgoState::position
 // (no per-tick SceneGraph field needed -- ego position is already there).
@@ -32,8 +35,9 @@ double distance(const Vec3& a, const Vec3& b) {
 
 }  // namespace
 
-BakedEnvironmentSource::BakedEnvironmentSource(std::string dir, std::vector<EnvironmentChunk> chunks,
-                                                GeoAnchor anchor)
+BakedEnvironmentSource::BakedEnvironmentSource(std::string dir,
+                                               std::vector<EnvironmentChunk> chunks,
+                                               GeoAnchor anchor)
     : dir_(std::move(dir)), chunks_(std::move(chunks)), anchor_(anchor) {}
 
 void BakedEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
@@ -50,9 +54,15 @@ void BakedEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
 
         if (!ensure_gltf_loader(r)) continue;  // global, not per-chunk: keep retrying
         std::ifstream file(dir_ + "/" + chunk.path, std::ios::binary | std::ios::ate);
-        if (!file) { failed_.insert(chunk.id); continue; }
+        if (!file) {
+            failed_.insert(chunk.id);
+            continue;
+        }
         const std::streamsize size = file.tellg();
-        if (size <= 0) { failed_.insert(chunk.id); continue; }
+        if (size <= 0) {
+            failed_.insert(chunk.id);
+            continue;
+        }
         std::vector<uint8_t> bytes(static_cast<size_t>(size));
         file.seekg(0);
         if (!file.read(reinterpret_cast<char*>(bytes.data()), size)) {
@@ -71,7 +81,10 @@ void BakedEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
 
         filament::gltfio::FilamentAsset* asset =
             r.sharedAssetLoader->createAsset(bytes.data(), static_cast<uint32_t>(bytes.size()));
-        if (asset == nullptr) { failed_.insert(chunk.id); continue; }
+        if (asset == nullptr) {
+            failed_.insert(chunk.id);
+            continue;
+        }
         if (!r.sharedResourceLoader->loadResources(asset)) {
             r.sharedAssetLoader->destroyAsset(asset);
             failed_.insert(chunk.id);
@@ -159,7 +172,8 @@ size_t BakedEnvironmentSource::scene_membership_count(VisualRenderer& r) const {
     size_t count = 0;
     for (const auto& [id, chunk] : loaded_) {
         (void)id;
-        if (chunk.asset->getEntityCount() > 0 && r.scene->hasEntity(chunk.asset->getEntities()[0])) {
+        if (chunk.asset->getEntityCount() > 0 &&
+            r.scene->hasEntity(chunk.asset->getEntities()[0])) {
             ++count;
         }
     }
@@ -180,7 +194,7 @@ void BakedEnvironmentSource::set_visible(VisualRenderer& r, bool visible) {
 }
 
 std::unique_ptr<BakedEnvironmentSource> open_baked_environment_source(const std::string& dir,
-                                                                       GeoAnchor anchor) {
+                                                                      GeoAnchor anchor) {
     std::vector<EnvironmentChunk> chunks;
     try {
         const YAML::Node root = YAML::LoadFile(dir + "/index.yaml");

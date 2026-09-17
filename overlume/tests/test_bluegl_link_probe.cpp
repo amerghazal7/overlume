@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_bluegl_link_probe.cpp — named runtime probe on bluegl::bind()'s
 // hand-declared signature (Step (i), VM-037).
 //
@@ -78,9 +81,8 @@ TEST(BlueglLinkProbe, BindReturnsZeroOnSuccessfulContextAndFrameRenders) {
     ASSERT_TRUE(overlume::render_frame(renderer, pose, view));
 
     const bool anyNonZero = std::any_of(rgb.begin(), rgb.end(), [](uint8_t v) { return v != 0; });
-    EXPECT_TRUE(anyNonZero)
-        << "Rendered frame buffer is entirely zero -- a corrupted GL function "
-           "table from a bluegl signature mismatch is one plausible cause.";
+    EXPECT_TRUE(anyNonZero) << "Rendered frame buffer is entirely zero -- a corrupted GL function "
+                               "table from a bluegl signature mismatch is one plausible cause.";
 
     overlume::destroy_renderer(renderer);
 }

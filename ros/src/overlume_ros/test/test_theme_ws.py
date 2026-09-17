@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """WS-driven `set_theme` end-to-end test: overlume_node + vcam_ws_bridge.
 
 Epic 1 Task 3 (VM-014, docs/plans/2026-08-18-visual-mode-epic1.md

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #include "overlume_ros/profile.hpp"
 
 #include <algorithm>
@@ -8,13 +11,10 @@
 
 #include <yaml-cpp/yaml.h>
 
-namespace overlume_node
-{
-namespace
-{
+namespace overlume_node {
+namespace {
 
-std::optional<NsRender> ParseNsRender(const std::string& s)
-{
+std::optional<NsRender> ParseNsRender(const std::string& s) {
     if (s == "drop") return NsRender::kDrop;
     if (s == "polyline") return NsRender::kPolyline;
     if (s == "polygon") return NsRender::kPolygon;
@@ -24,8 +24,7 @@ std::optional<NsRender> ParseNsRender(const std::string& s)
 // YAML spelling -> MapKind. "road_surface" is deliberately NOT accepted here
 // -- ROAD_SURFACE is adapter-synthesized (paired boundary rails), never a
 // value a profile author can request.
-std::optional<overlume::MapKind> ParseMapKind(const std::string& s)
-{
+std::optional<overlume::MapKind> ParseMapKind(const std::string& s) {
     if (s == "other") return overlume::MapKind::OTHER;
     if (s == "centerline") return overlume::MapKind::CENTERLINE;
     if (s == "left_boundary") return overlume::MapKind::LEFT_BOUNDARY;
@@ -41,16 +40,14 @@ std::optional<overlume::MapKind> ParseMapKind(const std::string& s)
 // cross-field check, same shape as the retired adapter-side chop-vs-render
 // check it replaces). CROSSWALK is polygon-only; every lane-geometry kind is
 // polyline-only.
-bool KindIsLegalOnRender(overlume::MapKind kind, NsRender render)
-{
+bool KindIsLegalOnRender(overlume::MapKind kind, NsRender render) {
     if (kind == overlume::MapKind::OTHER) return true;
     if (kind == overlume::MapKind::CROSSWALK) return render == NsRender::kPolygon;
     return render == NsRender::kPolyline;
 }
 
 // Adapter -> its closed role set (see profile.hpp struct comment).
-const std::map<std::string, std::set<std::string>>& RoleSets()
-{
+const std::map<std::string, std::set<std::string>>& RoleSets() {
     static const std::map<std::string, std::set<std::string>> kRoles = {
         {"path", {"behavior", "global", "local"}},
         {"hd_map", {"lane"}},
@@ -67,8 +64,7 @@ const std::map<std::string, std::set<std::string>>& RoleSets()
 
 // Adapter -> the message type(s) its rows may carry. tf_axes has none (it
 // generates its markers from the tf2 buffer -- no subscription at all).
-const std::map<std::string, std::set<std::string>>& TypeSets()
-{
+const std::map<std::string, std::set<std::string>>& TypeSets() {
     static const std::map<std::string, std::set<std::string>> kTypes = {
         {"path", {"nav_msgs/msg/Path"}},
         {"hd_map", {"visualization_msgs/msg/MarkerArray"}},
@@ -82,26 +78,26 @@ const std::map<std::string, std::set<std::string>>& TypeSets()
     return kTypes;
 }
 
-const std::set<std::string>& KnownAdapters()
-{
+const std::set<std::string>& KnownAdapters() {
     static const std::set<std::string> kAdapters = {
-        "dynamic_objects", "path", "hd_map", "ogm", "collision", "generic", "tf_axes",
-        "point_cloud", "trajectory_carpet"};
+        "dynamic_objects", "path",        "hd_map",           "ogm", "collision", "generic",
+        "tf_axes",         "point_cloud", "trajectory_carpet"};
     return kAdapters;
 }
 
-const std::set<std::string>& KnownRowKeys()
-{
-    static const std::set<std::string> kKeys = {
-        "topic",     "type",       "adapter",         "role",     "update_topic",
-        "timeout_sec", "max_rate_hz", "namespaces",    "ns_default", "transient_local",
-        "best_effort", "junction_interior_boundaries",
-        "color_mode", "max_points", "stride"};
+const std::set<std::string>& KnownRowKeys() {
+    static const std::set<std::string> kKeys = {"topic",        "type",
+                                                "adapter",      "role",
+                                                "update_topic", "timeout_sec",
+                                                "max_rate_hz",  "namespaces",
+                                                "ns_default",   "transient_local",
+                                                "best_effort",  "junction_interior_boundaries",
+                                                "color_mode",   "max_points",
+                                                "stride"};
     return kKeys;
 }
 
-std::string RowTag(const std::string& file, size_t idx, const std::string& topic)
-{
+std::string RowTag(const std::string& file, size_t idx, const std::string& topic) {
     std::ostringstream os;
     os << file << ": row " << idx << " (topic " << (topic.empty() ? "<empty>" : topic) << "): ";
     return os.str();
@@ -112,8 +108,7 @@ std::string RowTag(const std::string& file, size_t idx, const std::string& topic
 // ProfileRow at all, so they must fail here, before validate_row() ever runs.
 // Unknown extra keys are a warning only (hand-edited by the autonomy team).
 bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, ProfileRow& out,
-              std::vector<std::string>& errors)
-{
+              std::vector<std::string>& errors) {
     if (!node.IsMap()) {
         errors.push_back(RowTag(file, idx, "") + "row must be a mapping, not a scalar/sequence");
         return false;
@@ -143,7 +138,7 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
     if (node["junction_interior_boundaries"]) {
         if (out.adapter != "hd_map") {
             errors.push_back(RowTag(file, idx, out.topic) +
-                              "junction_interior_boundaries is only valid on adapter: hd_map rows");
+                             "junction_interior_boundaries is only valid on adapter: hd_map rows");
             ok = false;
         } else {
             out.junction_interior_boundaries = node["junction_interior_boundaries"].as<bool>();
@@ -155,7 +150,7 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
     if (node["color_mode"]) {
         if (out.adapter != "point_cloud") {
             errors.push_back(RowTag(file, idx, out.topic) +
-                              "color_mode is only valid on adapter: point_cloud rows");
+                             "color_mode is only valid on adapter: point_cloud rows");
             ok = false;
         } else {
             out.color_mode = node["color_mode"].as<std::string>();
@@ -164,7 +159,7 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
     if (node["max_points"]) {
         if (out.adapter != "point_cloud") {
             errors.push_back(RowTag(file, idx, out.topic) +
-                              "max_points is only valid on adapter: point_cloud rows");
+                             "max_points is only valid on adapter: point_cloud rows");
             ok = false;
         } else {
             out.max_points = node["max_points"].as<uint32_t>();
@@ -173,7 +168,7 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
     if (node["stride"]) {
         if (out.adapter != "point_cloud") {
             errors.push_back(RowTag(file, idx, out.topic) +
-                              "stride is only valid on adapter: point_cloud rows");
+                             "stride is only valid on adapter: point_cloud rows");
             ok = false;
         } else {
             out.stride = node["stride"].as<uint32_t>();
@@ -184,8 +179,8 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
     if (auto r = ParseNsRender(ns_default_str)) {
         out.ns_default = *r;
     } else {
-        errors.push_back(RowTag(file, idx, out.topic) +
-                          "ns_default '" + ns_default_str + "' must be one of drop|polyline|polygon");
+        errors.push_back(RowTag(file, idx, out.topic) + "ns_default '" + ns_default_str +
+                         "' must be one of drop|polyline|polygon");
         ok = false;
     }
 
@@ -193,7 +188,7 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
         for (const auto& item : node["namespaces"]) {
             if (!item.IsMap()) {
                 errors.push_back(RowTag(file, idx, out.topic) +
-                                  "namespaces[] entry must be a mapping with 'prefix' and 'render'");
+                                 "namespaces[] entry must be a mapping with 'prefix' and 'render'");
                 ok = false;
                 continue;
             }
@@ -205,7 +200,7 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
                 // overriding ns_default for everything -- almost always a
                 // missing/misspelled 'prefix' key, never intentional.
                 errors.push_back(RowTag(file, idx, out.topic) +
-                                  "namespaces[] entry missing non-empty 'prefix'");
+                                 "namespaces[] entry missing non-empty 'prefix'");
                 ok = false;
                 continue;
             }
@@ -213,9 +208,8 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
             if (auto r = ParseNsRender(render_str)) {
                 rule.render = *r;
             } else {
-                errors.push_back(RowTag(file, idx, out.topic) +
-                                  "namespaces[].render '" + render_str +
-                                  "' must be one of drop|polyline|polygon");
+                errors.push_back(RowTag(file, idx, out.topic) + "namespaces[].render '" +
+                                 render_str + "' must be one of drop|polyline|polygon");
                 ok = false;
                 continue;
             }
@@ -224,10 +218,10 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
                 if (auto k = ParseMapKind(kind_str)) {
                     rule.kind = *k;
                 } else {
-                    errors.push_back(RowTag(file, idx, out.topic) +
-                                      "namespaces[].kind '" + kind_str +
-                                      "' must be one of other|centerline|left_boundary|"
-                                      "right_boundary|crosswalk|stopline|junction|road_edge");
+                    errors.push_back(RowTag(file, idx, out.topic) + "namespaces[].kind '" +
+                                     kind_str +
+                                     "' must be one of other|centerline|left_boundary|"
+                                     "right_boundary|crosswalk|stopline|junction|road_edge");
                     ok = false;
                     continue;
                 }
@@ -237,8 +231,8 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
             for (auto it = item.begin(); it != item.end(); ++it) {
                 const std::string key = it->first.as<std::string>();
                 if (key != "prefix" && key != "render" && key != "kind") {
-                    errors.push_back(RowTag(file, idx, out.topic) +
-                                      "namespaces[] unknown key '" + key + "' (ignored)");
+                    errors.push_back(RowTag(file, idx, out.topic) + "namespaces[] unknown key '" +
+                                     key + "' (ignored)");
                 }
             }
             out.namespaces.push_back(std::move(rule));
@@ -259,8 +253,7 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
 // once it's invalid, so piling up every downstream consequence of the
 // first mistake would just be noise on top of the fix the user needs to make.
 bool ValidateRow(const ProfileRow& row, const std::string& file, size_t idx,
-                  std::vector<std::string>& errors)
-{
+                 std::vector<std::string>& errors) {
     const auto fail = [&](const std::string& msg) {
         errors.push_back(RowTag(file, idx, row.topic) + msg);
         return false;
@@ -272,7 +265,8 @@ bool ValidateRow(const ProfileRow& row, const std::string& file, size_t idx,
     const bool is_tf_axes = (row.adapter == "tf_axes");
     if (is_tf_axes) {
         if (!row.topic.empty())
-            return fail("adapter: tf_axes rows must not set 'topic' (nothing publishes TF as markers)");
+            return fail(
+                "adapter: tf_axes rows must not set 'topic' (nothing publishes TF as markers)");
         if (!row.type.empty()) return fail("adapter: tf_axes rows must not set 'type'");
     } else {
         if (row.topic.empty()) return fail("missing required key 'topic'");
@@ -289,14 +283,15 @@ bool ValidateRow(const ProfileRow& row, const std::string& file, size_t idx,
         return fail("update_topic is only valid on adapter: ogm rows");
 
     if (row.timeout_sec < 1.0)
-        return fail("timeout_sec must be >= 1.0 (the renderer's staleness fade runs 0.5..1.0s "
-                    "past it -- a smaller value yanks the entity before the fade finishes)");
+        return fail(
+            "timeout_sec must be >= 1.0 (the renderer's staleness fade runs 0.5..1.0s "
+            "past it -- a smaller value yanks the entity before the fade finishes)");
 
     if (row.max_rate_hz < 0.0) return fail("max_rate_hz must be >= 0");
 
     if (row.adapter == "point_cloud") {
         static const std::set<std::string> kColorModes = {"auto", "rgb", "intensity", "height",
-                                                            "flat"};
+                                                          "flat"};
         if (!kColorModes.count(row.color_mode))
             return fail("color_mode '" + row.color_mode +
                         "' must be one of auto|rgb|intensity|height|flat");
@@ -317,8 +312,7 @@ bool ValidateRow(const ProfileRow& row, const std::string& file, size_t idx,
 }
 
 std::optional<Profile> BuildProfile(const YAML::Node& root, const std::string& file,
-                                     std::vector<std::string>& errors)
-{
+                                    std::vector<std::string>& errors) {
     Profile profile;
     profile.name = root["name"] ? root["name"].as<std::string>() : "";
 
@@ -360,8 +354,8 @@ std::optional<Profile> BuildProfile(const YAML::Node& root, const std::string& f
         auto key = std::make_pair(row.topic, row.adapter);
         if (!seen_topic_adapter.insert(key).second) {
             errors.push_back(RowTag(file, row_file_idx[i], row.topic) +
-                              "duplicate (topic, adapter) pair -- another row already " +
-                              "subscribes '" + row.topic + "' with adapter '" + row.adapter + "'");
+                             "duplicate (topic, adapter) pair -- another row already " +
+                             "subscribes '" + row.topic + "' with adapter '" + row.adapter + "'");
             hard_fail = true;
         }
     }
@@ -372,8 +366,7 @@ std::optional<Profile> BuildProfile(const YAML::Node& root, const std::string& f
 
 }  // namespace
 
-std::optional<Profile> load_profile(const std::string& path, std::vector<std::string>& errors)
-{
+std::optional<Profile> load_profile(const std::string& path, std::vector<std::string>& errors) {
     errors.clear();
     YAML::Node root;
     try {
@@ -388,8 +381,8 @@ std::optional<Profile> load_profile(const std::string& path, std::vector<std::st
     }
 }
 
-std::optional<Profile> load_profile_string(std::string_view yaml, std::vector<std::string>& errors)
-{
+std::optional<Profile> load_profile_string(std::string_view yaml,
+                                           std::vector<std::string>& errors) {
     errors.clear();
     YAML::Node root;
     try {
@@ -401,16 +394,14 @@ std::optional<Profile> load_profile_string(std::string_view yaml, std::vector<st
     }
 }
 
-const ProfileRow* find_row(const Profile& profile, std::string_view topic)
-{
+const ProfileRow* find_row(const Profile& profile, std::string_view topic) {
     for (const auto& row : profile.rows) {
         if (row.topic == topic) return &row;
     }
     return nullptr;
 }
 
-const NsRule* match_rule(const ProfileRow& row, std::string_view ns)
-{
+const NsRule* match_rule(const ProfileRow& row, std::string_view ns) {
     const NsRule* best = nullptr;
     for (const auto& rule : row.namespaces) {
         if (ns.size() < rule.prefix.size()) continue;
@@ -420,14 +411,12 @@ const NsRule* match_rule(const ProfileRow& row, std::string_view ns)
     return best;
 }
 
-NsRender classify(const ProfileRow& row, std::string_view ns)
-{
+NsRender classify(const ProfileRow& row, std::string_view ns) {
     const NsRule* best = match_rule(row, ns);
     return best != nullptr ? best->render : row.ns_default;
 }
 
-std::vector<SubSpec> subscriptions_for(const ProfileRow& row)
-{
+std::vector<SubSpec> subscriptions_for(const ProfileRow& row) {
     if (row.adapter == "tf_axes") return {};
 
     std::vector<SubSpec> specs;
@@ -438,8 +427,8 @@ std::vector<SubSpec> subscriptions_for(const ProfileRow& row)
         // stream is inherently VOLATILE (each patch supersedes the last), so a
         // TRANSIENT_LOCAL subscriber would never match it and go silently,
         // permanently dead.
-        specs.push_back(SubSpec{row.update_topic, "map_msgs/msg/OccupancyGridUpdate",
-                                 row.best_effort, false});
+        specs.push_back(
+            SubSpec{row.update_topic, "map_msgs/msg/OccupancyGridUpdate", row.best_effort, false});
     }
     return specs;
 }

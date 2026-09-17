@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # VM-091 Task 2 Step 5 perf gate. Real fixture bag (six live cameras), not
 # epic2_fixtures_full (no camera topics -- budget_probe.md's own existing
 # rows are not a valid baseline here, see the plan's Step 5).

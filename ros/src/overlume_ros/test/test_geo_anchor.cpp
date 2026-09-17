@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file test_geo_anchor.cpp
  *  @brief GeoAnchor pure math + GeoAnchorSolver tests (VM-050, Epic 4 Task 1).
  */
@@ -30,8 +33,7 @@ using overlume::ros::WgsToMap;
 
 // ── Step 0: pure-math round trip, no ROS ────────────────────────────────────
 
-TEST(GeoAnchor, RoundTripWgsToMapAndBackWithin0p1mOver2km)
-{
+TEST(GeoAnchor, RoundTripWgsToMapAndBackWithin0p1mOver2km) {
     // Anchor at the recorded bag's own first fix: origin_lat_deg=25.0803,
     // origin_lon_deg=55.3910, heading_rad=0 (identity heading -- the round
     // trip must hold regardless of heading; the next test pins a nonzero
@@ -39,8 +41,7 @@ TEST(GeoAnchor, RoundTripWgsToMapAndBackWithin0p1mOver2km)
     GeoAnchor a{25.0803, 55.3910, 0.0};
     // Probe points up to ~2 km from the origin in both lat and lon (the
     // AC's own "2 km area" bound), not just the origin itself.
-    for (auto [dlat, dlon] : {std::pair{0.0, 0.0}, {0.01, 0.0}, {0.0, 0.01}, {-0.015, 0.02}})
-    {
+    for (auto [dlat, dlon] : {std::pair{0.0, 0.0}, {0.01, 0.0}, {0.0, 0.01}, {-0.015, 0.02}}) {
         const double lat = a.origin_lat_deg + dlat, lon = a.origin_lon_deg + dlon;
         const overlume::Vec3 xy = WgsToMap(a, lat, lon);
         const auto [lat2, lon2] = MapToWgs(a, xy);
@@ -51,32 +52,27 @@ TEST(GeoAnchor, RoundTripWgsToMapAndBackWithin0p1mOver2km)
     }
 }
 
-TEST(GeoAnchor, RoundTripHoldsWithNonzeroHeading)
-{
+TEST(GeoAnchor, RoundTripHoldsWithNonzeroHeading) {
     GeoAnchor a{25.0803, 55.3910, 0.35};  // ~20 deg, an arbitrary nonzero bearing
     const overlume::Vec3 xy = WgsToMap(a, 25.0850, 55.3950);
     const auto [lat2, lon2] = MapToWgs(a, xy);
     EXPECT_LT(GreatCircleDistanceM(25.0850, 55.3950, lat2, lon2), 0.1);
 }
 
-namespace
-{
+namespace {
 
 // Loads geo_anchor_samples_0.csv (VM-050 Step 1 fixture): lines starting
 // with '#' are comments, every other line is "lat,lon,map_x,map_y".
-struct SamplePairs
-{
+struct SamplePairs {
     std::vector<std::pair<double, double>> fixes;   // (lat_deg, lon_deg)
     std::vector<std::pair<double, double>> map_xy;  // (map_x, map_y)
 };
 
-SamplePairs LoadFixture(const std::string& path)
-{
+SamplePairs LoadFixture(const std::string& path) {
     SamplePairs out;
     std::ifstream in(path);
     std::string line;
-    while (std::getline(in, line))
-    {
+    while (std::getline(in, line)) {
         if (line.empty() || line[0] == '#') continue;
         std::istringstream ss(line);
         std::string tok;
@@ -93,10 +89,8 @@ SamplePairs LoadFixture(const std::string& path)
 
 // ── Step 1: SolveAnchor() -- averaged position, bearing-comparison heading ──
 
-TEST(GeoAnchor, SolveAnchorMatchesBagDerivedMeanPositionAndCoarseHeading)
-{
-    const std::string path =
-        std::string(OVERLUME_NODE_FIXTURES_DIR) + "/geo_anchor_samples_0.csv";
+TEST(GeoAnchor, SolveAnchorMatchesBagDerivedMeanPositionAndCoarseHeading) {
+    const std::string path = std::string(OVERLUME_NODE_FIXTURES_DIR) + "/geo_anchor_samples_0.csv";
     const SamplePairs samples = LoadFixture(path);
     ASSERT_GE(samples.fixes.size(), 50u) << "fixture " << path << " missing/short";
 
@@ -107,8 +101,7 @@ TEST(GeoAnchor, SolveAnchorMatchesBagDerivedMeanPositionAndCoarseHeading)
     // every sample -- NOT that it equals the samples' own mean fix (that is
     // the ego's mean position, which sits at whatever map-frame offset the
     // ego averaged to, not at the map origin).
-    for (std::size_t i = 0; i < samples.fixes.size(); ++i)
-    {
+    for (std::size_t i = 0; i < samples.fixes.size(); ++i) {
         const auto& [lat, lon] = samples.fixes[i];
         const auto& [mx, my] = samples.map_xy[i];
         const overlume::Vec3 got = WgsToMap(anchor, lat, lon);
@@ -140,11 +133,9 @@ TEST(GeoAnchor, SolveAnchorMatchesBagDerivedMeanPositionAndCoarseHeading)
     EXPECT_LT(std::abs(diff) * 180.0 / M_PI, 5.0) << "heading diverged by more than a few degrees";
 }
 
-namespace
-{
+namespace {
 
-geometry_msgs::msg::TransformStamped MapToBaseLink(double x, double y)
-{
+geometry_msgs::msg::TransformStamped MapToBaseLink(double x, double y) {
     geometry_msgs::msg::TransformStamped t;
     t.header.frame_id = "map";
     t.header.stamp = rclcpp::Time(0, 0, RCL_ROS_TIME);
@@ -158,8 +149,7 @@ geometry_msgs::msg::TransformStamped MapToBaseLink(double x, double y)
     return t;
 }
 
-sensor_msgs::msg::NavSatFix Fix(double lat, double lon)
-{
+sensor_msgs::msg::NavSatFix Fix(double lat, double lon) {
     sensor_msgs::msg::NavSatFix f;
     f.latitude = lat;
     f.longitude = lon;
@@ -172,8 +162,7 @@ sensor_msgs::msg::NavSatFix Fix(double lat, double lon)
 
 // ── Step 2: geo_datum override short-circuits sampling ──────────────────────
 
-TEST(GeoAnchorSolver, OverrideSolvesImmediatelyWithoutAnyOnFixCall)
-{
+TEST(GeoAnchorSolver, OverrideSolvesImmediatelyWithoutAnyOnFixCall) {
     tf2_ros::Buffer buffer(std::make_shared<rclcpp::Clock>(RCL_ROS_TIME));
     GeoAnchorSolver solver(buffer, "map", "base_link");
 
@@ -187,8 +176,7 @@ TEST(GeoAnchorSolver, OverrideSolvesImmediatelyWithoutAnyOnFixCall)
     EXPECT_DOUBLE_EQ(a.heading_rad, 45.0 * M_PI / 180.0);
 }
 
-TEST(GeoAnchorSolver, OnFixAfterOverrideIsIgnored)
-{
+TEST(GeoAnchorSolver, OnFixAfterOverrideIsIgnored) {
     tf2_ros::Buffer buffer(std::make_shared<rclcpp::Clock>(RCL_ROS_TIME));
     buffer.setTransform(MapToBaseLink(1.0, 2.0), "test_authority", /*is_static=*/true);
     GeoAnchorSolver solver(buffer, "map", "base_link");
@@ -203,8 +191,7 @@ TEST(GeoAnchorSolver, OnFixAfterOverrideIsIgnored)
 
 // ── Step 3: minimum-sample gate + non-fatal "no anchor" path ─────────────────
 
-TEST(GeoAnchorSolver, FewerThanMinSamplesLeavesUnsolved)
-{
+TEST(GeoAnchorSolver, FewerThanMinSamplesLeavesUnsolved) {
     tf2_ros::Buffer buffer(std::make_shared<rclcpp::Clock>(RCL_ROS_TIME));
     buffer.setTransform(MapToBaseLink(1.0, 2.0), "test_authority", /*is_static=*/true);
     GeoAnchorSolver solver(buffer, "map", "base_link");
@@ -213,8 +200,7 @@ TEST(GeoAnchorSolver, FewerThanMinSamplesLeavesUnsolved)
     EXPECT_FALSE(solver.solved());
 }
 
-TEST(GeoAnchorSolver, ReachingMinSamplesWithSufficientBaselineSolves)
-{
+TEST(GeoAnchorSolver, ReachingMinSamplesWithSufficientBaselineSolves) {
     tf2_ros::Buffer buffer(std::make_shared<rclcpp::Clock>(RCL_ROS_TIME));
     GeoAnchorSolver solver(buffer, "map", "base_link");
 
@@ -222,17 +208,15 @@ TEST(GeoAnchorSolver, ReachingMinSamplesWithSufficientBaselineSolves)
     // that (500 m) clears kMinAnchorBaselineM long before the count gate
     // itself is satisfied.
     ASSERT_LT(kMinAnchorBaselineM, static_cast<double>(kMinAnchorSamples));
-    for (uint32_t i = 0; i < kMinAnchorSamples; ++i)
-    {
+    for (uint32_t i = 0; i < kMinAnchorSamples; ++i) {
         buffer.setTransform(MapToBaseLink(static_cast<double>(i), 2.0), "test_authority",
-                             /*is_static=*/true);
+                            /*is_static=*/true);
         solver.on_fix(Fix(25.08, 55.39));
     }
     EXPECT_TRUE(solver.solved());
 }
 
-TEST(GeoAnchorSolver, ReachingMinSamplesWithZeroBaselineStaysUnsolved)
-{
+TEST(GeoAnchorSolver, ReachingMinSamplesWithZeroBaselineStaysUnsolved) {
     // A static map->base_link transform: kMinAnchorSamples worth of fixes
     // arrive, but the accumulated track never moves -- the sample-count
     // gate alone is not sufficient (kMinAnchorBaselineM's own reasoning in
@@ -245,8 +229,7 @@ TEST(GeoAnchorSolver, ReachingMinSamplesWithZeroBaselineStaysUnsolved)
     EXPECT_FALSE(solver.solved());
 }
 
-TEST(GeoAnchorSolver, ZeroFixesAndZeroTfLeavesUnsolvedNoCrash)
-{
+TEST(GeoAnchorSolver, ZeroFixesAndZeroTfLeavesUnsolvedNoCrash) {
     // Empty buffer: every lookupTransform() throws -- mirrors TfAdapter's
     // own "no data yet, not an error" tf2::TransformException catch.
     tf2_ros::Buffer buffer(std::make_shared<rclcpp::Clock>(RCL_ROS_TIME));
@@ -260,35 +243,30 @@ TEST(GeoAnchorSolver, ZeroFixesAndZeroTfLeavesUnsolvedNoCrash)
 
 // ── ClassifyGeoDatum: pure all-or-nothing decision, no node fixture needed ──
 
-TEST(ClassifyGeoDatum, AllThreeFiniteIsComplete)
-{
+TEST(ClassifyGeoDatum, AllThreeFiniteIsComplete) {
     EXPECT_EQ(ClassifyGeoDatum(25.08, 55.39, 45.0), GeoDatumOverride::Complete);
 }
 
-TEST(ClassifyGeoDatum, AllThreeNanIsNone)
-{
+TEST(ClassifyGeoDatum, AllThreeNanIsNone) {
     const double nan = std::numeric_limits<double>::quiet_NaN();
     EXPECT_EQ(ClassifyGeoDatum(nan, nan, nan), GeoDatumOverride::None);
 }
 
-TEST(ClassifyGeoDatum, ExactlyOneFiniteIsPartial)
-{
+TEST(ClassifyGeoDatum, ExactlyOneFiniteIsPartial) {
     const double nan = std::numeric_limits<double>::quiet_NaN();
     EXPECT_EQ(ClassifyGeoDatum(25.08, nan, nan), GeoDatumOverride::Partial);
     EXPECT_EQ(ClassifyGeoDatum(nan, 55.39, nan), GeoDatumOverride::Partial);
     EXPECT_EQ(ClassifyGeoDatum(nan, nan, 45.0), GeoDatumOverride::Partial);
 }
 
-TEST(ClassifyGeoDatum, ExactlyTwoFiniteIsPartial)
-{
+TEST(ClassifyGeoDatum, ExactlyTwoFiniteIsPartial) {
     const double nan = std::numeric_limits<double>::quiet_NaN();
     EXPECT_EQ(ClassifyGeoDatum(25.08, 55.39, nan), GeoDatumOverride::Partial);
     EXPECT_EQ(ClassifyGeoDatum(25.08, nan, 45.0), GeoDatumOverride::Partial);
     EXPECT_EQ(ClassifyGeoDatum(nan, 55.39, 45.0), GeoDatumOverride::Partial);
 }
 
-TEST(GeoAnchorSolver, PartialGeoDatumNeverAppliedLeavesSolverUnsolved)
-{
+TEST(GeoAnchorSolver, PartialGeoDatumNeverAppliedLeavesSolverUnsolved) {
     // Pins "a partial override never becomes an anchor": ClassifyGeoDatum
     // alone doesn't touch the solver, so a caller that (correctly, per the
     // Partial case above) never calls set_override() leaves the solver

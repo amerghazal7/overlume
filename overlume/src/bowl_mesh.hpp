@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // bowl_mesh.hpp — VM-091 (unified-engine migration Task 2). Portable
 // (no Filament/GL types, GPU-free-testable) bowl mesh generator + the
 // per-vertex weight/camera-slot-index bake, split out of bowl.cpp for the
@@ -50,7 +53,7 @@ namespace overlume::bowl {
 
 struct BowlVertex {
     overlume::Vec3 position;  // rig frame -- the vertex shader/fragment
-                            // shader recompute UV from this per-camera.
+                              // shader recompute UV from this per-camera.
     // Alignment^2 coverage weight only (border feather is per-fragment now,
     // bowl.mat's featherMargin parameter -- see this header's comment).
     float coverage_a = 0.0f;

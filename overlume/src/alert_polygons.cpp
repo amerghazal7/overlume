@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // alert_polygons.cpp — translucent collision alert polygons. Geometry
 // reuses triangulate_convex_polygon (polyline.hpp) — no second
 // triangulator. Every alert polygon lives on clay_translucent.mat from the
@@ -114,7 +117,7 @@ void build_slot_mesh(VisualRenderer& r, VisualRenderer::AlertSlot& slot, const A
 // fresh<->stale swap (single-mesh specialization of objects.cpp's
 // remap_to_material() / ribbon.cpp's rebind_slot_material()).
 void rebind_slot_material(VisualRenderer& r, VisualRenderer::AlertSlot& slot,
-                         filament::MaterialInstance* mat) {
+                          filament::MaterialInstance* mat) {
     if (!slot.mesh.entity) return;
     filament::RenderableManager& rm = r.engine->getRenderableManager();
     const auto ri = rm.getInstance(slot.mesh.entity);

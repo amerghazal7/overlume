@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
 // trajectory_carpet_faded.mat — the velocity ribbon's DEATH-FADE twin
 // (flicker root-cause fix, 2026-09-10). This is exactly the shader
 // trajectory_carpet.mat carried while it was `blending : fade`: unlit,

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_environment_stream.cpp — StreamingEnvironmentSource behind the VM-052
 // seam (VM-062). Same "no Filament/cesium type" boundary as every other
 // tests/*.cpp: this is a plain C++17 TU with no cesium include dirs at all
@@ -76,8 +79,10 @@ public:
         ::unsetenv(name);
     }
     ~ScopedUnsetEnv() {
-        if (had_value_) ::setenv(name_, saved_.c_str(), 1);
-        else ::unsetenv(name_);
+        if (had_value_)
+            ::setenv(name_, saved_.c_str(), 1);
+        else
+            ::unsetenv(name_);
     }
     ScopedUnsetEnv(const ScopedUnsetEnv&) = delete;
     ScopedUnsetEnv& operator=(const ScopedUnsetEnv&) = delete;
@@ -110,7 +115,8 @@ TEST(EnvironmentStream, IonUriWithoutTokenIsNonFatalFalse) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ScopedUnsetEnv no_token("CESIUM_ION_TOKEN");  // this test binary's env only, restored on scope exit
+    ScopedUnsetEnv no_token(
+        "CESIUM_ION_TOKEN");  // this test binary's env only, restored on scope exit
     overlume::GeoAnchor a{25.0803, 55.3910, 0.0};
     EXPECT_FALSE(overlume::set_environment_source(r, "ion://96188", a));
     std::vector<uint8_t> buf(320u * 240u * 3u);
@@ -142,8 +148,8 @@ TEST(EnvironmentStream, FixtureTilesLoadRenderAsClayAndCount) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(
-        overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(),
+                                                                    kFixtureAnchor));
 
     overlume::SceneGraph s{};
     s.ego.valid = 1;
@@ -161,7 +167,8 @@ TEST(EnvironmentStream, FixtureTilesLoadRenderAsClayAndCount) {
 // to the STREAMING transform chain (ecef_to_map * wgs_to_ecef) instead of
 // WgsToMap directly -- three implementations, one truth table.
 TEST(EnvironmentStream, EcefToMapAgreesWithCppPinWithinHalfMeter) {
-    const std::string path = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/geo_anchor_cpp_pin_0.json";
+    const std::string path =
+        std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/geo_anchor_cpp_pin_0.json";
     std::ifstream file(path);
     ASSERT_TRUE(file) << "missing fixture: " << path;
     std::stringstream ss;
@@ -215,19 +222,19 @@ TEST(EnvironmentStream, EcefToMapAgreesWithCppPinWithinHalfMeter) {
     // itself, so an up-axis/z-scale regression still fails this test.
     for (const Probe& p : probes) {
         double x = 0, y = 0, z = 0;
-        ASSERT_TRUE(overlume::testing::ecef_to_map_probe(25.0803, 55.391, p.heading_rad, p.lat, p.lon,
-                                                       0.0, &x, &y, &z));
+        ASSERT_TRUE(overlume::testing::ecef_to_map_probe(25.0803, 55.391, p.heading_rad, p.lat,
+                                                         p.lon, 0.0, &x, &y, &z));
         const double err = std::sqrt((x - p.map_x) * (x - p.map_x) + (y - p.map_y) * (y - p.map_y));
         EXPECT_LT(err, 0.5) << "lat=" << p.lat << " lon=" << p.lon << " heading=" << p.heading_rad
-                             << " got=(" << x << "," << y << "," << z << ") want=(" << p.map_x << ","
-                             << p.map_y << "," << p.map_z << ") err=" << err;
+                            << " got=(" << x << "," << y << "," << z << ") want=(" << p.map_x << ","
+                            << p.map_y << "," << p.map_z << ") err=" << err;
         // z is asserted against the tangent-plane sag model itself,
         // -d^2/(2R) (VM-062 gate round 2 minor): a genuine up-axis
         // inversion or z-scale regression in compute_ecef_to_map must fail
         // HERE -- the horizontal bar above cannot see it.
         const double want_z = -(p.map_x * p.map_x + p.map_y * p.map_y) / (2.0 * 6371000.0);
-        EXPECT_NEAR(z, want_z, 0.05) << "lat=" << p.lat << " lon=" << p.lon
-                                     << " z=" << z << " want_z(sag)=" << want_z;
+        EXPECT_NEAR(z, want_z, 0.05)
+            << "lat=" << p.lat << " lon=" << p.lon << " z=" << z << " want_z(sag)=" << want_z;
     }
 }
 
@@ -275,8 +282,8 @@ TEST(EnvironmentStreamGolden, FixtureBlock_DarkAdas) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(
-        overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(),
+                                                                    kFixtureAnchor));
 
     overlume::SceneGraph s{};
     s.ego.valid = 1;
@@ -323,8 +330,8 @@ TEST(EnvironmentStreamGolden, SetVisibleFalseHidesFixtureTilesWithoutTearingDown
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(
-        overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(),
+                                                                    kFixtureAnchor));
 
     overlume::SceneGraph s{};
     s.ego.valid = 1;
@@ -368,8 +375,8 @@ namespace {
 // own comment notes) reads as a large false "difference". 8 filters that
 // noise out while still catching a real popped-in tile (a large, structured
 // color change, not a +-1 flicker).
-size_t count_differing_bytes_with_tolerance(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b,
-                                             int tolerance) {
+size_t count_differing_bytes_with_tolerance(const std::vector<uint8_t>& a,
+                                            const std::vector<uint8_t>& b, int tolerance) {
     size_t diff = 0;
     for (size_t i = 0; i < a.size(); ++i) {
         if (std::abs(static_cast<int>(a[i]) - static_cast<int>(b[i])) > tolerance) ++diff;
@@ -395,8 +402,8 @@ TEST(EnvironmentStreamGolden, TileLoadedWhileHiddenDoesNotPopIntoView) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(
-        overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(),
+                                                                    kFixtureAnchor));
     ASSERT_TRUE(overlume::set_environment_visible(r, false));
 
     overlume::SceneGraph s{};
@@ -408,7 +415,8 @@ TEST(EnvironmentStreamGolden, TileLoadedWhileHiddenDoesNotPopIntoView) {
     overlume::CameraPose pose{{149, 352, 90}, {69, 472, 0}, 60.0};
     const size_t nBytes = 320u * 240u * 3u;
     std::vector<uint8_t> hiddenBuf(nBytes);
-    ASSERT_GT(pump_until_loaded(r, pose, hiddenBuf), 0u) << "loading itself must still happen while hidden";
+    ASSERT_GT(pump_until_loaded(r, pose, hiddenBuf), 0u)
+        << "loading itself must still happen while hidden";
     for (int i = 0; i < 30; ++i) overlume::render_frame(r, pose, {hiddenBuf.data(), 320, 240});
     ASSERT_TRUE(overlume::render_frame(r, pose, {hiddenBuf.data(), 320, 240}));
     EXPECT_EQ(overlume::testing::environment_scene_membership_count(r), 0u)
@@ -433,10 +441,12 @@ TEST(EnvironmentStreamGolden, TileLoadedWhileHiddenDoesNotPopIntoView) {
     // the add-while-hidden guard is deleted -- it is a coarse sanity check;
     // the real guard is the membership EXPECT_EQ above.
     constexpr int kTolerance = 8;
-    const size_t diffFromNoEnv = count_differing_bytes_with_tolerance(hiddenBuf, noEnvBuf, kTolerance);
+    const size_t diffFromNoEnv =
+        count_differing_bytes_with_tolerance(hiddenBuf, noEnvBuf, kTolerance);
     EXPECT_LT(diffFromNoEnv, 100u)
         << "a tile loaded while hidden popped into view (" << diffFromNoEnv << "/" << nBytes
-        << " bytes differ beyond rendering noise from a renderer with no environment source at all)";
+        << " bytes differ beyond rendering noise from a renderer with no environment source at "
+           "all)";
 
     ASSERT_TRUE(overlume::set_environment_visible(r, true));
     std::vector<uint8_t> shownBuf(nBytes);
@@ -449,8 +459,8 @@ TEST(EnvironmentStreamGolden, TileLoadedWhileHiddenDoesNotPopIntoView) {
     // flips a modest, tolerance-filtered ~326 bytes at 320x240 -- a real
     // signal (this same tolerance already proved hiddenBuf indistinguishable
     // from a renderer with no source above), just a small one.
-    EXPECT_GT(diffShown, 50u) << "showing again produced no visible change (only " << diffShown << "/"
-                               << nBytes << " bytes changed beyond rendering noise)";
+    EXPECT_GT(diffShown, 50u) << "showing again produced no visible change (only " << diffShown
+                              << "/" << nBytes << " bytes changed beyond rendering noise)";
     overlume::destroy_renderer(r);
 }
 
@@ -464,8 +474,8 @@ TEST(EnvironmentStreamPerf, RenderMsDeltaAndWorstFrameWithFixtureLoaded) {
 
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(
-        overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(),
+                                                                    kFixtureAnchor));
     overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.ego.position = kFixtureBlockCenterMap;
@@ -491,7 +501,8 @@ TEST(EnvironmentStreamPerf, RenderMsDeltaAndWorstFrameWithFixtureLoaded) {
     const auto b0 = std::chrono::steady_clock::now();
     for (int i = 0; i < kFrames; ++i) overlume::render_frame(r2, pose, {buf.data(), 320, 240});
     const auto b1 = std::chrono::steady_clock::now();
-    const double meanWithoutMs = std::chrono::duration<double, std::milli>(b1 - b0).count() / kFrames;
+    const double meanWithoutMs =
+        std::chrono::duration<double, std::milli>(b1 - b0).count() / kFrames;
     overlume::destroy_renderer(r2);
 
     std::cerr << "[EnvironmentStreamPerf] mean render_ms without=" << meanWithoutMs
@@ -499,7 +510,6 @@ TEST(EnvironmentStreamPerf, RenderMsDeltaAndWorstFrameWithFixtureLoaded) {
               << " worst_single_frame_ms=" << worstMs << "\n";
     SUCCEED();
 }
-
 
 // ── Finding #0 (security, blocking): CESIUM_ION_TOKEN redaction ─────────
 // Drives the real ion-handshake error path (no network, no real token --
@@ -509,7 +519,7 @@ TEST(EnvironmentStreamPerf, RenderMsDeltaAndWorstFrameWithFixtureLoaded) {
 TEST(TokenRedaction, NeverLeaksIntoLogText) {
     constexpr const char* kBogusToken = "bogus-token-for-redaction-test";
     ASSERT_TRUE(overlume::testing::drive_ion_token_redaction_probe(kBogusToken, /*asset_id=*/123456,
-                                                                  /*max_ticks=*/200))
+                                                                   /*max_ticks=*/200))
         << "the probe never logged anything at all -- test infrastructure issue, not a pass";
 
     const std::string logText = overlume::testing::captured_cesium_log_text();
@@ -532,8 +542,8 @@ TEST(TokenRedaction, NeverLeaksIntoLogText) {
     while ((pos = logText.find("access_token=", pos)) != std::string::npos) {
         const std::string rest = logText.substr(pos + std::strlen("access_token="));
         EXPECT_EQ(rest.rfind("<redacted>", 0), 0u)
-            << "access_token= was followed by something other than <redacted> ("
-            << rest.size() << " chars follow; content withheld -- it may be a credential)";
+            << "access_token= was followed by something other than <redacted> (" << rest.size()
+            << " chars follow; content withheld -- it may be a credential)";
         pos += std::strlen("access_token=");
     }
 }
@@ -550,8 +560,8 @@ namespace {
 // fixture, where a stationary ego issues no NEW tile requests once
 // whatever's already resident is loaded).
 void pump_until_state(overlume::VisualRenderer* r, const overlume::CameraPose& pose,
-                       std::vector<uint8_t>& buf, overlume::EnvironmentSourceState stop_state,
-                       int max_ticks = 30) {
+                      std::vector<uint8_t>& buf, overlume::EnvironmentSourceState stop_state,
+                      int max_ticks = 30) {
     for (int i = 0; i < max_ticks; ++i) {
         ASSERT_TRUE(overlume::render_frame(r, pose, {buf.data(), 320, 240}));
         if (overlume::environment_source_state(r) == stop_state) return;
@@ -626,7 +636,8 @@ TEST(EnvironmentStream, NetworkDeadFromFirstRequestFallsBackToBakedChunksOnce) {
     pump_until_state(r, kStdPose, buf, overlume::EnvironmentSourceState::STREAMING_FALLBACK);
 
     // Fallback declared after kNetworkLossConsecutiveFailures failed requests:
-    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING_FALLBACK);
+    EXPECT_EQ(overlume::environment_source_state(r),
+              overlume::EnvironmentSourceState::STREAMING_FALLBACK);
     // AC: "baked chunks appear" -- the count now reports the BAKED town's
     // chunks. NOTE: this does NOT prove the streamed tiles were "torn down,
     // not orphaned" -- none were ever resident (no tile ever succeeded in
@@ -641,7 +652,8 @@ TEST(EnvironmentStream, NetworkDeadFromFirstRequestFallsBackToBakedChunksOnce) {
     // transition needed -- the source must NOT resume streaming.
     overlume::testing::revive_fixture_network(killable);
     for (int i = 0; i < 10; ++i) overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
-    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING_FALLBACK)
+    EXPECT_EQ(overlume::environment_source_state(r),
+              overlume::EnvironmentSourceState::STREAMING_FALLBACK)
         << "a revived network must not un-do the fallback (Decision 11: one-way)";
     EXPECT_GT(overlume::testing::environment_loaded_chunk_count(r), 0u)
         << "the baked chunks must stay resident after the network returns";
@@ -669,7 +681,8 @@ TEST(EnvironmentStream, NetworkLossWithNoFallbackDirStillTransitionsAndStaysEmpt
     overlume::testing::kill_fixture_network(killable);
     pump_until_state(r, kStdPose, buf, overlume::EnvironmentSourceState::STREAMING_FALLBACK);
 
-    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING_FALLBACK);
+    EXPECT_EQ(overlume::environment_source_state(r),
+              overlume::EnvironmentSourceState::STREAMING_FALLBACK);
     EXPECT_EQ(overlume::testing::environment_loaded_chunk_count(r), 0u);
     EXPECT_TRUE(overlume::render_frame(r, kStdPose, {buf.data(), 320, 240}));
     overlume::destroy_renderer(r);
@@ -689,8 +702,8 @@ TEST(EnvironmentStream, MaterialsOriginalDefaultsFalse) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(
-        overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(),
+                                                                    kFixtureAnchor));
     EXPECT_FALSE(overlume::testing::environment_stream_materials_original(r));
     overlume::destroy_renderer(r);
 }
@@ -713,10 +726,13 @@ TEST(EnvironmentStream, MaterialsOriginalTrueIsMirroredByHook) {
 // environment_stream_parse_materials_original() hook) on the literal
 // ion:// query string, no renderer/GPU needed.
 TEST(EnvironmentStream, ParseMaterialsOriginalRecognizesTheRealKeyAndValue) {
-    EXPECT_TRUE(overlume::testing::environment_stream_parse_materials_original("96188?materials=original"));
+    EXPECT_TRUE(
+        overlume::testing::environment_stream_parse_materials_original("96188?materials=original"));
     EXPECT_FALSE(overlume::testing::environment_stream_parse_materials_original("96188"));
-    EXPECT_FALSE(overlume::testing::environment_stream_parse_materials_original("96188?materials=clay"));
-    EXPECT_FALSE(overlume::testing::environment_stream_parse_materials_original("96188?materials=bogus"));
+    EXPECT_FALSE(
+        overlume::testing::environment_stream_parse_materials_original("96188?materials=clay"));
+    EXPECT_FALSE(
+        overlume::testing::environment_stream_parse_materials_original("96188?materials=bogus"));
 }
 
 // The real string-parser path (Decision 5's parse_ion_spec()), through the
@@ -743,8 +759,8 @@ TEST(EnvironmentStream, ClayModeRemapsFirstPrimitiveToBuildingMaterial) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(
-        overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(),
+                                                                    kFixtureAnchor));
     overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.ego.position = kFixtureBlockCenterMap;
@@ -790,7 +806,8 @@ TEST(EnvironmentStream, OriginalModeSkipsClayRemapOnFirstPrimitive) {
 // ./test_environment_stream --gtest_filter='*GooglePresetLive*'`) to
 // record the real dev-box number this task's results block wants.
 TEST(EnvironmentStreamPerf, GooglePresetLiveRenderMsDeltaVsOsmClay) {
-    if (std::getenv("CESIUM_ION_TOKEN") == nullptr || std::getenv("OVERLUME_LIVE_ION_PERF") == nullptr) {
+    if (std::getenv("CESIUM_ION_TOKEN") == nullptr ||
+        std::getenv("OVERLUME_LIVE_ION_PERF") == nullptr) {
         GTEST_SKIP() << "opt-in live-network perf check -- set CESIUM_ION_TOKEN and "
                         "OVERLUME_LIVE_ION_PERF=1 to run (never required by ctest)";
     }
@@ -828,12 +845,14 @@ TEST(EnvironmentStreamPerf, GooglePresetLiveRenderMsDeltaVsOsmClay) {
         for (int i = 0; i < 60; ++i) {
             const auto f0 = std::chrono::steady_clock::now();
             overlume::render_frame(r, pose, {out_buf.data(), 320, 240});
-            worstMs = std::max(
-                worstMs, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - f0)
-                             .count());
+            worstMs = std::max(worstMs, std::chrono::duration<double, std::milli>(
+                                            std::chrono::steady_clock::now() - f0)
+                                            .count());
         }
         const double meanMs =
-            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() / 60.0;
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
+                .count() /
+            60.0;
         std::cerr << "[EnvironmentStreamPerf/live] source='" << source_uri << "' loaded=" << loaded
                   << " mean_render_ms=" << meanMs << " worst_single_frame_ms=" << worstMs << "\n";
         // Manual visual-confidence artifact only (not a golden -- no
@@ -841,7 +860,7 @@ TEST(EnvironmentStreamPerf, GooglePresetLiveRenderMsDeltaVsOsmClay) {
         // eyeball whether original-materials mode actually shows textured
         // content vs. a blank/untextured mesh. Never asserted on.
         overlume::testing::render_and_compare(r, pose, "/nonexistent_no_golden.png",
-                                            "/tmp/environment_stream_live_actual.png");
+                                              "/tmp/environment_stream_live_actual.png");
         overlume::destroy_renderer(r);
         return loaded;
     };
@@ -977,12 +996,13 @@ ContentStats analyze_capture(const std::vector<uint8_t>& rgb, uint32_t width, ui
 // ticks. The local, offline fixture path (FixtureBlock_DarkAdas et al.)
 // never hit this because disk reads have no meaningful latency to wait out.
 uint64_t pump_and_settle(overlume::VisualRenderer* r, const overlume::CameraPose& pose,
-                          std::vector<uint8_t>& buf, int initial_deadline_sec, int settle_seconds) {
+                         std::vector<uint8_t>& buf, int initial_deadline_sec, int settle_seconds) {
     const auto phase1Deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(initial_deadline_sec);
     uint64_t loaded = 0;
     while (std::chrono::steady_clock::now() < phase1Deadline) {
-        if (!overlume::render_frame(r, pose, {buf.data(), kCaptureWidth, kCaptureHeight})) return loaded;
+        if (!overlume::render_frame(r, pose, {buf.data(), kCaptureWidth, kCaptureHeight}))
+            return loaded;
         loaded = overlume::testing::environment_loaded_chunk_count(r);
         if (loaded > 0) break;
     }
@@ -1002,7 +1022,8 @@ uint64_t pump_and_settle(overlume::VisualRenderer* r, const overlume::CameraPose
 // this binary, and logs the content-verification numbers to stderr.
 void capture_and_report(overlume::VisualRenderer* r, const char* name) {
     std::vector<uint8_t> buf(static_cast<size_t>(kCaptureWidth) * kCaptureHeight * 3);
-    ASSERT_TRUE(overlume::render_frame(r, kCapturePose, {buf.data(), kCaptureWidth, kCaptureHeight}));
+    ASSERT_TRUE(
+        overlume::render_frame(r, kCapturePose, {buf.data(), kCaptureWidth, kCaptureHeight}));
     const std::string outPath = capture_out_path(name);
     // Gate round 1 finding: OVERLUME_CAPTURE_OUT_DIR is never told to exist by
     // the doc's own re-run command -- create it so the documented command
@@ -1014,10 +1035,10 @@ void capture_and_report(overlume::VisualRenderer* r, const char* name) {
     // anything, so a silent no-op (e.g. nonexistent dir) can't masquerade as
     // [ OK ] with genuine-looking numbers computed from the in-memory buffer.
     const int wrote = stbi_write_png(outPath.c_str(), static_cast<int>(kCaptureWidth),
-                                      static_cast<int>(kCaptureHeight), 3, buf.data(),
-                                      static_cast<int>(kCaptureWidth) * 3);
+                                     static_cast<int>(kCaptureHeight), 3, buf.data(),
+                                     static_cast<int>(kCaptureWidth) * 3);
     ASSERT_NE(wrote, 0) << "failed to write capture PNG to " << outPath
-                         << " (does OVERLUME_CAPTURE_OUT_DIR exist?)";
+                        << " (does OVERLUME_CAPTURE_OUT_DIR exist?)";
     const ContentStats stats = analyze_capture(buf, kCaptureWidth, kCaptureHeight);
     std::cerr << "[EnvSourceCapture] " << name << " -> " << outPath
               << " luminance_stddev=" << stats.luminance_stddev
@@ -1028,8 +1049,9 @@ void capture_and_report(overlume::VisualRenderer* r, const char* name) {
 
 TEST(EnvSourceCapture, Baked) {
     if (std::getenv("OVERLUME_CAPTURE_ENV_SOURCES") == nullptr) {
-        GTEST_SKIP() << "opt-in visual comparison capture -- set OVERLUME_CAPTURE_ENV_SOURCES=1 to run "
-                        "(never required by ctest)";
+        GTEST_SKIP()
+            << "opt-in visual comparison capture -- set OVERLUME_CAPTURE_ENV_SOURCES=1 to run "
+               "(never required by ctest)";
     }
     overlume::RenderConfig cfg{kCaptureWidth, kCaptureHeight, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
@@ -1048,7 +1070,9 @@ TEST(EnvSourceCapture, Baked) {
     s.ego.position = overlume::Vec3{0, 0, 0};
     overlume::set_scene(r, s);
     std::vector<uint8_t> warm(static_cast<size_t>(kCaptureWidth) * kCaptureHeight * 3);
-    ASSERT_GT(pump_and_settle(r, kCapturePose, warm, /*initial_deadline_sec=*/5, /*settle_seconds=*/1), 0u)
+    ASSERT_GT(
+        pump_and_settle(r, kCapturePose, warm, /*initial_deadline_sec=*/5, /*settle_seconds=*/1),
+        0u)
         << "baked fixture chunk never loaded at ego {0,0,0}";
     capture_and_report(r, "baked");
     overlume::destroy_renderer(r);
@@ -1073,9 +1097,10 @@ TEST(EnvSourceCapture, Osm) {
     std::vector<uint8_t> warm(static_cast<size_t>(kCaptureWidth) * kCaptureHeight * 3);
     const uint64_t loaded =
         pump_and_settle(r, kCapturePose, warm, /*initial_deadline_sec=*/30, /*settle_seconds=*/60);
-    EXPECT_GT(loaded, 0u) << "osm preset (ion://96188) loaded no tiles at kFixtureAnchor within 30s "
-                             "-- would ship an empty/near-empty capture, reporting rather than faking "
-                             "it";
+    EXPECT_GT(loaded, 0u)
+        << "osm preset (ion://96188) loaded no tiles at kFixtureAnchor within 30s "
+           "-- would ship an empty/near-empty capture, reporting rather than faking "
+           "it";
     capture_and_report(r, "osm");
     overlume::destroy_renderer(r);
 }
@@ -1090,8 +1115,8 @@ TEST(EnvSourceCapture, Google) {
     overlume::RenderConfig cfg{kCaptureWidth, kCaptureHeight, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(
-        overlume::set_environment_source(r, "ion://2275207?materials=original&cache=off", kFixtureAnchor));
+    ASSERT_TRUE(overlume::set_environment_source(r, "ion://2275207?materials=original&cache=off",
+                                                 kFixtureAnchor));
 
     overlume::SceneGraph s{};
     s.ego.valid = 1;
@@ -1100,9 +1125,10 @@ TEST(EnvSourceCapture, Google) {
     std::vector<uint8_t> warm(static_cast<size_t>(kCaptureWidth) * kCaptureHeight * 3);
     const uint64_t loaded =
         pump_and_settle(r, kCapturePose, warm, /*initial_deadline_sec=*/30, /*settle_seconds=*/60);
-    EXPECT_GT(loaded, 0u) << "google preset (ion://2275207) loaded no tiles at kFixtureAnchor within "
-                             "30s -- would ship an empty/near-empty capture, reporting rather than "
-                             "faking it";
+    EXPECT_GT(loaded, 0u)
+        << "google preset (ion://2275207) loaded no tiles at kFixtureAnchor within "
+           "30s -- would ship an empty/near-empty capture, reporting rather than "
+           "faking it";
     capture_and_report(r, "google");
     overlume::destroy_renderer(r);
 }
@@ -1119,12 +1145,14 @@ TEST(EnvSourceCapture, Google) {
 // not-renderable, never silently dropped from the comparison package.
 TEST(EnvSourceCapture, Clipped) {
     if (std::getenv("OVERLUME_CAPTURE_ENV_SOURCES") == nullptr) {
-        GTEST_SKIP() << "opt-in visual comparison capture -- set OVERLUME_CAPTURE_ENV_SOURCES=1 to run "
-                        "(never required by ctest)";
+        GTEST_SKIP()
+            << "opt-in visual comparison capture -- set OVERLUME_CAPTURE_ENV_SOURCES=1 to run "
+               "(never required by ctest)";
     }
-    GTEST_SKIP() << "'clipped' preset resolves to the node's environment_own_asset_uri, which is NOT "
-                    "configured on this box (empty default) -- no real ion asset id exists to render, "
-                    "so this case is reported as not-renderable rather than faked with a made-up id";
+    GTEST_SKIP()
+        << "'clipped' preset resolves to the node's environment_own_asset_uri, which is NOT "
+           "configured on this box (empty default) -- no real ion asset id exists to render, "
+           "so this case is reported as not-renderable rather than faked with a made-up id";
 }
 
 // Fixture provenance (Step 0): tests/fixtures/environment_ion_fixture_0/ --

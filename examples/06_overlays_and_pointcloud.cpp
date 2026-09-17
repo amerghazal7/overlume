@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // 06_overlays_and_pointcloud.cpp — a point cloud, a severity-ramped alert
 // polygon, a live HUD-color query, and a live quality-preset switch, all in
 // one scene. Public headers only: <overlume/api.h>, <overlume/scene.h>.
@@ -34,7 +37,8 @@ int main(int argc, char** argv) {
 
     overlume::VisualRenderer* renderer = overlume::create_renderer(config);
     if (renderer == nullptr) {
-        std::fprintf(stderr, "06_overlays_and_pointcloud: create_renderer() failed (no GPU/EGL?)\n");
+        std::fprintf(stderr,
+                     "06_overlays_and_pointcloud: create_renderer() failed (no GPU/EGL?)\n");
         return 1;
     }
 
@@ -56,8 +60,7 @@ int main(int argc, char** argv) {
 
     // ── One warning-severity alert polygon -- severity picks the theme's
     //    alert ramp color, the caller never hand-picks a color itself ─────
-    const std::vector<overlume::Vec3> alert_pts = {
-        {12, 2, 0}, {16, 2, 0}, {16, 5, 0}, {12, 5, 0}};
+    const std::vector<overlume::Vec3> alert_pts = {{12, 2, 0}, {16, 2, 0}, {16, 5, 0}, {12, 5, 0}};
     overlume::AlertPolygon alert{};
     alert.points = alert_pts.data();
     alert.point_count = static_cast<uint32_t>(alert_pts.size());
@@ -103,8 +106,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    const bool wrote = overlume_examples::write_png(args.output_path, config.width,
-                                                      config.height, rgb.data());
+    const bool wrote =
+        overlume_examples::write_png(args.output_path, config.width, config.height, rgb.data());
     overlume::destroy_renderer(renderer);
     return wrote ? 0 : 1;
 }

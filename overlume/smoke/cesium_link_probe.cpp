@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
 // Links and exercises cesium-native across several of its archives
 // (Geospatial math, GltfReader parse, Async continuation) without network,
 // GPU, or Filament -- the link-recipe proof, per filament_link_probe's own
@@ -25,9 +27,13 @@ int main() {
     // sqrt(x^2+y^2+z^2) ~= 6.378e6 is exactly earth-radius-scale. Verified
     // by running the fix: FAILED before, PASSED after.
     double mag = std::sqrt(ecef.x * ecef.x + ecef.y * ecef.y + ecef.z * ecef.z);
-    if (!(mag > 6.35e6 && mag < 6.40e6)) { std::puts("FAIL ecef"); return 1; }
+    if (!(mag > 6.35e6 && mag < 6.40e6)) {
+        std::puts("FAIL ecef");
+        return 1;
+    }
     CesiumGltfReader::GltfReader reader;  // constructing it pulls reader+deps archives
-    (void)reader; (void)wgs84;
+    (void)reader;
+    (void)wgs84;
     std::puts("cesium_link_probe OK");
     return 0;
 }

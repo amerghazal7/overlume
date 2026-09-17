@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file tf_adapter.hpp
  *  @brief map->base_link TF lookup -> overlume::EgoState, with EMA-smoothed
@@ -28,11 +31,9 @@
 
 #include "overlume/scene.h"
 
-namespace overlume::ros
-{
+namespace overlume::ros {
 
-class TfAdapter
-{
+class TfAdapter {
 public:
     /// alpha: EMA smoothing factor in (0,1] for the finite-differenced
     /// speed -- smoothed += alpha * (raw - smoothed). Small default (0.2)

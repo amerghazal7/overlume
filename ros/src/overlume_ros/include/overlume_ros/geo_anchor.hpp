@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file geo_anchor.hpp
  *  @brief WGS84 <-> map-frame geo-anchor (VM-050, Epic 4 Task 1).
@@ -34,13 +37,12 @@
 
 #include "overlume/scene.h"
 
-namespace overlume::ros
-{
+namespace overlume::ros {
 
 using overlume::GeoAnchor;  // re-export, not a new type -- unqualified GeoAnchor
-                          // below and in test_geo_anchor.cpp is this same
-                          // type Task 3 (VM-052) appends set_environment_source
-                          // to consume.
+                            // below and in test_geo_anchor.cpp is this same
+                            // type Task 3 (VM-052) appends set_environment_source
+                            // to consume.
 
 // Pure math, no ROS types -- testable without a node/executor. WGS84 <->
 // local-ENU via a standard equirectangular approximation around the
@@ -51,10 +53,10 @@ using overlume::GeoAnchor;  // re-export, not a new type -- unqualified GeoAncho
 // points true north, map +Y points true west, the unique right-handed (Z
 // up) orientation consistent with that bearing definition).
 overlume::GeoAnchor SolveAnchor(const std::vector<std::pair<double, double>>& fixes,
-                             const std::vector<std::pair<double, double>>& map_xy);
+                                const std::vector<std::pair<double, double>>& map_xy);
 
 overlume::Vec3 WgsToMap(const overlume::GeoAnchor& anchor, double lat_deg, double lon_deg,
-                     double alt_m = 0.0);
+                        double alt_m = 0.0);
 std::pair<double, double> MapToWgs(const overlume::GeoAnchor& anchor, overlume::Vec3 map_xy);
 
 // Small-angle great-circle (haversine) distance in meters between two
@@ -83,8 +85,7 @@ inline constexpr double kMinAnchorBaselineM = 20.0;
 // All-or-nothing classification of the geo_datum_lat_deg/lon_deg/heading_deg
 // override params (spec: the override is complete or absent, never partial
 // -- see set_override()'s own doc comment below).
-enum class GeoDatumOverride
-{
+enum class GeoDatumOverride {
     None,      // All three NaN -- sample from NavSatFix+TF instead.
     Complete,  // All three finite -- set_override() applies immediately.
     Partial,   // 1 or 2 finite -- config ERROR: ignored, sampling proceeds.
@@ -100,8 +101,7 @@ GeoDatumOverride ClassifyGeoDatum(double lat_deg, double lon_deg, double heading
 // -- the spec's "manual override for GPS-denied replays" -- and, once set,
 // win for the node's lifetime: a later on_fix() is a no-op (real fixes
 // never silently creep back in over a deliberate override).
-class GeoAnchorSolver
-{
+class GeoAnchorSolver {
 public:
     GeoAnchorSolver(tf2_ros::Buffer& buffer, std::string map_frame, std::string base_frame);
 

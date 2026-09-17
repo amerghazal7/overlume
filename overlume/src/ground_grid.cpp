@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // ground_grid.cpp — OGM occupancy grids as theme-colored ground textures
 // with in-place partial updates. The first filament::Texture in this
 // library (see build_occupancy_texture() below).
@@ -59,7 +62,7 @@ struct GroundGridVertex {
 };
 
 filament::VertexBuffer* make_ground_grid_vertex_buffer(filament::Engine& engine,
-                                                        std::vector<GroundGridVertex> verts) {
+                                                       std::vector<GroundGridVertex> verts) {
     auto* heapVerts = new std::vector<GroundGridVertex>(std::move(verts));
     filament::VertexBuffer* vb =
         filament::VertexBuffer::Builder()
@@ -75,14 +78,13 @@ filament::VertexBuffer* make_ground_grid_vertex_buffer(filament::Engine& engine,
                        filament::VertexBuffer::AttributeType::FLOAT2,
                        offsetof(GroundGridVertex, uv), sizeof(GroundGridVertex))
             .build(engine);
-    vb->setBufferAt(
-        engine, 0,
-        filament::VertexBuffer::BufferDescriptor(
-            heapVerts->data(), heapVerts->size() * sizeof(GroundGridVertex),
-            [](void*, size_t, void* user) {
-                delete static_cast<std::vector<GroundGridVertex>*>(user);
-            },
-            heapVerts));
+    vb->setBufferAt(engine, 0,
+                    filament::VertexBuffer::BufferDescriptor(
+                        heapVerts->data(), heapVerts->size() * sizeof(GroundGridVertex),
+                        [](void*, size_t, void* user) {
+                            delete static_cast<std::vector<GroundGridVertex>*>(user);
+                        },
+                        heapVerts));
     return vb;
 }
 
@@ -95,7 +97,7 @@ filament::VertexBuffer* make_ground_grid_vertex_buffer(filament::Engine& engine,
 // instead). UV (0,0)..(1,1) across the quad, consistent with the
 // row-major cell upload in upload_occupancy_texture() below.
 void build_ground_grid_quad(VisualRenderer& r, Mesh& mesh, const GroundGridLayer& g, float z_lift,
-                             filament::MaterialInstance* material) {
+                            filament::MaterialInstance* material) {
     const float ox = static_cast<float>(g.origin.x);
     const float oy = static_cast<float>(g.origin.y);
     const float oz = static_cast<float>(g.origin.z) + z_lift;
@@ -151,7 +153,7 @@ filament::Texture* build_occupancy_texture(filament::Engine& engine, uint32_t w,
 // pixel data moves. update_ground_grids() also gates whether this runs at
 // all on GroundGridSlot::last_upload_sec vs. g.last_update_sec.
 void upload_occupancy_texture(filament::Engine& engine, filament::Texture* tex,
-                               const uint8_t* cells, uint32_t w, uint32_t h) {
+                              const uint8_t* cells, uint32_t w, uint32_t h) {
     const size_t byteCount = static_cast<size_t>(w) * h;
     auto* heap = new std::vector<uint8_t>(cells, cells + byteCount);
     filament::backend::PixelBufferDescriptor pbd(
@@ -190,16 +192,15 @@ void update_ground_grids(VisualRenderer& r, const SceneGraph& s) {
         // field-equality check is enough; no content-hash signature needed
         // (unlike map_elements.cpp/ribbon.cpp, whose source topics are
         // rolling windows with genuinely changing point data).
-        const bool geomChanged = !slot.has_geometry || slot.kind != kind ||
-                                  slot.width_cells != g.width_cells ||
-                                  slot.height_cells != g.height_cells ||
-                                  slot.resolution_m != g.resolution_m ||
-                                  slot.origin.x != g.origin.x || slot.origin.y != g.origin.y ||
-                                  slot.origin.z != g.origin.z;
+        const bool geomChanged =
+            !slot.has_geometry || slot.kind != kind || slot.width_cells != g.width_cells ||
+            slot.height_cells != g.height_cells || slot.resolution_m != g.resolution_m ||
+            slot.origin.x != g.origin.x || slot.origin.y != g.origin.y ||
+            slot.origin.z != g.origin.z;
         if (geomChanged) {
             destroy_mesh(*r.engine, *r.scene, slot.quad);
             build_ground_grid_quad(r, slot.quad, g, z_lift_for_kind(kind),
-                                    r.groundGridMaterialInstance[kind]);
+                                   r.groundGridMaterialInstance[kind]);
             slot.kind = kind;
             slot.width_cells = g.width_cells;
             slot.height_cells = g.height_cells;
@@ -211,8 +212,8 @@ void update_ground_grids(VisualRenderer& r, const SceneGraph& s) {
         // Texture: dims changed (or no texture yet) -> destroy + recreate,
         // never leaked. Same dims -> reuse the same Texture* and just
         // re-upload -- the TextureIsUpdatedInPlaceNotRecreated contract.
-        const bool dimsChanged =
-            slot.texture == nullptr || slot.texWidth != g.width_cells || slot.texHeight != g.height_cells;
+        const bool dimsChanged = slot.texture == nullptr || slot.texWidth != g.width_cells ||
+                                 slot.texHeight != g.height_cells;
         if (dimsChanged) {
             if (slot.texture != nullptr) r.engine->destroy(slot.texture);
             slot.texture = build_occupancy_texture(*r.engine, g.width_cells, g.height_cells);
@@ -230,7 +231,8 @@ void update_ground_grids(VisualRenderer& r, const SceneGraph& s) {
         // grid re-uploads its full byte buffer every frame regardless of
         // whether anything changed.
         if (dimsChanged || geomChanged || slot.last_upload_sec != g.last_update_sec) {
-            upload_occupancy_texture(*r.engine, slot.texture, g.cells, g.width_cells, g.height_cells);
+            upload_occupancy_texture(*r.engine, slot.texture, g.cells, g.width_cells,
+                                     g.height_cells);
             slot.last_upload_sec = g.last_update_sec;
             ++slot.uploadCount;
         }
@@ -242,7 +244,7 @@ void update_ground_grids(VisualRenderer& r, const SceneGraph& s) {
         // manufacturing fractional "occupancy" the adapter never reported.
         mat->setParameter("occupancyTexture", slot.texture,
                           filament::TextureSampler(filament::TextureSampler::MinFilter::NEAREST,
-                                                    filament::TextureSampler::MagFilter::NEAREST));
+                                                   filament::TextureSampler::MagFilter::NEAREST));
 
         const auto alpha = static_cast<float>(detail::SceneBuffer::staleness_alpha(
             s.sim_time_sec, g.last_update_sec, kStaleFadeStartSec, kStaleFadeTimeoutSec));

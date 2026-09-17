@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // bowl.cpp — see bowl.hpp. VM-091 (unified-engine migration Task 2):
 // builds/rebuilds the camera bowl's Filament mesh + material from
 // bowl_mesh.hpp's CPU-only bake, and does the per-tick ego-motion-delta ->
@@ -60,8 +63,8 @@ using filament::math::quatf;
 // arithmetic on CUSTOM attributes, so rigPos passes through untouched.
 struct BowlGpuVertex {
     float3 position;
-    float4 color;    // coverage_a, index_a, coverage_b, index_b
-    float3 rigPos;   // == position, verbatim -- CUSTOM0, untouched by Filament
+    float4 color;   // coverage_a, index_a, coverage_b, index_b
+    float3 rigPos;  // == position, verbatim -- CUSTOM0, untouched by Filament
     // Third camera slot (VM-091 gate close-out finding 7, Decision
     // resolution 2's "2-3 contributing cameras per fragment"): coverage_c,
     // index_c -- CUSTOM1, a physically separate raw-attribute slot from
@@ -72,7 +75,7 @@ struct BowlGpuVertex {
 };
 
 filament::VertexBuffer* make_bowl_vertex_buffer(filament::Engine& engine,
-                                                 std::vector<BowlGpuVertex> verts) {
+                                                std::vector<BowlGpuVertex> verts) {
     auto* heap = new std::vector<BowlGpuVertex>(std::move(verts));
     filament::VertexBuffer* vb =
         filament::VertexBuffer::Builder()
@@ -92,12 +95,12 @@ filament::VertexBuffer* make_bowl_vertex_buffer(filament::Engine& engine,
                        offsetof(BowlGpuVertex, covIdxC), sizeof(BowlGpuVertex))
             .build(engine);
     vb->setBufferAt(engine, 0,
-                     filament::VertexBuffer::BufferDescriptor(
-                         heap->data(), heap->size() * sizeof(BowlGpuVertex),
-                         [](void*, size_t, void* user) {
-                             delete static_cast<std::vector<BowlGpuVertex>*>(user);
-                         },
-                         heap));
+                    filament::VertexBuffer::BufferDescriptor(
+                        heap->data(), heap->size() * sizeof(BowlGpuVertex),
+                        [](void*, size_t, void* user) {
+                            delete static_cast<std::vector<BowlGpuVertex>*>(user);
+                        },
+                        heap));
     return vb;
 }
 
@@ -126,7 +129,9 @@ float3 delta_translation(const double delta[16]) {
             static_cast<float>(delta[11])};
 }
 
-std::string cam_param(const char* prefix, uint32_t i) { return std::string(prefix) + std::to_string(i); }
+std::string cam_param(const char* prefix, uint32_t i) {
+    return std::string(prefix) + std::to_string(i);
+}
 
 // VM-092: the ego's bounding box, RIG FRAME -- from whichever of
 // set_ego_model()'s two outcomes populated r (a loaded glTF's own AABB, or
@@ -187,25 +192,26 @@ bool build_bowl(VisualRenderer& r, const BowlConfig& cfg) {
         // duplicated vertices) stays well under this; a future tessellation
         // bump past it needs the same chunk-split, not a silent truncation.
         std::fprintf(stderr,
-                      "bowl: baked mesh has %zu vertices (> 65535); refusing to build a "
-                      "truncated bowl -- reduce BowlMeshParams tessellation.\n",
-                      baked.vertices.size());
+                     "bowl: baked mesh has %zu vertices (> 65535); refusing to build a "
+                     "truncated bowl -- reduce BowlMeshParams tessellation.\n",
+                     baked.vertices.size());
         return false;
     }
 
     auto owned = std::make_unique<BowlState>();
-    owned->material = filament::Material::Builder()
-                          .package(overlume::materials::kbowlFilamat, overlume::materials::kbowlFilamatSize)
-                          .build(*r.engine);
+    owned->material =
+        filament::Material::Builder()
+            .package(overlume::materials::kbowlFilamat, overlume::materials::kbowlFilamatSize)
+            .build(*r.engine);
     owned->instance = owned->material->createInstance();
 
     std::vector<BowlGpuVertex> verts(baked.vertices.size());
     for (size_t i = 0; i < baked.vertices.size(); ++i) {
         const bowl::BowlVertex& bv = baked.vertices[i];
         verts[i].position = {static_cast<float>(bv.position.x), static_cast<float>(bv.position.y),
-                              static_cast<float>(bv.position.z)};
+                             static_cast<float>(bv.position.z)};
         verts[i].color = {bv.coverage_a, static_cast<float>(bv.index_a), bv.coverage_b,
-                           static_cast<float>(bv.index_b)};
+                          static_cast<float>(bv.index_b)};
         verts[i].rigPos = verts[i].position;
         verts[i].covIdxC = {bv.coverage_c, static_cast<float>(bv.index_c)};
     }
@@ -243,14 +249,14 @@ bool build_bowl(VisualRenderer& r, const BowlConfig& cfg) {
     // a test that calls render_frame() without ever calling
     // set_camera_motion_delta()).
     filament::TextureSampler linear(filament::TextureSampler::MinFilter::LINEAR,
-                                     filament::TextureSampler::MagFilter::LINEAR);
+                                    filament::TextureSampler::MagFilter::LINEAR);
     for (uint32_t i = 0; i < kMaxBowlCameras; ++i) {
         const uint32_t src = i < cfg.camera_count ? i : 0;  // unused slots mirror camera 0's
-                                                             // texture (never sampled: their
-                                                             // weight is always 0 by
-                                                             // construction, bowl_mesh.cpp)
+                                                            // texture (never sampled: their
+                                                            // weight is always 0 by
+                                                            // construction, bowl_mesh.cpp)
         owned->instance->setParameter(cam_param("camTex", i).c_str(), r.cameraSlots[src].texture,
-                                       linear);
+                                      linear);
         if (i >= cfg.camera_count) {
             owned->instance->setParameter(cam_param("camRight", i).c_str(), float3{0, 0, 0});
             owned->instance->setParameter(cam_param("camFwd", i).c_str(), float3{0, 0, 0});
@@ -268,19 +274,18 @@ bool build_bowl(VisualRenderer& r, const BowlConfig& cfg) {
             cam_param("camT", i).c_str(),
             float3{static_cast<float>(ext.t[0]), static_cast<float>(ext.t[1]),
                    static_cast<float>(ext.t[2])});
-        owned->instance->setParameter(
-            cam_param("camK", i).c_str(),
-            float4{static_cast<float>(in.fx), static_cast<float>(in.fy),
-                   static_cast<float>(in.cx), static_cast<float>(in.cy)});
+        owned->instance->setParameter(cam_param("camK", i).c_str(),
+                                      float4{static_cast<float>(in.fx), static_cast<float>(in.fy),
+                                             static_cast<float>(in.cx), static_cast<float>(in.cy)});
         owned->instance->setParameter(
             cam_param("camDist", i).c_str(),
             float4{static_cast<float>(in.dist[0]), static_cast<float>(in.dist[1]),
                    static_cast<float>(in.dist[2]), static_cast<float>(in.dist[3])});
         owned->instance->setParameter(cam_param("camK3_", i).c_str(),
-                                       static_cast<float>(in.dist[4]));
+                                      static_cast<float>(in.dist[4]));
     }
-    owned->instance->setParameter(
-        "skyColor", float3{cfg.sky_color[0], cfg.sky_color[1], cfg.sky_color[2]});
+    owned->instance->setParameter("skyColor",
+                                  float3{cfg.sky_color[0], cfg.sky_color[1], cfg.sky_color[2]});
     // Per-fragment feather + the exposure-compensation style knob --
     // both node-side style knobs alongside sky_color, per the STANDING
     // "every rendered element ships style tokens" directive.
@@ -299,8 +304,8 @@ void update_bowl(VisualRenderer& r, const EgoState& ego) {
         const float3 right_base = rotation_column(slot.extrinsics.R, 0);
         const float3 fwd_base = rotation_column(slot.extrinsics.R, 2);
         const float3 t_base{static_cast<float>(slot.extrinsics.t[0]),
-                             static_cast<float>(slot.extrinsics.t[1]),
-                             static_cast<float>(slot.extrinsics.t[2])};
+                            static_cast<float>(slot.extrinsics.t[1]),
+                            static_cast<float>(slot.extrinsics.t[2])};
         // Effective (ego-motion-delta-composed) extrinsics -- see bowl.mat's
         // header for the derivation: an identity delta reproduces the base
         // values exactly (transpose of identity is identity, delta_t is
@@ -309,9 +314,8 @@ void update_bowl(VisualRenderer& r, const EgoState& ego) {
         const float3 right_eff = apply_delta_rotation_transposed(slot.motionDelta, right_base);
         const float3 fwd_eff = apply_delta_rotation_transposed(slot.motionDelta, fwd_base);
         const float3 dt = delta_translation(slot.motionDelta);
-        const float3 t_eff =
-            apply_delta_rotation_transposed(slot.motionDelta, {t_base.x - dt.x, t_base.y - dt.y,
-                                                                t_base.z - dt.z});
+        const float3 t_eff = apply_delta_rotation_transposed(
+            slot.motionDelta, {t_base.x - dt.x, t_base.y - dt.y, t_base.z - dt.z});
         r.bowl->instance->setParameter(cam_param("camRight", i).c_str(), right_eff);
         r.bowl->instance->setParameter(cam_param("camFwd", i).c_str(), fwd_eff);
         r.bowl->instance->setParameter(cam_param("camT", i).c_str(), t_eff);
@@ -330,12 +334,12 @@ void update_bowl(VisualRenderer& r, const EgoState& ego) {
     if (!inst.isValid()) return;
     if (!ego.valid) {
         tm.setTransform(inst, mat4f());  // identity -- map origin, same
-                                          // convention as
-                                          // update_ground_grid_transform
+                                         // convention as
+                                         // update_ground_grid_transform
         return;
     }
     const float3 pos{static_cast<float>(ego.position.x), static_cast<float>(ego.position.y),
-                      static_cast<float>(ego.position.z)};
+                     static_cast<float>(ego.position.z)};
     const quatf rot = quatf::fromAxisAngle(float3{0, 0, 1}, static_cast<float>(ego.heading_rad));
     tm.setTransform(inst, mat4f::translation(pos) * mat4f(rot));
 }

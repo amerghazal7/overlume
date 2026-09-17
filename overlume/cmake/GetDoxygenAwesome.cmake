@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # GetDoxygenAwesome.cmake — fetches the pinned doxygen-awesome-css theme
 # (jothepro/doxygen-awesome-css) used by the `docs` target's Doxyfile
 # (HTML_EXTRA_STYLESHEET). Only included when OVERLUME_BUILD_DOCS is ON.

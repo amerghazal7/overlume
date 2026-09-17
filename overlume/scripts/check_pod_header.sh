@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
 # Fails if any public API header leaks std:: types across the ABI boundary.
 set -euo pipefail
 include_dir="$(dirname "$0")/../include/overlume"

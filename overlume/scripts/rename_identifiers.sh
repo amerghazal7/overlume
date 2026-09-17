@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
 # rename_identifiers.sh — Task 2 of the Overlume restructure (2026-09-17).
 #
 # ONE-SHOT. Kept for the record, not meant to run again on this repo (it is

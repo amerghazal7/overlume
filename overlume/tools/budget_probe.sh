@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # Proxy budget probe: overlume_node @1280x720 per quality preset, bag
 # replay. Single-process shape as of the unified-engine migration's Task 6
 # (VM-095) cutover -- micropilot_rendering_node no longer exists; the

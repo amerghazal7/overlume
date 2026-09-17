@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_polyline.cpp — the shared polyline/polygon extruder. Pure geometry,
 // no GPU, no GTEST_SKIP, and no Filament type anywhere in it or in
 // polyline.hpp — see that header's own comment.

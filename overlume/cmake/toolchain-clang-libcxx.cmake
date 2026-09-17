@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # toolchain-clang-libcxx.cmake — selects the clang-18/libc++ toolchain
 # overlume must build with (spec §2: this lib is clang/libc++, the
 # gcc ROS node stays gcc/libstdc++, and the two must never mix at an ABI

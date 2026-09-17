@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file overlume_node.cpp
  *  @brief ROS2 LifecycleNode wrapping overlume (Filament).
  */
@@ -16,37 +19,30 @@
 #include "overlume_ros/ego_anchor.hpp"
 #include "overlume_ros/environment_source_uri.hpp"
 
-namespace overlume::ros
-{
+namespace overlume::ros {
 
 OverlumeNode::OverlumeNode(const rclcpp::NodeOptions& options)
-    : rclcpp_lifecycle::LifecycleNode("overlume_node", options)
-{
+    : rclcpp_lifecycle::LifecycleNode("overlume_node", options) {
     RCLCPP_INFO(get_logger(), "OverlumeNode constructed — awaiting configure transition.");
 }
 
 OverlumeNode::~OverlumeNode() { destroy_renderer_if_any(); }
 
-void OverlumeNode::destroy_renderer_if_any()
-{
-    if (renderer_ != nullptr)
-    {
+void OverlumeNode::destroy_renderer_if_any() {
+    if (renderer_ != nullptr) {
         overlume::destroy_renderer(renderer_);
         renderer_ = nullptr;
     }
 }
 
 // ── Lifecycle: on_configure ──────────────────────────────────────────────────
-OverlumeNode::CallbackReturn OverlumeNode::on_configure(
-    const rclcpp_lifecycle::State& /*state*/)
-{
+OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::State& /*state*/) {
     RCLCPP_INFO(get_logger(), "on_configure() called.");
 
     out_width_ = declare_parameter<int>("out_width", 1280);
     out_height_ = declare_parameter<int>("out_height", 720);
     quality_ = declare_parameter<int>("quality", 1);
-    if (quality_ < 0 || quality_ > 2)
-    {
+    if (quality_ < 0 || quality_ > 2) {
         RCLCPP_ERROR(get_logger(), "quality must be 0 (low), 1 (med), or 2 (high), got %d",
                      quality_);
         return CallbackReturn::FAILURE;
@@ -69,13 +65,12 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
         declare_parameter<double>("governor_drop_threshold_ms", governor_params.drop_threshold_ms);
     governor_params.recover_threshold_ms = declare_parameter<double>(
         "governor_recover_threshold_ms", governor_params.recover_threshold_ms);
-    const int governor_recover_windows_required_param = declare_parameter<int>(
-        "governor_recover_windows_required",
-        static_cast<int>(governor_params.recover_windows_required));
+    const int governor_recover_windows_required_param =
+        declare_parameter<int>("governor_recover_windows_required",
+                               static_cast<int>(governor_params.recover_windows_required));
     const int governor_min_dwell_windows_param = declare_parameter<int>(
         "governor_min_dwell_windows", static_cast<int>(governor_params.min_dwell_windows));
-    if (governor_params.drop_threshold_ms <= governor_params.recover_threshold_ms)
-    {
+    if (governor_params.drop_threshold_ms <= governor_params.recover_threshold_ms) {
         RCLCPP_ERROR(get_logger(),
                      "governor_drop_threshold_ms (%.3f) must be > "
                      "governor_recover_threshold_ms (%.3f) -- that gap IS the hysteresis",
@@ -87,8 +82,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // governor goes silently dead with no log -- the uint32_t field itself
     // can no longer catch that once it's been cast.
     if (governor_window_size_param < 1 || governor_recover_windows_required_param < 1 ||
-        governor_min_dwell_windows_param < 1)
-    {
+        governor_min_dwell_windows_param < 1) {
         RCLCPP_ERROR(get_logger(),
                      "governor_window_size (%d), governor_recover_windows_required (%d) and "
                      "governor_min_dwell_windows (%d) must all be >= 1",
@@ -112,17 +106,15 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // launch/test invocation already uses, now driving the single mode
     // variable directly instead of a since-removed mux-arbitration one.
     initial_mode_ = declare_parameter<int>("initial_mode", 1);
-    if (initial_mode_ < 1 || initial_mode_ > 3)
-    {
+    if (initial_mode_ < 1 || initial_mode_ > 3) {
         RCLCPP_ERROR(get_logger(), "initial_mode must be 1, 2, or 3, got %d", initial_mode_);
         return CallbackReturn::FAILURE;
     }
 
     // [eye xyz | target xyz], matches overlume::CameraPose's own layout.
-    auto vp = declare_parameter<std::vector<double>>(
-        "virtual_pose", {-4.0, 0.0, 3.5, 2.0, 0.0, -0.5});
-    if (vp.size() != 6)
-    {
+    auto vp =
+        declare_parameter<std::vector<double>>("virtual_pose", {-4.0, 0.0, 3.5, 2.0, 0.0, -0.5});
+    if (vp.size() != 6) {
         RCLCPP_ERROR(get_logger(), "virtual_pose must be 6 floats [eye xyz | target xyz], got %zu",
                      vp.size());
         return CallbackReturn::FAILURE;
@@ -141,11 +133,9 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // not "use whatever machine happened to build the library".
     auto theme_assets_dir_param = declare_parameter<std::string>("theme_assets_dir", "");
     std::string theme_assets_dir = theme_assets_dir_param;
-    if (theme_assets_dir.empty())
-    {
+    if (theme_assets_dir.empty()) {
         theme_assets_dir =
-            ament_index_cpp::get_package_share_directory("overlume_ros") +
-            "/assets/themes";
+            ament_index_cpp::get_package_share_directory("overlume_ros") + "/assets/themes";
     }
     // Write the resolved value back so `ros2 param get theme_assets_dir`
     // reports where the node actually looked (VM-044 AC), not the "" default.
@@ -158,8 +148,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // a confusing regression to debug from a `ros2 param get` that then lies
     // about which theme is live.
     const std::string initial_theme_yaml = theme_assets_dir + "/" + initial_theme + ".yaml";
-    if (!std::ifstream(initial_theme_yaml).good())
-    {
+    if (!std::ifstream(initial_theme_yaml).good()) {
         RCLCPP_ERROR(get_logger(),
                      "initial_theme '%s' not found under theme_assets_dir '%s' (expected '%s')",
                      initial_theme.c_str(), theme_assets_dir.c_str(), initial_theme_yaml.c_str());
@@ -175,8 +164,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     config.theme_assets_dir = theme_assets_dir.c_str();
     config.initial_theme = initial_theme.c_str();
     renderer_ = overlume::create_renderer(config);
-    if (renderer_ == nullptr)
-    {
+    if (renderer_ == nullptr) {
         RCLCPP_ERROR(get_logger(), "overlume::create_renderer() failed (no GPU/EGL?)");
         return CallbackReturn::FAILURE;
     }
@@ -186,8 +174,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // storage (api.h's RenderConfig doc comment) -- theme_assets_loaded()
     // can still non-fatal-WARN here (e.g. a corrupt yaml on an otherwise
     // resolved path); the path named below is now the real, resolved one.
-    if (!overlume::theme_assets_loaded(renderer_))
-    {
+    if (!overlume::theme_assets_loaded(renderer_)) {
         RCLCPP_WARN(get_logger(),
                     "theme assets failed to load from '%s' -- rendering with the "
                     "compiled-in fallback theme instead",
@@ -202,16 +189,13 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     auto profile_name = declare_parameter<std::string>("profile", "urban");
     auto profile_dir_param = declare_parameter<std::string>("profile_dir", "");
     std::string profile_dir = profile_dir_param;
-    if (profile_dir.empty())
-    {
-        profile_dir = ament_index_cpp::get_package_share_directory("overlume_ros") +
-                      "/config";
+    if (profile_dir.empty()) {
+        profile_dir = ament_index_cpp::get_package_share_directory("overlume_ros") + "/config";
     }
     const std::string profile_path = profile_dir + "/" + profile_name + "_profile.yaml";
     std::vector<std::string> profile_errors;
     auto profile = overlume_node::load_profile(profile_path, profile_errors);
-    if (!profile.has_value())
-    {
+    if (!profile.has_value()) {
         RCLCPP_ERROR(get_logger(), "failed to load profile '%s':", profile_path.c_str());
         for (const auto& err : profile_errors) RCLCPP_ERROR(get_logger(), "  %s", err.c_str());
         return CallbackReturn::FAILURE;
@@ -221,17 +205,14 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // load_profile() can succeed with non-fatal warnings too; log those here
     // or the diagnostic naming a config typo is computed and silently dropped.
     for (const auto& err : profile_errors) RCLCPP_WARN(get_logger(), "  %s", err.c_str());
-    for (const auto& row : profile->rows)
-    {
+    for (const auto& row : profile->rows) {
         const auto specs = overlume_node::subscriptions_for(row);
-        if (specs.empty())
-        {
+        if (specs.empty()) {
             RCLCPP_INFO(get_logger(), "  (no subscription) -> %s/%s", row.adapter.c_str(),
                         row.role.c_str());
             continue;
         }
-        for (const auto& spec : specs)
-        {
+        for (const auto& spec : specs) {
             RCLCPP_INFO(get_logger(), "  %s -> %s/%s (qos: %s%s)", spec.topic.c_str(),
                         row.adapter.c_str(), row.role.c_str(),
                         spec.best_effort ? "best_effort" : "reliable",
@@ -243,8 +224,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // legal default, load failure is non-fatal (set_ego_model() falls back to
     // a themed clay box at fallback_dims; the WARN below is informational only).
     auto ego_model_path = declare_parameter<std::string>("ego_model_path", "");
-    if (ego_model_path.empty())
-    {
+    if (ego_model_path.empty()) {
         // VM-044: resolve to the installed M02P glTF (provisioned into this
         // package's own share dir by scripts/provision_ego_model.sh) instead
         // of a per-user ~/Downloads path baked into default_params.yaml.
@@ -252,10 +232,8 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
         // through to the clay-box fallback below, honestly (no fabricated
         // path to a file that isn't there).
         const std::string installed_ego =
-            ament_index_cpp::get_package_share_directory("overlume_ros") +
-            "/assets/ego/M02P.glb";
-        if (std::ifstream(installed_ego).good())
-        {
+            ament_index_cpp::get_package_share_directory("overlume_ros") + "/assets/ego/M02P.glb";
+        if (std::ifstream(installed_ego).good()) {
             ego_model_path = installed_ego;
         }
     }
@@ -263,15 +241,14 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // `ros2 param get ego_model_path` (VM-044 AC), same as theme_assets_dir above.
     set_parameter(rclcpp::Parameter("ego_model_path", ego_model_path));
     auto ego_dims = declare_parameter<std::vector<double>>("ego_fallback_dims", {4.5, 2.0, 1.8});
-    if (ego_dims.size() != 3)
-    {
-        RCLCPP_ERROR(get_logger(), "ego_fallback_dims must be 3 floats [len, width, height], got %zu",
+    if (ego_dims.size() != 3) {
+        RCLCPP_ERROR(get_logger(),
+                     "ego_fallback_dims must be 3 floats [len, width, height], got %zu",
                      ego_dims.size());
         return CallbackReturn::FAILURE;
     }
     overlume::Vec3 ego_fallback_dims{ego_dims[0], ego_dims[1], ego_dims[2]};
-    if (!overlume::set_ego_model(renderer_, ego_model_path.c_str(), ego_fallback_dims))
-    {
+    if (!overlume::set_ego_model(renderer_, ego_model_path.c_str(), ego_fallback_dims)) {
         RCLCPP_WARN(get_logger(), "set_ego_model: failed to load '%s' -- using clay-box fallback",
                     ego_model_path.c_str());
     }
@@ -282,13 +259,11 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // share/assets/fonts (VM-044), same shape as theme_assets_dir/
     // ego_model_path above, instead of a per-checkout absolute path.
     hud_font_path_ = declare_parameter<std::string>("hud_font_path", "");
-    if (hud_font_path_.empty())
-    {
+    if (hud_font_path_.empty()) {
         const std::string installed_font =
             ament_index_cpp::get_package_share_directory("overlume_ros") +
             "/assets/fonts/NotoSans-Regular.ttf";
-        if (std::ifstream(installed_font).good())
-        {
+        if (std::ifstream(installed_font).good()) {
             hud_font_path_ = installed_font;
         }
     }
@@ -337,21 +312,23 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // override was given), and `/rendering/set_mode` (below) drives this
     // same variable live thereafter.
     render_mode_ = declare_parameter<int>("render_mode", initial_mode_);
-    if (render_mode_ < kRenderModeBowl || render_mode_ > kRenderModeFreeLook)
-    {
-        RCLCPP_WARN(get_logger(), "render_mode must be 1 (bowl), 2 (hybrid) or 3 (free_look), "
-                    "got %d -- defaulting to 3 (free_look)", render_mode_);
+    if (render_mode_ < kRenderModeBowl || render_mode_ > kRenderModeFreeLook) {
+        RCLCPP_WARN(get_logger(),
+                    "render_mode must be 1 (bowl), 2 (hybrid) or 3 (free_look), "
+                    "got %d -- defaulting to 3 (free_look)",
+                    render_mode_);
         render_mode_ = kRenderModeFreeLook;
     }
     // Surround Stitching (Task 4/VM-093 follow-up directive) -- full contract
     // at the layer_surround_stitching_ field comment, overlume_node.hpp.
     layer_surround_stitching_ = declare_parameter<bool>("layer_surround_stitching", false);
-    surround_stitching_profile_ = declare_parameter<std::string>("surround_stitching_profile",
-                                                                  "bowl");
-    if (surround_stitching_profile_ != "bowl" && surround_stitching_profile_ != "hybrid")
-    {
-        RCLCPP_WARN(get_logger(), "surround_stitching_profile must be 'bowl' or 'hybrid', got "
-                    "'%s' -- defaulting to 'bowl'", surround_stitching_profile_.c_str());
+    surround_stitching_profile_ =
+        declare_parameter<std::string>("surround_stitching_profile", "bowl");
+    if (surround_stitching_profile_ != "bowl" && surround_stitching_profile_ != "hybrid") {
+        RCLCPP_WARN(get_logger(),
+                    "surround_stitching_profile must be 'bowl' or 'hybrid', got "
+                    "'%s' -- defaulting to 'bowl'",
+                    surround_stitching_profile_.c_str());
         surround_stitching_profile_ = "bowl";
     }
 
@@ -374,14 +351,13 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // gps_link == base_link (identity TF, Epic 4 plan Decision 7), so this
     // samples map->base_link directly, same frames as tf_adapter_.
     geo_anchor_solver_ = std::make_unique<GeoAnchorSolver>(*tf_buffer_, "map", "base_link");
-    const double geo_datum_lat_deg = declare_parameter<double>("geo_datum_lat_deg",
-                                                                std::numeric_limits<double>::quiet_NaN());
-    const double geo_datum_lon_deg = declare_parameter<double>("geo_datum_lon_deg",
-                                                                std::numeric_limits<double>::quiet_NaN());
+    const double geo_datum_lat_deg =
+        declare_parameter<double>("geo_datum_lat_deg", std::numeric_limits<double>::quiet_NaN());
+    const double geo_datum_lon_deg =
+        declare_parameter<double>("geo_datum_lon_deg", std::numeric_limits<double>::quiet_NaN());
     const double geo_datum_heading_deg = declare_parameter<double>(
         "geo_datum_heading_deg", std::numeric_limits<double>::quiet_NaN());
-    switch (ClassifyGeoDatum(geo_datum_lat_deg, geo_datum_lon_deg, geo_datum_heading_deg))
-    {
+    switch (ClassifyGeoDatum(geo_datum_lat_deg, geo_datum_lon_deg, geo_datum_heading_deg)) {
         case GeoDatumOverride::Complete:
             geo_anchor_solver_->set_override(geo_datum_lat_deg, geo_datum_lon_deg,
                                              geo_datum_heading_deg);
@@ -401,8 +377,8 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
             // startup; sampling from NavSatFix+TF proceeds as if no
             // override was given.
             RCLCPP_ERROR(get_logger(),
-                        "geo_datum_lat_deg/lon_deg/heading_deg must be given all three or none "
-                        "-- ignoring the partial override, sampling from NavSatFix+TF instead");
+                         "geo_datum_lat_deg/lon_deg/heading_deg must be given all three or none "
+                         "-- ignoring the partial override, sampling from NavSatFix+TF instead");
             break;
         case GeoDatumOverride::None:
             break;
@@ -414,11 +390,9 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // silently never connect.
     gps_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
         "/sim/feedback/gps", rclcpp::QoS(10).best_effort(),
-        [this](const sensor_msgs::msg::NavSatFix::SharedPtr msg)
-        {
+        [this](const sensor_msgs::msg::NavSatFix::SharedPtr msg) {
             geo_anchor_solver_->on_fix(*msg);
-            if (!geo_anchor_logged_ && geo_anchor_solver_->solved())
-            {
+            if (!geo_anchor_logged_ && geo_anchor_solver_->solved()) {
                 geo_anchor_logged_ = true;
                 const overlume::GeoAnchor a = geo_anchor_solver_->anchor();
                 // Field order matches bake_environment.py's --anchor-lat/
@@ -441,10 +415,9 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // config/default_params.yaml ships true since VM-095 Step 6.
     bowl_enabled_ = declare_parameter<bool>("bowl_enabled", false);
     const int n_cameras = declare_parameter<int>("n_cameras", 6);
-    if (n_cameras <= 0 || static_cast<uint32_t>(n_cameras) > overlume::kMaxBowlCameras)
-    {
-        RCLCPP_ERROR(get_logger(), "n_cameras must be in [1, %u], got %d", overlume::kMaxBowlCameras,
-                     n_cameras);
+    if (n_cameras <= 0 || static_cast<uint32_t>(n_cameras) > overlume::kMaxBowlCameras) {
+        RCLCPP_ERROR(get_logger(), "n_cameras must be in [1, %u], got %d",
+                     overlume::kMaxBowlCameras, n_cameras);
         return CallbackReturn::FAILURE;
     }
     auto image_topics =
@@ -465,9 +438,8 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // of crashing the node, and zero camera subscriptions are created
     // whenever the bowl is disabled or unconfigured.
     const bool bowl_topics_valid = static_cast<int>(image_topics.size()) == n_cameras &&
-                                    static_cast<int>(info_topics.size()) == n_cameras;
-    if (bowl_enabled_ && !bowl_topics_valid)
-    {
+                                   static_cast<int>(info_topics.size()) == n_cameras;
+    if (bowl_enabled_ && !bowl_topics_valid) {
         RCLCPP_WARN(get_logger(),
                     "bowl_enabled requested but image_topics/info_topics don't have n_cameras (%d) "
                     "entries (%zu/%zu) -- bowl disabled this run",
@@ -489,16 +461,14 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // default alone protects nothing -- m2o1_params.yaml ships both `true`).
     {
         const bool fbz = declare_parameter<bool>("fill_blind_zone", false);
-        if (fbz)
-        {
+        if (fbz) {
             RCLCPP_WARN(get_logger(),
                         "fill_blind_zone: true requested but forced to false -- no Filament-side "
                         "implementation this epic (Decision 3)");
         }
         fill_blind_zone_ = false;
         const bool em = declare_parameter<bool>("exposure_match", false);
-        if (em)
-        {
+        if (em) {
             RCLCPP_WARN(get_logger(),
                         "exposure_match: true requested but forced to false -- no Filament-side "
                         "implementation this epic (Decision 3)");
@@ -513,37 +483,32 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
         declare_parameter<double>("bowl_exposure_compensation", bowl_exposure_compensation_));
 
     std::vector<overlume::CameraExtrinsics> camera_extrinsics(static_cast<size_t>(n_cameras));
-    if (bowl_enabled_)
-    {
+    if (bowl_enabled_) {
         // Default: identity-rotation ring around the origin (mirrors
         // micropilot_rendering_node's own default-ring fallback shape) --
         // real deployments always override this via the param.
         std::vector<double> ext_default;
-        for (int i = 0; i < n_cameras; ++i)
-        {
+        for (int i = 0; i < n_cameras; ++i) {
             const double angle = 2.0 * M_PI * i / n_cameras;
             const double ca = std::cos(angle), sa = std::sin(angle);
-            const std::vector<double> row = {ca, -sa, 0, 0,  0,        -1,
+            const std::vector<double> row = {ca, -sa, 0, 0,         0,         -1,
                                              sa, ca,  0, 0.55 * ca, 0.55 * sa, 0.55};
             ext_default.insert(ext_default.end(), row.begin(), row.end());
         }
         auto ext_vec = declare_parameter<std::vector<double>>("camera_extrinsics", ext_default);
-        if (static_cast<int>(ext_vec.size()) != n_cameras * 12)
-        {
-            RCLCPP_ERROR(get_logger(), "camera_extrinsics must have n_cameras*12 = %d floats, got %zu",
+        if (static_cast<int>(ext_vec.size()) != n_cameras * 12) {
+            RCLCPP_ERROR(get_logger(),
+                         "camera_extrinsics must have n_cameras*12 = %d floats, got %zu",
                          n_cameras * 12, ext_vec.size());
             return CallbackReturn::FAILURE;
         }
-        for (int i = 0; i < n_cameras; ++i)
-        {
+        for (int i = 0; i < n_cameras; ++i) {
             overlume::CameraExtrinsics& ext = camera_extrinsics[static_cast<size_t>(i)];
             const int base = i * 12;
             for (int j = 0; j < 9; ++j) ext.R[j] = ext_vec[base + j];
             for (int j = 0; j < 3; ++j) ext.t[j] = ext_vec[base + 9 + j];
         }
-    }
-    else
-    {
+    } else {
         // Declared regardless, so a later `ros2 param set bowl_enabled true`
         // + set_parameters(camera_extrinsics) sequence has somewhere to
         // land -- Task 4/6 concern, not exercised by this task's own gate.
@@ -555,11 +520,10 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // camera_ingest_ stays null and NO camera subscriptions are ever
     // created (every call site below already guards on
     // `bowl_enabled_ && camera_ingest_`/reset()-safety).
-    if (bowl_enabled_)
-    {
-        camera_ingest_ = std::make_unique<CameraIngest>(this, static_cast<uint32_t>(n_cameras),
-                                                         image_topics, info_topics, odom_topic,
-                                                         camera_extrinsics);
+    if (bowl_enabled_) {
+        camera_ingest_ =
+            std::make_unique<CameraIngest>(this, static_cast<uint32_t>(n_cameras), image_topics,
+                                           info_topics, odom_topic, camera_extrinsics);
         camera_ingest_->set_renderer(renderer_);
         camera_ingest_->set_bowl_enabled(bowl_enabled_);
         camera_ingest_->set_max_sync_latency(max_sync_latency_);
@@ -580,15 +544,13 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     hybrid_enabled_ = declare_parameter<bool>("hybrid_enabled", false);
     if (camera_ingest_) camera_ingest_->set_hybrid_enabled(hybrid_enabled_);
     pointcloud_topic_ = declare_parameter<std::string>("pointcloud_topic", "");
-    auto pc_tf = declare_parameter<std::vector<double>>(
-        "pointcloud_transform", {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0});
+    auto pc_tf = declare_parameter<std::vector<double>>("pointcloud_transform",
+                                                        {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0});
     // Validated only when the hybrid feed is on -- same convention as the
     // bowl's own camera_extrinsics check living inside if (bowl_enabled_):
     // a disabled feature's malformed param must not refuse configure.
-    if (hybrid_enabled_)
-    {
-        if (pc_tf.size() != 12)
-        {
+    if (hybrid_enabled_) {
+        if (pc_tf.size() != 12) {
             RCLCPP_ERROR(get_logger(),
                          "pointcloud_transform must be 12 floats [R(9)|t(3)], got %zu",
                          pc_tf.size());
@@ -601,12 +563,10 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // point_cloud.point_size_px, never read by this node's own code. See
     // default_params.yaml's own comment on this key for the full reasoning.
     declare_parameter<int>("splat_radius", 2);
-    if (hybrid_enabled_ && !pointcloud_topic_.empty())
-    {
+    if (hybrid_enabled_ && !pointcloud_topic_.empty()) {
         cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
             pointcloud_topic_, rclcpp::SensorDataQoS(),
-            [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg)
-            {
+            [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
                 // Skip the full ~155k-point transform in every mode
                 // that never samples cloud_pts_rig_ (BOWL, or FREE_LOOK
                 // without Surround Stitching's hybrid profile) and when the
@@ -618,17 +578,19 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
                 // agnostic scan as micropilot_rendering_node's own lidar
                 // callback (rendering_node.cpp:479-486).
                 int ox = -1, oy = -1, oz = -1;
-                for (const auto& f : msg->fields)
-                {
+                for (const auto& f : msg->fields) {
                     if (f.datatype != sensor_msgs::msg::PointField::FLOAT32) continue;
-                    if (f.name == "x") ox = static_cast<int>(f.offset);
-                    else if (f.name == "y") oy = static_cast<int>(f.offset);
-                    else if (f.name == "z") oz = static_cast<int>(f.offset);
+                    if (f.name == "x")
+                        ox = static_cast<int>(f.offset);
+                    else if (f.name == "y")
+                        oy = static_cast<int>(f.offset);
+                    else if (f.name == "z")
+                        oz = static_cast<int>(f.offset);
                 }
-                if (ox < 0 || oy < 0 || oz < 0)
-                {
-                    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
-                                         "hybrid: point cloud lacks float32 x/y/z fields; ignoring");
+                if (ox < 0 || oy < 0 || oz < 0) {
+                    RCLCPP_WARN_THROTTLE(
+                        get_logger(), *get_clock(), 5000,
+                        "hybrid: point cloud lacks float32 x/y/z fields; ignoring");
                     return;
                 }
                 const float* T = pointcloud_tf_;
@@ -636,8 +598,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
                 std::vector<overlume::Vec3> pts;
                 pts.reserve(n);
                 const uint8_t* base = msg->data.data();
-                for (size_t p = 0; p < n; ++p)
-                {
+                for (size_t p = 0; p < n; ++p) {
                     const uint8_t* rec = base + p * msg->point_step;
                     float x, y, z;
                     std::memcpy(&x, rec + ox, 4);
@@ -648,8 +609,8 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
                     // rendering_node.cpp's own lidar callback (Decision 3's
                     // frame convention: colorization happens in rig frame).
                     pts.push_back(overlume::Vec3{T[0] * x + T[1] * y + T[2] * z + T[9],
-                                               T[3] * x + T[4] * y + T[5] * z + T[10],
-                                               T[6] * x + T[7] * y + T[8] * z + T[11]});
+                                                 T[3] * x + T[4] * y + T[5] * z + T[10],
+                                                 T[6] * x + T[7] * y + T[8] * z + T[11]});
                 }
                 std::lock_guard<std::mutex> lk(cloud_mtx_);
                 cloud_pts_rig_.swap(pts);
@@ -691,8 +652,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // into scene_asm_ every tick, never assigns, so every matching row renders
     // together.
     frame_transformer_ = std::make_unique<FrameTransformer>(*tf_buffer_, "map", flatten_z);
-    for (const auto& row : profile->rows)
-    {
+    for (const auto& row : profile->rows) {
         if (row.adapter != "hd_map") continue;
         const auto specs = overlume_node::subscriptions_for(row);
         if (specs.empty()) continue;
@@ -705,8 +665,9 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
         if (spec.transient_local) qos.transient_local();
         hd_map_subs_.push_back(create_subscription<visualization_msgs::msg::MarkerArray>(
             spec.topic, qos,
-            [this, adapter_ptr](const visualization_msgs::msg::MarkerArray::SharedPtr msg)
-            { adapter_ptr->ingest(*msg, sim_clock_sec_); }));
+            [this, adapter_ptr](const visualization_msgs::msg::MarkerArray::SharedPtr msg) {
+                adapter_ptr->ingest(*msg, sim_clock_sec_);
+            }));
         hd_map_rows_.push_back(HdMapRow{std::move(adapter), row.timeout_sec, row.topic});
     }
     RCLCPP_INFO(get_logger(), "hd_map: %zu row(s) subscribed", hd_map_rows_.size());
@@ -717,20 +678,18 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // configure/activate cycle. Failure to load is fatal, same as a bad profile.
     const std::string class_inference_path = profile_dir + "/class_inference.yaml";
     std::vector<std::string> class_inference_errors;
-    if (auto table = overlume_node::load_class_inference(class_inference_path, class_inference_errors))
-    {
+    if (auto table =
+            overlume_node::load_class_inference(class_inference_path, class_inference_errors)) {
         class_inference_ = std::move(*table);
-    }
-    else
-    {
-        RCLCPP_ERROR(get_logger(), "failed to load class inference table '%s':",
-                    class_inference_path.c_str());
-        for (const auto& err : class_inference_errors) RCLCPP_ERROR(get_logger(), "  %s", err.c_str());
+    } else {
+        RCLCPP_ERROR(get_logger(),
+                     "failed to load class inference table '%s':", class_inference_path.c_str());
+        for (const auto& err : class_inference_errors)
+            RCLCPP_ERROR(get_logger(), "  %s", err.c_str());
         return CallbackReturn::FAILURE;
     }
 
-    for (const auto& row : profile->rows)
-    {
+    for (const auto& row : profile->rows) {
         if (row.adapter != "dynamic_objects") continue;
         const auto specs = overlume_node::subscriptions_for(row);
         if (specs.empty()) continue;
@@ -744,8 +703,9 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
         if (spec.transient_local) qos.transient_local();
         dynamic_objects_subs_.push_back(create_subscription<visualization_msgs::msg::MarkerArray>(
             spec.topic, qos,
-            [this, adapter_ptr](const visualization_msgs::msg::MarkerArray::SharedPtr msg)
-            { adapter_ptr->ingest(*msg, sim_clock_sec_); }));
+            [this, adapter_ptr](const visualization_msgs::msg::MarkerArray::SharedPtr msg) {
+                adapter_ptr->ingest(*msg, sim_clock_sec_);
+            }));
         dynamic_objects_rows_.push_back(
             DynamicObjectsRow{std::move(adapter), row.timeout_sec, row.topic});
     }
@@ -753,8 +713,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
                 dynamic_objects_rows_.size());
 
     // ── Path ribbons ──────────────────────────────────────────────────────────
-    for (const auto& row : profile->rows)
-    {
+    for (const auto& row : profile->rows) {
         if (row.adapter != "path") continue;
         const auto specs = overlume_node::subscriptions_for(row);
         if (specs.empty()) continue;
@@ -766,9 +725,9 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
         if (spec.best_effort) qos.best_effort();
         if (spec.transient_local) qos.transient_local();
         path_subs_.push_back(create_subscription<nav_msgs::msg::Path>(
-            spec.topic, qos,
-            [this, adapter_ptr](const nav_msgs::msg::Path::SharedPtr msg)
-            { adapter_ptr->ingest(*msg, sim_clock_sec_); }));
+            spec.topic, qos, [this, adapter_ptr](const nav_msgs::msg::Path::SharedPtr msg) {
+                adapter_ptr->ingest(*msg, sim_clock_sec_);
+            }));
         path_rows_.push_back(PathRow{std::move(adapter), row.timeout_sec, row.topic});
     }
     RCLCPP_INFO(get_logger(), "path: %zu row(s) subscribed", path_rows_.size());
@@ -778,8 +737,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // for adapter: ogm (base + update topic), each bound to a different
     // ingest() overload on the same adapter. transient_local never applies to
     // the update stream (it's inherently VOLATILE); best_effort still does.
-    for (const auto& row : profile->rows)
-    {
+    for (const auto& row : profile->rows) {
         if (row.adapter != "ogm") continue;
         const auto specs = overlume_node::subscriptions_for(row);
         if (specs.size() != 2) continue;  // profile.cpp always returns 2 for adapter: ogm
@@ -794,16 +752,18 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
         if (gridSpec.transient_local) gridQos.transient_local();
         ogm_grid_subs_.push_back(create_subscription<nav_msgs::msg::OccupancyGrid>(
             gridSpec.topic, gridQos,
-            [this, adapter_ptr](const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
-            { adapter_ptr->ingest(*msg, sim_clock_sec_); }));
+            [this, adapter_ptr](const nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
+                adapter_ptr->ingest(*msg, sim_clock_sec_);
+            }));
 
         rclcpp::QoS updateQos(10);
         if (updateSpec.best_effort) updateQos.best_effort();
         if (updateSpec.transient_local) updateQos.transient_local();
         ogm_update_subs_.push_back(create_subscription<map_msgs::msg::OccupancyGridUpdate>(
             updateSpec.topic, updateQos,
-            [this, adapter_ptr](const map_msgs::msg::OccupancyGridUpdate::SharedPtr msg)
-            { adapter_ptr->ingest_update(*msg, sim_clock_sec_); }));
+            [this, adapter_ptr](const map_msgs::msg::OccupancyGridUpdate::SharedPtr msg) {
+                adapter_ptr->ingest_update(*msg, sim_clock_sec_);
+            }));
 
         ogm_rows_.push_back(OgmRow{std::move(adapter), row.timeout_sec, row.topic});
     }
@@ -812,8 +772,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // ── Collision alert polygons ──────────────────────────────────────────────
     // FIXTURE GAP: all five collision topics were silent in the recorded bag
     // -- unvalidated against a live publisher.
-    for (const auto& row : profile->rows)
-    {
+    for (const auto& row : profile->rows) {
         if (row.adapter != "collision") continue;
         const auto specs = overlume_node::subscriptions_for(row);
         if (specs.empty()) continue;
@@ -826,31 +785,34 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
         if (spec.transient_local) qos.transient_local();
         collision_subs_.push_back(create_subscription<visualization_msgs::msg::MarkerArray>(
             spec.topic, qos,
-            [this, adapter_ptr](const visualization_msgs::msg::MarkerArray::SharedPtr msg)
-            { adapter_ptr->ingest(*msg, sim_clock_sec_); }));
+            [this, adapter_ptr](const visualization_msgs::msg::MarkerArray::SharedPtr msg) {
+                adapter_ptr->ingest(*msg, sim_clock_sec_);
+            }));
         collision_rows_.push_back(CollisionRow{std::move(adapter), row.timeout_sec, row.topic});
     }
     RCLCPP_INFO(get_logger(), "collision: %zu row(s) subscribed", collision_rows_.size());
 
     // ── Generic marker fallback ───────────────────────────────────────────────
     // Adding a topic is one YAML row, no code change (spec §7 parity guarantee).
-    for (const auto& row : profile->rows)
-    {
+    for (const auto& row : profile->rows) {
         if (row.adapter != "generic") continue;
         const auto specs = overlume_node::subscriptions_for(row);
         if (specs.empty()) continue;
         const auto& spec = specs.front();
 
-        auto adapter = std::make_unique<overlume_node::GenericMarkerAdapter>(row, *frame_transformer_);
+        auto adapter =
+            std::make_unique<overlume_node::GenericMarkerAdapter>(row, *frame_transformer_);
         overlume_node::GenericMarkerAdapter* adapter_ptr = adapter.get();
         rclcpp::QoS qos(10);
         if (spec.best_effort) qos.best_effort();
         if (spec.transient_local) qos.transient_local();
         generic_marker_subs_.push_back(create_subscription<visualization_msgs::msg::MarkerArray>(
             spec.topic, qos,
-            [this, adapter_ptr](const visualization_msgs::msg::MarkerArray::SharedPtr msg)
-            { adapter_ptr->ingest(*msg, sim_clock_sec_); }));
-        generic_marker_rows_.push_back(GenericMarkerRow{std::move(adapter), row.timeout_sec, row.topic});
+            [this, adapter_ptr](const visualization_msgs::msg::MarkerArray::SharedPtr msg) {
+                adapter_ptr->ingest(*msg, sim_clock_sec_);
+            }));
+        generic_marker_rows_.push_back(
+            GenericMarkerRow{std::move(adapter), row.timeout_sec, row.topic});
     }
     RCLCPP_INFO(get_logger(), "generic: %zu row(s) subscribed", generic_marker_rows_.size());
 
@@ -859,8 +821,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // shipped profile carries a live row -- unvalidated against a live
     // publisher. Same wiring shape as every other single-topic category
     // above (collision/generic).
-    for (const auto& row : profile->rows)
-    {
+    for (const auto& row : profile->rows) {
         if (row.adapter != "point_cloud") continue;
         const auto specs = overlume_node::subscriptions_for(row);
         if (specs.empty()) continue;
@@ -873,8 +834,9 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
         if (spec.transient_local) qos.transient_local();
         point_cloud_subs_.push_back(create_subscription<sensor_msgs::msg::PointCloud2>(
             spec.topic, qos,
-            [this, adapter_ptr](const sensor_msgs::msg::PointCloud2::SharedPtr msg)
-            { adapter_ptr->ingest(*msg, sim_clock_sec_); }));
+            [this, adapter_ptr](const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
+                adapter_ptr->ingest(*msg, sim_clock_sec_);
+            }));
         point_cloud_rows_.push_back(PointCloudRow{std::move(adapter), row.timeout_sec, row.topic});
     }
     RCLCPP_INFO(get_logger(), "point_cloud: %zu row(s) subscribed", point_cloud_rows_.size());
@@ -887,12 +849,9 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // fixed here (two independent consumers with different per-message
     // work -- deduplicating means one feeding the other, a bigger change
     // than this finding's own severity), just surfaced once at startup.
-    if (hybrid_enabled_ && !pointcloud_topic_.empty())
-    {
-        for (const auto& pcr : point_cloud_rows_)
-        {
-            if (pcr.topic == pointcloud_topic_)
-            {
+    if (hybrid_enabled_ && !pointcloud_topic_.empty()) {
+        for (const auto& pcr : point_cloud_rows_) {
+            if (pcr.topic == pointcloud_topic_) {
                 RCLCPP_WARN(get_logger(),
                             "pointcloud_topic '%s' matches a profile point_cloud row -- this "
                             "node holds TWO subscriptions to it (hybrid's own cloud_sub_ plus "
@@ -903,22 +862,23 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     }
 
     // ── Trajectory carpet (VM-077) ────────────────────────────────────────────
-    for (const auto& row : profile->rows)
-    {
+    for (const auto& row : profile->rows) {
         if (row.adapter != "trajectory_carpet") continue;
         const auto specs = overlume_node::subscriptions_for(row);
         if (specs.empty()) continue;
         const auto& spec = specs.front();
 
-        auto adapter = std::make_unique<overlume_node::TrajectoryCarpetAdapter>(row, *frame_transformer_);
+        auto adapter =
+            std::make_unique<overlume_node::TrajectoryCarpetAdapter>(row, *frame_transformer_);
         overlume_node::TrajectoryCarpetAdapter* adapter_ptr = adapter.get();
         rclcpp::QoS qos(10);
         if (spec.best_effort) qos.best_effort();
         if (spec.transient_local) qos.transient_local();
         carpet_subs_.push_back(create_subscription<visualization_msgs::msg::MarkerArray>(
             spec.topic, qos,
-            [this, adapter_ptr](const visualization_msgs::msg::MarkerArray::SharedPtr msg)
-            { adapter_ptr->ingest(*msg, sim_clock_sec_); }));
+            [this, adapter_ptr](const visualization_msgs::msg::MarkerArray::SharedPtr msg) {
+                adapter_ptr->ingest(*msg, sim_clock_sec_);
+            }));
         carpet_rows_.push_back(CarpetRow{std::move(adapter), row.timeout_sec, row.topic});
     }
     RCLCPP_INFO(get_logger(), "trajectory_carpet: %zu row(s) subscribed", carpet_rows_.size());
@@ -928,8 +888,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // adapter). Both shipped profiles carry the row commented out. Takes the
     // node's own tf_buffer_ directly, not frame_transformer_ (see this
     // adapter's own header comment).
-    for (const auto& row : profile->rows)
-    {
+    for (const auto& row : profile->rows) {
         if (row.adapter != "tf_axes") continue;
         tf_axes_rows_.push_back(std::make_unique<overlume_node::TfAxesAdapter>(row, *tf_buffer_));
     }
@@ -945,8 +904,9 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // isn't a profile row, so it's fixed here directly.
     robot_speed_sub_ = create_subscription<std_msgs::msg::Float32>(
         "/robot/feedback/robot_speed_mps", rclcpp::QoS(10).best_effort(),
-        [this](const std_msgs::msg::Float32::SharedPtr msg)
-        { tf_adapter_->set_robot_speed_mps(msg->data); });
+        [this](const std_msgs::msg::Float32::SharedPtr msg) {
+            tf_adapter_->set_robot_speed_mps(msg->data);
+        });
 
     // ── publishers (created here, activated in on_activate) ─────────────────
     // Same global topic names the now-decommissioned micropilot_rendering_node
@@ -958,8 +918,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     pub_vcam_state_ = create_publisher<std_msgs::msg::Float64MultiArray>("~/vcam_state", 1);
     // Per-topic age/drop counters + render_ms, published every tick regardless
     // of mode.
-    pub_diagnostics_ =
-        create_publisher<diagnostic_msgs::msg::DiagnosticArray>("~/diagnostics", 1);
+    pub_diagnostics_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>("~/diagnostics", 1);
 
     // ── virtual-camera presets / tween ────────────────────────────────────────
     // Constructed AFTER every failure gate above -- a failed configure must
@@ -982,10 +941,8 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // keep).
     set_mode_sub_ = create_subscription<std_msgs::msg::Int32>(
         "/rendering/set_mode", rclcpp::QoS(1).transient_local().reliable(),
-        [this](const std_msgs::msg::Int32::SharedPtr msg)
-        {
-            if (msg->data != 1 && msg->data != 2 && msg->data != 3)
-            {
+        [this](const std_msgs::msg::Int32::SharedPtr msg) {
+            if (msg->data != 1 && msg->data != 2 && msg->data != 3) {
                 RCLCPP_WARN(get_logger(), "set_mode: expected 1|2|3, got %d", msg->data);
                 return;
             }
@@ -995,11 +952,8 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
 
     // ── theme control ─────────────────────────────────────────────────────────
     theme_sub_ = create_subscription<std_msgs::msg::String>(
-        "~/set_theme", 10,
-        [this](const std_msgs::msg::String::SharedPtr msg)
-        {
-            if (!overlume::set_theme(renderer_, msg->data.c_str(), sim_clock_sec_, 0.0))
-            {
+        "~/set_theme", 10, [this](const std_msgs::msg::String::SharedPtr msg) {
+            if (!overlume::set_theme(renderer_, msg->data.c_str(), sim_clock_sec_, 0.0)) {
                 RCLCPP_WARN(get_logger(), "set_theme: unknown theme '%s'", msg->data.c_str());
             }
         });
@@ -1016,8 +970,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // sky + a box ego, no diagnostic. One-shot, bowl_mode_warned_ shared with
     // on_params()'s render_mode branch below.
     if ((render_mode_ == kRenderModeBowl || render_mode_ == kRenderModeHybrid) && !bowl_enabled_ &&
-        !bowl_mode_warned_)
-    {
+        !bowl_mode_warned_) {
         bowl_mode_warned_ = true;
         RCLCPP_WARN(get_logger(),
                     "render_mode=%d masks the whole autonomy scene but bowl_enabled is false -- "
@@ -1025,16 +978,15 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
                     render_mode_);
     }
 
-    RCLCPP_INFO(get_logger(), "on_configure() succeeded. out=%dx%d quality=%d initial_mode=%d "
+    RCLCPP_INFO(get_logger(),
+                "on_configure() succeeded. out=%dx%d quality=%d initial_mode=%d "
                 "flatten_z=%s",
                 out_width_, out_height_, quality_, initial_mode_, flatten_z ? "true" : "false");
     return CallbackReturn::SUCCESS;
 }
 
 // ── Lifecycle: on_activate ───────────────────────────────────────────────────
-OverlumeNode::CallbackReturn OverlumeNode::on_activate(
-    const rclcpp_lifecycle::State& /*state*/)
-{
+OverlumeNode::CallbackReturn OverlumeNode::on_activate(const rclcpp_lifecycle::State& /*state*/) {
     RCLCPP_INFO(get_logger(), "on_activate() called.");
     pub_image_->on_activate();
     pub_info_->on_activate();
@@ -1061,8 +1013,8 @@ OverlumeNode::CallbackReturn OverlumeNode::on_activate(
     // OFF. VisualRenderer::environmentVisible defaults true, so this call is
     // a real state change on that default configuration, not a no-op.
     overlume::set_environment_visible(renderer_, environment_enabled_);
-    if (environment_enabled_ && environment_chunks_dir_.empty() && environment_source_uri_.empty())
-    {
+    if (environment_enabled_ && environment_chunks_dir_.empty() &&
+        environment_source_uri_.empty()) {
         // Neither knob configured ("" is the shipped default for both,
         // VM-044-style per-checkout gap): "not configured", not "failed" --
         // never call the entry point, and the warning names BOTH params
@@ -1072,9 +1024,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_activate(
         RCLCPP_WARN(get_logger(),
                     "neither environment_chunks_dir nor environment_source_uri is set -- "
                     "environment layer disabled this run");
-    }
-    else if (environment_enabled_ && geo_anchor_solver_->solved())
-    {
+    } else if (environment_enabled_ && geo_anchor_solver_->solved()) {
         // VM-063 Decision 5: compose the ONE source_uri string
         // set_environment_source() dispatches on. environment_source_uri_
         // empty -> environment_chunks_dir_ verbatim, byte-for-byte today's
@@ -1093,14 +1043,11 @@ OverlumeNode::CallbackReturn OverlumeNode::on_activate(
         const std::string source_uri = compose_environment_source_uri(
             environment_chunks_dir_, environment_source_uri_, environment_tile_cache_dir_);
         if (!overlume::set_environment_source(renderer_, source_uri.c_str(),
-                                            geo_anchor_solver_->anchor()))
-        {
+                                              geo_anchor_solver_->anchor())) {
             RCLCPP_WARN(get_logger(),
                         "set_environment_source: failed to open '%s' -- no buildings this run",
                         source_uri.c_str());
-        }
-        else
-        {
+        } else {
             // VM-096: an honest one-shot arming log. This whole branch is
             // gated on environment_enabled_ (the `else if` above), so the
             // state word here is always "visible" -- a disabled launch
@@ -1115,9 +1062,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_activate(
         // No per-mode gate on success: see timer_callback()'s comment above
         // the bowl-visibility dispatch -- buildings render regardless of
         // render_mode_ once armed here (named exception 7, signoff.md).
-    }
-    else if (environment_enabled_ && !environment_warned_)
-    {
+    } else if (environment_enabled_ && !environment_warned_) {
         environment_warned_ = true;
         RCLCPP_WARN(get_logger(),
                     "environment_enabled but no geo-anchor solved yet at on_activate() -- "
@@ -1141,39 +1086,40 @@ OverlumeNode::CallbackReturn OverlumeNode::on_activate(
 // shape as rendering_node.cpp's on_params(); unmatched param names fall
 // through untouched (accepted, nothing to apply live).
 rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
-    const std::vector<rclcpp::Parameter>& params)
-{
+    const std::vector<rclcpp::Parameter>& params) {
     rcl_interfaces::msg::SetParametersResult res;
     res.successful = true;
-    for (const auto& p : params)
-    {
+    for (const auto& p : params) {
         const std::string& n = p.get_name();
-        try
-        {
-            if (n == "layer_objects") layer_objects_ = p.as_bool();
-            else if (n == "layer_paths") layer_paths_ = p.as_bool();
-            else if (n == "layer_map_elements") layer_map_elements_ = p.as_bool();
-            else if (n == "layer_grids") layer_grids_ = p.as_bool();
-            else if (n == "layer_alerts") layer_alerts_ = p.as_bool();
-            else if (n == "layer_markers") layer_markers_ = p.as_bool();
-            else if (n == "layer_point_clouds") layer_point_clouds_ = p.as_bool();
-            else if (n == "layer_trajectory_carpet") layer_trajectory_carpet_ = p.as_bool();
+        try {
+            if (n == "layer_objects")
+                layer_objects_ = p.as_bool();
+            else if (n == "layer_paths")
+                layer_paths_ = p.as_bool();
+            else if (n == "layer_map_elements")
+                layer_map_elements_ = p.as_bool();
+            else if (n == "layer_grids")
+                layer_grids_ = p.as_bool();
+            else if (n == "layer_alerts")
+                layer_alerts_ = p.as_bool();
+            else if (n == "layer_markers")
+                layer_markers_ = p.as_bool();
+            else if (n == "layer_point_clouds")
+                layer_point_clouds_ = p.as_bool();
+            else if (n == "layer_trajectory_carpet")
+                layer_trajectory_carpet_ = p.as_bool();
             // ── Local render-mode switch (Task 4 / VM-093) ───────────────────
             // Unlike the layer_* bools above (any bool value is valid), an
             // out-of-range render_mode is a bad REQUEST, not a value to
             // silently clamp -- reject it (res.successful=false) so the
             // caller (GUI/WS bridge/`ros2 param set`) sees the failure
             // instead of a silently-ignored mode switch.
-            else if (n == "render_mode")
-            {
+            else if (n == "render_mode") {
                 const int v = static_cast<int>(p.as_int());
-                if (v < kRenderModeBowl || v > kRenderModeFreeLook)
-                {
+                if (v < kRenderModeBowl || v > kRenderModeFreeLook) {
                     res.successful = false;
                     res.reason = "render_mode must be 1 (bowl), 2 (hybrid) or 3 (free_look)";
-                }
-                else
-                {
+                } else {
                     render_mode_ = v;
                     // Same one-shot WARN as on_configure()'s close-out check
                     // -- a live switch INTO BOWL/HYBRID with the bowl never
@@ -1183,8 +1129,7 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                     const bool bowl_ready =
                         bowl_enabled_ && camera_ingest_ && camera_ingest_->config_applied();
                     if ((render_mode_ == kRenderModeBowl || render_mode_ == kRenderModeHybrid) &&
-                        !bowl_ready && !bowl_mode_warned_)
-                    {
+                        !bowl_ready && !bowl_mode_warned_) {
                         bowl_mode_warned_ = true;
                         RCLCPP_WARN(get_logger(),
                                     "render_mode=%d masks the whole autonomy scene but the bowl "
@@ -1192,41 +1137,33 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                                     "the frame will be near-empty (sky + ego)",
                                     render_mode_, bowl_enabled_ ? "true" : "false",
                                     (camera_ingest_ && camera_ingest_->config_applied()) ? "true"
-                                                                                          : "false");
+                                                                                         : "false");
                     }
                 }
-            }
-            else if (n == "layer_surround_stitching")
-            {
+            } else if (n == "layer_surround_stitching") {
                 layer_surround_stitching_ = p.as_bool();
                 // A silent no-op here cost a live debugging session
                 // (2026-09-11): the toggle flips visibility on a bowl entity
                 // that only exists once bowl_enabled + camera ingest have
                 // configured one -- say so instead of doing nothing.
                 if (layer_surround_stitching_ &&
-                    (!camera_ingest_ || !camera_ingest_->config_applied()))
-                {
+                    (!camera_ingest_ || !camera_ingest_->config_applied())) {
                     RCLCPP_WARN(get_logger(),
                                 "layer_surround_stitching enabled but no bowl is configured "
                                 "(bowl_enabled=%s, camera ingest %s) -- nothing will render "
                                 "until the bowl is enabled and every camera_info has arrived",
                                 bowl_enabled_ ? "true" : "false",
-                                camera_ingest_ ? (camera_ingest_->config_applied()
-                                                      ? "configured"
-                                                      : "waiting on camera_info")
-                                               : "absent");
+                                camera_ingest_
+                                    ? (camera_ingest_->config_applied() ? "configured"
+                                                                        : "waiting on camera_info")
+                                    : "absent");
                 }
-            }
-            else if (n == "surround_stitching_profile")
-            {
+            } else if (n == "surround_stitching_profile") {
                 const std::string v = p.as_string();
-                if (v != "bowl" && v != "hybrid")
-                {
+                if (v != "bowl" && v != "hybrid") {
                     res.successful = false;
                     res.reason = "surround_stitching_profile must be 'bowl' or 'hybrid'";
-                }
-                else
-                {
+                } else {
                     surround_stitching_profile_ = v;
                 }
             }
@@ -1238,8 +1175,7 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
             // whatever source on_activate() (or a later environment_source_uri
             // switch below) already armed; it never arms one itself, same
             // precondition as that arming path (geo-anchor solved).
-            else if (n == "environment_enabled")
-            {
+            else if (n == "environment_enabled") {
                 environment_enabled_ = p.as_bool();
                 overlume::set_environment_visible(renderer_, environment_enabled_);
                 // Honest reporting (this repo's own "view: pointcloud button
@@ -1247,16 +1183,13 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                 // yet silently does nothing to any rendered frame -- say so
                 // instead of letting the caller believe it took effect.
                 if (overlume::environment_source_state(renderer_) ==
-                    overlume::EnvironmentSourceState::NONE)
-                {
+                    overlume::EnvironmentSourceState::NONE) {
                     RCLCPP_WARN(get_logger(),
                                 "environment_enabled set to %s but no environment source is "
                                 "configured yet -- nothing to show/hide this run",
                                 environment_enabled_ ? "true" : "false");
                 }
-            }
-            else if (n == "environment_source_uri")
-            {
+            } else if (n == "environment_source_uri") {
                 const std::string requested = p.as_string();
                 // Same precondition on_activate()'s own environment-arming
                 // branch enforces (geo_anchor_solver_->solved()) -- reject/
@@ -1266,18 +1199,15 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                 // itself only tears down the OLD source after the NEW one
                 // opens successfully, so a rejected switch here changes
                 // nothing about whatever is already rendering.
-                if (!geo_anchor_solver_ || !geo_anchor_solver_->solved())
-                {
+                if (!geo_anchor_solver_ || !geo_anchor_solver_->solved()) {
                     res.successful = false;
-                    res.reason = "environment_source_uri: geo-anchor not solved yet -- "
-                                 "cannot switch the environment source live";
-                }
-                else
-                {
+                    res.reason =
+                        "environment_source_uri: geo-anchor not solved yet -- "
+                        "cannot switch the environment source live";
+                } else {
                     const std::string source_uri = compose_environment_source_uri(
                         environment_chunks_dir_, requested, environment_tile_cache_dir_);
-                    if (source_uri.empty())
-                    {
+                    if (source_uri.empty()) {
                         // Finding #19: an empty requested preset (e.g. the
                         // GUI's "baked" preset) composes to "" whenever
                         // environment_chunks_dir_ is also not configured on
@@ -1285,15 +1215,12 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                         // instead of letting set_environment_source() fail
                         // and report a misleading "failed to open ''".
                         res.successful = false;
-                        res.reason =
-                            "environment_source_uri: '" + requested +
-                            "' selected but environment_chunks_dir is not configured on "
-                            "this deployment";
+                        res.reason = "environment_source_uri: '" + requested +
+                                     "' selected but environment_chunks_dir is not configured on "
+                                     "this deployment";
                         RCLCPP_WARN(get_logger(), "%s", res.reason.c_str());
-                    }
-                    else if (overlume::set_environment_source(renderer_, source_uri.c_str(),
-                                                            geo_anchor_solver_->anchor()))
-                    {
+                    } else if (overlume::set_environment_source(renderer_, source_uri.c_str(),
+                                                                geo_anchor_solver_->anchor())) {
                         environment_source_uri_ = requested;
                         // A freshly armed source has never fallen back --
                         // the fallback WARN latch is per ARMED SOURCE, not
@@ -1317,10 +1244,9 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                         // (this session's own launch value, or a prior live
                         // toggle) is provably HIDDEN, not silently visible.
                         RCLCPP_INFO(get_logger(), "environment source armed: '%s' (%s)",
-                                    source_uri.c_str(), environment_enabled_ ? "visible" : "hidden");
-                    }
-                    else
-                    {
+                                    source_uri.c_str(),
+                                    environment_enabled_ ? "visible" : "hidden");
+                    } else {
                         res.successful = false;
                         res.reason = "set_environment_source: failed to open '" + source_uri +
                                      "' -- previous environment source left intact";
@@ -1344,24 +1270,24 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
             // very next tick once all_info_ready() -- a full re-bake, same
             // as the CameraInfo-change path, accepted per the plan's own
             // one-dropped-frame GUI-edit budget.
-            else if (n == "bowl_R0") { bowl_R0_ = p.as_double(); bowl_config_dirty_ = true; }
-            else if (n == "bowl_k") { bowl_k_ = p.as_double(); bowl_config_dirty_ = true; }
-            else if (n == "bowl_Rmax") { bowl_Rmax_ = p.as_double(); bowl_config_dirty_ = true; }
-            else if (n == "feather_margin")
-            {
+            else if (n == "bowl_R0") {
+                bowl_R0_ = p.as_double();
+                bowl_config_dirty_ = true;
+            } else if (n == "bowl_k") {
+                bowl_k_ = p.as_double();
+                bowl_config_dirty_ = true;
+            } else if (n == "bowl_Rmax") {
+                bowl_Rmax_ = p.as_double();
+                bowl_config_dirty_ = true;
+            } else if (n == "feather_margin") {
                 feather_margin_ = p.as_double();
                 bowl_config_dirty_ = true;
-            }
-            else if (n == "bowl_exposure_compensation")
-            {
+            } else if (n == "bowl_exposure_compensation") {
                 bowl_exposure_compensation_ = static_cast<float>(p.as_double());
                 bowl_config_dirty_ = true;
-            }
-            else if (n == "sky_color")
-            {
+            } else if (n == "sky_color") {
                 auto v = p.as_double_array();
-                if (v.size() == 3)
-                {
+                if (v.size() == 3) {
                     for (int i = 0; i < 3; ++i) sky_color_[i] = static_cast<float>(v[i]);
                     bowl_config_dirty_ = true;
                 }
@@ -1370,17 +1296,14 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
             // set_parameters() call (not just the initial declare) carrying
             // `true` for either is CLAMPED to false with a WARN, same as
             // on_configure()'s own declare-time clamp.
-            else if (n == "fill_blind_zone")
-            {
+            else if (n == "fill_blind_zone") {
                 const bool requested = p.as_bool();
                 fill_blind_zone_ = false;
                 if (requested)
                     RCLCPP_WARN(get_logger(),
                                 "fill_blind_zone: true requested but forced to false -- no "
                                 "Filament-side implementation this epic (Decision 3)");
-            }
-            else if (n == "exposure_match")
-            {
+            } else if (n == "exposure_match") {
                 const bool requested = p.as_bool();
                 exposure_match_ = false;
                 if (requested)
@@ -1389,9 +1312,7 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                                 "Filament-side implementation this epic (Decision 3)");
             }
             // other params: accept (stored by rclcpp) but nothing to apply live
-        }
-        catch (const std::exception& e)
-        {
+        } catch (const std::exception& e) {
             res.successful = false;
             res.reason = std::string("bad value for ") + n + ": " + e.what();
         }
@@ -1400,21 +1321,17 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
 }
 
 // ── Timer callback ───────────────────────────────────────────────────────────
-namespace
-{
+namespace {
 // WARN_THROTTLE (5s) when dropped_malformed/dropped_no_tf grows; dropped_by_rule
 // is the designed steady state and never warns. Watermarks advance even while
 // throttled, since the counters are cumulative, so the next growth still warns.
 void warn_on_drop_growth(const rclcpp::Logger& logger, rclcpp::Clock& clock,
                          const std::string& topic, const overlume_node::AdapterStats& s,
-                         uint64_t& warned_malformed, uint64_t& warned_no_tf)
-{
-    if (s.dropped_malformed > warned_malformed || s.dropped_no_tf > warned_no_tf)
-    {
+                         uint64_t& warned_malformed, uint64_t& warned_no_tf) {
+    if (s.dropped_malformed > warned_malformed || s.dropped_no_tf > warned_no_tf) {
         RCLCPP_WARN_THROTTLE(logger, clock, 5000,
                              "%s: dropped %llu malformed, %llu without TF (cumulative)",
-                             topic.c_str(),
-                             static_cast<unsigned long long>(s.dropped_malformed),
+                             topic.c_str(), static_cast<unsigned long long>(s.dropped_malformed),
                              static_cast<unsigned long long>(s.dropped_no_tf));
         warned_malformed = s.dropped_malformed;
         warned_no_tf = s.dropped_no_tf;
@@ -1422,8 +1339,7 @@ void warn_on_drop_growth(const rclcpp::Logger& logger, rclcpp::Clock& clock,
 }
 }  // namespace
 
-void OverlumeNode::timer_callback()
-{
+void OverlumeNode::timer_callback() {
     // Publish vcam telemetry BEFORE the mode gate below (mirrors
     // rendering_node) so external UIs keep getting pose updates while inactive.
     vcam_->advance_tween();
@@ -1438,8 +1354,12 @@ void OverlumeNode::timer_callback()
     // only asserts `len(vcam_state) >= 9`, so shrinking the format would
     // cost more than it saves.
     std_msgs::msg::Float64MultiArray state;
-    state.data = {pose_.eye[0],    pose_.eye[1],    pose_.eye[2],
-                  pose_.target[0], pose_.target[1], pose_.target[2],
+    state.data = {pose_.eye[0],
+                  pose_.eye[1],
+                  pose_.eye[2],
+                  pose_.target[0],
+                  pose_.target[1],
+                  pose_.target[2],
                   static_cast<double>(vcam_->active_preset()),
                   static_cast<double>(render_mode_),
                   static_cast<double>(render_mode_)};
@@ -1457,12 +1377,10 @@ void OverlumeNode::timer_callback()
     // it later (Task 4). bowl_enabled_ false means camera_ingest_ itself
     // already does nothing (its image callbacks return before touching
     // cv_bridge); this block is then also a no-op.
-    if (bowl_enabled_ && camera_ingest_)
-    {
+    if (bowl_enabled_ && camera_ingest_) {
         // Same BowlConfig every (re)bake -- only WHEN it's called differs
         // between the first-completion and re-bake-on-change branches below.
-        auto apply_bowl_config = [&]() -> bool
-        {
+        auto apply_bowl_config = [&]() -> bool {
             std::vector<overlume::CameraExtrinsics> ext;
             std::vector<overlume::CameraIntrinsics> in;
             std::vector<uint32_t> w, h;
@@ -1486,26 +1404,20 @@ void OverlumeNode::timer_callback()
             return overlume::set_bowl_config(renderer_, bc);
         };
 
-        if (!camera_ingest_->config_applied())
-        {
-            if (camera_ingest_->all_info_ready())
-            {
-                if (apply_bowl_config())
-                {
+        if (!camera_ingest_->config_applied()) {
+            if (camera_ingest_->all_info_ready()) {
+                if (apply_bowl_config()) {
                     camera_ingest_->mark_bowl_config_applied();
                     // Visibility itself is now dispatched every tick, below
                     // (Task 4/VM-093's per-mode set_bowl_visible() call) --
                     // nothing to do here beyond marking the config applied.
                     RCLCPP_INFO(get_logger(), "bowl: configured");
-                }
-                else
-                {
-                    RCLCPP_WARN(get_logger(), "set_bowl_config() failed with all CameraInfo present");
+                } else {
+                    RCLCPP_WARN(get_logger(),
+                                "set_bowl_config() failed with all CameraInfo present");
                 }
             }
-        }
-        else if (camera_ingest_->consume_info_dirty())
-        {
+        } else if (camera_ingest_->consume_info_dirty()) {
             if (apply_bowl_config())
                 RCLCPP_INFO(get_logger(), "bowl: re-baked (CameraInfo changed)");
             else
@@ -1518,18 +1430,14 @@ void OverlumeNode::timer_callback()
         // (IngestState never un-sets info_ready), so no extra readiness
         // check is needed. A full re-bake per edit, same one-dropped-frame
         // budget the plan's own set_bowl_config contract accepts.
-        else if (bowl_config_dirty_)
-        {
+        else if (bowl_config_dirty_) {
             // Cleared only on SUCCESS -- a failed re-bake keeps the request
             // pending and retries next tick instead of silently discarding
             // the operator's edit.
-            if (apply_bowl_config())
-            {
+            if (apply_bowl_config()) {
                 bowl_config_dirty_ = false;
                 RCLCPP_INFO(get_logger(), "bowl: re-baked (live param change)");
-            }
-            else
-            {
+            } else {
                 RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
                                      "bowl: live-param re-bake failed -- retrying");
             }
@@ -1552,7 +1460,8 @@ void OverlumeNode::timer_callback()
     // below, which now also fires for FREE_LOOK + this profile -- VM-094
     // ).
     const auto render_mode = static_cast<RenderMode>(render_mode_);
-    overlume::set_bowl_visible(renderer_, bowl_visible_for_mode(render_mode, layer_surround_stitching_));
+    overlume::set_bowl_visible(renderer_,
+                               bowl_visible_for_mode(render_mode, layer_surround_stitching_));
 
     // Environment/buildings layer (Epic 4/VM-052) is renderer-internal, not a
     // SceneAssembly/LayerFlags category (scene_assembly.hpp's mode_content_mask
@@ -1575,36 +1484,31 @@ void OverlumeNode::timer_callback()
     // overlume/src/renderer_internal.hpp); timeout_sec
     // below is the separate hard cutoff.
     scene_asm_.clear();
-    for (auto& hr : hd_map_rows_)
-    {
+    for (auto& hr : hd_map_rows_) {
         warn_on_drop_growth(get_logger(), *get_clock(), hr.topic, hr.adapter->stats(),
                             hr.warned_malformed, hr.warned_no_tf);
         if (sim_clock_sec_ - hr.adapter->stats().last_msg_sec > hr.timeout_sec) continue;
         hr.adapter->fill(scene_asm_);
     }
 
-    for (auto& dr : dynamic_objects_rows_)
-    {
+    for (auto& dr : dynamic_objects_rows_) {
         // A topic that has never published is absent, not stale -- without
         // this, last_msg_sec==0 would report data loss on data that never existed.
         if (dr.adapter->stats().msgs == 0) continue;
         warn_on_drop_growth(get_logger(), *get_clock(), dr.topic, dr.adapter->stats(),
                             dr.warned_malformed, dr.warned_no_tf);
-        if (sim_clock_sec_ - dr.adapter->stats().last_msg_sec > dr.timeout_sec)
-        {
+        if (sim_clock_sec_ - dr.adapter->stats().last_msg_sec > dr.timeout_sec) {
             dr.adapter->mark_stale_tick();
             continue;
         }
         dr.adapter->fill(scene_asm_);
     }
 
-    for (auto& pr : path_rows_)
-    {
+    for (auto& pr : path_rows_) {
         if (pr.adapter->stats().msgs == 0) continue;
         warn_on_drop_growth(get_logger(), *get_clock(), pr.topic, pr.adapter->stats(),
                             pr.warned_malformed, pr.warned_no_tf);
-        if (sim_clock_sec_ - pr.adapter->stats().last_msg_sec > pr.timeout_sec)
-        {
+        if (sim_clock_sec_ - pr.adapter->stats().last_msg_sec > pr.timeout_sec) {
             pr.adapter->mark_stale_tick();
             continue;
         }
@@ -1614,13 +1518,11 @@ void OverlumeNode::timer_callback()
     // stats().msgs counts BOTH ingest()/ingest_update() overloads' accepted
     // messages (see ogm.hpp); ingest_update() before any ingest() is a no-op,
     // so a row that only ever received update patches still reads as msgs==0.
-    for (auto& gr : ogm_rows_)
-    {
+    for (auto& gr : ogm_rows_) {
         if (gr.adapter->stats().msgs == 0) continue;
         warn_on_drop_growth(get_logger(), *get_clock(), gr.topic, gr.adapter->stats(),
                             gr.warned_malformed, gr.warned_no_tf);
-        if (sim_clock_sec_ - gr.adapter->stats().last_msg_sec > gr.timeout_sec)
-        {
+        if (sim_clock_sec_ - gr.adapter->stats().last_msg_sec > gr.timeout_sec) {
             gr.adapter->mark_stale_tick();
             continue;
         }
@@ -1629,26 +1531,22 @@ void OverlumeNode::timer_callback()
 
     // msgs==0 is the expected steady state here (all five collision topics
     // are silent in the recorded bag), not an error path.
-    for (auto& cr : collision_rows_)
-    {
+    for (auto& cr : collision_rows_) {
         if (cr.adapter->stats().msgs == 0) continue;
         warn_on_drop_growth(get_logger(), *get_clock(), cr.topic, cr.adapter->stats(),
                             cr.warned_malformed, cr.warned_no_tf);
-        if (sim_clock_sec_ - cr.adapter->stats().last_msg_sec > cr.timeout_sec)
-        {
+        if (sim_clock_sec_ - cr.adapter->stats().last_msg_sec > cr.timeout_sec) {
             cr.adapter->mark_stale_tick();
             continue;
         }
         cr.adapter->fill(scene_asm_);
     }
 
-    for (auto& gmr : generic_marker_rows_)
-    {
+    for (auto& gmr : generic_marker_rows_) {
         if (gmr.adapter->stats().msgs == 0) continue;
         warn_on_drop_growth(get_logger(), *get_clock(), gmr.topic, gmr.adapter->stats(),
                             gmr.warned_malformed, gmr.warned_no_tf);
-        if (sim_clock_sec_ - gmr.adapter->stats().last_msg_sec > gmr.timeout_sec)
-        {
+        if (sim_clock_sec_ - gmr.adapter->stats().last_msg_sec > gmr.timeout_sec) {
             gmr.adapter->mark_stale_tick();
             continue;
         }
@@ -1658,13 +1556,11 @@ void OverlumeNode::timer_callback()
     // FIXTURE GAP: no PointCloud2 topic exists in any recording -- msgs==0
     // is the expected steady state today, not an error path (same
     // reasoning as the collision-row loop above).
-    for (auto& pcr : point_cloud_rows_)
-    {
+    for (auto& pcr : point_cloud_rows_) {
         if (pcr.adapter->stats().msgs == 0) continue;
         warn_on_drop_growth(get_logger(), *get_clock(), pcr.topic, pcr.adapter->stats(),
                             pcr.warned_malformed, pcr.warned_no_tf);
-        if (sim_clock_sec_ - pcr.adapter->stats().last_msg_sec > pcr.timeout_sec)
-        {
+        if (sim_clock_sec_ - pcr.adapter->stats().last_msg_sec > pcr.timeout_sec) {
             pcr.adapter->mark_stale_tick();
             continue;
         }
@@ -1673,13 +1569,11 @@ void OverlumeNode::timer_callback()
 
     // VM-077: same fill()-appends/timeout_sec/warn_on_drop_growth shape as
     // every category above.
-    for (auto& cr : carpet_rows_)
-    {
+    for (auto& cr : carpet_rows_) {
         if (cr.adapter->stats().msgs == 0) continue;
         warn_on_drop_growth(get_logger(), *get_clock(), cr.topic, cr.adapter->stats(),
                             cr.warned_malformed, cr.warned_no_tf);
-        if (sim_clock_sec_ - cr.adapter->stats().last_msg_sec > cr.timeout_sec)
-        {
+        if (sim_clock_sec_ - cr.adapter->stats().last_msg_sec > cr.timeout_sec) {
             cr.adapter->mark_stale_tick();
             continue;
         }
@@ -1688,8 +1582,7 @@ void OverlumeNode::timer_callback()
 
     // No timeout gate: a live tf2 walk, not message-driven; this adapter
     // stamps "now" onto every marker it emits, so it can never itself go stale.
-    for (auto& axes : tf_axes_rows_)
-    {
+    for (auto& axes : tf_axes_rows_) {
         axes->fill(scene_asm_, sim_clock_sec_);
     }
 
@@ -1732,12 +1625,11 @@ void OverlumeNode::timer_callback()
     // this tick, makes the hybrid row immune to the autonomy layer_* gate by
     // construction -- it is CUDA-parity content, not an autonomy layer the
     // user's layer_* params are meant to toggle.
-    const LayerFlags user_layer_flags{layer_objects_,       layer_paths_,
-                                       layer_map_elements_,  layer_grids_,
-                                       layer_alerts_,        layer_markers_,
-                                       layer_point_clouds_,  layer_trajectory_carpet_};
+    const LayerFlags user_layer_flags{
+        layer_objects_, layer_paths_,   layer_map_elements_, layer_grids_,
+        layer_alerts_,  layer_markers_, layer_point_clouds_, layer_trajectory_carpet_};
     apply_layer_gates(scene_asm_,
-                       compose_layer_gates(user_layer_flags, mode_content_mask(render_mode)));
+                      compose_layer_gates(user_layer_flags, mode_content_mask(render_mode)));
 
     // ── Hybrid lidar colorization (VM-094, unified-engine migration Task 5) ──
     // USER DIRECTIVE 2026-09-11 (mode content exclusivity): HYBRID renders
@@ -1753,12 +1645,11 @@ void OverlumeNode::timer_callback()
     // HYBRID-only, so `surround_stitching_profile:=hybrid` silently
     // rendered bowl-only in FREE_LOOK). The two cases differ in how the
     // colorized cloud reaches scene_asm_.point_clouds: HYBRID still
-    // clear-and-replaces the category outright (mode_content_mask(HYBRID) does NOT clear this category --
-    // point_clouds is the one category its mask keeps visible, precisely so
-    // this content isn't hidden -- so this clear is what actually enforces
-    // exclusivity, not a belt-and-braces no-op; without it, any autonomy
-    // point_cloud row the gate call above left untouched would survive
-    // alongside the colorized cloud); FREE_LOOK APPENDS instead, because
+    // clear-and-replaces the category outright (mode_content_mask(HYBRID) does NOT clear this
+    // category -- point_clouds is the one category its mask keeps visible, precisely so this
+    // content isn't hidden -- so this clear is what actually enforces exclusivity, not a
+    // belt-and-braces no-op; without it, any autonomy point_cloud row the gate call above left
+    // untouched would survive alongside the colorized cloud); FREE_LOOK APPENDS instead, because
     // mode 3's own PointCloudAdapter rows (VM-035, the loop above) must
     // survive here -- the clear-and-replace discipline is HYBRID-only by
     // design, not a general rule. Either way, this happens strictly AFTER
@@ -1780,7 +1671,8 @@ void OverlumeNode::timer_callback()
     // on, so a mode switch (BOWL <-> HYBRID <-> FREE_LOOK[+stitching])
     // stops/starts that extra per-camera-frame copy on the next image, not
     // only at on_configure() time.
-    if (camera_ingest_) camera_ingest_->set_hybrid_enabled(hybrid_enabled_ && hybrid_cloud_consumed());
+    if (camera_ingest_)
+        camera_ingest_->set_hybrid_enabled(hybrid_enabled_ && hybrid_cloud_consumed());
 
     // HYBRID content exclusivity holds regardless of hybrid_enabled_:
     // mode_content_mask(HYBRID) deliberately keeps point_clouds visible
@@ -1792,8 +1684,7 @@ void OverlumeNode::timer_callback()
     if (render_mode == RenderMode::HYBRID) scene_asm_.point_clouds.clear();
 
     std::vector<overlume::PointCloudPoint> hybrid_points;
-    if (hybrid_cloud_consumed() && hybrid_enabled_ && camera_ingest_)
-    {
+    if (hybrid_cloud_consumed() && hybrid_enabled_ && camera_ingest_) {
         std::vector<overlume::CameraExtrinsics> ext;
         std::vector<overlume::CameraIntrinsics> in;
         std::vector<uint32_t> cw, ch;
@@ -1823,32 +1714,28 @@ void OverlumeNode::timer_callback()
         // Coverage is measured, not guessed: first-match drops any lidar
         // point no configured camera's frustum covers (lidar_colorize.cpp),
         // so this is usually well under 100%.
-        if (cloud_input_count > 0)
-        {
-            RCLCPP_INFO_THROTTLE(
-                get_logger(), *get_clock(), 5000, "hybrid: colorized %zu/%zu lidar points (%.1f%% coverage)",
-                hybrid_points.size(), cloud_input_count,
-                100.0 * static_cast<double>(hybrid_points.size()) / static_cast<double>(cloud_input_count));
+        if (cloud_input_count > 0) {
+            RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 5000,
+                                 "hybrid: colorized %zu/%zu lidar points (%.1f%% coverage)",
+                                 hybrid_points.size(), cloud_input_count,
+                                 100.0 * static_cast<double>(hybrid_points.size()) /
+                                     static_cast<double>(cloud_input_count));
         }
 
         // rig -> map: same yaw-rotate-then-translate convention as
         // ego_anchor.hpp's compose_ego_anchored_pose (Decision 3's frame
         // convention -- colorize in rig frame, anchor by the SAME ego pose
         // this tick feeds set_scene() below via `scene.ego`, set above).
-        if (scene.ego.valid)
-        {
+        if (scene.ego.valid) {
             const double c = std::cos(scene.ego.heading_rad);
             const double s = std::sin(scene.ego.heading_rad);
-            for (auto& p : hybrid_points)
-            {
+            for (auto& p : hybrid_points) {
                 const double x = p.position.x, y = p.position.y, z = p.position.z;
                 p.position.x = x * c - y * s + scene.ego.position.x;
                 p.position.y = x * s + y * c + scene.ego.position.y;
                 p.position.z = z + scene.ego.position.z;
             }
-        }
-        else
-        {
+        } else {
             // No valid ego pose this tick -- don't anchor lidar points at a
             // garbage (identity) origin; same "ego.valid==0 hides content
             // rather than mis-placing it" convention ego.cpp's own
@@ -1860,8 +1747,7 @@ void OverlumeNode::timer_callback()
         // above; here the colorized cloud is APPENDED, which in
         // FREE_LOOK+Surround-Stitching-hybrid lets mode 3's own
         // PointCloudAdapter rows survive alongside it.
-        if (!hybrid_points.empty())
-        {
+        if (!hybrid_points.empty()) {
             overlume::PointCloud row{};
             row.points = hybrid_points.data();
             row.point_count = static_cast<uint32_t>(hybrid_points.size());
@@ -1874,9 +1760,9 @@ void OverlumeNode::timer_callback()
     overlume::set_scene(renderer_, scene);
 
     std_msgs::msg::Float64MultiArray ego_state;
-    ego_state.data = {scene.ego.position.x,   scene.ego.position.y, scene.ego.position.z,
-                      scene.ego.heading_rad,  scene.ego.speed_mps,
-                      static_cast<double>(scene.ego.valid)};
+    ego_state.data = {scene.ego.position.x, scene.ego.position.y,
+                      scene.ego.position.z, scene.ego.heading_rad,
+                      scene.ego.speed_mps,  static_cast<double>(scene.ego.valid)};
     pub_ego_state_->publish(ego_state);
 
     // Post-cutover (Task 6/VM-095 Step 3): the mux-arbitration early return
@@ -1891,28 +1777,26 @@ void OverlumeNode::timer_callback()
     // pose_ itself is never touched, so orbits/presets keep adjusting the
     // offset only.
     overlume::CameraPose render_pose = pose_;
-    if (scene.ego.valid)
-    {
+    if (scene.ego.valid) {
         render_pose = compose_ego_anchored_pose(pose_, scene.ego);
     }
     // else: no TF yet -- offset pose used as an absolute world pose (keeps
     // test_vcam_contract.py and every no-TF test bit-identical).
 
     overlume::FrameView view{frame_buf_.data(), static_cast<uint32_t>(out_width_),
-                          static_cast<uint32_t>(out_height_)};
+                             static_cast<uint32_t>(out_height_)};
     // render_ms_ instrumentation wraps render_frame() without changing the
     // call; measured every tick now (post-cutover, this branch always runs).
     const auto render_start = std::chrono::steady_clock::now();
-    if (!overlume::render_frame(renderer_, render_pose, view))
-    {
+    if (!overlume::render_frame(renderer_, render_pose, view)) {
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "render_frame() failed");
         render_ms_ = 0.0;
         publish_diagnostics();
         return;
     }
-    render_ms_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
-                                                             render_start)
-                     .count();
+    render_ms_ =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - render_start)
+            .count();
 
     // ── environment source health poll (VM-063, Decision 11) ────────────────
     // One virtual call + integer compare, safe every tick. The library
@@ -1924,10 +1808,8 @@ void OverlumeNode::timer_callback()
     // STREAMING_FALLBACK transition, never again for this armed source
     // (one-way, Decision 11 -- no auto-recovery re-arms it on its own; a
     // live environment_source_uri switch resets the latch, finding #18/#37).
-    if (!environment_fallback_warned_ &&
-        overlume::environment_source_state(renderer_) ==
-            overlume::EnvironmentSourceState::STREAMING_FALLBACK)
-    {
+    if (!environment_fallback_warned_ && overlume::environment_source_state(renderer_) ==
+                                             overlume::EnvironmentSourceState::STREAMING_FALLBACK) {
         environment_fallback_warned_ = true;
         // Finding #17: the fallback dir actually in effect is whatever
         // compose_environment_source_uri() put in the composed URI's
@@ -1936,39 +1818,37 @@ void OverlumeNode::timer_callback()
         // comment), so name THAT dir, not environment_chunks_dir_ alone, or
         // this WARN can claim "none configured" while a real fallback bake
         // is rendering.
-        const std::string fallback_dir = fallback_dir_from_source_uri(compose_environment_source_uri(
-            environment_chunks_dir_, environment_source_uri_, environment_tile_cache_dir_));
-        if (fallback_dir.empty())
-        {
+        const std::string fallback_dir =
+            fallback_dir_from_source_uri(compose_environment_source_uri(
+                environment_chunks_dir_, environment_source_uri_, environment_tile_cache_dir_));
+        if (fallback_dir.empty()) {
             RCLCPP_WARN(get_logger(),
                         "environment source: network loss detected -- switched to fallback, "
                         "but none configured -- environment now empty");
-        }
-        else
-        {
-            RCLCPP_WARN(get_logger(),
-                        "environment source: network loss detected -- switched to fallback dir '%s'",
-                        fallback_dir.c_str());
+        } else {
+            RCLCPP_WARN(
+                get_logger(),
+                "environment source: network loss detected -- switched to fallback dir '%s'",
+                fallback_dir.c_str());
         }
     }
 
     // ── quality auto-drop governor (VM-040, see backlog Done note) ───────────
     // Opt-in. On a transition, applies it live via overlume::set_quality() and
     // mirrors quality_ onto the ROS param too.
-    if (governor_enabled_)
-    {
+    if (governor_enabled_) {
         const overlume_node::QualityTransition transition =
             quality_governor_->record_render_ms(render_ms_);
-        if (transition != overlume_node::QualityTransition::NONE)
-        {
+        if (transition != overlume_node::QualityTransition::NONE) {
             const uint32_t new_preset = quality_governor_->current_preset();
             overlume::set_quality(renderer_, new_preset);
             quality_ = static_cast<int>(new_preset);
             // So `ros2 param get quality` reflects the governor's own change.
             set_parameter(rclcpp::Parameter("quality", quality_));
-            RCLCPP_WARN(get_logger(), "quality governor: %s -> preset %u (render_ms p95 over window)",
-                        transition == overlume_node::QualityTransition::DROPPED ? "DROPPED" : "RECOVERED",
-                        new_preset);
+            RCLCPP_WARN(
+                get_logger(), "quality governor: %s -> preset %u (render_ms p95 over window)",
+                transition == overlume_node::QualityTransition::DROPPED ? "DROPPED" : "RECOVERED",
+                new_preset);
         }
     }
 
@@ -1988,20 +1868,18 @@ void OverlumeNode::timer_callback()
     // overlays_visible_for_mode() (scene_assembly.hpp) force-suppresses it
     // there regardless of hud_enabled_ -- never touching hud_enabled_
     // itself, so it's restored exactly on returning to FREE_LOOK.
-    if (hud_enabled_ && overlays_visible_for_mode(render_mode))
-    {
+    if (hud_enabled_ && overlays_visible_for_mode(render_mode)) {
         const overlume::HudColors hud_colors = overlume::get_hud_colors(renderer_);
         const overlume_node::HudSnapshot hud_snapshot{scene.hud.speed_mps, scene.hud.active_mode};
         if (!overlume_node::CompositeHud(
                 frame_buf_.data(), static_cast<uint32_t>(out_width_),
                 static_cast<uint32_t>(out_height_), hud_snapshot,
                 overlume_node::HudRgb{hud_colors.text_color[0], hud_colors.text_color[1],
-                                   hud_colors.text_color[2]},
+                                      hud_colors.text_color[2]},
                 overlume_node::HudRgb{hud_colors.accent_color[0], hud_colors.accent_color[1],
-                                   hud_colors.accent_color[2]},
+                                      hud_colors.accent_color[2]},
                 hud_colors.scale, hud_font_path_.c_str()) &&
-            !hud_font_warned_)
-        {
+            !hud_font_warned_) {
             RCLCPP_WARN(get_logger(),
                         "CompositeHud: failed to load/use font '%s' -- HUD not drawn this run",
                         hud_font_path_.c_str());
@@ -2034,8 +1912,8 @@ void OverlumeNode::timer_callback()
     // attribution over frames with no Google imagery on screen.
     if (environment_enabled_ && environment_attribution_ &&
         environment_source_uri_.find("materials=original") != std::string::npos &&
-        overlume::environment_source_state(renderer_) == overlume::EnvironmentSourceState::STREAMING)
-    {
+        overlume::environment_source_state(renderer_) ==
+            overlume::EnvironmentSourceState::STREAMING) {
         const overlume::HudColors hud_colors = overlume::get_hud_colors(renderer_);
         // ponytail: a static compliance line, not ion's own live per-tile
         // credits (cesium-native's CreditSystem) -- see
@@ -2047,10 +1925,9 @@ void OverlumeNode::timer_callback()
                 static_cast<uint32_t>(out_height_), "3D Tiles data (c) Google", 8.0f,
                 static_cast<float>(out_height_) - 8.0f,
                 overlume_node::HudRgb{hud_colors.text_color[0], hud_colors.text_color[1],
-                                   hud_colors.text_color[2]},
+                                      hud_colors.text_color[2]},
                 hud_colors.scale, hud_font_path_.c_str()) &&
-            !environment_attribution_warned_)
-        {
+            !environment_attribution_warned_) {
             RCLCPP_WARN(get_logger(),
                         "environment attribution: failed to load/use font '%s' -- "
                         "Google attribution not drawn this run",
@@ -2079,12 +1956,10 @@ void OverlumeNode::timer_callback()
     // the HUD block above (overlays_visible_for_mode()) -- BOWL/HYBRID never
     // had a callout in the CUDA reference, and callouts_enabled_ itself is
     // left untouched.
-    if (callouts_enabled_ && overlays_visible_for_mode(render_mode) && scene.ego.valid != 0)
-    {
+    if (callouts_enabled_ && overlays_visible_for_mode(render_mode) && scene.ego.valid != 0) {
         overlume_node::Callout callout{};
         if (overlume_node::BuildNearestCallout(renderer_, scene.alerts, scene.alert_count,
-                                            scene.ego.position, callout))
-        {
+                                               scene.ego.position, callout)) {
             // Style token (STANDING directive): theme hud.accent_color,
             // reused verbatim -- the same live (possibly mid-transition)
             // color the HUD's own mode chip already draws with, not a new
@@ -2094,7 +1969,7 @@ void OverlumeNode::timer_callback()
                 frame_buf_.data(), static_cast<uint32_t>(out_width_),
                 static_cast<uint32_t>(out_height_), callout,
                 overlume_node::HudRgb{hud_colors.accent_color[0], hud_colors.accent_color[1],
-                                   hud_colors.accent_color[2]},
+                                      hud_colors.accent_color[2]},
                 hud_colors.scale, hud_font_path_.c_str());
         }
         // else: no obstacle in view this tick (no alerts, or the nearest
@@ -2122,9 +1997,15 @@ void OverlumeNode::timer_callback()
     info_msg.height = img_msg.height;
     info_msg.distortion_model = "plumb_bob";
     double fy = (out_height_ / 2.0) / std::tan(pose_.vfov_deg * 0.5 * M_PI / 180.0);
-    info_msg.k[0] = fy;               info_msg.k[1] = 0;  info_msg.k[2] = out_width_ / 2.0;
-    info_msg.k[3] = 0;                info_msg.k[4] = fy; info_msg.k[5] = out_height_ / 2.0;
-    info_msg.k[6] = 0;                info_msg.k[7] = 0;  info_msg.k[8] = 1;
+    info_msg.k[0] = fy;
+    info_msg.k[1] = 0;
+    info_msg.k[2] = out_width_ / 2.0;
+    info_msg.k[3] = 0;
+    info_msg.k[4] = fy;
+    info_msg.k[5] = out_height_ / 2.0;
+    info_msg.k[6] = 0;
+    info_msg.k[7] = 0;
+    info_msg.k[8] = 1;
     pub_info_->publish(info_msg);
 
     publish_diagnostics();
@@ -2134,16 +2015,14 @@ void OverlumeNode::timer_callback()
 // stats of its own) into one DiagnosticArray. last_msg_age_sec is computed
 // here, not inside diagnostics.hpp, which deliberately takes no ROS clock so
 // it stays a pure, easily unit-tested data transform.
-void OverlumeNode::publish_diagnostics()
-{
+void OverlumeNode::publish_diagnostics() {
     std::vector<overlume_node::RowStats> rows;
     rows.reserve(hd_map_rows_.size() + dynamic_objects_rows_.size() + path_rows_.size() +
                  ogm_rows_.size() + collision_rows_.size() + generic_marker_rows_.size() +
                  point_cloud_rows_.size() + carpet_rows_.size());
 
     auto append_row = [&](const std::string& topic, const overlume_node::AdapterStats& stats,
-                           double timeout_sec)
-    {
+                          double timeout_sec) {
         overlume_node::RowStats rs;
         rs.topic = topic;
         rs.stats = stats;
@@ -2173,9 +2052,7 @@ void OverlumeNode::publish_diagnostics()
 // ── Lifecycle: teardown ──────────────────────────────────────────────────────
 void OverlumeNode::teardown_active() { timer_.reset(); }
 
-OverlumeNode::CallbackReturn OverlumeNode::on_deactivate(
-    const rclcpp_lifecycle::State& /*state*/)
-{
+OverlumeNode::CallbackReturn OverlumeNode::on_deactivate(const rclcpp_lifecycle::State& /*state*/) {
     RCLCPP_INFO(get_logger(), "on_deactivate() called.");
     teardown_active();
     pub_image_->on_deactivate();
@@ -2186,9 +2063,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_deactivate(
     return CallbackReturn::SUCCESS;
 }
 
-OverlumeNode::CallbackReturn OverlumeNode::on_cleanup(
-    const rclcpp_lifecycle::State& /*state*/)
-{
+OverlumeNode::CallbackReturn OverlumeNode::on_cleanup(const rclcpp_lifecycle::State& /*state*/) {
     RCLCPP_INFO(get_logger(), "on_cleanup() called.");
     teardown_active();
     destroy_renderer_if_any();
@@ -2234,9 +2109,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_cleanup(
     return CallbackReturn::SUCCESS;
 }
 
-OverlumeNode::CallbackReturn OverlumeNode::on_shutdown(
-    const rclcpp_lifecycle::State& /*state*/)
-{
+OverlumeNode::CallbackReturn OverlumeNode::on_shutdown(const rclcpp_lifecycle::State& /*state*/) {
     RCLCPP_INFO(get_logger(), "on_shutdown() called.");
     teardown_active();
     destroy_renderer_if_any();

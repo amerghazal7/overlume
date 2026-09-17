@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # vcpkg-clang-libcxx-toolchain.cmake (VM-061) — the CHAINLOADED toolchain
 # file the x64-linux-clang-libcxx vcpkg overlay triplet points at
 # (VCPKG_CHAINLOAD_TOOLCHAIN_FILE). vcpkg invokes this per-port, via its own

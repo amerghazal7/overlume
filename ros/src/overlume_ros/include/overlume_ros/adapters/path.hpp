@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file path.hpp
  *  @brief PathAdapter (Epic 2 Task 5 / VM-023): nav_msgs/Path -> PathRibbon.
@@ -54,11 +57,9 @@
 #include "overlume_ros/scene_assembly.hpp"
 #include "overlume/scene.h"
 
-namespace overlume_node
-{
+namespace overlume_node {
 
-class PathAdapter
-{
+class PathAdapter {
 public:
     PathAdapter(const ProfileRow& row, const overlume::ros::FrameTransformer& tf);
 

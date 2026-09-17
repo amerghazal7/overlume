@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """Periodic /tf_static re-broadcaster for SHM (iceoryx) deployments.
 
 CycloneDDS 0.10 (ROS 2 Humble) does not deliver TRANSIENT_LOCAL history to

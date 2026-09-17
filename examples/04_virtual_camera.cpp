@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // 04_virtual_camera.cpp — a small set of named camera "presets" (just plain
 // overlume::CameraPose literals — the POD public API has no preset registry
 // of its own, see the NOTE below), a linear tween between two of them, and
@@ -67,7 +70,8 @@ int main(int argc, char** argv) {
     ego.position = {0.0, 0.0, 0.0};
     ego.heading_rad = 0.0;
 
-    std::vector<overlume::Vec3> road_surface_pts = {{-10, -3.5, 0}, {40, -3.5, 0}, {40, 3.5, 0}, {-10, 3.5, 0}};
+    std::vector<overlume::Vec3> road_surface_pts = {
+        {-10, -3.5, 0}, {40, -3.5, 0}, {40, 3.5, 0}, {-10, 3.5, 0}};
     std::vector<overlume::Vec3> centerline_pts = {{-10, 0, 0}, {40, 0, 0}};
     std::vector<overlume::Vec3> left_pts = {{-10, 3.5, 0}, {40, 3.5, 0}};
     std::vector<overlume::Vec3> right_pts = {{-10, -3.5, 0}, {40, -3.5, 0}};
@@ -90,7 +94,8 @@ int main(int argc, char** argv) {
     }
 
     std::vector<overlume::TrackedObject> objects;
-    const overlume::ObjectClass classes[] = {overlume::ObjectClass::CAR, overlume::ObjectClass::TRUCK_VAN,
+    const overlume::ObjectClass classes[] = {overlume::ObjectClass::CAR,
+                                             overlume::ObjectClass::TRUCK_VAN,
                                              overlume::ObjectClass::PEDESTRIAN};
     for (uint32_t i = 0; i < 3; ++i) {
         overlume::TrackedObject obj{};
@@ -135,13 +140,15 @@ int main(int argc, char** argv) {
         float x = -1.0f, y = -1.0f;
         const bool on_screen = overlume::project_to_screen(renderer, world_point, &x, &y);
         if (on_screen) {
-            std::printf("preset '%-12s' -> world point (%.1f, %.1f, %.1f) projects to "
-                        "screen-fraction (%.3f, %.3f)\n",
-                        preset.name, world_point.x, world_point.y, world_point.z, x, y);
+            std::printf(
+                "preset '%-12s' -> world point (%.1f, %.1f, %.1f) projects to "
+                "screen-fraction (%.3f, %.3f)\n",
+                preset.name, world_point.x, world_point.y, world_point.z, x, y);
         } else {
-            std::printf("preset '%-12s' -> world point (%.1f, %.1f, %.1f) is off-screen "
-                        "(behind the camera or outside the frustum)\n",
-                        preset.name, world_point.x, world_point.y, world_point.z);
+            std::printf(
+                "preset '%-12s' -> world point (%.1f, %.1f, %.1f) is off-screen "
+                "(behind the camera or outside the frustum)\n",
+                preset.name, world_point.x, world_point.y, world_point.z);
         }
     }
 
@@ -161,8 +168,8 @@ int main(int argc, char** argv) {
                     my);
     }
 
-    const bool wrote = overlume_examples::write_png(args.output_path, config.width,
-                                                      config.height, rgb.data());
+    const bool wrote =
+        overlume_examples::write_png(args.output_path, config.width, config.height, rgb.data());
     overlume::destroy_renderer(renderer);
     return wrote ? 0 : 1;
 }

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """Unit test for the WS bridge command parsing (no ROS needed).
 
 Run: pytest tools/test_vcam_ws_bridge.py

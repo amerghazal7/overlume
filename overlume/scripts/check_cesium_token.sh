@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
 # Smoke check (VM-060): does CESIUM_ION_TOKEN retrieve the asset's tileset.json?
 # Usage: check_cesium_token.sh [asset_id]   (default 96188, Cesium OSM Buildings)
 # Two stages: (1) the /v1/assets/<id>/endpoint handshake, (2) fetching the

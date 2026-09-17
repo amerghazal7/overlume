@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // 02_scene_population.cpp — populates the core driving-scene categories the
 // scene graph carries (ego, one tracked object per ObjectClass, one map
 // element per MapKind including the road surface + a crosswalk, and one
@@ -32,7 +35,7 @@ namespace {
 // tool, so this reuses the tolerance-then-threshold shape of
 // overlume/tests/test_environment.cpp's count_differing_bytes().
 size_t count_differing_bytes(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b,
-                              int tolerance = 1) {
+                             int tolerance = 1) {
     size_t n = 0;
     for (size_t i = 0; i < a.size() && i < b.size(); ++i) {
         if (std::abs(static_cast<int>(a[i]) - static_cast<int>(b[i])) > tolerance) ++n;
@@ -69,9 +72,9 @@ int main(int argc, char** argv) {
     // ── One TrackedObject per ObjectClass, fanned out along +X ──────────
     std::vector<overlume::TrackedObject> objects;
     const overlume::ObjectClass classes[] = {
-        overlume::ObjectClass::CAR,        overlume::ObjectClass::TRUCK_VAN,
-        overlume::ObjectClass::BUS,        overlume::ObjectClass::PEDESTRIAN,
-        overlume::ObjectClass::CYCLIST,    overlume::ObjectClass::UNKNOWN,
+        overlume::ObjectClass::CAR,     overlume::ObjectClass::TRUCK_VAN,
+        overlume::ObjectClass::BUS,     overlume::ObjectClass::PEDESTRIAN,
+        overlume::ObjectClass::CYCLIST, overlume::ObjectClass::UNKNOWN,
     };
     for (uint32_t i = 0; i < std::size(classes); ++i) {
         overlume::TrackedObject obj{};
@@ -79,7 +82,8 @@ int main(int argc, char** argv) {
         obj.cls = classes[i];
         obj.position = {10.0 + static_cast<double>(i) * 6.0, 6.0, 0.0};
         obj.heading_rad = 0.0;
-        obj.dimensions = {4.5, 1.9, 1.6};  // a plausible car-sized box; per-class fidelity is cosmetic
+        obj.dimensions = {4.5, 1.9,
+                          1.6};  // a plausible car-sized box; per-class fidelity is cosmetic
         obj.velocity = {5.0, 0.0, 0.0};
         obj.predicted_path = nullptr;
         obj.predicted_path_count = 0;
@@ -182,9 +186,10 @@ int main(int argc, char** argv) {
     const size_t diff = count_differing_bytes(first, rgb);
     const size_t nBytes = first.size();
     if (diff < nBytes / 4) {
-        std::printf("freeze-frame check: second render_frame() with no new set_scene() "
-                     "reproduced the same picture (%zu/%zu bytes of GPU noise), as documented.\n",
-                     diff, nBytes);
+        std::printf(
+            "freeze-frame check: second render_frame() with no new set_scene() "
+            "reproduced the same picture (%zu/%zu bytes of GPU noise), as documented.\n",
+            diff, nBytes);
     } else {
         std::fprintf(stderr,
                      "freeze-frame check FAILED: the two frames differ by %zu/%zu bytes -- the "
@@ -194,8 +199,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    const bool wrote = overlume_examples::write_png(args.output_path, config.width,
-                                                      config.height, rgb.data());
+    const bool wrote =
+        overlume_examples::write_png(args.output_path, config.width, config.height, rgb.data());
     overlume::destroy_renderer(renderer);
     return wrote ? 0 : 1;
 }

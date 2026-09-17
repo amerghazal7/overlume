@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
 // clay_faded.mat — Epic 1 Task 2 (VM-011). Grid-only LIT material: same
 // baseColor/roughness/metallic parameters as clay.mat, plus a per-vertex
 // alpha (`requires: [color]`) baked once at grid-build time from radial

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #include "fixture_msgs.hpp"
 
 #include <fstream>
@@ -6,21 +9,17 @@
 
 #include <yaml-cpp/yaml.h>
 
-namespace overlume_node::testing
-{
-namespace
-{
+namespace overlume_node::testing {
+namespace {
 
-std::string FixturePath(const std::string& fixture_name)
-{
+std::string FixturePath(const std::string& fixture_name) {
 #ifndef OVERLUME_NODE_FIXTURES_DIR
 #error "OVERLUME_NODE_FIXTURES_DIR not defined -- see CMakeLists.txt's overlume_node_test_paths"
 #endif
     return std::string(OVERLUME_NODE_FIXTURES_DIR) + "/" + fixture_name;
 }
 
-YAML::Node LoadFixtureYaml(const std::string& fixture_name)
-{
+YAML::Node LoadFixtureYaml(const std::string& fixture_name) {
     const std::string path = FixturePath(fixture_name);
     std::ifstream in(path);
     if (!in) throw std::runtime_error("fixture_msgs: could not open fixture '" + path + "'");
@@ -31,28 +30,23 @@ YAML::Node LoadFixtureYaml(const std::string& fixture_name)
     }
 }
 
-double GetD(const YAML::Node& n, const char* key, double def = 0.0)
-{
+double GetD(const YAML::Node& n, const char* key, double def = 0.0) {
     return n[key] ? n[key].as<double>() : def;
 }
 
-int64_t GetI(const YAML::Node& n, const char* key, int64_t def = 0)
-{
+int64_t GetI(const YAML::Node& n, const char* key, int64_t def = 0) {
     return n[key] ? n[key].as<int64_t>() : def;
 }
 
-std::string GetS(const YAML::Node& n, const char* key, const std::string& def = "")
-{
+std::string GetS(const YAML::Node& n, const char* key, const std::string& def = "") {
     return n[key] ? n[key].as<std::string>() : def;
 }
 
-bool GetB(const YAML::Node& n, const char* key, bool def = false)
-{
+bool GetB(const YAML::Node& n, const char* key, bool def = false) {
     return n[key] ? n[key].as<bool>() : def;
 }
 
-void FillHeader(const YAML::Node& n, std_msgs::msg::Header& out)
-{
+void FillHeader(const YAML::Node& n, std_msgs::msg::Header& out) {
     if (!n) return;
     out.frame_id = GetS(n, "frame_id");
     if (const auto stamp = n["stamp"]) {
@@ -61,16 +55,14 @@ void FillHeader(const YAML::Node& n, std_msgs::msg::Header& out)
     }
 }
 
-void FillPoint(const YAML::Node& n, geometry_msgs::msg::Point& out)
-{
+void FillPoint(const YAML::Node& n, geometry_msgs::msg::Point& out) {
     if (!n) return;
     out.x = GetD(n, "x");
     out.y = GetD(n, "y");
     out.z = GetD(n, "z");
 }
 
-void FillQuaternion(const YAML::Node& n, geometry_msgs::msg::Quaternion& out)
-{
+void FillQuaternion(const YAML::Node& n, geometry_msgs::msg::Quaternion& out) {
     if (!n) return;
     out.x = GetD(n, "x");
     out.y = GetD(n, "y");
@@ -78,23 +70,20 @@ void FillQuaternion(const YAML::Node& n, geometry_msgs::msg::Quaternion& out)
     out.w = GetD(n, "w", 1.0);
 }
 
-void FillPose(const YAML::Node& n, geometry_msgs::msg::Pose& out)
-{
+void FillPose(const YAML::Node& n, geometry_msgs::msg::Pose& out) {
     if (!n) return;
     FillPoint(n["position"], out.position);
     FillQuaternion(n["orientation"], out.orientation);
 }
 
-void FillVector3(const YAML::Node& n, geometry_msgs::msg::Vector3& out)
-{
+void FillVector3(const YAML::Node& n, geometry_msgs::msg::Vector3& out) {
     if (!n) return;
     out.x = GetD(n, "x");
     out.y = GetD(n, "y");
     out.z = GetD(n, "z");
 }
 
-void FillColor(const YAML::Node& n, std_msgs::msg::ColorRGBA& out)
-{
+void FillColor(const YAML::Node& n, std_msgs::msg::ColorRGBA& out) {
     if (!n) return;
     out.r = static_cast<float>(GetD(n, "r"));
     out.g = static_cast<float>(GetD(n, "g"));
@@ -102,8 +91,7 @@ void FillColor(const YAML::Node& n, std_msgs::msg::ColorRGBA& out)
     out.a = static_cast<float>(GetD(n, "a"));
 }
 
-visualization_msgs::msg::Marker ParseMarker(const YAML::Node& n)
-{
+visualization_msgs::msg::Marker ParseMarker(const YAML::Node& n) {
     visualization_msgs::msg::Marker m;
     FillHeader(n["header"], m.header);
     m.ns = GetS(n, "ns");
@@ -139,8 +127,7 @@ visualization_msgs::msg::Marker ParseMarker(const YAML::Node& n)
 
 }  // namespace
 
-visualization_msgs::msg::MarkerArray load_marker_array(const std::string& fixture_name)
-{
+visualization_msgs::msg::MarkerArray load_marker_array(const std::string& fixture_name) {
     const YAML::Node root = LoadFixtureYaml(fixture_name);
     visualization_msgs::msg::MarkerArray arr;
     if (const auto markers = root["markers"]) {
@@ -149,8 +136,7 @@ visualization_msgs::msg::MarkerArray load_marker_array(const std::string& fixtur
     return arr;
 }
 
-nav_msgs::msg::Path load_path(const std::string& fixture_name)
-{
+nav_msgs::msg::Path load_path(const std::string& fixture_name) {
     const YAML::Node root = LoadFixtureYaml(fixture_name);
     nav_msgs::msg::Path path;
     FillHeader(root["header"], path.header);
@@ -165,8 +151,7 @@ nav_msgs::msg::Path load_path(const std::string& fixture_name)
     return path;
 }
 
-nav_msgs::msg::OccupancyGrid load_occupancy_grid(const std::string& fixture_name)
-{
+nav_msgs::msg::OccupancyGrid load_occupancy_grid(const std::string& fixture_name) {
     const YAML::Node root = LoadFixtureYaml(fixture_name);
     nav_msgs::msg::OccupancyGrid grid;
     FillHeader(root["header"], grid.header);
@@ -185,8 +170,7 @@ nav_msgs::msg::OccupancyGrid load_occupancy_grid(const std::string& fixture_name
 // Same shape as load_occupancy_grid() just above -- x/y/width/height are
 // plain scalars, data is int8[] (msg's own on-wire type; OgmAdapter's
 // ConvertCell(), not this loader, does the -1/0..100/malformed conversion).
-map_msgs::msg::OccupancyGridUpdate load_occupancy_grid_update(const std::string& fixture_name)
-{
+map_msgs::msg::OccupancyGridUpdate load_occupancy_grid_update(const std::string& fixture_name) {
     const YAML::Node root = LoadFixtureYaml(fixture_name);
     map_msgs::msg::OccupancyGridUpdate update;
     FillHeader(root["header"], update.header);
@@ -200,11 +184,9 @@ map_msgs::msg::OccupancyGridUpdate load_occupancy_grid_update(const std::string&
     return update;
 }
 
-namespace
-{
+namespace {
 
-ProfileRow RowFromProfile(const char* profile_stem, const std::string& topic)
-{
+ProfileRow RowFromProfile(const char* profile_stem, const std::string& topic) {
 #ifndef TEST_CONFIG_DIR
 #error "TEST_CONFIG_DIR not defined -- see CMakeLists.txt's overlume_node_test_paths"
 #endif
@@ -220,7 +202,7 @@ ProfileRow RowFromProfile(const char* profile_stem, const std::string& topic)
     const auto* row = find_row(*profile, topic);
     if (row == nullptr) {
         throw std::runtime_error("fixture_msgs: '" + path + "' has no row for topic '" + topic +
-                                  "'");
+                                 "'");
     }
     return *row;
 }
@@ -230,13 +212,11 @@ ProfileRow RowFromProfile(const char* profile_stem, const std::string& topic)
 ProfileRow urban_row(const std::string& topic) { return RowFromProfile("urban", topic); }
 ProfileRow sim_row(const std::string& topic) { return RowFromProfile("sim", topic); }
 
-ClassInferenceTable inference_table()
-{
+ClassInferenceTable inference_table() {
     const std::string path = std::string(TEST_CONFIG_DIR) + "/class_inference.yaml";
     std::vector<std::string> errs;
     auto table = load_class_inference(path, errs);
-    if (!table)
-    {
+    if (!table) {
         std::ostringstream os;
         os << "fixture_msgs: shipped class inference table '" << path << "' failed to load:";
         for (const auto& e : errs) os << "\n  " << e;

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file dynamic_objects.hpp
  *  @brief DynamicObjectsAdapter (Epic 2 Task 3 / VM-021): MarkerArray ->
@@ -93,24 +96,21 @@
 #include "overlume_ros/scene_assembly.hpp"
 #include "overlume/scene.h"
 
-namespace overlume_node
-{
+namespace overlume_node {
 
 // One footprint band (class_inference.yaml's `footprint:` list) -- first
 // band whose length/width/height all satisfy wins; an absent bound is the
 // widest-open value (max_*_m defaults to "no limit", min_height_m to "no
 // floor"), matching a band that only names the fields it actually needs
 // to discriminate (e.g. the CAR/TRUCK_VAN/BUS bands only bound length).
-struct FootprintBand
-{
+struct FootprintBand {
     double max_length_m{1e300};
     double max_width_m{1e300};
     double min_height_m{0.0};
     overlume::ObjectClass cls{overlume::ObjectClass::UNKNOWN};
 };
 
-struct ClassInferenceTable
-{
+struct ClassInferenceTable {
     std::unordered_map<std::string, overlume::ObjectClass> prefix;
     std::vector<FootprintBand> footprint;
     overlume::ObjectClass default_cls{overlume::ObjectClass::UNKNOWN};
@@ -120,7 +120,7 @@ struct ClassInferenceTable
 // (path + errors out-param) but is deliberately smaller -- this table has
 // no cross-row validation and no adapter-specific role/type sets to check.
 std::optional<ClassInferenceTable> load_class_inference(const std::string& path,
-                                                         std::vector<std::string>& errors);
+                                                        std::vector<std::string>& errors);
 
 // Prefix wins over footprint; scale is ALWAYS the caller's bbox dims
 // regardless of which class this returns (epic2 plan, Task 3 Step 2 --
@@ -140,11 +140,9 @@ overlume::ObjectClass infer(const ClassInferenceTable& cfg, const char* label, o
 bool line_list_to_polyline(const std::vector<geometry_msgs::msg::Point>& in,
                            std::vector<overlume::Vec3>& out);
 
-class DynamicObjectsAdapter
-{
+class DynamicObjectsAdapter {
 public:
-    DynamicObjectsAdapter(const ProfileRow& row,
-                          const overlume::ros::FrameTransformer& tf,
+    DynamicObjectsAdapter(const ProfileRow& row, const overlume::ros::FrameTransformer& tf,
                           const ClassInferenceTable& classes);
 
     // ROS callback thread. See this file's header comment for the full
@@ -171,8 +169,7 @@ public:
     void mark_stale_tick() { ++stats_.dropped_stale; }
 
 private:
-    struct Track
-    {
+    struct Track {
         bool has_bbox{false};
         bool has_text{false};
         overlume::Vec3 position{0.0, 0.0, 0.0};

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # ── HISTORICAL HARNESS (frozen at the VM-095 cutover, 2026-09-11) ─────────
 # This gate measured CUDA-node/Filament-node CO-RESIDENCE during the
 # migration rollout window (Task 4 Step 3; results recorded in

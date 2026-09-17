@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """Node-level live-pixel mode-dispatch check (Task 6 / VM-095 Step 0).
 
 Closes the one signoff.md row Task 4 (VM-093) left "Not started": node-level

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // renderer.cpp — real lit clay pipeline + theme system (see docs/
 // superpowers/plans/2026-08-18-visual-mode-epic1.md for the design history).
 //
@@ -81,12 +84,12 @@
 
 #include "clay_filamat.h"        // matc-generated (CMakeLists.txt); see assets/materials/clay.mat
 #include "clay_faded_filamat.h"  // matc-generated; see assets/materials/clay_faded.mat
-#include "clay_translucent_filamat.h"  // matc-generated; see assets/materials/clay_translucent.mat
-#include "ribbon_emissive_filamat.h"   // matc-generated; see assets/materials/ribbon_emissive.mat
-#include "ground_grid_filamat.h"       // matc-generated; see assets/materials/ground_grid.mat
-#include "point_cloud_filamat.h"       // matc-generated; see assets/materials/point_cloud.mat
-#include "trajectory_carpet_filamat.h" // matc-generated; see assets/materials/trajectory_carpet.mat
-#include "trajectory_carpet_faded_filamat.h" // matc-generated; see assets/materials/trajectory_carpet_faded.mat
+#include "clay_translucent_filamat.h"   // matc-generated; see assets/materials/clay_translucent.mat
+#include "ribbon_emissive_filamat.h"    // matc-generated; see assets/materials/ribbon_emissive.mat
+#include "ground_grid_filamat.h"        // matc-generated; see assets/materials/ground_grid.mat
+#include "point_cloud_filamat.h"        // matc-generated; see assets/materials/point_cloud.mat
+#include "trajectory_carpet_filamat.h"  // matc-generated; see assets/materials/trajectory_carpet.mat
+#include "trajectory_carpet_faded_filamat.h"  // matc-generated; see assets/materials/trajectory_carpet_faded.mat
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -168,8 +171,10 @@ float3 to_filament(const detail::Float3& c) { return float3{c.r, c.g, c.b}; }
 // docs/plans/2026-08-18-visual-mode-epic1.md for the rejected
 // alternatives.
 constexpr float kFogScaleExponent = 1.159f;
-constexpr float kFogScaleReferenceIntensity = 8750.0f;  // historical: light_clay's PRE-re-palette ibl.intensity
-constexpr float kFogScaleReferenceValue = 50.0f;        // historical: light_clay's proven-good flat scale at that intensity
+constexpr float kFogScaleReferenceIntensity =
+    8750.0f;  // historical: light_clay's PRE-re-palette ibl.intensity
+constexpr float kFogScaleReferenceValue =
+    50.0f;  // historical: light_clay's proven-good flat scale at that intensity
 }  // namespace
 
 // HeadlessEglPlatform — a minimal from-scratch filament::backend::
@@ -206,21 +211,29 @@ public:
     int getOSVersion() const noexcept override { return 0; }
 
     filament::backend::Driver* createDriver(void* /*sharedContext*/,
-                                             const DriverConfig& driverConfig) noexcept override {
+                                            const DriverConfig& driverConfig) noexcept override {
         display_ = eglGetDisplay(EGL_DEFAULT_DISPLAY);
         if (display_ == EGL_NO_DISPLAY) return nullptr;
         if (eglInitialize(display_, nullptr, nullptr) != EGL_TRUE) return nullptr;
         if (eglBindAPI(EGL_OPENGL_API) != EGL_TRUE) return nullptr;
 
         const EGLint configAttribs[] = {
-            EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
-            EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
-            EGL_RED_SIZE, 8,
-            EGL_GREEN_SIZE, 8,
-            EGL_BLUE_SIZE, 8,
-            EGL_ALPHA_SIZE, 8,
-            EGL_DEPTH_SIZE, 24,
-            EGL_STENCIL_SIZE, 8,
+            EGL_SURFACE_TYPE,
+            EGL_PBUFFER_BIT,
+            EGL_RENDERABLE_TYPE,
+            EGL_OPENGL_BIT,
+            EGL_RED_SIZE,
+            8,
+            EGL_GREEN_SIZE,
+            8,
+            EGL_BLUE_SIZE,
+            8,
+            EGL_ALPHA_SIZE,
+            8,
+            EGL_DEPTH_SIZE,
+            24,
+            EGL_STENCIL_SIZE,
+            8,
             EGL_NONE,
         };
         EGLint numConfigs = 0;
@@ -230,9 +243,12 @@ public:
         }
 
         const EGLint ctxAttribs[] = {
-            EGL_CONTEXT_MAJOR_VERSION, 4,
-            EGL_CONTEXT_MINOR_VERSION, 5,
-            EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
+            EGL_CONTEXT_MAJOR_VERSION,
+            4,
+            EGL_CONTEXT_MINOR_VERSION,
+            5,
+            EGL_CONTEXT_OPENGL_PROFILE_MASK,
+            EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
             EGL_NONE,
         };
         context_ = eglCreateContext(display_, config_, EGL_NO_CONTEXT, ctxAttribs);
@@ -244,8 +260,7 @@ public:
         const EGLint bootstrapAttribs[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
         bootstrapSurface_ = eglCreatePbufferSurface(display_, config_, bootstrapAttribs);
         if (bootstrapSurface_ == EGL_NO_SURFACE) return nullptr;
-        if (eglMakeCurrent(display_, bootstrapSurface_, bootstrapSurface_, context_) !=
-            EGL_TRUE) {
+        if (eglMakeCurrent(display_, bootstrapSurface_, bootstrapSurface_, context_) != EGL_TRUE) {
             return nullptr;
         }
         if (bluegl::bind() != 0) return nullptr;
@@ -277,15 +292,14 @@ public:
     }
 
     filament::backend::Platform::SwapChain* createSwapChain(void* /*nativeWindow*/,
-                                                              uint64_t /*flags*/) noexcept override {
+                                                            uint64_t /*flags*/) noexcept override {
         return nullptr;  // never requested: this Platform is headless-only.
     }
 
-    filament::backend::Platform::SwapChain* createSwapChain(
-        uint32_t width, uint32_t height, uint64_t /*flags*/) noexcept override {
+    filament::backend::Platform::SwapChain* createSwapChain(uint32_t width, uint32_t height,
+                                                            uint64_t /*flags*/) noexcept override {
         const EGLint pbufferAttribs[] = {
-            EGL_WIDTH, static_cast<EGLint>(width),
-            EGL_HEIGHT, static_cast<EGLint>(height),
+            EGL_WIDTH, static_cast<EGLint>(width), EGL_HEIGHT, static_cast<EGLint>(height),
             EGL_NONE,
         };
         EGLSurface surface = eglCreatePbufferSurface(display_, config_, pbufferAttribs);
@@ -301,9 +315,8 @@ public:
         delete sc;
     }
 
-    bool makeCurrent(ContextType /*type*/,
-                      filament::backend::Platform::SwapChain* drawSwapChain,
-                      filament::backend::Platform::SwapChain* readSwapChain) noexcept override {
+    bool makeCurrent(ContextType /*type*/, filament::backend::Platform::SwapChain* drawSwapChain,
+                     filament::backend::Platform::SwapChain* readSwapChain) noexcept override {
         auto* draw = static_cast<EglSwapChain*>(drawSwapChain);
         auto* read = static_cast<EglSwapChain*>(readSwapChain);
         return eglMakeCurrent(display_, draw->surface, read->surface, context_) == EGL_TRUE;
@@ -389,7 +402,7 @@ float grid_fade_alpha(float dist_m, float fade_start_m, float fade_end_m) {
 // (radial distance from the world origin — the grid is static geometry, so
 // this is baked once here rather than recomputed per frame).
 void build_grid_lines(std::vector<GridVertex>& verts, std::vector<uint16_t>& indices,
-                       float fade_start_m, float fade_end_m) {
+                      float fade_start_m, float fade_end_m) {
     const float h = kGroundHalfExtent;
     const float step = kGridPitchM;  // the ego-following patch snaps to
     // this SAME symbol (renderer_internal.hpp) -- shared on purpose so the
@@ -417,7 +430,7 @@ void build_grid_lines(std::vector<GridVertex>& verts, std::vector<uint16_t>& ind
     for (size_t i = 0; i < verts.size(); ++i) {
         verts[i].tangentFrame = plainVerts[i].tangentFrame;
         const float dist = std::sqrt(verts[i].position.x * verts[i].position.x +
-                                      verts[i].position.y * verts[i].position.y);
+                                     verts[i].position.y * verts[i].position.y);
         const float alpha = grid_fade_alpha(dist, fade_start_m, fade_end_m);
         verts[i].color = float4{1.0f, 1.0f, 1.0f, alpha};
     }
@@ -427,7 +440,7 @@ void build_grid_lines(std::vector<GridVertex>& verts, std::vector<uint16_t>& ind
 // make_vertex_buffer()/make_index_buffer() in renderer_internal.hpp, but
 // local to this .cpp since only the grid needs a COLOR attribute.
 filament::VertexBuffer* make_grid_vertex_buffer(filament::Engine& engine,
-                                                 std::vector<GridVertex> verts) {
+                                                std::vector<GridVertex> verts) {
     auto* heapVerts = new std::vector<GridVertex>(std::move(verts));
     filament::VertexBuffer* vb =
         filament::VertexBuffer::Builder()
@@ -440,8 +453,8 @@ filament::VertexBuffer* make_grid_vertex_buffer(filament::Engine& engine,
                        filament::VertexBuffer::AttributeType::FLOAT4,
                        offsetof(GridVertex, tangentFrame), sizeof(GridVertex))
             .attribute(filament::VertexAttribute::COLOR, 0,
-                       filament::VertexBuffer::AttributeType::FLOAT4,
-                       offsetof(GridVertex, color), sizeof(GridVertex))
+                       filament::VertexBuffer::AttributeType::FLOAT4, offsetof(GridVertex, color),
+                       sizeof(GridVertex))
             .build(engine);
     vb->setBufferAt(
         engine, 0,
@@ -458,7 +471,7 @@ filament::VertexBuffer* make_grid_vertex_buffer(filament::Engine& engine,
 // the grid's COLOR-attribute vertex layout is unique to this one mesh, so
 // it gets its own small builder instead of a generic-vertex-type add_mesh).
 void add_grid_mesh(VisualRenderer& r, Mesh& mesh, std::vector<GridVertex> verts,
-                    std::vector<uint16_t> indices, filament::MaterialInstance* material) {
+                   std::vector<uint16_t> indices, filament::MaterialInstance* material) {
     mesh.vb = make_grid_vertex_buffer(*r.engine, std::move(verts));
     mesh.ib = make_index_buffer(*r.engine, std::move(indices));
     mesh.entity = utils::EntityManager::get().create();
@@ -497,13 +510,13 @@ void add_grid_mesh(VisualRenderer& r, Mesh& mesh, std::vector<GridVertex> verts,
 // reflections.
 void sh_from_hemisphere(const float3& sky, const float3& ground, float3 sh[4]) {
     constexpr float kPi = 3.14159265358979323846f;
-    constexpr float kY0 = 0.282095f;   // sqrt(1/(4*pi))
-    constexpr float kY1 = 0.488603f;   // sqrt(3/(4*pi))
+    constexpr float kY0 = 0.282095f;  // sqrt(1/(4*pi))
+    constexpr float kY1 = 0.488603f;  // sqrt(3/(4*pi))
     const float kTwoPiSq = 2.0f * kPi * kPi;
-    sh[0] = kTwoPiSq * kY0 * (sky + ground);         // L0,0
-    sh[1] = float3{0.0f, 0.0f, 0.0f};                // L1,-1 (y) — no horizontal gradient
+    sh[0] = kTwoPiSq * kY0 * (sky + ground);           // L0,0
+    sh[1] = float3{0.0f, 0.0f, 0.0f};                  // L1,-1 (y) — no horizontal gradient
     sh[2] = (kTwoPiSq / 3.0f) * kY1 * (sky - ground);  // L1,0  (z, world "up")
-    sh[3] = float3{0.0f, 0.0f, 0.0f};                // L1,1 (x) — no horizontal gradient
+    sh[3] = float3{0.0f, 0.0f, 0.0f};                  // L1,1 (x) — no horizontal gradient
 }
 
 // Pushes every theme-driven Filament token (ground/grid material params, sun
@@ -581,9 +594,9 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     // reasoning as laneMaterial above. Indexed by
     // static_cast<uint8_t>(ObjectClass) (CAR..UNKNOWN).
     const detail::Float3 objectTints[VisualRenderer::kObjectClassCount] = {
-        theme.palette.object_tints.car,        theme.palette.object_tints.truck_van,
-        theme.palette.object_tints.bus,        theme.palette.object_tints.pedestrian,
-        theme.palette.object_tints.cyclist,    theme.palette.object_tints.unknown,
+        theme.palette.object_tints.car,     theme.palette.object_tints.truck_van,
+        theme.palette.object_tints.bus,     theme.palette.object_tints.pedestrian,
+        theme.palette.object_tints.cyclist, theme.palette.object_tints.unknown,
     };
     for (size_t i = 0; i < VisualRenderer::kObjectClassCount; ++i) {
         r.objectClassMaterial[i]->setParameter("baseColor", to_filament(objectTints[i]));
@@ -596,8 +609,8 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     for (auto& [id, entity] : r.objectEntities) {
         if (entity.fadeInstance == nullptr) continue;
         const detail::Float3& tint = objectTints[static_cast<uint8_t>(entity.cls)];
-        entity.fadeInstance->setParameter(
-            "baseColor", float4{tint.r, tint.g, tint.b, entity.fadeAlpha});
+        entity.fadeInstance->setParameter("baseColor",
+                                          float4{tint.r, tint.g, tint.b, entity.fadeAlpha});
         entity.fadeInstance->setParameter("roughness", theme.material.roughness);
         entity.fadeInstance->setParameter("metallic", theme.material.metallic);
     }
@@ -632,16 +645,16 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
         "baseColor", to_filament(theme.palette.ribbon_global));
     r.ribbonMaterial[static_cast<uint8_t>(PathRole::GLOBAL)]->setParameter(
         "roughness", theme.material.roughness);
-    r.ribbonMaterial[static_cast<uint8_t>(PathRole::GLOBAL)]->setParameter(
-        "metallic", theme.material.metallic);
+    r.ribbonMaterial[static_cast<uint8_t>(PathRole::GLOBAL)]->setParameter("metallic",
+                                                                           theme.material.metallic);
     r.ribbonTint[static_cast<uint8_t>(PathRole::GLOBAL)] = theme.palette.ribbon_global;
 
     r.ribbonMaterial[static_cast<uint8_t>(PathRole::LOCAL)]->setParameter(
         "baseColor", to_filament(theme.palette.ribbon_local));
-    r.ribbonMaterial[static_cast<uint8_t>(PathRole::LOCAL)]->setParameter(
-        "roughness", theme.material.roughness);
-    r.ribbonMaterial[static_cast<uint8_t>(PathRole::LOCAL)]->setParameter(
-        "metallic", theme.material.metallic);
+    r.ribbonMaterial[static_cast<uint8_t>(PathRole::LOCAL)]->setParameter("roughness",
+                                                                          theme.material.roughness);
+    r.ribbonMaterial[static_cast<uint8_t>(PathRole::LOCAL)]->setParameter("metallic",
+                                                                          theme.material.metallic);
     r.ribbonTint[static_cast<uint8_t>(PathRole::LOCAL)] = theme.palette.ribbon_local;
 
     // Re-push any live GLOBAL/LOCAL fade instance's tint too, same
@@ -689,8 +702,8 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     };
     for (size_t i = 0; i < VisualRenderer::kAlertSeverityCount; ++i) {
         r.alertMaterial[i]->setParameter(
-            "baseColor", float4{alertTints[i].r, alertTints[i].g, alertTints[i].b,
-                                kAlertSeverityAlpha[i]});
+            "baseColor",
+            float4{alertTints[i].r, alertTints[i].g, alertTints[i].b, kAlertSeverityAlpha[i]});
         r.alertMaterial[i]->setParameter("roughness", theme.material.roughness);
         r.alertMaterial[i]->setParameter("metallic", theme.material.metallic);
         r.alertTint[i] = alertTints[i];
@@ -714,7 +727,7 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     // here too (never its baseColor -- the marker's own supplied color) so
     // a theme switch keeps its material response consistent.
     r.genericMarkerMaterial->setParameter("baseColor",
-                                           to_filament(theme.palette.object_tints.unknown));
+                                          to_filament(theme.palette.object_tints.unknown));
     r.genericMarkerMaterial->setParameter("roughness", theme.material.roughness);
     r.genericMarkerMaterial->setParameter("metallic", theme.material.metallic);
     r.genericMarkerNeutralTint = theme.palette.object_tints.unknown;
@@ -744,9 +757,9 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     float3 sh[4];
     sh_from_hemisphere(to_filament(theme.ibl.sky_color), to_filament(theme.ibl.ground_color), sh);
     filament::IndirectLight* newAmbient = filament::IndirectLight::Builder()
-                                               .irradiance(2, sh)
-                                               .intensity(theme.ibl.intensity)
-                                               .build(*r.engine);
+                                              .irradiance(2, sh)
+                                              .intensity(theme.ibl.intensity)
+                                              .build(*r.engine);
     r.scene->setIndirectLight(newAmbient);
     if (r.ambient) r.engine->destroy(r.ambient);
     r.ambient = newAmbient;
@@ -773,9 +786,9 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     // reproduces the ~29x lux gap between themes directly instead of
     // compensating for it. See docs/plans/
     // 2026-08-18-visual-mode-epic1.md for the full history.
-    const float fogScale = kFogScaleReferenceValue *
-                            std::pow(kFogScaleReferenceIntensity / theme.ibl.intensity,
-                                     kFogScaleExponent);
+    const float fogScale =
+        kFogScaleReferenceValue *
+        std::pow(kFogScaleReferenceIntensity / theme.ibl.intensity, kFogScaleExponent);
     fogOptions.color = to_filament(theme.palette.fog) * fogScale;
     fogOptions.density = theme.fog.density;
     // heightFalloff defaults to 1.0/m (Filament's height-stratified fog,
@@ -843,9 +856,10 @@ void build_unit_arrow(std::vector<Vertex>& verts, std::vector<uint16_t>& indices
     constexpr float kHeadHalfW = 0.15f;
     constexpr float kShaftEndX = 0.7f;
     const float3 p[7] = {
-        {0.0f, -kShaftHalfW, 0.0f}, {kShaftEndX, -kShaftHalfW, 0.0f},
+        {0.0f, -kShaftHalfW, 0.0f},      {kShaftEndX, -kShaftHalfW, 0.0f},
         {kShaftEndX, kShaftHalfW, 0.0f}, {0.0f, kShaftHalfW, 0.0f},
-        {kShaftEndX, -kHeadHalfW, 0.0f}, {1.0f, 0.0f, 0.0f}, {kShaftEndX, kHeadHalfW, 0.0f},
+        {kShaftEndX, -kHeadHalfW, 0.0f}, {1.0f, 0.0f, 0.0f},
+        {kShaftEndX, kHeadHalfW, 0.0f},
     };
     for (const float3& v : p) verts.push_back(Vertex{v, {}});
     indices = {0, 1, 2, 0, 2, 3, 4, 5, 6};
@@ -872,24 +886,22 @@ void destroy_mesh(filament::Engine& engine, filament::Scene& scene, Mesh& mesh) 
 }
 
 // Definitions of the two functions renderer_internal.hpp declares.
-filament::VertexBuffer* make_vertex_buffer(filament::Engine& engine,
-                                            std::vector<Vertex> verts) {
+filament::VertexBuffer* make_vertex_buffer(filament::Engine& engine, std::vector<Vertex> verts) {
     // BufferDescriptor only *references* client memory; Filament's driver
     // thread consumes it asynchronously, so the backing storage must outlive
     // this call. Heap-allocate and free it from the descriptor's own
     // release callback rather than the (stack-local) caller's vector.
     auto* heapVerts = new std::vector<Vertex>(std::move(verts));
-    filament::VertexBuffer* vb =
-        filament::VertexBuffer::Builder()
-            .vertexCount(static_cast<uint32_t>(heapVerts->size()))
-            .bufferCount(1)
-            .attribute(filament::VertexAttribute::POSITION, 0,
-                       filament::VertexBuffer::AttributeType::FLOAT3, offsetof(Vertex, position),
-                       sizeof(Vertex))
-            .attribute(filament::VertexAttribute::TANGENTS, 0,
-                       filament::VertexBuffer::AttributeType::FLOAT4,
-                       offsetof(Vertex, tangentFrame), sizeof(Vertex))
-            .build(engine);
+    filament::VertexBuffer* vb = filament::VertexBuffer::Builder()
+                                     .vertexCount(static_cast<uint32_t>(heapVerts->size()))
+                                     .bufferCount(1)
+                                     .attribute(filament::VertexAttribute::POSITION, 0,
+                                                filament::VertexBuffer::AttributeType::FLOAT3,
+                                                offsetof(Vertex, position), sizeof(Vertex))
+                                     .attribute(filament::VertexAttribute::TANGENTS, 0,
+                                                filament::VertexBuffer::AttributeType::FLOAT4,
+                                                offsetof(Vertex, tangentFrame), sizeof(Vertex))
+                                     .build(engine);
     vb->setBufferAt(
         engine, 0,
         filament::VertexBuffer::BufferDescriptor(
@@ -910,29 +922,25 @@ void update_mesh_positions(filament::Engine& engine, Mesh& mesh, std::vector<Ver
             heapVerts));
 }
 
-filament::IndexBuffer* make_index_buffer(filament::Engine& engine,
-                                          std::vector<uint16_t> indices) {
+filament::IndexBuffer* make_index_buffer(filament::Engine& engine, std::vector<uint16_t> indices) {
     auto* heapIndices = new std::vector<uint16_t>(std::move(indices));
-    filament::IndexBuffer* ib =
-        filament::IndexBuffer::Builder()
-            .indexCount(static_cast<uint32_t>(heapIndices->size()))
-            .bufferType(filament::IndexBuffer::IndexType::USHORT)
-            .build(engine);
-    ib->setBuffer(
-        engine, filament::IndexBuffer::BufferDescriptor(
-                    heapIndices->data(), heapIndices->size() * sizeof(uint16_t),
-                    [](void*, size_t, void* user) {
-                        delete static_cast<std::vector<uint16_t>*>(user);
-                    },
-                    heapIndices));
+    filament::IndexBuffer* ib = filament::IndexBuffer::Builder()
+                                    .indexCount(static_cast<uint32_t>(heapIndices->size()))
+                                    .bufferType(filament::IndexBuffer::IndexType::USHORT)
+                                    .build(engine);
+    ib->setBuffer(engine, filament::IndexBuffer::BufferDescriptor(
+                              heapIndices->data(), heapIndices->size() * sizeof(uint16_t),
+                              [](void*, size_t, void* user) {
+                                  delete static_cast<std::vector<uint16_t>*>(user);
+                              },
+                              heapIndices));
     return ib;
 }
 
 // Namespace-scope free function so a different translation unit (ego.cpp,
 // objects.cpp) can call it -- a lambda local to create_renderer() couldn't.
 void add_mesh(VisualRenderer& r, Mesh& mesh, std::vector<Vertex> verts,
-              std::vector<uint16_t> indices,
-              filament::RenderableManager::PrimitiveType primitive,
+              std::vector<uint16_t> indices, filament::RenderableManager::PrimitiveType primitive,
               filament::MaterialInstance* material, bool cast_shadows, bool receive_shadows) {
     // Captured before the moves below empty `verts` -- see Mesh::
     // vertexCount's own comment (renderer_internal.hpp).
@@ -956,7 +964,7 @@ namespace {
 // Shared by create_renderer() and set_quality() -- one preset->options
 // mapping, no drift between create-time and live.
 void ApplyQualityViewOptions(filament::View& view, uint32_t quality, uint32_t width,
-                              uint32_t height) {
+                             uint32_t height) {
     filament::AmbientOcclusionOptions ao{};
     ao.enabled = quality >= 1;
     ao.resolution = quality >= 2 ? 1.0f : 0.5f;  // Options.h: must be 0.5 or 1.0
@@ -995,8 +1003,8 @@ void ApplyQualityViewOptions(filament::View& view, uint32_t quality, uint32_t wi
         // homogeneousScaling=true makes Filament force a single factor, so
         // per-axis values would silently disagree with the hook off-16:9;
         // min() keeps the internal target within 960x540 at any aspect.
-        const float scale = std::min(960.0f / static_cast<float>(width),
-                                     540.0f / static_cast<float>(height));
+        const float scale =
+            std::min(960.0f / static_cast<float>(width), 540.0f / static_cast<float>(height));
         dynRes.minScale = {scale, scale};
         dynRes.maxScale = {scale, scale};
     }
@@ -1026,17 +1034,18 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // this call (api.h) -- copy into owned std::string storage first.
     // load_theme() failure (missing dir/file, malformed YAML) is non-fatal:
     // fall back to the compiled-in kFallbackTheme().
-    const std::string themeDir =
-        config.theme_assets_dir ? std::string(config.theme_assets_dir) : std::string(DEFAULT_THEME_ASSETS_DIR);
-    const std::string themeName = config.initial_theme ? std::string(config.initial_theme) : std::string("dark_adas");
+    const std::string themeDir = config.theme_assets_dir ? std::string(config.theme_assets_dir)
+                                                         : std::string(DEFAULT_THEME_ASSETS_DIR);
+    const std::string themeName =
+        config.initial_theme ? std::string(config.initial_theme) : std::string("dark_adas");
     std::optional<detail::Theme> loaded = detail::load_theme(themeDir, themeName);
     const detail::Theme theme = loaded ? *loaded : detail::kFallbackTheme();
 
     auto* platform = new HeadlessEglPlatform();
     filament::Engine* engine = filament::Engine::Builder()
-                                    .backend(filament::Engine::Backend::OPENGL)
-                                    .platform(platform)
-                                    .build();
+                                   .backend(filament::Engine::Backend::OPENGL)
+                                   .platform(platform)
+                                   .build();
     if (engine == nullptr) {
         delete platform;
         return nullptr;
@@ -1054,8 +1063,8 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     r->active_theme = theme;
     r->theme_assets_loaded = loaded.has_value();
 
-    r->swapChain = engine->createSwapChain(config.width, config.height,
-                                            filament::SwapChain::CONFIG_READABLE);
+    r->swapChain =
+        engine->createSwapChain(config.width, config.height, filament::SwapChain::CONFIG_READABLE);
     r->renderer = engine->createRenderer();
     // One Scene for the whole renderer; the ego and the bowl are both
     // opaque renderables here, so Filament's depth test composites
@@ -1071,8 +1080,8 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // photometric sun/IBL would clip to flat white instead of rendering lit.
     r->view->setPostProcessingEnabled(true);
     r->colorGrading = filament::ColorGrading::Builder()
-                           .toneMapping(filament::ColorGrading::ToneMapping::ACES)
-                           .build(*engine);
+                          .toneMapping(filament::ColorGrading::ToneMapping::ACES)
+                          .build(*engine);
     r->view->setColorGrading(r->colorGrading);
 
     // Bloom: the theme YAMLs already ship emissive.ribbon_strength, which
@@ -1136,13 +1145,14 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // clay.mat (shared, opaque -- ground here, ego clay-box fallback + glTF
     // remap) and clay_faded.mat (grid-only, per-vertex alpha) -- see those
     // .mat files for why two materials, not one.
-    r->clayMaterial = filament::Material::Builder()
-                          .package(overlume::materials::kclayFilamat, overlume::materials::kclayFilamatSize)
-                          .build(*engine);
-    r->clayFadedMaterial =
+    r->clayMaterial =
         filament::Material::Builder()
-            .package(overlume::materials::kclay_fadedFilamat, overlume::materials::kclay_fadedFilamatSize)
+            .package(overlume::materials::kclayFilamat, overlume::materials::kclayFilamatSize)
             .build(*engine);
+    r->clayFadedMaterial = filament::Material::Builder()
+                               .package(overlume::materials::kclay_fadedFilamat,
+                                        overlume::materials::kclay_fadedFilamatSize)
+                               .build(*engine);
 
     r->groundMaterial = r->clayMaterial->createInstance();
     r->gridMaterial = r->clayFadedMaterial->createInstance();
@@ -1167,11 +1177,10 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // Object class tints: six clay.mat instances, same eager-creation
     // reasoning as laneMaterial above -- themed below by
     // push_theme_to_scene().
-    r->clayTranslucentMaterial =
-        filament::Material::Builder()
-            .package(overlume::materials::kclay_translucentFilamat,
-                     overlume::materials::kclay_translucentFilamatSize)
-            .build(*engine);
+    r->clayTranslucentMaterial = filament::Material::Builder()
+                                     .package(overlume::materials::kclay_translucentFilamat,
+                                              overlume::materials::kclay_translucentFilamatSize)
+                                     .build(*engine);
     for (size_t i = 0; i < VisualRenderer::kObjectClassCount; ++i) {
         r->objectClassMaterial[i] = r->clayMaterial->createInstance();
     }
@@ -1183,11 +1192,10 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // laneMaterial above: BEHAVIOR on ribbonEmissiveMaterial (the bloom
     // hero), GLOBAL/LOCAL on the same clayMaterial every other opaque clay
     // surface shares.
-    r->ribbonEmissiveMaterial =
-        filament::Material::Builder()
-            .package(overlume::materials::kribbon_emissiveFilamat,
-                     overlume::materials::kribbon_emissiveFilamatSize)
-            .build(*engine);
+    r->ribbonEmissiveMaterial = filament::Material::Builder()
+                                    .package(overlume::materials::kribbon_emissiveFilamat,
+                                             overlume::materials::kribbon_emissiveFilamatSize)
+                                    .build(*engine);
     r->ribbonMaterial[static_cast<uint8_t>(PathRole::BEHAVIOR)] =
         r->ribbonEmissiveMaterial->createInstance();
     r->ribbonMaterial[static_cast<uint8_t>(PathRole::GLOBAL)] = r->clayMaterial->createInstance();
@@ -1197,11 +1205,10 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // float3 ramp endpoints + a settable float alpha -- see that .mat's
     // header comment), built once here. Two per-kind instances, same
     // eager-creation reasoning as laneMaterial above.
-    r->groundGridMaterial =
-        filament::Material::Builder()
-            .package(overlume::materials::kground_gridFilamat,
-                     overlume::materials::kground_gridFilamatSize)
-            .build(*engine);
+    r->groundGridMaterial = filament::Material::Builder()
+                                .package(overlume::materials::kground_gridFilamat,
+                                         overlume::materials::kground_gridFilamatSize)
+                                .build(*engine);
     for (auto*& inst : r->groundGridMaterialInstance) {
         inst = r->groundGridMaterial->createInstance();
     }
@@ -1213,10 +1220,10 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // groundGridMaterialInstance/objectClassMaterial above, since a point
     // cloud's color comes entirely from its own per-point vertex data, not
     // a per-category tint.
-    r->pointCloudMaterial =
-        filament::Material::Builder()
-            .package(overlume::materials::kpoint_cloudFilamat, overlume::materials::kpoint_cloudFilamatSize)
-            .build(*engine);
+    r->pointCloudMaterial = filament::Material::Builder()
+                                .package(overlume::materials::kpoint_cloudFilamat,
+                                         overlume::materials::kpoint_cloudFilamatSize)
+                                .build(*engine);
     r->pointCloudMaterialInstance = r->pointCloudMaterial->createInstance();
     r->pointCloudMaterialInstance->setCullingMode(filament::backend::CullingMode::NONE);
 
@@ -1228,11 +1235,10 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // staleness, ribbon.cpp's own fresh-opaque/stale-translucent shape.
     // ONE instance each for the whole layer, same reasoning as
     // pointCloudMaterialInstance above.
-    r->trajectoryCarpetMaterial =
-        filament::Material::Builder()
-            .package(overlume::materials::ktrajectory_carpetFilamat,
-                     overlume::materials::ktrajectory_carpetFilamatSize)
-            .build(*engine);
+    r->trajectoryCarpetMaterial = filament::Material::Builder()
+                                      .package(overlume::materials::ktrajectory_carpetFilamat,
+                                               overlume::materials::ktrajectory_carpetFilamatSize)
+                                      .build(*engine);
     r->trajectoryCarpetMaterialInstance = r->trajectoryCarpetMaterial->createInstance();
     r->trajectoryCarpetMaterialInstance->setCullingMode(filament::backend::CullingMode::NONE);
     r->trajectoryCarpetFadedMaterial =
@@ -1400,7 +1406,8 @@ void destroy_renderer(VisualRenderer* r) {
         }
         if (slot.ownMesh.vb) destroy_mesh(*r->engine, *r->scene, slot.ownMesh);
         if (slot.meshAsset) {
-            r->scene->removeEntities(slot.meshAsset->getEntities(), slot.meshAsset->getEntityCount());
+            r->scene->removeEntities(slot.meshAsset->getEntities(),
+                                     slot.meshAsset->getEntityCount());
             r->sharedAssetLoader->destroyAsset(slot.meshAsset);
         }
     }
@@ -1532,7 +1539,8 @@ void destroy_renderer(VisualRenderer* r) {
         for (auto& mesh : slot.meshes) destroy_mesh(*r->engine, *r->scene, mesh);
     }
     r->trajectoryCarpetSlots.clear();
-    if (r->trajectoryCarpetMaterialInstance) r->engine->destroy(r->trajectoryCarpetMaterialInstance);
+    if (r->trajectoryCarpetMaterialInstance)
+        r->engine->destroy(r->trajectoryCarpetMaterialInstance);
     if (r->trajectoryCarpetMaterial) r->engine->destroy(r->trajectoryCarpetMaterial);
     if (r->trajectoryCarpetFadedMaterialInstance)
         r->engine->destroy(r->trajectoryCarpetFadedMaterialInstance);
@@ -1571,8 +1579,8 @@ void apply_current_theme(VisualRenderer& r, double sim_time_sec) {
     if (!r.theme_transition) return;
     const detail::ThemeTransition& tr = *r.theme_transition;
     const double t = tr.duration_sec > 0.0
-                          ? std::clamp((sim_time_sec - tr.start_sec) / tr.duration_sec, 0.0, 1.0)
-                          : 1.0;
+                         ? std::clamp((sim_time_sec - tr.start_sec) / tr.duration_sec, 0.0, 1.0)
+                         : 1.0;
     const detail::Theme blended = detail::blend(tr.from, tr.to, static_cast<float>(t));
     push_theme_to_scene(r, blended);
     // Kept up to date every call a transition is in flight, so a mid-flight
@@ -1681,11 +1689,9 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     }
 
     r->camera->lookAt({pose.eye[0], pose.eye[1], pose.eye[2]},
-                       {pose.target[0], pose.target[1], pose.target[2]},
-                       {0.0, 0.0, 1.0});
+                      {pose.target[0], pose.target[1], pose.target[2]}, {0.0, 0.0, 1.0});
     const double aspect = static_cast<double>(out.width) / static_cast<double>(out.height);
-    r->camera->setProjection(pose.vfov_deg, aspect, 0.1, 500.0,
-                              filament::Camera::Fov::VERTICAL);
+    r->camera->setProjection(pose.vfov_deg, aspect, 0.1, 500.0, filament::Camera::Fov::VERTICAL);
 
     // Viewport/render target sizing tracks the renderer's own fixed
     // swapchain size (assumes out matches the RenderConfig used at
@@ -1732,9 +1738,7 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
 // Filament::Engine/Scene/TransformManager call happens here. render_frame()
 // reads scene_buffer.active() back out instead; set_scene() itself only
 // ever touches the staging buffer.
-void set_scene(VisualRenderer* r, const SceneGraph& scene) {
-    r->scene_buffer.publish(scene);
-}
+void set_scene(VisualRenderer* r, const SceneGraph& scene) { r->scene_buffer.publish(scene); }
 
 // See scene.h's frozen contract comment. Snapshots the currently-blended
 // theme (r->active_theme -- kept live by apply_current_theme() above) as
@@ -1756,9 +1760,7 @@ bool set_theme(VisualRenderer* r, const char* theme_name, double at_sec, double 
 }
 
 // See scene.h's comment.
-bool theme_assets_loaded(VisualRenderer* r) {
-    return r != nullptr && r->theme_assets_loaded;
-}
+bool theme_assets_loaded(VisualRenderer* r) { return r != nullptr && r->theme_assets_loaded; }
 
 // See scene.h's comment. r->active_theme is exactly the theme
 // apply_current_theme() keeps live every render_frame() call (blended
@@ -1954,7 +1956,7 @@ bool quality_taa_enabled(overlume::VisualRenderer* r) {
 QualityAntiAliasing quality_antialiasing(overlume::VisualRenderer* r) {
     if (r == nullptr) return QualityAntiAliasing::NONE;
     return r->view->getAntiAliasing() == filament::AntiAliasing::FXAA ? QualityAntiAliasing::FXAA
-                                                                       : QualityAntiAliasing::NONE;
+                                                                      : QualityAntiAliasing::NONE;
 }
 
 }  // namespace overlume::testing

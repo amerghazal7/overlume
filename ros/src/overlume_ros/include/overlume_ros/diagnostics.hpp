@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file diagnostics.hpp
  *  @brief Epic 3 Task 2 (VM-034): builds one `diagnostic_msgs/msg/
@@ -37,8 +40,7 @@
 
 #include "overlume_ros/adapter_stats.hpp"
 
-namespace overlume_node
-{
+namespace overlume_node {
 
 // One profile row's diagnostics input. `last_msg_age_sec`/`timeout_sec` are
 // caller-computed (overlume_node.cpp already has sim_clock_sec_ and the
@@ -46,9 +48,8 @@ namespace overlume_node
 // this header takes no ROS clock and no profile-row type, on purpose.
 // Default-initialized trailing fields let a caller (or a test) brace-init
 // with just {topic, stats} when age/timeout aren't the point of that case.
-struct RowStats
-{
-    std::string topic;             // named exactly as it appears in the profile row
+struct RowStats {
+    std::string topic;  // named exactly as it appears in the profile row
     AdapterStats stats;
     double last_msg_age_sec{0.0};  // sim_clock_sec_ - stats.last_msg_sec
     double timeout_sec{0.0};       // the row's own timeout_sec; 0.0 = "never WARN on age"
@@ -60,6 +61,6 @@ struct RowStats
 // the caller decides whether 0.0 means "not measured this tick", this
 // function does not guess.
 diagnostic_msgs::msg::DiagnosticArray BuildDiagnostics(const std::vector<RowStats>& rows,
-                                                        double render_ms);
+                                                       double render_ms);
 
 }  // namespace overlume_node

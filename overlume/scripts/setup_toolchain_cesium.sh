@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
 # setup_toolchain_cesium.sh -- root-less bootstrap of a NEWER clang/libc++
 # toolchain used ONLY to build cesium-native + its vcpkg ports (VM-061).
 #

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
 // ground_grid.mat — Epic 2 Task 6 (VM-025): OGM occupancy grids as
 // theme-colored ground textures. One textured quad per GroundGridLayer
 // (dynamic OGM / gradient OGM), sampled from an R8 texture whose byte value

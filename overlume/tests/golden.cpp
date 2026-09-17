@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // golden.cpp — see golden.hpp. Not a gtest file (excluded from
 // CMakeLists.txt's auto-glob-as-gtest-binary loop by name; compiled as a
 // plain extra source into every other test binary instead).
@@ -26,16 +29,14 @@ namespace {
 constexpr uint32_t kWidth = 320;
 constexpr uint32_t kHeight = 240;
 
-double luminance(uint8_t r, uint8_t g, uint8_t b) {
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
+double luminance(uint8_t r, uint8_t g, uint8_t b) { return 0.2126 * r + 0.7152 * g + 0.0722 * b; }
 
 // ponytail: block-wise (8x8, non-overlapping, luminance-only) mean/
 // variance/covariance SSIM averaged over blocks -- a deliberately simpler
 // approximation of the full windowed-Gaussian SSIM (unnecessary precision
 // for a pass/fail regression gate at low-preset resolution).
 double block_ssim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, uint32_t width,
-                   uint32_t height) {
+                  uint32_t height) {
     constexpr int kBlock = 8;
     constexpr double kC1 = (0.01 * 255) * (0.01 * 255);
     constexpr double kC2 = (0.03 * 255) * (0.03 * 255);
@@ -63,7 +64,7 @@ double block_ssim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, 
             const double varB = sumBB / n - meanB * meanB;
             const double covAB = sumAB / n - meanA * meanB;
             const double ssim = ((2 * meanA * meanB + kC1) * (2 * covAB + kC2)) /
-                                 ((meanA * meanA + meanB * meanB + kC1) * (varA + varB + kC2));
+                                ((meanA * meanA + meanB * meanB + kC1) * (varA + varB + kC2));
             total += ssim;
             ++blockCount;
         }
@@ -74,15 +75,15 @@ double block_ssim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, 
 }  // namespace
 
 double render_and_compare(overlume::VisualRenderer* r, const overlume::CameraPose& pose,
-                           const char* golden_png_path, const char* out_png_path) {
+                          const char* golden_png_path, const char* out_png_path) {
     if (r == nullptr) return -1.0;
 
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3);
     overlume::FrameView view{rgb.data(), kWidth, kHeight};
     if (!overlume::render_frame(r, pose, view)) return 0.0;
 
-    stbi_write_png(out_png_path, static_cast<int>(kWidth), static_cast<int>(kHeight), 3,
-                    rgb.data(), static_cast<int>(kWidth) * 3);
+    stbi_write_png(out_png_path, static_cast<int>(kWidth), static_cast<int>(kHeight), 3, rgb.data(),
+                   static_cast<int>(kWidth) * 3);
 
     int goldenWidth = 0, goldenHeight = 0, goldenChannels = 0;
     uint8_t* golden = stbi_load(golden_png_path, &goldenWidth, &goldenHeight, &goldenChannels, 3);
@@ -91,12 +92,13 @@ double render_and_compare(overlume::VisualRenderer* r, const overlume::CameraPos
         // never silently "passes" with nothing to compare against.
         return 0.0;
     }
-    if (static_cast<uint32_t>(goldenWidth) != kWidth || static_cast<uint32_t>(goldenHeight) != kHeight) {
+    if (static_cast<uint32_t>(goldenWidth) != kWidth ||
+        static_cast<uint32_t>(goldenHeight) != kHeight) {
         stbi_image_free(golden);
         return 0.0;
     }
-    const std::vector<uint8_t> goldenPixels(golden, golden + static_cast<size_t>(goldenWidth) *
-                                                                 goldenHeight * 3);
+    const std::vector<uint8_t> goldenPixels(
+        golden, golden + static_cast<size_t>(goldenWidth) * goldenHeight * 3);
     stbi_image_free(golden);
 
     return block_ssim(rgb, goldenPixels, kWidth, kHeight);
@@ -204,7 +206,7 @@ MapGeom load_map_geom(const char* path) {
             continue;
         }
         meta.push_back(Meta{static_cast<uint8_t>(isPolygon != 0),
-                             static_cast<overlume::MapKind>(kindRaw), laneId, offset, n});
+                            static_cast<overlume::MapKind>(kindRaw), laneId, offset, n});
     }
 
     g.elements.reserve(meta.size());
@@ -230,11 +232,17 @@ ObjectScene make_mixed_class_objects(double now) {
         overlume::Vec3 dims;
         overlume::Vec3 velocity;
         std::vector<overlume::Vec3> path;  // empty -> no predicted path
-        double age_sec;                 // last_update_sec = now - age_sec
+        double age_sec;                    // last_update_sec = now - age_sec
     };
     const std::vector<Spec> specs = {
         // CAR: fresh, nonzero velocity -- exercises the velocity-arrow path.
-        {overlume::ObjectClass::CAR, {-6.0, -3.0, 0.0}, 0.3, {4.5, 1.8, 1.5}, {3.0, 1.0, 0.0}, {}, 0.0},
+        {overlume::ObjectClass::CAR,
+         {-6.0, -3.0, 0.0},
+         0.3,
+         {4.5, 1.8, 1.5},
+         {3.0, 1.0, 0.0},
+         {},
+         0.0},
         // TRUCK_VAN: fresh, has a predicted path -- exercises extrude_polyline.
         {overlume::ObjectClass::TRUCK_VAN,
          {-3.0, 4.0, 0.0},
@@ -244,21 +252,45 @@ ObjectScene make_mixed_class_objects(double now) {
          {{-3.0, 4.0, 0.0}, {-1.0, 3.0, 0.0}, {1.0, 2.5, 0.0}, {3.0, 2.0, 0.0}},
          0.0},
         // BUS: fresh, plain.
-        {overlume::ObjectClass::BUS, {5.0, 5.0, 0.0}, 2.1, {12.0, 2.5, 3.2}, {0.0, 0.0, 0.0}, {}, 0.0},
+        {overlume::ObjectClass::BUS,
+         {5.0, 5.0, 0.0},
+         2.1,
+         {12.0, 2.5, 3.2},
+         {0.0, 0.0, 0.0},
+         {},
+         0.0},
         // PEDESTRIAN: fresh, plain.
-        {overlume::ObjectClass::PEDESTRIAN, {2.0, -5.0, 0.0}, 1.0, {0.6, 0.6, 1.8}, {0.0, 0.0, 0.0}, {}, 0.0},
+        {overlume::ObjectClass::PEDESTRIAN,
+         {2.0, -5.0, 0.0},
+         1.0,
+         {0.6, 0.6, 1.8},
+         {0.0, 0.0, 0.0},
+         {},
+         0.0},
         // CYCLIST: fresh, plain.
-        {overlume::ObjectClass::CYCLIST, {-2.0, -6.0, 0.0}, 0.6, {1.9, 0.7, 1.7}, {0.0, 0.0, 0.0}, {}, 0.0},
+        {overlume::ObjectClass::CYCLIST,
+         {-2.0, -6.0, 0.0},
+         0.6,
+         {1.9, 0.7, 1.7},
+         {0.0, 0.0, 0.0},
+         {},
+         0.0},
         // UNKNOWN: deliberately stale -- 0.9s behind `now`, inside the
         // 0.5s/1.0s fade window (alpha ~0.2).
-        {overlume::ObjectClass::UNKNOWN, {6.0, -6.0, 0.0}, -1.2, {2.0, 2.0, 2.0}, {0.0, 0.0, 0.0}, {}, 0.9},
+        {overlume::ObjectClass::UNKNOWN,
+         {6.0, -6.0, 0.0},
+         -1.2,
+         {2.0, 2.0, 2.0},
+         {0.0, 0.0, 0.0},
+         {},
+         0.9},
     };
 
     ObjectScene s;
     size_t totalPathPoints = 0;
     for (const auto& sp : specs) totalPathPoints += sp.path.size();
     s.path_points.reserve(totalPathPoints);  // fixed capacity FIRST -- see golden.hpp/MapGeom's
-                                              // own comment on why this must not reallocate mid-loop
+                                             // own comment on why this must not reallocate mid-loop
     s.objects.reserve(specs.size());
 
     uint32_t nextId = 1;
@@ -289,10 +321,8 @@ ObjectScene make_mixed_class_objects(double now) {
 // See golden.hpp. One ribbon per role, camera-visible from the same kind
 // of origin-looking pose test_objects.cpp uses (kPose there /
 // RibbonGolden.ThreeRoles_DarkAdas here).
-RibbonScene make_three_role_ribbons(double now)
-{
-    struct Spec
-    {
+RibbonScene make_three_role_ribbons(double now) {
+    struct Spec {
         overlume::PathRole role;
         std::vector<overlume::Vec3> points;
         double age_sec;  // last_update_sec = now - age_sec
@@ -303,12 +333,14 @@ RibbonScene make_three_role_ribbons(double now)
     // lower ribbon peeking out as a rim.
     const std::vector<Spec> specs = {
         // BEHAVIOR: the hero ribbon, fresh, shortest -- the near-term plan.
-        {overlume::PathRole::BEHAVIOR,
-         {{-4.0, -1.2, 0.0}, {0.0, 0.0, 0.0}, {4.0, 1.2, 0.0}},
-         0.0},
+        {overlume::PathRole::BEHAVIOR, {{-4.0, -1.2, 0.0}, {0.0, 0.0, 0.0}, {4.0, 1.2, 0.0}}, 0.0},
         // GLOBAL: fresh, the longest -- the coarse route, same corridor.
         {overlume::PathRole::GLOBAL,
-         {{-10.0, -3.0, 0.0}, {-5.0, -1.5, 0.0}, {0.0, 0.0, 0.0}, {5.0, 1.5, 0.0}, {10.0, 3.0, 0.0}},
+         {{-10.0, -3.0, 0.0},
+          {-5.0, -1.5, 0.0},
+          {0.0, 0.0, 0.0},
+          {5.0, 1.5, 0.0},
+          {10.0, 3.0, 0.0}},
          0.0},
         // LOCAL: fresh, mid-length, same corridor.
         {overlume::PathRole::LOCAL,
@@ -320,11 +352,10 @@ RibbonScene make_three_role_ribbons(double now)
     size_t totalPoints = 0;
     for (const auto& sp : specs) totalPoints += sp.points.size();
     s.point_storage.reserve(totalPoints);  // fixed capacity FIRST -- see golden.hpp's own
-                                            // comment on why this must not reallocate mid-loop
+                                           // comment on why this must not reallocate mid-loop
     s.ribbons.reserve(specs.size());
 
-    for (const auto& sp : specs)
-    {
+    for (const auto& sp : specs) {
         const size_t offset = s.point_storage.size();
         for (const auto& p : sp.points) s.point_storage.push_back(p);
         overlume::PathRibbon r{};
@@ -343,10 +374,8 @@ RibbonScene make_three_role_ribbons(double now)
 
 // See golden.hpp. Synthetic -- the five collision-checker topics were
 // silent in the recorded bag.
-AlertScene make_sweep_and_predicted_alerts(double now)
-{
-    struct Spec
-    {
+AlertScene make_sweep_and_predicted_alerts(double now) {
+    struct Spec {
         uint8_t severity;
         std::vector<overlume::Vec3> points;
         double age_sec;  // last_update_sec = now - age_sec
@@ -366,11 +395,10 @@ AlertScene make_sweep_and_predicted_alerts(double now)
     size_t totalPoints = 0;
     for (const auto& sp : specs) totalPoints += sp.points.size();
     s.point_storage.reserve(totalPoints);  // fixed capacity FIRST -- see golden.hpp's own
-                                            // comment on why this must not reallocate mid-loop
+                                           // comment on why this must not reallocate mid-loop
     s.alerts.reserve(specs.size());
 
-    for (const auto& sp : specs)
-    {
+    for (const auto& sp : specs) {
         const size_t offset = s.point_storage.size();
         for (const auto& p : sp.points) s.point_storage.push_back(p);
         overlume::AlertPolygon a{};
@@ -400,11 +428,12 @@ GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_p
         m.position = {x, 0.0, 0.5};
         m.heading_rad = 0.3;  // nonzero -- proves heading is actually applied, not just position
         m.scale = scale;
-        m.last_update_sec = now;  // fresh -- ZeroAlphaColorUsesThemeNeutralDefault's color[3]==0 default
+        m.last_update_sec =
+            now;  // fresh -- ZeroAlphaColorUsesThemeNeutralDefault's color[3]==0 default
         s.markers.push_back(m);
     };
     auto push_points = [&](overlume::MarkerPrimitive prim, const overlume::Vec3* pts, uint32_t n,
-                            bool colored) {
+                           bool colored) {
         const size_t offset = s.point_storage.size();
         for (uint32_t i = 0; i < n; ++i) s.point_storage.push_back(pts[i]);
         overlume::GenericMarker m{};
@@ -434,11 +463,8 @@ GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_p
         {9.5, -0.5, 0.2}, {10.5, 0.5, 0.2}, {9.5, 0.5, 0.2}, {10.5, -0.5, 0.2}};
     push_points(overlume::MarkerPrimitive::LINE_LIST, lineList, 4, /*colored=*/false);
 
-    const overlume::Vec3 points[] = {{11.0, 0.0, 0.3},
-                                   {11.5, 0.3, 0.3},
-                                   {12.0, -0.3, 0.3},
-                                   {12.5, 0.2, 0.3},
-                                   {13.0, -0.2, 0.3}};
+    const overlume::Vec3 points[] = {
+        {11.0, 0.0, 0.3}, {11.5, 0.3, 0.3}, {12.0, -0.3, 0.3}, {12.5, 0.2, 0.3}, {13.0, -0.2, 0.3}};
     push_points(overlume::MarkerPrimitive::POINTS, points, 5, /*colored=*/false);
 
     // TEXT: placeholder billboard (VM-030/Epic 3 owns real glyphs) --

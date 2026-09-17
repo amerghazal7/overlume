@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // 05_environment.cpp — loads a baked environment chunk index from the
 // committed fixture dir the library's own environment tests use, then,
 // ONLY if CESIUM_ION_TOKEN is set in the environment, ALSO tries the
@@ -72,8 +75,8 @@ int main(int argc, char** argv) {
     // from the .glb, same value test_environment.cpp uses), not the chunk
     // cell's nominal center.
     const overlume::Vec3 centroid{-109.2, -17.1, 3.0};
-    const overlume::CameraPose pose{{centroid.x + 50, centroid.y - 70, 40},
-                                  {centroid.x, centroid.y, centroid.z}, 60.0};
+    const overlume::CameraPose pose{
+        {centroid.x + 50, centroid.y - 70, 40}, {centroid.x, centroid.y, centroid.z}, 60.0};
 
     std::vector<uint8_t> rgb(static_cast<size_t>(config.width) * config.height * 3);
     overlume::FrameView view{rgb.data(), config.width, config.height};
@@ -82,11 +85,12 @@ int main(int argc, char** argv) {
         overlume::destroy_renderer(renderer);
         return 1;
     }
-    std::printf("environment_source_state() = %u (0=NONE,1=BAKED,2=STREAMING,3=STREAMING_FALLBACK)\n",
-                static_cast<unsigned>(overlume::environment_source_state(renderer)));
+    std::printf(
+        "environment_source_state() = %u (0=NONE,1=BAKED,2=STREAMING,3=STREAMING_FALLBACK)\n",
+        static_cast<unsigned>(overlume::environment_source_state(renderer)));
 
-    const bool wrote = overlume_examples::write_png(args.output_path, config.width,
-                                                      config.height, rgb.data());
+    const bool wrote =
+        overlume_examples::write_png(args.output_path, config.width, config.height, rgb.data());
 
     // Streaming is opt-in and network-dependent -- checked by NAME only
     // (never printed), per this repo's token-handling rule. A CI run has no
@@ -100,8 +104,9 @@ int main(int argc, char** argv) {
         const bool streaming_opened =
             overlume::set_environment_source(renderer, "ion://96188", anchor);
         if (!streaming_opened) {
-            std::printf("05_environment: streaming set_environment_source(\"ion://96188\", ...) "
-                        "returned false (network/build config?) -- continuing\n");
+            std::printf(
+                "05_environment: streaming set_environment_source(\"ion://96188\", ...) "
+                "returned false (network/build config?) -- continuing\n");
         } else {
             // Pump a handful of frames so tiles have a few ticks to arrive
             // asynchronously; this is a brief demo, not a throughput test.

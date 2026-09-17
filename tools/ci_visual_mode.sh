@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # ci_visual_mode.sh — VM-041 (Epic 5): the repo's one repo-local pre-merge
 # gate for visual mode. This repo has NO hosted CI (no .github/workflows, no
 # .gitlab-ci.yml) — this script IS "CI wiring" until a hosted platform

@@ -1,0 +1,16 @@
+# Commits listed here are skipped by `git blame` (and GitHub's blame view,
+# which reads this same file) because they are pure reformatting/mechanical
+# commits that touch huge numbers of lines without changing behavior —
+# without this file, a routine `git blame` on almost any line in the repo
+# would dead-end on a reformat commit instead of the change that actually
+# introduced the line.
+#
+# Enable it locally with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (GitHub's web blame view honors this file automatically, no configuration
+# needed, for repos hosted there.)
+#
+# Task 6b (Overlume open-source restructure): repo-wide clang-format
+# reformat (Google-based style, Attach braces) + SPDX header insertion.
+# Hash filled in by the orchestrator after the reformat commit lands:
+# <hash of the reformat commit — filled in by the orchestrator after commit>

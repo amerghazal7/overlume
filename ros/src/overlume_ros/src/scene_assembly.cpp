@@ -1,12 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #include "overlume_ros/scene_assembly.hpp"
 
 #include <cmath>
 
-namespace overlume::ros
-{
+namespace overlume::ros {
 
-void SceneAssembly::clear()
-{
+void SceneAssembly::clear() {
     map_elements.clear();
     objects.clear();
     paths.clear();
@@ -18,14 +19,11 @@ void SceneAssembly::clear()
     respined_carpet_points.clear();
 }
 
-void respine_velocity_ribbon_onto_local_path(SceneAssembly& a)
-{
+void respine_velocity_ribbon_onto_local_path(SceneAssembly& a) {
     if (a.trajectory_carpets.empty()) return;
     const overlume::PathRibbon* local = nullptr;
-    for (const auto& r : a.paths)
-    {
-        if (r.role == overlume::PathRole::LOCAL && r.point_count >= 2)
-        {
+    for (const auto& r : a.paths) {
+        if (r.role == overlume::PathRole::LOCAL && r.point_count >= 2) {
             local = &r;
             break;
         }
@@ -34,38 +32,32 @@ void respine_velocity_ribbon_onto_local_path(SceneAssembly& a)
 
     // Local path cumulative stations.
     std::vector<double> lcum(local->point_count, 0.0);
-    for (uint32_t i = 1; i < local->point_count; ++i)
-    {
+    for (uint32_t i = 1; i < local->point_count; ++i) {
         const auto& p0 = local->points[i - 1];
         const auto& p1 = local->points[i];
         lcum[i] = lcum[i - 1] + std::hypot(p1.x - p0.x, p1.y - p0.y);
     }
 
-    for (auto& carpet : a.trajectory_carpets)
-    {
+    for (auto& carpet : a.trajectory_carpets) {
         if (carpet.point_count < 2) continue;
         // Carpet's own stations (color lookup key).
         std::vector<double> ccum(carpet.point_count, 0.0);
-        for (uint32_t i = 1; i < carpet.point_count; ++i)
-        {
+        for (uint32_t i = 1; i < carpet.point_count; ++i) {
             const auto& c0 = carpet.points[i - 1];
             const auto& c1 = carpet.points[i];
-            ccum[i] = ccum[i - 1] + std::hypot(c1.position.x - c0.position.x,
-                                                c1.position.y - c0.position.y);
+            ccum[i] = ccum[i - 1] +
+                      std::hypot(c1.position.x - c0.position.x, c1.position.y - c0.position.y);
         }
         a.respined_carpet_points.emplace_back();
         auto& out = a.respined_carpet_points.back();
         out.reserve(local->point_count);
         uint32_t ci = 0;  // both station arrays are monotone -- one forward walk
-        for (uint32_t i = 0; i < local->point_count; ++i)
-        {
+        for (uint32_t i = 0; i < local->point_count; ++i) {
             while (ci + 1 < carpet.point_count && ccum[ci + 1] <= lcum[i]) ++ci;
             // nearest of ci/ci+1 by station; past the carpet's end this
             // naturally holds the last color.
             uint32_t pick = ci;
-            if (ci + 1 < carpet.point_count &&
-                (ccum[ci + 1] - lcum[i]) < (lcum[i] - ccum[ci]))
-            {
+            if (ci + 1 < carpet.point_count && (ccum[ci + 1] - lcum[i]) < (lcum[i] - ccum[ci])) {
                 pick = ci + 1;
             }
             overlume::PointCloudPoint pt{};
@@ -78,8 +70,7 @@ void respine_velocity_ribbon_onto_local_path(SceneAssembly& a)
     }
 }
 
-void SceneAssembly::point_at(overlume::SceneGraph& scene) const
-{
+void SceneAssembly::point_at(overlume::SceneGraph& scene) const {
     scene.map_elements = map_elements.data();
     scene.map_element_count = static_cast<uint32_t>(map_elements.size());
     scene.objects = objects.data();
@@ -98,8 +89,7 @@ void SceneAssembly::point_at(overlume::SceneGraph& scene) const
     scene.trajectory_carpet_count = static_cast<uint32_t>(trajectory_carpets.size());
 }
 
-void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags)
-{
+void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags) {
     if (!flags.objects) asm_.objects.clear();
     if (!flags.paths) asm_.paths.clear();
     if (!flags.map_elements) asm_.map_elements.clear();
@@ -113,13 +103,12 @@ void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags)
 // LayerFlags members default to true, so a 9th category would aggregate-init
 // true in the BOWL/HYBRID masks below with no compiler complaint and no test
 // failure. This assert is the tripwire.
-static_assert(sizeof(LayerFlags) == 8, "LayerFlags gained a category -- extend "
+static_assert(sizeof(LayerFlags) == 8,
+              "LayerFlags gained a category -- extend "
               "mode_content_mask()'s BOWL/HYBRID masks below or it renders in modes 1/2");
 
-LayerFlags mode_content_mask(RenderMode mode)
-{
-    switch (mode)
-    {
+LayerFlags mode_content_mask(RenderMode mode) {
+    switch (mode) {
         case RenderMode::BOWL:
             // CUDA node's own mode 1: bowl + ego only -- nothing from the
             // autonomy scene.
@@ -141,19 +130,14 @@ LayerFlags mode_content_mask(RenderMode mode)
     }
 }
 
-bool bowl_visible_for_mode(RenderMode mode, bool surround_stitching)
-{
+bool bowl_visible_for_mode(RenderMode mode, bool surround_stitching) {
     return mode == RenderMode::BOWL || mode == RenderMode::HYBRID ||
            (mode == RenderMode::FREE_LOOK && surround_stitching);
 }
 
-bool overlays_visible_for_mode(RenderMode mode)
-{
-    return mode == RenderMode::FREE_LOOK;
-}
+bool overlays_visible_for_mode(RenderMode mode) { return mode == RenderMode::FREE_LOOK; }
 
-LayerFlags compose_layer_gates(const LayerFlags& user, const LayerFlags& mask)
-{
+LayerFlags compose_layer_gates(const LayerFlags& user, const LayerFlags& mask) {
     return LayerFlags{
         user.objects && mask.objects,
         user.paths && mask.paths,

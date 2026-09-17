@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
 """Convert M02P.obj (the ego robot mesh) to a glTF binary for overlume.
 
 Usage: obj2gltf_m02p.py <input.obj> [output.glb]

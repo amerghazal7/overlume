@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // ribbon_test_hooks.hpp — internal-only, not installed, not POD.
 // tests/test_ribbon.cpp links only against `overlume` and has no
 // access to its PRIVATE Filament include dir, so it can't include
@@ -19,7 +22,8 @@ namespace overlume::testing {
 // The color last passed to role `role`'s MaterialInstance "baseColor"
 // param (rgb only — Filament has no getter for a set parameter, so this
 // isn't a GPU read-back). {0,0,0} if `r` is null.
-overlume::detail::Float3 ribbon_role_base_color(overlume::VisualRenderer* r, overlume::PathRole role);
+overlume::detail::Float3 ribbon_role_base_color(overlume::VisualRenderer* r,
+                                                overlume::PathRole role);
 
 // Number of Filament meshes backing ribbon slot `slot` (0-indexed into
 // active().paths) — Filament-free: a size_t, not a Mesh/Entity. >1 only

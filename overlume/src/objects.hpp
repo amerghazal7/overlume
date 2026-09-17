@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // objects.hpp — internal-only (`-I src`), not installed, not POD. Declares
 // the per-frame counterpart to set_object_model_dir() (scene.h/objects.cpp):
 // set_object_model_dir() loads models once, update_objects() acquires/

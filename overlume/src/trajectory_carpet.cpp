@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // trajectory_carpet.cpp — output_trajectory_carpet (VM-077), rendered as a
 // velocity-colored RIBBON extruded from adapter-derived centerline stations
 // (redirected 2026-09-10 per user directive; see the plan doc's 2026-09-10
@@ -82,7 +85,8 @@ constexpr float kTrajectoryCarpetBoundsM = 200.0f;
 // kTrajectoryCarpetZLiftM (0.055, chosen only to clear BEHAVIOR from
 // "above everything" carpet-era thinking that no longer applies once this
 // renders IN the ribbon stack rather than over it).
-constexpr float kVelocityRibbonZLiftM = 0.052f;  // widened stagger 2026-09-10, between LOCAL 0.046 and BEHAVIOR 0.058
+constexpr float kVelocityRibbonZLiftM =
+    0.052f;  // widened stagger 2026-09-10, between LOCAL 0.046 and BEHAVIOR 0.058
 
 // One trajectory-carpet vertex: world-space position + packed rgba8, EXACTLY
 // point_cloud.cpp's PointVertex layout (D1: PointCloudPoint reused verbatim
@@ -95,7 +99,7 @@ struct CarpetVertex {
 };
 
 filament::VertexBuffer* make_carpet_vertex_buffer(filament::Engine& engine,
-                                                   std::vector<CarpetVertex> verts) {
+                                                  std::vector<CarpetVertex> verts) {
     auto* heap = new std::vector<CarpetVertex>(std::move(verts));
     filament::VertexBuffer* vb =
         filament::VertexBuffer::Builder()
@@ -105,8 +109,8 @@ filament::VertexBuffer* make_carpet_vertex_buffer(filament::Engine& engine,
                        filament::VertexBuffer::AttributeType::FLOAT3,
                        offsetof(CarpetVertex, position), sizeof(CarpetVertex))
             .attribute(filament::VertexAttribute::COLOR, 0,
-                       filament::VertexBuffer::AttributeType::UBYTE4,
-                       offsetof(CarpetVertex, rgba), sizeof(CarpetVertex))
+                       filament::VertexBuffer::AttributeType::UBYTE4, offsetof(CarpetVertex, rgba),
+                       sizeof(CarpetVertex))
             .normalized(filament::VertexAttribute::COLOR)
             .build(engine);
     vb->setBufferAt(
@@ -222,7 +226,7 @@ void destroy_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot
 // (same reasoning make_carpet_vertex_buffer() above already gives for its
 // own duplication of make_vertex_buffer()'s shape).
 void update_carpet_vertex_positions(filament::Engine& engine, Mesh& mesh,
-                                     std::vector<CarpetVertex> verts) {
+                                    std::vector<CarpetVertex> verts) {
     if (mesh.vb == nullptr) return;
     auto* heap = new std::vector<CarpetVertex>(std::move(verts));
     mesh.vb->setBufferAt(
@@ -240,7 +244,7 @@ void update_carpet_vertex_positions(filament::Engine& engine, Mesh& mesh,
 // extrude_polyline_indices() reused verbatim, with per-vertex colour taken
 // from the source station instead of a per-role material tint.
 void build_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& slot,
-                        const PointCloudPoint* pts, uint32_t n, float halfWidthM) {
+                       const PointCloudPoint* pts, uint32_t n, float halfWidthM) {
     destroy_slot_meshes(r, slot);
     slot.totalVertexCount = 0;
     slot.halfWidthM = halfWidthM;
@@ -264,8 +268,8 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& 
     bool first_chunk = true;
     for (auto [a, b] : detail::polyline_chunks(static_cast<uint32_t>(cleaned.size()))) {
         const uint32_t chunkN = b - a;
-        std::vector<Vec3> strip =
-            detail::extrude_polyline(positions.data() + a, chunkN, halfWidthM, kVelocityRibbonZLiftM);
+        std::vector<Vec3> strip = detail::extrude_polyline(positions.data() + a, chunkN, halfWidthM,
+                                                           kVelocityRibbonZLiftM);
         if (strip.empty()) continue;
         std::vector<uint16_t> idx =
             detail::extrude_polyline_indices(static_cast<uint32_t>(strip.size() / 2));
@@ -276,12 +280,14 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& 
         // strip.size() == 2*chunkN exactly, and pair i (vertices 2i/2i+1)
         // corresponds to cleaned[a+i] one-to-one.
         std::vector<uint32_t> rgba(strip.size());
-        for (size_t i = 0; i < strip.size(); ++i) rgba[i] = resolve_rgba(r, cleaned[a + i / 2].rgba);
+        for (size_t i = 0; i < strip.size(); ++i)
+            rgba[i] = resolve_rgba(r, cleaned[a + i / 2].rgba);
 
         std::vector<CarpetVertex> verts(strip.size());
         for (size_t i = 0; i < strip.size(); ++i) {
-            verts[i].position = float3{static_cast<float>(strip[i].x), static_cast<float>(strip[i].y),
-                                        static_cast<float>(strip[i].z)};
+            verts[i].position =
+                float3{static_cast<float>(strip[i].x), static_cast<float>(strip[i].y),
+                       static_cast<float>(strip[i].z)};
             verts[i].rgba = rgba[i];
         }
         if (first_chunk) {
@@ -300,9 +306,9 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& 
         mesh.ib = make_index_buffer(*r.engine, std::move(idx));
         mesh.entity = utils::EntityManager::get().create();
         filament::RenderableManager::Builder(1)
-            .boundingBox({{0, 0, 0},
-                          {kTrajectoryCarpetBoundsM, kTrajectoryCarpetBoundsM,
-                           kTrajectoryCarpetBoundsM}})
+            .boundingBox(
+                {{0, 0, 0},
+                 {kTrajectoryCarpetBoundsM, kTrajectoryCarpetBoundsM, kTrajectoryCarpetBoundsM}})
             .geometry(0, filament::RenderableManager::PrimitiveType::TRIANGLES, mesh.vb, mesh.ib)
             .material(0, r.trajectoryCarpetMaterialInstance)
             .culling(false)
@@ -323,18 +329,18 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& 
 void apply_carpet_clip(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& slot,
                        const detail::PolylineClip& clip) {
     const bool changed = !slot.has_applied_clip || slot.appliedClipActive != clip.active ||
-                          (clip.active && slot.appliedClipUnits != clip.quantized_units);
+                         (clip.active && slot.appliedClipUnits != clip.quantized_units);
     if (!changed) return;
     for (size_t i = 0; i < slot.meshes.size(); ++i) {
         std::vector<Vec3> positions = slot.baseStripPositions[i];
         detail::collapse_clipped_positions(positions, slot.pointStations[i], clip.active,
-                                            clip.station_m);
+                                           clip.station_m);
         if (i == 0 && !positions.empty()) slot.firstPointM = positions[0];
         std::vector<CarpetVertex> verts(positions.size());
         for (size_t v = 0; v < positions.size(); ++v) {
-            verts[v].position = float3{static_cast<float>(positions[v].x),
-                                        static_cast<float>(positions[v].y),
-                                        static_cast<float>(positions[v].z)};
+            verts[v].position =
+                float3{static_cast<float>(positions[v].x), static_cast<float>(positions[v].y),
+                       static_cast<float>(positions[v].z)};
             verts[v].rgba = slot.baseStripRgba[i][v];
         }
         update_carpet_vertex_positions(*r.engine, slot.meshes[i], std::move(verts));
@@ -373,9 +379,9 @@ void update_trajectory_carpets(VisualRenderer& r, const SceneGraph& s) {
         std::vector<Vec3> rawPositions(tc.point_count);
         for (uint32_t j = 0; j < tc.point_count; ++j) rawPositions[j] = tc.points[j].position;
         const detail::PolylineClip clip =
-            s.ego.valid ? detail::compute_polyline_clip(rawPositions.data(), tc.point_count,
-                                                          s.ego.position)
-                        : detail::PolylineClip{};
+            s.ego.valid
+                ? detail::compute_polyline_clip(rawPositions.data(), tc.point_count, s.ego.position)
+                : detail::PolylineClip{};
 
         const uint64_t sig =
             trajectory_carpet_signature(rawPositions.data(), tc.point_count, halfWidthM);
@@ -391,8 +397,8 @@ void update_trajectory_carpets(VisualRenderer& r, const SceneGraph& s) {
         apply_carpet_clip(r, slot, clip);
 
         alpha = std::max(alpha, static_cast<float>(detail::SceneBuffer::staleness_alpha(
-                                     s.sim_time_sec, tc.last_update_sec, kStaleFadeStartSec,
-                                     kStaleFadeTimeoutSec)));
+                                    s.sim_time_sec, tc.last_update_sec, kStaleFadeStartSec,
+                                    kStaleFadeTimeoutSec)));
     }
     // Fresh-opaque / stale-translucent instance swap (2026-09-10 flicker
     // root-cause fix -- see trajectory_carpet.mat's own comment): fresh
@@ -442,7 +448,8 @@ float trajectory_carpet_material_alpha(overlume::VisualRenderer* r) {
     return r->trajectoryCarpetAlpha;
 }
 
-uint32_t trajectory_carpet_vertex_rgba(overlume::VisualRenderer* r, size_t slot, size_t vertex_idx) {
+uint32_t trajectory_carpet_vertex_rgba(overlume::VisualRenderer* r, size_t slot,
+                                       size_t vertex_idx) {
     if (r == nullptr || slot >= r->trajectoryCarpetSlots.size()) return 0;
     const auto& rgba = r->trajectoryCarpetSlots[slot].firstMeshRgba;
     if (vertex_idx >= rgba.size()) return 0;
@@ -466,7 +473,8 @@ uint64_t trajectory_carpet_rebuild_count(overlume::VisualRenderer* r) {
     return r->trajectoryCarpetRebuildCount;
 }
 
-bool trajectory_carpet_slot_first_point(overlume::VisualRenderer* r, size_t slot, overlume::Vec3* out) {
+bool trajectory_carpet_slot_first_point(overlume::VisualRenderer* r, size_t slot,
+                                        overlume::Vec3* out) {
     if (r == nullptr || slot >= r->trajectoryCarpetSlots.size() || out == nullptr) return false;
     const auto& s = r->trajectoryCarpetSlots[slot];
     if (s.meshes.empty()) return false;

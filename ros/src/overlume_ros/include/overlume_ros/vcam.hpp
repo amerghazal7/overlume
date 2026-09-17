@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file vcam.hpp
  *  @brief Virtual-camera presets + eased tween switching, extracted verbatim
@@ -25,8 +28,7 @@
 // with it). The wire layout is byte-identical to the retired node's.
 #include "overlume_ros/srv/set_virtual_cam.hpp"
 
-namespace overlume::ros
-{
+namespace overlume::ros {
 
 /// A virtual-camera placement as look-points in the rig frame (x-fwd, y-left,
 /// z-up) — mirrors micropilot_rendering_node's LookPoint exactly (plan Task 5:
@@ -35,8 +37,7 @@ namespace overlume::ros
 /// (spec §6: "presets/orbits produce the same framing in both worlds") tween
 /// to bit-identical results — the contract test's 1e-9 tolerance would not be
 /// safely met if the two nodes rounded the same constants differently.
-struct LookPoint
-{
+struct LookPoint {
     float eye[3];
     float target[3];
 };
@@ -45,8 +46,7 @@ struct LookPoint
 /// ~/set_virtual_cam service + ~/set_look subscription that drive it.
 /// Extracted verbatim from OverlumeNode (plan Task 5 / VM-013) — the
 /// only new thing here is the class boundary itself.
-class Vcam
-{
+class Vcam {
 public:
     using SetVirtualCam = overlume_ros::srv::SetVirtualCam;
 
@@ -68,7 +68,7 @@ public:
 
 private:
     void on_set_virtual_cam(const std::shared_ptr<SetVirtualCam::Request> req,
-                             std::shared_ptr<SetVirtualCam::Response> res);
+                            std::shared_ptr<SetVirtualCam::Response> res);
     /// Handle ~/set_look: 6 floats [eye xyz | target xyz] applied immediately
     /// (no tween) — the generic runtime pose input used for free-look orbiting.
     void on_set_look(const std_msgs::msg::Float64MultiArray::SharedPtr msg);
@@ -78,10 +78,10 @@ private:
     // names/formulas to micropilot_rendering_node so the two nodes' presets
     // frame the world the same way (spec §6).
     std::array<LookPoint, 5> presets_{};
-    static constexpr std::array<const char*, 5> kPresetNames{
-        "config", "reverse_follow", "left_side", "right_side", "top_down"};
+    static constexpr std::array<const char*, 5> kPresetNames{"config", "reverse_follow",
+                                                             "left_side", "right_side", "top_down"};
     LookPoint cur_{}, src_{}, dst_{};
-    double tween_t_{1.0};  // [0,1]; 1.0 = settled on dst_. Eased per timer tick.
+    double tween_t_{1.0};   // [0,1]; 1.0 = settled on dst_. Eased per timer tick.
     int active_preset_{1};  // 1-5 = preset in service numbering; 0 = free look
 
     overlume::CameraPose pose_{};  // current (possibly tweening) pose

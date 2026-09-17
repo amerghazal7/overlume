@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file scene_assembly.hpp
  *  @brief Node-owned per-category merge buffer (Epic 2 Task 1 / VM-020).
@@ -29,11 +32,9 @@
 
 #include "overlume/scene.h"
 
-namespace overlume::ros
-{
+namespace overlume::ros {
 
-struct SceneAssembly
-{
+struct SceneAssembly {
     std::vector<overlume::MapElement> map_elements;
     std::vector<overlume::TrackedObject> objects;
     std::vector<overlume::PathRibbon> paths;
@@ -81,8 +82,7 @@ struct SceneAssembly
 // fill() and before apply_layer_gates()/point_at().
 void respine_velocity_ribbon_onto_local_path(SceneAssembly& a);
 
-struct LayerFlags
-{
+struct LayerFlags {
     bool objects = true;
     bool paths = true;
     bool map_elements = true;
@@ -106,8 +106,7 @@ void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags);
 // The node's render-mode selector -- driven directly by /rendering/set_mode
 // since the VM-095 cutover (no mux, no active_mode_; this enum is the single
 // source of mode truth).
-enum class RenderMode
-{
+enum class RenderMode {
     BOWL = 1,
     HYBRID = 2,
     FREE_LOOK = 3,

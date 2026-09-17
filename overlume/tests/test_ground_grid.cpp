@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_ground_grid.cpp — OGM occupancy grids as theme-colored ground
 // textures with in-place partial updates. Same "no Filament type" boundary
 // as every other tests/*.cpp -- see ground_grid_test_hooks.hpp.

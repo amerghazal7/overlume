@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // camera_textures.hpp — internal-only (`-I src`), not installed, not POD.
 // Declares CameraTextureSlot, the per-camera state VisualRenderer holds
 // directly (renderer_internal.hpp) for the up-to-kMaxBowlCameras persistent

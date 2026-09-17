@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // tests/test_renderer_projection.cpp — Epic 3 Task 4 (VM-031) Step 1:
 // overlume::project_to_screen() against the camera state the most recent
 // render_frame() call set. Same "create_renderer() must succeed on this
@@ -72,8 +75,8 @@ TEST(ProjectToScreen, PointBehindCameraReturnsFalse) {
     // eye + (eye - target): straight behind the eye, opposite the look
     // direction, at the same distance the target sits in front of it.
     const overlume::Vec3 behind{pose.eye[0] + (pose.eye[0] - pose.target[0]),
-                              pose.eye[1] + (pose.eye[1] - pose.target[1]),
-                              pose.eye[2] + (pose.eye[2] - pose.target[2])};
+                                pose.eye[1] + (pose.eye[1] - pose.target[1]),
+                                pose.eye[2] + (pose.eye[2] - pose.target[2])};
     float x = 0.0f, y = 0.0f;
     EXPECT_FALSE(overlume::project_to_screen(r, behind, &x, &y));
 
@@ -93,7 +96,7 @@ TEST(ProjectToScreen, PointOutsideFrustumReturnsFalse) {
     // Same depth as the target (in front of the camera, w > 0) but 500m off
     // to the side -- far outside an 80deg vfov's horizontal extent at ~7m.
     const overlume::Vec3 way_off_to_the_side{pose.target[0], pose.target[1] + 500.0,
-                                           pose.target[2]};
+                                             pose.target[2]};
     float x = 0.0f, y = 0.0f;
     EXPECT_FALSE(overlume::project_to_screen(r, way_off_to_the_side, &x, &y));
 

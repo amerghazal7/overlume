@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file frame_transform.hpp
  *  @brief map<-header.frame_id lookup, shared by every Epic 2 adapter
@@ -19,11 +22,9 @@
 #include <tf2/LinearMath/Transform.h>
 #include <tf2_ros/buffer.h>
 
-namespace overlume::ros
-{
+namespace overlume::ros {
 
-class FrameTransformer
-{
+class FrameTransformer {
 public:
     // flatten_z (default ON): the HD map is a 2D plane today, so
     // publisher-supplied z (dynamic-object bbox centers,
@@ -33,9 +34,7 @@ public:
     // 3D coordinates -- exposed as the node's `flatten_z` parameter.
     explicit FrameTransformer(const tf2_ros::Buffer& buffer, std::string target_frame = "map",
                               bool flatten_z = true)
-        : buffer_(buffer), target_frame_(std::move(target_frame)), flatten_z_(flatten_z)
-    {
-    }
+        : buffer_(buffer), target_frame_(std::move(target_frame)), flatten_z_(flatten_z) {}
 
     bool flatten_z() const { return flatten_z_; }
 

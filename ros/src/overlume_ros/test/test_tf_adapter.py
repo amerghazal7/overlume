@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """TF adapter test: map->base_link TF -> EMA-smoothed ego speed (Epic 1 Task 4
 / VM-012, docs/plans/2026-08-18-visual-mode-epic1.md Task 4 Step
 7-9).

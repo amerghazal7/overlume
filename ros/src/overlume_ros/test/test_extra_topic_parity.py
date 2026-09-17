@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """Extra-topic parity E2E (Epic 2 Task 8 / VM-027 Step 6): the spec §7
 parity guarantee proven end to end -- adding a topic is ONE YAML ROW AND NO
 CODE.

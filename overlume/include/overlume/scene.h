@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // scene.h — POD boundary, same rules as api.h (checked by the same
 // check_pod_header.sh, extended to glob include/overlume/*.h).
 //
@@ -58,7 +61,9 @@ namespace overlume {
 constexpr uint32_t kSceneVersion = 6;
 
 /// @brief A plain 3D point or vector, map frame unless documented otherwise.
-struct Vec3 { double x, y, z; };
+struct Vec3 {
+    double x, y, z;
+};
 /// @var Vec3::x
 /// X coordinate.
 /// @var Vec3::y
@@ -68,23 +73,36 @@ struct Vec3 { double x, y, z; };
 
 /// @brief Tracked-object class (TrackedObject::cls).
 enum class ObjectClass : uint8_t {
-    CAR = 0, TRUCK_VAN = 1, BUS = 2, PEDESTRIAN = 3, CYCLIST = 4, UNKNOWN = 5
+    CAR = 0,
+    TRUCK_VAN = 1,
+    BUS = 2,
+    PEDESTRIAN = 3,
+    CYCLIST = 4,
+    UNKNOWN = 5
 };
 /// @brief What a PathRibbon represents (PathRibbon::role).
 enum class PathRole : uint8_t { BEHAVIOR = 0, GLOBAL = 1, LOCAL = 2 };
 /// @brief Geometry kind for a GenericMarker (the parity-guarantee fallback).
 enum class MarkerPrimitive : uint8_t {
-    CUBE = 0, SPHERE = 1, CYLINDER = 2, ARROW = 3, LINE_STRIP = 4,
-    LINE_LIST = 5, POINTS = 6, TEXT = 7, TRIANGLE_LIST = 8, MESH = 9
+    CUBE = 0,
+    SPHERE = 1,
+    CYLINDER = 2,
+    ARROW = 3,
+    LINE_STRIP = 4,
+    LINE_LIST = 5,
+    POINTS = 6,
+    TEXT = 7,
+    TRIANGLE_LIST = 8,
+    MESH = 9
 };
 
 // ── Ego (Epic 1 populates this) ─────────────────────────────────────────────
 /// @brief The ego vehicle's pose and speed.
 struct EgoState {
-    Vec3 position;        ///< Map frame.
-    double heading_rad;   ///< Yaw about +Z, map frame.
-    double speed_mps;     ///< Finite-differenced from TF, smoothed (VM-012).
-    uint8_t valid;        ///< 0 = no TF yet -> ego hidden, not a clay box at origin.
+    Vec3 position;       ///< Map frame.
+    double heading_rad;  ///< Yaw about +Z, map frame.
+    double speed_mps;    ///< Finite-differenced from TF, smoothed (VM-012).
+    uint8_t valid;       ///< 0 = no TF yet -> ego hidden, not a clay box at origin.
 };
 
 // ── TrackedObject[] (Epic 2: VM-021/022) ────────────────────────────────────
@@ -94,11 +112,12 @@ struct TrackedObject {
     ObjectClass cls;
     Vec3 position;
     double heading_rad;
-    Vec3 dimensions;              ///< length(x)/width(y)/height(z), meters.
-    Vec3 velocity;                ///< Map frame, m/s (velocity arrow, spec §4.1).
-    const Vec3* predicted_path;   uint32_t predicted_path_count;
-    const char* label;            ///< Nul-terminated, caller-owned, may be nullptr.
-    double last_update_sec;       ///< SceneGraph::sim_time_sec at last refresh (staleness).
+    Vec3 dimensions;  ///< length(x)/width(y)/height(z), meters.
+    Vec3 velocity;    ///< Map frame, m/s (velocity arrow, spec §4.1).
+    const Vec3* predicted_path;
+    uint32_t predicted_path_count;
+    const char* label;       ///< Nul-terminated, caller-owned, may be nullptr.
+    double last_update_sec;  ///< SceneGraph::sim_time_sec at last refresh (staleness).
 };
 /// @var TrackedObject::id
 /// Stable per-track identifier.
@@ -117,7 +136,8 @@ struct TrackedObject {
 /// @brief A polyline path (behavior ribbon, global/local plan).
 struct PathRibbon {
     PathRole role;
-    const Vec3* points;  uint32_t point_count;
+    const Vec3* points;
+    uint32_t point_count;
     double last_update_sec;
 };
 /// @var PathRibbon::role
@@ -142,14 +162,22 @@ struct PathRibbon {
 /// @brief Kind of a MapElement (MapElement::kind).
 /// @since kSceneVersion 1 (appended Epic 3 Task 1 / VM-036, ADR-0004).
 enum class MapKind : uint8_t {
-    OTHER = 0, CENTERLINE = 1, LEFT_BOUNDARY = 2, RIGHT_BOUNDARY = 3,
-    CROSSWALK = 4, STOPLINE = 5, JUNCTION = 6, ROAD_EDGE = 7, ROAD_SURFACE = 8
+    OTHER = 0,
+    CENTERLINE = 1,
+    LEFT_BOUNDARY = 2,
+    RIGHT_BOUNDARY = 3,
+    CROSSWALK = 4,
+    STOPLINE = 5,
+    JUNCTION = 6,
+    ROAD_EDGE = 7,
+    ROAD_SURFACE = 8
 };
 
 /// @brief One HD-map element (lane centerline, boundary, crosswalk, ...).
 struct MapElement {
     // @var-documented below (points/point_count share a physical line).
-    const Vec3* points;  uint32_t point_count;
+    const Vec3* points;
+    uint32_t point_count;
     uint8_t is_polygon;  ///< 0 = polyline (lane centerline), 1 = polygon (crosswalk).
     /// Map-element kind; default (aggregate zero-init) = OTHER.
     /// @since kSceneVersion 1 (Epic 3 Task 1 / VM-036, ADR-0004).
@@ -174,11 +202,11 @@ struct MapElement {
 // not a struct change.
 /// @brief One occupancy-grid-map layer (dynamic or gradient OGM).
 struct GroundGridLayer {
-    uint8_t kind;            ///< 0 = dynamic OGM, 1 = gradient OGM.
-    Vec3 origin;             ///< Map-frame position of cell (0,0).
-    double resolution_m;     ///< Meters per cell edge.
+    uint8_t kind;         ///< 0 = dynamic OGM, 1 = gradient OGM.
+    Vec3 origin;          ///< Map-frame position of cell (0,0).
+    double resolution_m;  ///< Meters per cell edge.
     uint32_t width_cells, height_cells;
-    const uint8_t* cells;    ///< width*height, row-major, caller-owned.
+    const uint8_t* cells;  ///< width*height, row-major, caller-owned.
     double last_update_sec;
 };
 /// @var GroundGridLayer::width_cells
@@ -191,8 +219,9 @@ struct GroundGridLayer {
 // ── AlertPolygon[] (Epic 2: VM-026) ─────────────────────────────────────────
 /// @brief A severity-colored alert region (theme alert ramp).
 struct AlertPolygon {
-    const Vec3* points;  uint32_t point_count;
-    uint8_t severity;    ///< 0 info / 1 warning / 2 critical -> theme alert ramp.
+    const Vec3* points;
+    uint32_t point_count;
+    uint8_t severity;  ///< 0 info / 1 warning / 2 critical -> theme alert ramp.
     double last_update_sec;
 };
 /// @var AlertPolygon::points
@@ -207,8 +236,11 @@ struct AlertPolygon {
 /// fallback for any content that doesn't fit a dedicated category.
 struct GenericMarker {
     MarkerPrimitive primitive;
-    Vec3 position;  double heading_rad;  Vec3 scale;
-    const Vec3* points;  uint32_t point_count;   ///< LINE_*/POINTS/TRIANGLE_LIST.
+    Vec3 position;
+    double heading_rad;
+    Vec3 scale;
+    const Vec3* points;
+    uint32_t point_count;   ///< LINE_*/POINTS/TRIANGLE_LIST.
     const char* text;       ///< TEXT only, else nullptr.
     const char* mesh_path;  ///< MESH only, else nullptr.
     float color[4];         ///< rgba; theme-neutral default if alpha == 0.
@@ -262,14 +294,15 @@ struct GenericMarker {
 /// documented above PointCloudPoint's own comment block.
 /// @since kSceneVersion 2 (Epic 3 Task 6 / VM-035, ADR-0004).
 struct PointCloudPoint {
-    Vec3 position;     ///< Map frame.
-    uint32_t rgba;      ///< Packed per the convention above.
+    Vec3 position;  ///< Map frame.
+    uint32_t rgba;  ///< Packed per the convention above.
 };
 
 /// @brief One point cloud (e.g. one lidar topic).
 /// @since kSceneVersion 2 (Epic 3 Task 6 / VM-035, ADR-0004).
 struct PointCloud {
-    const PointCloudPoint* points;  uint32_t point_count;
+    const PointCloudPoint* points;
+    uint32_t point_count;
     double last_update_sec;
 };
 /// @var PointCloud::points
@@ -291,7 +324,8 @@ struct PointCloud {
 /// carpet). Reuses PointCloudPoint verbatim (world position + packed rgba8).
 /// @since kSceneVersion 3 (VM-077, ADR-0004 additive).
 struct TrajectoryCarpet {
-    const PointCloudPoint* points;  uint32_t point_count;  ///< Always a multiple of 3.
+    const PointCloudPoint* points;
+    uint32_t point_count;  ///< Always a multiple of 3.
     double last_update_sec;
 };
 /// @var TrajectoryCarpet::points
@@ -303,7 +337,7 @@ struct TrajectoryCarpet {
 /// @brief One HUD alert callout (currently unused by the node — see Hud::chips).
 struct AlertChip {
     const char* text;
-    Vec3 anchor;   ///< Map-frame 3D anchor for the leader line (VM-031).
+    Vec3 anchor;  ///< Map-frame 3D anchor for the leader line (VM-031).
 };
 /// @var AlertChip::text
 /// Nul-terminated, caller-owned callout text.
@@ -312,7 +346,7 @@ struct AlertChip {
 /// Hud::chips's own comment).
 struct Hud {
     double speed_mps;
-    uint8_t active_mode;     ///< 1|2|3, mirrors ~/vcam_state.
+    uint8_t active_mode;  ///< 1|2|3, mirrors ~/vcam_state.
     /// Epic 3 Task 4 (VM-031) Step 0, SCOPE DECISION: stays UNUSED by design.
     /// The node builds its callout chip list from its own live
     /// AlertPolygon/collision-adapter data and draws it directly (node-side
@@ -320,7 +354,8 @@ struct Hud {
     /// routes through here. `chips`/#chip_count/AlertChip stay in scene.h
     /// (ADR-0004 forbids removing them regardless) for a hypothetical future
     /// in-scene (3D-anchored, SDF) text path, not populated today.
-    const AlertChip* chips;  uint32_t chip_count;
+    const AlertChip* chips;
+    uint32_t chip_count;
 };
 /// @var Hud::speed_mps
 /// Ego speed, m/s.
@@ -336,18 +371,26 @@ struct SceneGraph {
     double sim_time_sec;
 
     EgoState ego;
-    const TrackedObject*   objects;      uint32_t object_count;
-    const PathRibbon*      paths;        uint32_t path_count;
-    const MapElement*      map_elements; uint32_t map_element_count;
-    const GroundGridLayer* grids;        uint32_t grid_count;
-    const AlertPolygon*    alerts;       uint32_t alert_count;
-    const GenericMarker*   markers;      uint32_t marker_count;
+    const TrackedObject* objects;
+    uint32_t object_count;
+    const PathRibbon* paths;
+    uint32_t path_count;
+    const MapElement* map_elements;
+    uint32_t map_element_count;
+    const GroundGridLayer* grids;
+    uint32_t grid_count;
+    const AlertPolygon* alerts;
+    uint32_t alert_count;
+    const GenericMarker* markers;
+    uint32_t marker_count;
     Hud hud;
     /// @since kSceneVersion 2 (Epic 3 Task 6, VM-035, ADR-0004) -- the one
     /// bump this epic makes (Task 1 introduced the constant at 1).
-    const PointCloud*      point_clouds; uint32_t point_cloud_count;
+    const PointCloud* point_clouds;
+    uint32_t point_cloud_count;
     /// @since kSceneVersion 3 (VM-077, ADR-0004).
-    const TrajectoryCarpet* trajectory_carpets; uint32_t trajectory_carpet_count;
+    const TrajectoryCarpet* trajectory_carpets;
+    uint32_t trajectory_carpet_count;
 };
 /// @var SceneGraph::ego
 /// The ego vehicle's pose and speed.
@@ -441,8 +484,7 @@ void set_scene(VisualRenderer*, const SceneGraph& scene);
 /// @return false (no-op) if `theme_name` doesn't match a loaded
 /// `assets/themes/<name>.yaml` stem; the active theme is unchanged. true
 /// otherwise.
-bool set_theme(VisualRenderer*, const char* theme_name, double at_sec,
-                double transition_sec);
+bool set_theme(VisualRenderer*, const char* theme_name, double at_sec, double transition_sec);
 
 /// @brief Loads the ego mesh, or arms the clay-box fallback.
 ///
@@ -594,7 +636,7 @@ bool theme_parses(const char* dir, const char* theme_name);
 struct GeoAnchor {
     double origin_lat_deg;
     double origin_lon_deg;
-    double heading_rad;   ///< Bearing of map-frame +X from true north, radians.
+    double heading_rad;  ///< Bearing of map-frame +X from true north, radians.
 };
 /// @var GeoAnchor::origin_lat_deg
 /// Map-frame origin latitude, degrees.
@@ -617,7 +659,10 @@ constexpr uint32_t kMaxBowlCameras = 6;
 /// bake and lidar colorization both operate in rig frame; rig->map anchoring
 /// happens per-tick elsewhere, via the ego pose).
 /// @since kSceneVersion 5 (VM-090, unified-engine migration Task 1, ADR-0005).
-struct CameraExtrinsics { double R[9]; double t[3]; };
+struct CameraExtrinsics {
+    double R[9];
+    double t[3];
+};
 /// @var CameraExtrinsics::R
 /// Row-major 3x3 rotation.
 /// @var CameraExtrinsics::t
@@ -628,7 +673,10 @@ struct CameraExtrinsics { double R[9]; double t[3]; };
 /// Ported verbatim from micropilot::rendering::CameraParams
 /// (rendering_node's types.hpp). dist = {k1, k2, p1, p2, k3}.
 /// @since kSceneVersion 5 (VM-090, unified-engine migration Task 1, ADR-0005).
-struct CameraIntrinsics { double fx, fy, cx, cy; double dist[5]; };
+struct CameraIntrinsics {
+    double fx, fy, cx, cy;
+    double dist[5];
+};
 /// @var CameraIntrinsics::fx
 /// Focal length x, pixels.
 /// @var CameraIntrinsics::fy
@@ -663,12 +711,12 @@ struct CameraIntrinsics { double fx, fy, cx, cy; double dist[5]; };
 /// bumps kSceneVersion normally, same as every other struct here.
 /// @since kSceneVersion 5 (VM-090, unified-engine migration Task 1).
 struct BowlConfig {
-    uint32_t camera_count;                 ///< <= kMaxBowlCameras (6).
-    const CameraExtrinsics* extrinsics;     ///< camera_count entries.
-    const CameraIntrinsics* intrinsics;     ///< camera_count entries.
-    const uint32_t* cam_width;              ///< camera_count entries, pixels.
-    const uint32_t* cam_height;             ///< camera_count entries, pixels.
-    double bowl_R0, bowl_k, bowl_Rmax;      ///< Bowl surface shape.
+    uint32_t camera_count;               ///< <= kMaxBowlCameras (6).
+    const CameraExtrinsics* extrinsics;  ///< camera_count entries.
+    const CameraIntrinsics* intrinsics;  ///< camera_count entries.
+    const uint32_t* cam_width;           ///< camera_count entries, pixels.
+    const uint32_t* cam_height;          ///< camera_count entries, pixels.
+    double bowl_R0, bowl_k, bowl_Rmax;   ///< Bowl surface shape.
     double feather_margin;
     uint8_t fill_blind_zone;
     uint8_t exposure_match;
@@ -774,7 +822,7 @@ bool set_self_view_masks(VisualRenderer*, bool enabled);
 /// @return false (no-op) if `renderer` is null, `cam_idx` >= the configured
 /// camera_count, or set_bowl_config() has never succeeded. true otherwise.
 bool set_camera_motion_delta(VisualRenderer*, uint32_t cam_idx,
-                              const double delta_4x4_row_major[16]);
+                             const double delta_4x4_row_major[16]);
 
 /// @brief Uploads one camera's latest RGB frame for bowl compositing.
 ///
@@ -825,11 +873,9 @@ bool set_camera_motion_delta(VisualRenderer*, uint32_t cam_idx,
 /// @return false if `renderer` is null, `cam_idx` >= the configured
 /// camera_count, or width/height mismatch the configured camera's dims.
 /// true otherwise.
-bool set_camera_frame(VisualRenderer*, uint32_t cam_idx,
-                       const uint8_t* rgb, uint32_t width, uint32_t height,
-                       uint64_t frame_id,
-                       void (*release)(void*, size_t, void*) = nullptr,
-                       void* user = nullptr);
+bool set_camera_frame(VisualRenderer*, uint32_t cam_idx, const uint8_t* rgb, uint32_t width,
+                      uint32_t height, uint64_t frame_id,
+                      void (*release)(void*, size_t, void*) = nullptr, void* user = nullptr);
 
 /// @brief Opens a baked or streamed environment source.
 ///
@@ -848,7 +894,8 @@ bool set_camera_frame(VisualRenderer*, uint32_t cam_idx,
 ///     chunk index + glTF files, already placed in the map frame offline
 ///     using this SAME anchor -- this backend does NOT re-derive placement
 ///     from `anchor` at runtime.
-///   - `"ion://<assetId>[?cache=<dir>|off][&fallback=<baked_dir>][&max_cache_items=<n>][&materials=original|clay]"`
+///   -
+///   `"ion://<assetId>[?cache=<dir>|off][&fallback=<baked_dir>][&max_cache_items=<n>][&materials=original|clay]"`
 ///     -> the STREAMING backend (Epic 6/VM-062, cesium-native 3D Tiles):
 ///     `anchor` now does real work, an on-the-fly ECEF->map placement per
 ///     loaded tile. `materials=original` keeps the asset's own gltfio

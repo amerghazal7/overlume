@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // bowl_mesh.cpp — see bowl_mesh.hpp. Pure host math, no Filament/ROS/CUDA
 // includes -- portable and GPU-free-testable per Task 2 Step 3.
 #include "bowl_mesh.hpp"
@@ -112,7 +115,7 @@ BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double 
             for (uint32_t c = 0; c < camera_count; ++c) {
                 float u = 0.0f, v = 0.0f;
                 if (!ProjectToCameraUv(extrinsics[c], intrinsics[c], cam_width[c], cam_height[c],
-                                        lv.position, &u, &v)) {
+                                       lv.position, &u, &v)) {
                     continue;
                 }
                 // Alignment^2 coverage only -- border feather is computed
@@ -123,9 +126,9 @@ BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double 
                 float weight = align * align;
                 if (ego_active) {
                     const overlume::Vec3 cam_pos{extrinsics[c].t[0], extrinsics[c].t[1],
-                                               extrinsics[c].t[2]};
+                                                 extrinsics[c].t[2]};
                     if (SegmentIntersectsAabb(cam_pos, lv.position, ego_box.center,
-                                               ego_box.half_extents)) {
+                                              ego_box.half_extents)) {
                         weight = 0.0f;
                     }
                 }
