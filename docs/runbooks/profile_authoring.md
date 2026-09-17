@@ -9,7 +9,7 @@ the loader source: `ros/src/overlume_ros/src/profile.cpp`
 Every field named here exists in `ValidateRow`; nothing here is aspirational.
 
 > Deployment/two-node-topology notes are out of scope for this guide — see
-> [`README.md`](README.md) for the VM-095 deferral.
+> [`docs/README.md`](../README.md) for the VM-095 deferral.
 
 ## Where the profile lives, and how it's picked
 

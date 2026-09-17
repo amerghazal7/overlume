@@ -178,7 +178,7 @@ different beast from Path A/B's clay tilesets.
   (`environment_attribution_warned_`). This "wherever tiles are displayed"
   requirement is not limited to the running node's own on-screen HUD — it
   applies equally to any committed doc capture that displays this imagery
-  (e.g. `docs/visual_mode/env_source_captures.md`'s `env_source_google.png`),
+  (e.g. `docs/runbooks/env_source_captures.md`'s `env_source_google.png`),
   which carries its own attribution caption for exactly this reason.
 - **Cache terms.** The shipped preset ships `cache=off` (VM-063's existing
   `?cache=` knob, given the literal value `off` rather than a directory —
@@ -201,7 +201,7 @@ different beast from Path A/B's clay tilesets.
   either clay preset (textured photoreal vs. untextured extrusions) —
   **measured INCONCLUSIVE at VM-064**: the one dev-box, single-tile,
   single-run measurement did NOT confirm that expectation (see the epic's
-  own results block, `docs/superpowers/plans/2026-08-18-visual-mode-epic6.md`).
+  own results block, `docs/plans/2026-08-18-visual-mode-epic6.md`).
   Treat the "materially heavier" claim as unverified until a sustained
   multi-tile, live-rig measurement is done, and budget accordingly;
   `maximumScreenSpaceError`/load-radius tuning are the named first levers

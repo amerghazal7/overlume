@@ -105,7 +105,7 @@ Each live capture takes ~60–65s wall-clock; do not shrink the settle window
 without re-verifying the output actually shows content.
 
 After running, copy the PNG(s) from `OVERLUME_CAPTURE_OUT_DIR` into
-`docs/visual_mode/env_source_captures/` (committed) under the names below.
+`docs/runbooks/env_source_captures/` (committed) under the names below.
 
 ## The captures
 
@@ -177,9 +177,9 @@ import numpy as np
 
 GAIN = 3.0  # documented display-aid multiplier -- baked/osm only, see note above
 SRC = {
-    "baked": ("docs/visual_mode/env_source_captures/env_source_baked.png", True),
-    "osm": ("docs/visual_mode/env_source_captures/env_source_osm.png", True),
-    "google": ("docs/visual_mode/env_source_captures/env_source_google.png", False),
+    "baked": ("docs/runbooks/env_source_captures/env_source_baked.png", True),
+    "osm": ("docs/runbooks/env_source_captures/env_source_osm.png", True),
+    "google": ("docs/runbooks/env_source_captures/env_source_google.png", False),
 }
 PANEL_W, LABEL_H = 480, 34
 font = ImageFont.load_default()
@@ -201,7 +201,7 @@ x = 8
 for p in panels:
     sheet.paste(p, (x, 8))
     x += p.width + 8
-sheet.save("docs/visual_mode/env_source_captures/env_source_contact_sheet.png")
+sheet.save("docs/runbooks/env_source_captures/env_source_contact_sheet.png")
 PYEOF
 ```
 
@@ -220,7 +220,7 @@ the comparison package. No PNG exists for this preset.
 
 ## What is / isn't committed
 
-- Committed: the 3 PNGs above (`docs/visual_mode/env_source_captures/`, ~2.2 MB
+- Committed: the 3 PNGs above (`docs/runbooks/env_source_captures/`, ~2.2 MB
   total) and this note.
 - Not committed: Google tile bytes (licensing — the epic's own recorded
   constraint; only the rendered PNG of the view is shipped), any

@@ -130,7 +130,7 @@
     # the library's split-only query parser (Decision 5).
     #
     # THREE documented presets (Decision 14, VM-064/Epic 6 Task 5) -- see
-    # docs/visual_mode/cesium.md for the ion account/token setup in every
+    # docs/runbooks/cesium.md for the ion account/token setup in every
     # case (by name, NEVER the token value itself; the library reads
     # CESIUM_ION_TOKEN from the environment). Uncomment exactly one to pick
     # a source; the shipped default below (plain "") keeps today's baked
@@ -183,7 +183,7 @@
     # draws a line while environment_source_uri above is running in
     # materials=original mode (Decision 14); a plain OSM-clay/clipped-clay
     # preset draws nothing here even with this left true. See
-    # docs/visual_mode/cesium.md's Google section for the attribution
+    # docs/runbooks/cesium.md's Google section for the attribution
     # requirement and the exact wording to verify before go-live.
     environment_attribution: true
     # VM-091 (unified-engine migration Task 2): mode-1 bowl camera ingest.

@@ -96,7 +96,7 @@ TEST(HelloFrame, RendersDistinctSkyAndGround) {
         return;
     }
 
-    // The node's default pose (docs/superpowers/plans/2026-08-18-visual-mode.md, Task 2 Step 1).
+    // The node's default pose (docs/plans/2026-08-18-visual-mode.md, Task 2 Step 1).
     overlume::CameraPose pose{};
     pose.eye[0] = -4.0;
     pose.eye[1] = 0.0;

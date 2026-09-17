@@ -11,7 +11,7 @@
  *  small bit of state (previous position/timestamp, smoothed speed) that
  *  the finite-difference+EMA math needs across ticks.
  *
- *  Speed source (spec §7, docs/superpowers/specs/2026-08-18-visual-mode-design.md:264):
+ *  Speed source (spec §7, docs/design/2026-08-18-visual-mode-design.md:264):
  *  ego speed PREFERS `/robot/feedback/robot_speed_mps` (Float32) when the
  *  node has received at least one sample from it, falling back to the TF
  *  finite-difference+EMA below only until the first sample arrives. The

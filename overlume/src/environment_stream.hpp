@@ -1,5 +1,5 @@
 // environment_stream.hpp — library-internal AND C++20-only (Decision 3,
-// docs/superpowers/plans/2026-08-18-visual-mode-epic6.md). Included by
+// docs/plans/2026-08-18-visual-mode-epic6.md). Included by
 // environment_stream.cpp and NOTHING else: the static_assert below makes
 // that enforced, not just documented, and no other TU in this project has
 // the cesium include dirs needed to even find these headers (they exist

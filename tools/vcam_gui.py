@@ -493,7 +493,7 @@ class VcamWindow(Gtk.Window):
         self._environment_combo.connect("changed", self._on_environment_source_changed)
         self._environment_combo.set_tooltip_text(
             "clipped: availability not yet known -- waiting for the node's "
-            "environment_own_asset_uri (see docs/visual_mode/cesium.md)")
+            "environment_own_asset_uri (see docs/runbooks/cesium.md)")
         panel.pack_start(self._environment_combo, False, False, 0)
         self._environment_status_label = Gtk.Label(xalign=0.0)
         self._environment_status_label.set_line_wrap(True)
@@ -582,14 +582,14 @@ class VcamWindow(Gtk.Window):
         """Greys out the "clipped" row (design decision (c)) whenever the
         node's environment_own_asset_uri is empty -- never a fabricated
         asset id, so the option itself is simply unusable until a
-        deployment sets one (docs/visual_mode/cesium.md)."""
+        deployment sets one (docs/runbooks/cesium.md)."""
         for row in self._environment_store:
             if row[0] == "clipped":
                 row[2] = available
         self._environment_combo.set_tooltip_text(
             None if available else
             "clipped: this deployment has no environment_own_asset_uri configured -- "
-            "see docs/visual_mode/cesium.md")
+            "see docs/runbooks/cesium.md")
 
     def _on_quality_changed(self, combo):
         if self._loading:

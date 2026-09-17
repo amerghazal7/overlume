@@ -1,37 +1,4 @@
-# Visual mode
-
-Docs for the C++/Filament rendering path (`overlume` +
-`overlume_ros`), as distinct from this repo's root
-`README.md` (the NumPy/pygame bowl-method prototype). See
-`docs/superpowers/specs/2026-08-18-visual-mode-backlog.md` for the epic/task
-backlog and `docs/superpowers/plans/` for the per-epic plans.
-
-> **Scope note (2026-09-11):** VM-042's deployment/architecture half (two-node
-> topology notes) is **deferred to post-cutover, VM-095** — the in-flight
-> unified-engine migration deletes that topology, so documenting it now would
-> document a dead layout. Only the docs half of VM-042 ships here: the
-> profile-authoring guide and the environment-bake runbook, both below.
-
-- [`profile_authoring.md`](profile_authoring.md) — add a topic to the
-  visualization node via profile YAML only (autonomy-team audience).
-- [`environment_bake.md`](environment_bake.md) — bake OSM building footprints
-  into the environment-chunk format the node loads at `on_activate()`.
-- [`cesium.md`](cesium.md) — Cesium ion account/token/asset contract + the
-  `CESIUM_ION_TOKEN` smoke check (Epic 6 / VM-060); §6 the Google
-  Photorealistic 3D Tiles preset (VM-064).
-- [`env_source_captures.md`](env_source_captures.md) — one committed render
-  per vcam GUI Environment Tiles preset (baked / osm / google; clipped
-  ungraded) for judging the streamed sources side by side (VM-096).
-- [`theme_showcase.md`](theme_showcase.md) — opt-in whole-palette single-frame
-  capture harness (`OVERLUME_SHOWCASE=1`) used to judge theme candidates; how the
-  shipped ref-2 palettes were chosen.
-- [`signoff.md`](signoff.md) — the open/closed sign-off items across epics,
-  including the named exceptions the sign-off accepts.
-- [`bowl-golden-vm091.md`](bowl-golden-vm091.md) /
-  [`hybrid-golden-vm094.md`](hybrid-golden-vm094.md) — the unified-engine
-  migration's parity golden packages.
-
-## Pre-merge gate (VM-041)
+# CI gate (VM-041)
 
 This repo has no hosted CI (no `.github/workflows`, no `.gitlab-ci.yml`).
 `tools/ci_visual_mode.sh` is the whole of "CI wiring" until a hosted platform
@@ -52,16 +19,16 @@ It runs, in order, and labels each stage PASS/FAIL:
    broken clean build — the node stage (3) still builds incrementally.
 3. **Node gtests** — `colcon build` + `colcon test` for
    `overlume_ros`. Needs a ROS install and
-   `micropilot_rendering_node` already built+installed somewhere sourceable
+   `overlume_ros` already built+installed somewhere sourceable
    read-only (default: this checkout's own `ros/install`; override
    with `CI_VISUAL_MODE_ROS_APPS_INSTALL=/path/to/setup.bash` when borrowing
    another checkout's install space, e.g. from a worktree). Missing ROS/colcon
    infra **fails this stage loudly** — a pre-merge gate never silently skips
    the node.
-4. **WS bridge pytest suite** — `tools/test_vcam_ws_bridge.py` (53 tests).
-   Two of them (`test_bridge_e2e_mode3_orbit_and_frames`,
+4. **WS bridge pytest suite** — `tools/test_vcam_ws_bridge.py`.
+   Some of them (`test_bridge_e2e_mode3_orbit_and_frames`,
    `test_bridge_e2e_set_layers_hides_and_shows`) start real
-   `rendering_node` / `overlume_node` / `vcam_ws_bridge.py` processes
+   `overlume_node` / `vcam_ws_bridge.py` processes
    and drive them by node name over ROS 2 — this stage pins them to an
    isolated `ROS_DOMAIN_ID` (default `77`, override with
    `CI_VISUAL_MODE_DOMAIN_ID`) so they can never resolve onto a live rig's
@@ -78,7 +45,7 @@ It runs, in order, and labels each stage PASS/FAIL:
    skip check.
 
 It never plays a bag, and it never touches a rig it didn't itself start —
-stage 4's two E2E tests start their own rendering_node / overlume_node
+stage 4's E2E tests start their own `overlume_node`
 / bridge processes on an isolated ROS_DOMAIN_ID and tear down only the
 process group they themselves created (`validate_visual_mode.sh`'s own
 `--live` lesson: never a process the script didn't start).
@@ -95,12 +62,12 @@ run is expected to reach green.
 
 ## What green does not cover
 
-- The node package's six Python integration tests (`test/smoke_test.py`,
+- The node package's Python integration tests not registered in
+  `overlume_ros/CMakeLists.txt` (e.g. `test/smoke_test.py`,
   `test_vcam_contract.py`, `test_theme_ws.py`, `test_tf_adapter.py`,
-  `test_ego_anchored_vcam.py`, `test_extra_topic_parity.py`) are not
-  registered in `overlume_ros/CMakeLists.txt`, so stage 3's
-  `colcon test` never runs them. Run them by hand against a live node.
-- Stage 4's WS bridge suite has 2 tests that skip whenever
+  `test_ego_anchored_vcam.py`, `test_extra_topic_parity.py`) never run under
+  stage 3's `colcon test`. Run them by hand against a live node.
+- Stage 4's WS bridge suite has tests that skip whenever
   `ros/install` isn't built — the normal state in a worktree — and
   the stage still reports PASS.
 

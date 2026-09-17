@@ -1,7 +1,7 @@
 # GetFilament.cmake — fetches the pinned Google Filament prebuilt Linux SDK
 # and exposes it as the imported target `Filament::filament`.
 #
-# Pin (Epic 0, Task 1 — see plan docs/superpowers/plans/2026-08-18-visual-mode.md):
+# Pin (Epic 0, Task 1 — see plan docs/plans/2026-08-18-visual-mode.md):
 #   FILAMENT_VERSION = 1.56.5 (https://github.com/google/filament/releases).
 #   The release is built with clang + libc++ (confirmed via `std::__1::`
 #   symbol mangling in the archives), matching this directory's enforced

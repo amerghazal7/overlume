@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """WS-driven `set_theme` end-to-end test: overlume_node + vcam_ws_bridge.
 
-Epic 1 Task 3 (VM-014, docs/superpowers/plans/2026-08-18-visual-mode-epic1.md
+Epic 1 Task 3 (VM-014, docs/plans/2026-08-18-visual-mode-epic1.md
 Task 3 Step 12): proves the node-clock wiring (Step 9) end to end, not just
 that overlume::set_theme() blends correctly in a unit test (test_theme_transition
 .cpp already covers that with a driven, deterministic clock). Specifically:

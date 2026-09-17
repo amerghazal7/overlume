@@ -900,8 +900,8 @@ constexpr uint32_t kCaptureHeight = 720;
 
 // OVERLUME_CAPTURE_OUT_DIR lets a caller redirect where the PNG lands; default
 // /tmp -- these are opt-in manual captures, not committed test artifacts.
-// The capture note (docs/visual_mode/env_source_captures.md) documents
-// copying the result into docs/visual_mode/env_source_captures/ for the
+// The capture note (docs/runbooks/env_source_captures.md) documents
+// copying the result into docs/runbooks/env_source_captures/ for the
 // comparison package itself.
 std::string capture_out_path(const char* name) {
     const char* dir = std::getenv("OVERLUME_CAPTURE_OUT_DIR");

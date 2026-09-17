@@ -5,7 +5,7 @@ clang/libc++ (Filament's prebuilt SDK requires it); the ROS node that
 eventually links it stays gcc/libstdc++ — the two never mix at an ABI
 boundary, which is why the public API (`include/overlume/api.h`) is
 POD-only (checked by `scripts/check_pod_header.sh`). See
-`docs/superpowers/specs/2026-08-18-visual-mode-design.md` §2 and the plan's
+`docs/design/2026-08-18-visual-mode-design.md` §2 and the plan's
 Epic 0 Task 1 notes for the full rationale.
 
 ## Build
@@ -45,7 +45,7 @@ binaries are self-contained even off this dev box.
 ## Why clang/libc++, why pinned at 1.56.5, why static
 
 See the dated comments in `cmake/GetFilament.cmake` and
-`docs/superpowers/plans/2026-08-18-visual-mode.md` (Epic 0 Task 1) for the
+`docs/plans/2026-08-18-visual-mode.md` (Epic 0 Task 1) for the
 full history: newer Filament releases (~v1.57+) require glibc ≥2.38 and don't
 link on this project's Ubuntu 22.04 (glibc 2.35) boxes; the archive list
 needs `-Wl,--start-group/--end-group` because Filament ships no CMake package

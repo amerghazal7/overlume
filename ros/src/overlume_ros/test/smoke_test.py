@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Headless smoke test for overlume_ros.
 
-Epic 0 Task 3 (docs/superpowers/plans/2026-08-18-visual-mode.md), as amended
+Epic 0 Task 3 (docs/plans/2026-08-18-visual-mode.md), as amended
 by the unified-engine migration's Task 6 (VM-095) Step 2/3:
   - initial_mode:=3 -> the node renders+publishes on its 30 Hz timer;
     assert >= 5 frames on /rendering/image within 3 s, with the configured

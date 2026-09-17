@@ -4,7 +4,7 @@
 #
 # This project's dev/robot boxes have no root and no clang-14/libc++-14
 # package reachable via a normal `apt install` (see plan
-# docs/superpowers/plans/2026-08-18-visual-mode.md, Task 1 Step 5's fix-up
+# docs/plans/2026-08-18-visual-mode.md, Task 1 Step 5's fix-up
 # notes). `apt-get download` fetches .debs without installing (no root
 # needed) and `dpkg-deb -x` unpacks a .deb's payload into an arbitrary
 # directory (also no root) -- this reuses that exact recipe and the exact

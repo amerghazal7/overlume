@@ -1,7 +1,7 @@
 # Visual Mode — Stylized Autonomy Data Visualization (Design)
 
 **Date:** 2026-08-18
-**Status:** Accepted (Epics 0–2 implemented against it); amended by the plan review of 2026-09-07 — see `[review 2026-09-07]` markers and the changelog in `docs/superpowers/plans/2026-08-18-visual-mode.md`. Load-bearing decisions: `docs/adr/0001`–`0004`.
+**Status:** Accepted (Epics 0–2 implemented against it); amended by the plan review of 2026-09-07 — see `[review 2026-09-07]` markers and the changelog in `docs/plans/2026-08-18-visual-mode.md`. Load-bearing decisions: `docs/adr/0001`–`0004`.
 **Reference assets:** `assets/visualization-reference-1.jpg` (dark ADAS style),
 `assets/visualization-reference-2.jpg` (light clay style), `assets/urban_config.rviz`,
 `assets/offroad_config.rviz`
@@ -431,5 +431,5 @@ Following the repo's TDD convention:
 Per project directive (2026-08-18): implementation phases run as **dynamic
 workflows** — orchestrator Fable, implementer agents Sonnet, reviewer agents
 Opus. See the companion plan
-`docs/superpowers/plans/2026-08-18-visual-mode.md` and backlog
-`docs/superpowers/specs/2026-08-18-visual-mode-backlog.md`.
+`docs/plans/2026-08-18-visual-mode.md` and backlog
+`docs/design/2026-08-18-visual-mode-backlog.md`.

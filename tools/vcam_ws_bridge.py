@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """WebSocket <-> ROS2 bridge for the rendering node's virtual camera.
 
-Exposes a generic JSON control/telemetry API (see docs/superpowers/specs/
-2026-07-06-vcam-gui-ws-bridge-design.md) so any app — the GTK GUI or a
+Exposes a generic JSON control/telemetry API (see
+docs/plans/archive/2026-07-06-vcam-gui-ws-bridge-design.md) so any app — the GTK GUI or a
 third-party client — can drive the virtual camera:
 
   client -> server:
@@ -720,7 +720,7 @@ def main() -> int:
                                 "type": "error",
                                 "message": "set_environment_source: 'clipped' has no "
                                            "environment_own_asset_uri configured on this "
-                                           "deployment (see docs/visual_mode/cesium.md)"}))
+                                           "deployment (see docs/runbooks/cesium.md)"}))
                             continue
                         uri = own_uri
                     else:

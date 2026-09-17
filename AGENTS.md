@@ -18,7 +18,7 @@ documents that still cite pre-restructure paths).
   print PASS/FAIL and HTTP codes only. No test may need live network or a token.
 - **Public headers are POD-only and append-only** (ADR-0003/0004). Struct
   changes bump `kSceneVersion`; free functions bump nothing.
-  `scripts/check_pod_header.sh` must pass.
+  `overlume/scripts/check_pod_header.sh` must pass.
 - **Goldens are promoted by a human.** A failing golden is a finding, not a
   file to overwrite. Whole-frame SSIM passing is not proof a golden is current;
   use the per-pixel drift audit after any palette-wide change.
@@ -33,8 +33,11 @@ documents that still cite pre-restructure paths).
 - Every task ends green on `tools/ci_visual_mode.sh` (run in the foreground; a
   background run can be killed by a spurious low-memory guard) and is
   committed on its own with a message that says what changed and why.
-- Status truth lives in `docs/status.md` and the active plan's ledger, not in
-  chat and not in memory.
+- Status truth lives in `docs/status.md` (the single status ledger — shipped
+  epics, open items, known gaps) and the active plan's own ledger, not in
+  chat and not in memory. Docs are indexed at `docs/README.md`; runbooks live
+  under `docs/runbooks/`, live plans under `docs/plans/` (retired-prototype
+  history under `docs/plans/archive/`).
 
 ## Codebase questions
 
@@ -46,6 +49,7 @@ tree directly.
 
 ## Build and test
 
-Library: `overlume/scripts/setup_toolchain_cesium.sh`, then `cmake -S overlume
--B overlume/build && cmake --build overlume/build -j`. Node: `ros/colcon_build.sh`.
+Library: `overlume/scripts/setup_toolchain_cesium.sh`, then `cmake --toolchain
+"$PWD/overlume/cmake/toolchain-clang-libcxx.cmake" -S overlume -B overlume/build -DOVERLUME_ENABLE_CESIUM=ON
+&& cmake --build overlume/build -j`. Node: `ros/colcon_build.sh`.
 Gate: `tools/ci_visual_mode.sh`. Live rig: `tools/validate_visual_mode.sh --live`.

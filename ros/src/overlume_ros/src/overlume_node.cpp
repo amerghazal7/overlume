@@ -677,7 +677,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(
     // attribution wherever Photorealistic 3D Tiles content is shown -- a
     // plain disable knob (STANDING directive), independent of whether this
     // deployment's environment_source_uri_ actually uses materials=original
-    // (the draw site below checks that too; see docs/visual_mode/cesium.md's
+    // (the draw site below checks that too; see docs/runbooks/cesium.md's
     // Google section).
     environment_attribution_ = declare_parameter<bool>("environment_attribution", true);
     // VM-096 (vcam GUI Environment Tiles toggle): the deployment's own
@@ -1564,7 +1564,7 @@ void OverlumeNode::timer_callback()
     // true. The arming source itself is environment_source_uri_ OR
     // environment_chunks_dir_ (VM-063), either one composed by
     // compose_environment_source_uri(). This is named exception 7,
-    // docs/visual_mode/signoff.md -- CLOSED (library-side blocker) by
+    // docs/runbooks/signoff.md -- CLOSED (library-side blocker) by
     // VM-096's set_environment_visible(); the remaining by-design open item
     // recorded there is that there is still no automatic per-render_mode
     // gating.
@@ -2039,7 +2039,7 @@ void OverlumeNode::timer_callback()
         const overlume::HudColors hud_colors = overlume::get_hud_colors(renderer_);
         // ponytail: a static compliance line, not ion's own live per-tile
         // credits (cesium-native's CreditSystem) -- see
-        // docs/visual_mode/cesium.md's Google section for the
+        // docs/runbooks/cesium.md's Google section for the
         // verify-at-implementation note on confirming/updating this exact
         // wording for a given deployment's ion asset before go-live.
         if (!overlume_node::DrawText(

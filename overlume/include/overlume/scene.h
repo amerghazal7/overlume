@@ -623,7 +623,7 @@ EnvironmentSourceState environment_source_state(VisualRenderer*);
 
 // VM-096 (vcam GUI Environment Tiles toggle): free function, POD-only,
 // bumps nothing (ADR-0004/VM-090 precedent, same as set_environment_source
-// and environment_source_state above) -- closes docs/visual_mode/
+// and environment_source_state above) -- closes docs/runbooks/
 // signoff.md's named exception 7 ("environment/buildings not per-mode
 // gated -- needs library set_environment_visible()").
 //

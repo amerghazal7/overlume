@@ -1,7 +1,7 @@
 # GetCesiumNative.cmake — fetches and builds the pinned cesium-native release
 # from source, under THIS project's clang/libc++ toolchain.
 #
-# Pin (Epic 6, VM-061 — see docs/superpowers/plans/2026-08-18-visual-mode-epic6.md):
+# Pin (Epic 6, VM-061 — see docs/plans/2026-08-18-visual-mode-epic6.md):
 #   CESIUM_NATIVE_VERSION = 0.64.0 (git tag v0.64.0, 2026-09-01). cesium-native
 #   publishes git tags only — no prebuilt binary SDK exists — so unlike
 #   GetFilament.cmake this is a SOURCE pin (tarball URL + sha256), and the

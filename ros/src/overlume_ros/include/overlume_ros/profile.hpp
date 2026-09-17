@@ -7,7 +7,7 @@
  *  row say". `overlume_node.cpp` is the only place that turns a
  *  `SubSpec` into an actual `create_subscription` call.
  *
- *  See docs/superpowers/plans/2026-08-18-visual-mode-epic2.md, "Task 1
+ *  See docs/plans/2026-08-18-visual-mode-epic2.md, "Task 1
  *  (VM-020)" and the header sections it points back to ("Node: adapter
  *  shape", "Staleness") for the full rationale behind every field below.
  */
