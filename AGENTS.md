@@ -55,3 +55,13 @@ Library: `overlume/scripts/setup_toolchain_cesium.sh`, then `cmake --toolchain
 Gate: `tools/ci_visual_mode.sh`. Live rig: `tools/validate_visual_mode.sh --live`.
 API docs: `cmake --build overlume/build --target docs` (Doxygen; not part of
 the default build) — see `docs/README.md`'s "API documentation" section.
+
+## Hooks in this repo
+
+`.claude/settings.json` runs `graphify hook-guard` before searches and reads
+(non-strict: it nudges, it does not block). A separate user-level plugin
+("GateGuard" fact-forcing, `ECC_GATEGUARD`) is NOT part of this repo; if it
+is active in your environment it will ask for importers/rollback facts
+before edits, including Markdown — set `ECC_GATEGUARD=off` for docs-only
+sessions. The knowledge graph under `graphify-out/` is ignored by git;
+rebuild it with `graphify update .` after code moves.
