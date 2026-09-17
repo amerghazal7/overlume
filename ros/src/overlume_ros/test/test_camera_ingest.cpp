@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file test_camera_ingest.cpp
  *  @brief VM-091 Task 2 Step 6. Exercises camera_ingest.hpp's pure, ROS/GPU-
  *  free math and bookkeeping directly -- no rclcpp node/spin, no GPU, same
@@ -147,8 +150,9 @@ TEST(OrthonormalizeExtrinsics, SkewedRIsCorrectedToAnOrthonormalRightHandedBasis
         << "this test's skew is deliberately small -- should not itself cross the WARN bar";
 
     auto col = [&](int j) { return std::array<double, 3>{out.R[j], out.R[3 + j], out.R[6 + j]}; };
-    auto dot = [](std::array<double, 3> a, std::array<double, 3> b)
-    { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; };
+    auto dot = [](std::array<double, 3> a, std::array<double, 3> b) {
+        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    };
     const auto right = col(0), down = col(1), fwd = col(2);
     EXPECT_NEAR(dot(right, right), 1.0, 1e-9);
     EXPECT_NEAR(dot(down, down), 1.0, 1e-9);
@@ -159,8 +163,8 @@ TEST(OrthonormalizeExtrinsics, SkewedRIsCorrectedToAnOrthonormalRightHandedBasis
     // Right-handed: right x down == fwd (bowl.mat's own down=cross(fwd,right)
     // reconstruction, cyclically).
     const std::array<double, 3> cross{right[1] * down[2] - right[2] * down[1],
-                                       right[2] * down[0] - right[0] * down[2],
-                                       right[0] * down[1] - right[1] * down[0]};
+                                      right[2] * down[0] - right[0] * down[2],
+                                      right[0] * down[1] - right[1] * down[0]};
     for (int i = 0; i < 3; ++i) EXPECT_NEAR(cross[i], fwd[i], 1e-9) << "axis " << i;
 }
 
@@ -207,8 +211,7 @@ TEST(IngestState, ImageArrivalBumpsAMonotonicPerCameraFrameId) {
     overlume_test::IngestState state(2, ext);
     EXPECT_EQ(state.record_image_stamp(0, 10.0), 1u);
     EXPECT_EQ(state.record_image_stamp(0, 10.1), 2u);
-    EXPECT_EQ(state.record_image_stamp(1, 10.0), 1u)
-        << "each camera's counter is independent";
+    EXPECT_EQ(state.record_image_stamp(1, 10.0), 1u) << "each camera's counter is independent";
     EXPECT_EQ(state.record_image_stamp(0, 10.2), 3u);
 }
 

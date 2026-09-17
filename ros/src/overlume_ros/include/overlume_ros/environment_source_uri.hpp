@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file environment_source_uri.hpp
  *  @brief Composes the ONE source_uri string set_environment_source()
@@ -16,8 +19,7 @@
 
 #include <string>
 
-namespace overlume::ros
-{
+namespace overlume::ros {
 
 // Pure function: VM-063 Decision 5's "<uri>[?cache=<dir>][&fallback=<dir>]"
 // composition. environment_source_uri empty -> environment_chunks_dir
@@ -25,23 +27,19 @@ namespace overlume::ros
 // keys are appended ONLY when the configured URI does not already carry
 // that key -- an inline cache= (or fallback=) in environment_source_uri
 // always wins over the separate dir param, never silently overwritten.
-inline std::string compose_environment_source_uri(
-    const std::string& environment_chunks_dir, const std::string& environment_source_uri,
-    const std::string& environment_tile_cache_dir)
-{
+inline std::string compose_environment_source_uri(const std::string& environment_chunks_dir,
+                                                  const std::string& environment_source_uri,
+                                                  const std::string& environment_tile_cache_dir) {
     std::string source_uri = environment_chunks_dir;
-    if (!environment_source_uri.empty())
-    {
+    if (!environment_source_uri.empty()) {
         source_uri = environment_source_uri;
         if (!environment_tile_cache_dir.empty() &&
-            environment_source_uri.find("cache=") == std::string::npos)
-        {
+            environment_source_uri.find("cache=") == std::string::npos) {
             source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
             source_uri += "cache=" + environment_tile_cache_dir;
         }
         if (!environment_chunks_dir.empty() &&
-            environment_source_uri.find("fallback=") == std::string::npos)
-        {
+            environment_source_uri.find("fallback=") == std::string::npos) {
             source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
             source_uri += "fallback=" + environment_chunks_dir;
         }
@@ -54,8 +52,7 @@ inline std::string compose_environment_source_uri(
 // the STREAMING_FALLBACK WARN to name the dir actually in effect -- an
 // inline fallback= on environment_source_uri wins over environment_chunks_dir
 // there too, so the WARN must read the composed string, not the dir param.
-inline std::string fallback_dir_from_source_uri(const std::string& composed_source_uri)
-{
+inline std::string fallback_dir_from_source_uri(const std::string& composed_source_uri) {
     static constexpr char kKey[] = "fallback=";
     const auto key_pos = composed_source_uri.find(kKey);
     if (key_pos == std::string::npos) return {};

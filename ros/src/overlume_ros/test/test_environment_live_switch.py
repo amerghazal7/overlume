@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """Live environment_enabled/environment_source_uri param regression test
 (VM-096 -- vcam GUI Environment Tiles toggle, Epic 6 follow-up).
 

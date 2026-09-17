@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """Publish constant-vx/wz nav_msgs/Odometry at 50Hz. VM-091 Task 2 Step 5
 perf gate (finding 6): stack_v3_full_sensors_2026-09-11 carries no odometry
 topic at all, so camera_ingest_'s rig_delta()/compensation_delta_4x4() never

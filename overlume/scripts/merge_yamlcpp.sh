@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
 # POST_BUILD step on the `overlume` target (Epic 2 Task 1 / VM-020,
 # Step 0.2). Goal: the node links a SECOND, independently-built
 # gcc/libstdc++ yaml-cpp (yaml_cpp_vendor) in the same process as this

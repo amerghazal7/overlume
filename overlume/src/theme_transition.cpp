@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // theme_transition.cpp — see theme_transition.hpp.
 #include "theme_transition.hpp"
 
@@ -90,8 +93,7 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.palette.ribbon_core = blend_color(a.palette.ribbon_core, b.palette.ribbon_core, w);
     out.palette.ribbon_glow = blend_color(a.palette.ribbon_glow, b.palette.ribbon_glow, w);
     out.palette.ego = blend_color(a.palette.ego, b.palette.ego, w);
-    out.palette.ribbon_global =
-        blend_color(a.palette.ribbon_global, b.palette.ribbon_global, w);
+    out.palette.ribbon_global = blend_color(a.palette.ribbon_global, b.palette.ribbon_global, w);
     out.palette.ribbon_local = blend_color(a.palette.ribbon_local, b.palette.ribbon_local, w);
     out.palette.road = blend_color(a.palette.road, b.palette.road, w);
     out.palette.lane_centerline =
@@ -114,14 +116,12 @@ Theme blend(const Theme& a, const Theme& b, float t) {
         blend_color(a.palette.object_tints.unknown, b.palette.object_tints.unknown, w);
     out.palette.alert.info = blend_color(a.palette.alert.info, b.palette.alert.info, w);
     out.palette.alert.warning = blend_color(a.palette.alert.warning, b.palette.alert.warning, w);
-    out.palette.alert.critical =
-        blend_color(a.palette.alert.critical, b.palette.alert.critical, w);
+    out.palette.alert.critical = blend_color(a.palette.alert.critical, b.palette.alert.critical, w);
 
     out.material.roughness = lerpf(a.material.roughness, b.material.roughness, w);
     out.material.metallic = lerpf(a.material.metallic, b.material.metallic, w);
 
-    out.emissive.ribbon_strength =
-        lerpf(a.emissive.ribbon_strength, b.emissive.ribbon_strength, w);
+    out.emissive.ribbon_strength = lerpf(a.emissive.ribbon_strength, b.emissive.ribbon_strength, w);
 
     out.grid.line_color = blend_color(a.grid.line_color, b.grid.line_color, w);
     // grid.fade_start_m/fade_end_m are not animated here: they're baked
@@ -162,8 +162,7 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.ribbon.margin_behavior_m = lerpf(a.ribbon.margin_behavior_m, b.ribbon.margin_behavior_m, w);
     out.ribbon.margin_global_m = lerpf(a.ribbon.margin_global_m, b.ribbon.margin_global_m, w);
     out.ribbon.margin_local_m = lerpf(a.ribbon.margin_local_m, b.ribbon.margin_local_m, w);
-    out.ribbon.margin_velocity_m =
-        lerpf(a.ribbon.margin_velocity_m, b.ribbon.margin_velocity_m, w);
+    out.ribbon.margin_velocity_m = lerpf(a.ribbon.margin_velocity_m, b.ribbon.margin_velocity_m, w);
 
     // objects.opacity: plain scalar lerp, same as roughness/hud.scale above.
     out.objects.opacity = lerpf(a.objects.opacity, b.objects.opacity, w);

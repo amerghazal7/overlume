@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // theme_transition.hpp — animated theme toggle. Internal-only (not
 // installed, not POD) — same rules as theme.hpp: ordinary std:: usage is
 // fine here, nothing here crosses the api.h/scene.h POD boundary.

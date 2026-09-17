@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file callouts.hpp
  *  @brief Epic 3 Task 4 (VM-031): node-side alert callouts -- one text chip
@@ -30,13 +33,11 @@
 #include "overlume_ros/hud_overlay.hpp"
 #include "overlume/scene.h"
 
-namespace overlume_node
-{
+namespace overlume_node {
 
-struct Callout
-{
-    char text[16];              // "%.1f m", nul-terminated -- fixed buffer, no std::string needed
-    float anchor_x, anchor_y;   // the projected anchor itself, screen fraction [0, 1]
+struct Callout {
+    char text[16];             // "%.1f m", nul-terminated -- fixed buffer, no std::string needed
+    float anchor_x, anchor_y;  // the projected anchor itself, screen fraction [0, 1]
 };
 
 // See file comment. `ego_pos` is the map-frame ego position
@@ -44,7 +45,7 @@ struct Callout
 // AlertPolygon list (SceneAssembly::alerts / SceneGraph::alerts, same data
 // either way).
 bool BuildNearestCallout(overlume::VisualRenderer* renderer, const overlume::AlertPolygon* alerts,
-                          uint32_t alert_count, overlume::Vec3 ego_pos, Callout& out);
+                         uint32_t alert_count, overlume::Vec3 ego_pos, Callout& out);
 
 // See file comment. `rgb`/`width`/`height` is the same frame_buf_
 // hud_overlay's CompositeHud() already composited onto. `chip_rgb` colors
@@ -53,6 +54,6 @@ bool BuildNearestCallout(overlume::VisualRenderer* renderer, const overlume::Ale
 // overlume::get_hud_colors() already returns for the HUD's own accent, reused
 // here rather than adding a second theme.hud field just for this).
 void DrawCallout(uint8_t* rgb, uint32_t width, uint32_t height, const Callout& callout,
-                  HudRgb chip_rgb, float scale, const char* font_path);
+                 HudRgb chip_rgb, float scale, const char* font_path);
 
 }  // namespace overlume_node

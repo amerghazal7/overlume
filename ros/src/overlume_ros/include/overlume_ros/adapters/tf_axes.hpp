@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file tf_axes.hpp
  *  @brief TfAxesAdapter (Epic 2 Task 8 / VM-027 Step 7): the "full TF axes"
@@ -65,11 +68,9 @@
 #include "overlume_ros/scene_assembly.hpp"
 #include "overlume/scene.h"
 
-namespace overlume_node
-{
+namespace overlume_node {
 
-class TfAxesAdapter
-{
+class TfAxesAdapter {
 public:
     explicit TfAxesAdapter(const ProfileRow& row, const tf2_ros::Buffer& buffer,
                            std::string target_frame = "map");

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file fixture_msgs.hpp
  *  @brief Test-only helpers, shared by every node gtest target. The inverse
@@ -20,8 +23,7 @@
 #include "overlume_ros/adapters/dynamic_objects.hpp"
 #include "overlume_ros/profile.hpp"
 
-namespace overlume_node::testing
-{
+namespace overlume_node::testing {
 
 // Loads `<OVERLUME_NODE_FIXTURES_DIR>/<fixture_name>` (a
 // rosidl_runtime_py.message_to_yaml-shaped YAML file, or a hand-edited

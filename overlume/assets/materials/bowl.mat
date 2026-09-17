@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
 // bowl.mat — VM-091 (unified-engine migration Task 2). The camera bowl's
 // material: per-fragment sampling (Decision resolution 2, 2026-09-11) of up
 // to kMaxBowlCameras (6) camera textures, matching reproject.cu's bowl_kernel

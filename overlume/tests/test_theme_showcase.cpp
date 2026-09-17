@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_theme_showcase.cpp — palette-iteration harness (2026-09-16 session):
 // a single, fast, repeatable capture that exercises the WHOLE theme palette
 // in ONE frame, so a human can judge "which candidate theme looks best" by
@@ -80,9 +83,7 @@ constexpr Vec3 kBuildingsCentroid{-109.2, -17.1, 3.0};
 // AHEAD of the ego along the road, echoing ref-2's forward-looking framing.
 constexpr Vec3 kSceneOrigin{kBuildingsCentroid.x - 20.0, kBuildingsCentroid.y - 6.0, 0.0};
 
-Vec3 translated(const Vec3& p, double dx, double dy) {
-    return Vec3{p.x + dx, p.y + dy, p.z};
-}
+Vec3 translated(const Vec3& p, double dx, double dy) { return Vec3{p.x + dx, p.y + dy, p.z}; }
 
 // Renders at 1280x960 -- human eyes, not SSIM (no golden comparison in this
 // file at all; see the header's own "never asserts pixel content" note).
@@ -99,9 +100,7 @@ struct ContentStats {
     double non_background_fraction = 0.0;
 };
 
-double luminance(uint8_t r, uint8_t g, uint8_t b) {
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
+double luminance(uint8_t r, uint8_t g, uint8_t b) { return 0.2126 * r + 0.7152 * g + 0.0722 * b; }
 
 ContentStats analyze_capture(const std::vector<uint8_t>& rgb, uint32_t width, uint32_t height) {
     const size_t n = static_cast<size_t>(width) * height;
@@ -183,8 +182,8 @@ TEST(ThemeShowcase, Capture) {
     // road_edge.
     constexpr double kHalfWidth = 3.5;
     constexpr double kEdgeOffset = kHalfWidth + 0.6;
-    constexpr double kRoadX0 = -15.0;  // behind the ego
-    constexpr double kRoadX1 = 45.0;   // ahead of the ego, past the buildings
+    constexpr double kRoadX0 = -15.0;     // behind the ego
+    constexpr double kRoadX1 = 45.0;      // ahead of the ego, past the buildings
     constexpr double kCrosswalkX = 12.0;  // ahead of the ego, between it and the buildings
 
     auto world = [](double lx, double ly) {
@@ -192,13 +191,17 @@ TEST(ThemeShowcase, Capture) {
     };
 
     const std::vector<Vec3> roadSurfacePts = {
-        world(kRoadX0, -kHalfWidth), world(kRoadX1, -kHalfWidth),
-        world(kRoadX1, kHalfWidth), world(kRoadX0, kHalfWidth)};
-    const std::vector<Vec3> leftBoundaryPts = {world(kRoadX0, -kHalfWidth), world(kRoadX1, -kHalfWidth)};
-    const std::vector<Vec3> rightBoundaryPts = {world(kRoadX0, kHalfWidth), world(kRoadX1, kHalfWidth)};
+        world(kRoadX0, -kHalfWidth), world(kRoadX1, -kHalfWidth), world(kRoadX1, kHalfWidth),
+        world(kRoadX0, kHalfWidth)};
+    const std::vector<Vec3> leftBoundaryPts = {world(kRoadX0, -kHalfWidth),
+                                               world(kRoadX1, -kHalfWidth)};
+    const std::vector<Vec3> rightBoundaryPts = {world(kRoadX0, kHalfWidth),
+                                                world(kRoadX1, kHalfWidth)};
     const std::vector<Vec3> centerlinePts = {world(kRoadX0, 0.0), world(kRoadX1, 0.0)};
-    const std::vector<Vec3> roadEdgeLeftPts = {world(kRoadX0, -kEdgeOffset), world(kRoadX1, -kEdgeOffset)};
-    const std::vector<Vec3> roadEdgeRightPts = {world(kRoadX0, kEdgeOffset), world(kRoadX1, kEdgeOffset)};
+    const std::vector<Vec3> roadEdgeLeftPts = {world(kRoadX0, -kEdgeOffset),
+                                               world(kRoadX1, -kEdgeOffset)};
+    const std::vector<Vec3> roadEdgeRightPts = {world(kRoadX0, kEdgeOffset),
+                                                world(kRoadX1, kEdgeOffset)};
     const std::vector<Vec3> crosswalkPts = {
         world(kCrosswalkX - 1.5, -kEdgeOffset - 0.3), world(kCrosswalkX + 1.5, -kEdgeOffset - 0.3),
         world(kCrosswalkX + 1.5, kEdgeOffset + 0.3), world(kCrosswalkX - 1.5, kEdgeOffset + 0.3)};
@@ -266,12 +269,13 @@ TEST(ThemeShowcase, Capture) {
     // frame or is cut by an edge, none is too small to sample a tint from",
     // not identical apparent size.
     constexpr Vec3 kObjectFanOffsets[] = {
-        {0.0, -9.0, 0.0},     // CAR -- the -y shoulder
-        {0.0, 12.0, 0.0},     // TRUCK_VAN (path_points below get this same delta) -- the +y shoulder
-        {6.0, -55.0, 0.0},    // BUS -- pushed much farther out both axes (was {1,-25}, 54,036px/frame-edge-cut)
-        {-8.0, 11.0, 0.0},    // PEDESTRIAN -- pulled closer (was {0,23}, ~530px), still off-road
-        {-2.0, -6.0, 0.0},    // CYCLIST -- the -y shoulder
-        {2.0, 20.0, 0.0},     // UNKNOWN -- the +y shoulder, further out
+        {0.0, -9.0, 0.0},  // CAR -- the -y shoulder
+        {0.0, 12.0, 0.0},  // TRUCK_VAN (path_points below get this same delta) -- the +y shoulder
+        {6.0, -55.0,
+         0.0},  // BUS -- pushed much farther out both axes (was {1,-25}, 54,036px/frame-edge-cut)
+        {-8.0, 11.0, 0.0},  // PEDESTRIAN -- pulled closer (was {0,23}, ~530px), still off-road
+        {-2.0, -6.0, 0.0},  // CYCLIST -- the -y shoulder
+        {2.0, 20.0, 0.0},   // UNKNOWN -- the +y shoulder, further out
     };
     constexpr size_t kTruckVanIdx = static_cast<size_t>(overlume::ObjectClass::TRUCK_VAN);
     for (auto& p : objects.path_points) {
@@ -294,9 +298,10 @@ TEST(ThemeShowcase, Capture) {
     //    r->alertTint[2], theme.palette.alert.critical (verified against
     //    renderer.cpp's alertTints[] array order: info/warning/critical). */
     const Vec3 carPos = objects.objects[0].position;
-    const std::vector<Vec3> criticalAlertPts = {
-        {carPos.x - 2.5, carPos.y - 2.5, 0.0}, {carPos.x + 2.5, carPos.y - 2.5, 0.0},
-        {carPos.x + 2.5, carPos.y + 2.5, 0.0}, {carPos.x - 2.5, carPos.y + 2.5, 0.0}};
+    const std::vector<Vec3> criticalAlertPts = {{carPos.x - 2.5, carPos.y - 2.5, 0.0},
+                                                {carPos.x + 2.5, carPos.y - 2.5, 0.0},
+                                                {carPos.x + 2.5, carPos.y + 2.5, 0.0},
+                                                {carPos.x - 2.5, carPos.y + 2.5, 0.0}};
     overlume::AlertPolygon criticalAlert{};
     criticalAlert.points = criticalAlertPts.data();
     criticalAlert.point_count = static_cast<uint32_t>(criticalAlertPts.size());
@@ -341,9 +346,9 @@ TEST(ThemeShowcase, Capture) {
                                         // length survives the clip
 
     std::vector<Vec3> ribbonPoints;  // fixed capacity first, same
-                                      // no-reallocate-after-pointers-taken
-                                      // reasoning as golden.cpp's own scene
-                                      // builders
+                                     // no-reallocate-after-pointers-taken
+                                     // reasoning as golden.cpp's own scene
+                                     // builders
     ribbonPoints.reserve(kRibbonLanes.size() * 2);
     for (const auto& lane : kRibbonLanes) {
         ribbonPoints.push_back(world(kRibbonX0, lane.laneY));
@@ -398,10 +403,9 @@ TEST(ThemeShowcase, Capture) {
     // inside the frame with margin. eye is 20m behind/20m to the side of
     // the ego and 15m up; target sits 20m ahead and 6m across from the
     // ego, at ego-eye height (1.5m).
-    const overlume::CameraPose pose{
-        {kSceneOrigin.x - 20.0, kSceneOrigin.y - 20.0, 15.0},
-        {kSceneOrigin.x + 20.0, kSceneOrigin.y + 6.0, 1.5},
-        /*vfov_deg=*/60.0};
+    const overlume::CameraPose pose{{kSceneOrigin.x - 20.0, kSceneOrigin.y - 20.0, 15.0},
+                                    {kSceneOrigin.x + 20.0, kSceneOrigin.y + 6.0, 1.5},
+                                    /*vfov_deg=*/60.0};
 
     // One warm-up frame to trigger the baked chunk load (same "one render
     // before the capture frame" shape as EnvironmentGolden.TestTown_DarkAdas
@@ -412,8 +416,8 @@ TEST(ThemeShowcase, Capture) {
 
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3);
     ASSERT_TRUE(overlume::render_frame(r, pose, {rgb.data(), kWidth, kHeight}));
-    stbi_write_png(outPath.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight), 3, rgb.data(),
-                   static_cast<int>(kWidth) * 3);
+    stbi_write_png(outPath.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight), 3,
+                   rgb.data(), static_cast<int>(kWidth) * 3);
 
     const ContentStats stats = analyze_capture(rgb, kWidth, kHeight);
     std::cerr << "[ThemeShowcase] theme='" << themeName << "' theme_dir='" << themeDir << "' -> "

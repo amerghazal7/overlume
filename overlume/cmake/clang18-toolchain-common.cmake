@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # clang18-toolchain-common.cmake — VM-061 Step 6 (user decision a,
 # 2026-09-15): the ONE place that resolves the rootless clang-18 prefix
 # scripts/setup_toolchain_cesium.sh bootstraps into a pair of wrapper

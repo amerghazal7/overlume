@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // trajectory_carpet_test_hooks.hpp — internal-only, not installed, not POD.
 // tests/test_trajectory_carpet.cpp links only against `overlume` and
 // has no access to its PRIVATE Filament include dir, so it can't include
@@ -39,8 +42,7 @@ float trajectory_carpet_material_alpha(overlume::VisualRenderer* r);
 // mesh, as it was actually written into the vertex buffer (post
 // resolve_rgba() substitution) — Filament-free readback for the
 // alpha-zero-sentinel test. 0 if `r`/`slot`/`vertex_idx` is out of range.
-uint32_t trajectory_carpet_vertex_rgba(overlume::VisualRenderer* r, size_t slot,
-                                        size_t vertex_idx);
+uint32_t trajectory_carpet_vertex_rgba(overlume::VisualRenderer* r, size_t slot, size_t vertex_idx);
 
 // The actual world-space z (INCLUDING the renderer's own z-stack lift --
 // see trajectory_carpet.cpp's velocity-ribbon z-lift) vertex `vertex_idx`
@@ -67,6 +69,7 @@ uint64_t trajectory_carpet_rebuild_count(overlume::VisualRenderer* r);
 // false (out unchanged) if `r` is null, `slot` is out of range, or the
 // slot has never built geometry. Mirrors ribbon_test_hooks.hpp's
 // ribbon_slot_first_point().
-bool trajectory_carpet_slot_first_point(overlume::VisualRenderer* r, size_t slot, overlume::Vec3* out);
+bool trajectory_carpet_slot_first_point(overlume::VisualRenderer* r, size_t slot,
+                                        overlume::Vec3* out);
 
 }  // namespace overlume::testing

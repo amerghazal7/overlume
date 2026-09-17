@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file lidar_colorize.hpp
  *  @brief VM-094 (unified-engine migration Task 5): camera-colorized lidar
@@ -24,8 +27,7 @@
 
 #include "overlume/scene.h"
 
-namespace overlume::ros
-{
+namespace overlume::ros {
 
 // For each input point, tries every configured camera (cameras.extrinsics/
 // intrinsics/cam_width/cam_height, ascending camera index) via

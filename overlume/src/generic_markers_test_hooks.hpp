@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // generic_markers_test_hooks.hpp — internal-only, not installed, not POD.
 // tests/test_generic_markers.cpp links only against `overlume` and
 // has no access to its PRIVATE Filament include dir, so it can't include

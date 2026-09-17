@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file test_collision_adapter.cpp
  *  @brief CollisionAdapter tests.
  *
@@ -27,15 +30,13 @@
 using overlume::ros::FrameTransformer;
 using overlume::ros::SceneAssembly;
 
-namespace
-{
+namespace {
 
 // Hand-built tf2_ros::Buffer + FrameTransformer -- an empty buffer is
 // enough for every test whose markers stay in the "map" frame
 // (FrameTransformer's identity shortcut never touches it). Same fixture
 // style as test_hd_map_adapter.cpp's TfFixture.
-struct TfFixture
-{
+struct TfFixture {
     std::shared_ptr<rclcpp::Clock> clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
     tf2_ros::Buffer buffer{clock};
     FrameTransformer tf{buffer};
@@ -48,8 +49,7 @@ struct TfFixture
 // MakeRow() already uses. The topic name itself is never read by
 // CollisionAdapter (severity comes from `role` alone), so a placeholder is
 // fine.
-overlume_node::ProfileRow MakeRow(const std::string& role)
-{
+overlume_node::ProfileRow MakeRow(const std::string& role) {
     overlume_node::ProfileRow row;
     row.topic = "/test/collision";
     row.type = "visualization_msgs/msg/MarkerArray";
@@ -62,29 +62,22 @@ overlume_node::ProfileRow MakeRow(const std::string& role)
 
 // ── Step 1: every shipped role maps to its severity ─────────────────────────
 
-TEST(CollisionAdapter, EveryShippedRoleMapsToItsSeverity)
-{
+TEST(CollisionAdapter, EveryShippedRoleMapsToItsSeverity) {
     // Table-driven over the five roles severity_for_role() must accept
     // (profile.cpp's RoleSets closed set for adapter: collision) -- role
     // strings, not urban_row() lookups: VM-077 dormant'd three of these
     // roles' shipped rows (no live topic to fetch via urban_row() any
     // more), but the role itself stays legal so a future re-enable has
     // something to uncomment onto.
-    struct Case
-    {
+    struct Case {
         const char* role;
         uint8_t expected_severity;
     };
     const Case cases[] = {
-        {"collision", 2},
-        {"predicted", 1},
-        {"merged_object", 1},
-        {"sweep", 0},
-        {"merged_ego", 0},
+        {"collision", 2}, {"predicted", 1}, {"merged_object", 1}, {"sweep", 0}, {"merged_ego", 0},
     };
 
-    for (const auto& c : cases)
-    {
+    for (const auto& c : cases) {
         TfFixture kTf;
         auto row = MakeRow(c.role);
         overlume_node::CollisionAdapter a(row, kTf.tf);
@@ -114,8 +107,7 @@ TEST(CollisionAdapter, EveryShippedRoleMapsToItsSeverity)
     }
 }
 
-TEST(CollisionAdapter, UnknownRoleThrowsRatherThanDefaultingToInfo)
-{
+TEST(CollisionAdapter, UnknownRoleThrowsRatherThanDefaultingToInfo) {
     // An unknown role reaching this adapter is a Task 1 profile-validator
     // bug (profile.cpp's RoleSets already rejects it for a REAL profile
     // file) -- this is the unit-level guard on severity_for_role() itself:
@@ -125,8 +117,7 @@ TEST(CollisionAdapter, UnknownRoleThrowsRatherThanDefaultingToInfo)
 
 // ── Step 1: open vs. producer-closed polylines both become CLOSED polygons ──
 
-TEST(CollisionAdapter, OpenPolylineIsClosedIntoAPolygon)
-{
+TEST(CollisionAdapter, OpenPolylineIsClosedIntoAPolygon) {
     // collision_sweep_0.yaml's marker does NOT repeat its first point as
     // its last (4 distinct points) -- stored polygon must come out CLOSED
     // (first == last), point_count == 5.
@@ -160,8 +151,7 @@ TEST(CollisionAdapter, OpenPolylineIsClosedIntoAPolygon)
 
 // ── Step 1: degenerate and NaN polygons dropped and counted ─────────────────
 
-TEST(CollisionAdapter, DegenerateAndNaNPolygonsDroppedAndCounted)
-{
+TEST(CollisionAdapter, DegenerateAndNaNPolygonsDroppedAndCounted) {
     // collision_malformed_0.yaml: a NaN-point marker, a degenerate ring
     // (only 2 distinct points once its own producer-repeated closing point
     // is stripped), and one valid neighbour in between them.
@@ -181,8 +171,7 @@ TEST(CollisionAdapter, DegenerateAndNaNPolygonsDroppedAndCounted)
 
 // ── Step 1: a silent topic yields zero alerts and does not wedge ───────────
 
-TEST(CollisionAdapter, SilentTopicYieldsZeroAlertsAndDoesNotWedge)
-{
+TEST(CollisionAdapter, SilentTopicYieldsZeroAlertsAndDoesNotWedge) {
     // FIXTURE GAP 4: this is the recorded-stack REALITY, not an error path
     // -- every collision topic published zero messages in the bag.
     TfFixture kTf;
@@ -197,8 +186,7 @@ TEST(CollisionAdapter, SilentTopicYieldsZeroAlertsAndDoesNotWedge)
 
 // ── DELETEALL / DELETE, mirroring HdMapAdapter's own coverage ───────────────
 
-TEST(CollisionAdapter, DeleteAllClearsPreviousPolygons)
-{
+TEST(CollisionAdapter, DeleteAllClearsPreviousPolygons) {
     TfFixture kTf;
     auto row = MakeRow("sweep");
     overlume_node::CollisionAdapter a(row, kTf.tf);
@@ -219,8 +207,7 @@ TEST(CollisionAdapter, DeleteAllClearsPreviousPolygons)
     EXPECT_EQ(second.alerts.size(), 0u);
 }
 
-TEST(CollisionAdapter, MarkerPoseComposesAndZeroQuaternionIsIdentity)
-{
+TEST(CollisionAdapter, MarkerPoseComposesAndZeroQuaternionIsIdentity) {
     // Marker points are RELATIVE to marker.pose (rviz parity). A pose
     // translation plus an all-ZERO quaternion (which rviz forgives as
     // identity and tf2 would NaN) must land the polygon at the translated

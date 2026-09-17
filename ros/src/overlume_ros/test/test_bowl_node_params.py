@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """Bowl-config node-level regression test (VM-091 gate close-out, findings 1/2/4).
 
 Exercises three things that need a REAL running node (no in-process rclcpp

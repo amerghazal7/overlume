@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_hello_frame.cpp — renders one frame from the node's default pose
 // and checks that something plausible came out: the buffer isn't all-zero,
 // and the sky (top rows, nothing drawn there) is visibly different from
@@ -117,7 +120,7 @@ TEST(HelloFrame, RendersDistinctSkyAndGround) {
     const bool anyNonZero = std::any_of(rgb.begin(), rgb.end(), [](uint8_t v) { return v != 0; });
     EXPECT_TRUE(anyNonZero) << "Rendered frame buffer is entirely zero.";
 
-    const double skyAvg = RowAverage(rgb, kWidth, 5);              // near top
+    const double skyAvg = RowAverage(rgb, kWidth, 5);               // near top
     const double groundAvg = RowAverage(rgb, kWidth, kHeight - 5);  // near bottom
     EXPECT_GT(std::fabs(skyAvg - groundAvg), 5.0)
         << "sky rows and ground rows look indistinguishable (sky_avg=" << skyAvg

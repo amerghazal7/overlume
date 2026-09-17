@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_theme_parses.cpp — overlume::theme_parses() exists so the two-yaml-cpp
 // coexistence check (this archive's bundled clang/libc++ yaml-cpp alongside
 // the node's gcc/libstdc++ yaml_cpp_vendor, in ONE process) has a GPU-free

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
 # setup_toolchain.sh — root-less bootstrap of a clang-14/libc++-14 toolchain
 # for overlume.
 #

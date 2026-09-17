@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
 // ribbon_emissive.mat — Epic 2 Task 5 (VM-023). The BEHAVIOR path ribbon's
 // material: the ref-1 "green hero glow" bloom, fed by palette.ribbon_core/
 // ribbon_glow + emissive.ribbon_strength. Bloom is already enabled in

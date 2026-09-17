@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file profile.hpp
  *  @brief Profile YAML loader (Epic 2 Task 1 / VM-020).
@@ -20,15 +23,13 @@
 
 #include "overlume/scene.h"
 
-namespace overlume_node
-{
+namespace overlume_node {
 
 // The ONE namespace rule, used by every marker adapter: longest matching
 // prefix wins; no match -> row.ns_default.
 enum class NsRender : uint8_t { kDrop = 0, kPolyline = 1, kPolygon = 2 };
 
-struct NsRule
-{
+struct NsRule {
     std::string prefix;
     NsRender render{NsRender::kDrop};
     // Epic 3 Task 1 (VM-036, ADR-0004): which MapElement::kind a marker
@@ -42,23 +43,22 @@ struct NsRule
     overlume::MapKind kind{overlume::MapKind::OTHER};
 };
 
-struct ProfileRow
-{
-    std::string topic;        // required (EXCEPT adapter: tf_axes)
-    std::string type;         // required (EXCEPT adapter: tf_axes)
-    std::string adapter;      // required: dynamic_objects|path|hd_map|ogm|
+struct ProfileRow {
+    std::string topic;         // required (EXCEPT adapter: tf_axes)
+    std::string type;          // required (EXCEPT adapter: tf_axes)
+    std::string adapter;       // required: dynamic_objects|path|hd_map|ogm|
                                //           collision|generic|tf_axes
-    std::string role;         // required; closed set per adapter (see profile.cpp)
-    std::string update_topic; // optional, `ogm` rows ONLY
+    std::string role;          // required; closed set per adapter (see profile.cpp)
+    std::string update_topic;  // optional, `ogm` rows ONLY
 
     double timeout_sec{2.0};  // optional, >= 1.0 (see epic2 plan, "Staleness")
     double max_rate_hz{0.0};  // optional, 0 = no limit
 
-    std::vector<NsRule> namespaces;              // optional; empty = everything, as ns_default
-    NsRender ns_default{NsRender::kPolyline};     // optional
+    std::vector<NsRule> namespaces;            // optional; empty = everything, as ns_default
+    NsRender ns_default{NsRender::kPolyline};  // optional
 
-    bool transient_local{false}; // optional; latched publishers (/sim/hd_map/markers)
-    bool best_effort{false};     // optional; BEST_EFFORT publishers (/sim/ground_truth/boxes)
+    bool transient_local{false};  // optional; latched publishers (/sim/hd_map/markers)
+    bool best_effort{false};      // optional; BEST_EFFORT publishers (/sim/ground_truth/boxes)
 
     // Junction-cleanup knob: adapter: hd_map rows only (ParseRow rejects it
     // elsewhere). true (default, matches every shipped profile): LEFT_/
@@ -88,8 +88,7 @@ struct ProfileRow
     uint32_t stride{1};
 };
 
-struct Profile
-{
+struct Profile {
     std::string name;
     std::vector<ProfileRow> rows;
 };
@@ -99,12 +98,11 @@ struct Profile
 // as markers; it's a producer). `ogm` -> 2 entries (topic +
 // update_topic, the second typed map_msgs/msg/OccupancyGridUpdate).
 // Everything else -> 1.
-struct SubSpec
-{
+struct SubSpec {
     std::string topic;
-    std::string type;   // determines which ingest() overload the node binds
-    bool best_effort;    // -> rclcpp::QoS(...).best_effort()
-    bool transient_local; // -> .transient_local()
+    std::string type;      // determines which ingest() overload the node binds
+    bool best_effort;      // -> rclcpp::QoS(...).best_effort()
+    bool transient_local;  // -> .transient_local()
 };
 
 // Parses a profile from a file / from a literal. Returns std::nullopt and

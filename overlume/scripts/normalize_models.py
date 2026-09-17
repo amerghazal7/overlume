@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
 """Normalize a source glTF/GLB/OBJ model into overlume's per-class
 clay-object convention (Epic 2 Task 4 / VM-022).
 

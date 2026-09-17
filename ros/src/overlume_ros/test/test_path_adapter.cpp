@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file test_path_adapter.cpp
  *  @brief PathAdapter tests.
  */
@@ -17,26 +20,22 @@
 using overlume::ros::FrameTransformer;
 using overlume::ros::SceneAssembly;
 
-namespace
-{
+namespace {
 
 // Hand-built tf2_ros::Buffer + FrameTransformer -- identical fixture style
 // to test_hd_map_adapter.cpp/test_dynamic_objects_adapter.cpp. An empty
 // buffer is enough: every fixture here is already in the "map" frame
 // (FrameTransformer's identity shortcut never touches it).
-struct TfFixture
-{
+struct TfFixture {
     std::shared_ptr<rclcpp::Clock> clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
     tf2_ros::Buffer buffer{clock};
     FrameTransformer tf{buffer};
 };
 
-nav_msgs::msg::Path MakePath(const std::vector<std::array<double, 3>>& xyz)
-{
+nav_msgs::msg::Path MakePath(const std::vector<std::array<double, 3>>& xyz) {
     nav_msgs::msg::Path msg;
     msg.header.frame_id = "map";
-    for (const auto& p : xyz)
-    {
+    for (const auto& p : xyz) {
         geometry_msgs::msg::PoseStamped ps;
         ps.pose.position.x = p[0];
         ps.pose.position.y = p[1];
@@ -51,8 +50,7 @@ nav_msgs::msg::Path MakePath(const std::vector<std::array<double, 3>>& xyz)
 
 // ── Step 1: positions-only, never orientation ───────────────────────────────
 
-TEST(PathAdapter, BehaviorPathHeadingDerivedFromPointsNotOrientation)
-{
+TEST(PathAdapter, BehaviorPathHeadingDerivedFromPointsNotOrientation) {
     // /behavior_path_planner/output_path_visualization poses carry IDENTITY
     // orientations (0,0,0,1) for every pose in the recorded bag. PathRibbon
     // is positions-only, so this is mostly a "don't be clever" guard --
@@ -60,9 +58,9 @@ TEST(PathAdapter, BehaviorPathHeadingDerivedFromPointsNotOrientation)
     auto msg = overlume_node::testing::load_path("behavior_output_path_0.yaml");
     ASSERT_GE(msg.poses.size(), 2u);
     TfFixture kTf;
-    overlume_node::PathAdapter a(overlume_node::testing::urban_row(
-                                   "/behavior_path_planner/output_path_visualization"),
-                               kTf.tf);
+    overlume_node::PathAdapter a(
+        overlume_node::testing::urban_row("/behavior_path_planner/output_path_visualization"),
+        kTf.tf);
     a.ingest(msg, /*sim_time_sec=*/1.0);
     SceneAssembly out;
     a.fill(out);
@@ -70,8 +68,7 @@ TEST(PathAdapter, BehaviorPathHeadingDerivedFromPointsNotOrientation)
     ASSERT_EQ(out.paths.size(), 1u);
     const overlume::PathRibbon& r = out.paths.front();
     ASSERT_EQ(r.point_count, msg.poses.size());
-    for (uint32_t i = 0; i < r.point_count; ++i)
-    {
+    for (uint32_t i = 0; i < r.point_count; ++i) {
         EXPECT_DOUBLE_EQ(r.points[i].x, msg.poses[i].pose.position.x);
         EXPECT_DOUBLE_EQ(r.points[i].y, msg.poses[i].pose.position.y);
         // flatten_z is ON by default (2D HD-map plane; see
@@ -84,8 +81,7 @@ TEST(PathAdapter, BehaviorPathHeadingDerivedFromPointsNotOrientation)
 
 // ── Step 1: role from the profile row, never the topic name ────────────────
 
-TEST(PathAdapter, RoleComesFromTheProfileRowNotTheTopicName)
-{
+TEST(PathAdapter, RoleComesFromTheProfileRowNotTheTopicName) {
     // behavior|global|local; renaming a topic is a YAML edit, not a code
     // edit -- construct against the SAME topic three times with a
     // hand-built row differing only in `role`, and assert the ribbon's
@@ -93,8 +89,8 @@ TEST(PathAdapter, RoleComesFromTheProfileRowNotTheTopicName)
     TfFixture kTf;
     auto msg = MakePath({{0, 0, 0}, {1, 0, 0}, {2, 0, 0}});
 
-    overlume_node::ProfileRow row = overlume_node::testing::urban_row(
-        "/behavior_path_planner/output_path_visualization");
+    overlume_node::ProfileRow row =
+        overlume_node::testing::urban_row("/behavior_path_planner/output_path_visualization");
     ASSERT_EQ(row.role, "behavior");
 
     row.role = "behavior";
@@ -128,11 +124,9 @@ TEST(PathAdapter, RoleComesFromTheProfileRowNotTheTopicName)
 
 // ── Step 1: empty and single-pose paths are dropped and counted ────────────
 
-TEST(PathAdapter, EmptyAndSinglePosePathsAreDroppedAndCounted)
-{
+TEST(PathAdapter, EmptyAndSinglePosePathsAreDroppedAndCounted) {
     TfFixture kTf;
-    overlume_node::PathAdapter a(
-        overlume_node::testing::urban_row("/local_vel_path"), kTf.tf);
+    overlume_node::PathAdapter a(overlume_node::testing::urban_row("/local_vel_path"), kTf.tf);
 
     auto empty = MakePath({});
     a.ingest(empty, 1.0);
@@ -154,14 +148,13 @@ TEST(PathAdapter, EmptyAndSinglePosePathsAreDroppedAndCounted)
 
 // ── Step 1: a new path REPLACES the stored one, never appends ──────────────
 
-TEST(PathAdapter, PathChangeReplacesRatherThanAppends)
-{
+TEST(PathAdapter, PathChangeReplacesRatherThanAppends) {
     auto long_path = overlume_node::testing::load_path("behavior_output_path_0.yaml");
     ASSERT_GT(long_path.poses.size(), 33u);
     TfFixture kTf;
-    overlume_node::PathAdapter a(overlume_node::testing::urban_row(
-                                   "/behavior_path_planner/output_path_visualization"),
-                               kTf.tf);
+    overlume_node::PathAdapter a(
+        overlume_node::testing::urban_row("/behavior_path_planner/output_path_visualization"),
+        kTf.tf);
     a.ingest(long_path, 1.0);
     SceneAssembly out1;
     a.fill(out1);
@@ -184,11 +177,10 @@ TEST(PathAdapter, PathChangeReplacesRatherThanAppends)
 // raw stamping sawtooths any topic whose inter-message gap can cross the
 // library's 0.5s fade start (the recorded /local_vel_path peaks at 0.461s,
 // zero margin). Mirrors hd_map.cpp's VM-034 kMapFadeWindowSec tests.
-TEST(PathAdapter, FillStampsLastUpdateSecAnchoredToRowTimeoutNotRawReceipt)
-{
+TEST(PathAdapter, FillStampsLastUpdateSecAnchoredToRowTimeoutNotRawReceipt) {
     TfFixture kTf;
-    const auto row = overlume_node::testing::urban_row(
-        "/behavior_path_planner/output_path_visualization");
+    const auto row =
+        overlume_node::testing::urban_row("/behavior_path_planner/output_path_visualization");
     overlume_node::PathAdapter a(row, kTf.tf);
     a.ingest(MakePath({{0, 0, 0}, {5, 0, 0}}), /*sim_time_sec=*/10.0);
 

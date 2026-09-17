@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file main.cpp @brief Entry point for the overlume_node executable. */
 
 #include <memory>
@@ -6,8 +9,7 @@
 
 #include "overlume_ros/overlume_node.hpp"
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]) {
     rclcpp::init(argc, argv);
     auto node = std::make_shared<overlume::ros::OverlumeNode>();
     rclcpp::spin(node->get_node_base_interface());

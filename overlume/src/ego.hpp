@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // ego.hpp — internal-only (`-I src`), not installed, not POD. Declares the
 // per-frame counterpart to set_ego_model() (scene.h/ego.cpp):
 // set_ego_model() builds/loads the entity once, update_ego_transform()

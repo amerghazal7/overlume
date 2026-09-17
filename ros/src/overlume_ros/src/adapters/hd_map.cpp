@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #include "overlume_ros/adapters/hd_map.hpp"
 
 #include <algorithm>
@@ -8,10 +11,8 @@
 #include <tf2/LinearMath/Transform.h>
 #include <tf2/LinearMath/Vector3.h>
 
-namespace overlume_node
-{
-namespace
-{
+namespace overlume_node {
+namespace {
 
 // visualization_msgs/msg/Marker.msg action + type constants -- not worth a
 // dependency on the generated enum names for six values used once each.
@@ -21,8 +22,7 @@ constexpr int32_t kActionDelete = 2;
 constexpr int32_t kActionDeleteAll = 3;
 constexpr int32_t kMarkerTypeLineStrip = 4;
 
-bool HasNan(const overlume::Vec3& p)
-{
+bool HasNan(const overlume::Vec3& p) {
     return std::isnan(p.x) || std::isnan(p.y) || std::isnan(p.z);
 }
 
@@ -31,8 +31,7 @@ bool HasNan(const overlume::Vec3& p)
 // geometry (rviz parity), including dash chopping below. Identity pose (the
 // common case) skips the multiply, mirroring FrameTransformer's own
 // identity-frame shortcut (frame_transform.cpp).
-bool MarkerPoseIsIdentity(const geometry_msgs::msg::Pose& p)
-{
+bool MarkerPoseIsIdentity(const geometry_msgs::msg::Pose& p) {
     constexpr double kEps = 1e-12;
     return std::abs(p.position.x) < kEps && std::abs(p.position.y) < kEps &&
            std::abs(p.position.z) < kEps && std::abs(p.orientation.x) < kEps &&
@@ -42,8 +41,7 @@ bool MarkerPoseIsIdentity(const geometry_msgs::msg::Pose& p)
 
 // A NaN marker.pose is malformed Marker data (existing dropped_malformed
 // path) -- a NON-identity pose is normal Marker semantics, not malformed.
-bool MarkerPoseHasNan(const geometry_msgs::msg::Pose& p)
-{
+bool MarkerPoseHasNan(const geometry_msgs::msg::Pose& p) {
     return std::isnan(p.position.x) || std::isnan(p.position.y) || std::isnan(p.position.z) ||
            std::isnan(p.orientation.x) || std::isnan(p.orientation.y) ||
            std::isnan(p.orientation.z) || std::isnan(p.orientation.w);
@@ -75,11 +73,9 @@ constexpr double kMapFadeWindowSec = 1.0;
 // below and the junction-cleanup clip/cut machinery further down -- both
 // need to convert "a point somewhere along this polyline" into/from a
 // normalized arc-length station.
-std::vector<double> CumulativeArcLength(const std::vector<overlume::Vec3>& pts)
-{
+std::vector<double> CumulativeArcLength(const std::vector<overlume::Vec3>& pts) {
     std::vector<double> cum(pts.size(), 0.0);
-    for (size_t i = 1; i < pts.size(); ++i)
-    {
+    for (size_t i = 1; i < pts.size(); ++i) {
         const double dx = pts[i].x - pts[i - 1].x, dy = pts[i].y - pts[i - 1].y,
                      dz = pts[i].z - pts[i - 1].z;
         cum[i] = cum[i - 1] + std::sqrt(dx * dx + dy * dy + dz * dz);
@@ -89,9 +85,8 @@ std::vector<double> CumulativeArcLength(const std::vector<overlume::Vec3>& pts)
 
 // Interpolated point at arc length `s` (clamped to [0, cum.back()]) along
 // `pts`, using its own precomputed `cum` (CumulativeArcLength(pts)).
-overlume::Vec3 PointAtArcLength(const std::vector<overlume::Vec3>& pts, const std::vector<double>& cum,
-                              double s)
-{
+overlume::Vec3 PointAtArcLength(const std::vector<overlume::Vec3>& pts,
+                                const std::vector<double>& cum, double s) {
     const double total_len = cum.back();
     s = std::clamp(s, 0.0, total_len);
     size_t i = static_cast<size_t>(std::lower_bound(cum.begin(), cum.end(), s) - cum.begin());
@@ -112,8 +107,7 @@ overlume::Vec3 PointAtArcLength(const std::vector<overlume::Vec3>& pts, const st
 // indexing past either rail's own array. Returns empty for fewer than 2
 // input points or n_stations == 0.
 std::vector<overlume::Vec3> ResampleByArcLength(const std::vector<overlume::Vec3>& pts,
-                                              uint32_t n_stations)
-{
+                                                uint32_t n_stations) {
     std::vector<overlume::Vec3> out;
     if (pts.size() < 2 || n_stations == 0) return out;
 
@@ -121,11 +115,10 @@ std::vector<overlume::Vec3> ResampleByArcLength(const std::vector<overlume::Vec3
     const double total_len = cum.back();
 
     out.reserve(n_stations);
-    for (uint32_t k = 0; k < n_stations; ++k)
-    {
-        const double s = (n_stations == 1)
-                             ? 0.0
-                             : total_len * static_cast<double>(k) / static_cast<double>(n_stations - 1);
+    for (uint32_t k = 0; k < n_stations; ++k) {
+        const double s = (n_stations == 1) ? 0.0
+                                           : total_len * static_cast<double>(k) /
+                                                 static_cast<double>(n_stations - 1);
         out.push_back(PointAtArcLength(pts, cum, s));
     }
     return out;
@@ -136,8 +129,7 @@ std::vector<overlume::Vec3> ResampleByArcLength(const std::vector<overlume::Vec3
 // promotion pass relabels a LEFT_/RIGHT_BOUNDARY to ROAD_EDGE in place,
 // keeping its lane_id; no ingest-time namespace rule ever produces
 // ROAD_EDGE directly.
-bool KindCarriesLaneId(overlume::MapKind kind)
-{
+bool KindCarriesLaneId(overlume::MapKind kind) {
     return kind == overlume::MapKind::CENTERLINE || kind == overlume::MapKind::LEFT_BOUNDARY ||
            kind == overlume::MapKind::RIGHT_BOUNDARY || kind == overlume::MapKind::ROAD_EDGE;
 }
@@ -159,18 +151,15 @@ bool KindCarriesLaneId(overlume::MapKind kind)
 // contributes none).
 constexpr double kRoadEdgeCoincidenceThresholdM = 1.0;
 
-double PointToPolylineDist2D(const overlume::Vec3& p, const std::vector<overlume::Vec3>& poly)
-{
+double PointToPolylineDist2D(const overlume::Vec3& p, const std::vector<overlume::Vec3>& poly) {
     double best = std::numeric_limits<double>::infinity();
-    for (size_t i = 0; i + 1 < poly.size(); ++i)
-    {
+    for (size_t i = 0; i + 1 < poly.size(); ++i) {
         const auto& a = poly[i];
         const auto& b = poly[i + 1];
         const double dx = b.x - a.x, dy = b.y - a.y;
         const double len2 = dx * dx + dy * dy;
         double t = 0.0;
-        if (len2 > 1e-12)
-        {
+        if (len2 > 1e-12) {
             t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
             t = std::clamp(t, 0.0, 1.0);
         }
@@ -191,26 +180,22 @@ double PointToPolylineDist2D(const overlume::Vec3& p, const std::vector<overlume
 // right up to where one peels away, so the nearest point on the straight
 // piece is, to survey precision, the same physical place.
 double NearestStationOnPolyline(const overlume::Vec3& p, const std::vector<overlume::Vec3>& poly,
-                                 const std::vector<double>& cum)
-{
+                                const std::vector<double>& cum) {
     double best_d2 = std::numeric_limits<double>::infinity();
     double best_s = 0.0;
-    for (size_t i = 0; i + 1 < poly.size(); ++i)
-    {
+    for (size_t i = 0; i + 1 < poly.size(); ++i) {
         const auto& a = poly[i];
         const auto& b = poly[i + 1];
         const double dx = b.x - a.x, dy = b.y - a.y;
         const double len2 = dx * dx + dy * dy;
         double t = 0.0;
-        if (len2 > 1e-12)
-        {
+        if (len2 > 1e-12) {
             t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
             t = std::clamp(t, 0.0, 1.0);
         }
         const double cx = a.x + t * dx, cy = a.y + t * dy;
         const double d2 = (p.x - cx) * (p.x - cx) + (p.y - cy) * (p.y - cy);
-        if (d2 < best_d2)
-        {
+        if (d2 < best_d2) {
             best_d2 = d2;
             best_s = cum[i] + t * (cum[i + 1] - cum[i]);
         }
@@ -224,16 +209,14 @@ double NearestStationOnPolyline(const overlume::Vec3& p, const std::vector<overl
 // point, each checked against a candidate's FULL polyline extent (not just
 // its endpoints), so a candidate that only grazes one sample still counts
 // as coincident.
-bool IsRoadEdge(uint32_t lane_id, const std::vector<overlume::Vec3>& pts,
-                const std::unordered_map<uint32_t, const std::vector<overlume::Vec3>*>& opposite_by_lane)
-{
+bool IsRoadEdge(
+    uint32_t lane_id, const std::vector<overlume::Vec3>& pts,
+    const std::unordered_map<uint32_t, const std::vector<overlume::Vec3>*>& opposite_by_lane) {
     if (pts.size() < 2) return false;
     const overlume::Vec3 samples[3] = {pts.front(), pts[pts.size() / 2], pts.back()};
-    for (const auto& [other_lane, other_pts] : opposite_by_lane)
-    {
+    for (const auto& [other_lane, other_pts] : opposite_by_lane) {
         if (other_lane == lane_id || other_pts == nullptr) continue;
-        for (const auto& s : samples)
-        {
+        for (const auto& s : samples) {
             if (PointToPolylineDist2D(s, *other_pts) < kRoadEdgeCoincidenceThresholdM) return false;
         }
     }
@@ -315,11 +298,11 @@ constexpr double kJunctionGapMergeM = 6.6;
 // FindArcSpanNear returns false for those, leaving the window exactly as
 // MergeWindows produced it. Never touches an edge with no cut window at
 // all. See plan 2026-08-18-visual-mode-epic3.md for the full derivation.
-constexpr double kArcRadiusThresholdM = 20.0;   // see FindArcSpanNear's own
-                                                 // comment for the measured
-                                                 // corner-vs-floor margin.
-constexpr double kArcMinTotalTurnDeg = 15.0;    // ditto.
-constexpr double kArcSearchMarginM = 6.0;       // ditto.
+constexpr double kArcRadiusThresholdM = 20.0;  // see FindArcSpanNear's own
+                                               // comment for the measured
+                                               // corner-vs-floor margin.
+constexpr double kArcMinTotalTurnDeg = 15.0;   // ditto.
+constexpr double kArcSearchMarginM = 6.0;      // ditto.
 
 // Circumradius of the 2D (x,y) triangle (A,B,C) -- the library's own
 // road-plane is flat, same "ignore z" choice every other 2D helper in this
@@ -327,8 +310,7 @@ constexpr double kArcSearchMarginM = 6.0;       // ditto.
 // +inf for (near-)collinear points: a straight run has no meaningful
 // circumradius, and "infinite" correctly never clears
 // kArcRadiusThresholdM, so a dead-straight stretch never counts as an arc.
-double CircumradiusXY(const overlume::Vec3& A, const overlume::Vec3& B, const overlume::Vec3& C)
-{
+double CircumradiusXY(const overlume::Vec3& A, const overlume::Vec3& B, const overlume::Vec3& C) {
     const double abx = B.x - A.x, aby = B.y - A.y;
     const double acx = C.x - A.x, acy = C.y - A.y;
     const double cross2 = std::abs(abx * acy - aby * acx);  // 2x triangle area
@@ -341,8 +323,7 @@ double CircumradiusXY(const overlume::Vec3& A, const overlume::Vec3& B, const ov
 
 // Turn angle (degrees, always >= 0) at vertex B between the incoming
 // (A->B) and outgoing (B->C) directions.
-double TurnAngleDeg(const overlume::Vec3& A, const overlume::Vec3& B, const overlume::Vec3& C)
-{
+double TurnAngleDeg(const overlume::Vec3& A, const overlume::Vec3& B, const overlume::Vec3& C) {
     const double d1x = B.x - A.x, d1y = B.y - A.y;
     const double d2x = C.x - B.x, d2y = C.y - B.y;
     return std::abs(std::atan2(d1x * d2y - d1y * d2x, d1x * d2x + d1y * d2y)) * 180.0 / M_PI;
@@ -377,9 +358,8 @@ double TurnAngleDeg(const overlume::Vec3& A, const overlume::Vec3& B, const over
 //   kArcSearchMarginM = 6.0 m -- only locates a candidate arc vertex to
 //     search from; does not bound how far the run it belongs to extends
 //     (that is real curb geometry, measured above).
-bool FindArcSpanNear(const std::vector<overlume::Vec3>& pts, const std::vector<double>& cum, double b,
-                     double& lo, double& hi)
-{
+bool FindArcSpanNear(const std::vector<overlume::Vec3>& pts, const std::vector<double>& cum,
+                     double b, double& lo, double& hi) {
     if (pts.size() < 3) return false;
     const double lo_bound = b - kArcSearchMarginM;
     const double hi_bound = b + kArcSearchMarginM;
@@ -391,30 +371,25 @@ bool FindArcSpanNear(const std::vector<overlume::Vec3>& pts, const std::vector<d
     double run_turn_deg = 0.0;
 
     auto close_run = [&](size_t run_end_vertex) {
-        if (in_run && run_turn_deg >= kArcMinTotalTurnDeg)
-        {
+        if (in_run && run_turn_deg >= kArcMinTotalTurnDeg) {
             // Extend the qualifying run outward past the search-window
             // bound (kArcSearchMarginM only locates this run) while the
             // next vertex still clears kArcRadiusThresholdM, so a run's own
             // true start/end is reached in full even when farther than the
             // margin.
             size_t ext_start = run_start;
-            while (ext_start > 1 &&
-                   CircumradiusXY(pts[ext_start - 2], pts[ext_start - 1], pts[ext_start]) <
-                       kArcRadiusThresholdM)
-            {
+            while (ext_start > 1 && CircumradiusXY(pts[ext_start - 2], pts[ext_start - 1],
+                                                   pts[ext_start]) < kArcRadiusThresholdM) {
                 --ext_start;
             }
             size_t ext_end = run_end_vertex;
             while (ext_end + 2 < pts.size() &&
                    CircumradiusXY(pts[ext_end], pts[ext_end + 1], pts[ext_end + 2]) <
-                       kArcRadiusThresholdM)
-            {
+                       kArcRadiusThresholdM) {
                 ++ext_end;
             }
             const double r_lo = cum[ext_start], r_hi = cum[ext_end];
-            if (!best_found || (r_hi - r_lo) > (best_hi - best_lo))
-            {
+            if (!best_found || (r_hi - r_lo) > (best_hi - best_lo)) {
                 best_lo = r_lo;
                 best_hi = r_hi;
                 best_found = true;
@@ -424,30 +399,24 @@ bool FindArcSpanNear(const std::vector<overlume::Vec3>& pts, const std::vector<d
         run_turn_deg = 0.0;
     };
 
-    for (size_t i = 1; i + 1 < pts.size(); ++i)
-    {
+    for (size_t i = 1; i + 1 < pts.size(); ++i) {
         const bool in_window = cum[i] >= lo_bound && cum[i] <= hi_bound;
         const bool is_arc_vertex =
             in_window && CircumradiusXY(pts[i - 1], pts[i], pts[i + 1]) < kArcRadiusThresholdM;
-        if (is_arc_vertex)
-        {
-            if (!in_run)
-            {
+        if (is_arc_vertex) {
+            if (!in_run) {
                 in_run = true;
                 run_start = i;
                 run_turn_deg = 0.0;
             }
             run_turn_deg += TurnAngleDeg(pts[i - 1], pts[i], pts[i + 1]);
-        }
-        else
-        {
+        } else {
             close_run(i - 1);
         }
     }
     close_run(pts.size() - 2);
 
-    if (best_found)
-    {
+    if (best_found) {
         lo = best_lo;
         hi = best_hi;
     }
@@ -457,8 +426,7 @@ bool FindArcSpanNear(const std::vector<overlume::Vec3>& pts, const std::vector<d
 // A promoted-but-not-yet-cut ROAD_EDGE piece, queued in fill() below so
 // every promoted edge from every marker can be checked against every other
 // one for the mutual-crossing cut, arc-snap, and redundant-arc-tail trim.
-struct PendingRoadEdge
-{
+struct PendingRoadEdge {
     std::vector<overlume::Vec3> points;
     uint32_t lane_id;
     double last_update_sec;
@@ -475,10 +443,8 @@ struct PendingRoadEdge
 // GROW-ONLY: a boundary with no qualifying arc nearby, or one that already
 // sits at or beyond the arc's own far edge, is left untouched.
 void SnapWindowsToArcs(const std::vector<overlume::Vec3>& pts, const std::vector<double>& cum,
-                       std::vector<std::pair<double, double>>& windows)
-{
-    for (auto& w : windows)
-    {
+                       std::vector<std::pair<double, double>>& windows) {
+    for (auto& w : windows) {
         double lo = 0.0, hi = 0.0;
         if (FindArcSpanNear(pts, cum, w.first, lo, hi)) w.first = std::min(w.first, lo);
         if (FindArcSpanNear(pts, cum, w.second, lo, hi)) w.second = std::max(w.second, hi);
@@ -543,41 +509,36 @@ constexpr double kSharedNodeEpsM = 0.10;
 // window that already exists from the ordinary crossing-cut, and only
 // tightens a boundary that is actually past the projected departure
 // vertex.
-bool FindArcDepartureFromEnd(const std::vector<overlume::Vec3>& pts, bool from_back, size_t& idx)
-{
+bool FindArcDepartureFromEnd(const std::vector<overlume::Vec3>& pts, bool from_back, size_t& idx) {
     const size_t n = pts.size();
     if (n < 3) return false;
     // Walks `pts` from whichever end `from_back` selects, via an index
     // remap (`at`), so the exact same first-qualifying-run scan works
     // symmetrically from either end -- `k` counts vertices IN from that
     // end, `at(k)` is the corresponding real index into `pts`.
-    auto at = [&](size_t k) -> const overlume::Vec3& { return from_back ? pts[n - 1 - k] : pts[k]; };
+    auto at = [&](size_t k) -> const overlume::Vec3& {
+        return from_back ? pts[n - 1 - k] : pts[k];
+    };
 
     bool in_run = false;
     size_t run_start_k = 0;
     double run_turn_deg = 0.0;
-    for (size_t k = 1; k + 1 < n; ++k)
-    {
-        if (CircumradiusXY(at(k - 1), at(k), at(k + 1)) < kArcRadiusThresholdM)
-        {
-            if (!in_run)
-            {
+    for (size_t k = 1; k + 1 < n; ++k) {
+        if (CircumradiusXY(at(k - 1), at(k), at(k + 1)) < kArcRadiusThresholdM) {
+            if (!in_run) {
                 in_run = true;
                 run_start_k = k;
                 run_turn_deg = 0.0;
             }
             run_turn_deg += TurnAngleDeg(at(k - 1), at(k), at(k + 1));
-        }
-        else if (in_run)
-        {
+        } else if (in_run) {
             // Unlike FindLastArcRunEnd (which deliberately keeps
             // overwriting to find the LAST run for the redundant-tail
             // trim), this returns the FIRST qualifying run and stops -- a
             // neighbour sharing THIS end's own node only cares about the
             // nearest corner peeling away from it, never one further down
             // the piece.
-            if (run_turn_deg >= kArcMinTotalTurnDeg)
-            {
+            if (run_turn_deg >= kArcMinTotalTurnDeg) {
                 idx = from_back ? (n - 1 - run_start_k) : run_start_k;
                 return true;
             }
@@ -585,8 +546,7 @@ bool FindArcDepartureFromEnd(const std::vector<overlume::Vec3>& pts, bool from_b
             run_turn_deg = 0.0;
         }
     }
-    if (in_run && run_turn_deg >= kArcMinTotalTurnDeg)
-    {
+    if (in_run && run_turn_deg >= kArcMinTotalTurnDeg) {
         idx = from_back ? (n - 1 - run_start_k) : run_start_k;
         return true;
     }
@@ -603,27 +563,20 @@ bool FindArcDepartureFromEnd(const std::vector<overlume::Vec3>& pts, bool from_b
 // at most one neighbour sharing a junction node is expected to carry a
 // corner arc departing from it.
 bool FindNeighborArcDepartureStation(const std::vector<PendingRoadEdge>& pieces, size_t self,
-                                      const std::vector<std::vector<double>>& cum,
-                                      const overlume::Vec3& node, double& station_out)
-{
+                                     const std::vector<std::vector<double>>& cum,
+                                     const overlume::Vec3& node, double& station_out) {
     const auto& pts_self = pieces[self].points;
-    for (size_t j = 0; j < pieces.size(); ++j)
-    {
+    for (size_t j = 0; j < pieces.size(); ++j) {
         if (j == self || pieces[j].points.size() < 3) continue;
         const auto& pts_j = pieces[j].points;
         const double d_front = std::hypot(node.x - pts_j.front().x, node.y - pts_j.front().y);
         const double d_back = std::hypot(node.x - pts_j.back().x, node.y - pts_j.back().y);
         bool coincident_back = false;
-        if (d_front < kSharedNodeEpsM)
-        {
+        if (d_front < kSharedNodeEpsM) {
             coincident_back = false;
-        }
-        else if (d_back < kSharedNodeEpsM)
-        {
+        } else if (d_back < kSharedNodeEpsM) {
             coincident_back = true;
-        }
-        else
-        {
+        } else {
             continue;
         }
         size_t dep_idx = 0;
@@ -645,19 +598,16 @@ bool FindNeighborArcDepartureStation(const std::vector<PendingRoadEdge>& pieces,
 // MergeWindows pass.
 void SnapWindowsToNeighborArcDepartures(const std::vector<PendingRoadEdge>& pieces, size_t self,
                                         const std::vector<std::vector<double>>& cum,
-                                        std::vector<std::pair<double, double>>& windows)
-{
+                                        std::vector<std::pair<double, double>>& windows) {
     if (windows.empty()) return;
     const auto& pts_self = pieces[self].points;
     if (pts_self.empty()) return;
 
     double station = 0.0;
-    if (FindNeighborArcDepartureStation(pieces, self, cum, pts_self.front(), station))
-    {
+    if (FindNeighborArcDepartureStation(pieces, self, cum, pts_self.front(), station)) {
         windows.front().first = std::min(windows.front().first, station);
     }
-    if (FindNeighborArcDepartureStation(pieces, self, cum, pts_self.back(), station))
-    {
+    if (FindNeighborArcDepartureStation(pieces, self, cum, pts_self.back(), station)) {
         windows.back().second = std::max(windows.back().second, station);
     }
 }
@@ -669,16 +619,14 @@ void SnapWindowsToNeighborArcDepartures(const std::vector<PendingRoadEdge>& piec
 // last arc regardless of whether any crossing-cut window touches it at
 // all. `hi_idx` is that run's own far vertex INDEX (a real recorded
 // point); returns false when no qualifying run exists anywhere in `pts`.
-bool FindLastArcRunEnd(const std::vector<overlume::Vec3>& pts, size_t& hi_idx)
-{
+bool FindLastArcRunEnd(const std::vector<overlume::Vec3>& pts, size_t& hi_idx) {
     if (pts.size() < 3) return false;
     bool found = false;
     bool in_run = false;
     double run_turn_deg = 0.0;
 
     auto close_run = [&](size_t run_end_vertex) {
-        if (in_run && run_turn_deg >= kArcMinTotalTurnDeg)
-        {
+        if (in_run && run_turn_deg >= kArcMinTotalTurnDeg) {
             hi_idx = run_end_vertex;  // later (higher-station) runs overwrite on purpose
             found = true;
         }
@@ -686,19 +634,14 @@ bool FindLastArcRunEnd(const std::vector<overlume::Vec3>& pts, size_t& hi_idx)
         run_turn_deg = 0.0;
     };
 
-    for (size_t i = 1; i + 1 < pts.size(); ++i)
-    {
-        if (CircumradiusXY(pts[i - 1], pts[i], pts[i + 1]) < kArcRadiusThresholdM)
-        {
-            if (!in_run)
-            {
+    for (size_t i = 1; i + 1 < pts.size(); ++i) {
+        if (CircumradiusXY(pts[i - 1], pts[i], pts[i + 1]) < kArcRadiusThresholdM) {
+            if (!in_run) {
                 in_run = true;
                 run_turn_deg = 0.0;
             }
             run_turn_deg += TurnAngleDeg(pts[i - 1], pts[i], pts[i + 1]);
-        }
-        else
-        {
+        } else {
             close_run(i - 1);
         }
     }
@@ -719,8 +662,7 @@ bool FindLastArcRunEnd(const std::vector<overlume::Vec3>& pts, size_t& hi_idx)
 // ordering dependency on when piece j's own cut runs.
 void TrimRedundantArcTails(const std::vector<PendingRoadEdge>& pieces, size_t self,
                            const std::vector<std::vector<double>>& cum,
-                           std::vector<std::pair<double, double>>& windows)
-{
+                           std::vector<std::pair<double, double>>& windows) {
     const auto& pts = pieces[self].points;
     size_t hi_idx = 0;
     if (!FindLastArcRunEnd(pts, hi_idx)) return;
@@ -742,21 +684,17 @@ void TrimRedundantArcTails(const std::vector<PendingRoadEdge>& pieces, size_t se
     // other independently-promoted piece", not "of whichever piece is
     // closest by endpoint alone".
     bool duplicate_found = false;
-    for (size_t j = 0; j < pieces.size() && !duplicate_found; ++j)
-    {
+    for (size_t j = 0; j < pieces.size() && !duplicate_found; ++j) {
         // Same-lane pieces never cut each other -- the same rule the
         // mutual-crossing cut applies (two pieces of one polyline split
         // apart by the polygon clip are not independent surveys).
-        if (j == self || pieces[j].lane_id == pieces[self].lane_id ||
-            pieces[j].points.size() < 2)
+        if (j == self || pieces[j].lane_id == pieces[self].lane_id || pieces[j].points.size() < 2)
             continue;
         const auto& other = pieces[j].points;
-        const double cond_a =
-            std::min(std::hypot(far.x - other.front().x, far.y - other.front().y),
-                     std::hypot(far.x - other.back().x, far.y - other.back().y));
+        const double cond_a = std::min(std::hypot(far.x - other.front().x, far.y - other.front().y),
+                                       std::hypot(far.x - other.back().x, far.y - other.back().y));
         if (cond_a >= kSharedNodeEpsM) continue;
-        if (PointToPolylineDist2D(penult, other) < kRoadEdgeCoincidenceThresholdM)
-        {
+        if (PointToPolylineDist2D(penult, other) < kRoadEdgeCoincidenceThresholdM) {
             duplicate_found = true;
         }
     }
@@ -769,12 +707,9 @@ void TrimRedundantArcTails(const std::vector<PendingRoadEdge>& pieces, size_t se
     // it -- both keep `windows` sorted/non-overlapping for ApplyCutWindows.
     const double trim_start = cum[self][hi_idx];
     const double piece_end = cum[self].back();
-    if (!windows.empty() && windows.back().second >= trim_start)
-    {
+    if (!windows.empty() && windows.back().second >= trim_start) {
         windows.back().second = piece_end;
-    }
-    else
-    {
+    } else {
         windows.emplace_back(trim_start, piece_end);
     }
 }
@@ -782,8 +717,7 @@ void TrimRedundantArcTails(const std::vector<PendingRoadEdge>& pieces, size_t se
 // Mirrors map_elements.cpp's own IsBoundaryKind() (library-side, not
 // reachable from this node-side translation unit) -- same two kinds, same
 // meaning: an interior lane separator, never the road's own outer edge.
-bool IsBoundaryKind(overlume::MapKind kind)
-{
+bool IsBoundaryKind(overlume::MapKind kind) {
     return kind == overlume::MapKind::LEFT_BOUNDARY || kind == overlume::MapKind::RIGHT_BOUNDARY;
 }
 
@@ -791,16 +725,12 @@ bool IsBoundaryKind(overlume::MapKind kind)
 // parity of edge crossings to the right of `p`. `poly` need not repeat its
 // first point as its last (the recorded JUNCTION markers do; a hand-built
 // ring need not) -- the wraparound `j = poly.size() - 1` always closes it.
-bool PointInPolygonEvenOdd(const overlume::Vec3& p, const std::vector<overlume::Vec3>& poly)
-{
+bool PointInPolygonEvenOdd(const overlume::Vec3& p, const std::vector<overlume::Vec3>& poly) {
     bool inside = false;
-    for (size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++)
-    {
+    for (size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++) {
         const overlume::Vec3& a = poly[i];
         const overlume::Vec3& b = poly[j];
-        if (((a.y > p.y) != (b.y > p.y)) &&
-            (p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x))
-        {
+        if (((a.y > p.y) != (b.y > p.y)) && (p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)) {
             inside = !inside;
         }
     }
@@ -808,10 +738,8 @@ bool PointInPolygonEvenOdd(const overlume::Vec3& p, const std::vector<overlume::
 }
 
 bool PointInAnyPolygon(const overlume::Vec3& p,
-                        const std::vector<const std::vector<overlume::Vec3>*>& polys)
-{
-    for (const auto* poly : polys)
-    {
+                       const std::vector<const std::vector<overlume::Vec3>*>& polys) {
+    for (const auto* poly : polys) {
         if (poly != nullptr && poly->size() >= 3 && PointInPolygonEvenOdd(p, *poly)) return true;
     }
     return false;
@@ -830,11 +758,10 @@ bool PointInAnyPolygon(const overlume::Vec3& p,
 // makes `junction_interior_boundaries: false` correctly inert on a row with
 // no JUNCTION geometry at all (ProfileRow's own documented limitation).
 std::vector<std::vector<overlume::Vec3>> ClipAgainstJunctions(
-    const std::vector<overlume::Vec3>& pts, const std::vector<const std::vector<overlume::Vec3>*>& polys)
-{
+    const std::vector<overlume::Vec3>& pts,
+    const std::vector<const std::vector<overlume::Vec3>*>& polys) {
     std::vector<std::vector<overlume::Vec3>> out;
-    if (polys.empty() || pts.size() < 2)
-    {
+    if (polys.empty() || pts.size() < 2) {
         out.push_back(pts);
         return out;
     }
@@ -846,20 +773,15 @@ std::vector<std::vector<overlume::Vec3>> ClipAgainstJunctions(
     std::vector<overlume::Vec3> current;
     bool a_in = PointInAnyPolygon(pts.front(), polys);
     if (!a_in) current.push_back(pts.front());
-    for (size_t i = 0; i + 1 < pts.size(); ++i)
-    {
+    for (size_t i = 0; i + 1 < pts.size(); ++i) {
         const overlume::Vec3& a = pts[i];
         const overlume::Vec3& b = pts[i + 1];
         const bool b_in = PointInAnyPolygon(b, polys);
-        if (a_in == b_in)
-        {
+        if (a_in == b_in) {
             if (!b_in) current.push_back(b);
-        }
-        else
-        {
+        } else {
             double lo = 0.0, hi = 1.0;  // lo matches a_in's side, hi matches b_in's
-            for (int iter = 0; iter < 30; ++iter)
-            {
+            for (int iter = 0; iter < 30; ++iter) {
                 const double mid = 0.5 * (lo + hi);
                 if (PointInAnyPolygon(lerp(a, b, mid), polys) == a_in)
                     lo = mid;
@@ -867,15 +789,12 @@ std::vector<std::vector<overlume::Vec3>> ClipAgainstJunctions(
                     hi = mid;
             }
             const overlume::Vec3 cross = lerp(a, b, 0.5 * (lo + hi));
-            if (a_in && !b_in)
-            {
+            if (a_in && !b_in) {
                 // Exiting the polygon: start a fresh kept (outside) chain.
                 current.clear();
                 current.push_back(cross);
                 current.push_back(b);
-            }
-            else
-            {
+            } else {
                 // Entering the polygon: close the kept chain here.
                 current.push_back(cross);
                 if (current.size() >= 2) out.push_back(current);
@@ -901,8 +820,7 @@ std::vector<std::vector<overlume::Vec3>> ClipAgainstJunctions(
 constexpr double kMinCrossingSinAngle = 0.25881904510252074;  // sin(15 deg)
 
 bool SegSegIntersect2D(const overlume::Vec3& p1, const overlume::Vec3& p2, const overlume::Vec3& p3,
-                       const overlume::Vec3& p4, double& t, double& u)
-{
+                       const overlume::Vec3& p4, double& t, double& u) {
     const double d1x = p2.x - p1.x, d1y = p2.y - p1.y;
     const double d2x = p4.x - p3.x, d2y = p4.y - p3.y;
     const double denom = d1x * d2y - d1y * d2x;
@@ -922,20 +840,15 @@ bool SegSegIntersect2D(const overlume::Vec3& p1, const overlume::Vec3& p2, const
 // window per crossing before this ever runs; see kJunctionGapMergeM's own
 // comment for why a bare touch/overlap test left slivers between
 // closely-spaced junction crossings.
-void MergeWindows(std::vector<std::pair<double, double>>& windows)
-{
+void MergeWindows(std::vector<std::pair<double, double>>& windows) {
     if (windows.empty()) return;
     std::sort(windows.begin(), windows.end());
     std::vector<std::pair<double, double>> merged;
     merged.push_back(windows.front());
-    for (size_t i = 1; i < windows.size(); ++i)
-    {
-        if (windows[i].first <= merged.back().second + kJunctionGapMergeM)
-        {
+    for (size_t i = 1; i < windows.size(); ++i) {
+        if (windows[i].first <= merged.back().second + kJunctionGapMergeM) {
             merged.back().second = std::max(merged.back().second, windows[i].second);
-        }
-        else
-        {
+        } else {
             merged.push_back(windows[i]);
         }
     }
@@ -951,11 +864,9 @@ void MergeWindows(std::vector<std::pair<double, double>>& windows)
 // unchanged.
 std::vector<std::vector<overlume::Vec3>> ApplyCutWindows(
     const std::vector<overlume::Vec3>& pts, const std::vector<double>& cum,
-    const std::vector<std::pair<double, double>>& windows)
-{
+    const std::vector<std::pair<double, double>>& windows) {
     std::vector<std::vector<overlume::Vec3>> out;
-    if (windows.empty())
-    {
+    if (windows.empty()) {
         out.push_back(pts);
         return out;
     }
@@ -964,15 +875,13 @@ std::vector<std::vector<overlume::Vec3>> ApplyCutWindows(
     auto append_kept_range = [&](double from, double to) {
         std::vector<overlume::Vec3> chain;
         chain.push_back(PointAtArcLength(pts, cum, from));
-        for (size_t j = 0; j < pts.size(); ++j)
-        {
+        for (size_t j = 0; j < pts.size(); ++j) {
             if (cum[j] > from && cum[j] < to) chain.push_back(pts[j]);
         }
         chain.push_back(PointAtArcLength(pts, cum, to));
         if (chain.size() >= 2) out.push_back(std::move(chain));
     };
-    for (const auto& w : windows)
-    {
+    for (const auto& w : windows) {
         const double w_start = std::clamp(w.first, 0.0, total);
         const double w_end = std::clamp(w.second, 0.0, total);
         if (w_start > pos) append_kept_range(pos, w_start);
@@ -984,14 +893,10 @@ std::vector<std::vector<overlume::Vec3>> ApplyCutWindows(
 
 }  // namespace
 
-HdMapAdapter::HdMapAdapter(const ProfileRow& row,
-                            const overlume::ros::FrameTransformer& tf)
-    : row_(row), tf_(tf)
-{
-}
+HdMapAdapter::HdMapAdapter(const ProfileRow& row, const overlume::ros::FrameTransformer& tf)
+    : row_(row), tf_(tf) {}
 
-void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, double sim_time_sec)
-{
+void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, double sim_time_sec) {
     ++stats_.msgs;
     if (msg.markers.empty()) return;
 
@@ -1000,8 +905,7 @@ void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, doubl
     // practice; looking it up per-marker would be hundreds of redundant
     // buffer walks for zero benefit.
     tf2::Transform xform;
-    if (!tf_.lookup(msg.markers.front().header, xform))
-    {
+    if (!tf_.lookup(msg.markers.front().header, xform)) {
         ++stats_.dropped_no_tf;
         return;  // whole message dropped; previously-stored elements stay
     }
@@ -1015,23 +919,19 @@ void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, doubl
 
     // Rate limit: gates REBUILDS, not receipt. First-ever call always
     // rebuilds (last_rebuild_sec_ starts at -1.0, "no prior rebuild").
-    if (row_.max_rate_hz > 0.0 && last_rebuild_sec_ >= 0.0)
-    {
+    if (row_.max_rate_hz > 0.0 && last_rebuild_sec_ >= 0.0) {
         const double min_gap_sec = 1.0 / row_.max_rate_hz;
         if (sim_time_sec - last_rebuild_sec_ < min_gap_sec) return;
     }
 
-    for (const auto& m : msg.markers)
-    {
-        if (m.action == kActionDeleteAll)
-        {
+    for (const auto& m : msg.markers) {
+        if (m.action == kActionDeleteAll) {
             // ROS Marker semantics: DELETEALL clears every marker this
             // adapter is tracking, regardless of ITS OWN ns/id fields.
             storage_.clear();
             continue;
         }
-        if (m.action == kActionDelete)
-        {
+        if (m.action == kActionDelete) {
             storage_.erase(Key{m.ns, m.id});
             continue;
         }
@@ -1039,8 +939,7 @@ void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, doubl
 
         const NsRule* rule = match_rule(row_, m.ns);
         const NsRender verdict = rule != nullptr ? rule->render : row_.ns_default;
-        if (verdict == NsRender::kDrop)
-        {
+        if (verdict == NsRender::kDrop) {
             // Intentional, not malformed -- see epic2 plan, "Diagnostics
             // counters": centerline_arrows_ alone is ~93% of map volume,
             // and folding this into dropped_malformed would make a
@@ -1049,8 +948,7 @@ void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, doubl
             continue;
         }
 
-        if (m.type != kMarkerTypeLineStrip || m.points.size() < 2)
-        {
+        if (m.type != kMarkerTypeLineStrip || m.points.size() < 2) {
             ++stats_.dropped_malformed;
             continue;
         }
@@ -1061,10 +959,8 @@ void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, doubl
         // per marker, before dash chopping or anything else touches points.
         const bool identity_pose = MarkerPoseIsIdentity(m.pose);
         tf2::Transform marker_tf;
-        if (!identity_pose)
-        {
-            if (MarkerPoseHasNan(m.pose))
-            {
+        if (!identity_pose) {
+            if (MarkerPoseHasNan(m.pose)) {
                 ++stats_.dropped_malformed;  // NaN marker pose, not just a NaN point
                 continue;
             }
@@ -1081,22 +977,19 @@ void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, doubl
         std::vector<overlume::Vec3> pts;
         pts.reserve(m.points.size());
         bool ok = true;
-        for (const auto& p : m.points)
-        {
+        for (const auto& p : m.points) {
             const tf2::Vector3 local(p.x, p.y, p.z);
             const tf2::Vector3 posed = identity_pose ? local : marker_tf * local;
             const tf2::Vector3 tp = xform * posed;
             // flatten_z: 2D HD-map plane -- see frame_transform.hpp.
             const overlume::Vec3 v{tp.x(), tp.y(), tf_.flatten_z() ? 0.0 : tp.z()};
-            if (HasNan(v))
-            {
+            if (HasNan(v)) {
                 ok = false;
                 break;
             }
             pts.push_back(v);
         }
-        if (!ok)
-        {
+        if (!ok) {
             // A NaN anywhere in the polyline drops the WHOLE primitive
             // (spec §9) -- never a partially-built vertex buffer.
             ++stats_.dropped_malformed;
@@ -1111,8 +1004,7 @@ void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, doubl
         // trailing-duplicate dedupe (kDedupEpsM = 1e-6). Without this,
         // build_crosswalk_hatch()'s n==4 guard never fires on real data
         // (every recorded crosswalk arrives with 5 points).
-        if (is_polygon && pts.size() >= 2)
-        {
+        if (is_polygon && pts.size() >= 2) {
             constexpr double kDedupEpsM = 1e-6;
             const auto& front = pts.front();
             const auto& back = pts.back();
@@ -1139,8 +1031,7 @@ void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, doubl
     stats_.last_msg_sec = sim_time_sec;
 }
 
-void HdMapAdapter::fill(overlume::ros::SceneAssembly& out) const
-{
+void HdMapAdapter::fill(overlume::ros::SceneAssembly& out) const {
     road_surface_points_.clear();
     junction_cut_points_.clear();
     std::unordered_map<uint32_t, const std::vector<overlume::Vec3>*> left_by_lane, right_by_lane;
@@ -1156,19 +1047,14 @@ void HdMapAdapter::fill(overlume::ros::SceneAssembly& out) const
     // and road-surface pairing (further below) needs the same index. One
     // pass over storage_ builds both; a second walk (below) does the actual
     // emitting.
-    for (const auto& [key, pieces] : storage_)
-    {
+    for (const auto& [key, pieces] : storage_) {
         (void)key;
-        for (const auto& elem : pieces)
-        {
+        for (const auto& elem : pieces) {
             if (elem.kind == overlume::MapKind::JUNCTION) junction_polys.push_back(&elem.points);
             if (elem.lane_id == 0) continue;
-            if (elem.kind == overlume::MapKind::LEFT_BOUNDARY)
-            {
+            if (elem.kind == overlume::MapKind::LEFT_BOUNDARY) {
                 left_by_lane[elem.lane_id] = &elem.points;
-            }
-            else if (elem.kind == overlume::MapKind::RIGHT_BOUNDARY)
-            {
+            } else if (elem.kind == overlume::MapKind::RIGHT_BOUNDARY) {
                 right_by_lane[elem.lane_id] = &elem.points;
             }
         }
@@ -1193,11 +1079,9 @@ void HdMapAdapter::fill(overlume::ros::SceneAssembly& out) const
     // leaves boundaries alone entirely.
     std::vector<PendingRoadEdge> road_edge_pieces;
 
-    for (const auto& [key, pieces] : storage_)
-    {
+    for (const auto& [key, pieces] : storage_) {
         (void)key;
-        for (const auto& elem : pieces)
-        {
+        for (const auto& elem : pieces) {
             overlume::MapElement e{};
             e.is_polygon = elem.is_polygon;
             e.kind = elem.kind;
@@ -1208,30 +1092,23 @@ void HdMapAdapter::fill(overlume::ros::SceneAssembly& out) const
             // comment above and hd_map.hpp).
             e.last_update_sec = last_recv_sec_ + (row_.timeout_sec - kMapFadeWindowSec);
             if (e.kind == overlume::MapKind::LEFT_BOUNDARY &&
-                IsRoadEdge(elem.lane_id, elem.points, right_by_lane))
-            {
+                IsRoadEdge(elem.lane_id, elem.points, right_by_lane)) {
                 e.kind = overlume::MapKind::ROAD_EDGE;
-            }
-            else if (e.kind == overlume::MapKind::RIGHT_BOUNDARY &&
-                     IsRoadEdge(elem.lane_id, elem.points, left_by_lane))
-            {
+            } else if (e.kind == overlume::MapKind::RIGHT_BOUNDARY &&
+                       IsRoadEdge(elem.lane_id, elem.points, left_by_lane)) {
                 e.kind = overlume::MapKind::ROAD_EDGE;
             }
 
-            if (e.kind == overlume::MapKind::ROAD_EDGE)
-            {
-                for (auto& piece : ClipAgainstJunctions(elem.points, junction_polys))
-                {
+            if (e.kind == overlume::MapKind::ROAD_EDGE) {
+                for (auto& piece : ClipAgainstJunctions(elem.points, junction_polys)) {
                     road_edge_pieces.push_back(PendingRoadEdge{std::move(piece), elem.lane_id,
                                                                e.last_update_sec, e.is_polygon});
                 }
                 continue;
             }
             if (IsBoundaryKind(e.kind) && !row_.junction_interior_boundaries &&
-                !junction_polys.empty())
-            {
-                for (auto& piece : ClipAgainstJunctions(elem.points, junction_polys))
-                {
+                !junction_polys.empty()) {
+                for (auto& piece : ClipAgainstJunctions(elem.points, junction_polys)) {
                     junction_cut_points_.push_back(std::move(piece));
                     overlume::MapElement be = e;  // same is_polygon/kind/lane_id/last_update_sec
                     be.points = junction_cut_points_.back().data();
@@ -1256,22 +1133,17 @@ void HdMapAdapter::fill(overlume::ros::SceneAssembly& out) const
     // overlapping ones from several crossings on the same piece before
     // ApplyCutWindows runs.
     std::vector<std::vector<double>> cum(road_edge_pieces.size());
-    for (size_t i = 0; i < road_edge_pieces.size(); ++i)
-    {
+    for (size_t i = 0; i < road_edge_pieces.size(); ++i) {
         cum[i] = CumulativeArcLength(road_edge_pieces[i].points);
     }
     std::vector<std::vector<std::pair<double, double>>> windows(road_edge_pieces.size());
-    for (size_t i = 0; i < road_edge_pieces.size(); ++i)
-    {
+    for (size_t i = 0; i < road_edge_pieces.size(); ++i) {
         const auto& pi = road_edge_pieces[i].points;
-        for (size_t j = i + 1; j < road_edge_pieces.size(); ++j)
-        {
+        for (size_t j = i + 1; j < road_edge_pieces.size(); ++j) {
             if (road_edge_pieces[i].lane_id == road_edge_pieces[j].lane_id) continue;
             const auto& pj = road_edge_pieces[j].points;
-            for (size_t a = 0; a + 1 < pi.size(); ++a)
-            {
-                for (size_t b = 0; b + 1 < pj.size(); ++b)
-                {
+            for (size_t a = 0; a + 1 < pi.size(); ++a) {
+                for (size_t b = 0; b + 1 < pj.size(); ++b) {
                     double t = 0.0, u = 0.0;
                     if (!SegSegIntersect2D(pi[a], pi[a + 1], pj[b], pj[b + 1], t, u)) continue;
                     const double s_i = cum[i][a] + t * (cum[i][a + 1] - cum[i][a]);
@@ -1282,8 +1154,7 @@ void HdMapAdapter::fill(overlume::ros::SceneAssembly& out) const
             }
         }
     }
-    for (size_t i = 0; i < road_edge_pieces.size(); ++i)
-    {
+    for (size_t i = 0; i < road_edge_pieces.size(); ++i) {
         MergeWindows(windows[i]);
         // Arc-aware refinement (see that constant block's own comment
         // above): snaps each merged window's own boundaries outward to a
@@ -1319,8 +1190,7 @@ void HdMapAdapter::fill(overlume::ros::SceneAssembly& out) const
         // MergeWindows call -- see that function's own comment for why), so
         // ApplyCutWindows below sees the trim already folded in.
         TrimRedundantArcTails(road_edge_pieces, i, cum, windows[i]);
-        for (auto& piece : ApplyCutWindows(road_edge_pieces[i].points, cum[i], windows[i]))
-        {
+        for (auto& piece : ApplyCutWindows(road_edge_pieces[i].points, cum[i], windows[i])) {
             junction_cut_points_.push_back(std::move(piece));
             overlume::MapElement e{};
             e.points = junction_cut_points_.back().data();
@@ -1341,13 +1211,13 @@ void HdMapAdapter::fill(overlume::ros::SceneAssembly& out) const
     // synthesized elements point into; cleared and rebuilt at the top of
     // every fill() call, so it stays alive exactly as long as this fill()
     // call's own out.map_elements does.
-    for (const auto& [lane_id, left_pts] : left_by_lane)
-    {
+    for (const auto& [lane_id, left_pts] : left_by_lane) {
         const auto it = right_by_lane.find(lane_id);
         if (it == right_by_lane.end()) continue;
 
         const std::vector<overlume::Vec3> left_r = ResampleByArcLength(*left_pts, kRoadFillSamples);
-        const std::vector<overlume::Vec3> right_r = ResampleByArcLength(*it->second, kRoadFillSamples);
+        const std::vector<overlume::Vec3> right_r =
+            ResampleByArcLength(*it->second, kRoadFillSamples);
         if (left_r.empty() || right_r.empty()) continue;  // malformed rail, skip silently
 
         road_surface_points_.emplace_back();

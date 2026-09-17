@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // ego_test_hooks.hpp — internal-only, not installed, not POD. Separate
 // from renderer_internal.hpp/ego.hpp: tests/test_ego.cpp links only
 // against `overlume` and has no access to its PRIVATE Filament

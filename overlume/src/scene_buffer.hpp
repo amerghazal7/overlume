@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // scene_buffer.hpp — internal, `-I src` visibility, not installed, not POD.
 // Owns the double-buffered deep-copy staging for overlume::SceneGraph. std::
 // usage is fine here — it's a `.hpp` under `src/`, never shipped across the
@@ -29,10 +32,10 @@ namespace overlume::detail {
 struct OwnedScene {
     overlume::SceneGraph view{};  // pointers below point into this object's own vectors
     std::vector<TrackedObject> objects;
-    std::vector<std::vector<Vec3>> object_paths;   // objects[i].predicted_path storage
-    std::vector<std::string> object_labels;        // objects[i].label storage
+    std::vector<std::vector<Vec3>> object_paths;  // objects[i].predicted_path storage
+    std::vector<std::string> object_labels;       // objects[i].label storage
     std::vector<PathRibbon> paths;
-    std::vector<std::vector<Vec3>> path_points;    // paths[i].points storage
+    std::vector<std::vector<Vec3>> path_points;  // paths[i].points storage
     std::vector<MapElement> map_elements;
     std::vector<std::vector<Vec3>> map_element_points;
     std::vector<GroundGridLayer> grids;
@@ -41,8 +44,8 @@ struct OwnedScene {
     std::vector<std::vector<Vec3>> alert_points;
     std::vector<GenericMarker> markers;
     std::vector<std::vector<Vec3>> marker_points;
-    std::vector<std::string> marker_texts;         // "" stored for a nullptr text
-    std::vector<std::string> marker_mesh_paths;    // "" stored for a nullptr mesh_path
+    std::vector<std::string> marker_texts;       // "" stored for a nullptr text
+    std::vector<std::string> marker_mesh_paths;  // "" stored for a nullptr mesh_path
     std::vector<AlertChip> chips;
     std::vector<std::string> chip_texts;
     std::vector<PointCloud> point_clouds;
@@ -59,28 +62,28 @@ struct OwnedScene {
 
 class SceneBuffer {
 public:
-    void publish(const overlume::SceneGraph& scene);          // deep-copy + atomic swap
-    const overlume::SceneGraph& active() const;                // last-published scene
+    void publish(const overlume::SceneGraph& scene);  // deep-copy + atomic swap
+    const overlume::SceneGraph& active() const;       // last-published scene
     // Fade-out multiplier in [0,1] for an entity last touched `last_update_sec`
     // ago relative to `now_sec`: 1.0 while younger than fade_start_sec, ramps
     // to 0.0 by timeout_sec, 0.0 beyond. One function, every stale-able
     // category (TrackedObject, PathRibbon, GroundGridLayer, AlertPolygon,
     // GenericMarker) calls it the same way — no per-category branches.
-    static float staleness_alpha(double now_sec, double last_update_sec,
-                                  double fade_start_sec, double timeout_sec);
+    static float staleness_alpha(double now_sec, double last_update_sec, double fade_start_sec,
+                                 double timeout_sec);
 
 private:
-    mutable std::mutex mutex_;   // ponytail: cheap at this call rate (<=30 Hz);
-                                  // serializes active_idx_ only. Doesn't by
-                                  // itself make multi-threaded ingest safe —
-                                  // active() still hands back a bare
-                                  // reference aliased into slot storage, so
-                                  // a second publisher could overwrite a
-                                  // slot a reader still holds. Real
-                                  // multi-threaded ingest needs active() to
-                                  // return an owned/refcounted snapshot; see
-                                  // set_scene()'s threading contract in
-                                  // scene.h.
+    mutable std::mutex mutex_;  // ponytail: cheap at this call rate (<=30 Hz);
+                                // serializes active_idx_ only. Doesn't by
+                                // itself make multi-threaded ingest safe —
+                                // active() still hands back a bare
+                                // reference aliased into slot storage, so
+                                // a second publisher could overwrite a
+                                // slot a reader still holds. Real
+                                // multi-threaded ingest needs active() to
+                                // return an owned/refcounted snapshot; see
+                                // set_scene()'s threading contract in
+                                // scene.h.
     OwnedScene slots_[2];
     int active_idx_{0};
 };

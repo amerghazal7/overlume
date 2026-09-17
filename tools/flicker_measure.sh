@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # flicker_measure.sh — VM-077 carpet-flicker rig (2026-09-10).
 #
 # Stands up ONE continuous overlume_node + tf_flatten_fixture.py +

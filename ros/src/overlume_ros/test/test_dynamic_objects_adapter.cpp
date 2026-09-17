@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file test_dynamic_objects_adapter.cpp
  *  @brief DynamicObjectsAdapter + class inference tests.
  *
@@ -24,28 +27,24 @@ using overlume::ros::SceneAssembly;
 using overlume_node::ClassInferenceTable;
 using overlume_node::DynamicObjectsAdapter;
 
-namespace
-{
+namespace {
 
 // Same shape as test_hd_map_adapter.cpp's TfFixture -- an empty buffer is
 // enough for every test whose markers stay in the "map" frame.
-struct TfFixture
-{
+struct TfFixture {
     std::shared_ptr<rclcpp::Clock> clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
     tf2_ros::Buffer buffer{clock};
     FrameTransformer tf{buffer};
 };
 
-visualization_msgs::msg::Marker DeleteAll()
-{
+visualization_msgs::msg::Marker DeleteAll() {
     visualization_msgs::msg::Marker m;
     m.header.frame_id = "map";
     m.action = 3;
     return m;
 }
 
-geometry_msgs::msg::Point Pt(double x, double y, double z = 0.0)
-{
+geometry_msgs::msg::Point Pt(double x, double y, double z = 0.0) {
     geometry_msgs::msg::Point p;
     p.x = x;
     p.y = y;
@@ -55,8 +54,7 @@ geometry_msgs::msg::Point Pt(double x, double y, double z = 0.0)
 
 visualization_msgs::msg::Marker Bbox(int32_t id, double x, double y, double z, double qx, double qy,
                                      double qz, double qw, double sx = 4.0, double sy = 2.0,
-                                     double sz = 1.5)
-{
+                                     double sz = 1.5) {
     visualization_msgs::msg::Marker m;
     m.header.frame_id = "map";
     m.ns = "dynamic_objects_bbox";
@@ -74,8 +72,7 @@ visualization_msgs::msg::Marker Bbox(int32_t id, double x, double y, double z, d
     return m;
 }
 
-visualization_msgs::msg::Marker Text(int32_t id, const std::string& text)
-{
+visualization_msgs::msg::Marker Text(int32_t id, const std::string& text) {
     visualization_msgs::msg::Marker m;
     m.header.frame_id = "map";
     m.ns = "dynamic_objects_text";
@@ -87,8 +84,7 @@ visualization_msgs::msg::Marker Text(int32_t id, const std::string& text)
 }
 
 visualization_msgs::msg::Marker Arrow(int32_t id, geometry_msgs::msg::Point p0,
-                                      geometry_msgs::msg::Point p1)
-{
+                                      geometry_msgs::msg::Point p1) {
     visualization_msgs::msg::Marker m;
     m.header.frame_id = "map";
     m.ns = "dynamic_objects_arrow";
@@ -100,8 +96,7 @@ visualization_msgs::msg::Marker Arrow(int32_t id, geometry_msgs::msg::Point p0,
 }
 
 visualization_msgs::msg::Marker PathMarker(const char* ns, int32_t id,
-                                           const std::vector<geometry_msgs::msg::Point>& pts)
-{
+                                           const std::vector<geometry_msgs::msg::Point>& pts) {
     visualization_msgs::msg::Marker m;
     m.header.frame_id = "map";
     m.ns = ns;
@@ -120,22 +115,18 @@ visualization_msgs::msg::Marker PathMarker(const char* ns, int32_t id,
 // i in [0, n_segments]. Returns the pairwise-duplicated wire representation
 // AND the expected unique polyline (for assertions).
 void BuildChainedLineList(size_t n_segments, std::vector<geometry_msgs::msg::Point>& wire,
-                          std::vector<overlume::Vec3>& expected)
-{
+                          std::vector<overlume::Vec3>& expected) {
     wire.clear();
     expected.clear();
     for (size_t i = 0; i <= n_segments; ++i) expected.push_back({static_cast<double>(i), 0.0, 0.0});
-    for (size_t s = 0; s < n_segments; ++s)
-    {
+    for (size_t s = 0; s < n_segments; ++s) {
         wire.push_back(Pt(expected[s].x, expected[s].y, expected[s].z));
         wire.push_back(Pt(expected[s + 1].x, expected[s + 1].y, expected[s + 1].z));
     }
 }
 
-const overlume::TrackedObject* FindById(const SceneAssembly& out, uint32_t id)
-{
-    for (const auto& o : out.objects)
-    {
+const overlume::TrackedObject* FindById(const SceneAssembly& out, uint32_t id) {
+    for (const auto& o : out.objects) {
         if (o.id == id) return &o;
     }
     return nullptr;
@@ -145,30 +136,26 @@ const overlume::TrackedObject* FindById(const SceneAssembly& out, uint32_t id)
 
 // ── Class inference (Task 3 Step 2) ─────────────────────────────────────────
 
-TEST(ClassInference, PrefixWinsOverFootprint)
-{
+TEST(ClassInference, PrefixWinsOverFootprint) {
     const auto cfg = overlume_node::testing::inference_table();
     EXPECT_EQ(overlume_node::infer(cfg, "V_1105", {5.03, 2.15, 1.65}), overlume::ObjectClass::CAR);
 }
 
-TEST(ClassInference, UnknownPrefixFallsBackToFootprintBands)
-{
+TEST(ClassInference, UnknownPrefixFallsBackToFootprintBands) {
     const auto cfg = overlume_node::testing::inference_table();
     EXPECT_EQ(overlume_node::infer(cfg, "Z_9", {0.6, 0.6, 1.8}), overlume::ObjectClass::PEDESTRIAN);
     EXPECT_EQ(overlume_node::infer(cfg, "Z_9", {1.9, 0.7, 1.7}), overlume::ObjectClass::CYCLIST);
     EXPECT_EQ(overlume_node::infer(cfg, "Z_9", {12.0, 2.5, 3.2}), overlume::ObjectClass::BUS);
 }
 
-TEST(ClassInference, NoLabelAndNoMatchingBandIsUnknownNotACrash)
-{
+TEST(ClassInference, NoLabelAndNoMatchingBandIsUnknownNotACrash) {
     const auto cfg = overlume_node::testing::inference_table();
     EXPECT_EQ(overlume_node::infer(cfg, nullptr, {0, 0, 0}), overlume::ObjectClass::UNKNOWN);
 }
 
 // ── Fusion / field-source rules (Task 3 Step 1) ──────────────────────────────
 
-TEST(DynamicObjects, FourNamespacesFuseIntoOneTrackedObject)
-{
+TEST(DynamicObjects, FourNamespacesFuseIntoOneTrackedObject) {
     TfFixture kTf;
     auto classes = overlume_node::testing::inference_table();
     DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
@@ -192,15 +179,14 @@ TEST(DynamicObjects, FourNamespacesFuseIntoOneTrackedObject)
     ASSERT_GT(out.objects.size(), 0u);
     const auto* o = FindById(out, 1007);
     ASSERT_NE(o, nullptr);
-    EXPECT_GT(o->dimensions.x, 0.0);              // from *_bbox scale (true extents)
+    EXPECT_GT(o->dimensions.x, 0.0);  // from *_bbox scale (true extents)
     ASSERT_NE(o->label, nullptr);
     EXPECT_EQ(std::string(o->label).front(), 'V');  // from *_text
     EXPECT_EQ(o->cls, overlume::ObjectClass::CAR);
     EXPECT_DOUBLE_EQ(o->last_update_sec, 1.0);
 }
 
-TEST(DynamicObjects, HeadingComesFromTheBboxPoseOrientationNotTheArrow)
-{
+TEST(DynamicObjects, HeadingComesFromTheBboxPoseOrientationNotTheArrow) {
     // Real bag quaternions (perception_dynamic_objects_list_0.yaml, frame
     // "map" -- identity transform) -- verified against an independent
     // atan2(2(wz+xy), 1-2(y^2+z^2)) computation, NOT the adapter's own
@@ -230,8 +216,7 @@ TEST(DynamicObjects, HeadingComesFromTheBboxPoseOrientationNotTheArrow)
     EXPECT_NEAR(o1008->heading_rad, -2.517800807952881, 1e-6);
 }
 
-TEST(DynamicObjects, ArrowSuppliesVelocityOnlyAndZeroLengthIsZeroVelocity)
-{
+TEST(DynamicObjects, ArrowSuppliesVelocityOnlyAndZeroLengthIsZeroVelocity) {
     TfFixture kTf;
     auto classes = overlume_node::testing::inference_table();
     DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
@@ -265,8 +250,7 @@ TEST(DynamicObjects, ArrowSuppliesVelocityOnlyAndZeroLengthIsZeroVelocity)
     EXPECT_DOUBLE_EQ(stopped->velocity.z, 0.0);
 }
 
-TEST(DynamicObjects, FirstFramePerObjectHasNoArrow_StillEmitsObject)
-{
+TEST(DynamicObjects, FirstFramePerObjectHasNoArrow_StillEmitsObject) {
     auto msg = overlume_node::testing::load_marker_array("perception_dynamic_objects_list_0.yaml");
     TfFixture kTf;
     auto classes = overlume_node::testing::inference_table();
@@ -277,7 +261,7 @@ TEST(DynamicObjects, FirstFramePerObjectHasNoArrow_StillEmitsObject)
     a.fill(out);
 
     const auto* o = FindById(out, 1001);
-    ASSERT_NE(o, nullptr);           // still rendered despite no arrow this frame
+    ASSERT_NE(o, nullptr);  // still rendered despite no arrow this frame
     EXPECT_DOUBLE_EQ(o->velocity.x, 0.0);
     EXPECT_DOUBLE_EQ(o->velocity.y, 0.0);
     EXPECT_DOUBLE_EQ(o->velocity.z, 0.0);
@@ -287,8 +271,7 @@ TEST(DynamicObjects, FirstFramePerObjectHasNoArrow_StillEmitsObject)
 
 // ── Predicted path (Task 3 Step 1a) ──────────────────────────────────────────
 
-TEST(DynamicObjects, PredictedPathLineListPairsCollapseToAPolyline)
-{
+TEST(DynamicObjects, PredictedPathLineListPairsCollapseToAPolyline) {
     std::vector<geometry_msgs::msg::Point> wire;
     std::vector<overlume::Vec3> expected;
     BuildChainedLineList(72, wire, expected);  // 144 pts, 72 segments, 73 verts
@@ -315,11 +298,10 @@ TEST(DynamicObjects, PredictedPathLineListPairsCollapseToAPolyline)
     EXPECT_DOUBLE_EQ(o->predicted_path[o->predicted_path_count - 1].x, expected.back().x);
 }
 
-TEST(DynamicObjects, NonContiguousLineListIsDroppedNotStitched)
-{
+TEST(DynamicObjects, NonContiguousLineListIsDroppedNotStitched) {
     // Free-function check: two genuinely disjoint segments (p1 != p2).
     std::vector<geometry_msgs::msg::Point> disjoint = {Pt(0, 0, 0), Pt(1, 0, 0), Pt(5, 0, 0),
-                                                        Pt(6, 0, 0)};
+                                                       Pt(6, 0, 0)};
     std::vector<overlume::Vec3> out_pts;
     EXPECT_FALSE(overlume_node::line_list_to_polyline(disjoint, out_pts));
 
@@ -343,8 +325,7 @@ TEST(DynamicObjects, NonContiguousLineListIsDroppedNotStitched)
     EXPECT_EQ(a.stats().dropped_malformed, 1u);
 }
 
-TEST(DynamicObjects, PredictedPathReadsPerVertexColorsTopLevelRgbaIsBlack)
-{
+TEST(DynamicObjects, PredictedPathReadsPerVertexColorsTopLevelRgbaIsBlack) {
     std::vector<geometry_msgs::msg::Point> wire;
     std::vector<overlume::Vec3> expected;
     BuildChainedLineList(4, wire, expected);  // small chain, 5 verts
@@ -363,8 +344,7 @@ TEST(DynamicObjects, PredictedPathReadsPerVertexColorsTopLevelRgbaIsBlack)
     // field at all (scene.h is frozen to {..., predicted_path, ...}) so
     // there is nowhere for this to leak into; this asserts the geometry
     // conversion is unaffected by colors[] being present.
-    for (size_t i = 0; i < wire.size(); ++i)
-    {
+    for (size_t i = 0; i < wire.size(); ++i) {
         std_msgs::msg::ColorRGBA c;
         c.r = 1.0f;
         c.g = 0.5f;
@@ -382,8 +362,7 @@ TEST(DynamicObjects, PredictedPathReadsPerVertexColorsTopLevelRgbaIsBlack)
     EXPECT_EQ(o->predicted_path_count, 5u);
 }
 
-TEST(DynamicObjects, PathDotsNamespaceIsDroppedByRuleAndCounted)
-{
+TEST(DynamicObjects, PathDotsNamespaceIsDroppedByRuleAndCounted) {
     std::vector<geometry_msgs::msg::Point> wire;
     std::vector<overlume::Vec3> expected;
     BuildChainedLineList(2, wire, expected);  // 4 pts -> 3 verts
@@ -403,8 +382,10 @@ TEST(DynamicObjects, PathDotsNamespaceIsDroppedByRuleAndCounted)
     msg.markers.push_back(PathMarker("dynamic_objects_hd_map_path_dots", 1007, wire));
     msg.markers.push_back(PathMarker("dynamic_objects_hd_map_path_dots", 1008, wire));
 
-    ASSERT_EQ(overlume_node::classify(row, "dynamic_objects_hd_map_path_dots"), overlume_node::NsRender::kDrop);
-    ASSERT_EQ(overlume_node::classify(row, "dynamic_objects_hd_map_path"), overlume_node::NsRender::kPolyline);
+    ASSERT_EQ(overlume_node::classify(row, "dynamic_objects_hd_map_path_dots"),
+              overlume_node::NsRender::kDrop);
+    ASSERT_EQ(overlume_node::classify(row, "dynamic_objects_hd_map_path"),
+              overlume_node::NsRender::kPolyline);
 
     a.ingest(msg, 1.0);
     SceneAssembly out;
@@ -412,15 +393,14 @@ TEST(DynamicObjects, PathDotsNamespaceIsDroppedByRuleAndCounted)
 
     const auto* o = FindById(out, 1007);
     ASSERT_NE(o, nullptr);
-    EXPECT_EQ(o->predicted_path_count, 3u);  // the converted polyline's count, NOT 2x it
+    EXPECT_EQ(o->predicted_path_count, 3u);    // the converted polyline's count, NOT 2x it
     EXPECT_EQ(a.stats().dropped_by_rule, 2u);  // the two _dots markers above
     EXPECT_EQ(a.stats().dropped_malformed, 0u);
 }
 
 // ── DELETEALL / malformed (Task 3 Step 1, last two tests) ────────────────────
 
-TEST(DynamicObjects, DeleteAllMarkerClearsPreviousFrame)
-{
+TEST(DynamicObjects, DeleteAllMarkerClearsPreviousFrame) {
     auto msg = overlume_node::testing::load_marker_array("perception_dynamic_objects_list_0.yaml");
     TfFixture kTf;
     auto classes = overlume_node::testing::inference_table();
@@ -440,8 +420,7 @@ TEST(DynamicObjects, DeleteAllMarkerClearsPreviousFrame)
     EXPECT_EQ(second.objects.size(), 0u);
 }
 
-TEST(DynamicObjects, MalformedMarkersDroppedAndCounted)
-{
+TEST(DynamicObjects, MalformedMarkersDroppedAndCounted) {
     // Hand-edited fixture: NaN bbox pose (3001), zero-extent bbox (3002),
     // an empty text string (3003), a bbox with no matching text marker at
     // all (3004) -- all four dropped and counted -- plus one fully valid
@@ -464,13 +443,11 @@ TEST(DynamicObjects, MalformedMarkersDroppedAndCounted)
 
 // ── PATH/ARROW points[] are RELATIVE to that marker's own pose ─────────────
 
-namespace
-{
+namespace {
 constexpr double kQuarterTurn = 0.70710678118654752440;  // sin/cos(45 deg) -> +90 deg yaw
 }  // namespace
 
-TEST(DynamicObjects, PathMarkerOwnPoseComposesBeforePolylineConversion)
-{
+TEST(DynamicObjects, PathMarkerOwnPoseComposesBeforePolylineConversion) {
     // The PATH marker's own pose (5,0,0), NO rotation, applied to a local
     // 2-vertex chain (0,0,0)->(1,0,0) -> polyline lands at (5,0,0),(6,0,0).
     TfFixture kTf;
@@ -503,8 +480,7 @@ TEST(DynamicObjects, PathMarkerOwnPoseComposesBeforePolylineConversion)
     EXPECT_NEAR(o->predicted_path[1].y, 0.0, 1e-9);
 }
 
-TEST(DynamicObjects, ArrowPureTranslationPoseLeavesVelocityUnchanged)
-{
+TEST(DynamicObjects, ArrowPureTranslationPoseLeavesVelocityUnchanged) {
     // Translation cancels in the p1-p0 difference -- a translate-only arrow
     // pose must reproduce the identity-pose velocity exactly (see
     // ArrowSuppliesVelocityOnlyAndZeroLengthIsZeroVelocity's (3,4) case).
@@ -532,8 +508,7 @@ TEST(DynamicObjects, ArrowPureTranslationPoseLeavesVelocityUnchanged)
     EXPECT_DOUBLE_EQ(o->velocity.y, 4.0);
 }
 
-TEST(DynamicObjects, ArrowNinetyDegreeYawPoseRotatesVelocity)
-{
+TEST(DynamicObjects, ArrowNinetyDegreeYawPoseRotatesVelocity) {
     TfFixture kTf;
     auto classes = overlume_node::testing::inference_table();
     DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
@@ -559,8 +534,7 @@ TEST(DynamicObjects, ArrowNinetyDegreeYawPoseRotatesVelocity)
     EXPECT_NEAR(o->velocity.y, 3.0, 1e-9);
 }
 
-TEST(DynamicObjects, MarkerPoseAndNonMapFrameComposeInFrameInsideOrder)
-{
+TEST(DynamicObjects, MarkerPoseAndNonMapFrameComposeInFrameInsideOrder) {
     // Combined case: frame_transform * (marker_pose * point), never the
     // other way round. PATH marker pose: pure translation (5,0,0), no
     // rotation. Frame map<-base_link: yaw +90 deg AND translation
@@ -617,8 +591,7 @@ TEST(DynamicObjects, MarkerPoseAndNonMapFrameComposeInFrameInsideOrder)
     EXPECT_NEAR(o->predicted_path[1].y, 6.0, 1e-9);
 }
 
-TEST(DynamicObjects, NanArrowPoseIsDroppedAsMalformed)
-{
+TEST(DynamicObjects, NanArrowPoseIsDroppedAsMalformed) {
     // A pose on an arrow marker is normal Marker semantics -- a NaN pose is
     // not. The object still renders (bbox+text are fine); velocity stays
     // zero because the malformed arrow contributed nothing.
@@ -646,8 +619,7 @@ TEST(DynamicObjects, NanArrowPoseIsDroppedAsMalformed)
     EXPECT_DOUBLE_EQ(o->velocity.y, 0.0);
 }
 
-TEST(DynamicObjects, ZeroQuaternionBboxPoseIsIdentityHeadingNotNan)
-{
+TEST(DynamicObjects, ZeroQuaternionBboxPoseIsIdentityHeadingNotNan) {
     // rviz treats a zero-filled orientation as identity; tf2 would make
     // getYaw() NaN and corrupt the object's transform. Zero quat -> object
     // still emitted, heading 0, position honoured, nothing counted
@@ -674,8 +646,7 @@ TEST(DynamicObjects, ZeroQuaternionBboxPoseIsIdentityHeadingNotNan)
     EXPECT_NEAR(o->heading_rad, 0.0, 1e-9);
 }
 
-TEST(DynamicObjects, NonZeroBboxZIsFlattenedToTheMapPlane)
-{
+TEST(DynamicObjects, NonZeroBboxZIsFlattenedToTheMapPlane) {
     // bbox centers carry z (half the box height); rendered objects must
     // flatten to the 2D HD-map plane.
     TfFixture kTf;

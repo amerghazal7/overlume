@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_environment.cpp — runtime chunk load/unload behind EnvironmentSource
 // (VM-052). Same "no Filament type" boundary as every other tests/*.cpp --
 // see environment_test_hooks.hpp.
@@ -177,7 +180,7 @@ namespace {
 // without hiding a real content change (buildings appearing/disappearing
 // moves thousands of bytes by far more than 1).
 size_t count_differing_bytes(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b,
-                              int tolerance = 1) {
+                             int tolerance = 1) {
     size_t n = 0;
     for (size_t i = 0; i < a.size() && i < b.size(); ++i) {
         if (std::abs(static_cast<int>(a[i]) - static_cast<int>(b[i])) > tolerance) ++n;
@@ -207,8 +210,8 @@ TEST(Environment, SetEnvironmentVisibleFalseHidesLoadedChunksWithoutTearingDown)
     // real footprint centroid so the buildings occupy a real chunk of the
     // image, not a corner.
     overlume::CameraPose pose{{kBuildingsCentroid.x + 50, kBuildingsCentroid.y - 70, 40},
-                            {kBuildingsCentroid.x, kBuildingsCentroid.y, kBuildingsCentroid.z},
-                            60.0};
+                              {kBuildingsCentroid.x, kBuildingsCentroid.y, kBuildingsCentroid.z},
+                              60.0};
     const size_t nBytes = 320u * 240u * 3u;
     std::vector<uint8_t> visibleBuf(nBytes);
     ASSERT_TRUE(overlume::render_frame(r, pose, {visibleBuf.data(), 320, 240}));
@@ -233,10 +236,9 @@ TEST(Environment, SetEnvironmentVisibleFalseHidesLoadedChunksWithoutTearingDown)
     // filling a real chunk of frame, now replaced by sky/ground, is a
     // large, unmistakable pixel delta, not sensor noise.
     const size_t diffHidden = count_differing_bytes(visibleBuf, hiddenBuf);
-    EXPECT_GT(diffHidden, nBytes / 20)
-        << "buildings still visible in the rendered frame after "
-           "set_environment_visible(r, false) (only "
-        << diffHidden << "/" << nBytes << " bytes changed)";
+    EXPECT_GT(diffHidden, nBytes / 20) << "buildings still visible in the rendered frame after "
+                                          "set_environment_visible(r, false) (only "
+                                       << diffHidden << "/" << nBytes << " bytes changed)";
 
     // Re-show: same loaded chunks pop back without a reload, producing the
     // EXACT same frame as before hiding (static scene/camera/theme, no
@@ -275,8 +277,8 @@ TEST(Environment, ChunkLoadedWhileHiddenDoesNotPopIntoView) {
     s.ego.position = kChunk0Center;
     overlume::set_scene(r, s);
     overlume::CameraPose pose{{kBuildingsCentroid.x + 50, kBuildingsCentroid.y - 70, 40},
-                            {kBuildingsCentroid.x, kBuildingsCentroid.y, kBuildingsCentroid.z},
-                            60.0};
+                              {kBuildingsCentroid.x, kBuildingsCentroid.y, kBuildingsCentroid.z},
+                              60.0};
     const size_t nBytes = 320u * 240u * 3u;
     std::vector<uint8_t> hiddenBuf(nBytes);
     ASSERT_TRUE(overlume::render_frame(r, pose, {hiddenBuf.data(), 320, 240}));
@@ -307,9 +309,8 @@ TEST(Environment, ChunkLoadedWhileHiddenDoesNotPopIntoView) {
     std::vector<uint8_t> shownBuf(nBytes);
     ASSERT_TRUE(overlume::render_frame(r, pose, {shownBuf.data(), 320, 240}));
     const size_t diffShown = count_differing_bytes(hiddenBuf, shownBuf);
-    EXPECT_GT(diffShown, nBytes / 20)
-        << "showing again produced no visible change (only " << diffShown << "/" << nBytes
-        << " bytes changed)";
+    EXPECT_GT(diffShown, nBytes / 20) << "showing again produced no visible change (only "
+                                      << diffShown << "/" << nBytes << " bytes changed)";
     EXPECT_EQ(overlume::testing::environment_scene_membership_count(r),
               overlume::testing::environment_loaded_chunk_count(r));
     overlume::destroy_renderer(r);
@@ -329,7 +330,8 @@ TEST(Environment, SetEnvironmentVisibleFalseBeforeArmingHidesNewlyOpenedSource) 
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(overlume::environment_visible(r)) << "default must be true before anyone touches it";
+    ASSERT_TRUE(overlume::environment_visible(r))
+        << "default must be true before anyone touches it";
 
     // Hidden BEFORE set_environment_source() is ever called -- no source
     // exists yet (environment_source_state() == NONE).
@@ -349,8 +351,8 @@ TEST(Environment, SetEnvironmentVisibleFalseBeforeArmingHidesNewlyOpenedSource) 
     s.ego.position = kChunk0Center;
     overlume::set_scene(r, s);
     overlume::CameraPose pose{{kBuildingsCentroid.x + 50, kBuildingsCentroid.y - 70, 40},
-                            {kBuildingsCentroid.x, kBuildingsCentroid.y, kBuildingsCentroid.z},
-                            60.0};
+                              {kBuildingsCentroid.x, kBuildingsCentroid.y, kBuildingsCentroid.z},
+                              60.0};
     const size_t nBytes = 320u * 240u * 3u;
     std::vector<uint8_t> hiddenBuf(nBytes);
     ASSERT_TRUE(overlume::render_frame(r, pose, {hiddenBuf.data(), 320, 240}));
@@ -365,9 +367,8 @@ TEST(Environment, SetEnvironmentVisibleFalseBeforeArmingHidesNewlyOpenedSource) 
     std::vector<uint8_t> shownBuf(nBytes);
     ASSERT_TRUE(overlume::render_frame(r, pose, {shownBuf.data(), 320, 240}));
     const size_t diffShown = count_differing_bytes(hiddenBuf, shownBuf);
-    EXPECT_GT(diffShown, nBytes / 20)
-        << "showing produced no visible change (only " << diffShown << "/" << nBytes
-        << " bytes changed)";
+    EXPECT_GT(diffShown, nBytes / 20) << "showing produced no visible change (only " << diffShown
+                                      << "/" << nBytes << " bytes changed)";
     EXPECT_EQ(overlume::testing::environment_scene_membership_count(r),
               overlume::testing::environment_loaded_chunk_count(r));
     overlume::destroy_renderer(r);
@@ -421,8 +422,8 @@ TEST(EnvironmentGolden, TestTown_DarkAdas) {
     // Framed on the real footprint centroid (kBuildingsCentroid), not the
     // chunk cell's nominal center -- see that constant's own comment.
     overlume::CameraPose pose{{kBuildingsCentroid.x + 50, kBuildingsCentroid.y - 70, 40},
-                            {kBuildingsCentroid.x, kBuildingsCentroid.y, kBuildingsCentroid.z},
-                            60.0};
+                              {kBuildingsCentroid.x, kBuildingsCentroid.y, kBuildingsCentroid.z},
+                              60.0};
     // One render to trigger the load before the golden comparison render --
     // render_and_compare() below re-renders internally, and by then the
     // chunk is already loaded (loading doesn't depend on which render call
@@ -447,8 +448,8 @@ TEST(EnvironmentGolden, TestTown_DarkAdas) {
 TEST(EnvironmentPerf, RenderMsDeltaWithTestTownLoaded) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     overlume::CameraPose pose{{kChunk0Center.x + 40, kChunk0Center.y - 60, 35},
-                            {kChunk0Center.x, kChunk0Center.y, 2},
-                            60.0};
+                              {kChunk0Center.x, kChunk0Center.y, 2},
+                              60.0};
     std::vector<uint8_t> buf(320u * 240u * 3u);
     constexpr int kFrames = 30;
 
@@ -476,8 +477,8 @@ TEST(EnvironmentPerf, RenderMsDeltaWithTestTownLoaded) {
     const double withEnv = measure(/*withEnvironment=*/true);
     if (withEnv < 0.0) GTEST_SKIP() << "no GPU/EGL";
     const double withoutEnv = measure(/*withEnvironment=*/false);
-    std::cerr << "[EnvironmentPerf] mean render_ms without=" << withoutEnv
-              << " with=" << withEnv << " delta=" << (withEnv - withoutEnv) << " ms\n";
+    std::cerr << "[EnvironmentPerf] mean render_ms without=" << withoutEnv << " with=" << withEnv
+              << " delta=" << (withEnv - withoutEnv) << " ms\n";
     SUCCEED();
 }
 

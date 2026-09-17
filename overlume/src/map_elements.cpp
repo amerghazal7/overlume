@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // map_elements.cpp — HD-map lane centerlines, boundaries, crosswalk
 // polygons, and road-surface fill on the lit clay pipeline. Per-kind
 // styling driven entirely by theme tokens + a fixed dispatch table
@@ -123,9 +126,9 @@ std::vector<Vec3> detail::build_crosswalk_hatch(const Vec3* pts, uint32_t n, flo
         r1b = pts[3];
         longAxisLen = lenB / 2.0;
     }
-    const int kStripes = std::clamp(
-        static_cast<int>(std::lround(longAxisLen / kCrosswalkStripePitchM)), kCrosswalkStripesMin,
-        kCrosswalkStripesMax);
+    const int kStripes =
+        std::clamp(static_cast<int>(std::lround(longAxisLen / kCrosswalkStripePitchM)),
+                   kCrosswalkStripesMin, kCrosswalkStripesMax);
     auto lerp = [](const Vec3& a, const Vec3& b, double t) {
         return Vec3{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t};
     };
@@ -362,9 +365,9 @@ std::vector<Vec3> build_centerline_dots(const Vec3* pts, uint32_t n, float z_lif
             const float a1 = kTwoPi * static_cast<float>(k + 1) / kCenterlineDotSegments;
             tris.push_back(centre);
             tris.push_back(Vec3{c.x + kCenterlineDotRadiusM * std::cos(a0),
-                                 c.y + kCenterlineDotRadiusM * std::sin(a0), centre.z});
+                                c.y + kCenterlineDotRadiusM * std::sin(a0), centre.z});
             tris.push_back(Vec3{c.x + kCenterlineDotRadiusM * std::cos(a1),
-                                 c.y + kCenterlineDotRadiusM * std::sin(a1), centre.z});
+                                c.y + kCenterlineDotRadiusM * std::sin(a1), centre.z});
         }
     }
     return tris;
@@ -379,7 +382,8 @@ std::vector<Vec3> build_centerline_dots(const Vec3* pts, uint32_t n, float z_lif
 std::vector<Vec3> build_ribbon_flat(const Vec3* pts, uint32_t n, float half_width, float z_lift) {
     std::vector<Vec3> ribbon = detail::extrude_polyline(pts, n, half_width, z_lift);
     if (ribbon.empty()) return ribbon;
-    const auto stripIdx = detail::extrude_polyline_indices(static_cast<uint32_t>(ribbon.size() / 2));
+    const auto stripIdx =
+        detail::extrude_polyline_indices(static_cast<uint32_t>(ribbon.size() / 2));
     std::vector<Vec3> flat(stripIdx.size());
     for (size_t k = 0; k < stripIdx.size(); ++k) flat[k] = ribbon[stripIdx[k]];
     return flat;
@@ -428,7 +432,7 @@ std::vector<Vec3> build_road_strip(const Vec3* pts, uint32_t point_count, float 
 // mechanism, and not skip-and-freeze, which would leave the last valid
 // frame's geometry at full opacity forever.
 void apply_map_element_staleness(VisualRenderer& r, Mesh& mesh, MapKind kind,
-                                  double last_update_sec, double sim_time_sec, bool ego_valid) {
+                                 double last_update_sec, double sim_time_sec, bool ego_valid) {
     if (!mesh.entity) return;
     const auto staleness = static_cast<float>(detail::SceneBuffer::staleness_alpha(
         sim_time_sec, last_update_sec, kStaleFadeStartSec, kStaleFadeTimeoutSec));
@@ -476,7 +480,7 @@ void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
     // its geometry changed this frame. `s.ego.valid` is read directly
     // (this lambda already captures `s` by reference).
     auto adopt_or_build = [&](uint64_t key, filament::MaterialInstance* material, MapKind kind,
-                               double last_update_sec, auto build_fn) {
+                              double last_update_sec, auto build_fn) {
         // Duplicate content in one frame (real data has it: adjacent lanes
         // share a physical rail, so two boundary elements can carry
         // identical geometry): the first occurrence owns the mesh in
@@ -523,7 +527,7 @@ void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
             next.emplace(key, std::move(mesh));
         }
         apply_map_element_staleness(r, next.at(key), kind, last_update_sec, s.sim_time_sec,
-                                     s.ego.valid != 0);
+                                    s.ego.valid != 0);
     };
 
     for (uint32_t i = 0; i < s.map_element_count; ++i) {
@@ -560,13 +564,15 @@ void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
             // isn't a BOUNDARY kind).
             for (auto& dash : chop_into_dashes(e.points, e.point_count)) {
                 for (auto [a, b] : detail::polyline_chunks(static_cast<uint32_t>(dash.size()))) {
-                    const uint32_t chunkStart = a;  // structured bindings can't be captured directly
+                    const uint32_t chunkStart =
+                        a;  // structured bindings can't be captured directly
                     const uint32_t n = b - a;
                     const uint64_t key = chunk_signature(false, dash.data() + chunkStart, n);
                     adopt_or_build(key, material, e.kind, e.last_update_sec,
                                    [dash, chunkStart, n, z_lift]() {
-                        return build_ribbon_flat(dash.data() + chunkStart, n, kLaneHalfWidthM, z_lift);
-                    });
+                                       return build_ribbon_flat(dash.data() + chunkStart, n,
+                                                                kLaneHalfWidthM, z_lift);
+                                   });
                 }
             }
         } else if (e.kind == MapKind::CENTERLINE) {

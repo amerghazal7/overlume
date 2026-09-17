@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
 # VM-061 gate round 2, Finding 1 fix_instruction point 3: merge_yamlcpp.sh's
 # own post-merge audit (see its header comment) can only see what
 # liboverlume.a itself defines/references -- it cannot see what a

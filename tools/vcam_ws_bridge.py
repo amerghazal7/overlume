@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """WebSocket <-> ROS2 bridge for the rendering node's virtual camera.
 
 Exposes a generic JSON control/telemetry API (see

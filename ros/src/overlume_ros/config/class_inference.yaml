@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # DynamicObjectsAdapter class inference (VM-021).
 # Loaded by overlume_node::load_class_inference(), consumed by overlume_node::infer().
 # Label format "<prefix>_<track_id>" (e.g. "V_1105"). Verified against the

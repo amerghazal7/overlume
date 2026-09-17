@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // trajectory_carpet.hpp — internal-only (`-I src`), not installed, not POD.
 // Declares the per-frame update for the ONE trajectory_carpet.mat instance
 // the whole TrajectoryCarpetLayer shares (VM-077), mirroring point_cloud.hpp

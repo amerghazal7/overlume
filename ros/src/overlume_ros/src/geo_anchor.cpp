@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #include "overlume_ros/geo_anchor.hpp"
 
 #include <cmath>
@@ -5,11 +8,9 @@
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <tf2/exceptions.h>
 
-namespace overlume::ros
-{
+namespace overlume::ros {
 
-namespace
-{
+namespace {
 constexpr double kDegToRad = M_PI / 180.0;
 // Mean Earth radius (meters) -- a spherical approximation is the AC's own
 // stated sufficiency bound ("~2 km area"), not a survey-grade ellipsoid
@@ -20,11 +21,11 @@ constexpr double kDegToRad = M_PI / 180.0;
 constexpr double kEarthRadiusM = 6371000.0;
 }  // namespace
 
-overlume::Vec3 WgsToMap(const overlume::GeoAnchor& anchor, double lat_deg, double lon_deg, double alt_m)
-{
+overlume::Vec3 WgsToMap(const overlume::GeoAnchor& anchor, double lat_deg, double lon_deg,
+                        double alt_m) {
     const double lat0_rad = anchor.origin_lat_deg * kDegToRad;
-    const double east = kEarthRadiusM * std::cos(lat0_rad) * (lon_deg - anchor.origin_lon_deg) *
-                         kDegToRad;
+    const double east =
+        kEarthRadiusM * std::cos(lat0_rad) * (lon_deg - anchor.origin_lon_deg) * kDegToRad;
     const double north = kEarthRadiusM * (lat_deg - anchor.origin_lat_deg) * kDegToRad;
 
     const double h = anchor.heading_rad;
@@ -36,8 +37,7 @@ overlume::Vec3 WgsToMap(const overlume::GeoAnchor& anchor, double lat_deg, doubl
     return overlume::Vec3{east * s + north * c, -east * c + north * s, alt_m};
 }
 
-std::pair<double, double> MapToWgs(const overlume::GeoAnchor& anchor, overlume::Vec3 map_xy)
-{
+std::pair<double, double> MapToWgs(const overlume::GeoAnchor& anchor, overlume::Vec3 map_xy) {
     const double h = anchor.heading_rad;
     const double s = std::sin(h), c = std::cos(h);
     // Inverse of WgsToMap's rotation -- the forward matrix is orthonormal
@@ -53,21 +53,20 @@ std::pair<double, double> MapToWgs(const overlume::GeoAnchor& anchor, overlume::
     return {lat, lon};
 }
 
-double GreatCircleDistanceM(double lat1_deg, double lon1_deg, double lat2_deg, double lon2_deg)
-{
+double GreatCircleDistanceM(double lat1_deg, double lon1_deg, double lat2_deg, double lon2_deg) {
     const double phi1 = lat1_deg * kDegToRad;
     const double phi2 = lat2_deg * kDegToRad;
     const double dphi = (lat2_deg - lat1_deg) * kDegToRad;
     const double dlambda = (lon2_deg - lon1_deg) * kDegToRad;
-    const double a = std::sin(dphi / 2.0) * std::sin(dphi / 2.0) +
-                     std::cos(phi1) * std::cos(phi2) * std::sin(dlambda / 2.0) * std::sin(dlambda / 2.0);
+    const double a = std::sin(dphi / 2.0) * std::sin(dphi / 2.0) + std::cos(phi1) * std::cos(phi2) *
+                                                                       std::sin(dlambda / 2.0) *
+                                                                       std::sin(dlambda / 2.0);
     const double c = 2.0 * std::atan2(std::sqrt(a), std::sqrt(1.0 - a));
     return kEarthRadiusM * c;
 }
 
 overlume::GeoAnchor SolveAnchor(const std::vector<std::pair<double, double>>& fixes,
-                             const std::vector<std::pair<double, double>>& map_xy)
-{
+                                const std::vector<std::pair<double, double>>& map_xy) {
     overlume::GeoAnchor out{};
     if (fixes.empty() || fixes.size() != map_xy.size()) return out;
 
@@ -78,8 +77,7 @@ overlume::GeoAnchor SolveAnchor(const std::vector<std::pair<double, double>>& fi
     // of movement for a stable bearing" reasoning. Upgrade to a
     // circular-mean-of-incremental-bearings estimate if the real operating
     // area's initial approach turns out not to be roughly straight.
-    if (fixes.size() >= 2)
-    {
+    if (fixes.size() >= 2) {
         const auto& [lat1, lon1] = fixes.front();
         const auto& [lat2, lon2] = fixes.back();
         const auto& [mx1, my1] = map_xy.front();
@@ -88,9 +86,9 @@ overlume::GeoAnchor SolveAnchor(const std::vector<std::pair<double, double>>& fi
         const double phi1 = lat1 * kDegToRad, phi2 = lat2 * kDegToRad;
         const double dlon = (lon2 - lon1) * kDegToRad;
         // Standard initial-bearing formula: clockwise from true north.
-        const double bearing =
-            std::atan2(std::sin(dlon) * std::cos(phi2),
-                       std::cos(phi1) * std::sin(phi2) - std::sin(phi1) * std::cos(phi2) * std::cos(dlon));
+        const double bearing = std::atan2(
+            std::sin(dlon) * std::cos(phi2),
+            std::cos(phi1) * std::sin(phi2) - std::sin(phi1) * std::cos(phi2) * std::cos(dlon));
         // Angle of the same displacement in the map frame, CCW from map +X
         // (standard math convention).
         const double angle_map = std::atan2(my2 - my1, mx2 - mx1);
@@ -112,8 +110,7 @@ overlume::GeoAnchor SolveAnchor(const std::vector<std::pair<double, double>>& fi
     // origin; average the per-sample estimates.
     const double s = std::sin(out.heading_rad), c = std::cos(out.heading_rad);
     double sum_lat0 = 0.0, sum_lon0 = 0.0;
-    for (std::size_t i = 0; i < fixes.size(); ++i)
-    {
+    for (std::size_t i = 0; i < fixes.size(); ++i) {
         const auto& [lat, lon] = fixes[i];
         const auto& [x, y] = map_xy[i];
         const double east = x * s - y * c;
@@ -127,10 +124,9 @@ overlume::GeoAnchor SolveAnchor(const std::vector<std::pair<double, double>>& fi
     return out;
 }
 
-GeoDatumOverride ClassifyGeoDatum(double lat_deg, double lon_deg, double heading_deg)
-{
+GeoDatumOverride ClassifyGeoDatum(double lat_deg, double lon_deg, double heading_deg) {
     const int finite_count = (std::isfinite(lat_deg) ? 1 : 0) + (std::isfinite(lon_deg) ? 1 : 0) +
-                              (std::isfinite(heading_deg) ? 1 : 0);
+                             (std::isfinite(heading_deg) ? 1 : 0);
     if (finite_count == 3) return GeoDatumOverride::Complete;
     if (finite_count == 0) return GeoDatumOverride::None;
     return GeoDatumOverride::Partial;
@@ -138,31 +134,24 @@ GeoDatumOverride ClassifyGeoDatum(double lat_deg, double lon_deg, double heading
 
 GeoAnchorSolver::GeoAnchorSolver(tf2_ros::Buffer& buffer, std::string map_frame,
                                  std::string base_frame)
-    : buffer_(buffer), map_frame_(std::move(map_frame)), base_frame_(std::move(base_frame))
-{
-}
+    : buffer_(buffer), map_frame_(std::move(map_frame)), base_frame_(std::move(base_frame)) {}
 
-void GeoAnchorSolver::set_override(double lat_deg, double lon_deg, double heading_deg)
-{
+void GeoAnchorSolver::set_override(double lat_deg, double lon_deg, double heading_deg) {
     anchor_ = overlume::GeoAnchor{lat_deg, lon_deg, heading_deg * kDegToRad};
     overridden_ = true;
     solved_ = true;
 }
 
-void GeoAnchorSolver::on_fix(const sensor_msgs::msg::NavSatFix& fix)
-{
+void GeoAnchorSolver::on_fix(const sensor_msgs::msg::NavSatFix& fix) {
     // Override wins for the node's lifetime (spec's "manual override for
     // GPS-denied replays") -- real fixes never creep back in once set.
     // Already-solved-by-sampling is likewise final: no re-solving mid-run.
     if (overridden_ || solved_) return;
 
     geometry_msgs::msg::TransformStamped t;
-    try
-    {
+    try {
         t = buffer_.lookupTransform(map_frame_, base_frame_, tf2::TimePointZero);
-    }
-    catch (const tf2::TransformException&)
-    {
+    } catch (const tf2::TransformException&) {
         // No TF yet -- non-fatal, same "no data" philosophy as
         // tf_adapter.cpp:20-27. Drop this fix, keep accumulating on the
         // next callback.
@@ -172,15 +161,13 @@ void GeoAnchorSolver::on_fix(const sensor_msgs::msg::NavSatFix& fix)
     fixes_.emplace_back(fix.latitude, fix.longitude);
     map_xy_.emplace_back(t.transform.translation.x, t.transform.translation.y);
 
-    if (fixes_.size() >= kMinAnchorSamples)
-    {
+    if (fixes_.size() >= kMinAnchorSamples) {
         // Sample count alone is necessary but not sufficient (see
         // kMinAnchorBaselineM's own comment in geo_anchor.hpp) -- also
         // require the accumulated track to have actually moved.
         const auto& [x0, y0] = map_xy_.front();
         const auto& [x1, y1] = map_xy_.back();
-        if (std::hypot(x1 - x0, y1 - y0) >= kMinAnchorBaselineM)
-        {
+        if (std::hypot(x1 - x0, y1 - y0) >= kMinAnchorBaselineM) {
             anchor_ = SolveAnchor(fixes_, map_xy_);
             solved_ = true;
         }

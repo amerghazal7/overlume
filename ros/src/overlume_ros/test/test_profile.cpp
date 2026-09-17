@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file test_profile.cpp
  *  @brief Profile YAML loader tests (Epic 2 Task 1 / VM-020).
  */
@@ -16,26 +19,25 @@ using overlume_node::match_rule;
 using overlume_node::NsRender;
 using overlume_node::subscriptions_for;
 
-TEST(Profile, ShippedUrbanProfileLoads)
-{
+TEST(Profile, ShippedUrbanProfileLoads) {
     std::vector<std::string> errs;
-    auto p = overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
+    auto p =
+        overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
     EXPECT_TRUE(errs.empty());
     EXPECT_FALSE(p->rows.empty());
 }
 
-TEST(Profile, ShippedOffroadProfileLoads)
-{
+TEST(Profile, ShippedOffroadProfileLoads) {
     std::vector<std::string> errs;
-    auto p = overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/offroad_profile.yaml", errs);
+    auto p =
+        overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/offroad_profile.yaml", errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
     EXPECT_TRUE(errs.empty());
     EXPECT_FALSE(p->rows.empty());
 }
 
-TEST(Profile, ShippedSimProfileLoadsAndMarksTheLatchedHdMapRow)
-{
+TEST(Profile, ShippedSimProfileLoadsAndMarksTheLatchedHdMapRow) {
     // sim_profile.yaml is the only shipped profile with a TRANSIENT_LOCAL
     // hd_map row (/sim/hd_map/markers); this pins that QoS bit.
     std::vector<std::string> errs;
@@ -46,8 +48,7 @@ TEST(Profile, ShippedSimProfileLoadsAndMarksTheLatchedHdMapRow)
     EXPECT_TRUE(row->transient_local);
 }
 
-TEST(Profile, NamespaceRuleIsLongestPrefixWins)
-{
+TEST(Profile, NamespaceRuleIsLongestPrefixWins) {
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n  - {topic: /m, type: visualization_msgs/msg/MarkerArray,"
@@ -55,7 +56,8 @@ TEST(Profile, NamespaceRuleIsLongestPrefixWins)
         " [{prefix: centerline_, render: polyline},"
         "  {prefix: centerline_arrows_, render: drop},"
         "  {prefix: crosswalk_, render: polygon},"
-        "  {prefix: crosswalk_stopline_, render: polyline}]}\n", errs);
+        "  {prefix: crosswalk_stopline_, render: polyline}]}\n",
+        errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
     const auto& r = p->rows[0];
     EXPECT_EQ(classify(r, "centerline_0"), NsRender::kPolyline);
@@ -65,8 +67,7 @@ TEST(Profile, NamespaceRuleIsLongestPrefixWins)
     EXPECT_EQ(classify(r, "traffic_light_2"), NsRender::kDrop);  // ns_default
 }
 
-TEST(Profile, KindParsesOnNamespaceRules)
-{
+TEST(Profile, KindParsesOnNamespaceRules) {
     // kind is per-rule (not inherited by a sibling rule) and defaults to
     // OTHER when the key is absent.
     std::vector<std::string> errs;
@@ -75,7 +76,8 @@ TEST(Profile, KindParsesOnNamespaceRules)
         " adapter: hd_map, role: lane, namespaces:"
         " [{prefix: centerline_,    render: polyline, kind: centerline},"
         "  {prefix: left_boundary_, render: polyline, kind: left_boundary},"
-        "  {prefix: junk_,          render: polyline}]}\n", errs);
+        "  {prefix: junk_,          render: polyline}]}\n",
+        errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
     ASSERT_EQ(p->rows[0].namespaces.size(), 3u);
     EXPECT_EQ(p->rows[0].namespaces[0].kind, overlume::MapKind::CENTERLINE);
@@ -83,15 +85,15 @@ TEST(Profile, KindParsesOnNamespaceRules)
     EXPECT_EQ(p->rows[0].namespaces[2].kind, overlume::MapKind::OTHER);
 }
 
-TEST(Profile, KindIsRejectedWhenIllegalForRender)
-{
+TEST(Profile, KindIsRejectedWhenIllegalForRender) {
     // kind: crosswalk is polygon-only; every lane-geometry kind is
     // polyline-only.
     std::vector<std::string> polyline_errs;
     auto polyline = load_profile_string(
         "name: t\nrows:\n  - {topic: /m, type: visualization_msgs/msg/MarkerArray,"
         " adapter: hd_map, role: lane, namespaces:"
-        " [{prefix: crosswalk_, render: polyline, kind: crosswalk}]}\n", polyline_errs);
+        " [{prefix: crosswalk_, render: polyline, kind: crosswalk}]}\n",
+        polyline_errs);
     EXPECT_FALSE(polyline.has_value());
     ASSERT_EQ(polyline_errs.size(), 1u);
     EXPECT_NE(polyline_errs[0].find("kind"), std::string::npos);
@@ -101,26 +103,26 @@ TEST(Profile, KindIsRejectedWhenIllegalForRender)
     auto polygon = load_profile_string(
         "name: t\nrows:\n  - {topic: /m, type: visualization_msgs/msg/MarkerArray,"
         " adapter: hd_map, role: lane, namespaces:"
-        " [{prefix: centerline_, render: polygon, kind: centerline}]}\n", polygon_errs);
+        " [{prefix: centerline_, render: polygon, kind: centerline}]}\n",
+        polygon_errs);
     EXPECT_FALSE(polygon.has_value());
     ASSERT_EQ(polygon_errs.size(), 1u);
     EXPECT_NE(polygon_errs[0].find("kind"), std::string::npos);
 }
 
-TEST(Profile, UnknownKindValueIsRejectedWithRowContext)
-{
+TEST(Profile, UnknownKindValueIsRejectedWithRowContext) {
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n  - {topic: /m, type: visualization_msgs/msg/MarkerArray,"
         " adapter: hd_map, role: lane, namespaces:"
-        " [{prefix: centerline_, render: polyline, kind: teleporter}]}\n", errs);
+        " [{prefix: centerline_, render: polyline, kind: teleporter}]}\n",
+        errs);
     EXPECT_FALSE(p.has_value());
     ASSERT_EQ(errs.size(), 1u);
     EXPECT_NE(errs[0].find("teleporter"), std::string::npos);
 }
 
-TEST(Profile, ShippedUrbanLocalRowMarksCenterlineAndBoundaryKinds)
-{
+TEST(Profile, ShippedUrbanLocalRowMarksCenterlineAndBoundaryKinds) {
     // centerline_ and left/right_boundary_ carry distinct kinds so the
     // renderer can dash boundaries and keep centerline solid.
     std::vector<std::string> errs;
@@ -157,30 +159,31 @@ TEST(Profile, ShippedUrbanLocalRowMarksCenterlineAndBoundaryKinds)
     EXPECT_EQ(stopline_rule->kind, overlume::MapKind::STOPLINE);
 }
 
-TEST(Profile, DuplicateNamespacePrefixIsRejected)
-{
+TEST(Profile, DuplicateNamespacePrefixIsRejected) {
     // two rules with the same prefix have no defined winner -> bad row
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n  - {topic: /m, type: visualization_msgs/msg/MarkerArray,"
         " adapter: hd_map, role: lane, namespaces:"
         " [{prefix: centerline_, render: polyline},"
-        "  {prefix: centerline_, render: drop}]}\n", errs);
+        "  {prefix: centerline_, render: drop}]}\n",
+        errs);
     EXPECT_FALSE(p.has_value());
     ASSERT_EQ(errs.size(), 1u);
     EXPECT_NE(errs[0].find("duplicate"), std::string::npos);
     EXPECT_NE(errs[0].find("centerline_"), std::string::npos);
 }
 
-TEST(Profile, ShippedProfilesRouteEveryKnownNamespaceOfEveryShippedTopic)
-{
+TEST(Profile, ShippedProfilesRouteEveryKnownNamespaceOfEveryShippedTopic) {
     // Table-driven over the namespaces actually observed on the wire,
     // asserting each row's classify() verdict -- a topic whose real
     // namespaces don't match its rules renders as garbage, silently.
     std::vector<std::string> errs;
-    auto urban = overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
+    auto urban =
+        overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
     ASSERT_TRUE(urban.has_value());
-    auto sim = overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/sim_profile.yaml", errs);
+    auto sim =
+        overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/sim_profile.yaml", errs);
     ASSERT_TRUE(sim.has_value());
 
     // /road_markers row is disabled (bad upstream publisher data); on
@@ -226,50 +229,52 @@ TEST(Profile, ShippedProfilesRouteEveryKnownNamespaceOfEveryShippedTopic)
     EXPECT_EQ(classify(*sim_hd_map, "landmark_text"), NsRender::kDrop);
 }
 
-TEST(Profile, OgmRowCarriesItsUpdateTopicAndNonOgmRowsMayNot)
-{
+TEST(Profile, OgmRowCarriesItsUpdateTopicAndNonOgmRowsMayNot) {
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
-        " adapter: ogm, role: dynamic_ogm, update_topic: /g_updates}\n", errs);
+        " adapter: ogm, role: dynamic_ogm, update_topic: /g_updates}\n",
+        errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
     EXPECT_EQ(p->rows[0].update_topic, "/g_updates");
 
     std::vector<std::string> errs2;
     auto bad = load_profile_string(
         "name: t\nrows:\n  - {topic: /p, type: nav_msgs/msg/Path,"
-        " adapter: path, role: behavior, update_topic: /p_updates}\n", errs2);
+        " adapter: path, role: behavior, update_topic: /p_updates}\n",
+        errs2);
     EXPECT_FALSE(bad.has_value());
     ASSERT_EQ(errs2.size(), 1u);
     EXPECT_NE(errs2[0].find("update_topic"), std::string::npos);
 }
 
-TEST(Profile, JunctionInteriorBoundariesDefaultsToTrueAndParsesExplicitFalse)
-{
+TEST(Profile, JunctionInteriorBoundariesDefaultsToTrueAndParsesExplicitFalse) {
     // Defaults to true; shipped profiles never write this key explicitly.
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n  - {topic: /h, type: visualization_msgs/msg/MarkerArray,"
-        " adapter: hd_map, role: lane}\n", errs);
+        " adapter: hd_map, role: lane}\n",
+        errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
     EXPECT_TRUE(p->rows[0].junction_interior_boundaries);
 
     std::vector<std::string> errs2;
     auto p2 = load_profile_string(
         "name: t\nrows:\n  - {topic: /h, type: visualization_msgs/msg/MarkerArray,"
-        " adapter: hd_map, role: lane, junction_interior_boundaries: false}\n", errs2);
+        " adapter: hd_map, role: lane, junction_interior_boundaries: false}\n",
+        errs2);
     ASSERT_TRUE(p2.has_value()) << (errs2.empty() ? "" : errs2[0]);
     EXPECT_FALSE(p2->rows[0].junction_interior_boundaries);
 }
 
-TEST(Profile, JunctionInteriorBoundariesIsRejectedOnNonHdMapRows)
-{
+TEST(Profile, JunctionInteriorBoundariesIsRejectedOnNonHdMapRows) {
     // Restricted to adapter: hd_map; an explicit value elsewhere is a typo'd
     // key -- nothing else reads it.
     std::vector<std::string> errs;
     auto bad = load_profile_string(
         "name: t\nrows:\n  - {topic: /p, type: nav_msgs/msg/Path,"
-        " adapter: path, role: behavior, junction_interior_boundaries: false}\n", errs);
+        " adapter: path, role: behavior, junction_interior_boundaries: false}\n",
+        errs);
     EXPECT_FALSE(bad.has_value());
     ASSERT_EQ(errs.size(), 1u);
     EXPECT_NE(errs[0].find("junction_interior_boundaries"), std::string::npos);
@@ -277,59 +282,59 @@ TEST(Profile, JunctionInteriorBoundariesIsRejectedOnNonHdMapRows)
 
 // ── Epic 3 Task 6 (VM-035): adapter: point_cloud row fields ─────────────────
 
-TEST(Profile, PointCloudRowDefaultsColorModeAutoStrideOne)
-{
+TEST(Profile, PointCloudRowDefaultsColorModeAutoStrideOne) {
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n  - {topic: /lidar/points, type: sensor_msgs/msg/PointCloud2,"
-        " adapter: point_cloud, role: points}\n", errs);
+        " adapter: point_cloud, role: points}\n",
+        errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
     EXPECT_EQ(p->rows[0].color_mode, "auto");
     EXPECT_EQ(p->rows[0].max_points, 0u);
     EXPECT_EQ(p->rows[0].stride, 1u);
 }
 
-TEST(Profile, PointCloudRowParsesColorModeMaxPointsStride)
-{
+TEST(Profile, PointCloudRowParsesColorModeMaxPointsStride) {
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n  - {topic: /lidar/points, type: sensor_msgs/msg/PointCloud2,"
         " adapter: point_cloud, role: points, color_mode: height, max_points: 5000,"
-        " stride: 4}\n", errs);
+        " stride: 4}\n",
+        errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
     EXPECT_EQ(p->rows[0].color_mode, "height");
     EXPECT_EQ(p->rows[0].max_points, 5000u);
     EXPECT_EQ(p->rows[0].stride, 4u);
 }
 
-TEST(Profile, PointCloudRowRejectsUnknownColorMode)
-{
+TEST(Profile, PointCloudRowRejectsUnknownColorMode) {
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n  - {topic: /lidar/points, type: sensor_msgs/msg/PointCloud2,"
-        " adapter: point_cloud, role: points, color_mode: rainbow}\n", errs);
+        " adapter: point_cloud, role: points, color_mode: rainbow}\n",
+        errs);
     EXPECT_FALSE(p.has_value());
     ASSERT_FALSE(errs.empty());
     EXPECT_NE(errs[0].find("color_mode"), std::string::npos);
 }
 
-TEST(Profile, PointCloudRowRejectsZeroStride)
-{
+TEST(Profile, PointCloudRowRejectsZeroStride) {
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n  - {topic: /lidar/points, type: sensor_msgs/msg/PointCloud2,"
-        " adapter: point_cloud, role: points, stride: 0}\n", errs);
+        " adapter: point_cloud, role: points, stride: 0}\n",
+        errs);
     EXPECT_FALSE(p.has_value());
     ASSERT_FALSE(errs.empty());
     EXPECT_NE(errs[0].find("stride"), std::string::npos);
 }
 
-TEST(Profile, ColorModeMaxPointsStrideAreRejectedOnNonPointCloudRows)
-{
+TEST(Profile, ColorModeMaxPointsStrideAreRejectedOnNonPointCloudRows) {
     std::vector<std::string> errs;
     auto bad = load_profile_string(
         "name: t\nrows:\n  - {topic: /p, type: nav_msgs/msg/Path,"
-        " adapter: path, role: behavior, color_mode: flat}\n", errs);
+        " adapter: path, role: behavior, color_mode: flat}\n",
+        errs);
     EXPECT_FALSE(bad.has_value());
     ASSERT_FALSE(errs.empty());
     EXPECT_NE(errs[0].find("color_mode"), std::string::npos);
@@ -337,30 +342,31 @@ TEST(Profile, ColorModeMaxPointsStrideAreRejectedOnNonPointCloudRows)
 
 // ── VM-077: adapter: trajectory_carpet ──────────────────────────────────────
 
-TEST(Profile, TrajectoryCarpetAdapterAcceptsRoleCarpetOnly)
-{
+TEST(Profile, TrajectoryCarpetAdapterAcceptsRoleCarpetOnly) {
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n  - {topic: /c, type: visualization_msgs/msg/MarkerArray,"
-        " adapter: trajectory_carpet, role: carpet}\n", errs);
+        " adapter: trajectory_carpet, role: carpet}\n",
+        errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
     EXPECT_EQ(p->rows[0].role, "carpet");
 
     std::vector<std::string> bad_errs;
     auto bad = load_profile_string(
         "name: t\nrows:\n  - {topic: /c, type: visualization_msgs/msg/MarkerArray,"
-        " adapter: trajectory_carpet, role: neutral}\n", bad_errs);
+        " adapter: trajectory_carpet, role: neutral}\n",
+        bad_errs);
     EXPECT_FALSE(bad.has_value());
     ASSERT_FALSE(bad_errs.empty());
     EXPECT_NE(bad_errs[0].find("neutral"), std::string::npos);
 }
 
-TEST(Profile, TrajectoryCarpetAdapterRejectsWrongMessageType)
-{
+TEST(Profile, TrajectoryCarpetAdapterRejectsWrongMessageType) {
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n  - {topic: /c, type: nav_msgs/msg/Path,"
-        " adapter: trajectory_carpet, role: carpet}\n", errs);
+        " adapter: trajectory_carpet, role: carpet}\n",
+        errs);
     EXPECT_FALSE(p.has_value());
     ASSERT_FALSE(errs.empty());
     EXPECT_NE(errs[0].find("trajectory_carpet"), std::string::npos);
@@ -368,8 +374,7 @@ TEST(Profile, TrajectoryCarpetAdapterRejectsWrongMessageType)
 
 // ── VM-077 Task 5: two new generic-adapter rows (urban only) ───────────────
 
-TEST(Profile, DebugCruiseObstacleMarkerRowUsesGenericAdapter)
-{
+TEST(Profile, DebugCruiseObstacleMarkerRowUsesGenericAdapter) {
     std::vector<std::string> errs;
     auto p = load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
@@ -379,8 +384,7 @@ TEST(Profile, DebugCruiseObstacleMarkerRowUsesGenericAdapter)
     EXPECT_EQ(row->role, "neutral");
 }
 
-TEST(Profile, LocalMapCornersRowUsesGenericAdapter)
-{
+TEST(Profile, LocalMapCornersRowUsesGenericAdapter) {
     std::vector<std::string> errs;
     auto p = load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
@@ -390,8 +394,7 @@ TEST(Profile, LocalMapCornersRowUsesGenericAdapter)
     EXPECT_EQ(row->role, "neutral");
 }
 
-TEST(Profile, GroundTruthBoxesRowIsBestEffortBecauseItsPublisherIs)
-{
+TEST(Profile, GroundTruthBoxesRowIsBestEffortBecauseItsPublisherIs) {
     // The bag's /sim/ground_truth/boxes publisher is BEST_EFFORT; an rclcpp
     // subscription defaults to RELIABLE and would never match it, silently.
     // Row ships disabled (the ego's own box sits at the robot's origin,
@@ -406,21 +409,22 @@ TEST(Profile, GroundTruthBoxesRowIsBestEffortBecauseItsPublisherIs)
     auto p2 = load_profile_string(
         "name: t\nrows:\n"
         "  - {topic: /sim/ground_truth/boxes, type: visualization_msgs/msg/MarkerArray,"
-        " adapter: generic, role: neutral, best_effort: true}\n", errs2);
+        " adapter: generic, role: neutral, best_effort: true}\n",
+        errs2);
     ASSERT_TRUE(p2.has_value());
     const auto* row = find_row(*p2, "/sim/ground_truth/boxes");
     ASSERT_NE(row, nullptr);
     EXPECT_TRUE(row->best_effort);
 }
 
-TEST(Profile, SubscriptionsForCarriesQosAndFansOutOgmRows)
-{
+TEST(Profile, SubscriptionsForCarriesQosAndFansOutOgmRows) {
     std::vector<std::string> errs;
 
     // generic/hd_map/path/collision row -> 1 spec, qos flags copied through
     auto p1 = load_profile_string(
         "name: t\nrows:\n  - {topic: /a, type: visualization_msgs/msg/MarkerArray,"
-        " adapter: generic, role: neutral, best_effort: true, transient_local: true}\n", errs);
+        " adapter: generic, role: neutral, best_effort: true, transient_local: true}\n",
+        errs);
     ASSERT_TRUE(p1.has_value());
     auto specs1 = subscriptions_for(p1->rows[0]);
     ASSERT_EQ(specs1.size(), 1u);
@@ -437,7 +441,8 @@ TEST(Profile, SubscriptionsForCarriesQosAndFansOutOgmRows)
     auto p2 = load_profile_string(
         "name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
         " adapter: ogm, role: dynamic_ogm, update_topic: /g_updates,"
-        " transient_local: true}\n", errs);
+        " transient_local: true}\n",
+        errs);
     ASSERT_TRUE(p2.has_value());
     auto specs2 = subscriptions_for(p2->rows[0]);
     ASSERT_EQ(specs2.size(), 2u);
@@ -454,15 +459,14 @@ TEST(Profile, SubscriptionsForCarriesQosAndFansOutOgmRows)
     EXPECT_TRUE(subscriptions_for(p3->rows[0]).empty());
 }
 
-TEST(Profile, TfAxesRowHasNoTopicAndEverythingElseMustHaveOne)
-{
+TEST(Profile, TfAxesRowHasNoTopicAndEverythingElseMustHaveOne) {
     std::vector<std::string> errs;
     auto with_topic = load_profile_string(
         "name: t\nrows:\n  - {topic: /tf_markers, adapter: tf_axes, role: debug}\n", errs);
     EXPECT_FALSE(with_topic.has_value());
 
-    auto without_topic = load_profile_string(
-        "name: t\nrows:\n  - {adapter: tf_axes, role: debug}\n", errs);
+    auto without_topic =
+        load_profile_string("name: t\nrows:\n  - {adapter: tf_axes, role: debug}\n", errs);
     EXPECT_TRUE(without_topic.has_value());
 
     auto other_missing_topic = load_profile_string(
@@ -470,86 +474,87 @@ TEST(Profile, TfAxesRowHasNoTopicAndEverythingElseMustHaveOne)
     EXPECT_FALSE(other_missing_topic.has_value());
 }
 
-TEST(Profile, UnknownAdapterIsRejectedWithRowContext)
-{
+TEST(Profile, UnknownAdapterIsRejectedWithRowContext) {
     std::vector<std::string> errs;
     auto p = overlume_node::load_profile_string(
         "name: bad\nrows:\n  - {topic: /x, type: visualization_msgs/msg/MarkerArray,"
-        " adapter: teleporter, role: lane}\n", errs);
+        " adapter: teleporter, role: lane}\n",
+        errs);
     EXPECT_FALSE(p.has_value());
     ASSERT_EQ(errs.size(), 1u);
     EXPECT_NE(errs[0].find("teleporter"), std::string::npos);  // names the bad value
     EXPECT_NE(errs[0].find("/x"), std::string::npos);          // names the row
 }
 
-TEST(Profile, MissingRequiredKeyIsRejected)
-{
+TEST(Profile, MissingRequiredKeyIsRejected) {
     // row with no `adapter:` -> error mentions "adapter" and the row's topic
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: bad\nrows:\n  - {topic: /needs_adapter, type: visualization_msgs/msg/MarkerArray,"
-        " role: lane}\n", errs);
+        " role: lane}\n",
+        errs);
     EXPECT_FALSE(p.has_value());
     ASSERT_EQ(errs.size(), 1u);
     EXPECT_NE(errs[0].find("adapter"), std::string::npos);
     EXPECT_NE(errs[0].find("/needs_adapter"), std::string::npos);
 }
 
-TEST(Profile, TimeoutBelowRenderFadeWindowIsRejected)
-{
+TEST(Profile, TimeoutBelowRenderFadeWindowIsRejected) {
     // timeout_sec must be >= 1.0s: the renderer's fade window ends at
     // kStaleFadeTimeoutSec (overlume/src/renderer_internal.hpp).
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: bad\nrows:\n  - {topic: /x, type: visualization_msgs/msg/MarkerArray,"
-        " adapter: generic, role: neutral, timeout_sec: 0.4}\n", errs);
+        " adapter: generic, role: neutral, timeout_sec: 0.4}\n",
+        errs);
     EXPECT_FALSE(p.has_value());
     ASSERT_EQ(errs.size(), 1u);
     EXPECT_NE(errs[0].find("timeout_sec"), std::string::npos);
     EXPECT_NE(errs[0].find("1.0"), std::string::npos);
 }
 
-TEST(Profile, AllErrorsReportedNotJustTheFirst)
-{
+TEST(Profile, AllErrorsReportedNotJustTheFirst) {
     // two bad rows -> errs.size() == 2 (a config file with three mistakes
     // should take one edit pass, not three)
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: bad\nrows:\n"
-        "  - {topic: /x, type: visualization_msgs/msg/MarkerArray, adapter: teleporter, role: lane}\n"
-        "  - {topic: /y, type: visualization_msgs/msg/MarkerArray, adapter: generic, role: neutral, timeout_sec: 0.1}\n",
+        "  - {topic: /x, type: visualization_msgs/msg/MarkerArray, adapter: teleporter, role: "
+        "lane}\n"
+        "  - {topic: /y, type: visualization_msgs/msg/MarkerArray, adapter: generic, role: "
+        "neutral, timeout_sec: 0.1}\n",
         errs);
     EXPECT_FALSE(p.has_value());
     EXPECT_EQ(errs.size(), 2u);
 }
 
-TEST(Profile, UnknownExtraKeyIsAWarningNotAHardFailure)
-{
+TEST(Profile, UnknownExtraKeyIsAWarningNotAHardFailure) {
     // Profiles are hand-edited; a typo'd optional key must not take the
     // node down.
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n  - {topic: /x, type: visualization_msgs/msg/MarkerArray,"
-        " adapter: generic, role: neutral, tpyo_key: 1}\n", errs);
+        " adapter: generic, role: neutral, tpyo_key: 1}\n",
+        errs);
     ASSERT_TRUE(p.has_value());
     ASSERT_EQ(errs.size(), 1u);
     EXPECT_NE(errs[0].find("tpyo_key"), std::string::npos);
 }
 
-TEST(Profile, DuplicateTopicAdapterPairIsRejected)
-{
+TEST(Profile, DuplicateTopicAdapterPairIsRejected) {
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n"
-        "  - {topic: /x, type: visualization_msgs/msg/MarkerArray, adapter: generic, role: neutral}\n"
-        "  - {topic: /x, type: visualization_msgs/msg/MarkerArray, adapter: generic, role: neutral}\n",
+        "  - {topic: /x, type: visualization_msgs/msg/MarkerArray, adapter: generic, role: "
+        "neutral}\n"
+        "  - {topic: /x, type: visualization_msgs/msg/MarkerArray, adapter: generic, role: "
+        "neutral}\n",
         errs);
     EXPECT_FALSE(p.has_value());
     EXPECT_EQ(errs.size(), 1u);
 }
 
-TEST(Profile, DuplicateTopicAdapterPairNamesTheFileRowIndexNotTheSurvivingRowIndex)
-{
+TEST(Profile, DuplicateTopicAdapterPairNamesTheFileRowIndexNotTheSurvivingRowIndex) {
     // Row 0 is rejected (bad adapter) and never enters profile.rows. Rows 1
     // and 2 are the actual duplicate pair, surviving at indices 0 and 1 --
     // but the error must still name FILE row 2 (the offending occurrence),
@@ -557,9 +562,12 @@ TEST(Profile, DuplicateTopicAdapterPairNamesTheFileRowIndexNotTheSurvivingRowInd
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: t\nrows:\n"
-        "  - {topic: /z, type: visualization_msgs/msg/MarkerArray, adapter: teleporter, role: lane}\n"
-        "  - {topic: /x, type: visualization_msgs/msg/MarkerArray, adapter: generic, role: neutral}\n"
-        "  - {topic: /x, type: visualization_msgs/msg/MarkerArray, adapter: generic, role: neutral}\n",
+        "  - {topic: /z, type: visualization_msgs/msg/MarkerArray, adapter: teleporter, role: "
+        "lane}\n"
+        "  - {topic: /x, type: visualization_msgs/msg/MarkerArray, adapter: generic, role: "
+        "neutral}\n"
+        "  - {topic: /x, type: visualization_msgs/msg/MarkerArray, adapter: generic, role: "
+        "neutral}\n",
         errs);
     EXPECT_FALSE(p.has_value());
     ASSERT_EQ(errs.size(), 2u);  // the bad-adapter row, then the duplicate
@@ -567,31 +575,30 @@ TEST(Profile, DuplicateTopicAdapterPairNamesTheFileRowIndexNotTheSurvivingRowInd
     EXPECT_EQ(errs[1].find("row 1"), std::string::npos) << errs[1];
 }
 
-TEST(Profile, RoleMustBeInTheAdapterClosedSet)
-{
+TEST(Profile, RoleMustBeInTheAdapterClosedSet) {
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: bad\nrows:\n  - {topic: /x, type: visualization_msgs/msg/MarkerArray,"
-        " adapter: collision, role: sweeep}\n", errs);
+        " adapter: collision, role: sweeep}\n",
+        errs);
     EXPECT_FALSE(p.has_value());
     ASSERT_EQ(errs.size(), 1u);
     EXPECT_NE(errs[0].find("sweeep"), std::string::npos);
 }
 
-TEST(Profile, MalformedScalarTypeIsReportedNotThrown)
-{
+TEST(Profile, MalformedScalarTypeIsReportedNotThrown) {
     // A mis-typed scalar must produce an error + nullopt, not let
     // YAML::TypedBadConversion escape and abort the process.
     std::vector<std::string> errs;
     auto p = load_profile_string(
         "name: bad\nrows:\n  - {topic: /x, type: visualization_msgs/msg/MarkerArray,"
-        " adapter: generic, role: neutral, timeout_sec: abc}\n", errs);
+        " adapter: generic, role: neutral, timeout_sec: abc}\n",
+        errs);
     EXPECT_FALSE(p.has_value());
     ASSERT_FALSE(errs.empty());
 }
 
-TEST(Profile, WholeFileScalarIsReportedNotThrown)
-{
+TEST(Profile, WholeFileScalarIsReportedNotThrown) {
     // A profile that is just a bare scalar (no mapping at all) must not let
     // YAML::BadSubscript escape from BuildProfile's root["name"]/root["rows"].
     std::vector<std::string> errs;
@@ -600,14 +607,12 @@ TEST(Profile, WholeFileScalarIsReportedNotThrown)
     ASSERT_FALSE(errs.empty());
 }
 
-TEST(Profile, ShippedProfilesCarryEveryCollisionPathAndOgmRow)
-{
+TEST(Profile, ShippedProfilesCarryEveryCollisionPathAndOgmRow) {
     // The other file-level tests only catch a MALFORMED row, never a
     // MISSING one -- "file parses" and "rows non-empty" both still pass if a
     // row is silently deleted. Table-driven over (topic, adapter, role)
     // closes that gap.
-    struct Expected
-    {
+    struct Expected {
         std::string topic;
         std::string adapter;
         std::string role;
@@ -630,9 +635,11 @@ TEST(Profile, ShippedProfilesCarryEveryCollisionPathAndOgmRow)
         {"/perception/gradient_ogm", "ogm", "gradient_ogm"},
     };
 
-    for (const char* profile_file : {"urban_profile.yaml", "offroad_profile.yaml", "sim_profile.yaml"}) {
+    for (const char* profile_file :
+         {"urban_profile.yaml", "offroad_profile.yaml", "sim_profile.yaml"}) {
         std::vector<std::string> errs;
-        auto p = overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/" + profile_file, errs);
+        auto p =
+            overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/" + profile_file, errs);
         ASSERT_TRUE(p.has_value()) << profile_file << ": " << (errs.empty() ? "" : errs[0]);
         for (const auto& exp : kExpectedRows) {
             const auto* row = find_row(*p, exp.topic);
@@ -657,12 +664,12 @@ TEST(Profile, ShippedProfilesCarryEveryCollisionPathAndOgmRow)
 }
 
 // ── Coexisting yaml-cpp builds (vendor + bundled) ───────────────────────────
-TEST(Profile, CoexistsWithTheRendererLibrarysOwnYamlCpp)
-{
+TEST(Profile, CoexistsWithTheRendererLibrarysOwnYamlCpp) {
     // No GPU needed, no GTEST_SKIP: if this test can be skipped it is not a
     // guard. Vendor yaml-cpp (gcc/libstdc++) parses a profile...
     std::vector<std::string> errs;
-    auto p = overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
+    auto p =
+        overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
     ASSERT_TRUE(p.has_value());
     // Row COUNT, not just has_value(): an ABI-mismatched YAML::Node can link
     // fine and still return a Profile with the right error count (0) but the
@@ -689,8 +696,7 @@ TEST(Profile, CoexistsWithTheRendererLibrarysOwnYamlCpp)
 }
 
 // ── Fixture round-trip: bag_to_fixture.py's committed output ───────────────
-TEST(FixtureMsgs, DynamicObjectsListFixtureRoundTrips)
-{
+TEST(FixtureMsgs, DynamicObjectsListFixtureRoundTrips) {
     // Fixture generated by scripts/bag_to_fixture.py from the real bag;
     // message 0 has 15 markers -- first is the ns="" action=DELETEALL
     // marker, second is a dynamic_objects_bbox CUBE.

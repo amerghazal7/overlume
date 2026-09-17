@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // ego.cpp — ego robot via Filament gltfio, with a themed clay-box fallback
 // on any load failure. Compiled into the same overlume library
 // target as renderer.cpp, sharing its PRIVATE Filament include access; see
@@ -43,8 +46,7 @@ using filament::math::quatf;
 // A box centered on X/Y, resting on the ground plane (Z in [0, dims.z]) —
 // the ego's origin is its ground-contact point, matching how the node-side
 // TF adapter defines base_link for a ground vehicle.
-void build_ego_box(std::vector<Vertex>& verts, std::vector<uint16_t>& indices,
-                    const Vec3& dims) {
+void build_ego_box(std::vector<Vertex>& verts, std::vector<uint16_t>& indices, const Vec3& dims) {
     const float hx = static_cast<float>(dims.x) * 0.5f;
     const float hy = static_cast<float>(dims.y) * 0.5f;
     const float hz = static_cast<float>(dims.z);
@@ -72,8 +74,8 @@ void build_ego_box(std::vector<Vertex>& verts, std::vector<uint16_t>& indices,
             normals.push_back(f.n);
         }
         indices.insert(indices.end(),
-                        {base, static_cast<uint16_t>(base + 1), static_cast<uint16_t>(base + 2),
-                         base, static_cast<uint16_t>(base + 2), static_cast<uint16_t>(base + 3)});
+                       {base, static_cast<uint16_t>(base + 1), static_cast<uint16_t>(base + 2),
+                        base, static_cast<uint16_t>(base + 2), static_cast<uint16_t>(base + 3)});
     }
     fill_tangent_frames(verts, normals);
 }
@@ -191,7 +193,7 @@ void update_ego_transform(VisualRenderer& r, const EgoState& ego) {
     const auto inst = tm.getInstance(r.egoTransformEntity);
     if (!inst.isValid()) return;
     const float3 pos{static_cast<float>(ego.position.x), static_cast<float>(ego.position.y),
-                      static_cast<float>(ego.position.z)};
+                     static_cast<float>(ego.position.z)};
     const quatf rot = quatf::fromAxisAngle(float3{0, 0, 1}, static_cast<float>(ego.heading_rad));
     // ego.valid == 0 hides the ego by zero-scaling its transform rather
     // than tracking scene membership across the glTF asset's whole entity
@@ -212,7 +214,7 @@ double rendered_bounding_box_diagonal(overlume::VisualRenderer* r) {
         const filament::Aabb box = r->egoAsset->getBoundingBox();
         const filament::math::float3 d = box.max - box.min;
         return std::sqrt(static_cast<double>(d.x) * d.x + static_cast<double>(d.y) * d.y +
-                          static_cast<double>(d.z) * d.z);
+                         static_cast<double>(d.z) * d.z);
     }
     if (r->egoFallback.entity) {
         // Not RenderableManager::getAxisAlignedBoundingBox(): that reports

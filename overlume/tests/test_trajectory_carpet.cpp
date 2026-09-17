@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_trajectory_carpet.cpp — output_trajectory_carpet, REDIRECTED
 // 2026-09-10 to a velocity-colored ribbon stacked into the ribbon stack
 // (user directive; see trajectory_carpet.cpp's file header for the full
@@ -72,7 +75,8 @@ TEST(TrajectoryCarpet, BuildsExtrudedRibbonFromCenterlineStations) {
 
 TEST(TrajectoryCarpet, MarginVelocityChangeRebuildsGeometryAtNewHalfWidth) {
     const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    overlume::RenderConfig cfg{320, 240, /*quality=*/1, fixtureDir.c_str(), "ribbon_margin_velocity"};
+    overlume::RenderConfig cfg{320, 240, /*quality=*/1, fixtureDir.c_str(),
+                               "ribbon_margin_velocity"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
@@ -96,7 +100,7 @@ TEST(TrajectoryCarpet, EffectiveHalfWidthClampsToTheHalfWidthFloor) {
     // kRibbonMinHalfWidthM (0.12).
     const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
     overlume::RenderConfig cfg{320, 240, /*quality=*/1, fixtureDir.c_str(),
-                            "ribbon_margin_velocity_extreme"};
+                               "ribbon_margin_velocity_extreme"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
@@ -214,7 +218,7 @@ TEST(TrajectoryCarpet, RibbonChunksAcrossMeshesWithoutTruncation) {
 
     const auto chunks = overlume::detail::polyline_chunks(kN);
     ASSERT_EQ(chunks.size(), 2u) << "40000 stations should split into exactly 2 chunks at "
-                                     "kMaxPointsPerMesh=32000 -- fixture assumption changed?";
+                                    "kMaxPointsPerMesh=32000 -- fixture assumption changed?";
     size_t expectedVerts = 0;
     for (const auto& [a, b] : chunks) expectedVerts += 2 * static_cast<size_t>(b - a);
 
@@ -247,7 +251,8 @@ TEST(TrajectoryCarpet, SlotReleasedWhenCarpetCountDrops) {
     overlume::set_scene(r, empty);
     render_once(r, overlume::CameraPose{{0, -10, 10}, {0, 0, 0}, 60.0});
     EXPECT_EQ(overlume::testing::trajectory_carpet_mesh_count(r, 0), 0u)
-        << "a slot past the new (lower) trajectory_carpet_count must be torn down, not left dangling";
+        << "a slot past the new (lower) trajectory_carpet_count must be torn down, not left "
+           "dangling";
 
     overlume::destroy_renderer(r);
 }
@@ -314,8 +319,8 @@ TEST(TrajectoryCarpet, VertexZIsLiftedAboveTheFlattenedZeroTheAdapterSends) {
     for (size_t i = 0; i < 6; ++i) {
         const float z = overlume::testing::trajectory_carpet_vertex_z(r, 0, i);
         EXPECT_GT(z, 0.046f) << "vertex " << i
-                              << " must be lifted ABOVE LOCAL's own z-lift (0.046) -- "
-                                 "\"stacked on top of local ribbon\" per the user directive";
+                             << " must be lifted ABOVE LOCAL's own z-lift (0.046) -- "
+                                "\"stacked on top of local ribbon\" per the user directive";
         EXPECT_LT(z, 0.058f) << "vertex " << i
                              << " must stay BELOW BEHAVIOR's z-lift (0.058) -- the hero ribbon "
                                 "must remain topmost of the path/ribbon stack";
@@ -354,7 +359,7 @@ TEST(TrajectoryCarpet, ClipCollapsesGeometryWhenEgoIsMidCarpet) {
     overlume::Vec3 firstPoint{};
     ASSERT_TRUE(overlume::testing::trajectory_carpet_slot_first_point(r, 0, &firstPoint));
     EXPECT_NEAR(firstPoint.x, 1.0, 0.5) << "clip station should land near x=1, the ego's own "
-                                            "closest-approach point on the carpet";
+                                           "closest-approach point on the carpet";
     EXPECT_GE(firstPoint.x, 1.0) << "clipped geometry still starts behind the ego";
     overlume::destroy_renderer(r);
 }

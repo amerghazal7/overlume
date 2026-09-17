@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // point_cloud_test_hooks.hpp — internal-only, not installed, not POD.
 // tests/test_point_cloud.cpp links only against `overlume` and has
 // no access to its PRIVATE Filament include dir, so it can't include

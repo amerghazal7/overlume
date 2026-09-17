@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_diagnostics.cpp — BuildDiagnostics() is a pure data transform
 // (diagnostics.hpp's own header comment) -- no ROS node, no clock, no
 // fixture -- so these are plain value-in/value-out assertions on
@@ -6,11 +9,9 @@
 
 #include <gtest/gtest.h>
 
-namespace
-{
+namespace {
 
-overlume_node::AdapterStats StatsWithSomeDrops()
-{
+overlume_node::AdapterStats StatsWithSomeDrops() {
     overlume_node::AdapterStats s;
     s.last_msg_sec = 12.0;
     s.msgs = 40;
@@ -23,8 +24,7 @@ overlume_node::AdapterStats StatsWithSomeDrops()
 
 }  // namespace
 
-TEST(Diagnostics, OneStatusPerRowPlusRenderMs)
-{
+TEST(Diagnostics, OneStatusPerRowPlusRenderMs) {
     std::vector<overlume_node::RowStats> rows(1);
     rows[0].topic = "/hd_map_local_elements";
     rows[0].stats = StatsWithSomeDrops();
@@ -38,8 +38,7 @@ TEST(Diagnostics, OneStatusPerRowPlusRenderMs)
     EXPECT_EQ(msg.status[1].name, "render_ms");
 }
 
-TEST(Diagnostics, ValuesCarryEveryAdapterStatsCounterVerbatim)
-{
+TEST(Diagnostics, ValuesCarryEveryAdapterStatsCounterVerbatim) {
     std::vector<overlume_node::RowStats> rows(1);
     rows[0].topic = "/perception/dynamic_objects_list";
     rows[0].stats = StatsWithSomeDrops();
@@ -66,8 +65,7 @@ TEST(Diagnostics, ValuesCarryEveryAdapterStatsCounterVerbatim)
     EXPECT_EQ(find("last_msg_age_sec"), "0.5");
 }
 
-TEST(Diagnostics, NeverPublishedRowReportsOkNoDataYetWithNoBogusAge)
-{
+TEST(Diagnostics, NeverPublishedRowReportsOkNoDataYetWithNoBogusAge) {
     // stats defaults to msgs == 0 (never published) -- last_msg_sec also
     // defaults to 0.0, so a caller computing last_msg_age_sec as
     // sim_clock_sec_ - last_msg_sec (overlume_node.cpp's own formula)
@@ -89,8 +87,7 @@ TEST(Diagnostics, NeverPublishedRowReportsOkNoDataYetWithNoBogusAge)
     }
 }
 
-TEST(Diagnostics, PublishedThenSilentRowStillReportsItsRealAgeAndStaleLevel)
-{
+TEST(Diagnostics, PublishedThenSilentRowStillReportsItsRealAgeAndStaleLevel) {
     std::vector<overlume_node::RowStats> rows(1);
     rows[0].topic = "/went_quiet";
     rows[0].stats.msgs = 5;  // published before, so this is genuine staleness
@@ -111,8 +108,7 @@ TEST(Diagnostics, PublishedThenSilentRowStillReportsItsRealAgeAndStaleLevel)
     EXPECT_EQ(find("last_msg_age_sec"), "5");
 }
 
-TEST(Diagnostics, RowPastItsOwnTimeoutSecIsWarnEverythingElseIsOk)
-{
+TEST(Diagnostics, RowPastItsOwnTimeoutSecIsWarnEverythingElseIsOk) {
     std::vector<overlume_node::RowStats> rows(2);
     rows[0].topic = "/fresh";
     rows[0].stats.msgs = 1;  // published, and recently -- not the msgs==0 absent case
@@ -129,8 +125,7 @@ TEST(Diagnostics, RowPastItsOwnTimeoutSecIsWarnEverythingElseIsOk)
     EXPECT_EQ(msg.status[1].level, diagnostic_msgs::msg::DiagnosticStatus::WARN);
 }
 
-TEST(Diagnostics, RenderMsNodeLevelStatusCarriesTheValueVerbatim)
-{
+TEST(Diagnostics, RenderMsNodeLevelStatusCarriesTheValueVerbatim) {
     const auto msg = overlume_node::BuildDiagnostics({}, 7.75);
     ASSERT_EQ(msg.status.size(), 1u);  // 0 rows + 1 node-level
     ASSERT_EQ(msg.status[0].values.size(), 1u);

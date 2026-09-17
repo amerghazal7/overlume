@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_point_cloud.cpp — point clouds (Epic 3 Task 6 / VM-035). Same
 // "no Filament type" boundary as every other tests/*.cpp -- see
 // point_cloud_test_hooks.hpp. No PointCloud2 topic exists in the recorded

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_ego.cpp — ego robot via Filament gltfio, clay-box fallback on load
 // failure.
 //
@@ -39,7 +42,7 @@ TEST(Ego, LoadValidGltf_RendersNonEmptyBoundingBox) {
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP();
     EXPECT_TRUE(overlume::set_ego_model(r, OVERLUME_TEST_DATA_DIR "/tests/fixtures/test_cube.glb",
-                                      {4.5, 2.0, 1.8}));
+                                        {4.5, 2.0, 1.8}));
     overlume::set_scene(r, scene);
     std::vector<uint8_t> pixels(320u * 240u * 3u);
     overlume::FrameView view{pixels.data(), 320, 240};
@@ -56,11 +59,10 @@ TEST(Ego, LoadValidGltf_RendersNonEmptyBoundingBox) {
     for (size_t i = 0; i < pixels.size(); ++i) {
         if (pixels[i] != baseline_pixels[i]) ++differing_bytes;
     }
-    EXPECT_GT(differing_bytes, 0u)
-        << "loaded glTF produced no visible difference from the no-ego "
-           "baseline -- loadResources()/addEntities() may have been "
-           "skipped even though the asset parsed (bounding box was "
-           "non-empty above)";
+    EXPECT_GT(differing_bytes, 0u) << "loaded glTF produced no visible difference from the no-ego "
+                                      "baseline -- loadResources()/addEntities() may have been "
+                                      "skipped even though the asset parsed (bounding box was "
+                                      "non-empty above)";
 
     overlume::destroy_renderer(r);
 }
@@ -91,7 +93,7 @@ TEST(Ego, InvalidEgo_RendersIdenticalToNoEgoBaseline) {
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP();
     EXPECT_TRUE(overlume::set_ego_model(r, OVERLUME_TEST_DATA_DIR "/tests/fixtures/test_cube.glb",
-                                      {4.5, 2.0, 1.8}));
+                                        {4.5, 2.0, 1.8}));
     overlume::SceneGraph scene{};
     scene.ego = {{0, 0, 0}, 0, 0, /*valid=*/0};
     overlume::set_scene(r, scene);

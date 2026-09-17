@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // bowl_gray_probe.hpp — the ONE gray-ramp probe harness shared by
 // tests/test_bowl_exposure_calibration.cpp (the regression pin) and
 // tools/bowl_exposure_probe.cpp (the measurement tool), hoisted per the

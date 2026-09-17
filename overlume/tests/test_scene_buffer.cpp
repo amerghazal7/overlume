@@ -1,4 +1,7 @@
-#include "scene_buffer.hpp"   // -I src, internal header
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
+#include "scene_buffer.hpp"  // -I src, internal header
 
 #include <algorithm>
 #include <cstddef>
@@ -123,7 +126,8 @@ static_assert(offsetof(overlume::TrackedObject, position) == 8, "TrackedObject l
 static_assert(offsetof(overlume::TrackedObject, heading_rad) == 32, "TrackedObject layout frozen");
 static_assert(offsetof(overlume::TrackedObject, dimensions) == 40, "TrackedObject layout frozen");
 static_assert(offsetof(overlume::TrackedObject, velocity) == 64, "TrackedObject layout frozen");
-static_assert(offsetof(overlume::TrackedObject, predicted_path) == 88, "TrackedObject layout frozen");
+static_assert(offsetof(overlume::TrackedObject, predicted_path) == 88,
+              "TrackedObject layout frozen");
 static_assert(offsetof(overlume::TrackedObject, predicted_path_count) == 96,
               "TrackedObject layout frozen");
 static_assert(offsetof(overlume::TrackedObject, label) == 104, "TrackedObject layout frozen");
@@ -141,10 +145,13 @@ static_assert(offsetof(overlume::PathRibbon, last_update_sec) == 24, "PathRibbon
 // is expected and covered by kSceneVersion, not frozen shut.
 static_assert(sizeof(overlume::MapElement) == 32, "MapElement layout, ADR-0004 additive");
 static_assert(offsetof(overlume::MapElement, points) == 0, "MapElement layout, ADR-0004 additive");
-static_assert(offsetof(overlume::MapElement, point_count) == 8, "MapElement layout, ADR-0004 additive");
-static_assert(offsetof(overlume::MapElement, is_polygon) == 12, "MapElement layout, ADR-0004 additive");
+static_assert(offsetof(overlume::MapElement, point_count) == 8,
+              "MapElement layout, ADR-0004 additive");
+static_assert(offsetof(overlume::MapElement, is_polygon) == 12,
+              "MapElement layout, ADR-0004 additive");
 static_assert(offsetof(overlume::MapElement, kind) == 13, "MapElement layout, ADR-0004 additive");
-static_assert(offsetof(overlume::MapElement, lane_id) == 16, "MapElement layout, ADR-0004 additive");
+static_assert(offsetof(overlume::MapElement, lane_id) == 16,
+              "MapElement layout, ADR-0004 additive");
 static_assert(offsetof(overlume::MapElement, last_update_sec) == 24,
               "MapElement layout, ADR-0004 additive");
 
@@ -165,7 +172,8 @@ static_assert(sizeof(overlume::AlertPolygon) == 24, "AlertPolygon layout frozen"
 static_assert(offsetof(overlume::AlertPolygon, points) == 0, "AlertPolygon layout frozen");
 static_assert(offsetof(overlume::AlertPolygon, point_count) == 8, "AlertPolygon layout frozen");
 static_assert(offsetof(overlume::AlertPolygon, severity) == 12, "AlertPolygon layout frozen");
-static_assert(offsetof(overlume::AlertPolygon, last_update_sec) == 16, "AlertPolygon layout frozen");
+static_assert(offsetof(overlume::AlertPolygon, last_update_sec) == 16,
+              "AlertPolygon layout frozen");
 
 static_assert(sizeof(overlume::GenericMarker) == 120, "GenericMarker layout frozen");
 static_assert(offsetof(overlume::GenericMarker, primitive) == 0, "GenericMarker layout frozen");
@@ -204,7 +212,8 @@ static_assert(offsetof(overlume::PointCloud, point_count) == 8,
 static_assert(offsetof(overlume::PointCloud, last_update_sec) == 16,
               "PointCloud layout, ADR-0004 additive");
 
-static_assert(sizeof(overlume::TrajectoryCarpet) == 24, "TrajectoryCarpet layout, ADR-0004 additive");
+static_assert(sizeof(overlume::TrajectoryCarpet) == 24,
+              "TrajectoryCarpet layout, ADR-0004 additive");
 static_assert(offsetof(overlume::TrajectoryCarpet, points) == 0,
               "TrajectoryCarpet layout, ADR-0004 additive");
 static_assert(offsetof(overlume::TrajectoryCarpet, point_count) == 8,
@@ -213,20 +222,31 @@ static_assert(offsetof(overlume::TrajectoryCarpet, last_update_sec) == 16,
               "TrajectoryCarpet layout, ADR-0004 additive");
 
 static_assert(sizeof(overlume::SceneGraph) == 216, "SceneGraph layout, ADR-0004 additive");
-static_assert(offsetof(overlume::SceneGraph, sim_time_sec) == 0, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(overlume::SceneGraph, sim_time_sec) == 0,
+              "SceneGraph layout, ADR-0004 additive");
 static_assert(offsetof(overlume::SceneGraph, ego) == 8, "SceneGraph layout, ADR-0004 additive");
-static_assert(offsetof(overlume::SceneGraph, objects) == 56, "SceneGraph layout, ADR-0004 additive");
-static_assert(offsetof(overlume::SceneGraph, object_count) == 64, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(overlume::SceneGraph, objects) == 56,
+              "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(overlume::SceneGraph, object_count) == 64,
+              "SceneGraph layout, ADR-0004 additive");
 static_assert(offsetof(overlume::SceneGraph, paths) == 72, "SceneGraph layout, ADR-0004 additive");
-static_assert(offsetof(overlume::SceneGraph, path_count) == 80, "SceneGraph layout, ADR-0004 additive");
-static_assert(offsetof(overlume::SceneGraph, map_elements) == 88, "SceneGraph layout, ADR-0004 additive");
-static_assert(offsetof(overlume::SceneGraph, map_element_count) == 96, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(overlume::SceneGraph, path_count) == 80,
+              "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(overlume::SceneGraph, map_elements) == 88,
+              "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(overlume::SceneGraph, map_element_count) == 96,
+              "SceneGraph layout, ADR-0004 additive");
 static_assert(offsetof(overlume::SceneGraph, grids) == 104, "SceneGraph layout, ADR-0004 additive");
-static_assert(offsetof(overlume::SceneGraph, grid_count) == 112, "SceneGraph layout, ADR-0004 additive");
-static_assert(offsetof(overlume::SceneGraph, alerts) == 120, "SceneGraph layout, ADR-0004 additive");
-static_assert(offsetof(overlume::SceneGraph, alert_count) == 128, "SceneGraph layout, ADR-0004 additive");
-static_assert(offsetof(overlume::SceneGraph, markers) == 136, "SceneGraph layout, ADR-0004 additive");
-static_assert(offsetof(overlume::SceneGraph, marker_count) == 144, "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(overlume::SceneGraph, grid_count) == 112,
+              "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(overlume::SceneGraph, alerts) == 120,
+              "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(overlume::SceneGraph, alert_count) == 128,
+              "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(overlume::SceneGraph, markers) == 136,
+              "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(overlume::SceneGraph, marker_count) == 144,
+              "SceneGraph layout, ADR-0004 additive");
 static_assert(offsetof(overlume::SceneGraph, hud) == 152, "SceneGraph layout, ADR-0004 additive");
 static_assert(offsetof(overlume::SceneGraph, point_clouds) == 184,
               "SceneGraph layout, ADR-0004 additive");
@@ -286,8 +306,7 @@ static_assert(offsetof(overlume::BowlConfig, cam_height) == 32,
               "BowlConfig layout, ADR-0004 additive");
 static_assert(offsetof(overlume::BowlConfig, bowl_R0) == 40,
               "BowlConfig layout, ADR-0004 additive");
-static_assert(offsetof(overlume::BowlConfig, bowl_k) == 48,
-              "BowlConfig layout, ADR-0004 additive");
+static_assert(offsetof(overlume::BowlConfig, bowl_k) == 48, "BowlConfig layout, ADR-0004 additive");
 static_assert(offsetof(overlume::BowlConfig, bowl_Rmax) == 56,
               "BowlConfig layout, ADR-0004 additive");
 static_assert(offsetof(overlume::BowlConfig, feather_margin) == 64,
@@ -312,7 +331,8 @@ static_assert(sizeof(overlume::RenderConfig) == 32, "RenderConfig layout frozen"
 static_assert(offsetof(overlume::RenderConfig, width) == 0, "RenderConfig layout frozen");
 static_assert(offsetof(overlume::RenderConfig, height) == 4, "RenderConfig layout frozen");
 static_assert(offsetof(overlume::RenderConfig, quality) == 8, "RenderConfig layout frozen");
-static_assert(offsetof(overlume::RenderConfig, theme_assets_dir) == 16, "RenderConfig layout frozen");
+static_assert(offsetof(overlume::RenderConfig, theme_assets_dir) == 16,
+              "RenderConfig layout frozen");
 static_assert(offsetof(overlume::RenderConfig, initial_theme) == 24, "RenderConfig layout frozen");
 
 // CameraPose/FrameView (api.h) — gate-verify follow-up: the other two PODs
@@ -363,8 +383,8 @@ TEST(SceneBufferMapElement, KindLaneIdLastUpdateSecSurviveAssign) {
 // array is overwritten below (Task 6 Step 1).
 TEST(SceneBufferPointCloud, PointCloudPointsSurviveAssignAfterSourceBufferDies) {
     overlume::detail::SceneBuffer buf;
-    std::vector<overlume::PointCloudPoint> pts = {
-        {{0, 0, 0}, 0xFF0000FFu}, {{1, 0, 0}, 0xFF00FF00u}};
+    std::vector<overlume::PointCloudPoint> pts = {{{0, 0, 0}, 0xFF0000FFu},
+                                                  {{1, 0, 0}, 0xFF00FF00u}};
     overlume::PointCloud pc{};
     pc.points = pts.data();
     pc.point_count = 2;

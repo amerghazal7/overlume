@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_ribbon.cpp — path ribbons in three roles (BEHAVIOR/GLOBAL/LOCAL),
 // the behavior ribbon as the emissive bloom hero. Same "no Filament type"
 // boundary as every other tests/*.cpp -- see ribbon_test_hooks.hpp.
@@ -40,7 +43,8 @@ TEST(RibbonGolden, ThreeRoles_DarkAdas) {
     // recorded stack, so this golden cannot come from the bag. Points array
     // kept alive by RibbonScene across set_scene() (golden.cpp's move-only
     // owner pattern).
-    overlume::testing::RibbonScene ribbons = overlume::testing::make_three_role_ribbons(/*now=*/10.0);
+    overlume::testing::RibbonScene ribbons =
+        overlume::testing::make_three_role_ribbons(/*now=*/10.0);
     overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
     // Ego supplied by the scene builder, positioned on the BEHAVIOR ribbon
@@ -261,7 +265,7 @@ TEST(Ribbon, LongPathSplitsAcrossMeshesWithoutTruncation) {
 
     const auto chunks = overlume::detail::polyline_chunks(kN);
     ASSERT_EQ(chunks.size(), 2u) << "40000 points should split into exactly 2 chunks at "
-                                     "kMaxPointsPerMesh=32000 -- fixture assumption changed?";
+                                    "kMaxPointsPerMesh=32000 -- fixture assumption changed?";
     size_t expectedVerts = 0;
     for (const auto& [a, b] : chunks) expectedVerts += 2 * static_cast<size_t>(b - a);
 
@@ -372,7 +376,8 @@ TEST(Ribbon, EffectiveHalfWidthClampsToTheHalfWidthFloor) {
     // raw half-width (3.5 - 2*1.74) / 2 == 0.01, which must clamp UP to
     // kRibbonMinHalfWidthM (0.12), not render a near-zero-width hairline.
     const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    overlume::RenderConfig cfg{320, 240, /*quality=*/1, fixtureDir.c_str(), "ribbon_margin_extreme"};
+    overlume::RenderConfig cfg{320, 240, /*quality=*/1, fixtureDir.c_str(),
+                               "ribbon_margin_extreme"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
@@ -419,7 +424,7 @@ TEST(Ribbon, ClipStartsAtInterpolatedPointWhenEgoIsMidRibbon) {
     overlume::Vec3 firstPoint{};
     ASSERT_TRUE(overlume::testing::ribbon_slot_first_point(r, 0, &firstPoint));
     EXPECT_NEAR(firstPoint.x, 0.0, 0.5) << "clip station should land near x=0, the ego's own "
-                                            "closest-approach point on the ribbon";
+                                           "closest-approach point on the ribbon";
     // 0.0, not -0.5: compute_ribbon_clip ceils the quantized station, so
     // the cut is always AT or AHEAD of closest approach -- never behind.
     EXPECT_GE(firstPoint.x, 0.0) << "clipped geometry still starts behind the ego";

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_paths.hpp — Epic 1 Task 2 Step 5a. Turns the OVERLUME_TEST_DATA_DIR /
 // OVERLUME_DEFAULT_THEME_DIR compile definitions (CMakeLists.txt's
 // `foreach(_test_src ...)` loop) into the one symbol every test that needs

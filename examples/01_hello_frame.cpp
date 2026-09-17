@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // 01_hello_frame.cpp — the smallest possible overlume program: create a
 // headless renderer, load a theme, render one frame, write it out.
 //
@@ -80,8 +83,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    const bool wrote = overlume_examples::write_png(args.output_path, config.width,
-                                                      config.height, rgb.data());
+    const bool wrote =
+        overlume_examples::write_png(args.output_path, config.width, config.height, rgb.data());
     overlume::destroy_renderer(renderer);
     return wrote ? 0 : 1;
 }

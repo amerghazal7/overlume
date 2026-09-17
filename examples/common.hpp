@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // examples/common.hpp — tiny shared helpers for the example programs below.
 // NOT part of overlume's public API: this is example-only infrastructure,
 // the same role tests/golden.hpp plays for the test suite. Every overlume::
@@ -51,9 +54,9 @@ inline ExampleArgs parse_args(int argc, char** argv, const char* default_output)
 // tests/*.cpp AND examples/*.cpp binary already gets its include dir) — using
 // it here is not a new third-party dependency.
 inline bool write_png(const std::string& path, uint32_t width, uint32_t height,
-                       const uint8_t* rgb) {
+                      const uint8_t* rgb) {
     const int ok = stbi_write_png(path.c_str(), static_cast<int>(width), static_cast<int>(height),
-                                   3, rgb, static_cast<int>(width) * 3);
+                                  3, rgb, static_cast<int>(width) * 3);
     if (ok) {
         std::printf("wrote %s (%ux%u)\n", path.c_str(), width, height);
     } else {

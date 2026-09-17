@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file adapter_stats.hpp
  *  @brief Diagnostics counters shared by every marker/path/grid adapter.
@@ -13,11 +16,9 @@
 
 #include <cstdint>
 
-namespace overlume_node
-{
+namespace overlume_node {
 
-struct AdapterStats
-{
+struct AdapterStats {
     double last_msg_sec{0.0};
     uint64_t msgs{0};
     uint64_t dropped_malformed{0};

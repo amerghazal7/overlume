@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """Generate `camera_extrinsics` (camera->rig [R|t]) from the CARLA sim config.
 
 The live cameras are published by the CARLA bridge, so the ground-truth mounting

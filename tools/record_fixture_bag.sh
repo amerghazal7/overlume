@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # record_fixture_bag.sh — record a visual-mode fixture bag from the LIVE
 # stack (VM-077, user directive 2026-09-09: new stack version, new topics;
 # the recording replaces epic2_fixtures_full as validate_visual_mode.sh's

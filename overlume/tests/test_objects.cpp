@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_objects.cpp — clay object rendering. Same "no Filament type"
 // boundary as every other tests/*.cpp — see objects_test_hooks.hpp /
 // map_elements_test_hooks.hpp / ego_test_hooks.hpp.
@@ -77,7 +80,7 @@ TEST(Objects, StaleObjectFadesViaSharedStalenessAlpha) {
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
     overlume::TrackedObject objs[2]{};
-    objs[0] = make_car(1, 0.0);   // fresh
+    objs[0] = make_car(1, 0.0);  // fresh
     objs[1].id = 2;
     objs[1].cls = overlume::ObjectClass::TRUCK_VAN;
     objs[1].position = {10.0, 0.0, 0.0};
@@ -93,7 +96,7 @@ TEST(Objects, StaleObjectFadesViaSharedStalenessAlpha) {
 
     const auto fresh = overlume::testing::object_material_info(r, 1);
     EXPECT_FALSE(fresh.bound_to_translucent) << "a FRESH object must stay on the opaque shared "
-                                                 "template, not get a per-entity instance";
+                                                "template, not get a per-entity instance";
     EXPECT_NEAR(fresh.alpha, 1.0f, 1e-4);
 
     const auto stale = overlume::testing::object_material_info(r, 2);
@@ -224,7 +227,7 @@ TEST(Objects, ObjectDisappearingIsRemovedFromTheSceneAndRecycled) {
     overlume::set_object_model_dir(r, OVERLUME_TEST_DATA_DIR "/assets/models");
 
     std::vector<overlume::TrackedObject> five = {make_car(1, 0), make_car(2, 10), make_car(3, 20),
-                                               make_car(4, 30), make_car(5, 40)};
+                                                 make_car(4, 30), make_car(5, 40)};
     overlume::SceneGraph s5{};
     s5.sim_time_sec = 10.0;
     s5.objects = five.data();
@@ -310,15 +313,17 @@ TEST(Objects, FiftyObjectsSceneUpdateUnderTwoMilliseconds) {
 
     constexpr int kObjectCount = 50;
     const overlume::ObjectClass kClasses[] = {
-        overlume::ObjectClass::CAR,        overlume::ObjectClass::TRUCK_VAN, overlume::ObjectClass::BUS,
-        overlume::ObjectClass::PEDESTRIAN, overlume::ObjectClass::CYCLIST,   overlume::ObjectClass::UNKNOWN,
+        overlume::ObjectClass::CAR,     overlume::ObjectClass::TRUCK_VAN,
+        overlume::ObjectClass::BUS,     overlume::ObjectClass::PEDESTRIAN,
+        overlume::ObjectClass::CYCLIST, overlume::ObjectClass::UNKNOWN,
     };
     std::vector<overlume::TrackedObject> objects(kObjectCount);
     for (int i = 0; i < kObjectCount; ++i) {
         overlume::TrackedObject& o = objects[i];
         o.id = static_cast<uint32_t>(i + 1);
         o.cls = kClasses[i % 6];
-        o.position = {static_cast<double>((i % 10) * 4 - 18), static_cast<double>((i / 10) * 4 - 8), 0.0};
+        o.position = {static_cast<double>((i % 10) * 4 - 18), static_cast<double>((i / 10) * 4 - 8),
+                      0.0};
         o.heading_rad = 0.1 * i;
         o.dimensions = {4.0, 1.8, 1.5};
         o.velocity = (i % 2 == 0) ? overlume::Vec3{2.0, 0.0, 0.0} : overlume::Vec3{0.0, 0.0, 0.0};
@@ -398,7 +403,8 @@ TEST(Objects, VanishingPredictedPathDoesNotDoubleDestroyRibbon) {
         overlume::set_scene(r, s2);
         render_once(r, kPose);
         EXPECT_TRUE(overlume::testing::object_in_scene(r, 2))
-            << "iteration " << i << ": recycled entity id must not have killed object 2's live entity";
+            << "iteration " << i
+            << ": recycled entity id must not have killed object 2's live entity";
     }
 
     overlume::destroy_renderer(r);

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file collision.hpp
  *  @brief CollisionAdapter (Epic 2 Task 7 / VM-026): MarkerArray ->
@@ -64,8 +67,7 @@
 #include "overlume_ros/scene_assembly.hpp"
 #include "overlume/scene.h"
 
-namespace overlume_node
-{
+namespace overlume_node {
 
 // Task 7's ONE role -> severity table. Throws std::invalid_argument on any
 // role outside the five shipped ones (`collision`, `predicted`,
@@ -73,11 +75,9 @@ namespace overlume_node
 // comment for why that must never become a silent info default.
 uint8_t severity_for_role(const std::string& role);
 
-class CollisionAdapter
-{
+class CollisionAdapter {
 public:
-    CollisionAdapter(const ProfileRow& row,
-                     const overlume::ros::FrameTransformer& tf);
+    CollisionAdapter(const ProfileRow& row, const overlume::ros::FrameTransformer& tf);
 
     // ROS callback thread. See this file's header comment for the full
     // malformed/close/drop rules.
@@ -104,16 +104,12 @@ public:
 
 private:
     using Key = std::pair<std::string, int32_t>;  // (marker.ns, marker.id)
-    struct KeyHash
-    {
-        size_t operator()(const Key& k) const noexcept
-        {
-            return std::hash<std::string>{}(k.first) ^
-                   (std::hash<int32_t>{}(k.second) << 1);
+    struct KeyHash {
+        size_t operator()(const Key& k) const noexcept {
+            return std::hash<std::string>{}(k.first) ^ (std::hash<int32_t>{}(k.second) << 1);
         }
     };
-    struct StoredPolygon
-    {
+    struct StoredPolygon {
         std::vector<overlume::Vec3> points;  // always CLOSED: points.front() == points.back()
         double last_update_sec{0.0};
     };

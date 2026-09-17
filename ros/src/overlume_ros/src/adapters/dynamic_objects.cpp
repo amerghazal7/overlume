@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #include "overlume_ros/adapters/dynamic_objects.hpp"
 
 #include <cmath>
@@ -10,10 +13,8 @@
 #include <tf2/utils.h>
 #include <yaml-cpp/yaml.h>
 
-namespace overlume_node
-{
-namespace
-{
+namespace overlume_node {
+namespace {
 
 // visualization_msgs/msg/Marker.msg action constants -- see hd_map.cpp's
 // identical comment for why these aren't pulled from generated enum names.
@@ -27,13 +28,9 @@ constexpr double kChainToleranceM = 1e-6;
 
 bool HasNan(double v) { return std::isnan(v); }
 
-bool HasNanVec(const tf2::Vector3& v)
-{
-    return HasNan(v.x()) || HasNan(v.y()) || HasNan(v.z());
-}
+bool HasNanVec(const tf2::Vector3& v) { return HasNan(v.x()) || HasNan(v.y()) || HasNan(v.z()); }
 
-bool HasNanQuat(const tf2::Quaternion& q)
-{
+bool HasNanQuat(const tf2::Quaternion& q) {
     return HasNan(q.x()) || HasNan(q.y()) || HasNan(q.z()) || HasNan(q.w());
 }
 
@@ -41,8 +38,7 @@ bool HasNanQuat(const tf2::Quaternion& q)
 // marker's own pose -- rviz composes pose * point. Identity pose skips the
 // multiply (mirrors FrameTransformer's identity-frame shortcut,
 // frame_transform.cpp), so the common case pays nothing.
-bool MarkerPoseIsIdentity(const geometry_msgs::msg::Pose& p)
-{
+bool MarkerPoseIsIdentity(const geometry_msgs::msg::Pose& p) {
     constexpr double kEps = 1e-12;
     return std::abs(p.position.x) < kEps && std::abs(p.position.y) < kEps &&
            std::abs(p.position.z) < kEps && std::abs(p.orientation.x) < kEps &&
@@ -53,8 +49,7 @@ bool MarkerPoseIsIdentity(const geometry_msgs::msg::Pose& p)
 // Returns false (caller treats as malformed) only on a NaN pose -- a
 // non-identity pose is normal Marker semantics, never malformed. Caller is
 // expected to have already skipped this via MarkerPoseIsIdentity().
-bool BuildMarkerPoseTransform(const geometry_msgs::msg::Pose& p, tf2::Transform& out)
-{
+bool BuildMarkerPoseTransform(const geometry_msgs::msg::Pose& p, tf2::Transform& out) {
     const tf2::Vector3 pos(p.position.x, p.position.y, p.position.z);
     tf2::Quaternion q(p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w);
     if (HasNanVec(pos) || HasNanQuat(q)) return false;
@@ -71,8 +66,7 @@ overlume::Vec3 ToVec3(const geometry_msgs::msg::Point& p) { return {p.x, p.y, p.
 
 overlume::Vec3 ToVec3(const tf2::Vector3& v) { return {v.x(), v.y(), v.z()}; }
 
-std::optional<overlume::ObjectClass> ParseObjectClass(const std::string& s)
-{
+std::optional<overlume::ObjectClass> ParseObjectClass(const std::string& s) {
     if (s == "CAR") return overlume::ObjectClass::CAR;
     if (s == "TRUCK_VAN") return overlume::ObjectClass::TRUCK_VAN;
     if (s == "BUS") return overlume::ObjectClass::BUS;
@@ -87,57 +81,43 @@ std::optional<overlume::ObjectClass> ParseObjectClass(const std::string& s)
 // ── class inference ─────────────────────────────────────────────────────────
 
 std::optional<ClassInferenceTable> load_class_inference(const std::string& path,
-                                                         std::vector<std::string>& errors)
-{
+                                                        std::vector<std::string>& errors) {
     errors.clear();
     ClassInferenceTable table;
     YAML::Node root;
-    try
-    {
+    try {
         root = YAML::LoadFile(path);
-    }
-    catch (const YAML::Exception& e)
-    {
+    } catch (const YAML::Exception& e) {
         errors.push_back(path + ": yaml parse error: " + e.what());
         return std::nullopt;
-    }
-    catch (const std::exception& e)
-    {
+    } catch (const std::exception& e) {
         errors.push_back(path + ": " + e.what());
         return std::nullopt;
     }
 
-    if (const auto prefix_node = root["prefix"])
-    {
-        for (auto it = prefix_node.begin(); it != prefix_node.end(); ++it)
-        {
+    if (const auto prefix_node = root["prefix"]) {
+        for (auto it = prefix_node.begin(); it != prefix_node.end(); ++it) {
             const std::string key = it->first.as<std::string>();
             const std::string val = it->second.as<std::string>();
-            if (const auto cls = ParseObjectClass(val))
-            {
+            if (const auto cls = ParseObjectClass(val)) {
                 table.prefix[key] = *cls;
-            }
-            else
-            {
+            } else {
                 errors.push_back(path + ": prefix '" + key + "': unknown class '" + val + "'");
             }
         }
     }
 
-    if (const auto footprint_node = root["footprint"])
-    {
-        for (const auto& item : footprint_node)
-        {
+    if (const auto footprint_node = root["footprint"]) {
+        for (const auto& item : footprint_node) {
             FootprintBand band;
             band.max_length_m = item["max_length_m"] ? item["max_length_m"].as<double>() : 1e300;
             band.max_width_m = item["max_width_m"] ? item["max_width_m"].as<double>() : 1e300;
             band.min_height_m = item["min_height_m"] ? item["min_height_m"].as<double>() : 0.0;
             const std::string cls_str = item["class"] ? item["class"].as<std::string>() : "";
             const auto cls = ParseObjectClass(cls_str);
-            if (!cls)
-            {
+            if (!cls) {
                 errors.push_back(path + ": footprint[] entry: unknown/missing class '" + cls_str +
-                                  "'");
+                                 "'");
                 continue;
             }
             band.cls = *cls;
@@ -146,12 +126,9 @@ std::optional<ClassInferenceTable> load_class_inference(const std::string& path,
     }
 
     const std::string default_str = root["default"] ? root["default"].as<std::string>() : "UNKNOWN";
-    if (const auto def = ParseObjectClass(default_str))
-    {
+    if (const auto def = ParseObjectClass(default_str)) {
         table.default_cls = *def;
-    }
-    else
-    {
+    } else {
         errors.push_back(path + ": default '" + default_str + "': unknown class");
         table.default_cls = overlume::ObjectClass::UNKNOWN;
     }
@@ -159,15 +136,13 @@ std::optional<ClassInferenceTable> load_class_inference(const std::string& path,
     return table;
 }
 
-overlume::ObjectClass infer(const ClassInferenceTable& cfg, const char* label, overlume::Vec3 dims)
-{
-    if (label != nullptr)
-    {
+overlume::ObjectClass infer(const ClassInferenceTable& cfg, const char* label,
+                            overlume::Vec3 dims) {
+    if (label != nullptr) {
         const std::string_view sv(label);
         const auto underscore = sv.find('_');
         const std::string prefix(sv.substr(0, underscore));  // whole label if no '_' present
-        if (const auto it = cfg.prefix.find(prefix); it != cfg.prefix.end())
-        {
+        if (const auto it = cfg.prefix.find(prefix); it != cfg.prefix.end()) {
             return it->second;
         }
     }
@@ -178,11 +153,9 @@ overlume::ObjectClass infer(const ClassInferenceTable& cfg, const char* label, o
     // has no min_height_m floor.
     if (dims.x <= 0.0 || dims.y <= 0.0) return cfg.default_cls;
 
-    for (const auto& band : cfg.footprint)
-    {
+    for (const auto& band : cfg.footprint) {
         if (dims.x <= band.max_length_m && dims.y <= band.max_width_m &&
-            dims.z >= band.min_height_m)
-        {
+            dims.z >= band.min_height_m) {
             return band.cls;
         }
     }
@@ -192,8 +165,7 @@ overlume::ObjectClass infer(const ClassInferenceTable& cfg, const char* label, o
 // ── LINE_LIST -> polyline ────────────────────────────────────────────────────
 
 bool line_list_to_polyline(const std::vector<geometry_msgs::msg::Point>& in,
-                           std::vector<overlume::Vec3>& out)
-{
+                           std::vector<overlume::Vec3>& out) {
     if (in.size() < 2 || in.size() % 2 != 0) return false;
 
     const size_t n_segments = in.size() / 2;
@@ -202,14 +174,12 @@ bool line_list_to_polyline(const std::vector<geometry_msgs::msg::Point>& in,
     result.push_back(ToVec3(in[0]));
     if (HasNan(result.back().x) || HasNan(result.back().y) || HasNan(result.back().z)) return false;
 
-    for (size_t i = 0; i < n_segments; ++i)
-    {
+    for (size_t i = 0; i < n_segments; ++i) {
         const auto& seg_end = in[2 * i + 1];
         const overlume::Vec3 v = ToVec3(seg_end);
         if (HasNan(v.x) || HasNan(v.y) || HasNan(v.z)) return false;
 
-        if (i + 1 < n_segments)
-        {
+        if (i + 1 < n_segments) {
             const auto& next_start = in[2 * i + 2];
             const double dx = seg_end.x - next_start.x;
             const double dy = seg_end.y - next_start.y;
@@ -225,23 +195,19 @@ bool line_list_to_polyline(const std::vector<geometry_msgs::msg::Point>& in,
 
 // ── DynamicObjectsAdapter ────────────────────────────────────────────────────
 
-DynamicObjectsAdapter::DynamicObjectsAdapter(
-    const ProfileRow& row, const overlume::ros::FrameTransformer& tf,
-    const ClassInferenceTable& classes)
-    : row_(row), tf_(tf), classes_(classes)
-{
-}
+DynamicObjectsAdapter::DynamicObjectsAdapter(const ProfileRow& row,
+                                             const overlume::ros::FrameTransformer& tf,
+                                             const ClassInferenceTable& classes)
+    : row_(row), tf_(tf), classes_(classes) {}
 
 void DynamicObjectsAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg,
-                                   double sim_time_sec)
-{
+                                   double sim_time_sec) {
     ++stats_.msgs;
     if (msg.markers.empty()) return;
 
     // ONE lookup for the whole message; same reasoning as every other adapter.
     tf2::Transform xform;
-    if (!tf_.lookup(msg.markers.front().header, xform))
-    {
+    if (!tf_.lookup(msg.markers.front().header, xform)) {
         ++stats_.dropped_no_tf;
         return;  // whole message dropped; previously-stored tracks stay
     }
@@ -251,15 +217,12 @@ void DynamicObjectsAdapter::ingest(const visualization_msgs::msg::MarkerArray& m
     // runs once here, at the end of ingest(), rather than in fill().
     std::unordered_set<int32_t> touched;
 
-    for (const auto& m : msg.markers)
-    {
-        if (m.action == kActionDeleteAll)
-        {
+    for (const auto& m : msg.markers) {
+        if (m.action == kActionDeleteAll) {
             tracks_.clear();
             continue;
         }
-        if (m.action == kActionDelete)
-        {
+        if (m.action == kActionDelete) {
             // ponytail: a per-marker DELETE removes the WHOLE track, not just
             // the namespace -- simplest correct-enough behavior since the bag
             // never sends this outside a leading DELETEALL. Widen if a
@@ -270,8 +233,7 @@ void DynamicObjectsAdapter::ingest(const visualization_msgs::msg::MarkerArray& m
         if (m.action != kActionAdd && m.action != kActionModify) continue;
 
         const NsRender verdict = classify(row_, m.ns);
-        if (verdict == NsRender::kDrop)
-        {
+        if (verdict == NsRender::kDrop) {
             // dynamic_objects_hd_map_path_dots: same predicted path redrawn
             // as dots -- intentionally discarded, not malformed.
             ++stats_.dropped_by_rule;
@@ -280,19 +242,16 @@ void DynamicObjectsAdapter::ingest(const visualization_msgs::msg::MarkerArray& m
 
         Track& t = tracks_[m.id];
 
-        if (m.ns == "dynamic_objects_bbox")
-        {
+        if (m.ns == "dynamic_objects_bbox") {
             touched.insert(m.id);
-            if (m.scale.x <= 0.0 || m.scale.y <= 0.0 || m.scale.z <= 0.0)
-            {
+            if (m.scale.x <= 0.0 || m.scale.y <= 0.0 || m.scale.z <= 0.0) {
                 ++stats_.dropped_malformed;  // zero-extent bbox
                 continue;
             }
             const tf2::Vector3 pos(m.pose.position.x, m.pose.position.y, m.pose.position.z);
-            tf2::Quaternion q(m.pose.orientation.x, m.pose.orientation.y,
-                              m.pose.orientation.z, m.pose.orientation.w);
-            if (HasNanVec(pos) || HasNanQuat(q))
-            {
+            tf2::Quaternion q(m.pose.orientation.x, m.pose.orientation.y, m.pose.orientation.z,
+                              m.pose.orientation.w);
+            if (HasNanVec(pos) || HasNanQuat(q)) {
                 ++stats_.dropped_malformed;  // NaN pose
                 continue;
             }
@@ -309,22 +268,16 @@ void DynamicObjectsAdapter::ingest(const visualization_msgs::msg::MarkerArray& m
             t.dimensions = {m.scale.x, m.scale.y, m.scale.z};
             t.last_update_sec = sim_time_sec;
             t.has_bbox = true;
-        }
-        else if (m.ns == "dynamic_objects_text")
-        {
+        } else if (m.ns == "dynamic_objects_text") {
             touched.insert(m.id);
-            if (!m.text.empty())
-            {
+            if (!m.text.empty()) {
                 t.label = m.text;
                 t.has_text = true;
             }
             // Empty string: leave has_text false. Not double-counted here
             // -- the "no matching text" bump below covers it exactly once.
-        }
-        else if (m.ns == "dynamic_objects_arrow")
-        {
-            if (m.points.size() < 2)
-            {
+        } else if (m.ns == "dynamic_objects_arrow") {
+            if (m.points.size() < 2) {
                 continue;  // no direction to read; velocity stays at 0,0,0
             }
             // effective_point = frame_transform * (marker_pose * point),
@@ -333,8 +286,7 @@ void DynamicObjectsAdapter::ingest(const visualization_msgs::msg::MarkerArray& m
             // rotation effect, with no separate rotation-only path needed.
             const bool identity_pose = MarkerPoseIsIdentity(m.pose);
             tf2::Transform marker_tf;
-            if (!identity_pose && !BuildMarkerPoseTransform(m.pose, marker_tf))
-            {
+            if (!identity_pose && !BuildMarkerPoseTransform(m.pose, marker_tf)) {
                 ++stats_.dropped_malformed;  // NaN arrow pose
                 continue;
             }
@@ -347,11 +299,10 @@ void DynamicObjectsAdapter::ingest(const visualization_msgs::msg::MarkerArray& m
             const tf2::Vector3 diff = p1 - p0;
             // direction * magnitude == the raw difference vector itself --
             // never a normalize() that could divide by (near-)zero length.
-            t.velocity = (diff.length() < kMinArrowM) ? overlume::Vec3{0.0, 0.0, 0.0} : ToVec3(diff);
+            t.velocity =
+                (diff.length() < kMinArrowM) ? overlume::Vec3{0.0, 0.0, 0.0} : ToVec3(diff);
             if (tf_.flatten_z()) t.velocity.z = 0.0;  // flatten_z, see frame_transform.hpp
-        }
-        else if (m.ns == "dynamic_objects_hd_map_path")
-        {
+        } else if (m.ns == "dynamic_objects_hd_map_path") {
             // effective_point = frame_transform * (marker_pose * point) --
             // pose is applied to the LINE_LIST points before
             // line_list_to_polyline() collapses them (a rigid-transform
@@ -359,17 +310,14 @@ void DynamicObjectsAdapter::ingest(const visualization_msgs::msg::MarkerArray& m
             // pose must compose before any other processing).
             const bool identity_pose = MarkerPoseIsIdentity(m.pose);
             tf2::Transform marker_tf;
-            if (!identity_pose && !BuildMarkerPoseTransform(m.pose, marker_tf))
-            {
+            if (!identity_pose && !BuildMarkerPoseTransform(m.pose, marker_tf)) {
                 ++stats_.dropped_malformed;  // NaN path pose
                 continue;
             }
             std::vector<geometry_msgs::msg::Point> posed_points;
             posed_points.reserve(m.points.size());
-            for (const auto& p : m.points)
-            {
-                if (identity_pose)
-                {
+            for (const auto& p : m.points) {
+                if (identity_pose) {
                     posed_points.push_back(p);
                     continue;
                 }
@@ -382,15 +330,13 @@ void DynamicObjectsAdapter::ingest(const visualization_msgs::msg::MarkerArray& m
             }
 
             std::vector<overlume::Vec3> polyline;
-            if (!line_list_to_polyline(posed_points, polyline))
-            {
+            if (!line_list_to_polyline(posed_points, polyline)) {
                 ++stats_.dropped_malformed;  // disjoint LINE_LIST -- drop the path only
                 continue;
             }
             t.predicted_path.clear();
             t.predicted_path.reserve(polyline.size());
-            for (const auto& v : polyline)
-            {
+            for (const auto& v : polyline) {
                 const tf2::Vector3 tv = xform * tf2::Vector3(v.x, v.y, v.z);
                 overlume::Vec3 pv = ToVec3(tv);
                 if (tf_.flatten_z()) pv.z = 0.0;  // flatten_z, see frame_transform.hpp
@@ -402,11 +348,9 @@ void DynamicObjectsAdapter::ingest(const visualization_msgs::msg::MarkerArray& m
         // this adapter only knows how to route the four named above.
     }
 
-    for (const int32_t id : touched)
-    {
+    for (const int32_t id : touched) {
         const auto it = tracks_.find(id);
-        if (it != tracks_.end() && it->second.has_bbox && !it->second.has_text)
-        {
+        if (it != tracks_.end() && it->second.has_bbox && !it->second.has_text) {
             ++stats_.dropped_malformed;  // bbox with no matching (or empty) text
             tracks_.erase(it);
         }
@@ -415,11 +359,10 @@ void DynamicObjectsAdapter::ingest(const visualization_msgs::msg::MarkerArray& m
     stats_.last_msg_sec = sim_time_sec;
 }
 
-void DynamicObjectsAdapter::fill(overlume::ros::SceneAssembly& out) const
-{
-    for (const auto& [id, t] : tracks_)
-    {
-        if (!t.has_bbox || !t.has_text) continue;  // incomplete tracks never reach here (see ingest())
+void DynamicObjectsAdapter::fill(overlume::ros::SceneAssembly& out) const {
+    for (const auto& [id, t] : tracks_) {
+        if (!t.has_bbox || !t.has_text)
+            continue;  // incomplete tracks never reach here (see ingest())
 
         overlume::TrackedObject o{};
         o.id = static_cast<uint32_t>(id);

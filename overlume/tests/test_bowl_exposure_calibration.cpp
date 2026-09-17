@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_bowl_exposure_calibration.cpp — bowl color fidelity fix (2026-09-11).
 // Locks in the MEASURED BowlConfig::exposure_compensation default
 // (tools/bowl_exposure_probe.cpp's gray-ramp binary search; see scene.h's
@@ -22,9 +25,7 @@
 
 #include <gtest/gtest.h>
 
-namespace {
-
-}  // namespace
+namespace {}  // namespace
 
 // The measurement this default is calibrated against: mid-gray (sRGB byte
 // 128) round-trips through SRGB8 camera-texture decode + this renderer's
@@ -34,7 +35,8 @@ namespace {
 // real regression (the pre-fix pipeline missed by ~50+ bytes here, per the
 // scene.h/bowl.mat measurement comments).
 TEST(BowlExposureCalibration, MidGrayRoundTripsWithinToleranceAtShippedDefault) {
-    overlume::RenderConfig cfg{overlume::testing::kGrayProbeW, overlume::testing::kGrayProbeH, 1, kThemeDir, "dark_adas"};
+    overlume::RenderConfig cfg{overlume::testing::kGrayProbeW, overlume::testing::kGrayProbeH, 1,
+                               kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
@@ -53,7 +55,8 @@ TEST(BowlExposureCalibration, MidGrayRoundTripsWithinToleranceAtShippedDefault) 
 // move this measured number without breaking a test asserting the wrong
 // physics.
 TEST(BowlExposureCalibration, BrightGrayIsShoulderCompressedNotClipped) {
-    overlume::RenderConfig cfg{overlume::testing::kGrayProbeW, overlume::testing::kGrayProbeH, 1, kThemeDir, "dark_adas"};
+    overlume::RenderConfig cfg{overlume::testing::kGrayProbeW, overlume::testing::kGrayProbeH, 1,
+                               kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
@@ -63,7 +66,7 @@ TEST(BowlExposureCalibration, BrightGrayIsShoulderCompressedNotClipped) {
     // 255, and below the input itself -- the ACES shoulder rolling off
     // highlights, not a bug.
     EXPECT_LT(out, 224) << "expected the ACES shoulder to compress the bright end, not "
-                            "round-trip it exactly";
+                           "round-trip it exactly";
     EXPECT_LT(out, 250) << "expected no near-white clipping at this compensation";
     overlume::destroy_renderer(r);
 }

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file vcam.cpp
  *  @brief Virtual-camera presets + eased tween switching.
  *
@@ -14,21 +17,17 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-namespace overlume::ros
-{
+namespace overlume::ros {
 
-namespace
-{
-float smoothstep(float s)
-{
+namespace {
+float smoothstep(float s) {
     s = std::min(1.0f, std::max(0.0f, s));
     return s * s * (3.0f - 2.0f * s);
 }
 }  // namespace
 
 Vcam::Vcam(rclcpp_lifecycle::LifecycleNode* node, const overlume::CameraPose& seed_pose)
-    : pose_(seed_pose), logger_(node->get_logger()), clock_(node->get_clock())
-{
+    : pose_(seed_pose), logger_(node->get_logger()), clock_(node->get_clock()) {
     // ── virtual-camera presets ───────────────────────────────────────────────
     // Preset 1 ("config") is the just-declared virtual_pose, expressed
     // directly as a look-point (no R/t derivation needed here — unlike
@@ -37,9 +36,9 @@ Vcam::Vcam(rclcpp_lifecycle::LifecycleNode* node, const overlume::CameraPose& se
     for (int i = 0; i < 3; ++i) presets_[0].target[i] = static_cast<float>(pose_.target[i]);
     // Presets 2-5: identical formulas/constants to rendering_node's table
     // (spec §6 — same framing in both worlds).
-    presets_[1] = LookPoint{
-        {-presets_[0].eye[0], -presets_[0].eye[1], presets_[0].eye[2]},
-        {-presets_[0].target[0], -presets_[0].target[1], presets_[0].target[2]}};
+    presets_[1] =
+        LookPoint{{-presets_[0].eye[0], -presets_[0].eye[1], presets_[0].eye[2]},
+                  {-presets_[0].target[0], -presets_[0].target[1], presets_[0].target[2]}};
     presets_[2] = LookPoint{{0.0f, 4.0f, 2.5f}, {0.0f, 0.0f, 0.5f}};    // left_side
     presets_[3] = LookPoint{{0.0f, -4.0f, 2.5f}, {0.0f, 0.0f, 0.5f}};   // right_side
     presets_[4] = LookPoint{{0.0f, 0.0f, 8.0f}, {0.0f, 0.001f, 0.0f}};  // top_down
@@ -57,15 +56,12 @@ Vcam::Vcam(rclcpp_lifecycle::LifecycleNode* node, const overlume::CameraPose& se
         "~/set_look", 10, std::bind(&Vcam::on_set_look, this, std::placeholders::_1));
 }
 
-void Vcam::advance_tween()
-{
-    if (tween_t_ < 1.0)
-    {
+void Vcam::advance_tween() {
+    if (tween_t_ < 1.0) {
         // Timer fires at 33 ms; ~0.5 s transition -> step 0.033/0.5 per tick.
         tween_t_ = std::min(1.0, tween_t_ + 0.033 / 0.5);
         float w = smoothstep(static_cast<float>(tween_t_));
-        for (int i = 0; i < 3; ++i)
-        {
+        for (int i = 0; i < 3; ++i) {
             cur_.eye[i] = src_.eye[i] + (dst_.eye[i] - src_.eye[i]) * w;
             cur_.target[i] = src_.target[i] + (dst_.target[i] - src_.target[i]) * w;
         }
@@ -75,13 +71,11 @@ void Vcam::advance_tween()
 }
 
 void Vcam::on_set_virtual_cam(const std::shared_ptr<SetVirtualCam::Request> req,
-                               std::shared_ptr<SetVirtualCam::Response> res)
-{
+                              std::shared_ptr<SetVirtualCam::Response> res) {
     // ponytail: no lock — single-threaded executor (rclcpp::spin in main.cpp),
     // so this callback and timer_callback() never overlap.
     const int p = req->preset;
-    if (p < 1 || p > static_cast<int>(presets_.size()))
-    {
+    if (p < 1 || p > static_cast<int>(presets_.size())) {
         res->success = false;
         res->active = "invalid preset (expected 1.." + std::to_string(presets_.size()) + ")";
         RCLCPP_WARN(logger_, "set_virtual_cam: rejected preset %d", p);
@@ -96,13 +90,11 @@ void Vcam::on_set_virtual_cam(const std::shared_ptr<SetVirtualCam::Request> req,
     RCLCPP_INFO(logger_, "set_virtual_cam: -> preset %d (%s)", p, kPresetNames[p - 1]);
 }
 
-void Vcam::on_set_look(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
-{
-    if (msg->data.size() != 6)
-    {
+void Vcam::on_set_look(const std_msgs::msg::Float64MultiArray::SharedPtr msg) {
+    if (msg->data.size() != 6) {
         RCLCPP_WARN_THROTTLE(logger_, *clock_, 2000,
-                              "set_look expects 6 floats [eye xyz | target xyz], got %zu",
-                              msg->data.size());
+                             "set_look expects 6 floats [eye xyz | target xyz], got %zu",
+                             msg->data.size());
         return;
     }
     LookPoint lp;

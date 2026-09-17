@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
 // filament_link_probe.cpp — Epic 0 Task 1 build-integration proof.
 //
 // Reviewer finding (Task 1 fix-up): GetFilament.cmake links Filament's ~30

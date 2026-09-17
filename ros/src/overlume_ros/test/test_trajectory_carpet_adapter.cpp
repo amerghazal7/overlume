@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file test_trajectory_carpet_adapter.cpp
  *  @brief TrajectoryCarpetAdapter tests (VM-077, REDIRECTED 2026-09-10).
  *
@@ -22,15 +25,13 @@
 using overlume::ros::FrameTransformer;
 using overlume::ros::SceneAssembly;
 
-namespace
-{
+namespace {
 
 // Hand-built tf2_ros::Buffer + FrameTransformer -- an empty buffer is
 // enough for every fixture below (stays in the "map" frame, identity
 // shortcut). Same fixture style as test_collision_adapter.cpp/
 // test_point_cloud_adapter.cpp.
-struct TfFixture
-{
+struct TfFixture {
     std::shared_ptr<rclcpp::Clock> clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
     tf2_ros::Buffer buffer{clock};
     FrameTransformer tf{buffer};
@@ -39,8 +40,7 @@ struct TfFixture
 // No shipped profile row is needed by these tests -- hand-built directly,
 // same "no urban_row()/sim_row() to borrow" shape test_point_cloud_adapter.
 // cpp already uses for its own row.
-overlume_node::ProfileRow MakeRow()
-{
+overlume_node::ProfileRow MakeRow() {
     overlume_node::ProfileRow row;
     row.topic = "/navigation_motion_obstacle_planner_node/output_trajectory_carpet";
     row.type = "visualization_msgs/msg/MarkerArray";
@@ -50,8 +50,7 @@ overlume_node::ProfileRow MakeRow()
     return row;
 }
 
-visualization_msgs::msg::Marker MakeTriangleMarker(int32_t action, int32_t type)
-{
+visualization_msgs::msg::Marker MakeTriangleMarker(int32_t action, int32_t type) {
     visualization_msgs::msg::Marker m;
     m.header.frame_id = "map";
     m.ns = "output_trajectory_carpet";
@@ -61,8 +60,7 @@ visualization_msgs::msg::Marker MakeTriangleMarker(int32_t action, int32_t type)
     return m;
 }
 
-geometry_msgs::msg::Point MakePoint(double x, double y, double z)
-{
+geometry_msgs::msg::Point MakePoint(double x, double y, double z) {
     geometry_msgs::msg::Point p;
     p.x = x;
     p.y = y;
@@ -70,8 +68,7 @@ geometry_msgs::msg::Point MakePoint(double x, double y, double z)
     return p;
 }
 
-std_msgs::msg::ColorRGBA MakeColor(float r, float g, float b, float a)
-{
+std_msgs::msg::ColorRGBA MakeColor(float r, float g, float b, float a) {
     std_msgs::msg::ColorRGBA c;
     c.r = r;
     c.g = g;
@@ -90,17 +87,15 @@ constexpr int32_t kTypeLineStrip = 4;
 // quad_k = [A,B,C,A,C,D]; quad_0.{D,C} == quad_1.{A,B} IN VALUE (not
 // array-index sharing -- the wire re-emits them, per the measurement's own
 // "n_quads*6 points" arithmetic).
-visualization_msgs::msg::Marker MakeTwoQuadCarpetMarker()
-{
+visualization_msgs::msg::Marker MakeTwoQuadCarpetMarker() {
     auto m = MakeTriangleMarker(kActionAdd, kTypeTriangleList);
     m.points = {
         MakePoint(0, 0, 0.15), MakePoint(0, 1, 0.15), MakePoint(1, 1, 0.15),  // quad0 tri A,B,C
-        MakePoint(0, 0, 0.15), MakePoint(1, 1, 0.15), MakePoint(1, 0, 0.15), // quad0 tri A,C,D
+        MakePoint(0, 0, 0.15), MakePoint(1, 1, 0.15), MakePoint(1, 0, 0.15),  // quad0 tri A,C,D
         MakePoint(1, 0, 0.15), MakePoint(1, 1, 0.15), MakePoint(2, 1, 0.15),  // quad1 tri A,B,C
-        MakePoint(1, 0, 0.15), MakePoint(2, 1, 0.15), MakePoint(2, 0, 0.15), // quad1 tri A,C,D
+        MakePoint(1, 0, 0.15), MakePoint(2, 1, 0.15), MakePoint(2, 0, 0.15),  // quad1 tri A,C,D
     };
-    for (int i = 0; i < 12; ++i)
-    {
+    for (int i = 0; i < 12; ++i) {
         m.colors.push_back(MakeColor(static_cast<float>(i) * 0.05f, 0.5f, 0.0f, 0.7f));
     }
     return m;
@@ -110,8 +105,7 @@ visualization_msgs::msg::Marker MakeTwoQuadCarpetMarker()
 
 // ── Station extraction: centerline midpoint + per-station color pairing ───
 
-TEST(TrajectoryCarpetAdapter, IngestExtractsCenterlineStationsFromDualRailQuadPairing)
-{
+TEST(TrajectoryCarpetAdapter, IngestExtractsCenterlineStationsFromDualRailQuadPairing) {
     TfFixture kTf;
     auto row = MakeRow();
     overlume_node::TrajectoryCarpetAdapter a(row, kTf.tf);
@@ -155,8 +149,7 @@ TEST(TrajectoryCarpetAdapter, IngestExtractsCenterlineStationsFromDualRailQuadPa
 
 // ── Mismatched colors[]/points[] lengths -> alpha==0 sentinel ───────────────
 
-TEST(TrajectoryCarpetAdapter, MismatchedColorsLengthBakesAlphaZeroSentinel)
-{
+TEST(TrajectoryCarpetAdapter, MismatchedColorsLengthBakesAlphaZeroSentinel) {
     TfFixture kTf;
     auto row = MakeRow();
     overlume_node::TrajectoryCarpetAdapter a(row, kTf.tf);
@@ -171,18 +164,17 @@ TEST(TrajectoryCarpetAdapter, MismatchedColorsLengthBakesAlphaZeroSentinel)
     a.fill(out);
     ASSERT_EQ(out.trajectory_carpets.size(), 1u);
     ASSERT_EQ(out.trajectory_carpets[0].point_count, 3u);
-    for (uint32_t i = 0; i < 3; ++i)
-    {
+    for (uint32_t i = 0; i < 3; ++i) {
         EXPECT_EQ(out.trajectory_carpets[0].points[i].rgba, 0u)
             << "every station's packed rgba must be 0 (alpha byte 0) on a whole-message "
-               "colors[]/points[] length mismatch, station " << i;
+               "colors[]/points[] length mismatch, station "
+            << i;
     }
 }
 
 // ── Point count not a multiple of 6 (or wrong type) is dropped ─────────────
 
-TEST(TrajectoryCarpetAdapter, PointCountNotMultipleOfSixDropsMalformed)
-{
+TEST(TrajectoryCarpetAdapter, PointCountNotMultipleOfSixDropsMalformed) {
     TfFixture kTf;
     auto row = MakeRow();
     overlume_node::TrajectoryCarpetAdapter a(row, kTf.tf);
@@ -227,8 +219,7 @@ TEST(TrajectoryCarpetAdapter, PointCountNotMultipleOfSixDropsMalformed)
 
 // ── DELETE_ALL clears the stored carpet ─────────────────────────────────────
 
-TEST(TrajectoryCarpetAdapter, DeleteAllClearsStoredCarpet)
-{
+TEST(TrajectoryCarpetAdapter, DeleteAllClearsStoredCarpet) {
     TfFixture kTf;
     auto row = MakeRow();
     overlume_node::TrajectoryCarpetAdapter a(row, kTf.tf);
@@ -252,8 +243,7 @@ TEST(TrajectoryCarpetAdapter, DeleteAllClearsStoredCarpet)
 
 // ── A second ingest() REPLACES wholesale, never appends ────────────────────
 
-TEST(TrajectoryCarpetAdapter, ReplacesStoredCarpetWholesaleNotAppend)
-{
+TEST(TrajectoryCarpetAdapter, ReplacesStoredCarpetWholesaleNotAppend) {
     // Same PathAdapter-style "REPLACES, never merges" contract -- two
     // ingest() calls, second's content is what fill() emits, not a union.
     TfFixture kTf;
@@ -270,7 +260,7 @@ TEST(TrajectoryCarpetAdapter, ReplacesStoredCarpetWholesaleNotAppend)
     visualization_msgs::msg::MarkerArray second_arr;
     auto second_m = MakeTriangleMarker(kActionAdd, kTypeTriangleList);
     second_m.points = {MakePoint(10, 0, 0), MakePoint(10, 1, 0), MakePoint(11, 1, 0),
-                        MakePoint(10, 0, 0), MakePoint(11, 1, 0), MakePoint(11, 0, 0)};  // 1 quad
+                       MakePoint(10, 0, 0), MakePoint(11, 1, 0), MakePoint(11, 0, 0)};  // 1 quad
     second_arr.markers = {second_m};
     a.ingest(second_arr, 2.0);
 
@@ -286,8 +276,7 @@ TEST(TrajectoryCarpetAdapter, ReplacesStoredCarpetWholesaleNotAppend)
 
 // ── A NaN corner drops the whole message, previous carpet keeps rendering ──
 
-TEST(TrajectoryCarpetAdapter, NanCornerDropsWholeMessageKeepingThePreviousCarpet)
-{
+TEST(TrajectoryCarpetAdapter, NanCornerDropsWholeMessageKeepingThePreviousCarpet) {
     TfFixture kTf;
     auto row = MakeRow();
     overlume_node::TrajectoryCarpetAdapter a(row, kTf.tf);
@@ -301,9 +290,9 @@ TEST(TrajectoryCarpetAdapter, NanCornerDropsWholeMessageKeepingThePreviousCarpet
 
     visualization_msgs::msg::MarkerArray bad_arr;
     auto bad = MakeTriangleMarker(kActionAdd, kTypeTriangleList);
-    bad.points = {MakePoint(0, 0, 0), MakePoint(0, 1, 0), MakePoint(1, 1, 0),
-                  MakePoint(0, 0, 0), MakePoint(1, 1, 0),
-                  MakePoint(std::nan(""), 0, 0)};  // D corner is NaN
+    bad.points = {MakePoint(0, 0, 0), MakePoint(0, 1, 0),
+                  MakePoint(1, 1, 0), MakePoint(0, 0, 0),
+                  MakePoint(1, 1, 0), MakePoint(std::nan(""), 0, 0)};  // D corner is NaN
     bad_arr.markers = {bad};
     a.ingest(bad_arr, 2.0);
     EXPECT_EQ(a.stats().dropped_malformed, 1u);

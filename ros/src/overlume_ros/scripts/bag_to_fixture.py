@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """bag_to_fixture.py -- dump N messages from one bag topic to YAML test
 fixtures (Epic 2 Task 1 / VM-020, "Fixture strategy").
 

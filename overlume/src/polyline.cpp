@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // polyline.cpp — see polyline.hpp. Pure geometry, no Filament, no GPU.
 #include "polyline.hpp"
 
@@ -62,7 +65,7 @@ std::vector<Vec3> extrude_polyline(const Vec3* pts, uint32_t n, float half_width
     std::vector<Vec2f> dirs(m - 1);
     for (size_t i = 0; i + 1 < m; ++i) {
         dirs[i] = normalize(Vec2f{static_cast<float>(clean[i + 1].x - clean[i].x),
-                                   static_cast<float>(clean[i + 1].y - clean[i].y)});
+                                  static_cast<float>(clean[i + 1].y - clean[i].y)});
     }
 
     std::vector<Vec3> out(m * 2);
@@ -194,7 +197,7 @@ std::vector<double> clean_polyline_stations(const Vec3* pts, uint32_t n) {
 }
 
 void collapse_clipped_positions(std::vector<Vec3>& positions, const std::vector<double>& stations,
-                                 bool clip_active, double clip_station_m) {
+                                bool clip_active, double clip_station_m) {
     const size_t m = stations.size();
     if (!clip_active || m == 0) return;
     if (positions.size() != 2 * m) return;  // caller contract violated -- no-op, not a crash
@@ -203,7 +206,10 @@ void collapse_clipped_positions(std::vector<Vec3>& positions, const std::vector<
     // (via the m sentinel below) means the whole strip is already ahead.
     size_t behind = m;  // m == "none behind" sentinel
     for (size_t i = 0; i < m; ++i) {
-        if (stations[i] < clip_station_m) behind = i; else break;
+        if (stations[i] < clip_station_m)
+            behind = i;
+        else
+            break;
     }
     if (behind == m) return;  // nothing behind the cut in this strip
 

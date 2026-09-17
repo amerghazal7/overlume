@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // environment.hpp — library-internal (`-I src`), not installed, not POD,
 // same as renderer_internal.hpp (pulls in <gltfio/...>/Filament types) --
 // tests/test_environment.cpp uses environment_test_hooks.hpp instead, and
@@ -93,11 +96,11 @@ inline constexpr double kUnloadRadiusM = 400.0;
 struct EnvironmentChunk {
     std::string id;
     std::string path;       // relative to the source dir, per index.yaml
-    Vec3 center{};           // map frame, already geo-projected
-    double radius_m = 0.0;   // bounding-sphere radius; parsed for schema
-                             // completeness/a future precise-AABB cull
-                             // upgrade -- v1's cull test is center-distance
-                             // only, not center+radius.
+    Vec3 center{};          // map frame, already geo-projected
+    double radius_m = 0.0;  // bounding-sphere radius; parsed for schema
+                            // completeness/a future precise-AABB cull
+                            // upgrade -- v1's cull test is center-distance
+                            // only, not center+radius.
 };
 
 // Opens `<dir>/index.yaml` (yaml-cpp), lazily loading each indexed chunk's
@@ -163,7 +166,7 @@ private:
 // nullptr on any open/parse failure -- mirrors set_ego_model's
 // non-fatal-on-missing-file shape; logs nothing itself, caller WARNs.
 std::unique_ptr<BakedEnvironmentSource> open_baked_environment_source(const std::string& dir,
-                                                                       GeoAnchor anchor);
+                                                                      GeoAnchor anchor);
 
 // Epic 6 (VM-062) Decision 3/5: cesium-free factory for the streaming
 // backend, DEFINED in environment_stream.cpp (the one C++20 TU -- this
@@ -185,6 +188,6 @@ std::unique_ptr<BakedEnvironmentSource> open_baked_environment_source(const std:
 // concrete StreamingEnvironmentSource stays cesium-only, visible nowhere
 // outside environment_stream.cpp.
 std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::string& ion_spec,
-                                                                      GeoAnchor anchor);
+                                                                     GeoAnchor anchor);
 
 }  // namespace overlume

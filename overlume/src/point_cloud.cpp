@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // point_cloud.cpp — point clouds (Epic 3 Task 6 / VM-035). Its own vertex
 // layout (position + packed rgba8, no tangent frame -- points have no
 // meaningful normal) and its own material (point_cloud.mat, UNLIT,
@@ -54,7 +57,7 @@ struct PointVertex {
 };
 
 filament::VertexBuffer* make_point_vertex_buffer(filament::Engine& engine,
-                                                  std::vector<PointVertex> verts) {
+                                                 std::vector<PointVertex> verts) {
     auto* heap = new std::vector<PointVertex>(std::move(verts));
     filament::VertexBuffer* vb =
         filament::VertexBuffer::Builder()
@@ -67,8 +70,8 @@ filament::VertexBuffer* make_point_vertex_buffer(filament::Engine& engine,
             // getColor() as [0,1] floats in point_cloud.mat's fragment
             // shader -- no repacking at this call site.
             .attribute(filament::VertexAttribute::COLOR, 0,
-                       filament::VertexBuffer::AttributeType::UBYTE4,
-                       offsetof(PointVertex, rgba), sizeof(PointVertex))
+                       filament::VertexBuffer::AttributeType::UBYTE4, offsetof(PointVertex, rgba),
+                       sizeof(PointVertex))
             .normalized(filament::VertexAttribute::COLOR)
             .build(engine);
     vb->setBufferAt(
@@ -131,7 +134,7 @@ uint32_t resolve_rgba(const VisualRenderer& r, uint32_t packed) {
 // the ONE shared pointCloudMaterialInstance (Step 2's decision: a layer
 // that fades as one unit needs no per-chunk instancing).
 void build_slot_meshes(VisualRenderer& r, VisualRenderer::PointCloudSlot& slot,
-                        const PointCloudPoint* pts, uint32_t n) {
+                       const PointCloudPoint* pts, uint32_t n) {
     destroy_slot_meshes(r, slot);
     slot.totalVertexCount = 0;
     for (auto [a, b] : detail::polyline_chunks(n)) {
@@ -140,12 +143,12 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::PointCloudSlot& slot,
         std::vector<uint16_t> indices(chunkN);
         for (uint32_t i = 0; i < chunkN; ++i) {
             const PointCloudPoint& p = pts[a + i];
-            verts[i].position = float3{static_cast<float>(p.position.x),
-                                        static_cast<float>(p.position.y),
-                                        static_cast<float>(p.position.z)};
+            verts[i].position =
+                float3{static_cast<float>(p.position.x), static_cast<float>(p.position.y),
+                       static_cast<float>(p.position.z)};
             verts[i].rgba = resolve_rgba(r, p.rgba);
             indices[i] = static_cast<uint16_t>(i);  // 1 vertex/point -- sequential, uint16-safe
-                                                     // (chunkN <= kMaxPointsPerMesh < 65535)
+                                                    // (chunkN <= kMaxPointsPerMesh < 65535)
         }
         slot.totalVertexCount += chunkN;
         Mesh mesh;
@@ -193,8 +196,8 @@ void update_point_clouds(VisualRenderer& r, const SceneGraph& s) {
             slot.has_signature = true;
         }
         alpha = std::max(alpha, static_cast<float>(detail::SceneBuffer::staleness_alpha(
-                                     s.sim_time_sec, pc.last_update_sec, kStaleFadeStartSec,
-                                     kStaleFadeTimeoutSec)));
+                                    s.sim_time_sec, pc.last_update_sec, kStaleFadeStartSec,
+                                    kStaleFadeTimeoutSec)));
     }
     r.pointCloudMaterialInstance->setParameter("alpha", alpha);
     // Live (mid-transition-aware) theme read, same per-frame convention as

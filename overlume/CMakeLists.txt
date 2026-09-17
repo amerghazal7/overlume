@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
 cmake_minimum_required(VERSION 3.18)
 
 # overlume is its own CMake project (not add_subdirectory'd into the
@@ -605,6 +607,12 @@ enable_testing()
 
 add_test(NAME check_pod_header
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_pod_header.sh)
+# Task 6b: ctest LABELS so hosted CI can select `-L cpu` vs `-L gpu`. "cpu"
+# (not "nogpu") deliberately avoids "gpu" being a substring of the negative
+# label -- ctest's `-L <regex>` matches unanchored, so "nogpu" would also
+# match an unanchored `-L gpu` selector. This is a header/text check -- no
+# GPU/EGL needed to PASS.
+set_tests_properties(check_pod_header PROPERTIES LABELS "cpu")
 
 # Build-integration proof (Epic 0 Task 1): actually links `overlume`
 # (and therefore the ~30 cross-referencing Filament static archives pulled in
@@ -622,6 +630,8 @@ add_executable(filament_link_probe smoke/filament_link_probe.cpp)
 target_include_directories(filament_link_probe PRIVATE "${FILAMENT_ROOT}/include")
 target_link_libraries(filament_link_probe PRIVATE overlume)
 add_test(NAME filament_link_probe COMMAND filament_link_probe)
+# Task 6b: a pure link-and-run smoke test -- no rendering, no GPU/EGL needed.
+set_tests_properties(filament_link_probe PROPERTIES LABELS "cpu")
 
 # Build-integration proof for cesium-native (VM-061 Task 2 Step 3), same
 # purpose as filament_link_probe above: prove the archive set actually
@@ -643,6 +653,8 @@ if(OVERLUME_ENABLE_CESIUM)
     target_link_libraries(cesium_link_probe PRIVATE
         overlume CesiumGeospatial CesiumGltfReader)
     add_test(NAME cesium_link_probe COMMAND cesium_link_probe)
+    # Task 6b: link-and-run smoke test, no GPU/EGL rendering involved.
+    set_tests_properties(cesium_link_probe PROPERTIES LABELS "cpu")
 
     # VM-061 gate round 2, Finding 1 fix_instruction point 3: merge_yamlcpp.sh's
     # own post-merge audit only sees liboverlume.a itself -- this is the
@@ -653,6 +665,8 @@ if(OVERLUME_ENABLE_CESIUM)
     add_test(NAME cesium_link_probe_symbol_hygiene
              COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_cesium_link_probe_symbols.sh
                      "${CMAKE_NM}" "$<TARGET_FILE:cesium_link_probe>")
+    # Task 6b: a static-symbol-table check via nm -- no GPU/EGL needed.
+    set_tests_properties(cesium_link_probe_symbol_hygiene PROPERTIES LABELS "cpu")
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
@@ -722,7 +736,18 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
             OVERLUME_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
             OVERLUME_DEFAULT_THEME_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets/themes")
         include(GoogleTest)
-        gtest_discover_tests(${_test_name} DISCOVERY_TIMEOUT 30)
+        # Task 6b: ctest LABELS "gpu" vs "cpu". test_renderer_projection.cpp
+        # (ProjectToScreen.*) and test_renderer_quality_presets.cpp
+        # (RendererQuality.*) are the two binaries docs/runbooks/ci_gate.md
+        # names as requiring a real GPU/EGL to PASS (create_renderer() must
+        # succeed, no GTEST_SKIP() fallback) -- everything else here,
+        # golden tests included, GTEST_SKIP()s cleanly without a GPU.
+        if(_test_name STREQUAL "test_renderer_projection" OR
+           _test_name STREQUAL "test_renderer_quality_presets")
+            gtest_discover_tests(${_test_name} DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "gpu")
+        else()
+            gtest_discover_tests(${_test_name} DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "cpu")
+        endif()
     endforeach()
 endif()
 

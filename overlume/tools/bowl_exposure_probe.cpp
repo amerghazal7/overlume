@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // bowl_exposure_probe.cpp — measures the bowl.mat `exposureCompensation`
 // value this renderer's ACES tonemap + output OETF actually need to bring an
 // UNLIT material's raw baseColor back into a display-referred range (NOT
@@ -78,7 +81,8 @@ int main() {
 
     std::printf("\nFull ramp at compensation=%.4f:\n", best);
     for (int g : {32, 64, 128, 192, 224}) {
-        int out = overlume::testing::render_gray_probe(r, static_cast<uint8_t>(g), static_cast<float>(best));
+        int out = overlume::testing::render_gray_probe(r, static_cast<uint8_t>(g),
+                                                       static_cast<float>(best));
         std::printf("  in=%3d (sRGB byte) -> out=%3d\n", g, out);
     }
 

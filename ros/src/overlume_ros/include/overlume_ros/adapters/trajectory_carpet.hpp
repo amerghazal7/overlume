@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file trajectory_carpet.hpp
  *  @brief TrajectoryCarpetAdapter (VM-077, REDIRECTED 2026-09-10): MarkerArray
@@ -67,14 +70,11 @@
 #include "overlume_ros/scene_assembly.hpp"
 #include "overlume/scene.h"
 
-namespace overlume_node
-{
+namespace overlume_node {
 
-class TrajectoryCarpetAdapter
-{
+class TrajectoryCarpetAdapter {
 public:
-    TrajectoryCarpetAdapter(const ProfileRow& row,
-                            const overlume::ros::FrameTransformer& tf);
+    TrajectoryCarpetAdapter(const ProfileRow& row, const overlume::ros::FrameTransformer& tf);
 
     // ROS callback thread. See this file's header comment for the full
     // frame/malformed/replace rules.

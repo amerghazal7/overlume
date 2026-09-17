@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_map_elements.cpp — ego-following ground/grid, lane MaterialInstance
 // theming, and HD-map lane/crosswalk rendering. Same "no Filament type"
 // boundary as every other tests/*.cpp — see map_elements_test_hooks.hpp /
@@ -256,7 +259,7 @@ TEST(MapElements, CrosswalkHatchStripeCountIsPitchDerivedOnRealFixture) {
     ASSERT_FALSE(tris.empty());
     ASSERT_EQ(tris.size() % 6, 0u);
     EXPECT_EQ(tris.size() / 6, 12u) << "5 fixed bars across a ~15m crossing was the old, wrong "
-                                        "behavior -- stripe count must scale with crossing length";
+                                       "behavior -- stripe count must scale with crossing length";
 }
 
 TEST(MapElements, CrosswalkHatchStripeCountClampsToRange) {
@@ -401,8 +404,8 @@ TEST(MapElements, RoadSurfaceKindTriangulatesTheTwoRailEncodingIntoAStrip) {
     overlume::Vec3 pts[2 * kN];
     for (uint32_t i = 0; i < kN; ++i) {
         const double y = -3.0 + 6.0 * static_cast<double>(i) / static_cast<double>(kN - 1);
-        pts[i] = {-1.0, y, 0.0};       // left rail
-        pts[kN + i] = {1.0, y, 0.0};   // right rail
+        pts[i] = {-1.0, y, 0.0};      // left rail
+        pts[kN + i] = {1.0, y, 0.0};  // right rail
     }
     overlume::MapElement e{};
     e.points = pts;
@@ -424,7 +427,7 @@ TEST(MapElements, RoadSurfaceKindTriangulatesTheTwoRailEncodingIntoAStrip) {
         if (baseline[i] != withRoad[i]) ++differing;
     }
     EXPECT_GT(differing, 0u) << "a ROAD_SURFACE element produced no visible pixel "
-                                 "difference from a scene with no map data at all";
+                                "difference from a scene with no map data at all";
 }
 
 TEST(MapElements, RoadSurfaceMalformedPointCountBuildsNothing) {
@@ -501,7 +504,8 @@ TEST(MapElements, SyntheticLaneAndCrosswalkChangePixelsVsBaseline) {
     const overlume::Vec3 lanePts[] = {{0, -6, 0}, {0, -2, 0}, {0, 2, 0}, {0, 6, 0}};
     // ...and a crosswalk quad straddling it (exercises the polygon + hatch
     // path, not just the polyline path).
-    const overlume::Vec3 crosswalkPts[] = {{-1.5, -0.5, 0}, {1.5, -0.5, 0}, {1.5, 0.5, 0}, {-1.5, 0.5, 0}};
+    const overlume::Vec3 crosswalkPts[] = {
+        {-1.5, -0.5, 0}, {1.5, -0.5, 0}, {1.5, 0.5, 0}, {-1.5, 0.5, 0}};
     overlume::MapElement elems[2]{};
     elems[0].points = lanePts;
     elems[0].point_count = 4;
@@ -521,7 +525,7 @@ TEST(MapElements, SyntheticLaneAndCrosswalkChangePixelsVsBaseline) {
     // Not a golden (no committed comparison target) -- just a viewable PNG
     // of the lane+crosswalk render path for human sanity-checking.
     overlume::testing::render_and_compare(r, pose, "/nonexistent-golden.png",
-                                        "/tmp/map_elements_synthetic_actual.png");
+                                          "/tmp/map_elements_synthetic_actual.png");
     overlume::destroy_renderer(r);
 
     ASSERT_EQ(baseline.size(), withMap.size());
@@ -530,7 +534,7 @@ TEST(MapElements, SyntheticLaneAndCrosswalkChangePixelsVsBaseline) {
         if (baseline[i] != withMap[i]) ++differing;
     }
     EXPECT_GT(differing, 0u) << "lane + crosswalk map elements produced no visible pixel "
-                                 "difference from a scene with no map data at all";
+                                "difference from a scene with no map data at all";
 }
 
 TEST(MapElements, ElementCountShrinksWhenElementsVanishBetweenUpdates) {
@@ -609,9 +613,11 @@ bool RunMapGolden(const char* theme_name, const char* golden_name, const char* o
     s.map_element_count = static_cast<uint32_t>(elems.size());
     overlume::set_scene(r, s);
     overlume::CameraPose pose{{c.x - 8, c.y - 8, 6}, {c.x, c.y, c.z}, 60.0};
-    const std::string goldenPath = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/goldens/" + golden_name;
+    const std::string goldenPath =
+        std::string(OVERLUME_TEST_DATA_DIR) + "/tests/goldens/" + golden_name;
     const std::string outPath = std::string("/tmp/") + out_name;
-    double ssim = overlume::testing::render_and_compare(r, pose, goldenPath.c_str(), outPath.c_str());
+    double ssim =
+        overlume::testing::render_and_compare(r, pose, goldenPath.c_str(), outPath.c_str());
     EXPECT_GT(ssim, 0.98);
     overlume::destroy_renderer(r);
     return false;
@@ -620,14 +626,15 @@ bool RunMapGolden(const char* theme_name, const char* golden_name, const char* o
 }  // namespace
 
 TEST(MapGolden, LaneNetworkAtEgoOffset_DarkAdas) {
-    if (RunMapGolden("dark_adas", "map_ego_offset_dark_adas.png", "map_ego_offset_dark_adas_actual.png")) {
+    if (RunMapGolden("dark_adas", "map_ego_offset_dark_adas.png",
+                     "map_ego_offset_dark_adas_actual.png")) {
         GTEST_SKIP() << "no GPU/EGL";
     }
 }
 
 TEST(MapGolden, LaneNetworkAtEgoOffset_LightClay) {
     if (RunMapGolden("light_clay", "map_ego_offset_light_clay.png",
-                      "map_ego_offset_light_clay_actual.png")) {
+                     "map_ego_offset_light_clay_actual.png")) {
         GTEST_SKIP() << "no GPU/EGL";
     }
 }
@@ -689,7 +696,7 @@ TEST(MapGolden, CenterlineDotsOnState_DarkAdas) {
         if (baseline[i] != withDots[i]) ++differing;
     }
     EXPECT_GT(differing, 0u) << "CENTERLINE dot-disc elements produced no visible pixel "
-                                 "difference from a scene with no map data at all";
+                                "difference from a scene with no map data at all";
 }
 
 // ── junction-cleanup golden ───────────────────────────────────────────────
@@ -731,16 +738,36 @@ TEST(MapGolden, JunctionCleanupOnState_DarkAdas) {
     const overlume::Vec3 sep_h[] = {{-10, 0, 0}, {10, 0, 0}};
 
     overlume::MapElement elems[10]{};
-    elems[0].points = a_north_w; elems[0].point_count = 2; elems[0].kind = overlume::MapKind::ROAD_EDGE;
-    elems[1].points = a_north_e; elems[1].point_count = 2; elems[1].kind = overlume::MapKind::ROAD_EDGE;
-    elems[2].points = a_south_w; elems[2].point_count = 2; elems[2].kind = overlume::MapKind::ROAD_EDGE;
-    elems[3].points = a_south_e; elems[3].point_count = 2; elems[3].kind = overlume::MapKind::ROAD_EDGE;
-    elems[4].points = b_east_s;  elems[4].point_count = 2; elems[4].kind = overlume::MapKind::ROAD_EDGE;
-    elems[5].points = b_east_n;  elems[5].point_count = 2; elems[5].kind = overlume::MapKind::ROAD_EDGE;
-    elems[6].points = b_west_s;  elems[6].point_count = 2; elems[6].kind = overlume::MapKind::ROAD_EDGE;
-    elems[7].points = b_west_n;  elems[7].point_count = 2; elems[7].kind = overlume::MapKind::ROAD_EDGE;
-    elems[8].points = sep_v;     elems[8].point_count = 2; elems[8].kind = overlume::MapKind::LEFT_BOUNDARY;
-    elems[9].points = sep_h;     elems[9].point_count = 2; elems[9].kind = overlume::MapKind::RIGHT_BOUNDARY;
+    elems[0].points = a_north_w;
+    elems[0].point_count = 2;
+    elems[0].kind = overlume::MapKind::ROAD_EDGE;
+    elems[1].points = a_north_e;
+    elems[1].point_count = 2;
+    elems[1].kind = overlume::MapKind::ROAD_EDGE;
+    elems[2].points = a_south_w;
+    elems[2].point_count = 2;
+    elems[2].kind = overlume::MapKind::ROAD_EDGE;
+    elems[3].points = a_south_e;
+    elems[3].point_count = 2;
+    elems[3].kind = overlume::MapKind::ROAD_EDGE;
+    elems[4].points = b_east_s;
+    elems[4].point_count = 2;
+    elems[4].kind = overlume::MapKind::ROAD_EDGE;
+    elems[5].points = b_east_n;
+    elems[5].point_count = 2;
+    elems[5].kind = overlume::MapKind::ROAD_EDGE;
+    elems[6].points = b_west_s;
+    elems[6].point_count = 2;
+    elems[6].kind = overlume::MapKind::ROAD_EDGE;
+    elems[7].points = b_west_n;
+    elems[7].point_count = 2;
+    elems[7].kind = overlume::MapKind::ROAD_EDGE;
+    elems[8].points = sep_v;
+    elems[8].point_count = 2;
+    elems[8].kind = overlume::MapKind::LEFT_BOUNDARY;
+    elems[9].points = sep_h;
+    elems[9].point_count = 2;
+    elems[9].kind = overlume::MapKind::RIGHT_BOUNDARY;
     overlume::MapElement junction_elem{};
     junction_elem.points = junction_ring;
     junction_elem.point_count = 5;
@@ -828,7 +855,7 @@ TEST(MapElements, FadesViaSharedStalenessAlpha) {
     e.point_count = 2;
     e.kind = overlume::MapKind::CENTERLINE;
     e.last_update_sec = 10.0 - 0.75;  // 0.75s behind -> alpha ~0.5, same worked
-                                       // example test_objects.cpp's own fade test uses
+                                      // example test_objects.cpp's own fade test uses
     overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
     s.ego.valid = 1;
@@ -937,8 +964,8 @@ TEST(MapElements, EgoInvalidFadesMapElementsRatherThanLeavingThemAtFullOpacity) 
 // checks actual rendered pixels instead.
 namespace {
 
-std::vector<uint8_t> RenderZFightScene(const overlume::CameraPose& pose, overlume::MapElement* elems,
-                                        uint32_t count) {
+std::vector<uint8_t> RenderZFightScene(const overlume::CameraPose& pose,
+                                       overlume::MapElement* elems, uint32_t count) {
     overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) return {};  // no GPU/EGL
@@ -975,8 +1002,7 @@ TEST(MapElementsZFight, CrosswalkOverBoundaryStaysStableAcrossTinyCameraMove) {
     // n==4, so this falls to triangulate_convex_polygon()'s plain solid
     // fill: a reliable opaque overlap area, not a hatch pattern that could
     // dodge the fight by landing in a gap.
-    overlume::Vec3 crosswalk_ring[] = {
-        {-3, -1, 0}, {3, -1, 0}, {3, 1, 0}, {-3, 1, 0}, {-3, -1, 0}};
+    overlume::Vec3 crosswalk_ring[] = {{-3, -1, 0}, {3, -1, 0}, {3, 1, 0}, {-3, 1, 0}, {-3, -1, 0}};
     // A lane boundary straight through the crosswalk's middle (y=0) --
     // its kLaneHalfWidthM=0.05m ribbon overlaps the crosswalk fill for the
     // whole x in [-3,3] span.
@@ -1018,9 +1044,10 @@ TEST(MapElementsZFight, CrosswalkOverBoundaryStaysStableAcrossTinyCameraMove) {
     // (overlapCount / 10) unsatisfiable even at flipped==0, and even in the
     // float form now used a tiny denominator makes one stray flip look like
     // a large regression. 20 keeps real headroom under today's measured 54.
-    ASSERT_GE(overlapCount, 20u) << "the boundary/crosswalk fixture produced too small a screen-space "
-                                     "overlap to measure a flip rate -- test geometry/camera needs "
-                                     "adjusting";
+    ASSERT_GE(overlapCount, 20u)
+        << "the boundary/crosswalk fixture produced too small a screen-space "
+           "overlap to measure a flip rate -- test geometry/camera needs "
+           "adjusting";
 
     const std::vector<uint8_t> combinedA = RenderZFightScene(poseA, both, 2);
     const std::vector<uint8_t> combinedB = RenderZFightScene(poseB, both, 2);

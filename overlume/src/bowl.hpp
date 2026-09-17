@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // bowl.hpp — internal-only (`-I src`), not installed, not POD. VM-091
 // (unified-engine migration Task 2): the camera bowl's Filament mesh +
 // material wiring, built from bowl_mesh.hpp's CPU-only bake +

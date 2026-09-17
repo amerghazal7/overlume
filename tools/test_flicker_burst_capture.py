@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """Unit test for the relative-median teal-dropout detector (no ROS needed).
 
 Run: pytest tools/test_flicker_burst_capture.py

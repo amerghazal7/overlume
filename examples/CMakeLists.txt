@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 # examples/CMakeLists.txt — builds each examples/*.cpp against overlume's
 # PUBLIC API only. add_subdirectory()'d from overlume/CMakeLists.txt (under
 # the OVERLUME_BUILD_EXAMPLES option), so this file never calls project() of

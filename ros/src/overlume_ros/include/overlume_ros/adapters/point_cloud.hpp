@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #pragma once
 /** @file point_cloud.hpp
  *  @brief PointCloudAdapter (Epic 3 Task 6 / VM-035): sensor_msgs/PointCloud2
@@ -90,24 +93,20 @@
 #include "overlume_ros/scene_assembly.hpp"
 #include "overlume/scene.h"
 
-namespace overlume_node
-{
+namespace overlume_node {
 
 // Packs r,g,b,a (each 0..255) into scene.h's documented PointCloudPoint::
 // rgba convention (byte0=r, byte1=g, byte2=b, byte3=a). Exposed (not
 // file-local) so this task's adapter tests can assert on the exact packed
 // value without re-deriving the convention themselves.
-inline uint32_t PackRgba(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
-{
+inline uint32_t PackRgba(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
     return static_cast<uint32_t>(r) | (static_cast<uint32_t>(g) << 8) |
            (static_cast<uint32_t>(b) << 16) | (static_cast<uint32_t>(a) << 24);
 }
 
-class PointCloudAdapter
-{
+class PointCloudAdapter {
 public:
-    PointCloudAdapter(const ProfileRow& row,
-                      const overlume::ros::FrameTransformer& tf);
+    PointCloudAdapter(const ProfileRow& row, const overlume::ros::FrameTransformer& tf);
 
     // ROS callback thread. See this file's header comment for the full
     // field-scan/tier/decimation/malformed rules.

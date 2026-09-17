@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_gltf_normals.cpp — overlume::ensure_flat_normals() (gltf_normals.hpp), the
 // load-time fix for environment geometry with no vertex normals. No
 // Filament/gtfio types here (same tests/*.cpp boundary as every other file
@@ -83,7 +86,7 @@ std::vector<uint8_t> parse_glb_bin(const std::vector<uint8_t>& glb) {
         const uint32_t type = read_u32(glb, off + 4);
         if (type == 0x004E4942) {  // "BIN\0"
             return std::vector<uint8_t>(glb.begin() + static_cast<long>(off + 8),
-                                         glb.begin() + static_cast<long>(off + 8 + len));
+                                        glb.begin() + static_cast<long>(off + 8 + len));
         }
         off += 8 + len;
     }
@@ -96,7 +99,7 @@ std::vector<uint8_t> parse_glb_bin(const std::vector<uint8_t>& glb) {
 // read_float3_accessor() (that would let a bug in one hide behind the
 // other, same reasoning as parse_glb_json() above).
 std::vector<float> read_vec3_accessor(const YAML::Node& gltf, const std::vector<uint8_t>& bin,
-                                       int accessorIdx) {
+                                      int accessorIdx) {
     const YAML::Node acc = gltf["accessors"][accessorIdx];
     const int bvIdx = acc["bufferView"].as<int>();
     const YAML::Node bv = gltf["bufferViews"][bvIdx];
@@ -132,9 +135,9 @@ std::vector<uint8_t> build_json_only_glb(const std::string& json) {
 }
 
 const std::string kBakedChunk = std::string(OVERLUME_TEST_DATA_DIR) +
-    "/tests/fixtures/environment_test_town_0/chunks/chunk_-1_-1.glb";
-const std::string kIonTile = std::string(OVERLUME_TEST_DATA_DIR) +
-    "/tests/fixtures/environment_ion_fixture_0/tile_a.b3dm";
+                                "/tests/fixtures/environment_test_town_0/chunks/chunk_-1_-1.glb";
+const std::string kIonTile =
+    std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_ion_fixture_0/tile_a.b3dm";
 
 }  // namespace
 
@@ -169,12 +172,14 @@ TEST(GltfNormals, AddsNormalToChunkMissingIt) {
 
             const std::vector<float> normals = read_vec3_accessor(afterJson, patchedBin, normalIdx);
             for (size_t v = 0; v + 2 < normals.size(); v += 3) {
-                const float len = std::sqrt(normals[v] * normals[v] + normals[v + 1] * normals[v + 1] +
-                                             normals[v + 2] * normals[v + 2]);
-                EXPECT_NEAR(len, 1.0f, 1e-3f) << "appended normal at vertex " << (v / 3) << " isn't unit length";
+                const float len =
+                    std::sqrt(normals[v] * normals[v] + normals[v + 1] * normals[v + 1] +
+                              normals[v + 2] * normals[v + 2]);
+                EXPECT_NEAR(len, 1.0f, 1e-3f)
+                    << "appended normal at vertex " << (v / 3) << " isn't unit length";
                 const bool isDegenerateFallback = std::abs(normals[v]) < 1e-6f &&
-                                                   std::abs(normals[v + 1]) < 1e-6f &&
-                                                   std::abs(normals[v + 2] - 1.0f) < 1e-6f;
+                                                  std::abs(normals[v + 1]) < 1e-6f &&
+                                                  std::abs(normals[v + 2] - 1.0f) < 1e-6f;
                 if (!isDegenerateFallback) anyNonDegenerate = true;
             }
         }

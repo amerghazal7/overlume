@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """flicker_capture.py — VM-077 carpet-flicker frame-diff rig (2026-09-10).
 
 Committed replacement for the un-recoverable `flicker_capture.py` the

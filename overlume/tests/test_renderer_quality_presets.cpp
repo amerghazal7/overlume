@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // tests/test_renderer_quality_presets.cpp — Epic 3 Task 5 (VM-032) Step 3:
 // create_renderer()'s quality dispatch maps spec §8's three preset knobs
 // (shadow-map resolution, shadow enable, low-preset render scale) off
@@ -21,7 +24,8 @@
 
 namespace {
 
-overlume::VisualRenderer* MakeRenderer(uint8_t quality, uint32_t width = 1280, uint32_t height = 720) {
+overlume::VisualRenderer* MakeRenderer(uint8_t quality, uint32_t width = 1280,
+                                       uint32_t height = 720) {
     overlume::RenderConfig config{};
     config.width = width;
     config.height = height;
@@ -61,7 +65,8 @@ TEST(RendererQuality, ShadowsDisabledAtLowPreset) {
 TEST(RendererQuality, LowPresetRendersAtUpscaledRenderScale) {
     overlume::VisualRenderer* low = MakeRenderer(0, 1280, 720);
     ASSERT_NE(low, nullptr);
-    const overlume::testing::QualityRenderSize size = overlume::testing::quality_internal_render_size(low);
+    const overlume::testing::QualityRenderSize size =
+        overlume::testing::quality_internal_render_size(low);
     EXPECT_EQ(size.width, 960u);
     EXPECT_EQ(size.height, 540u);
     overlume::destroy_renderer(low);
@@ -70,7 +75,8 @@ TEST(RendererQuality, LowPresetRendersAtUpscaledRenderScale) {
     // downscale.
     overlume::VisualRenderer* high = MakeRenderer(2, 1280, 720);
     ASSERT_NE(high, nullptr);
-    const overlume::testing::QualityRenderSize highSize = overlume::testing::quality_internal_render_size(high);
+    const overlume::testing::QualityRenderSize highSize =
+        overlume::testing::quality_internal_render_size(high);
     EXPECT_EQ(highSize.width, 1280u);
     EXPECT_EQ(highSize.height, 720u);
     overlume::destroy_renderer(high);
@@ -86,28 +92,33 @@ TEST(RendererQuality, SetQualitySwitchesLivePresetsWithoutRecreate) {
     EXPECT_TRUE(overlume::testing::quality_shadows_enabled(r));
     EXPECT_TRUE(overlume::testing::quality_ssao(r).enabled);
     EXPECT_FLOAT_EQ(overlume::testing::quality_ssao(r).resolution, 1.0f);
-    EXPECT_EQ(overlume::testing::quality_antialiasing(r), overlume::testing::QualityAntiAliasing::NONE);
+    EXPECT_EQ(overlume::testing::quality_antialiasing(r),
+              overlume::testing::QualityAntiAliasing::NONE);
     EXPECT_TRUE(overlume::testing::quality_taa_enabled(r));
 
     overlume::set_quality(r, 0);  // drop to low -- same renderer, no re-create
     EXPECT_FALSE(overlume::testing::quality_shadows_enabled(r));
     EXPECT_EQ(overlume::testing::quality_shadow_map_size(r), 1024u);
-    const overlume::testing::QualityRenderSize low = overlume::testing::quality_internal_render_size(r);
+    const overlume::testing::QualityRenderSize low =
+        overlume::testing::quality_internal_render_size(r);
     EXPECT_EQ(low.width, 960u);
     EXPECT_EQ(low.height, 540u);
     EXPECT_FALSE(overlume::testing::quality_ssao(r).enabled);
-    EXPECT_EQ(overlume::testing::quality_antialiasing(r), overlume::testing::QualityAntiAliasing::FXAA);
+    EXPECT_EQ(overlume::testing::quality_antialiasing(r),
+              overlume::testing::QualityAntiAliasing::FXAA);
     EXPECT_FALSE(overlume::testing::quality_taa_enabled(r));
 
     overlume::set_quality(r, 2);  // recover to high -- still the same renderer
     EXPECT_TRUE(overlume::testing::quality_shadows_enabled(r));
     EXPECT_EQ(overlume::testing::quality_shadow_map_size(r), 2048u);
-    const overlume::testing::QualityRenderSize high = overlume::testing::quality_internal_render_size(r);
+    const overlume::testing::QualityRenderSize high =
+        overlume::testing::quality_internal_render_size(r);
     EXPECT_EQ(high.width, 1280u);
     EXPECT_EQ(high.height, 720u);
     EXPECT_TRUE(overlume::testing::quality_ssao(r).enabled);
     EXPECT_FLOAT_EQ(overlume::testing::quality_ssao(r).resolution, 1.0f);
-    EXPECT_EQ(overlume::testing::quality_antialiasing(r), overlume::testing::QualityAntiAliasing::NONE);
+    EXPECT_EQ(overlume::testing::quality_antialiasing(r),
+              overlume::testing::QualityAntiAliasing::NONE);
     EXPECT_TRUE(overlume::testing::quality_taa_enabled(r));
 
     overlume::destroy_renderer(r);

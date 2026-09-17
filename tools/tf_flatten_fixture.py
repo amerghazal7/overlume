@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """Fixture-bag TF flattener (user directive 2026-08-19: always ignore
 elevation in fixture-bag validation — playback-side only, node untouched).
 

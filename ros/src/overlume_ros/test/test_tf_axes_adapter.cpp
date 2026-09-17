@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file test_tf_axes_adapter.cpp
  *  @brief TfAxesAdapter tests. Hand-built tf2_ros::Buffer, same fixture
  *  style as test_frame_transform.cpp -- no ROS graph, no launch.
@@ -20,12 +23,10 @@ using overlume::ros::SceneAssembly;
 using overlume_node::ProfileRow;
 using overlume_node::TfAxesAdapter;
 
-namespace
-{
+namespace {
 
 geometry_msgs::msg::TransformStamped MapToChild(const std::string& child, double x, double y,
-                                                 double z)
-{
+                                                double z) {
     geometry_msgs::msg::TransformStamped msg;
     msg.header.frame_id = "map";
     msg.header.stamp = rclcpp::Time(0, 0, RCL_ROS_TIME);
@@ -37,8 +38,7 @@ geometry_msgs::msg::TransformStamped MapToChild(const std::string& child, double
     return msg;
 }
 
-ProfileRow TfAxesRow()
-{
+ProfileRow TfAxesRow() {
     ProfileRow row;
     row.adapter = "tf_axes";
     row.role = "debug";
@@ -48,8 +48,7 @@ ProfileRow TfAxesRow()
 
 }  // namespace
 
-TEST(TfAxes, EmitsThreeMarkersPerKnownFrame)
-{
+TEST(TfAxes, EmitsThreeMarkersPerKnownFrame) {
     auto clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
     tf2_ros::Buffer buffer(clock);
     buffer.setTransform(MapToChild("base_link", 10.0, 20.0, 0.0), "test_authority",
@@ -66,8 +65,7 @@ TEST(TfAxes, EmitsThreeMarkersPerKnownFrame)
     // bookkeeping -- assert a floor, not an exact count, so this test
     // doesn't couple itself to that implementation detail.
     EXPECT_GE(out.markers.size(), 6u);
-    for (const auto& m : out.markers)
-    {
+    for (const auto& m : out.markers) {
         EXPECT_EQ(m.primitive, overlume::MarkerPrimitive::LINE_LIST);
         ASSERT_NE(m.points, nullptr);
         EXPECT_EQ(m.point_count, 2u);
@@ -80,8 +78,7 @@ TEST(TfAxes, EmitsThreeMarkersPerKnownFrame)
     // At least one X (red), Y (green), Z (blue) axis marker must be
     // present per known frame.
     int red = 0, green = 0, blue = 0;
-    for (const auto& m : out.markers)
-    {
+    for (const auto& m : out.markers) {
         if (m.color[0] == 1.0f && m.color[1] == 0.0f && m.color[2] == 0.0f) ++red;
         if (m.color[0] == 0.0f && m.color[1] == 1.0f && m.color[2] == 0.0f) ++green;
         if (m.color[0] == 0.0f && m.color[1] == 0.0f && m.color[2] == 1.0f) ++blue;
@@ -92,10 +89,8 @@ TEST(TfAxes, EmitsThreeMarkersPerKnownFrame)
 
     // base_link's origin must land at (10, 20, 0), not the map origin.
     bool found_base_link_origin = false;
-    for (const auto& m : out.markers)
-    {
-        if (std::abs(m.points[0].x - 10.0) < 1e-6 && std::abs(m.points[0].y - 20.0) < 1e-6)
-        {
+    for (const auto& m : out.markers) {
+        if (std::abs(m.points[0].x - 10.0) < 1e-6 && std::abs(m.points[0].y - 20.0) < 1e-6) {
             found_base_link_origin = true;
         }
     }
@@ -103,8 +98,7 @@ TEST(TfAxes, EmitsThreeMarkersPerKnownFrame)
     EXPECT_EQ(a.stats().dropped_no_tf, 0u);
 }
 
-TEST(TfAxes, UnresolvableFrameIsSkippedAndCountedNotFatal)
-{
+TEST(TfAxes, UnresolvableFrameIsSkippedAndCountedNotFatal) {
     // An empty buffer still returns SOME frame strings in some tf2
     // versions (none, typically) -- what matters here is that a buffer
     // seeded with a transform whose PARENT never resolves back to

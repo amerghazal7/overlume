@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #include "overlume_ros/adapters/trajectory_carpet.hpp"
 
 #include <cmath>
@@ -6,10 +9,8 @@
 #include <tf2/LinearMath/Transform.h>
 #include <tf2/LinearMath/Vector3.h>
 
-namespace overlume_node
-{
-namespace
-{
+namespace overlume_node {
+namespace {
 
 // visualization_msgs/msg/Marker.msg action + type constants -- not worth a
 // dependency on the generated enum names for values used once each (same
@@ -18,16 +19,14 @@ constexpr int32_t kActionAdd = 0;
 constexpr int32_t kActionDeleteAll = 3;
 constexpr int32_t kTypeTriangleList = 11;
 
-bool HasNan(double x, double y, double z)
-{
+bool HasNan(double x, double y, double z) {
     return std::isnan(x) || std::isnan(y) || std::isnan(z);
 }
 
 // A marker's own pose is RELATIVE to the header frame -- same pair as every
 // other adapter's own copy (hd_map.cpp/dynamic_objects.cpp/collision.cpp/
 // generic_marker.cpp; each file keeps its own rather than a shared header).
-bool MarkerPoseIsIdentity(const geometry_msgs::msg::Pose& p)
-{
+bool MarkerPoseIsIdentity(const geometry_msgs::msg::Pose& p) {
     constexpr double kEps = 1e-12;
     return std::abs(p.position.x) < kEps && std::abs(p.position.y) < kEps &&
            std::abs(p.position.z) < kEps && std::abs(p.orientation.x) < kEps &&
@@ -35,8 +34,7 @@ bool MarkerPoseIsIdentity(const geometry_msgs::msg::Pose& p)
            std::abs(p.orientation.w - 1.0) < kEps;
 }
 
-bool MarkerPoseHasNan(const geometry_msgs::msg::Pose& p)
-{
+bool MarkerPoseHasNan(const geometry_msgs::msg::Pose& p) {
     return std::isnan(p.position.x) || std::isnan(p.position.y) || std::isnan(p.position.z) ||
            std::isnan(p.orientation.x) || std::isnan(p.orientation.y) ||
            std::isnan(p.orientation.z) || std::isnan(p.orientation.w);
@@ -44,31 +42,25 @@ bool MarkerPoseHasNan(const geometry_msgs::msg::Pose& p)
 
 }  // namespace
 
-TrajectoryCarpetAdapter::TrajectoryCarpetAdapter(
-    const ProfileRow& row, const overlume::ros::FrameTransformer& tf)
-    : row_(row), tf_(tf)
-{
-}
+TrajectoryCarpetAdapter::TrajectoryCarpetAdapter(const ProfileRow& row,
+                                                 const overlume::ros::FrameTransformer& tf)
+    : row_(row), tf_(tf) {}
 
 void TrajectoryCarpetAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg,
-                                     double sim_time_sec)
-{
+                                     double sim_time_sec) {
     ++stats_.msgs;
     if (msg.markers.empty()) return;
 
     // ONE lookup for the whole message -- same convention as every other
     // marker adapter in this node.
     tf2::Transform xform;
-    if (!tf_.lookup(msg.markers.front().header, xform))
-    {
+    if (!tf_.lookup(msg.markers.front().header, xform)) {
         ++stats_.dropped_no_tf;
         return;  // whole message dropped; previously-stored carpet stays
     }
 
-    for (const auto& m : msg.markers)
-    {
-        if (m.action == kActionDeleteAll)
-        {
+    for (const auto& m : msg.markers) {
+        if (m.action == kActionDeleteAll) {
             has_data_ = false;
             storage_.clear();
             continue;
@@ -78,18 +70,15 @@ void TrajectoryCarpetAdapter::ingest(const visualization_msgs::msg::MarkerArray&
         // Always a multiple of 6 (measured, 1647/1647 ADD markers) -- two
         // triangles per dual-rail quad, not just "a multiple of 3" (this
         // file's own header comment has the full pairing algorithm).
-        if (m.type != kTypeTriangleList || m.points.size() < 6 || m.points.size() % 6 != 0)
-        {
+        if (m.type != kTypeTriangleList || m.points.size() < 6 || m.points.size() % 6 != 0) {
             ++stats_.dropped_malformed;
             continue;
         }
 
         const bool identity_pose = MarkerPoseIsIdentity(m.pose);
         tf2::Transform marker_tf;
-        if (!identity_pose)
-        {
-            if (MarkerPoseHasNan(m.pose))
-            {
+        if (!identity_pose) {
+            if (MarkerPoseHasNan(m.pose)) {
                 ++stats_.dropped_malformed;
                 continue;
             }
@@ -127,16 +116,16 @@ void TrajectoryCarpetAdapter::ingest(const visualization_msgs::msg::MarkerArray&
         // "not yet used"; force 255 so a supplied color always reads as
         // "real", same convention GenericMarkerAdapter's fan_colors uses).
         auto make_station = [&](size_t idx_a, size_t idx_b, size_t color_idx,
-                                 overlume::PointCloudPoint* out) -> bool {
+                                overlume::PointCloudPoint* out) -> bool {
             tf2::Vector3 a, b;
             if (!transform_point(idx_a, &a) || !transform_point(idx_b, &b)) return false;
             out->position = {(a.x() + b.x()) / 2.0, (a.y() + b.y()) / 2.0, (a.z() + b.z()) / 2.0};
-            out->rgba = per_point_colors
-                            ? PackRgba(static_cast<uint8_t>(m.colors[color_idx].r * 255.0f + 0.5f),
-                                       static_cast<uint8_t>(m.colors[color_idx].g * 255.0f + 0.5f),
-                                       static_cast<uint8_t>(m.colors[color_idx].b * 255.0f + 0.5f),
-                                       255)
-                            : 0u;
+            out->rgba =
+                per_point_colors
+                    ? PackRgba(static_cast<uint8_t>(m.colors[color_idx].r * 255.0f + 0.5f),
+                               static_cast<uint8_t>(m.colors[color_idx].g * 255.0f + 0.5f),
+                               static_cast<uint8_t>(m.colors[color_idx].b * 255.0f + 0.5f), 255)
+                    : 0u;
             return true;
         };
 
@@ -148,30 +137,24 @@ void TrajectoryCarpetAdapter::ingest(const visualization_msgs::msg::MarkerArray&
         // station_0 = midpoint(quad_0.A, quad_0.B) = midpoint(points[0],
         // points[1]), color from A (points[0]/colors[0]).
         overlume::PointCloudPoint s0{};
-        if (!make_station(0, 1, 0, &s0))
-        {
+        if (!make_station(0, 1, 0, &s0)) {
             ok = false;
-        }
-        else
-        {
+        } else {
             stations.push_back(s0);
         }
 
-        for (size_t k = 0; ok && k < n_quads; ++k)
-        {
+        for (size_t k = 0; ok && k < n_quads; ++k) {
             const size_t base = 6 * k;
             // station_{k+1} = midpoint(quad_k.D, quad_k.C) = midpoint(
             // points[base+5], points[base+4]), color from D (points[base+5]).
             overlume::PointCloudPoint sk1{};
-            if (!make_station(base + 5, base + 4, base + 5, &sk1))
-            {
+            if (!make_station(base + 5, base + 4, base + 5, &sk1)) {
                 ok = false;
                 break;
             }
             stations.push_back(sk1);
         }
-        if (!ok)
-        {
+        if (!ok) {
             ++stats_.dropped_malformed;
             continue;
         }
@@ -186,8 +169,7 @@ void TrajectoryCarpetAdapter::ingest(const visualization_msgs::msg::MarkerArray&
     stats_.last_msg_sec = sim_time_sec;
 }
 
-void TrajectoryCarpetAdapter::fill(overlume::ros::SceneAssembly& out) const
-{
+void TrajectoryCarpetAdapter::fill(overlume::ros::SceneAssembly& out) const {
     if (!has_data_) return;
     overlume::TrajectoryCarpet tc{};
     tc.points = storage_.data();

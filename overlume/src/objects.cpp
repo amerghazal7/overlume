@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // objects.cpp — clay object rendering. Instanced glTF per class
 // (car/truck_van/bus/pedestrian/cyclist), scaled to each TrackedObject's
 // measured bbox, per-class theme tints, velocity arrows, predicted-path
@@ -92,8 +95,8 @@ void build_unit_box(std::vector<Vertex>& verts, std::vector<uint16_t>& indices) 
             normals.push_back(f.n);
         }
         indices.insert(indices.end(),
-                        {base, static_cast<uint16_t>(base + 1), static_cast<uint16_t>(base + 2),
-                         base, static_cast<uint16_t>(base + 2), static_cast<uint16_t>(base + 3)});
+                       {base, static_cast<uint16_t>(base + 1), static_cast<uint16_t>(base + 2),
+                        base, static_cast<uint16_t>(base + 2), static_cast<uint16_t>(base + 3)});
     }
     fill_tangent_frames(verts, normals);
 }
@@ -103,7 +106,7 @@ void build_unit_box(std::vector<Vertex>& verts, std::vector<uint16_t>& indices) 
 // primitive draws the same mesh.
 
 void remap_to_material(filament::RenderableManager& rm, const utils::Entity* ents, size_t n,
-                        filament::MaterialInstance* material) {
+                       filament::MaterialInstance* material) {
     for (size_t i = 0; i < n; ++i) {
         const auto ri = rm.getInstance(ents[i]);
         if (!ri.isValid()) continue;
@@ -150,8 +153,7 @@ void acquire_entity(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& o
             if (inst != nullptr) {
                 pool.pool.push_back(inst);
                 if (!pool.growthLogged) {
-                    std::fprintf(stderr,
-                                 "[overlume] object class %u grew past %zu instances\n",
+                    std::fprintf(stderr, "[overlume] object class %u grew past %zu instances\n",
                                  static_cast<unsigned>(clsIdx), kInitialInstancesPerClass);
                     pool.growthLogged = true;
                 }
@@ -203,7 +205,7 @@ void update_entity_transform(VisualRenderer& r, const TrackedObject& obj, Object
     const auto inst = tm.getInstance(e.transformRoot);
     if (!inst.isValid()) return;
     const float3 pos{static_cast<float>(obj.position.x), static_cast<float>(obj.position.y),
-                      static_cast<float>(obj.position.z)};
+                     static_cast<float>(obj.position.z)};
     const quatf rot = quatf::fromAxisAngle(float3{0, 0, 1}, static_cast<float>(obj.heading_rad));
     const Vec3 unit = unit_footprint_for(r, e);
     // Perception bbox always wins (stretch, never clip) — a misclassified
@@ -252,9 +254,10 @@ void update_entity_arrow(VisualRenderer& r, const TrackedObject& obj, ObjectEnti
     if (!e.arrowEntity) {
         e.arrowEntity = utils::EntityManager::get().create();
         filament::RenderableManager::Builder(1)
-            .boundingBox({{0, 0, 0}, {50.0f, 50.0f, 50.0f}})  // culling(false) below -- exact box irrelevant
-            .geometry(0, filament::RenderableManager::PrimitiveType::TRIANGLES, r.sharedArrowMesh.vb,
-                      r.sharedArrowMesh.ib)
+            .boundingBox(
+                {{0, 0, 0}, {50.0f, 50.0f, 50.0f}})  // culling(false) below -- exact box irrelevant
+            .geometry(0, filament::RenderableManager::PrimitiveType::TRIANGLES,
+                      r.sharedArrowMesh.vb, r.sharedArrowMesh.ib)
             .material(0, r.objectClassMaterial[static_cast<uint8_t>(e.cls)])
             .culling(false)
             .castShadows(false)
@@ -263,15 +266,17 @@ void update_entity_arrow(VisualRenderer& r, const TrackedObject& obj, ObjectEnti
         r.scene->addEntity(e.arrowEntity);
         tm.create(e.arrowEntity);
     }
-    const double speed = std::sqrt(obj.velocity.x * obj.velocity.x + obj.velocity.y * obj.velocity.y);
+    const double speed =
+        std::sqrt(obj.velocity.x * obj.velocity.x + obj.velocity.y * obj.velocity.y);
     const double heading = std::atan2(obj.velocity.y, obj.velocity.x);
     const float3 pos{static_cast<float>(obj.position.x), static_cast<float>(obj.position.y),
-                      static_cast<float>(obj.position.z + obj.dimensions.z + 0.15)};
+                     static_cast<float>(obj.position.z + obj.dimensions.z + 0.15)};
     const quatf rot = quatf::fromAxisAngle(float3{0, 0, 1}, static_cast<float>(heading));
     const auto len = static_cast<float>(std::clamp(speed, 0.5, 5.0));
     const auto inst = tm.getInstance(e.arrowEntity);
     if (inst.isValid()) {
-        tm.setTransform(inst, mat4f::translation(pos) * mat4f(rot) * mat4f::scaling(float3{len, 1.0f, 1.0f}));
+        tm.setTransform(
+            inst, mat4f::translation(pos) * mat4f(rot) * mat4f::scaling(float3{len, 1.0f, 1.0f}));
     }
 }
 
@@ -322,7 +327,8 @@ void update_entity_path(VisualRenderer& r, const TrackedObject& obj, ObjectEntit
 
     constexpr float kPathHalfWidthM = 0.08f;
     constexpr float kPathZLiftM = 0.03f;
-    std::vector<Vec3> ribbon = detail::extrude_polyline(obj.predicted_path, n, kPathHalfWidthM, kPathZLiftM);
+    std::vector<Vec3> ribbon =
+        detail::extrude_polyline(obj.predicted_path, n, kPathHalfWidthM, kPathZLiftM);
     e.pathSignature = sig;
     if (ribbon.empty()) return;
     // True indexed mesh (ribbon.cpp's pattern): a flatten-then-identity-
@@ -357,7 +363,7 @@ void update_entity_path(VisualRenderer& r, const TrackedObject& obj, ObjectEntit
 // alpha = objects.opacity * staleness_alpha -- see Theme::Objects
 // (theme.hpp) for the token's contract; r.active_theme is live per frame.
 void update_entity_staleness(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& e,
-                              double sim_time_sec) {
+                             double sim_time_sec) {
     const auto staleness = static_cast<float>(detail::SceneBuffer::staleness_alpha(
         sim_time_sec, obj.last_update_sec, kStaleFadeStartSec, kStaleFadeTimeoutSec));
     const float alpha = staleness * r.active_theme.objects.opacity;
@@ -536,8 +542,8 @@ uint32_t set_object_model_dir(VisualRenderer* r, const char* dir) {
         const char* stem;
     };
     static constexpr ClassStem kClasses[] = {
-        {ObjectClass::CAR, "car"},       {ObjectClass::TRUCK_VAN, "truck_van"},
-        {ObjectClass::BUS, "bus"},       {ObjectClass::PEDESTRIAN, "pedestrian"},
+        {ObjectClass::CAR, "car"},         {ObjectClass::TRUCK_VAN, "truck_van"},
+        {ObjectClass::BUS, "bus"},         {ObjectClass::PEDESTRIAN, "pedestrian"},
         {ObjectClass::CYCLIST, "cyclist"},
     };
 

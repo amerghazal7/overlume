@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // bowl_projection.cpp — see bowl_projection.hpp. Pure host math, no
 // Filament/ROS/CUDA includes -- portable and GPU-free-testable per Task 2
 // Step 0.
@@ -72,7 +75,7 @@ bool ProjectToCameraUv(const overlume::CameraExtrinsics& ext, const overlume::Ca
 }
 
 overlume::Vec3 BowlSurfacePoint(double bowl_R0, double bowl_k, double bowl_Rmax, double theta,
-                             double r) {
+                                double r) {
     // Ported verbatim from reproject.cu's kernels/surface.cuh:
     // bowl_height(r) = k * clamp(r - R0, 0, Rmax - R0)^2 -- flat floor
     // inside R0, parabolic wall between R0 and Rmax, flat again (capped)
@@ -85,7 +88,7 @@ overlume::Vec3 BowlSurfacePoint(double bowl_R0, double bowl_k, double bowl_Rmax,
 float BorderFeather(float xp, float yp, uint32_t width, uint32_t height, double margin) {
     // Ported verbatim from blend.cuh's border_feather/smoothstep01.
     const double d = std::fmin(std::fmin(xp, (static_cast<double>(width) - 1.0) - xp),
-                                std::fmin(yp, (static_cast<double>(height) - 1.0) - yp));
+                               std::fmin(yp, (static_cast<double>(height) - 1.0) - yp));
     if (margin <= 0.0) return d >= 0.0 ? 1.0f : 0.0f;
     double x = d / margin;
     x = std::fmin(std::fmax(x, 0.0), 1.0);

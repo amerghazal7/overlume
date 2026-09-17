@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // gltf_normals.cpp — see gltf_normals.hpp for the why. Implementation
 // summary:
 //   1. Split the .glb container into its JSON + BIN chunks (fixed 12-byte
@@ -75,7 +78,8 @@ std::vector<uint8_t> build_glb(const std::string& json, const std::vector<uint8_
     std::string padded_json = json;
     padded_json.append(pad4(padded_json.size()), ' ');  // JSON chunk pads with spaces (spec §3.2)
     std::vector<uint8_t> padded_bin = bin;
-    padded_bin.resize(padded_bin.size() + pad4(padded_bin.size()), uint8_t{0});  // BIN pads with zeros
+    padded_bin.resize(padded_bin.size() + pad4(padded_bin.size()),
+                      uint8_t{0});  // BIN pads with zeros
 
     const uint32_t json_len = static_cast<uint32_t>(padded_json.size());
     const uint32_t bin_len = static_cast<uint32_t>(padded_bin.size());
@@ -132,11 +136,21 @@ void write_json_string(std::string& out, const std::string& s) {
     out += '"';
     for (unsigned char c : s) {
         switch (c) {
-            case '"': out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n"; break;
-            case '\t': out += "\\t"; break;
-            case '\r': out += "\\r"; break;
+            case '"':
+                out += "\\\"";
+                break;
+            case '\\':
+                out += "\\\\";
+                break;
+            case '\n':
+                out += "\\n";
+                break;
+            case '\t':
+                out += "\\t";
+                break;
+            case '\r':
+                out += "\\r";
+                break;
             default:
                 if (c < 0x20) {
                     char buf[8];
@@ -249,8 +263,8 @@ std::optional<BufferViewInfo> read_buffer_view(const YAML::Node& buffer_views, s
 // tightly packed, sourced from the single embedded buffer -- buffer index
 // 0, which is what every read_buffer_view() caller here requires).
 std::optional<std::vector<float>> read_float3_accessor(const YAML::Node& gltf,
-                                                        const std::vector<uint8_t>& bin,
-                                                        int accessor_index) {
+                                                       const std::vector<uint8_t>& bin,
+                                                       int accessor_index) {
     auto acc = read_accessor(gltf["accessors"], accessor_index);
     if (!acc || acc->component_type != 5126 /* FLOAT */ || acc->type != "VEC3") return std::nullopt;
     auto view = read_buffer_view(gltf["bufferViews"], acc->buffer_view);
@@ -265,8 +279,8 @@ std::optional<std::vector<float>> read_float3_accessor(const YAML::Node& gltf,
 
 // Reads an indices accessor (any unsigned glTF component type) as uint32.
 std::optional<std::vector<uint32_t>> read_index_accessor(const YAML::Node& gltf,
-                                                          const std::vector<uint8_t>& bin,
-                                                          int accessor_index) {
+                                                         const std::vector<uint8_t>& bin,
+                                                         int accessor_index) {
     auto acc = read_accessor(gltf["accessors"], accessor_index);
     if (!acc || acc->type != "SCALAR") return std::nullopt;
     auto view = read_buffer_view(gltf["bufferViews"], acc->buffer_view);
@@ -382,14 +396,14 @@ std::vector<uint8_t> ensure_flat_normals(std::vector<uint8_t> glb_bytes) {
             if (!primitives || !primitives.IsSequence()) continue;
             for (YAML::Node prim : primitives) {
                 YAML::Node attributes = prim["attributes"];
-                if (!attributes || attributes["NORMAL"]) continue;       // already has one -- untouched
+                if (!attributes || attributes["NORMAL"]) continue;  // already has one -- untouched
                 if (!attributes["POSITION"] || !prim["indices"]) continue;  // nothing to build from
-                if (prim["mode"] && prim["mode"].as<int>() != 4) continue;  // only TRIANGLES (glTF default)
+                if (prim["mode"] && prim["mode"].as<int>() != 4)
+                    continue;  // only TRIANGLES (glTF default)
 
-                auto positions =
-                    read_float3_accessor(gltf, bin, attributes["POSITION"].as<int>());
+                auto positions = read_float3_accessor(gltf, bin, attributes["POSITION"].as<int>());
                 auto indices = read_index_accessor(gltf, bin, prim["indices"].as<int>());
-                if (!positions || !indices) continue;   // unsupported accessor/bufferView shape
+                if (!positions || !indices) continue;  // unsupported accessor/bufferView shape
                 if (indices->empty() || indices->size() % 3 != 0) continue;
 
                 Fix fix;
@@ -445,7 +459,8 @@ std::vector<uint8_t> ensure_flat_normals(std::vector<uint8_t> glb_bytes) {
         write_json(new_json, gltf);
         return build_glb(new_json, bin);
     } catch (const std::exception&) {
-        return glb_bytes;  // malformed/unexpected input -- fail safe, same as the caller's own convention
+        return glb_bytes;  // malformed/unexpected input -- fail safe, same as the caller's own
+                           // convention
     }
 }
 

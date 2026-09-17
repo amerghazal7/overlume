@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """golden.py — Epic 1 Task 2 Step 11. Dev-only helper for inspecting a
 rendered PNG before promoting it to a committed golden under tests/goldens/
 (this project's stated working style: "user judges by visuals" — see

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
 // clay.mat — Epic 1 Task 2 (VM-011). Shared LIT solid material for every
 // opaque clay surface: the ground plane, the ego clay-box fallback (Task 4),
 // and the ego glTF remap (Task 4) — including gltfio-loaded meshes, which

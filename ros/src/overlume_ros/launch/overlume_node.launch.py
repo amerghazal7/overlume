@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """Launch the overlume_ros LifecycleNode.
 
 Loads config/default_params.yaml by default:

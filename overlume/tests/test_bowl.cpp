@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_bowl.cpp — VM-091 (unified-engine migration Task 2).
 //
 // Step 3: bowl_mesh.hpp's CPU-only mesh generation + per-vertex
@@ -61,14 +64,23 @@ CameraExtrinsics LookAtCamera(overlume::Vec3 from, overlume::Vec3 to) {
     };
     const overlume::Vec3 fwd = norm(sub(to, from));
     overlume::Vec3 up{0, 0, 1};
-    if (std::abs(fwd.z) > 0.999) up = overlume::Vec3{0, 1, 0};  // fwd near-vertical -- pick another up
+    if (std::abs(fwd.z) > 0.999)
+        up = overlume::Vec3{0, 1, 0};  // fwd near-vertical -- pick another up
     const overlume::Vec3 right = norm(cross(fwd, up));
     const overlume::Vec3 down = cross(fwd, right);
     CameraExtrinsics ext{};
-    ext.R[0] = right.x; ext.R[1] = down.x; ext.R[2] = fwd.x;
-    ext.R[3] = right.y; ext.R[4] = down.y; ext.R[5] = fwd.y;
-    ext.R[6] = right.z; ext.R[7] = down.z; ext.R[8] = fwd.z;
-    ext.t[0] = from.x; ext.t[1] = from.y; ext.t[2] = from.z;
+    ext.R[0] = right.x;
+    ext.R[1] = down.x;
+    ext.R[2] = fwd.x;
+    ext.R[3] = right.y;
+    ext.R[4] = down.y;
+    ext.R[5] = fwd.y;
+    ext.R[6] = right.z;
+    ext.R[7] = down.z;
+    ext.R[8] = fwd.z;
+    ext.t[0] = from.x;
+    ext.t[1] = from.y;
+    ext.t[2] = from.z;
     return ext;
 }
 
@@ -84,9 +96,8 @@ TEST(BowlMeshBake, InnerRingCoveredOuterRingUncoveredBySingleCamera) {
     bowl::BowlMeshParams params;
     params.theta_segments = 16;
     params.radial_rings = 8;
-    const bowl::BowlMesh mesh =
-        bowl::BakeBowlMesh(params, /*R0=*/0.5, /*k=*/0.3, /*Rmax=*/8.0,
-                           /*camera_count=*/1, &ext, &in, &w, &h);
+    const bowl::BowlMesh mesh = bowl::BakeBowlMesh(params, /*R0=*/0.5, /*k=*/0.3, /*Rmax=*/8.0,
+                                                   /*camera_count=*/1, &ext, &in, &w, &h);
 
     ASSERT_FALSE(mesh.vertices.empty());
 
@@ -138,8 +149,8 @@ TEST(BowlMeshBake, MidEdgeWeightInterpolationIsBoundedByTessellation) {
         if (v0.coverage_a < 0.3f || v1.coverage_a < 0.3f) continue;
 
         const overlume::Vec3 mid{(v0.position.x + v1.position.x) * 0.5,
-                               (v0.position.y + v1.position.y) * 0.5,
-                               (v0.position.z + v1.position.z) * 0.5};
+                                 (v0.position.y + v1.position.y) * 0.5,
+                                 (v0.position.z + v1.position.z) * 0.5};
         float u, v;
         ASSERT_TRUE(bowl::ProjectToCameraUv(ext, in, w, h, mid, &u, &v));
         const float expected = bowl::CameraAlignment(ext, mid) * bowl::CameraAlignment(ext, mid);
@@ -158,7 +169,8 @@ TEST(BowlMeshBake, EveryTriangleCarriesIdenticalCameraIndexPairAcrossAllThreeVer
     // different placements (splitting bowl coverage) exercise this at a
     // real seam, not just trivially with one camera.
     const CameraExtrinsics extA{{1, 0, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 10.0}};
-    const CameraExtrinsics extB{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, -10.0}};  // faces the opposite way
+    const CameraExtrinsics extB{{1, 0, 0, 0, 1, 0, 0, 0, 1},
+                                {0, 0, -10.0}};  // faces the opposite way
     const CameraExtrinsics exts[2] = {extA, extB};
     const CameraIntrinsics in{800, 800, 320, 240, {0, 0, 0, 0, 0}};
     const CameraIntrinsics ins[2] = {in, in};
@@ -168,7 +180,8 @@ TEST(BowlMeshBake, EveryTriangleCarriesIdenticalCameraIndexPairAcrossAllThreeVer
     bowl::BowlMeshParams params;
     params.theta_segments = 32;
     params.radial_rings = 12;
-    const bowl::BowlMesh mesh = bowl::BakeBowlMesh(params, 0.5, 0.3, 8.0, 2, exts, ins, widths, heights);
+    const bowl::BowlMesh mesh =
+        bowl::BakeBowlMesh(params, 0.5, 0.3, 8.0, 2, exts, ins, widths, heights);
 
     for (size_t t = 0; t + 2 < mesh.indices.size(); t += 3) {
         const auto& v0 = mesh.vertices[mesh.indices[t]];
@@ -421,27 +434,23 @@ TEST(BowlMeshBake, DeployedRigWithEveryCameraInsideItsOwnEgoBoxIsNotWholesaleZer
     // zeroing the whole bake to sky_color.
     const CameraExtrinsics exts[6] = {
         {{0.9961946980917455, -0.06269459458646724, 0.06054346623323177, -0.08715574274765814,
-          -0.7166024952237391, 0.6920149856363047, 0.0, -0.6946583704589973,
-          -0.7193398003386511},
+          -0.7166024952237391, 0.6920149856363047, 0.0, -0.6946583704589973, -0.7193398003386511},
          {0.1594, 0.90401, 1.314}},
-        {{0.0, -0.7193398003386511, 0.6946583704589973, -1.0, 0.0, 0.0, 0.0,
-          -0.6946583704589973, -0.7193398003386511},
+        {{0.0, -0.7193398003386511, 0.6946583704589973, -1.0, 0.0, 0.0, 0.0, -0.6946583704589973,
+          -0.7193398003386511},
          {1.05472, 0.0, 0.854}},
         {{-0.9961946980917455, -0.06269459458646724, 0.06054346623323177, -0.08715574274765814,
-          0.7166024952237391, -0.6920149856363047, 0.0, -0.6946583704589973,
-          -0.7193398003386511},
+          0.7166024952237391, -0.6920149856363047, 0.0, -0.6946583704589973, -0.7193398003386511},
          {0.16735, -0.94909, 1.314}},
         {{0.9961946980917455, 0.06269459458646731, -0.06054346623323184, 0.08715574274765824,
-          -0.7166024952237391, 0.6920149856363047, 0.0, -0.6946583704589973,
-          -0.7193398003386511},
+          -0.7166024952237391, 0.6920149856363047, 0.0, -0.6946583704589973, -0.7193398003386511},
          {-0.15922, 0.90298, 1.314}},
         {{1.2246467991473532e-16, 0.7193398003386511, -0.6946583704589973, 1.0,
           -8.809371839840251e-17, 8.507111498835273e-17, 0.0, -0.6946583704589973,
           -0.7193398003386511},
          {-1.05472, 0.0, 0.854}},
         {{-0.9961946980917455, 0.06269459458646731, -0.06054346623323184, 0.08715574274765824,
-          0.7166024952237391, -0.6920149856363047, 0.0, -0.6946583704589973,
-          -0.7193398003386511},
+          0.7166024952237391, -0.6920149856363047, 0.0, -0.6946583704589973, -0.7193398003386511},
          {-0.16731, -0.94884, 1.314}},
     };
     const CameraIntrinsics in{800, 800, 640, 480, {0, 0, 0, 0, 0}};
@@ -815,10 +824,26 @@ TEST(Bowl, PerFragmentSamplingReadsTheCorrectPixelNotAMirroredOne) {
             const bool left = x < w / 2;
             const bool top = y < h / 2;
             uint8_t* px = &cam_pixels[(static_cast<size_t>(y) * w + x) * 3];
-            if (top && left) { px[0] = 255; px[1] = 0; px[2] = 0; }        // red
-            else if (top && !left) { px[0] = 0; px[1] = 255; px[2] = 0; }  // green
-            else if (!top && left) { px[0] = 0; px[1] = 0; px[2] = 255; }  // blue
-            else { px[0] = 255; px[1] = 255; px[2] = 0; }                  // yellow
+            if (top && left) {
+                px[0] = 255;
+                px[1] = 0;
+                px[2] = 0;
+            }  // red
+            else if (top && !left) {
+                px[0] = 0;
+                px[1] = 255;
+                px[2] = 0;
+            }  // green
+            else if (!top && left) {
+                px[0] = 0;
+                px[1] = 0;
+                px[2] = 255;
+            }  // blue
+            else {
+                px[0] = 255;
+                px[1] = 255;
+                px[2] = 0;
+            }  // yellow
         }
     }
     ASSERT_TRUE(overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
@@ -968,10 +993,20 @@ TEST(Bowl, TwoCamerasWithNonzeroSlotIndexBothAppearInFrame) {
     // Distinct saturated colors: camera 0 = pure red, camera 1 = pure green.
     std::vector<uint8_t> red(static_cast<size_t>(widths[0]) * heights[0] * 3);
     std::vector<uint8_t> green(static_cast<size_t>(widths[1]) * heights[1] * 3);
-    for (size_t i = 0; i < red.size(); i += 3) { red[i] = 255; red[i + 1] = 0; red[i + 2] = 0; }
-    for (size_t i = 0; i < green.size(); i += 3) { green[i] = 0; green[i + 1] = 255; green[i + 2] = 0; }
-    ASSERT_TRUE(overlume::set_camera_frame(r, 0, red.data(), widths[0], heights[0], /*frame_id=*/1));
-    ASSERT_TRUE(overlume::set_camera_frame(r, 1, green.data(), widths[1], heights[1], /*frame_id=*/1));
+    for (size_t i = 0; i < red.size(); i += 3) {
+        red[i] = 255;
+        red[i + 1] = 0;
+        red[i + 2] = 0;
+    }
+    for (size_t i = 0; i < green.size(); i += 3) {
+        green[i] = 0;
+        green[i + 1] = 255;
+        green[i + 2] = 0;
+    }
+    ASSERT_TRUE(
+        overlume::set_camera_frame(r, 0, red.data(), widths[0], heights[0], /*frame_id=*/1));
+    ASSERT_TRUE(
+        overlume::set_camera_frame(r, 1, green.data(), widths[1], heights[1], /*frame_id=*/1));
 
     std::vector<uint8_t> buf(320 * 240 * 3);
     ASSERT_TRUE(overlume::render_frame(r, pose, {buf.data(), 320, 240}));

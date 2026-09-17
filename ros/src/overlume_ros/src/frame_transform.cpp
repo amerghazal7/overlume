@@ -1,14 +1,15 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 #include "overlume_ros/frame_transform.hpp"
 
 #include <rclcpp/time.hpp>
 #include <tf2/exceptions.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
-namespace overlume::ros
-{
+namespace overlume::ros {
 
-bool FrameTransformer::lookup(const std_msgs::msg::Header& header, tf2::Transform& out) const
-{
+bool FrameTransformer::lookup(const std_msgs::msg::Header& header, tf2::Transform& out) const {
     if (header.frame_id.empty() || header.frame_id == target_frame_) {
         out.setIdentity();
         return true;
@@ -23,7 +24,7 @@ bool FrameTransformer::lookup(const std_msgs::msg::Header& header, tf2::Transfor
         // via checkAndErrorDedicatedThreadPresent() when the buffer has no
         // dedicated thread -- true here -- regardless of timeout==0.
         msg = buffer_.lookupTransform(target_frame_, header.frame_id,
-                                       tf2_ros::fromRclcpp(rclcpp::Time(header.stamp)));
+                                      tf2_ros::fromRclcpp(rclcpp::Time(header.stamp)));
     } catch (const tf2::TransformException&) {
         try {
             // Bag-playback jitter: the exact stamp may not be in the buffer

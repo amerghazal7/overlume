@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """Headless smoke test for overlume_ros.
 
 Epic 0 Task 3 (docs/plans/2026-08-18-visual-mode.md), as amended

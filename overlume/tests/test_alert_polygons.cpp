@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // test_alert_polygons.cpp — translucent collision alert polygons. Same
 // "no Filament type" boundary as every other tests/*.cpp -- see
 // alert_polygons_test_hooks.hpp.
@@ -38,7 +41,8 @@ TEST(AlertGolden, SweepPlusPredicted_DarkAdas) {
     // Synthetic scene: no live collision-checker publisher exists in the
     // recorded stack. Points array kept alive by AlertScene across
     // set_scene() (golden.cpp's move-only owner pattern).
-    overlume::testing::AlertScene alerts = overlume::testing::make_sweep_and_predicted_alerts(/*now=*/10.0);
+    overlume::testing::AlertScene alerts =
+        overlume::testing::make_sweep_and_predicted_alerts(/*now=*/10.0);
     overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
     s.ego = {{0, 0, 0}, 0.0, 0.0, /*valid=*/1};
@@ -121,11 +125,11 @@ TEST(Alerts, StaleAlertFadesViaSharedStalenessAlpha) {
     overlume::AlertPolygon polys[2]{};
     polys[0].points = freshPts;
     polys[0].point_count = 4;
-    polys[0].severity = 2;  // critical
+    polys[0].severity = 2;            // critical
     polys[0].last_update_sec = 10.0;  // fresh at sim_time 10.0
     polys[1].points = stalePts;
     polys[1].point_count = 4;
-    polys[1].severity = 2;  // same severity -- isolates the fade, not a ramp difference
+    polys[1].severity = 2;            // same severity -- isolates the fade, not a ramp difference
     polys[1].last_update_sec = 9.25;  // 0.75s stale: mid-fade (0.5 <= t < 1.0)
     overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // map_elements_test_hooks.hpp — internal-only, not installed, not POD.
 // Same reasoning as ego_test_hooks.hpp: tests/test_map_elements.cpp links
 // only against `overlume` and has no access to its PRIVATE Filament

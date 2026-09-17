@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // renderer_internal.hpp — internal-only (`-I src`), not installed, not POD.
 // The `VisualRenderer` class definition, plus the `Mesh`/`Vertex`/`add_mesh`
 // helper types/functions it needs, extracted out of renderer.cpp so other
@@ -155,7 +158,8 @@ inline constexpr float kAlertSeverityAlpha[3] = {0.18f, 0.35f, 0.45f};  // info,
 // ground/grid builders and map_elements.cpp's lane/crosswalk builders.
 // Declared here so other translation units can call it; defined once in
 // renderer.cpp.
-void fill_tangent_frames(std::vector<Vertex>& verts, const std::vector<filament::math::float3>& normals);
+void fill_tangent_frames(std::vector<Vertex>& verts,
+                         const std::vector<filament::math::float3>& normals);
 // One flat unit arrow (shaft+head, +X, tail x=0, tip x=1) shared by
 // objects.cpp's velocity arrows and generic_markers.cpp's ARROW primitive.
 // Defined once in renderer.cpp; both call sites fill r.sharedArrowMesh, so
@@ -208,9 +212,9 @@ struct ObjectEntity {
     filament::gltfio::FilamentInstance* glInstance = nullptr;
     Mesh proceduralBox;
     utils::Entity transformRoot;
-    utils::Entity arrowEntity;  // velocity arrow; null iff velocity == {0,0,0}
-    Mesh pathRibbon;            // predicted-path ribbon; empty iff no path data
-    uint64_t pathSignature = 0; // content signature (see objects.cpp), rebuild-skip guard
+    utils::Entity arrowEntity;         // velocity arrow; null iff velocity == {0,0,0}
+    Mesh pathRibbon;                   // predicted-path ribbon; empty iff no path data
+    uint64_t pathSignature = 0;        // content signature (see objects.cpp), rebuild-skip guard
     Vec3 appliedScale{0.0, 0.0, 0.0};  // test hook: DimensionsDriveScale -- same
                                        // "never the RenderableManager AABB" reasoning
                                        // as egoFallbackDims below.
@@ -431,7 +435,7 @@ public:
         PathRole role = PathRole::LOCAL;
         uint64_t signature = 0;
         bool has_signature = false;  // false forces the first build regardless
-                                      // of an (unlikely) signature==0 collision
+                                     // of an (unlikely) signature==0 collision
         std::vector<Mesh> meshes;
         // Sum of every mesh's own vertex count, recorded at build time
         // (ribbon.cpp's build_slot_meshes()) -- RenderableManager has no
@@ -660,8 +664,8 @@ public:
     struct GenericMarkerSlot {
         bool active = false;
         MarkerPrimitive primitive = MarkerPrimitive::CUBE;
-        utils::Entity sharedGeomEntity;   // CUBE/SPHERE/CYLINDER/ARROW/TEXT: never owns a vb/ib
-        Mesh ownMesh;                     // LINE_*/POINTS/TRIANGLE_LIST, and the MESH fallback box
+        utils::Entity sharedGeomEntity;  // CUBE/SPHERE/CYLINDER/ARROW/TEXT: never owns a vb/ib
+        Mesh ownMesh;                    // LINE_*/POINTS/TRIANGLE_LIST, and the MESH fallback box
         uint64_t geomSignature = 0;
         bool hasGeomSignature = false;
         filament::gltfio::FilamentAsset* meshAsset = nullptr;  // MESH, successful load only
@@ -855,8 +859,7 @@ public:
 // Namespace-scope free function so a different translation unit (ego.cpp,
 // objects.cpp) can call it -- a lambda local to create_renderer() couldn't.
 void add_mesh(VisualRenderer& r, Mesh& mesh, std::vector<Vertex> verts,
-              std::vector<uint16_t> indices,
-              filament::RenderableManager::PrimitiveType primitive,
+              std::vector<uint16_t> indices, filament::RenderableManager::PrimitiveType primitive,
               filament::MaterialInstance* material, bool cast_shadows, bool receive_shadows);
 
 }  // namespace overlume

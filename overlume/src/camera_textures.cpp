@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // camera_textures.cpp — VM-090 (unified-engine migration Task 1, ADR-0005):
 // the POD-boundary camera-texture mechanism, now also (VM-091, Task 2) the
 // call site that hands a freshly-(re)allocated camera-texture set off to
@@ -42,14 +45,14 @@ namespace {
 // describes the incoming buffer's channel layout, not whether the GPU
 // decodes it, so it is unaffected by this choice.
 filament::Texture::InternalFormat choose_camera_format(filament::Engine& engine) {
-    return filament::Texture::isTextureFormatSupported(
-               engine, filament::Texture::InternalFormat::SRGB8)
+    return filament::Texture::isTextureFormatSupported(engine,
+                                                       filament::Texture::InternalFormat::SRGB8)
                ? filament::Texture::InternalFormat::SRGB8
                : filament::Texture::InternalFormat::SRGB8_A8;
 }
 
 filament::Texture* build_camera_texture(filament::Engine& engine, uint32_t w, uint32_t h,
-                                         filament::Texture::InternalFormat format) {
+                                        filament::Texture::InternalFormat format) {
     return filament::Texture::Builder()
         .width(w)
         .height(h)
@@ -66,8 +69,8 @@ filament::Texture* build_camera_texture(filament::Engine& engine, uint32_t w, ui
 // contract: a heap copy freed synchronously, same shape as
 // ground_grid.cpp's own upload_occupancy_texture().
 void upload_camera_frame(filament::Engine& engine, filament::Texture* tex, const uint8_t* rgb,
-                          uint32_t width, uint32_t height,
-                          void (*release)(void*, size_t, void*), void* user) {
+                         uint32_t width, uint32_t height, void (*release)(void*, size_t, void*),
+                         void* user) {
     const size_t byteCount = static_cast<size_t>(width) * height * 3;
     if (release != nullptr) {
         filament::backend::PixelBufferDescriptor pbd(
@@ -147,15 +150,15 @@ bool set_self_view_masks(VisualRenderer* r, bool enabled) {
 }
 
 bool set_camera_motion_delta(VisualRenderer* r, uint32_t cam_idx,
-                              const double delta_4x4_row_major[16]) {
+                             const double delta_4x4_row_major[16]) {
     if (r == nullptr || cam_idx >= r->cameraCount) return false;
     std::memcpy(r->cameraSlots[cam_idx].motionDelta, delta_4x4_row_major, sizeof(double) * 16);
     return true;
 }
 
 bool set_camera_frame(VisualRenderer* r, uint32_t cam_idx, const uint8_t* rgb, uint32_t width,
-                       uint32_t height, uint64_t frame_id,
-                       void (*release)(void*, size_t, void*), void* user) {
+                      uint32_t height, uint64_t frame_id, void (*release)(void*, size_t, void*),
+                      void* user) {
     // Ownership-transfer contract (ADR-0005): when `release` is non-null the
     // library ALWAYS takes ownership of `rgb` -- release() fires exactly
     // once per call, whether the upload happened, was skipped by the dirty

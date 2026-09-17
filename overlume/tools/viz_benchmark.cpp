@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // viz_benchmark.cpp — VM-041 (Epic 5). Renders one representative scene
 // (ribbons + trajectory carpet + map elements + point cloud, the same shapes
 // tests/test_ribbon.cpp / test_trajectory_carpet.cpp / test_map_elements.cpp /
@@ -59,7 +62,7 @@ std::vector<overlume::PointCloudPoint> make_point_cloud(uint32_t n) {
     for (uint32_t i = 0; i < n; ++i) {
         double t = static_cast<double>(i);
         pts[i].position = {std::fmod(t, 60.0) - 30.0, std::fmod(t * 0.37, 30.0) - 15.0,
-                            std::fmod(t * 0.11, 3.0)};
+                           std::fmod(t * 0.11, 3.0)};
         pts[i].rgba = 0xFF8040FFu;
     }
     return pts;
@@ -94,7 +97,8 @@ int main() {
                   static_cast<uint32_t>(local_pts.size()), 0.0};
 
     std::vector<overlume::PointCloudPoint> carpet_pts = make_carpet_stations(60);
-    overlume::TrajectoryCarpet carpet{carpet_pts.data(), static_cast<uint32_t>(carpet_pts.size()), 0.0};
+    overlume::TrajectoryCarpet carpet{carpet_pts.data(), static_cast<uint32_t>(carpet_pts.size()),
+                                      0.0};
 
     std::vector<overlume::Vec3> centerline = make_lane_line(0.0, 20);
     std::vector<overlume::Vec3> left_boundary = make_lane_line(1.8, 20);
@@ -102,12 +106,24 @@ int main() {
     const overlume::Vec3 crosswalk_pts[4] = {
         {10.0, -1.8, 0.0}, {10.0, 1.8, 0.0}, {13.0, 1.8, 0.0}, {13.0, -1.8, 0.0}};
     overlume::MapElement map_elements[4]{};
-    map_elements[0] = {centerline.data(), static_cast<uint32_t>(centerline.size()), 0,
-                       overlume::MapKind::CENTERLINE, 1, 0.0};
-    map_elements[1] = {left_boundary.data(), static_cast<uint32_t>(left_boundary.size()), 0,
-                        overlume::MapKind::LEFT_BOUNDARY, 1, 0.0};
-    map_elements[2] = {right_boundary.data(), static_cast<uint32_t>(right_boundary.size()), 0,
-                        overlume::MapKind::RIGHT_BOUNDARY, 1, 0.0};
+    map_elements[0] = {centerline.data(),
+                       static_cast<uint32_t>(centerline.size()),
+                       0,
+                       overlume::MapKind::CENTERLINE,
+                       1,
+                       0.0};
+    map_elements[1] = {left_boundary.data(),
+                       static_cast<uint32_t>(left_boundary.size()),
+                       0,
+                       overlume::MapKind::LEFT_BOUNDARY,
+                       1,
+                       0.0};
+    map_elements[2] = {right_boundary.data(),
+                       static_cast<uint32_t>(right_boundary.size()),
+                       0,
+                       overlume::MapKind::RIGHT_BOUNDARY,
+                       1,
+                       0.0};
     map_elements[3] = {crosswalk_pts, 4, 1, overlume::MapKind::CROSSWALK, 0, 0.0};
 
     std::vector<overlume::PointCloudPoint> cloud_pts = make_point_cloud(20000);
@@ -129,8 +145,10 @@ int main() {
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3);
     overlume::FrameView view{rgb.data(), kWidth, kHeight};
 
-    const struct { uint8_t quality; const char* name; } kPresets[] = {
-        {0, "low"}, {1, "medium"}, {2, "high"}};
+    const struct {
+        uint8_t quality;
+        const char* name;
+    } kPresets[] = {{0, "low"}, {1, "medium"}, {2, "high"}};
 
     std::printf("viz_benchmark: %ux%u, N=%d frames/preset (+%d warmup)\n", kWidth, kHeight,
                 kFramesPerPreset, kWarmupFrames);
@@ -168,8 +186,8 @@ int main() {
         overlume::destroy_renderer(r);
 
         std::sort(ms.begin(), ms.end());
-        std::printf("quality=%u (%-6s)  render_ms p50=%.3f p99=%.3f\n", preset.quality,
-                    preset.name, percentile(ms, 0.50), percentile(ms, 0.99));
+        std::printf("quality=%u (%-6s)  render_ms p50=%.3f p99=%.3f\n", preset.quality, preset.name,
+                    percentile(ms, 0.50), percentile(ms, 0.99));
     }
     return 0;
 }

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // gltf_normals.hpp — load-time fix for environment geometry with no vertex
 // normals (VM: "buildings render flat" defect). Baked chunks
 // (scripts/bake_environment.py's trimesh export) carry POSITION only, no

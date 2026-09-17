@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // point_cloud.hpp — internal-only (`-I src`), not installed, not POD.
 // Declares the per-frame update for the ONE point_cloud.mat instance the
 // whole PointCloudLayer shares (Epic 3 Task 6 / VM-035).

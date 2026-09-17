@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 /** @file test_ego_anchor.cpp
  *  @brief Unit coverage for compose_ego_anchored_pose/kEgoForwardYaw -- the
  *  yaw convention has regressed once already (a pi/2 broadside bug caught
@@ -11,26 +14,26 @@
 
 #include "overlume_ros/ego_anchor.hpp"
 
-namespace overlume::ros
-{
-namespace
-{
+namespace overlume::ros {
+namespace {
 
 constexpr double kEps = 1e-9;
 
 // This node's real default virtual_pose param (overlume_node.cpp
 // on_configure): eye (-4, 0, 3.5), target (2, 0, -0.5).
-overlume::CameraPose DefaultOffset()
-{
+overlume::CameraPose DefaultOffset() {
     overlume::CameraPose p{};
-    p.eye[0] = -4.0; p.eye[1] = 0.0; p.eye[2] = 3.5;
-    p.target[0] = 2.0; p.target[1] = 0.0; p.target[2] = -0.5;
+    p.eye[0] = -4.0;
+    p.eye[1] = 0.0;
+    p.eye[2] = 3.5;
+    p.target[0] = 2.0;
+    p.target[1] = 0.0;
+    p.target[2] = -0.5;
     p.vfov_deg = 80.0;
     return p;
 }
 
-TEST(ComposeEgoAnchoredPose, HeadingZeroKeepsOffsetBehindEgo)
-{
+TEST(ComposeEgoAnchoredPose, HeadingZeroKeepsOffsetBehindEgo) {
     overlume::EgoState ego{};
     ego.position = overlume::Vec3{10.0, 20.0, 1.0};
     ego.heading_rad = 0.0;
@@ -47,8 +50,7 @@ TEST(ComposeEgoAnchoredPose, HeadingZeroKeepsOffsetBehindEgo)
     EXPECT_NEAR(out.target[2], -0.5 + ego.position.z, kEps);
 }
 
-TEST(ComposeEgoAnchoredPose, HeadingNegHalfPiRotatesEyeBehindEgoFacingMinusY)
-{
+TEST(ComposeEgoAnchoredPose, HeadingNegHalfPiRotatesEyeBehindEgoFacingMinusY) {
     overlume::EgoState ego{};
     ego.position = overlume::Vec3{5.0, -3.0, 2.0};
     ego.heading_rad = -M_PI_2;

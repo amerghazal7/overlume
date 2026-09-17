@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """flicker_burst_capture.py — VM-077 BEHAVIOR-ribbon live burst capture rig.
 
 Committed replacement for the scratch grab_burst_after.py this investigation

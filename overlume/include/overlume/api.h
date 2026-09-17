@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
 // api.h — POD boundary. No standard-library container/string/smart-pointer
 // types cross this header.
 //
