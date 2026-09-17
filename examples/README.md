@@ -5,6 +5,10 @@ Six small, self-contained C++ programs against overlume's public API
 anything from `overlume/src`. Each renders a headless frame and writes it
 out as an image file, then exits 0.
 
+See [`docs/README.md`'s "API documentation"](../docs/README.md#api-documentation)
+section for the generated Doxygen reference these programs are written
+against.
+
 ## Building and running
 
 Built as part of the ordinary library configure, under

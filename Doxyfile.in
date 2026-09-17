@@ -1,0 +1,63 @@
+# Doxyfile.in — configured by overlume/CMakeLists.txt's `docs` target
+# (Task 5, 2026-09-17-overlume-restructure.md) into
+# ${CMAKE_BINARY_DIR}/Doxyfile. @-bracketed values are substituted by CMake's
+# configure_file(); everything else is a plain Doxygen setting. Doxygen 1.18.
+
+# ── Project ──────────────────────────────────────────────────────────────────
+PROJECT_NAME           = "Overlume"
+PROJECT_NUMBER         = "@PROJECT_VERSION@"
+PROJECT_BRIEF          = "A real-time rendering layer for a robot's sensor and autonomy data"
+
+# ── Input ────────────────────────────────────────────────────────────────────
+# The public API headers, the example programs, and the root README as the
+# main page. Not overlume/src (internal) or docs/*.md (covered by the docs/
+# index itself, not this API-reference target).
+INPUT                  = "@OVERLUME_REPO_ROOT@/overlume/include/overlume" \
+                         "@OVERLUME_REPO_ROOT@/docs/api_mainpage.md" \
+                         "@OVERLUME_REPO_ROOT@/examples"
+USE_MDFILE_AS_MAINPAGE = "@OVERLUME_REPO_ROOT@/docs/api_mainpage.md"
+RECURSIVE              = YES
+# examples/common.hpp is a shared test-harness helper (arg parsing, PNG
+# write) internal to the example programs, not part of the documented public
+# API surface any of the six examples demonstrate -- excluded so its
+# undocumented ExampleArgs struct doesn't trip WARN_IF_UNDOCUMENTED below
+# (verified empirically: it's the only undocumented entity examples/ trips).
+EXCLUDE                = "@OVERLUME_REPO_ROOT@/examples/common.hpp"
+EXCLUDE_PATTERNS       = */build/* */build-*/*
+IMAGE_PATH             = "@OVERLUME_REPO_ROOT@"
+EXAMPLE_PATH           = "@OVERLUME_REPO_ROOT@/examples"
+
+# ── Extraction / warnings ────────────────────────────────────────────────────
+# Only documented entities are extracted, but every entity Doxygen parses
+# still gets a "not documented" warning (WARN_IF_UNDOCUMENTED) -- and that
+# warning fails the build (WARN_AS_ERROR), so every public symbol under
+# INPUT above must be documented. This is deliberate: it's the gate that
+# keeps scene.h/api.h's Doxygen pass complete.
+EXTRACT_ALL             = NO
+EXTRACT_PRIVATE         = NO
+EXTRACT_STATIC          = NO
+INTERNAL_DOCS           = NO
+JAVADOC_AUTOBRIEF       = YES
+WARN_IF_UNDOCUMENTED    = YES
+WARN_NO_PARAMDOC        = NO
+WARN_AS_ERROR           = FAIL_ON_WARNINGS
+
+# ── Output ───────────────────────────────────────────────────────────────────
+OUTPUT_DIRECTORY        = "@CMAKE_BINARY_DIR@/docs"
+GENERATE_HTML           = YES
+GENERATE_LATEX          = NO
+GENERATE_MAN            = NO
+GENERATE_RTF            = NO
+GENERATE_XML            = NO
+
+# doxygen-awesome-css (v2.5.0, fetched by cmake/GetDoxygenAwesome.cmake),
+# sidebar layout per its own README (GENERATE_TREEVIEW/DISABLE_INDEX/
+# FULL_SIDEBAR below match its documented recipe).
+HTML_EXTRA_STYLESHEET   = "@DOXYGEN_AWESOME_CSS_DIR@/doxygen-awesome.css" \
+                          "@DOXYGEN_AWESOME_CSS_DIR@/doxygen-awesome-sidebar-only.css"
+HTML_COLORSTYLE         = LIGHT
+GENERATE_TREEVIEW       = YES
+DISABLE_INDEX           = NO
+FULL_SIDEBAR            = NO
+
+QUIET                   = YES
