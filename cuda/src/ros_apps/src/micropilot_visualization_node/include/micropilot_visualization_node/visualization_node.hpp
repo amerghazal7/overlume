@@ -418,29 +418,37 @@ private:
     bool geo_anchor_logged_{false};
 
     // ── Environment (VM-052) ──────────────────────────────────────────────────
-    // environment_enabled_/environment_chunks_dir_ read once in on_configure(),
+    // environment_enabled_/environment_chunks_dir_ declared in on_configure(),
     // same shape as hud_enabled_/hud_font_path_ below (STANDING directive
     // disable knob + per-checkout-path gap). on_activate() calls
     // mpviz::set_environment_source() iff environment_enabled_ AND
     // geo_anchor_solver_->solved() -- else WARNs once
     // (environment_warned_) and never calls it, per spec §4.5/§9's "no
-    // anchor -> environment layer disabled with one WARN". NOT gated per
-    // render_mode_ once armed: there is no library-side way to hide a live
-    // environment source without tearing down its loaded chunk index (see
-    // timer_callback()'s comment above the bowl-visibility dispatch) --
-    // buildings render in BOWL/HYBRID too whenever this succeeds. Named
-    // exception 7, docs/visual_mode/signoff.md.
+    // anchor -> environment layer disabled with one WARN". Since VM-096,
+    // environment_enabled_ is ALSO live-updated in on_params(): it toggles
+    // the renderer's visibility flag via mpviz::set_environment_visible(),
+    // which hides an already-loaded source without tearing down its chunk
+    // index (environment.cpp). environment_source_uri_ (below) is
+    // separately live-re-armable from on_params() too, same geo-anchor
+    // precondition as the arming path here. NOT gated per render_mode_ once
+    // armed: buildings render in BOWL/HYBRID too whenever a source is open,
+    // by design -- named exception 7, docs/visual_mode/signoff.md (CLOSED
+    // for the visibility-toggle blocker; the remaining open item recorded
+    // there is that there is still no automatic per-render_mode gating).
     bool environment_enabled_{true};
     std::string environment_chunks_dir_;
     bool environment_warned_{false};
-    // VM-063 (Epic 6 Task 4): source-selection config, read once in
-    // on_configure() alongside the pair above. Empty environment_source_uri_
+    // VM-063 (Epic 6 Task 4): source-selection config, declared in
+    // on_configure() alongside the pair above. Live-re-armable via
+    // on_params() since VM-096 (same geo-anchor precondition as
+    // on_activate()'s own arming path). Empty environment_source_uri_
     // (the shipped default) means "keep using environment_chunks_dir_ as a
     // baked dir" -- byte-for-byte today's behavior, every existing
     // deployment unaffected. Non-empty means an "ion://" URI is composed at
-    // on_activate() with `?cache=`/`&fallback=` from the two params below
-    // (Decision 5/11) -- see that call site's own comment for the exact
-    // composition and the changed not-configured gate.
+    // on_activate() (or at the on_params() live switch) with
+    // `?cache=`/`&fallback=` from the two params below (Decision 5/11) --
+    // see that call site's own comment for the exact composition and the
+    // changed not-configured gate.
     std::string environment_source_uri_;
     std::string environment_tile_cache_dir_;
     // WARN-once latch on the STREAMING -> STREAMING_FALLBACK transition

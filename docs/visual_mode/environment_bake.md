@@ -109,6 +109,14 @@ MAPBOX_TOKEN=<your token> python3 bake_environment.py --anchor-lat ... --anchor-
   verification_overlay.png   # or .ppm if PIL isn't installed
 ```
 
+Each `chunk_<i>_<j>.glb` carries `POSITION` **and** `NORMAL` per vertex
+(`bake_environment.py`'s `export(..., include_normals=True)`). Chunks baked
+before this change still carry `POSITION` only — the load-time path covers
+that gap transparently: `ensure_flat_normals()` (`gltf_normals.cpp`) fills in
+flat per-face normals for any primitive that arrives without a `NORMAL`
+attribute, so an older bake keeps loading and rendering correctly, just
+without the smoother per-vertex normals a fresh bake provides.
+
 `index.yaml` never lists an empty cell (every footprint in it was
 unrepairable) — absence of a chunk file means "nothing there", not "not
 baked yet".
@@ -122,32 +130,65 @@ to the recorded ego track (red line, when `--ego-track` was given) — a
 bake with the wrong anchor typically shows the footprints and the ego track
 in entirely different places, or rotated relative to each other.
 
-## Wiring the output into the node (VM-052)
+## Wiring the output into the node (VM-052 / VM-063 / VM-096)
 
-Two node parameters, both read once at `on_configure()`:
+Five node parameters, all declared at `on_configure()`:
 
-- `environment_enabled` (default `true`)
-- `environment_chunks_dir` (default `""` — "not configured", per-checkout)
+- `environment_enabled` (default `true`) — the disable knob. **Live-settable**
+  via `on_params()` (`ros2 param set` / the vcam GUI's Environment Tiles
+  switch): it toggles the renderer's visibility flag through
+  `mpviz::set_environment_visible()`, which hides/shows an already-loaded
+  source without tearing down its chunk index.
+- `environment_chunks_dir` (default `""` — "not configured", per-checkout):
+  the baked output directory (this doc's `--out`).
+- `environment_source_uri` (default `""`): an optional `ion://` streaming
+  source; empty means "use `environment_chunks_dir` as a baked dir" —
+  byte-for-byte the pre-VM-063 behavior. **Live-settable** via `on_params()`
+  (same param name), which re-arms a new source, gated on the geo-anchor
+  already being solved (same precondition `on_activate()`'s own arming path
+  enforces).
+- `environment_tile_cache_dir` (default `""`): appended to a non-empty
+  `environment_source_uri` as `?cache=<dir>` (skipped if the URI already
+  carries a `cache=` key, e.g. an explicit `cache=off`).
+- `environment_own_asset_uri` (default `""`): this deployment's own "clipped"
+  ion asset id, read back by the vcam GUI/WS bridge to resolve its "clipped"
+  preset — the node itself never dereferences it.
+
+(`environment_attribution`, a sixth `environment_*` param controlling the
+Google 3D Tiles attribution line, is unrelated to source selection — see
+`cesium.md`.)
 
 At `on_activate()` the node applies a three-way gate before calling
 `mpviz::set_environment_source()`:
 
-1. `environment_enabled` **and** `environment_chunks_dir` empty → one `WARN`
+1. `environment_enabled` **and** `environment_chunks_dir` **and**
+   `environment_source_uri` all empty → one `WARN` naming both params
    ("environment layer disabled this run"), the entry point is never called
-   — this is the shipped default, not a failure.
-2. `environment_enabled` **and** a chunks dir is set **and** the geo-anchor
-   solver has already solved (or was overridden) → `set_environment_source()`
-   is called with that directory and the solved/overridden anchor; a failure
-   to open it is a `WARN`, not fatal ("no buildings this run").
+   — this is the shipped default, not a failure. A streaming-only deployment
+   (an `ion://` URI, no bake) does **not** hit this gate — it arms via
+   `environment_source_uri` alone.
+2. `environment_enabled` **and** (a chunks dir or a source URI is set)
+   **and** the geo-anchor solver has already solved (or was overridden) →
+   `set_environment_source()` is called with the composed source URI
+   (`compose_environment_source_uri()`, `environment_source_uri.hpp`) and the
+   solved/overridden anchor; a failure to open it is a `WARN`, not fatal
+   ("no buildings this run").
 3. `environment_enabled` but no geo-anchor solved yet at `on_activate()` time
    → one `WARN`, environment layer disabled for this run. Solving from live
    `NavSatFix`+TF takes real motion, so a run with no `geo_datum_*` override
    commonly reaches `on_activate()` before the anchor is solved — this is a
-   stated, accepted gap (spec Sec.4.5/9), not silently patched around.
+   stated, accepted gap (spec Sec.4.5/9), not silently patched around. This
+   is the one precondition the live `environment_source_uri` switch in
+   `on_params()` still enforces too — a switch attempted before the anchor
+   solves is rejected, leaving the previous source (if any) intact.
 
-So the rollout order is: bake with the node's own logged anchor → point
-`environment_chunks_dir` at the bake's `--out` directory → restart/reconfigure
-the node with `environment_enabled: true`.
+No restart is required to change source or visibility once the node is
+active: bake with the node's own logged anchor, point `environment_chunks_dir`
+at the bake's `--out` directory (or set `environment_source_uri` to an
+`ion://` streaming spec), and toggle `environment_enabled` or switch
+`environment_source_uri` live via `ros2 param set` or the vcam GUI, subject
+to the geo-anchor precondition above. See `docs/visual_mode/cesium.md` for
+the streamed (`ion://`) source presets in detail.
 
 ## Verified
 

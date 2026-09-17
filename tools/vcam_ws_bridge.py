@@ -47,6 +47,13 @@ third-party client — can drive the virtual camera:
     {"type": "params", "values": {name: value, ...}}
     {"type": "ack", "cmd": "save_params", "success": bool, "path": str}
     {"type": "ack", "cmd": "set_preset", "success": bool, "active": str}
+    {"type": "ack", "cmd": "set_environment_source", "success": bool,
+     "preset": str, "reason": str}  ("reason" present only when success is
+        False -- the node's SetParameters rejection reason, e.g.
+        "environment_source_uri: geo-anchor not solved yet -- cannot switch
+        the environment source live")
+    {"type": "ack", "cmd": ("set_layers"|"set_quality"|
+     "set_surround_profile"|"set_environment_enabled"), "success": bool}
     {"type": "error", "message": str}
 
 Run (ROS sourced + ros_apps install sourced for the SetVirtualCam type):

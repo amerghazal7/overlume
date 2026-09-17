@@ -55,3 +55,33 @@ TEST(ComposeEnvironmentSourceUri, ExplicitFallbackInUriSurvivesNonEmptyChunksDir
 
 }  // namespace
 }  // namespace micropilot::visualization_app
+
+// fallback_dir_from_source_uri(): the STREAMING_FALLBACK WARN names the dir
+// actually in effect (final review 2026-09-17, finding #17). Reads the
+// COMPOSED string, so an inline fallback= wins exactly as compose does.
+TEST(FallbackDirFromSourceUri, NoKeyIsEmpty)
+{
+    EXPECT_EQ(micropilot::visualization_app::fallback_dir_from_source_uri("ion://96188?cache=/c"), "");
+    EXPECT_EQ(micropilot::visualization_app::fallback_dir_from_source_uri(""), "");
+}
+
+TEST(FallbackDirFromSourceUri, LastKeyRunsToEnd)
+{
+    EXPECT_EQ(micropilot::visualization_app::fallback_dir_from_source_uri(
+                  "ion://96188?cache=/c&fallback=/baked/dir"),
+              "/baked/dir");
+}
+
+TEST(FallbackDirFromSourceUri, MiddleKeyStopsAtAmpersand)
+{
+    EXPECT_EQ(micropilot::visualization_app::fallback_dir_from_source_uri(
+                  "ion://96188?fallback=/explicit&cache=off"),
+              "/explicit");
+}
+
+TEST(FallbackDirFromSourceUri, InlineFallbackWinsThroughCompose)
+{
+    const std::string composed = micropilot::visualization_app::compose_environment_source_uri(
+        "/chunks", "ion://96188?fallback=/explicit", "");
+    EXPECT_EQ(micropilot::visualization_app::fallback_dir_from_source_uri(composed), "/explicit");
+}

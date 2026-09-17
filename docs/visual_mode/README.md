@@ -17,7 +17,19 @@ backlog and `docs/superpowers/plans/` for the per-epic plans.
 - [`environment_bake.md`](environment_bake.md) — bake OSM building footprints
   into the environment-chunk format the node loads at `on_activate()`.
 - [`cesium.md`](cesium.md) — Cesium ion account/token/asset contract + the
-  `CESIUM_ION_TOKEN` smoke check (Epic 6 / VM-060).
+  `CESIUM_ION_TOKEN` smoke check (Epic 6 / VM-060); §6 the Google
+  Photorealistic 3D Tiles preset (VM-064).
+- [`env_source_captures.md`](env_source_captures.md) — one committed render
+  per vcam GUI Environment Tiles preset (baked / osm / google; clipped
+  ungraded) for judging the streamed sources side by side (VM-096).
+- [`theme_showcase.md`](theme_showcase.md) — opt-in whole-palette single-frame
+  capture harness (`MPVIZ_SHOWCASE=1`) used to judge theme candidates; how the
+  shipped ref-2 palettes were chosen.
+- [`signoff.md`](signoff.md) — the open/closed sign-off items across epics,
+  including the named exceptions the sign-off accepts.
+- [`bowl-golden-vm091.md`](bowl-golden-vm091.md) /
+  [`hybrid-golden-vm094.md`](hybrid-golden-vm094.md) — the unified-engine
+  migration's parity golden packages.
 
 ## Pre-merge gate (VM-041)
 

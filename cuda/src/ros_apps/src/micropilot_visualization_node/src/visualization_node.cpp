@@ -1101,14 +1101,16 @@ VisualizationNode::CallbackReturn VisualizationNode::on_activate(
         }
         else
         {
-            // VM-096: an honest one-shot arming log naming the visibility
-            // state this run actually starts in -- environment_enabled:=
-            // false now means the source is armed but HIDDEN (the
-            // set_environment_visible() call above this if/else chain),
-            // not "never armed". test_environment_live_switch.py's check 5
-            // greps this line for that word.
-            RCLCPP_INFO(get_logger(), "environment source armed: '%s' (%s)",
-                        source_uri.c_str(), environment_enabled_ ? "visible" : "hidden");
+            // VM-096: an honest one-shot arming log. This whole branch is
+            // gated on environment_enabled_ (the `else if` above), so the
+            // state word here is always "visible" -- a disabled launch
+            // arms nothing at all and, because every branch of this chain
+            // is gated on environment_enabled_, emits no WARN either. The
+            // armed-but-HIDDEN case lives on the on_params() live-switch
+            // path below, whose own log test_environment_live_switch.py's
+            // check 5 actually greps.
+            RCLCPP_INFO(get_logger(), "environment source armed: '%s' (visible)",
+                        source_uri.c_str());
         }
         // No per-mode gate on success: see timer_callback()'s comment above
         // the bowl-visibility dispatch -- buildings render regardless of
@@ -1274,10 +1276,37 @@ rcl_interfaces::msg::SetParametersResult VisualizationNode::on_params(
                 {
                     const std::string source_uri = compose_environment_source_uri(
                         environment_chunks_dir_, requested, environment_tile_cache_dir_);
-                    if (mpviz::set_environment_source(renderer_, source_uri.c_str(),
-                                                       geo_anchor_solver_->anchor()))
+                    if (source_uri.empty())
+                    {
+                        // Finding #19: an empty requested preset (e.g. the
+                        // GUI's "baked" preset) composes to "" whenever
+                        // environment_chunks_dir_ is also not configured on
+                        // this deployment -- reject with the real gap named
+                        // instead of letting set_environment_source() fail
+                        // and report a misleading "failed to open ''".
+                        res.successful = false;
+                        res.reason =
+                            "environment_source_uri: '" + requested +
+                            "' selected but environment_chunks_dir is not configured on "
+                            "this deployment";
+                        RCLCPP_WARN(get_logger(), "%s", res.reason.c_str());
+                    }
+                    else if (mpviz::set_environment_source(renderer_, source_uri.c_str(),
+                                                            geo_anchor_solver_->anchor()))
                     {
                         environment_source_uri_ = requested;
+                        // A freshly armed source has never fallen back --
+                        // the fallback WARN latch is per ARMED SOURCE, not
+                        // per-run (finding #18/#37), so a live re-arm must
+                        // reset it the same way on_cleanup()/on_shutdown()
+                        // do, or the next transition on this new source
+                        // goes unwarned. The attribution latch is a
+                        // font/DrawText-failure latch (keyed on hud_font,
+                        // not on the source); it is reset here only so a
+                        // preset switch to/from Google gets one fresh WARN
+                        // if the credit still cannot be drawn.
+                        environment_fallback_warned_ = false;
+                        environment_attribution_warned_ = false;
                         // VM-096 gate round 1 finding: this live-switch arm
                         // path doesn't gate on environment_enabled_ at all
                         // (by design -- it only toggles VISIBILITY,
@@ -1527,16 +1556,18 @@ void VisualizationNode::timer_callback()
 
     // Environment/buildings layer (Epic 4/VM-052) is renderer-internal, not a
     // SceneAssembly/LayerFlags category (scene_assembly.hpp's mode_content_mask
-    // comment) -- NOT gated per mode. set_environment_source(nullptr, ...)
-    // cannot hide a live source: environment.cpp's null/empty-uri guard
-    // returns false BEFORE reaching the `if (r->environmentSource) teardown()`
-    // line, so a null call after a real one is a no-op, not a hide. There is
-    // no library-side visibility toggle to call instead. Buildings therefore
-    // keep rendering in BOWL/HYBRID whenever environment_chunks_dir is
-    // provisioned -- named exception 7, docs/visual_mode/signoff.md. Needs
-    // either set_environment_visible() or a fixed teardown-before-return
-    // order in set_environment_source() (library side, out of this node-only
-    // task's scope).
+    // comment) -- NOT gated per render_mode_. Buildings are instead gated on
+    // the renderer's environmentVisible flag, which mpviz::set_environment_visible()
+    // drives from environment_enabled_ (on_activate() and the on_params()
+    // live toggle above) -- so buildings render regardless of render_mode_
+    // in BOWL/HYBRID whenever a source is armed AND environment_enabled_ is
+    // true. The arming source itself is environment_source_uri_ OR
+    // environment_chunks_dir_ (VM-063), either one composed by
+    // compose_environment_source_uri(). This is named exception 7,
+    // docs/visual_mode/signoff.md -- CLOSED (library-side blocker) by
+    // VM-096's set_environment_visible(); the remaining by-design open item
+    // recorded there is that there is still no automatic per-render_mode
+    // gating.
 
     // scene_asm_.clear() must run before any adapter's fill(), or last tick's
     // elements pile up on top of this tick's. MapElement fades via the
@@ -1890,14 +1921,24 @@ void VisualizationNode::timer_callback()
     // call returned true -- this is the node's only window into it. Bool
     // latch, not _ONCE sugar (the Epic 4 Task 1 Step 4 precedent,
     // geo_anchor_logged_): fires exactly once on the STREAMING ->
-    // STREAMING_FALLBACK transition, never again this run (one-way,
-    // Decision 11 -- no auto-recovery to re-arm it).
+    // STREAMING_FALLBACK transition, never again for this armed source
+    // (one-way, Decision 11 -- no auto-recovery re-arms it on its own; a
+    // live environment_source_uri switch resets the latch, finding #18/#37).
     if (!environment_fallback_warned_ &&
         mpviz::environment_source_state(renderer_) ==
             mpviz::EnvironmentSourceState::STREAMING_FALLBACK)
     {
         environment_fallback_warned_ = true;
-        if (environment_chunks_dir_.empty())
+        // Finding #17: the fallback dir actually in effect is whatever
+        // compose_environment_source_uri() put in the composed URI's
+        // `fallback=` key -- an inline fallback= on environment_source_uri_
+        // always wins over environment_chunks_dir_ (that function's own
+        // comment), so name THAT dir, not environment_chunks_dir_ alone, or
+        // this WARN can claim "none configured" while a real fallback bake
+        // is rendering.
+        const std::string fallback_dir = fallback_dir_from_source_uri(compose_environment_source_uri(
+            environment_chunks_dir_, environment_source_uri_, environment_tile_cache_dir_));
+        if (fallback_dir.empty())
         {
             RCLCPP_WARN(get_logger(),
                         "environment source: network loss detected -- switched to fallback, "
@@ -1907,7 +1948,7 @@ void VisualizationNode::timer_callback()
         {
             RCLCPP_WARN(get_logger(),
                         "environment source: network loss detected -- switched to fallback dir '%s'",
-                        environment_chunks_dir_.c_str());
+                        fallback_dir.c_str());
         }
     }
 

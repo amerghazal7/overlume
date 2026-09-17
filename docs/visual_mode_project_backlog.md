@@ -31,7 +31,7 @@
 | E03: HUD, Polish & Controls | 8 | 33 | 21 | In Progress — Task 1 VM-036 done 2026-09-07 (in working tree, not yet committed at time of writing); VM-034/030/031/032/035/037 not started |
 | E04: Clay Buildings (EnvironmentLayer) | 3 | 9 | 13 | Not Started — nothing exists yet (no bake script, no geo anchor); fixture bag carries NavSatFix |
 | E05: Hardening & Delivery | 5 | 16 | 18 | Not Started — quality governor, repo-local CI gate (no hosted CI exists), docs, asset packaging, live validation sign-off |
-| E06: v1.1 — 3D Tiles Streaming | 4 | 10 | 17 | Committed v1.1 (user decision 2026-09-07, deferral rejected) — starts at v1.0 sign-off; Cesium ion registration by user |
+| E06: v1.1 — 3D Tiles Streaming | 5 | 10 | 0 | ✅ CLOSED 2026-09-16 (final review 2026-09-17) — VM-060…VM-064 landed (679f12b…91c2e58) + post-close tail (VM-096 GUI Environment Tiles control, ref-2 re-palette, environment normals, z stagger, golden audit). Open: live-rig cable pull (B06.4.2's live leg), see epic plan §"Post-close tail + final review" |
 | E07: Future (explicitly deferred) | 7 | 0 | — | Deferred — each item carries its re-entry trigger |
 | **TOTAL** | **45** | **111** | **~72** | |
 
@@ -225,27 +225,28 @@
 | Backlog Item | B05.5.3 | F05.5 | On-robot budget table | Executes B00.4.2 as part of sign-off. | Table + go/adjust recorded. | 1 | 1 | Spec §8 | perf |
 | Backlog Item | B05.5.4 | F05.5 | `signoff.md` checklist | Product + autonomy sign-off; Cesium ion registration reminder for E06. | Checklist complete. | 1 | 1 | — | signoff |
 
-### E06 — v1.1: 3D Tiles Streaming (committed)
+### E06 — v1.1: 3D Tiles Streaming (✅ CLOSED 2026-09-16)
 
-> **Source:** Backlog spec Epic 6 (a314162). The 2026-09-07 review proposed deferring this epic; the user rejected that — it stays committed v1.1 and starts immediately after v1.0 sign-off. Its bite-sized plan (`2026-08-18-visual-mode-epic6.md`) is authored at VM-043. Prerequisite: user performs Cesium ion registration; token handled like the Mapbox token (env var, never committed).
+> **Source:** `docs/superpowers/plans/2026-08-18-visual-mode-epic6.md` (Status ledger). The 2026-09-07 review proposed deferring this epic; the user rejected that — it stayed committed v1.1. Plan authored 2026-09-11, executed 2026-09-15/16 after the unified-engine cutover, ledger CLOSED 2026-09-16, final cross-cutting review 2026-09-17 (42 findings fixed, 1 blocking: token reachable in the node log via cesium-native's error logger — redacted + cache-bypassed at close). Token handled like the Mapbox token (env var, never committed). Done marks below cite the landing commits; the one leg still open is the live-rig cable pull (B06.4.2).
 
 | WI Type | ID | Parent | Title | Description | Acceptance Criteria | Pri | Effort | Refs | Tags |
 |---------|----|--------|-------|-------------|---------------------|-----|--------|------|------|
-| Epic | E06 | — | v1.1 — 3D Tiles Streaming | Stream Cesium OSM Buildings (3D Tiles) through cesium-native behind the `EnvironmentSource` seam from E04, re-materialized in the theme's clay building material, geo-placed via the VM-050 anchor, with a disk cache and baked-chunk fallback on network loss. | Baked-source goldens still pass with the streaming source; frame-time budget held while streaming; fallback e2e passes. | 2 | 17 | Spec §4.5; ADR-0003 | environment, streaming, v1.1 |
-| Feature | F06.1 | E06 | VM-060 Cesium ion registration + tileset access | User registers; Cesium OSM Buildings token stored as env var, never committed; runbook `docs/visual_mode/cesium.md`. | Token retrieves `tileset.json` for the operating area. | 2 | 1 | Spec §4.5 | cesium, setup |
-| Backlog Item | B06.1.1 | F06.1 | Cesium ion registration (user) | Account + asset access to OSM Buildings. | Token issued. | 2 | 0.5 | — | setup |
-| Backlog Item | B06.1.2 | F06.1 | Token handling + tileset retrieval check | Env var convention documented; smoke script fetches `tileset.json`. | Fetch succeeds for the operating-area bbox. | 2 | 0.5 | — | setup |
-| Feature | F06.2 | E06 | VM-061 cesium-native build integration | Pin a cesium-native release behind the same clang/libc++ + POD-boundary rules as Filament (`cmake/GetCesiumNative.cmake`). | Builds alongside Filament; POD header check still passes. | 2 | 5 | ADR-0001, 0003 | build |
-| Backlog Item | B06.2.1 | F06.2 | `GetCesiumNative.cmake` pin + static link | Pinned release, sha256, libc++ static; cyclic archive handling. | Lib builds; hello-frame unchanged. | 2 | 3 | ADR-0003 | build |
-| Backlog Item | B06.2.2 | F06.2 | POD boundary + node link verification | No cesium types in public headers; node links the new archive. | `check_pod_header.sh` green; colcon green. | 2 | 2 | ADR-0003 | build |
-| Feature | F06.3 | E06 | VM-062 3D Tiles streaming EnvironmentSource | Tile selection/loading behind the seam; glTF tile payloads re-materialized with the clay building material; geo placement via VM-050; disk tile cache for offline robustness. | Baked-source goldens still pass with the streaming source swapped in over the same area; frame-time budget held. | 2 | 8 | Spec §4.5, §8 | streaming |
-| Backlog Item | B06.3.1 | F06.3 | Tile selection + async loading | `src/environment_stream.cpp`; camera/ego-driven tile selection off the render thread. | Tiles appear in the validation rig. | 2 | 3 | Spec §4.5 | streaming |
-| Backlog Item | B06.3.2 | F06.3 | Clay re-materialization of tile glTF | Strip textures, apply theme building material. | Golden matches baked-source look. | 2 | 2 | Spec §4.3 | theme |
-| Backlog Item | B06.3.3 | F06.3 | Geo placement via VM-050 anchor | ECEF → local ENU using the datum. | Buildings align with the baked overlay within tolerance. | 2 | 1 | Spec §4.5 | geo |
-| Backlog Item | B06.3.4 | F06.3 | Disk tile cache | Cache dir param; offline replay from cache. | Second run loads with network disabled. | 2 | 2 | Spec §9 | streaming |
-| Feature | F06.4 | E06 | VM-063 Source selection + fallback | Profile/param chooses `baked / streamed`; streamed falls back to baked chunks on network loss with WARN. | Fallback e2e test (kill network mid-run → baked chunks appear, WARN). | 2 | 3 | Spec §9 | streaming, fallback |
-| Backlog Item | B06.4.1 | F06.4 | Source selection param | Node/profile knob; both sources behind one seam. | Param switches sources live or at configure. | 2 | 1 | Spec §4.5 | node |
-| Backlog Item | B06.4.2 | F06.4 | Fallback on network loss + e2e | Detect stalled tiles → baked chunks; WARN once. | E2E passes. | 2 | 2 | Spec §9 | test |
+| Epic | E06 | — | v1.1 — 3D Tiles Streaming | Stream Cesium OSM Buildings (3D Tiles) through cesium-native behind the `EnvironmentSource` seam from E04, re-materialized in the theme's clay building material, geo-placed via the VM-050 anchor, with a disk cache and baked-chunk fallback on network loss. | ✅ Streaming golden + baked goldens green; render_ms delta streaming vs none ≈0.1-0.3 ms (bar 2 ms); fallback e2e passes (network-dead-from-first-request form; live-STREAMING-with-tiles-resident form only coverable by the live cable pull). | 2 | ✅ Done | Spec §4.5; ADR-0003 | environment, streaming, v1.1, DONE |
+| Feature | F06.1 | E06 | VM-060 Cesium ion registration + tileset access | User registers; Cesium OSM Buildings token stored as env var, never committed; runbook `docs/visual_mode/cesium.md`. | ✅ `check_cesium_token.sh` PASS 200/200 after the user rotated the expired token (679f12b, f75dad6). | 2 | ✅ Done | Spec §4.5 | cesium, setup, DONE |
+| Backlog Item | B06.1.1 | F06.1 | Cesium ion registration (user) | Account + asset access to OSM Buildings. | ✅ Token issued (user, 2026-09-11; regenerated 2026-09-15). | 2 | ✅ Done | — | setup, DONE |
+| Backlog Item | B06.1.2 | F06.1 | Token handling + tileset retrieval check | Env var convention documented; smoke script fetches `tileset.json`. | ✅ `docs/visual_mode/cesium.md` + smoke script print PASS/FAIL + HTTP codes only (679f12b). | 2 | ✅ Done | — | setup, DONE |
+| Feature | F06.2 | E06 | VM-061 cesium-native build integration | Pin a cesium-native release behind the same clang/libc++ + POD-boundary rules as Filament (`cmake/GetCesiumNative.cmake`). | ✅ v0.64.0 source pin + vcpkg overlay triplet; primary toolchain migrated clang-14→18 (user decision, f6aedc0/756dbca); POD check green; node links the merged archive. | 2 | ✅ Done | ADR-0001, 0003 | build, DONE |
+| Backlog Item | B06.2.1 | F06.2 | `GetCesiumNative.cmake` pin + static link | Pinned release, sha256, libc++ static; cyclic archive handling. | ✅ `GetCesiumNative.cmake` (VM-061); `MPVIZ_ENABLE_CESIUM` option (default OFF — open item at close). | 2 | ✅ Done | ADR-0003 | build, DONE |
+| Backlog Item | B06.2.2 | F06.2 | POD boundary + node link verification | No cesium types in public headers; node links the new archive. | ✅ C++20 OBJECT-library quarantine of `environment_stream.cpp`; spdlog/fmt/YAML symbol rename audited; colcon green (VM-061 gate rounds 1-3). | 2 | ✅ Done | ADR-0003 | build, DONE |
+| Feature | F06.3 | E06 | VM-062 3D Tiles streaming EnvironmentSource | Tile selection/loading behind the seam; glTF tile payloads re-materialized with the clay building material; geo placement via VM-050; disk tile cache for offline robustness. | ✅ `StreamingEnvironmentSource` (2afdc5d + gates e4e5417/9b06fc9); `environment_stream_dark_adas.png` golden; render_ms delta ≈0.1-0.3 ms. | 2 | ✅ Done | Spec §4.5, §8 | streaming, DONE |
+| Backlog Item | B06.3.1 | F06.3 | Tile selection + async loading | `src/environment_stream.cpp`; camera/ego-driven tile selection off the render thread. | ✅ Tiles appear (library-level live captures, VM-096 package); node-level rig run still open. | 2 | ✅ Done | Spec §4.5 | streaming, DONE |
+| Backlog Item | B06.3.2 | F06.3 | Clay re-materialization of tile glTF | Strip textures, apply theme building material. | ✅ Same `createAsset→…→setMaterialInstanceAt` sequence as the baked path; `materials=original` opt-out added by VM-064. | 2 | ✅ Done | Spec §4.3 | theme, DONE |
+| Backlog Item | B06.3.3 | F06.3 | Geo placement via VM-050 anchor | ECEF → local ENU using the datum. | ✅ Max horizontal error ≈0.29 m at 2.6 km (bar 0.5 m) after the ellipsoid fix; distance-dependent vertical sag named open. | 2 | ✅ Done | Spec §4.5 | geo, DONE |
+| Backlog Item | B06.3.4 | F06.3 | Disk tile cache | Cache dir param; offline replay from cache. | ✅ `CachingAssetAccessor`+`SqliteCache`, `?cache=`/`max_cache_items=` knobs; token-bearing URLs bypass the cache (final review). Offline-replay AC itself unverified live. | 2 | ✅ Done | Spec §9 | streaming, DONE |
+| Feature | F06.4 | E06 | VM-063 Source selection + fallback | Profile/param chooses `baked / streamed`; streamed falls back to baked chunks on network loss with WARN. | ✅ `environment_source_uri` param + `EnvironmentSourceState` POD (kSceneVersion 6); one-way fallback after 8 consecutive failures, WARN once (e4f6dbb + gates). | 2 | ✅ Done | Spec §9 | streaming, fallback, DONE |
+| Backlog Item | B06.4.1 | F06.4 | Source selection param | Node/profile knob; both sources behind one seam. | ✅ At configure (VM-063) and LIVE via `on_params()` + GUI/WS presets (VM-096, post-close tail). | 2 | ✅ Done | Spec §4.5 | node, DONE |
+| Backlog Item | B06.4.2 | F06.4 | Fallback on network loss + e2e | Detect stalled tiles → baked chunks; WARN once. | ✅ E2E passes (network dead from first request). **OPEN:** live cable pull with tiles resident — the only coverage for teardown-under-fallback. | 2 | ✅ Done | Spec §9 | test, DONE |
+| Feature | F06.5 | E06 | VM-064 Google Photorealistic 3D Tiles: original-materials mode + 3-preset source config (added 2026-09-11, user decision) | `materials=original` keeps the asset's own gltfio materials; `cache=off` compliance lever; three presets (osm/clipped/google) in `default_params.yaml`; attribution line; runbook §6. | ✅ Landed c78d34f + gates 379ccc1/91c2e58; asset id verified against the live API; perf vs clay measured inconclusive (single tile). Pre-go-live manual checks (attribution wording, cache policy) open. | 2 | ✅ Done | Spec §4.5 | streaming, google, DONE |
 
 ### E07 — Future (explicitly deferred)
 
@@ -279,7 +280,7 @@
 7. E05.F05.4 — VM-044 asset packaging early (it blocks sign-off and needs another machine)
 8. E05.F05.1 → F05.2 → F05.3 — governor, CI gate, docs
 9. E05.F05.5 + E00.B00.4.2 — live validation and on-robot budget table, v1.0 sign-off
-10. E06 — v1.1 streaming (plan authored at sign-off; user does Cesium ion registration first)
+10. ~~E06 — v1.1 streaming~~ — CLOSED 2026-09-16; remaining E06 work is the live-rig cable pull only
 
 ---
 

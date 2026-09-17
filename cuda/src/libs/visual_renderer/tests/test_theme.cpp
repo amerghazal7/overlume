@@ -40,8 +40,9 @@ TEST(ThemePalette, EgoParsesFromYamlAsCrossThemeSwap) {
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
 
-    // light_clay.ego == dark_adas.ground (both authored [0.05, 0.06, 0.08])
-    // -- this half of the swap is untouched by ITEM 2.
+    // light_clay.ego == dark_adas.ground (both authored [0.055, 0.055, 0.078]
+    // as of the 2026-09 ref-2 re-palette, Finding #28 -- was [0.05, 0.06,
+    // 0.08] before it) -- this half of the swap is untouched by ITEM 2.
     EXPECT_NEAR(light->palette.ego.r, dark->palette.ground.r, 1e-4f);
     EXPECT_NEAR(light->palette.ego.g, dark->palette.ground.g, 1e-4f);
     EXPECT_NEAR(light->palette.ego.b, dark->palette.ground.b, 1e-4f);
@@ -527,12 +528,15 @@ TEST(ClayMaterial, RespondsToLightDirection) {
 TEST(Fog, ColorAffectsRenderedOutput) {
     // Guards setFogOptions() actually feeding `palette.fog` into
     // `FogOptions::color` (scene radiance, Options.h) rather than leaving
-    // it effectively inert. Two fixtures identical to light_clay (including
-    // its shipped fog.density 0.008 -- an inflated density would mask the
-    // regression with sheer extinction) except `palette.fog` (black vs.
-    // white) must render visibly different mean brightness. Fixed code
-    // moves the mean by ~90/255 here; unfixed by <1/255. Same isolation
-    // technique as ClayMaterial.RespondsToLightDirection above.
+    // it effectively inert. Two frozen fixtures (Finding #27: NOT kept in
+    // sync with light_clay.yaml, which has moved on to fog.density 0.00025
+    // -- these fixtures deliberately stay at their own historical operating
+    // point, a modest fog.density of 0.008, chosen so an inflated density
+    // can't mask the regression with sheer extinction) that differ only in
+    // `palette.fog` (black vs. white) must render visibly different mean
+    // brightness. Fixed code moves the mean by ~90/255 here; unfixed by
+    // <1/255. Same isolation technique as ClayMaterial.RespondsToLightDirection
+    // above.
     constexpr uint32_t kWidth = 320, kHeight = 240;
     const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
     mpviz::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "fog_color_black"};
@@ -570,10 +574,15 @@ TEST(Fog, ColorAffectsRenderedOutput) {
 
 TEST(Fog, ColorAffectsRenderedOutput_DarkAdas) {
     // Closes a coverage gap: the fixtures in Fog.ColorAffectsRenderedOutput
-    // are both derived from light_clay (ibl.intensity 8750) and only
-    // exercise one branch of setFogOptions()'s per-theme color-scale
-    // formula. This guards dark_adas's own branch (ibl.intensity 256000)
-    // the same way, against the same >15.0 liveness bar.
+    // are both frozen at a light-pair historical operating point (derived
+    // from light_clay, ibl.intensity 8750-based) that no shipped theme
+    // occupies (light_clay ships at ibl.intensity 24000). This test's own
+    // fixtures are a separate dark-pair frozen point (256000-based; dark_adas
+    // ships at 350000). setFogOptions()'s color scale is a continuous
+    // function of ibl.intensity, not a per-theme branch -- this just exercises
+    // it at a second, far-apart point on that curve, against the same >15.0
+    // liveness bar. Do not change these fixture values to match shipped
+    // themes; they're frozen coverage points, not references.
     constexpr uint32_t kWidth = 320, kHeight = 240;
     const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
     mpviz::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(),

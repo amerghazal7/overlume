@@ -49,6 +49,7 @@ import argparse
 import json
 import math
 import os
+import struct
 import sys
 from pathlib import Path
 from typing import List, NamedTuple, Optional, Tuple
@@ -407,6 +408,23 @@ def bake(anchor: GeoAnchor, footprints: List[dict], out_dir: Path) -> dict:
     index = {"chunk_size_m": CHUNK_SIZE_M, "chunks": index_chunks}
     (out_dir / "index.yaml").write_text(yaml.safe_dump(index, sort_keys=False))
     return index
+
+
+def _glb_has_normals(glb_path: Path) -> bool:
+    """True iff every mesh primitive this chunk's .glb carries actually
+    wrote a NORMAL attribute (finding #31: include_normals=True above is
+    otherwise unchecked at the source -- only ensure_flat_normals()
+    covers a regression, silently, at load time). Reads the GLB's JSON
+    chunk directly (12-byte header + 8-byte chunk header, glTF 2.0 binary
+    spec) rather than through trimesh, which synthesizes vertex_normals on
+    access regardless of whether the file itself has them."""
+    data = glb_path.read_bytes()
+    chunk_length, chunk_type = struct.unpack_from("<I4s", data, 12)
+    if chunk_type != b"JSON":
+        return False
+    gltf = json.loads(data[20 : 20 + chunk_length])
+    primitives = [p for mesh in gltf.get("meshes", []) for p in mesh.get("primitives", [])]
+    return bool(primitives) and all("NORMAL" in p.get("attributes", {}) for p in primitives)
 
 
 def _load_all_vertices(glb_path: Path) -> np.ndarray:
@@ -768,7 +786,9 @@ def _selfcheck_end_to_end(tmp_dir: Path) -> bool:
     """Full pipeline against the committed Overpass cache fixture: output
     chunk count > 0, every chunk .glb non-empty and loadable, index.yaml
     parses and every listed chunk file exists, footprint vertex count per
-    chunk is sane (> 0)."""
+    chunk is sane (> 0), and every chunk actually carries NORMAL (finding
+    #31 -- the at-the-source half of the include_normals=True change was
+    otherwise unchecked)."""
     anchor = GeoAnchor(25.0803, 55.3910, 0.0)
     footprints = fetch_footprints(anchor, DEFAULT_RADIUS_M, _DEFAULT_OVERPASS_CACHE)
     out_dir = tmp_dir / "end_to_end"
@@ -782,6 +802,7 @@ def _selfcheck_end_to_end(tmp_dir: Path) -> bool:
         ok = ok and glb_path.exists() and glb_path.stat().st_size > 0
         verts = _load_all_vertices(glb_path)
         ok = ok and verts.shape[0] > 0
+        ok = ok and _glb_has_normals(glb_path)
     print(f"[end-to-end] chunks={len(index['chunks'])} footprints={len(footprints)} -> {'OK' if ok else 'FAIL'}")
     return ok
 

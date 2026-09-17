@@ -115,6 +115,19 @@ After running, copy the PNG(s) from `MPVIZ_CAPTURE_OUT_DIR` into
 | [`env_source_captures/env_source_osm.png`](env_source_captures/env_source_osm.png) | osm (live, ion://96188) | luminance stddev 6.02, non-background fraction 10.5% |
 | [`env_source_captures/env_source_google.png`](env_source_captures/env_source_google.png) | google (live, ion://2275207, original materials) | luminance stddev 24.60, non-background fraction 60.6% |
 
+**Attribution caption (Google Map Tiles terms).** `env_source_google.png` is
+committed imagery rendered from Google Photorealistic 3D Tiles — credit:
+**"3D Tiles data (c) Google"**, the exact string the node composites live
+onto frames showing this preset (`visualization_node.cpp`, the
+`environment_attribution` HUD line, `cesium.md` §6's Attribution bullet).
+The node renders it via the HUD text primitive, but this doc's PNG is a pure
+library render (`mpviz::render_frame`, see the note below) that never
+touches that HUD code path, so the credit above is carried here as a
+caption instead. The exact required wording is NOT re-verified per this
+doc capture — same pre-go-live manual check `cesium.md` §6 already calls
+out for the live node — confirm current wording against Google's Platform
+Terms before treating this caption (or the live HUD string) as final.
+
 "Non-background fraction" = share of pixels whose luminance differs from a
 corner-pixel background sample by more than 10 levels — near-zero for a
 blank/sky-only frame, well above zero once real geometry/texture is on
@@ -195,9 +208,10 @@ PYEOF
 ## "clipped" — not renderable on this box
 
 The 4th GUI preset resolves to the node's own `environment_own_asset_uri`
-parameter (`environment_source_uri.hpp`), not a fixed public ion asset id —
+parameter, resolved server-side in `tools/vcam_ws_bridge.py`'s
+`set_environment_source` branch, not a fixed public ion asset id —
 and that parameter defaults to `""` and is **not configured** on this box
-(`visualization_node.cpp:687`). There is no real ion asset id to point a
+(declared at `visualization_node.cpp:687`). There is no real ion asset id to point a
 capture at; fabricating one would silently render some *other*, unrelated
 asset and mislabel it "clipped". `EnvSourceCapture.Clipped` always
 `GTEST_SKIP()`s with this exact reason (even with the capture opt-in set) —
@@ -214,3 +228,10 @@ the comparison package. No PNG exists for this preset.
   or committed by any script or test in this package), and the raw capture
   working directory (`/tmp/env_source_capture` or wherever
   `MPVIZ_CAPTURE_OUT_DIR` points).
+- The licensing question above is scoped to tile BYTES, not the only thing
+  Google's Map Tiles terms actually govern: those terms require attribution
+  wherever the imagery is DISPLAYED (`cesium.md` §6), and a committed
+  rendered PNG of that imagery is a display, same as the live node's
+  on-screen HUD. That is why `env_source_google.png` above ships with the
+  attribution caption in this doc rather than being treated as
+  licensing-clear just because no tile bytes were committed.

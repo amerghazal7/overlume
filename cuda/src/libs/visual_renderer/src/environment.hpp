@@ -63,12 +63,16 @@ public:
     // now -- 0 while hidden (set_visible(r, false)), loaded_count() again
     // once shown. Test-hook-only concept (environment_test_hooks.hpp's
     // environment_scene_membership_count()), same "goes through the
-    // virtual, no downcast" reasoning as loaded_count() (Decision 12): it
-    // is the deterministic, camera-framing-independent way to assert the
+    // virtual, no downcast" reasoning as loaded_count() (Decision 12).
+    // Finding #1: this is a genuine filament::Scene::hasEntity() read-back
+    // on each tracked entry (hence taking `r` -- unlike the other members
+    // of this interface, this one needs the live Filament Scene to query),
+    // not a re-derivation from a bookkeeping flag -- it is the
+    // deterministic, camera-framing-independent way to assert the
     // set_visible() invariant (scene membership actually left the scene,
-    // not just a bookkeeping flag flipped) without depending on how much
-    // of a test's rendered frame a loaded chunk/tile happens to cover.
-    virtual size_t scene_membership_count() const = 0;
+    // not just a flag flipped) without depending on how much of a test's
+    // rendered frame a loaded chunk/tile happens to cover.
+    virtual size_t scene_membership_count(VisualRenderer& r) const = 0;
     // Epic 6 (VM-063) Decision 11: the environment_source_state() test/node
     // hook goes through this virtual -- BAKED for BakedEnvironmentSource,
     // STREAMING or STREAMING_FALLBACK for StreamingEnvironmentSource
@@ -115,9 +119,12 @@ public:
     // Decision 12: forwards to the above -- same numbers through a virtual,
     // every existing test keeps passing unchanged.
     size_t loaded_count() const override { return loaded_chunk_count(); }
-    // visible_ invariant (this class's own field comment): every loaded_
-    // entry is in r.scene iff visible_.
-    size_t scene_membership_count() const override { return visible_ ? loaded_.size() : 0; }
+    // Finding #1: defined in environment.cpp, not inline here -- it needs
+    // `r.scene`'s full Filament type (renderer_internal.hpp), which this
+    // header deliberately doesn't include (file header comment). Genuine
+    // filament::Scene::hasEntity() read-back per loaded_ entry, not a
+    // re-derivation from visible_ -- see EnvironmentSource's own comment.
+    size_t scene_membership_count(VisualRenderer& r) const override;
     // A plain-path source_uri always opens THIS class -- always BAKED,
     // never a fallback state (fallback is a StreamingEnvironmentSource-only
     // concept, VM-063 Decision 11).

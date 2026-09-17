@@ -264,7 +264,7 @@ and an **on-robot rerun that gates delivery (VM-043)**, not Epic 1.
 - [x] **Step 2 (proxy):** numbers in `budget_probe.md` and under "Epic 0 results" below; `quality` default chosen from the table.
 - [ ] **Step 3 (on-robot, blocking for VM-043):** same matrix on robot hardware with perception + CARLA/real cameras feeding the CUDA node; add frame-time p50/p99 (requires the `render_ms` instrumentation scheduled in VM-034), the `GL_RENDERER` string (VM-037) so the device is attributable, and CUDA-node / perception fps deltas. Note: `quality` today differs across presets only by SSAO on/off and resolution — the 960×540 upscale spec §8 defines for `low` does not exist (VM-032), so per-preset rows overstate available headroom until then. Go/adjust decision on the 720p30 assumption recorded here.
 
-**Epic 0 results:** `FILAMENT_VERSION = 1.56.5` (glibc-2.35-compatible; see ADR-0001), toolchain outcome = clang-14/libc++ root-less static archive imported into the gcc node (ADR-0003), budget table = see `budget_probe.md` (PROXY — on-robot pending), go/no-go = **proxy go** at every preset alone (30 Hz held at low/med/high, GPU SM 21–35 % incl. 16 % desktop baseline, node CPU 33–41 % of one core; CUDA-node co-residence not exercised — bag has no cameras); on-robot decision pending VM-043.
+**Epic 0 results:** `FILAMENT_VERSION = 1.56.5` (glibc-2.35-compatible; see ADR-0001), toolchain outcome = clang-14/libc++ root-less static archive imported into the gcc node (ADR-0003; **superseded 2026-09-15 by Epic 6's clang-18 migration — same shape, newer compiler, see the Epic 6 section**), budget table = see `budget_probe.md` (PROXY — on-robot pending), go/no-go = **proxy go** at every preset alone (30 Hz held at low/med/high, GPU SM 21–35 % incl. 16 % desktop baseline, node CPU 33–41 % of one core; CUDA-node co-residence not exercised — bag has no cameras); on-robot decision pending VM-043.
 
 ---
 
@@ -366,13 +366,21 @@ authored; the backlog Done note is the decision of record).
 | Docs + profile-authoring + bake runbooks | VM-042 | `README.md` section, `docs/visual_mode/*.md` (directory created by this task; ADRs stay in `docs/adr/`) |
 | Live validation: CARLA + real bag, rviz side-by-side parity sign-off; **on-robot budget rerun (Epic 0 Task 6 Step 3) is a checklist item and blocks sign-off** | VM-043 | checklist in `docs/visual_mode/signoff.md`, `budget_probe.md` |
 
-### Epic 6 — v1.1: 3D Tiles streaming (committed; starts immediately after v1.0 ships)
+### Epic 6 — v1.1: 3D Tiles streaming
+**CLOSED 2026-09-16 (final review 2026-09-17)** — VM-060…VM-064 executed, gated
+and landed on `main`; see `2026-08-18-visual-mode-epic6.md`'s Status ledger and
+its "Post-close tail + final review" section for what shipped, the post-close
+tail (VM-096 GUI Environment Tiles control, ref-2 re-palette, environment
+normals, map-element z stagger, golden audit) and the ten items that remain
+genuinely open (live-rig cable pull first among them).
 `[review 2026-09-07]` The review proposed deferring this epic to Future; the
-user rejected that on 2026-09-07 — it stays committed. Its bite-sized plan
-(`2026-08-18-visual-mode-epic6.md`) is authored at v1.0 sign-off (VM-043) with
-the same Fable/Sonnet/Opus workflow. Prerequisite to schedule at v1.0 sign-off:
-user performs Cesium ion registration; token handled like the Mapbox token
-(env var, never committed). Backlog VM-060…VM-063.
+user rejected that on 2026-09-07 — it stayed committed. Its bite-sized plan
+was authored 2026-09-11 (early: the ion-registration prerequisite was already
+done) and executed 2026-09-15/16 after the unified-engine migration cutover,
+with the same Fable/Sonnet/Opus workflow. The Cesium ion token is handled like
+the Mapbox token (env var, never committed). Backlog VM-060…VM-064. Executing
+it migrated `visual_renderer`'s primary toolchain clang-14 → clang-18 (user
+decision 2026-09-15), superseding the Epic 0 toolchain outcome recorded above.
 | Task | Backlog | Files |
 |---|---|---|
 | Cesium ion registration + tileset access | VM-060 | runbook in `docs/visual_mode/cesium.md` |

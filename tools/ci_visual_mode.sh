@@ -8,7 +8,7 @@
 #   1. POD header check      (visual_renderer/scripts/check_pod_header.sh)
 #   2. Library ctest suite   (visual_renderer's full ctest run)
 #   3. Node gtests           (colcon test, micropilot_visualization_node)
-#   4. WS bridge pytest      (tools/test_vcam_ws_bridge.py, 53 tests)
+#   4. WS bridge pytest      (tools/test_vcam_ws_bridge.py; count reported by the stage itself)
 #   5. Golden suite          (GPU-skip breakdown, honestly reported)
 #
 # GPU/EGL required -- a GPU-less box fails at stage 2/3 by design; see

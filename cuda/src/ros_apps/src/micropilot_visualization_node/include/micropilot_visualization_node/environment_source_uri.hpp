@@ -49,4 +49,20 @@ inline std::string compose_environment_source_uri(
     return source_uri;
 }
 
+// Pure function: the `fallback=<dir>` value carried by a COMPOSED source_uri
+// (the output of compose_environment_source_uri()), or "" when none. Used by
+// the STREAMING_FALLBACK WARN to name the dir actually in effect -- an
+// inline fallback= on environment_source_uri wins over environment_chunks_dir
+// there too, so the WARN must read the composed string, not the dir param.
+inline std::string fallback_dir_from_source_uri(const std::string& composed_source_uri)
+{
+    static constexpr char kKey[] = "fallback=";
+    const auto key_pos = composed_source_uri.find(kKey);
+    if (key_pos == std::string::npos) return {};
+    const auto value_start = key_pos + sizeof(kKey) - 1;
+    const auto value_end = composed_source_uri.find('&', value_start);
+    return composed_source_uri.substr(
+        value_start, value_end == std::string::npos ? std::string::npos : value_end - value_start);
+}
+
 }  // namespace micropilot::visualization_app

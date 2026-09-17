@@ -145,18 +145,31 @@ namespace {
 float3 to_filament(const detail::Float3& c) { return float3{c.r, c.g, c.b}; }
 
 // Fog radiance scale: two measured anchors, not a one-point extrapolation.
-// light_clay (ibl.intensity 8750) needs scale 50; dark_adas (ibl.intensity
-// 256000) needs scale ~1 -- i.e. palette.fog rendered at the same radiance
-// as the identical palette.sky value fed to the clear color. Solving
-// scale = kFogScaleReferenceValue * (kFogScaleReferenceIntensity /
-// ibl.intensity)^kFogScaleExponent for both anchors gives exponent ~= 1.159
-// (not 1: an inverse-linear fit only reproduces the single light_clay
-// point). See push_theme_to_scene()'s fogOptions.color line for how this is
-// applied, and docs/superpowers/plans/2026-08-18-visual-mode-epic1.md for
-// the rejected alternatives.
+// Finding #26: these anchors (and the two constants below) are HISTORICAL --
+// measured against light_clay/dark_adas's ibl.intensity BEFORE the
+// 2026-09-16 ref-2 re-palette, which moved both themes to different shipped
+// intensities (light_clay 24000, dark_adas 350000, not 8750/256000). The
+// fit is NOT re-measured against those new values here (constants
+// deliberately left as originally tuned -- goldens are frozen this round);
+// the formula still evaluates at whatever intensity a theme authors, it
+// just no longer lands exactly on either shipped theme's own anchor point.
+// The live fog/sky convergence this scale produces is independently
+// verified at the CURRENT shipped intensities by
+// ThemeGolden.EmptyWorld_DarkAdas/_LightClay (test_theme.cpp) -- see those
+// tests' own comments for the measured live numbers. Original tuning note,
+// for provenance: light_clay (ibl.intensity 8750) needed scale 50;
+// dark_adas (ibl.intensity 256000) needed scale ~1 -- i.e. palette.fog
+// rendered at the same radiance as the identical palette.sky value fed to
+// the clear color. Solving scale = kFogScaleReferenceValue *
+// (kFogScaleReferenceIntensity / ibl.intensity)^kFogScaleExponent for both
+// anchors gave exponent ~= 1.159 (not 1: an inverse-linear fit only
+// reproduces the single light_clay point). See push_theme_to_scene()'s
+// fogOptions.color line for how this is applied, and
+// docs/superpowers/plans/2026-08-18-visual-mode-epic1.md for the rejected
+// alternatives.
 constexpr float kFogScaleExponent = 1.159f;
-constexpr float kFogScaleReferenceIntensity = 8750.0f;  // light_clay's ibl.intensity
-constexpr float kFogScaleReferenceValue = 50.0f;        // light_clay's proven-good flat scale
+constexpr float kFogScaleReferenceIntensity = 8750.0f;  // historical: light_clay's PRE-re-palette ibl.intensity
+constexpr float kFogScaleReferenceValue = 50.0f;        // historical: light_clay's proven-good flat scale at that intensity
 }  // namespace
 
 // HeadlessEglPlatform — a minimal from-scratch filament::backend::

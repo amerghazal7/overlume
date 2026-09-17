@@ -157,9 +157,13 @@ def _run_hidden_arm_check() -> int:
     environment_source_uri switch against a non-empty chunks dir appends
     "?fallback=<dir>", corrupting a plain baked path with a '?' that path
     doesn't have; Decision 5's own restated ceiling. So on_activate() itself
-    arms nothing this run (harmless "neither ... is set" WARN) -- the SAME
-    real fixture dir (kTestTownDir, test_environment.cpp) is instead pushed
-    live via `environment_source_uri`, the exact scenario the finding names).
+    arms nothing this run and logs no WARN at all -- every arming branch
+    there (visualization_node.cpp's on_activate(), all three `if`/`else if`
+    arms) is gated on environment_enabled_ being true, and this run launches
+    with it false, so the "neither ... is set" WARN never fires either; the
+    SAME real fixture dir (kTestTownDir, test_environment.cpp) is instead
+    pushed live via `environment_source_uri`, the exact scenario the finding
+    names).
 
     HONEST SCOPE (this matters -- verified empirically while writing this
     check): the "environment source armed" log's (hidden)/(visible) word is

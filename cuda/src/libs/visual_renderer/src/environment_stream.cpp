@@ -21,11 +21,14 @@
 
 #include <mutex>
 
+#include <spdlog/sinks/base_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include <filament/RenderableManager.h>
 #include <filament/TransformManager.h>
 
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -197,6 +200,155 @@ void strip_custom_vertex_attributes(CesiumGltf::Model& model) {
     }
 }
 
+// ── Finding #0 (blocking, security): cesium-native's own ion-handshake
+//    error path (CesiumIonTilesetLoader.cpp's endpoint-fetch failure ->
+//    TilesetContentManager::propagateTilesetContentLoaderResult ->
+//    ErrorList::logError) formats the FULL request URL into the error text
+//    it hands to `externals.pLogger` -- and that URL is
+//    ".../endpoint?access_token=<CESIUM_ION_TOKEN>" for the real ion path
+//    (Decision 6/15.6). Handing cesium spdlog::default_logger() (the plain
+//    stdout sink, pre-fix) therefore printed the live token verbatim to
+//    stdout/the ROS log on any expired/rotated token (a 401 -- already hit
+//    once in this project, epic6.md's "First live run FAILed HTTP 401") or
+//    dead link. This sink wraps a real sink and redacts before forwarding,
+//    so no code path through this library's own logger can leak a
+//    credential, regardless of which cesium-native error message triggers
+//    it. ──────────────────────────────────────────────────────────────────
+
+// Rewrites "access_token=<value>" (up to the next '&', whitespace, or end)
+// to "access_token=<redacted>", and "Bearer <value>" (up to the next
+// whitespace or end) to "Bearer <redacted>" -- the two shapes a credential
+// can appear in through this library's own accessor stack (the ion
+// endpoint query string, and the "Authorization: Bearer <token>" header
+// cesium-native's own refreshed-session-token path builds, per
+// mainThreadLoadTilesetJsonFromAssetEndpoint). Fixed-prefix scan, no regex
+// -- same style as this file's own split-only IonSpec parser above.
+std::string redact_credentials(std::string text) {
+    auto redact_after = [&text](const std::string& marker) {
+        size_t pos = 0;
+        while ((pos = text.find(marker, pos)) != std::string::npos) {
+            const size_t valueStart = pos + marker.size();
+            size_t valueEnd = valueStart;
+            while (valueEnd < text.size() && text[valueEnd] != '&' &&
+                   std::isspace(static_cast<unsigned char>(text[valueEnd])) == 0) {
+                ++valueEnd;
+            }
+            static constexpr char kRedacted[] = "<redacted>";
+            text.replace(valueStart, valueEnd - valueStart, kRedacted);
+            pos = valueStart + (sizeof(kRedacted) - 1);
+        }
+    };
+    redact_after("access_token=");
+    redact_after("Bearer ");
+    return text;
+}
+
+// Wraps a real sink (the stdout color sink, in practice) and redacts every
+// payload through redact_credentials() before forwarding -- so whatever
+// reaches the terminal/ROS log/test capture has already had any credential
+// scrubbed. Also keeps its own copy of every (already-redacted) line so a
+// test can assert on exactly what this library ever emits, without
+// depending on capturing the process's real stdout.
+class RedactingSink final : public spdlog::sinks::base_sink<std::mutex> {
+public:
+    explicit RedactingSink(std::shared_ptr<spdlog::sinks::sink> inner) : inner_(std::move(inner)) {}
+
+    // Test-only: every payload ever routed through this sink, POST-
+    // redaction, newline-joined. Locks base_sink's own `mutex_` explicitly
+    // (unlike sink_it_/flush_ below, this isn't called from inside
+    // base_sink::log()'s own lock).
+    std::string captured_text_for_test() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return captured_;
+    }
+
+protected:
+    void sink_it_(const spdlog::details::log_msg& msg) override {
+        // Already under base_sink<std::mutex>::log()'s lock -- no re-lock here.
+        std::string redacted = redact_credentials(std::string(msg.payload.data(), msg.payload.size()));
+        // ponytail: cap the test-capture buffer so a long-running process
+        // with a flaky tileset (repeated cesium error/warn lines) can't grow
+        // this string without bound -- redaction itself (above) stays
+        // unconditional; only the convenience copy is capped. Upgrade to a
+        // ring buffer of the last N lines if a test ever needs more history
+        // than this holds.
+        if (captured_.size() < kMaxCapturedBytes) {
+            captured_ += redacted;
+            captured_ += '\n';
+        }
+        spdlog::details::log_msg redactedMsg(msg.time, msg.source, msg.logger_name, msg.level,
+                                              spdlog::string_view_t(redacted.data(), redacted.size()));
+        inner_->log(redactedMsg);
+    }
+    void flush_() override { inner_->flush(); }
+
+private:
+    static constexpr size_t kMaxCapturedBytes = 64 * 1024;
+    std::shared_ptr<spdlog::sinks::sink> inner_;
+    std::string captured_;
+};
+
+// Process-wide, same singleton shape as the `spdlog::default_logger()` this
+// replaces -- every open_streaming_environment_source()/build_externals()
+// call shares the one redacting logger, and the test-only hook below reads
+// the same instance's captured text.
+std::shared_ptr<RedactingSink> g_redactingSinkForTest;  // NOLINT: intentional file-scope singleton
+
+std::shared_ptr<spdlog::logger> make_redacting_logger() {
+    static const std::shared_ptr<spdlog::logger> logger = [] {
+        auto inner = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+        auto redacting = std::make_shared<RedactingSink>(inner);
+        g_redactingSinkForTest = redacting;
+        auto l = std::make_shared<spdlog::logger>("mpviz.cesium", redacting);
+        // Registered so process-wide spdlog::set_level()/set_pattern() still
+        // reach cesium output the way they did through default_logger().
+        spdlog::register_logger(l);
+        return l;
+    }();
+    return logger;
+}
+
+// ── Finding #0/#6's local enforcement: any request whose URL contains
+//    "access_token=" is routed straight to the non-caching `direct` accessor
+//    (still counted, via CountingAssetAccessor, just never cached), no
+//    matter what Cache-Control header the remote response carries; everything
+//    else goes through `cached` as before. This is a URL-param check only --
+//    it does NOT inspect headers. That is sufficient for CESIUM_ION_TOKEN,
+//    which only ever rides on the endpoint handshake (URL param). Tile and
+//    tileset.json requests carry the SHORT-LIVED session token as a Bearer
+//    header and still take the caching branch -- the pre-existing Decision 6
+//    exposure class. See open_streaming_environment_source()'s comment.
+class TokenBypassAssetAccessor final : public CesiumAsync::IAssetAccessor {
+public:
+    TokenBypassAssetAccessor(std::shared_ptr<CesiumAsync::IAssetAccessor> cached,
+                              std::shared_ptr<CesiumAsync::IAssetAccessor> direct)
+        : cached_(std::move(cached)), direct_(std::move(direct)) {}
+
+    CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> get(
+        const CesiumAsync::AsyncSystem& asyncSystem, const std::string& url,
+        const std::vector<THeader>& headers) override {
+        return pick(url)->get(asyncSystem, url, headers);
+    }
+    CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> request(
+        const CesiumAsync::AsyncSystem& asyncSystem, const std::string& verb, const std::string& url,
+        const std::vector<THeader>& headers, const std::span<const std::byte>& payload) override {
+        return pick(url)->request(asyncSystem, verb, url, headers, payload);
+    }
+    void tick() noexcept override {
+        // `cached_` (CachingAssetAccessor) already forwards tick() to the
+        // same inner accessor `direct_` points at -- ticking both would pump
+        // curl twice per frame.
+        cached_->tick();
+    }
+
+private:
+    CesiumAsync::IAssetAccessor* pick(const std::string& url) const {
+        return (url.find("access_token=") != std::string::npos) ? direct_.get() : cached_.get();
+    }
+    std::shared_ptr<CesiumAsync::IAssetAccessor> cached_;
+    std::shared_ptr<CesiumAsync::IAssetAccessor> direct_;
+};
+
 // Builds the composed accessor stack shared by both the fixture and the
 // real ion path (Decision 10/11, Task 3 Step 2): base -> CountingAssetAccessor
 // -> CachingAssetAccessor(SqliteCache(dbPath, maxItems)). The
@@ -215,7 +367,11 @@ Cesium3DTilesSelection::TilesetExternals build_externals(
     std::shared_ptr<CountingAssetAccessor>* out_counting = nullptr) {
     auto counting = std::make_shared<CountingAssetAccessor>(std::move(base));
     if (out_counting != nullptr) *out_counting = counting;
-    auto logger = spdlog::default_logger();
+    // Finding #0: a dedicated, redacting logger -- NOT spdlog::default_logger()
+    // (the plain stdout sink), which prints cesium-native's own error text
+    // verbatim, credentials included, on any ion-handshake failure (see
+    // RedactingSink's own comment above).
+    auto logger = make_redacting_logger();
 
     // VM-064 Decision 14 / Task 5 Step 2(b): "off" is a documented sentinel
     // (not a directory) -- Google's Map Tiles terms bound how long tile
@@ -238,13 +394,19 @@ Cesium3DTilesSelection::TilesetExternals build_externals(
     auto cacheDb =
         std::make_shared<CesiumAsync::SqliteCache>(logger, cache_dir + "/cesium-tiles.sqlite", max_cache_items);
     auto caching = std::make_shared<CesiumAsync::CachingAssetAccessor>(logger, counting, cacheDb);
+    // Finding #0/#6: any access_token=-bearing URL is diverted away from
+    // `caching`/`cacheDb` regardless of the remote's own Cache-Control header
+    // -- see TokenBypassAssetAccessor's own comment above for what this does
+    // and does not cover (URL params only -- which is where CESIUM_ION_TOKEN
+    // lives; the session-token Bearer header on tile requests still caches).
+    auto tokenSafe = std::make_shared<TokenBypassAssetAccessor>(caching, counting);
 
     // TilesetExternals has no default constructor (its `asyncSystem` member
     // doesn't) -- aggregate-init the one member that actually requires a
     // value at construction, then assign the rest (every other member has
     // its own default member initializer, TilesetExternals.h).
     Cesium3DTilesSelection::TilesetExternals externals{nullptr, nullptr, asyncSystem};
-    externals.pAssetAccessor = caching;
+    externals.pAssetAccessor = tokenSafe;
     externals.pLogger = logger;
     return externals;
 }
@@ -427,7 +589,7 @@ StreamRendererResources::prepareInLoadThread(const CesiumAsync::AsyncSystem& asy
                 writer.writeGlb(*model, std::span<const std::byte>(bufData.data(), bufData.size()));
             if (res.errors.empty()) {
                 // Defense-in-depth, not a known-needed fix: every committed
-                // Every committed ion b3dm already carries NORMAL, so this is
+                // ion b3dm already carries NORMAL, so this is
                 // a measured no-op on real tiles -- kept as the same
                 // load-time hook environment.cpp uses for baked chunks, so a
                 // normal-less tileset degrades to flat-shaded rather than
@@ -797,12 +959,23 @@ size_t StreamingEnvironmentSource::loaded_count() const {
     return inScene_.size();
 }
 
-size_t StreamingEnvironmentSource::scene_membership_count() const {
-    if (fallenBack_) return fallbackSource_ ? fallbackSource_->scene_membership_count() : 0;
-    // visible_ invariant (VM-096): every inScene_ entry is actually
-    // added to r.scene iff visible_ -- see synthesize_view_and_pump()'s
-    // reconcile loop and set_visible() above.
-    return visible_ ? inScene_.size() : 0;
+size_t StreamingEnvironmentSource::scene_membership_count(VisualRenderer& r) const {
+    if (fallenBack_) return fallbackSource_ ? fallbackSource_->scene_membership_count(r) : 0;
+    // Finding #1: a genuine filament::Scene::hasEntity() read-back on each
+    // tracked tile's first entity, NOT a re-derivation from visible_ -- the
+    // visible_ invariant (VM-096, synthesize_view_and_pump()'s reconcile
+    // loop and set_visible() above) is what's SUPPOSED to keep these in
+    // sync, and this hook exists specifically to catch it if they ever
+    // don't (a set_visible()/reconcile bug that flips the flag without
+    // touching r.scene is exactly what a flag-only count could never see).
+    size_t count = 0;
+    for (const auto& [res, _] : inScene_) {
+        auto* asset = static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(res));
+        if (asset->getEntityCount() > 0 && r.scene->hasEntity(asset->getEntities()[0])) {
+            ++count;
+        }
+    }
+    return count;
 }
 
 EnvironmentSourceState StreamingEnvironmentSource::state() const {
@@ -838,8 +1011,28 @@ std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::
     const std::optional<IonSpec> spec = parse_ion_spec(ion_spec);
     if (!spec) return nullptr;
 
-    // Decision 6: read once at open time, by NAME only -- never a URI
-    // component, never logged.
+    // Decision 6: read once at open time, by NAME only. Corrected (Finding
+    // #0): the token DOES become a URI component -- cesium-native's own ion
+    // Tileset ctor builds the endpoint request as
+    // ".../endpoint?access_token=<token>" (Decision 15.6) and embeds that
+    // URL verbatim in its own error text on a handshake failure. What's
+    // actually true is narrower than "never persisted/never logged", and is
+    // enforced only to this extent: build_externals() gives cesium a logger
+    // (RedactingSink, above) that redacts any access_token=/Bearer credential
+    // out of every line THIS library's cesium logger emits, and
+    // TokenBypassAssetAccessor diverts any URL containing "access_token="
+    // away from the on-disk sqlite cache -- and the endpoint handshake is the
+    // ONLY request that ever carries CESIUM_ION_TOKEN (URL param + a Bearer
+    // header on that same request, CesiumIonTilesetLoader.cpp ~498), so
+    // the URL check covers it. Known residue, pre-existing and documented in
+    // Decision 6: tileset.json/tile requests carry "Authorization: Bearer
+    // <endpoint.accessToken>" -- the SHORT-LIVED session token ion's endpoint
+    // response hands back (CesiumIonTilesetLoader.cpp 74-77/143-146, refreshed
+    // by refreshTokenIfNeeded), not CESIUM_ION_TOKEN. Those requests take the
+    // caching branch and SqliteCache persists request headers verbatim, so a
+    // non-"off" cache_dir writes that session token to cesium-tiles.sqlite.
+    // Decision 6 said "URLs embed a short-lived session token"; it is the
+    // header, same exposure class. docs/visual_mode/cesium.md §3 states it.
     const char* token = std::getenv("CESIUM_ION_TOKEN");
     if (token == nullptr || token[0] == '\0') return nullptr;  // non-fatal, caller WARNs
 
@@ -1018,6 +1211,53 @@ bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double head
     if (out_y) *out_y = mapPt.y;
     if (out_z) *out_z = mapPt.z;
     return true;
+}
+
+// Finding #0 test hook: everything this library's own named cesium logger
+// (build_externals()'s RedactingSink, process-wide singleton) has ever
+// emitted, POST-redaction -- i.e. exactly what an inner stdout sink would
+// have received. Empty if make_redacting_logger() has never been called
+// (no build_externals() call yet in this process).
+std::string captured_cesium_log_text() {
+    return g_redactingSinkForTest ? g_redactingSinkForTest->captured_text_for_test() : std::string();
+}
+
+// Finding #0 test hook: drives the REAL ion-handshake error path (Decision
+// 15.6's asset_id + access_token Tileset ctor, the same one
+// open_streaming_environment_source() uses) against a FileFixtureAssetAccessor
+// instead of CesiumCurl -- no network, no real token needed. The endpoint
+// URL (".../endpoint?access_token=<bogus_token>") is treated as a local
+// file path by the fixture accessor, which 404s (no such file); cesium-native
+// treats any non-2xx response the same as a real HTTP failure and logs the
+// full request URL (CesiumIonTilesetLoader.cpp's own
+// mainThreadHandleEndpointResponse) through externals.pLogger --
+// build_externals()'s RedactingSink, exercising the real redaction path
+// end to end rather than a hand-typed string. Pumps up to `max_ticks`
+// asyncSystem ticks (TilesetContentManager::createFromCesiumIon fires the
+// request synchronously at Tileset construction; only the `.thenInMainThread`
+// completion needs pumping). Returns true once the captured log text
+// actually contains "access_token=" -- not merely non-empty, since
+// g_redactingSinkForTest is a process-wide singleton and an earlier test in
+// the same binary may have already logged something unrelated through it;
+// waiting for the specific marker keeps this probe's readiness check
+// order-independent (bounded by `max_ticks`, never hangs).
+bool drive_ion_token_redaction_probe(const char* bogus_token, int64_t asset_id, int max_ticks) {
+    auto fileAccessor = std::make_shared<mpviz::FileFixtureAssetAccessor>();
+    CesiumAsync::AsyncSystem asyncSystem(std::make_shared<mpviz::SimpleTaskProcessor>());
+    std::shared_ptr<mpviz::CountingAssetAccessor> counting;
+    // cache=off: this probe only cares about the log-redaction path, not the
+    // disk cache -- no throwaway temp dir needed for it.
+    Cesium3DTilesSelection::TilesetExternals externals =
+        mpviz::build_externals(fileAccessor, asyncSystem, "off", mpviz::kDefaultMaxCacheItems, &counting);
+    Cesium3DTilesSelection::TilesetOptions options;
+    auto tileset =
+        std::make_unique<Cesium3DTilesSelection::Tileset>(externals, asset_id, std::string(bogus_token), options);
+    for (int i = 0; i < max_ticks; ++i) {
+        asyncSystem.dispatchMainThreadTasks();
+        if (captured_cesium_log_text().find("access_token=") != std::string::npos) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return captured_cesium_log_text().find("access_token=") != std::string::npos;
 }
 
 }  // namespace mpviz::testing

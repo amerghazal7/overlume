@@ -575,11 +575,16 @@ bool set_camera_frame(VisualRenderer*, uint32_t cam_idx,
 //     chunk index + glTF files, already placed in the map frame offline
 //     using this SAME anchor -- this backend does NOT re-derive placement
 //     from `anchor` at runtime.
-//   - "ion://<assetId>[?cache=<dir>][&fallback=<baked_dir>][&max_cache_items=<n>]"
+//   - "ion://<assetId>[?cache=<dir>|off][&fallback=<baked_dir>][&max_cache_items=<n>][&materials=original|clay]"
 //     -> the STREAMING backend (Epic 6/VM-062, cesium-native 3D Tiles):
 //     `anchor` now does real work, an on-the-fly ECEF->map placement per
-//     loaded tile. Reads `CESIUM_ION_TOKEN` from the environment at open
-//     time (by NAME only -- never a URI component, never logged). Only
+//     loaded tile. `materials=original` keeps the asset's own gltfio
+//     materials (Google Photorealistic 3D Tiles, VM-064); absent, `clay`,
+//     or unknown -> the theme's `palette.building` clay remap. Reads
+//     `CESIUM_ION_TOKEN` from the environment at open time (by NAME only;
+//     it is never part of THIS source_uri -- cesium-native's own ion
+//     handshake URL does carry it, which the library keeps out of its log
+//     output and disk cache, see environment_stream.cpp). Only
 //     built when this library is compiled with `MPVIZ_ENABLE_CESIUM=ON`
 //     (CMakeLists.txt); an "ion://" source_uri against a build without it
 //     degrades the same way a missing bake dir does (returns false, no

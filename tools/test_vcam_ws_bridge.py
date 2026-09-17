@@ -595,6 +595,29 @@ def test_resolve_environment_preset():
     assert resolve_environment_preset("ion://99999?foo=bar", "ion://12345") is None
 
 
+def test_environment_initial_sensitivity_fails_closed():
+    # Regression for gate finding #21: every preset must start sensitive
+    # EXCEPT "clipped", which fails closed until the first get_params
+    # round-trip proves an own asset is configured. Reverting to "always
+    # True" (the pre-fix bug) makes this fail on the "clipped" case.
+    pytest.importorskip("gi")
+    from vcam_gui import ENVIRONMENT_PRESETS, initial_environment_sensitivity
+    for preset in ENVIRONMENT_PRESETS:
+        assert initial_environment_sensitivity(preset) == (preset != "clipped")
+
+
+def test_ack_failure_text():
+    # Regression for gate finding #4: a rejected ack must render its cmd +
+    # reason (or "rejected" when the bridge sent none), not be silently
+    # dropped.
+    pytest.importorskip("gi")
+    from vcam_gui import ack_failure_text
+    assert ack_failure_text({"cmd": "set_environment_source",
+                             "reason": "geo-anchor not solved yet"}) == \
+        "✘ set_environment_source: geo-anchor not solved yet"
+    assert ack_failure_text({"cmd": "set_layers"}) == "✘ set_layers: rejected"
+
+
 def test_gui_and_bridge_environment_preset_tables_agree():
     """The GUI keeps its own literal copy of the preset->URI table (it is a
     pure WS client, deliberately not importing the bridge module). That
