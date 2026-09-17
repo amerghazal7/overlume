@@ -12,16 +12,16 @@ Status per task: the **Status ledger** at the top of each epic plan.
   static `visual_renderer` lib (POD API) that renders a lit cube on a grid
   to a readable headless swapchain and returns RGB8.
   AC: standalone example writes a PNG on the dev box; no X server; header
-  passes the POD-only check. **DONE** (66c1340, bc2007c, 76ce179, acd26a8, 73f100c).
+  passes the POD-only check. **DONE** (cc900c1, e735a3f, 7c53b17, 6573b74, c71847e).
 - **VM-002 Skeleton visualization node + mode mux.** Lifecycle node
   publishing VM-001's frame to `/rendering/image` at 30 Hz; global
   `/rendering/set_mode` handling in BOTH nodes (CUDA node idles on 3).
   AC: smoke test drives 1→3→2 with exactly-one-publisher and no consumer
-  re-subscribe; existing node tests still green. **DONE** (dfab33b, 2968ebc); residual mux defects → VM-037.
+  re-subscribe; existing node tests still green. **DONE** (1484cd7, 9fc3000); residual mux defects → VM-037.
 - **VM-003 vcam parity.** `~/set_virtual_cam` / `~/set_look` / `~/vcam_state`
   on the new node; WS bridge fan-out.
   AC: contract test proves identical framing math vs CUDA node for the 5
-  presets; GUI orbit (`set_look`) works against mode 3 with no GUI change (the GUI later gained a mode button/3-way view cycle by directive). **DONE** (6a43f55, e619d41).
+  presets; GUI orbit (`set_look`) works against mode 3 with no GUI change (the GUI later gained a mode button/3-way view cycle by directive). **DONE** (1fdc3d1, 5b479bd).
 - **VM-004 GPU budget measurement.** `[review 2026-09-07]` Split: (a) PROXY on
   the dev box (same CPU/GPU class), bag replay, alone and beside the CUDA node
   — DONE 2026-09-07, `cuda/src/libs/visual_renderer/tools/budget_probe.md`;
@@ -265,7 +265,7 @@ that on 2026-09-07 — it stays committed v1.1.
   preset table turned out to have a live Filament setter — no genuinely
   create-time-only knob, so no limitation note is owed. Bloom is deliberately PRESET-INDEPENDENT (not a low-row drop): it drives the emissive hero-ribbon glow (renderer.cpp's BloomOptions), and spec §8's low row never listed it — the preset table's scope is chosen, not overlooked. 4 new cases in
   `tests/test_renderer_quality_presets.cpp` (7 total in the file — the
-  other 3 shipped in VM-032/bb8d5e6) prove live switch without re-create,
+  other 3 shipped in VM-032/c7c44d8) prove live switch without re-create,
   `render_frame()` keeps working across a switch, `get_quality()` mirrors
   the active preset, and null-safety; full library suite green (206/206
   `ctest`, incl. `check_pod_header`). **Round-1 review fix (2026-09-11):**
@@ -328,7 +328,7 @@ that on 2026-09-07 — it stays committed v1.1.
   AC: clean-checkout build + `ci_visual_mode.sh` green, documented and reproducible.
 - **VM-042 Docs + runbook.** README section, profile-authoring guide for the
   autonomy team, environment-bake guide, deployment notes.
-  `[2026-09-11]` Docs half shipped (commit 85013dd):
+  `[2026-09-11]` Docs half shipped (commit 3c6ab30):
   `docs/runbooks/profile_authoring.md` + `environment_bake.md` + README
   section. Deployment/two-node-topology notes DEFERRED to VM-095 (unified-
   engine cutover) — the migration deletes that topology; see
