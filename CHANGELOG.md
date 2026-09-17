@@ -31,11 +31,19 @@ The Overlume open-source restructure (`docs/plans/2026-09-17-overlume-restructur
 - Added open-source project scaffolding: `LICENSE`, `NOTICE`,
   `CODE_OF_CONDUCT.md`, `SECURITY.md`, `CONTRIBUTING.md`, issue/PR templates,
   and hosted CI (`.github/workflows/`: lint, build, docs, release).
+- One repo-wide `.clang-format` (clang-format 23.1.1, pinned) applied to
+  every C++ source in a single commit listed in `.git-blame-ignore-revs`
+  (`git config blame.ignoreRevsFile .git-blame-ignore-revs`), and an
+  `SPDX-License-Identifier: Apache-2.0` header on every first-party source
+  file, both enforced by `tools/check_format.sh` and `tools/check_spdx.sh`.
+- Agent instructions consolidated into `AGENTS.md` (imported by `CLAUDE.md`);
+  the repository knowledge-graph hook is no longer strict.
 
 ## [0.1.0] - 2026-09-17
 
-The first tagged release, covering everything delivered before the
-open-source restructure. One line per shipped item, sourced from
+The state of the project before the open-source restructure; the `v0.1.0`
+tag is cut by the maintainer after the restructure lands (see
+`.github/workflows/release.yml`). Covers everything delivered up to then. One line per shipped item, sourced from
 [`docs/status.md`](docs/status.md)'s own Shipped table (dates/hashes as
 recorded there; see that table for the full provenance notes on the two
 entries with a recorded historical-document discrepancy).
@@ -64,5 +72,7 @@ entries with a recorded historical-document discrepancy).
 - **Epic 6 — v1.1: Cesium 3D Tiles streaming** (VM-060…064) + post-close
   tail: closed 2026-09-16, final cross-cutting review 2026-09-17.
 
+<!-- Link references resolve once the v0.1.0 tag exists:
 [Unreleased]: https://github.com/amerghazal7/overlume/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/amerghazal7/overlume/releases/tag/v0.1.0
+-->

@@ -1,42 +1,27 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Amer Ghazal
-# setup_toolchain_cesium.sh -- root-less bootstrap of a NEWER clang/libc++
-# toolchain used ONLY to build cesium-native + its vcpkg ports (VM-061).
+# setup_toolchain_cesium.sh -- root-less bootstrap of Overlume's PRIMARY
+# toolchain: clang-18/libc++-18 from apt.llvm.org's jammy channel, unpacked
+# into ~/.cache/overlume-toolchain-cesium without sudo. Every part of the
+# library (its own C++17 code, yaml-cpp, GoogleTest, the examples) and the
+# cesium-native + vcpkg dependency build use this one toolchain;
+# cmake/toolchain-clang-libcxx.cmake resolves only this prefix.
 #
-# WHY A SECOND TOOLCHAIN (recorded deviation, verified empirically at
-# implementation): this project's primary toolchain (setup_toolchain.sh,
-# clang-14/libc++-14) is enough for overlume's own C++17 code, but
-# cesium-native's vcpkg dependency "ada-url" hard-requires C++20 and its
-# url_search_params-inl.h calls `std::ranges::replace` -- a ranges
-# <algorithm> overload libc++-14 (2022-era) does not yet implement. Verified
-# directly: a trivial `std::ranges::replace` program fails to compile under
-# both libc++-14 AND libc++-15 (also apt-installable on this box) with the
-# identical "no member named 'replace' in namespace 'std::ranges'" error,
-# but compiles and runs under libc++-18. clang-16/17 are not packaged in
-# Ubuntu 22.04's own apt repos (checked: no candidate), so this reaches past
-# them straight to apt.llvm.org's jammy channel (LLVM's own official binary
-# repo) for clang-18 specifically -- the plan's own named fallback for
-# exactly this class of gap (Decision 15.2c: "a newer local clang via
-# scripts/setup_toolchain.sh"). This is ONLY used for the vcpkg overlay
-# triplet's chainload toolchain (cmake/vcpkg-clang-libcxx-toolchain.cmake)
-# -- overlume's own primary toolchain (toolchain-clang-libcxx.cmake)
-# is UNCHANGED, still clang-14, so none of overlume's own C++17
-# translation units, yaml-cpp, or GoogleTest are affected. libc++'s ABI is
-# stable across LLVM versions for the default (non-"unstable") ABI
-# configuration both distro packages use (`std::__1::`, unchanged struct
-# layouts) -- this is the same property that lets a distro ship multiple
-# clang/libc++ versions side by side at all -- so archives built here can
-# still be `ld -r`-merged with overlume's own clang-14 objects
-# (scripts/merge_yamlcpp.sh); Task 2 Step 1's strings/nm ABI check and
-# Step 6's full node + gtest rebuild are the empirical proof this holds in
-# practice, not just in theory.
+# History: the "_cesium" in the name is from VM-061, when this was a SECOND
+# toolchain used only for cesium-native, whose vcpkg dependency "ada-url"
+# requires C++20 `std::ranges::replace` — a ranges <algorithm> overload
+# libc++-14/15 do not implement (verified) while libc++-18 does. VM-061
+# Step 6 (user decision 2026-09-15) then migrated the whole library from
+# clang-14 to this clang-18 toolchain, and the old clang-14 bootstrap script
+# was retired in the 2026-09-17 restructure. The name stays so every
+# document and command written since VM-061 keeps working.
 #
 # apt.llvm.org publishes plain .deb files over HTTPS with no apt source
 # registration needed -- `apt-get download` only searches configured
 # sources, so this uses the exact same root-less "fetch the .deb, dpkg-deb
-# -x it into a private prefix" recipe as setup_toolchain.sh, just pointed at
-# a different (still official, still Ubuntu-built) package host.
+# -x it into a private prefix" recipe the old clang-14 bootstrap used, pointed at
+# LLVM's own (still official, still Ubuntu-built) package host.
 #
 # Usage: overlume/scripts/setup_toolchain_cesium.sh
 # Idempotent: does nothing (fast exit) if the prefix already has a working

@@ -269,7 +269,7 @@ class WsClient(threading.Thread):
 
 class VcamWindow(Gtk.Window):
     def __init__(self, ws_url: str, topic: str):
-        super().__init__(title="TPSProjector — virtual cam")
+        super().__init__(title="Overlume — virtual cam")
         self.set_default_size(1500, 680)
         self.connect("destroy", self._quit)
 

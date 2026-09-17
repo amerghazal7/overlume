@@ -154,7 +154,9 @@ Status per task: the **Status ledger** at the top of each epic plan.
   spellings; dashed-centerline golden unchanged after the chop is retired.
   **STYLING GROUND TRUTH (user directive 2026-08-20, binding for every theme/
   styling task):** `assets/visualization-reference-1.jpg` is THE dark-theme
-  target and `assets/visualization-reference-2.jpg` THE light-theme target —
+  target and `assets/visualization-reference-2.jpg` THE light-theme target
+  (third-party captures, not redistributed with the public repository since
+  2026-09-17) —
   compare colors, value separation, and accent saturation against them, not
   against taste. What they teach that the shipped `light_clay` currently
   gets wrong: ref-2 separates VALUES (road visibly darker than buildings/

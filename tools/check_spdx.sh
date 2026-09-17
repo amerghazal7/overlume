@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
 # SPDX header gate for Overlume's first-party source (Task 6b).
 #
 # File set (via `git ls-files`, so nothing untracked/generated/build ever
@@ -12,26 +14,18 @@
 # and the "themes / profiles / params" YAML config under
 # ros/src/overlume_ros/config/*.yaml.
 #
-# Deliberately excluded (never in the set above, but stated for the record):
+# Deliberately excluded (never in the set above, stated for the record):
 # - Test/golden fixtures (any path segment "fixtures/", e.g.
 #   overlume/tests/fixtures/**, ros/src/overlume_ros/test/fixtures/**,
-#   overlume/tests/goldens/**) and other binary/data assets (.png .glb
-#   .b3dm .rviz .csv .ttf .json) — data, not source.
-# - PROVENANCE/ATTRIBUTION files (assets/**/ATTRIBUTION.md) and all .md docs.
-# - overlume/CMakeLists.txt and ros/src/overlume_ros/CMakeLists.txt (owned
-#   by this task only for the ctest LABELS change — SPDX on those two files
-#   is out of this task's file scope; see the plan's Task 6b file grant).
-#   Tracked as a known gap: gate check (a) wants every first-party source
-#   file covered, so whoever next touches these two CMakeLists.txt files
-#   should add the header and fold them into this pathspec.
-# - (Superseded 2026-09-17: overlume/assets/materials/*.mat and both package
-#   CMakeLists.txt files ARE covered below via MAT_FILES/CMAKE_FILES.)
-# - overlume/assets/** (themes .yaml, materials .mat under
-#   overlume/assets/materials/*.mat) — also out of this task's file scope
-#   (not among overlume/{src,include,tests,tools,scripts,cmake} in the Task
-#   6b file grant). Same tracked-gap note as above: add overlume/assets to
-#   this pathspec once those files carry the header.
+#   overlume/tests/goldens/**) and binary/data assets (.png .glb .b3dm
+#   .rviz .csv .ttf .json) — data, not source.
+# - PROVENANCE/ATTRIBUTION files and all .md docs.
 # - Generated files, and the downloaded stb headers (not tracked in-tree).
+# - Small non-code config carrying no copyrightable logic: package.xml,
+#   Doxyfile.in, ros/config_colcon.yaml, .github/**/*.yml, *.srv.
+# Covered (in addition to the roots above): overlume/assets/materials/*.mat,
+# overlume/assets/themes/*.yaml, overlume/CMakeLists.txt,
+# ros/src/overlume_ros/CMakeLists.txt, examples/CMakeLists.txt.
 #
 # Usage: tools/check_spdx.sh
 # Exits non-zero (and lists every offender) if any file in the set above is

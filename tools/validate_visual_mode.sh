@@ -509,8 +509,12 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # them). Stored DECOMPRESSED for instant playback start (the .zstd archive
 # sits alongside). Lighter fallbacks on disk: stack_v2_fixtures_2026-09-09
 # (no sensors), epic2_fixtures_full (old stack).
-BAG="${HOME}/TPSProjector-fixtures/stack_v3_full_sensors_2026-09-11"
-QOS="${HOME}/TPSProjector-fixtures/qos_full.yaml"
+# The bags are internal recordings, NOT distributed with the repo: point
+# OVERLUME_FIXTURES at your own directory or pass --bag/--qos explicitly
+# (record one from a live stack with tools/record_fixture_bag.sh).
+FIXTURES="${OVERLUME_FIXTURES:-${HOME}/overlume-fixtures}"
+BAG="${FIXTURES}/stack_v3_full_sensors_2026-09-11"
+QOS="${FIXTURES}/qos_full.yaml"
 NO_GUI=0
 DO_BUILD=0
 PROFILE=""

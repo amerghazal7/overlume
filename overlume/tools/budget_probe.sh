@@ -10,10 +10,10 @@
 # to reference a deleted package. See budget_probe.md's own procedure text
 # (reworded to match) and Results (a)/(d) for what those rows used to mean.
 set -o pipefail
-REPO=$WORKTREE
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BAG=$HOME/TPSProjector-fixtures/epic2_fixtures_full
 QOS=$HOME/TPSProjector-fixtures/qos_full.yaml
-OUT=$SCRATCH/probe
+OUT="${OUT:-$(mktemp -d)}"
 mkdir -p "$OUT"
 export ROS_DOMAIN_ID=93
 source /opt/ros/humble/setup.bash
