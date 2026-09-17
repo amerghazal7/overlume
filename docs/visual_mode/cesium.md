@@ -170,7 +170,7 @@ different beast from Path A/B's clay tilesets.
   (no ion credit text is parsed or rendered dynamically); before a real
   go-live, confirm the current required wording against Google's Platform
   Terms / the ion asset's own listed attribution and update the string in
-  `visualization_node.cpp` if it has changed. If the HUD text machinery
+  `overlume_node.cpp` if it has changed. If the HUD text machinery
   cannot carry a line for some deployment (font unavailable, etc. — see
   `hud_font_path`), the manual fallback is a physical/on-screen overlay
   sticker or a fixed compositing step downstream of this node; that gap
@@ -186,7 +186,7 @@ different beast from Path A/B's clay tilesets.
   Google's current Map Tiles cache-lifetime policy allows the on-disk
   SqliteCache's retention. `cache=off` means every tile request goes
   straight through the network accessor, nothing persisted to
-  `mpviz-tile-cache` — a real compliance lever, not a placeholder; verify
+  `overlume-tile-cache` — a real compliance lever, not a placeholder; verify
   the policy, then switch to a real `?cache=<dir>` (or drop the key for the
   library default) once confirmed compliant.
 - **No golden ships for this mode.** A committed Google-tile fixture would

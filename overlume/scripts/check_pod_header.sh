@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fails if any public API header leaks std:: types across the ABI boundary.
 set -euo pipefail
-include_dir="$(dirname "$0")/../include/visual_renderer"
+include_dir="$(dirname "$0")/../include/overlume"
 shopt -s nullglob
 # *.h* (not just *.h): a public .hpp would otherwise escape this check
 # entirely (Step (f), VM-037).

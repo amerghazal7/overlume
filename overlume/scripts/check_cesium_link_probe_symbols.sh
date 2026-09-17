@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # VM-061 gate round 2, Finding 1 fix_instruction point 3: merge_yamlcpp.sh's
 # own post-merge audit (see its header comment) can only see what
-# libvisual_renderer.a itself defines/references -- it cannot see what a
+# liboverlume.a itself defines/references -- it cannot see what a
 # CONSUMER's own link line additionally pulls in. cesium_link_probe links
 # cesium CMake targets (CesiumGeospatial, CesiumGltfReader) directly,
-# alongside visual_renderer, for header access (CMakeLists.txt's own
+# alongside overlume, for header access (CMakeLists.txt's own
 # comment on that target explains why) -- so it's the one place in this
 # tree that can independently prove the un-renamed vcpkg spdlog/fmt
 # archives contribute nothing dangerous to a REAL final executable, not
@@ -39,8 +39,8 @@ fi
 # typeinfo (_ZTI/_ZTSN6spdlog...) and const methods (_ZNK6spdlog...) don't start
 # with _ZN, and those COMDAT-foldable symbols are exactly Decision 4's hazard.
 # MUST STAY IN SYNC with merge_yamlcpp.sh's rename-map token set (its twin).
-# Already-renamed mpviz_vendored_* symbols are ours, not overlap candidates.
-probe_defined=$("$nm_tool" --defined-only "$probe_path" 2>/dev/null | awk '{print $3}' | grep -E '6spdlog|N3fmt[0-9]' | grep -v '^mpviz_vendored_' | sort -u || true)
+# Already-renamed overlume_vendored_* symbols are ours, not overlap candidates.
+probe_defined=$("$nm_tool" --defined-only "$probe_path" 2>/dev/null | awk '{print $3}' | grep -E '6spdlog|N3fmt[0-9]' | grep -v '^overlume_vendored_' | sort -u || true)
 system_defined=$("$nm_tool" -D --defined-only "$system_libspdlog" 2>/dev/null | awk '{print $3}' | sort -u || true)
 
 overlap=$(comm -12 <(printf '%s\n' "$probe_defined") <(printf '%s\n' "$system_defined") | sed '/^$/d')

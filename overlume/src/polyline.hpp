@@ -3,11 +3,11 @@
 // writing their own extruder.
 //
 // Deliberately Filament-free: test targets get `-I src` and
-// `-I ${STB_DIR}` only, not visual_renderer's PRIVATE Filament include dir
+// `-I ${STB_DIR}` only, not overlume's PRIVATE Filament include dir
 // (see renderer_internal.hpp) — a header here that transitively names
 // `Vertex` (filament::math::float3/float4) would fail
 // tests/test_polyline.cpp at the first #include. Everything below
-// returns/accepts only `mpviz::Vec3` (scene.h, itself Filament-free) or
+// returns/accepts only `overlume::Vec3` (scene.h, itself Filament-free) or
 // plain integer types. The Vec3->Vertex conversion happens at the
 // Filament call site (map_elements.cpp/ribbon.cpp/objects.cpp/
 // alert_polygons.cpp).
@@ -17,9 +17,9 @@
 #include <utility>
 #include <vector>
 
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
-namespace mpviz::detail {
+namespace overlume::detail {
 
 // Mitre-joined triangle-strip extrusion of a polyline into a flat ribbon of
 // `half_width`, each vertex lifted `z_lift` above its source point's Z
@@ -150,4 +150,4 @@ void collapse_clipped_positions(std::vector<Vec3>& positions, const std::vector<
 // reachable from Filament-free tests.
 std::vector<Vec3> build_crosswalk_hatch(const Vec3* pts, uint32_t n, float z_lift);
 
-}  // namespace mpviz::detail
+}  // namespace overlume::detail

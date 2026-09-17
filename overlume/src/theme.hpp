@@ -14,7 +14,7 @@
 #include <optional>
 #include <string>
 
-namespace mpviz::detail {
+namespace overlume::detail {
 
 struct Float3 {
     float r = 0.0f, g = 0.0f, b = 0.0f;
@@ -188,4 +188,4 @@ std::optional<Theme> load_theme(const std::string& dir, const std::string& name)
 // broken/missing theme-asset install never takes rendering down (spec §9).
 const Theme& kFallbackTheme();
 
-}  // namespace mpviz::detail
+}  // namespace overlume::detail

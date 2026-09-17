@@ -1,5 +1,5 @@
 // ribbon_test_hooks.hpp — internal-only, not installed, not POD.
-// tests/test_ribbon.cpp links only against `visual_renderer` and has no
+// tests/test_ribbon.cpp links only against `overlume` and has no
 // access to its PRIVATE Filament include dir, so it can't include
 // ribbon.hpp/renderer_internal.hpp directly. Declared against api.h's
 // opaque VisualRenderer, scene.h's POD PathRole, and theme.hpp's
@@ -11,29 +11,29 @@
 #include <cstdint>
 
 #include "theme.hpp"
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+#include "overlume/api.h"
+#include "overlume/scene.h"
 
-namespace mpviz::testing {
+namespace overlume::testing {
 
 // The color last passed to role `role`'s MaterialInstance "baseColor"
 // param (rgb only — Filament has no getter for a set parameter, so this
 // isn't a GPU read-back). {0,0,0} if `r` is null.
-mpviz::detail::Float3 ribbon_role_base_color(mpviz::VisualRenderer* r, mpviz::PathRole role);
+overlume::detail::Float3 ribbon_role_base_color(overlume::VisualRenderer* r, overlume::PathRole role);
 
 // Number of Filament meshes backing ribbon slot `slot` (0-indexed into
 // active().paths) — Filament-free: a size_t, not a Mesh/Entity. >1 only
 // when the slot's point_count exceeded polyline_chunks()'s
 // uint16-index-buffer ceiling (kMaxPointsPerMesh, polyline.hpp). 0 if `r`
 // is null or `slot` is out of range.
-size_t ribbon_mesh_count(mpviz::VisualRenderer* r, size_t slot);
+size_t ribbon_mesh_count(overlume::VisualRenderer* r, size_t slot);
 
 // Total vertex count summed across every mesh backing slot `slot` —
 // proves no point is lost at the chunk-split seam
 // (LongPathSplitsAcrossMeshesWithoutTruncation compares this against
 // polyline_chunks()'s own math, computed independently). 0 if `r` is null
 // or `slot` is out of range.
-size_t ribbon_vertex_count(mpviz::VisualRenderer* r, size_t slot);
+size_t ribbon_vertex_count(overlume::VisualRenderer* r, size_t slot);
 
 // Which material `slot`'s renderable is currently bound to, read via
 // RenderableManager::getMaterialInstanceAt() (a real GPU-state getter,
@@ -47,7 +47,7 @@ struct RibbonMaterialInfo {
     bool bound_to_translucent = false;
     float alpha = 1.0f;
 };
-RibbonMaterialInfo ribbon_slot_material_info(mpviz::VisualRenderer* r, size_t slot);
+RibbonMaterialInfo ribbon_slot_material_info(overlume::VisualRenderer* r, size_t slot);
 
 // The half-width (build_effective_half_width(), ribbon.cpp — derived from
 // theme.ribbon.lane_width_m and the role's own margin) slot `slot`'s
@@ -58,7 +58,7 @@ RibbonMaterialInfo ribbon_slot_material_info(mpviz::VisualRenderer* r, size_t sl
 // reads this to prove a width-only set_theme() actually rebuilt the strip,
 // since vertex count alone can't tell (it's 2*point_count regardless of
 // width). 0.0f if `r` is null or `slot` is out of range.
-float ribbon_slot_half_width_m(mpviz::VisualRenderer* r, size_t slot);
+float ribbon_slot_half_width_m(overlume::VisualRenderer* r, size_t slot);
 
 // The first geometry point slot `slot`'s build_slot_meshes() call actually
 // used (ego-proximity ribbon clip) -- written to `*out`, returns false
@@ -66,11 +66,11 @@ float ribbon_slot_half_width_m(mpviz::VisualRenderer* r, size_t slot);
 // never built geometry. Proves a clipped ribbon's mesh starts at the
 // interpolated clip point, not the original PathRibbon::points[0] — see
 // RibbonSlot::firstPointM (renderer_internal.hpp).
-bool ribbon_slot_first_point(mpviz::VisualRenderer* r, size_t slot, mpviz::Vec3* out);
+bool ribbon_slot_first_point(overlume::VisualRenderer* r, size_t slot, overlume::Vec3* out);
 
 // Total number of ribbon slot rebuilds (content, role, or ego-clip station
 // changed) since `r` was created -- same cache-miss-counter convention as
 // map_element_rebuild_count(). 0 if `r` is null.
-uint64_t ribbon_rebuild_count(mpviz::VisualRenderer* r);
+uint64_t ribbon_rebuild_count(overlume::VisualRenderer* r);
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

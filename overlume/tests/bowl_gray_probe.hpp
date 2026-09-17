@@ -20,22 +20,22 @@
 // the clear color (45).
 #pragma once
 
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+#include "overlume/api.h"
+#include "overlume/scene.h"
 
 #include <algorithm>
 #include <cstdint>
 #include <vector>
 
-namespace mpviz::testing {
+namespace overlume::testing {
 
 inline constexpr uint32_t kGrayProbeW = 320, kGrayProbeH = 240;
 inline constexpr int kNearNeutralBand = 24;
 
-inline mpviz::CameraExtrinsics gray_probe_extrinsics() {
+inline overlume::CameraExtrinsics gray_probe_extrinsics() {
     return {{1, 0, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 10.0}};
 }
-inline mpviz::CameraIntrinsics gray_probe_intrinsics() {
+inline overlume::CameraIntrinsics gray_probe_intrinsics() {
     return {200, 200, 160, 120, {0, 0, 0, 0, 0}};
 }
 
@@ -45,12 +45,12 @@ inline mpviz::CameraIntrinsics gray_probe_intrinsics() {
 // `exposure_compensation` < 0 leaves BowlConfig's SHIPPED default member
 // initializer untouched (the regression test's mode); >= 0 overrides it
 // (the measurement tool's binary-search mode).
-inline int render_gray_probe(mpviz::VisualRenderer* r, uint8_t gray_byte,
+inline int render_gray_probe(overlume::VisualRenderer* r, uint8_t gray_byte,
                              float exposure_compensation = -1.0f) {
-    mpviz::CameraExtrinsics ext = gray_probe_extrinsics();
-    mpviz::CameraIntrinsics in = gray_probe_intrinsics();
+    overlume::CameraExtrinsics ext = gray_probe_extrinsics();
+    overlume::CameraIntrinsics in = gray_probe_intrinsics();
     uint32_t w = kGrayProbeW, h = kGrayProbeH;
-    mpviz::BowlConfig bc{};
+    overlume::BowlConfig bc{};
     bc.camera_count = 1;
     bc.extrinsics = &ext;
     bc.intrinsics = &in;
@@ -67,18 +67,18 @@ inline int render_gray_probe(mpviz::VisualRenderer* r, uint8_t gray_byte,
     bc.sky_color[2] = 0.0f;
     if (exposure_compensation >= 0.0f) bc.exposure_compensation = exposure_compensation;
 
-    if (!mpviz::set_bowl_config(r, bc)) return -1;
-    if (!mpviz::set_bowl_visible(r, true)) return -1;
+    if (!overlume::set_bowl_config(r, bc)) return -1;
+    if (!overlume::set_bowl_visible(r, true)) return -1;
 
     std::vector<uint8_t> cam_pixels(static_cast<size_t>(w) * h * 3, gray_byte);
     // frame_id must advance across calls -- the dirty gate skips repeats.
     static uint64_t frame_id = 0;
-    if (!mpviz::set_camera_frame(r, 0, cam_pixels.data(), w, h, ++frame_id)) return -1;
+    if (!overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, ++frame_id)) return -1;
 
-    mpviz::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
+    overlume::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
     std::vector<uint8_t> buf(static_cast<size_t>(kGrayProbeW) * kGrayProbeH * 3);
-    mpviz::FrameView view{buf.data(), kGrayProbeW, kGrayProbeH};
-    if (!mpviz::render_frame(r, pose, view)) return -1;
+    overlume::FrameView view{buf.data(), kGrayProbeW, kGrayProbeH};
+    if (!overlume::render_frame(r, pose, view)) return -1;
 
     long sum = 0, count = 0;
     for (size_t i = 0; i < buf.size(); i += 3) {
@@ -94,4 +94,4 @@ inline int render_gray_probe(mpviz::VisualRenderer* r, uint8_t gray_byte,
     return static_cast<int>(sum / count);
 }
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

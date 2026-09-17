@@ -6,10 +6,10 @@
 
 #include <vector>
 
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+#include "overlume/api.h"
+#include "overlume/scene.h"
 
-namespace mpviz::testing {
+namespace overlume::testing {
 
 // Move-only owner of a `.geom` fixture's point data AND the `MapElement`s
 // that point into it. Not copyable: `MapElement::points` are raw pointers
@@ -17,8 +17,8 @@ namespace mpviz::testing {
 // ORIGINAL's buffer (see map_elements.cpp). Move is safe: std::vector's
 // move ctor transfers the buffer without reallocating.
 struct MapGeom {
-    std::vector<mpviz::Vec3> points;
-    std::vector<mpviz::MapElement> elements;
+    std::vector<overlume::Vec3> points;
+    std::vector<overlume::MapElement> elements;
 
     MapGeom() = default;
     MapGeom(const MapGeom&) = delete;
@@ -28,7 +28,7 @@ struct MapGeom {
 };
 
 // Reads a `.geom` fixture emitted by the node-side HdMapAdapter test
-// (MPVIZ_EMIT_GEOM) -- a plain-text dump, one MapElement per line:
+// (OVERLUME_EMIT_GEOM) -- a plain-text dump, one MapElement per line:
 // `<is_polygon> <kind> <lane_id> <n> <x1> <y1> <z1> ... <xn> <yn> <zn>`.
 // ponytail: a text dump, not a serializer -- this is the whole parser.
 // Returns an empty MapGeom (elements.empty()) if `path` can't be opened or
@@ -41,8 +41,8 @@ MapGeom load_map_geom(const char* path);
 // arrays AND the `TrackedObject`s that point into them -- same
 // move-only-not-copyable reasoning as MapGeom above.
 struct ObjectScene {
-    std::vector<mpviz::Vec3> path_points;
-    std::vector<mpviz::TrackedObject> objects;
+    std::vector<overlume::Vec3> path_points;
+    std::vector<overlume::TrackedObject> objects;
 
     ObjectScene() = default;
     ObjectScene(const ObjectScene&) = delete;
@@ -64,12 +64,12 @@ ObjectScene make_mixed_class_objects(double now);
 // the `PathRibbon`s that point into them -- same move-only-not-copyable
 // reasoning as MapGeom/ObjectScene above.
 struct RibbonScene {
-    std::vector<mpviz::Vec3> point_storage;
-    std::vector<mpviz::PathRibbon> ribbons;
+    std::vector<overlume::Vec3> point_storage;
+    std::vector<overlume::PathRibbon> ribbons;
     // Ego pose make_three_role_ribbons() positions ON the BEHAVIOR ribbon --
     // explicit field here (not left implicit in the test's SceneGraph
     // setup) so the scene builder itself documents WHY the ego sits there.
-    mpviz::EgoState ego{};
+    overlume::EgoState ego{};
 
     RibbonScene() = default;
     RibbonScene(const RibbonScene&) = delete;
@@ -92,8 +92,8 @@ RibbonScene make_three_role_ribbons(double now);
 // The five collision-checker topics were silent in the recorded bag (a
 // calm scenario, zero messages) — entirely synthetic.
 struct AlertScene {
-    std::vector<mpviz::Vec3> point_storage;
-    std::vector<mpviz::AlertPolygon> alerts;
+    std::vector<overlume::Vec3> point_storage;
+    std::vector<overlume::AlertPolygon> alerts;
 
     AlertScene() = default;
     AlertScene(const AlertScene&) = delete;
@@ -121,8 +121,8 @@ AlertScene make_sweep_and_predicted_alerts(double now);
 // scene is entirely synthetic by design (real traffic never exercises one
 // of every primitive type).
 struct GenericMarkerScene {
-    std::vector<mpviz::Vec3> point_storage;
-    std::vector<mpviz::GenericMarker> markers;
+    std::vector<overlume::Vec3> point_storage;
+    std::vector<overlume::GenericMarker> markers;
 
     GenericMarkerScene() = default;
     GenericMarkerScene(const GenericMarkerScene&) = delete;
@@ -146,7 +146,7 @@ GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_p
 // Mean of every point across every element -- used to place the golden's
 // ego/camera FROM the recorded data (see test_map_elements.cpp) rather than
 // at a hand-picked coordinate. {0,0,0} if `elems` has no points at all.
-mpviz::Vec3 centroid(const std::vector<mpviz::MapElement>& elems);
+overlume::Vec3 centroid(const std::vector<overlume::MapElement>& elems);
 
 // Move-only owner of a synthetic two-layer OGM scene's cell-byte storage
 // AND the `GroundGridLayer`s that point into it -- same
@@ -161,7 +161,7 @@ mpviz::Vec3 centroid(const std::vector<mpviz::MapElement>& elems);
 // data -- see make_two_layer_grids()'s own comment.
 struct GridScene {
     std::vector<std::vector<uint8_t>> cell_storage;
-    std::vector<mpviz::GroundGridLayer> grids;
+    std::vector<overlume::GroundGridLayer> grids;
 
     GridScene() = default;
     GridScene(const GridScene&) = delete;
@@ -203,7 +203,7 @@ GridScene make_two_layer_grids(double now);
 // test_hello_frame.cpp; callers are expected to GTEST_SKIP() right after
 // create_renderer() returns null, before ever reaching this call, same as
 // every other renderer test in this codebase.
-double render_and_compare(mpviz::VisualRenderer* r, const mpviz::CameraPose& pose,
+double render_and_compare(overlume::VisualRenderer* r, const overlume::CameraPose& pose,
                            const char* golden_png_path, const char* out_png_path);
 
 // Legibility stats for a rendered frame -- the numeric form of the plan's
@@ -233,4 +233,4 @@ struct FrameStats {
 };
 FrameStats analyze_png(const char* png_path);
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

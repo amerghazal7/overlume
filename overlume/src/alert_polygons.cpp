@@ -16,7 +16,7 @@
 #include "alert_polygons_test_hooks.hpp"
 #include "polyline.hpp"
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
 #include <filament/RenderableManager.h>
 
@@ -28,7 +28,7 @@
 #include <functional>
 #include <vector>
 
-namespace mpviz {
+namespace overlume {
 
 namespace {
 
@@ -93,7 +93,7 @@ void build_slot_mesh(VisualRenderer& r, VisualRenderer::AlertSlot& slot, const A
 
     if (tris.size() > 65535) {
         std::fprintf(stderr,
-                     "[visual_renderer] alert polygon mesh (%zu verts) exceeds the uint16 index "
+                     "[overlume] alert polygon mesh (%zu verts) exceeds the uint16 index "
                      "ceiling; alert dropped\n",
                      tris.size());
         return;
@@ -190,24 +190,24 @@ void update_alert_polygons(VisualRenderer& r, const SceneGraph& s) {
     }
 }
 
-}  // namespace mpviz
+}  // namespace overlume
 
 // Filament-free test introspection hooks; see alert_polygons_test_hooks.hpp
 // for why these live here.
-namespace mpviz::testing {
+namespace overlume::testing {
 
-mpviz::detail::Float3 alert_severity_base_color(mpviz::VisualRenderer* r, uint8_t severity) {
-    if (r == nullptr || severity >= mpviz::VisualRenderer::kAlertSeverityCount) return {};
+overlume::detail::Float3 alert_severity_base_color(overlume::VisualRenderer* r, uint8_t severity) {
+    if (r == nullptr || severity >= overlume::VisualRenderer::kAlertSeverityCount) return {};
     return r->alertTint[severity];
 }
 
-size_t alert_slot_count(mpviz::VisualRenderer* r) {
+size_t alert_slot_count(overlume::VisualRenderer* r) {
     return r == nullptr ? 0 : r->alertSlots.size();
 }
 
-AlertMaterialInfo alert_slot_material_info(mpviz::VisualRenderer* r, size_t slot) {
+AlertMaterialInfo alert_slot_material_info(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->alertSlots.size()) return {};
-    const mpviz::VisualRenderer::AlertSlot& s = r->alertSlots[slot];
+    const overlume::VisualRenderer::AlertSlot& s = r->alertSlots[slot];
     AlertMaterialInfo info;
     info.alpha = s.fadeAlpha;
     if (!s.mesh.entity) return info;
@@ -219,4 +219,4 @@ AlertMaterialInfo alert_slot_material_info(mpviz::VisualRenderer* r, size_t slot
     return info;
 }
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

@@ -5,7 +5,7 @@
 
 #include <cmath>
 
-namespace mpviz::bowl {
+namespace overlume::bowl {
 
 namespace {
 
@@ -22,8 +22,8 @@ Vec3d column(const double R[9], int j) { return {R[j], R[3 + j], R[6 + j]}; }
 
 }  // namespace
 
-bool ProjectToCameraUv(const mpviz::CameraExtrinsics& ext, const mpviz::CameraIntrinsics& in,
-                       uint32_t width, uint32_t height, mpviz::Vec3 rig_point, float* out_u,
+bool ProjectToCameraUv(const overlume::CameraExtrinsics& ext, const overlume::CameraIntrinsics& in,
+                       uint32_t width, uint32_t height, overlume::Vec3 rig_point, float* out_u,
                        float* out_v) {
     const Vec3d right = column(ext.R, 0);
     const Vec3d down = column(ext.R, 1);
@@ -71,7 +71,7 @@ bool ProjectToCameraUv(const mpviz::CameraExtrinsics& ext, const mpviz::CameraIn
     return true;
 }
 
-mpviz::Vec3 BowlSurfacePoint(double bowl_R0, double bowl_k, double bowl_Rmax, double theta,
+overlume::Vec3 BowlSurfacePoint(double bowl_R0, double bowl_k, double bowl_Rmax, double theta,
                              double r) {
     // Ported verbatim from reproject.cu's kernels/surface.cuh:
     // bowl_height(r) = k * clamp(r - R0, 0, Rmax - R0)^2 -- flat floor
@@ -92,7 +92,7 @@ float BorderFeather(float xp, float yp, uint32_t width, uint32_t height, double 
     return static_cast<float>(x * x * (3.0 - 2.0 * x));
 }
 
-float CameraAlignment(const mpviz::CameraExtrinsics& ext, mpviz::Vec3 rig_point) {
+float CameraAlignment(const overlume::CameraExtrinsics& ext, overlume::Vec3 rig_point) {
     const Vec3d fwd = column(ext.R, 2);
     const Vec3d t{ext.t[0], ext.t[1], ext.t[2]};
     const Vec3d rel = sub(Vec3d{rig_point.x, rig_point.y, rig_point.z}, t);
@@ -102,4 +102,4 @@ float CameraAlignment(const mpviz::CameraExtrinsics& ext, mpviz::Vec3 rig_point)
     return static_cast<float>(std::fmin(std::fmax(align, 0.0), 1.0));
 }
 
-}  // namespace mpviz::bowl
+}  // namespace overlume::bowl

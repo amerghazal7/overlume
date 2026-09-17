@@ -20,22 +20,22 @@ From the repo root, after building `test_theme_showcase` once
 ```bash
 cd overlume/build
 
-# A shipped theme (assets/themes/*.yaml) -- MPVIZ_SHOWCASE_THEME_DIR defaults
+# A shipped theme (assets/themes/*.yaml) -- OVERLUME_SHOWCASE_THEME_DIR defaults
 # to the shipped dir, so it can be omitted here:
-MPVIZ_SHOWCASE=1 MPVIZ_SHOWCASE_THEME=dark_adas \
-MPVIZ_SHOWCASE_OUT=/tmp/showcase_dark_adas.png \
+OVERLUME_SHOWCASE=1 OVERLUME_SHOWCASE_THEME=dark_adas \
+OVERLUME_SHOWCASE_OUT=/tmp/showcase_dark_adas.png \
     ./test_theme_showcase --gtest_filter='ThemeShowcase.Capture'
 
 # A future candidate variant, kept in a scratch directory of your own
 # (there is no assets/theme_variants/ in the repo right now -- the ref-2
 # candidates that lived there were promoted into assets/themes/ on
 # 2026-09-16 and the directory was deleted so the promoted content
-# couldn't silently drift from a leftover copy). MPVIZ_SHOWCASE_THEME_DIR
+# couldn't silently drift from a leftover copy). OVERLUME_SHOWCASE_THEME_DIR
 # still works for this the same way -- point it at wherever you keep the
 # next round of candidate YAMLs:
-MPVIZ_SHOWCASE=1 MPVIZ_SHOWCASE_THEME=my_candidate \
-MPVIZ_SHOWCASE_THEME_DIR=/path/to/your/candidate/dir \
-MPVIZ_SHOWCASE_OUT=/tmp/showcase_my_candidate.png \
+OVERLUME_SHOWCASE=1 OVERLUME_SHOWCASE_THEME=my_candidate \
+OVERLUME_SHOWCASE_THEME_DIR=/path/to/your/candidate/dir \
+OVERLUME_SHOWCASE_OUT=/tmp/showcase_my_candidate.png \
     ./test_theme_showcase --gtest_filter='ThemeShowcase.Capture'
 ```
 
@@ -48,10 +48,10 @@ Env contract (also documented in the test file's own header comment):
 
 | Var | Meaning | Default |
 |---|---|---|
-| `MPVIZ_SHOWCASE` | `1` enables the capture; unset -> `GTEST_SKIP()` | unset |
-| `MPVIZ_SHOWCASE_THEME` | theme name (yaml stem) to load | `dark_adas` |
-| `MPVIZ_SHOWCASE_THEME_DIR` | directory to load `<theme>.yaml` from | shipped `assets/themes/` |
-| `MPVIZ_SHOWCASE_OUT` | output PNG path | `/tmp/theme_showcase_<theme>.png` |
+| `OVERLUME_SHOWCASE` | `1` enables the capture; unset -> `GTEST_SKIP()` | unset |
+| `OVERLUME_SHOWCASE_THEME` | theme name (yaml stem) to load | `dark_adas` |
+| `OVERLUME_SHOWCASE_THEME_DIR` | directory to load `<theme>.yaml` from | shipped `assets/themes/` |
+| `OVERLUME_SHOWCASE_OUT` | output PNG path | `/tmp/theme_showcase_<theme>.png` |
 
 ## What the scene contains
 
@@ -100,7 +100,7 @@ shipped `assets/themes/light_clay.yaml` and `dark_adas.yaml` themselves
 (this pass also re-shot every golden the re-palette legitimately changed and
 fixed the handful of theme-test guards it tripped; see the promotion
 commit). `assets/theme_variants/` was deleted with the promotion — the
-showcase now renders the shipped themes directly (the `MPVIZ_SHOWCASE_THEME_DIR`
+showcase now renders the shipped themes directly (the `OVERLUME_SHOWCASE_THEME_DIR`
 example above still applies to whatever directory holds the *next* round of
 candidates).
 
@@ -123,7 +123,7 @@ to a pure primary) confirms hue carries through the render path correctly;
 the dilution is a real, expected side effect of the shipped opacity value,
 not a bug in this harness. If a future palette review needs to judge
 `object_tints` at full strength, capture a second frame with
-`MPVIZ_SHOWCASE_THEME_DIR` pointed at a scratch copy of the candidate theme
+`OVERLUME_SHOWCASE_THEME_DIR` pointed at a scratch copy of the candidate theme
 with `objects.opacity` set to `1.0` — do **not** change the shipped/
 candidate YAML's own opacity value for this.
 

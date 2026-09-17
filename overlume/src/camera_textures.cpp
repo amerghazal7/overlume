@@ -8,7 +8,7 @@
 #include "camera_textures.hpp"
 #include "camera_textures_test_hooks.hpp"
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
 #include <filament/Engine.h>
 #include <filament/Texture.h>
@@ -18,7 +18,7 @@
 #include <cstring>
 #include <vector>
 
-namespace mpviz {
+namespace overlume {
 
 namespace {
 
@@ -191,19 +191,19 @@ bool set_camera_frame(VisualRenderer* r, uint32_t cam_idx, const uint8_t* rgb, u
     return true;
 }
 
-}  // namespace mpviz
+}  // namespace overlume
 
 // Filament-free test introspection hook; see camera_textures_test_hooks.hpp.
-namespace mpviz::testing {
+namespace overlume::testing {
 
-uint64_t camera_frame_upload_count(mpviz::VisualRenderer* r, uint32_t cam_idx) {
+uint64_t camera_frame_upload_count(overlume::VisualRenderer* r, uint32_t cam_idx) {
     if (r == nullptr || cam_idx >= r->cameraCount) return 0;
     return r->cameraSlots[cam_idx].uploadCount;
 }
 
-void camera_motion_delta(mpviz::VisualRenderer* r, uint32_t cam_idx, double out[16]) {
+void camera_motion_delta(overlume::VisualRenderer* r, uint32_t cam_idx, double out[16]) {
     if (r == nullptr || cam_idx >= r->cameraCount) return;
     std::memcpy(out, r->cameraSlots[cam_idx].motionDelta, sizeof(double) * 16);
 }
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

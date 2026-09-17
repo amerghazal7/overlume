@@ -17,7 +17,7 @@
 #include "point_cloud_test_hooks.hpp"
 #include "polyline.hpp"
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
 #include <filament/RenderableManager.h>
 
@@ -32,7 +32,7 @@
 #include <utility>
 #include <vector>
 
-namespace mpviz {
+namespace overlume {
 
 namespace {
 
@@ -204,25 +204,25 @@ void update_point_clouds(VisualRenderer& r, const SceneGraph& s) {
     r.pointCloudAlpha = alpha;
 }
 
-}  // namespace mpviz
+}  // namespace overlume
 
 // Filament-free test introspection hooks; see point_cloud_test_hooks.hpp
 // for why these live here.
-namespace mpviz::testing {
+namespace overlume::testing {
 
-size_t point_cloud_mesh_count(mpviz::VisualRenderer* r, size_t slot) {
+size_t point_cloud_mesh_count(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->pointCloudSlots.size()) return 0;
     return r->pointCloudSlots[slot].meshes.size();
 }
 
-size_t point_cloud_vertex_count(mpviz::VisualRenderer* r, size_t slot) {
+size_t point_cloud_vertex_count(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->pointCloudSlots.size()) return 0;
     return r->pointCloudSlots[slot].totalVertexCount;
 }
 
-float point_cloud_material_alpha(mpviz::VisualRenderer* r) {
+float point_cloud_material_alpha(overlume::VisualRenderer* r) {
     if (r == nullptr) return 1.0f;
     return r->pointCloudAlpha;
 }
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

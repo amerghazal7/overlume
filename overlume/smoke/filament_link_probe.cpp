@@ -9,7 +9,7 @@
 // and nothing in the Task 1 build (a static library with no consumer) ever
 // forces the linker to actually resolve those cross-archive symbols.
 //
-// This probe is that consumer: it links `visual_renderer` (which propagates
+// This probe is that consumer: it links `overlume` (which propagates
 // Filament::filament) into a real executable and calls a Filament entry
 // point (Engine::Builder().build()) whose implementation is known to reach
 // across the filament/backend/utils/filabridge/filaflat archive boundary.

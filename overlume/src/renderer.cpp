@@ -7,7 +7,7 @@
 // Geometry is baked directly in world space; later scene content (map
 // elements, objects, ego) is what needs per-frame transforms.
 //
-// This file is internal to visual_renderer's clang/libc++ build, so (unlike
+// This file is internal to overlume's clang/libc++ build, so (unlike
 // api.h/scene.h) ordinary std:: usage is fine here — nothing here crosses
 // the ABI boundary with the gcc/libstdc++ ROS node.
 //
@@ -16,8 +16,8 @@
 // so other translation units in the same library target (ego.cpp, etc) can
 // see the class and reuse add_mesh. HeadlessEglPlatform's full body stays
 // defined in this .cpp — only forward-declared in the header.
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+#include "overlume/api.h"
+#include "overlume/scene.h"
 #include "alert_polygons.hpp"
 #include "alert_polygons_test_hooks.hpp"
 #include "bowl.hpp"
@@ -107,7 +107,7 @@
 // (confirmed the hard way: SIGSEGV in queryOpenGLVersion() calling a null
 // glGetString before this was added). Only the real entry points this file
 // actually needs are hand-declared — at global scope (not inside namespace
-// mpviz) so they name-match the real symbols the linker resolves against —
+// overlume) so they name-match the real symbols the linker resolves against —
 // rather than vendoring the generated BlueGL.h, which would pull in
 // thousands of macro-renamed GL declarations this file never needs.
 namespace bluegl {
@@ -129,13 +129,13 @@ constexpr unsigned int kGlRenderer = 0x1F01;
 constexpr unsigned int kGlVersion = 0x1F02;
 
 // Compiled-in default theme-assets dir (CMakeLists.txt target_compile_
-// definitions on the visual_renderer target) — used whenever
+// definitions on the overlume target) — used whenever
 // RenderConfig::theme_assets_dir is null.
 #ifndef DEFAULT_THEME_ASSETS_DIR
 #error "DEFAULT_THEME_ASSETS_DIR must be defined by CMakeLists.txt"
 #endif
 
-namespace mpviz {
+namespace overlume {
 
 using filament::math::float3;
 using filament::math::float4;
@@ -194,7 +194,7 @@ constexpr float kFogScaleReferenceValue = 50.0f;        // historical: light_cla
 // (verified below with $DISPLAY unset).
 //
 // Epic 1 Task 2 Step 7e: moved out of the anonymous namespace to plain
-// `namespace mpviz` scope (still defined here in the .cpp, not in the
+// `namespace overlume` scope (still defined here in the .cpp, not in the
 // header) — renderer_internal.hpp forward-declares this same type so
 // VisualRenderer::platform can name it.
 class HeadlessEglPlatform : public filament::backend::OpenGLPlatform {
@@ -269,9 +269,9 @@ public:
             const unsigned char* s = bluegl_glGetString(n);
             return s != nullptr ? reinterpret_cast<const char*>(s) : "(null)";
         };
-        std::fprintf(stderr, "[visual_renderer] GL_VENDOR: %s\n", gl_str(kGlVendor));
-        std::fprintf(stderr, "[visual_renderer] GL_RENDERER: %s\n", gl_str(kGlRenderer));
-        std::fprintf(stderr, "[visual_renderer] GL_VERSION: %s\n", gl_str(kGlVersion));
+        std::fprintf(stderr, "[overlume] GL_VENDOR: %s\n", gl_str(kGlVendor));
+        std::fprintf(stderr, "[overlume] GL_RENDERER: %s\n", gl_str(kGlRenderer));
+        std::fprintf(stderr, "[overlume] GL_VERSION: %s\n", gl_str(kGlVersion));
 
         return createDefaultDriver(this, nullptr, driverConfig);
     }
@@ -820,7 +820,7 @@ void on_readback_complete(void* /*buffer*/, size_t /*size*/, void* user) {
 
 // Definition of fill_tangent_frames() (renderer_internal.hpp declares it).
 // Still calls quat_to_float4(), which stays anonymous-namespace-local --
-// unqualified lookup from this enclosing mpviz scope still finds it, same
+// unqualified lookup from this enclosing overlume scope still finds it, same
 // TU.
 void fill_tangent_frames(std::vector<Vertex>& verts, const std::vector<float3>& normals) {
     filament::geometry::SurfaceOrientation::Builder builder;
@@ -1137,11 +1137,11 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // remap) and clay_faded.mat (grid-only, per-vertex alpha) -- see those
     // .mat files for why two materials, not one.
     r->clayMaterial = filament::Material::Builder()
-                          .package(mpviz::materials::kclayFilamat, mpviz::materials::kclayFilamatSize)
+                          .package(overlume::materials::kclayFilamat, overlume::materials::kclayFilamatSize)
                           .build(*engine);
     r->clayFadedMaterial =
         filament::Material::Builder()
-            .package(mpviz::materials::kclay_fadedFilamat, mpviz::materials::kclay_fadedFilamatSize)
+            .package(overlume::materials::kclay_fadedFilamat, overlume::materials::kclay_fadedFilamatSize)
             .build(*engine);
 
     r->groundMaterial = r->clayMaterial->createInstance();
@@ -1169,8 +1169,8 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // push_theme_to_scene().
     r->clayTranslucentMaterial =
         filament::Material::Builder()
-            .package(mpviz::materials::kclay_translucentFilamat,
-                     mpviz::materials::kclay_translucentFilamatSize)
+            .package(overlume::materials::kclay_translucentFilamat,
+                     overlume::materials::kclay_translucentFilamatSize)
             .build(*engine);
     for (size_t i = 0; i < VisualRenderer::kObjectClassCount; ++i) {
         r->objectClassMaterial[i] = r->clayMaterial->createInstance();
@@ -1185,8 +1185,8 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // surface shares.
     r->ribbonEmissiveMaterial =
         filament::Material::Builder()
-            .package(mpviz::materials::kribbon_emissiveFilamat,
-                     mpviz::materials::kribbon_emissiveFilamatSize)
+            .package(overlume::materials::kribbon_emissiveFilamat,
+                     overlume::materials::kribbon_emissiveFilamatSize)
             .build(*engine);
     r->ribbonMaterial[static_cast<uint8_t>(PathRole::BEHAVIOR)] =
         r->ribbonEmissiveMaterial->createInstance();
@@ -1199,8 +1199,8 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // eager-creation reasoning as laneMaterial above.
     r->groundGridMaterial =
         filament::Material::Builder()
-            .package(mpviz::materials::kground_gridFilamat,
-                     mpviz::materials::kground_gridFilamatSize)
+            .package(overlume::materials::kground_gridFilamat,
+                     overlume::materials::kground_gridFilamatSize)
             .build(*engine);
     for (auto*& inst : r->groundGridMaterialInstance) {
         inst = r->groundGridMaterial->createInstance();
@@ -1215,7 +1215,7 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // a per-category tint.
     r->pointCloudMaterial =
         filament::Material::Builder()
-            .package(mpviz::materials::kpoint_cloudFilamat, mpviz::materials::kpoint_cloudFilamatSize)
+            .package(overlume::materials::kpoint_cloudFilamat, overlume::materials::kpoint_cloudFilamatSize)
             .build(*engine);
     r->pointCloudMaterialInstance = r->pointCloudMaterial->createInstance();
     r->pointCloudMaterialInstance->setCullingMode(filament::backend::CullingMode::NONE);
@@ -1230,15 +1230,15 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     // pointCloudMaterialInstance above.
     r->trajectoryCarpetMaterial =
         filament::Material::Builder()
-            .package(mpviz::materials::ktrajectory_carpetFilamat,
-                     mpviz::materials::ktrajectory_carpetFilamatSize)
+            .package(overlume::materials::ktrajectory_carpetFilamat,
+                     overlume::materials::ktrajectory_carpetFilamatSize)
             .build(*engine);
     r->trajectoryCarpetMaterialInstance = r->trajectoryCarpetMaterial->createInstance();
     r->trajectoryCarpetMaterialInstance->setCullingMode(filament::backend::CullingMode::NONE);
     r->trajectoryCarpetFadedMaterial =
         filament::Material::Builder()
-            .package(mpviz::materials::ktrajectory_carpet_fadedFilamat,
-                     mpviz::materials::ktrajectory_carpet_fadedFilamatSize)
+            .package(overlume::materials::ktrajectory_carpet_fadedFilamat,
+                     overlume::materials::ktrajectory_carpet_fadedFilamatSize)
             .build(*engine);
     r->trajectoryCarpetFadedMaterialInstance = r->trajectoryCarpetFadedMaterial->createInstance();
     r->trajectoryCarpetFadedMaterialInstance->setCullingMode(filament::backend::CullingMode::NONE);
@@ -1799,15 +1799,15 @@ bool project_to_screen(VisualRenderer* r, Vec3 world_point, float* out_x, float*
     return true;
 }
 
-}  // namespace mpviz
+}  // namespace overlume
 
 // Filament-free test introspection hooks; see map_elements_test_hooks.hpp
 // for why these live here rather than map_elements.cpp -- both the
 // ground/grid patch and the lane MaterialInstance's theming are wired up
 // in this file.
-namespace mpviz::testing {
+namespace overlume::testing {
 
-mpviz::Vec3 ground_patch_centre(mpviz::VisualRenderer* r) {
+overlume::Vec3 ground_patch_centre(overlume::VisualRenderer* r) {
     if (r == nullptr || !r->ground.entity) return {0.0, 0.0, 0.0};
     filament::TransformManager& tm = r->engine->getTransformManager();
     const auto inst = tm.getInstance(r->ground.entity);
@@ -1817,7 +1817,7 @@ mpviz::Vec3 ground_patch_centre(mpviz::VisualRenderer* r) {
     return {static_cast<double>(t.x), static_cast<double>(t.y), static_cast<double>(t.z)};
 }
 
-mpviz::detail::Float3 lane_material_base_color(mpviz::VisualRenderer* r) {
+overlume::detail::Float3 lane_material_base_color(overlume::VisualRenderer* r) {
     if (r == nullptr) return {};
     return r->laneMaterialBaseColor;
 }
@@ -1829,36 +1829,36 @@ mpviz::detail::Float3 lane_material_base_color(mpviz::VisualRenderer* r) {
 // lane_material_base_color() above. Kept in sync with material_for_kind()
 // by hand -- a kind added to one and not the other is caught the moment a
 // test exercises the new kind.
-mpviz::detail::Float3 map_kind_base_color(mpviz::VisualRenderer* r, mpviz::MapKind kind) {
+overlume::detail::Float3 map_kind_base_color(overlume::VisualRenderer* r, overlume::MapKind kind) {
     if (r == nullptr) return {};
     switch (kind) {
-        case mpviz::MapKind::CENTERLINE:
+        case overlume::MapKind::CENTERLINE:
             return r->laneCenterlineMaterialBaseColor;
-        case mpviz::MapKind::LEFT_BOUNDARY:
-        case mpviz::MapKind::RIGHT_BOUNDARY:
+        case overlume::MapKind::LEFT_BOUNDARY:
+        case overlume::MapKind::RIGHT_BOUNDARY:
             return r->laneBoundaryMaterialBaseColor;
-        case mpviz::MapKind::CROSSWALK:
+        case overlume::MapKind::CROSSWALK:
             return r->crosswalkMaterialBaseColor;
-        case mpviz::MapKind::ROAD_SURFACE:
+        case overlume::MapKind::ROAD_SURFACE:
             return r->roadMaterialBaseColor;
-        case mpviz::MapKind::ROAD_EDGE:
+        case overlume::MapKind::ROAD_EDGE:
             return r->roadEdgeMaterialBaseColor;
         default:
             return r->laneMaterialBaseColor;
     }
 }
 
-mpviz::detail::Float3 ego_material_base_color(mpviz::VisualRenderer* r) {
+overlume::detail::Float3 ego_material_base_color(overlume::VisualRenderer* r) {
     if (r == nullptr) return {};
     return r->egoMaterialBaseColor;
 }
 
 // 0 if `r` is null.
-uint64_t map_element_rebuild_count(mpviz::VisualRenderer* r) {
+uint64_t map_element_rebuild_count(overlume::VisualRenderer* r) {
     return r == nullptr ? 0 : r->mapElementRebuildCount;
 }
 
-size_t map_element_mesh_count(mpviz::VisualRenderer* r) {
+size_t map_element_mesh_count(overlume::VisualRenderer* r) {
     return r == nullptr ? 0 : r->mapElementMeshes.size();
 }
 
@@ -1867,7 +1867,7 @@ size_t map_element_mesh_count(mpviz::VisualRenderer* r) {
 // update_map_elements() currently holds. Used to distinguish a
 // dot-disc-built CENTERLINE mesh (many small fan triangles) from a
 // strip-built one (few) without a full-frame SSIM. 0 if `r` is null.
-size_t map_element_total_vertex_count(mpviz::VisualRenderer* r) {
+size_t map_element_total_vertex_count(overlume::VisualRenderer* r) {
     if (r == nullptr) return 0;
     size_t total = 0;
     for (const auto& [key, mesh] : r->mapElementMeshes) {
@@ -1880,10 +1880,10 @@ size_t map_element_total_vertex_count(mpviz::VisualRenderer* r) {
 // Reads "the" live map-element mesh's fade state -- see
 // map_elements_test_hooks.hpp for why this is only meaningful at
 // map_element_mesh_count() == 1.
-MapElementMaterialInfo map_element_material_info(mpviz::VisualRenderer* r) {
+MapElementMaterialInfo map_element_material_info(overlume::VisualRenderer* r) {
     MapElementMaterialInfo info;
     if (r == nullptr || r->mapElementMeshes.size() != 1) return info;
-    const mpviz::Mesh& mesh = r->mapElementMeshes.begin()->second;
+    const overlume::Mesh& mesh = r->mapElementMeshes.begin()->second;
     info.alpha = mesh.fadeAlpha;
     if (!mesh.entity) return info;
     filament::RenderableManager& rm = r->engine->getRenderableManager();
@@ -1897,14 +1897,14 @@ MapElementMaterialInfo map_element_material_info(mpviz::VisualRenderer* r) {
 // Epic 3 Task 5 (VM-032) Step 3 hooks -- read back the sun light's actual
 // Filament-side state (both have real getters, no CPU mirror needed).
 // false if `r` is null.
-bool quality_shadows_enabled(mpviz::VisualRenderer* r) {
+bool quality_shadows_enabled(overlume::VisualRenderer* r) {
     if (r == nullptr) return false;
     filament::LightManager& lm = r->engine->getLightManager();
     return lm.isShadowCaster(lm.getInstance(r->sunEntity));
 }
 
 // 0 if `r` is null.
-uint32_t quality_shadow_map_size(mpviz::VisualRenderer* r) {
+uint32_t quality_shadow_map_size(overlume::VisualRenderer* r) {
     if (r == nullptr) return 0;
     filament::LightManager& lm = r->engine->getLightManager();
     return lm.getShadowOptions(lm.getInstance(r->sunEntity)).mapSize;
@@ -1916,7 +1916,7 @@ uint32_t quality_shadow_map_size(mpviz::VisualRenderer* r) {
 // direct "current internal render size" getter, but the option struct it
 // mirrors does, so this is arithmetic, not a CPU-side re-mirror of state
 // Filament already owns. {0, 0} if `r` is null.
-QualityRenderSize quality_internal_render_size(mpviz::VisualRenderer* r) {
+QualityRenderSize quality_internal_render_size(overlume::VisualRenderer* r) {
     QualityRenderSize size;
     if (r == nullptr) return size;
     const filament::View::DynamicResolutionOptions opts = r->view->getDynamicResolutionOptions();
@@ -1935,7 +1935,7 @@ QualityRenderSize quality_internal_render_size(mpviz::VisualRenderer* r) {
 }
 
 // {false, 0} if `r` is null.
-QualitySsao quality_ssao(mpviz::VisualRenderer* r) {
+QualitySsao quality_ssao(overlume::VisualRenderer* r) {
     QualitySsao out;
     if (r == nullptr) return out;
     const filament::View::AmbientOcclusionOptions& ao = r->view->getAmbientOcclusionOptions();
@@ -1945,16 +1945,16 @@ QualitySsao quality_ssao(mpviz::VisualRenderer* r) {
 }
 
 // false if `r` is null.
-bool quality_taa_enabled(mpviz::VisualRenderer* r) {
+bool quality_taa_enabled(overlume::VisualRenderer* r) {
     if (r == nullptr) return false;
     return r->view->getTemporalAntiAliasingOptions().enabled;
 }
 
 // NONE if `r` is null.
-QualityAntiAliasing quality_antialiasing(mpviz::VisualRenderer* r) {
+QualityAntiAliasing quality_antialiasing(overlume::VisualRenderer* r) {
     if (r == nullptr) return QualityAntiAliasing::NONE;
     return r->view->getAntiAliasing() == filament::AntiAliasing::FXAA ? QualityAntiAliasing::FXAA
                                                                        : QualityAntiAliasing::NONE;
 }
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

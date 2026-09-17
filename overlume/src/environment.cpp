@@ -11,7 +11,7 @@
 #include "environment_test_hooks.hpp"
 #include "gltf_normals.hpp"
 #include "renderer_internal.hpp"
-#include "visual_renderer/api.h"
+#include "overlume/api.h"
 
 #include <yaml-cpp/yaml.h>
 
@@ -21,7 +21,7 @@
 #include <fstream>
 #include <utility>
 
-namespace mpviz {
+namespace overlume {
 
 namespace {
 
@@ -207,9 +207,9 @@ std::unique_ptr<BakedEnvironmentSource> open_baked_environment_source(const std:
     return std::make_unique<BakedEnvironmentSource>(dir, std::move(chunks), anchor);
 }
 
-}  // namespace mpviz
+}  // namespace overlume
 
-namespace mpviz {
+namespace overlume {
 
 namespace {
 // Epic 6 (VM-062) Decision 5: dispatch on a scheme prefix inside this
@@ -224,7 +224,7 @@ constexpr size_t kIonPrefixLen = sizeof(kIonPrefix) - 1;
 // backend, byte-for-byte today's behavior (Decision 5) -- every existing
 // caller/config/test unaffected. An "ion://" prefix opens the streaming
 // backend instead (`open_streaming_environment_source`, environment_stream.cpp,
-// the one C++20 TU); with MPVIZ_ENABLE_CESIUM off (the ordinary build/ tree,
+// the one C++20 TU); with OVERLUME_ENABLE_CESIUM off (the ordinary build/ tree,
 // see CMakeLists.txt), that TU isn't compiled in at all, so this branch
 // returns false rather than referencing an undefined symbol -- an "ion://"
 // source_uri configured against a cesium-less build degrades the same way
@@ -235,10 +235,10 @@ bool set_environment_source(VisualRenderer* r, const char* source_uri, GeoAnchor
     std::unique_ptr<EnvironmentSource> source;
     const std::string uri(source_uri);
     if (uri.compare(0, kIonPrefixLen, kIonPrefix) == 0) {
-#ifdef MPVIZ_ENABLE_CESIUM
+#ifdef OVERLUME_ENABLE_CESIUM
         source = open_streaming_environment_source(uri.substr(kIonPrefixLen), anchor);
 #else
-        return false;  // cesium not compiled into this build (MPVIZ_ENABLE_CESIUM off)
+        return false;  // cesium not compiled into this build (OVERLUME_ENABLE_CESIUM off)
 #endif
     } else {
         source = open_baked_environment_source(uri, anchor);
@@ -301,11 +301,11 @@ EnvironmentSourceState environment_source_state(VisualRenderer* r) {
     return r->environmentSource->state();
 }
 
-}  // namespace mpviz
+}  // namespace overlume
 
-namespace mpviz::testing {
+namespace overlume::testing {
 
-uint64_t environment_loaded_chunk_count(mpviz::VisualRenderer* r) {
+uint64_t environment_loaded_chunk_count(overlume::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return 0;
     // Epic 6 (VM-062) Decision 12: goes through the virtual now that a
     // second concrete EnvironmentSource type (StreamingEnvironmentSource)
@@ -317,9 +317,9 @@ uint64_t environment_loaded_chunk_count(mpviz::VisualRenderer* r) {
     return static_cast<uint64_t>(r->environmentSource->loaded_count());
 }
 
-uint64_t environment_scene_membership_count(mpviz::VisualRenderer* r) {
+uint64_t environment_scene_membership_count(overlume::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return 0;
     return static_cast<uint64_t>(r->environmentSource->scene_membership_count(*r));
 }
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

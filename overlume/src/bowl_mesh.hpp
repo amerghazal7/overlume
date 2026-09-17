@@ -41,15 +41,15 @@
 // fidelity.
 #pragma once
 
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
 #include <cstdint>
 #include <vector>
 
-namespace mpviz::bowl {
+namespace overlume::bowl {
 
 struct BowlVertex {
-    mpviz::Vec3 position;  // rig frame -- the vertex shader/fragment
+    overlume::Vec3 position;  // rig frame -- the vertex shader/fragment
                             // shader recompute UV from this per-camera.
     // Alignment^2 coverage weight only (border feather is per-fragment now,
     // bowl.mat's featherMargin parameter -- see this header's comment).
@@ -87,8 +87,8 @@ struct BowlMeshParams {
 // no-op, same "missing data does nothing" convention as the rest of this
 // POD boundary.
 struct EgoBox {
-    mpviz::Vec3 center{0.0, 0.0, 0.0};
-    mpviz::Vec3 half_extents{0.0, 0.0, 0.0};
+    overlume::Vec3 center{0.0, 0.0, 0.0};
+    overlume::Vec3 half_extents{0.0, 0.0, 0.0};
 };
 
 // Generates the bowl's radial-grid topology (rig frame, robot at origin,
@@ -114,8 +114,8 @@ struct EgoBox {
 // convention.
 BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double bowl_k,
                       double bowl_Rmax, uint32_t camera_count,
-                      const mpviz::CameraExtrinsics* extrinsics,
-                      const mpviz::CameraIntrinsics* intrinsics, const uint32_t* cam_width,
+                      const overlume::CameraExtrinsics* extrinsics,
+                      const overlume::CameraIntrinsics* intrinsics, const uint32_t* cam_width,
                       const uint32_t* cam_height, const EgoBox& ego_box = EgoBox{});
 
-}  // namespace mpviz::bowl
+}  // namespace overlume::bowl

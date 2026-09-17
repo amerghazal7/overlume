@@ -13,7 +13,7 @@
 #include "generic_markers.hpp"
 #include "generic_markers_test_hooks.hpp"
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
 #include <filament/RenderableManager.h>
 #include <filament/TransformManager.h>
@@ -39,7 +39,7 @@
 #include <string>
 #include <vector>
 
-namespace mpviz {
+namespace overlume {
 
 namespace {
 
@@ -325,7 +325,7 @@ void update_own_mesh_geometry(VisualRenderer& r, const GenericMarker& m,
     // ribbon.cpp's 32000-point scale).
     if (verts.size() > 65535) {
         std::fprintf(stderr,
-                     "[visual_renderer] generic marker mesh (%zu verts) exceeds the uint16 index "
+                     "[overlume] generic marker mesh (%zu verts) exceeds the uint16 index "
                      "ceiling; marker dropped\n",
                      verts.size());
         return;
@@ -389,7 +389,7 @@ void update_mesh_geometry(VisualRenderer& r, const GenericMarker& m,
         // aren't grouped into a fixed class set.
         if (r.genericMarkerMeshWarned.insert(path).second) {
             std::fprintf(stderr,
-                         "[visual_renderer] generic marker mesh_path '%s' failed to load; "
+                         "[overlume] generic marker mesh_path '%s' failed to load; "
                          "falling back to a clay box\n",
                          path.c_str());
         }
@@ -630,36 +630,36 @@ void update_generic_markers(VisualRenderer& r, const SceneGraph& s) {
     }
 }
 
-}  // namespace mpviz
+}  // namespace overlume
 
 // Filament-free test introspection hooks; see
 // generic_markers_test_hooks.hpp for why these live here.
-namespace mpviz::testing {
+namespace overlume::testing {
 
-size_t generic_marker_slot_count(mpviz::VisualRenderer* r) {
+size_t generic_marker_slot_count(overlume::VisualRenderer* r) {
     return r == nullptr ? 0 : r->genericMarkerSlots.size();
 }
 
-uint32_t generic_marker_alloc_count(mpviz::VisualRenderer* r) {
+uint32_t generic_marker_alloc_count(overlume::VisualRenderer* r) {
     return r == nullptr ? 0 : r->genericMarkerAllocCount;
 }
 
-uint32_t generic_marker_unknown_count(mpviz::VisualRenderer* r) {
+uint32_t generic_marker_unknown_count(overlume::VisualRenderer* r) {
     return r == nullptr ? 0 : r->genericMarkerUnknownCount;
 }
 
-bool generic_marker_mesh_is_fallback(mpviz::VisualRenderer* r, size_t slot) {
+bool generic_marker_mesh_is_fallback(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->genericMarkerSlots.size()) return false;
     const auto& s = r->genericMarkerSlots[slot];
-    return s.primitive == mpviz::MarkerPrimitive::MESH && s.meshIsFallback;
+    return s.primitive == overlume::MarkerPrimitive::MESH && s.meshIsFallback;
 }
 
-mpviz::detail::Float3 generic_marker_tint(mpviz::VisualRenderer* r, size_t slot) {
+overlume::detail::Float3 generic_marker_tint(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->genericMarkerSlots.size()) return {};
     return r->genericMarkerSlots[slot].tint;
 }
 
-GenericMarkerMaterialInfo generic_marker_material_info(mpviz::VisualRenderer* r, size_t slot) {
+GenericMarkerMaterialInfo generic_marker_material_info(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->genericMarkerSlots.size()) return {};
     const auto& s = r->genericMarkerSlots[slot];
     GenericMarkerMaterialInfo info;
@@ -681,4 +681,4 @@ GenericMarkerMaterialInfo generic_marker_material_info(mpviz::VisualRenderer* r,
     return info;
 }
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

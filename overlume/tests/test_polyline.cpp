@@ -8,11 +8,11 @@
 
 #include <gtest/gtest.h>
 
-using mpviz::Vec3;
-using mpviz::detail::extrude_polyline;
-using mpviz::detail::extrude_polyline_indices;
-using mpviz::detail::polyline_chunks;
-using mpviz::detail::triangulate_convex_polygon;
+using overlume::Vec3;
+using overlume::detail::extrude_polyline;
+using overlume::detail::extrude_polyline_indices;
+using overlume::detail::polyline_chunks;
+using overlume::detail::triangulate_convex_polygon;
 
 TEST(Polyline, StraightSegmentExtrudesToRectangleOfGivenWidth) {
     const Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};

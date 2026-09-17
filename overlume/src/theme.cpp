@@ -6,9 +6,9 @@
 
 #include <stdexcept>
 
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
-namespace mpviz::detail {
+namespace overlume::detail {
 namespace {
 
 Float3 to_float3(const YAML::Node& node) {
@@ -262,9 +262,9 @@ const Theme& kFallbackTheme() {
     return theme;
 }
 
-}  // namespace mpviz::detail
+}  // namespace overlume::detail
 
-namespace mpviz {
+namespace overlume {
 
 // See scene.h for the full rationale. Two lines over the existing
 // GPU-free detail::load_theme(): guard against null (std::string's ctor is
@@ -275,4 +275,4 @@ bool theme_parses(const char* dir, const char* theme_name) {
     return detail::load_theme(dir, theme_name).has_value();
 }
 
-}  // namespace mpviz
+}  // namespace overlume

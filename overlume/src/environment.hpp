@@ -21,9 +21,9 @@
 
 #include <gltfio/FilamentAsset.h>
 
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
-namespace mpviz {
+namespace overlume {
 
 class VisualRenderer;
 
@@ -187,4 +187,4 @@ std::unique_ptr<BakedEnvironmentSource> open_baked_environment_source(const std:
 std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::string& ion_spec,
                                                                       GeoAnchor anchor);
 
-}  // namespace mpviz
+}  // namespace overlume

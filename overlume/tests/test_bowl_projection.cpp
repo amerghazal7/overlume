@@ -1,7 +1,7 @@
 // test_bowl_projection.cpp — VM-091 (unified-engine migration Task 2),
 // Steps 0-2: bowl_projection.hpp's portable pinhole + plumb_bob projection
 // and bowl-surface math. No Filament/GPU involved -- these link against
-// visual_renderer but only exercise the Filament-free bowl_projection.cpp
+// overlume but only exercise the Filament-free bowl_projection.cpp
 // translation unit.
 #include "bowl_projection.hpp"
 
@@ -11,10 +11,10 @@
 
 namespace {
 
-using mpviz::CameraExtrinsics;
-using mpviz::CameraIntrinsics;
-using mpviz::Vec3;
-namespace bowl = mpviz::bowl;
+using overlume::CameraExtrinsics;
+using overlume::CameraIntrinsics;
+using overlume::Vec3;
+namespace bowl = overlume::bowl;
 
 constexpr CameraExtrinsics kIdentityExt{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0}};
 

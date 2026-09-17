@@ -10,8 +10,8 @@
 // RenderFrameWithBowlConfiguredProducesSentinelPixels (test_bowl.cpp) --
 // proven to put a large, easily-isolated fraction of the frame on the
 // bowl's sampled surface.
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+#include "overlume/api.h"
+#include "overlume/scene.h"
 
 #include "test_paths.hpp"
 #include "bowl_gray_probe.hpp"
@@ -34,16 +34,16 @@ namespace {
 // real regression (the pre-fix pipeline missed by ~50+ bytes here, per the
 // scene.h/bowl.mat measurement comments).
 TEST(BowlExposureCalibration, MidGrayRoundTripsWithinToleranceAtShippedDefault) {
-    mpviz::RenderConfig cfg{mpviz::testing::kGrayProbeW, mpviz::testing::kGrayProbeH, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{overlume::testing::kGrayProbeW, overlume::testing::kGrayProbeH, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    int out = mpviz::testing::render_gray_probe(r, 128);
+    int out = overlume::testing::render_gray_probe(r, 128);
     ASSERT_GE(out, 0) << "no bowl-surface pixels found in the rendered frame";
     EXPECT_NEAR(out, 128, 8) << "mid-gray no longer round-trips at the shipped "
                                 "exposure_compensation default -- see scene.h's "
                                 "BowlConfig::exposure_compensation comment";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ACES shoulder behavior, recorded honestly (task requirement): the bright
@@ -53,11 +53,11 @@ TEST(BowlExposureCalibration, MidGrayRoundTripsWithinToleranceAtShippedDefault) 
 // move this measured number without breaking a test asserting the wrong
 // physics.
 TEST(BowlExposureCalibration, BrightGrayIsShoulderCompressedNotClipped) {
-    mpviz::RenderConfig cfg{mpviz::testing::kGrayProbeW, mpviz::testing::kGrayProbeH, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{overlume::testing::kGrayProbeW, overlume::testing::kGrayProbeH, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    int out = mpviz::testing::render_gray_probe(r, 224);
+    int out = overlume::testing::render_gray_probe(r, 224);
     ASSERT_GE(out, 0) << "no bowl-surface pixels found in the rendered frame";
     // Measured 224 -> 208 (bowl_exposure_probe.cpp): well below a clipped
     // 255, and below the input itself -- the ACES shoulder rolling off
@@ -65,5 +65,5 @@ TEST(BowlExposureCalibration, BrightGrayIsShoulderCompressedNotClipped) {
     EXPECT_LT(out, 224) << "expected the ACES shoulder to compress the bright end, not "
                             "round-trip it exactly";
     EXPECT_LT(out, 250) << "expected no near-white clipping at this compensation";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }

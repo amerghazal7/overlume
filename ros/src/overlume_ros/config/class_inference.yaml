@@ -1,0 +1,26 @@
+# DynamicObjectsAdapter class inference (VM-021).
+# Loaded by overlume_node::load_class_inference(), consumed by overlume_node::infer().
+# Label format "<prefix>_<track_id>" (e.g. "V_1105"). Verified against the
+# recorded bags: the epic2 bag emitted prefix "V" only (15559/15559 labels,
+# 46 track ids); stack_v2_full_sensors_2026-09-09 emits "V" (CAR) and "P"
+# (PEDESTRIAN) — scanned 2026-09-11, 400 msgs: V=7797, P=5563; the bag also
+# carries speed-text markers whose text is numeric, filtered by ns, not a
+# label. T/B/C rows remain UNVALIDATED against a real publisher.
+prefix:
+  V: CAR          # the only prefix the recorded stack ever emits
+  T: TRUCK_VAN
+  B: BUS
+  P: PEDESTRIAN
+  C: CYCLIST
+# Fallback when prefix is unknown/absent: measured bbox footprint. Scale is
+# always taken from the bbox, so misclassification is cosmetic, not a
+# geometry error -- this table may stay a heuristic. Bands are checked in
+# order, first match wins; a degenerate box matches none and falls through
+# to `default` (see ClassInference test NoLabelAndNoMatchingBandIsUnknownNotACrash).
+footprint:
+  - {max_length_m: 1.2, max_width_m: 1.2, min_height_m: 1.4, class: PEDESTRIAN}
+  - {max_length_m: 2.5, max_width_m: 1.0, class: CYCLIST}
+  - {max_length_m: 5.5, class: CAR}
+  - {max_length_m: 8.0, class: TRUCK_VAN}
+  - {max_length_m: 99.0, class: BUS}
+default: UNKNOWN

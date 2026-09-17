@@ -9,9 +9,9 @@
 #pragma once
 
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
-namespace mpviz {
+namespace overlume {
 
 // Drives whichever entity set_ego_model() populated (r.egoTransformEntity)
 // from `ego.position`/`ego.heading_rad` every render_frame() call, on the
@@ -20,4 +20,4 @@ namespace mpviz {
 // set_ego_model() was never called.
 void update_ego_transform(VisualRenderer& r, const EgoState& ego);
 
-}  // namespace mpviz
+}  // namespace overlume

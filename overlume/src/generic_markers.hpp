@@ -9,9 +9,9 @@
 #pragma once
 
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
-namespace mpviz {
+namespace overlume {
 
 // Diffs `scene.markers`/`marker_count` against `r.genericMarkerSlots`,
 // keyed by slot index (GenericMarker has no id, same reasoning as
@@ -24,4 +24,4 @@ namespace mpviz {
 // anything.
 void update_generic_markers(VisualRenderer& r, const SceneGraph& scene);
 
-}  // namespace mpviz
+}  // namespace overlume

@@ -4,7 +4,7 @@
 #
 # WHY A SECOND TOOLCHAIN (recorded deviation, verified empirically at
 # implementation): this project's primary toolchain (setup_toolchain.sh,
-# clang-14/libc++-14) is enough for visual_renderer's own C++17 code, but
+# clang-14/libc++-14) is enough for overlume's own C++17 code, but
 # cesium-native's vcpkg dependency "ada-url" hard-requires C++20 and its
 # url_search_params-inl.h calls `std::ranges::replace` -- a ranges
 # <algorithm> overload libc++-14 (2022-era) does not yet implement. Verified
@@ -18,14 +18,14 @@
 # exactly this class of gap (Decision 15.2c: "a newer local clang via
 # scripts/setup_toolchain.sh"). This is ONLY used for the vcpkg overlay
 # triplet's chainload toolchain (cmake/vcpkg-clang-libcxx-toolchain.cmake)
-# -- visual_renderer's own primary toolchain (toolchain-clang-libcxx.cmake)
-# is UNCHANGED, still clang-14, so none of visual_renderer's own C++17
+# -- overlume's own primary toolchain (toolchain-clang-libcxx.cmake)
+# is UNCHANGED, still clang-14, so none of overlume's own C++17
 # translation units, yaml-cpp, or GoogleTest are affected. libc++'s ABI is
 # stable across LLVM versions for the default (non-"unstable") ABI
 # configuration both distro packages use (`std::__1::`, unchanged struct
 # layouts) -- this is the same property that lets a distro ship multiple
 # clang/libc++ versions side by side at all -- so archives built here can
-# still be `ld -r`-merged with visual_renderer's own clang-14 objects
+# still be `ld -r`-merged with overlume's own clang-14 objects
 # (scripts/merge_yamlcpp.sh); Task 2 Step 1's strings/nm ABI check and
 # Step 6's full node + gtest rebuild are the empirical proof this holds in
 # practice, not just in theory.
@@ -41,7 +41,7 @@
 # clang++.
 set -euo pipefail
 
-PREFIX="${XDG_CACHE_HOME:-$HOME/.cache}/mpviz-toolchain-cesium"
+PREFIX="${XDG_CACHE_HOME:-$HOME/.cache}/overlume-toolchain-cesium"
 DL_DIR="$PREFIX/dl"
 ROOT_DIR="$PREFIX/root"
 

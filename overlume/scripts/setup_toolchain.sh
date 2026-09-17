@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # setup_toolchain.sh — root-less bootstrap of a clang-14/libc++-14 toolchain
-# for visual_renderer.
+# for overlume.
 #
 # This project's dev/robot boxes have no root and no clang-14/libc++-14
 # package reachable via a normal `apt install` (see plan
@@ -16,7 +16,7 @@
 # that genuinely compiles, links, and runs a static-libc++ binary.
 set -euo pipefail
 
-PREFIX="${XDG_CACHE_HOME:-$HOME/.cache}/mpviz-toolchain"
+PREFIX="${XDG_CACHE_HOME:-$HOME/.cache}/overlume-toolchain"
 DL_DIR="$PREFIX/dl"
 ROOT_DIR="$PREFIX/root"
 BIN_DIR="$PREFIX/bin"
@@ -37,7 +37,7 @@ PACKAGES=(
 
 # Real compile+link+run, not just "the files exist" -- the payload is a
 # fully statically-linked libc++/libc++abi/libunwind binary (see
-# CMakeLists.txt for why: this is also the exact recipe visual_renderer
+# CMakeLists.txt for why: this is also the exact recipe overlume
 # itself uses, so if this passes, `cmake --toolchain ...` will too.
 verify() {
     local clangxx="$BIN_DIR/clang++"
@@ -59,8 +59,8 @@ verify() {
 #include <memory>
 #include <string>
 int main() {
-    auto p = std::make_unique<std::string>("mpviz-toolchain-ok");
-    return (*p == "mpviz-toolchain-ok") ? 0 : 1;
+    auto p = std::make_unique<std::string>("overlume-toolchain-ok");
+    return (*p == "overlume-toolchain-ok") ? 0 : 1;
 }
 EOF
     "$clangxx" -std=c++17 -stdlib=libc++ -nostdlib++ -c "$tmp/probe.cpp" -o "$tmp/probe.o" \

@@ -4,7 +4,7 @@
 #include "ground_grid.hpp"
 #include "ground_grid_test_hooks.hpp"
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
 #include <filament/RenderableManager.h>
 #include <filament/Texture.h>
@@ -22,7 +22,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace mpviz {
+namespace overlume {
 
 namespace {
 
@@ -30,7 +30,7 @@ using filament::math::float2;
 using filament::math::float3;
 using filament::math::float4;
 
-// kUnknownCell = 255 -- mirrors mpviz_node::OgmAdapter::kUnknownCell
+// kUnknownCell = 255 -- mirrors overlume_node::OgmAdapter::kUnknownCell
 // (ogm.hpp, the source of truth). The frozen POD boundary
 // (GroundGridLayer::cells is a bare uint8_t*) can't carry a shared
 // constant across the ABI, so this number is stated by comment in three
@@ -251,40 +251,40 @@ void update_ground_grids(VisualRenderer& r, const SceneGraph& s) {
     }
 }
 
-}  // namespace mpviz
+}  // namespace overlume
 
 // Filament-free test introspection hooks; see ground_grid_test_hooks.hpp
 // for why these live here.
-namespace mpviz::testing {
+namespace overlume::testing {
 
-const void* ground_grid_texture_handle(mpviz::VisualRenderer* r, size_t slot) {
+const void* ground_grid_texture_handle(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->groundGridSlots.size()) return nullptr;
     return r->groundGridSlots[slot].texture;
 }
 
-uint32_t ground_grid_texture_generation(mpviz::VisualRenderer* r, size_t slot) {
+uint32_t ground_grid_texture_generation(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->groundGridSlots.size()) return 0;
     return r->groundGridSlots[slot].textureGeneration;
 }
 
-uint32_t ground_grid_texture_upload_count(mpviz::VisualRenderer* r, size_t slot) {
+uint32_t ground_grid_texture_upload_count(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->groundGridSlots.size()) return 0;
     return r->groundGridSlots[slot].uploadCount;
 }
 
-float ground_grid_material_alpha(mpviz::VisualRenderer* r, uint8_t kind) {
-    if (r == nullptr || kind >= mpviz::VisualRenderer::kGroundGridKindCount) return 1.0f;
+float ground_grid_material_alpha(overlume::VisualRenderer* r, uint8_t kind) {
+    if (r == nullptr || kind >= overlume::VisualRenderer::kGroundGridKindCount) return 1.0f;
     return r->groundGridAlpha[kind];
 }
 
-mpviz::detail::Float3 ground_grid_free_color(mpviz::VisualRenderer* r) {
+overlume::detail::Float3 ground_grid_free_color(overlume::VisualRenderer* r) {
     if (r == nullptr) return {};
     return r->groundGridFreeColor;
 }
 
-mpviz::detail::Float3 ground_grid_occupied_color(mpviz::VisualRenderer* r) {
+overlume::detail::Float3 ground_grid_occupied_color(overlume::VisualRenderer* r) {
     if (r == nullptr) return {};
     return r->groundGridOccupiedColor;
 }
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

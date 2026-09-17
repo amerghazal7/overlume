@@ -20,7 +20,7 @@
 // table and most likely crash or produce an all-black frame, not a clean
 // nonzero return, so this test names the assumption explicitly rather than
 // relying on HelloFrame to catch it as a side effect.
-#include "visual_renderer/api.h"
+#include "overlume/api.h"
 
 #include <EGL/egl.h>
 #include <gtest/gtest.h>
@@ -45,7 +45,7 @@ TEST(BlueglLinkProbe, BindReturnsZeroOnSuccessfulContextAndFrameRenders) {
     constexpr uint32_t kWidth = 64;
     constexpr uint32_t kHeight = 64;
 
-    mpviz::RenderConfig config{};
+    overlume::RenderConfig config{};
     config.width = kWidth;
     config.height = kHeight;
     config.quality = 0;
@@ -54,7 +54,7 @@ TEST(BlueglLinkProbe, BindReturnsZeroOnSuccessfulContextAndFrameRenders) {
     // HeadlessEglPlatform::createDriver() -- including `bluegl::bind() != 0`
     // -- so a nullptr here on a machine with a real GPU/EGL device already
     // means bind() (or something upstream of it) misbehaved.
-    mpviz::VisualRenderer* renderer = mpviz::create_renderer(config);
+    overlume::VisualRenderer* renderer = overlume::create_renderer(config);
     if (renderer == nullptr) {
         if (!HasGpuEglDevice()) {
             GTEST_SKIP() << "No GPU/EGL device available on this machine.";
@@ -63,7 +63,7 @@ TEST(BlueglLinkProbe, BindReturnsZeroOnSuccessfulContextAndFrameRenders) {
         return;
     }
 
-    mpviz::CameraPose pose{};
+    overlume::CameraPose pose{};
     pose.eye[0] = -4.0;
     pose.eye[1] = 0.0;
     pose.eye[2] = 3.5;
@@ -73,14 +73,14 @@ TEST(BlueglLinkProbe, BindReturnsZeroOnSuccessfulContextAndFrameRenders) {
     pose.vfov_deg = 80.0;
 
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, 0);
-    mpviz::FrameView view{rgb.data(), kWidth, kHeight};
+    overlume::FrameView view{rgb.data(), kWidth, kHeight};
 
-    ASSERT_TRUE(mpviz::render_frame(renderer, pose, view));
+    ASSERT_TRUE(overlume::render_frame(renderer, pose, view));
 
     const bool anyNonZero = std::any_of(rgb.begin(), rgb.end(), [](uint8_t v) { return v != 0; });
     EXPECT_TRUE(anyNonZero)
         << "Rendered frame buffer is entirely zero -- a corrupted GL function "
            "table from a bluegl signature mismatch is one plausible cause.";
 
-    mpviz::destroy_renderer(renderer);
+    overlume::destroy_renderer(renderer);
 }

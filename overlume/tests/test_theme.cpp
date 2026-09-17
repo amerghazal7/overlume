@@ -1,7 +1,7 @@
 // test_theme.cpp — theme system on a real lit pipeline + golden-image
 // harness.
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+#include "overlume/api.h"
+#include "overlume/scene.h"
 
 #include "golden.hpp"
 #include "test_paths.hpp"
@@ -33,10 +33,10 @@ bool AnyDiffer(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
 // box to keep that exact color. Both are asserted below.
 
 TEST(ThemePalette, EgoParsesFromYamlAsCrossThemeSwap) {
-    const std::optional<mpviz::detail::Theme> dark =
-        mpviz::detail::load_theme(kThemeDir, "dark_adas");
-    const std::optional<mpviz::detail::Theme> light =
-        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    const std::optional<overlume::detail::Theme> dark =
+        overlume::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<overlume::detail::Theme> light =
+        overlume::detail::load_theme(kThemeDir, "light_clay");
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
 
@@ -51,8 +51,8 @@ TEST(ThemePalette, EgoParsesFromYamlAsCrossThemeSwap) {
     // comment above) -- it must still be a bright, clearly-non-dark color
     // so it keeps popping against dark_adas's own near-black ground,
     // whatever light_clay does with its own palette.
-    const float darkEgoLightness = mpviz::detail::linear_srgb_to_oklab(dark->palette.ego).L;
-    const float darkGroundLightness = mpviz::detail::linear_srgb_to_oklab(dark->palette.ground).L;
+    const float darkEgoLightness = overlume::detail::linear_srgb_to_oklab(dark->palette.ego).L;
+    const float darkGroundLightness = overlume::detail::linear_srgb_to_oklab(dark->palette.ground).L;
     EXPECT_GT(darkEgoLightness, darkGroundLightness + 0.3f)
         << "dark_adas's ego color no longer contrasts against its own ground";
 }
@@ -62,9 +62,9 @@ TEST(ThemePalette, EgoFallsBackToBuiltinDefaultWhenMissingFromYaml) {
     // to add it -- proving `ego` is the one OPTIONAL palette key
     // (theme.cpp's parse()); a required field would instead throw and fall
     // back to kFallbackTheme(), failing the has_value() assertion below.
-    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    const std::optional<mpviz::detail::Theme> theme =
-        mpviz::detail::load_theme(fixtureDir, "sun_dir_a");
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<overlume::detail::Theme> theme =
+        overlume::detail::load_theme(fixtureDir, "sun_dir_a");
     ASSERT_TRUE(theme.has_value())
         << "a theme file missing only the optional `ego` key must still parse";
     EXPECT_NEAR(theme->palette.ego.r, 0.82f, 1e-4f);
@@ -73,21 +73,21 @@ TEST(ThemePalette, EgoFallsBackToBuiltinDefaultWhenMissingFromYaml) {
 }
 
 TEST(ThemePalette, EgoBlendsInOklabAcrossTransition) {
-    const std::optional<mpviz::detail::Theme> dark =
-        mpviz::detail::load_theme(kThemeDir, "dark_adas");
-    const std::optional<mpviz::detail::Theme> light =
-        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    const std::optional<overlume::detail::Theme> dark =
+        overlume::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<overlume::detail::Theme> light =
+        overlume::detail::load_theme(kThemeDir, "light_clay");
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
 
-    const mpviz::detail::Theme mid = mpviz::detail::blend(*dark, *light, 0.5f);
+    const overlume::detail::Theme mid = overlume::detail::blend(*dark, *light, 0.5f);
 
     // Self-consistency, same technique as ThemeTransition.MidpointBlend_
     // IsBetweenEndpointsInOklab (test_theme_transition.cpp): the blended
     // ego's Oklab lightness must sit between the two endpoints'.
-    const float La = mpviz::detail::linear_srgb_to_oklab(dark->palette.ego).L;
-    const float Lb = mpviz::detail::linear_srgb_to_oklab(light->palette.ego).L;
-    const float Lmid = mpviz::detail::linear_srgb_to_oklab(mid.palette.ego).L;
+    const float La = overlume::detail::linear_srgb_to_oklab(dark->palette.ego).L;
+    const float Lb = overlume::detail::linear_srgb_to_oklab(light->palette.ego).L;
+    const float Lmid = overlume::detail::linear_srgb_to_oklab(mid.palette.ego).L;
     EXPECT_GE(Lmid, std::min(La, Lb) - 1e-4f);
     EXPECT_LE(Lmid, std::max(La, Lb) + 1e-4f);
 
@@ -105,9 +105,9 @@ TEST(ThemePalette, RibbonGlobalLocalAndWidthFallBackToTodaysValuesWhenMissingFro
     // sun_dir_a.yaml predates ribbon_global/ribbon_local/the whole `ribbon:`
     // section, same "prove the soft default, don't retrofit every old
     // fixture" reasoning as EgoFallsBackToBuiltinDefaultWhenMissingFromYaml.
-    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    const std::optional<mpviz::detail::Theme> theme =
-        mpviz::detail::load_theme(fixtureDir, "sun_dir_a");
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<overlume::detail::Theme> theme =
+        overlume::detail::load_theme(fixtureDir, "sun_dir_a");
     ASSERT_TRUE(theme.has_value())
         << "a theme file missing only the optional ribbon_global/ribbon_local/ribbon keys "
            "must still parse";
@@ -128,14 +128,14 @@ TEST(ThemePalette, RibbonGlobalLocalAndWidthFallBackToTodaysValuesWhenMissingFro
 }
 
 TEST(ThemePalette, RibbonGlobalLocalBlendInOklabAcrossTransition) {
-    const std::optional<mpviz::detail::Theme> dark =
-        mpviz::detail::load_theme(kThemeDir, "dark_adas");
-    const std::optional<mpviz::detail::Theme> light =
-        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    const std::optional<overlume::detail::Theme> dark =
+        overlume::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<overlume::detail::Theme> light =
+        overlume::detail::load_theme(kThemeDir, "light_clay");
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
 
-    const mpviz::detail::Theme mid = mpviz::detail::blend(*dark, *light, 0.5f);
+    const overlume::detail::Theme mid = overlume::detail::blend(*dark, *light, 0.5f);
 
     // Same self-consistency + "actually moved off both endpoints" technique
     // as palette.ego's own EgoBlendsInOklabAcrossTransition above, applied to
@@ -145,9 +145,9 @@ TEST(ThemePalette, RibbonGlobalLocalBlendInOklabAcrossTransition) {
                      mid.palette.ribbon_global},
           std::tuple{dark->palette.ribbon_local, light->palette.ribbon_local,
                      mid.palette.ribbon_local}}) {
-        const float La = mpviz::detail::linear_srgb_to_oklab(a).L;
-        const float Lb = mpviz::detail::linear_srgb_to_oklab(b).L;
-        const float Lmid = mpviz::detail::linear_srgb_to_oklab(m).L;
+        const float La = overlume::detail::linear_srgb_to_oklab(a).L;
+        const float Lb = overlume::detail::linear_srgb_to_oklab(b).L;
+        const float Lmid = overlume::detail::linear_srgb_to_oklab(m).L;
         EXPECT_GE(Lmid, std::min(La, Lb) - 1e-4f);
         EXPECT_LE(Lmid, std::max(La, Lb) + 1e-4f);
         EXPECT_GT(std::abs(Lmid - La), 1e-4f);
@@ -159,14 +159,14 @@ TEST(ThemePalette, RibbonWidthLerpsLinearlyAcrossTransition) {
     // A plain scalar lerp (theme_transition.cpp's blend()), not Oklab -- so
     // the midpoint must land at EXACTLY the arithmetic mean, unlike the
     // color tokens above.
-    const std::optional<mpviz::detail::Theme> dark =
-        mpviz::detail::load_theme(kThemeDir, "dark_adas");
-    const std::optional<mpviz::detail::Theme> light =
-        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    const std::optional<overlume::detail::Theme> dark =
+        overlume::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<overlume::detail::Theme> light =
+        overlume::detail::load_theme(kThemeDir, "light_clay");
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
 
-    const mpviz::detail::Theme mid = mpviz::detail::blend(*dark, *light, 0.5f);
+    const overlume::detail::Theme mid = overlume::detail::blend(*dark, *light, 0.5f);
     const float expectedMid = (dark->ribbon.width_m + light->ribbon.width_m) / 2.0f;
     EXPECT_NEAR(mid.ribbon.width_m, expectedMid, 1e-4f);
 }
@@ -178,9 +178,9 @@ TEST(ThemePalette, RibbonLaneWidthAndMarginsFallBackToTheWidthMSeedWhenMissingFr
     // sun_dir_a.yaml has no `ribbon:` section at all, so width_m ALSO falls
     // back to its own 0.24 default, and the margin default is computed from
     // THAT: (3.5 - 0.24) / 2 == 1.63.
-    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    const std::optional<mpviz::detail::Theme> theme =
-        mpviz::detail::load_theme(fixtureDir, "sun_dir_a");
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<overlume::detail::Theme> theme =
+        overlume::detail::load_theme(fixtureDir, "sun_dir_a");
     ASSERT_TRUE(theme.has_value())
         << "a theme file missing the optional lane_width_m/margin_*_m keys must still parse";
 
@@ -191,14 +191,14 @@ TEST(ThemePalette, RibbonLaneWidthAndMarginsFallBackToTheWidthMSeedWhenMissingFr
 }
 
 TEST(ThemePalette, RibbonLaneWidthAndMarginsLerpLinearlyAcrossTransition) {
-    const std::optional<mpviz::detail::Theme> dark =
-        mpviz::detail::load_theme(kThemeDir, "dark_adas");
-    const std::optional<mpviz::detail::Theme> light =
-        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    const std::optional<overlume::detail::Theme> dark =
+        overlume::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<overlume::detail::Theme> light =
+        overlume::detail::load_theme(kThemeDir, "light_clay");
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
 
-    const mpviz::detail::Theme mid = mpviz::detail::blend(*dark, *light, 0.5f);
+    const overlume::detail::Theme mid = overlume::detail::blend(*dark, *light, 0.5f);
     // Plain scalar lerps, same as ribbon.width_m above -- not colors.
     EXPECT_NEAR(mid.ribbon.lane_width_m, (dark->ribbon.lane_width_m + light->ribbon.lane_width_m) / 2.0f,
                 1e-4f);
@@ -220,31 +220,31 @@ TEST(ThemePalette, RibbonMarginVelocityFallsBackToOnePointZeroFiveWhenMissingFro
     // margin_{behavior,global,local}_m (which fall back to the width_m-seed
     // formula), margin_velocity_m falls back to its own fixed 1.05,
     // regardless of what width_m/lane_width_m this theme parsed to.
-    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    const std::optional<mpviz::detail::Theme> theme =
-        mpviz::detail::load_theme(fixtureDir, "sun_dir_a");
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<overlume::detail::Theme> theme =
+        overlume::detail::load_theme(fixtureDir, "sun_dir_a");
     ASSERT_TRUE(theme.has_value())
         << "a theme file missing the optional margin_velocity_m key must still parse";
     EXPECT_NEAR(theme->ribbon.margin_velocity_m, 1.05f, 1e-4f);
 }
 
 TEST(ThemePalette, RibbonMarginVelocityLerpsLinearlyAcrossTransition) {
-    const std::optional<mpviz::detail::Theme> dark =
-        mpviz::detail::load_theme(kThemeDir, "dark_adas");
-    const std::optional<mpviz::detail::Theme> light =
-        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    const std::optional<overlume::detail::Theme> dark =
+        overlume::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<overlume::detail::Theme> light =
+        overlume::detail::load_theme(kThemeDir, "light_clay");
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
 
-    const mpviz::detail::Theme mid = mpviz::detail::blend(*dark, *light, 0.5f);
+    const overlume::detail::Theme mid = overlume::detail::blend(*dark, *light, 0.5f);
     EXPECT_NEAR(mid.ribbon.margin_velocity_m,
                 (dark->ribbon.margin_velocity_m + light->ribbon.margin_velocity_m) / 2.0f, 1e-4f);
 }
 
 TEST(ThemePalette, RibbonMarginVelocityParsesExplicitYamlValue) {
-    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    const std::optional<mpviz::detail::Theme> theme =
-        mpviz::detail::load_theme(fixtureDir, "ribbon_margin_velocity");
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<overlume::detail::Theme> theme =
+        overlume::detail::load_theme(fixtureDir, "ribbon_margin_velocity");
     ASSERT_TRUE(theme.has_value());
     EXPECT_NEAR(theme->ribbon.margin_velocity_m, 0.9f, 1e-4f)
         << "an explicit ribbon.margin_velocity_m key must override the 1.05 soft default";
@@ -257,10 +257,10 @@ TEST(ThemePalette, ShippedThemesFallBackMarginVelocityBetweenLocalAndBehavior) {
     // the velocity ribbon's own fill is narrower than LOCAL's (LOCAL's rim
     // stays visible under it) but wider than BEHAVIOR's (the hero's rim
     // shows through it in turn) -- see theme.hpp's own comment.
-    const std::optional<mpviz::detail::Theme> dark =
-        mpviz::detail::load_theme(kThemeDir, "dark_adas");
-    const std::optional<mpviz::detail::Theme> light =
-        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    const std::optional<overlume::detail::Theme> dark =
+        overlume::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<overlume::detail::Theme> light =
+        overlume::detail::load_theme(kThemeDir, "light_clay");
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
 
@@ -278,10 +278,10 @@ TEST(ThemePalette, ShippedThemesAuthorTheFillLookExplicitly) {
     // YAMLs actually parsed these explicit values, not silently falling
     // back to the width_m-seed default (which would instead read 1.63 for
     // every role).
-    const std::optional<mpviz::detail::Theme> dark =
-        mpviz::detail::load_theme(kThemeDir, "dark_adas");
-    const std::optional<mpviz::detail::Theme> light =
-        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    const std::optional<overlume::detail::Theme> dark =
+        overlume::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<overlume::detail::Theme> light =
+        overlume::detail::load_theme(kThemeDir, "light_clay");
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
 
@@ -301,18 +301,18 @@ TEST(ThemeObjects, OpacityFallsBackToOnePointZeroWhenMissingFromYaml) {
     // sun_dir_a.yaml predates the whole `objects:` section -- same
     // "prove the soft default, don't retrofit every old fixture" reasoning
     // as EgoFallsBackToBuiltinDefaultWhenMissingFromYaml above.
-    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    const std::optional<mpviz::detail::Theme> theme =
-        mpviz::detail::load_theme(fixtureDir, "sun_dir_a");
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<overlume::detail::Theme> theme =
+        overlume::detail::load_theme(fixtureDir, "sun_dir_a");
     ASSERT_TRUE(theme.has_value())
         << "a theme file missing the whole optional objects: section must still parse";
     EXPECT_NEAR(theme->objects.opacity, 1.0f, 1e-4f);
 }
 
 TEST(ThemeObjects, OpacityParsesExplicitYamlValue) {
-    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    const std::optional<mpviz::detail::Theme> theme =
-        mpviz::detail::load_theme(fixtureDir, "objects_half_opacity");
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<overlume::detail::Theme> theme =
+        overlume::detail::load_theme(fixtureDir, "objects_half_opacity");
     ASSERT_TRUE(theme.has_value());
     EXPECT_NEAR(theme->objects.opacity, 0.5f, 1e-4f)
         << "an explicit objects.opacity key must override the 1.0 soft default";
@@ -321,10 +321,10 @@ TEST(ThemeObjects, OpacityParsesExplicitYamlValue) {
 TEST(ThemeObjects, ShippedThemesAuthorOpacityExplicitly) {
     // AC: both theme YAMLs carry an explicit value (today's fully-opaque
     // look), not a silent fall-through to the soft default.
-    const std::optional<mpviz::detail::Theme> dark =
-        mpviz::detail::load_theme(kThemeDir, "dark_adas");
-    const std::optional<mpviz::detail::Theme> light =
-        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    const std::optional<overlume::detail::Theme> dark =
+        overlume::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<overlume::detail::Theme> light =
+        overlume::detail::load_theme(kThemeDir, "light_clay");
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
     // 0.25 since the user's own theme edit (7ca2d5e, 2026-09-14); previously
@@ -334,15 +334,15 @@ TEST(ThemeObjects, ShippedThemesAuthorOpacityExplicitly) {
 }
 
 TEST(ThemeObjects, OpacityLerpsLinearlyAcrossTransition) {
-    const std::optional<mpviz::detail::Theme> dark =
-        mpviz::detail::load_theme(kThemeDir, "dark_adas");
-    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    const std::optional<mpviz::detail::Theme> half =
-        mpviz::detail::load_theme(fixtureDir, "objects_half_opacity");
+    const std::optional<overlume::detail::Theme> dark =
+        overlume::detail::load_theme(kThemeDir, "dark_adas");
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<overlume::detail::Theme> half =
+        overlume::detail::load_theme(fixtureDir, "objects_half_opacity");
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(half.has_value());
 
-    const mpviz::detail::Theme mid = mpviz::detail::blend(*dark, *half, 0.5f);
+    const overlume::detail::Theme mid = overlume::detail::blend(*dark, *half, 0.5f);
     EXPECT_NEAR(mid.objects.opacity, (dark->objects.opacity + half->objects.opacity) / 2.0f,
                 1e-4f);
 }
@@ -353,8 +353,8 @@ TEST(ThemeObjects, OpacityLerpsLinearlyAcrossTransition) {
 // Out-of-range authored values clamp (VM-078 gate minor 2): >1 would keep
 // alpha >= 1 and suppress the staleness fade; <0 binds a negative alpha.
 TEST(ThemeObjects, OpacityOutOfRangeClampsToUnitInterval) {
-    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    const auto theme = mpviz::detail::load_theme(fixtureDir, "objects_overrange_opacity");
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const auto theme = overlume::detail::load_theme(fixtureDir, "objects_overrange_opacity");
     ASSERT_TRUE(theme.has_value());
     EXPECT_FLOAT_EQ(theme->objects.opacity, 1.0f)
         << "objects.opacity 1.5 must clamp to 1.0, not suppress the staleness fade";
@@ -364,9 +364,9 @@ TEST(ThemePalette, RoadLaneCenterlineLaneBoundaryCrosswalkFallBackWhenMissingFro
     // sun_dir_a.yaml predates these four tokens, same "prove the soft
     // default, don't retrofit every old fixture" reasoning as
     // EgoFallsBackToBuiltinDefaultWhenMissingFromYaml above.
-    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    const std::optional<mpviz::detail::Theme> theme =
-        mpviz::detail::load_theme(fixtureDir, "sun_dir_a");
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<overlume::detail::Theme> theme =
+        overlume::detail::load_theme(fixtureDir, "sun_dir_a");
     ASSERT_TRUE(theme.has_value())
         << "a theme file missing only the optional road/lane_centerline/lane_boundary/"
            "crosswalk keys must still parse";
@@ -393,14 +393,14 @@ TEST(ThemePalette, RoadLaneCenterlineLaneBoundaryCrosswalkFallBackWhenMissingFro
 }
 
 TEST(ThemePalette, RoadLaneCenterlineLaneBoundaryBlendInOklabAcrossTransition) {
-    const std::optional<mpviz::detail::Theme> dark =
-        mpviz::detail::load_theme(kThemeDir, "dark_adas");
-    const std::optional<mpviz::detail::Theme> light =
-        mpviz::detail::load_theme(kThemeDir, "light_clay");
+    const std::optional<overlume::detail::Theme> dark =
+        overlume::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<overlume::detail::Theme> light =
+        overlume::detail::load_theme(kThemeDir, "light_clay");
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
 
-    const mpviz::detail::Theme mid = mpviz::detail::blend(*dark, *light, 0.5f);
+    const overlume::detail::Theme mid = overlume::detail::blend(*dark, *light, 0.5f);
 
     // Same self-consistency + "actually moved off both endpoints" technique
     // as palette.ego's own EgoBlendsInOklabAcrossTransition above.
@@ -411,9 +411,9 @@ TEST(ThemePalette, RoadLaneCenterlineLaneBoundaryBlendInOklabAcrossTransition) {
           std::tuple{dark->palette.lane_boundary, light->palette.lane_boundary,
                      mid.palette.lane_boundary},
           std::tuple{dark->palette.road_edge, light->palette.road_edge, mid.palette.road_edge}}) {
-        const float La = mpviz::detail::linear_srgb_to_oklab(a).L;
-        const float Lb = mpviz::detail::linear_srgb_to_oklab(b).L;
-        const float Lmid = mpviz::detail::linear_srgb_to_oklab(m).L;
+        const float La = overlume::detail::linear_srgb_to_oklab(a).L;
+        const float Lb = overlume::detail::linear_srgb_to_oklab(b).L;
+        const float Lmid = overlume::detail::linear_srgb_to_oklab(m).L;
         EXPECT_GE(Lmid, std::min(La, Lb) - 1e-4f);
         EXPECT_LE(Lmid, std::max(La, Lb) + 1e-4f);
         EXPECT_GT(std::abs(Lmid - La), 1e-4f);
@@ -429,12 +429,12 @@ TEST(ThemeLoad, BuiltinFallbackMatchesDarkAdasYaml) {
     // on a broken/missing theme-asset install (spec §9). Field-by-field,
     // not exhaustive-by-reflection (C++ has none here), but every field
     // this epic actually touches is covered, plus the pre-existing ones.
-    const std::optional<mpviz::detail::Theme> dark =
-        mpviz::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<overlume::detail::Theme> dark =
+        overlume::detail::load_theme(kThemeDir, "dark_adas");
     ASSERT_TRUE(dark.has_value());
-    const mpviz::detail::Theme& fb = mpviz::detail::kFallbackTheme();
+    const overlume::detail::Theme& fb = overlume::detail::kFallbackTheme();
 
-    const auto near3 = [](const mpviz::detail::Float3& a, const mpviz::detail::Float3& b) {
+    const auto near3 = [](const overlume::detail::Float3& a, const overlume::detail::Float3& b) {
         EXPECT_NEAR(a.r, b.r, 1e-4f);
         EXPECT_NEAR(a.g, b.g, 1e-4f);
         EXPECT_NEAR(a.b, b.b, 1e-4f);
@@ -496,33 +496,33 @@ TEST(ClayMaterial, RespondsToLightDirection) {
     // IBL, so a completely unlit material would pass that comparison
     // trivially and prove nothing about lighting.
     constexpr uint32_t kWidth = 320, kHeight = 240;
-    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    mpviz::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "sun_dir_a"};
-    mpviz::RenderConfig cfgB{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "sun_dir_b"};
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    overlume::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "sun_dir_a"};
+    overlume::RenderConfig cfgB{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "sun_dir_b"};
 
-    mpviz::VisualRenderer* rA = mpviz::create_renderer(cfgA);
+    overlume::VisualRenderer* rA = overlume::create_renderer(cfgA);
     if (rA == nullptr) {
         GTEST_SKIP() << "no GPU/EGL";
     }
-    mpviz::VisualRenderer* rB = mpviz::create_renderer(cfgB);
+    overlume::VisualRenderer* rB = overlume::create_renderer(cfgB);
     ASSERT_NE(rB, nullptr);
 
-    mpviz::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
+    overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
     std::vector<uint8_t> pixelsA(static_cast<size_t>(kWidth) * kHeight * 3);
     std::vector<uint8_t> pixelsB(static_cast<size_t>(kWidth) * kHeight * 3);
-    mpviz::FrameView viewA{pixelsA.data(), kWidth, kHeight};
-    mpviz::FrameView viewB{pixelsB.data(), kWidth, kHeight};
+    overlume::FrameView viewA{pixelsA.data(), kWidth, kHeight};
+    overlume::FrameView viewB{pixelsB.data(), kWidth, kHeight};
 
-    ASSERT_TRUE(mpviz::render_frame(rA, pose, viewA));
-    ASSERT_TRUE(mpviz::render_frame(rB, pose, viewB));
+    ASSERT_TRUE(overlume::render_frame(rA, pose, viewA));
+    ASSERT_TRUE(overlume::render_frame(rB, pose, viewB));
 
     EXPECT_TRUE(AnyDiffer(pixelsA, pixelsB))
         << "sun_dir_a and sun_dir_b (identical themes except sun.direction) "
            "rendered identical pixels -- clay.mat isn't actually responding "
            "to the sun's direction.";
 
-    mpviz::destroy_renderer(rA);
-    mpviz::destroy_renderer(rB);
+    overlume::destroy_renderer(rA);
+    overlume::destroy_renderer(rB);
 }
 
 TEST(Fog, ColorAffectsRenderedOutput) {
@@ -538,38 +538,38 @@ TEST(Fog, ColorAffectsRenderedOutput) {
     // <1/255. Same isolation technique as ClayMaterial.RespondsToLightDirection
     // above.
     constexpr uint32_t kWidth = 320, kHeight = 240;
-    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    mpviz::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "fog_color_black"};
-    mpviz::RenderConfig cfgB{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "fog_color_white"};
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    overlume::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "fog_color_black"};
+    overlume::RenderConfig cfgB{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "fog_color_white"};
 
-    mpviz::VisualRenderer* rA = mpviz::create_renderer(cfgA);
+    overlume::VisualRenderer* rA = overlume::create_renderer(cfgA);
     if (rA == nullptr) {
         GTEST_SKIP() << "no GPU/EGL";
     }
-    mpviz::VisualRenderer* rB = mpviz::create_renderer(cfgB);
+    overlume::VisualRenderer* rB = overlume::create_renderer(cfgB);
     ASSERT_NE(rB, nullptr);
 
-    mpviz::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
+    overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
     // golden_png_path deliberately doesn't exist -- render_and_compare
     // writes out_png_path unconditionally before checking it, and this test
     // only wants the render, not the (meaningless-here) SSIM return value.
-    mpviz::testing::render_and_compare(rA, pose, "/nonexistent/no_such_golden.png",
+    overlume::testing::render_and_compare(rA, pose, "/nonexistent/no_such_golden.png",
                                         "/tmp/fog_color_black_actual.png");
-    mpviz::testing::render_and_compare(rB, pose, "/nonexistent/no_such_golden.png",
+    overlume::testing::render_and_compare(rB, pose, "/nonexistent/no_such_golden.png",
                                         "/tmp/fog_color_white_actual.png");
 
-    mpviz::testing::FrameStats statsA =
-        mpviz::testing::analyze_png("/tmp/fog_color_black_actual.png");
-    mpviz::testing::FrameStats statsB =
-        mpviz::testing::analyze_png("/tmp/fog_color_white_actual.png");
+    overlume::testing::FrameStats statsA =
+        overlume::testing::analyze_png("/tmp/fog_color_black_actual.png");
+    overlume::testing::FrameStats statsB =
+        overlume::testing::analyze_png("/tmp/fog_color_white_actual.png");
 
     EXPECT_GT(statsB.mean - statsA.mean, 15.0)
         << "black-fog vs white-fog fixtures (identical otherwise) rendered "
            "near-identical mean brightness (" << statsA.mean
         << " vs " << statsB.mean << ") -- FogOptions::color isn't reaching the screen.";
 
-    mpviz::destroy_renderer(rA);
-    mpviz::destroy_renderer(rB);
+    overlume::destroy_renderer(rA);
+    overlume::destroy_renderer(rB);
 }
 
 TEST(Fog, ColorAffectsRenderedOutput_DarkAdas) {
@@ -584,29 +584,29 @@ TEST(Fog, ColorAffectsRenderedOutput_DarkAdas) {
     // liveness bar. Do not change these fixture values to match shipped
     // themes; they're frozen coverage points, not references.
     constexpr uint32_t kWidth = 320, kHeight = 240;
-    const std::string fixtureDir = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    mpviz::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(),
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    overlume::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(),
                              "fog_color_black_dark"};
-    mpviz::RenderConfig cfgB{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(),
+    overlume::RenderConfig cfgB{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(),
                              "fog_color_white_dark"};
 
-    mpviz::VisualRenderer* rA = mpviz::create_renderer(cfgA);
+    overlume::VisualRenderer* rA = overlume::create_renderer(cfgA);
     if (rA == nullptr) {
         GTEST_SKIP() << "no GPU/EGL";
     }
-    mpviz::VisualRenderer* rB = mpviz::create_renderer(cfgB);
+    overlume::VisualRenderer* rB = overlume::create_renderer(cfgB);
     ASSERT_NE(rB, nullptr);
 
-    mpviz::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
-    mpviz::testing::render_and_compare(rA, pose, "/nonexistent/no_such_golden.png",
+    overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
+    overlume::testing::render_and_compare(rA, pose, "/nonexistent/no_such_golden.png",
                                         "/tmp/fog_color_black_dark_actual.png");
-    mpviz::testing::render_and_compare(rB, pose, "/nonexistent/no_such_golden.png",
+    overlume::testing::render_and_compare(rB, pose, "/nonexistent/no_such_golden.png",
                                         "/tmp/fog_color_white_dark_actual.png");
 
-    mpviz::testing::FrameStats statsA =
-        mpviz::testing::analyze_png("/tmp/fog_color_black_dark_actual.png");
-    mpviz::testing::FrameStats statsB =
-        mpviz::testing::analyze_png("/tmp/fog_color_white_dark_actual.png");
+    overlume::testing::FrameStats statsA =
+        overlume::testing::analyze_png("/tmp/fog_color_black_dark_actual.png");
+    overlume::testing::FrameStats statsB =
+        overlume::testing::analyze_png("/tmp/fog_color_white_dark_actual.png");
 
     EXPECT_GT(statsB.mean - statsA.mean, 15.0)
         << "black-fog vs white-fog dark_adas-derived fixtures (identical otherwise) "
@@ -614,13 +614,13 @@ TEST(Fog, ColorAffectsRenderedOutput_DarkAdas) {
         << " vs " << statsB.mean << ") -- FogOptions::color isn't reaching the screen "
            "on dark_adas's branch of the color-scale formula.";
 
-    mpviz::destroy_renderer(rA);
-    mpviz::destroy_renderer(rB);
+    overlume::destroy_renderer(rA);
+    overlume::destroy_renderer(rB);
 }
 
 TEST(ThemeLoad, MissingThemeDir_FallsBackToBuiltinTheme) {
-    mpviz::RenderConfig cfg{320, 240, 0, "/nonexistent/theme/dir", "dark_adas"};
-    mpviz::VisualRenderer* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 0, "/nonexistent/theme/dir", "dark_adas"};
+    overlume::VisualRenderer* r = overlume::create_renderer(cfg);
     if (r == nullptr) {
         // Only acceptable reason for null here is no GPU/EGL, same skip
         // convention as every other renderer test -- NOT a missing theme dir.
@@ -628,48 +628,48 @@ TEST(ThemeLoad, MissingThemeDir_FallsBackToBuiltinTheme) {
     }
     // create_renderer must have succeeded despite the bad theme_assets_dir --
     // rendering one frame with the built-in fallback theme must not crash.
-    mpviz::SceneGraph scene{};
-    mpviz::set_scene(r, scene);
-    mpviz::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
+    overlume::SceneGraph scene{};
+    overlume::set_scene(r, scene);
+    overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
     std::vector<uint8_t> pixels(320u * 240u * 3u);
-    mpviz::FrameView view{pixels.data(), 320, 240};
-    EXPECT_TRUE(mpviz::render_frame(r, pose, view));
+    overlume::FrameView view{pixels.data(), 320, 240};
+    EXPECT_TRUE(overlume::render_frame(r, pose, view));
     // false here is the whole point of theme_assets_loaded() -- a
     // caller-visible signal that create_renderer() had to substitute the
-    // compiled-in fallback, so callers (visualization_node.cpp's
+    // compiled-in fallback, so callers (overlume_node.cpp's
     // on_configure()) can WARN.
-    EXPECT_FALSE(mpviz::theme_assets_loaded(r));
-    mpviz::destroy_renderer(r);
+    EXPECT_FALSE(overlume::theme_assets_loaded(r));
+    overlume::destroy_renderer(r);
 }
 
 TEST(ThemeLoad, RealAssetsDir_ThemeAssetsLoadedIsTrue) {
-    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
-    mpviz::VisualRenderer* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    overlume::VisualRenderer* r = overlume::create_renderer(cfg);
     if (r == nullptr) {
         GTEST_SKIP() << "no GPU/EGL";
     }
-    EXPECT_TRUE(mpviz::theme_assets_loaded(r));
-    mpviz::destroy_renderer(r);
+    EXPECT_TRUE(overlume::theme_assets_loaded(r));
+    overlume::destroy_renderer(r);
 }
 
 TEST(ThemeGolden, EmptyWorld_DarkAdas) {
     // quality=1 (medium: FXAA + SSAO half-res) -- the shipped default, so
     // the committed golden matches what actually ships, not an arbitrary
     // tier.
-    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
-    mpviz::VisualRenderer* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    overlume::VisualRenderer* r = overlume::create_renderer(cfg);
     if (r == nullptr) {
         GTEST_SKIP() << "no GPU/EGL";
     }
-    mpviz::SceneGraph scene{};  // empty: ego.valid=0, every count=0
+    overlume::SceneGraph scene{};  // empty: ego.valid=0, every count=0
     scene.sim_time_sec = 0.0;
-    mpviz::set_scene(r, scene);  // caller drives scene state...
+    overlume::set_scene(r, scene);  // caller drives scene state...
     // initial_theme is already "dark_adas" from cfg, so no set_theme() call
     // needed here -- Task 3's transition tests are what exercise mid-blend.
-    mpviz::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
-    double ssim = mpviz::testing::render_and_compare(
+    overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
+    double ssim = overlume::testing::render_and_compare(
         r, pose,  // ...harness only renders + SSIMs `r` as-is
-        MPVIZ_TEST_DATA_DIR "/tests/goldens/empty_world_dark_adas.png",
+        OVERLUME_TEST_DATA_DIR "/tests/goldens/empty_world_dark_adas.png",
         "/tmp/empty_world_dark_adas_actual.png");
     EXPECT_GT(ssim, 0.98);
 
@@ -677,8 +677,8 @@ TEST(ThemeGolden, EmptyWorld_DarkAdas) {
     // white or crushed black") -- catches an exposure/lux miscalibration.
     // Bounds are deliberately loose: this is a floor, not a look-lock --
     // SSIM above already pins the exact look.
-    mpviz::testing::FrameStats stats =
-        mpviz::testing::analyze_png("/tmp/empty_world_dark_adas_actual.png");
+    overlume::testing::FrameStats stats =
+        overlume::testing::analyze_png("/tmp/empty_world_dark_adas_actual.png");
     EXPECT_GT(stats.mean, 20.0) << "frame reads as crushed black";
     EXPECT_LT(stats.mean, 200.0) << "frame reads as clipped white";
     // 15: the golden legitimately carries ~23 distinct levels with the
@@ -719,27 +719,27 @@ TEST(ThemeGolden, EmptyWorld_DarkAdas) {
     EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 45.0)
         << "far-field ground (" << stats.horizon_row_mean << ") doesn't fade "
            "into the sky (" << stats.sky_row_mean << ") -- fog is over/under-scaled";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 TEST(ThemeGolden, EmptyWorld_LightClay) {
-    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "light_clay"};
-    mpviz::VisualRenderer* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "light_clay"};
+    overlume::VisualRenderer* r = overlume::create_renderer(cfg);
     if (r == nullptr) {
         GTEST_SKIP() << "no GPU/EGL";
     }
-    mpviz::SceneGraph scene{};
+    overlume::SceneGraph scene{};
     scene.sim_time_sec = 0.0;
-    mpviz::set_scene(r, scene);
-    mpviz::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
-    double ssim = mpviz::testing::render_and_compare(
-        r, pose, MPVIZ_TEST_DATA_DIR "/tests/goldens/empty_world_light_clay.png",
+    overlume::set_scene(r, scene);
+    overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
+    double ssim = overlume::testing::render_and_compare(
+        r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/empty_world_light_clay.png",
         "/tmp/empty_world_light_clay_actual.png");
     EXPECT_GT(ssim, 0.98);
 
     // Same legibility floor as the dark_adas golden above.
-    mpviz::testing::FrameStats stats =
-        mpviz::testing::analyze_png("/tmp/empty_world_light_clay_actual.png");
+    overlume::testing::FrameStats stats =
+        overlume::testing::analyze_png("/tmp/empty_world_light_clay_actual.png");
     EXPECT_GT(stats.mean, 60.0) << "frame reads as crushed black";
     EXPECT_LT(stats.mean, 235.0) << "frame reads as clipped white";
     // 12 (down from an earlier 40, ref-2 re-palette 2026-09-16): this
@@ -774,5 +774,5 @@ TEST(ThemeGolden, EmptyWorld_LightClay) {
     EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 55.0)
         << "far-field ground (" << stats.horizon_row_mean << ") doesn't fade "
            "into the sky (" << stats.sky_row_mean << ") -- fog is over/under-scaled";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }

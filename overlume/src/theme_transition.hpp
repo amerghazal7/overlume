@@ -5,7 +5,7 @@
 
 #include "theme.hpp"
 
-namespace mpviz::detail {
+namespace overlume::detail {
 
 // sRGB<->Oklab conversions (Björn Ottosson's published reference formulas —
 // https://bottosson.github.io/posts/oklab/, public domain). Theme colors are
@@ -64,4 +64,4 @@ struct ThemeTransition {
     double duration_sec = 0.8;
 };
 
-}  // namespace mpviz::detail
+}  // namespace overlume::detail

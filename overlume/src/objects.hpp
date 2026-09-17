@@ -9,9 +9,9 @@
 #pragma once
 
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
-namespace mpviz {
+namespace overlume {
 
 // Diffs `scene.objects`/`object_count` against `r.objectEntities` (keyed by
 // TrackedObject::id) and acquires/updates/releases only what changed.
@@ -26,4 +26,4 @@ void update_objects(VisualRenderer& r, const SceneGraph& scene);
 // path and destroy_renderer()'s final teardown loop.
 void release_object_entity(VisualRenderer& r, ObjectEntity& entity);
 
-}  // namespace mpviz
+}  // namespace overlume
