@@ -7,7 +7,43 @@ cmake_minimum_required(VERSION 3.18)
 # on gcc/libstdc++ — CMAKE_CXX_COMPILER is fixed per top-level project, so the
 # split has to happen at this granularity. Consumers (the ROS node) link
 # against it only through the POD-only public header in include/.
-project(overlume LANGUAGES CXX)
+project(overlume VERSION 0.1.0 LANGUAGES CXX)
+
+# Task 5 (API docs): include/overlume/version.h hand-writes
+# OVERLUME_VERSION_{MAJOR,MINOR,PATCH} as the same POD-only compile-time
+# constants a downstream consumer sees; this project() call is the other
+# place the version is spelled out. Simplest honest no-drift mechanism:
+# parse version.h's three #define lines at configure time and fail loudly
+# if they don't match PROJECT_VERSION_{MAJOR,MINOR,PATCH} -- no generated
+# header, no runtime static_assert needed (nothing in src/ or examples/
+# includes version.h today, so a compiled check would never actually run).
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/include/overlume/version.h"
+     _overlume_version_h_defines
+     REGEX "^#define OVERLUME_VERSION_(MAJOR|MINOR|PATCH) [0-9]+$")
+foreach(_line ${_overlume_version_h_defines})
+    if(_line MATCHES "^#define OVERLUME_VERSION_MAJOR ([0-9]+)$")
+        set(_overlume_version_h_major "${CMAKE_MATCH_1}")
+    elseif(_line MATCHES "^#define OVERLUME_VERSION_MINOR ([0-9]+)$")
+        set(_overlume_version_h_minor "${CMAKE_MATCH_1}")
+    elseif(_line MATCHES "^#define OVERLUME_VERSION_PATCH ([0-9]+)$")
+        set(_overlume_version_h_patch "${CMAKE_MATCH_1}")
+    endif()
+endforeach()
+if(NOT DEFINED _overlume_version_h_major OR NOT DEFINED _overlume_version_h_minor
+   OR NOT DEFINED _overlume_version_h_patch)
+    message(FATAL_ERROR
+        "overlume: could not parse OVERLUME_VERSION_{MAJOR,MINOR,PATCH} out "
+        "of include/overlume/version.h")
+endif()
+if(NOT _overlume_version_h_major EQUAL PROJECT_VERSION_MAJOR OR
+   NOT _overlume_version_h_minor EQUAL PROJECT_VERSION_MINOR OR
+   NOT _overlume_version_h_patch EQUAL PROJECT_VERSION_PATCH)
+    message(FATAL_ERROR
+        "overlume: version drift -- project(overlume VERSION "
+        "${PROJECT_VERSION}) vs include/overlume/version.h's "
+        "${_overlume_version_h_major}.${_overlume_version_h_minor}."
+        "${_overlume_version_h_patch}. Keep both in lockstep.")
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -711,4 +747,42 @@ endif()
 option(OVERLUME_BUILD_EXAMPLES "Build the API examples" ON)
 if(OVERLUME_BUILD_EXAMPLES AND EXISTS "${PROJECT_SOURCE_DIR}/../examples/CMakeLists.txt")
     add_subdirectory(${PROJECT_SOURCE_DIR}/../examples ${CMAKE_BINARY_DIR}/examples)
+endif()
+
+# Task 5 (open-source restructure plan): the `docs` target -- Doxygen over
+# the public headers + examples/, themed with doxygen-awesome-css, output
+# under ${CMAKE_BINARY_DIR}/docs (i.e. inside this project's own build/,
+# already covered by the repo's `**/build/` .gitignore rule). NOT part of
+# ALL: opt-in via `cmake --build ... --target docs`, same convention as
+# every other named-target-only build step here (filament_link_probe is
+# ALL; docs deliberately is not, since it needs network for the one-time
+# theme fetch and a doxygen binary that may not be present).
+find_program(DOXYGEN_EXECUTABLE doxygen HINTS "$ENV{HOME}/.local/bin")
+if(DOXYGEN_EXECUTABLE)
+    option(OVERLUME_BUILD_DOCS "Build the docs target (Doxygen API reference)" ON)
+else()
+    option(OVERLUME_BUILD_DOCS "Build the docs target (Doxygen API reference)" OFF)
+    message(STATUS
+        "overlume: no doxygen executable found (checked PATH and "
+        "~/.local/bin) -- OVERLUME_BUILD_DOCS defaults OFF. Install doxygen "
+        "or pass -DDOXYGEN_EXECUTABLE=/path/to/doxygen to enable it.")
+endif()
+
+if(OVERLUME_BUILD_DOCS AND EXISTS "${PROJECT_SOURCE_DIR}/../Doxyfile.in")
+    if(NOT DOXYGEN_EXECUTABLE)
+        message(FATAL_ERROR
+            "overlume: OVERLUME_BUILD_DOCS=ON but no doxygen executable was "
+            "found. Install doxygen, pass -DDOXYGEN_EXECUTABLE=/path/to/doxygen, "
+            "or configure with -DOVERLUME_BUILD_DOCS=OFF.")
+    endif()
+    include(cmake/GetDoxygenAwesome.cmake)
+    get_filename_component(OVERLUME_REPO_ROOT "${PROJECT_SOURCE_DIR}/.." ABSOLUTE)
+    configure_file("${OVERLUME_REPO_ROOT}/Doxyfile.in" "${CMAKE_BINARY_DIR}/Doxyfile" @ONLY)
+    add_custom_target(docs
+        COMMAND "${DOXYGEN_EXECUTABLE}" "${CMAKE_BINARY_DIR}/Doxyfile"
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        COMMENT "overlume: generating API docs (Doxygen) into ${CMAKE_BINARY_DIR}/docs/html"
+        VERBATIM)
+elseif(OVERLUME_BUILD_DOCS)
+    message(STATUS "overlume: Doxyfile.in not found next to the library (library-only checkout) -- docs target skipped")
 endif()

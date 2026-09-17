@@ -13,6 +13,18 @@
 // node-side test_scene_layout.cpp mirror) are the layout guard that makes a
 // version bump without a matching rebuild fail loudly instead of silently
 // reading garbage across the ABI boundary.
+
+/// @file
+/// @brief The scene-graph POD boundary: everything the renderer draws
+/// (ego, tracked objects, paths, map elements, grids, alerts, markers,
+/// point clouds, trajectory carpets, HUD, bowl/camera config, environment
+/// sources) plus the free functions that publish it and drive the theme,
+/// virtual camera, and quality knobs.
+///
+/// Additive-only per ADR-0004 (docs/adr/0004-scene-interface-versioning.md):
+/// fields are appended to structs, enum values are appended, entry points
+/// are added — nothing here is ever renamed, reordered, or removed within a
+/// major version. See `kSceneVersion` below.
 #pragma once
 #include <cstdint>
 #include <cstddef>
@@ -20,67 +32,102 @@
 
 namespace overlume {
 
-// Introduced Epic 3 Task 1 (VM-036, ADR-0004). Bumped on every additive
-// scene.h change; the node-side static_assert mirror (test_scene_layout.cpp)
-// fails loudly on a layout mismatch instead of silently reading garbage
-// across the ABI boundary at the node's next rebuild.
-//
-// Appended VM-050 (Epic 4 Task 1, 2026-09-10) -- kSceneVersion 3 -> 4, for
-// GeoAnchor below. SEQUENCING DEVIATION (dated, see the Epic 4 plan): this
-// struct is spec'd under Task 3 (VM-052)'s Files list, but Task 1's
-// geo_anchor.hpp is its FIRST consumer (GeoAnchorSolver::anchor() returns
-// it) -- a type lands with its first consumer, so Task 1 performs this
-// append (+ both toolchains' layout tables) and Task 3 (VM-052) only
-// consumes the type + adds `set_environment_source`, which does NOT bump
-// the version again (one struct, one bump).
-//
-// Appended VM-090 (unified-engine migration Task 1, ADR-0005) -- kSceneVersion
-// 4 -> 5, for CameraExtrinsics/CameraIntrinsics/BowlConfig below.
-//
-// Appended VM-063 (Epic 6 Task 4, ADR-0004) -- kSceneVersion 5 -> 6, for
-// EnvironmentSourceState below. environment_source_state() itself, being a
-// free-function-only addition, bumps nothing (VM-090 precedent) -- the
-// appended ENUM is what bumps this constant.
+/// @brief The scene.h ABI layout version.
+///
+/// Introduced Epic 3 Task 1 (VM-036, ADR-0004). Bumped on every additive
+/// scene.h change; the node-side static_assert mirror (test_scene_layout.cpp)
+/// fails loudly on a layout mismatch instead of silently reading garbage
+/// across the ABI boundary at the node's next rebuild.
+///
+/// Appended VM-050 (Epic 4 Task 1, 2026-09-10) -- kSceneVersion 3 -> 4, for
+/// GeoAnchor below. SEQUENCING DEVIATION (dated, see the Epic 4 plan): this
+/// struct is spec'd under Task 3 (VM-052)'s Files list, but Task 1's
+/// geo_anchor.hpp is its FIRST consumer (GeoAnchorSolver::anchor() returns
+/// it) -- a type lands with its first consumer, so Task 1 performs this
+/// append (+ both toolchains' layout tables) and Task 3 (VM-052) only
+/// consumes the type + adds `set_environment_source`, which does NOT bump
+/// the version again (one struct, one bump).
+///
+/// Appended VM-090 (unified-engine migration Task 1, ADR-0005) -- kSceneVersion
+/// 4 -> 5, for CameraExtrinsics/CameraIntrinsics/BowlConfig below.
+///
+/// Appended VM-063 (Epic 6 Task 4, ADR-0004) -- kSceneVersion 5 -> 6, for
+/// EnvironmentSourceState below. environment_source_state() itself, being a
+/// free-function-only addition, bumps nothing (VM-090 precedent) -- the
+/// appended ENUM is what bumps this constant.
 constexpr uint32_t kSceneVersion = 6;
 
+/// @brief A plain 3D point or vector, map frame unless documented otherwise.
 struct Vec3 { double x, y, z; };
+/// @var Vec3::x
+/// X coordinate.
+/// @var Vec3::y
+/// Y coordinate.
+/// @var Vec3::z
+/// Z coordinate.
 
+/// @brief Tracked-object class (TrackedObject::cls).
 enum class ObjectClass : uint8_t {
     CAR = 0, TRUCK_VAN = 1, BUS = 2, PEDESTRIAN = 3, CYCLIST = 4, UNKNOWN = 5
 };
+/// @brief What a PathRibbon represents (PathRibbon::role).
 enum class PathRole : uint8_t { BEHAVIOR = 0, GLOBAL = 1, LOCAL = 2 };
+/// @brief Geometry kind for a GenericMarker (the parity-guarantee fallback).
 enum class MarkerPrimitive : uint8_t {
     CUBE = 0, SPHERE = 1, CYLINDER = 2, ARROW = 3, LINE_STRIP = 4,
     LINE_LIST = 5, POINTS = 6, TEXT = 7, TRIANGLE_LIST = 8, MESH = 9
 };
 
 // ── Ego (Epic 1 populates this) ─────────────────────────────────────────────
+/// @brief The ego vehicle's pose and speed.
 struct EgoState {
-    Vec3 position;        // map frame
-    double heading_rad;   // yaw about +Z, map frame
-    double speed_mps;     // finite-differenced from TF, smoothed (VM-012)
-    uint8_t valid;        // 0 = no TF yet -> ego hidden, not a clay box at origin
+    Vec3 position;        ///< Map frame.
+    double heading_rad;   ///< Yaw about +Z, map frame.
+    double speed_mps;     ///< Finite-differenced from TF, smoothed (VM-012).
+    uint8_t valid;        ///< 0 = no TF yet -> ego hidden, not a clay box at origin.
 };
 
 // ── TrackedObject[] (Epic 2: VM-021/022) ────────────────────────────────────
+/// @brief One tracked object (vehicle, pedestrian, cyclist, ...).
 struct TrackedObject {
     uint32_t id;
     ObjectClass cls;
     Vec3 position;
     double heading_rad;
-    Vec3 dimensions;              // length(x)/width(y)/height(z), meters
-    Vec3 velocity;                // map frame, m/s (velocity arrow, spec §4.1)
+    Vec3 dimensions;              ///< length(x)/width(y)/height(z), meters.
+    Vec3 velocity;                ///< Map frame, m/s (velocity arrow, spec §4.1).
     const Vec3* predicted_path;   uint32_t predicted_path_count;
-    const char* label;            // nul-terminated, caller-owned, may be nullptr
-    double last_update_sec;       // SceneGraph::sim_time_sec at last refresh (staleness)
+    const char* label;            ///< Nul-terminated, caller-owned, may be nullptr.
+    double last_update_sec;       ///< SceneGraph::sim_time_sec at last refresh (staleness).
 };
+/// @var TrackedObject::id
+/// Stable per-track identifier.
+/// @var TrackedObject::cls
+/// Object class.
+/// @var TrackedObject::position
+/// Map frame.
+/// @var TrackedObject::heading_rad
+/// Yaw about +Z, map frame.
+/// @var TrackedObject::predicted_path
+/// Optional predicted-path polyline, or nullptr.
+/// @var TrackedObject::predicted_path_count
+/// Number of points in `predicted_path`.
 
 // ── PathRibbon[] (Epic 2: VM-023) ───────────────────────────────────────────
+/// @brief A polyline path (behavior ribbon, global/local plan).
 struct PathRibbon {
     PathRole role;
     const Vec3* points;  uint32_t point_count;
     double last_update_sec;
 };
+/// @var PathRibbon::role
+/// What this ribbon represents.
+/// @var PathRibbon::points
+/// Polyline vertices, map frame.
+/// @var PathRibbon::point_count
+/// Number of vertices in `points`.
+/// @var PathRibbon::last_update_sec
+/// SceneGraph::sim_time_sec at last refresh (staleness).
 
 // ── MapElement[] (Epic 2: VM-024; kind/lane_id/last_update_sec: Epic 3
 //    Task 1 / VM-036, ADR-0004 additive) ─────────────────────────────────────
@@ -92,18 +139,32 @@ struct PathRibbon {
 // it directly (the disabled /road_markers row may also map to it one day).
 // ROAD_SURFACE is adapter-synthesized (never present on the wire) -- see the
 // plan's road-fill section for its two-rail point encoding.
+/// @brief Kind of a MapElement (MapElement::kind).
+/// @since kSceneVersion 1 (appended Epic 3 Task 1 / VM-036, ADR-0004).
 enum class MapKind : uint8_t {
     OTHER = 0, CENTERLINE = 1, LEFT_BOUNDARY = 2, RIGHT_BOUNDARY = 3,
     CROSSWALK = 4, STOPLINE = 5, JUNCTION = 6, ROAD_EDGE = 7, ROAD_SURFACE = 8
 };
 
+/// @brief One HD-map element (lane centerline, boundary, crosswalk, ...).
 struct MapElement {
+    // @var-documented below (points/point_count share a physical line).
     const Vec3* points;  uint32_t point_count;
-    uint8_t is_polygon;  // 0 = polyline (lane centerline), 1 = polygon (crosswalk)
-    MapKind kind;             // NEW, appended. Default (aggregate zero-init) = OTHER.
-    uint32_t lane_id;         // NEW, appended. 0 = none (crosswalk/stopline/junction/other).
-    double last_update_sec;   // NEW, appended. Closes Epic 2's "map pops, does not fade" deviation.
+    uint8_t is_polygon;  ///< 0 = polyline (lane centerline), 1 = polygon (crosswalk).
+    /// Map-element kind; default (aggregate zero-init) = OTHER.
+    /// @since kSceneVersion 1 (Epic 3 Task 1 / VM-036, ADR-0004).
+    MapKind kind;
+    /// Lane id; 0 = none (crosswalk/stopline/junction/other).
+    /// @since kSceneVersion 1.
+    uint32_t lane_id;
+    /// SceneGraph::sim_time_sec at this element's last refresh (staleness fade).
+    /// @since kSceneVersion 1. Closes Epic 2's "map pops, does not fade" deviation.
+    double last_update_sec;
 };
+/// @var MapElement::points
+/// Polyline/polygon vertices, map frame.
+/// @var MapElement::point_count
+/// Number of vertices in `points`.
 
 // ── GroundGrid (OGM layers; Epic 2: VM-025) ─────────────────────────────────
 // Spec §4.1 names this category "GroundGrid" (singular); §4.2/§5 says there
@@ -111,32 +172,60 @@ struct MapElement {
 // modeled as an array like every other category for the same reason
 // GenericMarker exists: tomorrow's third OGM topic is a profile-YAML row,
 // not a struct change.
+/// @brief One occupancy-grid-map layer (dynamic or gradient OGM).
 struct GroundGridLayer {
-    uint8_t kind;            // 0 = dynamic OGM, 1 = gradient OGM
-    Vec3 origin;             // map-frame position of cell (0,0)
-    double resolution_m;     // meters per cell edge
+    uint8_t kind;            ///< 0 = dynamic OGM, 1 = gradient OGM.
+    Vec3 origin;             ///< Map-frame position of cell (0,0).
+    double resolution_m;     ///< Meters per cell edge.
     uint32_t width_cells, height_cells;
-    const uint8_t* cells;    // width*height, row-major, caller-owned
+    const uint8_t* cells;    ///< width*height, row-major, caller-owned.
     double last_update_sec;
 };
+/// @var GroundGridLayer::width_cells
+/// Grid width, cells.
+/// @var GroundGridLayer::height_cells
+/// Grid height, cells.
+/// @var GroundGridLayer::last_update_sec
+/// SceneGraph::sim_time_sec at last refresh (staleness).
 
 // ── AlertPolygon[] (Epic 2: VM-026) ─────────────────────────────────────────
+/// @brief A severity-colored alert region (theme alert ramp).
 struct AlertPolygon {
     const Vec3* points;  uint32_t point_count;
-    uint8_t severity;    // 0 info / 1 warning / 2 critical -> theme alert ramp
+    uint8_t severity;    ///< 0 info / 1 warning / 2 critical -> theme alert ramp.
     double last_update_sec;
 };
+/// @var AlertPolygon::points
+/// Polygon vertices, map frame.
+/// @var AlertPolygon::point_count
+/// Number of vertices in `points`.
+/// @var AlertPolygon::last_update_sec
+/// SceneGraph::sim_time_sec at last refresh (staleness).
 
 // ── GenericMarker[] (Epic 2: VM-027, the parity-guarantee fallback) ─────────
+/// @brief A generic, RViz-marker-shaped primitive — the parity-guarantee
+/// fallback for any content that doesn't fit a dedicated category.
 struct GenericMarker {
     MarkerPrimitive primitive;
     Vec3 position;  double heading_rad;  Vec3 scale;
-    const Vec3* points;  uint32_t point_count;   // LINE_*/POINTS/TRIANGLE_LIST
-    const char* text;       // TEXT only, else nullptr
-    const char* mesh_path;  // MESH only, else nullptr
-    float color[4];         // rgba; theme-neutral default if alpha == 0
+    const Vec3* points;  uint32_t point_count;   ///< LINE_*/POINTS/TRIANGLE_LIST.
+    const char* text;       ///< TEXT only, else nullptr.
+    const char* mesh_path;  ///< MESH only, else nullptr.
+    float color[4];         ///< rgba; theme-neutral default if alpha == 0.
     double last_update_sec;
 };
+/// @var GenericMarker::primitive
+/// Geometry kind.
+/// @var GenericMarker::position
+/// Map frame.
+/// @var GenericMarker::heading_rad
+/// Yaw about +Z, map frame.
+/// @var GenericMarker::scale
+/// Per-axis scale.
+/// @var GenericMarker::points
+/// Vertices, map frame (LINE_*/POINTS/TRIANGLE_LIST only).
+/// @var GenericMarker::last_update_sec
+/// SceneGraph::sim_time_sec at last refresh (staleness).
 
 // ── PointCloud[] (Epic 3 Task 6 / VM-035, ADR-0004 additive) ────────────────
 // Node-side PointCloudAdapter bakes one packed rgba8 per point from
@@ -169,15 +258,26 @@ struct GenericMarker {
 // content-driven rebuild, not smoothly mid-transition -- same class of
 // caveat as this library's grid fade-distance bake (scene.h's set_theme()
 // doc comment).
+/// @brief One colored point cloud vertex. See the packing convention
+/// documented above PointCloudPoint's own comment block.
+/// @since kSceneVersion 2 (Epic 3 Task 6 / VM-035, ADR-0004).
 struct PointCloudPoint {
-    Vec3 position;     // map frame
-    uint32_t rgba;      // packed per the convention above
+    Vec3 position;     ///< Map frame.
+    uint32_t rgba;      ///< Packed per the convention above.
 };
 
+/// @brief One point cloud (e.g. one lidar topic).
+/// @since kSceneVersion 2 (Epic 3 Task 6 / VM-035, ADR-0004).
 struct PointCloud {
     const PointCloudPoint* points;  uint32_t point_count;
     double last_update_sec;
 };
+/// @var PointCloud::points
+/// Point cloud vertices.
+/// @var PointCloud::point_count
+/// Number of points in `points`.
+/// @var PointCloud::last_update_sec
+/// SceneGraph::sim_time_sec at last refresh (staleness).
 
 // ── TrajectoryCarpet[] (VM-077, ADR-0004 additive) ──────────────────────────
 // output_trajectory_carpet: TRIANGLE_LIST, always a multiple of 3, genuine
@@ -187,34 +287,52 @@ struct PointCloud {
 // than a new vertex struct. Rendered as a flat TRIANGLES list, sequential
 // indices -- mirrors point_cloud.cpp's own POINTS indexing exactly, minus
 // the pointSizePx uniform (meaningless for triangles).
+/// @brief A flat TRIANGLES ribbon (e.g. a velocity-colored trajectory
+/// carpet). Reuses PointCloudPoint verbatim (world position + packed rgba8).
+/// @since kSceneVersion 3 (VM-077, ADR-0004 additive).
 struct TrajectoryCarpet {
-    const PointCloudPoint* points;  uint32_t point_count;  // multiple of 3
+    const PointCloudPoint* points;  uint32_t point_count;  ///< Always a multiple of 3.
     double last_update_sec;
 };
+/// @var TrajectoryCarpet::points
+/// Vertices; see the struct's own comment for the packing convention.
+/// @var TrajectoryCarpet::last_update_sec
+/// SceneGraph::sim_time_sec at last refresh (staleness).
 
 // ── Hud (Epic 1: speed+mode only; chips arrive with VM-031) ─────────────────
+/// @brief One HUD alert callout (currently unused by the node — see Hud::chips).
 struct AlertChip {
     const char* text;
-    Vec3 anchor;   // map-frame 3D anchor for the leader line (VM-031)
+    Vec3 anchor;   ///< Map-frame 3D anchor for the leader line (VM-031).
 };
+/// @var AlertChip::text
+/// Nul-terminated, caller-owned callout text.
+
+/// @brief The HUD state (speed/mode readout, plus an unused chip list — see
+/// Hud::chips's own comment).
 struct Hud {
     double speed_mps;
-    uint8_t active_mode;     // 1|2|3, mirrors ~/vcam_state
-    // Epic 3 Task 4 (VM-031) Step 0, SCOPE DECISION: stays UNUSED by design.
-    // The node builds its callout chip list from its own live
-    // AlertPolygon/collision-adapter data and draws it directly (node-side
-    // compositing, see project_to_screen()'s own comment below) -- it never
-    // routes through here. `chips`/`chip_count`/`AlertChip` stay in scene.h
-    // (ADR-0004 forbids removing them regardless) for a hypothetical future
-    // in-scene (3D-anchored, SDF) text path, not populated today.
+    uint8_t active_mode;     ///< 1|2|3, mirrors ~/vcam_state.
+    /// Epic 3 Task 4 (VM-031) Step 0, SCOPE DECISION: stays UNUSED by design.
+    /// The node builds its callout chip list from its own live
+    /// AlertPolygon/collision-adapter data and draws it directly (node-side
+    /// compositing, see project_to_screen()'s own comment below) -- it never
+    /// routes through here. `chips`/#chip_count/AlertChip stay in scene.h
+    /// (ADR-0004 forbids removing them regardless) for a hypothetical future
+    /// in-scene (3D-anchored, SDF) text path, not populated today.
     const AlertChip* chips;  uint32_t chip_count;
 };
+/// @var Hud::speed_mps
+/// Ego speed, m/s.
+/// @var Hud::chip_count
+/// Number of entries in `chips` (unused today — see `chips`'s own comment).
 
 // ── The root struct ──────────────────────────────────────────────────────────
+/// @brief The whole scene, published in one call via set_scene().
 struct SceneGraph {
-    // The single clock all staleness-fade and theme-transition math is
-    // computed against (Task 1/3). Caller-supplied, monotonic seconds —
-    // never wall-clock-read inside the library, so tests are deterministic.
+    /// The single clock all staleness-fade and theme-transition math is
+    /// computed against (Task 1/3). Caller-supplied, monotonic seconds —
+    /// never wall-clock-read inside the library, so tests are deterministic.
     double sim_time_sec;
 
     EgoState ego;
@@ -225,451 +343,630 @@ struct SceneGraph {
     const AlertPolygon*    alerts;       uint32_t alert_count;
     const GenericMarker*   markers;      uint32_t marker_count;
     Hud hud;
-    // Appended Epic 3 Task 6 (VM-035, ADR-0004) -- kSceneVersion 1 -> 2, the
-    // one bump this epic makes (Task 1 introduced the constant at 1).
+    /// @since kSceneVersion 2 (Epic 3 Task 6, VM-035, ADR-0004) -- the one
+    /// bump this epic makes (Task 1 introduced the constant at 1).
     const PointCloud*      point_clouds; uint32_t point_cloud_count;
-    // Appended VM-077 (ADR-0004) -- kSceneVersion 2 -> 3.
+    /// @since kSceneVersion 3 (VM-077, ADR-0004).
     const TrajectoryCarpet* trajectory_carpets; uint32_t trajectory_carpet_count;
 };
+/// @var SceneGraph::ego
+/// The ego vehicle's pose and speed.
+/// @var SceneGraph::objects
+/// Tracked objects.
+/// @var SceneGraph::object_count
+/// Number of entries in `objects`.
+/// @var SceneGraph::paths
+/// Path ribbons.
+/// @var SceneGraph::path_count
+/// Number of entries in `paths`.
+/// @var SceneGraph::map_elements
+/// HD-map elements.
+/// @var SceneGraph::map_element_count
+/// Number of entries in `map_elements`.
+/// @var SceneGraph::grids
+/// Occupancy-grid layers.
+/// @var SceneGraph::grid_count
+/// Number of entries in `grids`.
+/// @var SceneGraph::alerts
+/// Alert polygons.
+/// @var SceneGraph::alert_count
+/// Number of entries in `alerts`.
+/// @var SceneGraph::markers
+/// Generic markers.
+/// @var SceneGraph::marker_count
+/// Number of entries in `markers`.
+/// @var SceneGraph::hud
+/// HUD state.
+/// @var SceneGraph::point_cloud_count
+/// Number of entries in `point_clouds`.
+/// @var SceneGraph::trajectory_carpet_count
+/// Number of entries in `trajectory_carpets`.
 
-// Deep-copies `scene` (and everything its pointers reach) into the renderer's
-// internal staging buffer (overlume::detail::SceneBuffer) and atomically swaps
-// which slot is "active". This call touches ONLY that internal buffer — no
-// Filament::Engine/Scene/TransformManager/RenderableManager call happens
-// here. `scene`'s arrays may be freed/reused the instant this call returns.
-//
-// Threading (stated precisely, not aspirationally): TODAY THIS IS
-// SINGLE-THREADED END TO END — the same single-threaded executor calls both
-// set_scene() and render_frame(), from the same thread. SceneBuffer's mutex
-// (Task 1) only serializes the active-slot-INDEX read/write; it does NOT
-// make set_scene() safe to call from a second thread while render_frame()
-// holds a reference from active() across a frame. active() hands back a
-// bare `const SceneGraph&` aliased directly into slot storage — a second
-// publisher calling set_scene() while a reader still holds that reference
-// would overwrite the very slot being read (two publishes between a
-// reader's first and last touch of the reference is enough). Do not call
-// set_scene() from any thread other than the one calling render_frame()
-// until that changes. A future multi-threaded ingest path needs
-// SceneBuffer::active() to hand back an owned/refcounted snapshot instead
-// (or an equivalent lifetime guarantee) — that is a SceneBuffer design
-// change, not a locking tweak, and is out of scope for this epic; the mutex
-// here is a cheap hook for that future work, not a guarantee it already
-// provides.
-// Does NOT render, and does NOT touch Filament: render_frame() always
-// re-derives everything Filament-side (ego transform, material params,
-// theme blend) from the last-published active() scene, on whichever thread
-// owns the Engine — so a tick with no set_scene() call re-renders the
-// previous one (freeze-frame, same philosophy as micropilot_rendering_node),
-// and all Engine/component calls still happen from a single thread as
-// Filament requires.
+/// @brief Publishes a new scene for the next render_frame() call.
+///
+/// Deep-copies `scene` (and everything its pointers reach) into the renderer's
+/// internal staging buffer (overlume::detail::SceneBuffer) and atomically swaps
+/// which slot is "active". This call touches ONLY that internal buffer — no
+/// Filament::Engine/Scene/TransformManager/RenderableManager call happens
+/// here. `scene`'s arrays may be freed/reused the instant this call returns.
+///
+/// Threading (stated precisely, not aspirationally): TODAY THIS IS
+/// SINGLE-THREADED END TO END — the same single-threaded executor calls both
+/// set_scene() and render_frame(), from the same thread. SceneBuffer's mutex
+/// (Task 1) only serializes the active-slot-INDEX read/write; it does NOT
+/// make set_scene() safe to call from a second thread while render_frame()
+/// holds a reference from active() across a frame. active() hands back a
+/// bare `const SceneGraph&` aliased directly into slot storage — a second
+/// publisher calling set_scene() while a reader still holds that reference
+/// would overwrite the very slot being read (two publishes between a
+/// reader's first and last touch of the reference is enough). Do not call
+/// set_scene() from any thread other than the one calling render_frame()
+/// until that changes. A future multi-threaded ingest path needs
+/// SceneBuffer::active() to hand back an owned/refcounted snapshot instead
+/// (or an equivalent lifetime guarantee) — that is a SceneBuffer design
+/// change, not a locking tweak, and is out of scope for this epic; the mutex
+/// here is a cheap hook for that future work, not a guarantee it already
+/// provides.
+///
+/// Does NOT render, and does NOT touch Filament: render_frame() always
+/// re-derives everything Filament-side (ego transform, material params,
+/// theme blend) from the last-published active() scene, on whichever thread
+/// owns the Engine — so a tick with no set_scene() call re-renders the
+/// previous one (freeze-frame, same philosophy as micropilot_rendering_node),
+/// and all Engine/component calls still happen from a single thread as
+/// Filament requires.
+/// @param scene The scene to deep-copy in.
 void set_scene(VisualRenderer*, const SceneGraph& scene);
 
-// Eases every themed token (palette, material roughness/metallic, sun/IBL,
-// HUD colors) from whatever is currently active toward `theme_name`,
-// starting at `at_sec` (a SceneGraph::sim_time_sec value — the caller's
-// clock, never wall-clock) and completing after `transition_sec` seconds
-// (0.0 -> use the spec default, 0.8s). Smoothstep-eased, Oklab-space color
-// lerp (Task 3). A transition retargeted mid-flight (set_theme called again
-// before the first finishes) starts a new ease from the CURRENT blended
-// state, not from either endpoint — no visible snap.
-// Exception: grid fade distances (fade_start_m/fade_end_m) are NOT animated
-// by set_theme — they're baked into the grid's vertex buffer once at
-// create_renderer() time and take effect only on the next renderer creation
-// with a different theme, not on a live set_theme() switch.
-// Returns false (no-op) if theme_name doesn't match a loaded
-// assets/themes/<name>.yaml stem; the active theme is unchanged.
+/// @brief Starts (or retargets) a themed crossfade.
+///
+/// Eases every themed token (palette, material roughness/metallic, sun/IBL,
+/// HUD colors) from whatever is currently active toward `theme_name`,
+/// starting at `at_sec` (a SceneGraph::sim_time_sec value — the caller's
+/// clock, never wall-clock) and completing after `transition_sec` seconds
+/// (0.0 -> use the spec default, 0.8s). Smoothstep-eased, Oklab-space color
+/// lerp (Task 3). A transition retargeted mid-flight (set_theme called again
+/// before the first finishes) starts a new ease from the CURRENT blended
+/// state, not from either endpoint — no visible snap.
+///
+/// Exception: grid fade distances (fade_start_m/fade_end_m) are NOT animated
+/// by set_theme — they're baked into the grid's vertex buffer once at
+/// create_renderer() time and take effect only on the next renderer creation
+/// with a different theme, not on a live set_theme() switch.
+/// @param theme_name Theme name (yaml stem) to ease toward.
+/// @param at_sec The caller's clock (SceneGraph::sim_time_sec), never
+/// wall-clock, at which the ease starts.
+/// @param transition_sec Ease duration in seconds; 0.0 -> the spec default
+/// (0.8s).
+/// @return false (no-op) if `theme_name` doesn't match a loaded
+/// `assets/themes/<name>.yaml` stem; the active theme is unchanged. true
+/// otherwise.
 bool set_theme(VisualRenderer*, const char* theme_name, double at_sec,
                 double transition_sec);
 
-// Loads a glTF/GLB ego mesh from `gltf_path` for use whenever
-// SceneGraph::ego.valid is true. Non-fatal on failure (bad path, unsupported
-// glTF feature, missing file): logs nothing itself (POD boundary — no
-// logging crosses it), returns false, and rendering falls back to a clay
-// box sized by `fallback_dims` (meters, length/width/height). Call once,
-// typically from on_configure(), before the first render_frame() (Epic 1
-// Task 4 / VM-012 — see the master plan's "Interfaces frozen this epic",
-// which names this as "new in scene.h": this Files list doesn't separately
-// list a scene.h modification, only "Create ego.hpp/ego.cpp" — Vec3 is a
-// scene.h type and set_ego_model must be reachable from the gcc/libstdc++
-// ROS node through a POD public header, same reasoning set_theme's own
-// declaration here already established in Task 3, so this is the one
-// place it can live).
+/// @brief Loads the ego mesh, or arms the clay-box fallback.
+///
+/// Loads a glTF/GLB ego mesh from `gltf_path` for use whenever
+/// SceneGraph::ego.valid is true. Non-fatal on failure (bad path, unsupported
+/// glTF feature, missing file): logs nothing itself (POD boundary — no
+/// logging crosses it), returns false, and rendering falls back to a clay
+/// box sized by `fallback_dims` (meters, length/width/height). Call once,
+/// typically from on_configure(), before the first render_frame() (Epic 1
+/// Task 4 / VM-012 — see the master plan's "Interfaces frozen this epic",
+/// which names this as "new in scene.h": this Files list doesn't separately
+/// list a scene.h modification, only "Create ego.hpp/ego.cpp" — Vec3 is a
+/// scene.h type and set_ego_model must be reachable from the gcc/libstdc++
+/// ROS node through a POD public header, same reasoning set_theme's own
+/// declaration here already established in Task 3, so this is the one
+/// place it can live).
+/// @param gltf_path Path to a glTF/GLB ego mesh.
+/// @param fallback_dims Clay-box dimensions (length/width/height, meters)
+/// used on load failure.
+/// @return true iff the mesh loaded; false (clay-box fallback armed)
+/// otherwise.
 bool set_ego_model(VisualRenderer*, const char* gltf_path, Vec3 fallback_dims);
 
-// Points the object renderer at a directory of normalized per-class glTF/GLB
-// clay models (VM-022). Expected stems: car.glb, truck_van.glb, bus.glb,
-// pedestrian.glb, cyclist.glb — one per ObjectClass except UNKNOWN, which is
-// always the procedural clay box. Any stem that is missing or fails
-// to load is non-fatal: that class falls back to the same procedural clay
-// box (a plain unit box today — the fillet was skipped, see
-// build_unit_box's ponytail note in objects.cpp),
-// scaled to the object's measured bbox exactly as a loaded model would be
-// (spec §9, "asset load failure -> clay-box fallback, WARN once"). Returns
-// the number of class models successfully loaded (0 is a legal, fully
-// functional configuration — see Task 4 Step 0). Call once, from
-// on_configure(), before the first render_frame(); `dir` is caller-owned and
-// borrowed only for the duration of this call, same rule as
-// RenderConfig::theme_assets_dir.
+/// @brief Points the object renderer at a directory of per-class clay models.
+///
+/// Points the object renderer at a directory of normalized per-class glTF/GLB
+/// clay models (VM-022). Expected stems: car.glb, truck_van.glb, bus.glb,
+/// pedestrian.glb, cyclist.glb — one per ObjectClass except UNKNOWN, which is
+/// always the procedural clay box. Any stem that is missing or fails
+/// to load is non-fatal: that class falls back to the same procedural clay
+/// box (a plain unit box today — the fillet was skipped, see
+/// build_unit_box's ponytail note in objects.cpp),
+/// scaled to the object's measured bbox exactly as a loaded model would be
+/// (spec §9, "asset load failure -> clay-box fallback, WARN once"). Call
+/// once, from on_configure(), before the first render_frame(); `dir` is
+/// caller-owned and borrowed only for the duration of this call, same rule
+/// as RenderConfig::theme_assets_dir.
+/// @param dir Directory of per-class glTF/GLB clay models.
+/// @return The number of class models successfully loaded (0 is a legal,
+/// fully functional configuration — see Task 4 Step 0).
 uint32_t set_object_model_dir(VisualRenderer*, const char* dir);
 
-// Gate-review addition (2026-08-20, spec §9 minor): create_renderer()
-// silently substitutes the compiled-in kFallbackTheme() whenever
-// RenderConfig::theme_assets_dir/initial_theme fails to load (missing dir,
-// missing file, malformed YAML) -- non-fatal by design, but until now gave
-// the caller no way to know it happened and WARN. Returns true iff the
-// theme active right after create_renderer() was actually loaded from disk;
-// false if it's the compiled-in fallback. Reflects only the INITIAL load at
-// create_renderer() time, not any later set_theme() call (which has its own
-// bool return for the same purpose). An additive entry point -- legal under
-// the scene.h freeze (see this header's own top comment).
+/// @brief Reports whether the initial theme load (create_renderer()) came
+/// from disk or from the compiled-in fallback.
+///
+/// Gate-review addition (2026-08-20, spec §9 minor): create_renderer()
+/// silently substitutes the compiled-in kFallbackTheme() whenever
+/// RenderConfig::theme_assets_dir/initial_theme fails to load (missing dir,
+/// missing file, malformed YAML) -- non-fatal by design, but until now gave
+/// the caller no way to know it happened and WARN. Reflects only the INITIAL
+/// load at create_renderer() time, not any later set_theme() call (which has
+/// its own bool return for the same purpose). An additive entry point --
+/// legal under the scene.h freeze (see this header's own top comment).
+/// @return true iff the theme active right after create_renderer() was
+/// actually loaded from disk; false if it's the compiled-in fallback.
 bool theme_assets_loaded(VisualRenderer*);
 
-// Epic 3 Task 3 (VM-030): the node-side HUD compositor (hud_overlay.cpp)
-// needs the theme's live HUD colors, including mid-`theme_transition` blend
-// values, which exist only inside `active_theme` (renderer_internal.hpp) --
-// see the plan's "ACCEPTED (user, 2026-09-07): get_hud_colors() ships as
-// specified" for why this is an authorized amendment to P2's "no new public
-// entry point," not a silent extension of it. POD, appended per ADR-0004.
+/// @brief The theme's live HUD colors, POD boundary.
+///
+/// Epic 3 Task 3 (VM-030): the node-side HUD compositor (hud_overlay.cpp)
+/// needs the theme's live HUD colors, including mid-`theme_transition` blend
+/// values, which exist only inside `active_theme` (renderer_internal.hpp) --
+/// see the plan's "ACCEPTED (user, 2026-09-07): get_hud_colors() ships as
+/// specified" for why this is an authorized amendment to P2's "no new public
+/// entry point," not a silent extension of it. POD, appended per ADR-0004.
 struct HudColors {
     float text_color[3];
     float accent_color[3];
     float scale;
 };
+/// @var HudColors::text_color
+/// HUD text color, rgb.
+/// @var HudColors::accent_color
+/// HUD accent color, rgb.
+/// @var HudColors::scale
+/// HUD scale factor.
 
-// Reads `r->active_theme.hud` verbatim (kept live every render_frame() call
-// by apply_current_theme(), including mid-transition blend values -- no new
-// renderer state added for this). Null `r` -> zero-initialized HudColors
-// (scale 0.0), same non-crashing default-on-null shape as this header's
-// other pointer-taking calls.
+/// @brief Reads back the theme's live HUD colors.
+///
+/// Reads `r->active_theme.hud` verbatim (kept live every render_frame() call
+/// by apply_current_theme(), including mid-transition blend values -- no new
+/// renderer state added for this).
+/// @return The live HUD colors, or a zero-initialized HudColors (scale 0.0)
+/// on a null renderer — same non-crashing default-on-null shape as this
+/// header's other pointer-taking calls.
 HudColors get_hud_colors(VisualRenderer*);
 
-// Epic 3 Task 4 (VM-031): projects a map-frame world point (same space as
-// EgoState::position/TrackedObject::position/AlertPolygon::points) into
-// screen-fraction [0, 1] coordinates using the CAMERA STATE THE MOST RECENT
-// render_frame() CALL SET (its CameraPose's lookAt()/setProjection(), not a
-// separately-passed pose) -- a caller needing a different pose calls
-// render_frame() with it first. Standard world -> clip -> NDC -> [0,1]
-// pipeline. **Y IS FLIPPED** relative to raw NDC (NDC +Y is up) to match
-// FrameView's own top-to-bottom row order: `*out_y == 0.0` is the frame's
-// TOP row, `1.0` the bottom -- stated here explicitly (the epic2 precedent
-// of an unstated axis convention is exactly the kind of gap that ships a
-// silently-flipped picture). Returns false, leaving `*out_x`/`*out_y`
-// untouched, when `r`/`out_x`/`out_y` is null, the point is behind the
-// camera (clip.w <= 0), or it falls outside the view frustum's x/y bounds
-// (|NDC.x| > 1 or |NDC.y| > 1) -- near/far (z) clipping is left to
-// Filament's own render-time culling, not duplicated here, since "is this
-// point on screen" is fully settled by the x/y bounds alone. True with
-// `*out_x`/`*out_y` in [0, 1] otherwise.
+/// @brief Projects a map-frame world point onto the last-rendered camera's
+/// screen.
+///
+/// Epic 3 Task 4 (VM-031): projects a map-frame world point (same space as
+/// EgoState::position/TrackedObject::position/AlertPolygon::points) into
+/// screen-fraction [0, 1] coordinates using the CAMERA STATE THE MOST RECENT
+/// render_frame() CALL SET (its CameraPose's lookAt()/setProjection(), not a
+/// separately-passed pose) -- a caller needing a different pose calls
+/// render_frame() with it first. Standard world -> clip -> NDC -> [0,1]
+/// pipeline. **Y IS FLIPPED** relative to raw NDC (NDC +Y is up) to match
+/// FrameView's own top-to-bottom row order: `*out_y == 0.0` is the frame's
+/// TOP row, `1.0` the bottom -- stated here explicitly (the epic2 precedent
+/// of an unstated axis convention is exactly the kind of gap that ships a
+/// silently-flipped picture). Near/far (z) clipping is left to Filament's
+/// own render-time culling, not duplicated here, since "is this point on
+/// screen" is fully settled by the x/y bounds alone.
+/// @param world_point The map-frame point to project.
+/// @param out_x Screen-fraction x in [0, 1] on success, left untouched on
+/// failure.
+/// @param out_y Screen-fraction y in [0, 1] on success (0.0 = top row, 1.0 =
+/// bottom row), left untouched on failure.
+/// @return false, leaving `*out_x`/`*out_y` untouched, when `renderer`/
+/// `out_x`/`out_y` is null, the point is behind the camera (clip.w <= 0), or
+/// it falls outside the view frustum's x/y bounds (|NDC.x| > 1 or
+/// |NDC.y| > 1). true, with `*out_x`/`*out_y` in [0, 1], otherwise.
 bool project_to_screen(VisualRenderer*, Vec3 world_point, float* out_x, float* out_y);
 
-// Epic 2 Task 1 (VM-020) Step 0.3: parses `<dir>/<theme_name>.yaml` with the
-// library's OWN bundled yaml-cpp and returns true iff it loaded. Creates no
-// Engine, no EGL context, no swapchain -- it is
-// `detail::load_theme(dir, name).has_value()` and nothing else
-// (renderer.cpp's create_renderer() already calls load_theme() before the
-// engine is built, so this wraps an existing GPU-free code path rather than
-// adding one). It exists for exactly one reason: proving, in one process,
-// that this archive's bundled yaml-cpp and a second, independently-built
-// yaml-cpp (the node's gcc/libstdc++ yaml_cpp_vendor) can coexist without a
-// GPU -- every other entry point here needs a live VisualRenderer*, which a
-// headless CI box cannot provide, so that check would GTEST_SKIP forever
-// and the ABI boundary Step 0.2 protects would go untested.
-// Null/empty `dir` or `theme_name` -> false. Cheap enough to call from a
-// test; not intended for the render loop.
+/// @brief Cheaply proves a theme yaml file parses, with no GPU/renderer.
+///
+/// Epic 2 Task 1 (VM-020) Step 0.3: parses `<dir>/<theme_name>.yaml` with the
+/// library's OWN bundled yaml-cpp and returns true iff it loaded. Creates no
+/// Engine, no EGL context, no swapchain -- it is
+/// `detail::load_theme(dir, name).has_value()` and nothing else
+/// (renderer.cpp's create_renderer() already calls load_theme() before the
+/// engine is built, so this wraps an existing GPU-free code path rather than
+/// adding one). It exists for exactly one reason: proving, in one process,
+/// that this archive's bundled yaml-cpp and a second, independently-built
+/// yaml-cpp (the node's gcc/libstdc++ yaml_cpp_vendor) can coexist without a
+/// GPU -- every other entry point here needs a live VisualRenderer*, which a
+/// headless CI box cannot provide, so that check would GTEST_SKIP forever
+/// and the ABI boundary Step 0.2 protects would go untested. Cheap enough to
+/// call from a test; not intended for the render loop.
+/// @param dir Theme assets directory.
+/// @param theme_name Theme name (yaml stem).
+/// @return true iff `<dir>/<theme_name>.yaml` parsed. false (including on
+/// null/empty `dir` or `theme_name`).
 bool theme_parses(const char* dir, const char* theme_name);
 
 // ── GeoAnchor (VM-050, Epic 4 Task 1; ADR-0004 additive) ────────────────────
-// WGS84 <-> map-frame datum, solved node-side by GeoAnchorSolver
-// (geo_anchor.hpp) from NavSatFix + the `gps_link`/`base_link` TF (PRIMARY),
-// or set directly from the `geo_datum_*` param override (GPS-denied
-// replays). No SceneGraph field (Decision 1: baked-environment content is
-// read-once-at-startup, like the ego model and ground plane, not per-tick
-// autonomy data) -- appended here, standalone, because Task 3 (VM-052)'s
-// `set_environment_source(VisualRenderer*, const char*, GeoAnchor)` takes
-// one by value, and Task 1's node-side geo_anchor.hpp needs the SAME type
-// (not a local duplicate) to hand back from GeoAnchorSolver::anchor().
+/// @brief The WGS84 <-> map-frame datum.
+///
+/// Solved node-side by GeoAnchorSolver (geo_anchor.hpp) from NavSatFix + the
+/// `gps_link`/`base_link` TF (PRIMARY), or set directly from the
+/// `geo_datum_*` param override (GPS-denied replays). No SceneGraph field
+/// (Decision 1: baked-environment content is read-once-at-startup, like the
+/// ego model and ground plane, not per-tick autonomy data) -- appended here,
+/// standalone, because Task 3 (VM-052)'s
+/// `set_environment_source(VisualRenderer*, const char*, GeoAnchor)` takes
+/// one by value, and Task 1's node-side geo_anchor.hpp needs the SAME type
+/// (not a local duplicate) to hand back from GeoAnchorSolver::anchor().
+/// @since kSceneVersion 4 (VM-050, Epic 4 Task 1).
 struct GeoAnchor {
     double origin_lat_deg;
     double origin_lon_deg;
-    double heading_rad;   // bearing of map-frame +X from true north, radians
+    double heading_rad;   ///< Bearing of map-frame +X from true north, radians.
 };
+/// @var GeoAnchor::origin_lat_deg
+/// Map-frame origin latitude, degrees.
+/// @var GeoAnchor::origin_lon_deg
+/// Map-frame origin longitude, degrees.
 
 // ── Camera bowl POD boundary (VM-090, unified-engine migration Task 1;
 //    ADR-0004 additive; ADR-0005 camera-frame POD boundary) ─────────────────
-// Camera pixels are NOT a SceneGraph field: at production size (6 cameras x
-// 1280x720x3 ~= 16.6MB) they are a different size class than the per-tick
-// deep-copied scene (set_scene()'s staging buffer was never built for this),
-// so they cross via their own arrival-driven entry point instead (ADR-0005).
+/// @brief Maximum bowl camera count.
+///
+/// Camera pixels are NOT a SceneGraph field: at production size (6 cameras x
+/// 1280x720x3 ~= 16.6MB) they are a different size class than the per-tick
+/// deep-copied scene (set_scene()'s staging buffer was never built for this),
+/// so they cross via their own arrival-driven entry point instead (ADR-0005).
 constexpr uint32_t kMaxBowlCameras = 6;
 
-// Row-major rotation + translation, RIG frame (not map frame -- the bowl
-// bake and lidar colorization both operate in rig frame; rig->map anchoring
-// happens per-tick elsewhere, via the ego pose).
+/// @brief One camera's rig-frame extrinsics.
+///
+/// Row-major rotation + translation, RIG frame (not map frame -- the bowl
+/// bake and lidar colorization both operate in rig frame; rig->map anchoring
+/// happens per-tick elsewhere, via the ego pose).
+/// @since kSceneVersion 5 (VM-090, unified-engine migration Task 1, ADR-0005).
 struct CameraExtrinsics { double R[9]; double t[3]; };
+/// @var CameraExtrinsics::R
+/// Row-major 3x3 rotation.
+/// @var CameraExtrinsics::t
+/// Translation, xyz.
 
-// plumb_bob distortion, ported verbatim from micropilot::rendering::CameraParams
-// (rendering_node's types.hpp). dist = {k1, k2, p1, p2, k3}.
+/// @brief One camera's intrinsics + plumb_bob distortion.
+///
+/// Ported verbatim from micropilot::rendering::CameraParams
+/// (rendering_node's types.hpp). dist = {k1, k2, p1, p2, k3}.
+/// @since kSceneVersion 5 (VM-090, unified-engine migration Task 1, ADR-0005).
 struct CameraIntrinsics { double fx, fy, cx, cy; double dist[5]; };
+/// @var CameraIntrinsics::fx
+/// Focal length x, pixels.
+/// @var CameraIntrinsics::fy
+/// Focal length y, pixels.
+/// @var CameraIntrinsics::cx
+/// Principal point x, pixels.
+/// @var CameraIntrinsics::cy
+/// Principal point y, pixels.
+/// @var CameraIntrinsics::dist
+/// plumb_bob distortion `{k1, k2, p1, p2, k3}`.
 
-// Non-SceneGraph config, same class as RenderConfig -- changes far less
-// often than per-tick scene data, so it is NOT deep-copied by
-// set_scene()/SceneBuffer. Arrays are caller-owned for the duration of the
-// call only; set_bowl_config() copies what it needs into the renderer's own
-// storage before returning (same contract as RenderConfig's
-// theme_assets_dir/initial_theme).
-//
-// This struct's layout is still being finalized WITHIN the unreleased
-// kSceneVersion 5 by this epic's Task 2 (VM-091) -- unlike every other
-// struct on this POD boundary, it has no external consumer yet (Task 2
-// Steps 0-8 are this type's first and only user, and the merged node does
-// not go live on it until Task 6's cutover), so a field add/reorder here
-// during Task 2 is not the "silent layout drift inside a shipped version"
-// ADR-0004 exists to catch -- it's the type's own definition still
-// settling, both static_assert mirrors (test_scene_buffer.cpp,
-// test_scene_layout.cpp) updated together in the same commit each time, as
-// they were for exposure_compensation below. Once Task 6 cuts over
-// (BowlConfig has a real production consumer), any further layout change
-// bumps kSceneVersion normally, same as every other struct here.
+/// @brief The bowl-rig camera configuration for set_bowl_config().
+///
+/// Non-SceneGraph config, same class as RenderConfig -- changes far less
+/// often than per-tick scene data, so it is NOT deep-copied by
+/// set_scene()/SceneBuffer. Arrays are caller-owned for the duration of the
+/// call only; set_bowl_config() copies what it needs into the renderer's own
+/// storage before returning (same contract as RenderConfig's
+/// theme_assets_dir/initial_theme).
+///
+/// This struct's layout is still being finalized WITHIN the unreleased
+/// kSceneVersion 5 by this epic's Task 2 (VM-091) -- unlike every other
+/// struct on this POD boundary, it has no external consumer yet (Task 2
+/// Steps 0-8 are this type's first and only user, and the merged node does
+/// not go live on it until Task 6's cutover), so a field add/reorder here
+/// during Task 2 is not the "silent layout drift inside a shipped version"
+/// ADR-0004 exists to catch -- it's the type's own definition still
+/// settling, both static_assert mirrors (test_scene_buffer.cpp,
+/// test_scene_layout.cpp) updated together in the same commit each time, as
+/// they were for exposure_compensation below. Once Task 6 cuts over
+/// (BowlConfig has a real production consumer), any further layout change
+/// bumps kSceneVersion normally, same as every other struct here.
+/// @since kSceneVersion 5 (VM-090, unified-engine migration Task 1).
 struct BowlConfig {
-    uint32_t camera_count;                 // <= kMaxBowlCameras (6)
-    const CameraExtrinsics* extrinsics;     // camera_count entries
-    const CameraIntrinsics* intrinsics;     // camera_count entries
-    const uint32_t* cam_width;              // camera_count entries, pixels
-    const uint32_t* cam_height;             // camera_count entries, pixels
-    double bowl_R0, bowl_k, bowl_Rmax;      // bowl surface shape
+    uint32_t camera_count;                 ///< <= kMaxBowlCameras (6).
+    const CameraExtrinsics* extrinsics;     ///< camera_count entries.
+    const CameraIntrinsics* intrinsics;     ///< camera_count entries.
+    const uint32_t* cam_width;              ///< camera_count entries, pixels.
+    const uint32_t* cam_height;             ///< camera_count entries, pixels.
+    double bowl_R0, bowl_k, bowl_Rmax;      ///< Bowl surface shape.
     double feather_margin;
     uint8_t fill_blind_zone;
     uint8_t exposure_match;
     float sky_color[3];
-    // bowl.mat's `exposureCompensation` material parameter. THE canonical
-    // derivation -- bowl.mat's header, default_params.yaml, and
-    // overlume_node.hpp all point HERE, not to each other.
-    //
-    // Corrected attribution (bowl color fidelity fix, 2026-09-11): bowl.mat
-    // is shadingModel unlit and its compiled fragment never reads
-    // frameUniforms.exposure (matinfo-verified). This does NOT counteract
-    // renderer.cpp's setExposure(16, 1/500, 100) -- that guess is retracted.
-    // What it actually counteracts is this build's ACES tonemap + output
-    // OETF being applied to an already-final, unlit baseColor.
-    //
-    // MEASURED, not guessed: tools/bowl_exposure_probe.cpp feeds flat sRGB
-    // gray camera frames through the real
-    // set_bowl_config+set_camera_frame+render_frame pipeline (with
-    // camera_textures.cpp's SRGB8 texture fix already landed -- calibrated
-    // against a CORRECTLY sRGB-decoded camera sample, not the
-    // double-encoded one the two prior guesses (10.0, then 1.5) were
-    // eyeballed against) and binary-searches exposureCompensation until
-    // mid-gray (sRGB byte 128) round-trips through output within +/-1
-    // byte. Measured 1.56.
-    //
-    // The measured ramp at 1.56, in -> out: 32->18, 64->48, 128->129,
-    // 192->190, 224->208. Both ends are compressed (~40% dark at the
-    // shadow end): a single scalar cannot invert a nonlinear tonemap, so
-    // this is a mid-gray match only, not a full-curve fix.
-    //
-    // This is the one field on this POD boundary with a default member
-    // initializer -- deliberately, not an oversight: it predates Step 6's
-    // node-side param wiring, and the default keeps every existing call
-    // site (every test in this suite that builds a BowlConfig without
-    // setting it) at a real, measured value rather than zero.
-    // tests/test_bowl_exposure_calibration.cpp is the standing regression
-    // that keeps this value honest.
+    /// bowl.mat's `exposureCompensation` material parameter. THE canonical
+    /// derivation -- bowl.mat's header, default_params.yaml, and
+    /// overlume_node.hpp all point HERE, not to each other.
+    ///
+    /// Corrected attribution (bowl color fidelity fix, 2026-09-11): bowl.mat
+    /// is shadingModel unlit and its compiled fragment never reads
+    /// frameUniforms.exposure (matinfo-verified). This does NOT counteract
+    /// renderer.cpp's setExposure(16, 1/500, 100) -- that guess is retracted.
+    /// What it actually counteracts is this build's ACES tonemap + output
+    /// OETF being applied to an already-final, unlit baseColor.
+    ///
+    /// MEASURED, not guessed: tools/bowl_exposure_probe.cpp feeds flat sRGB
+    /// gray camera frames through the real
+    /// set_bowl_config+set_camera_frame+render_frame pipeline (with
+    /// camera_textures.cpp's SRGB8 texture fix already landed -- calibrated
+    /// against a CORRECTLY sRGB-decoded camera sample, not the
+    /// double-encoded one the two prior guesses (10.0, then 1.5) were
+    /// eyeballed against) and binary-searches exposureCompensation until
+    /// mid-gray (sRGB byte 128) round-trips through output within +/-1
+    /// byte. Measured 1.56.
+    ///
+    /// The measured ramp at 1.56, in -> out: 32->18, 64->48, 128->129,
+    /// 192->190, 224->208. Both ends are compressed (~40% dark at the
+    /// shadow end): a single scalar cannot invert a nonlinear tonemap, so
+    /// this is a mid-gray match only, not a full-curve fix.
+    ///
+    /// This is the one field on this POD boundary with a default member
+    /// initializer -- deliberately, not an oversight: it predates Step 6's
+    /// node-side param wiring, and the default keeps every existing call
+    /// site (every test in this suite that builds a BowlConfig without
+    /// setting it) at a real, measured value rather than zero.
+    /// tests/test_bowl_exposure_calibration.cpp is the standing regression
+    /// that keeps this value honest.
     float exposure_compensation = 1.56f;
 };
+/// @var BowlConfig::bowl_R0
+/// Bowl surface shape parameter (radius at the ground plane).
+/// @var BowlConfig::bowl_k
+/// Bowl surface shape parameter (curvature).
+/// @var BowlConfig::feather_margin
+/// Blend feather margin between adjacent camera views.
+/// @var BowlConfig::fill_blind_zone
+/// Whether to fill the rig's blind zone.
+/// @var BowlConfig::exposure_match
+/// Whether to apply per-camera exposure matching.
+/// @var BowlConfig::sky_color
+/// Sky fill color, rgb.
 
-// (Re)builds the bowl's camera textures (this task) and, once Task 2 lands,
-// the bowl mesh + per-vertex weight/camera-index bake and per-camera
-// K/plumb_bob uniforms. Not a one-shot "call once at on_activate()": camera
-// intrinsics/distortion are not ROS parameters at all (Global Constraints) --
-// the caller calls this the first time only once every configured camera's
-// CameraInfo has arrived, and again (a full re-bake) whenever a camera's
-// K/dist/dims change thereafter. false (no-op) if r is null, camera_count ==
-// 0, or camera_count > kMaxBowlCameras -- same "missing/invalid config
-// renders nothing" convention as set_environment_source's null-path.
+/// @brief (Re)builds the bowl's camera textures/mesh/uniforms.
+///
+/// (Re)builds the bowl's camera textures (this task) and, once Task 2 lands,
+/// the bowl mesh + per-vertex weight/camera-index bake and per-camera
+/// K/plumb_bob uniforms. Not a one-shot "call once at on_activate()": camera
+/// intrinsics/distortion are not ROS parameters at all (Global Constraints) --
+/// the caller calls this the first time only once every configured camera's
+/// CameraInfo has arrived, and again (a full re-bake) whenever a camera's
+/// K/dist/dims change thereafter.
+/// @return false (no-op) if `renderer` is null, `config.camera_count` == 0,
+/// or `config.camera_count` > kMaxBowlCameras -- same "missing/invalid
+/// config renders nothing" convention as set_environment_source's null-path.
+/// true otherwise.
 bool set_bowl_config(VisualRenderer*, const BowlConfig&);
 
-// Cheap per-mode visibility toggle for the bowl entity -- no re-bake, no
-// texture teardown (set_bowl_config stays the expensive path). false (no-op)
-// if r is null or set_bowl_config() has never succeeded. Free-function-only
-// addition: per ADR-0004 it bumps nothing -- this task's 4->5 bump stays the
-// only kSceneVersion bump this migration makes.
+/// @brief Cheap per-mode visibility toggle for the bowl entity.
+///
+/// No re-bake, no texture teardown (set_bowl_config stays the expensive
+/// path). Free-function-only addition: per ADR-0004 it bumps nothing -- this
+/// task's 4->5 bump stays the only kSceneVersion bump this migration makes.
+/// @param visible Whether the bowl entity should be visible.
+/// @return false (no-op) if `renderer` is null or set_bowl_config() has
+/// never succeeded. true otherwise.
 bool set_bowl_visible(VisualRenderer*, bool visible);
 
-// VM-092: enables/disables the analytic self-view occlusion test that
-// build_bowl() applies during its next bake. Keeps the CUDA node's exact
-// param name (`self_view_masks`) and its exact default -- declared OFF:
-// correct masks require the rig origin to be exactly the body center, and
-// this epic ships `fill_blind_zone` forced false, so an occluded vertex
-// would otherwise become an uncovered hole rather than a filled one. Takes
-// effect on the NEXT set_bowl_config() call, not live per-tick (changing it
-// changes per-vertex weights the bake alone produces). false (no-op) if r
-// is null. Free-function-only addition: per ADR-0004 it bumps nothing.
+/// @brief Enables/disables the analytic self-view occlusion test.
+///
+/// VM-092: enables/disables the analytic self-view occlusion test that
+/// build_bowl() applies during its next bake. Keeps the CUDA node's exact
+/// param name (`self_view_masks`) and its exact default -- declared OFF:
+/// correct masks require the rig origin to be exactly the body center, and
+/// this epic ships `fill_blind_zone` forced false, so an occluded vertex
+/// would otherwise become an uncovered hole rather than a filled one. Takes
+/// effect on the NEXT set_bowl_config() call, not live per-tick (changing it
+/// changes per-vertex weights the bake alone produces). Free-function-only
+/// addition: per ADR-0004 it bumps nothing.
+/// @param enabled Whether to enable the self-view occlusion test.
+/// @return false (no-op) if `renderer` is null. true otherwise.
 bool set_self_view_masks(VisualRenderer*, bool enabled);
 
-// Cheap per-tick ego-motion-delta update. Sets ONLY camera cam_idx's 4x4
-// ego-motion delta uniform (row-major, rig frame at that camera's image
-// stamp -> rig frame at the tick's reference time); the vertex shader (Task
-// 2) applies it as project(delta * position). No re-bake, no texture touch,
-// no allocation. Identity delta = no compensation. false (no-op) if r is
-// null, cam_idx >= the configured camera_count, or set_bowl_config() has
-// never succeeded. Free-function-only addition: bumps nothing.
+/// @brief Cheap per-tick ego-motion-delta update for one bowl camera.
+///
+/// Sets ONLY camera cam_idx's 4x4 ego-motion delta uniform (row-major, rig
+/// frame at that camera's image stamp -> rig frame at the tick's reference
+/// time); the vertex shader (Task 2) applies it as
+/// project(delta * position). No re-bake, no texture touch, no allocation.
+/// Identity delta = no compensation. Free-function-only addition: bumps
+/// nothing.
+/// @param cam_idx Camera index to update.
+/// @param delta_4x4_row_major Row-major 4x4 ego-motion delta.
+/// @return false (no-op) if `renderer` is null, `cam_idx` >= the configured
+/// camera_count, or set_bowl_config() has never succeeded. true otherwise.
 bool set_camera_motion_delta(VisualRenderer*, uint32_t cam_idx,
                               const double delta_4x4_row_major[16]);
 
-// Per-camera-frame-arrival call -- the node calls this once per incoming ROS
-// image message for that camera, not on a fixed per-tick timer. `frame_id`
-// is a caller-supplied, strictly-increasing counter (or the message's
-// header stamp converted to an integer nanosecond count) identifying THIS
-// image; a call whose frame_id matches the last one uploaded for this
-// cam_idx is a no-op upload (single O(1) integer compare), deliberately NOT
-// a content memcmp (see ADR-0005 for why that would reintroduce the exact
-// cost class Decision 2 rejected Option A for).
-//
-// `release`/`user` (ADR-0005: release-callback shipped): when non-null, the
-// library wraps `rgb` directly in a filament::backend::PixelBufferDescriptor
-// BY REFERENCE instead of heap-copying it, and calls
-// `release(rgb, width*height*3, user)` once Filament has consumed the
-// upload -- letting the caller hand in a buffer it owns and free/recycle it
-// in the callback. Both default to nullptr, in which case set_camera_frame
-// keeps a copy-on-call contract (a heap copy freed synchronously, same
-// shape as ground_grid.cpp's own upload).
-//
-// Ownership is unconditional when `release` is non-null: set_camera_frame
-// ALWAYS takes ownership of `rgb` and invokes release() exactly once on
-// every call, whether the upload happened, was skipped by the dirty gate,
-// or was rejected (bad r/cam_idx/dims) -- the caller must never free `rgb`
-// itself.
-//
-// Threading: set_camera_frame()/set_bowl_config() both end in
-// filament::Engine calls and MUST be called from the same thread as
-// render_frame() -- the Engine thread, same contract as set_scene() above.
-// `release` is dispatched by Filament, not by this library, and NOT
-// necessarily on the thread that called set_camera_frame: with no
-// CallbackHandler supplied, Filament's BufferDescriptor.h (1.56.5,
-// lines 41-49) documents it as called on Filament's own main thread,
-// lightweight, and forbidden from calling Filament APIs. Treat it as
-// another thread -- it must be thread-safe and must not call back into
-// this library. A plain delete/free is safe; a shared frame pool needs
-// its own synchronization (or a filament CallbackHandler for dispatch on
-// a thread of the caller's choosing).
-//
-// false if r is null, cam_idx >= the configured camera_count, or
-// width/height mismatch the configured camera's dims.
+/// @brief Uploads one camera's latest RGB frame for bowl compositing.
+///
+/// Per-camera-frame-arrival call -- the node calls this once per incoming ROS
+/// image message for that camera, not on a fixed per-tick timer. `frame_id`
+/// is a caller-supplied, strictly-increasing counter (or the message's
+/// header stamp converted to an integer nanosecond count) identifying THIS
+/// image; a call whose frame_id matches the last one uploaded for this
+/// cam_idx is a no-op upload (single O(1) integer compare), deliberately NOT
+/// a content memcmp (see ADR-0005 for why that would reintroduce the exact
+/// cost class Decision 2 rejected Option A for).
+///
+/// `release`/`user` (ADR-0005: release-callback shipped): when non-null, the
+/// library wraps `rgb` directly in a filament::backend::PixelBufferDescriptor
+/// BY REFERENCE instead of heap-copying it, and calls
+/// `release(rgb, width*height*3, user)` once Filament has consumed the
+/// upload -- letting the caller hand in a buffer it owns and free/recycle it
+/// in the callback. Both default to nullptr, in which case set_camera_frame
+/// keeps a copy-on-call contract (a heap copy freed synchronously, same
+/// shape as ground_grid.cpp's own upload).
+///
+/// Ownership is unconditional when `release` is non-null: set_camera_frame
+/// ALWAYS takes ownership of `rgb` and invokes release() exactly once on
+/// every call, whether the upload happened, was skipped by the dirty gate,
+/// or was rejected (bad r/cam_idx/dims) -- the caller must never free `rgb`
+/// itself.
+///
+/// Threading: set_camera_frame()/set_bowl_config() both end in
+/// filament::Engine calls and MUST be called from the same thread as
+/// render_frame() -- the Engine thread, same contract as set_scene() above.
+/// `release` is dispatched by Filament, not by this library, and NOT
+/// necessarily on the thread that called set_camera_frame: with no
+/// CallbackHandler supplied, Filament's BufferDescriptor.h (1.56.5,
+/// lines 41-49) documents it as called on Filament's own main thread,
+/// lightweight, and forbidden from calling Filament APIs. Treat it as
+/// another thread -- it must be thread-safe and must not call back into
+/// this library. A plain delete/free is safe; a shared frame pool needs
+/// its own synchronization (or a filament CallbackHandler for dispatch on
+/// a thread of the caller's choosing).
+/// @param cam_idx Camera index this frame belongs to.
+/// @param rgb Frame buffer, `width*height*3` bytes; ownership rules above.
+/// @param width Frame width, pixels; must match the configured camera.
+/// @param height Frame height, pixels; must match the configured camera.
+/// @param frame_id Caller-supplied, strictly-increasing frame identifier.
+/// @param release Optional release callback invoked once `rgb` has been
+/// consumed; see this function's own comment for the ownership contract.
+/// @param user Opaque pointer passed through to `release`.
+/// @return false if `renderer` is null, `cam_idx` >= the configured
+/// camera_count, or width/height mismatch the configured camera's dims.
+/// true otherwise.
 bool set_camera_frame(VisualRenderer*, uint32_t cam_idx,
                        const uint8_t* rgb, uint32_t width, uint32_t height,
                        uint64_t frame_id,
                        void (*release)(void*, size_t, void*) = nullptr,
                        void* user = nullptr);
-// Loads a baked chunk index (`<source_uri>/index.yaml`) via the library's
-// own already-linked yaml-cpp and gives render_frame() a live,
-// distance-culled BakedEnvironmentSource -- see src/environment.hpp/.cpp
-// (library-internal, never crosses this boundary -- EnvironmentSource/
-// BakedEnvironmentSource/StreamingEnvironmentSource are not POD/ABI types,
-// same status as VisualRenderer's own internals, renderer_internal.hpp).
-// `anchor` is stored for on-the-fly WGS84->map placement.
-//
-// `source_uri` is a source-shaped string whose meaning depends on which
-// EnvironmentSource backend this build links (Epic 6/VM-062 Decision 5):
-//   - No "ion://" prefix -> the v1 BAKED backend (unchanged since VM-052):
-//     `<source_uri>` is a local directory holding bake_environment.py's
-//     chunk index + glTF files, already placed in the map frame offline
-//     using this SAME anchor -- this backend does NOT re-derive placement
-//     from `anchor` at runtime.
-//   - "ion://<assetId>[?cache=<dir>|off][&fallback=<baked_dir>][&max_cache_items=<n>][&materials=original|clay]"
-//     -> the STREAMING backend (Epic 6/VM-062, cesium-native 3D Tiles):
-//     `anchor` now does real work, an on-the-fly ECEF->map placement per
-//     loaded tile. `materials=original` keeps the asset's own gltfio
-//     materials (Google Photorealistic 3D Tiles, VM-064); absent, `clay`,
-//     or unknown -> the theme's `palette.building` clay remap. Reads
-//     `CESIUM_ION_TOKEN` from the environment at open time (by NAME only;
-//     it is never part of THIS source_uri -- cesium-native's own ion
-//     handshake URL does carry it, which the library keeps out of its log
-//     output and disk cache, see environment_stream.cpp). Only
-//     built when this library is compiled with `OVERLUME_ENABLE_CESIUM=ON`
-//     (CMakeLists.txt); an "ion://" source_uri against a build without it
-//     degrades the same way a missing bake dir does (returns false, no
-//     crash).
-// THIS ENTRY POINT'S SIGNATURE DOES NOT CHANGE between the baked and
-// streamed backends -- only the concrete EnvironmentSource this call
-// constructs internally does. Returns false (no environment configured;
-// render_frame's environment step becomes a no-op) if `r` is null,
-// `source_uri` is null/empty, the baked backend fails to open/parse its
-// index, or the streaming backend fails to open (missing/empty token,
-// unparseable asset id, or cache-open failure) -- non-fatal, logs nothing
-// itself (POD boundary, same convention as set_ego_model), caller WARNs
-// once (spec §9's "missing data renders nothing"). VM-052 (Epic 4 Task 3);
-// streaming dispatch VM-062 (Epic 6 Task 3).
+
+/// @brief Opens a baked or streamed environment source.
+///
+/// Loads a baked chunk index (`<source_uri>/index.yaml`) via the library's
+/// own already-linked yaml-cpp and gives render_frame() a live,
+/// distance-culled BakedEnvironmentSource -- see src/environment.hpp/.cpp
+/// (library-internal, never crosses this boundary -- EnvironmentSource/
+/// BakedEnvironmentSource/StreamingEnvironmentSource are not POD/ABI types,
+/// same status as VisualRenderer's own internals, renderer_internal.hpp).
+/// `anchor` is stored for on-the-fly WGS84->map placement.
+///
+/// `source_uri` is a source-shaped string whose meaning depends on which
+/// EnvironmentSource backend this build links (Epic 6/VM-062 Decision 5):
+///   - No "ion://" prefix -> the v1 BAKED backend (unchanged since VM-052):
+///     `<source_uri>` is a local directory holding bake_environment.py's
+///     chunk index + glTF files, already placed in the map frame offline
+///     using this SAME anchor -- this backend does NOT re-derive placement
+///     from `anchor` at runtime.
+///   - `"ion://<assetId>[?cache=<dir>|off][&fallback=<baked_dir>][&max_cache_items=<n>][&materials=original|clay]"`
+///     -> the STREAMING backend (Epic 6/VM-062, cesium-native 3D Tiles):
+///     `anchor` now does real work, an on-the-fly ECEF->map placement per
+///     loaded tile. `materials=original` keeps the asset's own gltfio
+///     materials (Google Photorealistic 3D Tiles, VM-064); absent, `clay`,
+///     or unknown -> the theme's `palette.building` clay remap. Reads
+///     `CESIUM_ION_TOKEN` from the environment at open time (by NAME only;
+///     it is never part of THIS source_uri -- cesium-native's own ion
+///     handshake URL does carry it, which the library keeps out of its log
+///     output and disk cache, see environment_stream.cpp). Only
+///     built when this library is compiled with `OVERLUME_ENABLE_CESIUM=ON`
+///     (CMakeLists.txt); an "ion://" source_uri against a build without it
+///     degrades the same way a missing bake dir does (returns false, no
+///     crash).
+///
+/// THIS ENTRY POINT'S SIGNATURE DOES NOT CHANGE between the baked and
+/// streamed backends -- only the concrete EnvironmentSource this call
+/// constructs internally does. VM-052 (Epic 4 Task 3); streaming dispatch
+/// VM-062 (Epic 6 Task 3).
+/// @param source_uri A local baked-chunk directory, or an `ion://` streaming
+/// asset URI — see this function's own comment for the full grammar.
+/// @param anchor The WGS84 <-> map-frame datum.
+/// @return false (no environment configured; render_frame's environment
+/// step becomes a no-op) if `renderer` is null, `source_uri` is null/empty,
+/// the baked backend fails to open/parse its index, or the streaming
+/// backend fails to open (missing/empty token, unparseable asset id, or
+/// cache-open failure) -- non-fatal, logs nothing itself (POD boundary,
+/// same convention as set_ego_model), caller WARNs once (spec §9's "missing
+/// data renders nothing"). true otherwise.
 bool set_environment_source(VisualRenderer*, const char* source_uri, GeoAnchor anchor);
 
-// Epic 6 (VM-063), ADR-0004 additive: appended enum -- bumps kSceneVersion
-// 5 -> 6 (enum-class-uint8_t precedent: ObjectClass). Network loss happens
-// mid-run, long after set_environment_source() returned true, and the
-// library can't WARN itself (POD-boundary logging convention -- "logs
-// nothing itself, caller WARNs", same as set_environment_source above) --
-// this is the node's only window into a streaming source's live health.
+/// @brief Live health of the currently-installed environment source.
+///
+/// Epic 6 (VM-063), ADR-0004 additive: appended enum -- bumps kSceneVersion
+/// 5 -> 6 (enum-class-uint8_t precedent: ObjectClass). Network loss happens
+/// mid-run, long after set_environment_source() returned true, and the
+/// library can't WARN itself (POD-boundary logging convention -- "logs
+/// nothing itself, caller WARNs", same as set_environment_source above) --
+/// this is the node's only window into a streaming source's live health.
+/// @since kSceneVersion 6 (Epic 6, VM-063, ADR-0004).
 enum class EnvironmentSourceState : uint8_t {
-    NONE = 0,                // no source configured (set_environment_source never succeeded)
-    BAKED = 1,               // BakedEnvironmentSource active (a plain-path source_uri)
-    STREAMING = 2,           // ion:// source active, network healthy (or untested)
-    STREAMING_FALLBACK = 3,  // ion:// source declared network loss and switched to its
-                             // &fallback= baked dir (one-way until restart -- Decision 11)
+    NONE = 0,                ///< No source configured (set_environment_source never succeeded).
+    BAKED = 1,               ///< BakedEnvironmentSource active (a plain-path source_uri).
+    STREAMING = 2,           ///< ion:// source active, network healthy (or untested).
+    STREAMING_FALLBACK = 3,  ///< ion:// source declared network loss and switched to its
+                             ///< &fallback= baked dir (one-way until restart -- Decision 11).
 };
 
-// Free function, POD-only, bumps nothing by itself (VM-090 precedent); the
-// appended ENUM above is what bumps kSceneVersion. Returns NONE on null `r`
-// or when no source is configured. One virtual call + integer compare --
-// safe to poll once per tick.
+/// @brief Reads back the live environment-source health.
+///
+/// Free function, POD-only, bumps nothing by itself (VM-090 precedent); the
+/// appended ENUM above is what bumps kSceneVersion. One virtual call +
+/// integer compare -- safe to poll once per tick.
+/// @return NONE on null `renderer` or when no source is configured; the
+/// live state otherwise.
 EnvironmentSourceState environment_source_state(VisualRenderer*);
 
-// VM-096 (vcam GUI Environment Tiles toggle): free function, POD-only,
-// bumps nothing (ADR-0004/VM-090 precedent, same as set_environment_source
-// and environment_source_state above) -- closes docs/runbooks/
-// signoff.md's named exception 7 ("environment/buildings not per-mode
-// gated -- needs library set_environment_visible()").
-//
-// Hides or shows whatever EnvironmentSource is currently installed WITHOUT
-// tearing it down: a hidden source keeps loading/unloading chunks by
-// distance exactly as before (loaded_count() is unaffected), it just stops
-// adding their renderables to the Filament scene -- a chunk that loads
-// while hidden does not pop into view, and re-showing needs no re-fetch/
-// re-bake. This is a plain scene-membership toggle (fresh-opaque
-// convention unchanged: hiding is not fading).
-//
-// The flag is ALSO remembered on `r` itself and re-applied to whatever
-// source set_environment_source() installs next (including a source swap
-// while hidden) -- so a GUI combo switching presets ("baked"/"osm"/
-// "clipped"/"google") while the toggle is off never pops the new preset
-// into view either.
-//
-// Returns false only if `r` is null; true otherwise, EVEN IF no
-// EnvironmentSource is currently configured (the flag is stored for
-// whenever one is armed later) -- same "stores intent, doesn't require a
-// live target" contract callers should not mistake for "something is now
-// visibly different."
+/// @brief Hides or shows the currently-installed environment source.
+///
+/// VM-096 (vcam GUI Environment Tiles toggle): free function, POD-only,
+/// bumps nothing (ADR-0004/VM-090 precedent, same as set_environment_source
+/// and environment_source_state above) -- closes docs/runbooks/
+/// signoff.md's named exception 7 ("environment/buildings not per-mode
+/// gated -- needs library set_environment_visible()").
+///
+/// Hides or shows whatever EnvironmentSource is currently installed WITHOUT
+/// tearing it down: a hidden source keeps loading/unloading chunks by
+/// distance exactly as before (loaded_count() is unaffected), it just stops
+/// adding their renderables to the Filament scene -- a chunk that loads
+/// while hidden does not pop into view, and re-showing needs no re-fetch/
+/// re-bake. This is a plain scene-membership toggle (fresh-opaque
+/// convention unchanged: hiding is not fading).
+///
+/// The flag is ALSO remembered on `r` itself and re-applied to whatever
+/// source set_environment_source() installs next (including a source swap
+/// while hidden) -- so a GUI combo switching presets ("baked"/"osm"/
+/// "clipped"/"google") while the toggle is off never pops the new preset
+/// into view either.
+/// @param r The renderer to toggle.
+/// @param visible Whether the environment source should be visible.
+/// @return false only if `r` is null; true otherwise, EVEN IF no
+/// EnvironmentSource is currently configured (the flag is stored for
+/// whenever one is armed later) -- same "stores intent, doesn't require a
+/// live target" contract callers should not mistake for "something is now
+/// visibly different."
 bool set_environment_visible(VisualRenderer* r, bool visible);
 
-// VM-096 gate round 1 finding: read-only counterpart to
-// set_environment_visible() above -- a setter with no matching getter left
-// the persisted-flag-applies-to-a-source-armed-later contract unverifiable
-// from outside the library (this is what test_environment.cpp's
-// SetEnvironmentVisibleFalseBeforeArmingHidesNewlyOpenedSource asserts
-// against). Free function, POD-only, bumps nothing (ADR-0004/VM-090
-// precedent, same as set_environment_source/environment_source_state
-// above). Returns r->environmentVisible's current value (true by default,
-// even with no source armed yet -- same "stores intent" contract
-// set_environment_visible() documents) for any non-null `r`; false only
-// when `r` itself is null.
+/// @brief Reads back set_environment_visible()'s stored flag.
+///
+/// VM-096 gate round 1 finding: read-only counterpart to
+/// set_environment_visible() above -- a setter with no matching getter left
+/// the persisted-flag-applies-to-a-source-armed-later contract unverifiable
+/// from outside the library (this is what test_environment.cpp's
+/// SetEnvironmentVisibleFalseBeforeArmingHidesNewlyOpenedSource asserts
+/// against). Free function, POD-only, bumps nothing (ADR-0004/VM-090
+/// precedent, same as set_environment_source/environment_source_state
+/// above).
+/// @param r The renderer to query.
+/// @return r->environmentVisible's current value (true by default, even
+/// with no source armed yet -- same "stores intent" contract
+/// set_environment_visible() documents) for any non-null `r`; false only
+/// when `r` itself is null.
 bool environment_visible(VisualRenderer* r);
 
-// Live quality-preset switch for the node-side governor (VM-040): re-applies
-// create_renderer()'s SSAO/AA/shadow/render-scale mapping against an
-// already-live renderer instead of re-creating it -- see the backlog VM-040
-// Done note for why. `preset` above 2 clamps to 2 (high); no-op if r is null.
+/// @brief Live quality-preset switch for the node-side governor (VM-040).
+///
+/// Re-applies create_renderer()'s SSAO/AA/shadow/render-scale mapping
+/// against an already-live renderer instead of re-creating it -- see the
+/// backlog VM-040 Done note for why.
+/// @param preset Quality preset; values above 2 clamp to 2 (high).
+/// No-op if the renderer is null.
 void set_quality(VisualRenderer*, uint32_t preset);
 
-// Mirrors the preset last applied by create_renderer() or set_quality() --
-// 0 if r is null. Lets the node-side governor (and tests) read back what is
-// actually active instead of keeping its own shadow copy that could drift.
+/// @brief Reads back the live quality preset.
+///
+/// Mirrors the preset last applied by create_renderer() or set_quality() --
+/// lets the node-side governor (and tests) read back what is actually
+/// active instead of keeping its own shadow copy that could drift.
+/// @return The active preset; 0 if `renderer` is null.
 uint32_t get_quality(VisualRenderer*);
 
 }  // namespace overlume

@@ -86,6 +86,22 @@ index; `docs/status.md` is the one status ledger.
   plans and specs (2026-06/07), plus the superseded Azure DevOps project
   backlog export.
 
+## API documentation
+
+Generated from the public headers (`overlume/include/overlume/{scene.h,
+api.h,version.h}`) and `examples/` by Doxygen (`Doxyfile.in` at the repo
+root), themed with doxygen-awesome-css. Build:
+
+```sh
+cmake --toolchain "$PWD/overlume/cmake/toolchain-clang-libcxx.cmake" -S overlume -B overlume/build
+cmake --build overlume/build --target docs
+```
+
+Output lands at `overlume/build/docs/html/index.html` (gitignored, inside
+the build tree). Not part of the default build (`ALL`) — build the `docs`
+target explicitly. A GitHub Pages workflow that builds and publishes this on
+every push to `main` is Task 6 of the restructure plan.
+
 ## Status
 
 [`docs/status.md`](status.md) — the single status ledger: shipped epics,
