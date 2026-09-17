@@ -1,0 +1,38 @@
+name: Feature request
+description: Propose an enhancement or a new capability for Overlume.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What can't you do today, or what's awkward, that this would fix?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: >
+        What you'd like to see. If it touches the public API
+        (`overlume/include/overlume/{scene.h,api.h}`), note that per
+        ADR-0004 it must be additive-only.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you thought about, and why you didn't pick them.
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Anything else — related issues, sketches, links.
+    validations:
+      required: false

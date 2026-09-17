@@ -1,0 +1,53 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches version.h
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          major=$(grep -oE '^#define OVERLUME_VERSION_MAJOR [0-9]+' overlume/include/overlume/version.h | grep -oE '[0-9]+$')
+          minor=$(grep -oE '^#define OVERLUME_VERSION_MINOR [0-9]+' overlume/include/overlume/version.h | grep -oE '[0-9]+$')
+          patch=$(grep -oE '^#define OVERLUME_VERSION_PATCH [0-9]+' overlume/include/overlume/version.h | grep -oE '[0-9]+$')
+          header_version="${major}.${minor}.${patch}"
+          echo "Tag version: $tag / version.h: $header_version"
+          if [ "$tag" != "$header_version" ]; then
+            echo "::error::Tag v$tag does not match overlume/include/overlume/version.h ($header_version)"
+            exit 1
+          fi
+
+      - name: Extract CHANGELOG section
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          awk -v ver="$tag" '
+            BEGIN { found = 0 }
+            /^## \[/ {
+              if (found) exit
+              if ($0 ~ "\\[" ver "\\]") { found = 1; next }
+            }
+            /^\[.*\]: / { if (found) exit }
+            found { print }
+          ' CHANGELOG.md > /tmp/release-notes.md
+          if [ ! -s /tmp/release-notes.md ]; then
+            echo "::error::No CHANGELOG.md section found for version $tag"
+            exit 1
+          fi
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --notes-file /tmp/release-notes.md

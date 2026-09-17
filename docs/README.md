@@ -99,13 +99,40 @@ cmake --build overlume/build --target docs
 
 Output lands at `overlume/build/docs/html/index.html` (gitignored, inside
 the build tree). Not part of the default build (`ALL`) — build the `docs`
-target explicitly. A GitHub Pages workflow that builds and publishes this on
-every push to `main` is Task 6 of the restructure plan.
+target explicitly. `.github/workflows/docs.yml` builds this and publishes it
+to GitHub Pages on every push to `main`: <https://amerghazal7.github.io/overlume/>
+(see the Hosted CI section below).
 
 ## Status
 
 [`docs/status.md`](status.md) — the single status ledger: shipped epics,
 open items, known gaps/accepted exceptions, and how to update it.
+
+## Open-source project files (repo root)
+
+- [`LICENSE`](../LICENSE) — Apache-2.0.
+- [`NOTICE`](../NOTICE) — third-party attributions (Filament, cesium-native
+  and its vcpkg dependency set, spdlog/fmt, yaml-cpp, stb, googletest,
+  doxygen-awesome-css, fonts/models/environment data, Cesium/Google 3D
+  Tiles terms pointers).
+- [`CONTRIBUTING.md`](../CONTRIBUTING.md) — toolchain, build, the gate,
+  golden promotion, ADR process, style, commit/PR conventions.
+- [`CODE_OF_CONDUCT.md`](../CODE_OF_CONDUCT.md) — Contributor Covenant 2.1.
+- [`SECURITY.md`](../SECURITY.md) — supported versions, how to report, the
+  token-handling rules.
+- [`CHANGELOG.md`](../CHANGELOG.md) — Keep a Changelog format.
+
+## Hosted CI and releases
+
+`.github/workflows/`: `lint.yml` and `build.yml` run on every push/PR
+(clang-format, SPDX headers, shellcheck, Python syntax + docs-link checks;
+a CPU-only configure+build with Cesium off and GPU-labeled tests excluded —
+this hosted runner has no GPU). `docs.yml` builds and publishes the Doxygen
+API reference to GitHub Pages on push to `main`. `release.yml` creates a
+GitHub release from the matching `CHANGELOG.md` section when a `v*` tag is
+pushed. **The GPU/EGL gate (`tools/ci_visual_mode.sh`) stays local** —
+see [`runbooks/ci_gate.md`](runbooks/ci_gate.md)'s "Hosted CI" section for
+exactly what hosted CI does and does not cover.
 
 ## Evidence and assets
 
