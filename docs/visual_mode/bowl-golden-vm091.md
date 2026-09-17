@@ -6,9 +6,9 @@ Same frame (early steady-state, `~/TPSProjector-fixtures/stack_v2_full_sensors_2
 pixel diff (Global Constraints' Golden scoping rule; this samples through a
 genuinely different mechanism than the CUDA backward sampler, per Decision 3):
 
-- `cuda/src/libs/visual_renderer/tests/goldens/bowl_test_town_cuda_reference.png`
+- `overlume/tests/goldens/bowl_test_town_cuda_reference.png`
   — `micropilot_rendering_node`, `initial_mode:=1` (bowl-only), default params.
-- `cuda/src/libs/visual_renderer/tests/goldens/bowl_test_town_dark_adas.png`
+- `overlume/tests/goldens/bowl_test_town_dark_adas.png`
   — `micropilot_visualization_node` (this epic's Filament port), `bowl_enabled:=true`,
   `initial_mode:=3` (mode 3's own autonomy view, bowl composited underneath —
   Task 4 has not landed the bowl-mode dispatch yet, so this is the merged

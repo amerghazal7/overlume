@@ -1,6 +1,6 @@
 # Visual mode
 
-Docs for the C++/Filament rendering path (`cuda/src/libs/visual_renderer` +
+Docs for the C++/Filament rendering path (`overlume` +
 `micropilot_visualization_node`), as distinct from this repo's root
 `README.md` (the NumPy/pygame bowl-method prototype). See
 `docs/superpowers/specs/2026-08-18-visual-mode-backlog.md` for the epic/task
@@ -43,17 +43,17 @@ tools/ci_visual_mode.sh
 
 It runs, in order, and labels each stage PASS/FAIL:
 
-1. **POD header check** — `visual_renderer/scripts/check_pod_header.sh`
+1. **POD header check** — `overlume/scripts/check_pod_header.sh`
    (the public `include/visual_renderer/*.h` boundary stays `std::`-free).
 2. **Library ctest suite** — configures + builds `visual_renderer`
-   incrementally into `cuda/src/libs/visual_renderer/build` (clang/libc++
+   incrementally into `overlume/build` (clang/libc++
    toolchain) and runs its full `ctest` suite. Set `CI_VISUAL_MODE_CLEAN=1`
    to wipe that build dir first, so a stale library build can't mask a
    broken clean build — the node stage (3) still builds incrementally.
 3. **Node gtests** — `colcon build` + `colcon test` for
    `micropilot_visualization_node`. Needs a ROS install and
    `micropilot_rendering_node` already built+installed somewhere sourceable
-   read-only (default: this checkout's own `cuda/install/ros_apps`; override
+   read-only (default: this checkout's own `ros/install`; override
    with `CI_VISUAL_MODE_ROS_APPS_INSTALL=/path/to/setup.bash` when borrowing
    another checkout's install space, e.g. from a worktree). Missing ROS/colcon
    infra **fails this stage loudly** — a pre-merge gate never silently skips
@@ -101,12 +101,12 @@ run is expected to reach green.
   registered in `micropilot_visualization_node/CMakeLists.txt`, so stage 3's
   `colcon test` never runs them. Run them by hand against a live node.
 - Stage 4's WS bridge suite has 2 tests that skip whenever
-  `cuda/install/ros_apps` isn't built — the normal state in a worktree — and
+  `ros/install` isn't built — the normal state in a worktree — and
   the stage still reports PASS.
 
 ## Benchmark (VM-041)
 
-`cuda/src/libs/visual_renderer/tools/viz_benchmark.cpp` (built alongside the
+`overlume/tools/viz_benchmark.cpp` (built alongside the
 library's other example/tool targets) renders one representative scene
 (ribbons + a trajectory carpet + map elements + a point cloud — the same
 shapes `tests/test_ribbon.cpp` / `test_trajectory_carpet.cpp` /
@@ -114,7 +114,7 @@ shapes `tests/test_ribbon.cpp` / `test_trajectory_carpet.cpp` /
 each quality preset and prints `render_ms` p50/p99 per preset:
 
 ```bash
-cd cuda/src/libs/visual_renderer/build && ./viz_benchmark
+cd overlume/build && ./viz_benchmark
 ```
 
 These are the numbers VM-040's quality governor is tuned against; this tool

@@ -38,7 +38,7 @@ if [[ ! -e "${QOS}" ]]; then echo "qos override file not found: ${QOS}" >&2; exi
 
 set +u
 source /opt/ros/humble/setup.bash
-source "${REPO_ROOT}/cuda/install/ros_apps/setup.bash"
+source "${REPO_ROOT}/ros/install/setup.bash"
 set -u
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID_RIG}"
 

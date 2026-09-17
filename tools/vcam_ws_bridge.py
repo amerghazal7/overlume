@@ -56,7 +56,7 @@ third-party client — can drive the virtual camera:
      "set_surround_profile"|"set_environment_enabled"), "success": bool}
     {"type": "error", "message": str}
 
-Run (ROS sourced + ros_apps install sourced for the SetVirtualCam type):
+Run (ROS sourced + ros/install sourced for the SetVirtualCam type):
     python3 tools/vcam_ws_bridge.py [--host 0.0.0.0] [--port 8765]
 
 ROS imports are deferred to main() so parse_cmd() stays unit-testable

@@ -3,9 +3,9 @@
 How to bake OSM building footprints into the chunked, map-frame glTF format
 the visualization node loads as background environment geometry, and how to
 wire the output into the node. Grounded directly in
-`cuda/src/libs/visual_renderer/scripts/bake_environment.py` (read in full for
+`overlume/scripts/bake_environment.py` (read in full for
 this doc) and the node wiring in
-`cuda/src/ros_apps/src/micropilot_visualization_node/src/visualization_node.cpp`.
+`ros/src/micropilot_visualization_node/src/visualization_node.cpp`.
 Every command below was actually run against the script's committed test
 fixtures (network-free) while writing this doc — see "Verified" at the
 bottom.
@@ -196,7 +196,7 @@ Ran directly against this repo's committed fixtures while writing this doc
 (no network, no live rig):
 
 ```bash
-cd cuda/src/libs/visual_renderer/scripts
+cd overlume/scripts
 python3 bake_environment.py --selfcheck
 # selfcheck: PASS (7/7)
 
@@ -204,7 +204,7 @@ python3 bake_environment.py \
   --anchor-lat 25.0803 --anchor-lon 55.3910 --anchor-heading-deg 20.0 \
   --out <scratch-dir> \
   --cache ../tests/fixtures/environment_overpass_cache_0.json \
-  --ego-track ../../../ros_apps/src/micropilot_visualization_node/test/fixtures/geo_anchor_samples_0.csv
+  --ego-track ../../ros/src/micropilot_visualization_node/test/fixtures/geo_anchor_samples_0.csv
 # wrote 2 chunk(s), 5 footprint(s), index.yaml, verification_overlay.png
 
 python3 bake_environment.py --anchor-file anchor.yaml --out <scratch-dir> \

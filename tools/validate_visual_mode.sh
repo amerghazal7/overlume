@@ -465,7 +465,7 @@
 #               the depth test ON, so no z-fight was being lost there
 #               either). Reverted depthCulling:false; kept depthWrite:false
 #               (harmless, matches Filament's blended default). Files
-#               changed: cuda/src/libs/visual_renderer/assets/materials/
+#               changed: overlume/assets/materials/
 #               ribbon_emissive.mat only. Sanctioned reds: none. Golden
 #               coverage of ego+BEHAVIOR-ribbon occlusion: none -- open
 #               scope, not claimed. Library + node rebuilt, all suites
@@ -630,11 +630,11 @@ if [[ "${LIVE}" == "1" ]]; then
 fi
 
 # ---------------------------------------------------------------- prereqs
-if [[ ! -d "${REPO_ROOT}/cuda/install/ros_apps" ]]; then
+if [[ ! -d "${REPO_ROOT}/ros/install" ]]; then
     if [[ "${DO_BUILD}" == "1" ]]; then
         :  # built below
     else
-        echo "cuda/install/ros_apps not found. Run cuda/scripts/ros_apps_build/colcon_build.sh" \
+        echo "ros/install not found. Run ros/colcon_build.sh" \
              "or re-run with --build." >&2
         exit 1
     fi
@@ -642,7 +642,7 @@ fi
 
 if [[ "${DO_BUILD}" == "1" ]]; then
     echo "[build] running colcon_build.sh ..."
-    ( cd "${REPO_ROOT}/cuda/scripts/ros_apps_build" && ./colcon_build.sh )
+    ( cd "${REPO_ROOT}/ros" && ./colcon_build.sh )
 fi
 
 if [[ "${LIVE}" != "1" ]]; then
@@ -659,7 +659,7 @@ fi
 # ------------------------------------------------------------------- ROS env
 set +u
 source /opt/ros/humble/setup.bash
-source "${REPO_ROOT}/cuda/install/ros_apps/setup.bash"
+source "${REPO_ROOT}/ros/install/setup.bash"
 set -u
 
 # ---------------------------------------------------------------- launch rig

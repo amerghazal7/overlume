@@ -3,7 +3,7 @@
 **Document ID:** MPVZ-BL-001  
 **Version:** 1.0  
 **Date:** 2026-09-08  
-**Based on:** Visual Mode Design `docs/superpowers/specs/2026-08-18-visual-mode-design.md` (accepted, amended 2026-09-07), Visual Mode Backlog `docs/superpowers/specs/2026-08-18-visual-mode-backlog.md`, Master Plan `docs/superpowers/plans/2026-08-18-visual-mode.md`, Epic 1/2/3 plans (Status ledgers), ADR-0001…0004 (`docs/adr/`), GPU budget probe `cuda/src/libs/visual_renderer/tools/budget_probe.md`  
+**Based on:** Visual Mode Design `docs/superpowers/specs/2026-08-18-visual-mode-design.md` (accepted, amended 2026-09-07), Visual Mode Backlog `docs/superpowers/specs/2026-08-18-visual-mode-backlog.md`, Master Plan `docs/superpowers/plans/2026-08-18-visual-mode.md`, Epic 1/2/3 plans (Status ledgers), ADR-0001…0004 (`docs/adr/`), GPU budget probe `overlume/tools/budget_probe.md`  
 **Status source of truth:** the Status ledger table atop each epic plan (rebuilt from git in the 2026-09-07 plan review). Done marks below were taken from those ledgers and the commit hashes they cite.
 
 ---
@@ -308,7 +308,7 @@ Map the `ID` column from this document to `Parent ID` for hierarchy. Set `Area P
 | ADR-0002 Two-node mode mux | `docs/adr/0002-two-node-mode-mux.md` | E00 mux, VM-037 |
 | ADR-0003 POD boundary, clang/libc++ lib | `docs/adr/0003-pod-boundary-clang-libcxx-lib.md` | Every library/node interface item |
 | ADR-0004 Additive-only versioned scene interface | `docs/adr/0004-scene-interface-versioning.md` | Every `scene.h` change (VM-036, VM-035, VM-030, VM-031, VM-040) |
-| GPU budget probe | `cuda/src/libs/visual_renderer/tools/budget_probe.md` | VM-004 proxy results; on-robot table template |
+| GPU budget probe | `overlume/tools/budget_probe.md` | VM-004 proxy results; on-robot table template |
 | Validation rig | `tools/validate_visual_mode.sh` | Standing user directive: every visually-validatable layer extends it |
 | Styling ground truth | `docs/assets/visualization-reference-1.jpg`, `docs/assets/visualization-reference-2.jpg` | Binding for every theme/styling item |
 

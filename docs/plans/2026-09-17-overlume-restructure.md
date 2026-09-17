@@ -71,8 +71,8 @@ AGENTS.md (canonical agent instructions)  CLAUDE.md (imports AGENTS.md)
 
 | Task | Title | Status |
 |---|---|---|
-| 0 | LFS + deletion of legacy code and agent-config sprawl | ☐ |
-| 1 | Move the two packages; fix every hard-coded path | ☐ |
+| 0 | LFS + deletion of legacy code and agent-config sprawl | ☑ 2026-09-17 — 782a2ad (deletions, 94 files), 7512863 (.gitattributes), LFS pointer commit (73 binaries, `--no-rewrite`, bytes verified identical). Gate PASS with unchanged counts. Note: `git lfs install` collides with graphify's `post-checkout` hook — the LFS lines were appended to the existing hooks by hand; contributors get this via `git lfs install` on a fresh clone where no conflict exists. |
+| 1 | Move the two packages; fix every hard-coded path | ☑ 2026-09-17 — `overlume/`, `ros/src/micropilot_visualization_node/`, `ros/colcon_build.sh` (322 renames); node CMake locates the library as `<repo>/overlume` + `overlume/build`; `ros/` is the colcon workspace with default bases (the `--build-base` trap is gone). Gate PASS with unchanged counts after a FRESH library configure at `overlume/build` and a fresh colcon build. Recorded exceptions: the residue grep keeps 2 historical lines (ADR-0006's deleted-library reference; a frozen VM-040 evidence capture) — covered by the path map, not edited. The plan's clean-worktree gate was substituted by cache-provenance verification (new CMakeCache has no old paths; all three consumers agree); a true fresh clone incl. `git lfs pull` is owed to Task 8. Round-1 gate caught two node Python tests with a stale 6-level `REPO_ROOT` that made them silently SKIP — fixed to 4 levels, both now run and pass. |
 | 2 | Identifier rename: `mpviz`→`overlume`, `MPVIZ_`→`OVERLUME_`, `micropilot_visualization_node`→`overlume_ros` | ☐ |
 | 3 | Docs restructure + single status ledger + root README | ☐ |
 | 4 | `examples/` — C++ public-API examples | ☐ |

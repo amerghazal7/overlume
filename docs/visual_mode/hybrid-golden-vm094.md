@@ -7,12 +7,12 @@ scoping rule and same reason bowl-golden-vm091.md gives: first-match
 colorization is a genuinely different mechanism than the CUDA feather-blended
 sampler, Decision 5's own named fidelity exception):
 
-- `cuda/src/libs/visual_renderer/tests/goldens/hybrid_test_town_cuda_reference.png`
+- `overlume/tests/goldens/hybrid_test_town_cuda_reference.png`
   — `micropilot_rendering_node`, `initial_mode:=2` (CUDA hybrid: bowl +
   every-camera feather-blended lidar colorization), default params
   (`pointcloud_transform` t=(0,0,1.15) is the shipped default — see review
   round 1 finding 1 below).
-- `cuda/src/libs/visual_renderer/tests/goldens/hybrid_test_town_merged_node.png`
+- `overlume/tests/goldens/hybrid_test_town_merged_node.png`
   — `micropilot_visualization_node` (this epic's Filament port),
   `bowl_enabled:=true render_mode:=2 hybrid_enabled:=true
   pointcloud_topic:=/iv_points_fusion` with `default_params.yaml`'s

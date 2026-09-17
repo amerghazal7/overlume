@@ -1,0 +1,5 @@
+build:
+  # No build-base/install-base override: ros/ IS the workspace root now, so
+  # colcon's own defaults (build/, install/ under the cwd) already land at
+  # ros/build/ and ros/install/ -- no more --build-base routing needed.
+  parallel-workers: 8

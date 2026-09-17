@@ -135,14 +135,14 @@ which the architecture is already set up to accept.
    bindings provide Python-side bit-identical results vs the NumPy reference. Measured on
    RTX 3090 @ 720p bowl: **682 fps** (headless, no readback).
 7. ✅ Headless consumer integrations:
-   - **ROS2 LifecycleNode** (`micropilot_rendering_node`, `cuda/src/ros_apps/`) — wraps the
+   - **ROS2 LifecycleNode** (`micropilot_rendering_node`, `ros/`) — wraps the
      CUDA reprojector in an `rclcpp_lifecycle::LifecycleNode`. Subscribes to N
      `sensor_msgs/Image` + `sensor_msgs/CameraInfo` topics, renders at 30 Hz, publishes a
      virtual-camera `sensor_msgs/Image` on `/rendering/image`. Camera extrinsics read from a
      ROS parameter (flat list of N×12 floats); production upgrade path is tf2 lookup (noted in
-     code). Built with `colcon` (see `cuda/scripts/ros_apps_build/colcon_build.sh`).
-     Headless smoke test (`cuda/src/ros_apps/src/micropilot_rendering_node/test/smoke_test.py`)
-     validates a non-blank rendered frame end-to-end and exits 0.
+     code). Built with `colcon` (see `ros/colcon_build.sh`).
+     (`micropilot_rendering_node` was removed in VM-095's unified-engine cutover;
+     see ADR-0006. This section is historical pending the Task 3 README rewrite.)
      Runtime virtual-cam control: `~/set_virtual_cam` service (presets 1-5, eased tween),
      `~/set_look` topic (6 floats `[eye|target]`, immediate free look) and `~/vcam_state`
      telemetry (7 floats `[eye|target|active_preset]`, 0 = free look, each render tick).
@@ -157,7 +157,7 @@ which the architecture is already set up to accept.
      GTK3 client embedding `rosimagesrc ! videoconvert ! gtksink` (left-drag orbits, scroll
      dollies, buttons switch presets). Design:
      `docs/superpowers/specs/2026-07-06-vcam-gui-ws-bridge-design.md`. Run (node
-     configured+activated, ROS + `cuda/install/ros_apps` sourced):
+     configured+activated, ROS + `ros/install` sourced):
      `python3 tools/vcam_ws_bridge.py` then `python3 tools/vcam_gui.py`.
    - Video-file / GL consumer: designed-for seam in `Reprojector` interface; not yet wired.
 8. Disocclusion handling: temporal accumulation / inpainting to fill unseen
@@ -166,7 +166,7 @@ which the architecture is already set up to accept.
 ## Visual-mode docs
 
 For the ROS2 `micropilot_visualization_node` (Filament-based third render
-mode, `cuda/src/ros_apps/src/micropilot_visualization_node/`):
+mode, `ros/src/micropilot_visualization_node/`):
 
 - [`docs/visual_mode/profile_authoring.md`](docs/visual_mode/profile_authoring.md)
   — add a topic to the visualization via profile YAML only (autonomy-team

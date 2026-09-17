@@ -1,0 +1,94 @@
+# clang18-toolchain-common.cmake — VM-061 Step 6 (user decision a,
+# 2026-09-15): the ONE place that resolves the rootless clang-18 prefix
+# scripts/setup_toolchain_cesium.sh bootstraps into a pair of wrapper
+# scripts, for every consumer that needs a clang-18 compiler:
+#   - cmake/toolchain-clang-libcxx.cmake (visual_renderer's own primary
+#     project toolchain, static libc++/-nostdlib++ link)
+#   - cmake/vcpkg-clang-libcxx-toolchain.cmake (the vcpkg overlay triplet's
+#     chainload toolchain, dynamic libc++ link + --disable-new-dtags rpath)
+#   - ../../ros/src/micropilot_visualization_node/CMakeLists.txt (the
+#     node's cross-toolchain import step, which resolves libc++.a/
+#     libc++abi.a/libunwind.a paths to link into the gcc-toolchain node
+#     binary -- these MUST be the same clang-18 prefix that actually built
+#     libvisual_renderer.a, not a stale clang-14 one)
+#
+# Before Step 6, only the vcpkg toolchain used clang-18 and this wrapper-
+# generation logic lived solely in vcpkg-clang-libcxx-toolchain.cmake. Now
+# that visual_renderer's PRIMARY toolchain also needs it, factoring it out
+# here is the "one clang-18 resolution, not two/three copies" the plan asks
+# for rather than duplicating the wrapper-script block again.
+#
+# WHY A WRAPPER SCRIPT (not just pointing CMAKE_CXX_COMPILER at the real
+# binary): apt.llvm.org's raw .deb-extracted clang-18 binary has no rpath to
+# its own libLLVM-18.so/libclang-cpp.so.18 (unlike the old apt-extracted
+# clang-14 prefix, which apparently does) -- confirmed empirically
+# (VM-061 Step 1): a bare invocation dies with "cannot open shared object
+# file" until LD_LIBRARY_PATH names those libdirs. A self-contained wrapper
+# script (sets LD_LIBRARY_PATH, execs the real binary) fixes this for EVERY
+# invocation -- including nested ones from ninja/make/colcon subprocesses
+# that would never inherit a shell's exported LD_LIBRARY_PATH -- with no
+# caller-side environment setup required.
+#
+# The wrapper bakes in only `-stdlib=libc++` (compile-and-link safe) --
+# nothing linker-only (like `-Wl,-rpath`) belongs on this exec line: VM-061
+# Step 1's own DEVIATION #3 found a baked-in `-Wl,-rpath` on a compile-only
+# invocation triggers "'linker' input unused [-Werror,-Wunused-command-line-
+# argument]", which silently "fails" any `-Werror`-guarded feature-detection
+# probe (blend2d's SIMD checks did exactly this). Each includer adds its OWN
+# link-only flags (rpath, -nostdlib++, ...) via its own
+# CMAKE_EXE_LINKER_FLAGS_INIT, never here.
+#
+# Sets, for the includer to consume:
+#   _mpviz_clang18_wrap_clangxx / _mpviz_clang18_wrap_clang  -- wrapper paths
+#   _mpviz_clang18_libdir1 / _mpviz_clang18_libdir2          -- real libdirs
+#                                                                (for the
+#                                                                includer's
+#                                                                OWN rpath /
+#                                                                -print-file-
+#                                                                name lookups)
+
+if(DEFINED ENV{XDG_CACHE_HOME} AND NOT "$ENV{XDG_CACHE_HOME}" STREQUAL "")
+    set(_mpviz_c18_cache_home "$ENV{XDG_CACHE_HOME}")
+else()
+    set(_mpviz_c18_cache_home "$ENV{HOME}/.cache")
+endif()
+set(_mpviz_clang18_prefix "${_mpviz_c18_cache_home}/mpviz-toolchain-cesium")
+set(_mpviz_clang18_real_clangxx "${_mpviz_clang18_prefix}/root/usr/lib/llvm-18/bin/clang++")
+set(_mpviz_clang18_real_clang "${_mpviz_clang18_prefix}/root/usr/lib/llvm-18/bin/clang")
+set(_mpviz_clang18_libdir1 "${_mpviz_clang18_prefix}/root/usr/lib/llvm-18/lib")
+set(_mpviz_clang18_libdir2 "${_mpviz_clang18_prefix}/root/usr/lib/x86_64-linux-gnu")
+
+if(NOT EXISTS "${_mpviz_clang18_real_clangxx}")
+    message(FATAL_ERROR
+        "visual_renderer: clang-18 not found at ${_mpviz_clang18_real_clangxx}. "
+        "Run scripts/setup_toolchain_cesium.sh first (bootstraps a rootless "
+        "clang-18 from apt.llvm.org -- see that script's header comment for "
+        "why clang-18 specifically; VM-061 Step 6 made it the PRIMARY "
+        "toolchain, not just the vcpkg/cesium one).")
+endif()
+
+set(_mpviz_clang18_wrap_dir "${_mpviz_clang18_prefix}/wrap")
+file(MAKE_DIRECTORY "${_mpviz_clang18_wrap_dir}")
+set(_mpviz_clang18_wrap_clangxx "${_mpviz_clang18_wrap_dir}/clang++")
+set(_mpviz_clang18_wrap_clang "${_mpviz_clang18_wrap_dir}/clang")
+# VM-061 gate round 1 finding (minor, 2026-09-15): these used to be guarded
+# by if(NOT EXISTS ...), so a future edit to the wrapper's content (its
+# baked-in LD_LIBRARY_PATH or flags) would silently never reach a box that
+# already has ~/.cache/mpviz-toolchain-cesium/wrap/ populated from an
+# earlier run. file(WRITE) is idempotent and cheap at configure time and
+# does not itself trigger a rebuild, so just always (re)write both scripts.
+file(WRITE "${_mpviz_clang18_wrap_clangxx}"
+"#!/bin/sh
+# Generated by clang18-toolchain-common.cmake -- always libc++-18, always
+# carries this rootless prefix's own LD_LIBRARY_PATH.
+export LD_LIBRARY_PATH=\"${_mpviz_clang18_libdir1}:${_mpviz_clang18_libdir2}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}\"
+exec \"${_mpviz_clang18_real_clangxx}\" -stdlib=libc++ \"\$@\"
+")
+execute_process(COMMAND chmod +x "${_mpviz_clang18_wrap_clangxx}")
+file(WRITE "${_mpviz_clang18_wrap_clang}"
+"#!/bin/sh
+# Generated by clang18-toolchain-common.cmake.
+export LD_LIBRARY_PATH=\"${_mpviz_clang18_libdir1}:${_mpviz_clang18_libdir2}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}\"
+exec \"${_mpviz_clang18_real_clang}\" \"\$@\"
+")
+execute_process(COMMAND chmod +x "${_mpviz_clang18_wrap_clang}")

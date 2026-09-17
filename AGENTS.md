@@ -49,6 +49,3 @@ tree directly.
 Library: `overlume/scripts/setup_toolchain_cesium.sh`, then `cmake -S overlume
 -B overlume/build && cmake --build overlume/build -j`. Node: `ros/colcon_build.sh`.
 Gate: `tools/ci_visual_mode.sh`. Live rig: `tools/validate_visual_mode.sh --live`.
-(Paths are the post-restructure ones; until Task 1 of the plan lands, the
-library is at `cuda/src/libs/visual_renderer` and the node at
-`cuda/src/ros_apps/src/micropilot_visualization_node`.)

@@ -15,10 +15,10 @@ network or a token.
 ## Re-render command
 
 From the repo root, after building `test_theme_showcase` once
-(`cmake --build cuda/src/libs/visual_renderer/build --target test_theme_showcase`):
+(`cmake --build overlume/build --target test_theme_showcase`):
 
 ```bash
-cd cuda/src/libs/visual_renderer/build
+cd overlume/build
 
 # A shipped theme (assets/themes/*.yaml) -- MPVIZ_SHOWCASE_THEME_DIR defaults
 # to the shipped dir, so it can be omitted here:

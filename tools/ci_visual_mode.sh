@@ -5,7 +5,7 @@
 # exists. Run it from anywhere; it cd's off its own path.
 #
 # Stages (each labeled, each can fail the whole run):
-#   1. POD header check      (visual_renderer/scripts/check_pod_header.sh)
+#   1. POD header check      (overlume/scripts/check_pod_header.sh)
 #   2. Library ctest suite   (visual_renderer's full ctest run)
 #   3. Node gtests           (colcon test, micropilot_visualization_node)
 #   4. WS bridge pytest      (tools/test_vcam_ws_bridge.py; count reported by the stage itself)
@@ -54,7 +54,7 @@ banner() {
 # ── stage 1: POD header check ───────────────────────────────────────────────
 banner 1/5 "POD header check"
 POD_LOG="${LOG_DIR}/pod_header.log"
-if bash "${REPO_ROOT}/cuda/src/libs/visual_renderer/scripts/check_pod_header.sh" \
+if bash "${REPO_ROOT}/overlume/scripts/check_pod_header.sh" \
         > "${POD_LOG}" 2>&1; then
     echo "PASS  POD header check"
     record_stage "POD header check" PASS
@@ -66,7 +66,7 @@ fi
 
 # ── stage 2: library ctest suite (also feeds stage 5's golden breakdown) ───
 banner 2/5 "library ctest suite"
-LIB_DIR="${REPO_ROOT}/cuda/src/libs/visual_renderer"
+LIB_DIR="${REPO_ROOT}/overlume"
 LIB_BUILD_DIR="${LIB_DIR}/build"
 LIB_CONFIGURE_LOG="${LOG_DIR}/lib_configure.log"
 LIB_BUILD_LOG="${LOG_DIR}/lib_build.log"
@@ -124,8 +124,8 @@ ROS_SETUP="/opt/ros/humble/setup.bash"
 # is the node's OWN prior install (needed for the srv typesupport at test
 # time). CI_VISUAL_MODE_ROS_APPS_INSTALL still overrides for a worktree
 # borrowing another checkout's install, read-only.
-MAIN_INSTALL="${CI_VISUAL_MODE_ROS_APPS_INSTALL:-${REPO_ROOT}/cuda/install/ros_apps/setup.bash}"
-NODE_WS="${REPO_ROOT}/cuda/src/ros_apps"
+MAIN_INSTALL="${CI_VISUAL_MODE_ROS_APPS_INSTALL:-${REPO_ROOT}/ros/install/setup.bash}"
+NODE_WS="${REPO_ROOT}/ros"
 NODE_LOG="${LOG_DIR}/node_colcon.log"
 NODE_STAGE_OK=1
 
@@ -134,7 +134,7 @@ if [[ ! -f "${ROS_SETUP}" ]]; then
     record_stage "node gtests" FAIL
     NODE_STAGE_OK=0
 elif [[ ! -f "${MAIN_INSTALL}" ]]; then
-    echo "FAIL  node gtests: ${MAIN_INSTALL} not found (this checkout's install/ros_apps," \
+    echo "FAIL  node gtests: ${MAIN_INSTALL} not found (this checkout's ros/install," \
          "needed for the node's own generated interfaces) -- build it first"
     record_stage "node gtests" FAIL
     NODE_STAGE_OK=0
