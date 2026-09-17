@@ -728,6 +728,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
         target_include_directories(${_test_name} PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/src" "${STB_DIR}")
         target_link_libraries(${_test_name} PRIVATE overlume gtest gtest_main EGL)
+        # test_gltf_normals parses the GLB JSON chunk with yaml-cpp directly.
+        # overlume links yaml-cpp PRIVATE and its objects are already merged
+        # into liboverlume.a, so only the INCLUDE dir is missing here; with
+        # OVERLUME_ENABLE_CESIUM=ON it leaked in through cesium-native's usage
+        # requirements, which is why local (ON) builds never noticed and the
+        # hosted Cesium-OFF build failed first.
+        if(_test_name STREQUAL "test_gltf_normals")
+            target_include_directories(${_test_name} PRIVATE
+                $<TARGET_PROPERTY:yaml-cpp::yaml-cpp,INTERFACE_INCLUDE_DIRECTORIES>)
+        endif()
         # OVERLUME_TEST_DATA_DIR: resolvable-path prefix for golden/fixture
         # literals (gtest_discover_tests' WORKING_DIRECTORY is the build
         # dir, not this source dir). OVERLUME_DEFAULT_THEME_DIR: kThemeDir's
