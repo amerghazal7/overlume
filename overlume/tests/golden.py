@@ -2,7 +2,7 @@
 """golden.py — Epic 1 Task 2 Step 11. Dev-only helper for inspecting a
 rendered PNG before promoting it to a committed golden under tests/goldens/
 (this project's stated working style: "user judges by visuals" — see
-docs/superpowers/plans/2026-08-18-visual-mode-epic1.md Task 2 Step 11).
+docs/plans/2026-08-18-visual-mode-epic1.md Task 2 Step 11).
 
 Not on the ctest path -- run by hand:
     python3 tests/golden.py --show /tmp/empty_world_dark_adas_actual.png

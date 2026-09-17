@@ -3,7 +3,7 @@
  *  @brief LifecycleNode wrapping overlume (Filament headless
  *  renderer) — Visual Mode ("mode 3") on the shared /rendering/image mux.
  *
- *  Epic 0 Task 3 (docs/superpowers/plans/2026-08-18-visual-mode.md): a
+ *  Epic 0 Task 3 (docs/plans/2026-08-18-visual-mode.md): a
  *  skeleton that streams the library's static hello-frame scene (ground +
  *  grid + cube, from Task 2) gated by the global `/rendering/set_mode`
  *  topic. Scene ingestion from autonomy topics arrives in later epics —
@@ -432,7 +432,7 @@ private:
     // separately live-re-armable from on_params() too, same geo-anchor
     // precondition as the arming path here. NOT gated per render_mode_ once
     // armed: buildings render in BOWL/HYBRID too whenever a source is open,
-    // by design -- named exception 7, docs/visual_mode/signoff.md (CLOSED
+    // by design -- named exception 7, docs/runbooks/signoff.md (CLOSED
     // for the visibility-toggle blocker; the remaining open item recorded
     // there is that there is still no automatic per-render_mode gating).
     bool environment_enabled_{true};

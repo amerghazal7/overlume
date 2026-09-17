@@ -50,7 +50,7 @@
  *  not a general palette read). kIntensityLowRgb/kIntensityHighRgb/
  *  kHeightLowRgb/kHeightHighRgb below are therefore compile-time constants
  *  standing in for that token, same class of gap as the HUD font path's
- *  VM-044 default (docs/visual_mode_project_backlog.md) -- replace with a
+ *  VM-044 default (docs/plans/archive/visual_mode_project_backlog.md) -- replace with a
  *  real theme lookup if/when that read path is ever added.
  *
  *  Intensity/height auto-range: min/max is computed from the points THIS

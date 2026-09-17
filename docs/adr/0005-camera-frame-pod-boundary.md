@@ -1,7 +1,7 @@
 # ADR-0005: Camera-frame POD boundary — `set_camera_frame()`/`set_bowl_config()`
 
 **Status:** Accepted (2026-09-10, unified-engine migration Task 1 / VM-090)
-**Context:** docs/superpowers/plans/2026-09-10-unified-engine-migration.md,
+**Context:** docs/plans/2026-09-10-unified-engine-migration.md,
 Decision 2, and the Decision resolutions section (user input, 2026-09-10)
 
 ## Context

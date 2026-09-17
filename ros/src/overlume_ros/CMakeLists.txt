@@ -58,7 +58,7 @@ set(THIS_PACKAGE_DEPS
   cv_bridge)
 
 # ── overlume (clang/libc++ static lib) — cross-toolchain import ──────
-# overlume (docs/superpowers/plans/2026-08-18-visual-mode.md Epic 0
+# overlume (docs/plans/2026-08-18-visual-mode.md Epic 0
 # Task 1/2) builds standalone with clang/libc++ (see its README.md) and
 # cannot be add_subdirectory'd here: this package builds stock gcc/libstdc++
 # (Global Constraints / spec §2 — mixing the two runtimes at a std:: boundary

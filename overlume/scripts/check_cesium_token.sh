@@ -10,7 +10,7 @@
 set -u  # deliberately no -x, ever, in this file
 ASSET_ID="${1:-96188}"
 if [ -z "${CESIUM_ION_TOKEN:-}" ]; then
-    echo "SKIP: CESIUM_ION_TOKEN is not set (see docs/visual_mode/cesium.md)"
+    echo "SKIP: CESIUM_ION_TOKEN is not set (see docs/runbooks/cesium.md)"
     exit 2
 fi
 # Stage 1: the endpoint handshake. The token reaches curl via --config on

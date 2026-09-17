@@ -11,7 +11,7 @@ fixtures (network-free) while writing this doc — see "Verified" at the
 bottom.
 
 > Deployment/two-node-topology notes are out of scope for this guide — see
-> [`README.md`](README.md) for the VM-095 deferral.
+> [`docs/README.md`](../README.md) for the VM-095 deferral.
 
 ## What the script does (pipeline order)
 
@@ -187,7 +187,7 @@ active: bake with the node's own logged anchor, point `environment_chunks_dir`
 at the bake's `--out` directory (or set `environment_source_uri` to an
 `ion://` streaming spec), and toggle `environment_enabled` or switch
 `environment_source_uri` live via `ros2 param set` or the vcam GUI, subject
-to the geo-anchor precondition above. See `docs/visual_mode/cesium.md` for
+to the geo-anchor precondition above. See `docs/runbooks/cesium.md` for
 the streamed (`ion://`) source presets in detail.
 
 ## Verified

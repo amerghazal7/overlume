@@ -13,7 +13,7 @@ two GPU contexts, a mux protocol, and two rendering code paths for what is
 conceptually one camera-surround view.
 
 The 2026-09-10 USER DECISION (this epic's charter, quoted in full at the top
-of `docs/superpowers/plans/2026-09-10-unified-engine-migration.md`) asked for
+of `docs/plans/2026-09-10-unified-engine-migration.md`) asked for
 the opposite tradeoff explicitly: "migrate everything implemented in the
 rendering node to the new engine so we have on node one view and we can
 switch the mode between all modes and everything use the same rendering
@@ -22,7 +22,7 @@ lidar (mode 2) onto the Filament `visual_renderer` engine already hosting
 mode 3, behind a still-live mux and an unauthoritative local `render_mode_`
 switch, so the migration could be judged by a real side-by-side against the
 CUDA node's own output before anything old was touched. That judgment
-happened: `docs/visual_mode/signoff.md`'s three parity rows (bowl-vs-CUDA,
+happened: `docs/runbooks/signoff.md`'s three parity rows (bowl-vs-CUDA,
 hybrid-vs-CUDA, self-view/robot-proxy) are user-APPROVED, 2026-09-11.
 
 ## Decision

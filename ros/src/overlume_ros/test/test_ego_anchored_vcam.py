@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Ego-anchored vcam composition test (2026-08-19 user directive, live
-validation session; docs/superpowers/plans/2026-08-18-visual-mode-epic1.md
+validation session; docs/plans/2026-08-18-visual-mode-epic1.md
 Task 5 scope addition).
 
 Proves the composition in overlume_node.cpp's timer_callback did NOT

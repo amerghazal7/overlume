@@ -7,7 +7,7 @@
 // empty while its content is live, and the rebuild count tracks CONTENT
 // churn (message updates), not ego motion — see the "Rebuild/clip
 // decoupling" 2026-09-10 entry in
-// docs/superpowers/plans/2026-09-09-vm077-new-stack-rendering.md for the
+// docs/plans/2026-09-09-vm077-new-stack-rendering.md for the
 // full investigation and its still-open BEHAVIOR-ribbon staleness question.
 #include "overlume/api.h"
 #include "overlume/scene.h"

@@ -165,7 +165,7 @@ float3 to_filament(const detail::Float3& c) { return float3{c.r, c.g, c.b}; }
 // anchors gave exponent ~= 1.159 (not 1: an inverse-linear fit only
 // reproduces the single light_clay point). See push_theme_to_scene()'s
 // fogOptions.color line for how this is applied, and
-// docs/superpowers/plans/2026-08-18-visual-mode-epic1.md for the rejected
+// docs/plans/2026-08-18-visual-mode-epic1.md for the rejected
 // alternatives.
 constexpr float kFogScaleExponent = 1.159f;
 constexpr float kFogScaleReferenceIntensity = 8750.0f;  // historical: light_clay's PRE-re-palette ibl.intensity
@@ -771,7 +771,7 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     // themes to white (fog isn't a display color, it's inserted at the same
     // pipeline stage as the lit surface radiance), and ibl.intensity/pi
     // reproduces the ~29x lux gap between themes directly instead of
-    // compensating for it. See docs/superpowers/plans/
+    // compensating for it. See docs/plans/
     // 2026-08-18-visual-mode-epic1.md for the full history.
     const float fogScale = kFogScaleReferenceValue *
                             std::pow(kFogScaleReferenceIntensity / theme.ibl.intensity,

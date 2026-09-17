@@ -377,7 +377,7 @@ Cesium3DTilesSelection::TilesetExternals build_externals(
     // (not a directory) -- Google's Map Tiles terms bound how long tile
     // responses may be cached, and the google preset's shipped default sets
     // `cache=off` until those cache-lifetime terms are re-verified for this
-    // deployment (docs/visual_mode/cesium.md's Google section). No
+    // deployment (docs/runbooks/cesium.md's Google section). No
     // SqliteCache/CachingAssetAccessor is constructed in this branch --
     // requests go straight through the counting decorator, nothing
     // persisted to disk. ponytail: literal "off"/dir-path dispatch, an enum
@@ -1032,7 +1032,7 @@ std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::
     // caching branch and SqliteCache persists request headers verbatim, so a
     // non-"off" cache_dir writes that session token to cesium-tiles.sqlite.
     // Decision 6 said "URLs embed a short-lived session token"; it is the
-    // header, same exposure class. docs/visual_mode/cesium.md §3 states it.
+    // header, same exposure class. docs/runbooks/cesium.md §3 states it.
     const char* token = std::getenv("CESIUM_ION_TOKEN");
     if (token == nullptr || token[0] == '\0') return nullptr;  // non-fatal, caller WARNs
 

@@ -15,7 +15,7 @@ this package), reusing that file's _popen/_kill/_lifecycle-style helpers.
 NOTE: the node must be built Release. A plain `colcon build` (empty
 CMAKE_BUILD_TYPE, the colcon default) SIGSEGVs inside on_configure() before
 theme resolution completes -- a pre-existing, not-VM-044 gap (see
-docs/superpowers/plans/2026-08-18-visual-mode-epic3.md's Debug-build crash
+docs/plans/2026-08-18-visual-mode-epic3.md's Debug-build crash
 note, widened by the same review round to cover this default-build case
 too). tools/ci_visual_mode.sh builds -DCMAKE_BUILD_TYPE=Release; do the same
 before running this test, or every case below fails with no useful signal.

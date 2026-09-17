@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """TF adapter test: map->base_link TF -> EMA-smoothed ego speed (Epic 1 Task 4
-/ VM-012, docs/superpowers/plans/2026-08-18-visual-mode-epic1.md Task 4 Step
+/ VM-012, docs/plans/2026-08-18-visual-mode-epic1.md Task 4 Step
 7-9).
 
 Publishes a recorded fixture -- straight-line motion at a known constant
@@ -198,7 +198,7 @@ def test_tf_adapter_speed_converges():
 
 
 def test_robot_speed_topic_preferred_over_tf_diff():
-    """Spec §7 (docs/superpowers/specs/2026-08-18-visual-mode-design.md:264):
+    """Spec §7 (docs/design/2026-08-18-visual-mode-design.md:264):
     ego speed PREFERS /robot/feedback/robot_speed_mps over the TF
     finite-difference fallback. TF motion here implies ~2.0 m/s (same
     fixture rate as above); the topic reports a deliberately different
