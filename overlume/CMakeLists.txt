@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.18)
 
 # overlume is its own CMake project (not add_subdirectory'd into the
 # gcc-toolchain `ros/` colcon build): the toolchain boundary in the design spec
-# (docs/superpowers/specs/2026-08-18-visual-mode-design.md §2) requires this
+# (docs/design/2026-08-18-visual-mode-design.md §2) requires this
 # library to compile clang/libc++ while the rest of the CUDA/ROS stack stays
 # on gcc/libstdc++ — CMAKE_CXX_COMPILER is fixed per top-level project, so the
 # split has to happen at this granularity. Consumers (the ROS node) link
@@ -75,7 +75,7 @@ endforeach()
 include(cmake/GetFilament.cmake)
 
 # cesium-native (Epic 6, VM-061 — see
-# docs/superpowers/plans/2026-08-18-visual-mode-epic6.md Task 2): pinned
+# docs/plans/2026-08-18-visual-mode-epic6.md Task 2): pinned
 # source build under this project's own clang/libc++ toolchain, its ~28
 # vcpkg ports forced onto the same toolchain via the x64-linux-clang-libcxx
 # overlay triplet. See cmake/GetCesiumNative.cmake for the pin + SHA256
@@ -133,7 +133,7 @@ FetchContent_MakeAvailable(yamlcpp)
 
 # stb_image.h / stb_image_write.h (Epic 1 Task 2 Step 5a): hoisted above both
 # the tests/ and examples/ blocks below so test binaries (golden.cpp, PNG
-# decode+encode) and examples/hello_frame.cpp (PNG encode) can both see them.
+# decode+encode) and the repo-root examples (PNG encode) can both see them.
 # Single-header public-domain libraries with no versioned release, so pinned
 # to an immutable commit URL + sha256, same pattern as GetFilament.cmake.
 set(STB_IMAGE_WRITE_COMMIT "2c980bb59875b0d32144a71867fbdebb2f77cd20")
@@ -690,18 +690,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     endforeach()
 endif()
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples")
-    file(GLOB _overlume_example_srcs CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/examples/*.cpp")
-    foreach(_example_src ${_overlume_example_srcs})
-        get_filename_component(_example_name "${_example_src}" NAME_WE)
-        add_executable(${_example_name} "${_example_src}")
-        target_include_directories(${_example_name} PRIVATE "${STB_DIR}")
-        target_link_libraries(${_example_name} PRIVATE overlume)
-    endforeach()
-endif()
-
-# tools/ — standalone binaries linking overlume, same glob pattern as
-# examples/ above (VM-041, Epic 5: viz_benchmark.cpp prints render_ms
+# tools/ — standalone binaries linking overlume, one executable per .cpp
+# (VM-041, Epic 5: viz_benchmark.cpp prints render_ms
 # p50/p99 per quality preset for VM-040's governor to tune against later).
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools")
     file(GLOB _overlume_tool_srcs CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/*.cpp")
@@ -710,4 +700,15 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools")
         add_executable(${_tool_name} "${_tool_src}")
         target_link_libraries(${_tool_name} PRIVATE overlume)
     endforeach()
+endif()
+
+# Task 4 (open-source restructure plan): repo-root examples/ -- C++
+# programs against overlume's PUBLIC API only (<overlume/api.h>,
+# <overlume/scene.h>), one directory up from this project's own source dir
+# (this project's root IS overlume/, so ${PROJECT_SOURCE_DIR}/../examples
+# is the repo root's examples/). The EXISTS guard keeps a library-only
+# checkout (vendored subtree, no repo-root examples/) configurable.
+option(OVERLUME_BUILD_EXAMPLES "Build the API examples" ON)
+if(OVERLUME_BUILD_EXAMPLES AND EXISTS "${PROJECT_SOURCE_DIR}/../examples/CMakeLists.txt")
+    add_subdirectory(${PROJECT_SOURCE_DIR}/../examples ${CMAKE_BINARY_DIR}/examples)
 endif()
