@@ -1,12 +1,12 @@
 # fog_color_black.yaml — test fixture for test_theme.cpp's
-# Fog.ColorAffectsRenderedOutput. Byte-for-byte identical to
-# fog_color_white.yaml except `palette.fog` -- isolates whether
-# FogOptions::color reaches the screen. Uses a modest fog.density (0.008,
-# light_clay's original value; it now ships 0.0015), not an inflated one,
-# so the guarded domain-scale bug
-# (raw 0-1 hue fed in as scene radiance) isn't masked by sheer extinction.
-# Fixed code moves the mean by ~90/255 between black/white fog; unfixed
-# moves it by <1/255.
+# Fog.ColorAffectsRenderedOutput. Identical to fog_color_white.yaml except
+# `palette.fog` -- isolates whether FogOptions::color reaches the screen.
+# FROZEN at this historical operating point (Finding #5/#27): NOT kept in
+# sync with light_clay.yaml, which has since moved its own fog.density to
+# 0.00025. Uses a modest fog.density (0.008) here, not an inflated one, so
+# the guarded domain-scale bug (raw 0-1 hue fed in as scene radiance) isn't
+# masked by sheer extinction. Fixed code moves the mean by ~90/255 between
+# black/white fog; unfixed moves it by <1/255.
 name: fog_color_black
 palette:
   ground:      [0.82, 0.80, 0.76]

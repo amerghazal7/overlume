@@ -23,6 +23,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -354,6 +355,105 @@ TEST(EnvironmentStreamGolden, SetVisibleFalseHidesFixtureTilesWithoutTearingDown
     mpviz::destroy_renderer(r);
 }
 
+namespace {
+// Same per-channel tolerance test_map_elements.cpp's own PixelDiffers() uses
+// for "real content change" vs "rendering noise" -- measured directly while
+// writing TileLoadedWhileHiddenDoesNotPopIntoView below: two independent
+// FEngine instances rendering the SAME scene/camera/theme are NOT
+// byte-identical (a +-1-level cross-instance rendering difference, seen
+// uniformly across an otherwise-flat sky region), so an exact byte compare
+// over a whole frame that's mostly flat sky (this fixture's tiles cover
+// only a small corner of this pose, same as
+// EnvironmentStreamGolden.SetVisibleFalseHidesFixtureTilesWithoutTearingDown's
+// own comment notes) reads as a large false "difference". 8 filters that
+// noise out while still catching a real popped-in tile (a large, structured
+// color change, not a +-1 flicker).
+size_t count_differing_bytes_with_tolerance(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b,
+                                             int tolerance) {
+    size_t diff = 0;
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (std::abs(static_cast<int>(a[i]) - static_cast<int>(b[i])) > tolerance) ++diff;
+    }
+    return diff;
+}
+}  // namespace
+
+// Finding #8: the streaming-side counterpart to
+// Environment.ChunkLoadedWhileHiddenDoesNotPopIntoView (test_environment.cpp)
+// -- hides BEFORE any tile has ever loaded, so a bug in
+// StreamingEnvironmentSource::synthesize_view_and_pump()'s own
+// `if (visible_ && inScene_.find(res) == inScene_.end())` add-while-hidden
+// guard (environment_stream.cpp) would actually be caught.
+// environment_scene_membership_count() (Finding #1,
+// StreamingEnvironmentSource::scene_membership_count() in environment_stream.cpp)
+// now does a genuine filament::Scene::hasEntity() read-back per tracked
+// tile, not a re-derivation from visible_, so the EXPECT_EQ(...,0u) below is
+// the load-bearing assertion for this test -- it fails if the guard is
+// deleted and a hidden-load's entity actually lands in the Filament scene.
+// The pixel comparison further down is a second, independent cross-check.
+TEST(EnvironmentStreamGolden, TileLoadedWhileHiddenDoesNotPopIntoView) {
+    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = mpviz::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    ASSERT_TRUE(
+        mpviz::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
+    ASSERT_TRUE(mpviz::set_environment_visible(r, false));
+
+    mpviz::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kFixtureBlockCenterMap;
+    mpviz::set_scene(r, s);
+    // Same framing as FixtureBlock_DarkAdas -- the fixture's real footprint
+    // centroid, so a popped-in tile would occupy a real chunk of the frame.
+    mpviz::CameraPose pose{{149, 352, 90}, {69, 472, 0}, 60.0};
+    const size_t nBytes = 320u * 240u * 3u;
+    std::vector<uint8_t> hiddenBuf(nBytes);
+    ASSERT_GT(pump_until_loaded(r, pose, hiddenBuf), 0u) << "loading itself must still happen while hidden";
+    for (int i = 0; i < 30; ++i) mpviz::render_frame(r, pose, {hiddenBuf.data(), 320, 240});
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {hiddenBuf.data(), 320, 240}));
+    EXPECT_EQ(mpviz::testing::environment_scene_membership_count(r), 0u)
+        << "a tile loaded while hidden was added to the Filament scene anyway";
+
+    // Reference: a SECOND renderer with no environment source at all -- the
+    // ground truth for "tiles not rendered" (same technique
+    // test_environment.cpp's own sibling test uses).
+    auto* rNoEnv = mpviz::create_renderer(cfg);
+    ASSERT_NE(rNoEnv, nullptr);
+    mpviz::set_scene(rNoEnv, s);
+    std::vector<uint8_t> noEnvBuf(nBytes);
+    ASSERT_TRUE(mpviz::render_frame(rNoEnv, pose, {noEnvBuf.data(), 320, 240}));
+    mpviz::destroy_renderer(rNoEnv);
+
+    // Measured on this fixture/framing: the tolerance-filtered noise floor
+    // between a hidden-with-loaded-tiles renderer and one with no
+    // environment source at all is ~0 bytes; the real pop-into-view signal
+    // (this same comparison, hidden vs. re-shown on the SAME renderer, see
+    // diffShown below) is ~326 bytes. 100 sits well under that signal while
+    // leaving headroom over the noise floor, so this bound still fails if
+    // the add-while-hidden guard is deleted -- it is a coarse sanity check;
+    // the real guard is the membership EXPECT_EQ above.
+    constexpr int kTolerance = 8;
+    const size_t diffFromNoEnv = count_differing_bytes_with_tolerance(hiddenBuf, noEnvBuf, kTolerance);
+    EXPECT_LT(diffFromNoEnv, 100u)
+        << "a tile loaded while hidden popped into view (" << diffFromNoEnv << "/" << nBytes
+        << " bytes differ beyond rendering noise from a renderer with no environment source at all)";
+
+    ASSERT_TRUE(mpviz::set_environment_visible(r, true));
+    std::vector<uint8_t> shownBuf(nBytes);
+    ASSERT_TRUE(mpviz::render_frame(r, pose, {shownBuf.data(), 320, 240}));
+    const size_t diffShown = count_differing_bytes_with_tolerance(hiddenBuf, shownBuf, kTolerance);
+    // A small floor, not the ~5% SetEnvironmentVisibleFalseHidesLoadedChunksWithoutTearingDown
+    // uses for the BAKED town's own centroid framing: this fixture's tiles
+    // cover only a small corner of THIS pose (this file's own comment on
+    // SetVisibleFalseHidesFixtureTilesWithoutTearingDown), so a re-show only
+    // flips a modest, tolerance-filtered ~326 bytes at 320x240 -- a real
+    // signal (this same tolerance already proved hiddenBuf indistinguishable
+    // from a renderer with no source above), just a small one.
+    EXPECT_GT(diffShown, 50u) << "showing again produced no visible change (only " << diffShown << "/"
+                               << nBytes << " bytes changed beyond rendering noise)";
+    mpviz::destroy_renderer(r);
+}
+
 // ── Step 6: perf check (dev-box proxy, same honesty class as
 //    EnvironmentPerf.RenderMsDeltaWithTestTownLoaded) ─────────────────────
 TEST(EnvironmentStreamPerf, RenderMsDeltaAndWorstFrameWithFixtureLoaded) {
@@ -400,6 +500,43 @@ TEST(EnvironmentStreamPerf, RenderMsDeltaAndWorstFrameWithFixtureLoaded) {
     SUCCEED();
 }
 
+
+// ── Finding #0 (security, blocking): CESIUM_ION_TOKEN redaction ─────────
+// Drives the real ion-handshake error path (no network, no real token --
+// see drive_ion_token_redaction_probe()'s own comment) with a bogus literal
+// standing in for the token, and asserts the library's own log output never
+// carries it, nor an un-redacted access_token=/Bearer credential shape.
+TEST(TokenRedaction, NeverLeaksIntoLogText) {
+    constexpr const char* kBogusToken = "bogus-token-for-redaction-test";
+    ASSERT_TRUE(mpviz::testing::drive_ion_token_redaction_probe(kBogusToken, /*asset_id=*/123456,
+                                                                  /*max_ticks=*/200))
+        << "the probe never logged anything at all -- test infrastructure issue, not a pass";
+
+    const std::string logText = mpviz::testing::captured_cesium_log_text();
+    ASSERT_NE(logText.find("access_token="), std::string::npos)
+        << "probe never logged the ion endpoint URL -- redaction path was never exercised";
+    // Failure text prints a bounded window around the offending match, never
+    // the whole captured buffer: the capture is process-wide and the opt-in
+    // EnvSourceCapture tests open REAL ion sources through the same sink, so
+    // dumping it all on a redaction regression could print a live credential
+    // into test output.
+    const auto leakPos = logText.find(kBogusToken);
+    EXPECT_EQ(leakPos, std::string::npos)
+        << "the bogus token leaked verbatim into this library's own log output near: "
+        << (leakPos == std::string::npos ? std::string() : logText.substr(leakPos, 48));
+
+    // access_token= must never be followed by anything but the literal
+    // "<redacted>" -- catches a partial/off-by-one redaction, not just the
+    // literal token string above.
+    size_t pos = 0;
+    while ((pos = logText.find("access_token=", pos)) != std::string::npos) {
+        const std::string rest = logText.substr(pos + std::strlen("access_token="));
+        EXPECT_EQ(rest.rfind("<redacted>", 0), 0u)
+            << "access_token= was followed by something other than <redacted> ("
+            << rest.size() << " chars follow; content withheld -- it may be a credential)";
+        pos += std::strlen("access_token=");
+    }
+}
 
 // ── Task 4 (VM-063): network-loss fallback e2e ──────────────────────────
 namespace {
@@ -971,9 +1108,10 @@ TEST(EnvSourceCapture, Google) {
 }
 
 // "clipped" (VM-096's 4th GUI preset) resolves to the NODE's own
-// environment_own_asset_uri parameter (environment_source_uri.hpp), not a
+// environment_own_asset_uri parameter (resolved server-side in
+// tools/vcam_ws_bridge.py's set_environment_source branch), not a
 // fixed public ion asset id -- and that parameter defaults empty
-// (visualization_node.cpp:687) and is NOT configured on this box. There is
+// (declared at visualization_node.cpp:687) and is NOT configured on this box. There is
 // no real ion asset id to render here: fabricating one would silently ship
 // a picture of the WRONG preset (some other asset entirely), which is
 // worse than no picture. Always skips, even with the capture opt-in set,

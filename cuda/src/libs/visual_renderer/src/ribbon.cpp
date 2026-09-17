@@ -88,11 +88,18 @@ uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float half
 //
 // trajectory_carpet.cpp's velocity ribbon (VM-077 carpet-as-ribbon redirect,
 // 2026-09-10) is NOT a PathRole and so isn't in this array, but it stacks
-// INTO this same z-order: its own kVelocityRibbonZLiftM sits at 0.0475,
-// strictly between LOCAL (0.045) and BEHAVIOR (0.05) -- "on top of local
+// INTO this same z-order: its own kVelocityRibbonZLiftM sits at 0.052,
+// strictly between LOCAL (0.046) and BEHAVIOR (0.058) -- "on top of local
 // ribbon" (user directive) while the hero ribbon stays topmost of the whole
-// stack. Full order, lowest to highest: GLOBAL 0.04 < LOCAL 0.045 <
-// velocity 0.0475 < BEHAVIOR 0.05 < alert_polygons.cpp's kAlertZLiftM 0.06.
+// stack. Full order, lowest to highest (Finding #14: figures corrected to
+// match the live constants below/trajectory_carpet.cpp:85 -- the ordering
+// was always right, only these numbers had drifted): GLOBAL 0.038 < LOCAL
+// 0.046 < velocity 0.052 < BEHAVIOR 0.058 < alert_polygons.cpp's
+// kAlertZLiftM 0.06. The 2026-09 map-element stagger adds a lower band
+// underneath all of this, disjoint from it: ROAD_SURFACE 0.005, then
+// OTHER..CROSSWALK across 0.016-0.023 (map_elements.cpp's own comment) --
+// both bands share the one "lowest to highest, no collisions" ground stack,
+// this array's own roles just start higher up it.
 // Stagger widened 2026-09-10 (user: "Still flickering, increase the z a
 // bit and let me judge") -- gaps 6-8mm, was 2.5-5mm; whole stack stays
 // under alert_polygons' 0.06 so alerts remain topmost.

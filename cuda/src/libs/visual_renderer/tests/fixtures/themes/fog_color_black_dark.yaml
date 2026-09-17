@@ -1,9 +1,12 @@
 # fog_color_black_dark.yaml — test fixture for test_theme.cpp's Fog.
-# ColorAffectsRenderedOutput (dark_adas branch). Byte-for-byte identical to
-# assets/themes/dark_adas.yaml except `palette.fog` -- isolates whether
-# FogOptions::color reaches the screen for this theme's own ibl.intensity.
-# Fixed code moves the mean by ~166 between black/white fog here, well
-# past the >15.0 liveness bar.
+# ColorAffectsRenderedOutput (dark_adas branch). FROZEN at assets/themes/
+# dark_adas.yaml's HISTORICAL values (Finding #5/#27) except `palette.fog`
+# -- isolates whether FogOptions::color reaches the screen at this
+# operating point. NOT kept in sync with dark_adas.yaml, which has since
+# moved on (current shipped ground/sky/lane_paint/sun/ibl/fog.density
+# differ from what's authored below) -- this fixture deliberately stays put
+# rather than re-tuning to chase the live theme. Fixed code moves the mean
+# by ~166 between black/white fog here, well past the >15.0 liveness bar.
 name: fog_color_black_dark
 palette:
   ground:      [0.05, 0.06, 0.08]
@@ -32,6 +35,6 @@ ibl:  # analytic 2-band hemisphere gradient — NOT raw SH coefficients
   sky_color:    [0.05, 0.06, 0.12]
   ground_color: [0.02, 0.02, 0.03]
   intensity: 256000.0
-# Tracks assets/themes/dark_adas.yaml's own shipped fog.density -- keep in
-# sync so this fixture doesn't drift from the theme it exercises.
+# Frozen at this historical fog.density (Finding #5/#27) -- dark_adas.yaml's
+# own shipped value has since moved on; deliberately not re-synced.
 fog: { density: 0.015 }

@@ -35,13 +35,17 @@ struct Theme {
         Float3 ribbon_glow;
         // Ego contrast color: not reused from `ground` -- rendering the
         // ego with groundMaterial directly would blend it into the ground
-        // plane it stands on. Deliberately a cross-theme swap
-        // (dark_adas.yaml's `ego` is light_clay's `ground` and vice versa,
-        // see those files' own comments), not a new color invented from
-        // scratch, so the ego always pops against whichever ground it's
-        // standing on. Optional key (see theme.cpp's parse()): absence
-        // doesn't invalidate an otherwise-valid theme file, unlike every
-        // other palette.* field above.
+        // plane it stands on. Originally a two-way cross-theme swap; only
+        // one half survives the 2026-09 re-palette (Finding #25): light_clay's
+        // `ego` still mirrors dark_adas's `ground` exactly (enforced by
+        // ThemePalette.EgoParsesFromYamlAsCrossThemeSwap), but dark_adas's
+        // own `ego` is now an independently-authored bright contrast color
+        // (see dark_adas.yaml's own comment), not a mirror of light_clay's
+        // `ground` -- it only has to keep popping against dark_adas's own
+        // near-black ground (that same test's Oklab-lightness bound), not
+        // match anything in the other theme file. Optional key (see
+        // theme.cpp's parse()): absence doesn't invalidate an otherwise-valid
+        // theme file, unlike every other palette.* field above.
         Float3 ego;
         // ribbon_global/ribbon_local: dedicated tokens for the GLOBAL/LOCAL
         // path-ribbon roles, which used to reuse ribbon_core/ribbon_glow

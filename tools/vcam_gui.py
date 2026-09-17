@@ -152,6 +152,22 @@ ENVIRONMENT_PRESET_URIS_FIXED = {
 }
 
 
+def initial_environment_sensitivity(preset: str) -> bool:
+    """Fail-closed build-time sensitivity for an Environment Tiles combo row
+    (gate finding #21): every preset starts sensitive except "clipped",
+    whose real availability isn't known until the first get_params
+    round-trip -- _update_clipped_availability() is the only thing that
+    ever turns it on. Pure/no-GTK so it's unit-testable without a display."""
+    return preset != "clipped"
+
+
+def ack_failure_text(msg: dict) -> str:
+    """Formats a failed ack's status text (gate finding #4). Pure/no-GTK so
+    it's unit-testable without a display, same discipline as
+    resolve_environment_preset below."""
+    return f"✘ {msg.get('cmd')}: {msg.get('reason', 'rejected')}"
+
+
 def resolve_environment_preset(source_uri, own_asset_uri):
     """Reverse-maps a node's real environment_source_uri (+ its
     environment_own_asset_uri) back to a GUI preset name, or None when it
@@ -437,14 +453,18 @@ class VcamWindow(Gtk.Window):
         # already declared (STANDING directive -- reused, not a second
         # knob) + a ComboBoxText-equivalent for the 4 source presets. Both
         # live, no restart -- same contract as the Surround Stitching
-        # controls above. Reflects real node state (_apply_params below);
-        # never asserts a fixed default the way the Surround Stitching/
-        # Quality combos above do (those predate VM-096).
+        # controls above. Build-time defaults below match
+        # default_params.yaml, same as the Surround Stitching/Quality combos
+        # above (gate finding #22 -- this section is NOT exempt from that
+        # rule); _apply_params() below re-syncs both from the node's REAL
+        # values once a params frame arrives, same rule as every other
+        # widget in this method.
         section("Environment tiles (visual mode)")
         env_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         env_label = Gtk.Label(label="enabled", xalign=0.0)
         env_label.set_size_request(130, -1)
         self._environment_enabled_switch = Gtk.Switch()
+        self._environment_enabled_switch.set_active(True)  # matches default_params.yaml's environment_enabled: true
         self._environment_enabled_switch.connect("notify::active",
                                                   self._on_environment_enabled_changed)
         env_row.pack_start(env_label, False, False, 0)
@@ -458,7 +478,12 @@ class VcamWindow(Gtk.Window):
         # effect.
         self._environment_store = Gtk.ListStore(str, str, bool)
         for preset in ENVIRONMENT_PRESETS:
-            self._environment_store.append([preset, preset, True])
+            # ponytail: fail-closed (gate finding #21) -- "clipped" starts
+            # NOT sensitive; its real availability isn't known until the
+            # first get_params round-trip, and _update_clipped_availability
+            # is the only thing that ever turns it on (never guessed True).
+            self._environment_store.append(
+                [preset, preset, initial_environment_sensitivity(preset)])
         self._environment_combo = Gtk.ComboBox(model=self._environment_store)
         env_renderer = Gtk.CellRendererText()
         self._environment_combo.pack_start(env_renderer, True)
@@ -466,7 +491,13 @@ class VcamWindow(Gtk.Window):
         self._environment_combo.add_attribute(env_renderer, "sensitive", 2)
         self._environment_combo.set_active(0)  # matches default_params.yaml's "" -> baked
         self._environment_combo.connect("changed", self._on_environment_source_changed)
+        self._environment_combo.set_tooltip_text(
+            "clipped: availability not yet known -- waiting for the node's "
+            "environment_own_asset_uri (see docs/visual_mode/cesium.md)")
         panel.pack_start(self._environment_combo, False, False, 0)
+        self._environment_status_label = Gtk.Label(xalign=0.0)
+        self._environment_status_label.set_line_wrap(True)
+        panel.pack_start(self._environment_status_label, False, False, 0)
 
         # Epic 3 Task 5 (VM-032): quality preset -- NOT live (P4, Epic 5's
         # own set_quality() entry point is what would make this live); the
@@ -670,10 +701,40 @@ class VcamWindow(Gtk.Window):
         return False
 
     def _apply_ack(self, msg: dict):
-        if msg.get("cmd") == "save_params":
+        cmd = msg.get("cmd")
+        if cmd == "save_params":
             ok = msg.get("success")
             self._status.set_text(
                 ("✔ saved " if ok else "✘ save failed: ") + str(msg.get("path")))
+            return False
+        # Generic failure surface (gate finding #4): every other ack cmd
+        # (set_layers/set_quality/set_surround_profile/
+        # set_environment_enabled/set_environment_source/set_preset) used to
+        # be dropped silently here -- a rejected set_environment_source
+        # (e.g. the node's geo-anchor not solved yet) left the combo
+        # showing a preset that was never applied, with no signal anywhere.
+        # NOT surfaced via self._status: _apply_state() rewrites that label
+        # on every ~15Hz state frame, which would clobber a failure message
+        # before a human could read it -- the dedicated Environment Tiles
+        # label above survives that.
+        is_env_cmd = cmd in ("set_environment_enabled", "set_environment_source")
+        if not msg.get("success"):
+            if is_env_cmd:
+                self._environment_status_label.set_text(ack_failure_text(msg))
+                if cmd == "set_environment_source":
+                    # The node refused the switch -- re-sync the combo from
+                    # the node's real state rather than keep showing the
+                    # preset it never applied.
+                    self._ws.send({"cmd": "get_params"})
+            else:
+                # Non-environment failures go to the general status line:
+                # best-effort (the next state frame may overwrite it), but
+                # never into the Environment Tiles section they don't belong to.
+                self._status.set_text(ack_failure_text(msg))
+        elif is_env_cmd:
+            # Only an environment cmd's own success clears a standing
+            # environment failure; unrelated acks leave it readable.
+            self._environment_status_label.set_text("")
         return False
 
     def _on_save_as(self, _btn):

@@ -1013,8 +1013,14 @@ TEST(MapElementsZFight, CrosswalkOverBoundaryStaysStableAcrossTinyCameraMove) {
             ++overlapCount;
         }
     }
-    ASSERT_GT(overlapCount, 0u) << "the boundary/crosswalk fixture produced no screen-space "
-                                   "overlap at all -- test geometry/camera needs adjusting";
+    // Finding #11/#32: 20u, not merely >0u -- the bound below is a
+    // percentage; too small a mask makes the ORIGINAL integer-division form
+    // (overlapCount / 10) unsatisfiable even at flipped==0, and even in the
+    // float form now used a tiny denominator makes one stray flip look like
+    // a large regression. 20 keeps real headroom under today's measured 54.
+    ASSERT_GE(overlapCount, 20u) << "the boundary/crosswalk fixture produced too small a screen-space "
+                                     "overlap to measure a flip rate -- test geometry/camera needs "
+                                     "adjusting";
 
     const std::vector<uint8_t> combinedA = RenderZFightScene(poseA, both, 2);
     const std::vector<uint8_t> combinedB = RenderZFightScene(poseB, both, 2);
@@ -1030,7 +1036,13 @@ TEST(MapElementsZFight, CrosswalkOverBoundaryStaysStableAcrossTinyCameraMove) {
     // writing this test), 15 of 54 mask pixels (~28%) flip and this bound
     // fails. Measured against the per-kind table above, 0 of 54 flip. 10%
     // sits comfortably between the two and clear of both.
-    EXPECT_LT(flipped, overlapCount / 10)
+    // Finding #11/#32: float division, not `overlapCount / 10` -- the
+    // integer form made this assertion unsatisfiable (bound truncates to 0)
+    // whenever overlapCount fell below 10, even at flipped==0. The
+    // ASSERT_GE(overlapCount, 20u) precondition above keeps this bound
+    // meaningful; this form keeps it correct even if that margin ever
+    // shrinks.
+    EXPECT_LT(static_cast<double>(flipped) / static_cast<double>(overlapCount), 0.10)
         << flipped << " of " << overlapCount
         << " overlap pixels changed between two camera positions 4mm apart -- "
            "z-fighting flip between the crosswalk and the boundary line, not a "

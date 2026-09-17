@@ -57,6 +57,81 @@ id — set `environment_own_asset_uri` (`config/default_params.yaml`) to
 uploaded one. Until then, "" (the shipped default) means "no own asset
 yet" and the GUI greys that option out with a tooltip pointing back here.
 
+## 3. The env var contract
+
+- Exact name: **`CESIUM_ION_TOKEN`**. No alternate spelling, no config-file
+  fallback.
+- Read by the renderer library at `set_environment_source()` time via
+  `getenv("CESIUM_ION_TOKEN")` — once, at open.
+- Missing or empty → the environment layer fails to open with one WARN;
+  nothing else in the node is affected (spec §9, "missing data renders
+  nothing" — same non-fatal shape as a missing bake directory).
+- Token rotation: replace the env var and restart the node. No param and no
+  file of ours stores the token. Two places it *transits* that are worth
+  knowing about (both found and closed at the 2026-09-17 final review):
+  - cesium-native puts the token in the ion handshake URL
+    (`/v1/assets/<id>/endpoint?access_token=…`). The library routes any
+    `access_token=`-bearing request around the disk tile cache, so it never
+    reaches `cesium-tiles.sqlite` regardless of what ion's response headers
+    say — before the fix it stayed out of the cache only because that
+    response happens to be uncacheable.
+  - on a 401 / no-response, cesium-native logs that URL verbatim through the
+    logger the library hands it. The library now hands it a redacting logger
+    (`access_token=<redacted>`, `Bearer <redacted>`); a library test drives a
+    bogus token through the 401 path and asserts nothing token-shaped reaches
+    the log. Before the fix an expired token would have printed itself into
+    the node's stdout/ROS log.
+  - What the disk tile cache DOES hold: tile and `tileset.json` requests
+    carry ion's **short-lived session token** as an `Authorization: Bearer`
+    header, and cesium-native's `SqliteCache` persists request headers
+    verbatim, so `cesium-tiles.sqlite` contains session tokens whenever
+    `cache` is not `off`. That is the exposure class Decision 6 already
+    accepted (it said "URLs"; it is the header) — never `CESIUM_ION_TOKEN`
+    itself, which rides only on the bypassed handshake request.
+  - If a token ever DOES land in a log or transcript, rotate it (§1); the
+    rotation is the remedy, not the redaction.
+
+## 4. Smoke check
+
+Run:
+
+```bash
+cuda/src/libs/visual_renderer/scripts/check_cesium_token.sh [assetId]
+```
+
+(`assetId` defaults to `96188`.) This proves the token reaches the same ion
+tileset endpoint the renderer will use — it does **not** touch the renderer
+or any node process.
+
+- **PASS** means BOTH stages returned HTTP 200: the `/v1/assets/<id>/endpoint`
+  handshake, and the fetch of the `tileset.json` URL that handshake
+  returned, using its short-lived session token. Endpoint-200 alone is not
+  the AC — "token retrieves `tileset.json`" is checked literally, not by
+  proxy.
+- Exit codes: **0 = pass**, **1 = fail**, **2 = skip** (`CESIUM_ION_TOKEN`
+  unset) — distinct so a wrapper or CI step can tell "broken" from
+  "not configured".
+- **FAIL, endpoint stage, HTTP 401**: bad or expired token — regenerate it
+  in section 1 and re-export.
+- **FAIL, endpoint stage, HTTP 404**: the account has not added this asset
+  yet — go do section 2's "Add to my assets" step, then re-run.
+- **FAIL, tileset stage**: the endpoint accepted the token and handed back a
+  session token, but the tileset URL itself rejected or could not route that
+  session token — this is an ion-side/network issue, not a token-typo issue;
+  re-run once, then treat as a real outage if it repeats.
+- The script never prints the token, the session token, or any response
+  body — only PASS/FAIL and HTTP status codes.
+
+## 5. What this does NOT cover
+
+- **Baking the fallback/offline environment** — that is the separate baked
+  pipeline (`bake_environment.py`), documented in
+  [`environment_bake.md`](environment_bake.md) (Epic 4 / VM-042).
+- **Disk tile cache and baked-fallback params** (`?cache=`, `&fallback=`,
+  `&max_cache_items=` on the `ion://` source URI, and their defaults in
+  `default_params.yaml`) — those are VM-063's param table, not this runbook;
+  this runbook stops at "the token works against the chosen asset".
+
 ## 6. Google Photorealistic 3D Tiles (VM-064)
 
 A textured, photorealistic mesh, not clay — `default_params.yaml`'s
@@ -100,7 +175,11 @@ different beast from Path A/B's clay tilesets.
   `hud_font_path`), the manual fallback is a physical/on-screen overlay
   sticker or a fixed compositing step downstream of this node; that gap
   would show up as the node's own one-shot WARN
-  (`environment_attribution_warned_`).
+  (`environment_attribution_warned_`). This "wherever tiles are displayed"
+  requirement is not limited to the running node's own on-screen HUD — it
+  applies equally to any committed doc capture that displays this imagery
+  (e.g. `docs/visual_mode/env_source_captures.md`'s `env_source_google.png`),
+  which carries its own attribution caption for exactly this reason.
 - **Cache terms.** The shipped preset ships `cache=off` (VM-063's existing
   `?cache=` knob, given the literal value `off` rather than a directory —
   Decision 14 / Task 5 Step 2(b)) until this deployment has verified
@@ -118,61 +197,12 @@ different beast from Path A/B's clay tilesets.
   fixture with the test-only `materials_original` hook param) — the visual
   check against real Google content is the validation rig's live-token,
   live-network human step, same as this runbook's own smoke check.
-- **Perf.** Expect a materially heavier `render_ms` delta than either clay
-  preset (textured photoreal vs. untextured extrusions) — record it in the
-  epic's results block the same way as the OSM-clay preset's own number;
+- **Perf.** The plan expected a materially heavier `render_ms` delta than
+  either clay preset (textured photoreal vs. untextured extrusions) —
+  **measured INCONCLUSIVE at VM-064**: the one dev-box, single-tile,
+  single-run measurement did NOT confirm that expectation (see the epic's
+  own results block, `docs/superpowers/plans/2026-08-18-visual-mode-epic6.md`).
+  Treat the "materially heavier" claim as unverified until a sustained
+  multi-tile, live-rig measurement is done, and budget accordingly;
   `maximumScreenSpaceError`/load-radius tuning are the named first levers
   on a miss.
-
-## 3. The env var contract
-
-- Exact name: **`CESIUM_ION_TOKEN`**. No alternate spelling, no config-file
-  fallback.
-- Read by the renderer library at `set_environment_source()` time via
-  `getenv("CESIUM_ION_TOKEN")` — once, at open.
-- Missing or empty → the environment layer fails to open with one WARN;
-  nothing else in the node is affected (spec §9, "missing data renders
-  nothing" — same non-fatal shape as a missing bake directory).
-- Token rotation: replace the env var and restart the node. Nothing else
-  (no cache file, no param) stores the token.
-
-## 4. Smoke check
-
-Run:
-
-```bash
-cuda/src/libs/visual_renderer/scripts/check_cesium_token.sh [assetId]
-```
-
-(`assetId` defaults to `96188`.) This proves the token reaches the same ion
-tileset endpoint the renderer will use — it does **not** touch the renderer
-or any node process.
-
-- **PASS** means BOTH stages returned HTTP 200: the `/v1/assets/<id>/endpoint`
-  handshake, and the fetch of the `tileset.json` URL that handshake
-  returned, using its short-lived session token. Endpoint-200 alone is not
-  the AC — "token retrieves `tileset.json`" is checked literally, not by
-  proxy.
-- Exit codes: **0 = pass**, **1 = fail**, **2 = skip** (`CESIUM_ION_TOKEN`
-  unset) — distinct so a wrapper or CI step can tell "broken" from
-  "not configured".
-- **FAIL, endpoint stage, HTTP 401**: bad or expired token — regenerate it
-  in section 1 and re-export.
-- **FAIL, endpoint stage, HTTP 404**: the account has not added this asset
-  yet — go do section 2's "Add to my assets" step, then re-run.
-- **FAIL, tileset stage**: the endpoint accepted the token and handed back a
-  session token, but the tileset URL itself rejected or could not route that
-  session token — this is an ion-side/network issue, not a token-typo issue;
-  re-run once, then treat as a real outage if it repeats.
-- The script never prints the token, the session token, or any response
-  body — only PASS/FAIL and HTTP status codes.
-
-## 5. What this does NOT cover
-
-- **Baking the fallback/offline environment** — that is the separate baked
-  pipeline (`bake_environment.py`), documented in
-  [`environment_bake.md`](environment_bake.md) (Epic 4 / VM-042).
-- **Disk tile cache and baked-fallback params** (`?cache=`, `&fallback=`,
-  `&max_cache_items=` on the `ion://` source URI, and their defaults in
-  `default_params.yaml`) — those are VM-063's param table, not this runbook;
-  this runbook stops at "the token works against the chosen asset".

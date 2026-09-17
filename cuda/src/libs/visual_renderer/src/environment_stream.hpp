@@ -324,7 +324,7 @@ public:
     void teardown(VisualRenderer& r) override;
     void set_visible(VisualRenderer& r, bool visible) override;
     size_t loaded_count() const override;
-    size_t scene_membership_count() const override;
+    size_t scene_membership_count(VisualRenderer& r) const override;
     EnvironmentSourceState state() const override;
 
     // Recorded, not asserted (same class as budget_probe.md numbers) --

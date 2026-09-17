@@ -151,6 +151,21 @@ void BakedEnvironmentSource::teardown(VisualRenderer& r) {
     loaded_.clear();
 }
 
+size_t BakedEnvironmentSource::scene_membership_count(VisualRenderer& r) const {
+    // Finding #1: read real Filament scene membership per loaded_ entry
+    // (r.scene->hasEntity() on the asset's first entity) instead of
+    // re-deriving from visible_ -- see EnvironmentSource::scene_membership_count()'s
+    // own comment for why.
+    size_t count = 0;
+    for (const auto& [id, chunk] : loaded_) {
+        (void)id;
+        if (chunk.asset->getEntityCount() > 0 && r.scene->hasEntity(chunk.asset->getEntities()[0])) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 void BakedEnvironmentSource::set_visible(VisualRenderer& r, bool visible) {
     if (visible == visible_) return;  // no-op: matches the current state already
     visible_ = visible;
@@ -270,10 +285,15 @@ bool environment_visible(VisualRenderer* r) {
 }
 
 // Epic 6 (VM-063) Decision 11: the node's only window into a streaming
-// source's live health, since the library can't WARN itself (POD-boundary
-// convention, same as set_environment_source above) and network loss
-// happens mid-run, long after set_environment_source() returned true.
-// NONE on null r or when no source is configured -- everything else goes
+// source's live health, since the library does not log through the NODE's
+// own logger (POD-boundary convention, same as set_environment_source
+// above). Not an absolute "the library never logs anything itself" claim,
+// though: environment_stream.cpp's parse_ion_spec() does call plain
+// spdlog::warn() once (an unrecognized materials= value -- no credential in
+// that message, unrelated to build_externals()'s own dedicated/redacting
+// cesium logger) -- a narrow, named exception rather than a blanket rule.
+// Network loss itself happens mid-run, long after set_environment_source()
+// returned true. NONE on null r or when no source is configured -- everything else goes
 // through the EnvironmentSource virtual (Decision 12's precedent: a
 // downcast here would be unsafe against a second concrete type).
 EnvironmentSourceState environment_source_state(VisualRenderer* r) {
@@ -299,7 +319,7 @@ uint64_t environment_loaded_chunk_count(mpviz::VisualRenderer* r) {
 
 uint64_t environment_scene_membership_count(mpviz::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return 0;
-    return static_cast<uint64_t>(r->environmentSource->scene_membership_count());
+    return static_cast<uint64_t>(r->environmentSource->scene_membership_count(*r));
 }
 
 }  // namespace mpviz::testing

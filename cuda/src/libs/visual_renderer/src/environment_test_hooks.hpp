@@ -5,15 +5,20 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 #include "visual_renderer/api.h"
 #include "visual_renderer/scene.h"
 
 namespace mpviz::testing {
 
-// Live chunk count BakedEnvironmentSource currently holds loaded (added to
-// r->scene) -- proves distance culling gates LOADING, not merely drawing.
-// 0 if `r` is null or no source is configured (set_environment_source()
+// Live chunk count the installed EnvironmentSource (BakedEnvironmentSource
+// or StreamingEnvironmentSource, Decision 12) currently holds loaded --
+// proves distance/streaming culling gates LOADING, not merely drawing.
+// Independent of visibility: a chunk/tile stays counted here whether it is
+// actually in `r`'s Filament scene or not (VM-096 decoupled "loaded" from
+// "in the scene" -- see environment_scene_membership_count() below for the
+// latter). 0 if `r` is null or no source is configured (set_environment_source()
 // never called, or it failed) -- same null-`r` contract as
 // map_element_rebuild_count().
 uint64_t environment_loaded_chunk_count(mpviz::VisualRenderer* r);
@@ -102,5 +107,24 @@ bool environment_stream_parse_materials_original(const char* ion_spec);
 // null/non-streaming conditions as the hook above, or if nothing has
 // loaded yet.
 bool environment_stream_first_primitive_is_clay(mpviz::VisualRenderer* r);
+
+// Finding #0 (security, token redaction) test hooks -- environment_stream.cpp
+// only, cesium-free signatures so this header stays includable from a plain
+// C++17 test TU (Decision 3).
+
+// Everything this library's own named cesium logger has ever emitted,
+// POST-redaction (build_externals()'s RedactingSink) -- empty if no
+// build_externals() call has happened yet in this process.
+std::string captured_cesium_log_text();
+
+// Drives the real ion-handshake error path (asset_id + access_token
+// Tileset ctor) against a file-fixture accessor -- no network, no real
+// token. The (bogus) token necessarily appears in the in-flight request
+// URL; this hook exists to prove it never reaches this library's own log
+// output. Pumps up to `max_ticks`; returns true once the captured log text
+// actually contains "access_token=" (not merely once anything was logged --
+// the capture is a process-wide singleton an earlier test may have written
+// to), false if `max_ticks` elapse first.
+bool drive_ion_token_redaction_probe(const char* bogus_token, int64_t asset_id, int max_ticks);
 
 }  // namespace mpviz::testing

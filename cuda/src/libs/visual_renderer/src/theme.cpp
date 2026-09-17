@@ -191,8 +191,10 @@ const Theme& kFallbackTheme() {
         // Cold green; glow intentionally killed (no neon/high ribbon_strength).
         t.palette.ribbon_core = {0.12f, 0.55f, 0.42f};
         t.palette.ribbon_glow = {0.12f, 0.55f, 0.42f};
-        // Cross-theme swap: light_clay's ego color, same value dark_adas.yaml's
-        // `ego` key authors on disk -- see theme.hpp's Palette::ego comment.
+        // dark_adas.yaml's own authored `ego` value (Finding #29: NOT
+        // light_clay's ego OR ground -- this half of the old cross-theme
+        // swap no longer holds, see theme.hpp's Palette::ego comment) --
+        // must match dark_adas.yaml exactly (ThemeLoad.BuiltinFallbackMatchesDarkAdasYaml).
         t.palette.ego = {0.82f, 0.80f, 0.76f};
         // dark_adas.yaml's own authored values -- not a reuse of
         // ribbon_core/glow.
