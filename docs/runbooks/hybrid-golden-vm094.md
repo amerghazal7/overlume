@@ -203,7 +203,7 @@ Step 5 human judgment.
 
 ## Recapture, 2026-09-11 (later still): re-shot with linearized lidar colors
 
-`hybrid_test_town_merged_node.png` above is RE-SHOT against the e8e0eec
+`hybrid_test_town_merged_node.png` above is RE-SHOT against the e15ca37
 build (lidar `pack_rgba` sRGB→linear LUT), closing the "stale again" flag
 the section above raised. Same recipe as this doc's own recapture section:
 same fixture bag, `ROS_DOMAIN_ID=93`, fresh single-pass playback
