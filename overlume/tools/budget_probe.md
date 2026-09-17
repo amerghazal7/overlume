@@ -21,7 +21,7 @@ of the unified-engine migration's Task 6 (VM-095) cutover** —
 (`q1_rnode_idle`/`q1_rnode_mode2`) are gone from the script (Step 5), and
 this text is reworded to match rather than describing a step someone would
 otherwise try to follow against a deleted package. For each case the script
-1. starts `visualization_node` with `--params-file default_params.yaml`,
+1. starts `overlume_node` with `--params-file default_params.yaml`,
    `initial_mode:=3 use_sim_time:=true out_width:=1280 out_height:=720
    profile:=urban quality:=<q>`, configures + activates it (lifecycle),
 2. starts `tools/tf_flatten_fixture.py` and
@@ -76,7 +76,7 @@ Interpretation (proxy only):
 ## Results (b) — ON-ROBOT (closed 2026-09-11, Task 6/VM-095 Step 1)
 
 **Closes VM-043 for real** (Decision 10) — there is only one process left to
-measure: the merged `visualization_node` as the ONLY rendering process, all
+measure: the merged `overlume_node` as the ONLY rendering process, all
 three modes, real camera+lidar input from the fixture bag, `bowl_enabled`
 AND `hybrid_enabled` both `true` (this is what production runs post-Step-6,
 not an isolated capability check).
@@ -214,7 +214,7 @@ under real per-tick ego-motion compensation instead.
 ## Task 4 (VM-093) Step 2 — CycloneDDS SHM launch config carried forward, 2026-09-11
 
 Verified by launching the merged node via its OWN launch file
-(`ros2 launch micropilot_visualization_node visualization_node.launch.py`,
+(`ros2 launch overlume_ros overlume_node.launch.py`,
 `CYCLONEDDS_URI` explicitly unset in the parent shell first) and reading the
 running process's actual environment (`/proc/<pid>/environ`):
 `CYCLONEDDS_URI=file:///home/ag7/.config/cyclonedds/cyclonedds.xml` —

@@ -3,7 +3,7 @@
 // environment_stream.cpp and NOTHING else: the static_assert below makes
 // that enforced, not just documented, and no other TU in this project has
 // the cesium include dirs needed to even find these headers (they exist
-// only on the visual_renderer_stream OBJECT library, CMakeLists.txt).
+// only on the overlume_stream OBJECT library, CMakeLists.txt).
 #pragma once
 
 static_assert(__cplusplus >= 202002L,
@@ -37,9 +37,9 @@ static_assert(__cplusplus >= 202002L,
 #include <CesiumGeospatial/LocalHorizontalCoordinateSystem.h>
 
 #include "environment.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
-namespace mpviz {
+namespace overlume {
 
 // ── Named constants (Decision 9, dev-box proxies -- same honesty class as
 //    environment.hpp's kLoadRadiusM) ─────────────────────────────────────
@@ -381,4 +381,4 @@ private:
     std::unique_ptr<EnvironmentSource> fallbackSource_;  // null iff no &fallback= dir, or it failed to open
 };
 
-}  // namespace mpviz
+}  // namespace overlume

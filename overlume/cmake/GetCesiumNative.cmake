@@ -99,19 +99,19 @@ set(CMAKE_COMPILE_WARNING_AS_ERROR OFF)
 # specifically. Computed from whichever installed gcc actually ships the
 # libstdc++.so dev symlink (glob, not a hardcoded version number) so this
 # keeps working if the system's gcc versions change.
-file(GLOB _mpviz_cn_libstdcxx_dev_dirs "/usr/lib/gcc/*/*")
-set(_mpviz_cn_libstdcxx_dev_dir "")
-foreach(_d ${_mpviz_cn_libstdcxx_dev_dirs})
+file(GLOB _overlume_cn_libstdcxx_dev_dirs "/usr/lib/gcc/*/*")
+set(_overlume_cn_libstdcxx_dev_dir "")
+foreach(_d ${_overlume_cn_libstdcxx_dev_dirs})
     if(EXISTS "${_d}/libstdc++.so" AND IS_DIRECTORY "${_d}")
-        set(_mpviz_cn_libstdcxx_dev_dir "${_d}")
+        set(_overlume_cn_libstdcxx_dev_dir "${_d}")
         break()
     endif()
 endforeach()
-if(_mpviz_cn_libstdcxx_dev_dir)
-    set(ENV{LIBRARY_PATH} "${_mpviz_cn_libstdcxx_dev_dir}:$ENV{LIBRARY_PATH}")
+if(_overlume_cn_libstdcxx_dev_dir)
+    set(ENV{LIBRARY_PATH} "${_overlume_cn_libstdcxx_dev_dir}:$ENV{LIBRARY_PATH}")
 else()
     message(WARNING
-        "visual_renderer/GetCesiumNative: no /usr/lib/gcc/*/*/libstdc++.so "
+        "overlume/GetCesiumNative: no /usr/lib/gcc/*/*/libstdc++.so "
         "dev symlink found anywhere -- vcpkg's own scripts/detect_compiler "
         "pseudo-port (see comment above) may fail to link its bare "
         "no-flags compiler probe on this box.")
@@ -142,14 +142,14 @@ FetchContent_MakeAvailable(cesium-native)
 # subdirectory target, recursively, across every directory FetchContent just
 # added. get_property(... BUILDSYSTEM_TARGETS) is scoped per-directory, so
 # walk SUBDIRECTORIES recursively from the fetched source root.
-function(_mpviz_disable_warnings_as_errors_recursive _dir)
+function(_overlume_disable_warnings_as_errors_recursive _dir)
     get_property(_targets DIRECTORY "${_dir}" PROPERTY BUILDSYSTEM_TARGETS)
     foreach(_tgt ${_targets})
         set_target_properties(${_tgt} PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
     endforeach()
     get_property(_subdirs DIRECTORY "${_dir}" PROPERTY SUBDIRECTORIES)
     foreach(_subdir ${_subdirs})
-        _mpviz_disable_warnings_as_errors_recursive("${_subdir}")
+        _overlume_disable_warnings_as_errors_recursive("${_subdir}")
     endforeach()
 endfunction()
-_mpviz_disable_warnings_as_errors_recursive("${cesium-native_SOURCE_DIR}")
+_overlume_disable_warnings_as_errors_recursive("${cesium-native_SOURCE_DIR}")

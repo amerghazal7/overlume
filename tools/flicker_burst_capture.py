@@ -18,7 +18,7 @@ presence floor, is a dropout -- the majority being absent is the strongest
 possible dropout signal, never an exemption from detection.
 
 Usage (against an already-configured-and-activated node + bag playback):
-    python3 tools/flicker_burst_capture.py --out-dir /tmp/mpviz_flicker_burst
+    python3 tools/flicker_burst_capture.py --out-dir /tmp/overlume_flicker_burst
 
 Unit-test the detector alone (no ROS): pytest tools/test_flicker_burst_capture.py
 """

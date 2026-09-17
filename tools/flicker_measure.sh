@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # flicker_measure.sh — VM-077 carpet-flicker rig (2026-09-10).
 #
-# Stands up ONE continuous visualization_node + tf_flatten_fixture.py +
+# Stands up ONE continuous overlume_node + tf_flatten_fixture.py +
 # ros2 bag play session (same invocation pattern validate_visual_mode.sh
 # uses) and runs flicker_capture.py against it, which toggles
 # layer_trajectory_carpet live to sample both conditions from the SAME
@@ -18,7 +18,7 @@ set -m  # own process group per background job -- see validate_visual_mode.sh's
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BAG="${HOME}/TPSProjector-fixtures/stack_v3_full_sensors_2026-09-11"
 QOS="${HOME}/TPSProjector-fixtures/qos_full.yaml"
-OUT_DIR="/tmp/mpviz_flicker_measure_after"
+OUT_DIR="/tmp/overlume_flicker_measure_after"
 ROS_DOMAIN_ID_RIG="94"
 
 while [[ $# -gt 0 ]]; do
@@ -72,20 +72,20 @@ teardown() {
 }
 trap teardown INT TERM EXIT
 
-echo "[launch] visualization_node (ROS_DOMAIN_ID=${ROS_DOMAIN_ID_RIG}, log: ${LOG_DIR}/visualization_node.log)"
-ros2 run micropilot_visualization_node visualization_node --ros-args \
-    --params-file "$(ros2 pkg prefix micropilot_visualization_node)/share/micropilot_visualization_node/config/default_params.yaml" \
+echo "[launch] overlume_node (ROS_DOMAIN_ID=${ROS_DOMAIN_ID_RIG}, log: ${LOG_DIR}/overlume_node.log)"
+ros2 run overlume_ros overlume_node --ros-args \
+    --params-file "$(ros2 pkg prefix overlume_ros)/share/overlume_ros/config/default_params.yaml" \
     -p initial_mode:=3 -p use_sim_time:=true \
-    > "${LOG_DIR}/visualization_node.log" 2>&1 &
+    > "${LOG_DIR}/overlume_node.log" 2>&1 &
 track_child "$!"
 
 lifecycle_set_retry() {
     local transition="$1" tries=0 out
     while true; do
-        out="$(ros2 lifecycle set /visualization_node "${transition}" 2>&1)" || true
+        out="$(ros2 lifecycle set /overlume_node "${transition}" 2>&1)" || true
         if grep -q "Transitioning successful" <<<"${out}"; then return 0; fi
         if grep -q "Transitioning failed" <<<"${out}"; then
-            echo "${transition} failed: see ${LOG_DIR}/visualization_node.log" >&2
+            echo "${transition} failed: see ${LOG_DIR}/overlume_node.log" >&2
             return 1
         fi
         tries=$((tries + 1))

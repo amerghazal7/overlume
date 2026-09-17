@@ -8,9 +8,9 @@
 #pragma once
 
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
-namespace mpviz {
+namespace overlume {
 
 // Diffs `scene.paths`/`path_count` against `r.ribbonSlots`, keyed by slot
 // index, not role — see renderer_internal.hpp's RibbonSlot comment for why.
@@ -20,4 +20,4 @@ namespace mpviz {
 // thread that owns the Engine.
 void update_ribbons(VisualRenderer& r, const SceneGraph& scene);
 
-}  // namespace mpviz
+}  // namespace overlume

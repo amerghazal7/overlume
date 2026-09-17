@@ -17,7 +17,7 @@
 #include <tuple>
 #include <vector>
 
-namespace mpviz::testing {
+namespace overlume::testing {
 namespace {
 
 // This epic's goldens are all committed at a fixed 320x240 (see golden.hpp
@@ -73,13 +73,13 @@ double block_ssim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, 
 
 }  // namespace
 
-double render_and_compare(mpviz::VisualRenderer* r, const mpviz::CameraPose& pose,
+double render_and_compare(overlume::VisualRenderer* r, const overlume::CameraPose& pose,
                            const char* golden_png_path, const char* out_png_path) {
     if (r == nullptr) return -1.0;
 
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3);
-    mpviz::FrameView view{rgb.data(), kWidth, kHeight};
-    if (!mpviz::render_frame(r, pose, view)) return 0.0;
+    overlume::FrameView view{rgb.data(), kWidth, kHeight};
+    if (!overlume::render_frame(r, pose, view)) return 0.0;
 
     stbi_write_png(out_png_path, static_cast<int>(kWidth), static_cast<int>(kHeight), 3,
                     rgb.data(), static_cast<int>(kWidth) * 3);
@@ -174,7 +174,7 @@ MapGeom load_map_geom(const char* path) {
     // buffer address is final, not re-derived from a moving target.
     struct Meta {
         uint8_t is_polygon;
-        mpviz::MapKind kind;
+        overlume::MapKind kind;
         uint32_t lane_id;
         uint32_t offset;
         uint32_t count;
@@ -204,12 +204,12 @@ MapGeom load_map_geom(const char* path) {
             continue;
         }
         meta.push_back(Meta{static_cast<uint8_t>(isPolygon != 0),
-                             static_cast<mpviz::MapKind>(kindRaw), laneId, offset, n});
+                             static_cast<overlume::MapKind>(kindRaw), laneId, offset, n});
     }
 
     g.elements.reserve(meta.size());
     for (const auto& m : meta) {
-        mpviz::MapElement e{};
+        overlume::MapElement e{};
         e.points = m.count > 0 ? g.points.data() + m.offset : nullptr;
         e.point_count = m.count;
         e.is_polygon = m.is_polygon;
@@ -224,19 +224,19 @@ MapGeom load_map_geom(const char* path) {
 // camera looking roughly at the world origin sees all six.
 ObjectScene make_mixed_class_objects(double now) {
     struct Spec {
-        mpviz::ObjectClass cls;
-        mpviz::Vec3 position;
+        overlume::ObjectClass cls;
+        overlume::Vec3 position;
         double heading;
-        mpviz::Vec3 dims;
-        mpviz::Vec3 velocity;
-        std::vector<mpviz::Vec3> path;  // empty -> no predicted path
+        overlume::Vec3 dims;
+        overlume::Vec3 velocity;
+        std::vector<overlume::Vec3> path;  // empty -> no predicted path
         double age_sec;                 // last_update_sec = now - age_sec
     };
     const std::vector<Spec> specs = {
         // CAR: fresh, nonzero velocity -- exercises the velocity-arrow path.
-        {mpviz::ObjectClass::CAR, {-6.0, -3.0, 0.0}, 0.3, {4.5, 1.8, 1.5}, {3.0, 1.0, 0.0}, {}, 0.0},
+        {overlume::ObjectClass::CAR, {-6.0, -3.0, 0.0}, 0.3, {4.5, 1.8, 1.5}, {3.0, 1.0, 0.0}, {}, 0.0},
         // TRUCK_VAN: fresh, has a predicted path -- exercises extrude_polyline.
-        {mpviz::ObjectClass::TRUCK_VAN,
+        {overlume::ObjectClass::TRUCK_VAN,
          {-3.0, 4.0, 0.0},
          -0.5,
          {5.5, 2.0, 2.2},
@@ -244,14 +244,14 @@ ObjectScene make_mixed_class_objects(double now) {
          {{-3.0, 4.0, 0.0}, {-1.0, 3.0, 0.0}, {1.0, 2.5, 0.0}, {3.0, 2.0, 0.0}},
          0.0},
         // BUS: fresh, plain.
-        {mpviz::ObjectClass::BUS, {5.0, 5.0, 0.0}, 2.1, {12.0, 2.5, 3.2}, {0.0, 0.0, 0.0}, {}, 0.0},
+        {overlume::ObjectClass::BUS, {5.0, 5.0, 0.0}, 2.1, {12.0, 2.5, 3.2}, {0.0, 0.0, 0.0}, {}, 0.0},
         // PEDESTRIAN: fresh, plain.
-        {mpviz::ObjectClass::PEDESTRIAN, {2.0, -5.0, 0.0}, 1.0, {0.6, 0.6, 1.8}, {0.0, 0.0, 0.0}, {}, 0.0},
+        {overlume::ObjectClass::PEDESTRIAN, {2.0, -5.0, 0.0}, 1.0, {0.6, 0.6, 1.8}, {0.0, 0.0, 0.0}, {}, 0.0},
         // CYCLIST: fresh, plain.
-        {mpviz::ObjectClass::CYCLIST, {-2.0, -6.0, 0.0}, 0.6, {1.9, 0.7, 1.7}, {0.0, 0.0, 0.0}, {}, 0.0},
+        {overlume::ObjectClass::CYCLIST, {-2.0, -6.0, 0.0}, 0.6, {1.9, 0.7, 1.7}, {0.0, 0.0, 0.0}, {}, 0.0},
         // UNKNOWN: deliberately stale -- 0.9s behind `now`, inside the
         // 0.5s/1.0s fade window (alpha ~0.2).
-        {mpviz::ObjectClass::UNKNOWN, {6.0, -6.0, 0.0}, -1.2, {2.0, 2.0, 2.0}, {0.0, 0.0, 0.0}, {}, 0.9},
+        {overlume::ObjectClass::UNKNOWN, {6.0, -6.0, 0.0}, -1.2, {2.0, 2.0, 2.0}, {0.0, 0.0, 0.0}, {}, 0.9},
     };
 
     ObjectScene s;
@@ -263,7 +263,7 @@ ObjectScene make_mixed_class_objects(double now) {
 
     uint32_t nextId = 1;
     for (const auto& sp : specs) {
-        mpviz::TrackedObject obj{};
+        overlume::TrackedObject obj{};
         obj.id = nextId++;
         obj.cls = sp.cls;
         obj.position = sp.position;
@@ -293,8 +293,8 @@ RibbonScene make_three_role_ribbons(double now)
 {
     struct Spec
     {
-        mpviz::PathRole role;
-        std::vector<mpviz::Vec3> points;
+        overlume::PathRole role;
+        std::vector<overlume::Vec3> points;
         double age_sec;  // last_update_sec = now - age_sec
     };
     // All three share ONE corridor, matching how the bag publishes all
@@ -303,15 +303,15 @@ RibbonScene make_three_role_ribbons(double now)
     // lower ribbon peeking out as a rim.
     const std::vector<Spec> specs = {
         // BEHAVIOR: the hero ribbon, fresh, shortest -- the near-term plan.
-        {mpviz::PathRole::BEHAVIOR,
+        {overlume::PathRole::BEHAVIOR,
          {{-4.0, -1.2, 0.0}, {0.0, 0.0, 0.0}, {4.0, 1.2, 0.0}},
          0.0},
         // GLOBAL: fresh, the longest -- the coarse route, same corridor.
-        {mpviz::PathRole::GLOBAL,
+        {overlume::PathRole::GLOBAL,
          {{-10.0, -3.0, 0.0}, {-5.0, -1.5, 0.0}, {0.0, 0.0, 0.0}, {5.0, 1.5, 0.0}, {10.0, 3.0, 0.0}},
          0.0},
         // LOCAL: fresh, mid-length, same corridor.
-        {mpviz::PathRole::LOCAL,
+        {overlume::PathRole::LOCAL,
          {{-6.0, -1.8, 0.0}, {-3.0, -0.9, 0.0}, {0.0, 0.0, 0.0}, {3.0, 0.9, 0.0}, {6.0, 1.8, 0.0}},
          0.0},
     };
@@ -327,7 +327,7 @@ RibbonScene make_three_role_ribbons(double now)
     {
         const size_t offset = s.point_storage.size();
         for (const auto& p : sp.points) s.point_storage.push_back(p);
-        mpviz::PathRibbon r{};
+        overlume::PathRibbon r{};
         r.role = sp.role;
         r.points = s.point_storage.data() + offset;
         r.point_count = static_cast<uint32_t>(sp.points.size());
@@ -337,7 +337,7 @@ RibbonScene make_three_role_ribbons(double now)
     // Ego sits exactly at (0,0,0), a point all three polylines pass through
     // by construction -- well inside kRibbonEgoClipLateralM (5.0m) for
     // every role, so the whole stack renders clipped at the ego.
-    s.ego = mpviz::EgoState{{0.0, 0.0, 0.0}, 0.0, 0.0, /*valid=*/1};
+    s.ego = overlume::EgoState{{0.0, 0.0, 0.0}, 0.0, 0.0, /*valid=*/1};
     return s;
 }
 
@@ -348,7 +348,7 @@ AlertScene make_sweep_and_predicted_alerts(double now)
     struct Spec
     {
         uint8_t severity;
-        std::vector<mpviz::Vec3> points;
+        std::vector<overlume::Vec3> points;
         double age_sec;  // last_update_sec = now - age_sec
     };
     const std::vector<Spec> specs = {
@@ -373,7 +373,7 @@ AlertScene make_sweep_and_predicted_alerts(double now)
     {
         const size_t offset = s.point_storage.size();
         for (const auto& p : sp.points) s.point_storage.push_back(p);
-        mpviz::AlertPolygon a{};
+        overlume::AlertPolygon a{};
         a.points = s.point_storage.data() + offset;
         a.point_count = static_cast<uint32_t>(sp.points.size());
         a.severity = sp.severity;
@@ -394,8 +394,8 @@ GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_p
     s.point_storage.reserve(4 + 4 + 5 + 3);
     s.markers.reserve(16);
 
-    auto push_posed = [&](mpviz::MarkerPrimitive prim, double x, mpviz::Vec3 scale) {
-        mpviz::GenericMarker m{};
+    auto push_posed = [&](overlume::MarkerPrimitive prim, double x, overlume::Vec3 scale) {
+        overlume::GenericMarker m{};
         m.primitive = prim;
         m.position = {x, 0.0, 0.5};
         m.heading_rad = 0.3;  // nonzero -- proves heading is actually applied, not just position
@@ -403,11 +403,11 @@ GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_p
         m.last_update_sec = now;  // fresh -- ZeroAlphaColorUsesThemeNeutralDefault's color[3]==0 default
         s.markers.push_back(m);
     };
-    auto push_points = [&](mpviz::MarkerPrimitive prim, const mpviz::Vec3* pts, uint32_t n,
+    auto push_points = [&](overlume::MarkerPrimitive prim, const overlume::Vec3* pts, uint32_t n,
                             bool colored) {
         const size_t offset = s.point_storage.size();
         for (uint32_t i = 0; i < n; ++i) s.point_storage.push_back(pts[i]);
-        mpviz::GenericMarker m{};
+        overlume::GenericMarker m{};
         m.primitive = prim;
         m.points = s.point_storage.data() + offset;
         m.point_count = n;
@@ -421,45 +421,45 @@ GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_p
         s.markers.push_back(m);
     };
 
-    push_posed(mpviz::MarkerPrimitive::CUBE, 0.0, {1.0, 1.0, 1.0});
-    push_posed(mpviz::MarkerPrimitive::SPHERE, 2.0, {1.0, 1.0, 1.0});
-    push_posed(mpviz::MarkerPrimitive::CYLINDER, 4.0, {1.0, 1.0, 1.0});
-    push_posed(mpviz::MarkerPrimitive::ARROW, 6.0, {1.5, 1.0, 1.0});
+    push_posed(overlume::MarkerPrimitive::CUBE, 0.0, {1.0, 1.0, 1.0});
+    push_posed(overlume::MarkerPrimitive::SPHERE, 2.0, {1.0, 1.0, 1.0});
+    push_posed(overlume::MarkerPrimitive::CYLINDER, 4.0, {1.0, 1.0, 1.0});
+    push_posed(overlume::MarkerPrimitive::ARROW, 6.0, {1.5, 1.0, 1.0});
 
-    const mpviz::Vec3 lineStrip[] = {
+    const overlume::Vec3 lineStrip[] = {
         {7.5, -0.5, 0.2}, {8.0, 0.5, 0.2}, {8.5, -0.5, 0.2}, {9.0, 0.5, 0.2}};
-    push_points(mpviz::MarkerPrimitive::LINE_STRIP, lineStrip, 4, /*colored=*/true);
+    push_points(overlume::MarkerPrimitive::LINE_STRIP, lineStrip, 4, /*colored=*/true);
 
-    const mpviz::Vec3 lineList[] = {
+    const overlume::Vec3 lineList[] = {
         {9.5, -0.5, 0.2}, {10.5, 0.5, 0.2}, {9.5, 0.5, 0.2}, {10.5, -0.5, 0.2}};
-    push_points(mpviz::MarkerPrimitive::LINE_LIST, lineList, 4, /*colored=*/false);
+    push_points(overlume::MarkerPrimitive::LINE_LIST, lineList, 4, /*colored=*/false);
 
-    const mpviz::Vec3 points[] = {{11.0, 0.0, 0.3},
+    const overlume::Vec3 points[] = {{11.0, 0.0, 0.3},
                                    {11.5, 0.3, 0.3},
                                    {12.0, -0.3, 0.3},
                                    {12.5, 0.2, 0.3},
                                    {13.0, -0.2, 0.3}};
-    push_points(mpviz::MarkerPrimitive::POINTS, points, 5, /*colored=*/false);
+    push_points(overlume::MarkerPrimitive::POINTS, points, 5, /*colored=*/false);
 
     // TEXT: placeholder billboard (VM-030/Epic 3 owns real glyphs) --
     // translation-only, a plain string literal needs no owned storage.
     {
-        mpviz::GenericMarker m{};
-        m.primitive = mpviz::MarkerPrimitive::TEXT;
+        overlume::GenericMarker m{};
+        m.primitive = overlume::MarkerPrimitive::TEXT;
         m.position = {14.0, 0.0, 1.0};
         m.text = "marker";
         m.last_update_sec = now;
         s.markers.push_back(m);
     }
 
-    const mpviz::Vec3 triangle[] = {{15.5, -0.5, 0.0}, {16.5, -0.5, 0.0}, {16.0, 0.5, 0.0}};
-    push_points(mpviz::MarkerPrimitive::TRIANGLE_LIST, triangle, 3, /*colored=*/true);
+    const overlume::Vec3 triangle[] = {{15.5, -0.5, 0.0}, {16.5, -0.5, 0.0}, {16.0, 0.5, 0.0}};
+    push_points(overlume::MarkerPrimitive::TRIANGLE_LIST, triangle, 3, /*colored=*/true);
 
     // MESH: the shared test asset (Epic 1 Task 4's committed fixture) --
     // `mesh_glb_path` is caller-owned, borrowed only for this call.
     {
-        mpviz::GenericMarker m{};
-        m.primitive = mpviz::MarkerPrimitive::MESH;
+        overlume::GenericMarker m{};
+        m.primitive = overlume::MarkerPrimitive::MESH;
         m.position = {18.0, 0.0, 0.5};
         m.scale = {1.0, 1.0, 1.0};
         m.mesh_path = mesh_glb_path;
@@ -473,10 +473,10 @@ GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_p
     // GenericMarkerAdapter would emit them (the node-side fan-out
     // mechanism itself is a separate, node-side test).
     for (int i = 0; i < 3; ++i) {
-        push_posed(mpviz::MarkerPrimitive::CUBE, 20.0 + i * 1.2, {0.6, 0.6, 0.6});
+        push_posed(overlume::MarkerPrimitive::CUBE, 20.0 + i * 1.2, {0.6, 0.6, 0.6});
     }
     for (int i = 0; i < 3; ++i) {
-        push_posed(mpviz::MarkerPrimitive::SPHERE, 24.0 + i * 1.2, {0.6, 0.6, 0.6});
+        push_posed(overlume::MarkerPrimitive::SPHERE, 24.0 + i * 1.2, {0.6, 0.6, 0.6});
     }
 
     return s;
@@ -515,7 +515,7 @@ GridScene make_two_layer_grids(double now) {
         cells[(kH - 1) * kW + (kW - 1)] = 255;
         s.cell_storage.push_back(std::move(cells));
 
-        mpviz::GroundGridLayer layer{};
+        overlume::GroundGridLayer layer{};
         layer.kind = 0;
         layer.origin = {-4.0, -4.0, 0.0};
         layer.resolution_m = kRes;
@@ -540,7 +540,7 @@ GridScene make_two_layer_grids(double now) {
         }
         s.cell_storage.push_back(std::move(cells));
 
-        mpviz::GroundGridLayer layer{};
+        overlume::GroundGridLayer layer{};
         layer.kind = 1;
         layer.origin = {-1.0, -4.0, 0.0};
         layer.resolution_m = kRes;
@@ -554,7 +554,7 @@ GridScene make_two_layer_grids(double now) {
     return s;
 }
 
-mpviz::Vec3 centroid(const std::vector<mpviz::MapElement>& elems) {
+overlume::Vec3 centroid(const std::vector<overlume::MapElement>& elems) {
     double sx = 0.0, sy = 0.0, sz = 0.0;
     uint64_t n = 0;
     for (const auto& e : elems) {
@@ -569,4 +569,4 @@ mpviz::Vec3 centroid(const std::vector<mpviz::MapElement>& elems) {
     return {sx / static_cast<double>(n), sy / static_cast<double>(n), sz / static_cast<double>(n)};
 }
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

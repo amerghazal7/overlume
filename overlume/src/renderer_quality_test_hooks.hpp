@@ -11,16 +11,16 @@
 
 #include <cstdint>
 
-#include "visual_renderer/api.h"
+#include "overlume/api.h"
 
-namespace mpviz::testing {
+namespace overlume::testing {
 
 // false if `r` is null.
-bool quality_shadows_enabled(mpviz::VisualRenderer* r);
+bool quality_shadows_enabled(overlume::VisualRenderer* r);
 
 // The sun light's shadow map texel size (LightManager::ShadowOptions::
 // mapSize). 0 if `r` is null.
-uint32_t quality_shadow_map_size(mpviz::VisualRenderer* r);
+uint32_t quality_shadow_map_size(overlume::VisualRenderer* r);
 
 struct QualityRenderSize {
     uint32_t width = 0;
@@ -32,7 +32,7 @@ struct QualityRenderSize {
 // pinned minScale/maxScale computes to for this RenderConfig::width/
 // height); at medium/high (dynamic resolution left off), the requested
 // output size itself. {0, 0} if `r` is null.
-QualityRenderSize quality_internal_render_size(mpviz::VisualRenderer* r);
+QualityRenderSize quality_internal_render_size(overlume::VisualRenderer* r);
 
 struct QualitySsao {
     bool enabled = false;
@@ -40,15 +40,15 @@ struct QualitySsao {
 };
 
 // View::getAmbientOcclusionOptions() read back -- {false, 0} if `r` is null.
-QualitySsao quality_ssao(mpviz::VisualRenderer* r);
+QualitySsao quality_ssao(overlume::VisualRenderer* r);
 
 // View::getTemporalAntiAliasingOptions().enabled -- false if `r` is null.
-bool quality_taa_enabled(mpviz::VisualRenderer* r);
+bool quality_taa_enabled(overlume::VisualRenderer* r);
 
 // Mirrors filament::AntiAliasing without leaking a <filament/...> include
 // into this Filament-free test header (same convention as the rest of this
 // file). NONE if `r` is null.
 enum class QualityAntiAliasing : uint8_t { NONE = 0, FXAA = 1 };
-QualityAntiAliasing quality_antialiasing(mpviz::VisualRenderer* r);
+QualityAntiAliasing quality_antialiasing(overlume::VisualRenderer* r);
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

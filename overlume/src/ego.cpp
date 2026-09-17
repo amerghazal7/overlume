@@ -1,13 +1,13 @@
 // ego.cpp — ego robot via Filament gltfio, with a themed clay-box fallback
-// on any load failure. Compiled into the same visual_renderer library
+// on any load failure. Compiled into the same overlume library
 // target as renderer.cpp, sharing its PRIVATE Filament include access; see
 // renderer_internal.hpp for why this is a separate translation unit (test
 // binaries must never see <filament/...>).
 #include "ego.hpp"
 #include "ego_test_hooks.hpp"
 #include "renderer_internal.hpp"
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+#include "overlume/api.h"
+#include "overlume/scene.h"
 
 #include <filament/Box.h>
 #include <filament/RenderableManager.h>
@@ -31,7 +31,7 @@
 #include <fstream>
 #include <vector>
 
-namespace mpviz {
+namespace overlume {
 
 namespace {
 
@@ -202,11 +202,11 @@ void update_ego_transform(VisualRenderer& r, const EgoState& ego) {
     tm.setTransform(inst, mat4f::translation(pos) * mat4f(rot) * mat4f::scaling(scale));
 }
 
-}  // namespace mpviz
+}  // namespace overlume
 
-namespace mpviz::testing {
+namespace overlume::testing {
 
-double rendered_bounding_box_diagonal(mpviz::VisualRenderer* r) {
+double rendered_bounding_box_diagonal(overlume::VisualRenderer* r) {
     if (r == nullptr) return 0.0;
     if (r->egoAsset != nullptr) {
         const filament::Aabb box = r->egoAsset->getBoundingBox();
@@ -226,4 +226,4 @@ double rendered_bounding_box_diagonal(mpviz::VisualRenderer* r) {
     return 0.0;
 }
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

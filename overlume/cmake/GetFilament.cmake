@@ -28,7 +28,7 @@
 # either clang/libc++ (preferred, matches upstream CI) or gcc/libstdc++ (also
 # supported by upstream, less tested) and point FILAMENT_ROOT below at that
 # source build's `out/release/filament` install directory — the POD boundary
-# in include/visual_renderer/api.h makes either choice invisible to the ROS
+# in include/overlume/api.h makes either choice invisible to the ROS
 # node, so no other file needs to change.
 
 set(FILAMENT_VERSION "1.56.5")
@@ -44,7 +44,7 @@ set(FILAMENT_ROOT "${FILAMENT_FETCH_ROOT}/filament"
 
 if(NOT EXISTS "${FILAMENT_ROOT}/include/filament/Engine.h")
     set(_filament_tarball "${CMAKE_BINARY_DIR}/_deps/filament-v${FILAMENT_VERSION}-linux.tgz")
-    message(STATUS "visual_renderer: fetching Filament ${FILAMENT_VERSION} prebuilt Linux SDK ...")
+    message(STATUS "overlume: fetching Filament ${FILAMENT_VERSION} prebuilt Linux SDK ...")
     file(DOWNLOAD "${FILAMENT_URL}" "${_filament_tarball}"
          EXPECTED_HASH SHA256=${FILAMENT_SHA256}
          SHOW_PROGRESS

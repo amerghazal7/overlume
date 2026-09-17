@@ -2,9 +2,9 @@
 
 #include <algorithm>
 
-namespace mpviz::detail {
+namespace overlume::detail {
 
-void OwnedScene::assign(const mpviz::SceneGraph& src) {
+void OwnedScene::assign(const overlume::SceneGraph& src) {
     view = src;  // copies every flat scalar field (sim_time_sec, ego, hud
                  // scalars, all *_count fields) — pointer fields below get
                  // overwritten with owned storage next.
@@ -102,7 +102,7 @@ void OwnedScene::assign(const mpviz::SceneGraph& src) {
     view.trajectory_carpets = trajectory_carpets.data();
 }
 
-void SceneBuffer::publish(const mpviz::SceneGraph& scene) {
+void SceneBuffer::publish(const overlume::SceneGraph& scene) {
     int next;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -113,7 +113,7 @@ void SceneBuffer::publish(const mpviz::SceneGraph& scene) {
     active_idx_ = next;
 }
 
-const mpviz::SceneGraph& SceneBuffer::active() const {
+const overlume::SceneGraph& SceneBuffer::active() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return slots_[active_idx_].view;
 }
@@ -127,4 +127,4 @@ float SceneBuffer::staleness_alpha(double now_sec, double last_update_sec,
     return static_cast<float>(std::clamp(1.0 - t, 0.0, 1.0));
 }
 
-}  // namespace mpviz::detail
+}  // namespace overlume::detail

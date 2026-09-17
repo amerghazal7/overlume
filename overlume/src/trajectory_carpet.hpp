@@ -9,9 +9,9 @@
 #pragma once
 
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
-namespace mpviz {
+namespace overlume {
 
 // Diffs `scene.trajectory_carpets`/`_count` against `r.trajectoryCarpetSlots`
 // (keyed by slot index, same shape as pointCloudSlots): a slot whose
@@ -31,4 +31,4 @@ namespace mpviz {
 // render_frame() on the thread that owns the Engine.
 void update_trajectory_carpets(VisualRenderer& r, const SceneGraph& scene);
 
-}  // namespace mpviz
+}  // namespace overlume

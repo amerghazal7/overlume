@@ -110,7 +110,7 @@ RENDER_SPINS = [
 ]
 RENDER_BOOLS = ["fill_blind_zone", "exposure_match"]
 
-# Epic 3 Task 5 (VM-032) + VM-077 + Task 4/VM-093: visualization_node's
+# Epic 3 Task 5 (VM-032) + VM-077 + Task 4/VM-093: overlume_node's
 # layer_<name> params -- trajectory_carpet added VM-077
 # (output_trajectory_carpet), surround_stitching added VM-093 (Surround
 # Stitching, follow-up USER DIRECTIVE 2026-09-11: toggles Task 2's
@@ -309,7 +309,7 @@ class VcamWindow(Gtk.Window):
         # there's no telemetry echo of the active theme yet -- the label
         # just optimistically flips on click, same as preset buttons not
         # waiting for confirmation today. Starts on "dark_adas", the
-        # shipped default (visualization_node's initial_theme).
+        # shipped default (overlume_node's initial_theme).
         self._theme = "dark_adas"
         self._theme_btn = Gtk.Button(label="theme: dark_adas")
         self._theme_btn.connect("clicked", self._on_theme_toggle)
@@ -422,7 +422,7 @@ class VcamWindow(Gtk.Window):
 
         # Epic 3 Task 5 (VM-032): per-category visibility, visual mode only
         # (harmless no-op in bowl/pointcloud mode -- the WS command just
-        # writes visualization_node's own params). Live: no restart needed.
+        # writes overlume_node's own params). Live: no restart needed.
         section("Layers (visual mode)")
         for name in LAYER_NAMES:
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
@@ -650,7 +650,7 @@ class VcamWindow(Gtk.Window):
                 if v is not None:
                     sw.set_active(bool(v))
             # Layer switches sync from the node's REAL layer_* values
-            # (review 2026-09-09) -- absent keys (visualization_node not up)
+            # (review 2026-09-09) -- absent keys (overlume_node not up)
             # leave the switch at its shipped-default ON, same skip rule as
             # the loops above.
             for name, sw in self._layer_switches.items():

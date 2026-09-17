@@ -1,9 +1,9 @@
-# visual_renderer
+# overlume
 
-`micropilot::visualization`'s ROS-free rendering library. Compiles
+`overlume`'s ROS-free rendering library. Compiles
 clang/libc++ (Filament's prebuilt SDK requires it); the ROS node that
 eventually links it stays gcc/libstdc++ — the two never mix at an ABI
-boundary, which is why the public API (`include/visual_renderer/api.h`) is
+boundary, which is why the public API (`include/overlume/api.h`) is
 POD-only (checked by `scripts/check_pod_header.sh`). See
 `docs/superpowers/specs/2026-08-18-visual-mode-design.md` §2 and the plan's
 Epic 0 Task 1 notes for the full rationale.
@@ -20,7 +20,7 @@ cmake --build build && ctest --test-dir build --output-on-failure
 
 - **`scripts/setup_toolchain_cesium.sh`** — root-less bootstrap of
   clang-18/libc++-18 from apt.llvm.org (no `apt install`, no root) into
-  `${XDG_CACHE_HOME:-$HOME/.cache}/mpviz-toolchain-cesium`. Idempotent: exits
+  `${XDG_CACHE_HOME:-$HOME/.cache}/overlume-toolchain-cesium`. Idempotent: exits
   immediately if that prefix already has a working clang++. Skip this step
   entirely if `clang++` on `PATH` already has a co-located libc++ (a normal
   root-installed `clang` + `libc++-dev`). (VM-061 Step 6, user decision
@@ -33,12 +33,12 @@ cmake --build build && ctest --test-dir build --output-on-failure
   clang++ (or the PATH one) and bakes in `-stdlib=libc++`. `GetFilament.cmake`
   then fetches the pinned Filament 1.56.5 prebuilt SDK (sha256-verified) on
   first configure.
-- **`cmake --build && ctest`** — builds the static `visual_renderer` lib and
+- **`cmake --build && ctest`** — builds the static `overlume` lib and
   runs 2 tests: `check_pod_header` (the public header stays POD-only) and
-  `filament_link_probe` (a real executable that links `visual_renderer` and
+  `filament_link_probe` (a real executable that links `overlume` and
   calls into Filament, proving the ~30-archive link graph resolves).
 
-The result needs no `LD_LIBRARY_PATH` or rpath to run: `visual_renderer`
+The result needs no `LD_LIBRARY_PATH` or rpath to run: `overlume`
 statically links libc++/libc++abi/libunwind (see `CMakeLists.txt`), so
 binaries are self-contained even off this dev box.
 

@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace mpviz::bowl {
+namespace overlume::bowl {
 
 namespace {
 
@@ -25,7 +25,7 @@ namespace {
 constexpr double kBowlZLiftM = 0.01;
 
 struct LogicalVertex {
-    mpviz::Vec3 position;
+    overlume::Vec3 position;
     // Raw per-camera alignment^2 coverage weight (0 if uncovered),
     // camera_count entries -- retained per logical vertex so the
     // per-triangle pair decision below can look up any vertex's weight for
@@ -52,8 +52,8 @@ struct LogicalVertex {
 // occluded by it -- a convex box can't be re-entered once exited, so a
 // segment leaving from inside it is never occluded BY it; check that first
 // and return false rather than folding it into the slab math.
-bool SegmentIntersectsAabb(const mpviz::Vec3& from, const mpviz::Vec3& to,
-                           const mpviz::Vec3& center, const mpviz::Vec3& half) {
+bool SegmentIntersectsAabb(const overlume::Vec3& from, const overlume::Vec3& to,
+                           const overlume::Vec3& center, const overlume::Vec3& half) {
     const double d[3] = {to.x - from.x, to.y - from.y, to.z - from.z};
     const double o[3] = {from.x - center.x, from.y - center.y, from.z - center.z};
     const double h[3] = {half.x, half.y, half.z};
@@ -80,8 +80,8 @@ bool SegmentIntersectsAabb(const mpviz::Vec3& from, const mpviz::Vec3& to,
 
 BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double bowl_k,
                       double bowl_Rmax, uint32_t camera_count,
-                      const mpviz::CameraExtrinsics* extrinsics,
-                      const mpviz::CameraIntrinsics* intrinsics, const uint32_t* cam_width,
+                      const overlume::CameraExtrinsics* extrinsics,
+                      const overlume::CameraIntrinsics* intrinsics, const uint32_t* cam_width,
                       const uint32_t* cam_height, const EgoBox& ego_box) {
     BowlMesh mesh;
     // Zero-extent on every axis is EgoBox's own "no ego configured"
@@ -122,7 +122,7 @@ BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double 
                 const float align = CameraAlignment(extrinsics[c], lv.position);
                 float weight = align * align;
                 if (ego_active) {
-                    const mpviz::Vec3 cam_pos{extrinsics[c].t[0], extrinsics[c].t[1],
+                    const overlume::Vec3 cam_pos{extrinsics[c].t[0], extrinsics[c].t[1],
                                                extrinsics[c].t[2]};
                     if (SegmentIntersectsAabb(cam_pos, lv.position, ego_box.center,
                                                ego_box.half_extents)) {
@@ -212,4 +212,4 @@ BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double 
     return mesh;
 }
 
-}  // namespace mpviz::bowl
+}  // namespace overlume::bowl

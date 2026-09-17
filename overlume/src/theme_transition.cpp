@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace mpviz::detail {
+namespace overlume::detail {
 namespace {
 
 float lerpf(float a, float b, float w) { return a + (b - a) * w; }
@@ -171,4 +171,4 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     return out;
 }
 
-}  // namespace mpviz::detail
+}  // namespace overlume::detail

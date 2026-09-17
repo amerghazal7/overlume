@@ -28,14 +28,14 @@ already in that file.
 ## Anchor + pose (shared by every capture)
 
 ```cpp
-constexpr mpviz::GeoAnchor kFixtureAnchor{25.0803, 55.3910, 0.0};  // Dubai — this
+constexpr overlume::GeoAnchor kFixtureAnchor{25.0803, 55.3910, 0.0};  // Dubai — this
     // file's own anchor, already used by every environment test in this repo
     // (test_environment.cpp, test_environment_stream.cpp).
 
-constexpr mpviz::Vec3 kCaptureBuildingsCentroid{-109.2, -17.1, 3.0};  // == test_environment.cpp's
+constexpr overlume::Vec3 kCaptureBuildingsCentroid{-109.2, -17.1, 3.0};  // == test_environment.cpp's
     // kBuildingsCentroid, the baked fixture town's own real footprint centroid.
 
-mpviz::CameraPose{
+overlume::CameraPose{
     {kCaptureBuildingsCentroid.x + 50, kCaptureBuildingsCentroid.y - 70, 40},
     {kCaptureBuildingsCentroid.x, kCaptureBuildingsCentroid.y, kCaptureBuildingsCentroid.z},
     60.0};
@@ -61,7 +61,7 @@ Offline (baked, no token needed). Run from the repo root:
 
 ```bash
 cd overlume/build
-MPVIZ_CAPTURE_ENV_SOURCES=1 MPVIZ_CAPTURE_OUT_DIR=/tmp/env_source_capture \
+OVERLUME_CAPTURE_ENV_SOURCES=1 OVERLUME_CAPTURE_OUT_DIR=/tmp/env_source_capture \
     ./test_environment_stream --gtest_filter='EnvSourceCapture.Baked'
 ```
 
@@ -77,8 +77,8 @@ be pasted as-is):
 
 ```bash
 env -u CESIUM_ION_TOKEN bash -lic '
-    export MPVIZ_CAPTURE_ENV_SOURCES=1
-    export MPVIZ_CAPTURE_OUT_DIR=/tmp/env_source_capture
+    export OVERLUME_CAPTURE_ENV_SOURCES=1
+    export OVERLUME_CAPTURE_OUT_DIR=/tmp/env_source_capture
     cd overlume/build
     ./test_environment_stream --gtest_filter="EnvSourceCapture.Osm"
 ' < /dev/null
@@ -104,7 +104,7 @@ produced exactly that blank frame when inspected directly during this task.
 Each live capture takes ~60–65s wall-clock; do not shrink the settle window
 without re-verifying the output actually shows content.
 
-After running, copy the PNG(s) from `MPVIZ_CAPTURE_OUT_DIR` into
+After running, copy the PNG(s) from `OVERLUME_CAPTURE_OUT_DIR` into
 `docs/visual_mode/env_source_captures/` (committed) under the names below.
 
 ## The captures
@@ -118,10 +118,10 @@ After running, copy the PNG(s) from `MPVIZ_CAPTURE_OUT_DIR` into
 **Attribution caption (Google Map Tiles terms).** `env_source_google.png` is
 committed imagery rendered from Google Photorealistic 3D Tiles — credit:
 **"3D Tiles data (c) Google"**, the exact string the node composites live
-onto frames showing this preset (`visualization_node.cpp`, the
+onto frames showing this preset (`overlume_node.cpp`, the
 `environment_attribution` HUD line, `cesium.md` §6's Attribution bullet).
 The node renders it via the HUD text primitive, but this doc's PNG is a pure
-library render (`mpviz::render_frame`, see the note below) that never
+library render (`overlume::render_frame`, see the note below) that never
 touches that HUD code path, so the credit above is carried here as a
 caption instead. The exact required wording is NOT re-verified per this
 doc capture — same pre-go-live manual check `cesium.md` §6 already calls
@@ -211,7 +211,7 @@ The 4th GUI preset resolves to the node's own `environment_own_asset_uri`
 parameter, resolved server-side in `tools/vcam_ws_bridge.py`'s
 `set_environment_source` branch, not a fixed public ion asset id —
 and that parameter defaults to `""` and is **not configured** on this box
-(declared at `visualization_node.cpp:687`). There is no real ion asset id to point a
+(declared at `overlume_node.cpp:687`). There is no real ion asset id to point a
 capture at; fabricating one would silently render some *other*, unrelated
 asset and mislabel it "clipped". `EnvSourceCapture.Clipped` always
 `GTEST_SKIP()`s with this exact reason (even with the capture opt-in set) —
@@ -227,7 +227,7 @@ the comparison package. No PNG exists for this preset.
   `CESIUM_ION_TOKEN`/session token/ion response body (never printed, logged,
   or committed by any script or test in this package), and the raw capture
   working directory (`/tmp/env_source_capture` or wherever
-  `MPVIZ_CAPTURE_OUT_DIR` points).
+  `OVERLUME_CAPTURE_OUT_DIR` points).
 - The licensing question above is scoped to tile BYTES, not the only thing
   Google's Map Tiles terms actually govern: those terms require attribution
   wherever the imagery is DISPLAYED (`cesium.md` §6), and a committed

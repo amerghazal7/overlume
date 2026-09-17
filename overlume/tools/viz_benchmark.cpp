@@ -7,8 +7,8 @@
 //
 // GPU-less box: create_renderer() returns nullptr for every preset; each
 // preset line then reads SKIP (no GPU/EGL) rather than fabricating numbers.
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+#include "overlume/api.h"
+#include "overlume/scene.h"
 
 #include <algorithm>
 #include <chrono>
@@ -25,8 +25,8 @@ constexpr int kWarmupFrames = 5;  // first-frame shader/texture upload cost excl
 
 // Three path roles, ~40 points each — same role shape as
 // tests/test_ribbon.cpp's ThreeRoles_DarkAdas golden.
-std::vector<mpviz::Vec3> make_path(double y_offset, int n) {
-    std::vector<mpviz::Vec3> pts(static_cast<size_t>(n));
+std::vector<overlume::Vec3> make_path(double y_offset, int n) {
+    std::vector<overlume::Vec3> pts(static_cast<size_t>(n));
     for (int i = 0; i < n; ++i) {
         pts[static_cast<size_t>(i)] = {static_cast<double>(i) * 0.5, y_offset, 0.0};
     }
@@ -35,8 +35,8 @@ std::vector<mpviz::Vec3> make_path(double y_offset, int n) {
 
 // Centerline station colors, same PointCloudPoint reuse as
 // tests/test_trajectory_carpet.cpp's make_stations().
-std::vector<mpviz::PointCloudPoint> make_carpet_stations(int n) {
-    std::vector<mpviz::PointCloudPoint> pts(static_cast<size_t>(n));
+std::vector<overlume::PointCloudPoint> make_carpet_stations(int n) {
+    std::vector<overlume::PointCloudPoint> pts(static_cast<size_t>(n));
     for (int i = 0; i < n; ++i) {
         pts[static_cast<size_t>(i)].position = {static_cast<double>(i) * 0.5, -1.0, 0.0};
         pts[static_cast<size_t>(i)].rgba = 0x00FF00FFu;
@@ -46,16 +46,16 @@ std::vector<mpviz::PointCloudPoint> make_carpet_stations(int n) {
 
 // A lane centerline + two boundaries + a crosswalk polygon — same MapKind
 // mix tests/test_map_elements.cpp exercises.
-std::vector<mpviz::Vec3> make_lane_line(double x_offset, int n) {
-    std::vector<mpviz::Vec3> pts(static_cast<size_t>(n));
+std::vector<overlume::Vec3> make_lane_line(double x_offset, int n) {
+    std::vector<overlume::Vec3> pts(static_cast<size_t>(n));
     for (int i = 0; i < n; ++i) {
         pts[static_cast<size_t>(i)] = {static_cast<double>(i) * 2.0, x_offset, 0.0};
     }
     return pts;
 }
 
-std::vector<mpviz::PointCloudPoint> make_point_cloud(uint32_t n) {
-    std::vector<mpviz::PointCloudPoint> pts(n);
+std::vector<overlume::PointCloudPoint> make_point_cloud(uint32_t n) {
+    std::vector<overlume::PointCloudPoint> pts(n);
     for (uint32_t i = 0; i < n; ++i) {
         double t = static_cast<double>(i);
         pts[i].position = {std::fmod(t, 60.0) - 30.0, std::fmod(t * 0.37, 30.0) - 15.0,
@@ -82,38 +82,38 @@ double percentile(std::vector<double>& sorted_ms, double p) {
 int main() {
     // Built once, reused across every quality preset — same scene, only the
     // renderer's quality changes.
-    std::vector<mpviz::Vec3> behavior_pts = make_path(0.0, 40);
-    std::vector<mpviz::Vec3> global_pts = make_path(3.0, 40);
-    std::vector<mpviz::Vec3> local_pts = make_path(-3.0, 40);
-    mpviz::PathRibbon ribbons[3]{};
-    ribbons[0] = {mpviz::PathRole::BEHAVIOR, behavior_pts.data(),
+    std::vector<overlume::Vec3> behavior_pts = make_path(0.0, 40);
+    std::vector<overlume::Vec3> global_pts = make_path(3.0, 40);
+    std::vector<overlume::Vec3> local_pts = make_path(-3.0, 40);
+    overlume::PathRibbon ribbons[3]{};
+    ribbons[0] = {overlume::PathRole::BEHAVIOR, behavior_pts.data(),
                   static_cast<uint32_t>(behavior_pts.size()), 0.0};
-    ribbons[1] = {mpviz::PathRole::GLOBAL, global_pts.data(),
+    ribbons[1] = {overlume::PathRole::GLOBAL, global_pts.data(),
                   static_cast<uint32_t>(global_pts.size()), 0.0};
-    ribbons[2] = {mpviz::PathRole::LOCAL, local_pts.data(),
+    ribbons[2] = {overlume::PathRole::LOCAL, local_pts.data(),
                   static_cast<uint32_t>(local_pts.size()), 0.0};
 
-    std::vector<mpviz::PointCloudPoint> carpet_pts = make_carpet_stations(60);
-    mpviz::TrajectoryCarpet carpet{carpet_pts.data(), static_cast<uint32_t>(carpet_pts.size()), 0.0};
+    std::vector<overlume::PointCloudPoint> carpet_pts = make_carpet_stations(60);
+    overlume::TrajectoryCarpet carpet{carpet_pts.data(), static_cast<uint32_t>(carpet_pts.size()), 0.0};
 
-    std::vector<mpviz::Vec3> centerline = make_lane_line(0.0, 20);
-    std::vector<mpviz::Vec3> left_boundary = make_lane_line(1.8, 20);
-    std::vector<mpviz::Vec3> right_boundary = make_lane_line(-1.8, 20);
-    const mpviz::Vec3 crosswalk_pts[4] = {
+    std::vector<overlume::Vec3> centerline = make_lane_line(0.0, 20);
+    std::vector<overlume::Vec3> left_boundary = make_lane_line(1.8, 20);
+    std::vector<overlume::Vec3> right_boundary = make_lane_line(-1.8, 20);
+    const overlume::Vec3 crosswalk_pts[4] = {
         {10.0, -1.8, 0.0}, {10.0, 1.8, 0.0}, {13.0, 1.8, 0.0}, {13.0, -1.8, 0.0}};
-    mpviz::MapElement map_elements[4]{};
+    overlume::MapElement map_elements[4]{};
     map_elements[0] = {centerline.data(), static_cast<uint32_t>(centerline.size()), 0,
-                       mpviz::MapKind::CENTERLINE, 1, 0.0};
+                       overlume::MapKind::CENTERLINE, 1, 0.0};
     map_elements[1] = {left_boundary.data(), static_cast<uint32_t>(left_boundary.size()), 0,
-                        mpviz::MapKind::LEFT_BOUNDARY, 1, 0.0};
+                        overlume::MapKind::LEFT_BOUNDARY, 1, 0.0};
     map_elements[2] = {right_boundary.data(), static_cast<uint32_t>(right_boundary.size()), 0,
-                        mpviz::MapKind::RIGHT_BOUNDARY, 1, 0.0};
-    map_elements[3] = {crosswalk_pts, 4, 1, mpviz::MapKind::CROSSWALK, 0, 0.0};
+                        overlume::MapKind::RIGHT_BOUNDARY, 1, 0.0};
+    map_elements[3] = {crosswalk_pts, 4, 1, overlume::MapKind::CROSSWALK, 0, 0.0};
 
-    std::vector<mpviz::PointCloudPoint> cloud_pts = make_point_cloud(20000);
-    mpviz::PointCloud cloud{cloud_pts.data(), static_cast<uint32_t>(cloud_pts.size()), 0.0};
+    std::vector<overlume::PointCloudPoint> cloud_pts = make_point_cloud(20000);
+    overlume::PointCloud cloud{cloud_pts.data(), static_cast<uint32_t>(cloud_pts.size()), 0.0};
 
-    mpviz::SceneGraph scene{};
+    overlume::SceneGraph scene{};
     scene.sim_time_sec = 0.0;
     scene.ego = {{0.0, 0.0, 0.0}, 0.0, 5.0, /*valid=*/1};
     scene.paths = ribbons;
@@ -125,9 +125,9 @@ int main() {
     scene.point_clouds = &cloud;
     scene.point_cloud_count = 1;
 
-    mpviz::CameraPose pose{{-8.0, -12.0, 8.0}, {5.0, 0.0, 0.0}, 60.0};
+    overlume::CameraPose pose{{-8.0, -12.0, 8.0}, {5.0, 0.0, 0.0}, 60.0};
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3);
-    mpviz::FrameView view{rgb.data(), kWidth, kHeight};
+    overlume::FrameView view{rgb.data(), kWidth, kHeight};
 
     const struct { uint8_t quality; const char* name; } kPresets[] = {
         {0, "low"}, {1, "medium"}, {2, "high"}};
@@ -136,36 +136,36 @@ int main() {
                 kFramesPerPreset, kWarmupFrames);
 
     for (const auto& preset : kPresets) {
-        mpviz::RenderConfig cfg{};
+        overlume::RenderConfig cfg{};
         cfg.width = kWidth;
         cfg.height = kHeight;
         cfg.quality = preset.quality;
-        auto* r = mpviz::create_renderer(cfg);
+        auto* r = overlume::create_renderer(cfg);
         if (r == nullptr) {
             std::printf("quality=%u (%-6s)  SKIP (no GPU/EGL)\n", preset.quality, preset.name);
             continue;
         }
-        mpviz::set_scene(r, scene);
+        overlume::set_scene(r, scene);
 
         for (int i = 0; i < kWarmupFrames; ++i) {
-            mpviz::render_frame(r, pose, view);
+            overlume::render_frame(r, pose, view);
         }
 
         std::vector<double> ms;
         ms.reserve(kFramesPerPreset);
         for (int i = 0; i < kFramesPerPreset; ++i) {
             auto t0 = std::chrono::steady_clock::now();
-            bool ok = mpviz::render_frame(r, pose, view);
+            bool ok = overlume::render_frame(r, pose, view);
             auto t1 = std::chrono::steady_clock::now();
             if (!ok) {
                 std::printf("quality=%u (%-6s)  render_frame() failed at frame %d\n",
                             preset.quality, preset.name, i);
-                mpviz::destroy_renderer(r);
+                overlume::destroy_renderer(r);
                 return 1;
             }
             ms.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
         }
-        mpviz::destroy_renderer(r);
+        overlume::destroy_renderer(r);
 
         std::sort(ms.begin(), ms.end());
         std::printf("quality=%u (%-6s)  render_ms p50=%.3f p99=%.3f\n", preset.quality,

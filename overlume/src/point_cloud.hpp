@@ -8,9 +8,9 @@
 #pragma once
 
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
-namespace mpviz {
+namespace overlume {
 
 // Diffs `scene.point_clouds`/`point_cloud_count` against `r.pointCloudSlots`
 // (keyed by slot index, same shape as ribbonSlots/groundGridSlots): a slot
@@ -24,4 +24,4 @@ namespace mpviz {
 // Engine.
 void update_point_clouds(VisualRenderer& r, const SceneGraph& scene);
 
-}  // namespace mpviz
+}  // namespace overlume

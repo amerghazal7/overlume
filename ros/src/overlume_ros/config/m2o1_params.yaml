@@ -1,0 +1,166 @@
+# Generated 2026-07 by the retired autotune_config.py (CUDA-node era, removed 2026-09-17); edit by hand when cameras/mounting change.
+# source: calib:/home/ag7/Downloads/cams_calib_2026-07-09.yaml
+# camera_extrinsics hand-updated 2026-07-09 from the new deployment calib.
+# Calib ego origin sits +1.15 up of the robot origin (no fwd offset), so
+# t = calib t + [0, 0, 1.15]. Supersedes the 07-08 bl/br refits.
+#
+# Migrated from micropilot_rendering_node/config/m2o1_params.yaml at the
+# unified-engine migration's Task 6 (VM-095) Step 2b — the old node's schema
+# cannot launch the merged node as written, so this is a translation, not a
+# plain move:
+#   - virtual_pose: the old 12-float [R(9 row-major)|t(3)] -> the merged
+#     node's 6-float [eye xyz|target xyz] (overlume::CameraPose). eye = t;
+#     target = eye + fwd, fwd = R's third column (R[2],R[5],R[8]), d=1.0 —
+#     the same conversion sanity-checked against rendering_node.cpp's own
+#     compiled-in default pose, which converts to exactly the
+#     eye=(0,-4,0)/target=(0,-5,0) pair test_vcam_contract.py already
+#     documents. Here: eye=(-3.0,0.0,3.0),
+#     target=(-2.1566085541871143,0.0,2.4627003916531761).
+#   - robot_model_path/robot_model_transform -> ego_model_path: left "" —
+#     this robot's M02P glTF is provisioned per-box by
+#     overlume_ros/scripts/provision_ego_model.sh (VM-044),
+#     not carried forward as the old per-user ~/Downloads path; a box that
+#     hasn't run that script gets the clay-box fallback (ego.cpp), an
+#     accepted, named parity exception (signoff.md #3), not silently fixed
+#     here.
+#   - fill_blind_zone/exposure_match: forced false (both were true) —
+#     neither has a Filament-side implementation (Decision 3); the node's
+#     own clamp would coerce them to false anyway, this keeps the file
+#     honest instead of relying on the runtime WARN.
+#   - out_width/out_height/virtual_vfov_deg: kept as deployed (unchanged
+#     names/types, override the merged node's 1280x720/80 deg defaults).
+#   - n_cameras/image_topics/info_topics/camera_extrinsics/bowl_R0/bowl_k/
+#     bowl_Rmax/feather_margin/sky_color/max_sync_latency/odom_topic/
+#     pointcloud_topic/pointcloud_transform/splat_radius: unchanged — these
+#     were already ported verbatim to the merged node's own param schema
+#     (Tasks 1/2/5).
+/**:
+  ros__parameters:
+    n_cameras: 6
+    out_width: 1280
+    out_height: 720
+    max_sync_latency: 0.12
+    odom_topic: /fixposition/odometry_enu
+    bowl_R0: 6.0
+    bowl_k: 0.2
+    bowl_Rmax: 22.0
+    feather_margin: 480.0
+    fill_blind_zone: false
+    exposure_match: false
+    ego_model_path: ""
+    # Fused lidar cloud (frame: seyond = calib ego origin). Lifted by the same
+    # +1.15 z offset as camera_extrinsics t (no fwd offset).
+    pointcloud_topic: /iv_points_fusion
+    pointcloud_transform:
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    - 0.0
+    - 0.0
+    - 1.15
+    splat_radius: 3
+    virtual_vfov_deg: 65.0
+    sky_color:
+    - 0.53
+    - 0.7
+    - 0.92
+    image_topics:
+    - /fl_camera/raw_images
+    - /fm_camera/raw_images
+    - /fr_camera/raw_images
+    - /bl_camera/raw_images
+    - /bm_camera/raw_images
+    - /br_camera/raw_images
+    info_topics:
+    - /fl_camera/camera_info
+    - /fm_camera/camera_info
+    - /fr_camera/camera_info
+    - /bl_camera/camera_info
+    - /bm_camera/camera_info
+    - /br_camera/camera_info
+    camera_extrinsics:
+    - 0.8705
+    - -0.0319
+    - 0.4911
+    - -0.4904
+    - -0.1409
+    - 0.8601
+    - 0.0417
+    - -0.9895
+    - -0.1383
+    - 0.2814
+    - 0.145
+    - 0.9237
+    - 0.0228
+    - 0.0069
+    - 0.9997
+    - -0.9997
+    - 0.0101
+    - 0.0227
+    - -0.0099
+    - -0.9999
+    - 0.0071
+    - 0.5458
+    - 0.0434
+    - 0.9483
+    - -0.8546
+    - -0.0414
+    - 0.5176
+    - -0.5192
+    - 0.0832
+    - -0.8506
+    - -0.0079
+    - -0.9957
+    - -0.0926
+    - 0.3206
+    - -0.0915
+    - 0.8019
+    - 0.7749
+    - 0.0398
+    - -0.6308
+    - 0.6308
+    - 0.013
+    - 0.7758
+    - 0.039
+    - -0.9991
+    - -0.015
+    - 0.1334
+    - 0.3363
+    - 1.0058
+    - -0.0168
+    - 0.0207
+    - -0.9996
+    - 0.9999
+    - -0.0028
+    - -0.0169
+    - -0.0032
+    - -0.9998
+    - -0.0206
+    - -0.9034
+    - -0.013
+    - 0.7545
+    - -0.7826
+    - 0.0153
+    - -0.6223
+    - 0.6225
+    - 0.0117
+    - -0.7825
+    - -0.0047
+    - -0.9998
+    - -0.0187
+    - 0.3249
+    - -0.3059
+    - 0.8103
+    virtual_pose:
+    - -3.0
+    - 0.0
+    - 3.0
+    - -2.1566085541871143
+    - 0.0
+    - 2.4627003916531761

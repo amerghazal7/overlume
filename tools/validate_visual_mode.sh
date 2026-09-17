@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # validate_visual_mode.sh — one command to stand up the full visual-mode
-# validation rig (visualization_node + fixture bag + tf flattener + vcam
+# validation rig (overlume_node + fixture bag + tf flattener + vcam
 # bridge/GUI) against the recorded fixture bag, and report PASS/FAIL.
 #
 # Usage: tools/validate_visual_mode.sh [--bag PATH] [--qos PATH] [--no-gui]
@@ -86,7 +86,7 @@
 #               status, published every tick regardless of mode. vcam_gui.py
 #               surfaces render_ms + a per-row staleness indicator (relayed
 #               through vcam_ws_bridge.py, display-only). Health gate now
-#               also samples /visualization_node/diagnostics' publish rate
+#               also samples /overlume_node/diagnostics' publish rate
 #               (same lenient liveness threshold as /hd_map_local_elements)
 #               -- it only rules out "the diagnostics publisher is silent,"
 #               not the render_ms/staleness VALUES (that needs mode 3 active
@@ -199,7 +199,7 @@
 #               conversion) and an active-mode chip ("MODE <1|2|3>"),
 #               composited in place onto the RGB8 frame after render_frame()
 #               succeeds, colored by the live (possibly mid-theme-transition)
-#               theme HUD colors via the new mpviz::get_hud_colors(). New
+#               theme HUD colors via the new overlume::get_hud_colors(). New
 #               hud_font_path param (default: this checkout's committed
 #               assets/fonts/NotoSans-Regular.ttf, OFL-1.1 -- same
 #               per-checkout-path deviation VM-044/Epic 5 closes as
@@ -293,7 +293,7 @@
 #               initial_mode default, and the legacy per-node mode switch
 #               now correctly hands off from mode 3). GL_RENDERER now
 #               logged once per create_renderer() call (stderr) -- look for
-#               "[visual_renderer] GL_RENDERER: ..." near this rig's own
+#               "[overlume] GL_RENDERER: ..." near this rig's own
 #               startup log to confirm real hardware vs. software
 #               rasterizer for any render_ms number recorded here.
 #   2026-09-09  VM-077 new-stack rendering lands -- output_trajectory_carpet
@@ -395,8 +395,8 @@
 #               the collapse renders the same picture the old truncate-then-
 #               rebuild did). Library rebuilt+installed
 #               (libs_build.sh Release) and the node force-relinked
-#               (colcon_build.sh micropilot_visualization_node, picked up
-#               the new libvisual_renderer.a automatically) -- node's own
+#               (colcon_build.sh overlume_ros, picked up
+#               the new liboverlume.a automatically) -- node's own
 #               19/19 tests unaffected (adapter-level, not rendering-level).
 #               LIVE evidence (ROS_DOMAIN_ID=93, urban profile,
 #               stack_v3_full_sensors_2026-09-11 bag, 24-frame burst ~45s
@@ -534,27 +534,30 @@ if [[ "${LIVE}" == "1" && "${BAG_SET}" == "1" ]]; then
     exit 1
 fi
 
-LOG_DIR=/tmp/mpviz_validate
+LOG_DIR=/tmp/overlume_validate
 mkdir -p "${LOG_DIR}"
 
 # ------------------------------------------------------------- teardown-first
 # Kill any prior rig this script (or a previous run of it, or a hand-run
 # session) left behind. pgrep -f matches full command lines; a naive
-# unanchored pattern like "visualization_node" matches ANY process whose
-# argv merely contains that text -- a `tail -f .../visualization_node.cpp`
-# bystander, a colcon build's cc1plus compiling visualization_node.cpp, or
+# unanchored pattern like "overlume_node" matches ANY process whose
+# argv merely contains that text -- a `tail -f .../overlume_node.cpp`
+# bystander, a colcon build's cc1plus compiling overlume_node.cpp, or
 # (worst) the shell that is invoking this very script when it's wrapped by
 # something that echoes its own command line into argv. Every pattern below
 # is anchored to a path/phrase that only the actual rig member's argv
 # contains -- the compiled binary is matched by its unique install path
 # (not the bare binary name: process `comm` is truncated to 15 bytes by the
-# kernel, so `pgrep -x visualization_node` never matches "visualization_n").
+# kernel -- `overlume_node` (13 bytes) fits, so that specific truncation
+# hazard no longer applies post-rename, but bare-name `pgrep -x` still risks
+# matching an unrelated same-named process; the unique install path stays
+# the belt-and-suspenders anchor).
 # We also still walk pgrep's PID list by hand and skip our own pid and our
 # own process group, belt-and-suspenders. This bug bit us for real in the
 # 2026-08-19/20 sessions; do not "simplify" back to bare-word pkill -f.
 RIG_PATTERNS=(
-    "ros2 run micropilot_visualization_node"
-    "lib/micropilot_visualization_node/visualization_node"
+    "ros2 run overlume_ros"
+    "lib/overlume_ros/overlume_node"
     "ros2 bag play"
     "tools/tf_flatten_fixture\.py"
     "tools/vcam_ws_bridge\.py"
@@ -665,7 +668,7 @@ set -u
 # ---------------------------------------------------------------- launch rig
 # Track both the backgrounded PID and its process group. `ros2 run`/`ros2 bag
 # play` do not always exec-replace themselves -- they can fork a real child
-# (verified live: the visualization_node binary ran under a DIFFERENT pid
+# (verified live: the overlume_node binary ran under a DIFFERENT pid
 # than the `ros2 run` job's own $!, reparented to pid 1 once the launcher
 # exited). Killing only the recorded $! then leaves that child running. A
 # forked child always inherits its parent's process group though, and the
@@ -704,7 +707,7 @@ teardown() {
 }
 trap teardown INT TERM EXIT
 
-echo "[launch] visualization_node (log: ${LOG_DIR}/visualization_node.log)"
+echo "[launch] overlume_node (log: ${LOG_DIR}/overlume_node.log)"
 PROFILE_ARGS=()
 if [[ -n "${PROFILE}" ]]; then
     PROFILE_ARGS=(-p "profile:=${PROFILE}")
@@ -744,10 +747,10 @@ fi
 # is a no-op on a bowl entity that doesn't exist (live finding, 2026-09-11).
 # On a camera-less bag this only means the ingest waits on camera_info
 # forever -- harmless, and the node WARNs when the toggle is flipped anyway.
-ros2 run micropilot_visualization_node visualization_node --ros-args \
-    --params-file "$(ros2 pkg prefix micropilot_visualization_node)/share/micropilot_visualization_node/config/default_params.yaml" \
+ros2 run overlume_ros overlume_node --ros-args \
+    --params-file "$(ros2 pkg prefix overlume_ros)/share/overlume_ros/config/default_params.yaml" \
     -p initial_mode:=3 -p use_sim_time:="${USE_SIM_TIME}" -p bowl_enabled:=true -p hybrid_enabled:=true "${PROFILE_ARGS[@]}" \
-    > "${LOG_DIR}/visualization_node.log" 2>&1 &
+    > "${LOG_DIR}/overlume_node.log" 2>&1 &
 track_child "$!"
 
 echo "[lifecycle] configure + activate (retrying while the node registers)..."
@@ -762,19 +765,19 @@ lifecycle_set_retry() {
     local transition="$1" tries=0 out upper
     upper="$(printf '%s' "${transition}" | tr '[:lower:]' '[:upper:]')"
     while true; do
-        out="$(ros2 lifecycle set /visualization_node "${transition}" 2>&1)" || true
+        out="$(ros2 lifecycle set /overlume_node "${transition}" 2>&1)" || true
         if grep -q "Transitioning successful" <<<"${out}"; then
             return 0
         fi
         if grep -q "Transitioning failed" <<<"${out}"; then
             echo "${upper} failed: on_${transition} callback rejected the transition." >&2
-            echo "  see node log: ${LOG_DIR}/visualization_node.log" >&2
+            echo "  see node log: ${LOG_DIR}/overlume_node.log" >&2
             return 1
         fi
         tries=$((tries + 1))
         if [[ "${tries}" -ge 15 ]]; then
             echo "${upper} failed after ${tries} tries (node never became reachable)" >&2
-            echo "  see node log: ${LOG_DIR}/visualization_node.log" >&2
+            echo "  see node log: ${LOG_DIR}/overlume_node.log" >&2
             return 1
         fi
         sleep 1
@@ -840,7 +843,7 @@ read_hz() {
 # ego_state is std_msgs/Float64MultiArray: data = [x, y, z, heading, speed, valid]
 read_ego_z_valid() {
     local out z valid
-    out="$(timeout -k 2 3 ros2 topic echo --once /visualization_node/ego_state 2>/dev/null || true)"
+    out="$(timeout -k 2 3 ros2 topic echo --once /overlume_node/ego_state 2>/dev/null || true)"
     z="$(printf '%s\n' "${out}" | awk '/^data:/{f=1;next} f&&/^- /{n++; if(n==3){print $2; exit}}')"
     valid="$(printf '%s\n' "${out}" | awk '/^data:/{f=1;next} f&&/^- /{n++; if(n==6){print $2; exit}}')"
     printf '%s %s\n' "${z:-}" "${valid:-}"
@@ -866,7 +869,7 @@ read_hd_map_hz() {
 # and a human/golden looking at the actual number) -- `ros2 topic hz` counts
 # publishes regardless of content.
 read_diagnostics_hz() {
-    timeout -k 2 4 ros2 topic hz /visualization_node/diagnostics 2>/dev/null \
+    timeout -k 2 4 ros2 topic hz /overlume_node/diagnostics 2>/dev/null \
         | grep -o "average rate: [0-9.]*" | tail -1 | awk '{print $3}'
 }
 

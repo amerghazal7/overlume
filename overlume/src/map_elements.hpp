@@ -8,9 +8,9 @@
 #pragma once
 
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
-namespace mpviz {
+namespace overlume {
 
 // Diffs `scene.map_elements`/`map_element_count` against
 // `r.mapElementMeshes` (keyed by content signature, not array position —
@@ -21,4 +21,4 @@ namespace mpviz {
 // on the thread that owns the Engine.
 void update_map_elements(VisualRenderer& r, const SceneGraph& scene);
 
-}  // namespace mpviz
+}  // namespace overlume

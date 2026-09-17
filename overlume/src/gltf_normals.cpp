@@ -24,7 +24,7 @@
 #include <string>
 #include <utility>
 
-namespace mpviz {
+namespace overlume {
 
 namespace {
 
@@ -449,4 +449,4 @@ std::vector<uint8_t> ensure_flat_normals(std::vector<uint8_t> glb_bytes) {
     }
 }
 
-}  // namespace mpviz
+}  // namespace overlume

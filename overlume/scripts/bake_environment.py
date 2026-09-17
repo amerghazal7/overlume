@@ -9,7 +9,7 @@ Usage:
   bake_environment.py --selfcheck
 
 `--anchor-lat/--anchor-lon/--anchor-heading-deg` are the SAME field order
-Task 1's `visualization_node.cpp` logs the solved anchor in (VM-050 Step 4) --
+Task 1's `overlume_node.cpp` logs the solved anchor in (VM-050 Step 4) --
 copy those three logged numbers here with no unit conversion or reordering.
 
 What this script does, precisely:
@@ -571,7 +571,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     footprints = fetch_footprints(anchor, args.radius_m, cache_path)
     index = bake(anchor, footprints, out_dir)
     # Ego track is optional (--ego-track, Task 1's own committed CSV, e.g.
-    # ros/src/micropilot_visualization_node/test/fixtures/geo_anchor_samples_0.csv) --
+    # ros/src/overlume_ros/test/fixtures/geo_anchor_samples_0.csv) --
     # footprints-only overlay if not given, rather than hard-failing a bake
     # over a QA-only line (spec's AC is about footprint placement sanity
     # first; the ego track is corroborating context, not a requirement).

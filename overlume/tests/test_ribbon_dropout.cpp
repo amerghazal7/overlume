@@ -9,8 +9,8 @@
 // decoupling" 2026-09-10 entry in
 // docs/superpowers/plans/2026-09-09-vm077-new-stack-rendering.md for the
 // full investigation and its still-open BEHAVIOR-ribbon staleness question.
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+#include "overlume/api.h"
+#include "overlume/scene.h"
 
 #include "ribbon_test_hooks.hpp"
 #include "trajectory_carpet_test_hooks.hpp"
@@ -27,16 +27,16 @@
 
 namespace {
 
-using mpviz::PathRibbon;
-using mpviz::PathRole;
-using mpviz::PointCloudPoint;
-using mpviz::TrajectoryCarpet;
-using mpviz::Vec3;
+using overlume::PathRibbon;
+using overlume::PathRole;
+using overlume::PointCloudPoint;
+using overlume::TrajectoryCarpet;
+using overlume::Vec3;
 
-std::vector<uint8_t> render_once(mpviz::VisualRenderer* r, const mpviz::CameraPose& pose) {
+std::vector<uint8_t> render_once(overlume::VisualRenderer* r, const overlume::CameraPose& pose) {
     std::vector<uint8_t> pixels(320u * 240u * 3u);
-    mpviz::FrameView view{pixels.data(), 320, 240};
-    EXPECT_TRUE(mpviz::render_frame(r, pose, view));
+    overlume::FrameView view{pixels.data(), 320, 240};
+    EXPECT_TRUE(overlume::render_frame(r, pose, view));
     return pixels;
 }
 
@@ -171,7 +171,7 @@ struct RunResult {
     bool anyDropout = false;
 };
 
-RunResult drive(mpviz::VisualRenderer* r, int numFrames, double stepMinM, double stepMaxM,
+RunResult drive(overlume::VisualRenderer* r, int numFrames, double stepMinM, double stepMaxM,
                  uint32_t seed) {
     RunResult result;
     std::mt19937 rng(seed);
@@ -213,34 +213,34 @@ RunResult drive(mpviz::VisualRenderer* r, int numFrames, double stepMinM, double
         carpet.point_count = static_cast<uint32_t>(carpetPts.size());
         carpet.last_update_sec = 0.0;
 
-        mpviz::SceneGraph s{};
+        overlume::SceneGraph s{};
         s.sim_time_sec = 0.0;
         s.ego = {{egoX, 0.0, 0.0}, 0.0, 0.0, /*valid=*/1};
         s.paths = ribbons;
         s.path_count = kRibbonRoleCount;
         s.trajectory_carpets = &carpet;
         s.trajectory_carpet_count = 1;
-        mpviz::set_scene(r, s);
+        overlume::set_scene(r, s);
 
         // Camera tracks the ego with a fixed relative offset (same shape as
         // test_ribbon.cpp's ThreeRoles golden) so the corridor stays in
         // roughly the same screen region every frame regardless of egoX.
-        mpviz::CameraPose pose{{egoX - 4.0, -8.0, 6.0}, {egoX + 4.0, 1.0, 0.0}, 60.0};
+        overlume::CameraPose pose{{egoX - 4.0, -8.0, 6.0}, {egoX + 4.0, 1.0, 0.0}, 60.0};
         std::vector<uint8_t> px = render_once(r, pose);
 
-        const uint64_t ribbonRebuilds = mpviz::testing::ribbon_rebuild_count(r);
-        const uint64_t carpetRebuilds = mpviz::testing::trajectory_carpet_rebuild_count(r);
+        const uint64_t ribbonRebuilds = overlume::testing::ribbon_rebuild_count(r);
+        const uint64_t carpetRebuilds = overlume::testing::trajectory_carpet_rebuild_count(r);
 
         FrameRecord rec;
         rec.frame = i;
         rec.ribbonRebuilt = ribbonRebuilds != prevRibbonRebuilds;
         rec.carpetRebuilt = carpetRebuilds != prevCarpetRebuilds;
         for (size_t slot = 0; slot < kRibbonRoleCount; ++slot) {
-            rec.ribbonMeshes[slot] = mpviz::testing::ribbon_mesh_count(r, slot);
-            rec.ribbonVerts[slot] = mpviz::testing::ribbon_vertex_count(r, slot);
+            rec.ribbonMeshes[slot] = overlume::testing::ribbon_mesh_count(r, slot);
+            rec.ribbonVerts[slot] = overlume::testing::ribbon_vertex_count(r, slot);
         }
-        rec.carpetMeshes = mpviz::testing::trajectory_carpet_mesh_count(r, 0);
-        rec.carpetVerts = mpviz::testing::trajectory_carpet_vertex_count(r, 0);
+        rec.carpetMeshes = overlume::testing::trajectory_carpet_mesh_count(r, 0);
+        rec.carpetVerts = overlume::testing::trajectory_carpet_vertex_count(r, 0);
 
         if (i == 0) {
             // Locate the probe positions once (r>b corridor scan, see
@@ -282,8 +282,8 @@ RunResult drive(mpviz::VisualRenderer* r, int numFrames, double stepMinM, double
 //    every frame (kPolylineClipQuantizeM=0.05) -- does that alone produce a
 //    frame where content exists but nothing renders? ────────────────────────
 TEST(RibbonDropout, RealisticDrivingAtQuantize005DoesNotDropASingleThreadedFrame) {
-    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
     fprintf(stderr, "\n=== RealisticDrivingAtQuantize005 (0.03-0.08m/frame, churn every 8th) ===\n");
@@ -327,7 +327,7 @@ TEST(RibbonDropout, RealisticDrivingAtQuantize005DoesNotDropASingleThreadedFrame
     EXPECT_GE(res.ribbonRebuildsTotal, 5u * kRibbonRoleCount)
         << "fewer rebuilds than the message-churn cadence (every 8th frame) should produce -- "
            "the driving loop isn't actually exercising a content change";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── The BINARY teal toggle from the live burst (teal fraction exactly 0.0
@@ -360,8 +360,8 @@ int count_teal_pixels(const std::vector<uint8_t>& px, int width, int height) {
 }  // namespace
 
 TEST(RibbonDropout, BehaviorRibbonNeverVanishesUnderCoLocatedCarpetChurn) {
-    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
     std::vector<Vec3> ribbonSpine = make_spine(0.0, 301, 0.5);
@@ -398,16 +398,16 @@ TEST(RibbonDropout, BehaviorRibbonNeverVanishesUnderCoLocatedCarpetChurn) {
         carpet.point_count = static_cast<uint32_t>(carpetPts.size());
         carpet.last_update_sec = 0.0;
 
-        mpviz::SceneGraph s{};
+        overlume::SceneGraph s{};
         s.sim_time_sec = 0.0;
         s.ego = {{egoX, 0.0, 0.0}, 0.0, 0.0, /*valid=*/1};
         s.paths = &ribbon;
         s.path_count = 1;
         s.trajectory_carpets = &carpet;
         s.trajectory_carpet_count = 1;
-        mpviz::set_scene(r, s);
+        overlume::set_scene(r, s);
 
-        mpviz::CameraPose pose{{egoX - 4.0, -8.0, 6.0}, {egoX + 4.0, 1.0, 0.0}, 60.0};
+        overlume::CameraPose pose{{egoX - 4.0, -8.0, 6.0}, {egoX + 4.0, 1.0, 0.0}, 60.0};
         std::vector<uint8_t> px = render_once(r, pose);
 
         const int teal = count_teal_pixels(px, 320, 240);
@@ -418,7 +418,7 @@ TEST(RibbonDropout, BehaviorRibbonNeverVanishesUnderCoLocatedCarpetChurn) {
                               "overpainted it (blended-queue order dependence)";
     }
     fprintf(stderr, "teal visible on %d/%d frames\n", framesWithTeal, kFrames);
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── Control: a parked ego (zero clip-station churn) is the same condition
@@ -427,8 +427,8 @@ TEST(RibbonDropout, BehaviorRibbonNeverVanishesUnderCoLocatedCarpetChurn) {
 //    scales with ego motion, per the repro instructions' explicit
 //    alternative to recompiling with the old quantize value. ───────────────
 TEST(RibbonDropout, ParkedEgoRebuildRateIsNearZeroByContrast) {
-    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
     fprintf(stderr, "\n=== ParkedEgoRebuildRateIsNearZeroByContrast (~0m/frame) ===\n");
@@ -445,5 +445,5 @@ TEST(RibbonDropout, ParkedEgoRebuildRateIsNearZeroByContrast) {
     EXPECT_LT(res.ribbonRebuildsTotal, 10u * kRibbonRoleCount)
         << "a near-parked ego still rebuilt almost every frame -- the quantized clip station "
            "isn't stable the way ribbon.cpp's own comment claims";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }

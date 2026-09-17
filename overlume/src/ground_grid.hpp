@@ -8,9 +8,9 @@
 #pragma once
 
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
-namespace mpviz {
+namespace overlume {
 
 // Diffs `scene.grids`/`grid_count` against `r.groundGridSlots` (keyed by
 // slot index, same shape as ribbonSlots -- see renderer_internal.hpp): a
@@ -24,4 +24,4 @@ namespace mpviz {
 // Called from render_frame() on the thread that owns the Engine.
 void update_ground_grids(VisualRenderer& r, const SceneGraph& scene);
 
-}  // namespace mpviz
+}  // namespace overlume

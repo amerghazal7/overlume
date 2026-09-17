@@ -2,8 +2,8 @@
 // theming, and HD-map lane/crosswalk rendering. Same "no Filament type"
 // boundary as every other tests/*.cpp — see map_elements_test_hooks.hpp /
 // ego_test_hooks.hpp.
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+#include "overlume/api.h"
+#include "overlume/scene.h"
 
 #include "golden.hpp"
 #include "map_elements_test_hooks.hpp"
@@ -21,10 +21,10 @@
 
 namespace {
 
-std::vector<uint8_t> render_once(mpviz::VisualRenderer* r, const mpviz::CameraPose& pose) {
+std::vector<uint8_t> render_once(overlume::VisualRenderer* r, const overlume::CameraPose& pose) {
     std::vector<uint8_t> pixels(320u * 240u * 3u);
-    mpviz::FrameView view{pixels.data(), 320, 240};
-    EXPECT_TRUE(mpviz::render_frame(r, pose, view));
+    overlume::FrameView view{pixels.data(), 320, 240};
+    EXPECT_TRUE(overlume::render_frame(r, pose, view));
     return pixels;
 }
 
@@ -33,15 +33,15 @@ std::vector<uint8_t> render_once(mpviz::VisualRenderer* r, const mpviz::CameraPo
 // ── ego-following ground/grid patch ──────────────────────────────────────
 
 TEST(Ground, FollowsEgoQuantizedToGridPitch) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.ego = {{120.4, -80.6, 0.0}, 0.0, 0.0, /*valid=*/1};
-    mpviz::set_scene(r, s);
-    mpviz::CameraPose pose{{120, -88, 4}, {120, -80, 0}, 60.0};
+    overlume::set_scene(r, s);
+    overlume::CameraPose pose{{120, -88, 4}, {120, -80, 0}, 60.0};
     render_once(r, pose);
-    auto c = mpviz::testing::ground_patch_centre(r);
+    auto c = overlume::testing::ground_patch_centre(r);
     // Quantized to the real grid pitch (2 m, renderer_internal.hpp's
     // kGridPitchM, the same symbol build_grid_lines() draws lines at):
     // round(120.4/2)*2 = 120; round(-80.6/2)*2 = -80. Snapping to 1 m
@@ -49,89 +49,89 @@ TEST(Ground, FollowsEgoQuantizedToGridPitch) {
     // crosses an odd metre.
     EXPECT_NEAR(c.x, 120.0, 1e-6);
     EXPECT_NEAR(c.y, -80.0, 1e-6);
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 TEST(Ground, PatchSnapsAWholeCellAtATime) {
     // ego (121.4, -80.6) -> (122, -80): a full pitch of movement in X, none
     // in Y. A test that only ever checks one position can't tell 1 m from
     // 2 m snapping; this one can.
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.ego = {{121.4, -80.6, 0.0}, 0.0, 0.0, /*valid=*/1};
-    mpviz::set_scene(r, s);
-    mpviz::CameraPose pose{{121, -88, 4}, {121, -80, 0}, 60.0};
+    overlume::set_scene(r, s);
+    overlume::CameraPose pose{{121, -88, 4}, {121, -80, 0}, 60.0};
     render_once(r, pose);
-    auto c = mpviz::testing::ground_patch_centre(r);
+    auto c = overlume::testing::ground_patch_centre(r);
     EXPECT_NEAR(c.x, 122.0, 1e-6);
     EXPECT_NEAR(c.y, -80.0, 1e-6);
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 TEST(Ground, NoEgoYet_StaysAtOrigin) {
     // ego.valid == 0 -> patch centre (0,0): identical to the original
     // static placement, so every pre-existing golden stays valid.
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.ego = {{500.0, 500.0, 0.0}, 0.0, 0.0, /*valid=*/0};
-    mpviz::set_scene(r, s);
-    mpviz::CameraPose pose{{0, -8, 4}, {0, 0, 0}, 60.0};
+    overlume::set_scene(r, s);
+    overlume::CameraPose pose{{0, -8, 4}, {0, 0, 0}, 60.0};
     render_once(r, pose);
-    auto c = mpviz::testing::ground_patch_centre(r);
+    auto c = overlume::testing::ground_patch_centre(r);
     EXPECT_NEAR(c.x, 0.0, 1e-6);
     EXPECT_NEAR(c.y, 0.0, 1e-6);
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 TEST(Ground, EpicOneEmptyWorldGoldenStillMatches) {
     // ThemeGolden.EmptyWorld_* (test_theme.cpp) renders with ego.valid == 0,
     // the branch that must reproduce the original static placement
     // byte-for-byte.
-    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    mpviz::SceneGraph s{};
-    mpviz::set_scene(r, s);  // default SceneGraph{} -> ego.valid == 0
-    mpviz::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
-    double ssim = mpviz::testing::render_and_compare(
-        r, pose, MPVIZ_TEST_DATA_DIR "/tests/goldens/empty_world_dark_adas.png",
+    overlume::SceneGraph s{};
+    overlume::set_scene(r, s);  // default SceneGraph{} -> ego.valid == 0
+    overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
+    double ssim = overlume::testing::render_and_compare(
+        r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/empty_world_dark_adas.png",
         "/tmp/map_elements_empty_world_regression_actual.png");
     EXPECT_GT(ssim, 0.98);
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── lane material is themed on first data, no set_theme() needed ────────
 
 TEST(MapElements, LaneMaterialIsThemedOnFirstDataWithNoTransition) {
-    const auto theme = mpviz::detail::load_theme(kThemeDir, "dark_adas");
+    const auto theme = overlume::detail::load_theme(kThemeDir, "dark_adas");
     ASSERT_TRUE(theme.has_value());
 
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
     // First-ever map data. Nothing calls set_theme().
-    const mpviz::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
-    mpviz::MapElement elem{};
+    const overlume::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
+    overlume::MapElement elem{};
     elem.points = pts;
     elem.point_count = 2;
     elem.is_polygon = 0;
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.map_elements = &elem;
     s.map_element_count = 1;
-    mpviz::set_scene(r, s);
-    mpviz::CameraPose pose{{0, -8, 4}, {0, 0, 0}, 60.0};
+    overlume::set_scene(r, s);
+    overlume::CameraPose pose{{0, -8, 4}, {0, 0, 0}, 60.0};
     render_once(r, pose);
 
-    auto p = mpviz::testing::lane_material_base_color(r);
+    auto p = overlume::testing::lane_material_base_color(r);
     EXPECT_NEAR(p.r, theme->palette.lane_paint.r, 1e-4);
     EXPECT_NEAR(p.g, theme->palette.lane_paint.g, 1e-4);
     EXPECT_NEAR(p.b, theme->palette.lane_paint.b, 1e-4);
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── per-kind material dispatch ───────────────────────────────────────────
@@ -140,45 +140,45 @@ TEST(MapElements, KindDrivesMaterialDispatchToTheMatchingThemeToken) {
     // Exercises every kind material_for_kind() (map_elements.cpp) dispatches
     // on, reading values off the loaded dark_adas theme itself (not
     // hardcoded literals), so a re-authored palette doesn't stale this test.
-    const auto theme = mpviz::detail::load_theme(kThemeDir, "dark_adas");
+    const auto theme = overlume::detail::load_theme(kThemeDir, "dark_adas");
     ASSERT_TRUE(theme.has_value());
 
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    const mpviz::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
-    mpviz::MapElement elem{};
+    const overlume::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
+    overlume::MapElement elem{};
     elem.points = pts;
     elem.point_count = 2;
     elem.is_polygon = 0;
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.map_elements = &elem;
     s.map_element_count = 1;
 
-    auto expect_kind_color = [&](mpviz::MapKind kind, const mpviz::detail::Float3& expected) {
+    auto expect_kind_color = [&](overlume::MapKind kind, const overlume::detail::Float3& expected) {
         elem.kind = kind;
-        mpviz::set_scene(r, s);
-        mpviz::CameraPose pose{{0, -8, 4}, {0, 0, 0}, 60.0};
+        overlume::set_scene(r, s);
+        overlume::CameraPose pose{{0, -8, 4}, {0, 0, 0}, 60.0};
         render_once(r, pose);
-        auto p = mpviz::testing::map_kind_base_color(r, kind);
+        auto p = overlume::testing::map_kind_base_color(r, kind);
         EXPECT_NEAR(p.r, expected.r, 1e-4) << "kind=" << static_cast<int>(kind);
         EXPECT_NEAR(p.g, expected.g, 1e-4) << "kind=" << static_cast<int>(kind);
         EXPECT_NEAR(p.b, expected.b, 1e-4) << "kind=" << static_cast<int>(kind);
     };
 
-    expect_kind_color(mpviz::MapKind::CENTERLINE, theme->palette.lane_centerline);
-    expect_kind_color(mpviz::MapKind::LEFT_BOUNDARY, theme->palette.lane_boundary);
-    expect_kind_color(mpviz::MapKind::RIGHT_BOUNDARY, theme->palette.lane_boundary);
-    expect_kind_color(mpviz::MapKind::CROSSWALK, theme->palette.crosswalk);
-    expect_kind_color(mpviz::MapKind::ROAD_SURFACE, theme->palette.road);
+    expect_kind_color(overlume::MapKind::CENTERLINE, theme->palette.lane_centerline);
+    expect_kind_color(overlume::MapKind::LEFT_BOUNDARY, theme->palette.lane_boundary);
+    expect_kind_color(overlume::MapKind::RIGHT_BOUNDARY, theme->palette.lane_boundary);
+    expect_kind_color(overlume::MapKind::CROSSWALK, theme->palette.crosswalk);
+    expect_kind_color(overlume::MapKind::ROAD_SURFACE, theme->palette.road);
     // ROAD_EDGE has its own dedicated token.
-    expect_kind_color(mpviz::MapKind::ROAD_EDGE, theme->palette.road_edge);
+    expect_kind_color(overlume::MapKind::ROAD_EDGE, theme->palette.road_edge);
     // STOPLINE has no dedicated token (deliberate YAGNI) -- falls back to
     // palette.lane_paint, same as every other undedicated kind.
-    expect_kind_color(mpviz::MapKind::STOPLINE, theme->palette.lane_paint);
+    expect_kind_color(overlume::MapKind::STOPLINE, theme->palette.lane_paint);
 
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── crosswalk-hatch dedupe ───────────────────────────────────────────────
@@ -190,13 +190,13 @@ TEST(MapElements, CrosswalkHatchFiresOnRecordedFivePointClosedPolyline) {
     // is adapter-side (hd_map.cpp); this pins the library half: the
     // geometry, once deduped, hatches correctly on a real (non-axis-aligned)
     // quad, not just a synthetic one.
-    const mpviz::Vec3 pts_after_dedupe[4] = {
+    const overlume::Vec3 pts_after_dedupe[4] = {
         {-39.50850289011474, 45.33743457749722, -0.000284586101770401},
         {-54.35884356129442, 45.2288915511252, -0.00039308611303567886},
         {-54.476791014440394, 47.18497371095612, -0.0004083588719367981},
         {-39.52170872121907, 47.27801090662989, -0.0002988511696457863},
     };
-    auto tris = mpviz::detail::build_crosswalk_hatch(pts_after_dedupe, 4, 0.02f);
+    auto tris = overlume::detail::build_crosswalk_hatch(pts_after_dedupe, 4, 0.02f);
     EXPECT_FALSE(tris.empty());
 }
 
@@ -209,13 +209,13 @@ TEST(MapElements, CrosswalkHatchBarsAreOrientedAlongTheShortAxis) {
     // 1-2/3-0 are the SHORT pair (~1.95m, the travel-direction DEPTH),
     // verified by direct computation on these exact points. A real zebra
     // stripe's long axis runs along the SHORT (travel) axis.
-    const mpviz::Vec3 pts[4] = {
+    const overlume::Vec3 pts[4] = {
         {-39.50850289011474, 45.33743457749722, -0.000284586101770401},
         {-54.35884356129442, 45.2288915511252, -0.00039308611303567886},
         {-54.476791014440394, 47.18497371095612, -0.0004083588719367981},
         {-39.52170872121907, 47.27801090662989, -0.0002988511696457863},
     };
-    auto tris = mpviz::detail::build_crosswalk_hatch(pts, 4, 0.0f);
+    auto tris = overlume::detail::build_crosswalk_hatch(pts, 4, 0.0f);
     ASSERT_FALSE(tris.empty());
     ASSERT_EQ(tris.size() % 6, 0u) << "not a whole number of 2-triangle stripe quads";
 
@@ -246,13 +246,13 @@ TEST(MapElements, CrosswalkHatchStripeCountIsPitchDerivedOnRealFixture) {
     // Same fixture; the long axis (edges 0-1/2-3) averages ~14.90m.
     // clamp(round(14.90 / 1.2), 3, 24) == 12, computed independently of the
     // production formula.
-    const mpviz::Vec3 pts[4] = {
+    const overlume::Vec3 pts[4] = {
         {-39.50850289011474, 45.33743457749722, -0.000284586101770401},
         {-54.35884356129442, 45.2288915511252, -0.00039308611303567886},
         {-54.476791014440394, 47.18497371095612, -0.0004083588719367981},
         {-39.52170872121907, 47.27801090662989, -0.0002988511696457863},
     };
-    auto tris = mpviz::detail::build_crosswalk_hatch(pts, 4, 0.0f);
+    auto tris = overlume::detail::build_crosswalk_hatch(pts, 4, 0.0f);
     ASSERT_FALSE(tris.empty());
     ASSERT_EQ(tris.size() % 6, 0u);
     EXPECT_EQ(tris.size() / 6, 12u) << "5 fixed bars across a ~15m crossing was the old, wrong "
@@ -262,13 +262,13 @@ TEST(MapElements, CrosswalkHatchStripeCountIsPitchDerivedOnRealFixture) {
 TEST(MapElements, CrosswalkHatchStripeCountClampsToRange) {
     // A tiny (~1m long-axis) and a huge (~200m long-axis) quad both clamp
     // into [3, 24] rather than rounding to an absurd 1 or 166.
-    const mpviz::Vec3 tiny[4] = {{0, 0, 0}, {1, 0, 0}, {1, 2, 0}, {0, 2, 0}};
-    auto trisTiny = mpviz::detail::build_crosswalk_hatch(tiny, 4, 0.0f);
+    const overlume::Vec3 tiny[4] = {{0, 0, 0}, {1, 0, 0}, {1, 2, 0}, {0, 2, 0}};
+    auto trisTiny = overlume::detail::build_crosswalk_hatch(tiny, 4, 0.0f);
     ASSERT_FALSE(trisTiny.empty());
     EXPECT_EQ(trisTiny.size() / 6, 3u);
 
-    const mpviz::Vec3 huge[4] = {{0, 0, 0}, {200, 0, 0}, {200, 4, 0}, {0, 4, 0}};
-    auto trisHuge = mpviz::detail::build_crosswalk_hatch(huge, 4, 0.0f);
+    const overlume::Vec3 huge[4] = {{0, 0, 0}, {200, 0, 0}, {200, 4, 0}, {0, 4, 0}};
+    auto trisHuge = overlume::detail::build_crosswalk_hatch(huge, 4, 0.0f);
     ASSERT_FALSE(trisHuge.empty());
     EXPECT_EQ(trisHuge.size() / 6, 24u);
 }
@@ -281,45 +281,45 @@ TEST(MapElementsGolden, DashedBoundaryProducesSameDashRunsAsThePreMoveAlgorithm)
     // ([0,1.5],[3,4.5],[6,7.5],[9,10]) -- checked via the mesh-count hook,
     // not a full-frame SSIM (which would also carry road-fill/per-kind
     // color, a separate concern).
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    const mpviz::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
-    mpviz::MapElement e{};
+    const overlume::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
+    overlume::MapElement e{};
     e.points = pts;
     e.point_count = 2;
-    e.kind = mpviz::MapKind::LEFT_BOUNDARY;
-    mpviz::SceneGraph s{};
+    e.kind = overlume::MapKind::LEFT_BOUNDARY;
+    overlume::SceneGraph s{};
     s.map_elements = &e;
     s.map_element_count = 1;
-    mpviz::set_scene(r, s);
-    render_once(r, mpviz::CameraPose{{0, -8, 4}, {0, 0, 0}, 60.0});
+    overlume::set_scene(r, s);
+    render_once(r, overlume::CameraPose{{0, -8, 4}, {0, 0, 0}, 60.0});
 
-    EXPECT_EQ(mpviz::testing::map_element_mesh_count(r), 4u);
-    mpviz::destroy_renderer(r);
+    EXPECT_EQ(overlume::testing::map_element_mesh_count(r), 4u);
+    overlume::destroy_renderer(r);
 }
 
 TEST(MapElementsGolden, CenterlineOfSameGeometryProducesOneMeshChunkNotDashSplit) {
     // The flip's other half: the same geometry on kind==CENTERLINE stays
     // one mesh chunk -- never dash-split.
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    const mpviz::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
-    mpviz::MapElement e{};
+    const overlume::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
+    overlume::MapElement e{};
     e.points = pts;
     e.point_count = 2;
-    e.kind = mpviz::MapKind::CENTERLINE;
-    mpviz::SceneGraph s{};
+    e.kind = overlume::MapKind::CENTERLINE;
+    overlume::SceneGraph s{};
     s.map_elements = &e;
     s.map_element_count = 1;
-    mpviz::set_scene(r, s);
-    render_once(r, mpviz::CameraPose{{0, -8, 4}, {0, 0, 0}, 60.0});
+    overlume::set_scene(r, s);
+    render_once(r, overlume::CameraPose{{0, -8, 4}, {0, 0, 0}, 60.0});
 
-    EXPECT_EQ(mpviz::testing::map_element_mesh_count(r), 1u);
-    mpviz::destroy_renderer(r);
+    EXPECT_EQ(overlume::testing::map_element_mesh_count(r), 1u);
+    overlume::destroy_renderer(r);
 }
 
 // ── ROAD_EDGE is solid (never dashed), CENTERLINE renders as dot discs ──
@@ -329,23 +329,23 @@ TEST(MapElementsGolden, RoadEdgeOfSameGeometryProducesOneMeshChunkNeverDashed) {
     // (IsBoundaryKind() only matches LEFT_BOUNDARY/RIGHT_BOUNDARY), so the
     // same 10 m geometry that dashes into 4 chunks under LEFT_BOUNDARY
     // stays ONE solid mesh chunk under ROAD_EDGE.
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    const mpviz::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
-    mpviz::MapElement e{};
+    const overlume::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
+    overlume::MapElement e{};
     e.points = pts;
     e.point_count = 2;
-    e.kind = mpviz::MapKind::ROAD_EDGE;
-    mpviz::SceneGraph s{};
+    e.kind = overlume::MapKind::ROAD_EDGE;
+    overlume::SceneGraph s{};
     s.map_elements = &e;
     s.map_element_count = 1;
-    mpviz::set_scene(r, s);
-    render_once(r, mpviz::CameraPose{{0, -8, 4}, {0, 0, 0}, 60.0});
+    overlume::set_scene(r, s);
+    render_once(r, overlume::CameraPose{{0, -8, 4}, {0, 0, 0}, 60.0});
 
-    EXPECT_EQ(mpviz::testing::map_element_mesh_count(r), 1u);
-    mpviz::destroy_renderer(r);
+    EXPECT_EQ(overlume::testing::map_element_mesh_count(r), 1u);
+    overlume::destroy_renderer(r);
 }
 
 TEST(MapElements, CenterlineRendersAsDotDiscsNotAStrip) {
@@ -355,26 +355,26 @@ TEST(MapElements, CenterlineRendersAsDotDiscsNotAStrip) {
     // 2.0m over a 10m line land at s=0,2,4,6,8,10 (6 dots, endpoint-
     // inclusive), each a kCenterlineDotSegments=10-wedge fan = 30
     // vertices/dot -> 180 total (a strip of the same geometry would be 6).
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    const mpviz::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
-    mpviz::MapElement e{};
+    const overlume::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
+    overlume::MapElement e{};
     e.points = pts;
     e.point_count = 2;
-    e.kind = mpviz::MapKind::CENTERLINE;
-    mpviz::SceneGraph s{};
+    e.kind = overlume::MapKind::CENTERLINE;
+    overlume::SceneGraph s{};
     s.map_elements = &e;
     s.map_element_count = 1;
-    mpviz::set_scene(r, s);
-    render_once(r, mpviz::CameraPose{{0, -8, 4}, {0, 0, 0}, 60.0});
+    overlume::set_scene(r, s);
+    render_once(r, overlume::CameraPose{{0, -8, 4}, {0, 0, 0}, 60.0});
 
-    EXPECT_EQ(mpviz::testing::map_element_mesh_count(r), 1u);
-    EXPECT_EQ(mpviz::testing::map_element_total_vertex_count(r), 180u)
+    EXPECT_EQ(overlume::testing::map_element_mesh_count(r), 1u);
+    EXPECT_EQ(overlume::testing::map_element_total_vertex_count(r), 180u)
         << "expected 6 dots * 10 segments * 3 verts/wedge -- a strip of this same "
            "2-point geometry would be 6 vertices, not 180";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── road-surface fill ────────────────────────────────────────────────────
@@ -385,38 +385,38 @@ TEST(MapElements, RoadSurfaceKindTriangulatesTheTwoRailEncodingIntoAStrip) {
     // scene (a Filament-free triangle-count hook would need a new export;
     // a pixel-difference check against a no-map-data baseline is the same
     // proof this file's other synthetic map tests use).
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    mpviz::CameraPose pose{{0, -8, 6}, {0, 0, 0}, 60.0};
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    overlume::CameraPose pose{{0, -8, 6}, {0, 0, 0}, 60.0};
 
-    auto* baseR = mpviz::create_renderer(cfg);
+    auto* baseR = overlume::create_renderer(cfg);
     if (!baseR) GTEST_SKIP() << "no GPU/EGL";
-    mpviz::SceneGraph empty{};
-    mpviz::set_scene(baseR, empty);
+    overlume::SceneGraph empty{};
+    overlume::set_scene(baseR, empty);
     const std::vector<uint8_t> baseline = render_once(baseR, pose);
-    mpviz::destroy_renderer(baseR);
+    overlume::destroy_renderer(baseR);
 
-    auto* r = mpviz::create_renderer(cfg);
+    auto* r = overlume::create_renderer(cfg);
     ASSERT_TRUE(r);
     constexpr uint32_t kN = 16;
-    mpviz::Vec3 pts[2 * kN];
+    overlume::Vec3 pts[2 * kN];
     for (uint32_t i = 0; i < kN; ++i) {
         const double y = -3.0 + 6.0 * static_cast<double>(i) / static_cast<double>(kN - 1);
         pts[i] = {-1.0, y, 0.0};       // left rail
         pts[kN + i] = {1.0, y, 0.0};   // right rail
     }
-    mpviz::MapElement e{};
+    overlume::MapElement e{};
     e.points = pts;
     e.point_count = 2 * kN;
-    e.kind = mpviz::MapKind::ROAD_SURFACE;
-    mpviz::SceneGraph s{};
+    e.kind = overlume::MapKind::ROAD_SURFACE;
+    overlume::SceneGraph s{};
     // Valid ego: this test proves the strip renders, not the ego-invalid
     // fade path (see EgoInvalidFadesMapElementsRatherThanLeavingThemAtFullOpacity).
     s.ego.valid = 1;
     s.map_elements = &e;
     s.map_element_count = 1;
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
     const std::vector<uint8_t> withRoad = render_once(r, pose);
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 
     ASSERT_EQ(baseline.size(), withRoad.size());
     size_t differing = 0;
@@ -431,23 +431,23 @@ TEST(MapElements, RoadSurfaceMalformedPointCountBuildsNothing) {
     // An odd point_count can't split evenly into two rails -- silently
     // dropped (spec §9's "missing data renders nothing, not an error"),
     // never a crash or an out-of-bounds read.
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    mpviz::Vec3 pts[5] = {{0, 0, 0}, {1, 0, 0}, {2, 0, 0}, {3, 0, 0}, {4, 0, 0}};
-    mpviz::MapElement e{};
+    overlume::Vec3 pts[5] = {{0, 0, 0}, {1, 0, 0}, {2, 0, 0}, {3, 0, 0}, {4, 0, 0}};
+    overlume::MapElement e{};
     e.points = pts;
     e.point_count = 5;
-    e.kind = mpviz::MapKind::ROAD_SURFACE;
-    mpviz::SceneGraph s{};
+    e.kind = overlume::MapKind::ROAD_SURFACE;
+    overlume::SceneGraph s{};
     s.map_elements = &e;
     s.map_element_count = 1;
-    mpviz::set_scene(r, s);
-    render_once(r, mpviz::CameraPose{{0, -8, 4}, {0, 0, 0}, 60.0});
+    overlume::set_scene(r, s);
+    render_once(r, overlume::CameraPose{{0, -8, 4}, {0, 0, 0}, 60.0});
 
-    EXPECT_EQ(mpviz::testing::map_element_mesh_count(r), 0u);
-    mpviz::destroy_renderer(r);
+    EXPECT_EQ(overlume::testing::map_element_mesh_count(r), 0u);
+    overlume::destroy_renderer(r);
 }
 
 // ── map_element_rebuild_count hook ───────────────────────────────────────
@@ -455,74 +455,74 @@ TEST(MapElements, RoadSurfaceMalformedPointCountBuildsNothing) {
 TEST(MapElements, RebuildCountStaysZeroOnUnchangedContentSignature) {
     // Publishing the IDENTICAL SceneGraph twice must not rebuild the second
     // time (a cache-hit on the unchanged content signature).
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    const mpviz::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
-    mpviz::MapElement e{};
+    const overlume::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
+    overlume::MapElement e{};
     e.points = pts;
     e.point_count = 2;
-    e.kind = mpviz::MapKind::CENTERLINE;
-    mpviz::SceneGraph s{};
+    e.kind = overlume::MapKind::CENTERLINE;
+    overlume::SceneGraph s{};
     s.map_elements = &e;
     s.map_element_count = 1;
-    mpviz::CameraPose pose{{0, -8, 4}, {0, 0, 0}, 60.0};
+    overlume::CameraPose pose{{0, -8, 4}, {0, 0, 0}, 60.0};
 
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
     render_once(r, pose);
-    const uint64_t afterFirst = mpviz::testing::map_element_rebuild_count(r);
+    const uint64_t afterFirst = overlume::testing::map_element_rebuild_count(r);
     EXPECT_GT(afterFirst, 0u);
 
-    mpviz::set_scene(r, s);  // identical content signature
+    overlume::set_scene(r, s);  // identical content signature
     render_once(r, pose);
-    EXPECT_EQ(mpviz::testing::map_element_rebuild_count(r), afterFirst)
+    EXPECT_EQ(overlume::testing::map_element_rebuild_count(r), afterFirst)
         << "publishing the identical MapElement a second time triggered a rebuild -- "
            "the content-signature cache isn't actually a cache";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── map elements actually render (synthetic scenes) ──────────────────────
 
 TEST(MapElements, SyntheticLaneAndCrosswalkChangePixelsVsBaseline) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    mpviz::CameraPose pose{{0, -8, 6}, {0, 0, 0}, 60.0};
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    overlume::CameraPose pose{{0, -8, 6}, {0, 0, 0}, 60.0};
 
-    auto* baseR = mpviz::create_renderer(cfg);
+    auto* baseR = overlume::create_renderer(cfg);
     if (!baseR) GTEST_SKIP() << "no GPU/EGL";
-    mpviz::SceneGraph empty{};
-    mpviz::set_scene(baseR, empty);
+    overlume::SceneGraph empty{};
+    overlume::set_scene(baseR, empty);
     const std::vector<uint8_t> baseline = render_once(baseR, pose);
-    mpviz::destroy_renderer(baseR);
+    overlume::destroy_renderer(baseR);
 
-    auto* r = mpviz::create_renderer(cfg);
+    auto* r = overlume::create_renderer(cfg);
     ASSERT_TRUE(r);
     // A lane centerline running toward the camera...
-    const mpviz::Vec3 lanePts[] = {{0, -6, 0}, {0, -2, 0}, {0, 2, 0}, {0, 6, 0}};
+    const overlume::Vec3 lanePts[] = {{0, -6, 0}, {0, -2, 0}, {0, 2, 0}, {0, 6, 0}};
     // ...and a crosswalk quad straddling it (exercises the polygon + hatch
     // path, not just the polyline path).
-    const mpviz::Vec3 crosswalkPts[] = {{-1.5, -0.5, 0}, {1.5, -0.5, 0}, {1.5, 0.5, 0}, {-1.5, 0.5, 0}};
-    mpviz::MapElement elems[2]{};
+    const overlume::Vec3 crosswalkPts[] = {{-1.5, -0.5, 0}, {1.5, -0.5, 0}, {1.5, 0.5, 0}, {-1.5, 0.5, 0}};
+    overlume::MapElement elems[2]{};
     elems[0].points = lanePts;
     elems[0].point_count = 4;
     elems[0].is_polygon = 0;
     elems[1].points = crosswalkPts;
     elems[1].point_count = 4;
     elems[1].is_polygon = 1;
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     // update_map_elements() gates on ego.valid (fades to 0 while invalid);
     // this test isn't exercising that path, so it needs a valid ego.
     // last_update_sec/sim_time_sec both default to 0.0 (fresh).
     s.ego.valid = 1;
     s.map_elements = elems;
     s.map_element_count = 2;
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
     const std::vector<uint8_t> withMap = render_once(r, pose);
     // Not a golden (no committed comparison target) -- just a viewable PNG
     // of the lane+crosswalk render path for human sanity-checking.
-    mpviz::testing::render_and_compare(r, pose, "/nonexistent-golden.png",
+    overlume::testing::render_and_compare(r, pose, "/nonexistent-golden.png",
                                         "/tmp/map_elements_synthetic_actual.png");
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 
     ASSERT_EQ(baseline.size(), withMap.size());
     size_t differing = 0;
@@ -537,37 +537,37 @@ TEST(MapElements, ElementCountShrinksWhenElementsVanishBetweenUpdates) {
     // Diff-cache add/remove sanity: publishing fewer elements than the
     // previous frame must not leave stale geometry rendered forever (a
     // rebuild-once-and-never-again bug would keep showing all 3).
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    mpviz::CameraPose pose{{0, -8, 6}, {0, 0, 0}, 60.0};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    overlume::CameraPose pose{{0, -8, 6}, {0, 0, 0}, 60.0};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    const mpviz::Vec3 a[] = {{-4, -4, 0}, {-4, 4, 0}};
-    const mpviz::Vec3 b[] = {{0, -4, 0}, {0, 4, 0}};
-    const mpviz::Vec3 c[] = {{4, -4, 0}, {4, 4, 0}};
-    mpviz::MapElement three[3]{};
+    const overlume::Vec3 a[] = {{-4, -4, 0}, {-4, 4, 0}};
+    const overlume::Vec3 b[] = {{0, -4, 0}, {0, 4, 0}};
+    const overlume::Vec3 c[] = {{4, -4, 0}, {4, 4, 0}};
+    overlume::MapElement three[3]{};
     three[0].points = a;
     three[0].point_count = 2;
     three[1].points = b;
     three[1].point_count = 2;
     three[2].points = c;
     three[2].point_count = 2;
-    mpviz::SceneGraph s3{};
+    overlume::SceneGraph s3{};
     s3.map_elements = three;
     s3.map_element_count = 3;
-    mpviz::set_scene(r, s3);
+    overlume::set_scene(r, s3);
     const std::vector<uint8_t> withThree = render_once(r, pose);
 
-    mpviz::SceneGraph s1{};
+    overlume::SceneGraph s1{};
     s1.map_elements = three;  // only the first element now
     s1.map_element_count = 1;
-    mpviz::set_scene(r, s1);
+    overlume::set_scene(r, s1);
     const std::vector<uint8_t> withOne = render_once(r, pose);
 
     EXPECT_NE(withThree, withOne)
         << "removing 2 of 3 lane elements produced an identical frame -- vanished "
            "elements were not evicted from the diff cache";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── golden: recorded HD-map fixture, both themes ─────────────────────────
@@ -582,23 +582,23 @@ namespace {
 // test's convention.
 bool RunMapGolden(const char* theme_name, const char* golden_name, const char* out_name) {
     const std::string geomPath =
-        std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/hd_map_local_elements_0.geom";
-    mpviz::testing::MapGeom g = mpviz::testing::load_map_geom(geomPath.c_str());
+        std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/hd_map_local_elements_0.geom";
+    overlume::testing::MapGeom g = overlume::testing::load_map_geom(geomPath.c_str());
     auto& elems = g.elements;
     EXPECT_FALSE(elems.empty());
 
-    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, theme_name};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, theme_name};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) return true;  // GTEST_SKIP path, no GPU/EGL
 
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
     // The `.geom` text-dump format (golden.hpp) carries no last_update_sec,
     // so every loaded element defaults to 0.0 -- against sim_time_sec=10.0
     // that reads as maximally stale. Stamp every element "just refreshed"
     // instead, the same way a live HdMapAdapter would on its next fill().
     for (auto& e : elems) e.last_update_sec = s.sim_time_sec;
-    const mpviz::Vec3 c = mpviz::testing::centroid(elems);
+    const overlume::Vec3 c = overlume::testing::centroid(elems);
     // Pins that the fixture is far from the map origin. Measured centroid
     // (-46.73, 12.82), hypot ~48.46 -- comfortably outside the 40x40m
     // origin-centred void patch (kGroundHalfExtent=20m); 45.0 is the
@@ -607,13 +607,13 @@ bool RunMapGolden(const char* theme_name, const char* golden_name, const char* o
     s.ego = {c, 0.0, 3.0, 1};
     s.map_elements = elems.data();
     s.map_element_count = static_cast<uint32_t>(elems.size());
-    mpviz::set_scene(r, s);
-    mpviz::CameraPose pose{{c.x - 8, c.y - 8, 6}, {c.x, c.y, c.z}, 60.0};
-    const std::string goldenPath = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/goldens/" + golden_name;
+    overlume::set_scene(r, s);
+    overlume::CameraPose pose{{c.x - 8, c.y - 8, 6}, {c.x, c.y, c.z}, 60.0};
+    const std::string goldenPath = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/goldens/" + golden_name;
     const std::string outPath = std::string("/tmp/") + out_name;
-    double ssim = mpviz::testing::render_and_compare(r, pose, goldenPath.c_str(), outPath.c_str());
+    double ssim = overlume::testing::render_and_compare(r, pose, goldenPath.c_str(), outPath.c_str());
     EXPECT_GT(ssim, 0.98);
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
     return false;
 }
 
@@ -640,48 +640,48 @@ TEST(MapGolden, LaneNetworkAtEgoOffset_LightClay) {
 // CENTERLINE elements by design), feeding them directly to prove the
 // dot-disc path renders as something distinct and legible.
 TEST(MapGolden, CenterlineDotsOnState_DarkAdas) {
-    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
-    mpviz::CameraPose pose{{0, -10, 8}, {0, 0, 0}, 60.0};
+    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    overlume::CameraPose pose{{0, -10, 8}, {0, 0, 0}, 60.0};
 
-    auto* baseR = mpviz::create_renderer(cfg);
+    auto* baseR = overlume::create_renderer(cfg);
     if (!baseR) GTEST_SKIP() << "no GPU/EGL";
-    mpviz::SceneGraph empty{};
-    mpviz::set_scene(baseR, empty);
+    overlume::SceneGraph empty{};
+    overlume::set_scene(baseR, empty);
     const std::vector<uint8_t> baseline = render_once(baseR, pose);
-    mpviz::destroy_renderer(baseR);
+    overlume::destroy_renderer(baseR);
 
-    auto* r = mpviz::create_renderer(cfg);
+    auto* r = overlume::create_renderer(cfg);
     ASSERT_TRUE(r);
     // A handful of straight/curved centerlines across the frame -- enough
     // to show dot spacing/radius at a glance.
-    const mpviz::Vec3 line_a[] = {{-6, -6, 0}, {-6, 6, 0}};
-    const mpviz::Vec3 line_b[] = {{0, -6, 0}, {0, 0, 0}, {2, 6, 0}};
-    const mpviz::Vec3 line_c[] = {{6, -6, 0}, {6, 6, 0}};
-    mpviz::MapElement elems[3]{};
+    const overlume::Vec3 line_a[] = {{-6, -6, 0}, {-6, 6, 0}};
+    const overlume::Vec3 line_b[] = {{0, -6, 0}, {0, 0, 0}, {2, 6, 0}};
+    const overlume::Vec3 line_c[] = {{6, -6, 0}, {6, 6, 0}};
+    overlume::MapElement elems[3]{};
     elems[0].points = line_a;
     elems[0].point_count = 2;
-    elems[0].kind = mpviz::MapKind::CENTERLINE;
+    elems[0].kind = overlume::MapKind::CENTERLINE;
     elems[1].points = line_b;
     elems[1].point_count = 3;
-    elems[1].kind = mpviz::MapKind::CENTERLINE;
+    elems[1].kind = overlume::MapKind::CENTERLINE;
     elems[2].points = line_c;
     elems[2].point_count = 2;
-    elems[2].kind = mpviz::MapKind::CENTERLINE;
-    mpviz::SceneGraph s{};
+    elems[2].kind = overlume::MapKind::CENTERLINE;
+    overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.map_elements = elems;
     s.map_element_count = 3;
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
     const std::vector<uint8_t> withDots = render_once(r, pose);
 
     // SSIM is asserted, not just returned: an unchecked render_and_compare
     // is a candidate generator that can never go red. The pixel-diff
     // against the empty scene below stays as the mechanism-level check.
-    const double dotSsim = mpviz::testing::render_and_compare(
-        r, pose, MPVIZ_TEST_DATA_DIR "/tests/goldens/centerline_dots_dark_adas.png",
+    const double dotSsim = overlume::testing::render_and_compare(
+        r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/centerline_dots_dark_adas.png",
         "/tmp/centerline_dots_dark_adas_actual.png");
     EXPECT_GT(dotSsim, 0.98);
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 
     ASSERT_EQ(baseline.size(), withDots.size());
     size_t differing = 0;
@@ -705,62 +705,62 @@ TEST(MapGolden, CenterlineDotsOnState_DarkAdas) {
 // independent of the cut algorithm itself (proven at the adapter level,
 // hd_map.cpp).
 TEST(MapGolden, JunctionCleanupOnState_DarkAdas) {
-    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
-    mpviz::CameraPose pose{{0, -14, 12}, {0, 0, 0}, 60.0};
+    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    overlume::CameraPose pose{{0, -14, 12}, {0, 0, 0}, 60.0};
 
-    auto* r = mpviz::create_renderer(cfg);
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
     // Road A (east-west) outer edges, each already cut at the box
     // (x in [-3,3]) -- two pieces per rail, four ROAD_EDGE elements.
-    const mpviz::Vec3 a_north_w[] = {{-10, 2, 0}, {-3, 2, 0}};
-    const mpviz::Vec3 a_north_e[] = {{3, 2, 0}, {10, 2, 0}};
-    const mpviz::Vec3 a_south_w[] = {{-10, -2, 0}, {-3, -2, 0}};
-    const mpviz::Vec3 a_south_e[] = {{3, -2, 0}, {10, -2, 0}};
+    const overlume::Vec3 a_north_w[] = {{-10, 2, 0}, {-3, 2, 0}};
+    const overlume::Vec3 a_north_e[] = {{3, 2, 0}, {10, 2, 0}};
+    const overlume::Vec3 a_south_w[] = {{-10, -2, 0}, {-3, -2, 0}};
+    const overlume::Vec3 a_south_e[] = {{3, -2, 0}, {10, -2, 0}};
     // Road B (north-south) outer edges, same shape, cut at y in [-3,3].
-    const mpviz::Vec3 b_east_s[] = {{2, -10, 0}, {2, -3, 0}};
-    const mpviz::Vec3 b_east_n[] = {{2, 3, 0}, {2, 10, 0}};
-    const mpviz::Vec3 b_west_s[] = {{-2, -10, 0}, {-2, -3, 0}};
-    const mpviz::Vec3 b_west_n[] = {{-2, 3, 0}, {-2, 10, 0}};
+    const overlume::Vec3 b_east_s[] = {{2, -10, 0}, {2, -3, 0}};
+    const overlume::Vec3 b_east_n[] = {{2, 3, 0}, {2, 10, 0}};
+    const overlume::Vec3 b_west_s[] = {{-2, -10, 0}, {-2, -3, 0}};
+    const overlume::Vec3 b_west_n[] = {{-2, 3, 0}, {-2, 10, 0}};
     // The junction box itself (closed ring, matches a real recorded
     // JUNCTION marker's own 5-point closed-rectangle shape).
-    const mpviz::Vec3 junction_ring[] = {
+    const overlume::Vec3 junction_ring[] = {
         {-3, -3, 0}, {3, -3, 0}, {3, 3, 0}, {-3, 3, 0}, {-3, -3, 0}};
     // Interior separators: NOT cut -- run straight through the box.
-    const mpviz::Vec3 sep_v[] = {{0, -10, 0}, {0, 10, 0}};
-    const mpviz::Vec3 sep_h[] = {{-10, 0, 0}, {10, 0, 0}};
+    const overlume::Vec3 sep_v[] = {{0, -10, 0}, {0, 10, 0}};
+    const overlume::Vec3 sep_h[] = {{-10, 0, 0}, {10, 0, 0}};
 
-    mpviz::MapElement elems[10]{};
-    elems[0].points = a_north_w; elems[0].point_count = 2; elems[0].kind = mpviz::MapKind::ROAD_EDGE;
-    elems[1].points = a_north_e; elems[1].point_count = 2; elems[1].kind = mpviz::MapKind::ROAD_EDGE;
-    elems[2].points = a_south_w; elems[2].point_count = 2; elems[2].kind = mpviz::MapKind::ROAD_EDGE;
-    elems[3].points = a_south_e; elems[3].point_count = 2; elems[3].kind = mpviz::MapKind::ROAD_EDGE;
-    elems[4].points = b_east_s;  elems[4].point_count = 2; elems[4].kind = mpviz::MapKind::ROAD_EDGE;
-    elems[5].points = b_east_n;  elems[5].point_count = 2; elems[5].kind = mpviz::MapKind::ROAD_EDGE;
-    elems[6].points = b_west_s;  elems[6].point_count = 2; elems[6].kind = mpviz::MapKind::ROAD_EDGE;
-    elems[7].points = b_west_n;  elems[7].point_count = 2; elems[7].kind = mpviz::MapKind::ROAD_EDGE;
-    elems[8].points = sep_v;     elems[8].point_count = 2; elems[8].kind = mpviz::MapKind::LEFT_BOUNDARY;
-    elems[9].points = sep_h;     elems[9].point_count = 2; elems[9].kind = mpviz::MapKind::RIGHT_BOUNDARY;
-    mpviz::MapElement junction_elem{};
+    overlume::MapElement elems[10]{};
+    elems[0].points = a_north_w; elems[0].point_count = 2; elems[0].kind = overlume::MapKind::ROAD_EDGE;
+    elems[1].points = a_north_e; elems[1].point_count = 2; elems[1].kind = overlume::MapKind::ROAD_EDGE;
+    elems[2].points = a_south_w; elems[2].point_count = 2; elems[2].kind = overlume::MapKind::ROAD_EDGE;
+    elems[3].points = a_south_e; elems[3].point_count = 2; elems[3].kind = overlume::MapKind::ROAD_EDGE;
+    elems[4].points = b_east_s;  elems[4].point_count = 2; elems[4].kind = overlume::MapKind::ROAD_EDGE;
+    elems[5].points = b_east_n;  elems[5].point_count = 2; elems[5].kind = overlume::MapKind::ROAD_EDGE;
+    elems[6].points = b_west_s;  elems[6].point_count = 2; elems[6].kind = overlume::MapKind::ROAD_EDGE;
+    elems[7].points = b_west_n;  elems[7].point_count = 2; elems[7].kind = overlume::MapKind::ROAD_EDGE;
+    elems[8].points = sep_v;     elems[8].point_count = 2; elems[8].kind = overlume::MapKind::LEFT_BOUNDARY;
+    elems[9].points = sep_h;     elems[9].point_count = 2; elems[9].kind = overlume::MapKind::RIGHT_BOUNDARY;
+    overlume::MapElement junction_elem{};
     junction_elem.points = junction_ring;
     junction_elem.point_count = 5;
-    junction_elem.kind = mpviz::MapKind::JUNCTION;
+    junction_elem.kind = overlume::MapKind::JUNCTION;
 
-    std::vector<mpviz::MapElement> all(elems, elems + 10);
+    std::vector<overlume::MapElement> all(elems, elems + 10);
     all.push_back(junction_elem);
 
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.map_elements = all.data();
     s.map_element_count = static_cast<uint32_t>(all.size());
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
 
     // SSIM asserted: an unchecked render_and_compare can never go red.
-    const double ssim = mpviz::testing::render_and_compare(
-        r, pose, MPVIZ_TEST_DATA_DIR "/tests/goldens/junction_cleanup_dark_adas.png",
+    const double ssim = overlume::testing::render_and_compare(
+        r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/junction_cleanup_dark_adas.png",
         "/tmp/junction_cleanup_dark_adas_actual.png");
     EXPECT_GT(ssim, 0.98);
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── duplicate-signature leak regression (found live, 2026-09-09) ─────────
@@ -773,39 +773,39 @@ TEST(MapElements, DuplicateElementsDoNotLeakMeshesOrRebuildEveryFrame) {
     // put its renderable in the scene, and the failed emplace dropped the
     // only handle to it -- one leaked scene renderable PER FRAME, measured
     // live as render_ms climbing 13 -> ~140 ms over a minute of playback.
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    const mpviz::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
-    mpviz::MapElement dup[2]{};
+    const overlume::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
+    overlume::MapElement dup[2]{};
     for (auto& e : dup) {
         e.points = pts;
         e.point_count = 2;
-        e.kind = mpviz::MapKind::ROAD_EDGE;  // solid polyline path, no dash fan-out
+        e.kind = overlume::MapKind::ROAD_EDGE;  // solid polyline path, no dash fan-out
         e.last_update_sec = 10.0;
     }
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
     s.ego.valid = 1;
     s.map_elements = dup;
     s.map_element_count = 2;
-    const mpviz::CameraPose pose{{0, -8, 4}, {0, 0, 0}, 60.0};
+    const overlume::CameraPose pose{{0, -8, 4}, {0, 0, 0}, 60.0};
 
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
     render_once(r, pose);
-    EXPECT_EQ(mpviz::testing::map_element_mesh_count(r), 1u)
+    EXPECT_EQ(overlume::testing::map_element_mesh_count(r), 1u)
         << "two identical elements must share one cached mesh";
-    const uint64_t rebuildsAfterFirstFrame = mpviz::testing::map_element_rebuild_count(r);
+    const uint64_t rebuildsAfterFirstFrame = overlume::testing::map_element_rebuild_count(r);
 
     for (int i = 0; i < 5; ++i) {
-        mpviz::set_scene(r, s);
+        overlume::set_scene(r, s);
         render_once(r, pose);
     }
-    EXPECT_EQ(mpviz::testing::map_element_mesh_count(r), 1u);
-    EXPECT_EQ(mpviz::testing::map_element_rebuild_count(r), rebuildsAfterFirstFrame)
+    EXPECT_EQ(overlume::testing::map_element_mesh_count(r), 1u);
+    EXPECT_EQ(overlume::testing::map_element_rebuild_count(r), rebuildsAfterFirstFrame)
         << "an unchanged duplicate-bearing scene must not rebuild (and leak) every frame";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── staleness fade, the one shared path ──────────────────────────────────
@@ -818,63 +818,63 @@ TEST(MapElements, FadesViaSharedStalenessAlpha) {
     // computed value, not a pixel comparison. ego.valid=1 so the
     // ego-invalid gate (tested separately below) isn't what's driving this
     // alpha down.
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    const mpviz::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
-    mpviz::MapElement e{};
+    const overlume::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
+    overlume::MapElement e{};
     e.points = pts;
     e.point_count = 2;
-    e.kind = mpviz::MapKind::CENTERLINE;
+    e.kind = overlume::MapKind::CENTERLINE;
     e.last_update_sec = 10.0 - 0.75;  // 0.75s behind -> alpha ~0.5, same worked
                                        // example test_objects.cpp's own fade test uses
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
     s.ego.valid = 1;
     s.map_elements = &e;
     s.map_element_count = 1;
-    mpviz::set_scene(r, s);
-    render_once(r, mpviz::CameraPose{{0, -8, 4}, {0, 0, 0}, 60.0});
+    overlume::set_scene(r, s);
+    render_once(r, overlume::CameraPose{{0, -8, 4}, {0, 0, 0}, 60.0});
 
-    const auto info = mpviz::testing::map_element_material_info(r);
+    const auto info = overlume::testing::map_element_material_info(r);
     EXPECT_TRUE(info.bound_to_translucent)
         << "a stale map element's renderable must be bound to clay_translucent.mat, not "
            "its opaque per-kind template";
     EXPECT_NEAR(info.alpha, 0.5f, 0.02f);
 
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 TEST(MapElements, FreshMapElementStaysOnTheOpaqueTemplate) {
     // The other half of the fade -- fresh (last_update_sec == sim_time_sec)
     // must stay on the shared opaque per-kind template, no per-entity
     // instance at all (test_objects.cpp's own "fresh" half, same shape).
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    const mpviz::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
-    mpviz::MapElement e{};
+    const overlume::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
+    overlume::MapElement e{};
     e.points = pts;
     e.point_count = 2;
-    e.kind = mpviz::MapKind::CENTERLINE;
+    e.kind = overlume::MapKind::CENTERLINE;
     e.last_update_sec = 10.0;
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
     s.ego.valid = 1;
     s.map_elements = &e;
     s.map_element_count = 1;
-    mpviz::set_scene(r, s);
-    render_once(r, mpviz::CameraPose{{0, -8, 4}, {0, 0, 0}, 60.0});
+    overlume::set_scene(r, s);
+    render_once(r, overlume::CameraPose{{0, -8, 4}, {0, 0, 0}, 60.0});
 
-    const auto info = mpviz::testing::map_element_material_info(r);
+    const auto info = overlume::testing::map_element_material_info(r);
     EXPECT_FALSE(info.bound_to_translucent)
         << "a FRESH map element must stay on the opaque shared template, not get a "
            "per-entity instance";
     EXPECT_NEAR(info.alpha, 1.0f, 1e-4);
 
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── the ego-invalid map cosmetic ─────────────────────────────────────────
@@ -885,38 +885,38 @@ TEST(MapElements, EgoInvalidFadesMapElementsRatherThanLeavingThemAtFullOpacity) 
     // must match: ego.valid==0 drives alpha to 0 via the same fade path
     // (not skip-and-freeze, which would leave the last valid frame's
     // geometry at full opacity forever). See renderer.cpp.
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    const mpviz::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
-    mpviz::MapElement e{};
+    const overlume::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
+    overlume::MapElement e{};
     e.points = pts;
     e.point_count = 2;
-    e.kind = mpviz::MapKind::CENTERLINE;
+    e.kind = overlume::MapKind::CENTERLINE;
     e.last_update_sec = 10.0;  // fresh by staleness_alpha's own math
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
     s.ego.valid = 1;
     s.map_elements = &e;
     s.map_element_count = 1;
-    mpviz::CameraPose pose{{0, -8, 4}, {0, 0, 0}, 60.0};
+    overlume::CameraPose pose{{0, -8, 4}, {0, 0, 0}, 60.0};
 
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
     render_once(r, pose);
-    EXPECT_NEAR(mpviz::testing::map_element_material_info(r).alpha, 1.0f, 1e-4)
+    EXPECT_NEAR(overlume::testing::map_element_material_info(r).alpha, 1.0f, 1e-4)
         << "sanity check: ego valid + fresh element -> full opacity, before the flip below";
 
     s.ego.valid = 0;  // TF dropout; the SAME MapElement, still "fresh" by staleness_alpha
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
     render_once(r, pose);
-    const auto afterEgoInvalid = mpviz::testing::map_element_material_info(r);
+    const auto afterEgoInvalid = overlume::testing::map_element_material_info(r);
     EXPECT_LT(afterEgoInvalid.alpha, 1.0f)
         << "ego.valid==0 must fade map elements toward invisible, not hold them at full "
            "opacity while the ground/grid patch has already snapped to the origin";
     EXPECT_NEAR(afterEgoInvalid.alpha, 0.0f, 1e-4);
 
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── crosswalk/boundary z-fight regression (flicker report, 2026-09-16) ───
@@ -937,20 +937,20 @@ TEST(MapElements, EgoInvalidFadesMapElementsRatherThanLeavingThemAtFullOpacity) 
 // checks actual rendered pixels instead.
 namespace {
 
-std::vector<uint8_t> RenderZFightScene(const mpviz::CameraPose& pose, mpviz::MapElement* elems,
+std::vector<uint8_t> RenderZFightScene(const overlume::CameraPose& pose, overlume::MapElement* elems,
                                         uint32_t count) {
-    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) return {};  // no GPU/EGL
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.map_elements = elems;
     s.map_element_count = count;
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
     std::vector<uint8_t> pixels(320u * 240u * 3u);
-    mpviz::FrameView view{pixels.data(), 320, 240};
-    const bool ok = mpviz::render_frame(r, pose, view);
-    mpviz::destroy_renderer(r);
+    overlume::FrameView view{pixels.data(), 320, 240};
+    const bool ok = overlume::render_frame(r, pose, view);
+    overlume::destroy_renderer(r);
     if (!ok) return {};
     return pixels;
 }
@@ -975,27 +975,27 @@ TEST(MapElementsZFight, CrosswalkOverBoundaryStaysStableAcrossTinyCameraMove) {
     // n==4, so this falls to triangulate_convex_polygon()'s plain solid
     // fill: a reliable opaque overlap area, not a hatch pattern that could
     // dodge the fight by landing in a gap.
-    mpviz::Vec3 crosswalk_ring[] = {
+    overlume::Vec3 crosswalk_ring[] = {
         {-3, -1, 0}, {3, -1, 0}, {3, 1, 0}, {-3, 1, 0}, {-3, -1, 0}};
     // A lane boundary straight through the crosswalk's middle (y=0) --
     // its kLaneHalfWidthM=0.05m ribbon overlaps the crosswalk fill for the
     // whole x in [-3,3] span.
-    mpviz::Vec3 boundary_line[] = {{-5, 0, 0}, {5, 0, 0}};
+    overlume::Vec3 boundary_line[] = {{-5, 0, 0}, {5, 0, 0}};
 
-    mpviz::MapElement both[2]{};
+    overlume::MapElement both[2]{};
     both[0].points = crosswalk_ring;
     both[0].point_count = 5;
     both[0].is_polygon = 1;
-    both[0].kind = mpviz::MapKind::CROSSWALK;
+    both[0].kind = overlume::MapKind::CROSSWALK;
     both[1].points = boundary_line;
     both[1].point_count = 2;
-    both[1].kind = mpviz::MapKind::LEFT_BOUNDARY;
+    both[1].kind = overlume::MapKind::LEFT_BOUNDARY;
 
-    mpviz::MapElement crosswalk_only[1]{both[0]};
-    mpviz::MapElement boundary_only[1]{both[1]};
+    overlume::MapElement crosswalk_only[1]{both[0]};
+    overlume::MapElement boundary_only[1]{both[1]};
 
-    const mpviz::CameraPose poseA{{0, -10, 6}, {0, 0, 0}, 60.0};
-    const mpviz::CameraPose poseB{{0.004, -10, 6}, {0, 0, 0}, 60.0};
+    const overlume::CameraPose poseA{{0, -10, 6}, {0, 0, 0}, 60.0};
+    const overlume::CameraPose poseB{{0.004, -10, 6}, {0, 0, 0}, 60.0};
 
     const std::vector<uint8_t> background = RenderZFightScene(poseA, nullptr, 0);
     if (background.empty()) GTEST_SKIP() << "no GPU/EGL";

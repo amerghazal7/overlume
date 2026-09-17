@@ -13,9 +13,9 @@
 #pragma once
 
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
-namespace mpviz {
+namespace overlume {
 
 struct BowlState {
     filament::Material* material = nullptr;
@@ -69,4 +69,4 @@ bool build_bowl(VisualRenderer& r, const BowlConfig& cfg);
 //      the map-frame scene each tick, exactly like the ego mesh.
 void update_bowl(VisualRenderer& r, const EgoState& ego);
 
-}  // namespace mpviz
+}  // namespace overlume

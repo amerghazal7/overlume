@@ -5,7 +5,7 @@
 #include <cmath>
 #include <limits>
 
-namespace mpviz::detail {
+namespace overlume::detail {
 
 namespace {
 
@@ -245,4 +245,4 @@ std::vector<std::pair<uint32_t, uint32_t>> polyline_chunks(uint32_t n) {
     return chunks;
 }
 
-}  // namespace mpviz::detail
+}  // namespace overlume::detail

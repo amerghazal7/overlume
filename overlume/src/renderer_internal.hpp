@@ -7,7 +7,7 @@
 // Pulls in <filament/...> headers, so it is deliberately never included by
 // tests/*.cpp — see ego_test_hooks.hpp (Filament-free) for what tests use
 // instead. Test binaries only get `-I src` for Filament-free headers like
-// scene_buffer.hpp; they're never granted visual_renderer's PRIVATE
+// scene_buffer.hpp; they're never granted overlume's PRIVATE
 // Filament include dir, so a test TU including this header would fail to
 // compile.
 #pragma once
@@ -58,7 +58,7 @@
 #include "theme.hpp"
 #include "theme_transition.hpp"
 
-namespace mpviz {
+namespace overlume {
 
 // Full class body stays defined in renderer.cpp; forward-declared here so
 // VisualRenderer::platform (a bare pointer member) can name the type
@@ -859,4 +859,4 @@ void add_mesh(VisualRenderer& r, Mesh& mesh, std::vector<Vertex> verts,
               filament::RenderableManager::PrimitiveType primitive,
               filament::MaterialInstance* material, bool cast_shadows, bool receive_shadows);
 
-}  // namespace mpviz
+}  // namespace overlume

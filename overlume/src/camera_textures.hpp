@@ -10,13 +10,13 @@
 // (Filament-free) for what tests use instead.
 #pragma once
 
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
 #include <filament/Texture.h>
 
 #include <cstdint>
 
-namespace mpviz {
+namespace overlume {
 
 // One persistent camera texture + its per-tick dirty/config state. No
 // getter on Filament's Texture/MaterialInstance for any of this, so every
@@ -54,4 +54,4 @@ struct CameraTextureSlot {
     double motionDelta[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 };
 
-}  // namespace mpviz
+}  // namespace overlume

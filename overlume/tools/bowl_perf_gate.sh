@@ -16,7 +16,7 @@ export ROS_DOMAIN_ID=93
 source /opt/ros/humble/setup.bash
 source "$REPO/ros/install/setup.bash"
 ros2 daemon stop >/dev/null 2>&1; ros2 daemon start >/dev/null 2>&1; sleep 2
-VPARAMS="$(ros2 pkg prefix micropilot_visualization_node)/share/micropilot_visualization_node/config/default_params.yaml"
+VPARAMS="$(ros2 pkg prefix overlume_ros)/share/overlume_ros/config/default_params.yaml"
 
 cleanup(){
   for pat in "visualization_[n]ode" "bag pla[y]" "synthetic_odom_publishe[r]"; do
@@ -39,13 +39,13 @@ run_case(){ # name bowl_enabled [odom_topic]
   local name=$1 bowl=$2 odom=${3:-} vpid
   echo "=== case $name (bowl_enabled=$bowl odom_topic=${odom:-<none>})"
   cleanup >/dev/null 2>&1
-  ros2 run micropilot_visualization_node visualization_node --ros-args --params-file "$VPARAMS" \
+  ros2 run overlume_ros overlume_node --ros-args --params-file "$VPARAMS" \
     -p initial_mode:=3 -p use_sim_time:=true -p quality:=1 -p out_width:=1280 -p out_height:=720 \
     -p profile:=urban -p bowl_enabled:=$bowl ${odom:+-p odom_topic:=$odom} \
     > "$OUT/$name.viz.log" 2>&1 &
   sleep 3
-  vpid=$(pgrep -f "lib/micropilot_visualization_node/visualization_[n]ode" | head -1)
-  if ! lc /visualization_node configure || ! lc /visualization_node activate; then cleanup; return 1; fi
+  vpid=$(pgrep -f "lib/overlume_ros/visualization_[n]ode" | head -1)
+  if ! lc /overlume_node configure || ! lc /overlume_node activate; then cleanup; return 1; fi
 
   # Fresh single-pass playback (no --loop -- a looping bag's clock jump
   # stalls sim-time timers, per this task's own instructions). --clock so
@@ -66,7 +66,7 @@ run_case(){ # name bowl_enabled [odom_topic]
   # mid-run must actually re-bake -- asserted against the node's own INFO
   # line, only on the plain bowl_on case (bowl active, no other churn).
   if [ "$name" = "bowl_on" ]; then
-    ros2 param set /visualization_node bowl_R0 12.0 > /dev/null 2>&1 || true
+    ros2 param set /overlume_node bowl_R0 12.0 > /dev/null 2>&1 || true
     sleep 1
     if grep -q "bowl: re-baked (live param change)" "$OUT/$name.viz.log"; then
       echo "  live re-bake: OK" | tee -a "$OUT/results.txt"

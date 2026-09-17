@@ -7,7 +7,7 @@
 // Task 5's lidar colorization adapter reuses ProjectToCameraUv, so it must
 // stay bit-consistent with what the bowl itself does).
 //
-// mpviz::CameraExtrinsics.R is row-major; per the retired CUDA reprojector's own
+// overlume::CameraExtrinsics.R is row-major; per the retired CUDA reprojector's own
 // types.hpp doc, "R columns = (right, down, fwd)" -- this file reads R's
 // COLUMNS as that basis (right = column 0, down = column 1, fwd = column
 // 2), exactly like reproject.cu's CamDev.
@@ -17,11 +17,11 @@
 // sites, per Decision 3's "same toolchain, one copy not two" precedent.
 #pragma once
 
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
 #include <cstdint>
 
-namespace mpviz::bowl {
+namespace overlume::bowl {
 
 // RIG-frame point -> this camera's pixel UV [0,1]^2 (u = xp/width, v =
 // yp/height -- the same "whole image maps to (0,0)..(1,1)" convention
@@ -41,8 +41,8 @@ namespace mpviz::bowl {
 // shader-local, not part of this function's contract. A caller that feeds
 // this function's u/v output directly into a LINEAR-filtered sampler
 // should apply the same +0.5 conversion itself first.
-bool ProjectToCameraUv(const mpviz::CameraExtrinsics& ext, const mpviz::CameraIntrinsics& in,
-                       uint32_t width, uint32_t height, mpviz::Vec3 rig_point, float* out_u,
+bool ProjectToCameraUv(const overlume::CameraExtrinsics& ext, const overlume::CameraIntrinsics& in,
+                       uint32_t width, uint32_t height, overlume::Vec3 rig_point, float* out_u,
                        float* out_v);
 
 // Bowl surface point at (theta, r): flat floor inside R0, parabolic wall
@@ -50,7 +50,7 @@ bool ProjectToCameraUv(const mpviz::CameraExtrinsics& ext, const mpviz::CameraIn
 // verbatim from reproject.cu's kernels/surface.cuh (bowl_height/bowl_g),
 // which is itself types.hpp's own documented BowlParams parity. theta is
 // measured about +Z (rig frame), r is radial distance from the rig origin.
-mpviz::Vec3 BowlSurfacePoint(double bowl_R0, double bowl_k, double bowl_Rmax, double theta,
+overlume::Vec3 BowlSurfacePoint(double bowl_R0, double bowl_k, double bowl_Rmax, double theta,
                              double r);
 
 // Feather weight from a pixel's distance to its image border -- ported
@@ -63,6 +63,6 @@ float BorderFeather(float xp, float yp, uint32_t width, uint32_t height, double 
 // to [0,1] -- ported verbatim from reproject.cu's bowl_kernel
 // (`align = clamp(dot(normalize(rel), fwd), 0, 1)`). The bowl bake and
 // Task 5's colorization both square this (align*align) per Decision 3.
-float CameraAlignment(const mpviz::CameraExtrinsics& ext, mpviz::Vec3 rig_point);
+float CameraAlignment(const overlume::CameraExtrinsics& ext, overlume::Vec3 rig_point);
 
-}  // namespace mpviz::bowl
+}  // namespace overlume::bowl

@@ -13,18 +13,18 @@ set(VCPKG_CMAKE_SYSTEM_NAME Linux)
 set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/../vcpkg-clang-libcxx-toolchain.cmake")
 
 # VM-061 Step 6 (2026-09-15), finding: these static archives now end up
-# merged (ld -r, scripts/merge_yamlcpp.sh) into libvisual_renderer.a, which
-# the ROS node links into micropilot_visualization_node's OWN SHARED library
-# (visualization_node_lib) -- something no consumer of visual_renderer did
+# merged (ld -r, scripts/merge_yamlcpp.sh) into liboverlume.a, which
+# the ROS node links into overlume_ros's OWN SHARED library
+# (overlume_node_lib) -- something no consumer of overlume did
 # before Epic 6 (every prior consumer, including this library's own test
 # suite, is an EXECUTABLE, never a .so). Without -fPIC, spdlog's
 # thread_local `os.cpp` tid cache compiles with a TLS access model
 # ("Local Exec"/TPOFF32 relocations, confirmed via readelf -r -- NOT
 # "Initial Exec" as first assumed) that a shared object cannot carry --
 # confirmed directly: "relocation R_X86_64_TPOFF32 against
-# `mpviz_vendored__ZGVZN6spdlog7details2os9thread_idEvE3tid' can not be used
+# `overlume_vendored__ZGVZN6spdlog7details2os9thread_idEvE3tid' can not be used
 # when making a shared object; recompile with -fPIC" building
-# visualization_node_lib.so.
+# overlume_node_lib.so.
 #
 # TRIED AND REVERTED: VCPKG_C_FLAGS/VCPKG_CXX_FLAGS set HERE (this triplet
 # file). Does NOTHING under this triplet -- those two variables are read and

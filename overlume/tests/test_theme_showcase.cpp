@@ -9,9 +9,9 @@
 // ctest/ci_visual_mode.sh invocation.
 //
 // Env contract:
-//   MPVIZ_SHOWCASE=1              -- enables the capture (else GTEST_SKIP)
-//   MPVIZ_SHOWCASE_THEME=<name>   -- theme name to load (default dark_adas)
-//   MPVIZ_SHOWCASE_THEME_DIR=<dir> -- theme assets dir (default the shipped
+//   OVERLUME_SHOWCASE=1              -- enables the capture (else GTEST_SKIP)
+//   OVERLUME_SHOWCASE_THEME=<name>   -- theme name to load (default dark_adas)
+//   OVERLUME_SHOWCASE_THEME_DIR=<dir> -- theme assets dir (default the shipped
 //                                     assets/themes/ dir) -- point this at
 //                                     a scratch directory of your own to
 //                                     render a candidate theme that isn't
@@ -21,7 +21,7 @@
 //                                     to live in assets/theme_variants/ was
 //                                     promoted into assets/themes/ and that
 //                                     directory was deleted, 2026-09-16)
-//   MPVIZ_SHOWCASE_OUT=<path.png> -- where to write the PNG (default
+//   OVERLUME_SHOWCASE_OUT=<path.png> -- where to write the PNG (default
 //                                     /tmp/theme_showcase_<theme>.png)
 //
 // Re-render loop this harness is FOR: edit a theme YAML, re-run this one
@@ -30,8 +30,8 @@
 // suite touched, no golden comparison to keep in sync (this test never
 // asserts pixel content -- it reports, honestly, the same way
 // EnvSourceCapture's own captures do).
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+#include "overlume/api.h"
+#include "overlume/scene.h"
 
 #include "golden.hpp"
 #include "test_paths.hpp"
@@ -55,16 +55,16 @@
 
 namespace {
 
-using mpviz::Vec3;
+using overlume::Vec3;
 
 const std::string kTestTownDir =
-    std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/environment_test_town_0";
+    std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_test_town_0";
 
 // Same fixture anchor every other baked-environment test in this suite uses
 // (test_environment.cpp, test_environment_stream.cpp) -- the baked backend
 // doesn't re-derive placement from this at runtime (it's pre-baked in map
 // frame), but set_environment_source() still takes one.
-constexpr mpviz::GeoAnchor kAnchor{25.0803, 55.3910, 0.0};
+constexpr overlume::GeoAnchor kAnchor{25.0803, 55.3910, 0.0};
 
 // The fixture's own real footprint centroid (test_environment.cpp's
 // kBuildingsCentroid, re-typed here rather than re-derived -- same
@@ -127,32 +127,32 @@ std::string env_or(const char* name, const std::string& fallback) {
 }  // namespace
 
 TEST(ThemeShowcase, Capture) {
-    if (std::getenv("MPVIZ_SHOWCASE") == nullptr) {
-        GTEST_SKIP() << "opt-in palette-iteration capture -- set MPVIZ_SHOWCASE=1 to run "
+    if (std::getenv("OVERLUME_SHOWCASE") == nullptr) {
+        GTEST_SKIP() << "opt-in palette-iteration capture -- set OVERLUME_SHOWCASE=1 to run "
                         "(never required by ctest); see this file's header comment for the "
-                        "full env contract (MPVIZ_SHOWCASE_THEME/_THEME_DIR/_OUT)";
+                        "full env contract (OVERLUME_SHOWCASE_THEME/_THEME_DIR/_OUT)";
     }
 
-    const std::string themeName = env_or("MPVIZ_SHOWCASE_THEME", "dark_adas");
-    const std::string themeDir = env_or("MPVIZ_SHOWCASE_THEME_DIR", kThemeDir);
+    const std::string themeName = env_or("OVERLUME_SHOWCASE_THEME", "dark_adas");
+    const std::string themeDir = env_or("OVERLUME_SHOWCASE_THEME_DIR", kThemeDir);
     const std::string outPath =
-        env_or("MPVIZ_SHOWCASE_OUT", "/tmp/theme_showcase_" + themeName + ".png");
+        env_or("OVERLUME_SHOWCASE_OUT", "/tmp/theme_showcase_" + themeName + ".png");
 
     // Quality 2 (high, per RenderConfig::quality's 0/1/2 convention) --
     // this is a manual, opt-in, one-frame capture whose entire point is a
     // human judging "well lighted" (shadows, SSAO), not CI speed; every
     // other golden in this suite trades that off for quality 1 because it
     // renders every ctest run, this one never does.
-    mpviz::RenderConfig cfg{kWidth, kHeight, /*quality=*/2, themeDir.c_str(), themeName.c_str()};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{kWidth, kHeight, /*quality=*/2, themeDir.c_str(), themeName.c_str()};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(mpviz::theme_assets_loaded(r))
+    ASSERT_TRUE(overlume::theme_assets_loaded(r))
         << "[ThemeShowcase] '" << themeName << "' failed to load from '" << themeDir
         << "' -- rendering the compiled-in fallback theme instead, NOT "
         << "the requested candidate. Check the theme name/dir.";
 
     // ── Baked environment buildings (task requirement 1/6) ────────────────
-    ASSERT_TRUE(mpviz::set_environment_source(r, kTestTownDir.c_str(), kAnchor))
+    ASSERT_TRUE(overlume::set_environment_source(r, kTestTownDir.c_str(), kAnchor))
         << "baked fixture town failed to open -- see tests/fixtures/environment_test_town_0";
 
     // ── Ego model (task requirement 2/6) ───────────────────────────────────
@@ -166,7 +166,7 @@ TEST(ThemeShowcase, Capture) {
     // automatically) -- same "/nonexistent path forces the fallback" shape
     // test_ego.cpp's own WrongDims-class tests use.
     constexpr Vec3 kEgoDims{4.5, 1.9, 1.6};  // sedan-scale clay box
-    mpviz::set_ego_model(r, "/nonexistent/theme_showcase_ego.glb", kEgoDims);
+    overlume::set_ego_model(r, "/nonexistent/theme_showcase_ego.glb", kEgoDims);
 
     const double now = 42.0;  // arbitrary sim clock -- staleness fades below are all relative to it
 
@@ -203,8 +203,8 @@ TEST(ThemeShowcase, Capture) {
         world(kCrosswalkX - 1.5, -kEdgeOffset - 0.3), world(kCrosswalkX + 1.5, -kEdgeOffset - 0.3),
         world(kCrosswalkX + 1.5, kEdgeOffset + 0.3), world(kCrosswalkX - 1.5, kEdgeOffset + 0.3)};
 
-    auto make_elem = [&](const std::vector<Vec3>& pts, uint8_t isPolygon, mpviz::MapKind kind) {
-        mpviz::MapElement e{};
+    auto make_elem = [&](const std::vector<Vec3>& pts, uint8_t isPolygon, overlume::MapKind kind) {
+        overlume::MapElement e{};
         e.points = pts.data();
         e.point_count = static_cast<uint32_t>(pts.size());
         e.is_polygon = isPolygon;
@@ -212,14 +212,14 @@ TEST(ThemeShowcase, Capture) {
         e.last_update_sec = now;
         return e;
     };
-    const std::vector<mpviz::MapElement> mapElements = {
-        make_elem(roadSurfacePts, 1, mpviz::MapKind::ROAD_SURFACE),
-        make_elem(leftBoundaryPts, 0, mpviz::MapKind::LEFT_BOUNDARY),
-        make_elem(rightBoundaryPts, 0, mpviz::MapKind::RIGHT_BOUNDARY),
-        make_elem(centerlinePts, 0, mpviz::MapKind::CENTERLINE),
-        make_elem(roadEdgeLeftPts, 0, mpviz::MapKind::ROAD_EDGE),
-        make_elem(roadEdgeRightPts, 0, mpviz::MapKind::ROAD_EDGE),
-        make_elem(crosswalkPts, 1, mpviz::MapKind::CROSSWALK),
+    const std::vector<overlume::MapElement> mapElements = {
+        make_elem(roadSurfacePts, 1, overlume::MapKind::ROAD_SURFACE),
+        make_elem(leftBoundaryPts, 0, overlume::MapKind::LEFT_BOUNDARY),
+        make_elem(rightBoundaryPts, 0, overlume::MapKind::RIGHT_BOUNDARY),
+        make_elem(centerlinePts, 0, overlume::MapKind::CENTERLINE),
+        make_elem(roadEdgeLeftPts, 0, overlume::MapKind::ROAD_EDGE),
+        make_elem(roadEdgeRightPts, 0, overlume::MapKind::ROAD_EDGE),
+        make_elem(crosswalkPts, 1, overlume::MapKind::CROSSWALK),
     };
 
     // ── TrackedObjects across classes (task requirement 4/6) -- reuse
@@ -227,7 +227,7 @@ TEST(ThemeShowcase, Capture) {
     //    PEDESTRIAN/CYCLIST/UNKNOWN, one of each) verbatim, then translate
     //    every position/path point from its own "near world origin" frame
     //    into this scene's frame. ─────────────────────────────────────────
-    mpviz::testing::ObjectScene objects = mpviz::testing::make_mixed_class_objects(now);
+    overlume::testing::ObjectScene objects = overlume::testing::make_mixed_class_objects(now);
     // Fan the six class boxes out (round-1 gate finding, blocking): a plain
     // kSceneOrigin translation alone stacks every one of them, plus the
     // ribbon corridor below, inside the same ~10m span centered on the
@@ -236,7 +236,7 @@ TEST(ThemeShowcase, Capture) {
     // leave no clean pavement to judge them against. Deltas below are
     // ADDITIONAL to kSceneOrigin, one per object in
     // make_mixed_class_objects()'s own documented CAR/TRUCK_VAN/BUS/
-    // PEDESTRIAN/CYCLIST/UNKNOWN order (mpviz::ObjectClass's own enum
+    // PEDESTRIAN/CYCLIST/UNKNOWN order (overlume::ObjectClass's own enum
     // order, scene.h). Objects stay near the ego's own x-range (the ribbon
     // corridor already covers that stretch of road, so leaving objects at
     // a similar depth doesn't newly occlude any otherwise-clean pavement)
@@ -273,7 +273,7 @@ TEST(ThemeShowcase, Capture) {
         {-2.0, -6.0, 0.0},    // CYCLIST -- the -y shoulder
         {2.0, 20.0, 0.0},     // UNKNOWN -- the +y shoulder, further out
     };
-    constexpr size_t kTruckVanIdx = static_cast<size_t>(mpviz::ObjectClass::TRUCK_VAN);
+    constexpr size_t kTruckVanIdx = static_cast<size_t>(overlume::ObjectClass::TRUCK_VAN);
     for (auto& p : objects.path_points) {
         p = translated(p, kSceneOrigin.x + kObjectFanOffsets[kTruckVanIdx].x,
                        kSceneOrigin.y + kObjectFanOffsets[kTruckVanIdx].y);
@@ -297,7 +297,7 @@ TEST(ThemeShowcase, Capture) {
     const std::vector<Vec3> criticalAlertPts = {
         {carPos.x - 2.5, carPos.y - 2.5, 0.0}, {carPos.x + 2.5, carPos.y - 2.5, 0.0},
         {carPos.x + 2.5, carPos.y + 2.5, 0.0}, {carPos.x - 2.5, carPos.y + 2.5, 0.0}};
-    mpviz::AlertPolygon criticalAlert{};
+    overlume::AlertPolygon criticalAlert{};
     criticalAlert.points = criticalAlertPts.data();
     criticalAlert.point_count = static_cast<uint32_t>(criticalAlertPts.size());
     criticalAlert.severity = 2;  // critical -> theme.palette.alert.critical (the coral accent)
@@ -322,7 +322,7 @@ TEST(ThemeShowcase, Capture) {
     //    that disables the mechanism -- and running well past it, so every
     //    role keeps a long, clean, unoccluded run for the eye to judge.
     struct RibbonLaneSpec {
-        mpviz::PathRole role;
+        overlume::PathRole role;
         double laneY;  // local, offset from the ego's own lane center
     };
     // BEHAVIOR (hero) stays dead center, straight ahead of the ego -- the
@@ -330,9 +330,9 @@ TEST(ThemeShowcase, Capture) {
     // their own lanes to the left/right so no role's stub or clip boundary
     // ever sits under another role or under the ego box.
     constexpr std::array<RibbonLaneSpec, 3> kRibbonLanes{{
-        {mpviz::PathRole::BEHAVIOR, 0.0},
-        {mpviz::PathRole::GLOBAL, -3.0},
-        {mpviz::PathRole::LOCAL, 3.0},
+        {overlume::PathRole::BEHAVIOR, 0.0},
+        {overlume::PathRole::GLOBAL, -3.0},
+        {overlume::PathRole::LOCAL, 3.0},
     }};
     constexpr double kRibbonX0 = -2.0;  // 2m behind the ego -- enough for the
                                         // clip to trim a real, visible stub
@@ -349,10 +349,10 @@ TEST(ThemeShowcase, Capture) {
         ribbonPoints.push_back(world(kRibbonX0, lane.laneY));
         ribbonPoints.push_back(world(kRibbonX1, lane.laneY));
     }
-    std::vector<mpviz::PathRibbon> ribbonList;
+    std::vector<overlume::PathRibbon> ribbonList;
     ribbonList.reserve(kRibbonLanes.size());
     for (size_t i = 0; i < kRibbonLanes.size(); ++i) {
-        mpviz::PathRibbon r{};
+        overlume::PathRibbon r{};
         r.role = kRibbonLanes[i].role;
         r.points = ribbonPoints.data() + i * 2;
         r.point_count = 2;
@@ -364,12 +364,12 @@ TEST(ThemeShowcase, Capture) {
     //    make_two_layer_grids() verbatim; GroundGridLayer::origin is a
     //    plain field (not a pointer into shared storage), so it translates
     //    directly. ─────────────────────────────────────────────────────────
-    mpviz::testing::GridScene grids = mpviz::testing::make_two_layer_grids(now);
+    overlume::testing::GridScene grids = overlume::testing::make_two_layer_grids(now);
     for (auto& g : grids.grids) g.origin = translated(g.origin, kSceneOrigin.x, kSceneOrigin.y);
 
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.sim_time_sec = now;
-    s.ego = mpviz::EgoState{kSceneOrigin, /*heading_rad=*/0.0, /*speed_mps=*/8.0, /*valid=*/1};
+    s.ego = overlume::EgoState{kSceneOrigin, /*heading_rad=*/0.0, /*speed_mps=*/8.0, /*valid=*/1};
     s.objects = objects.objects.data();
     s.object_count = static_cast<uint32_t>(objects.objects.size());
     s.paths = ribbonList.data();
@@ -380,7 +380,7 @@ TEST(ThemeShowcase, Capture) {
     s.grid_count = static_cast<uint32_t>(grids.grids.size());
     s.alerts = &criticalAlert;
     s.alert_count = 1;
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
 
     // Elevated 3/4 chase-cam pose, echoing ref-2's own framing: behind and
     // above the ego, looking forward-and-across along the road toward the
@@ -398,7 +398,7 @@ TEST(ThemeShowcase, Capture) {
     // inside the frame with margin. eye is 20m behind/20m to the side of
     // the ego and 15m up; target sits 20m ahead and 6m across from the
     // ego, at ego-eye height (1.5m).
-    const mpviz::CameraPose pose{
+    const overlume::CameraPose pose{
         {kSceneOrigin.x - 20.0, kSceneOrigin.y - 20.0, 15.0},
         {kSceneOrigin.x + 20.0, kSceneOrigin.y + 6.0, 1.5},
         /*vfov_deg=*/60.0};
@@ -408,10 +408,10 @@ TEST(ThemeShowcase, Capture) {
     // -- the baked backend's load is synchronous-by-next-frame, no network
     // pump loop needed, unlike the streaming/cesium backend).
     std::vector<uint8_t> warm(static_cast<size_t>(kWidth) * kHeight * 3);
-    ASSERT_TRUE(mpviz::render_frame(r, pose, {warm.data(), kWidth, kHeight}));
+    ASSERT_TRUE(overlume::render_frame(r, pose, {warm.data(), kWidth, kHeight}));
 
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3);
-    ASSERT_TRUE(mpviz::render_frame(r, pose, {rgb.data(), kWidth, kHeight}));
+    ASSERT_TRUE(overlume::render_frame(r, pose, {rgb.data(), kWidth, kHeight}));
     stbi_write_png(outPath.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight), 3, rgb.data(),
                    static_cast<int>(kWidth) * 3);
 
@@ -420,5 +420,5 @@ TEST(ThemeShowcase, Capture) {
               << outPath << " mean_luminance=" << stats.mean_luminance
               << " non_background_fraction=" << stats.non_background_fraction << "\n";
 
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }

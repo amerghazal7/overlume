@@ -22,8 +22,8 @@
 // GPU-less box: create_renderer() returns nullptr; this prints one line and
 // exits nonzero rather than fabricating a number.
 #include "../tests/bowl_gray_probe.hpp"
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+#include "overlume/api.h"
+#include "overlume/scene.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -40,8 +40,8 @@ constexpr int kToleranceBytes = 1;  // acceptance bar for the search
 }  // namespace
 
 int main() {
-    mpviz::RenderConfig cfg{kW, kH, 1, nullptr, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{kW, kH, 1, nullptr, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) {
         std::printf("bowl_exposure_probe: no GPU/EGL, cannot measure\n");
         return 1;
@@ -56,10 +56,10 @@ int main() {
     int best_out = -1;
     for (int iter = 0; iter < 20; ++iter) {
         double mid = 0.5 * (lo + hi);
-        int out = mpviz::testing::render_gray_probe(r, kMidGrayTarget, static_cast<float>(mid));
+        int out = overlume::testing::render_gray_probe(r, kMidGrayTarget, static_cast<float>(mid));
         if (out < 0) {
             std::printf("bowl_exposure_probe: render failed at compensation=%.4f\n", mid);
-            mpviz::destroy_renderer(r);
+            overlume::destroy_renderer(r);
             return 1;
         }
         std::printf("search iter %2d: compensation=%.4f -> mid-gray out=%d\n", iter, mid, out);
@@ -78,10 +78,10 @@ int main() {
 
     std::printf("\nFull ramp at compensation=%.4f:\n", best);
     for (int g : {32, 64, 128, 192, 224}) {
-        int out = mpviz::testing::render_gray_probe(r, static_cast<uint8_t>(g), static_cast<float>(best));
+        int out = overlume::testing::render_gray_probe(r, static_cast<uint8_t>(g), static_cast<float>(best));
         std::printf("  in=%3d (sRGB byte) -> out=%3d\n", g, out);
     }
 
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
     return 0;
 }

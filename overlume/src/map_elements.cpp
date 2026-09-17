@@ -6,7 +6,7 @@
 #include "map_elements.hpp"
 #include "polyline.hpp"
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
 #include <filament/RenderableManager.h>
 
@@ -20,7 +20,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace mpviz {
+namespace overlume {
 
 namespace {
 
@@ -76,7 +76,7 @@ std::vector<Vertex> to_verts(const std::vector<Vec3>& positions) {
 // differentiation is the geometry: painted bars with ground visible in
 // the gaps. Returns empty for n != 4 -- caller falls back to
 // triangulate_convex_polygon()'s plain fan fill for any other shape.
-// Declared in polyline.hpp (mpviz::detail), not map_elements.hpp, so it's
+// Declared in polyline.hpp (overlume::detail), not map_elements.hpp, so it's
 // reachable from Filament-free tests the same way extrude_polyline/
 // triangulate_convex_polygon already are.
 // ponytail: bilinear-interpolated stripes between the quad's two long
@@ -509,7 +509,7 @@ void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
             // pattern if a real >10k-point map element ever shows up.
             if (verts.size() > 65535) {
                 std::fprintf(stderr,
-                             "[visual_renderer] map element mesh (%zu verts) exceeds the uint16 "
+                             "[overlume] map element mesh (%zu verts) exceeds the uint16 "
                              "index ceiling; element dropped\n",
                              verts.size());
                 return;
@@ -600,4 +600,4 @@ void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
     r.mapElementMeshes = std::move(next);
 }
 
-}  // namespace mpviz
+}  // namespace overlume

@@ -3,8 +3,8 @@
 // tests/*.cpp: this is a plain C++17 TU with no cesium include dirs at all
 // (CMakeLists.txt's per-test `-I src` grants environment_test_hooks.hpp,
 // nothing cesium-flavored) -- Decision 3's quarantine holds even here.
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+#include "overlume/api.h"
+#include "overlume/scene.h"
 
 #include "environment_test_hooks.hpp"
 #include "golden.hpp"
@@ -35,9 +35,9 @@
 namespace {
 
 const std::string kTestTownDir =
-    std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/environment_test_town_0";
+    std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_test_town_0";
 const std::string kIonFixtureDir =
-    std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/environment_ion_fixture_0";
+    std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_ion_fixture_0";
 // VM-063 (Task 4): a dedicated, synthetic 16-real-tile fixture for the
 // network-loss e2e -- see its own PROVENANCE.md for why
 // environment_ion_fixture_0's 3 tiles cannot produce
@@ -46,16 +46,16 @@ const std::string kIonFixtureDir =
 // test process; a failed tile isn't auto-retried without a fresh
 // unload/redesire cycle) and why 16 real (duplicated) tiles fixes that.
 const std::string kIonFixtureFallbackDir =
-    std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/environment_ion_fixture_fallback_0";
+    std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_ion_fixture_fallback_0";
 
-constexpr mpviz::Vec3 kChunk0Center{-128.0, -128.0, 0.0};
+constexpr overlume::Vec3 kChunk0Center{-128.0, -128.0, 0.0};
 
 // PROVENANCE.md: the anchor lies inside tile_root.b3dm's own region, so the
 // map-frame block center IS the map origin, by WgsToMap's own definition.
-constexpr mpviz::Vec3 kFixtureBlockCenterMap{0.0, 0.0, 0.0};
-constexpr mpviz::GeoAnchor kFixtureAnchor{25.0803, 55.3910, 0.0};
+constexpr overlume::Vec3 kFixtureBlockCenterMap{0.0, 0.0, 0.0};
+constexpr overlume::GeoAnchor kFixtureAnchor{25.0803, 55.3910, 0.0};
 
-mpviz::CameraPose kStdPose{{0, -8, 3}, {0, 0, 0.5}, 60};
+overlume::CameraPose kStdPose{{0, -8, 3}, {0, 0, 0.5}, 60};
 
 // VM-064 gate round 1 finding: two tests below unsetenv("CESIUM_ION_TOKEN")
 // to force the no-token path -- previously for the WHOLE PROCESS, so
@@ -92,12 +92,12 @@ private:
 // loaded or `max_frames` ticks pass (cesium's own async load pipeline needs
 // several ticks: request -> load thread -> main thread prepare -> next
 // tick's tilesToRenderThisFrame).
-uint64_t pump_until_loaded(mpviz::VisualRenderer* r, const mpviz::CameraPose& pose,
+uint64_t pump_until_loaded(overlume::VisualRenderer* r, const overlume::CameraPose& pose,
                            std::vector<uint8_t>& buf, int max_frames = 200) {
     uint64_t count = 0;
     for (int i = 0; i < max_frames; ++i) {
-        if (!mpviz::render_frame(r, pose, {buf.data(), 320, 240})) return count;
-        count = mpviz::testing::environment_loaded_chunk_count(r);
+        if (!overlume::render_frame(r, pose, {buf.data(), 320, 240})) return count;
+        count = overlume::testing::environment_loaded_chunk_count(r);
         if (count > 0) return count;
     }
     return count;
@@ -107,53 +107,53 @@ uint64_t pump_until_loaded(mpviz::VisualRenderer* r, const mpviz::CameraPose& po
 
 // ── Step 1: dispatch + factory skeleton ─────────────────────────────────
 TEST(EnvironmentStream, IonUriWithoutTokenIsNonFatalFalse) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     ScopedUnsetEnv no_token("CESIUM_ION_TOKEN");  // this test binary's env only, restored on scope exit
-    mpviz::GeoAnchor a{25.0803, 55.3910, 0.0};
-    EXPECT_FALSE(mpviz::set_environment_source(r, "ion://96188", a));
+    overlume::GeoAnchor a{25.0803, 55.3910, 0.0};
+    EXPECT_FALSE(overlume::set_environment_source(r, "ion://96188", a));
     std::vector<uint8_t> buf(320u * 240u * 3u);
-    EXPECT_TRUE(mpviz::render_frame(r, kStdPose, {buf.data(), 320, 240}));
-    mpviz::destroy_renderer(r);
+    EXPECT_TRUE(overlume::render_frame(r, kStdPose, {buf.data(), 320, 240}));
+    overlume::destroy_renderer(r);
 }
 
 TEST(EnvironmentStream, NonIonUriStillOpensBakedSource) {
     // Regression pin for Decision 5's "byte-identical baked path": the
     // existing fixture town still opens through the SAME entry point.
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    mpviz::GeoAnchor a{25.0803, 55.3910, 0.0};
-    EXPECT_TRUE(mpviz::set_environment_source(r, kTestTownDir.c_str(), a));
+    overlume::GeoAnchor a{25.0803, 55.3910, 0.0};
+    EXPECT_TRUE(overlume::set_environment_source(r, kTestTownDir.c_str(), a));
 
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.ego.position = kChunk0Center;
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
     std::vector<uint8_t> buf(320u * 240u * 3u);
-    ASSERT_TRUE(mpviz::render_frame(r, kStdPose, {buf.data(), 320, 240}));
-    EXPECT_GT(mpviz::testing::environment_loaded_chunk_count(r), 0u);
-    mpviz::destroy_renderer(r);
+    ASSERT_TRUE(overlume::render_frame(r, kStdPose, {buf.data(), 320, 240}));
+    EXPECT_GT(overlume::testing::environment_loaded_chunk_count(r), 0u);
+    overlume::destroy_renderer(r);
 }
 
 // ── Step 2: the real cesium plumbing, fixture-served ────────────────────
 TEST(EnvironmentStream, FixtureTilesLoadRenderAsClayAndCount) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     ASSERT_TRUE(
-        mpviz::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
+        overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
 
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.ego.position = kFixtureBlockCenterMap;
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
 
     std::vector<uint8_t> buf(320u * 240u * 3u);
     const uint64_t loaded = pump_until_loaded(r, kStdPose, buf);
     EXPECT_GT(loaded, 0u);
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── Step 3: geo placement cross-pin (Epic 4's committed pin fixture) ─────
@@ -161,7 +161,7 @@ TEST(EnvironmentStream, FixtureTilesLoadRenderAsClayAndCount) {
 // to the STREAMING transform chain (ecef_to_map * wgs_to_ecef) instead of
 // WgsToMap directly -- three implementations, one truth table.
 TEST(EnvironmentStream, EcefToMapAgreesWithCppPinWithinHalfMeter) {
-    const std::string path = std::string(MPVIZ_TEST_DATA_DIR) + "/tests/fixtures/geo_anchor_cpp_pin_0.json";
+    const std::string path = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/geo_anchor_cpp_pin_0.json";
     std::ifstream file(path);
     ASSERT_TRUE(file) << "missing fixture: " << path;
     std::stringstream ss;
@@ -215,7 +215,7 @@ TEST(EnvironmentStream, EcefToMapAgreesWithCppPinWithinHalfMeter) {
     // itself, so an up-axis/z-scale regression still fails this test.
     for (const Probe& p : probes) {
         double x = 0, y = 0, z = 0;
-        ASSERT_TRUE(mpviz::testing::ecef_to_map_probe(25.0803, 55.391, p.heading_rad, p.lat, p.lon,
+        ASSERT_TRUE(overlume::testing::ecef_to_map_probe(25.0803, 55.391, p.heading_rad, p.lat, p.lon,
                                                        0.0, &x, &y, &z));
         const double err = std::sqrt((x - p.map_x) * (x - p.map_x) + (y - p.map_y) * (y - p.map_y));
         EXPECT_LT(err, 0.5) << "lat=" << p.lat << " lon=" << p.lon << " heading=" << p.heading_rad
@@ -233,74 +233,74 @@ TEST(EnvironmentStream, EcefToMapAgreesWithCppPinWithinHalfMeter) {
 
 // ── Step 4: disk cache proves itself (offline second-run reload) ────────
 TEST(EnvironmentStream, DiskCacheServesTilesWithNetworkDead) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
     // Run 1: healthy fixture accessor, warms the on-disk sqlite cache
     // (Decision 10) in the per-process temp dir test_cache_dir() names
     // (under std::filesystem::temp_directory_path(), NOT the committed
     // fixture tree -- gate round 1 finding 4).
-    auto* handle1 = mpviz::testing::install_fixture_streaming_source_with_fallback(
+    auto* handle1 = overlume::testing::install_fixture_streaming_source_with_fallback(
         r, kIonFixtureDir.c_str(), /*fallback_baked_dir=*/nullptr, kFixtureAnchor);
     ASSERT_NE(handle1, nullptr);
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.ego.position = kFixtureBlockCenterMap;
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
     std::vector<uint8_t> buf(320u * 240u * 3u);
     ASSERT_GT(pump_until_loaded(r, kStdPose, buf), 0u);
     // The sqlite cache write for each response happens on a background
     // thread pool, independent of (and not gated by) content ingestion --
     // pump extra ticks so those writes settle before tearing this source
     // down, or the SECOND source below could race an incomplete cache.
-    for (int i = 0; i < 30; ++i) mpviz::render_frame(r, kStdPose, {buf.data(), 320, 240});
+    for (int i = 0; i < 30; ++i) overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
 
     // Run 2: shares run 1's cache because test_cache_dir() is static
     // within the process (same per-process temp path, Decision 10), but the
     // "network" killed from tick 0 -- any tile that still loads came from
     // the sqlite cache, not a live fetch.
-    auto* handle2 = mpviz::testing::install_fixture_streaming_source_with_fallback(
+    auto* handle2 = overlume::testing::install_fixture_streaming_source_with_fallback(
         r, kIonFixtureDir.c_str(), /*fallback_baked_dir=*/nullptr, kFixtureAnchor);
     ASSERT_NE(handle2, nullptr);
-    mpviz::testing::kill_fixture_network(handle2);
-    mpviz::set_scene(r, s);  // re-publish ego (install_* only swaps r->environmentSource)
+    overlume::testing::kill_fixture_network(handle2);
+    overlume::set_scene(r, s);  // re-publish ego (install_* only swaps r->environmentSource)
     const uint64_t loadedOffline = pump_until_loaded(r, kStdPose, buf);
     EXPECT_GT(loadedOffline, 0u);
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── Step 5: golden + theming (P3 golden scoping, one theme) ─────────────
 TEST(EnvironmentStreamGolden, FixtureBlock_DarkAdas) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     ASSERT_TRUE(
-        mpviz::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
+        overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
 
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.ego.position = kFixtureBlockCenterMap;
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
 
     // Framed on the fixture tiles' own real footprint centroid -- measured
     // directly from the placed FilamentAsset's world-space bounding box
     // (~(69, 472, -3)), NOT the anchor point or the tile's nominal region
     // center (same "frame on the real footprint" lesson
     // test_environment.cpp's own kBuildingsCentroid comment documents).
-    mpviz::CameraPose pose{{149, 352, 90}, {69, 472, 0}, 60.0};
+    overlume::CameraPose pose{{149, 352, 90}, {69, 472, 0}, 60.0};
     std::vector<uint8_t> warm(320u * 240u * 3u);
     ASSERT_GT(pump_until_loaded(r, pose, warm), 0u);
     // Keep pumping so the fixture's other two tiles (not just whichever
     // loads first) have a chance to finish loading too before the golden
     // comparison frame -- more of the real content on screen.
-    for (int i = 0; i < 60; ++i) mpviz::render_frame(r, pose, {warm.data(), 320, 240});
+    for (int i = 0; i < 60; ++i) overlume::render_frame(r, pose, {warm.data(), 320, 240});
 
-    double ssim = mpviz::testing::render_and_compare(
-        r, pose, MPVIZ_TEST_DATA_DIR "/tests/goldens/environment_stream_dark_adas.png",
+    double ssim = overlume::testing::render_and_compare(
+        r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/environment_stream_dark_adas.png",
         "/tmp/environment_stream_dark_adas_actual.png");
     EXPECT_GT(ssim, 0.98);
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── set_environment_visible() (VM-096): the streaming backend must
@@ -320,39 +320,39 @@ TEST(EnvironmentStreamGolden, FixtureBlock_DarkAdas) {
 // independent, and it also proves loaded_count() (still-loaded tiles) is
 // untouched by hiding, same as BakedEnvironmentSource's own tests.
 TEST(EnvironmentStreamGolden, SetVisibleFalseHidesFixtureTilesWithoutTearingDown) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     ASSERT_TRUE(
-        mpviz::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
+        overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
 
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.ego.position = kFixtureBlockCenterMap;
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
     std::vector<uint8_t> buf(320u * 240u * 3u);
     ASSERT_GT(pump_until_loaded(r, kStdPose, buf), 0u);
-    for (int i = 0; i < 30; ++i) mpviz::render_frame(r, kStdPose, {buf.data(), 320, 240});
-    const uint64_t loadedBefore = mpviz::testing::environment_loaded_chunk_count(r);
+    for (int i = 0; i < 30; ++i) overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+    const uint64_t loadedBefore = overlume::testing::environment_loaded_chunk_count(r);
     ASSERT_GT(loadedBefore, 0u);
-    ASSERT_EQ(mpviz::testing::environment_scene_membership_count(r), loadedBefore)
+    ASSERT_EQ(overlume::testing::environment_scene_membership_count(r), loadedBefore)
         << "every loaded tile should start out actually in the scene";
 
-    ASSERT_TRUE(mpviz::set_environment_visible(r, false));
-    ASSERT_TRUE(mpviz::render_frame(r, kStdPose, {buf.data(), 320, 240}));
+    ASSERT_TRUE(overlume::set_environment_visible(r, false));
+    ASSERT_TRUE(overlume::render_frame(r, kStdPose, {buf.data(), 320, 240}));
     // Not torn down: still "loaded" (a re-show must not need a re-fetch),
     // but zero of it is actually in the Filament scene right now.
-    EXPECT_EQ(mpviz::testing::environment_loaded_chunk_count(r), loadedBefore);
-    EXPECT_EQ(mpviz::testing::environment_scene_membership_count(r), 0u)
+    EXPECT_EQ(overlume::testing::environment_loaded_chunk_count(r), loadedBefore);
+    EXPECT_EQ(overlume::testing::environment_scene_membership_count(r), 0u)
         << "streamed tiles are still in the Filament scene after "
            "set_environment_visible(r, false)";
 
-    ASSERT_TRUE(mpviz::set_environment_visible(r, true));
-    ASSERT_TRUE(mpviz::render_frame(r, kStdPose, {buf.data(), 320, 240}));
-    EXPECT_EQ(mpviz::testing::environment_loaded_chunk_count(r), loadedBefore);
-    EXPECT_EQ(mpviz::testing::environment_scene_membership_count(r), loadedBefore)
+    ASSERT_TRUE(overlume::set_environment_visible(r, true));
+    ASSERT_TRUE(overlume::render_frame(r, kStdPose, {buf.data(), 320, 240}));
+    EXPECT_EQ(overlume::testing::environment_loaded_chunk_count(r), loadedBefore);
+    EXPECT_EQ(overlume::testing::environment_scene_membership_count(r), loadedBefore)
         << "re-showing did not put every already-loaded tile back into the scene";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 namespace {
@@ -392,37 +392,37 @@ size_t count_differing_bytes_with_tolerance(const std::vector<uint8_t>& a, const
 // deleted and a hidden-load's entity actually lands in the Filament scene.
 // The pixel comparison further down is a second, independent cross-check.
 TEST(EnvironmentStreamGolden, TileLoadedWhileHiddenDoesNotPopIntoView) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     ASSERT_TRUE(
-        mpviz::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
-    ASSERT_TRUE(mpviz::set_environment_visible(r, false));
+        overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
+    ASSERT_TRUE(overlume::set_environment_visible(r, false));
 
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.ego.position = kFixtureBlockCenterMap;
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
     // Same framing as FixtureBlock_DarkAdas -- the fixture's real footprint
     // centroid, so a popped-in tile would occupy a real chunk of the frame.
-    mpviz::CameraPose pose{{149, 352, 90}, {69, 472, 0}, 60.0};
+    overlume::CameraPose pose{{149, 352, 90}, {69, 472, 0}, 60.0};
     const size_t nBytes = 320u * 240u * 3u;
     std::vector<uint8_t> hiddenBuf(nBytes);
     ASSERT_GT(pump_until_loaded(r, pose, hiddenBuf), 0u) << "loading itself must still happen while hidden";
-    for (int i = 0; i < 30; ++i) mpviz::render_frame(r, pose, {hiddenBuf.data(), 320, 240});
-    ASSERT_TRUE(mpviz::render_frame(r, pose, {hiddenBuf.data(), 320, 240}));
-    EXPECT_EQ(mpviz::testing::environment_scene_membership_count(r), 0u)
+    for (int i = 0; i < 30; ++i) overlume::render_frame(r, pose, {hiddenBuf.data(), 320, 240});
+    ASSERT_TRUE(overlume::render_frame(r, pose, {hiddenBuf.data(), 320, 240}));
+    EXPECT_EQ(overlume::testing::environment_scene_membership_count(r), 0u)
         << "a tile loaded while hidden was added to the Filament scene anyway";
 
     // Reference: a SECOND renderer with no environment source at all -- the
     // ground truth for "tiles not rendered" (same technique
     // test_environment.cpp's own sibling test uses).
-    auto* rNoEnv = mpviz::create_renderer(cfg);
+    auto* rNoEnv = overlume::create_renderer(cfg);
     ASSERT_NE(rNoEnv, nullptr);
-    mpviz::set_scene(rNoEnv, s);
+    overlume::set_scene(rNoEnv, s);
     std::vector<uint8_t> noEnvBuf(nBytes);
-    ASSERT_TRUE(mpviz::render_frame(rNoEnv, pose, {noEnvBuf.data(), 320, 240}));
-    mpviz::destroy_renderer(rNoEnv);
+    ASSERT_TRUE(overlume::render_frame(rNoEnv, pose, {noEnvBuf.data(), 320, 240}));
+    overlume::destroy_renderer(rNoEnv);
 
     // Measured on this fixture/framing: the tolerance-filtered noise floor
     // between a hidden-with-loaded-tiles renderer and one with no
@@ -438,9 +438,9 @@ TEST(EnvironmentStreamGolden, TileLoadedWhileHiddenDoesNotPopIntoView) {
         << "a tile loaded while hidden popped into view (" << diffFromNoEnv << "/" << nBytes
         << " bytes differ beyond rendering noise from a renderer with no environment source at all)";
 
-    ASSERT_TRUE(mpviz::set_environment_visible(r, true));
+    ASSERT_TRUE(overlume::set_environment_visible(r, true));
     std::vector<uint8_t> shownBuf(nBytes);
-    ASSERT_TRUE(mpviz::render_frame(r, pose, {shownBuf.data(), 320, 240}));
+    ASSERT_TRUE(overlume::render_frame(r, pose, {shownBuf.data(), 320, 240}));
     const size_t diffShown = count_differing_bytes_with_tolerance(hiddenBuf, shownBuf, kTolerance);
     // A small floor, not the ~5% SetEnvironmentVisibleFalseHidesLoadedChunksWithoutTearingDown
     // uses for the BAKED town's own centroid framing: this fixture's tiles
@@ -451,48 +451,48 @@ TEST(EnvironmentStreamGolden, TileLoadedWhileHiddenDoesNotPopIntoView) {
     // from a renderer with no source above), just a small one.
     EXPECT_GT(diffShown, 50u) << "showing again produced no visible change (only " << diffShown << "/"
                                << nBytes << " bytes changed beyond rendering noise)";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── Step 6: perf check (dev-box proxy, same honesty class as
 //    EnvironmentPerf.RenderMsDeltaWithTestTownLoaded) ─────────────────────
 TEST(EnvironmentStreamPerf, RenderMsDeltaAndWorstFrameWithFixtureLoaded) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    mpviz::CameraPose pose{{149, 352, 90}, {69, 472, 0}, 60.0};
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    overlume::CameraPose pose{{149, 352, 90}, {69, 472, 0}, 60.0};
     std::vector<uint8_t> buf(320u * 240u * 3u);
     constexpr int kFrames = 60;
 
-    auto* r = mpviz::create_renderer(cfg);
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     ASSERT_TRUE(
-        mpviz::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
-    mpviz::SceneGraph s{};
+        overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
+    overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.ego.position = kFixtureBlockCenterMap;
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
     ASSERT_GT(pump_until_loaded(r, pose, buf), 0u);  // warm: tiles already loaded before timing
 
     double worstMs = 0.0;
     const auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < kFrames; ++i) {
         const auto f0 = std::chrono::steady_clock::now();
-        mpviz::render_frame(r, pose, {buf.data(), 320, 240});
+        overlume::render_frame(r, pose, {buf.data(), 320, 240});
         const auto f1 = std::chrono::steady_clock::now();
         worstMs = std::max(worstMs, std::chrono::duration<double, std::milli>(f1 - f0).count());
     }
     const auto t1 = std::chrono::steady_clock::now();
     const double meanWithMs = std::chrono::duration<double, std::milli>(t1 - t0).count() / kFrames;
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 
-    auto* r2 = mpviz::create_renderer(cfg);
+    auto* r2 = overlume::create_renderer(cfg);
     ASSERT_NE(r2, nullptr);
-    mpviz::set_scene(r2, mpviz::SceneGraph{});
-    mpviz::render_frame(r2, pose, {buf.data(), 320, 240});
+    overlume::set_scene(r2, overlume::SceneGraph{});
+    overlume::render_frame(r2, pose, {buf.data(), 320, 240});
     const auto b0 = std::chrono::steady_clock::now();
-    for (int i = 0; i < kFrames; ++i) mpviz::render_frame(r2, pose, {buf.data(), 320, 240});
+    for (int i = 0; i < kFrames; ++i) overlume::render_frame(r2, pose, {buf.data(), 320, 240});
     const auto b1 = std::chrono::steady_clock::now();
     const double meanWithoutMs = std::chrono::duration<double, std::milli>(b1 - b0).count() / kFrames;
-    mpviz::destroy_renderer(r2);
+    overlume::destroy_renderer(r2);
 
     std::cerr << "[EnvironmentStreamPerf] mean render_ms without=" << meanWithoutMs
               << " with=" << meanWithMs << " delta=" << (meanWithMs - meanWithoutMs)
@@ -508,11 +508,11 @@ TEST(EnvironmentStreamPerf, RenderMsDeltaAndWorstFrameWithFixtureLoaded) {
 // carries it, nor an un-redacted access_token=/Bearer credential shape.
 TEST(TokenRedaction, NeverLeaksIntoLogText) {
     constexpr const char* kBogusToken = "bogus-token-for-redaction-test";
-    ASSERT_TRUE(mpviz::testing::drive_ion_token_redaction_probe(kBogusToken, /*asset_id=*/123456,
+    ASSERT_TRUE(overlume::testing::drive_ion_token_redaction_probe(kBogusToken, /*asset_id=*/123456,
                                                                   /*max_ticks=*/200))
         << "the probe never logged anything at all -- test infrastructure issue, not a pass";
 
-    const std::string logText = mpviz::testing::captured_cesium_log_text();
+    const std::string logText = overlume::testing::captured_cesium_log_text();
     ASSERT_NE(logText.find("access_token="), std::string::npos)
         << "probe never logged the ion endpoint URL -- redaction path was never exercised";
     // Failure text prints a bounded window around the offending match, never
@@ -549,12 +549,12 @@ namespace {
 // couple of ticks without any ego motion (unlike the original 3-tile
 // fixture, where a stationary ego issues no NEW tile requests once
 // whatever's already resident is loaded).
-void pump_until_state(mpviz::VisualRenderer* r, const mpviz::CameraPose& pose,
-                       std::vector<uint8_t>& buf, mpviz::EnvironmentSourceState stop_state,
+void pump_until_state(overlume::VisualRenderer* r, const overlume::CameraPose& pose,
+                       std::vector<uint8_t>& buf, overlume::EnvironmentSourceState stop_state,
                        int max_ticks = 30) {
     for (int i = 0; i < max_ticks; ++i) {
-        ASSERT_TRUE(mpviz::render_frame(r, pose, {buf.data(), 320, 240}));
-        if (mpviz::environment_source_state(r) == stop_state) return;
+        ASSERT_TRUE(overlume::render_frame(r, pose, {buf.data(), 320, 240}));
+        if (overlume::environment_source_state(r) == stop_state) return;
     }
 }
 
@@ -590,8 +590,8 @@ void pump_until_state(mpviz::VisualRenderer* r, const mpviz::CameraPose& pose,
 // this round's scope, recorded here and in the Task 4 Step 1 plan ledger
 // entry rather than implied-but-untested.
 TEST(EnvironmentStream, NetworkDeadFromFirstRequestFallsBackToBakedChunksOnce) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
     // Fixture source with a kill switch, fallback pointed at Epic 4's
@@ -599,21 +599,21 @@ TEST(EnvironmentStream, NetworkDeadFromFirstRequestFallsBackToBakedChunksOnce) {
     // stub) -- kFixtureBlockCenterMap sits within kLoadRadiusM of the
     // town's own chunk_-1_-1 (center (-128,-128,0), radius_m ~181 < 300),
     // so the fallback loads real chunks with no ego motion needed.
-    auto* killable = mpviz::testing::install_fixture_streaming_source_with_fallback(
+    auto* killable = overlume::testing::install_fixture_streaming_source_with_fallback(
         r, kIonFixtureFallbackDir.c_str(), kTestTownDir.c_str(), kFixtureAnchor);
     ASSERT_NE(killable, nullptr);
 
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.ego.position = kFixtureBlockCenterMap;
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
 
     // Phase 1: healthy -- construction alone reports STREAMING ("network
     // healthy (or untested)", scene.h's own Interfaces comment) before a
     // single tick has run. Nothing has streamed in yet (inScene_ is empty)
     // -- see the test-level comment above for why this test cannot start
     // from a genuinely loaded STREAMING state.
-    EXPECT_EQ(mpviz::environment_source_state(r), mpviz::EnvironmentSourceState::STREAMING);
+    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING);
 
     // Phase 2: kill the network before any tile has ever been requested;
     // every one of the fixture's 16 real tiles is then a first-ever,
@@ -622,57 +622,57 @@ TEST(EnvironmentStream, NetworkDeadFromFirstRequestFallsBackToBakedChunksOnce) {
     // CachingAssetAccessor(SqliteCache) stack production traffic runs, not
     // a mocked counter.
     std::vector<uint8_t> buf(320u * 240u * 3u);
-    mpviz::testing::kill_fixture_network(killable);
-    pump_until_state(r, kStdPose, buf, mpviz::EnvironmentSourceState::STREAMING_FALLBACK);
+    overlume::testing::kill_fixture_network(killable);
+    pump_until_state(r, kStdPose, buf, overlume::EnvironmentSourceState::STREAMING_FALLBACK);
 
     // Fallback declared after kNetworkLossConsecutiveFailures failed requests:
-    EXPECT_EQ(mpviz::environment_source_state(r), mpviz::EnvironmentSourceState::STREAMING_FALLBACK);
+    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING_FALLBACK);
     // AC: "baked chunks appear" -- the count now reports the BAKED town's
     // chunks. NOTE: this does NOT prove the streamed tiles were "torn down,
     // not orphaned" -- none were ever resident (no tile ever succeeded in
     // this test), so there was nothing to tear down. That teardown-under-
     // fallback claim is the named gap in the comment above, not covered
     // here.
-    EXPECT_GT(mpviz::testing::environment_loaded_chunk_count(r), 0u);
+    EXPECT_GT(overlume::testing::environment_loaded_chunk_count(r), 0u);
 
     // The "Once" in this test's name, asserted rather than left to review:
     // Decision 11 makes the switch ONE-WAY for the process's life. Revive
     // the fixture "network" and pump well past the tick count the original
     // transition needed -- the source must NOT resume streaming.
-    mpviz::testing::revive_fixture_network(killable);
-    for (int i = 0; i < 10; ++i) mpviz::render_frame(r, kStdPose, {buf.data(), 320, 240});
-    EXPECT_EQ(mpviz::environment_source_state(r), mpviz::EnvironmentSourceState::STREAMING_FALLBACK)
+    overlume::testing::revive_fixture_network(killable);
+    for (int i = 0; i < 10; ++i) overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING_FALLBACK)
         << "a revived network must not un-do the fallback (Decision 11: one-way)";
-    EXPECT_GT(mpviz::testing::environment_loaded_chunk_count(r), 0u)
+    EXPECT_GT(overlume::testing::environment_loaded_chunk_count(r), 0u)
         << "the baked chunks must stay resident after the network returns";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // Negative path (Decision 11): no &fallback= given -> state still
 // transitions to STREAMING_FALLBACK, loaded_chunk_count stays at 0, no
 // crash, render_frame keeps returning true (spec §9 all the way down).
 TEST(EnvironmentStream, NetworkLossWithNoFallbackDirStillTransitionsAndStaysEmpty) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    auto* killable = mpviz::testing::install_fixture_streaming_source_with_fallback(
+    auto* killable = overlume::testing::install_fixture_streaming_source_with_fallback(
         r, kIonFixtureFallbackDir.c_str(), /*fallback_baked_dir=*/nullptr, kFixtureAnchor);
     ASSERT_NE(killable, nullptr);
 
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.ego.position = kFixtureBlockCenterMap;
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
 
     std::vector<uint8_t> buf(320u * 240u * 3u);
-    mpviz::testing::kill_fixture_network(killable);
-    pump_until_state(r, kStdPose, buf, mpviz::EnvironmentSourceState::STREAMING_FALLBACK);
+    overlume::testing::kill_fixture_network(killable);
+    pump_until_state(r, kStdPose, buf, overlume::EnvironmentSourceState::STREAMING_FALLBACK);
 
-    EXPECT_EQ(mpviz::environment_source_state(r), mpviz::EnvironmentSourceState::STREAMING_FALLBACK);
-    EXPECT_EQ(mpviz::testing::environment_loaded_chunk_count(r), 0u);
-    EXPECT_TRUE(mpviz::render_frame(r, kStdPose, {buf.data(), 320, 240}));
-    mpviz::destroy_renderer(r);
+    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING_FALLBACK);
+    EXPECT_EQ(overlume::testing::environment_loaded_chunk_count(r), 0u);
+    EXPECT_TRUE(overlume::render_frame(r, kStdPose, {buf.data(), 320, 240}));
+    overlume::destroy_renderer(r);
 }
 
 // ── Task 5 (VM-064): original-materials mode ────────────────────────────
@@ -686,23 +686,23 @@ TEST(EnvironmentStream, NetworkLossWithNoFallbackDirStillTransitionsAndStaysEmpt
 // which DOES go through the real string parser via the public ion://
 // dispatch).
 TEST(EnvironmentStream, MaterialsOriginalDefaultsFalse) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     ASSERT_TRUE(
-        mpviz::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
-    EXPECT_FALSE(mpviz::testing::environment_stream_materials_original(r));
-    mpviz::destroy_renderer(r);
+        overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
+    EXPECT_FALSE(overlume::testing::environment_stream_materials_original(r));
+    overlume::destroy_renderer(r);
 }
 
 TEST(EnvironmentStream, MaterialsOriginalTrueIsMirroredByHook) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(mpviz::testing::install_fixture_streaming_source(
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(
         r, kIonFixtureDir.c_str(), kFixtureAnchor, /*materials_original=*/true));
-    EXPECT_TRUE(mpviz::testing::environment_stream_materials_original(r));
-    mpviz::destroy_renderer(r);
+    EXPECT_TRUE(overlume::testing::environment_stream_materials_original(r));
+    overlume::destroy_renderer(r);
 }
 
 // VM-064 gate round 1 finding: the two tests above both reach
@@ -713,10 +713,10 @@ TEST(EnvironmentStream, MaterialsOriginalTrueIsMirroredByHook) {
 // environment_stream_parse_materials_original() hook) on the literal
 // ion:// query string, no renderer/GPU needed.
 TEST(EnvironmentStream, ParseMaterialsOriginalRecognizesTheRealKeyAndValue) {
-    EXPECT_TRUE(mpviz::testing::environment_stream_parse_materials_original("96188?materials=original"));
-    EXPECT_FALSE(mpviz::testing::environment_stream_parse_materials_original("96188"));
-    EXPECT_FALSE(mpviz::testing::environment_stream_parse_materials_original("96188?materials=clay"));
-    EXPECT_FALSE(mpviz::testing::environment_stream_parse_materials_original("96188?materials=bogus"));
+    EXPECT_TRUE(overlume::testing::environment_stream_parse_materials_original("96188?materials=original"));
+    EXPECT_FALSE(overlume::testing::environment_stream_parse_materials_original("96188"));
+    EXPECT_FALSE(overlume::testing::environment_stream_parse_materials_original("96188?materials=clay"));
+    EXPECT_FALSE(overlume::testing::environment_stream_parse_materials_original("96188?materials=bogus"));
 }
 
 // The real string-parser path (Decision 5's parse_ion_spec()), through the
@@ -727,58 +727,58 @@ TEST(EnvironmentStream, ParseMaterialsOriginalRecognizesTheRealKeyAndValue) {
 // non-fatal-false shape: any materials= value (or none) on a URI with no
 // token still returns false, never crashes.
 TEST(EnvironmentStream, UnknownMaterialsValueOnIonUriIsNonFatalFalse) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     ScopedUnsetEnv no_token("CESIUM_ION_TOKEN");
-    mpviz::GeoAnchor a{25.0803, 55.3910, 0.0};
-    EXPECT_FALSE(mpviz::set_environment_source(r, "ion://96188?materials=bogus", a));
+    overlume::GeoAnchor a{25.0803, 55.3910, 0.0};
+    EXPECT_FALSE(overlume::set_environment_source(r, "ion://96188?materials=bogus", a));
     std::vector<uint8_t> buf(320u * 240u * 3u);
-    EXPECT_TRUE(mpviz::render_frame(r, kStdPose, {buf.data(), 320, 240}));
-    mpviz::destroy_renderer(r);
+    EXPECT_TRUE(overlume::render_frame(r, kStdPose, {buf.data(), 320, 240}));
+    overlume::destroy_renderer(r);
 }
 
 // ── Step 1: original mode skips the clay remap ──────────────────────────
 TEST(EnvironmentStream, ClayModeRemapsFirstPrimitiveToBuildingMaterial) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     ASSERT_TRUE(
-        mpviz::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
-    mpviz::SceneGraph s{};
+        overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(), kFixtureAnchor));
+    overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.ego.position = kFixtureBlockCenterMap;
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
     std::vector<uint8_t> buf(320u * 240u * 3u);
     ASSERT_GT(pump_until_loaded(r, kStdPose, buf), 0u);
-    EXPECT_TRUE(mpviz::testing::environment_stream_first_primitive_is_clay(r));
-    mpviz::destroy_renderer(r);
+    EXPECT_TRUE(overlume::testing::environment_stream_first_primitive_is_clay(r));
+    overlume::destroy_renderer(r);
 }
 
 TEST(EnvironmentStream, OriginalModeSkipsClayRemapOnFirstPrimitive) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(mpviz::testing::install_fixture_streaming_source(
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(
         r, kIonFixtureDir.c_str(), kFixtureAnchor, /*materials_original=*/true));
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.ego.position = kFixtureBlockCenterMap;
-    mpviz::set_scene(r, s);
+    overlume::set_scene(r, s);
     std::vector<uint8_t> buf(320u * 240u * 3u);
     ASSERT_GT(pump_until_loaded(r, kStdPose, buf), 0u);
-    EXPECT_FALSE(mpviz::testing::environment_stream_first_primitive_is_clay(r));
+    EXPECT_FALSE(overlume::testing::environment_stream_first_primitive_is_clay(r));
     // Fresh-opaque convention unaffected: original mode still casts/receives
     // shadows via the SAME renderable-manager calls (unconditional in
     // prepareInMainThread) -- nothing fade-blended is introduced here.
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── Task 5 Step 4: live perf, google preset vs OSM-clay preset ──────────
 // Opt-in and self-skipping BY DESIGN (Global Constraints' network
 // discipline: "no ctest/gtest ever requires live network or the token") --
 // this test SKIPs cleanly whenever CESIUM_ION_TOKEN is unset OR the
-// separate MPVIZ_LIVE_ION_PERF opt-in is unset, so a normal ctest/
+// separate OVERLUME_LIVE_ION_PERF opt-in is unset, so a normal ctest/
 // ci_visual_mode.sh run (neither set) never depends on either. VM-064 gate
 // round 1 finding: this used to be unrunnable even with both vars set in a
 // full-binary run -- two earlier tests unsetenv("CESIUM_ION_TOKEN") for the
@@ -786,48 +786,48 @@ TEST(EnvironmentStream, OriginalModeSkipsClayRemapOnFirstPrimitive) {
 // full run with both vars exported now reaches this test with the token
 // still present. --gtest_filter stays the recommended way to run it in
 // isolation (deliberate opt-in, not a workaround for that bug):
-// (`CESIUM_ION_TOKEN=... MPVIZ_LIVE_ION_PERF=1
+// (`CESIUM_ION_TOKEN=... OVERLUME_LIVE_ION_PERF=1
 // ./test_environment_stream --gtest_filter='*GooglePresetLive*'`) to
 // record the real dev-box number this task's results block wants.
 TEST(EnvironmentStreamPerf, GooglePresetLiveRenderMsDeltaVsOsmClay) {
-    if (std::getenv("CESIUM_ION_TOKEN") == nullptr || std::getenv("MPVIZ_LIVE_ION_PERF") == nullptr) {
+    if (std::getenv("CESIUM_ION_TOKEN") == nullptr || std::getenv("OVERLUME_LIVE_ION_PERF") == nullptr) {
         GTEST_SKIP() << "opt-in live-network perf check -- set CESIUM_ION_TOKEN and "
-                        "MPVIZ_LIVE_ION_PERF=1 to run (never required by ctest)";
+                        "OVERLUME_LIVE_ION_PERF=1 to run (never required by ctest)";
     }
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    mpviz::CameraPose pose{{0, -300, 300}, {0, 0, 0}, 60.0};
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    overlume::CameraPose pose{{0, -300, 300}, {0, 0, 0}, 60.0};
     std::vector<uint8_t> buf(320u * 240u * 3u);
-    mpviz::GeoAnchor anchor{25.0803, 55.3910, 0.0};  // Epic 4 Decision 6's verified fix location
+    overlume::GeoAnchor anchor{25.0803, 55.3910, 0.0};  // Epic 4 Decision 6's verified fix location
 
     // Bounded by wall-clock, not just frame count -- a live network call
     // that never resolves must not hang this opt-in run indefinitely.
     auto pump_live = [&](const char* source_uri, std::vector<uint8_t>& out_buf) -> uint64_t {
-        auto* r = mpviz::create_renderer(cfg);
+        auto* r = overlume::create_renderer(cfg);
         if (!r) return 0;
-        if (!mpviz::set_environment_source(r, source_uri, anchor)) {
-            mpviz::destroy_renderer(r);
+        if (!overlume::set_environment_source(r, source_uri, anchor)) {
+            overlume::destroy_renderer(r);
             return 0;
         }
-        mpviz::SceneGraph s{};
+        overlume::SceneGraph s{};
         s.ego.valid = 1;
-        s.ego.position = mpviz::Vec3{0, 0, 0};
-        mpviz::set_scene(r, s);
+        s.ego.position = overlume::Vec3{0, 0, 0};
+        overlume::set_scene(r, s);
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
         uint64_t loaded = 0;
         while (std::chrono::steady_clock::now() < deadline) {
-            if (!mpviz::render_frame(r, pose, {out_buf.data(), 320, 240})) break;
-            loaded = mpviz::testing::environment_loaded_chunk_count(r);
+            if (!overlume::render_frame(r, pose, {out_buf.data(), 320, 240})) break;
+            loaded = overlume::testing::environment_loaded_chunk_count(r);
             if (loaded > 0) break;
         }
         if (loaded == 0) {
-            mpviz::destroy_renderer(r);
+            overlume::destroy_renderer(r);
             return 0;
         }
         double worstMs = 0.0;
         const auto t0 = std::chrono::steady_clock::now();
         for (int i = 0; i < 60; ++i) {
             const auto f0 = std::chrono::steady_clock::now();
-            mpviz::render_frame(r, pose, {out_buf.data(), 320, 240});
+            overlume::render_frame(r, pose, {out_buf.data(), 320, 240});
             worstMs = std::max(
                 worstMs, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - f0)
                              .count());
@@ -840,9 +840,9 @@ TEST(EnvironmentStreamPerf, GooglePresetLiveRenderMsDeltaVsOsmClay) {
         // committed comparison target, ssim result discarded): lets a human
         // eyeball whether original-materials mode actually shows textured
         // content vs. a blank/untextured mesh. Never asserted on.
-        mpviz::testing::render_and_compare(r, pose, "/nonexistent_no_golden.png",
+        overlume::testing::render_and_compare(r, pose, "/nonexistent_no_golden.png",
                                             "/tmp/environment_stream_live_actual.png");
-        mpviz::destroy_renderer(r);
+        overlume::destroy_renderer(r);
         return loaded;
     };
 
@@ -859,7 +859,7 @@ TEST(EnvironmentStreamPerf, GooglePresetLiveRenderMsDeltaVsOsmClay) {
 // "clipped"/"google", VM-096), all at the SAME geo anchor (kFixtureAnchor,
 // already this file's own anchor constant above) and the SAME camera pose,
 // so a side-by-side comparison actually compares the sources and nothing
-// else. Gated on MPVIZ_CAPTURE_ENV_SOURCES=1, same opt-in shape as
+// else. Gated on OVERLUME_CAPTURE_ENV_SOURCES=1, same opt-in shape as
 // EnvironmentStreamPerf.GooglePresetLiveRenderMsDeltaVsOsmClay above --
 // never required by ctest/ci_visual_mode.sh. osm/google additionally need
 // CESIUM_ION_TOKEN (real live ion network); baked needs neither (the
@@ -880,14 +880,14 @@ namespace {
 // to load -- unlike an arbitrary far-off point that might land on empty
 // ocean/desert for the live sources even though the baked fixture (which
 // only exists at this one location) would trivially still show its town.
-constexpr mpviz::Vec3 kCaptureBuildingsCentroid{-109.2, -17.1, 3.0};
+constexpr overlume::Vec3 kCaptureBuildingsCentroid{-109.2, -17.1, 3.0};
 // Same eye/target offset test_environment.cpp's
 // SetEnvironmentVisibleFalseHidesLoadedChunksWithoutTearingDown already
 // uses to frame that exact centroid (+50/-70/40 eye offset, its own
 // comment: "frames the real footprint centroid so the buildings occupy a
 // real chunk of the image, not a corner") -- reused verbatim, not
 // re-derived, as the shared pose every source below is captured from.
-const mpviz::CameraPose kCapturePose{
+const overlume::CameraPose kCapturePose{
     {kCaptureBuildingsCentroid.x + 50, kCaptureBuildingsCentroid.y - 70, 40},
     {kCaptureBuildingsCentroid.x, kCaptureBuildingsCentroid.y, kCaptureBuildingsCentroid.z},
     60.0};
@@ -898,13 +898,13 @@ const mpviz::CameraPose kCapturePose{
 constexpr uint32_t kCaptureWidth = 960;
 constexpr uint32_t kCaptureHeight = 720;
 
-// MPVIZ_CAPTURE_OUT_DIR lets a caller redirect where the PNG lands; default
+// OVERLUME_CAPTURE_OUT_DIR lets a caller redirect where the PNG lands; default
 // /tmp -- these are opt-in manual captures, not committed test artifacts.
 // The capture note (docs/visual_mode/env_source_captures.md) documents
 // copying the result into docs/visual_mode/env_source_captures/ for the
 // comparison package itself.
 std::string capture_out_path(const char* name) {
-    const char* dir = std::getenv("MPVIZ_CAPTURE_OUT_DIR");
+    const char* dir = std::getenv("OVERLUME_CAPTURE_OUT_DIR");
     return std::string(dir && *dir ? dir : "/tmp") + "/env_source_" + name + ".png";
 }
 
@@ -976,35 +976,35 @@ ContentStats analyze_capture(const std::vector<uint8_t>& rgb, uint32_t width, ui
 // completing -- which needs elapsed wall-clock time between ticks, not more
 // ticks. The local, offline fixture path (FixtureBlock_DarkAdas et al.)
 // never hit this because disk reads have no meaningful latency to wait out.
-uint64_t pump_and_settle(mpviz::VisualRenderer* r, const mpviz::CameraPose& pose,
+uint64_t pump_and_settle(overlume::VisualRenderer* r, const overlume::CameraPose& pose,
                           std::vector<uint8_t>& buf, int initial_deadline_sec, int settle_seconds) {
     const auto phase1Deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(initial_deadline_sec);
     uint64_t loaded = 0;
     while (std::chrono::steady_clock::now() < phase1Deadline) {
-        if (!mpviz::render_frame(r, pose, {buf.data(), kCaptureWidth, kCaptureHeight})) return loaded;
-        loaded = mpviz::testing::environment_loaded_chunk_count(r);
+        if (!overlume::render_frame(r, pose, {buf.data(), kCaptureWidth, kCaptureHeight})) return loaded;
+        loaded = overlume::testing::environment_loaded_chunk_count(r);
         if (loaded > 0) break;
     }
     if (loaded == 0) return 0;
     const auto settleDeadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(settle_seconds);
     while (std::chrono::steady_clock::now() < settleDeadline) {
-        mpviz::render_frame(r, pose, {buf.data(), kCaptureWidth, kCaptureHeight});
+        overlume::render_frame(r, pose, {buf.data(), kCaptureWidth, kCaptureHeight});
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    return mpviz::testing::environment_loaded_chunk_count(r);
+    return overlume::testing::environment_loaded_chunk_count(r);
 }
 
 // Renders ONE frame of `r`'s current scene from kCapturePose at the
 // generous kCaptureWidth x kCaptureHeight, writes it to
 // capture_out_path(name) via the same stb writer golden.cpp links into
 // this binary, and logs the content-verification numbers to stderr.
-void capture_and_report(mpviz::VisualRenderer* r, const char* name) {
+void capture_and_report(overlume::VisualRenderer* r, const char* name) {
     std::vector<uint8_t> buf(static_cast<size_t>(kCaptureWidth) * kCaptureHeight * 3);
-    ASSERT_TRUE(mpviz::render_frame(r, kCapturePose, {buf.data(), kCaptureWidth, kCaptureHeight}));
+    ASSERT_TRUE(overlume::render_frame(r, kCapturePose, {buf.data(), kCaptureWidth, kCaptureHeight}));
     const std::string outPath = capture_out_path(name);
-    // Gate round 1 finding: MPVIZ_CAPTURE_OUT_DIR is never told to exist by
+    // Gate round 1 finding: OVERLUME_CAPTURE_OUT_DIR is never told to exist by
     // the doc's own re-run command -- create it so the documented command
     // works as written, same as any other output-dir convention in this repo.
     std::error_code ec;
@@ -1017,7 +1017,7 @@ void capture_and_report(mpviz::VisualRenderer* r, const char* name) {
                                       static_cast<int>(kCaptureHeight), 3, buf.data(),
                                       static_cast<int>(kCaptureWidth) * 3);
     ASSERT_NE(wrote, 0) << "failed to write capture PNG to " << outPath
-                         << " (does MPVIZ_CAPTURE_OUT_DIR exist?)";
+                         << " (does OVERLUME_CAPTURE_OUT_DIR exist?)";
     const ContentStats stats = analyze_capture(buf, kCaptureWidth, kCaptureHeight);
     std::cerr << "[EnvSourceCapture] " << name << " -> " << outPath
               << " luminance_stddev=" << stats.luminance_stddev
@@ -1027,16 +1027,16 @@ void capture_and_report(mpviz::VisualRenderer* r, const char* name) {
 }  // namespace
 
 TEST(EnvSourceCapture, Baked) {
-    if (std::getenv("MPVIZ_CAPTURE_ENV_SOURCES") == nullptr) {
-        GTEST_SKIP() << "opt-in visual comparison capture -- set MPVIZ_CAPTURE_ENV_SOURCES=1 to run "
+    if (std::getenv("OVERLUME_CAPTURE_ENV_SOURCES") == nullptr) {
+        GTEST_SKIP() << "opt-in visual comparison capture -- set OVERLUME_CAPTURE_ENV_SOURCES=1 to run "
                         "(never required by ctest)";
     }
-    mpviz::RenderConfig cfg{kCaptureWidth, kCaptureHeight, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{kCaptureWidth, kCaptureHeight, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(mpviz::set_environment_source(r, kTestTownDir.c_str(), kFixtureAnchor));
+    ASSERT_TRUE(overlume::set_environment_source(r, kTestTownDir.c_str(), kFixtureAnchor));
 
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.ego.valid = 1;
     // Gate round 1 finding: must match Osm/Google's ego position ({0,0,0}), not
     // kChunk0Center -- an ego-anchored ground element is the largest/brightest
@@ -1045,31 +1045,31 @@ TEST(EnvSourceCapture, Baked) {
     // apparent "difference" that had nothing to do with the environment
     // source. Verified the fixture chunks still load fine (loaded>0 below,
     // town renders unchanged) at {0,0,0}.
-    s.ego.position = mpviz::Vec3{0, 0, 0};
-    mpviz::set_scene(r, s);
+    s.ego.position = overlume::Vec3{0, 0, 0};
+    overlume::set_scene(r, s);
     std::vector<uint8_t> warm(static_cast<size_t>(kCaptureWidth) * kCaptureHeight * 3);
     ASSERT_GT(pump_and_settle(r, kCapturePose, warm, /*initial_deadline_sec=*/5, /*settle_seconds=*/1), 0u)
         << "baked fixture chunk never loaded at ego {0,0,0}";
     capture_and_report(r, "baked");
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 TEST(EnvSourceCapture, Osm) {
-    if (std::getenv("MPVIZ_CAPTURE_ENV_SOURCES") == nullptr ||
+    if (std::getenv("OVERLUME_CAPTURE_ENV_SOURCES") == nullptr ||
         std::getenv("CESIUM_ION_TOKEN") == nullptr) {
         GTEST_SKIP() << "opt-in LIVE-network visual comparison capture -- set "
-                        "MPVIZ_CAPTURE_ENV_SOURCES=1 and CESIUM_ION_TOKEN to run "
+                        "OVERLUME_CAPTURE_ENV_SOURCES=1 and CESIUM_ION_TOKEN to run "
                         "(never required by ctest)";
     }
-    mpviz::RenderConfig cfg{kCaptureWidth, kCaptureHeight, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{kCaptureWidth, kCaptureHeight, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(mpviz::set_environment_source(r, "ion://96188", kFixtureAnchor));
+    ASSERT_TRUE(overlume::set_environment_source(r, "ion://96188", kFixtureAnchor));
 
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.ego.valid = 1;
-    s.ego.position = mpviz::Vec3{0, 0, 0};
-    mpviz::set_scene(r, s);
+    s.ego.position = overlume::Vec3{0, 0, 0};
+    overlume::set_scene(r, s);
     std::vector<uint8_t> warm(static_cast<size_t>(kCaptureWidth) * kCaptureHeight * 3);
     const uint64_t loaded =
         pump_and_settle(r, kCapturePose, warm, /*initial_deadline_sec=*/30, /*settle_seconds=*/60);
@@ -1077,26 +1077,26 @@ TEST(EnvSourceCapture, Osm) {
                              "-- would ship an empty/near-empty capture, reporting rather than faking "
                              "it";
     capture_and_report(r, "osm");
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 TEST(EnvSourceCapture, Google) {
-    if (std::getenv("MPVIZ_CAPTURE_ENV_SOURCES") == nullptr ||
+    if (std::getenv("OVERLUME_CAPTURE_ENV_SOURCES") == nullptr ||
         std::getenv("CESIUM_ION_TOKEN") == nullptr) {
         GTEST_SKIP() << "opt-in LIVE-network visual comparison capture -- set "
-                        "MPVIZ_CAPTURE_ENV_SOURCES=1 and CESIUM_ION_TOKEN to run "
+                        "OVERLUME_CAPTURE_ENV_SOURCES=1 and CESIUM_ION_TOKEN to run "
                         "(never required by ctest)";
     }
-    mpviz::RenderConfig cfg{kCaptureWidth, kCaptureHeight, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{kCaptureWidth, kCaptureHeight, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     ASSERT_TRUE(
-        mpviz::set_environment_source(r, "ion://2275207?materials=original&cache=off", kFixtureAnchor));
+        overlume::set_environment_source(r, "ion://2275207?materials=original&cache=off", kFixtureAnchor));
 
-    mpviz::SceneGraph s{};
+    overlume::SceneGraph s{};
     s.ego.valid = 1;
-    s.ego.position = mpviz::Vec3{0, 0, 0};
-    mpviz::set_scene(r, s);
+    s.ego.position = overlume::Vec3{0, 0, 0};
+    overlume::set_scene(r, s);
     std::vector<uint8_t> warm(static_cast<size_t>(kCaptureWidth) * kCaptureHeight * 3);
     const uint64_t loaded =
         pump_and_settle(r, kCapturePose, warm, /*initial_deadline_sec=*/30, /*settle_seconds=*/60);
@@ -1104,22 +1104,22 @@ TEST(EnvSourceCapture, Google) {
                              "30s -- would ship an empty/near-empty capture, reporting rather than "
                              "faking it";
     capture_and_report(r, "google");
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // "clipped" (VM-096's 4th GUI preset) resolves to the NODE's own
 // environment_own_asset_uri parameter (resolved server-side in
 // tools/vcam_ws_bridge.py's set_environment_source branch), not a
 // fixed public ion asset id -- and that parameter defaults empty
-// (declared at visualization_node.cpp:687) and is NOT configured on this box. There is
+// (declared at overlume_node.cpp:687) and is NOT configured on this box. There is
 // no real ion asset id to render here: fabricating one would silently ship
 // a picture of the WRONG preset (some other asset entirely), which is
 // worse than no picture. Always skips, even with the capture opt-in set,
 // with that exact reason -- the case is named and reported as
 // not-renderable, never silently dropped from the comparison package.
 TEST(EnvSourceCapture, Clipped) {
-    if (std::getenv("MPVIZ_CAPTURE_ENV_SOURCES") == nullptr) {
-        GTEST_SKIP() << "opt-in visual comparison capture -- set MPVIZ_CAPTURE_ENV_SOURCES=1 to run "
+    if (std::getenv("OVERLUME_CAPTURE_ENV_SOURCES") == nullptr) {
+        GTEST_SKIP() << "opt-in visual comparison capture -- set OVERLUME_CAPTURE_ENV_SOURCES=1 to run "
                         "(never required by ctest)";
     }
     GTEST_SKIP() << "'clipped' preset resolves to the node's environment_own_asset_uri, which is NOT "

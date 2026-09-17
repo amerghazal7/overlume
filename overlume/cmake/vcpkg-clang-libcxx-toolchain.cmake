@@ -28,7 +28,7 @@
 # empirically by this task's Step 1 ABI check and Step 6's full node+gtest
 # rebuild, not assumed).
 #
-# UPDATE (VM-061 Step 6, USER DECISION a, 2026-09-15): visual_renderer's own
+# UPDATE (VM-061 Step 6, USER DECISION a, 2026-09-15): overlume's own
 # primary toolchain (cmake/toolchain-clang-libcxx.cmake) has since MIGRATED
 # to this same clang-18 -- so this file's compiler resolution (the wrapper-
 # generation block below) now lives in the shared
@@ -39,7 +39,7 @@
 # and dynamic (not static/-nostdlib++) libc++ linking with
 # --disable-new-dtags rpath (Deviations #3/#4) -- vcpkg ports build their
 # own ordinary executables/tools that expect a normal dynamic C++ runtime,
-# unlike visual_renderer's own static-archive convention.
+# unlike overlume's own static-archive convention.
 
 # DEVIATION #2 (recorded, root-caused empirically, VM-061 Step 1):
 # VCPKG_CHAINLOAD_TOOLCHAIN_FILE REPLACES vcpkg's own stock platform
@@ -62,7 +62,7 @@ set(CMAKE_SYSTEM_PROCESSOR "x86_64" CACHE STRING "")
 
 # Compiler resolution (wrapper-script generation: DEVIATION #3's own history
 # below explains why a wrapper, not the bare binary) now lives in
-# clang18-toolchain-common.cmake, shared with visual_renderer's own primary
+# clang18-toolchain-common.cmake, shared with overlume's own primary
 # toolchain (cmake/toolchain-clang-libcxx.cmake) -- ONE clang-18 resolution,
 # not a second copy of the wrapper-generation block (VM-061 Step 6).
 #
@@ -87,14 +87,14 @@ set(CMAKE_SYSTEM_PROCESSOR "x86_64" CACHE STRING "")
 # only what every invocation -- compile or link -- genuinely needs
 # (clang18-toolchain-common.cmake's wrapper bakes in only -stdlib=libc++).
 include("${CMAKE_CURRENT_LIST_DIR}/clang18-toolchain-common.cmake")
-set(_mpviz_vcpkg_libdir1 "${_mpviz_clang18_libdir1}")
-set(_mpviz_vcpkg_libdir2 "${_mpviz_clang18_libdir2}")
+set(_overlume_vcpkg_libdir1 "${_overlume_clang18_libdir1}")
+set(_overlume_vcpkg_libdir2 "${_overlume_clang18_libdir2}")
 
-set(CMAKE_C_COMPILER "${_mpviz_clang18_wrap_clang}" CACHE FILEPATH "" FORCE)
-set(CMAKE_CXX_COMPILER "${_mpviz_clang18_wrap_clangxx}" CACHE FILEPATH "" FORCE)
+set(CMAKE_C_COMPILER "${_overlume_clang18_wrap_clang}" CACHE FILEPATH "" FORCE)
+set(CMAKE_CXX_COMPILER "${_overlume_clang18_wrap_clangxx}" CACHE FILEPATH "" FORCE)
 
 # NOTE: no -nostdlib++ here (unlike this project's own
-# toolchain-clang-libcxx.cmake) -- that convention pairs with visual_renderer
+# toolchain-clang-libcxx.cmake) -- that convention pairs with overlume
 # manually adding explicit static libc++/libc++abi/libunwind archives to ITS
 # OWN link line. Individual vcpkg ports build their own internal
 # executables/tools with ordinary upstream CMakeLists.txt that know nothing
@@ -115,9 +115,9 @@ set(CMAKE_CXX_COMPILER "${_mpviz_clang18_wrap_clangxx}" CACHE FILEPATH "" FORCE)
 # `-fPIC` anywhere in the actual invoked compile lines even after the
 # triplet was edited and its binary cache fully cleared and forced to
 # rebuild). Symptom this caused: any archive from this triplet that gets
-# merged (ld -r, scripts/merge_yamlcpp.sh) into libvisual_renderer.a and then
-# linked into micropilot_visualization_node's SHARED library
-# (visualization_node_lib.so) failed with "relocation R_X86_64_TPOFF32 ...
+# merged (ld -r, scripts/merge_yamlcpp.sh) into liboverlume.a and then
+# linked into overlume_ros's SHARED library
+# (overlume_node_lib.so) failed with "relocation R_X86_64_TPOFF32 ...
 # can not be used when making a shared object; recompile with -fPIC" --
 # spdlog's `os.cpp`'s thread_local tid cache compiles, without -fPIC, to the
 # Local-Exec TLS model (R_X86_64_TPOFF32, assumes the TLS block belongs to
@@ -148,6 +148,6 @@ set(CMAKE_C_FLAGS_INIT "-fPIC")
 # the simplest fix that needs no LD_LIBRARY_PATH at run time, matching how
 # ctest/gtest_discover_tests and colcon later invoke these binaries plainly.
 set(CMAKE_EXE_LINKER_FLAGS_INIT
-    "-stdlib=libc++ -Wl,--disable-new-dtags -Wl,-rpath,${_mpviz_vcpkg_libdir1} -Wl,-rpath,${_mpviz_vcpkg_libdir2}")
+    "-stdlib=libc++ -Wl,--disable-new-dtags -Wl,-rpath,${_overlume_vcpkg_libdir1} -Wl,-rpath,${_overlume_vcpkg_libdir2}")
 set(CMAKE_SHARED_LINKER_FLAGS_INIT
-    "-stdlib=libc++ -Wl,--disable-new-dtags -Wl,-rpath,${_mpviz_vcpkg_libdir1} -Wl,-rpath,${_mpviz_vcpkg_libdir2}")
+    "-stdlib=libc++ -Wl,--disable-new-dtags -Wl,-rpath,${_overlume_vcpkg_libdir1} -Wl,-rpath,${_overlume_vcpkg_libdir2}")

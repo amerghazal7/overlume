@@ -5,7 +5,7 @@ the visualization node loads as background environment geometry, and how to
 wire the output into the node. Grounded directly in
 `overlume/scripts/bake_environment.py` (read in full for
 this doc) and the node wiring in
-`ros/src/micropilot_visualization_node/src/visualization_node.cpp`.
+`ros/src/overlume_ros/src/overlume_node.cpp`.
 Every command below was actually run against the script's committed test
 fixtures (network-free) while writing this doc — see "Verified" at the
 bottom.
@@ -58,7 +58,7 @@ bake_environment.py --selfcheck
 The node solves this anchor itself (VM-050, `GeoAnchorSolver` in
 `geo_anchor.cpp`, sampling `map`→`base_link` TF plus `NavSatFix` fixes) and
 **logs it in exactly this script's flag order** the moment it solves
-(`visualization_node.cpp`'s `gps_sub_` callback):
+(`overlume_node.cpp`'s `gps_sub_` callback):
 
 ```
 geo-anchor solved: --anchor-lat %.8f --anchor-lon %.8f --anchor-heading-deg %.4f
@@ -137,7 +137,7 @@ Five node parameters, all declared at `on_configure()`:
 - `environment_enabled` (default `true`) — the disable knob. **Live-settable**
   via `on_params()` (`ros2 param set` / the vcam GUI's Environment Tiles
   switch): it toggles the renderer's visibility flag through
-  `mpviz::set_environment_visible()`, which hides/shows an already-loaded
+  `overlume::set_environment_visible()`, which hides/shows an already-loaded
   source without tearing down its chunk index.
 - `environment_chunks_dir` (default `""` — "not configured", per-checkout):
   the baked output directory (this doc's `--out`).
@@ -159,7 +159,7 @@ Google 3D Tiles attribution line, is unrelated to source selection — see
 `cesium.md`.)
 
 At `on_activate()` the node applies a three-way gate before calling
-`mpviz::set_environment_source()`:
+`overlume::set_environment_source()`:
 
 1. `environment_enabled` **and** `environment_chunks_dir` **and**
    `environment_source_uri` all empty → one `WARN` naming both params
@@ -204,7 +204,7 @@ python3 bake_environment.py \
   --anchor-lat 25.0803 --anchor-lon 55.3910 --anchor-heading-deg 20.0 \
   --out <scratch-dir> \
   --cache ../tests/fixtures/environment_overpass_cache_0.json \
-  --ego-track ../../ros/src/micropilot_visualization_node/test/fixtures/geo_anchor_samples_0.csv
+  --ego-track ../../ros/src/overlume_ros/test/fixtures/geo_anchor_samples_0.csv
 # wrote 2 chunk(s), 5 footprint(s), index.yaml, verification_overlay.png
 
 python3 bake_environment.py --anchor-file anchor.yaml --out <scratch-dir> \

@@ -4,7 +4,7 @@
 // the ground (bottom rows, the lit ground plane). GTEST_SKIP()s cleanly on
 // machines with no GPU/EGL device instead of failing, matching the repo's
 // GPU-test convention.
-#include "visual_renderer/api.h"
+#include "overlume/api.h"
 
 #include <EGL/egl.h>
 #include <gtest/gtest.h>
@@ -82,12 +82,12 @@ TEST(HelloFrame, RendersDistinctSkyAndGround) {
     constexpr uint32_t kWidth = 320;
     constexpr uint32_t kHeight = 240;
 
-    mpviz::RenderConfig config{};
+    overlume::RenderConfig config{};
     config.width = kWidth;
     config.height = kHeight;
     config.quality = 1;
 
-    mpviz::VisualRenderer* renderer = mpviz::create_renderer(config);
+    overlume::VisualRenderer* renderer = overlume::create_renderer(config);
     if (renderer == nullptr) {
         if (!HasGpuEglDevice()) {
             GTEST_SKIP() << "No GPU/EGL device available on this machine.";
@@ -97,7 +97,7 @@ TEST(HelloFrame, RendersDistinctSkyAndGround) {
     }
 
     // The node's default pose (docs/superpowers/plans/2026-08-18-visual-mode.md, Task 2 Step 1).
-    mpviz::CameraPose pose{};
+    overlume::CameraPose pose{};
     pose.eye[0] = -4.0;
     pose.eye[1] = 0.0;
     pose.eye[2] = 3.5;
@@ -110,9 +110,9 @@ TEST(HelloFrame, RendersDistinctSkyAndGround) {
     pose.vfov_deg = 80.0;
 
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, 0);
-    mpviz::FrameView view{rgb.data(), kWidth, kHeight};
+    overlume::FrameView view{rgb.data(), kWidth, kHeight};
 
-    ASSERT_TRUE(mpviz::render_frame(renderer, pose, view));
+    ASSERT_TRUE(overlume::render_frame(renderer, pose, view));
 
     const bool anyNonZero = std::any_of(rgb.begin(), rgb.end(), [](uint8_t v) { return v != 0; });
     EXPECT_TRUE(anyNonZero) << "Rendered frame buffer is entirely zero.";
@@ -123,7 +123,7 @@ TEST(HelloFrame, RendersDistinctSkyAndGround) {
         << "sky rows and ground rows look indistinguishable (sky_avg=" << skyAvg
         << ", ground_avg=" << groundAvg << ")";
 
-    mpviz::destroy_renderer(renderer);
+    overlume::destroy_renderer(renderer);
 }
 
 // Step (h), VM-037: create_renderer() (via HeadlessEglPlatform::createDriver(),
@@ -133,13 +133,13 @@ TEST(HelloFrame, RendersDistinctSkyAndGround) {
 // (which also passes HasGpuEglDevice()). GTEST_SKIP()s per HasGpuEglDevice(),
 // same convention as RendersDistinctSkyAndGround above.
 TEST(CreateRenderer, LogsGlVendorRendererVersionOnce) {
-    mpviz::RenderConfig config{};
+    overlume::RenderConfig config{};
     config.width = 64;
     config.height = 64;
     config.quality = 0;
 
     StderrCapture capture;
-    mpviz::VisualRenderer* renderer = mpviz::create_renderer(config);
+    overlume::VisualRenderer* renderer = overlume::create_renderer(config);
     const std::string captured = capture.Read();
 
     if (renderer == nullptr) {
@@ -164,5 +164,5 @@ TEST(CreateRenderer, LogsGlVendorRendererVersionOnce) {
     EXPECT_EQ(captured.find("GL_RENDERER: \n"), std::string::npos) << captured;
     EXPECT_EQ(captured.find("GL_VERSION: \n"), std::string::npos) << captured;
 
-    mpviz::destroy_renderer(renderer);
+    overlume::destroy_renderer(renderer);
 }

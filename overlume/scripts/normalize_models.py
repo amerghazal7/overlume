@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Normalize a source glTF/GLB/OBJ model into visual_renderer's per-class
+"""Normalize a source glTF/GLB/OBJ model into overlume's per-class
 clay-object convention (Epic 2 Task 4 / VM-022).
 
 Usage: normalize_models.py <input.glb> [output.glb]

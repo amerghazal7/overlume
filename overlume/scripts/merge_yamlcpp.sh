@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# POST_BUILD step on the `visual_renderer` target (Epic 2 Task 1 / VM-020,
+# POST_BUILD step on the `overlume` target (Epic 2 Task 1 / VM-020,
 # Step 0.2). Goal: the node links a SECOND, independently-built
 # gcc/libstdc++ yaml-cpp (yaml_cpp_vendor) in the same process as this
 # archive's bundled clang/libc++ one, and this archive's copy must never be
@@ -66,28 +66,28 @@
 # resolved -- it only changes what an EXTERNAL object could address it as.
 # No -fvisibility flag is needed on yaml-cpp for this recipe.
 #
-# Verified: `nm libvisual_renderer.a | grep ' U .*YAML'` prints nothing (no
+# Verified: `nm liboverlume.a | grep ' U .*YAML'` prints nothing (no
 # undefined YAML:: refs survive the merge); `nm --defined-only
-# libvisual_renderer.a | awk '{print $3}' | grep -E '^_Z.*4YAML'` prints
+# liboverlume.a | awk '{print $3}' | grep -E '^_Z.*4YAML'` prints
 # nothing (no DEFINED symbol whose mangled name still starts with the YAML::
 # token survives the rename, so nothing can collide with it) -- note this is
 # NOT the same as a plain `grep '_ZN4YAML'` over the whole `nm` line: the
-# rename prefixes the mangled name (`mpviz_vendored_yaml__ZN4YAML...`), so an
+# rename prefixes the mangled name (`overlume_vendored_yaml__ZN4YAML...`), so an
 # unanchored substring grep still matches all 655 renamed symbols and would
 # wrongly look broken on a CORRECT build; anchoring on column 3 (the name)
 # with `^_Z.*4YAML` is what actually discriminates. Also: the Step 0.3
 # coexistence test passes; and -- the check the first two recipes could not
 # pass --
-# micropilot_visualization_node's own `test_profile` gtest, which actually
+# overlume_ros's own `test_profile` gtest, which actually
 # calls both yaml-cpps' `Node::operator[]` in one process via
-# `load_profile()` + `mpviz::theme_parses()`, gets the CORRECT row count.
+# `load_profile()` + `overlume::theme_parses()`, gets the CORRECT row count.
 #
 # The final archive is built FRESH from the merged object alone. Do NOT
-# `ar r`/`ar rcs` the merged .o into the archive libvisual_renderer.a
-# already has: `ar r` replaces members by NAME, and visual_renderer_merged.o
+# `ar r`/`ar rcs` the merged .o into the archive liboverlume.a
+# already has: `ar r` replaces members by NAME, and overlume_merged.o
 # shares no name with renderer.cpp.o/theme.cpp.o, so those stale members
 # would survive untouched in the archive index; the node link would then
-# resolve mpviz::create_renderer out of the STALE renderer.cpp.o/theme.cpp.o
+# resolve overlume::create_renderer out of the STALE renderer.cpp.o/theme.cpp.o
 # (earlier in the index) instead of the merged/renamed one, and die on
 # `undefined reference to YAML::LoadFile` -- the yaml symbols exist only
 # under their renamed names inside merged.o, which those stale members
@@ -95,16 +95,16 @@
 # merged.o into a brand-new one is what actually replaces every member.
 #
 # --- 2026-09-15 extension (Epic 6 / VM-061 Task 2 Step 5, Decision 4): the
-# merge inputs grow from {yaml-cpp + visual_renderer objects} to ALSO take
+# merge inputs grow from {yaml-cpp + overlume objects} to ALSO take
 # every cesium-native module archive plus vcpkg's spdlog (and fmt, if it is
 # its OWN separate archive rather than bundled inside libspdlog.a -- the
 # vcpkg spdlog port's default SPDLOG_FMT_EXTERNAL=off means it may be
 # either; this script's own nm audit is what decides which case a given box
 # is in, not an assumption baked in here). WHY these ride along even though
-# no visual_renderer .cpp calls into cesium yet (Task 3 is what adds
+# no overlume .cpp calls into cesium yet (Task 3 is what adds
 # environment_stream.cpp): CMakeLists.txt links these archives onto
-# `visual_renderer` PRIVATE (Decision 2/Step 2), which means they are
-# already on the link line of EVERY executable that links visual_renderer
+# `overlume` PRIVATE (Decision 2/Step 2), which means they are
+# already on the link line of EVERY executable that links overlume
 # -- including the eventual ROS node -- the moment Task 2 lands, regardless
 # of whether any code calls into them yet. ROS 2 Humble's
 # rcl_logging_spdlog puts a gcc/libstdc++ spdlog in that same node process;
@@ -129,7 +129,7 @@ ar_tool="$1"; ld_tool="$2"; objcopy_tool="$3"; nm_tool="$4"
 work_dir="$5"; merged_o="$6"; target_archive="$7"
 shift 7
 # Remaining args: own_objs... -- archives...
-# (own_objs = visual_renderer's own .o files, $<TARGET_OBJECTS:visual_renderer>;
+# (own_objs = overlume's own .o files, $<TARGET_OBJECTS:overlume>;
 #  archives = yaml-cpp + every cesium-native module archive + spdlog [+ fmt]
 #  -- a plain "--" separates the two variadic lists since both can be long
 #  and CMake generator-expression lists don't nest cleanly otherwise.)
@@ -193,7 +193,7 @@ fi
 rename_map="${merged_o}.vendor_rename.txt"
 "$nm_tool" --defined-only "$merged_o" | awk '{print $3}' \
   | grep -E '4YAML|6spdlog|N3fmt[0-9]' | sort -u \
-  | awk '{print $1, "mpviz_vendored_" $1}' > "$rename_map"
+  | awk '{print $1, "overlume_vendored_" $1}' > "$rename_map"
 if [ ! -s "$rename_map" ]; then
   echo "merge_yamlcpp.sh: found zero YAML::/spdlog::/fmt:: symbols in $merged_o -- something upstream broke" >&2
   exit 1
@@ -212,7 +212,7 @@ rm -f "$target_archive"
 # instead of this archive's own renamed copy). Check both directions here,
 # every build, automatically -- not just when a reviewer happens to think to.
 undefined_survivors=$("$nm_tool" --undefined-only "$target_archive" 2>/dev/null \
-  | awk '{print $2}' | grep -E '4YAML|6spdlog|N3fmt[0-9]' | grep -v '^mpviz_vendored_' | sort -u || true)
+  | awk '{print $2}' | grep -E '4YAML|6spdlog|N3fmt[0-9]' | grep -v '^overlume_vendored_' | sort -u || true)
 defined_survivors=$("$nm_tool" --defined-only "$target_archive" 2>/dev/null \
   | awk '{print $3}' | grep -E '^_Z.*(4YAML|6spdlog|N3fmt[0-9])' | sort -u || true)
 if [ -n "$undefined_survivors" ] || [ -n "$defined_survivors" ]; then
@@ -224,7 +224,7 @@ fi
 # NOTE: this audits only what THIS archive itself defines/references -- it
 # cannot see what a consumer's OWN link line additionally pulls in from the
 # raw, un-merged vcpkg archives (e.g. a probe that links a cesium CMake
-# target directly, for its headers, alongside visual_renderer). That is
+# target directly, for its headers, alongside overlume). That is
 # checked separately, per-executable, where those consumers are defined
 # (CMakeLists.txt's cesium_link_probe test) -- an archive-only audit cannot
 # stand in for it.

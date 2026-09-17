@@ -165,8 +165,8 @@ which the architecture is already set up to accept.
 
 ## Visual-mode docs
 
-For the ROS2 `micropilot_visualization_node` (Filament-based third render
-mode, `ros/src/micropilot_visualization_node/`):
+For the ROS2 `overlume_ros` (Filament-based third render
+mode, `ros/src/overlume_ros/`):
 
 - [`docs/visual_mode/profile_authoring.md`](docs/visual_mode/profile_authoring.md)
   — add a topic to the visualization via profile YAML only (autonomy-team

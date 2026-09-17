@@ -1,17 +1,17 @@
 // scene_buffer.hpp — internal, `-I src` visibility, not installed, not POD.
-// Owns the double-buffered deep-copy staging for mpviz::SceneGraph. std::
+// Owns the double-buffered deep-copy staging for overlume::SceneGraph. std::
 // usage is fine here — it's a `.hpp` under `src/`, never shipped across the
 // POD boundary.
 #pragma once
 #include <mutex>
 #include <string>
 #include <vector>
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
-namespace mpviz::detail {
+namespace overlume::detail {
 
 // Owns std::vector storage for every array SceneGraph points into, so a
-// mpviz::SceneGraph handed out by active() has valid pointers for as long as
+// overlume::SceneGraph handed out by active() has valid pointers for as long as
 // this object isn't republished. NOT itself passed across the POD boundary —
 // internal only.
 //
@@ -27,7 +27,7 @@ namespace mpviz::detail {
 // vector, and assign() repoints every entry's pointer fields at its own copy
 // after copying.
 struct OwnedScene {
-    mpviz::SceneGraph view{};  // pointers below point into this object's own vectors
+    overlume::SceneGraph view{};  // pointers below point into this object's own vectors
     std::vector<TrackedObject> objects;
     std::vector<std::vector<Vec3>> object_paths;   // objects[i].predicted_path storage
     std::vector<std::string> object_labels;        // objects[i].label storage
@@ -54,13 +54,13 @@ struct OwnedScene {
     // payload reached by the arrays above — into this object's vectors, and
     // repoints view's pointers (both the top-level array pointers AND each
     // entry's own nested pointer fields) at the copies.
-    void assign(const mpviz::SceneGraph& src);
+    void assign(const overlume::SceneGraph& src);
 };
 
 class SceneBuffer {
 public:
-    void publish(const mpviz::SceneGraph& scene);          // deep-copy + atomic swap
-    const mpviz::SceneGraph& active() const;                // last-published scene
+    void publish(const overlume::SceneGraph& scene);          // deep-copy + atomic swap
+    const overlume::SceneGraph& active() const;                // last-published scene
     // Fade-out multiplier in [0,1] for an entity last touched `last_update_sec`
     // ago relative to `now_sec`: 1.0 while younger than fade_start_sec, ramps
     // to 0.0 by timeout_sec, 0.0 beyond. One function, every stale-able
@@ -85,4 +85,4 @@ private:
     int active_idx_{0};
 };
 
-}  // namespace mpviz::detail
+}  // namespace overlume::detail

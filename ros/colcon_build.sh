@@ -5,7 +5,7 @@
 # Usage:
 #   cd ros
 #   ./colcon_build.sh                               # build all packages
-#   ./colcon_build.sh micropilot_visualization_node # build specific package(s)
+#   ./colcon_build.sh overlume_ros # build specific package(s)
 
 set -e
 

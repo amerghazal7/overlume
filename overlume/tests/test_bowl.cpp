@@ -8,8 +8,8 @@
 #include "bowl_mesh.hpp"
 #include "bowl_projection.hpp"
 
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+#include "overlume/api.h"
+#include "overlume/scene.h"
 
 #include "test_paths.hpp"
 
@@ -21,9 +21,9 @@
 
 namespace {
 
-using mpviz::CameraExtrinsics;
-using mpviz::CameraIntrinsics;
-namespace bowl = mpviz::bowl;
+using overlume::CameraExtrinsics;
+using overlume::CameraIntrinsics;
+namespace bowl = overlume::bowl;
 
 // Overhead camera, directly above the bowl looking straight down (fwd =
 // -Z), TIGHT field of view (fx/fy large) so only vertices close to the
@@ -48,22 +48,22 @@ CameraIntrinsics TightFovIntrinsics() {
 // at the intrinsics' principal point, regardless of camera position. Used
 // to get an exact, non-approximated per-camera weight without hand-deriving
 // R by hand for several cameras at once.
-CameraExtrinsics LookAtCamera(mpviz::Vec3 from, mpviz::Vec3 to) {
-    auto sub = [](mpviz::Vec3 a, mpviz::Vec3 b) {
-        return mpviz::Vec3{a.x - b.x, a.y - b.y, a.z - b.z};
+CameraExtrinsics LookAtCamera(overlume::Vec3 from, overlume::Vec3 to) {
+    auto sub = [](overlume::Vec3 a, overlume::Vec3 b) {
+        return overlume::Vec3{a.x - b.x, a.y - b.y, a.z - b.z};
     };
-    auto norm = [](mpviz::Vec3 v) {
+    auto norm = [](overlume::Vec3 v) {
         const double len = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-        return mpviz::Vec3{v.x / len, v.y / len, v.z / len};
+        return overlume::Vec3{v.x / len, v.y / len, v.z / len};
     };
-    auto cross = [](mpviz::Vec3 a, mpviz::Vec3 b) {
-        return mpviz::Vec3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+    auto cross = [](overlume::Vec3 a, overlume::Vec3 b) {
+        return overlume::Vec3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
     };
-    const mpviz::Vec3 fwd = norm(sub(to, from));
-    mpviz::Vec3 up{0, 0, 1};
-    if (std::abs(fwd.z) > 0.999) up = mpviz::Vec3{0, 1, 0};  // fwd near-vertical -- pick another up
-    const mpviz::Vec3 right = norm(cross(fwd, up));
-    const mpviz::Vec3 down = cross(fwd, right);
+    const overlume::Vec3 fwd = norm(sub(to, from));
+    overlume::Vec3 up{0, 0, 1};
+    if (std::abs(fwd.z) > 0.999) up = overlume::Vec3{0, 1, 0};  // fwd near-vertical -- pick another up
+    const overlume::Vec3 right = norm(cross(fwd, up));
+    const overlume::Vec3 down = cross(fwd, right);
     CameraExtrinsics ext{};
     ext.R[0] = right.x; ext.R[1] = down.x; ext.R[2] = fwd.x;
     ext.R[3] = right.y; ext.R[4] = down.y; ext.R[5] = fwd.y;
@@ -137,7 +137,7 @@ TEST(BowlMeshBake, MidEdgeWeightInterpolationIsBoundedByTessellation) {
         const auto& v1 = mesh.vertices[mesh.indices[t + 1]];
         if (v0.coverage_a < 0.3f || v1.coverage_a < 0.3f) continue;
 
-        const mpviz::Vec3 mid{(v0.position.x + v1.position.x) * 0.5,
+        const overlume::Vec3 mid{(v0.position.x + v1.position.x) * 0.5,
                                (v0.position.y + v1.position.y) * 0.5,
                                (v0.position.z + v1.position.z) * 0.5};
         float u, v;
@@ -253,7 +253,7 @@ TEST(BowlMeshBake, EgoOcclusionZeroesCoverageForTheOccludedCameraOnly) {
     // pre-occlusion weights are both == 1.0 -- the only difference the
     // result can be attributed to is the occlusion test itself.
     constexpr double kR0 = 0.1, kK = 0.3, kRmax = 1.0;
-    const mpviz::Vec3 vertex{0.0, 1.0, kK * (kRmax - kR0) * (kRmax - kR0) + 0.01};
+    const overlume::Vec3 vertex{0.0, 1.0, kK * (kRmax - kR0) * (kRmax - kR0) + 0.01};
 
     const CameraExtrinsics exts[2] = {
         LookAtCamera({0.0, -3.0, 0.5}, vertex),   // 0 -- occluded
@@ -339,7 +339,7 @@ TEST(BowlMeshBake, OccludedCameraNeverBurnsATopThreeSlotAVisibleCameraCouldHaveT
     // displace pre-occlusion and the one that must be promoted once
     // occlusion removes camera 0.
     constexpr double kR0 = 0.1, kK = 0.3, kRmax = 1.0;
-    const mpviz::Vec3 vertex{0.0, 1.0, kK * (kRmax - kR0) * (kRmax - kR0) + 0.01};
+    const overlume::Vec3 vertex{0.0, 1.0, kK * (kRmax - kR0) * (kRmax - kR0) + 0.01};
 
     const CameraExtrinsics exts[4] = {
         LookAtCamera({0.0, -11.0, 0.5}, vertex),  // 0 -- occluded, genuine top-3 pick pre-occlusion
@@ -499,16 +499,16 @@ TEST(Bowl, EgoMeshOccludesBowlSurfaceBehindIt) {
     // the SAME scene.ego every render_frame() call (update_ego_transform /
     // update_bowl, Decision 3's frame convention), so this also catches a
     // bug where one of them stayed at the map origin while the other moved.
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    const mpviz::Vec3 ego_pos{3.0, 2.0, 0.0};
-    mpviz::CameraPose pose{{ego_pos.x, ego_pos.y - 6.0, 6.0}, {ego_pos.x, ego_pos.y, 0.0}, 70.0};
-    mpviz::SceneGraph scene{};
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    const overlume::Vec3 ego_pos{3.0, 2.0, 0.0};
+    overlume::CameraPose pose{{ego_pos.x, ego_pos.y - 6.0, 6.0}, {ego_pos.x, ego_pos.y, 0.0}, 70.0};
+    overlume::SceneGraph scene{};
     scene.ego = {ego_pos, /*heading_rad=*/0.0, /*speed_mps=*/0.0, /*valid=*/1};
 
-    mpviz::CameraExtrinsics ext{{1, 0, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 10.0}};
-    mpviz::CameraIntrinsics in{200, 200, 160, 120, {0, 0, 0, 0, 0}};
+    overlume::CameraExtrinsics ext{{1, 0, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 10.0}};
+    overlume::CameraIntrinsics in{200, 200, 160, 120, {0, 0, 0, 0, 0}};
     uint32_t w = 320, h = 240;
-    mpviz::BowlConfig bc{};
+    overlume::BowlConfig bc{};
     bc.camera_count = 1;
     bc.extrinsics = &ext;
     bc.intrinsics = &in;
@@ -531,14 +531,14 @@ TEST(Bowl, EgoMeshOccludesBowlSurfaceBehindIt) {
 
     // Baseline: bowl only, no ego -- how much of the frame the bowl's own
     // camera-texture sentinel covers.
-    auto* base_r = mpviz::create_renderer(cfg);
+    auto* base_r = overlume::create_renderer(cfg);
     if (!base_r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(mpviz::set_bowl_config(base_r, bc));
-    ASSERT_TRUE(mpviz::set_bowl_visible(base_r, true));
-    ASSERT_TRUE(mpviz::set_camera_frame(base_r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
-    mpviz::set_scene(base_r, scene);
+    ASSERT_TRUE(overlume::set_bowl_config(base_r, bc));
+    ASSERT_TRUE(overlume::set_bowl_visible(base_r, true));
+    ASSERT_TRUE(overlume::set_camera_frame(base_r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
+    overlume::set_scene(base_r, scene);
     std::vector<uint8_t> baseline(320 * 240 * 3);
-    ASSERT_TRUE(mpviz::render_frame(base_r, pose, {baseline.data(), 320, 240}));
+    ASSERT_TRUE(overlume::render_frame(base_r, pose, {baseline.data(), 320, 240}));
     // R>150 && B>150 && G<100: the dark_adas theme's own ego color
     // ([0.82, 0.80, 0.76], near-white clay) would ALSO satisfy a bare
     // R>150&&B>150 check once the ego renders into this same frame --
@@ -551,22 +551,22 @@ TEST(Bowl, EgoMeshOccludesBowlSurfaceBehindIt) {
     for (size_t i = 0; i < baseline.size(); i += 3) {
         if (is_magenta(baseline[i], baseline[i + 1], baseline[i + 2])) ++baseline_magenta;
     }
-    mpviz::destroy_renderer(base_r);
+    overlume::destroy_renderer(base_r);
     ASSERT_GT(baseline_magenta, 0u) << "bowl-only baseline should show its magenta sentinel";
 
     // Same setup, plus a known-size fallback ego box (build_ego_fallback,
     // no glTF file needed) at the SAME nonzero ego pose -- sitting well
     // inside the bowl's own small inner-ring radius, so it sits squarely
     // in front of a meaningful chunk of the magenta surface checked above.
-    auto* r = mpviz::create_renderer(cfg);
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
-    ASSERT_TRUE(mpviz::set_bowl_visible(r, true));
-    ASSERT_TRUE(mpviz::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
-    mpviz::set_ego_model(r, "/nonexistent/path.glb", {1.5, 1.5, 1.2});
-    mpviz::set_scene(r, scene);
+    ASSERT_TRUE(overlume::set_bowl_config(r, bc));
+    ASSERT_TRUE(overlume::set_bowl_visible(r, true));
+    ASSERT_TRUE(overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
+    overlume::set_ego_model(r, "/nonexistent/path.glb", {1.5, 1.5, 1.2});
+    overlume::set_scene(r, scene);
     std::vector<uint8_t> with_ego(320 * 240 * 3);
-    ASSERT_TRUE(mpviz::render_frame(r, pose, {with_ego.data(), 320, 240}));
+    ASSERT_TRUE(overlume::render_frame(r, pose, {with_ego.data(), 320, 240}));
 
     size_t with_ego_magenta = 0;
     size_t differing_from_baseline = 0;
@@ -583,7 +583,7 @@ TEST(Bowl, EgoMeshOccludesBowlSurfaceBehindIt) {
     EXPECT_GT(differing_from_baseline, 0u)
         << "the ego mesh produced no visible difference at all -- it may not share the bowl's "
            "scene, or may not be rendering";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ---- VM-092 (Task 3) Step 2: disable knob, shipped default off ----------
@@ -600,18 +600,18 @@ TEST(Bowl, SelfViewMasksOffByDefaultThenEnabledSuppressesOccludedCameraViaExisti
     // covering camera(s) all get zeroed by occlusion already has wsum==0,
     // same as a vertex outside every camera's FOV), so this test's pixel
     // checks are a smoke test on top of that, not the only proof of it.
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    mpviz::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    overlume::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
 
     // Camera 0 sits off to one side (rig frame), looking across the bowl --
     // NOT overhead -- so a body-sized ego box between it and the far side
     // of the bowl casts a real shadow (col0=right=(0,-1,0),
     // col1=down=(0,0,-1), col2=fwd=(1,0,0): looking in +x, same
     // column-extraction convention as OverheadCamera() above).
-    mpviz::CameraExtrinsics ext{{0, 0, 1, -1, 0, 0, 0, -1, 0}, {-5.0, 0, 0.3}};
-    mpviz::CameraIntrinsics in{250, 250, 320, 240, {0, 0, 0, 0, 0}};
+    overlume::CameraExtrinsics ext{{0, 0, 1, -1, 0, 0, 0, -1, 0}, {-5.0, 0, 0.3}};
+    overlume::CameraIntrinsics in{250, 250, 320, 240, {0, 0, 0, 0, 0}};
     uint32_t w = 640, h = 480;
-    mpviz::BowlConfig bc{};
+    overlume::BowlConfig bc{};
     bc.camera_count = 1;
     bc.extrinsics = &ext;
     bc.intrinsics = &in;
@@ -632,17 +632,17 @@ TEST(Bowl, SelfViewMasksOffByDefaultThenEnabledSuppressesOccludedCameraViaExisti
         cam_pixels[i + 2] = 255;
     }
 
-    auto* r = mpviz::create_renderer(cfg);
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     // A body-sized fallback box (no glTF needed), squarely between camera 0
     // and a real chunk of the bowl on the far side.
-    mpviz::set_ego_model(r, "/nonexistent/path.glb", {1.6, 1.6, 0.7});
-    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));  // self_view_masks defaults false
-    ASSERT_TRUE(mpviz::set_bowl_visible(r, true));
-    ASSERT_TRUE(mpviz::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
+    overlume::set_ego_model(r, "/nonexistent/path.glb", {1.6, 1.6, 0.7});
+    ASSERT_TRUE(overlume::set_bowl_config(r, bc));  // self_view_masks defaults false
+    ASSERT_TRUE(overlume::set_bowl_visible(r, true));
+    ASSERT_TRUE(overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
 
     std::vector<uint8_t> masks_off(320 * 240 * 3);
-    ASSERT_TRUE(mpviz::render_frame(r, pose, {masks_off.data(), 320, 240}));
+    ASSERT_TRUE(overlume::render_frame(r, pose, {masks_off.data(), 320, 240}));
     size_t magenta_off = 0;
     for (size_t i = 0; i < masks_off.size(); i += 3) {
         if (masks_off[i] > 150 && masks_off[i + 2] > 150) ++magenta_off;
@@ -654,13 +654,13 @@ TEST(Bowl, SelfViewMasksOffByDefaultThenEnabledSuppressesOccludedCameraViaExisti
     // re-bake -- set_self_view_masks() only stores the flag; build_bowl()
     // reads it at the NEXT set_bowl_config() call, same convention as
     // every other bake-time-only knob on this POD boundary.
-    ASSERT_TRUE(mpviz::set_self_view_masks(r, true));
-    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
-    ASSERT_TRUE(mpviz::set_bowl_visible(r, true));
-    ASSERT_TRUE(mpviz::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/2));
+    ASSERT_TRUE(overlume::set_self_view_masks(r, true));
+    ASSERT_TRUE(overlume::set_bowl_config(r, bc));
+    ASSERT_TRUE(overlume::set_bowl_visible(r, true));
+    ASSERT_TRUE(overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/2));
 
     std::vector<uint8_t> masks_on(320 * 240 * 3);
-    ASSERT_TRUE(mpviz::render_frame(r, pose, {masks_on.data(), 320, 240}));
+    ASSERT_TRUE(overlume::render_frame(r, pose, {masks_on.data(), 320, 240}));
     size_t magenta_on = 0;
     for (size_t i = 0; i < masks_on.size(); i += 3) {
         if (masks_on[i] > 150 && masks_on[i + 2] > 150) ++magenta_on;
@@ -695,26 +695,26 @@ TEST(Bowl, SelfViewMasksOffByDefaultThenEnabledSuppressesOccludedCameraViaExisti
         << "every pixel that lost its occluded-camera contribution must fall back to "
            "sky_color/theme shading (bowl.mat's `if (wsum > 0.0) ... else skyColor`), not be "
            "left black/unshaded";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ---- Step 4: set_bowl_config() + set_camera_frame() + render_frame() -----
 
 TEST(Bowl, RenderFrameWithBowlConfiguredProducesSentinelPixels) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     // Angled view of the bowl (NOT straight-down -- an eye directly above
     // the target with a world-up vector is a degenerate lookAt, forward and
     // up parallel; every existing render_once() test in this suite uses an
     // angled eye for the same reason).
-    mpviz::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
     // One overhead camera, wide enough FOV to see the whole (small) bowl.
-    mpviz::CameraExtrinsics ext{{1, 0, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 10.0}};
-    mpviz::CameraIntrinsics in{200, 200, 160, 120, {0, 0, 0, 0, 0}};
+    overlume::CameraExtrinsics ext{{1, 0, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 10.0}};
+    overlume::CameraIntrinsics in{200, 200, 160, 120, {0, 0, 0, 0, 0}};
     uint32_t w = 320, h = 240;
-    mpviz::BowlConfig bc{};
+    overlume::BowlConfig bc{};
     bc.camera_count = 1;
     bc.extrinsics = &ext;
     bc.intrinsics = &in;
@@ -727,12 +727,12 @@ TEST(Bowl, RenderFrameWithBowlConfiguredProducesSentinelPixels) {
     bc.sky_color[0] = 0.1f;
     bc.sky_color[1] = 0.1f;
     bc.sky_color[2] = 0.1f;
-    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
+    ASSERT_TRUE(overlume::set_bowl_config(r, bc));
     // set_bowl_config() defaults to hidden (bowlVisible=false, matching
     // set_bowl_visible's own documented default and Task 4's later
     // per-mode dispatch) -- this test explicitly opts in, same as Task 4's
     // mode dispatch will do for BOWL/HYBRID modes.
-    ASSERT_TRUE(mpviz::set_bowl_visible(r, true));
+    ASSERT_TRUE(overlume::set_bowl_visible(r, true));
 
     // Saturated magenta sentinel: no theme emits it on all three channels
     // at once, so "the bowl sampled the camera texture" is distinguishable
@@ -743,10 +743,10 @@ TEST(Bowl, RenderFrameWithBowlConfiguredProducesSentinelPixels) {
         cam_pixels[i + 1] = 0;
         cam_pixels[i + 2] = 255;
     }
-    ASSERT_TRUE(mpviz::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
+    ASSERT_TRUE(overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
 
     std::vector<uint8_t> buf(320 * 240 * 3);
-    ASSERT_TRUE(mpviz::render_frame(r, pose, {buf.data(), 320, 240}));
+    ASSERT_TRUE(overlume::render_frame(r, pose, {buf.data(), 320, 240}));
 
     // Magenta-signature check, not an exact (255,0,255) proximity match:
     // this renderer's fixed camera exposure (renderer.cpp's setExposure)
@@ -769,7 +769,7 @@ TEST(Bowl, RenderFrameWithBowlConfiguredProducesSentinelPixels) {
     // correct winding + rigPos wiring).
     EXPECT_GT(magenta_pixels, buf.size() / 3 / 10)
         << "expected the bowl's sampled surface to cover a meaningful fraction of the frame";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 TEST(Bowl, PerFragmentSamplingReadsTheCorrectPixelNotAMirroredOne) {
@@ -780,9 +780,9 @@ TEST(Bowl, PerFragmentSamplingReadsTheCorrectPixelNotAMirroredOne) {
     // top/bottom ORDERING of sampled colors matches the overhead camera's
     // known orientation -- a mirrored-V (or any position corruption) would
     // scramble that ordering.
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    mpviz::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    overlume::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
     // Overhead camera, straight down: col0=right=(1,0,0), col1=down=(0,-1,0)
@@ -791,10 +791,10 @@ TEST(Bowl, PerFragmentSamplingReadsTheCorrectPixelNotAMirroredOne) {
     // image's LEFT half (small xp) is world +x-ish (right = +x); a pixel in
     // the image's TOP half (small yp) is world +y-ish (image +v is world
     // -y, so image top/small-v is world +y).
-    mpviz::CameraExtrinsics ext{{1, 0, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 10.0}};
-    mpviz::CameraIntrinsics in{200, 200, 160, 120, {0, 0, 0, 0, 0}};
+    overlume::CameraExtrinsics ext{{1, 0, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 10.0}};
+    overlume::CameraIntrinsics in{200, 200, 160, 120, {0, 0, 0, 0, 0}};
     uint32_t w = 320, h = 240;
-    mpviz::BowlConfig bc{};
+    overlume::BowlConfig bc{};
     bc.camera_count = 1;
     bc.extrinsics = &ext;
     bc.intrinsics = &in;
@@ -804,8 +804,8 @@ TEST(Bowl, PerFragmentSamplingReadsTheCorrectPixelNotAMirroredOne) {
     bc.bowl_k = 0.3;
     bc.bowl_Rmax = 4.0;
     bc.feather_margin = 0.0;  // no feather -- isolate the position/UV question
-    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
-    ASSERT_TRUE(mpviz::set_bowl_visible(r, true));
+    ASSERT_TRUE(overlume::set_bowl_config(r, bc));
+    ASSERT_TRUE(overlume::set_bowl_visible(r, true));
 
     // Four quadrants, saturated + distinct on all 3 channels: TL=red,
     // TR=green, BL=blue, BR=yellow.
@@ -821,10 +821,10 @@ TEST(Bowl, PerFragmentSamplingReadsTheCorrectPixelNotAMirroredOne) {
             else { px[0] = 255; px[1] = 255; px[2] = 0; }                  // yellow
         }
     }
-    ASSERT_TRUE(mpviz::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
+    ASSERT_TRUE(overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
 
     std::vector<uint8_t> buf(320 * 240 * 3);
-    ASSERT_TRUE(mpviz::render_frame(r, pose, {buf.data(), 320, 240}));
+    ASSERT_TRUE(overlume::render_frame(r, pose, {buf.data(), 320, 240}));
 
     // Classify each on-screen pixel by its dominant sampled quadrant color
     // (exposure-compensated, so channels are boosted but the RED/GREEN/
@@ -875,21 +875,21 @@ TEST(Bowl, PerFragmentSamplingReadsTheCorrectPixelNotAMirroredOne) {
     EXPECT_LT(wrong_right_is_reddish, (right_green + right_yellow) / 2)
         << "too much red/blue leaking onto the green/yellow screen side -- position/orientation "
            "corruption suspected";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 TEST(Bowl, SetBowlVisibleFalseHidesTheBowlEntirely) {
     // Inverted sanity check for the same setup: with bowlVisible left
     // false (the default), no sentinel pixels should appear at all.
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    mpviz::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    overlume::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    mpviz::CameraExtrinsics ext{{1, 0, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 10.0}};
-    mpviz::CameraIntrinsics in{200, 200, 160, 120, {0, 0, 0, 0, 0}};
+    overlume::CameraExtrinsics ext{{1, 0, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 10.0}};
+    overlume::CameraIntrinsics in{200, 200, 160, 120, {0, 0, 0, 0, 0}};
     uint32_t w = 320, h = 240;
-    mpviz::BowlConfig bc{};
+    overlume::BowlConfig bc{};
     bc.camera_count = 1;
     bc.extrinsics = &ext;
     bc.intrinsics = &in;
@@ -899,7 +899,7 @@ TEST(Bowl, SetBowlVisibleFalseHidesTheBowlEntirely) {
     bc.bowl_k = 0.3;
     bc.bowl_Rmax = 4.0;
     bc.feather_margin = 5.0;
-    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
+    ASSERT_TRUE(overlume::set_bowl_config(r, bc));
 
     std::vector<uint8_t> cam_pixels(static_cast<size_t>(w) * h * 3);
     for (size_t i = 0; i < cam_pixels.size(); i += 3) {
@@ -907,10 +907,10 @@ TEST(Bowl, SetBowlVisibleFalseHidesTheBowlEntirely) {
         cam_pixels[i + 1] = 0;
         cam_pixels[i + 2] = 255;
     }
-    ASSERT_TRUE(mpviz::set_camera_frame(r, 0, cam_pixels.data(), w, h, 1));
+    ASSERT_TRUE(overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, 1));
 
     std::vector<uint8_t> buf(320 * 240 * 3);
-    ASSERT_TRUE(mpviz::render_frame(r, pose, {buf.data(), 320, 240}));
+    ASSERT_TRUE(overlume::render_frame(r, pose, {buf.data(), 320, 240}));
     // Same magenta-signature criterion as the companion test above -- with
     // the bowl hidden, none of it should fire at all.
     size_t magenta_pixels = 0;
@@ -918,7 +918,7 @@ TEST(Bowl, SetBowlVisibleFalseHidesTheBowlEntirely) {
         if (buf[i] > 150 && buf[i + 2] > 150) ++magenta_pixels;
     }
     EXPECT_EQ(magenta_pixels, 0u) << "bowl rendered while bowlVisible defaulted false";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 TEST(Bowl, TwoCamerasWithNonzeroSlotIndexBothAppearInFrame) {
@@ -930,26 +930,26 @@ TEST(Bowl, TwoCamerasWithNonzeroSlotIndexBothAppearInFrame) {
     // to -x) makes camera 1 the per-triangle winner (nonzero index_a) over
     // the +x half of the bowl -- proving a non-zero slot's uniforms/sampler
     // are wired to the shader block that reads them, not just slot 0's.
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    mpviz::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    overlume::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
     // Same overhead R (col0=right=(1,0,0), col1=down=(0,-1,0), col2=fwd=
     // (0,0,-1)) as OverheadCamera() above, offset in t along x so each
     // camera's alignment (straight-down-ness) peaks on its own side of the
     // bowl.
-    mpviz::CameraExtrinsics exts[2] = {
+    overlume::CameraExtrinsics exts[2] = {
         {{1, 0, 0, 0, -1, 0, 0, 0, -1}, {-2.0, 0, 10.0}},
         {{1, 0, 0, 0, -1, 0, 0, 0, -1}, {2.0, 0, 10.0}},
     };
-    mpviz::CameraIntrinsics ins[2] = {
+    overlume::CameraIntrinsics ins[2] = {
         {300, 300, 160, 120, {0, 0, 0, 0, 0}},
         {300, 300, 160, 120, {0, 0, 0, 0, 0}},
     };
     uint32_t widths[2] = {320, 320};
     uint32_t heights[2] = {240, 240};
-    mpviz::BowlConfig bc{};
+    overlume::BowlConfig bc{};
     bc.camera_count = 2;
     bc.extrinsics = exts;
     bc.intrinsics = ins;
@@ -962,19 +962,19 @@ TEST(Bowl, TwoCamerasWithNonzeroSlotIndexBothAppearInFrame) {
     bc.sky_color[0] = 0.05f;
     bc.sky_color[1] = 0.05f;
     bc.sky_color[2] = 0.05f;
-    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
-    ASSERT_TRUE(mpviz::set_bowl_visible(r, true));
+    ASSERT_TRUE(overlume::set_bowl_config(r, bc));
+    ASSERT_TRUE(overlume::set_bowl_visible(r, true));
 
     // Distinct saturated colors: camera 0 = pure red, camera 1 = pure green.
     std::vector<uint8_t> red(static_cast<size_t>(widths[0]) * heights[0] * 3);
     std::vector<uint8_t> green(static_cast<size_t>(widths[1]) * heights[1] * 3);
     for (size_t i = 0; i < red.size(); i += 3) { red[i] = 255; red[i + 1] = 0; red[i + 2] = 0; }
     for (size_t i = 0; i < green.size(); i += 3) { green[i] = 0; green[i + 1] = 255; green[i + 2] = 0; }
-    ASSERT_TRUE(mpviz::set_camera_frame(r, 0, red.data(), widths[0], heights[0], /*frame_id=*/1));
-    ASSERT_TRUE(mpviz::set_camera_frame(r, 1, green.data(), widths[1], heights[1], /*frame_id=*/1));
+    ASSERT_TRUE(overlume::set_camera_frame(r, 0, red.data(), widths[0], heights[0], /*frame_id=*/1));
+    ASSERT_TRUE(overlume::set_camera_frame(r, 1, green.data(), widths[1], heights[1], /*frame_id=*/1));
 
     std::vector<uint8_t> buf(320 * 240 * 3);
-    ASSERT_TRUE(mpviz::render_frame(r, pose, {buf.data(), 320, 240}));
+    ASSERT_TRUE(overlume::render_frame(r, pose, {buf.data(), 320, 240}));
 
     size_t red_pixels = 0, green_pixels = 0;
     for (size_t i = 0; i < buf.size(); i += 3) {
@@ -986,5 +986,5 @@ TEST(Bowl, TwoCamerasWithNonzeroSlotIndexBothAppearInFrame) {
     EXPECT_GT(green_pixels, 20u)
         << "camera 1 (slot index 1, the non-zero-slot case this test targets) never sampled -- "
            "a non-zero idxA/idxB shader block or its uniforms/sampler are not wired correctly";
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }

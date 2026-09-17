@@ -13,7 +13,7 @@ sampler, Decision 5's own named fidelity exception):
   (`pointcloud_transform` t=(0,0,1.15) is the shipped default — see review
   round 1 finding 1 below).
 - `overlume/tests/goldens/hybrid_test_town_merged_node.png`
-  — `micropilot_visualization_node` (this epic's Filament port),
+  — `overlume_ros` (this epic's Filament port),
   `bowl_enabled:=true render_mode:=2 hybrid_enabled:=true
   pointcloud_topic:=/iv_points_fusion` with `default_params.yaml`'s
   `pointcloud_transform` (mode content exclusivity, USER DIRECTIVE
@@ -27,7 +27,7 @@ while the CUDA node's own shipped `default_params.yaml` carries t=(0,0,1.15)
 (`rendering_node.cpp:91-94`: the fused `/iv_points_fusion` cloud is in the
 calib-ego/top-lidar frame and needs the same +z ground offset the camera
 extrinsics bake in) — the two nodes placed the same cloud 1.15 m apart under
-their own defaults. `micropilot_visualization_node/config/default_params.yaml`
+their own defaults. `overlume_ros/config/default_params.yaml`
 now ships t=(0,0,1.15) too (not an `m2o1_params.yaml`-only override — the old
 node's OWN shipped default carries it), and both PNGs above were re-captured
 against that same transform.

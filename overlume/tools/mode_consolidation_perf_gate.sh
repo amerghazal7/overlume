@@ -12,7 +12,7 @@ exit 2
 # Task 4 (VM-093) Step 3 perf gate: old node (micropilot_rendering_node,
 # UNMODIFIED, run from the MAIN checkout's already-built install, READ-ONLY --
 # this task never edits or rebuilds that checkout) + this worktree's merged
-# node (micropilot_visualization_node, camera-ingesting) running together --
+# node (overlume_ros, camera-ingesting) running together --
 # the actual state production is in for the whole rollout window (Decision 7).
 #
 # Baseline to compare against: Task 2 Step 5a's own same-bag `bowl_off` row
@@ -46,7 +46,7 @@ source "$MAIN_REPO/ros/install/setup.bash"
 # New node: this worktree's own scratch colcon install, layered on top.
 source "$WORKTREE_REPO/.colcon_scratch/install/setup.bash"
 ros2 daemon stop >/dev/null 2>&1; ros2 daemon start >/dev/null 2>&1; sleep 2
-VPARAMS="$(ros2 pkg prefix micropilot_visualization_node)/share/micropilot_visualization_node/config/default_params.yaml"
+VPARAMS="$(ros2 pkg prefix overlume_ros)/share/overlume_ros/config/default_params.yaml"
 RPARAMS="$(ros2 pkg prefix micropilot_rendering_node)/share/micropilot_rendering_node/config/default_params.yaml"
 
 cleanup(){
@@ -95,12 +95,12 @@ run_co_residence(){
   rpid=$(wait_pid "lib/micropilot_rendering_node/rendering_[n]ode")
   if ! lc /rendering_node configure || ! lc /rendering_node activate; then cleanup; exit 1; fi
 
-  ros2 run micropilot_visualization_node visualization_node --ros-args --params-file "$VPARAMS" \
+  ros2 run overlume_ros overlume_node --ros-args --params-file "$VPARAMS" \
     -p initial_mode:=2 -p use_sim_time:=true -p quality:=1 -p out_width:=1280 -p out_height:=720 \
     -p profile:=urban -p bowl_enabled:=true \
     > "$OUT/viz.log" 2>&1 &
-  vpid=$(wait_pid "lib/micropilot_visualization_node/visualization_[n]ode")
-  if ! lc /visualization_node configure || ! lc /visualization_node activate; then cleanup; exit 1; fi
+  vpid=$(wait_pid "lib/overlume_ros/visualization_[n]ode")
+  if ! lc /overlume_node configure || ! lc /overlume_node activate; then cleanup; exit 1; fi
 
   # Fresh single-pass playback (no --loop), best_effort sensor QoS on both
   # recorder and subscriber sides (SensorDataQoS).

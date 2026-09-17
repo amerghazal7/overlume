@@ -6,7 +6,7 @@
 #include "ribbon_test_hooks.hpp"
 #include "polyline.hpp"
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
 #include <filament/RenderableManager.h>
 
@@ -21,7 +21,7 @@
 #include <utility>
 #include <vector>
 
-namespace mpviz {
+namespace overlume {
 
 namespace {
 
@@ -359,30 +359,30 @@ void update_ribbons(VisualRenderer& r, const SceneGraph& s) {
     }
 }
 
-}  // namespace mpviz
+}  // namespace overlume
 
 // Filament-free test introspection hooks; see ribbon_test_hooks.hpp for
 // why these live here.
-namespace mpviz::testing {
+namespace overlume::testing {
 
-mpviz::detail::Float3 ribbon_role_base_color(mpviz::VisualRenderer* r, mpviz::PathRole role) {
+overlume::detail::Float3 ribbon_role_base_color(overlume::VisualRenderer* r, overlume::PathRole role) {
     if (r == nullptr) return {};
     return r->ribbonTint[static_cast<uint8_t>(role)];
 }
 
-size_t ribbon_mesh_count(mpviz::VisualRenderer* r, size_t slot) {
+size_t ribbon_mesh_count(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->ribbonSlots.size()) return 0;
     return r->ribbonSlots[slot].meshes.size();
 }
 
-size_t ribbon_vertex_count(mpviz::VisualRenderer* r, size_t slot) {
+size_t ribbon_vertex_count(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->ribbonSlots.size()) return 0;
     return r->ribbonSlots[slot].totalVertexCount;
 }
 
-RibbonMaterialInfo ribbon_slot_material_info(mpviz::VisualRenderer* r, size_t slot) {
+RibbonMaterialInfo ribbon_slot_material_info(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->ribbonSlots.size()) return {};
-    const mpviz::VisualRenderer::RibbonSlot& s = r->ribbonSlots[slot];
+    const overlume::VisualRenderer::RibbonSlot& s = r->ribbonSlots[slot];
     RibbonMaterialInfo info;
     info.alpha = s.fadeAlpha;
     if (s.meshes.empty()) return info;
@@ -394,12 +394,12 @@ RibbonMaterialInfo ribbon_slot_material_info(mpviz::VisualRenderer* r, size_t sl
     return info;
 }
 
-float ribbon_slot_half_width_m(mpviz::VisualRenderer* r, size_t slot) {
+float ribbon_slot_half_width_m(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->ribbonSlots.size()) return 0.0f;
     return r->ribbonSlots[slot].halfWidthM;
 }
 
-bool ribbon_slot_first_point(mpviz::VisualRenderer* r, size_t slot, mpviz::Vec3* out) {
+bool ribbon_slot_first_point(overlume::VisualRenderer* r, size_t slot, overlume::Vec3* out) {
     if (r == nullptr || slot >= r->ribbonSlots.size() || out == nullptr) return false;
     const auto& s = r->ribbonSlots[slot];
     if (s.meshes.empty()) return false;
@@ -407,9 +407,9 @@ bool ribbon_slot_first_point(mpviz::VisualRenderer* r, size_t slot, mpviz::Vec3*
     return true;
 }
 
-uint64_t ribbon_rebuild_count(mpviz::VisualRenderer* r) {
+uint64_t ribbon_rebuild_count(overlume::VisualRenderer* r) {
     if (r == nullptr) return 0;
     return r->ribbonRebuildCount;
 }
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

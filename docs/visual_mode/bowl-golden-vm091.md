@@ -9,7 +9,7 @@ genuinely different mechanism than the CUDA backward sampler, per Decision 3):
 - `overlume/tests/goldens/bowl_test_town_cuda_reference.png`
   — `micropilot_rendering_node`, `initial_mode:=1` (bowl-only), default params.
 - `overlume/tests/goldens/bowl_test_town_dark_adas.png`
-  — `micropilot_visualization_node` (this epic's Filament port), `bowl_enabled:=true`,
+  — `overlume_ros` (this epic's Filament port), `bowl_enabled:=true`,
   `initial_mode:=3` (mode 3's own autonomy view, bowl composited underneath —
   Task 4 has not landed the bowl-mode dispatch yet, so this is the merged
   node's normal camera, not a top-down bowl-only view the way the CUDA
@@ -25,7 +25,7 @@ down (10.0 → 3.0 → 1.5, three captures) until the bowl's overall brightness
 and road-surface contrast matched the CUDA reference on the same frame.
 `BowlConfig::exposure_compensation`'s default, `bowl.mat`'s header/comment,
 `default_params.yaml`'s `bowl_exposure_compensation`, and
-`visualization_node.hpp`'s member default were all updated to 1.5 (see their
+`overlume_node.hpp`'s member default were all updated to 1.5 (see their
 own comments). Full library suite (188/188) and node suite (238/238)
 re-confirmed green after the retune.
 
@@ -84,7 +84,7 @@ daytime asphalt contrast, matching the CUDA reference far more closely than
 the prior washed-out capture. Full library suite green (202/202, up from
 188/188 at the time of the original capture — more tests landed since, plus
 the 2 new exposure-calibration tests this fix adds), node rebuilt
-(`visualization_node.hpp`'s `bowl_exposure_compensation_` default changed).
+(`overlume_node.hpp`'s `bowl_exposure_compensation_` default changed).
 
 **This recapture is produced; it has not been human-sanity-approved yet**
 (same Golden scoping rule as above) — committed as a candidate per the

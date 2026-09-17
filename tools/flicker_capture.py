@@ -24,7 +24,7 @@ review findings at once:
 
 Usage (against an already-configured-and-activated node + bag playback --
 see flicker_measure.sh, which drives this):
-    python3 tools/flicker_capture.py --out-dir /tmp/mpviz_flicker_measure_after
+    python3 tools/flicker_capture.py --out-dir /tmp/overlume_flicker_measure_after
 
 Frame diff metric: mean absolute per-pixel delta (across RGB channels) in a
 fixed ego-centered crop, between consecutive frames of the SAME condition
@@ -51,7 +51,7 @@ import numpy as np
 CROP_X = (0.30, 0.70)
 CROP_Y = (0.30, 0.90)
 
-NODE_NAME = "/visualization_node"
+NODE_NAME = "/overlume_node"
 IMAGE_TOPIC = "/rendering/image"
 CARPET_TOPIC = "/navigation_motion_obstacle_planner_node/output_trajectory_carpet"
 

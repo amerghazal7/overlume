@@ -3,9 +3,9 @@
 How to add a topic to the visualization node's rendered scene **using only a
 profile YAML edit** — no C++ change, no rebuild of the node (a restart to
 re-run `on_configure()` is enough). Everything below is grounded directly in
-the loader source: `ros/src/micropilot_visualization_node/src/profile.cpp`
+the loader source: `ros/src/overlume_ros/src/profile.cpp`
 (`ParseRow`/`ValidateRow`/`BuildProfile`) and
-`include/micropilot_visualization_node/profile.hpp` (the `ProfileRow` struct).
+`include/overlume_ros/profile.hpp` (the `ProfileRow` struct).
 Every field named here exists in `ValidateRow`; nothing here is aspirational.
 
 > Deployment/two-node-topology notes are out of scope for this guide — see
@@ -13,7 +13,7 @@ Every field named here exists in `ValidateRow`; nothing here is aspirational.
 
 ## Where the profile lives, and how it's picked
 
-`visualization_node.cpp`'s `on_configure()` reads two parameters:
+`overlume_node.cpp`'s `on_configure()` reads two parameters:
 
 - `profile` (default `"urban"`)
 - `profile_dir` (default `""` → the package's installed `config/` share dir).
@@ -24,7 +24,7 @@ Every field named here exists in `ValidateRow`; nothing here is aspirational.
   explicit `profile_dir` pointing at the source tree) before edits show up.
 
 and loads `<profile_dir>/<profile>_profile.yaml`, e.g.
-`ros/src/micropilot_visualization_node/config/urban_profile.yaml`.
+`ros/src/overlume_ros/config/urban_profile.yaml`.
 A row you add there takes effect on the **next** `on_configure()` (node
 restart or lifecycle reconfigure) — the profile is not re-read live.
 
@@ -116,7 +116,7 @@ ns_default: drop|polyline|polygon   # applied when no prefix matches
 ### QoS: `best_effort` / `transient_local`
 
 Both are read straight through into the `rclcpp::QoS` the node builds per
-row (`visualization_node.cpp`'s per-adapter subscription loops: `if
+row (`overlume_node.cpp`'s per-adapter subscription loops: `if
 (spec.best_effort) qos.best_effort();` / `if (spec.transient_local)
 qos.transient_local();`). Get this wrong and the topic connects to *nothing*,
 silently, forever — no error anywhere, because ROS2 QoS mismatches simply
@@ -149,7 +149,7 @@ permanently.
 ## Per-adapter row semantics (what actually happens to a message)
 
 Condensed from each adapter's own header comment
-(`include/micropilot_visualization_node/adapters/*.hpp`) — read the header
+(`include/overlume_ros/adapters/*.hpp`) — read the header
 directly for the full malformed-data rules; this is the shape a new row's
 author needs to reason about placement/behavior.
 
@@ -159,7 +159,7 @@ author needs to reason about placement/behavior.
   through a junction polygon uncut; it is a no-op on a feed that never
   carries `JUNCTION`-kind geometry.
 - **`path`** — `nav_msgs/Path` → one `PathRibbon` per row, keyed by `role`
-  (`behavior|global|local` — **fixed** 3-slot enum, `mpviz::PathRole`,
+  (`behavior|global|local` — **fixed** 3-slot enum, `overlume::PathRole`,
   `scene.h:43`; each has its own ribbon color/z-lift baked into the renderer,
   not the profile). A new (valid, ≥2-pose) `Path` message **replaces** the
   stored ribbon wholesale, never merges.
@@ -195,7 +195,7 @@ author needs to reason about placement/behavior.
 
 Each `SceneAssembly` category — and therefore every row filed under a given
 `adapter` — is gated by one boolean **node parameter**, live-tunable without
-a restart (`on_params()`, `visualization_node.cpp`):
+a restart (`on_params()`, `overlume_node.cpp`):
 
 | adapter → category | parameter |
 |---|---|

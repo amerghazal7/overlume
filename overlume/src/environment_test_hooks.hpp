@@ -1,16 +1,16 @@
 // environment_test_hooks.hpp — internal-only, not installed, not POD. Same
 // reasoning as map_elements_test_hooks.hpp: tests/test_environment.cpp
-// links only against `visual_renderer` and has no access to its PRIVATE
+// links only against `overlume` and has no access to its PRIVATE
 // Filament include dir, so it can't include environment.hpp directly.
 #pragma once
 
 #include <cstdint>
 #include <string>
 
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+#include "overlume/api.h"
+#include "overlume/scene.h"
 
-namespace mpviz::testing {
+namespace overlume::testing {
 
 // Live chunk count the installed EnvironmentSource (BakedEnvironmentSource
 // or StreamingEnvironmentSource, Decision 12) currently holds loaded --
@@ -21,7 +21,7 @@ namespace mpviz::testing {
 // latter). 0 if `r` is null or no source is configured (set_environment_source()
 // never called, or it failed) -- same null-`r` contract as
 // map_element_rebuild_count().
-uint64_t environment_loaded_chunk_count(mpviz::VisualRenderer* r);
+uint64_t environment_loaded_chunk_count(overlume::VisualRenderer* r);
 
 // VM-096 (vcam GUI Environment Tiles toggle): how many of the
 // currently-loaded chunks/tiles are ACTUALLY added to `r`'s Filament scene
@@ -34,7 +34,7 @@ uint64_t environment_loaded_chunk_count(mpviz::VisualRenderer* r);
 // camera-framing-independent -- unlike a rendered-pixel comparison, it
 // doesn't depend on how much screen area a loaded chunk/tile happens to
 // cover.
-uint64_t environment_scene_membership_count(mpviz::VisualRenderer* r);
+uint64_t environment_scene_membership_count(overlume::VisualRenderer* r);
 
 // Epic 6 (VM-062) streaming test hooks. This header stays C++17-safe and
 // cesium-free (included by test_environment_stream.cpp, a plain C++17 test
@@ -54,14 +54,14 @@ struct FixtureStreamHandle;  // opaque kill-switch handle; owned by the
 // left untouched). `materials_original` (VM-064, Task 5): defaults false
 // (today's clay remap, every pre-VM-064 call site unaffected); true installs
 // in original-materials mode (the Google Photorealistic 3D Tiles path).
-bool install_fixture_streaming_source(mpviz::VisualRenderer* r, const char* fixture_dir,
-                                       mpviz::GeoAnchor anchor, bool materials_original = false);
+bool install_fixture_streaming_source(overlume::VisualRenderer* r, const char* fixture_dir,
+                                       overlume::GeoAnchor anchor, bool materials_original = false);
 
 // Same, plus a baked fallback dir and a kill switch for Task 4's
 // network-loss e2e. Returns the kill-switch handle; nullptr on failure.
 FixtureStreamHandle* install_fixture_streaming_source_with_fallback(
-    mpviz::VisualRenderer* r, const char* fixture_dir, const char* fallback_baked_dir,
-    mpviz::GeoAnchor anchor);
+    overlume::VisualRenderer* r, const char* fixture_dir, const char* fallback_baked_dir,
+    overlume::GeoAnchor anchor);
 
 // Flips the kill switch: every subsequent fixture "network" request fails.
 void kill_fixture_network(FixtureStreamHandle* handle);
@@ -90,7 +90,7 @@ bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double head
 // `r` is null, no source is installed, or the installed source is not a
 // StreamingEnvironmentSource (e.g. BakedEnvironmentSource) -- same
 // null-safety class as every other hook in this header.
-bool environment_stream_materials_original(mpviz::VisualRenderer* r);
+bool environment_stream_materials_original(overlume::VisualRenderer* r);
 
 // VM-064 gate round 1 finding: the production activation path -- parsing
 // "materials=original" out of the ion:// query string -- had zero coverage
@@ -106,7 +106,7 @@ bool environment_stream_parse_materials_original(const char* ion_spec);
 // remap) -- false in original-materials mode. False on the same
 // null/non-streaming conditions as the hook above, or if nothing has
 // loaded yet.
-bool environment_stream_first_primitive_is_clay(mpviz::VisualRenderer* r);
+bool environment_stream_first_primitive_is_clay(overlume::VisualRenderer* r);
 
 // Finding #0 (security, token redaction) test hooks -- environment_stream.cpp
 // only, cesium-free signatures so this header stays includable from a plain
@@ -127,4 +127,4 @@ std::string captured_cesium_log_text();
 // to), false if `max_ticks` elapse first.
 bool drive_ion_token_redaction_probe(const char* bogus_token, int64_t asset_id, int max_ticks);
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

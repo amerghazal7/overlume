@@ -18,17 +18,17 @@ third-party client — can drive the virtual camera:
         Epic 3 Task 5/VM-032 -- names from LAYER_NAMES below; applies live,
         no restart)
     {"cmd": "set_quality", "preset": "low"|"medium"|"high"|0|1|2}  (VM-032 --
-        writes visualization_node's `quality` param only; takes effect on
+        writes overlume_node's `quality` param only; takes effect on
         its NEXT restart, not live -- see that node's create_renderer())
     {"cmd": "set_surround_profile", "profile": "bowl"|"hybrid"}  (Task 4/
-        VM-093 -- writes visualization_node's `surround_stitching_profile`
+        VM-093 -- writes overlume_node's `surround_stitching_profile`
         param; live, same on_params() live-tuning contract as layer_*)
     {"cmd": "set_environment_enabled", "enabled": bool}  (VM-096 -- vcam
-        GUI Environment Tiles toggle -- writes visualization_node's
+        GUI Environment Tiles toggle -- writes overlume_node's
         `environment_enabled` param, the SAME disable knob VM-052 already
         declared; live, same on_params() contract as layer_*)
     {"cmd": "set_environment_source", "preset": "baked"|"osm"|"clipped"|"google"}
-        (VM-096 -- resolves `preset` to visualization_node's
+        (VM-096 -- resolves `preset` to overlume_node's
         `environment_source_uri` string server-side: "baked"->"",
         "osm"->"ion://96188",
         "google"->"ion://2275207?materials=original&cache=off" (cache=off
@@ -76,7 +76,7 @@ PRESET_RANGE = (1, 5)
 RENDER_MODES = {"bowl": 1, "pointcloud": 2, "visual": 3, 1: 1, 2: 2, 3: 3}
 
 # Epic 3 Task 5 (VM-032) + VM-077 + Task 4/VM-093: the layer_<name> bool
-# params visualization_node declares (scene_assembly.hpp's live categories --
+# params overlume_node declares (scene_assembly.hpp's live categories --
 # trajectory_carpet added VM-077, surround_stitching added VM-093 (Surround
 # Stitching, follow-up USER DIRECTIVE 2026-09-11) -- see that node's
 # on_configure()). surround_stitching is the one entry here that doesn't gate
@@ -87,11 +87,11 @@ LAYER_NAMES = {
     "objects", "paths", "map_elements", "grids", "alerts", "markers", "point_clouds",
     "trajectory_carpet", "surround_stitching",
 }
-# quality preset name -> visualization_node's `quality` param encoding
+# quality preset name -> overlume_node's `quality` param encoding
 # (0=low, 1=med, 2=high, api.h's RenderConfig::quality).
 QUALITY_PRESETS = {"low": 0, "medium": 1, "high": 2, 0: 0, 1: 1, 2: 2}
 # Surround Stitching content profile (Task 4/VM-093 follow-up USER
-# DIRECTIVE) -- visualization_node's on_params() accepts exactly these two,
+# DIRECTIVE) -- overlume_node's on_params() accepts exactly these two,
 # rejecting anything else (test_mode_dispatch.py check 3).
 SURROUND_PROFILES = {"bowl", "hybrid"}
 # Epic 6's four environment tile sources (VM-096 -- vcam GUI Environment
@@ -281,9 +281,9 @@ def main() -> int:
     from diagnostic_msgs.msg import DiagnosticArray
     from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
     from rcl_interfaces.srv import GetParameters, SetParameters
-    # SetVirtualCam is owned by micropilot_visualization_node since the VM-095
+    # SetVirtualCam is owned by overlume_ros since the VM-095
     # cutover (Step 4) -- the type's qualified name changed with the .srv move.
-    from micropilot_visualization_node.srv import SetVirtualCam
+    from overlume_ros.srv import SetVirtualCam
     import websockets
 
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -299,11 +299,11 @@ def main() -> int:
     args = ap.parse_args()
 
     # Post-cutover (VM-095): micropilot_rendering_node is decommissioned --
-    # visualization_node is the ONLY node implementing the vcam surface
+    # overlume_node is the ONLY node implementing the vcam surface
     # (spec §6). One namespace, not a fan-out list, but kept as a list (not
     # a bare constant) so every VCAM_NAMESPACES call site below is
     # untouched -- the collapse is in what the list CONTAINS, not its shape.
-    VCAM_NAMESPACES = ["/visualization_node"]
+    VCAM_NAMESPACES = ["/overlume_node"]
 
     class BridgeNode(Node):
         def __init__(self):
@@ -313,14 +313,14 @@ def main() -> int:
             # the old "whichever arrived last" ambiguity (and the
             # namespace-authority tracking it needed) is gone -- _on_state
             # below just takes every message from the single namespace.
-            # diagnostics only exists on visualization_node (mode 3) -- no
+            # diagnostics only exists on overlume_node (mode 3) -- no
             # mux needed, harmless if it keeps arriving while mode 1/2 is
             # active, same "ingest continues regardless of mode" philosophy
             # vcam_state already follows. Display-only: reuses this same
             # telemetry pipe rather than opening a second WS transport.
             self.diagnostics: dict | None = None
             self.create_subscription(
-                DiagnosticArray, "/visualization_node/diagnostics",
+                DiagnosticArray, "/overlume_node/diagnostics",
                 self._on_diagnostics, 10)
             self._pub_look = [
                 self.create_publisher(Float64MultiArray, f"{ns}/set_look", 10)
@@ -342,13 +342,13 @@ def main() -> int:
             # published while mode 1/2 is active (same "ingest continues
             # regardless of mode" philosophy as /rendering/set_mode above).
             self._pub_theme = self.create_publisher(
-                String, "/visualization_node/set_theme", 10)
+                String, "/overlume_node/set_theme", 10)
             self._cli = [
                 self.create_client(SetVirtualCam, f"{ns}/set_virtual_cam")
                 for ns in VCAM_NAMESPACES]
             # Post-cutover (VM-095 Step 5): TUNABLE_PARAMS (bowl_R0/k/Rmax,
             # feather_margin, sky_color, camera_extrinsics, etc.) are ALL
-            # already declared on visualization_node (Tasks 1/2/5 ported
+            # already declared on overlume_node (Tasks 1/2/5 ported
             # them verbatim from the old node) -- repointed from
             # /rendering_node, which no longer exists. Kept as a separate
             # client pair from _cli_setp_viz/_cli_getp_viz below (same
@@ -356,19 +356,19 @@ def main() -> int:
             # one, to keep this diff to the repoint the plan actually asks
             # for.
             self._cli_getp = self.create_client(
-                GetParameters, "/visualization_node/get_parameters")
+                GetParameters, "/overlume_node/get_parameters")
             self._cli_setp = self.create_client(
-                SetParameters, "/visualization_node/set_parameters")
-            # Epic 3 Task 5 (VM-032): layer_*/quality are visualization_node's
+                SetParameters, "/overlume_node/set_parameters")
+            # Epic 3 Task 5 (VM-032): layer_*/quality are overlume_node's
             # own params, not the TUNABLE_PARAMS group above -- a
             # separate client, same SetParameters service type.
             self._cli_setp_viz = self.create_client(
-                SetParameters, "/visualization_node/set_parameters")
+                SetParameters, "/overlume_node/set_parameters")
             # get twin (review 2026-09-09): the GUI's layer switches must
             # reflect the node's REAL layer_* values on load, not assert the
             # defaults -- see get_layers_async()/the get_params handler.
             self._cli_getp_viz = self.create_client(
-                GetParameters, "/visualization_node/get_parameters")
+                GetParameters, "/overlume_node/get_parameters")
             for ns in VCAM_NAMESPACES:
                 self.create_subscription(
                     Float64MultiArray, f"{ns}/vcam_state",
@@ -465,7 +465,7 @@ def main() -> int:
 
         def get_layers_async(self):
             """GetParameters for the nine layer_* bools from
-            visualization_node -- the read twin of set_layers_async below,
+            overlume_node -- the read twin of set_layers_async below,
             so the GUI can show real values instead of asserted defaults."""
             if not self._cli_getp_viz.service_is_ready():
                 return None
@@ -490,7 +490,7 @@ def main() -> int:
             return self._cli_setp_viz.call_async(req)
 
         def set_quality_async(self, preset: int):
-            """Writes visualization_node's `quality` param only -- no live
+            """Writes overlume_node's `quality` param only -- no live
             in-process effect (P4, deferred to Epic 5); read once at that
             node's next create_renderer() (i.e. its next restart)."""
             if not self._cli_setp_viz.service_is_ready():
@@ -501,7 +501,7 @@ def main() -> int:
             return self._cli_setp_viz.call_async(req)
 
         def set_surround_profile_async(self, profile: str):
-            """Writes visualization_node's `surround_stitching_profile`
+            """Writes overlume_node's `surround_stitching_profile`
             param -- live, same on_params() contract as layer_* (unlike
             set_quality_async above, which only takes effect on restart)."""
             if not self._cli_setp_viz.service_is_ready():
@@ -512,9 +512,9 @@ def main() -> int:
             return self._cli_setp_viz.call_async(req)
 
         def set_environment_enabled_async(self, enabled: bool):
-            """Writes visualization_node's `environment_enabled` param --
+            """Writes overlume_node's `environment_enabled` param --
             the SAME disable knob VM-052 already declared, now live (this
-            task): on_params() calls mpviz::set_environment_visible()."""
+            task): on_params() calls overlume::set_environment_visible()."""
             if not self._cli_setp_viz.service_is_ready():
                 return None
             pv = ParameterValue(type=ParameterType.PARAMETER_BOOL, bool_value=enabled)
@@ -523,7 +523,7 @@ def main() -> int:
             return self._cli_setp_viz.call_async(req)
 
         def set_environment_source_async(self, uri: str):
-            """Writes visualization_node's `environment_source_uri` param
+            """Writes overlume_node's `environment_source_uri` param
             with an ALREADY-RESOLVED uri string (the preset->uri mapping,
             including the "clipped" own-asset lookup, happens in
             handle_client below -- this call is preset-agnostic, same
@@ -613,7 +613,7 @@ def main() -> int:
                 elif cmd == "get_params":
                     try:
                         # environment_enabled/environment_source_uri/
-                        # environment_own_asset_uri live on visualization_node
+                        # environment_own_asset_uri live on overlume_node
                         # (not TUNABLE_PARAMS -- they go through the dedicated
                         # set_environment_* cmds above, not set_param),
                         # fetched in the SAME call so the GUI can reflect the
@@ -625,7 +625,7 @@ def main() -> int:
                             list(TUNABLE_PARAMS) +
                             ["environment_enabled", "environment_source_uri",
                              "environment_own_asset_uri"])
-                        # layer_* live on visualization_node, best-effort
+                        # layer_* live on overlume_node, best-effort
                         # (review 2026-09-09): absent when that node isn't
                         # up (bowl/pointcloud-only sessions) -- the GUI
                         # skips switches it gets no value for.
@@ -646,7 +646,7 @@ def main() -> int:
                     if fut is None:
                         await ws.send(json.dumps({
                             "type": "error",
-                            "message": "visualization_node set_parameters unavailable"}))
+                            "message": "overlume_node set_parameters unavailable"}))
                         continue
                     try:
                         res = await await_ros(fut)
@@ -661,7 +661,7 @@ def main() -> int:
                     if fut is None:
                         await ws.send(json.dumps({
                             "type": "error",
-                            "message": "visualization_node set_parameters unavailable"}))
+                            "message": "overlume_node set_parameters unavailable"}))
                         continue
                     try:
                         res = await await_ros(fut)
@@ -676,7 +676,7 @@ def main() -> int:
                     if fut is None:
                         await ws.send(json.dumps({
                             "type": "error",
-                            "message": "visualization_node set_parameters unavailable"}))
+                            "message": "overlume_node set_parameters unavailable"}))
                         continue
                     try:
                         res = await await_ros(fut)
@@ -691,7 +691,7 @@ def main() -> int:
                     if fut is None:
                         await ws.send(json.dumps({
                             "type": "error",
-                            "message": "visualization_node set_parameters unavailable"}))
+                            "message": "overlume_node set_parameters unavailable"}))
                         continue
                     try:
                         res = await await_ros(fut)
@@ -729,7 +729,7 @@ def main() -> int:
                     if fut is None:
                         await ws.send(json.dumps({
                             "type": "error",
-                            "message": "visualization_node set_parameters unavailable"}))
+                            "message": "overlume_node set_parameters unavailable"}))
                         continue
                     try:
                         res = await await_ros(fut)

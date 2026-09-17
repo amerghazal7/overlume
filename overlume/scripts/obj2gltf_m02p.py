@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert M02P.obj (the ego robot mesh) to a glTF binary for visual_renderer.
+"""Convert M02P.obj (the ego robot mesh) to a glTF binary for overlume.
 
 Usage: obj2gltf_m02p.py <input.obj> [output.glb]
 (output defaults to the input path with its extension swapped to .glb)

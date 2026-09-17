@@ -3,13 +3,13 @@
 //
 // Deliberately does NOT include renderer_internal.hpp: that header defines
 // `Mesh` and pulls in <filament/...>, and this test binary is only linked
-// against `visual_renderer` (CMakeLists.txt), never granted
-// visual_renderer's own PRIVATE Filament include dir -- so it wouldn't
+// against `overlume` (CMakeLists.txt), never granted
+// overlume's own PRIVATE Filament include dir -- so it wouldn't
 // compile here. ego_test_hooks.hpp declares the one test-only introspection
 // hook this file needs against nothing but api.h's already-forward-declared
-// opaque mpviz::VisualRenderer instead.
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+// opaque overlume::VisualRenderer instead.
+#include "overlume/api.h"
+#include "overlume/scene.h"
 
 #include "ego_test_hooks.hpp"
 #include "golden.hpp"
@@ -20,31 +20,31 @@
 #include <vector>
 
 TEST(Ego, LoadValidGltf_RendersNonEmptyBoundingBox) {
-    mpviz::RenderConfig cfg{320, 240, 0, kThemeDir, "dark_adas"};
-    mpviz::CameraPose pose{{0, -8, 3}, {0, 0, 0.5}, 60};
-    mpviz::SceneGraph scene{};
+    overlume::RenderConfig cfg{320, 240, 0, kThemeDir, "dark_adas"};
+    overlume::CameraPose pose{{0, -8, 3}, {0, 0, 0.5}, 60};
+    overlume::SceneGraph scene{};
     scene.ego = {{0, 0, 0}, 0, 0, /*valid=*/1};
 
     // Baseline: set_ego_model() never called, so r->egoTransformEntity
     // stays null and update_ego_transform() is a no-op (ego.cpp) --
     // ground+grid only.
-    auto* base_r = mpviz::create_renderer(cfg);
+    auto* base_r = overlume::create_renderer(cfg);
     if (!base_r) GTEST_SKIP();
-    mpviz::set_scene(base_r, scene);
+    overlume::set_scene(base_r, scene);
     std::vector<uint8_t> baseline_pixels(320u * 240u * 3u);
-    mpviz::FrameView baseline_view{baseline_pixels.data(), 320, 240};
-    EXPECT_TRUE(mpviz::render_frame(base_r, pose, baseline_view));
-    mpviz::destroy_renderer(base_r);
+    overlume::FrameView baseline_view{baseline_pixels.data(), 320, 240};
+    EXPECT_TRUE(overlume::render_frame(base_r, pose, baseline_view));
+    overlume::destroy_renderer(base_r);
 
-    auto* r = mpviz::create_renderer(cfg);
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP();
-    EXPECT_TRUE(mpviz::set_ego_model(r, MPVIZ_TEST_DATA_DIR "/tests/fixtures/test_cube.glb",
+    EXPECT_TRUE(overlume::set_ego_model(r, OVERLUME_TEST_DATA_DIR "/tests/fixtures/test_cube.glb",
                                       {4.5, 2.0, 1.8}));
-    mpviz::set_scene(r, scene);
+    overlume::set_scene(r, scene);
     std::vector<uint8_t> pixels(320u * 240u * 3u);
-    mpviz::FrameView view{pixels.data(), 320, 240};
-    EXPECT_TRUE(mpviz::render_frame(r, pose, view));
-    EXPECT_GT(mpviz::testing::rendered_bounding_box_diagonal(r), 0.0);
+    overlume::FrameView view{pixels.data(), 320, 240};
+    EXPECT_TRUE(overlume::render_frame(r, pose, view));
+    EXPECT_GT(overlume::testing::rendered_bounding_box_diagonal(r), 0.0);
 
     // The parse-time bounding box just checked comes from the glTF's JSON
     // accessor min/max, computed by gltfio at createAsset() time -- it
@@ -62,43 +62,43 @@ TEST(Ego, LoadValidGltf_RendersNonEmptyBoundingBox) {
            "skipped even though the asset parsed (bounding box was "
            "non-empty above)";
 
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // Pins scene.h's frozen "ego.valid==0 -> hidden, not a clay box at origin"
 // contract: this is the node's default state at startup (no TF yet),
 // before any real ego pose has arrived.
 TEST(Ego, InvalidEgo_RendersIdenticalToNoEgoBaseline) {
-    mpviz::RenderConfig cfg{320, 240, 0, kThemeDir, "dark_adas"};
-    mpviz::CameraPose pose{{0, -8, 3}, {0, 0, 0.5}, 60};
+    overlume::RenderConfig cfg{320, 240, 0, kThemeDir, "dark_adas"};
+    overlume::CameraPose pose{{0, -8, 3}, {0, 0, 0.5}, 60};
 
     // Baseline: set_ego_model() never called, ground+grid only -- same
     // baseline construction as LoadValidGltf_RendersNonEmptyBoundingBox
     // above.
-    mpviz::SceneGraph baseline_scene{};
+    overlume::SceneGraph baseline_scene{};
     baseline_scene.ego = {{0, 0, 0}, 0, 0, /*valid=*/1};
-    auto* base_r = mpviz::create_renderer(cfg);
+    auto* base_r = overlume::create_renderer(cfg);
     if (!base_r) GTEST_SKIP();
-    mpviz::set_scene(base_r, baseline_scene);
+    overlume::set_scene(base_r, baseline_scene);
     std::vector<uint8_t> baseline_pixels(320u * 240u * 3u);
-    mpviz::FrameView baseline_view{baseline_pixels.data(), 320, 240};
-    EXPECT_TRUE(mpviz::render_frame(base_r, pose, baseline_view));
-    mpviz::destroy_renderer(base_r);
+    overlume::FrameView baseline_view{baseline_pixels.data(), 320, 240};
+    EXPECT_TRUE(overlume::render_frame(base_r, pose, baseline_view));
+    overlume::destroy_renderer(base_r);
 
     // set_ego_model() succeeds (real glTF loaded), but scene.ego.valid=0 --
     // update_ego_transform() must still zero-scale it to invisible, so the
     // rendered frame should be pixel-identical to the no-ego baseline.
-    auto* r = mpviz::create_renderer(cfg);
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP();
-    EXPECT_TRUE(mpviz::set_ego_model(r, MPVIZ_TEST_DATA_DIR "/tests/fixtures/test_cube.glb",
+    EXPECT_TRUE(overlume::set_ego_model(r, OVERLUME_TEST_DATA_DIR "/tests/fixtures/test_cube.glb",
                                       {4.5, 2.0, 1.8}));
-    mpviz::SceneGraph scene{};
+    overlume::SceneGraph scene{};
     scene.ego = {{0, 0, 0}, 0, 0, /*valid=*/0};
-    mpviz::set_scene(r, scene);
+    overlume::set_scene(r, scene);
     std::vector<uint8_t> pixels(320u * 240u * 3u);
-    mpviz::FrameView view{pixels.data(), 320, 240};
-    EXPECT_TRUE(mpviz::render_frame(r, pose, view));
-    mpviz::destroy_renderer(r);
+    overlume::FrameView view{pixels.data(), 320, 240};
+    EXPECT_TRUE(overlume::render_frame(r, pose, view));
+    overlume::destroy_renderer(r);
 
     EXPECT_EQ(pixels, baseline_pixels)
         << "ego.valid=0 must render identically to no ego loaded at all -- "
@@ -106,36 +106,36 @@ TEST(Ego, InvalidEgo_RendersIdenticalToNoEgoBaseline) {
 }
 
 TEST(Ego, LoadMissingFile_FallsBackToClayBoxNonFatally) {
-    mpviz::RenderConfig cfg{320, 240, 0, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 0, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP();
-    EXPECT_FALSE(mpviz::set_ego_model(r, "/nonexistent/path.glb", {4.5, 2.0, 1.8}));
-    mpviz::SceneGraph scene{};
+    EXPECT_FALSE(overlume::set_ego_model(r, "/nonexistent/path.glb", {4.5, 2.0, 1.8}));
+    overlume::SceneGraph scene{};
     scene.ego = {{0, 0, 0}, 0, 0, /*valid=*/1};
-    mpviz::set_scene(r, scene);
-    mpviz::CameraPose pose{{0, -8, 3}, {0, 0, 0.5}, 60};
+    overlume::set_scene(r, scene);
+    overlume::CameraPose pose{{0, -8, 3}, {0, 0, 0.5}, 60};
     std::vector<uint8_t> pixels(320u * 240u * 3u);
-    mpviz::FrameView view{pixels.data(), 320, 240};
-    EXPECT_TRUE(mpviz::render_frame(r, pose, view));  // must not crash/fail -- clay box instead
+    overlume::FrameView view{pixels.data(), 320, 240};
+    EXPECT_TRUE(overlume::render_frame(r, pose, view));  // must not crash/fail -- clay box instead
     // True diagonal of the {4.5, 2.0, 1.8} box build_ego_box() actually
     // built -- sqrt(4.5^2+2.0^2+1.8^2) ~= 5.24. Must be an exact check, not
     // EXPECT_GT(..., 0.0): a loose check passes vacuously off
     // RenderableManager::getAxisAlignedBoundingBox()'s declared culling AABB
     // (add_mesh()'s hard-coded kGroundHalfExtent box, ~56.6 diagonal),
     // never actually reading what build_ego_box() produced.
-    EXPECT_NEAR(mpviz::testing::rendered_bounding_box_diagonal(r), 5.2431, 1e-3);
-    mpviz::destroy_renderer(r);
+    EXPECT_NEAR(overlume::testing::rendered_bounding_box_diagonal(r), 5.2431, 1e-3);
+    overlume::destroy_renderer(r);
 }
 
 // Wrong-dims guard: a never-built fallback (no set_ego_model() call at
 // all) must report a 0 diagonal, not whatever stale AABB state Filament
 // happens to hold.
 TEST(Ego, NoEgoModelSet_BoundingBoxDiagonalIsZero) {
-    mpviz::RenderConfig cfg{320, 240, 0, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 0, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP();
-    EXPECT_EQ(mpviz::testing::rendered_bounding_box_diagonal(r), 0.0);
-    mpviz::destroy_renderer(r);
+    EXPECT_EQ(overlume::testing::rendered_bounding_box_diagonal(r), 0.0);
+    overlume::destroy_renderer(r);
 }
 
 // Golden: ego at a fixed pose using the CLAY-BOX FALLBACK path — no glTF
@@ -145,25 +145,25 @@ TEST(Ego, NoEgoModelSet_BoundingBoxDiagonalIsZero) {
 // golden with an actual box in frame, so first to visibly exercise SSAO
 // contact darkening.
 TEST(EgoGolden, ClayBoxFallback_DarkAdas) {
-    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
-    mpviz::VisualRenderer* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    overlume::VisualRenderer* r = overlume::create_renderer(cfg);
     if (r == nullptr) {
         GTEST_SKIP() << "no GPU/EGL";
     }
-    EXPECT_FALSE(mpviz::set_ego_model(r, "/nonexistent/path.glb", {4.5, 2.0, 1.8}));
+    EXPECT_FALSE(overlume::set_ego_model(r, "/nonexistent/path.glb", {4.5, 2.0, 1.8}));
 
-    mpviz::SceneGraph scene{};
+    overlume::SceneGraph scene{};
     scene.sim_time_sec = 0.0;
     scene.ego = {{0.0, 0.0, 0.0}, /*heading_rad=*/0.0, /*speed_mps=*/0.0, /*valid=*/1};
-    mpviz::set_scene(r, scene);
+    overlume::set_scene(r, scene);
 
-    mpviz::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
-    double ssim = mpviz::testing::render_and_compare(
-        r, pose, MPVIZ_TEST_DATA_DIR "/tests/goldens/ego_clay_box_dark_adas.png",
+    overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
+    double ssim = overlume::testing::render_and_compare(
+        r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/ego_clay_box_dark_adas.png",
         "/tmp/ego_clay_box_dark_adas_actual.png");
     EXPECT_GT(ssim, 0.98);
 
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // Regression guard, mirrors
@@ -176,27 +176,27 @@ TEST(EgoGolden, ClayBoxFallback_DarkAdas) {
 // theme.palette.ground instead of theme.palette.ego (or never wiring it up
 // at all, in which case this reads clay.mat's compiled-in zero default).
 TEST(Ego, EgoMaterialIsThemedOnFirstRenderWithNoTransition) {
-    const auto theme = mpviz::detail::load_theme(kThemeDir, "dark_adas");
+    const auto theme = overlume::detail::load_theme(kThemeDir, "dark_adas");
     ASSERT_TRUE(theme.has_value());
 
-    mpviz::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
-    mpviz::VisualRenderer* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    overlume::VisualRenderer* r = overlume::create_renderer(cfg);
     if (r == nullptr) {
         GTEST_SKIP() << "no GPU/EGL";
     }
 
-    mpviz::SceneGraph scene{};
+    overlume::SceneGraph scene{};
     scene.sim_time_sec = 0.0;
-    mpviz::set_scene(r, scene);
-    mpviz::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
+    overlume::set_scene(r, scene);
+    overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
     std::vector<uint8_t> pixels(320u * 240u * 3u);
-    mpviz::FrameView view{pixels.data(), 320, 240};
-    EXPECT_TRUE(mpviz::render_frame(r, pose, view));
+    overlume::FrameView view{pixels.data(), 320, 240};
+    EXPECT_TRUE(overlume::render_frame(r, pose, view));
 
-    const auto p = mpviz::testing::ego_material_base_color(r);
+    const auto p = overlume::testing::ego_material_base_color(r);
     EXPECT_NEAR(p.r, theme->palette.ego.r, 1e-4);
     EXPECT_NEAR(p.g, theme->palette.ego.g, 1e-4);
     EXPECT_NEAR(p.b, theme->palette.ego.b, 1e-4);
 
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }

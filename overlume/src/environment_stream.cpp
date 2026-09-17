@@ -37,7 +37,7 @@
 
 #include <unistd.h>  // getpid() -- test_cache_dir()'s per-process key (Linux-only build, fine here)
 
-namespace mpviz {
+namespace overlume {
 
 namespace {
 
@@ -119,7 +119,7 @@ std::string default_cache_dir() {
     const char* xdg = std::getenv("XDG_CACHE_HOME");
     const char* home = std::getenv("HOME");
     const std::string base = (xdg && xdg[0]) ? xdg : (std::string(home ? home : ".") + "/.cache");
-    return base + "/mpviz-tile-cache";
+    return base + "/overlume-tile-cache";
 }
 
 filament::math::mat4f to_filament_mat4(const glm::dmat4& m) {
@@ -299,7 +299,7 @@ std::shared_ptr<spdlog::logger> make_redacting_logger() {
         auto inner = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
         auto redacting = std::make_shared<RedactingSink>(inner);
         g_redactingSinkForTest = redacting;
-        auto l = std::make_shared<spdlog::logger>("mpviz.cesium", redacting);
+        auto l = std::make_shared<spdlog::logger>("overlume.cesium", redacting);
         // Registered so process-wide spdlog::set_level()/set_pattern() still
         // reach cesium output the way they did through default_logger().
         spdlog::register_logger(l);
@@ -1001,10 +1001,10 @@ bool StreamingEnvironmentSource::first_primitive_is_building_material(VisualRend
     return rm.getMaterialInstanceAt(inst, 0) == r.buildingMaterial;
 }
 
-}  // namespace mpviz
+}  // namespace overlume
 
 // ── Public factory (production ion:// path, Decision 5/6/15.6) ───────────
-namespace mpviz {
+namespace overlume {
 
 std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::string& ion_spec,
                                                                       GeoAnchor anchor) {
@@ -1053,14 +1053,14 @@ std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::
                                                           std::move(counting), spec->materials_original);
 }
 
-}  // namespace mpviz
+}  // namespace overlume
 
 // ── Test-only fixture hooks (Decision 13; environment_test_hooks.hpp) ────
 // Every function here is DEFINED in this, the one C++20 TU -- the header
 // they implement is C++17-safe and cesium-free (test TUs never see
 // FileFixtureAssetAccessor/StreamingEnvironmentSource, only the opaque
 // FixtureStreamHandle + bool/pointer-returning functions below).
-namespace mpviz::testing {
+namespace overlume::testing {
 
 struct FixtureStreamHandle {
     std::shared_ptr<std::atomic<bool>> killed;
@@ -1085,7 +1085,7 @@ std::string test_cache_dir() {
     // gate round 1 finding 4 closed). One-time per process, like the path.
     static const std::string dir = [] {
         const std::string d = (std::filesystem::temp_directory_path() /
-                               ("mpviz-stream-test-cache-" + std::to_string(::getpid())))
+                               ("overlume-stream-test-cache-" + std::to_string(::getpid())))
                                   .string();
         std::error_code ec;
         std::filesystem::remove_all(d, ec);
@@ -1100,18 +1100,18 @@ std::string test_cache_dir() {
 // FileFixtureAssetAccessor instead of CesiumCurl -- Step 4's disk-cache
 // proof depends on this being the real stack, not a bare fixture accessor.
 // `killed` non-null makes the accessor honor kill_fixture_network().
-std::unique_ptr<mpviz::EnvironmentSource> make_fixture_source(
-    const char* fixture_dir, const char* fallback_baked_dir, mpviz::GeoAnchor anchor,
+std::unique_ptr<overlume::EnvironmentSource> make_fixture_source(
+    const char* fixture_dir, const char* fallback_baked_dir, overlume::GeoAnchor anchor,
     std::shared_ptr<std::atomic<bool>> killed, bool materials_original) {
     if (fixture_dir == nullptr) return nullptr;
-    auto fileAccessor = std::make_shared<mpviz::FileFixtureAssetAccessor>(std::move(killed));
-    CesiumAsync::AsyncSystem asyncSystem(std::make_shared<mpviz::SimpleTaskProcessor>());
+    auto fileAccessor = std::make_shared<overlume::FileFixtureAssetAccessor>(std::move(killed));
+    CesiumAsync::AsyncSystem asyncSystem(std::make_shared<overlume::SimpleTaskProcessor>());
     const std::string cacheDir = test_cache_dir();
-    std::shared_ptr<mpviz::CountingAssetAccessor> counting;
-    Cesium3DTilesSelection::TilesetExternals externals = mpviz::build_externals(
-        fileAccessor, asyncSystem, cacheDir, mpviz::kDefaultMaxCacheItems, &counting);
+    std::shared_ptr<overlume::CountingAssetAccessor> counting;
+    Cesium3DTilesSelection::TilesetExternals externals = overlume::build_externals(
+        fileAccessor, asyncSystem, cacheDir, overlume::kDefaultMaxCacheItems, &counting);
     const std::string tilesetUri = std::string("file://") + fixture_dir + "/tileset.json";
-    return std::make_unique<mpviz::StreamingEnvironmentSource>(
+    return std::make_unique<overlume::StreamingEnvironmentSource>(
         externals, /*asset_id=*/0, /*ion_access_token=*/std::string(),
         tilesetUri, fallback_baked_dir ? std::string(fallback_baked_dir) : std::string(), anchor,
         std::move(counting), materials_original);
@@ -1119,8 +1119,8 @@ std::unique_ptr<mpviz::EnvironmentSource> make_fixture_source(
 
 }  // namespace
 
-bool install_fixture_streaming_source(mpviz::VisualRenderer* r, const char* fixture_dir,
-                                       mpviz::GeoAnchor anchor, bool materials_original) {
+bool install_fixture_streaming_source(overlume::VisualRenderer* r, const char* fixture_dir,
+                                       overlume::GeoAnchor anchor, bool materials_original) {
     if (r == nullptr) return false;
     // Teardown-THEN-construct (not build-then-swap, unlike
     // set_environment_source()'s general baked/streaming dispatch): two
@@ -1141,10 +1141,10 @@ bool install_fixture_streaming_source(mpviz::VisualRenderer* r, const char* fixt
     return true;
 }
 
-FixtureStreamHandle* install_fixture_streaming_source_with_fallback(mpviz::VisualRenderer* r,
+FixtureStreamHandle* install_fixture_streaming_source_with_fallback(overlume::VisualRenderer* r,
                                                                      const char* fixture_dir,
                                                                      const char* fallback_baked_dir,
-                                                                     mpviz::GeoAnchor anchor) {
+                                                                     overlume::GeoAnchor anchor) {
     if (r == nullptr) return nullptr;
     if (r->environmentSource) r->environmentSource->teardown(*r);  // see install_fixture_streaming_source's comment
     auto killed = std::make_shared<std::atomic<bool>>(false);
@@ -1173,9 +1173,9 @@ void revive_fixture_network(FixtureStreamHandle* handle) {
 // non-streaming source (BakedEnvironmentSource) -- dynamic_cast is safe and
 // cheap here (this whole namespace lives in the one C++20 TU that has
 // StreamingEnvironmentSource's complete definition, Decision 3).
-bool environment_stream_materials_original(mpviz::VisualRenderer* r) {
+bool environment_stream_materials_original(overlume::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return false;
-    auto* stream = dynamic_cast<mpviz::StreamingEnvironmentSource*>(r->environmentSource.get());
+    auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
     return stream != nullptr && stream->materials_original();
 }
 
@@ -1192,17 +1192,17 @@ bool environment_stream_parse_materials_original(const char* ion_spec) {
 // VM-064 Step 1: see StreamingEnvironmentSource::first_primitive_is_building_material()'s
 // own comment. false on the same null/non-streaming conditions as the hook
 // above, or if nothing has loaded yet.
-bool environment_stream_first_primitive_is_clay(mpviz::VisualRenderer* r) {
+bool environment_stream_first_primitive_is_clay(overlume::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return false;
-    auto* stream = dynamic_cast<mpviz::StreamingEnvironmentSource*>(r->environmentSource.get());
+    auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
     return stream != nullptr && stream->first_primitive_is_building_material(*r);
 }
 
 bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double heading_rad,
                         double lat_deg, double lon_deg, double alt_m, double* out_x, double* out_y,
                         double* out_z) {
-    const mpviz::GeoAnchor anchor{origin_lat_deg, origin_lon_deg, heading_rad};
-    const glm::dmat4 ecefToMap = mpviz::compute_ecef_to_map(anchor);
+    const overlume::GeoAnchor anchor{origin_lat_deg, origin_lon_deg, heading_rad};
+    const glm::dmat4 ecefToMap = overlume::compute_ecef_to_map(anchor);
     const CesiumGeospatial::Cartographic carto =
         CesiumGeospatial::Cartographic::fromDegrees(lon_deg, lat_deg, alt_m);
     const glm::dvec3 ecef = CesiumGeospatial::Ellipsoid::WGS84.cartographicToCartesian(carto);
@@ -1242,13 +1242,13 @@ std::string captured_cesium_log_text() {
 // waiting for the specific marker keeps this probe's readiness check
 // order-independent (bounded by `max_ticks`, never hangs).
 bool drive_ion_token_redaction_probe(const char* bogus_token, int64_t asset_id, int max_ticks) {
-    auto fileAccessor = std::make_shared<mpviz::FileFixtureAssetAccessor>();
-    CesiumAsync::AsyncSystem asyncSystem(std::make_shared<mpviz::SimpleTaskProcessor>());
-    std::shared_ptr<mpviz::CountingAssetAccessor> counting;
+    auto fileAccessor = std::make_shared<overlume::FileFixtureAssetAccessor>();
+    CesiumAsync::AsyncSystem asyncSystem(std::make_shared<overlume::SimpleTaskProcessor>());
+    std::shared_ptr<overlume::CountingAssetAccessor> counting;
     // cache=off: this probe only cares about the log-redaction path, not the
     // disk cache -- no throwaway temp dir needed for it.
     Cesium3DTilesSelection::TilesetExternals externals =
-        mpviz::build_externals(fileAccessor, asyncSystem, "off", mpviz::kDefaultMaxCacheItems, &counting);
+        overlume::build_externals(fileAccessor, asyncSystem, "off", overlume::kDefaultMaxCacheItems, &counting);
     Cesium3DTilesSelection::TilesetOptions options;
     auto tileset =
         std::make_unique<Cesium3DTilesSelection::Tileset>(externals, asset_id, std::string(bogus_token), options);
@@ -1260,4 +1260,4 @@ bool drive_ion_token_redaction_probe(const char* bogus_token, int64_t asset_id, 
     return captured_cesium_log_text().find("access_token=") != std::string::npos;
 }
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

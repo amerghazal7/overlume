@@ -26,7 +26,7 @@ export ROS_DOMAIN_ID=93
 source /opt/ros/humble/setup.bash
 source "$REPO/ros/install/setup.bash"
 ros2 daemon stop >/dev/null 2>&1; ros2 daemon start >/dev/null 2>&1; sleep 2
-VPARAMS="$(ros2 pkg prefix micropilot_visualization_node)/share/micropilot_visualization_node/config/default_params.yaml"
+VPARAMS="$(ros2 pkg prefix overlume_ros)/share/overlume_ros/config/default_params.yaml"
 
 echo "GPU model/class (named fixture gap #1 -- first time this repo records one):" | tee "$OUT/results.txt"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | tee -a "$OUT/results.txt"
@@ -52,14 +52,14 @@ run_case(){ # name render_mode
   local name=$1 mode=$2 vpid
   echo "=== case $name (render_mode=$mode, bowl_enabled=true, hybrid_enabled=true)"
   cleanup >/dev/null 2>&1
-  ros2 run micropilot_visualization_node visualization_node --ros-args --params-file "$VPARAMS" \
+  ros2 run overlume_ros overlume_node --ros-args --params-file "$VPARAMS" \
     -p initial_mode:=3 -p use_sim_time:=true -p quality:=1 -p out_width:=1280 -p out_height:=720 \
     -p profile:=urban -p bowl_enabled:=true -p hybrid_enabled:=true \
     -p pointcloud_topic:=/iv_points_fusion -p render_mode:=$mode \
     > "$OUT/$name.viz.log" 2>&1 &
   sleep 3
-  vpid=$(pgrep -f "lib/micropilot_visualization_node/visualization_[n]ode" | head -1)
-  if ! lc /visualization_node configure || ! lc /visualization_node activate; then cleanup; return 1; fi
+  vpid=$(pgrep -f "lib/overlume_ros/visualization_[n]ode" | head -1)
+  if ! lc /overlume_node configure || ! lc /overlume_node activate; then cleanup; return 1; fi
 
   ros2 bag play "$BAG" --clock --rate 1.0 < /dev/null > "$OUT/$name.bag.log" 2>&1 &
   sleep 20  # 6 cameras' CameraInfo complete + bowl bake + lidar flowing, same warm-up as hybrid_perf_gate.sh

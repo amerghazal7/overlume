@@ -8,9 +8,9 @@
 #pragma once
 
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
-namespace mpviz {
+namespace overlume {
 
 // Diffs `scene.alerts`/`alert_count` against `r.alertSlots`, keyed by slot
 // index (AlertPolygon has no id; same reasoning as ribbon.cpp's RibbonSlot
@@ -19,4 +19,4 @@ namespace mpviz {
 // Called from render_frame() on the thread that owns the Engine.
 void update_alert_polygons(VisualRenderer& r, const SceneGraph& scene);
 
-}  // namespace mpviz
+}  // namespace overlume

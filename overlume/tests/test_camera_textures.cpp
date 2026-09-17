@@ -3,8 +3,8 @@
 // set_camera_frame(), set_bowl_visible(), set_camera_motion_delta()). No
 // bowl mesh/material exists yet (Task 2) -- these tests only exercise the
 // camera-texture allocation/upload/dirty-tracking half.
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+#include "overlume/api.h"
+#include "overlume/scene.h"
 
 #include "camera_textures_test_hooks.hpp"
 #include "test_paths.hpp"
@@ -15,10 +15,10 @@
 
 namespace {
 
-mpviz::BowlConfig one_camera_config(const mpviz::CameraExtrinsics& ext,
-                                     const mpviz::CameraIntrinsics& in, const uint32_t& w,
+overlume::BowlConfig one_camera_config(const overlume::CameraExtrinsics& ext,
+                                     const overlume::CameraIntrinsics& in, const uint32_t& w,
                                      const uint32_t& h) {
-    mpviz::BowlConfig bc{};
+    overlume::BowlConfig bc{};
     bc.camera_count = 1;
     bc.extrinsics = &ext;
     bc.intrinsics = &in;
@@ -52,86 +52,86 @@ void count_and_delete_release(void* /*ptr*/, size_t /*size*/, void* user) {
 // ── Step 0: set_camera_frame() before any BowlConfig is a safe no-op ───────
 
 TEST(CameraTextures, SetCameraFrameBeforeBowlConfigIsNonFatal) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     std::vector<uint8_t> pixels(64 * 48 * 3, 128);
-    EXPECT_FALSE(mpviz::set_camera_frame(r, 0, pixels.data(), 64, 48, 1));  // no BowlConfig yet
-    mpviz::destroy_renderer(r);
+    EXPECT_FALSE(overlume::set_camera_frame(r, 0, pixels.data(), 64, 48, 1));  // no BowlConfig yet
+    overlume::destroy_renderer(r);
 }
 
 // ── Step 1: set_bowl_config() allocates persistent textures; ───────────────
 //    set_camera_frame() uploads into them.
 
 TEST(CameraTextures, SetCameraFrameUploadsAfterBowlConfig) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    mpviz::CameraExtrinsics ext{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0.5}};
-    mpviz::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
+    overlume::CameraExtrinsics ext{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0.5}};
+    overlume::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
     uint32_t w = 320, h = 240;
-    mpviz::BowlConfig bc = one_camera_config(ext, in, w, h);
-    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
+    overlume::BowlConfig bc = one_camera_config(ext, in, w, h);
+    ASSERT_TRUE(overlume::set_bowl_config(r, bc));
     std::vector<uint8_t> pixels(320 * 240 * 3, 200);
-    EXPECT_TRUE(mpviz::set_camera_frame(r, 0, pixels.data(), 320, 240, 1));
-    EXPECT_FALSE(mpviz::set_camera_frame(r, 1, pixels.data(), 320, 240, 1));  // cam_idx out of range
+    EXPECT_TRUE(overlume::set_camera_frame(r, 0, pixels.data(), 320, 240, 1));
+    EXPECT_FALSE(overlume::set_camera_frame(r, 1, pixels.data(), 320, 240, 1));  // cam_idx out of range
 
     // Dims-mismatch guard: neither call below matches camera 0's configured
     // 320x240 -- both must be rejected without bumping the upload count (a
     // short buffer wrapped/copied against a larger RGB8 texture is a
     // GPU-side out-of-bounds read of caller memory).
-    EXPECT_FALSE(mpviz::set_camera_frame(r, 0, pixels.data(), 320, 120, 2));
-    EXPECT_FALSE(mpviz::set_camera_frame(r, 0, pixels.data(), 160, 240, 3));
-    EXPECT_EQ(mpviz::testing::camera_frame_upload_count(r, 0), 1u);
-    mpviz::destroy_renderer(r);
+    EXPECT_FALSE(overlume::set_camera_frame(r, 0, pixels.data(), 320, 120, 2));
+    EXPECT_FALSE(overlume::set_camera_frame(r, 0, pixels.data(), 160, 240, 3));
+    EXPECT_EQ(overlume::testing::camera_frame_upload_count(r, 0), 1u);
+    overlume::destroy_renderer(r);
 }
 
 // ── Step 2: dirty tracking skips a re-upload when frame_id repeats ─────────
 
 TEST(CameraTextures, RepeatedFrameIdSkipsReupload) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    mpviz::CameraExtrinsics ext{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0.5}};
-    mpviz::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
+    overlume::CameraExtrinsics ext{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0.5}};
+    overlume::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
     uint32_t w = 320, h = 240;
-    mpviz::BowlConfig bc = one_camera_config(ext, in, w, h);
-    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
+    overlume::BowlConfig bc = one_camera_config(ext, in, w, h);
+    ASSERT_TRUE(overlume::set_bowl_config(r, bc));
     std::vector<uint8_t> pixels(320 * 240 * 3, 200);
 
     // hasUploaded pins the very-first upload regardless of frame_id -- a
     // caller whose first real frame_id is 0 (a legitimate starting value,
     // not "unchanged") must still upload once.
-    mpviz::set_camera_frame(r, 0, pixels.data(), 320, 240, /*frame_id=*/0);
-    EXPECT_EQ(mpviz::testing::camera_frame_upload_count(r, 0), 1u);
+    overlume::set_camera_frame(r, 0, pixels.data(), 320, 240, /*frame_id=*/0);
+    EXPECT_EQ(overlume::testing::camera_frame_upload_count(r, 0), 1u);
 
-    mpviz::set_camera_frame(r, 0, pixels.data(), 320, 240, /*frame_id=*/1);
-    auto count_after_first = mpviz::testing::camera_frame_upload_count(r, 0);
-    mpviz::set_camera_frame(r, 0, pixels.data(), 320, 240, /*frame_id=*/1);  // same frame_id
-    EXPECT_EQ(mpviz::testing::camera_frame_upload_count(r, 0), count_after_first);  // no re-upload
-    mpviz::set_camera_frame(r, 0, pixels.data(), 320, 240, /*frame_id=*/2);  // new frame_id
-    EXPECT_EQ(mpviz::testing::camera_frame_upload_count(r, 0), count_after_first + 1);  // uploads
-    mpviz::destroy_renderer(r);
+    overlume::set_camera_frame(r, 0, pixels.data(), 320, 240, /*frame_id=*/1);
+    auto count_after_first = overlume::testing::camera_frame_upload_count(r, 0);
+    overlume::set_camera_frame(r, 0, pixels.data(), 320, 240, /*frame_id=*/1);  // same frame_id
+    EXPECT_EQ(overlume::testing::camera_frame_upload_count(r, 0), count_after_first);  // no re-upload
+    overlume::set_camera_frame(r, 0, pixels.data(), 320, 240, /*frame_id=*/2);  // new frame_id
+    EXPECT_EQ(overlume::testing::camera_frame_upload_count(r, 0), count_after_first + 1);  // uploads
+    overlume::destroy_renderer(r);
 }
 
 // ── Step 2b: set_camera_motion_delta() gated on BowlConfig ─────────────────
 
 TEST(CameraTextures, SetCameraMotionDeltaGatedOnBowlConfig) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     const double identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-    EXPECT_FALSE(mpviz::set_camera_motion_delta(r, 0, identity));  // no BowlConfig yet
+    EXPECT_FALSE(overlume::set_camera_motion_delta(r, 0, identity));  // no BowlConfig yet
 
-    mpviz::CameraExtrinsics ext{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0.5}};
-    mpviz::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
+    overlume::CameraExtrinsics ext{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0.5}};
+    overlume::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
     uint32_t w = 320, h = 240;
-    mpviz::BowlConfig bc = one_camera_config(ext, in, w, h);
-    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
+    overlume::BowlConfig bc = one_camera_config(ext, in, w, h);
+    ASSERT_TRUE(overlume::set_bowl_config(r, bc));
 
-    EXPECT_TRUE(mpviz::set_camera_motion_delta(r, 0, identity));
-    EXPECT_FALSE(mpviz::set_camera_motion_delta(r, 1, identity));  // cam_idx out of range
-    mpviz::destroy_renderer(r);
+    EXPECT_TRUE(overlume::set_camera_motion_delta(r, 0, identity));
+    EXPECT_FALSE(overlume::set_camera_motion_delta(r, 1, identity));  // cam_idx out of range
+    overlume::destroy_renderer(r);
 }
 
 // ── set_bowl_visible() gated on BowlConfig (Interfaces block; consumed by
@@ -139,20 +139,20 @@ TEST(CameraTextures, SetCameraMotionDeltaGatedOnBowlConfig) {
 //    other three entry points above.
 
 TEST(CameraTextures, SetBowlVisibleGatedOnBowlConfig) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    EXPECT_FALSE(mpviz::set_bowl_visible(r, true));  // no BowlConfig yet
+    EXPECT_FALSE(overlume::set_bowl_visible(r, true));  // no BowlConfig yet
 
-    mpviz::CameraExtrinsics ext{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0.5}};
-    mpviz::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
+    overlume::CameraExtrinsics ext{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0.5}};
+    overlume::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
     uint32_t w = 320, h = 240;
-    mpviz::BowlConfig bc = one_camera_config(ext, in, w, h);
-    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
+    overlume::BowlConfig bc = one_camera_config(ext, in, w, h);
+    ASSERT_TRUE(overlume::set_bowl_config(r, bc));
 
-    EXPECT_TRUE(mpviz::set_bowl_visible(r, true));
-    EXPECT_TRUE(mpviz::set_bowl_visible(r, false));
-    mpviz::destroy_renderer(r);
+    EXPECT_TRUE(overlume::set_bowl_visible(r, true));
+    EXPECT_TRUE(overlume::set_bowl_visible(r, false));
+    overlume::destroy_renderer(r);
 }
 
 // ── set_bowl_config() rejects an invalid camera_count -- same
@@ -160,53 +160,53 @@ TEST(CameraTextures, SetBowlVisibleGatedOnBowlConfig) {
 //    set_environment_source's null-path (Interfaces block).
 
 TEST(CameraTextures, SetBowlConfigRejectsInvalidCameraCount) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    mpviz::CameraExtrinsics ext{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0.5}};
-    mpviz::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
+    overlume::CameraExtrinsics ext{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0.5}};
+    overlume::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
     uint32_t w = 320, h = 240;
 
-    mpviz::BowlConfig zero = one_camera_config(ext, in, w, h);
+    overlume::BowlConfig zero = one_camera_config(ext, in, w, h);
     zero.camera_count = 0;
-    EXPECT_FALSE(mpviz::set_bowl_config(r, zero));
+    EXPECT_FALSE(overlume::set_bowl_config(r, zero));
 
-    mpviz::BowlConfig too_many = one_camera_config(ext, in, w, h);
-    too_many.camera_count = mpviz::kMaxBowlCameras + 1;
-    EXPECT_FALSE(mpviz::set_bowl_config(r, too_many));
+    overlume::BowlConfig too_many = one_camera_config(ext, in, w, h);
+    too_many.camera_count = overlume::kMaxBowlCameras + 1;
+    EXPECT_FALSE(overlume::set_bowl_config(r, too_many));
 
-    EXPECT_FALSE(mpviz::set_bowl_config(nullptr, zero));
-    mpviz::destroy_renderer(r);
+    EXPECT_FALSE(overlume::set_bowl_config(nullptr, zero));
+    overlume::destroy_renderer(r);
 }
 
 // ── Ownership contract: `release` (ADR-0005) fires exactly once when the
 //    library actually hands the buffer to Filament ─────────────────────────
 
 TEST(CameraTextures, ReleaseCallbackFiresOncePerHandedInBuffer) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    mpviz::CameraExtrinsics ext{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0.5}};
-    mpviz::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
+    overlume::CameraExtrinsics ext{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0.5}};
+    overlume::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
     uint32_t w = 320, h = 240;
-    mpviz::BowlConfig bc = one_camera_config(ext, in, w, h);
-    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
+    overlume::BowlConfig bc = one_camera_config(ext, in, w, h);
+    ASSERT_TRUE(overlume::set_bowl_config(r, bc));
 
     g_release_count = 0;
     auto* buf = new std::vector<uint8_t>(320 * 240 * 3, 200);
-    EXPECT_TRUE(mpviz::set_camera_frame(r, 0, buf->data(), 320, 240, /*frame_id=*/1,
+    EXPECT_TRUE(overlume::set_camera_frame(r, 0, buf->data(), 320, 240, /*frame_id=*/1,
                                          &count_and_delete_release, buf));
 
     // render_frame() flushes/waits for the readback, so by the time it
     // returns the driver has executed the setImage command that consumes
     // (and releases) the buffer.
-    mpviz::CameraPose pose{{12, -14, 10}, {12, 3, 0}, 70.0};
+    overlume::CameraPose pose{{12, -14, 10}, {12, 3, 0}, 70.0};
     std::vector<uint8_t> out(320u * 240u * 3u);
-    mpviz::FrameView view{out.data(), 320, 240};
-    ASSERT_TRUE(mpviz::render_frame(r, pose, view));
+    overlume::FrameView view{out.data(), 320, 240};
+    ASSERT_TRUE(overlume::render_frame(r, pose, view));
 
     EXPECT_EQ(g_release_count, 1);
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }
 
 // ── Ownership contract: `release` fires exactly once even when the call is
@@ -214,41 +214,41 @@ TEST(CameraTextures, ReleaseCallbackFiresOncePerHandedInBuffer) {
 //    transfer is unconditional, not just on the successful-upload path ──────
 
 TEST(CameraTextures, ReleaseCallbackFiresOnSkipAndReject) {
-    mpviz::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = mpviz::create_renderer(cfg);
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    mpviz::CameraExtrinsics ext{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0.5}};
-    mpviz::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
+    overlume::CameraExtrinsics ext{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0.5}};
+    overlume::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
     uint32_t w = 320, h = 240;
-    mpviz::BowlConfig bc = one_camera_config(ext, in, w, h);
-    ASSERT_TRUE(mpviz::set_bowl_config(r, bc));
+    overlume::BowlConfig bc = one_camera_config(ext, in, w, h);
+    ASSERT_TRUE(overlume::set_bowl_config(r, bc));
 
     // Prime the dirty gate with a real upload, and force its callback to
     // fire before touching the counter again -- otherwise it could fire
     // during a later render_frame() and pollute the counts below.
     g_release_count = 0;
     auto* primer = new std::vector<uint8_t>(320 * 240 * 3, 200);
-    ASSERT_TRUE(mpviz::set_camera_frame(r, 0, primer->data(), 320, 240, /*frame_id=*/1,
+    ASSERT_TRUE(overlume::set_camera_frame(r, 0, primer->data(), 320, 240, /*frame_id=*/1,
                                          &count_and_delete_release, primer));
-    mpviz::CameraPose pose{{12, -14, 10}, {12, 3, 0}, 70.0};
+    overlume::CameraPose pose{{12, -14, 10}, {12, 3, 0}, 70.0};
     std::vector<uint8_t> out(320u * 240u * 3u);
-    mpviz::FrameView view{out.data(), 320, 240};
-    ASSERT_TRUE(mpviz::render_frame(r, pose, view));
+    overlume::FrameView view{out.data(), 320, 240};
+    ASSERT_TRUE(overlume::render_frame(r, pose, view));
     ASSERT_EQ(g_release_count, 1);
 
     // Repeated frame_id -- dirty-gate skip -- still releases exactly once.
     g_release_count = 0;
     auto* repeat_buf = new std::vector<uint8_t>(320 * 240 * 3, 200);
-    EXPECT_TRUE(mpviz::set_camera_frame(r, 0, repeat_buf->data(), 320, 240, /*frame_id=*/1,
+    EXPECT_TRUE(overlume::set_camera_frame(r, 0, repeat_buf->data(), 320, 240, /*frame_id=*/1,
                                          &count_and_delete_release, repeat_buf));
     EXPECT_EQ(g_release_count, 1);
 
     // Dims mismatch -- rejected call -- still releases exactly once.
     g_release_count = 0;
     auto* mismatched_buf = new std::vector<uint8_t>(320 * 120 * 3, 200);
-    EXPECT_FALSE(mpviz::set_camera_frame(r, 0, mismatched_buf->data(), 320, 120, /*frame_id=*/2,
+    EXPECT_FALSE(overlume::set_camera_frame(r, 0, mismatched_buf->data(), 320, 120, /*frame_id=*/2,
                                           &count_and_delete_release, mismatched_buf));
     EXPECT_EQ(g_release_count, 1);
 
-    mpviz::destroy_renderer(r);
+    overlume::destroy_renderer(r);
 }

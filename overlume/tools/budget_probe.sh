@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Proxy budget probe: visualization_node @1280x720 per quality preset, bag
+# Proxy budget probe: overlume_node @1280x720 per quality preset, bag
 # replay. Single-process shape as of the unified-engine migration's Task 6
 # (VM-095) cutover -- micropilot_rendering_node no longer exists; the
 # rnode-cased branches this script used to carry (q1_rnode_idle/
@@ -16,7 +16,7 @@ export ROS_DOMAIN_ID=93
 source /opt/ros/humble/setup.bash
 source "$REPO/ros/install/setup.bash"
 ros2 daemon stop >/dev/null 2>&1; ros2 daemon start >/dev/null 2>&1; sleep 2
-VPARAMS="$(ros2 pkg prefix micropilot_visualization_node)/share/micropilot_visualization_node/config/default_params.yaml"
+VPARAMS="$(ros2 pkg prefix overlume_ros)/share/overlume_ros/config/default_params.yaml"
 PIDS=()
 cleanup(){ for pat in "visualization_[n]ode" "bag pla[y]" "tf_flatten_fixtur[e]"; do for p in $(pgrep -f "$pat"); do [ "$p" != "$$" ] && kill "$p" 2>/dev/null; done; done; sleep 2; for pat in "visualization_[n]ode" "bag pla[y]"; do for p in $(pgrep -f "$pat"); do [ "$p" != "$$" ] && kill -9 "$p" 2>/dev/null; done; done; PIDS=(); }
 trap cleanup EXIT
@@ -28,12 +28,12 @@ cpu(){ top -b -n 3 -d 2 -p "$1" 2>/dev/null | awk -v p="$1" '$1==p {c=$9} END{pr
 run_case(){ # name quality
   local name=$1 q=$2 vpid
   echo "=== case $name (quality=$q)"
-  ros2 run micropilot_visualization_node visualization_node --ros-args --params-file "$VPARAMS" \
+  ros2 run overlume_ros overlume_node --ros-args --params-file "$VPARAMS" \
     -p initial_mode:=3 -p use_sim_time:=true -p quality:=$q -p out_width:=1280 -p out_height:=720 -p profile:=urban \
     > "$OUT/$name.viz.log" 2>&1 & PIDS+=($!)
   sleep 3
-  vpid=$(pgrep -f "lib/micropilot_visualization_node/visualization_[n]ode" | head -1)
-  if ! lc /visualization_node configure || ! lc /visualization_node activate; then cleanup; return 1; fi
+  vpid=$(pgrep -f "lib/overlume_ros/visualization_[n]ode" | head -1)
+  if ! lc /overlume_node configure || ! lc /overlume_node activate; then cleanup; return 1; fi
   python3 "$REPO/tools/tf_flatten_fixture.py" > "$OUT/$name.tf.log" 2>&1 & PIDS+=($!)
   ros2 bag play "$BAG" --loop --clock --qos-profile-overrides-path "$QOS" --remap /tf:=/tf_raw < /dev/null > "$OUT/$name.bag.log" 2>&1 & PIDS+=($!)
   sleep 12

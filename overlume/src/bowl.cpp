@@ -18,7 +18,7 @@
 #include "bowl_mesh.hpp"
 #include "bowl_projection.hpp"
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
 #include "bowl_filamat.h"
 
@@ -36,7 +36,7 @@
 #include <string>
 #include <vector>
 
-namespace mpviz {
+namespace overlume {
 
 namespace {
 
@@ -195,7 +195,7 @@ bool build_bowl(VisualRenderer& r, const BowlConfig& cfg) {
 
     auto owned = std::make_unique<BowlState>();
     owned->material = filament::Material::Builder()
-                          .package(mpviz::materials::kbowlFilamat, mpviz::materials::kbowlFilamatSize)
+                          .package(overlume::materials::kbowlFilamat, overlume::materials::kbowlFilamatSize)
                           .build(*r.engine);
     owned->instance = owned->material->createInstance();
 
@@ -340,4 +340,4 @@ void update_bowl(VisualRenderer& r, const EgoState& ego) {
     tm.setTransform(inst, mat4f::translation(pos) * mat4f(rot));
 }
 
-}  // namespace mpviz
+}  // namespace overlume

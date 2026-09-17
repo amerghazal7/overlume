@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sample /visualization_node/diagnostics for `duration` seconds, print
+"""Sample /overlume_node/diagnostics for `duration` seconds, print
 render_ms p50/p99 and sample count. VM-091 Task 2 Step 5 perf gate.
 ponytail: one-shot sampler script, not a reusable tool -- no CLI framework.
 """
@@ -26,7 +26,7 @@ def main():
                         except ValueError:
                             pass
 
-    node.create_subscription(DiagnosticArray, "/visualization_node/diagnostics", cb, 10)
+    node.create_subscription(DiagnosticArray, "/overlume_node/diagnostics", cb, 10)
     end = time.time() + duration
     while time.time() < end:
         rclpy.spin_once(node, timeout_sec=0.1)

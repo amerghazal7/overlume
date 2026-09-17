@@ -24,8 +24,8 @@ graphify-out/
 **/*.mp4
 
 # VM-044: the converted M02P ego glTF is a provisioned local asset (fetch
-# script, not plain git — see micropilot_visualization_node/scripts/
+# script, not plain git — see overlume_ros/scripts/
 # provision_ego_model.sh), not a repo binary. Narrowed to *.glb so
 # assets/ego/ATTRIBUTION.md (same convention as assets/fonts, assets/models)
 # can still be committed.
-ros/src/micropilot_visualization_node/assets/ego/*.glb
+ros/src/overlume_ros/assets/ego/*.glb

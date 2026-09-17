@@ -1,5 +1,5 @@
 // alert_polygons_test_hooks.hpp — internal-only, not installed, not POD.
-// tests/test_alert_polygons.cpp links only against `visual_renderer` and
+// tests/test_alert_polygons.cpp links only against `overlume` and
 // has no access to its PRIVATE Filament include dir, so it can't include
 // alert_polygons.hpp/renderer_internal.hpp directly. These hooks are
 // declared only against api.h's opaque VisualRenderer, scene.h's POD
@@ -11,20 +11,20 @@
 #include <cstdint>
 
 #include "theme.hpp"
-#include "visual_renderer/api.h"
-#include "visual_renderer/scene.h"
+#include "overlume/api.h"
+#include "overlume/scene.h"
 
-namespace mpviz::testing {
+namespace overlume::testing {
 
 // The color last passed to severity `severity`'s (0 info/1 warning/2
 // critical) MaterialInstance "baseColor" param (rgb only — Filament has no
 // getter for a set parameter, so this isn't a GPU read-back). {0,0,0} if
 // `r` is null or `severity` is out of range.
-mpviz::detail::Float3 alert_severity_base_color(mpviz::VisualRenderer* r, uint8_t severity);
+overlume::detail::Float3 alert_severity_base_color(overlume::VisualRenderer* r, uint8_t severity);
 
 // Number of live alert slots (0-indexed into active().alerts) — 0 if `r`
 // is null.
-size_t alert_slot_count(mpviz::VisualRenderer* r);
+size_t alert_slot_count(overlume::VisualRenderer* r);
 
 // Which material `slot`'s renderable is currently bound to, read via
 // RenderableManager::getMaterialInstanceAt() (a real GPU-state getter,
@@ -39,6 +39,6 @@ struct AlertMaterialInfo {
     bool bound_to_severity_template = false;
     float alpha = 0.0f;
 };
-AlertMaterialInfo alert_slot_material_info(mpviz::VisualRenderer* r, size_t slot);
+AlertMaterialInfo alert_slot_material_info(overlume::VisualRenderer* r, size_t slot);
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

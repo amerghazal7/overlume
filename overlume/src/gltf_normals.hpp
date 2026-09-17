@@ -20,7 +20,7 @@
 //
 // Computes area-weighted flat/per-face normals (glTF's own suggested
 // fallback for missing NORMAL) directly from POSITION + indices, using
-// yaml-cpp (already linked into visual_renderer for theme.cpp/
+// yaml-cpp (already linked into overlume for theme.cpp/
 // environment.cpp -- JSON is a subset of YAML flow style, verified against
 // the real fixture chunks) to read and round-trip the glTF JSON -- no new
 // dependency. Any input this function doesn't recognize (not a GLB,
@@ -31,8 +31,8 @@
 #include <cstdint>
 #include <vector>
 
-namespace mpviz {
+namespace overlume {
 
 std::vector<uint8_t> ensure_flat_normals(std::vector<uint8_t> glb_bytes);
 
-}  // namespace mpviz
+}  // namespace overlume

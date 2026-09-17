@@ -266,7 +266,7 @@ def test_bridge_e2e_mode3_orbit_and_frames():
     # /rendering/set_mode assigns render_mode directly (Step 2).
     viz_cmd = (
         f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
-        f"ros2 run micropilot_visualization_node visualization_node --ros-args "
+        f"ros2 run overlume_ros overlume_node --ros-args "
         f"-p out_width:={E2E_OUT_W} -p out_height:={E2E_OUT_H} -p initial_mode:=1")
     bridge_cmd = (
         f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
@@ -289,10 +289,10 @@ def test_bridge_e2e_mode3_orbit_and_frames():
     bridge_proc = None
     try:
         assert _wait_running(viz_proc), (
-            f"visualization_node exited early:\n"
+            f"overlume_node exited early:\n"
             f"{viz_proc.stderr.read().decode(errors='replace')[-2000:]}")
-        assert _lifecycle("/visualization_node", "configure")
-        assert _lifecycle("/visualization_node", "activate")
+        assert _lifecycle("/overlume_node", "configure")
+        assert _lifecycle("/overlume_node", "activate")
 
         bridge_proc = _popen(bridge_cmd)
         # Give the bridge's rclpy node + websocket server time to come up.
@@ -361,7 +361,7 @@ def test_bridge_e2e_mode3_orbit_and_frames():
                         {"cmd": "set_look", "eye": eye, "target": target}))
                     await asyncio.sleep(0.3)
 
-                # Frames must keep flowing (now from visualization_node).
+                # Frames must keep flowing (now from overlume_node).
                 counter.frames.clear()
                 t0 = time.time()
                 mode3_state = None
@@ -398,7 +398,7 @@ LIVE_LAYERS = ("objects", "paths", "map_elements", "grids", "alerts", "markers")
 
 @pytest.mark.skipif(not os.path.isdir(INSTALL_DIR), reason="ros/install not built")
 def test_bridge_e2e_set_layers_hides_and_shows():
-    """set_layers over WS -> N params on visualization_node's own
+    """set_layers over WS -> N params on overlume_node's own
     set_parameters service, live (no restart) -- hide -> ros2 param get
     reads false for all six LIVE categories AND the published frame's
     pixels actually change (review 2026-09-09: param readback alone cannot
@@ -411,7 +411,7 @@ def test_bridge_e2e_set_layers_hides_and_shows():
     gates a live category as of Task 6/VM-035 but is not asserted here (no
     sensor_msgs/PointCloud2 recording, named FIXTURE GAP); its gate is covered
     instead by test_scene_assembly.cpp's ApplyLayerGates* cases. Mode 3 so
-    visualization_node actually publishes frames."""
+    overlume_node actually publishes frames."""
     websockets = pytest.importorskip("websockets")
     rclpy = pytest.importorskip("rclpy")
     from rclpy.node import Node as RclpyNode
@@ -420,7 +420,7 @@ def test_bridge_e2e_set_layers_hides_and_shows():
     port = 18766
     viz_cmd = (
         f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
-        f"ros2 run micropilot_visualization_node visualization_node --ros-args "
+        f"ros2 run overlume_ros overlume_node --ros-args "
         f"-p out_width:={E2E_OUT_W} -p out_height:={E2E_OUT_H} -p initial_mode:=3")
     bridge_cmd = (
         f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
@@ -495,10 +495,10 @@ def test_bridge_e2e_set_layers_hides_and_shows():
 
     try:
         assert _wait_running(viz_proc), (
-            f"visualization_node exited early:\n"
+            f"overlume_node exited early:\n"
             f"{viz_proc.stderr.read().decode(errors='replace')[-2000:]}")
-        assert _lifecycle("/visualization_node", "configure")
-        assert _lifecycle("/visualization_node", "activate")
+        assert _lifecycle("/overlume_node", "configure")
+        assert _lifecycle("/overlume_node", "activate")
 
         bridge_proc = _popen(bridge_cmd)
         deadline = time.time() + 12.0
@@ -536,7 +536,7 @@ def test_bridge_e2e_set_layers_hides_and_shows():
                 ack = await recv_ack("set_layers")
                 assert ack.get("success"), ack
                 for name in LIVE_LAYERS:
-                    assert _param_get_bool("/visualization_node", f"layer_{name}") is False, \
+                    assert _param_get_bool("/overlume_node", f"layer_{name}") is False, \
                         f"layer_{name} did not hide"
                 hidden_frame = settled_frame()
                 assert hidden_frame != baseline_frame, (
@@ -549,7 +549,7 @@ def test_bridge_e2e_set_layers_hides_and_shows():
                 ack2 = await recv_ack("set_layers")
                 assert ack2.get("success"), ack2
                 for name in LIVE_LAYERS:
-                    assert _param_get_bool("/visualization_node", f"layer_{name}") is True, \
+                    assert _param_get_bool("/overlume_node", f"layer_{name}") is True, \
                         f"layer_{name} did not recover"
                 shown_frame = settled_frame()
                 assert shown_frame != hidden_frame, (

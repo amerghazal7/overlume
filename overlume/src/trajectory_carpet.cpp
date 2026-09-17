@@ -41,7 +41,7 @@
 #include "polyline.hpp"
 #include "renderer_internal.hpp"
 #include "theme.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
 #include <filament/RenderableManager.h>
 
@@ -58,7 +58,7 @@
 #include <utility>
 #include <vector>
 
-namespace mpviz {
+namespace overlume {
 
 namespace {
 
@@ -421,52 +421,52 @@ void update_trajectory_carpets(VisualRenderer& r, const SceneGraph& s) {
     r.trajectoryCarpetAlpha = alpha;
 }
 
-}  // namespace mpviz
+}  // namespace overlume
 
 // Filament-free test introspection hooks; see trajectory_carpet_test_hooks.hpp
 // for why these live here.
-namespace mpviz::testing {
+namespace overlume::testing {
 
-size_t trajectory_carpet_mesh_count(mpviz::VisualRenderer* r, size_t slot) {
+size_t trajectory_carpet_mesh_count(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->trajectoryCarpetSlots.size()) return 0;
     return r->trajectoryCarpetSlots[slot].meshes.size();
 }
 
-size_t trajectory_carpet_vertex_count(mpviz::VisualRenderer* r, size_t slot) {
+size_t trajectory_carpet_vertex_count(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->trajectoryCarpetSlots.size()) return 0;
     return r->trajectoryCarpetSlots[slot].totalVertexCount;
 }
 
-float trajectory_carpet_material_alpha(mpviz::VisualRenderer* r) {
+float trajectory_carpet_material_alpha(overlume::VisualRenderer* r) {
     if (r == nullptr) return 1.0f;
     return r->trajectoryCarpetAlpha;
 }
 
-uint32_t trajectory_carpet_vertex_rgba(mpviz::VisualRenderer* r, size_t slot, size_t vertex_idx) {
+uint32_t trajectory_carpet_vertex_rgba(overlume::VisualRenderer* r, size_t slot, size_t vertex_idx) {
     if (r == nullptr || slot >= r->trajectoryCarpetSlots.size()) return 0;
     const auto& rgba = r->trajectoryCarpetSlots[slot].firstMeshRgba;
     if (vertex_idx >= rgba.size()) return 0;
     return rgba[vertex_idx];
 }
 
-float trajectory_carpet_vertex_z(mpviz::VisualRenderer* r, size_t slot, size_t vertex_idx) {
+float trajectory_carpet_vertex_z(overlume::VisualRenderer* r, size_t slot, size_t vertex_idx) {
     if (r == nullptr || slot >= r->trajectoryCarpetSlots.size()) return 0.0f;
     const auto& z = r->trajectoryCarpetSlots[slot].firstMeshZ;
     if (vertex_idx >= z.size()) return 0.0f;
     return z[vertex_idx];
 }
 
-float trajectory_carpet_half_width_m(mpviz::VisualRenderer* r, size_t slot) {
+float trajectory_carpet_half_width_m(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->trajectoryCarpetSlots.size()) return 0.0f;
     return r->trajectoryCarpetSlots[slot].halfWidthM;
 }
 
-uint64_t trajectory_carpet_rebuild_count(mpviz::VisualRenderer* r) {
+uint64_t trajectory_carpet_rebuild_count(overlume::VisualRenderer* r) {
     if (r == nullptr) return 0;
     return r->trajectoryCarpetRebuildCount;
 }
 
-bool trajectory_carpet_slot_first_point(mpviz::VisualRenderer* r, size_t slot, mpviz::Vec3* out) {
+bool trajectory_carpet_slot_first_point(overlume::VisualRenderer* r, size_t slot, overlume::Vec3* out) {
     if (r == nullptr || slot >= r->trajectoryCarpetSlots.size() || out == nullptr) return false;
     const auto& s = r->trajectoryCarpetSlots[slot];
     if (s.meshes.empty()) return false;
@@ -474,4 +474,4 @@ bool trajectory_carpet_slot_first_point(mpviz::VisualRenderer* r, size_t slot, m
     return true;
 }
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

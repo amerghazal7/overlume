@@ -6,8 +6,8 @@
 #
 # Stages (each labeled, each can fail the whole run):
 #   1. POD header check      (overlume/scripts/check_pod_header.sh)
-#   2. Library ctest suite   (visual_renderer's full ctest run)
-#   3. Node gtests           (colcon test, micropilot_visualization_node)
+#   2. Library ctest suite   (overlume's full ctest run)
+#   3. Node gtests           (colcon test, overlume_ros)
 #   4. WS bridge pytest      (tools/test_vcam_ws_bridge.py; count reported by the stage itself)
 #   5. Golden suite          (GPU-skip breakdown, honestly reported)
 #
@@ -17,7 +17,7 @@
 # What this script deliberately does NOT do (validate_visual_mode.sh's own
 # --live lesson): no bag is ever played, and nothing here touches a rig this
 # script didn't itself start. Stage 4's two E2E tests DO start
-# visualization_node and vcam_ws_bridge.py as their own
+# overlume_node and vcam_ws_bridge.py as their own
 # child processes -- but as their own isolated processes on an isolated
 # ROS_DOMAIN_ID, killed via killpg of the session they themselves started
 # (never a process the script did not start).
@@ -77,14 +77,14 @@ LIB_STAGE_OK=1
 mkdir -p "${LIB_BUILD_DIR}"
 if ! cmake --toolchain "${LIB_DIR}/cmake/toolchain-clang-libcxx.cmake" \
         -S "${LIB_DIR}" -B "${LIB_BUILD_DIR}" > "${LIB_CONFIGURE_LOG}" 2>&1; then
-    echo "FAIL  visual_renderer configure (see ${LIB_CONFIGURE_LOG})"
+    echo "FAIL  overlume configure (see ${LIB_CONFIGURE_LOG})"
     tail -40 "${LIB_CONFIGURE_LOG}"
     LIB_STAGE_OK=0
 fi
 
 if [[ "${LIB_STAGE_OK}" == "1" ]]; then
     if ! cmake --build "${LIB_BUILD_DIR}" -j"$(nproc)" > "${LIB_BUILD_LOG}" 2>&1; then
-        echo "FAIL  visual_renderer build (see ${LIB_BUILD_LOG})"
+        echo "FAIL  overlume build (see ${LIB_BUILD_LOG})"
         tail -60 "${LIB_BUILD_LOG}"
         LIB_STAGE_OK=0
     fi
@@ -114,7 +114,7 @@ else
     record_stage "library ctest suite" FAIL
 fi
 
-# ── stage 3: node gtests (colcon test, micropilot_visualization_node) ──────
+# ── stage 3: node gtests (colcon test, overlume_ros) ──────
 # Never silently skipped: missing ROS/colcon infra is a loud FAIL here, not
 # a skip — this is the pre-merge gate, not an optional convenience check.
 banner 3/5 "node gtests (colcon test)"
@@ -154,10 +154,10 @@ if [[ "${NODE_STAGE_OK}" == "1" ]]; then
         # desktop_notification-: this box has no working dbus notification
         # daemon (confirmed: notify2 throws a GDBus timeout) -- harmless but
         # noisy in a log meant to be read for pass/fail, not desktop popups.
-        colcon build --packages-select micropilot_visualization_node \
+        colcon build --packages-select overlume_ros \
             --event-handlers desktop_notification- \
             --cmake-args -DCMAKE_BUILD_TYPE=Release \
-            && colcon test --packages-select micropilot_visualization_node \
+            && colcon test --packages-select overlume_ros \
                 --event-handlers desktop_notification- \
             && colcon test-result --all --verbose
     ) > "${NODE_LOG}" 2>&1 && NODE_RC=0 || NODE_RC=$?
@@ -182,7 +182,7 @@ WS_LOG="${LOG_DIR}/ws_bridge_pytest.log"
 # plugin is the whole fix.
 #
 # ROS_DOMAIN_ID: two of these tests (test_bridge_e2e_*) start real
-# visualization_node / vcam_ws_bridge.py processes and
+# overlume_node / vcam_ws_bridge.py processes and
 # drive them over ROS 2 by node name (ros2 lifecycle set, ros2 param
 # get/set). _ros_env() in test_vcam_ws_bridge.py copies this process's
 # environment into every one of those child processes, so pinning the

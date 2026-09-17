@@ -14,7 +14,7 @@
 #include "objects_test_hooks.hpp"
 #include "polyline.hpp"
 #include "renderer_internal.hpp"
-#include "visual_renderer/scene.h"
+#include "overlume/scene.h"
 
 #include <filament/Box.h>
 #include <filament/RenderableManager.h>
@@ -44,7 +44,7 @@
 #include <string>
 #include <vector>
 
-namespace mpviz {
+namespace overlume {
 
 namespace {
 
@@ -151,14 +151,14 @@ void acquire_entity(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& o
                 pool.pool.push_back(inst);
                 if (!pool.growthLogged) {
                     std::fprintf(stderr,
-                                 "[visual_renderer] object class %u grew past %zu instances\n",
+                                 "[overlume] object class %u grew past %zu instances\n",
                                  static_cast<unsigned>(clsIdx), kInitialInstancesPerClass);
                     pool.growthLogged = true;
                 }
             }
         } else if (!pool.capWarned) {
             std::fprintf(stderr,
-                         "[visual_renderer] object class %u hit the %zu-instance cap; "
+                         "[overlume] object class %u hit the %zu-instance cap; "
                          "falling back to the procedural clay box\n",
                          static_cast<unsigned>(clsIdx), kMaxInstancesPerClass);
             pool.capWarned = true;
@@ -181,7 +181,7 @@ void acquire_entity(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& o
         }
     } else if (obj.cls != ObjectClass::UNKNOWN && !r.objectClassMissingWarned[clsIdx]) {
         std::fprintf(stderr,
-                     "[visual_renderer] object class %u has no loaded model; using the "
+                     "[overlume] object class %u has no loaded model; using the "
                      "procedural clay box\n",
                      static_cast<unsigned>(clsIdx));
         r.objectClassMissingWarned[clsIdx] = true;
@@ -524,7 +524,7 @@ uint32_t set_object_model_dir(VisualRenderer* r, const char* dir) {
         // call would overwrite the pools and leak every previously loaded
         // FilamentAsset + its live instances; refuse it instead.
         std::fprintf(stderr,
-                     "[visual_renderer] set_object_model_dir called twice; "
+                     "[overlume] set_object_model_dir called twice; "
                      "ignoring second call (contract: call once before the "
                      "first render_frame)\n");
         return 0;
@@ -579,15 +579,15 @@ uint32_t set_object_model_dir(VisualRenderer* r, const char* dir) {
     return loaded;
 }
 
-}  // namespace mpviz
+}  // namespace overlume
 
 // Filament-free test introspection hooks; see objects_test_hooks.hpp for
 // why these live here.
-namespace mpviz::testing {
+namespace overlume::testing {
 
 namespace {
 
-utils::Entity first_renderable(filament::RenderableManager& rm, const mpviz::ObjectEntity& e) {
+utils::Entity first_renderable(filament::RenderableManager& rm, const overlume::ObjectEntity& e) {
     if (e.glInstance != nullptr) {
         const utils::Entity* ents = e.glInstance->getEntities();
         for (size_t i = 0; i < e.glInstance->getEntityCount(); ++i) {
@@ -600,7 +600,7 @@ utils::Entity first_renderable(filament::RenderableManager& rm, const mpviz::Obj
 
 }  // namespace
 
-bool object_in_scene(mpviz::VisualRenderer* r, uint32_t id) {
+bool object_in_scene(overlume::VisualRenderer* r, uint32_t id) {
     if (r == nullptr) return false;
     auto it = r->objectEntities.find(id);
     if (it == r->objectEntities.end()) return false;
@@ -616,7 +616,7 @@ bool object_in_scene(mpviz::VisualRenderer* r, uint32_t id) {
     return ent && r->scene->hasEntity(ent);
 }
 
-uint64_t object_entity_identity(mpviz::VisualRenderer* r, uint32_t id) {
+uint64_t object_entity_identity(overlume::VisualRenderer* r, uint32_t id) {
     if (r == nullptr) return 0;
     auto it = r->objectEntities.find(id);
     if (it == r->objectEntities.end()) return 0;
@@ -626,23 +626,23 @@ uint64_t object_entity_identity(mpviz::VisualRenderer* r, uint32_t id) {
     return it->second.proceduralBox.entity.getId();
 }
 
-mpviz::Vec3 object_transform_scale(mpviz::VisualRenderer* r, uint32_t id) {
+overlume::Vec3 object_transform_scale(overlume::VisualRenderer* r, uint32_t id) {
     if (r == nullptr) return {0.0, 0.0, 0.0};
     auto it = r->objectEntities.find(id);
     if (it == r->objectEntities.end()) return {0.0, 0.0, 0.0};
     return it->second.appliedScale;
 }
 
-mpviz::detail::Float3 object_class_tint(mpviz::VisualRenderer* r, mpviz::ObjectClass cls) {
+overlume::detail::Float3 object_class_tint(overlume::VisualRenderer* r, overlume::ObjectClass cls) {
     if (r == nullptr) return {};
     return r->objectClassTint[static_cast<uint8_t>(cls)];
 }
 
-ObjectMaterialInfo object_material_info(mpviz::VisualRenderer* r, uint32_t id) {
+ObjectMaterialInfo object_material_info(overlume::VisualRenderer* r, uint32_t id) {
     if (r == nullptr) return {};
     auto it = r->objectEntities.find(id);
     if (it == r->objectEntities.end()) return {};
-    const mpviz::ObjectEntity& e = it->second;
+    const overlume::ObjectEntity& e = it->second;
     filament::RenderableManager& rm = r->engine->getRenderableManager();
     const utils::Entity ent = first_renderable(rm, e);
     const auto ri = rm.getInstance(ent);
@@ -655,4 +655,4 @@ ObjectMaterialInfo object_material_info(mpviz::VisualRenderer* r, uint32_t id) {
     return info;
 }
 
-}  // namespace mpviz::testing
+}  // namespace overlume::testing

@@ -1,4 +1,4 @@
-// test_gltf_normals.cpp — mpviz::ensure_flat_normals() (gltf_normals.hpp), the
+// test_gltf_normals.cpp — overlume::ensure_flat_normals() (gltf_normals.hpp), the
 // load-time fix for environment geometry with no vertex normals. No
 // Filament/gtfio types here (same tests/*.cpp boundary as every other file
 // in this directory -- see environment_test_hooks.hpp) -- these check the
@@ -131,9 +131,9 @@ std::vector<uint8_t> build_json_only_glb(const std::string& json) {
     return out;
 }
 
-const std::string kBakedChunk = std::string(MPVIZ_TEST_DATA_DIR) +
+const std::string kBakedChunk = std::string(OVERLUME_TEST_DATA_DIR) +
     "/tests/fixtures/environment_test_town_0/chunks/chunk_-1_-1.glb";
-const std::string kIonTile = std::string(MPVIZ_TEST_DATA_DIR) +
+const std::string kIonTile = std::string(OVERLUME_TEST_DATA_DIR) +
     "/tests/fixtures/environment_ion_fixture_0/tile_a.b3dm";
 
 }  // namespace
@@ -144,7 +144,7 @@ TEST(GltfNormals, AddsNormalToChunkMissingIt) {
     ASSERT_GT(count_primitives_without_normal(beforeJson), 0)
         << "fixture precondition: chunk_-1_-1.glb is expected to carry POSITION only";
 
-    const std::vector<uint8_t> patched = mpviz::ensure_flat_normals(original);
+    const std::vector<uint8_t> patched = overlume::ensure_flat_normals(original);
     EXPECT_NE(patched.size(), original.size()) << "normals should have been appended";
 
     YAML::Node afterJson = parse_glb_json(patched);
@@ -197,7 +197,7 @@ TEST(GltfNormals, BuffersWithUriAreLeftUnchanged) {
         R"("bufferViews":[],"accessors":[],)"
         R"("meshes":[{"primitives":[{"attributes":{"POSITION":0},"indices":0,"mode":4}]}]})";
     const std::vector<uint8_t> glb = build_json_only_glb(json);
-    const std::vector<uint8_t> patched = mpviz::ensure_flat_normals(glb);
+    const std::vector<uint8_t> patched = overlume::ensure_flat_normals(glb);
     EXPECT_EQ(patched, glb) << "a buffers[0].uri (external/data-URI) source must be left "
                                "byte-for-byte unchanged, not have normals synthesized from "
                                "unrelated/absent BIN bytes";
@@ -209,8 +209,8 @@ TEST(GltfNormals, BuffersWithUriAreLeftUnchanged) {
 // equivalent).
 TEST(GltfNormals, SecondPassIsANoOp) {
     const std::vector<uint8_t> original = read_file(kBakedChunk);
-    const std::vector<uint8_t> oncePatched = mpviz::ensure_flat_normals(original);
-    const std::vector<uint8_t> twicePatched = mpviz::ensure_flat_normals(oncePatched);
+    const std::vector<uint8_t> oncePatched = overlume::ensure_flat_normals(original);
+    const std::vector<uint8_t> twicePatched = overlume::ensure_flat_normals(oncePatched);
     EXPECT_EQ(oncePatched, twicePatched);
 }
 
@@ -223,14 +223,14 @@ TEST(GltfNormals, StreamedTileWithNormalAlreadyIsUntouched) {
     ASSERT_EQ(count_primitives_without_normal(beforeJson), 0)
         << "fixture precondition: tile_a.b3dm is expected to already carry NORMAL";
 
-    const std::vector<uint8_t> patched = mpviz::ensure_flat_normals(glb);
+    const std::vector<uint8_t> patched = overlume::ensure_flat_normals(glb);
     EXPECT_EQ(patched, glb) << "geometry that already has normals must pass through byte-for-byte";
 }
 
 TEST(GltfNormals, MalformedInputIsReturnedUnchanged) {
     const std::vector<uint8_t> empty;
-    EXPECT_EQ(mpviz::ensure_flat_normals(empty), empty);
+    EXPECT_EQ(overlume::ensure_flat_normals(empty), empty);
 
     const std::vector<uint8_t> garbage{1, 2, 3, 4, 5};
-    EXPECT_EQ(mpviz::ensure_flat_normals(garbage), garbage);
+    EXPECT_EQ(overlume::ensure_flat_normals(garbage), garbage);
 }
