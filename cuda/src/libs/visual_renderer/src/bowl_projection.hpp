@@ -1,13 +1,13 @@
 // bowl_projection.hpp — VM-091 (unified-engine migration Task 2). Portable
 // (no Filament/GL types, GPU-free-testable) pinhole + plumb_bob projection
 // and bowl-surface math, ported verbatim from
-// cuda/src/libs/rendering_reprojector/src/kernels/reproject.cu's own
+// the retired CUDA reprojector's reproject.cu (rendering_reprojector, in git history before 2026-09-17), its own
 // bowl_kernel per-camera loop (read in full before porting; NOT re-derived
 // from a generic distortion reference, per Task 2 Step 0's own instruction --
 // Task 5's lidar colorization adapter reuses ProjectToCameraUv, so it must
 // stay bit-consistent with what the bowl itself does).
 //
-// mpviz::CameraExtrinsics.R is row-major; per rendering_reprojector's own
+// mpviz::CameraExtrinsics.R is row-major; per the retired CUDA reprojector's own
 // types.hpp doc, "R columns = (right, down, fwd)" -- this file reads R's
 // COLUMNS as that basis (right = column 0, down = column 1, fwd = column
 // 2), exactly like reproject.cu's CamDev.

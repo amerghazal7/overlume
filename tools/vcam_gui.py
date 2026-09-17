@@ -5,7 +5,7 @@ Video:   rosimagesrc (ros_gst_bridge) -> videoconvert -> gtksink, embedded.
 Control: pure WebSocket client of tools/vcam_ws_bridge.py — this GUI is the
          reference third-party client; it has no direct ROS dependency.
 
-Interaction (mirrors the pygame prototype in tpsprojector/app.py):
+Interaction:
   - preset buttons 1-5      eased preset switch (via the node's tween)
   - view cycle button       bowl -> pointcloud -> visual render mode
   - left-drag on the video  orbit: azimuth/elevation around the robot origin

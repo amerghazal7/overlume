@@ -57,7 +57,7 @@ Env contract (also documented in the test file's own header comment):
 
 One 1280×960 frame, elevated 3/4 chase-cam pose (behind/above the ego,
 looking forward-and-across along the road toward the buildings ahead —
-echoing `assets/visualization-reference-2.jpg`'s own framing), containing:
+echoing `docs/assets/visualization-reference-2.jpg`'s own framing), containing:
 
 - **Baked environment buildings** — `tests/fixtures/environment_test_town_0`,
   the same fixture every other environment test in this suite uses.

@@ -4,7 +4,7 @@
  *  for the bowl -- per-camera image/CameraInfo subscriptions, the odometry
  *  twist ring buffer + rig_delta/compensate ego-motion math ported from
  *  micropilot_rendering_node/rendering_node.{hpp,cpp} and rewritten against
- *  Task 1's mpviz::CameraExtrinsics (no rendering_reprojector link), and the
+ *  Task 1's mpviz::CameraExtrinsics (no link to the retired CUDA reprojector), and the
  *  frame-sync gate's merged-node semantics (Task 2 Step 6): unlike the old
  *  node, this gate does not withhold uploads or rendering -- it only
  *  parameterizes the per-tick set_camera_motion_delta() re-alignment to a

@@ -2,7 +2,7 @@
 # no exceptions (the "no per-theme code branches" AC: if a theme needs a
 # key the other doesn't, the schema is wrong, not the loader).
 #
-# Palette measured off assets/visualization-reference-2.jpg by color
+# Palette measured off docs/assets/visualization-reference-2.jpg by color
 # signature (ref-2 palette-iteration session; promoted 2026-09-16 as the
 # shipped default after the user approved the rendered look by eye). All
 # values LINEAR RGB, same convention as every shipped theme (see

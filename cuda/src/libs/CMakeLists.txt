@@ -1,5 +1,0 @@
-message("############# Micropilot Rendering Libs CMake ##################")
-add_subdirectory(rendering_reprojector)
-if(BUILD_PYBIND)
-    add_subdirectory(rendering_reprojector/bindings)
-endif()

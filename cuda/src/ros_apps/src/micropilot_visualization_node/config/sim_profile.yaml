@@ -50,7 +50,7 @@ rows:
   # FIXTURE GAP: /hd_map_global_elements was silent in the recorded bag
   # (Count 0), exactly like /local_path and /navigation/global_path -- and it
   # ships as a live row for exactly the same reason: it is an ENABLED
-  # rviz_default_plugins/MarkerArray display (assets/urban_config.rviz:147)
+  # rviz_default_plugins/MarkerArray display (config/rviz/urban_config.rviz:147)
   # and a named HdMapAdapter input in spec §5 / a row in the §7 parity matrix.
   # Count 0 means a publisher is registered and did not fire in this calm
   # recording, not that the topic does not exist; omitting the row would leave
@@ -104,7 +104,7 @@ rows:
      adapter: path, role: behavior, timeout_sec: 2.0}
   - {topic: /local_vel_path, type: nav_msgs/msg/Path, adapter: path, role: local}
   # FIXTURE GAP (VM-023): silent in the recorded bag, but BOTH of these are
-  # enabled rviz_default_plugins/Path displays in assets/offroad_config.rviz,
+  # enabled rviz_default_plugins/Path displays in config/rviz/offroad_config.rviz,
   # so spec §7 requires a row for each. They stay stale-faded until something
   # publishes -- that is the designed behaviour, not a missing feature.
   - {topic: /navigation/global_path, type: nav_msgs/msg/Path, adapter: path, role: global}
@@ -115,7 +115,7 @@ rows:
   # is meaningless without the base grid it patches, so a separate *_updates
   # row would be an adapter that drops every message it ever receives (there
   # is one adapter instance per row). This is also exactly how rviz models it:
-  # assets/offroad_config.rviz:49-88 is ONE Map display with Topic and
+  # config/rviz/offroad_config.rviz:49-88 is ONE Map display with Topic and
   # Update Topic.
   - {topic: /perception/dynamic_ogm, type: nav_msgs/msg/OccupancyGrid,
      adapter: ogm, role: dynamic_ogm, update_topic: /perception/dynamic_ogm_updates}
