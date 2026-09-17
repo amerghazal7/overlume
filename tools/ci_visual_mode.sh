@@ -10,9 +10,12 @@
 #   3. Node gtests           (colcon test, overlume_ros)
 #   4. WS bridge pytest      (tools/test_vcam_ws_bridge.py; count reported by the stage itself)
 #   5. Golden suite          (GPU-skip breakdown, honestly reported)
+#   6. Examples              (Task 4, open-source restructure plan: every
+#                             examples/*.cpp binary run headless, PASS iff
+#                             each exits 0 and writes a non-empty image)
 #
 # GPU/EGL required -- a GPU-less box fails at stage 2/3 by design; see
-# docs/visual_mode/README.md (the single home of the GPU/skip rationale).
+# docs/runbooks/ci_gate.md (the single home of the GPU/skip rationale).
 #
 # What this script deliberately does NOT do (validate_visual_mode.sh's own
 # --live lesson): no bag is ever played, and nothing here touches a rig this
@@ -52,7 +55,7 @@ banner() {
 }
 
 # ── stage 1: POD header check ───────────────────────────────────────────────
-banner 1/5 "POD header check"
+banner 1/6 "POD header check"
 POD_LOG="${LOG_DIR}/pod_header.log"
 if bash "${REPO_ROOT}/overlume/scripts/check_pod_header.sh" \
         > "${POD_LOG}" 2>&1; then
@@ -65,7 +68,7 @@ else
 fi
 
 # ── stage 2: library ctest suite (also feeds stage 5's golden breakdown) ───
-banner 2/5 "library ctest suite"
+banner 2/6 "library ctest suite"
 LIB_DIR="${REPO_ROOT}/overlume"
 LIB_BUILD_DIR="${LIB_DIR}/build"
 LIB_CONFIGURE_LOG="${LOG_DIR}/lib_configure.log"
@@ -117,7 +120,7 @@ fi
 # ── stage 3: node gtests (colcon test, overlume_ros) ──────
 # Never silently skipped: missing ROS/colcon infra is a loud FAIL here, not
 # a skip — this is the pre-merge gate, not an optional convenience check.
-banner 3/5 "node gtests (colcon test)"
+banner 3/6 "node gtests (colcon test)"
 ROS_SETUP="/opt/ros/humble/setup.bash"
 # Post-cutover (VM-095): the node has no sibling ROS package dependency --
 # SetVirtualCam.srv is generated in-package. The install space sourced here
@@ -173,7 +176,7 @@ if [[ "${NODE_STAGE_OK}" == "1" ]]; then
 fi
 
 # ── stage 4: WS bridge pytest suite ─────────────────────────────────────────
-banner 4/5 "WS bridge pytest suite"
+banner 4/6 "WS bridge pytest suite"
 WS_LOG="${LOG_DIR}/ws_bridge_pytest.log"
 # -p no:anyio: this box's installed anyio pytest plugin is incompatible with
 # the system pytest (ModuleNotFoundError: _pytest.scope) and aborts
@@ -204,13 +207,13 @@ else
 fi
 
 # ── stage 5: golden suite, GPU-skip reported honestly ───────────────────────
-banner 5/5 "golden suite (GPU-skip)"
+banner 5/6 "golden suite (GPU-skip)"
 if [[ -f "${LIB_CTEST_LOG}" ]]; then
     # `.*\([0-9]+ ms\)$` anchors each grep to gtest's inline per-test line
     # only -- ctest -V also reprints every SKIPPED/FAILED name in its
     # end-of-run summary list (no "(N ms)" suffix there), so without this
     # anchor every skip/fail is counted twice. Golden-NAMED subset only;
-    # see docs/visual_mode/README.md for what sits outside it.
+    # see docs/runbooks/ci_gate.md for what sits outside it.
     GOLDEN_OK=$(grep -cE '\[ *OK *\].*Golden.*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
     GOLDEN_SKIPPED=$(grep -cE '\[ *SKIPPED *\].*Golden.*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
     GOLDEN_FAILED=$(grep -cE '\[ *FAILED *\].*Golden.*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
@@ -232,6 +235,64 @@ if [[ -f "${LIB_CTEST_LOG}" ]]; then
 else
     echo "FAIL  golden suite: stage 2's ctest log is missing (library stage never ran)"
     record_stage "golden suite" FAIL
+fi
+
+# ── stage 6: examples (Task 4, open-source restructure plan) ───────────────
+# Each examples/*.cpp binary (built by stage 2's cmake --build, under
+# overlume/build/examples/ via the OVERLUME_BUILD_EXAMPLES option) is run
+# once, headless, with its output path pointed at a throwaway temp dir --
+# PASS iff every one of them exits 0 and writes a non-empty output file.
+banner 6/6 "examples"
+EXAMPLES_BUILD_DIR="${LIB_BUILD_DIR}/examples"
+EXAMPLES_TMP_DIR="${LOG_DIR}/examples_out"
+EXAMPLES_LOG="${LOG_DIR}/examples.log"
+mkdir -p "${EXAMPLES_TMP_DIR}"
+EXAMPLES_STAGE_OK=1
+EXAMPLES_RAN=0
+
+if [[ ! -d "${EXAMPLES_BUILD_DIR}" ]]; then
+    echo "FAIL  examples: ${EXAMPLES_BUILD_DIR} not found -- stage 2's build didn't produce it" \
+        | tee -a "${EXAMPLES_LOG}"
+    EXAMPLES_STAGE_OK=0
+else
+    for _example_bin in "${EXAMPLES_BUILD_DIR}"/*; do
+        [[ -f "${_example_bin}" && -x "${_example_bin}" ]] || continue
+        _example_name="$(basename "${_example_bin}")"
+        _out_png="${EXAMPLES_TMP_DIR}/${_example_name}.png"
+        EXAMPLES_RAN=$((EXAMPLES_RAN + 1))
+        # argv[1] = output path; argv[2] (theme dir) left at its compile-time
+        # default (OVERLUME_EXAMPLES_THEME_DIR, the shipped assets/themes).
+        # CESIUM_ION_TOKEN is explicitly unset for each run (`env -u`), not
+        # merely left unexported by this script -- a box where the token IS
+        # exported in the ambient shell must not leak it in here, or
+        # 05_environment's streaming sub-demo would make a live network call
+        # instead of printing its own "skipped" line, against this repo's
+        # token rule.
+        if ! env -u CESIUM_ION_TOKEN "${_example_bin}" "${_out_png}" >> "${EXAMPLES_LOG}" 2>&1; then
+            echo "FAIL  examples: ${_example_name} exited non-zero (see ${EXAMPLES_LOG})"
+            EXAMPLES_STAGE_OK=0
+            continue
+        fi
+        if [[ ! -s "${_out_png}" ]]; then
+            echo "FAIL  examples: ${_example_name} produced no non-empty output at ${_out_png}"
+            EXAMPLES_STAGE_OK=0
+        fi
+    done
+fi
+
+EXAMPLES_EXPECTED=$(ls "${REPO_ROOT}"/examples/*.cpp 2>/dev/null | wc -l)
+if [[ "${EXAMPLES_STAGE_OK}" == "1" && "${EXAMPLES_RAN}" -gt 0 \
+        && "${EXAMPLES_RAN}" -eq "${EXAMPLES_EXPECTED}" ]]; then
+    echo "PASS  examples  (${EXAMPLES_RAN} run, all exited 0 with non-empty output)"
+    record_stage "examples" PASS "${EXAMPLES_RAN} run"
+else
+    # A binary silently missing from the build (one example stopped
+    # compiling) would otherwise still PASS this stage at a lower count --
+    # compare against examples/*.cpp on disk so a mismatch is a loud FAIL.
+    echo "FAIL  examples: ran ${EXAMPLES_RAN}, expected ${EXAMPLES_EXPECTED}" \
+         "(examples/*.cpp on disk) -- see ${EXAMPLES_LOG}"
+    tail -40 "${EXAMPLES_LOG}" 2>/dev/null || true
+    record_stage "examples" FAIL "${EXAMPLES_RAN} run / ${EXAMPLES_EXPECTED} expected"
 fi
 
 # ── summary ──────────────────────────────────────────────────────────────────

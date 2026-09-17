@@ -22,7 +22,7 @@ own per-task ledgers as the detailed record; this page is the roll-up.
 | Restructure Task 0 — LFS + delete legacy code/agent-config sprawl | ☑ 2026-09-17 — `782a2ad`, `7512863` + LFS pointer commit | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
 | Restructure Task 1 — move `overlume/`/`ros/`, fix hard-coded paths | ☑ 2026-09-17 | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
 | Restructure Task 2 — identifier rename (`mpviz`→`overlume`, `MPVIZ_`→`OVERLUME_`, node→`overlume_ros`/`overlume_node`) | ☑ 2026-09-17 | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
-| Restructure Task 3 — docs restructure, this status ledger, root README | 2026-09-17 (commit hash recorded by the restructure plan's own ledger once landed) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
+| Restructure Task 3 — docs restructure, this status ledger, root README | 2026-09-17 (dc030b2) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
 
 ## Open items
 
