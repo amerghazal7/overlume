@@ -1,0 +1,5 @@
+# Python deps for the operator tools and their tests (tools/*.py).
+# ROS 2 (rclpy, tf2_msgs) and PyGObject (gi) come from the system/ROS install.
+numpy>=1.20
+websockets>=10
+pytest>=6.0

@@ -3,8 +3,6 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 
-# Generated artifacts
-gl_montage.png
 
 # CUDA library build/install artifacts
 cuda/build/
@@ -26,8 +24,6 @@ graphify-out/
 # colcon run-from-anywhere artifacts (agents/tests)
 log/
 install/
-cuda/scripts/ros_apps_build/log/
-cuda/scripts/ros_apps_build/install/
 cuda/src/ros_apps/log/
 cuda/src/ros_apps/install/
 

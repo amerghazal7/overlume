@@ -188,16 +188,14 @@ import time
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INSTALL_DIR = os.path.join(REPO_ROOT, "cuda", "install", "ros_apps")
-RENDERING_LIBS = os.path.join(
-    REPO_ROOT, "cuda", "install", "libs", "rendering_reprojector", "libs")
 BRIDGE_SCRIPT = os.path.join(os.path.dirname(__file__), "vcam_ws_bridge.py")
 E2E_OUT_W, E2E_OUT_H = 160, 120
 
 
 def _ros_env():
-    env = os.environ.copy()
-    env["LD_LIBRARY_PATH"] = RENDERING_LIBS + ":" + env.get("LD_LIBRARY_PATH", "")
-    return env
+    # The retired CUDA reprojector's pybind libs used to be prepended to
+    # LD_LIBRARY_PATH here; the Filament node needs nothing beyond its install.
+    return os.environ.copy()
 
 
 def _popen(cmd: str) -> subprocess.Popen:

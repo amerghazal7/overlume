@@ -60,7 +60,7 @@ constexpr double kDedupEpsM = 1e-6;
 
 }  // namespace
 
-// Role -> severity table (sourced from assets/urban_config.rviz:175-223). An
+// Role -> severity table (sourced from config/rviz/urban_config.rviz:175-223). An
 // unknown role is a profile-validator bug (profile.cpp's RoleSets already
 // rejects any other role for adapter: collision) -- assert that by throwing,
 // never default to info.

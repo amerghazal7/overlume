@@ -9,7 +9,7 @@
  *  rows carry no `namespaces:` rules at all (config/urban_profile.yaml).
  *  Severity is driven entirely by the ROW'S OWN `role` field, through the
  *  ONE role -> severity table in this file's .cpp (Task 1 Step 3's shipped
- *  mapping, sourced from assets/urban_config.rviz:175-223 -- see the
+ *  mapping, sourced from config/rviz/urban_config.rviz:175-223 -- see the
  *  epic2 plan's Task 7 table): `collision` -> 2 critical, `predicted`/
  *  `merged_object` -> 1 warning, `sweep`/`merged_ego` -> 0 info. Both
  *  ego-side rows (`sweep`, `merged_ego`) land on severity 0 for a second
