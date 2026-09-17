@@ -11,7 +11,7 @@ building massing visible without editing the canonical images.
 One render per GUI "Environment Tiles" preset, all at the **same geo anchor**
 and the **same camera pose**, for a human to judge side by side. Produced by
 the opt-in capture tests in
-`cuda/src/libs/visual_renderer/tests/test_environment_stream.cpp`
+`overlume/tests/test_environment_stream.cpp`
 (`EnvSourceCapture.*`) — never run by `ctest`/`ci_visual_mode.sh`, same
 opt-in shape as `EnvironmentStreamPerf.GooglePresetLiveRenderMsDeltaVsOsmClay`
 already in that file.
@@ -60,7 +60,7 @@ Renders are 960×720 (generous — for eyeballing, not SSIM; `golden.hpp`'s
 Offline (baked, no token needed). Run from the repo root:
 
 ```bash
-cd cuda/src/libs/visual_renderer/build
+cd overlume/build
 MPVIZ_CAPTURE_ENV_SOURCES=1 MPVIZ_CAPTURE_OUT_DIR=/tmp/env_source_capture \
     ./test_environment_stream --gtest_filter='EnvSourceCapture.Baked'
 ```
@@ -79,13 +79,13 @@ be pasted as-is):
 env -u CESIUM_ION_TOKEN bash -lic '
     export MPVIZ_CAPTURE_ENV_SOURCES=1
     export MPVIZ_CAPTURE_OUT_DIR=/tmp/env_source_capture
-    cd cuda/src/libs/visual_renderer/build
+    cd overlume/build
     ./test_environment_stream --gtest_filter="EnvSourceCapture.Osm"
 ' < /dev/null
 ```
 
 (same for `EnvSourceCapture.Google`). Verify the token first with
-`bash cuda/src/libs/visual_renderer/scripts/check_cesium_token.sh` (prints
+`bash overlume/scripts/check_cesium_token.sh` (prints
 `PASS`/`FAIL` only — never the token itself).
 
 Each live test pumps up to 30s for the first tile, THEN keeps rendering for
@@ -98,7 +98,7 @@ refinement, which needs actual elapsed wall-clock time (not just more
 `render_frame()` ticks — those run in well under a millisecond each once
 nothing new is happening, so a tight loop burns hundreds of ticks in under a
 second of real time and gets nothing new back). Reproduced directly:
-[`EnvironmentStreamPerf.GooglePresetLiveRenderMsDeltaVsOsmClay`](../../cuda/src/libs/visual_renderer/tests/test_environment_stream.cpp)'s
+[`EnvironmentStreamPerf.GooglePresetLiveRenderMsDeltaVsOsmClay`](../../overlume/tests/test_environment_stream.cpp)'s
 own "manual visual-confidence artifact" (which stops at first-tile-loaded)
 produced exactly that blank frame when inspected directly during this task.
 Each live capture takes ~60–65s wall-clock; do not shrink the settle window

@@ -96,7 +96,7 @@ yet" and the GUI greys that option out with a tooltip pointing back here.
 Run:
 
 ```bash
-cuda/src/libs/visual_renderer/scripts/check_cesium_token.sh [assetId]
+overlume/scripts/check_cesium_token.sh [assetId]
 ```
 
 (`assetId` defaults to `96188`.) This proves the token reaches the same ion

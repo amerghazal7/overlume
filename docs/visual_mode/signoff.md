@@ -36,7 +36,7 @@ item below being closed or explicitly accepted.
    node's ego is `ego_model_path` (glTF; default `""` falls back to a plain
    box, `ego.cpp:106-111`). Unless an the robot's ego model glTF is provisioned for the
    robot's config (the repo already ships the converter,
-   `cuda/src/libs/visual_renderer/scripts/obj2gltf.py` — an
+   `overlume/scripts/obj2gltf.py` — an
    asset/config task, not new code, resolved at Task 6 Step 2b), the bowl's
    robot overlay silently degrades to a box on the real robot. Sign-off
    either sees the provisioned glTF or explicitly accepts the box.

@@ -187,7 +187,7 @@ import subprocess
 import time
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-INSTALL_DIR = os.path.join(REPO_ROOT, "cuda", "install", "ros_apps")
+INSTALL_DIR = os.path.join(REPO_ROOT, "ros", "install")
 BRIDGE_SCRIPT = os.path.join(os.path.dirname(__file__), "vcam_ws_bridge.py")
 E2E_OUT_W, E2E_OUT_H = 160, 120
 
@@ -251,7 +251,7 @@ def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
     return True
 
 
-@pytest.mark.skipif(not os.path.isdir(INSTALL_DIR), reason="cuda/install/ros_apps not built")
+@pytest.mark.skipif(not os.path.isdir(INSTALL_DIR), reason="ros/install not built")
 def test_bridge_e2e_mode3_orbit_and_frames():
     """set_render_mode 3 over WS -> orbit via set_look -> frames keep flowing
     and vcam_state.mode == 3, with BOTH nodes and the real bridge process."""
@@ -396,7 +396,7 @@ def test_bridge_e2e_mode3_orbit_and_frames():
 LIVE_LAYERS = ("objects", "paths", "map_elements", "grids", "alerts", "markers")
 
 
-@pytest.mark.skipif(not os.path.isdir(INSTALL_DIR), reason="cuda/install/ros_apps not built")
+@pytest.mark.skipif(not os.path.isdir(INSTALL_DIR), reason="ros/install not built")
 def test_bridge_e2e_set_layers_hides_and_shows():
     """set_layers over WS -> N params on visualization_node's own
     set_parameters service, live (no restart) -- hide -> ros2 param get
