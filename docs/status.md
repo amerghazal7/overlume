@@ -19,13 +19,15 @@ own per-task ledgers as the detailed record; this page is the roll-up.
 | Epic 5 — Hardening & delivery | No standalone plan was ever authored; its items were distributed in parallel with the unified-engine migration (user decision 2026-09-11): VM-040 (quality governor) and VM-044 (asset packaging) done 2026-09-11; VM-041 (perf benchmark + `ci_visual_mode.sh`) and VM-042 (docs — the runbooks this restructure moved) pulled forward earlier; VM-043 (live validation sign-off) superseded by the migration's own Task 6 parity sign-off | [`plans/2026-08-18-visual-mode.md`](plans/2026-08-18-visual-mode.md)'s own Epic 5 section |
 | Unified-engine migration (VM-090…095) — CUDA→Filament cutover, mux and `micropilot_rendering_node` retired | CLOSED 2026-09-11, all 6 tasks Done | [`plans/2026-09-10-unified-engine-migration.md`](plans/2026-09-10-unified-engine-migration.md) |
 | Epic 6 — v1.1: Cesium 3D Tiles streaming (VM-060…064) + post-close tail | CLOSED 2026-09-16, final cross-cutting review 2026-09-17 | [`plans/2026-08-18-visual-mode-epic6.md`](plans/2026-08-18-visual-mode-epic6.md) |
-| Restructure Task 0 — LFS + delete legacy code/agent-config sprawl | ☑ 2026-09-17 — `782a2ad`, `7512863` + LFS pointer commit | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
-| Restructure Task 1 — move `overlume/`/`ros/`, fix hard-coded paths | ☑ 2026-09-17 | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
-| Restructure Task 2 — identifier rename (`mpviz`→`overlume`, `MPVIZ_`→`OVERLUME_`, node→`overlume_ros`/`overlume_node`) | ☑ 2026-09-17 | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
+| Restructure Task 0 — LFS + delete legacy code/agent-config sprawl | ☑ 2026-09-17 — `782a2ad`, `7512863`, `4032501` (LFS pointers) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
+| Restructure Task 1 — move `overlume/`/`ros/`, fix hard-coded paths | ☑ 2026-09-17 (9d4e185) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
+| Restructure Task 2 — identifier rename (`mpviz`→`overlume`, `MPVIZ_`→`OVERLUME_`, node→`overlume_ros`/`overlume_node`) | ☑ 2026-09-17 (94d5910) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
 | Restructure Task 3 — docs restructure, this status ledger, root README | 2026-09-17 (dc030b2) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
 | Restructure Task 4 — `examples/` against the public API + gate stage 6 | 2026-09-17 (af0d2d2) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
 | Restructure Task 5 — Doxygen `docs` target, documented public headers, `version.h` | 2026-09-17 (64ee634) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
 | Restructure Task 6 — LICENSE/NOTICE/SPDX, CONTRIBUTING, CoC, SECURITY, CHANGELOG, `.github` CI + release, one repo-wide clang-format | 2026-09-17 (83ad0b1, 6b54884) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
+| Restructure Task 7 — graphify snapshot prune, vendored skill refresh, non-strict read hook, hooks documented in AGENTS.md, memory refresh | 2026-09-17 (7b192cd) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
+| Restructure Task 8 — final cross-cutting review (50 findings fixed) + clean-worktree build; plan CLOSED | 2026-09-17 (see git log: `chore(restructure): Task 8`) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
 
 ## Open items
 
@@ -78,6 +80,11 @@ This restructure's own recorded follow-ups (from its plan's Status ledger):
 (Item 3 above and this restructure's own recorded "`OVERLUME_ENABLE_CESIUM`
 default OFF" follow-up are the same fact, restated post-rename — not two
 separate opens.)
+
+13. The four GitHub workflows (`lint`, `build`, `docs`, `release`) are unverified until the first push; the hosted build also depends on apt.llvm.org's jammy pool keeping the pinned LLVM 18.1.8 `.deb`s (re-pin `LLVM_PKG_VERSION` in `overlume/scripts/setup_toolchain_cesium.sh` when it prunes).
+14. `examples/` pass no model-assets directory, so tracked objects render as the procedural clay-box fallback (one WARN per class); exposing the models dir the way the theme dir is would fix it.
+15. The two vendor HMI reference images the themes were authored against were removed from the tree on 2026-09-17 (third-party captures, no redistribution basis); they remain in git/LFS history until the maintainer decides on a history purge. The node keeps two namespaces (`overlume_node`, `overlume::ros`); a merge is a real refactor, not a rename.
+16. `git lfs install` collides with graphify's `post-checkout` hook on the maintainer's machine (append the LFS lines by hand); fresh clones are unaffected.
 
 ## Known gaps / accepted exceptions
 

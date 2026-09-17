@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
 # clang-format gate for Overlume's first-party C/C++ (Task 6b).
 #
 # Pinned formatter: clang-format 23.1.1 (newest on PyPI as of 2026-09-17,

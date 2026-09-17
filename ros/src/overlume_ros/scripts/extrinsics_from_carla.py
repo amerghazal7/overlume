@@ -22,10 +22,13 @@ Usage:
 Prints the YAML `camera_extrinsics:` block to stdout.
 """
 import argparse
+import os
 import numpy as np
 import yaml
 
-DEF_CFG = "/home/ag7/micropilot/micropilot_sim/config/carla_interface_config.yaml"
+# Default comes from the environment (this is a deployment-specific file); pass
+# --cfg explicitly otherwise.
+DEF_CFG = os.environ.get("CARLA_INTERFACE_CONFIG", "carla_interface_config.yaml")
 DEF_ORDER = "fl_camera,fm_camera,fr_camera,bl_camera,bm_camera,br_camera"
 
 

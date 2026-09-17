@@ -165,3 +165,18 @@ Terms:    Google Maps Platform Terms of Service (Map Tiles); see
 License per upstream (Google Maps Platform terms); not re-verified beyond
 that runbook's citation — the runbook itself flags the exact attribution
 wording and cache-lifetime policy as due for a pre-go-live manual recheck.
+
+--------------------------------------------------------------------------------
+Committed test fixtures derived from Cesium ion / OpenStreetMap
+--------------------------------------------------------------------------------
+overlume/tests/fixtures/environment_ion_fixture_0/ holds real, unmodified
+3D Tiles payloads (tileset.json + .b3dm) fetched once on 2026-09-15 from
+Cesium ion asset 96188, "Cesium OSM Buildings"; environment_ion_fixture_fallback_0/
+duplicates one of those tiles under other names. See the PROVENANCE.md next to
+each. Building geometry: (c) OpenStreetMap contributors, Open Database License
+(ODbL) 1.0 — https://www.openstreetmap.org/copyright. The tiles are used as
+offline test fixtures only; redistribution basis: ODbL for the underlying data.
+Cesium ion's own terms for redistributing served tile bytes were NOT
+independently verified for this repository — a maintainer legal check is
+recorded as an open item in docs/status.md; if it fails, these fixtures are to
+be replaced by synthesised payloads.

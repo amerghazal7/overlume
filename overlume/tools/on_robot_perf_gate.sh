@@ -20,7 +20,7 @@
 # what production actually runs post-cutover, not an isolated capability
 # check.
 set -o pipefail
-REPO=/home/ag7/Documents/TPSProjector
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BAG=$HOME/TPSProjector-fixtures/stack_v3_full_sensors_2026-09-11
 OUT="${OUT:-$(mktemp -d)}"
 SAMPLER="$(dirname "$0")/sample_diagnostics.py"

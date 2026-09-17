@@ -23,6 +23,10 @@ pull request.
 
 ## Token handling
 
+GitHub secret scanning and push protection are enabled on this repository
+(2026-09-17), so a token-shaped string is rejected at push time; the rules
+below are the policy that control enforces.
+
 This project integrates with Cesium ion and Mapbox, both gated by an
 environment variable:
 

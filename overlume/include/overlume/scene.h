@@ -416,6 +416,10 @@ struct SceneGraph {
 /// Number of entries in `alerts`.
 /// @var SceneGraph::markers
 /// Generic markers.
+/// @var SceneGraph::point_clouds
+/// Point-cloud layers (`point_cloud_count` entries).
+/// @var SceneGraph::trajectory_carpets
+/// Trajectory carpets (`trajectory_carpet_count` entries).
 /// @var SceneGraph::marker_count
 /// Number of entries in `markers`.
 /// @var SceneGraph::hud

@@ -3,7 +3,10 @@
 **Date:** 2026-08-18
 **Status:** Accepted (Epics 0–2 implemented against it); amended by the plan review of 2026-09-07 — see `[review 2026-09-07]` markers and the changelog in `docs/plans/2026-08-18-visual-mode.md`. Load-bearing decisions: `docs/adr/0001`–`0004`.
 **Reference assets:** `assets/visualization-reference-1.jpg` (dark ADAS style),
-`assets/visualization-reference-2.jpg` (light clay style), `assets/urban_config.rviz`,
+`assets/visualization-reference-2.jpg` (light clay style) — both third-party
+vendor HMI captures, **not redistributed** with the public repository (removed
+2026-09-17; the shipped themes and `docs/runbooks/theme_showcase.md` are the
+visual anchor now) —, `assets/urban_config.rviz`,
 `assets/offroad_config.rviz`
 
 ## 1. Context and goals

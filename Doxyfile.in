@@ -9,9 +9,9 @@ PROJECT_NUMBER         = "@PROJECT_VERSION@"
 PROJECT_BRIEF          = "A real-time rendering layer for a robot's sensor and autonomy data"
 
 # ── Input ────────────────────────────────────────────────────────────────────
-# The public API headers, the example programs, and the root README as the
-# main page. Not overlume/src (internal) or docs/*.md (covered by the docs/
-# index itself, not this API-reference target).
+# The public API headers, the example programs, and docs/api_mainpage.md as
+# the main page. Not overlume/src (internal), not README.md or docs/*.md
+# (their relative Markdown links would become unresolvable \ref commands).
 INPUT                  = "@OVERLUME_REPO_ROOT@/overlume/include/overlume" \
                          "@OVERLUME_REPO_ROOT@/docs/api_mainpage.md" \
                          "@OVERLUME_REPO_ROOT@/examples"
@@ -25,6 +25,9 @@ RECURSIVE              = YES
 EXCLUDE                = "@OVERLUME_REPO_ROOT@/examples/common.hpp"
 EXCLUDE_PATTERNS       = */build/* */build-*/*
 IMAGE_PATH             = "@OVERLUME_REPO_ROOT@"
+# Strip the build machine's absolute path from page titles/footers.
+STRIP_FROM_PATH        = "@OVERLUME_REPO_ROOT@"
+STRIP_FROM_INC_PATH    = "@OVERLUME_REPO_ROOT@/overlume/include"
 EXAMPLE_PATH           = "@OVERLUME_REPO_ROOT@/examples"
 
 # ── Extraction / warnings ────────────────────────────────────────────────────

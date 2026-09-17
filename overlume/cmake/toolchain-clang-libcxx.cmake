@@ -50,7 +50,7 @@
 # This also bakes in -stdlib=libc++ for compile and link so the documented
 # configure line above needs no other flags.
 #
-# scripts/setup_toolchain.sh's OLD clang-14 prefix (overlume-toolchain/) is no
+# The retired clang-14 bootstrap's OLD prefix (overlume-toolchain/) is no
 # longer resolved by this file. It is left in place (harmless, unused) rather
 # than deleted — scripts/merge_yamlcpp.sh's own ABI check already proved
 # clang-14- and clang-18-built libc++ objects merge safely, so nothing

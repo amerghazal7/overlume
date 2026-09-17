@@ -2,8 +2,9 @@
 
 Overlume is a real-time rendering library that turns a robot's live data into
 a polished, human-friendly picture. This site is the generated reference for
-its **public API**: the two POD-only headers every consumer includes, the
-version header, and the example programs.
+its **public API**: the two POD-only headers every consumer includes and the
+version header. It also lists where the ticket-style references in the
+header comments (`Epic N`, `VM-nnn`, `ADR-nnnn`, `spec §`) resolve.
 
 ## Where to start
 
@@ -26,4 +27,7 @@ Narrative documentation lives in the repository, not on this site: the root
 `README.md` (what Overlume is, quick start, architecture), `docs/README.md`
 (index of runbooks, design documents, ADRs, plans), and `docs/status.md`
 (the single status ledger). The ROS 2 node under `ros/src/overlume_ros/` is
-the reference integration app and is documented there, not here.
+the reference integration app and is documented there, not here. References
+like `Epic 3 Task 1 / VM-036`, `ADR-0004` or `spec §4.3` in header comments
+point at the project's history: `docs/plans/` (per-epic plans and the VM
+backlog ids), `docs/adr/`, and `docs/design/2026-08-18-visual-mode-design.md`.

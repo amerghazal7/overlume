@@ -11,7 +11,7 @@
 # own ask), same methodology bowl_perf_gate.sh already used for the bowl
 # bake's own cost, not a new diagnostics field.
 set -o pipefail
-REPO=/home/ag7/Documents/TPSProjector
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BAG=$HOME/TPSProjector-fixtures/stack_v3_full_sensors_2026-09-11
 OUT="${OUT:-$(mktemp -d)}"
 SAMPLER="$(dirname "$0")/sample_diagnostics.py"

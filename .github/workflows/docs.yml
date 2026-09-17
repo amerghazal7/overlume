@@ -7,8 +7,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
   build:
@@ -28,9 +26,7 @@ jobs:
         # Must be the -cesium bootstrap: toolchain-clang-libcxx.cmake (used
         # below) resolves only the clang-18/libc++-18 prefix this script
         # creates at ~/.cache/overlume-toolchain-cesium (matching the cache
-        # step above) — the legacy setup_toolchain.sh clang-14 prefix is no
-        # longer resolved by that toolchain file and configure would
-        # FATAL_ERROR.
+        # step above); there is no other bootstrap script.
         run: overlume/scripts/setup_toolchain_cesium.sh
 
       - name: Install Doxygen (release tarball, matches local install exactly)
@@ -41,9 +37,11 @@ jobs:
         run: |
           curl -fsSL -o /tmp/doxygen.tar.gz \
             "https://github.com/doxygen/doxygen/releases/download/Release_${DOXYGEN_VERSION//./_}/doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz"
+          echo "14fa81bdc34171edb5f1f02b1d60e74802f0439b77fa44e592565d517d72df90  /tmp/doxygen.tar.gz" | sha256sum -c -
           mkdir -p /tmp/doxygen-extract
           tar -xzf /tmp/doxygen.tar.gz -C /tmp/doxygen-extract
-          echo "$(find /tmp/doxygen-extract -maxdepth 2 -name bin -type d | head -1)" >> "$GITHUB_PATH"
+          bindir="$(find /tmp/doxygen-extract -maxdepth 2 -name bin -type d | head -1)"
+          test -n "$bindir" && echo "$bindir" >> "$GITHUB_PATH"
 
       - name: Configure (docs ON, Cesium OFF — no network/token needed for docs)
         run: |
@@ -65,6 +63,10 @@ jobs:
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     concurrency:
       group: pages
       cancel-in-progress: false

@@ -217,7 +217,7 @@ Verified by launching the merged node via its OWN launch file
 (`ros2 launch overlume_ros overlume_node.launch.py`,
 `CYCLONEDDS_URI` explicitly unset in the parent shell first) and reading the
 running process's actual environment (`/proc/<pid>/environ`):
-`CYCLONEDDS_URI=file:///home/ag7/.config/cyclonedds/cyclonedds.xml` —
+`CYCLONEDDS_URI=file:///$HOME/.config/cyclonedds/cyclonedds.xml` —
 present, and byte-identical (`diff` against `rendering_node.launch.py`'s own
 `SetEnvironmentVariable` call/value — the only difference is this file's own
 added prose comment) to the SHM-forcing config the original fix commit

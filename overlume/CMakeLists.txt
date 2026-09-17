@@ -121,7 +121,7 @@ include(cmake/GetFilament.cmake)
 #
 # VM-061 gate round 2, Finding 3 (ORIGINAL blocker, RESOLVED at Step 6 —
 # USER DECISION a, 2026-09-15): this project's primary toolchain was
-# clang-14 (toolchain-clang-libcxx.cmake / scripts/setup_toolchain.sh, what
+# clang-14 (toolchain-clang-libcxx.cmake / the since-retired clang-14 bootstrap, what
 # ci_visual_mode.sh/colcon_build.sh configure `build/` with), which cannot
 # compile cesium-native's vcpkg dependency ada-url -- its
 # url_search_params-inl.h calls std::ranges::replace, a <ranges> algorithm

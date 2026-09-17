@@ -15,6 +15,11 @@ Participation in this project is governed by the
 
 ## Toolchain
 
+**Git LFS first.** Goldens, fixtures, fonts, models and doc images are LFS
+objects: `git lfs install` before cloning, or `git lfs pull` in an existing
+clone. Without it those files are 130-byte pointers and the golden gate
+stage fails instead of skipping.
+
 The library is built with a pinned, root-less clang-18/libc++-18 toolchain.
 The ROS node stays on the system's gcc/libstdc++ — see
 `docs/adr/0003-pod-boundary-clang-libcxx-lib.md` for why the two never mix
@@ -66,8 +71,8 @@ tools/ci_visual_mode.sh
 ```
 
 It runs, in order: a POD public-header check, the library's `ctest` suite,
-the ROS node's `colcon test` suite, the WebSocket bridge's pytest suite, and
-a golden-suite OK/SKIPPED breakdown. **It requires a GPU/EGL-capable box** —
+the ROS node's `colcon test` suite, the WebSocket bridge's pytest suite, a
+golden-suite OK/SKIPPED breakdown, and the six `examples/` programs headless. **It requires a GPU/EGL-capable box** —
 without one, the renderer and golden-image stages fail, not skip.
 
 What green does **not** cover — several Python integration tests not wired
@@ -78,7 +83,7 @@ newer hosted CI (below) does and does not overlap with it.
 
 ### Hosted CI
 
-GitHub Actions runs lint, a CPU-only, library-only build (`ctest -L nogpu`
+GitHub Actions runs lint, a CPU-only, library-only build (`ctest -L cpu`
 — see `docs/runbooks/ci_gate.md` for exactly which selector runs today),
 the Doxygen docs build, and
 tag-triggered releases — see `docs/runbooks/ci_gate.md`'s "Hosted CI"
@@ -119,7 +124,10 @@ by the gate) enforces the POD-only half of this boundary.
 
 ## Code style
 
-One repo-wide `.clang-format` at the root. Before committing:
+One repo-wide `.clang-format` at the root, applied to the whole tree in one
+commit that is listed in `.git-blame-ignore-revs` — run
+`git config blame.ignoreRevsFile .git-blame-ignore-revs` once so `git blame`
+looks through it. Before committing:
 
 ```bash
 tools/check_format.sh

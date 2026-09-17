@@ -2,7 +2,7 @@
 # Copyright 2026 Amer Ghazal
 
 # Generated 2026-07 by the retired autotune_config.py (CUDA-node era, removed 2026-09-17); edit by hand when cameras/mounting change.
-# source: calib:/home/ag7/Downloads/cams_calib_2026-07-09.yaml
+# source: calib: a sensors_extrinsic_calib.yaml from the deployed robot (2026-07-09), not in this repo
 # camera_extrinsics hand-updated 2026-07-09 from the new deployment calib.
 # Calib ego origin sits +1.15 up of the robot origin (no fwd offset), so
 # t = calib t + [0, 0, 1.15]. Supersedes the 07-08 bl/br refits.

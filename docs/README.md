@@ -93,7 +93,7 @@ api.h,version.h}`) and `examples/` by Doxygen (`Doxyfile.in` at the repo
 root), themed with doxygen-awesome-css. Build:
 
 ```sh
-cmake --toolchain "$PWD/overlume/cmake/toolchain-clang-libcxx.cmake" -S overlume -B overlume/build
+cmake --toolchain "$PWD/overlume/cmake/toolchain-clang-libcxx.cmake" -S overlume -B overlume/build -DOVERLUME_ENABLE_CESIUM=ON
 cmake --build overlume/build --target docs
 ```
 
@@ -138,9 +138,11 @@ exactly what hosted CI does and does not cover.
 
 - [`docs/evidence/`](evidence/) (LFS) — measurement captures cited by the
   plans (`vm040-governor-2026-09-11/`, `vm077-flicker-2026-09-10/`).
-- [`docs/assets/`](assets/) — reference images
-  (`visualization-reference-1.jpg`, `visualization-reference-2.jpg`) used
-  as styling ground truth.
+- [`docs/assets/`](assets/) (LFS) — images cited by the docs and the root
+  README (`hero.png`). The two vendor HMI reference images the themes were
+  authored against are third-party captures and are **not** redistributed;
+  older documents that cite `visualization-reference-{1,2}.jpg` refer to
+  them.
 - [`docs/runbooks/env_source_captures/`](runbooks/env_source_captures/) (LFS)
   — the committed PNGs `env_source_captures.md` documents.
 
@@ -164,4 +166,7 @@ exactly what hosted CI does and does not cover.
 Historical documents under `docs/plans/2026-08-18-*`, `2026-09-09-*`,
 `2026-09-10-*`, and `docs/plans/archive/` were **not** edited for this
 restructure — every path and identifier inside them is pre-restructure; use
-the table above to translate.
+the table above to translate. The same applies to the dated design documents
+under `docs/design/`, the ADRs under `docs/adr/` (append-only records), and
+the dated runbooks `runbooks/bowl-golden-vm091.md`, `runbooks/hybrid-golden-vm094.md`
+and `runbooks/signoff.md`: they describe the tree as it was when written.

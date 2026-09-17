@@ -25,7 +25,7 @@ cmake --build build && ctest --test-dir build --output-on-failure
   entirely if `clang++` on `PATH` already has a co-located libc++ (a normal
   root-installed `clang` + `libc++-dev`). (VM-061 Step 6, user decision
   2026-09-15: this is now the PRIMARY toolchain, not just the cesium/vcpkg
-  one — `scripts/setup_toolchain.sh`'s older clang-14 prefix is no longer
+  one — the retired clang-14 bootstrap script's prefix is no longer
   used here; clang-18 is required because cesium-native's vcpkg dependency
   ada-url needs `std::ranges::replace`, which libc++-14/-15 don't
   implement.)

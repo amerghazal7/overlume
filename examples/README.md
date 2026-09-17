@@ -5,9 +5,11 @@ Six small, self-contained C++ programs against overlume's public API
 anything from `overlume/src`. Each renders a headless frame and writes it
 out as an image file, then exits 0.
 
-See [`docs/README.md`'s "API documentation"](../docs/README.md#api-documentation)
-section for the generated Doxygen reference these programs are written
-against.
+The generated Doxygen reference these programs are written against is
+published at <https://amerghazal7.github.io/overlume/>; how to build it
+locally is in the repository's
+[docs/README.md](https://github.com/amerghazal7/overlume/blob/main/docs/README.md#api-documentation)
+(absolute link so it also works from the published copy of this page).
 
 ## Building and running
 
@@ -15,7 +17,7 @@ Built as part of the ordinary library configure, under
 `OVERLUME_BUILD_EXAMPLES` (default `ON`):
 
 ```sh
-cmake --toolchain "$PWD/overlume/cmake/toolchain-clang-libcxx.cmake" -S overlume -B overlume/build
+cmake --toolchain "$PWD/overlume/cmake/toolchain-clang-libcxx.cmake" -S overlume -B overlume/build -DOVERLUME_ENABLE_CESIUM=ON
 cmake --build overlume/build -j"$(nproc)"
 ./overlume/build/examples/01_hello_frame
 ```
@@ -74,7 +76,9 @@ dependency.
    `CESIUM_ION_TOKEN` is set in the environment does it also try the
    streaming (`ion://96188`) backend briefly; otherwise it prints one line
    saying streaming was skipped and exits 0 — a CI run has no token, and
-   this example never needs one to pass.
+   this example never needs one to pass. The streaming path exists only when
+   the library was configured with `-DOVERLUME_ENABLE_CESIUM=ON` (default
+   OFF); with it OFF the open call returns false and the example continues.
 6. **`06_overlays_and_pointcloud`** — a synthetic point cloud, a
    warning-severity alert polygon, a live HUD-color query
    (`get_hud_colors()`), and a live quality-preset switch
