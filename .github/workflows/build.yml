@@ -1,0 +1,75 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install EGL/GLES dev headers
+        # Every ctest binary links `-lEGL` explicitly and pulls
+        # libGLESv2/libGLdispatch transitively via Filament (verified with
+        # `ldd` on overlume/build/test_theme and
+        # overlume/build/examples/01_hello_frame) — a bare runner image
+        # isn't guaranteed to carry these dev symlinks, and without them
+        # "Build library + examples" fails with `cannot find -lEGL`.
+        run: sudo apt-get update && sudo apt-get install -y libegl1-mesa-dev libgles2-mesa-dev
+
+      - name: Cache toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/overlume-toolchain-cesium
+          key: ${{ runner.os }}-overlume-toolchain-cesium-${{ hashFiles('overlume/scripts/setup_toolchain_cesium.sh') }}
+
+      - name: Bootstrap toolchain
+        run: overlume/scripts/setup_toolchain_cesium.sh
+
+      - name: Configure (Cesium OFF, docs OFF — CPU-only, no GPU runner here)
+        run: |
+          cmake --toolchain "$PWD/overlume/cmake/toolchain-clang-libcxx.cmake" \
+              -B overlume/build -S overlume \
+              -DOVERLUME_ENABLE_CESIUM=OFF \
+              -DOVERLUME_BUILD_DOCS=OFF
+
+      - name: Build library + examples
+        run: cmake --build overlume/build -j
+
+      - name: Run non-GPU tests
+        working-directory: overlume/build
+        # The `nogpu`/`gpu` ctest LABELs are set in overlume/CMakeLists.txt
+        # (check_pod_header, filament_link_probe, cesium_link_probe*, and
+        # every gtest binary except test_renderer_projection /
+        # test_renderer_quality_presets, which are `gpu`), so this normally
+        # takes the `ctest -L nogpu` branch below. The `-LE gpu` branch is
+        # kept only as a safety fallback if the labels are ever missing —
+        # it is not the path taken today. The two `gpu`-labeled binaries are
+        # excluded because they deliberately assert create_renderer()
+        # succeeds and hard-fail without a GPU/EGL runner (see
+        # docs/runbooks/ci_gate.md); they do not self-skip.
+        #
+        # The guard below is based on ctest's own *test count*, not its exit
+        # code: `ctest -N -L <label>` exits 0 whether or not any test
+        # matches the label (it prints "Total Tests: 0" and still succeeds),
+        # so an exit-code check can never take the fallback branch and a
+        # zero-test run would silently report green. Whichever selector we
+        # end up using, we re-check the count again before trusting the
+        # result — a matched-zero-tests run is a hard failure, not a pass.
+        run: |
+          if ctest -N -L nogpu 2>&1 | grep -q 'Total Tests: 0'; then
+            echo "::warning::'nogpu' ctest label matched zero tests; falling back to 'ctest -LE gpu' (GPU-labeled tests are expected to hard-fail, not skip, on this runner)."
+            selector="-LE gpu"
+          else
+            selector="-L nogpu"
+          fi
+          if ctest -N $selector 2>&1 | grep -q 'Total Tests: 0'; then
+            echo "::error::ctest $selector matched zero tests — refusing to report a false green."
+            exit 1
+          fi
+          ctest $selector --output-on-failure

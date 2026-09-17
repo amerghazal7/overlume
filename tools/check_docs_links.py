@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
 """Verify relative Markdown links/image refs in the docs set resolve on disk.
 
 Stdlib only. Scans README.md, AGENTS.md, CONTRIBUTING.md (if present),
 docs/README.md, docs/status.md, docs/runbooks/**, docs/design/**, docs/adr/**,
 and docs/plans/2026-09-17-overlume-restructure.md -- the LIVE docs set. Skips
-http(s)/mailto links and anchor-only (`#foo`) links. A link whose target is
-one of LICENSE/CONTRIBUTING.md/CODE_OF_CONDUCT.md/SECURITY.md/CHANGELOG.md and
-does not exist yet is reported as a WARNING (not a failure) -- those land in
-a later task; every other missing target is a hard failure.
+http(s)/mailto links and anchor-only (`#foo`) links. LICENSE, CONTRIBUTING.md,
+CODE_OF_CONDUCT.md, SECURITY.md, and CHANGELOG.md now exist (open-source
+restructure Task 6), so a dangling link to any of them is a hard failure like
+any other missing target -- there is no more allowlist.
 
 --all additionally scans every *.md under docs/plans/ (including
 docs/plans/archive/), i.e. the historical plans/specs -- these are EXPECTED
 to report broken links to their own pre-restructure paths (the path map
 covers them, their content is intentionally left unedited). Not run by CI.
 
-Exit 0 if the scanned set has no non-allowlisted broken link, 1 otherwise.
+Exit 0 if the scanned set has no broken link, 1 otherwise.
 """
 from __future__ import annotations
 
@@ -29,22 +32,15 @@ LIVE_FILES = [
     "README.md",
     "AGENTS.md",
     "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
+    "CHANGELOG.md",
     "docs/README.md",
     "docs/status.md",
     "docs/plans/archive/README.md",
     "docs/plans/2026-09-17-overlume-restructure.md",
 ]
 LIVE_DIRS = ["docs/runbooks", "docs/design", "docs/adr"]
-
-# Files a fresh checkout may not have yet (later tasks add them); a dangling
-# link to one of these is a warning, not a failure.
-MISSING_OK_ALLOWLIST = {
-    "LICENSE",
-    "CONTRIBUTING.md",
-    "CODE_OF_CONDUCT.md",
-    "SECURITY.md",
-    "CHANGELOG.md",
-}
 
 LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 # Strip fenced/inline code spans before scanning: C++/Python snippets can
@@ -114,7 +110,6 @@ def main() -> int:
     args = ap.parse_args()
 
     broken = []
-    warnings = []
 
     for f in collect_files(args.all):
         text = f.read_text(encoding="utf-8", errors="replace")
@@ -132,15 +127,8 @@ def main() -> int:
             resolved = (f.parent / target).resolve()
             if resolved.exists():
                 continue
-            basename = Path(target).name
             rel_f = f.relative_to(REPO_ROOT)
-            if basename in MISSING_OK_ALLOWLIST:
-                warnings.append(f"{rel_f}: -> {raw_target} (allowlisted, not yet created)")
-            else:
-                broken.append(f"{rel_f}: -> {raw_target}")
-
-    for w in warnings:
-        print(f"WARNING: {w}")
+            broken.append(f"{rel_f}: -> {raw_target}")
 
     if broken:
         print(f"Broken links ({len(broken)}):")
@@ -148,7 +136,7 @@ def main() -> int:
             print(f"  {b}")
         return 1
 
-    print(f"OK: no broken links ({len(warnings)} allowlisted warning(s))")
+    print("OK: no broken links")
     return 0
 
 

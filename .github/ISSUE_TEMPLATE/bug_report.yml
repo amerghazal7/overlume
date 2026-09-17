@@ -1,0 +1,75 @@
+name: Bug report
+description: Something in Overlume isn't working as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please fill in as much of this as you can —
+        the gate output and environment details are the fastest way to a fix.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, commands, or a minimal scene/config that triggers it.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: gate-output
+    attributes:
+      label: Gate output
+      description: >
+        Paste the relevant output of `tools/ci_visual_mode.sh` (or the
+        specific failing stage), if applicable.
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: gpu-driver
+    attributes:
+      label: GPU / driver
+      description: GPU model and driver version (e.g. `nvidia-smi` output), or "none / headless".
+    validations:
+      required: false
+
+  - type: input
+    id: toolchain
+    attributes:
+      label: Toolchain
+      description: Output of `overlume/scripts/setup_toolchain_cesium.sh` (or `setup_toolchain.sh`) — clang/libc++ version, OS.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: theme
+    attributes:
+      label: Theme (if rendering-related)
+      options:
+        - dark_adas
+        - light_clay
+        - not applicable
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Logs, screenshots, links to a golden/diff image, etc.
+    validations:
+      required: false

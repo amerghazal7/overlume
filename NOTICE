@@ -1,0 +1,167 @@
+Overlume
+Copyright 2026 Amer Ghazal
+
+This product includes software developed as part of the Overlume project
+(https://github.com/amerghazal7/overlume), licensed under the Apache License,
+Version 2.0 (see LICENSE).
+
+================================================================================
+Third-party software
+================================================================================
+
+The sections below list third-party software this project depends on or
+ships assets from, as pinned/used in the build at the time of writing.
+Each entry's license was verified against the pinned source (a local
+fetched copy under overlume/build/_deps/ or an upstream file at the pinned
+tag) unless marked otherwise.
+
+--------------------------------------------------------------------------------
+Filament — version 1.56.5
+--------------------------------------------------------------------------------
+License:  Apache License, Version 2.0
+Upstream: https://github.com/google/filament
+Verified against the LICENSE file in the fetched prebuilt SDK
+(filament-v1.56.5-linux.tgz, see overlume/cmake/GetFilament.cmake).
+
+--------------------------------------------------------------------------------
+cesium-native — version 0.64.0
+--------------------------------------------------------------------------------
+License:  Apache License, Version 2.0
+Upstream: https://github.com/CesiumGS/cesium-native
+Verified against the LICENSE file at git tag v0.64.0 (see
+overlume/cmake/GetCesiumNative.cmake). cesium-native's own third-party
+dependency list is at its ThirdParty.json.
+
+cesium-native's build pulls a further set of dependencies through vcpkg in
+manifest mode (see overlume/build/_deps/cesium-native-src/vcpkg.json), built
+under this project's clang/libc++ overlay triplet
+(overlume/cmake/vcpkg-triplets/x64-linux-clang-libcxx.cmake) rather than as
+individually-vendored copies in this repository:
+asyncplusplus, curl, doctest, expected-lite, glm, ms-gsl, rapidjson, spdlog,
+stb, ada-url, draco, ktx, modp-base64, meshoptimizer, openssl, s2geometry,
+libjpeg-turbo, sqlite3, tinyxml2, libwebp, zlib-ng, picosha2, earcut-hpp,
+cpp-httplib, libmorton, zstd, blend2d, asmjit, spz, zlib. Each is licensed
+per its own upstream terms (predominantly MIT/BSD/Apache-2.0/zlib-style
+licenses); consult the vcpkg registry's per-port metadata
+(https://github.com/microsoft/vcpkg/tree/master/ports) for the license of
+any individual port. spdlog and fmt (below) are called out individually
+because this project also references their versions directly.
+
+--------------------------------------------------------------------------------
+spdlog — version 1.17.0 (pulled in via cesium-native's vcpkg manifest)
+--------------------------------------------------------------------------------
+License:  MIT
+Upstream: https://github.com/gabime/spdlog
+Verified against the installed package's copyright file
+(share/spdlog/copyright) from a vcpkg build of this project's pinned
+cesium-native tag/overlay triplet. Version floats with vcpkg's registry
+baseline at the pinned cesium-native tag rather than being independently
+pinned by this project.
+
+--------------------------------------------------------------------------------
+fmt — version 12.1.0 (pulled in via spdlog's vcpkg dependency)
+--------------------------------------------------------------------------------
+License:  MIT
+Upstream: https://github.com/fmtlib/fmt
+Verified against the installed package's copyright file
+(share/fmt/copyright) from the same vcpkg build referenced above. Version
+floats with vcpkg's registry baseline, same as spdlog above.
+
+--------------------------------------------------------------------------------
+yaml-cpp — version 0.8.0
+--------------------------------------------------------------------------------
+License:  MIT
+Upstream: https://github.com/jbeder/yaml-cpp
+Verified against the LICENSE file at git tag 0.8.0 (see
+overlume/CMakeLists.txt's yamlcpp FetchContent_Declare).
+
+--------------------------------------------------------------------------------
+stb (stb_image.h, stb_image_write.h) — downloaded at build time, pinned commit
+--------------------------------------------------------------------------------
+License:  MIT OR Public Domain (dual-licensed; the author's own preferred
+          terms), the two headers include the full text of both at end of
+          file
+Upstream: https://github.com/nothings/stb
+Verified against the license block embedded in the fetched headers
+themselves (overlume/CMakeLists.txt pins the commit + sha256 for each of
+stb_image.h and stb_image_write.h; both headers are downloaded at build
+time, not vendored in this repository).
+
+--------------------------------------------------------------------------------
+googletest — version 1.15.2
+--------------------------------------------------------------------------------
+License:  BSD 3-Clause
+Upstream: https://github.com/google/googletest
+Verified against the LICENSE file at git tag v1.15.2 (see
+overlume/CMakeLists.txt's googletest FetchContent_Declare). Test-only
+dependency; not linked into any shipped/installed artifact.
+
+--------------------------------------------------------------------------------
+doxygen-awesome-css — version 2.5.0
+--------------------------------------------------------------------------------
+License:  MIT
+Upstream: https://github.com/jothepro/doxygen-awesome-css
+Verified against the LICENSE file at git tag v2.5.0 (see
+overlume/cmake/GetDoxygenAwesome.cmake). Used only to theme the generated
+API documentation (the `docs` CMake target); not linked into any built
+binary.
+
+--------------------------------------------------------------------------------
+Noto Sans (NotoSans-Regular.ttf)
+--------------------------------------------------------------------------------
+License:  SIL Open Font License, Version 1.1 (OFL-1.1)
+Upstream: https://github.com/googlei18n/noto-fonts
+See ros/src/overlume_ros/assets/fonts/ATTRIBUTION.md for full provenance
+(sourced from this box's fonts-noto-core Debian package). License verified
+against that ATTRIBUTION.md's recorded source (the fonts-noto-core
+package's OFL-1.1 declaration), not independently re-fetched from
+upstream.
+
+--------------------------------------------------------------------------------
+Kenney model packs (car.glb, truck_van.glb, pedestrian.glb)
+--------------------------------------------------------------------------------
+License:  CC0 1.0 Universal (public domain; credited per the packs' own
+          "support by crediting" convention, not a legal requirement)
+Upstream: https://kenney.nl
+See overlume/assets/models/ATTRIBUTION.md for full per-model provenance.
+License verified against that ATTRIBUTION.md's recorded source (the
+Kenney pack pages' CC0 1.0 declaration), not independently re-fetched from
+upstream.
+
+--------------------------------------------------------------------------------
+OpenStreetMap-derived baked environment data
+--------------------------------------------------------------------------------
+License:  Open Database License (ODbL) v1.0
+Upstream: https://www.openstreetmap.org/copyright
+Attribution: "(c) OpenStreetMap contributors."
+See overlume/assets/models/environment/ATTRIBUTION.md for full provenance
+(Overpass API query, operating-area bounds, test fixture provenance). Data
+only, not a code dependency; license per upstream, not independently
+re-verified beyond the ATTRIBUTION.md file's own citation.
+
+That ATTRIBUTION.md also documents a fallback: when Overpass is empty or
+errors and `MAPBOX_TOKEN` is set (by name only — no token value recorded
+here or anywhere in this project's docs), building footprints instead come
+from Mapbox, subject to Mapbox's own terms of service rather than ODbL. A
+baked environment asset produced through that fallback path is not covered
+by the OpenStreetMap/ODbL attribution above.
+
+--------------------------------------------------------------------------------
+Cesium OSM Buildings (optional live streaming source)
+--------------------------------------------------------------------------------
+Terms:    Cesium ion asset terms of use; see
+          docs/runbooks/cesium.md for the asset id, account setup, and
+          attribution requirements this deployment must satisfy.
+License per upstream (Cesium ion terms of service); not re-verified beyond
+that runbook's citation.
+
+--------------------------------------------------------------------------------
+Google Photorealistic 3D Tiles (optional live streaming source)
+--------------------------------------------------------------------------------
+Terms:    Google Maps Platform Terms of Service (Map Tiles); see
+          docs/runbooks/cesium.md section 6 for the asset id, required
+          on-screen attribution text, and cache-policy constraints this
+          deployment must satisfy before enabling it.
+License per upstream (Google Maps Platform terms); not re-verified beyond
+that runbook's citation — the runbook itself flags the exact attribution
+wording and cache-lifetime policy as due for a pre-go-live manual recheck.

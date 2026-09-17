@@ -1,8 +1,12 @@
 # CI gate (VM-041)
 
-This repo has no hosted CI (no `.github/workflows`, no `.gitlab-ci.yml`).
-`tools/ci_visual_mode.sh` is the whole of "CI wiring" until a hosted platform
-exists — run it before merging any visual-mode change:
+`tools/ci_visual_mode.sh` is the local, GPU-required gate this section
+mostly describes — run it before merging any visual-mode change. Hosted CI
+(GitHub Actions, added by the open-source restructure's Task 6) is a
+separate, narrower set of checks described in "Hosted CI" below; it does
+**not** replace this gate.
+
+Run the local gate:
 
 ```bash
 tools/ci_visual_mode.sh
@@ -59,6 +63,90 @@ tests) — those deliberately assert `create_renderer()` succeeds on this box
 not skip. Stage 5's OK-vs-SKIPPED breakdown exists so a partially-skipping
 run on a GPU box can't misread as a full pass; it does not mean a GPU-less
 run is expected to reach green.
+
+## Hosted CI
+
+`.github/workflows/` runs on GitHub, on every push/PR (plus release tags
+and pushes to `main`):
+
+- **`lint.yml`** — clang-format check (`tools/check_format.sh`), SPDX header
+  check (`tools/check_spdx.sh`), shellcheck over `tools/*.sh`,
+  `overlume/scripts/*.sh`, `overlume/tools/*.sh`, `ros/colcon_build.sh` and
+  `ros/src/overlume_ros/scripts/*.sh`, a Python syntax check (`py_compile`)
+  over `tools/*.py` and the node's Python tests, `pytest tools/` (the
+  ROS/rclpy-, websockets- and `gi`-dependent cases skip themselves via
+  `importorskip`/`skipif` when those aren't present on the runner), and the
+  docs-link checker (`tools/check_docs_links.py`).
+- **`build.yml`** — installs the `libegl1-mesa-dev`/`libgles2-mesa-dev` headers every
+  test binary needs at link time (`-lEGL`, pulled in transitively via
+  Filament), bootstraps the toolchain, configures with
+  `-DOVERLUME_ENABLE_CESIUM=OFF` (no token needed), builds the library and
+  examples, and runs `ctest` restricted to non-GPU tests. `cpu`/`gpu`
+  ctest LABELs now exist in `overlume/CMakeLists.txt` (`check_pod_header`,
+  `filament_link_probe`, `cesium_link_probe`/`cesium_link_probe_symbol_hygiene`,
+  and every `gtest_discover_tests` binary except `test_renderer_projection`
+  and `test_renderer_quality_presets`, which are labeled `gpu`), so the step
+  selects `ctest -L cpu`; the `-LE gpu` branch is kept only as a safety
+  fallback in case the labels ever go missing, not the path taken today. The
+  two `gpu`-labeled binaries are excluded because they deliberately assert
+  `create_renderer()` succeeds and **hard-fail** without a GPU/EGL — they do
+  not self-skip. The step separately verifies via `ctest -N`'s test count
+  (not its exit code, which is 0 either way) that whichever selector runs
+  actually matched at least one test, so a labeling mismatch fails loudly
+  instead of reporting a silent green.
+- **`docs.yml`** — builds the Doxygen API reference on push and PR (the
+  Pages deploy step itself only runs on push to `main`) and publishes it to
+  GitHub Pages.
+- **`release.yml`** — on a `v*` tag push, verifies the tag matches
+  `overlume/include/overlume/version.h` and creates a GitHub release from
+  the matching `CHANGELOG.md` section.
+
+All four workflows pin `runs-on: ubuntu-22.04`; this is unverified against
+GitHub's runner-image lifecycle until the first hosted run, and it's not a
+one-word bump if that image is retired — `overlume/scripts/setup_toolchain_cesium.sh`
+hardcodes an `apt.llvm.org/jammy` pool URL, so moving to `ubuntu-24.04`
+would need a matching `noble` pool in that script too.
+
+`build.yml`'s `libegl1-mesa-dev`/`libgles2-mesa-dev` install step exists because every
+ctest binary links `-lEGL` explicitly and pulls `libGLESv2`/`libGLdispatch`
+transitively via Filament — confirmed locally via `ldd` on
+`overlume/build/test_theme` and `overlume/build/examples/01_hello_frame`.
+A bare `ubuntu-22.04` runner image is not guaranteed to carry those dev
+symlinks; without them the "Build library + examples" step would fail with
+`cannot find -lEGL`. Like the rest of hosted CI, this is unverified until
+the first push actually runs it.
+
+**What hosted CI does *not* cover** — the reason this local gate still
+exists and still gates every merge:
+
+- No GPU/EGL runner. `build.yml` configures with Cesium off and skips every
+  GPU-labeled test — that's most of what actually renders a frame. A green
+  `build.yml` proves the library *compiles*, not that it *renders
+  correctly*.
+- No golden/pixel-comparison coverage at all (those tests need a GPU).
+- No ROS 2 node build or test (`colcon build`/`colcon test`) — hosted CI
+  only builds `overlume` on its own. `lint.yml`'s `pytest tools/` step
+  exercises the operator-tool Python unit tests, not the ROS node.
+- No WS bridge end-to-end tests (stage 4 of the local gate).
+- No live-token, live-network checks (Cesium ion, Mapbox) — by design, per
+  this repo's token rules; nothing in hosted CI needs a token.
+
+A green hosted-CI run is a fast, cheap sanity check (does it compile, is it
+formatted, are the docs/links intact) — it is not a substitute for running
+`tools/ci_visual_mode.sh` on a real GPU box before merging a rendering
+change.
+
+
+**Repository settings the hosted CI relies on (set once, user-side):** GitHub
+Pages source must be *GitHub Actions* (enabled 2026-09-17; the site is
+<https://amerghazal7.github.io/overlume/>) — `actions/deploy-pages` has no configure step and fails otherwise;
+Private Vulnerability Reporting must be on for `SECURITY.md`'s route to exist
+(enabled 2026-09-17). The toolchain bootstrap in `build.yml`/`docs.yml` fetches
+exact pinned `.deb`s from the apt.llvm.org jammy pool, which upstream prunes as
+versions supersede; when that happens both workflows fail at *Bootstrap
+toolchain* and the fix is re-pinning `LLVM_PKG_VERSION` in
+`overlume/scripts/setup_toolchain_cesium.sh` (the `actions/cache` steps carry
+`restore-keys` so a warm cache survives a prune where possible).
 
 ## What green does not cover
 

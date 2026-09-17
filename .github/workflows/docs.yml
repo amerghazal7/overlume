@@ -1,0 +1,77 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    env:
+      DOXYGEN_VERSION: "1.18.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/overlume-toolchain-cesium
+          key: ${{ runner.os }}-overlume-toolchain-cesium-${{ hashFiles('overlume/scripts/setup_toolchain_cesium.sh') }}
+
+      - name: Bootstrap toolchain
+        # Must be the -cesium bootstrap: toolchain-clang-libcxx.cmake (used
+        # below) resolves only the clang-18/libc++-18 prefix this script
+        # creates at ~/.cache/overlume-toolchain-cesium (matching the cache
+        # step above) — the legacy setup_toolchain.sh clang-14 prefix is no
+        # longer resolved by that toolchain file and configure would
+        # FATAL_ERROR.
+        run: overlume/scripts/setup_toolchain_cesium.sh
+
+      - name: Install Doxygen (release tarball, matches local install exactly)
+        # apt's Doxygen on ubuntu-22.04 is 1.9.x, which does not honour the
+        # same warning set this project's Doxyfile.in relies on
+        # (WARN_AS_ERROR=FAIL_ON_WARNINGS) — install the same release
+        # tarball a contributor would use locally instead.
+        run: |
+          curl -fsSL -o /tmp/doxygen.tar.gz \
+            "https://github.com/doxygen/doxygen/releases/download/Release_${DOXYGEN_VERSION//./_}/doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz"
+          mkdir -p /tmp/doxygen-extract
+          tar -xzf /tmp/doxygen.tar.gz -C /tmp/doxygen-extract
+          echo "$(find /tmp/doxygen-extract -maxdepth 2 -name bin -type d | head -1)" >> "$GITHUB_PATH"
+
+      - name: Configure (docs ON, Cesium OFF — no network/token needed for docs)
+        run: |
+          cmake --toolchain "$PWD/overlume/cmake/toolchain-clang-libcxx.cmake" \
+              -B overlume/build -S overlume \
+              -DOVERLUME_ENABLE_CESIUM=OFF \
+              -DOVERLUME_BUILD_DOCS=ON \
+              -DDOXYGEN_EXECUTABLE="$(command -v doxygen)"
+
+      - name: Build docs
+        run: cmake --build overlume/build --target docs
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: overlume/build/docs/html
+
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

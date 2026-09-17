@@ -235,7 +235,7 @@ versioning already landed in Task 5 (`project(VERSION)` + `version.h`); `.github
 `PULL_REQUEST_TEMPLATE.md`, `workflows/lint.yml` (clang-format check,
 shellcheck, `python -m py_compile` + `pytest tools/` unit subset),
 `workflows/build.yml` (library configure+build with `OVERLUME_ENABLE_CESIUM=OFF`
-and `ctest -L nogpu`; GPU tests documented as self-hosted only),
+and `ctest -L cpu` — labels are `cpu`/`gpu`, not `nogpu`, because ctest's `-L` regex is unanchored and `nogpu` would also match a `-L gpu` selector; GPU tests documented as self-hosted only),
 `workflows/docs.yml` (Task 5), `workflows/release.yml` (tag `v*` → GitHub
 release with the CHANGELOG section). The user creates the tag; nothing in this
 plan publishes.
