@@ -81,7 +81,7 @@ This restructure's own recorded follow-ups (from its plan's Status ledger):
 default OFF" follow-up are the same fact, restated post-rename — not two
 separate opens.)
 
-13. The four GitHub workflows (`lint`, `build`, `docs`, `release`) are unverified until the first push; the hosted build also depends on apt.llvm.org's jammy pool keeping the pinned LLVM 18.1.8 `.deb`s (re-pin `LLVM_PKG_VERSION` in `overlume/scripts/setup_toolchain_cesium.sh` when it prunes).
+13. The four GitHub workflows (`lint`, `build`, `docs`, `release`) all ran green on 2026-09-17 (first push, `v0.1.0` release created, Pages live at <https://amerghazal7.github.io/overlume/>); the hosted build depends on apt.llvm.org's jammy pool keeping the pinned LLVM 18.1.8 `.deb`s (re-pin `LLVM_PKG_VERSION` in `overlume/scripts/setup_toolchain_cesium.sh` when it prunes).
 14. `examples/` pass no model-assets directory, so tracked objects render as the procedural clay-box fallback (one WARN per class); exposing the models dir the way the theme dir is would fix it.
 15. The two vendor HMI reference images the themes were authored against were removed from the tree on 2026-09-17 (third-party captures, no redistribution basis); they remain in git/LFS history until the maintainer decides on a history purge. The node keeps two namespaces (`overlume_node`, `overlume::ros`); a merge is a real refactor, not a rename.
 16. `git lfs install` collides with graphify's `post-checkout` hook on the maintainer's machine (append the LFS lines by hand); fresh clones are unaffected.

@@ -41,9 +41,9 @@ The Overlume open-source restructure (`docs/plans/2026-09-17-overlume-restructur
 
 ## [0.1.0] - 2026-09-17
 
-The state of the project before the open-source restructure; the `v0.1.0`
-tag is cut by the maintainer after the restructure lands (see
-`.github/workflows/release.yml`). Covers everything delivered up to then. One line per shipped item, sourced from
+The first tagged release (tag `v0.1.0` on the post-restructure tree,
+2026-09-17; release created by `.github/workflows/release.yml`). Covers
+everything delivered before the open-source restructure. One line per shipped item, sourced from
 [`docs/status.md`](docs/status.md)'s own Shipped table (dates/hashes as
 recorded there; see that table for the full provenance notes on the two
 entries with a recorded historical-document discrepancy).
@@ -72,7 +72,5 @@ entries with a recorded historical-document discrepancy).
 - **Epic 6 — v1.1: Cesium 3D Tiles streaming** (VM-060…064) + post-close
   tail: closed 2026-09-16, final cross-cutting review 2026-09-17.
 
-<!-- Link references resolve once the v0.1.0 tag exists:
 [Unreleased]: https://github.com/amerghazal7/overlume/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/amerghazal7/overlume/releases/tag/v0.1.0
--->
