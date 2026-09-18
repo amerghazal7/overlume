@@ -106,6 +106,11 @@
     # instead" (the spec's PRIMARY path). All-or-nothing: setting only one
     # or two of these three is a config ERROR (overlume_node.cpp logs
     # it once at startup and does not apply a partial/blended anchor).
+    # NavSatFix topic the geo anchor samples (BEST_EFFORT subscription).
+    # Simulator default; a real robot with a Fixposition unit publishes
+    # /fixposition/odometry_llh -- set it per deployment or via
+    # validate_visual_mode.sh --param gps_topic:=<topic>.
+    gps_topic: /sim/feedback/gps
     geo_datum_lat_deg: .nan
     geo_datum_lon_deg: .nan
     geo_datum_heading_deg: .nan

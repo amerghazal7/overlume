@@ -518,6 +518,8 @@ QOS="${FIXTURES}/qos_full.yaml"
 NO_GUI=0
 DO_BUILD=0
 PROFILE=""
+PROFILE_DIR=""
+EXTRA_PARAMS=()
 LIVE=0
 BAG_SET=0
 
@@ -528,6 +530,8 @@ while [[ $# -gt 0 ]]; do
         --no-gui) NO_GUI=1; shift ;;
         --build) DO_BUILD=1; shift ;;
         --profile) PROFILE="$2"; shift 2 ;;
+        --profile-dir) PROFILE_DIR="$2"; shift 2 ;;
+        --param) EXTRA_PARAMS+=("-p" "$2"); shift 2 ;;
         --live) LIVE=1; shift ;;
         -h|--help)
             grep '^# ' "${BASH_SOURCE[0]}" | head -6 | sed 's/^# //'
@@ -718,6 +722,17 @@ echo "[launch] overlume_node (log: ${LOG_DIR}/overlume_node.log)"
 PROFILE_ARGS=()
 if [[ -n "${PROFILE}" ]]; then
     PROFILE_ARGS=(-p "profile:=${PROFILE}")
+fi
+# --profile-dir: load <profile>_profile.yaml from this directory instead of the
+# installed share/config (replay profiles for real-robot sessions live outside
+# the package; the node param is profile_dir, VM-042).
+if [[ -n "${PROFILE_DIR}" ]]; then
+    PROFILE_ARGS+=(-p "profile_dir:=${PROFILE_DIR}")
+fi
+# --param key:=value (repeatable): extra node parameters, e.g.
+# --param gps_topic:=/fixposition/odometry_llh for a real-robot session.
+if [[ ${#EXTRA_PARAMS[@]} -gt 0 ]]; then
+    PROFILE_ARGS+=("${EXTRA_PARAMS[@]}")
 fi
 # --params-file: still passed for the OTHER params it carries (bowl camera
 # topics/extrinsics, layer flags, profile, etc). It is no longer why
