@@ -125,11 +125,14 @@ enum class RenderMode {
 // set_bowl_visible(), ego is scene.ego) -- this mask only ever touches the
 // eight SceneAssembly/LayerFlags categories. The environment/buildings layer
 // (Epic 4/VM-052) is a THIRD thing outside this mask -- renderer-internal,
-// not a SceneAssembly category either -- and NOT per-mode gated: the
-// round-1 null-source gate was dead code (the library treats a null source
-// as a no-op, not a hide) and was deleted in round 2; a live environment
-// source renders in every mode today (signoff.md exception 7, latent until
-// a chunks dir is provisioned).
+// not a SceneAssembly category either. Its per-mode gate is a SEPARATE
+// predicate, environment_effectively_visible() below -- not folded into this
+// mask because it drives overlume::set_environment_visible() (a
+// renderer-side visibility flag), not a SceneAssembly clear like every
+// LayerFlags category above. (The round-1 null-source gate that tried to
+// hide it via this mask's shape was dead code -- the library treats a null
+// source as a no-op, not a hide -- and was deleted in round 2; signoff.md
+// exception 7, now closed by environment_effectively_visible() below.)
 LayerFlags mode_content_mask(RenderMode mode);
 
 // AND `mask` over `user`, field by field -- composes without ever
@@ -149,5 +152,25 @@ bool bowl_visible_for_mode(RenderMode mode, bool surround_stitching);
 // both are force-suppressed there without touching hud_enabled_/
 // callouts_enabled_ themselves.
 bool overlays_visible_for_mode(RenderMode mode);
+
+// FOLLOW-UP 9 (maintainer decision, 2026-09-18): buildings/environment tiles
+// are part of the FREE_LOOK (VISUAL) autonomy scene, same as the HUD/callout
+// overlays above -- BOWL/HYBRID (the camera-textured surround) must never
+// show them, regardless of the operator's own `environment_enabled` switch.
+// Same shape as compose_layer_gates()/bowl_visible_for_mode() above: a pure
+// predicate, gtest-covered directly (test_scene_assembly.cpp) instead of
+// only smoke-tested through a live node. NOT folded into
+// mode_content_mask()/LayerFlags -- the environment layer is
+// renderer-internal, not a SceneAssembly category (mode_content_mask()'s own
+// comment above). The node calls this (overlume_node.cpp's
+// apply_environment_visibility()) wherever visibility is applied: after
+// arming in on_activate(), in on_params() when environment_enabled or
+// render_mode changes, and on every /rendering/set_mode switch -- so
+// BOWL->FREE_LOOK re-shows an already-armed source and FREE_LOOK->BOWL hides
+// it, with no re-arm needed either way (set_environment_visible() is a plain
+// scene-membership toggle, environment.cpp). This closes named exception 7's
+// remaining half (docs/runbooks/signoff.md): the library toggle from VM-096
+// was operator-driven only; this makes it also render_mode-driven.
+bool environment_effectively_visible(RenderMode mode, bool environment_enabled);
 
 }  // namespace overlume::ros

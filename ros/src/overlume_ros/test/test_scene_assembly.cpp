@@ -312,6 +312,32 @@ TEST(SceneAssembly, OverlaysVisibleOnlyInFreeLook) {
     EXPECT_TRUE(overlays_visible_for_mode(RenderMode::FREE_LOOK));
 }
 
+// ── Environment/buildings per-mode gate (FOLLOW-UP 9, 2026-09-18) ──────────
+// environment_effectively_visible() is the pure predicate
+// apply_environment_visibility() (overlume_node.cpp) calls before every
+// overlume::set_environment_visible() -- all six mode x enabled combinations,
+// same "pin every cell" shape as ModeContentMask*/BowlVisibleForMode* above.
+
+using overlume::ros::environment_effectively_visible;
+
+TEST(SceneAssembly, EnvironmentHiddenInBowlRegardlessOfEnabled) {
+    EXPECT_FALSE(environment_effectively_visible(RenderMode::BOWL, /*environment_enabled=*/true));
+    EXPECT_FALSE(environment_effectively_visible(RenderMode::BOWL, /*environment_enabled=*/false));
+}
+
+TEST(SceneAssembly, EnvironmentHiddenInHybridRegardlessOfEnabled) {
+    EXPECT_FALSE(environment_effectively_visible(RenderMode::HYBRID, /*environment_enabled=*/true));
+    EXPECT_FALSE(
+        environment_effectively_visible(RenderMode::HYBRID, /*environment_enabled=*/false));
+}
+
+TEST(SceneAssembly, EnvironmentInFreeLookFollowsEnabledSwitch) {
+    EXPECT_TRUE(
+        environment_effectively_visible(RenderMode::FREE_LOOK, /*environment_enabled=*/true));
+    EXPECT_FALSE(
+        environment_effectively_visible(RenderMode::FREE_LOOK, /*environment_enabled=*/false));
+}
+
 // ── Velocity-ribbon re-spine (user directive 2026-09-10) ────────────────────
 
 namespace {
