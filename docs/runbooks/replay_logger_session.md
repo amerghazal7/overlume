@@ -118,3 +118,25 @@ for a full visual validation. `/perception/gradient_ogm` no longer exists
 in the stack source — that profile row is stale.
 
 Bowl/hybrid modes need the six-camera rig; this session has one camera.
+
+## 6. Network-loss check without pulling a cable
+
+Run a tiny local CONNECT proxy and point the node's curl at it; killing the
+proxy is the cable pull (libcurl honours `https_proxy`; cesium-native sets no
+proxy of its own):
+
+```bash
+python3 tools/kill_switch_proxy.py 8899 &   # minimal stdlib CONNECT proxy; logs no URLs or headers
+env -u CESIUM_ION_TOKEN bash -lic 'https_proxy=http://127.0.0.1:8899 no_proxy=127.0.0.1,localhost LIVE_SIM_TIME=true \
+  tools/validate_visual_mode.sh --live --profile replay --param gps_topic:=/fixposition/odometry_llh \
+  --param environment_chunks_dir:=$PWD/overlume/tests/fixtures/environment_test_town_0'
+# arm osm, wait for tunnels: ss -tnp | grep -c ':8899 '   then: kill <proxy pid>
+```
+
+What to expect (measured 2026-09-18): resident tiles keep rendering and the
+node stays healthy; the baked fallback fires only when a NEW tile request
+fails eight times in a row — so use `cache=off` on the source URI (a warm
+disk cache serves everything offline) and a route long enough to leave the
+loaded tiles. A network that is dead at arm time never reaches the threshold
+(one failed handshake, no retry) — see `docs/status.md`'s open item on the
+demand-driven trigger.
