@@ -388,8 +388,13 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     // publisher as BEST_EFFORT (Epic 2 Task 1's own QoS finding, same root
     // cause as robot_speed_sub_'s own comment) -- RELIABLE here would
     // silently never connect.
+    // gps_topic (2026-09-18): the NavSatFix source the geo anchor samples.
+    // Was hard-coded to the simulator's /sim/feedback/gps, which meant the
+    // anchor never solved on a real robot (Fixposition publishes
+    // /fixposition/odometry_llh) and the environment layer could never arm.
+    const std::string gps_topic = declare_parameter<std::string>("gps_topic", "/sim/feedback/gps");
     gps_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
-        "/sim/feedback/gps", rclcpp::QoS(10).best_effort(),
+        gps_topic, rclcpp::QoS(10).best_effort(),
         [this](const sensor_msgs::msg::NavSatFix::SharedPtr msg) {
             geo_anchor_solver_->on_fix(*msg);
             if (!geo_anchor_logged_ && geo_anchor_solver_->solved()) {

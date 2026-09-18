@@ -1,0 +1,367 @@
+# Replay profile for real-robot logger sessions played by mp_play, which
+# re-publishes recorded topics with the recorder's BEST_EFFORT QoS: the four
+# marker rows below add best_effort: true (a reliable subscription never
+# connects to a best-effort publisher). Otherwise identical to urban_profile.yaml.
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
+# DEVIATION from the epic2 plan's literal YAML text (Task 1 Step 3): every
+# `namespaces:` list here is written as a flow SEQUENCE (`[{...}, {...}]`)
+# rather than a block sequence of flow maps nested inside an outer flow
+# mapping. The plan doc's literal form (`namespaces:\n  - {...}\n  - {...}`
+# closed by the row's own trailing `}}`) is not legal YAML once the row
+# itself opens with `- {topic: ...` -- a block-sequence `-` cannot appear
+# inside an already-open flow mapping. Verified against BOTH parsers this
+# profile is read by: PyYAML (`yaml.safe_load`) and the node's own
+# yaml-cpp (`YAML::LoadFile`) reject the literal form with "illegal block
+# entry" / "expected the node content, but found '-'". The flow-sequence
+# form parses identically under both and preserves every row exactly as
+# written in the plan. Same fix applied in offroad_profile.yaml and
+# sim_profile.yaml.
+name: replay
+rows:
+  # Five namespaces on the wire (full-bag deserialization of all 1921 msgs):
+  # dynamic_objects_bbox 15559, _text 15559, _arrow 15522, _hd_map_path 5894,
+  # _hd_map_path_dots 5894. The first four fuse into one TrackedObject
+  # (Task 3). The fifth is the SAME predicted path drawn again as dots (also
+  # LINE_LIST, same 5894 count, same objects) -- ingesting it would draw every
+  # predicted ribbon TWICE. It is dropped by rule, not by silence, so it lands
+  # in dropped_by_rule and VM-034 reports it. Longest-prefix-wins is what makes
+  # this expressible: "dynamic_objects_hd_map_path" is a PREFIX of
+  # "dynamic_objects_hd_map_path_dots".
+  - {topic: /perception/dynamic_objects_list, type: visualization_msgs/msg/MarkerArray,
+     adapter: dynamic_objects, role: tracked, timeout_sec: 2.0,
+     ns_default: drop,
+     namespaces: [
+       {prefix: dynamic_objects_bbox,              render: polyline},
+       {prefix: dynamic_objects_text,               render: polyline},
+       {prefix: dynamic_objects_arrow,              render: polyline},
+       {prefix: dynamic_objects_hd_map_path,        render: polyline},
+       {prefix: dynamic_objects_hd_map_path_dots,   render: drop}]}
+
+  # SKIP ALL, evidence-cited (VM-077 measurement report §4, D4):
+  # dynamic_objects_marker_1..6 -- every one is either a proven or
+  # highly-probable double-render of the content this row already draws
+  # (rigid-transform-invariant distance-signature matching, synchronized to
+  # the same bag index):
+  #   marker_1 (base_link frame, ARROW+CUBE): 31/31 exact distance-signature
+  #     match against marker_2 -- same objects, pre-transform.
+  #   marker_2 (map frame, ARROW+CUBE): 24/31 direct position matches
+  #     against this row's own topic (same idx, rounding + small Δt).
+  #   marker_3 (map frame, ARROW+CUBE): 32/32 exact distance-signature match
+  #     against this row's own topic -- full duplicate.
+  #   marker_4 (0 CUBEs, 243-518 ARROW/CYLINDER/LINE_STRIP markers/msg):
+  #     shape matches this topic's own dynamic_objects_hd_map_path{,_dots}
+  #     namespaces -- near-certainly a duplicate path encoding (not
+  #     point-for-point confirmed, time-budgeted).
+  #   marker_5, marker_6: 0 messages in either recorded bag.
+  # Recommend NOT adding rows for any of these -- this row (real track ids,
+  # TEXT labels, HD-map path lines) is the richer superset besides.
+
+  # PRIMARY map source: rolling ~50 m local window, ~18 Hz, always joinable.
+  # Namespace rules: LONGEST MATCHING PREFIX WINS, unmatched -> ns_default.
+  # centerline_arrows_ is dropped: 93% of all map markers in the recorded bag
+  # (3.31M of 3.56M) for a cosmetic per-lane direction hint. Re-enable by
+  # changing its render: to polyline; no rebuild needed. Note it needs its own
+  # rule -- "centerline_" is a PREFIX of "centerline_arrows_0", so listing
+  # only centerline_ would admit every arrow marker.
+  # centerline_ itself is ALSO dropped: hidden by default -- these are the
+  # logical lane-center lines the HD map records, not painted road markings,
+  # and the road already reads correctly without
+  # them (solid yellow ROAD_EDGE outer lines, dashed white interior
+  # boundaries, filled road surface). Re-enable by restoring
+  # `render: polyline, kind: centerline` on this rule (`kind` cannot be set
+  # while `render: drop` -- ValidateRow's KindIsLegalOnRender rejects a
+  # non-OTHER kind on a drop verdict); once re-enabled, centerlines render as
+  # faint dot guidance (map_elements.cpp's build_centerline_dots()), not the
+  # old solid strip -- and `palette.lane_centerline` (both shipped themes)
+  # picks the dot color.
+  # crosswalk_ is the only polygon namespace: on the wire it is a LINE_STRIP
+  # exactly like the centerlines, so is_polygon (and therefore the crosswalk
+  # hatching in spec §7) can only come from here.
+  # crosswalk_stopline_ is a real map element and is KEPT, as a polyline -- it
+  # is a painted stop bar, not a crosswalk box; again it needs its own rule
+  # because crosswalk_ is a prefix of it.
+  #
+  # Junction cleanup: this row has no `junction` namespace rule -- this feed
+  # never carries JUNCTION geometry -- so the cut mechanism that applies
+  # here is the mutual-crossing cut (hd_map.cpp): any two ROAD_EDGE
+  # polylines from different lane_ids that cross in 2D at a real angle get
+  # trimmed back from the crossing point. SegSegIntersect2D rejects
+  # near-parallel AND near-antiparallel segment pairs (not just
+  # exactly-parallel ones; see its own comment), so a chained lanelet
+  # boundary's ordinary survey kink at a shared node is never mistaken for a
+  # crossing. `junction_interior_boundaries` (row key, default true, not
+  # written here) keeps interior LEFT_/RIGHT_BOUNDARY dashed separators
+  # visible through a junction box by default -- set it to false to drop
+  # them there too, though it is INERT on this row specifically: with no
+  # JUNCTION polygon to clip against, there is nothing for it to do (see
+  # ProfileRow's own comment).
+  #
+  # Three refinements on top of the base cut (all in hd_map.cpp -- see that
+  # file's own comments for the measured thresholds and plan
+  # 2026-08-18-visual-mode-epic3.md for the full derivations):
+  #   - gap-merge: neighbouring crossing windows merge when under
+  #     kJunctionGapMergeM=6.6 m apart, instead of leaving the small gap as
+  #     its own tiny rendered leftover.
+  #   - arc-snap (SnapWindowsToArcs): each cut-window boundary snaps outward
+  #     to a real corner arc's own far edge when one is found nearby on the
+  #     same edge's own polyline, instead of stopping at an arbitrary fixed
+  #     distance mid-curve.
+  #   - redundant-tail trim (TrimRedundantArcTails): an arc-bearing edge's
+  #     own tail past its rejoin vertex is trimmed back when it duplicates a
+  #     different, independently-promoted ROAD_EDGE piece for the rest of
+  #     its length.
+  - {topic: /hd_map_local_elements, best_effort: true, type: visualization_msgs/msg/MarkerArray,
+     adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 2.0,
+     ns_default: drop,
+     namespaces: [
+       {prefix: centerline_,         render: drop},
+       {prefix: centerline_arrows_,  render: drop},
+       {prefix: left_boundary_,      render: polyline, kind: left_boundary},
+       {prefix: right_boundary_,     render: polyline, kind: right_boundary},
+       {prefix: crosswalk,           render: polygon,  kind: crosswalk},
+       {prefix: crosswalk_stopline_, render: polyline, kind: stopline}]}
+
+  # FIXTURE GAP: /hd_map_global_elements was silent in the recorded bag
+  # (Count 0), exactly like /local_path and /navigation/global_path -- and it
+  # ships as a live row for exactly the same reason: it is an ENABLED
+  # rviz_default_plugins/MarkerArray display (config/rviz/urban_config.rviz:147)
+  # and a named HdMapAdapter input in spec §5 / a row in the §7 parity matrix.
+  # Count 0 means a publisher is registered and did not fire in this calm
+  # recording, not that the topic does not exist; omitting the row would leave
+  # a deployment whose global map DOES publish rendering no global lane
+  # geometry, with nothing to uncomment and no rules to copy. Same namespaces
+  # as the local window (same publisher family, same marker types).
+  # CAVEAT, and the reason this row can look dead even when it works: the rviz
+  # display reads it as VOLATILE publish-once, so a late-joining subscriber
+  # gets nothing at all. If the layer stays empty, that is the first thing to
+  # check -- flip transient_local: true here IF the publisher is latched; if
+  # it is genuinely VOLATILE, the node must be up before the publisher.
+  # Junction cleanup: same as the local row above -- no `junction` rule, so
+  # only the mutual-crossing cut (plus its gap-merge/arc-snap/redundant-tail
+  # refinements) applies; `junction_interior_boundaries` (default true, not
+  # written) is likewise inert here. See the local row's own comment.
+  - {topic: /hd_map_global_elements, type: visualization_msgs/msg/MarkerArray,
+     adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 0.5,
+     ns_default: drop,
+     namespaces: [
+       {prefix: centerline_,         render: drop},
+       {prefix: centerline_arrows_,  render: drop},
+       {prefix: left_boundary_,      render: polyline, kind: left_boundary},
+       {prefix: right_boundary_,     render: polyline, kind: right_boundary},
+       {prefix: crosswalk,           render: polygon,  kind: crosswalk},
+       {prefix: crosswalk_stopline_, render: polyline, kind: stopline}]}
+
+  # /road_markers: live in the bag (1921 msgs, RELIABLE, frame map). NOT in
+  # either rviz config -- it ships because it is real painted-lane geometry
+  # the HdMapAdapter already knows how to draw, and dropping it would lose it
+  # with no row to uncomment.
+  # role is `lane`, NOT `corridor`: role must be a value the schema comment
+  # lists and something downstream reads, and MapElement carries no role at
+  # all -- Task 2 Step 9 tints every element with palette.lane_paint. An
+  # earlier draft shipped `corridor` here: unvalidated, unlisted, and read by
+  # nothing, i.e. a value that looks meaningful and drives zero pixels.
+  # Rules are SPELLED OUT rather than left to ns_default, for the same reason
+  # every other row's are: the two namespaces below are what the publisher
+  # emits today (verified, 5 messages: road_lane_left_boundary 320,
+  # road_lane_right_boundary 290, all Marker::type 4 LINE_STRIP, plus one
+  # ns="" action=3 DELETEALL per message). Riding on ns_default: polyline
+  # means the day this publisher adds a TEXT or ARROW namespace -- exactly
+  # what /sim/hd_map/markers did -- it silently becomes dropped_malformed
+  # noise instead of a rule decision.
+  # DISABLED 2026-08-20 — UPSTREAM DATA DEFECT, NOT A RENDERER ISSUE.
+  # Verified by the user: adding /road_markers to rviz shows the SAME wrong
+  # left/right boundary geometry, so the publisher's output itself is off
+  # (its lines do not sit on the road the HD map describes). Rendering it
+  # meanwhile just paints wrong lines over correct ones.
+  # >>> RE-ENABLE by uncommenting this row once the team owning the
+  # >>> /road_markers publisher fixes its output. No code change needed —
+  # >>> the HdMapAdapter path is fully wired and tested; also flip the two
+  # >>> /road_markers assertions in test_profile.cpp back (marked with the
+  # >>> same date), and consider VM-036's `road_edge` kind so it renders
+  # >>> visually distinct from surveyed lane boundaries.
+  # - {topic: /road_markers, type: visualization_msgs/msg/MarkerArray,
+  #    adapter: hd_map, role: lane, timeout_sec: 2.0,
+  #    ns_default: drop,
+  #    namespaces: [
+  #      {prefix: road_lane_left_boundary,  render: polyline},
+  #      {prefix: road_lane_right_boundary, render: polyline}]}
+
+  - {topic: /behavior_path_planner/output_path_visualization, type: nav_msgs/msg/Path,
+     adapter: path, role: behavior, timeout_sec: 2.0}
+  # SKIP, evidence-cited (VM-077 measurement report §3, D4): both of the
+  # following ride the SAME ribbon this row already draws.
+  #   /behavior_path_planner/output_path_line (MarkerArray, LINE_STRIP) --
+  #   its largest sampled message (190 pts) is a 190/190 exact-coordinate
+  #   match (2-decimal) against the closest-in-time output_path_visualization
+  #   Path message (Δt -0.35 ms): a MarkerArray republish of the identical
+  #   polyline, confirmed duplicate.
+  #   /behavior_path_planner/output_path_velocity_visualization (MarkerArray,
+  #   ARROW delete-all sentinel + up to 190x TEXT_VIEW_FACING speed labels,
+  #   never a LINE_STRIP) -- NOT a geometric duplicate (genuinely new
+  #   per-point speed data), but generic_markers.cpp's TEXT_VIEW_FACING path
+  #   is a stated placeholder billboard with no glyph rendering (only
+  #   hud_overlay.cpp's stb_truetype compositor draws real text, and only in
+  #   screen-space HUD/callout use) -- routing this through adapter: generic
+  #   today renders 190 blank oriented boxes per frame, not numbers. DEFER
+  #   pending a 3D-anchored text rendering path (scene.h's Hud::chips/
+  #   AlertChip are reserved for exactly this, unused by design), not this
+  #   plan's job to build one.
+  - {topic: /local_vel_path, type: nav_msgs/msg/Path, adapter: path, role: local}
+  # FIXTURE GAP (VM-023): silent in the recorded bag, but BOTH of these are
+  # enabled rviz_default_plugins/Path displays in config/rviz/offroad_config.rviz,
+  # so spec §7 requires a row for each. They stay stale-faded until something
+  # publishes -- that is the designed behaviour, not a missing feature.
+  - {topic: /navigation/global_path, type: nav_msgs/msg/Path, adapter: path, role: global}
+  - {topic: /local_path, type: nav_msgs/msg/Path, adapter: path, role: local}
+
+  # FIXTURE GAP (VM-025): no OccupancyGrid publisher in the recorded stack.
+  # ONE row per grid, carrying its own patch stream -- an OccupancyGridUpdate
+  # is meaningless without the base grid it patches, so a separate *_updates
+  # row would be an adapter that drops every message it ever receives (there
+  # is one adapter instance per row). This is also exactly how rviz models it:
+  # config/rviz/offroad_config.rviz:49-88 is ONE Map display with Topic and
+  # Update Topic.
+  - {topic: /perception/dynamic_ogm, type: nav_msgs/msg/OccupancyGrid,
+     adapter: ogm, role: dynamic_ogm, update_topic: /perception/dynamic_ogm_updates}
+  - {topic: /perception/gradient_ogm, type: nav_msgs/msg/OccupancyGrid,
+     adapter: ogm, role: gradient_ogm, update_topic: /perception/gradient_ogm_updates}
+
+  # Retargeted 2026-09-09 (VM-077): /navigation_urban_collision_checker_testing_node/*
+  # confirmed dead stack-wide (0 live topics, ros2 topic list -t at
+  # recording time). Role from CONTENT, not the rviz slot the topic
+  # happened to land in (see the epic3 plan's rviz-reference-update
+  # CAUTION) -- explicit "COLLISION\nobject N..." label, no "predicted
+  # path" qualifier, two closed-ring footprints (ego+object).
+  - {topic: /behavior_path_planner/collision_markers,
+     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: collision}
+  # FLAGGED JUDGMENT CALL (VM-077 measurement report §2, not resolved by
+  # content alone): every label ties the event to "object N, predicted
+  # path M" -- matching the OLD object_predicted_polygons semantics -- but
+  # this topic's own text also literally contains "COLLISION", same as the
+  # row above. Only the "predicted path N" qualifier discriminates the two
+  # topics, and it appears ONLY here. Shipped as role: predicted per the
+  # measured recommendation; a human sign-off on this one row, not a
+  # plan-time guess, is the right next step if it ever needs to flip.
+  - {topic: /navigation_motion_obstacle_planner_node/collision_markers, best_effort: true,
+     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: predicted}
+
+  # DISABLED 2026-09-09 -- VM-077 measurement pass found NO successor topic
+  # for this role's content shape (closed-ring ego-sweep polygon) anywhere
+  # in the new stack's 31-topic recording; the whole
+  # /navigation_urban_collision_checker_testing_node/* namespace is
+  # confirmed dead (0 live topics).
+  # >>> RE-ENABLE: (1) `ros2 topic list -t` on the live stack to find a
+  # >>> candidate; (2) content-verify it against THIS role's semantics --
+  # >>> from the message's own ns/geometry/labels, never from which rviz
+  # >>> slot it lands in (see the epic3 plan's rviz-reference-update
+  # >>> CAUTION); (3) retarget the topic name below; (4) flip this row's
+  # >>> assertions in test_profile.cpp back on (marked with the same date).
+  # - {topic: /navigation_urban_collision_checker_testing_node/ego_footprint_sweep,
+  #    type: visualization_msgs/msg/MarkerArray, adapter: collision, role: sweep}
+  # - {topic: /navigation_urban_collision_checker_testing_node/ego_merged_polygon,
+  #    type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_ego}
+  # - {topic: /navigation_urban_collision_checker_testing_node/object_merged_polygons,
+  #    type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_object}
+
+  # Parity fallback (VM-027): anything not stylized above, one row each.
+  # NOTE 1 (frames): this topic publishes in the base_link frame -- the only
+  # non-map frame in the recorded bag. It renders correctly only because every
+  # adapter runs FrameTransformer (see the node's frame_transform.hpp); with
+  # a straight copy its ~126 boxes pile up at the map origin while the ego is
+  # 100+ m away, and it still looks like "something rendered".
+  # NOTE 2 (QoS): best_effort: true is LOAD-BEARING. The bag's metadata.yaml
+  # records this publisher's offered `reliability: 2` (BEST_EFFORT), and an
+  # rclcpp subscription defaults to RELIABLE, which never matches it. Drop the
+  # flag and this row receives ZERO messages, forever, with no error anywhere --
+  # and every test in this epic still passes, because the Task 8 E2E's own
+  # rclpy publisher is RELIABLE. `ros2 topic info -v /sim/ground_truth/boxes`
+  # (or grep the bag metadata) before changing it.
+  # DISABLED BY DEFAULT: ground truth includes the EGO'S OWN box -- at
+  # base_link (0,0), i.e. exactly ON the robot proxy, redrawn at ~9 Hz
+  # against the 30 Hz camera = a flickering box around the ego. All 29 boxes
+  # share ONE namespace (gt_boxes), so no rule can drop just the ego's.
+  # Debug scenery: uncomment to overlay sim ground truth. The Task 8 parity E2E no longer
+  # depends on this row -- it ADDS its own copy of it to a temp profile
+  # (test_extra_topic_parity.py), which is the purer one-YAML-row story.
+  # NOTE 2 above (best_effort is LOAD-BEARING) still applies on re-enable.
+  # - {topic: /sim/ground_truth/boxes, type: visualization_msgs/msg/MarkerArray,
+  #    adapter: generic, role: neutral, best_effort: true}
+
+  # Debug layer, OFF by default (spec §7 row 2). No topic and no type: nothing
+  # in this stack publishes TF as markers, so TfAxesAdapter GENERATES three
+  # coloured LINE_LIST markers per frame from the tf2 buffer the node already
+  # owns (Task 8 Step 7). Uncomment to turn it on; it is noisy on a stack with
+  # dozens of frames, which is why it ships commented.
+  # - {adapter: tf_axes, role: debug, timeout_sec: 1.0}
+
+  # Lidar fusion cloud (VM-035 + VM-077, 2026-09-09) -- validated against the
+  # real recorded /iv_points_fusion in stack_v2_full_sensors_2026-09-09.
+  # best_effort is REQUIRED: the sensor publishes (and the bag replays)
+  # best-effort QoS; a reliable subscription silently receives nothing.
+  # Disable knob: layer_point_clouds param (STANDING directive); style:
+  # theme point_cloud.point_size_px + per-point colors from color_mode.
+  - {topic: /iv_points_fusion, type: sensor_msgs/msg/PointCloud2,
+     adapter: point_cloud, role: points, color_mode: auto, max_points: 60000,
+     stride: 2, best_effort: true, timeout_sec: 2.0}
+
+  # Trajectory carpet (VM-077, 2026-09-09; REDIRECTED 2026-09-10 per user
+  # directive -- see the plan's 2026-09-10 "carpet-as-ribbon redirect"
+  # section) -- per-vertex velocity gradient, wire TRIANGLE_LIST refreshed
+  # every tick (DELETE_ALL + ADD), but rendered as a lane-fill RIBBON
+  # extruded from a derived centerline (one station per dual-rail quad),
+  # stacked into the same z-order as the three PathRole ribbons (between
+  # LOCAL and BEHAVIOR). Disable knob: layer_trajectory_carpet param
+  # (STANDING directive, name unchanged by the redirect); style: per-vertex
+  # color IS the data, ribbon width from the new ribbon.margin_velocity_m
+  # theme token (soft default 1.05), malformed-colors fallback tint reuses
+  # palette.object_tints.unknown verbatim (zero new theme field for that
+  # part).
+  - {topic: /navigation_motion_obstacle_planner_node/output_trajectory_carpet, best_effort: true,
+     type: visualization_msgs/msg/MarkerArray, adapter: trajectory_carpet,
+     role: carpet, timeout_sec: 2.0}
+
+  # New topic (VM-077, 2026-09-09): CUBE+TEXT, a single continuously-tracked
+  # object box + value label -- NOT LINE_STRIP, so adapter: collision would
+  # drop 100% of it (CollisionAdapter::ingest()'s hard type check). Style:
+  # existing GenericMarker color[]/alpha==0 fallback, already live (this
+  # topic's own producer color is non-zero -- fallback is defensive-only).
+  # Disable: this row (removable) + existing layer_markers param. Urban
+  # only -- no evidence this topic publishes under sim/offroad.
+  - {topic: /navigation/debug_cruise_obstacle_marker, best_effort: true,
+     type: visualization_msgs/msg/MarkerArray, adapter: generic, role: neutral,
+     timeout_sec: 2.0}
+
+  # New topic (VM-077, 2026-09-09): static 5-pt closed LINE_STRIP box outline
+  # (local-map tile bounding rect), 38 Hz but constant 352-byte payload --
+  # cheap. TRANSIENT_LOCAL on the wire per the bag's metadata.yaml, but a
+  # 38 Hz republish means a late joiner gets a fresh one within ~26 ms
+  # regardless -- transient_local: true is NOT set here (unlike
+  # /sim/hd_map/markers' once-ever latch); add it if a live deployment shows
+  # a cold-start gap. Urban only -- no evidence this topic publishes under
+  # sim/offroad.
+  - {topic: /local_map_corners, type: visualization_msgs/msg/MarkerArray,
+     adapter: generic, role: neutral, timeout_sec: 2.0}
+
+  # DEFER, no row (VM-077 measurement report §5, D4):
+  # /navigation/bvp_crosswalk_attention_areas -- every sampled message
+  # across the whole bag (1818/1818) is DELETE_ALL-only; never one real ADD
+  # marker in this recording. Same class as the Epic 2 fixture-gap cases,
+  # but with no rviz-enabled-display obligation forcing a row the way
+  # /hd_map_global_elements/local_path had -- so no row at all, not a
+  # stale-faded one. Revisit once a recording actually exercises it.
+
+  # SKIP, data-inconclusive (VM-077 measurement report §5, D4):
+  # /navigation/trajectory_following_status (std_msgs/UInt8) -- structurally
+  # a fine HUD-chip candidate (single byte -> color-coded chip, same shape
+  # as the existing hud_enabled-gated compositor), but data ≡ 1 for all 3657
+  # messages in the entire bag -- zero evidence of what any other value
+  # means. Needs either a msg-definition/source read or a scenario that
+  # actually exercises a deviation before its enum can be measured -- out of
+  # scope for a measurement pass and out of scope for this plan.
+
+  # UNCHANGED (VM-077 measurement report §5, D4): /navigation/global_path,
+  # /local_path, /perception/dynamic_ogm{,_updates} confirmed absent from
+  # both bags' topic lists -- no new evidence this pass; see those adapters'
+  # own FIXTURE GAP rows above, which already state the absence.
