@@ -953,6 +953,12 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
             }
             render_mode_ = msg->data;
             RCLCPP_INFO(get_logger(), "overlume_node: render_mode -> %d", render_mode_);
+            // FOLLOW-UP 9: every render_mode change re-evaluates whether
+            // buildings should be showing (BOWL/HYBRID hide them, FREE_LOOK
+            // restores whatever environment_enabled_ already says) -- this
+            // topic assigns render_mode_ directly, bypassing on_params()'s
+            // own render_mode branch below, so it needs its own call here.
+            apply_environment_visibility();
         });
 
     // ── theme control ─────────────────────────────────────────────────────────
@@ -990,6 +996,25 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     return CallbackReturn::SUCCESS;
 }
 
+// ── Environment visibility (FOLLOW-UP 9, maintainer decision 2026-09-18) ────
+// Single call site for overlume::set_environment_visible(): computes the
+// mode-gated target via environment_effectively_visible() (scene_assembly.hpp)
+// and only calls the library setter (and logs) when that differs from what
+// the renderer already has applied (overlume::environment_visible()
+// readback) -- never more than once per actual state change, so every
+// mutation site below can call this unconditionally without spamming the log
+// on an unrelated param update or a mode "change" that's actually a no-op
+// (e.g. re-publishing the same /rendering/set_mode value).
+void OverlumeNode::apply_environment_visibility() {
+    const bool want = environment_effectively_visible(static_cast<RenderMode>(render_mode_),
+                                                      environment_enabled_);
+    if (overlume::environment_visible(renderer_) == want) return;
+    overlume::set_environment_visible(renderer_, want);
+    RCLCPP_INFO(get_logger(),
+                "environment visibility -> %s (render_mode=%d, environment_enabled=%s)",
+                want ? "visible" : "hidden", render_mode_, environment_enabled_ ? "true" : "false");
+}
+
 // ── Lifecycle: on_activate ───────────────────────────────────────────────────
 OverlumeNode::CallbackReturn OverlumeNode::on_activate(const rclcpp_lifecycle::State& /*state*/) {
     RCLCPP_INFO(get_logger(), "on_activate() called.");
@@ -999,27 +1024,32 @@ OverlumeNode::CallbackReturn OverlumeNode::on_activate(const rclcpp_lifecycle::S
     pub_ego_state_->on_activate();
     pub_diagnostics_->on_activate();
 
-    // VM-052 (Epic 4 Task 3): baked environment chunks. Gated on the
-    // disable knob AND on the geo-anchor already being solved (or
-    // overridden, Step 2's set_override() path) -- solving from live
-    // NavSatFix+TF takes real motion (kMinAnchorSamples @ 50 Hz,
-    // geo_anchor.hpp), so a run with no geo_datum_* override typically
-    // reaches here before solved() flips true; that is the stated, accepted
-    // gap this step's own WARN names, not silently patched around (spec
-    // §4.5/§9: "no anchor from either source -> environment layer disabled
-    // with one WARN").
+    // VM-052 (Epic 4 Task 3) / FOLLOW-UP 2 (maintainer decision, 2026-09-18):
+    // baked environment chunks. Arms the configured source REGARDLESS of
+    // environment_enabled_ now -- only the geo-anchor precondition (already
+    // solved, or overridden via Step 2's set_override() path) still gates
+    // whether arming is attempted; solving from live NavSatFix+TF takes real
+    // motion (kMinAnchorSamples @ 50 Hz, geo_anchor.hpp), so a run with no
+    // geo_datum_* override typically reaches here before solved() flips
+    // true, the stated, accepted gap this step's own WARN names, not
+    // silently patched around (spec §4.5/§9: "no anchor from either source
+    // -> environment layer disabled with one WARN"). Previously this whole
+    // arm attempt was ALSO gated on environment_enabled_, so a launch with
+    // environment_enabled:=false armed nothing at all and the GUI switch
+    // alone could never show buildings later without also picking a preset
+    // live -- see overlume_node.hpp's Environment field comment.
     //
-    // VM-096 gate round 1 finding: push the configured environment_enabled_
-    // into the renderer's visibility flag BEFORE arming a source below --
-    // set_environment_source() syncs a newly-opened source from that flag
-    // (environment_stream.cpp), so a deployment shipping environment_enabled:
-    // false must have visible_ = false in place first, or a later live
-    // preset switch arms a fully VISIBLE source while the GUI switch reads
-    // OFF. VisualRenderer::environmentVisible defaults true, so this call is
-    // a real state change on that default configuration, not a no-op.
-    overlume::set_environment_visible(renderer_, environment_enabled_);
-    if (environment_enabled_ && environment_chunks_dir_.empty() &&
-        environment_source_uri_.empty()) {
+    // apply_environment_visibility() pushes environment_effectively_visible()
+    // (environment_enabled_ && render_mode_ == FREE_LOOK, scene_assembly.hpp,
+    // FOLLOW-UP 9) into the renderer's visibility flag BEFORE arming a source
+    // below -- set_environment_source() syncs a newly-opened source from
+    // that flag (environment.cpp), so this must be in place first, or a
+    // later live preset switch could arm a fully VISIBLE source while the
+    // GUI switch/mode reads otherwise. VisualRenderer::environmentVisible
+    // defaults true, so this call is a real state change on that default
+    // configuration whenever the effective answer is false, not a no-op.
+    apply_environment_visibility();
+    if (environment_chunks_dir_.empty() && environment_source_uri_.empty()) {
         // Neither knob configured ("" is the shipped default for both,
         // VM-044-style per-checkout gap): "not configured", not "failed" --
         // never call the entry point, and the warning names BOTH params
@@ -1029,7 +1059,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_activate(const rclcpp_lifecycle::S
         RCLCPP_WARN(get_logger(),
                     "neither environment_chunks_dir nor environment_source_uri is set -- "
                     "environment layer disabled this run");
-    } else if (environment_enabled_ && geo_anchor_solver_->solved()) {
+    } else if (geo_anchor_solver_->solved()) {
         // VM-063 Decision 5: compose the ONE source_uri string
         // set_environment_source() dispatches on. environment_source_uri_
         // empty -> environment_chunks_dir_ verbatim, byte-for-byte today's
@@ -1053,25 +1083,20 @@ OverlumeNode::CallbackReturn OverlumeNode::on_activate(const rclcpp_lifecycle::S
                         "set_environment_source: failed to open '%s' -- no buildings this run",
                         source_uri.c_str());
         } else {
-            // VM-096: an honest one-shot arming log. This whole branch is
-            // gated on environment_enabled_ (the `else if` above), so the
-            // state word here is always "visible" -- a disabled launch
-            // arms nothing at all and, because every branch of this chain
-            // is gated on environment_enabled_, emits no WARN either. The
-            // armed-but-HIDDEN case lives on the on_params() live-switch
-            // path below, whose own log test_environment_live_switch.py's
-            // check 5 actually greps.
-            RCLCPP_INFO(get_logger(), "environment source armed: '%s' (visible)",
-                        source_uri.c_str());
+            // An honest one-shot arming log: the state word is whatever
+            // apply_environment_visibility() just left in place above (mode-
+            // and enabled-aware since FOLLOW-UP 9), read back from the
+            // renderer itself rather than re-derived here, so this can never
+            // drift from what actually got applied.
+            // test_environment_live_switch.py's check 5 greps this line.
+            RCLCPP_INFO(get_logger(), "environment source armed: '%s' (%s)", source_uri.c_str(),
+                        overlume::environment_visible(renderer_) ? "visible" : "hidden");
         }
-        // No per-mode gate on success: see timer_callback()'s comment above
-        // the bowl-visibility dispatch -- buildings render regardless of
-        // render_mode_ once armed here (named exception 7, signoff.md).
-    } else if (environment_enabled_ && !environment_warned_) {
+    } else if (!environment_warned_) {
         environment_warned_ = true;
         RCLCPP_WARN(get_logger(),
-                    "environment_enabled but no geo-anchor solved yet at on_activate() -- "
-                    "environment layer disabled this run (spec Sec.4.5/9)");
+                    "no geo-anchor solved yet at on_activate() -- environment layer disabled "
+                    "this run (spec Sec.4.5/9)");
     }
 
     using namespace std::chrono_literals;
@@ -1126,6 +1151,13 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                     res.reason = "render_mode must be 1 (bowl), 2 (hybrid) or 3 (free_look)";
                 } else {
                     render_mode_ = v;
+                    // FOLLOW-UP 9: a mode switch is the other half of
+                    // environment_effectively_visible()'s two inputs --
+                    // BOWL/HYBRID hide buildings, FREE_LOOK restores whatever
+                    // environment_enabled_ already says, no re-arm needed
+                    // either way (apply_environment_visibility() no-ops when
+                    // the effective answer hasn't actually changed).
+                    apply_environment_visibility();
                     // Same one-shot WARN as on_configure()'s close-out check
                     // -- a live switch INTO BOWL/HYBRID with the bowl never
                     // configured is the same near-empty-frame trap, just
@@ -1179,10 +1211,15 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
             // this is what makes it LIVE. It only ever toggles VISIBILITY of
             // whatever source on_activate() (or a later environment_source_uri
             // switch below) already armed; it never arms one itself, same
-            // precondition as that arming path (geo-anchor solved).
+            // precondition as that arming path (geo-anchor solved). Since
+            // FOLLOW-UP 9, "visibility" also factors in render_mode_ --
+            // apply_environment_visibility() applies
+            // environment_effectively_visible() instead of this flag alone,
+            // so toggling it while BOWL/HYBRID is active correctly stays
+            // hidden until a switch back to FREE_LOOK.
             else if (n == "environment_enabled") {
                 environment_enabled_ = p.as_bool();
-                overlume::set_environment_visible(renderer_, environment_enabled_);
+                apply_environment_visibility();
                 // Honest reporting (this repo's own "view: pointcloud button
                 // does nothing" precedent): a toggle with no source armed
                 // yet silently does nothing to any rendered frame -- say so
@@ -1210,6 +1247,13 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                         "environment_source_uri: geo-anchor not solved yet -- "
                         "cannot switch the environment source live";
                 } else {
+                    // Seed the renderer's visibility flag before arming,
+                    // same ordering as on_activate() and same reason
+                    // (set_environment_source() syncs a newly-opened source
+                    // from whatever is already stored on `renderer_`) --
+                    // now mode-aware too (FOLLOW-UP 9), not just
+                    // environment_enabled_ alone.
+                    apply_environment_visibility();
                     const std::string source_uri = compose_environment_source_uri(
                         environment_chunks_dir_, requested, environment_tile_cache_dir_);
                     if (source_uri.empty()) {
@@ -1243,14 +1287,17 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                         // path doesn't gate on environment_enabled_ at all
                         // (by design -- it only toggles VISIBILITY,
                         // set_environment_source() syncs the new source from
-                        // r->environmentVisible itself). Same honest arming
-                        // log as on_activate()'s own success path, so a
-                        // switch made while environment_enabled_ is false
-                        // (this session's own launch value, or a prior live
-                        // toggle) is provably HIDDEN, not silently visible.
-                        RCLCPP_INFO(get_logger(), "environment source armed: '%s' (%s)",
-                                    source_uri.c_str(),
-                                    environment_enabled_ ? "visible" : "hidden");
+                        // r->environmentVisible itself, seeded by
+                        // apply_environment_visibility() above). Same honest
+                        // arming log as on_activate()'s own success path,
+                        // read back from the renderer (mode- and
+                        // enabled-aware since FOLLOW-UP 9) rather than
+                        // re-derived here, so a switch made while
+                        // environment_enabled_ is false or render_mode_ isn't
+                        // FREE_LOOK is provably HIDDEN, not silently visible.
+                        RCLCPP_INFO(
+                            get_logger(), "environment source armed: '%s' (%s)", source_uri.c_str(),
+                            overlume::environment_visible(renderer_) ? "visible" : "hidden");
                     } else {
                         res.successful = false;
                         res.reason = "set_environment_source: failed to open '" + source_uri +
@@ -1470,18 +1517,21 @@ void OverlumeNode::timer_callback() {
 
     // Environment/buildings layer (Epic 4/VM-052) is renderer-internal, not a
     // SceneAssembly/LayerFlags category (scene_assembly.hpp's mode_content_mask
-    // comment) -- NOT gated per render_mode_. Buildings are instead gated on
-    // the renderer's environmentVisible flag, which overlume::set_environment_visible()
-    // drives from environment_enabled_ (on_activate() and the on_params()
-    // live toggle above) -- so buildings render regardless of render_mode_
-    // in BOWL/HYBRID whenever a source is armed AND environment_enabled_ is
-    // true. The arming source itself is environment_source_uri_ OR
-    // environment_chunks_dir_ (VM-063), either one composed by
-    // compose_environment_source_uri(). This is named exception 7,
-    // docs/runbooks/signoff.md -- CLOSED (library-side blocker) by
-    // VM-096's set_environment_visible(); the remaining by-design open item
-    // recorded there is that there is still no automatic per-render_mode
-    // gating.
+    // comment). Gated on the renderer's environmentVisible flag, which
+    // overlume::set_environment_visible() drives via
+    // apply_environment_visibility() (on_activate(), the on_params() live
+    // toggles above, and the /rendering/set_mode subscription) -- since
+    // FOLLOW-UP 9 (maintainer decision, 2026-09-18) that flag is
+    // environment_effectively_visible(render_mode_, environment_enabled_):
+    // buildings show ONLY in FREE_LOOK when environment_enabled_ is true;
+    // BOWL/HYBRID always hide them now, regardless of environment_enabled_.
+    // No re-application needed here every tick -- every render_mode_/
+    // environment_enabled_ mutation site already calls
+    // apply_environment_visibility() itself. The arming source is
+    // environment_source_uri_ OR environment_chunks_dir_ (VM-063), either one
+    // composed by compose_environment_source_uri(). This is named exception
+    // 7, docs/runbooks/signoff.md -- now CLOSED in full: the VM-096 library
+    // toggle plus this per-render_mode gate.
 
     // scene_asm_.clear() must run before any adapter's fill(), or last tick's
     // elements pile up on top of this tick's. MapElement fades via the
@@ -1896,10 +1946,12 @@ void OverlumeNode::timer_callback() {
     // attribution. Google's Map Tiles terms require this to be visible
     // whenever tiles are displayed -- drawn through the SAME DrawText()
     // primitive callouts already share (no new compositor), independent of
-    // hud_enabled_/render_mode_ (buildings themselves render regardless of
-    // render_mode_ once armed, on_activate()'s own comment above -- the
-    // attribution notice follows that same "wherever the imagery shows"
-    // rule, not the HUD's per-mode suppression).
+    // hud_enabled_ (the HUD's own per-mode suppression, overlays_visible_for_mode(),
+    // is a separate concern). Since FOLLOW-UP 9 (2026-09-18), buildings
+    // themselves no longer render regardless of render_mode_ -- BOWL/HYBRID
+    // hide them -- so the attribution notice must follow the SAME
+    // environment_effectively_visible() gate below, or this line would draw
+    // Google's credit over frames with no Google imagery on screen.
     //
     // environment_attribution_ alone does not draw anything: this ALSO
     // requires environment_source_uri_ to actually be running in
@@ -1909,13 +1961,8 @@ void OverlumeNode::timer_callback() {
     // is what keeps the notice honest: a source that has fallen back to
     // baked chunks (STREAMING_FALLBACK, one-way per Decision 11) shows NO
     // Google imagery and may not carry its credit.
-    //
-    // VM-096 gate round 1 finding: STREAMING alone is not enough any more --
-    // environment_enabled_ now means "visible" (set_environment_visible()),
-    // not just "armed", so a hidden-but-still-STREAMING source (the GUI
-    // toggle switched off) must also be excluded here, or this line draws
-    // attribution over frames with no Google imagery on screen.
-    if (environment_enabled_ && environment_attribution_ &&
+    if (environment_effectively_visible(render_mode, environment_enabled_) &&
+        environment_attribution_ &&
         environment_source_uri_.find("materials=original") != std::string::npos &&
         overlume::environment_source_state(renderer_) ==
             overlume::EnvironmentSourceState::STREAMING) {

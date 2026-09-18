@@ -114,10 +114,16 @@
     geo_datum_lat_deg: .nan
     geo_datum_lon_deg: .nan
     geo_datum_heading_deg: .nan
-    # VM-052 (Epic 4 Task 3): baked-environment (clay buildings) disable knob
-    # (STANDING directive) -- false means on_activate() never calls
-    # overlume::set_environment_source() at all, same "config for every
-    # rendered element" shape as hud_enabled/callouts_enabled above.
+    # VM-052 (Epic 4 Task 3): baked-environment (clay buildings) VISIBILITY
+    # knob (STANDING directive). FOLLOW-UP 2 (maintainer decision,
+    # 2026-09-18): on_activate() now arms the configured source regardless of
+    # this flag -- false no longer skips overlume::set_environment_source()
+    # itself, only whether buildings are shown once armed, so a deployment
+    # launched with this false can still be shown live from the GUI switch
+    # alone (no preset re-pick needed). Since FOLLOW-UP 9 (same decision),
+    # "shown" also requires render_mode to be 3 (FREE_LOOK/VISUAL) --
+    # environment_effectively_visible() (scene_assembly.hpp): BOWL/HYBRID
+    # always hide buildings regardless of this flag.
     environment_enabled: true
     # Path to Task 2 (VM-051)'s baked chunk index dir (index.yaml +
     # chunks/*.glb) -- same CLASS of gap theme_assets_dir/ego_model_path used

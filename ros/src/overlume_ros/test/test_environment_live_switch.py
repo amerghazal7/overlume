@@ -32,12 +32,17 @@ guarded honestly:
      that FAILS against the pre-VM-096 node (no case for this param name
      existed, so it fell through the on_params() catch-all as accepted).
   4. **node stays alive throughout.**
-  5. (separate run, _run_hidden_arm_check()) **environment_enabled:=false at
-     launch, then a LATER live environment_source_uri switch, arms the
-     environment source HIDDEN, not visible** (VM-096 gate round 1 finding)
-     -- a geo_datum_* override solves the anchor so the live switch is
-     accepted (this is the on_params() SUCCESS path checks 1-4 above don't
-     reach), asserting the "environment source armed" log names it 'hidden'.
+  5. (separate run, _run_hidden_arm_check()) **launched disabled -> armed
+     hidden -> switch shows** (FOLLOW-UP 2, maintainer decision 2026-09-18):
+     environment_enabled:=false at launch, then a live environment_source_uri
+     switch arms the environment source HIDDEN, not visible (VM-096 gate
+     round 1 finding, still true) -- a geo_datum_* override solves the anchor
+     so the live switch is accepted (this is the on_params() SUCCESS path
+     checks 1-4 above don't reach). A LATER `environment_enabled:=true` then
+     shows it (apply_environment_visibility()'s own log line). Same run also
+     covers FOLLOW-UP 9 (per-render_mode gating): `render_mode:=1` (BOWL)
+     hides the now-visible source again even though environment_enabled
+     stayed true, and `render_mode:=3` (FREE_LOOK) restores it.
 
 Honest scope: checks 1-4 do NOT exercise the on_params() SUCCESS path for
 environment_source_uri (that needs a solved geo-anchor, i.e. real
@@ -80,7 +85,7 @@ NODE_NAME = "/overlume_node"
 # on_activate()'s environment-arming branch actually fires (unlike main()'s
 # run above, which deliberately never arms a source).
 FIXTURE_CHUNKS_DIR = os.path.join(
-    CUDA_ROOT, "src", "libs", "overlume", "tests", "fixtures", "environment_test_town_0")
+    REPO_ROOT, "overlume", "tests", "fixtures", "environment_test_town_0")
 FIXTURE_LAT_DEG = 25.0803
 FIXTURE_LON_DEG = 55.3910
 FIXTURE_HEADING_DEG = 0.0
@@ -147,42 +152,44 @@ def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
 
 
 def _run_hidden_arm_check() -> int:
-    """VM-096 gate round 1 finding: on_activate() must push environment_enabled_
-    into the renderer's visibility flag BEFORE arming anything, so that a
-    LATER live environment_source_uri switch -- which arms on its own
-    schedule, gated only on the geo-anchor, never on environment_enabled_
-    (on_params()'s own comment) -- picks up a HIDDEN flag rather than the
-    renderer's true default (environmentVisible=true).
+    """FOLLOW-UP 2 + FOLLOW-UP 9 (maintainer decision, 2026-09-18): one run,
+    four live param changes, each checked against apply_environment_visibility()'s
+    own log line ("environment visibility -> visible|hidden ..." --
+    overlume_node.cpp) or the arming log it feeds ("environment source
+    armed: '...' (visible|hidden)").
 
     Launches with environment_enabled:=false + a geo_datum_* override (no
     environment_chunks_dir here -- deliberately: composing a live
     environment_source_uri switch against a non-empty chunks dir appends
     "?fallback=<dir>", corrupting a plain baked path with a '?' that path
     doesn't have; Decision 5's own restated ceiling. So on_activate() itself
-    arms nothing this run and logs no WARN at all -- every arming branch
-    there (overlume_node.cpp's on_activate(), all three `if`/`else if`
-    arms) is gated on environment_enabled_ being true, and this run launches
-    with it false, so the "neither ... is set" WARN never fires either; the
-    SAME real fixture dir (kTestTownDir, test_environment.cpp) is instead
-    pushed live via `environment_source_uri`, the exact scenario the finding
-    names).
+    arms nothing this run -- with neither chunks dir nor source_uri
+    configured at launch it logs the "neither ... is set" WARN regardless of
+    environment_enabled -- and the SAME real fixture dir (kTestTownDir,
+    test_environment.cpp) is instead pushed live via `environment_source_uri`
+    below, the exact scenario FOLLOW-UP 2 names).
 
-    HONEST SCOPE (this matters -- verified empirically while writing this
-    check): the "environment source armed" log's (hidden)/(visible) word is
-    derived from environment_enabled_ itself, so it is intent, not proof --
-    it would print '(hidden)' here even against a node built WITHOUT the
-    on_activate() fix (confirmed by temporarily reverting the fix and
-    re-running this exact check: it still passed). What THIS check actually
-    proves is the param-surface/plumbing path: environment_enabled:=false at
-    launch is preserved through to the live-switch log line, end to end,
-    through real ROS param get/set, not mocked. The ACTUAL proof that a
-    source armed after set_environment_visible(r, false) comes up hidden --
-    the thing the log line cannot verify from outside the library -- is
+    Sequence, each step checked against the log before the next fires:
+      (a) launched disabled -- live `environment_source_uri` switch arms the
+          real fixture dir HIDDEN (VM-096 gate round 1 finding, still true:
+          the switch doesn't gate on environment_enabled at all, only
+          visibility does).
+      (b) `environment_enabled:=true` -- the now-armed source SHOWS
+          (apply_environment_visibility() logs "-> visible"; this is
+          FOLLOW-UP 2's "switch shows" half).
+      (c) `render_mode:=1` (BOWL) -- HIDES it again even though
+          environment_enabled stayed true (FOLLOW-UP 9: BOWL/HYBRID always
+          hide buildings, mode overrides the switch).
+      (d) `render_mode:=3` (FREE_LOOK) -- SHOWS it again, no re-arm needed.
+
+    HONEST SCOPE: this is a param-surface/log-contract smoke check, not a
+    rendered-pixel proof (the log line cannot itself verify the renderer's
+    scene membership) -- the pixel-level regression guard is
     test_environment.cpp's
     Environment.SetEnvironmentVisibleFalseBeforeArmingHidesNewlyOpenedSource,
-    which uses the new environment_visible() getter plus loaded/scene-
-    membership counts and a real pixel diff. That test is the regression
-    guard for this finding; this one is a wiring smoke check alongside it.
+    and the pure-function truth table (all six mode x enabled combinations)
+    is test_scene_assembly.cpp's Environment*/EnvironmentHidden*/
+    EnvironmentInFreeLook* gtests.
     """
     log_fd, log_path = tempfile.mkstemp(prefix="viz_environment_hidden_arm_", suffix=".log")
     os.close(log_fd)
@@ -198,11 +205,13 @@ def _run_hidden_arm_check() -> int:
         f"> {log_path} 2>&1")
     viz_proc = _popen(viz_cmd)
 
+    def _read_log() -> str:
+        with open(log_path) as f:
+            return f.read()
+
     try:
         if not _wait_running(viz_proc):
-            with open(log_path) as f:
-                tail = f.read()[-2000:]
-            print(f"FAIL: overlume_node (hidden-arm run) exited early:\n{tail}",
+            print(f"FAIL: overlume_node (hidden-arm run) exited early:\n{_read_log()[-2000:]}",
                   file=sys.stderr)
             return 1
 
@@ -210,38 +219,97 @@ def _run_hidden_arm_check() -> int:
             print("FAIL: configure/activate failed (hidden-arm run).", file=sys.stderr)
             return 1
 
-        # The real, committed fixture dir (a plain path, no '?'/'&') -- a
-        # LIVE switch, not the launch config, is what arms a source this
-        # run (see the docstring above for why).
+        # (a) The real, committed fixture dir (a plain path, no '?'/'&') --
+        # a LIVE switch, not the launch config, is what arms a source this
+        # run (see the docstring above for why). FIX ROUND 1 finding: every
+        # step below captures `before` right before its own _param_set_ok()
+        # and asserts only against the log written AFTER it -- on_activate()
+        # (which ran before step (a) even starts) already logs its own
+        # "environment visibility -> hidden" line (want=false against the
+        # renderer's default-true), so a step that greped the WHOLE
+        # cumulative log for that bare substring could pass without its own
+        # action doing anything.
+        before = len(_read_log())
         if not _param_set_ok("environment_source_uri", FIXTURE_CHUNKS_DIR):
             result = _param_set("environment_source_uri", FIXTURE_CHUNKS_DIR)
             print(f"FAIL: live `environment_source_uri` switch to the real fixture dir was "
                   f"rejected -- expected accepted (geo-anchor solved via override). "
                   f"stdout={result.stdout!r} stderr={result.stderr!r}", file=sys.stderr)
             return 1
-
         time.sleep(0.3)
-        with open(log_path) as f:
-            log_text = f.read()
-
+        log_text = _read_log()[before:]
         if "environment source armed" not in log_text:
             print(f"FAIL: the live environment_source_uri switch was accepted but no "
                   f"'environment source armed' log appeared -- expected the on_params() "
-                  f"success path to log it same as on_activate()'s. Log tail:\n"
+                  f"success path to log it same as on_activate()'s. New log:\n"
                   f"{log_text[-3000:]}", file=sys.stderr)
             return 1
-        if "(hidden)" not in log_text:
-            print(f"FAIL: the arming log names this run 'visible' even though it was "
-                  f"launched with environment_enabled:=false -- environment_enabled_ isn't "
-                  f"reaching the live-switch log line. (This check's own docstring is honest "
-                  f"that the log word alone doesn't PROVE the renderer stays hidden -- see "
-                  f"test_environment.cpp's "
-                  f"SetEnvironmentVisibleFalseBeforeArmingHidesNewlyOpenedSource for that.) "
-                  f"Log tail:\n{log_text[-3000:]}", file=sys.stderr)
+        if "environment source armed: '" + FIXTURE_CHUNKS_DIR + "' (hidden)" not in log_text:
+            print(f"FAIL (a): the arming log names this run 'visible' even though it was "
+                  f"launched with environment_enabled:=false -- expected '(hidden)'. "
+                  f"New log:\n{log_text[-3000:]}", file=sys.stderr)
             return 1
-        print("PASS (check 5, separate run): environment_enabled:=false at launch + a "
-              "later live environment_source_uri switch arms a HIDDEN source, not a "
-              "visible one.")
+        print("PASS (a): launched disabled + a live environment_source_uri switch arms a "
+              "HIDDEN source, not a visible one.")
+
+        # (b) FOLLOW-UP 2's "switch shows" half: enabling now shows the
+        # already-armed source.
+        before = len(_read_log())
+        if not _param_set_ok("environment_enabled", "true"):
+            print("FAIL: `ros2 param set environment_enabled true` was rejected.",
+                  file=sys.stderr)
+            return 1
+        time.sleep(0.3)
+        log_text = _read_log()[before:]
+        if "environment visibility -> visible" not in log_text:
+            print(f"FAIL (b): environment_enabled:=true did not show the already-armed "
+                  f"source -- expected an 'environment visibility -> visible' log line "
+                  f"(apply_environment_visibility()). New log:\n{log_text[-3000:]}",
+                  file=sys.stderr)
+            return 1
+        print("PASS (b): environment_enabled:=true shows the already-armed source "
+              "(FOLLOW-UP 2's 'switch shows').")
+
+        # (c) FOLLOW-UP 9: BOWL hides buildings even with environment_enabled
+        # still true. Slicing to only the log written after THIS param set is
+        # what makes this check bite -- on_activate()'s own launch-time
+        # "-> hidden" line (want=false, logged long before step (a)) would
+        # otherwise satisfy a whole-log substring search with zero help from
+        # this step's actual render_mode:=1 change.
+        before = len(_read_log())
+        if not _param_set_ok("render_mode", "1"):
+            print("FAIL: `ros2 param set render_mode 1` was rejected.", file=sys.stderr)
+            return 1
+        time.sleep(0.3)
+        log_text = _read_log()[before:]
+        if "environment visibility -> hidden" not in log_text:
+            print(f"FAIL (c): render_mode:=1 (BOWL) did not hide buildings even though "
+                  f"environment_enabled stayed true -- expected an "
+                  f"'environment visibility -> hidden' log line. New log:\n"
+                  f"{log_text[-3000:]}", file=sys.stderr)
+            return 1
+        print("PASS (c): render_mode:=1 (BOWL) hides buildings regardless of "
+              "environment_enabled.")
+
+        # (d) FOLLOW-UP 9: FREE_LOOK restores them, no re-arm needed. Same
+        # after-this-action slicing as (b)/(c) -- the fragile
+        # `.count(...) >= 2` idiom this replaced only worked by coincidence
+        # (nothing earlier could produce a second "-> visible" line).
+        before = len(_read_log())
+        if not _param_set_ok("render_mode", "3"):
+            print("FAIL: `ros2 param set render_mode 3` was rejected.", file=sys.stderr)
+            return 1
+        time.sleep(0.3)
+        log_text = _read_log()[before:]
+        if "environment visibility -> visible" not in log_text:
+            print(f"FAIL (d): render_mode:=3 (FREE_LOOK) did not re-show buildings -- "
+                  f"expected an 'environment visibility -> visible' log line. "
+                  f"New log:\n{log_text[-3000:]}", file=sys.stderr)
+            return 1
+        print("PASS (d): render_mode:=3 (FREE_LOOK) re-shows buildings, no re-arm needed.")
+
+        print("PASS (check 5, separate run): launched disabled -> armed hidden -> switch "
+              "shows -> BOWL hides -> FREE_LOOK shows.")
         return 0
     finally:
         _kill(viz_proc)

@@ -137,6 +137,10 @@ bool bowl_visible_for_mode(RenderMode mode, bool surround_stitching) {
 
 bool overlays_visible_for_mode(RenderMode mode) { return mode == RenderMode::FREE_LOOK; }
 
+bool environment_effectively_visible(RenderMode mode, bool environment_enabled) {
+    return environment_enabled && mode == RenderMode::FREE_LOOK;
+}
+
 LayerFlags compose_layer_gates(const LayerFlags& user, const LayerFlags& mask) {
     return LayerFlags{
         user.objects && mask.objects,

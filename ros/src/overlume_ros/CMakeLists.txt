@@ -15,7 +15,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 # SetVirtualCam.srv (VM-095 cutover Step 4): OWNED here since the old node's
-# retirement — this package generates its own interface (the type's
+# retirement -- this package generates its own interface (the type's
 # fully-qualified name changed with the move; every consumer repointed in
 # the same step).
 find_package(rosidl_default_generators REQUIRED)
@@ -423,6 +423,57 @@ target_link_libraries(overlume_node_lib overlume_prebuilt)
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
 target_link_libraries(overlume_node_lib "${cpp_typesupport_target}")
 
+# FOLLOW-UP 5: liboverlume.a merges cesium-native's vendored C libraries
+# (sqlite3/curl/openssl/zlib/... -- Decision 4.3's "recorded, not renamed"
+# set, see the _overlume_node_extra_link_archives comment above) as ORDINARY
+# static archives, un-renamed (that rename treatment only ever covered the
+# C++ symbol set -- spdlog/fmt/YAML/cesium's own modules -- because a C
+# symbol can't collide at LINK time the way a C++ one can: there's no
+# mangled-name clash risk). But this SHARED library re-exports every one of
+# those archives' global symbols in its OWN dynamic symbol table by
+# default, and the SAME process also maps the SYSTEM libsqlite3/libcurl/
+# libssl/libcrypto/libz (pulled in by ROS/rmw/python) -- two definitions of
+# e.g. `sqlite3_bind_text` with the same exported name in one process is
+# runtime symbol interposition, not a link-time clash: which copy a caller
+# binds to depends on load order, and a version mismatch between the
+# vendored and system copy can misbehave or crash silently.
+#
+# FIX ROUND 1 blocking finding (2026-09-18): --exclude-libs,ALL doesn't just
+# scope a static archive's symbols out of the version-script sense of
+# "export" -- ld's ELF implementation marks them STV_HIDDEN outright (`man
+# ld`: "symbols affected by this option will be treated as hidden"), the same
+# as a source-level `__attribute__((visibility("hidden")))`, which drops them
+# from .dynsym entirely and unconditionally. A later `--version-script`
+# global rule CANNOT undo that (confirmed empirically: pairing --exclude-
+# libs,ALL with a version script that re-lists __cxa_throw et al. under
+# `global:` still leaves it `nm --defined-only` `t` (local), not imported) --
+# so this hides the vendored libc++abi.a's C++ ABI runtime (__cxa_throw,
+# __cxa_begin_catch, __gxx_personality_v0, the _ZTI*/_ZTS* RTTI type_info
+# objects the personality routine compares) right along with the C libraries
+# this flag was meant for. This .so then carries a PRIVATE exception runtime
+# instead of sharing the one libstdc++.so.6 copy the rest of the process uses
+# (it still dynamically links libstdc++ -- `ldd` shows it, same as
+# /opt/ros/humble/lib/libtf2.so -- only the symbol's VISIBILITY changed). An
+# exception thrown by libtf2.so (bound to libstdc++'s copy) that unwinds into
+# a `catch` frame inside this library (TfAdapter::update()'s
+# `catch (const tf2::TransformException&)`) then fails the personality
+# routine's type match against the wrong runtime and calls std::terminate --
+# reproduced verbatim: "libc++abi: terminating due to uncaught exception of
+# type tf2::LookupException" immediately after on_activate() succeeds, in a
+# plain run with no TF traffic yet.
+#
+# Fix: drop --exclude-libs,ALL and reach the same STV_HIDDEN effect via
+# an explicit version script instead, naming only the vendored C-library
+# pattern set test/test_exported_symbols.sh polices (sqlite3_*/curl_*/SSL_*/
+# EVP_*/inflate*/deflate*/uriParse*/zstd*) under `local:` -- everything else,
+# the C++ ABI runtime included, keeps its normal default (global) visibility
+# and stays the one shared copy the whole process binds to.
+set(_overlume_node_hidden_libs_script "${CMAKE_CURRENT_BINARY_DIR}/overlume_node_hidden_libs.version")
+file(WRITE "${_overlume_node_hidden_libs_script}"
+"{\n  global:\n    *;\n  local:\n    sqlite3_*;\n    curl_*;\n    SSL_*;\n    EVP_*;\n    inflate*;\n    deflate*;\n    uriParse*;\n    zstd*;\n};\n")
+target_link_options(overlume_node_lib PRIVATE
+  "LINKER:--version-script=${_overlume_node_hidden_libs_script}")
+
 # ── Executable ───────────────────────────────────────────────────────────────
 add_executable(overlume_node src/main.cpp)
 target_link_libraries(overlume_node overlume_node_lib)
@@ -829,6 +880,21 @@ if(BUILD_TESTING)
   ament_add_gtest(test_quality_governor test/test_quality_governor.cpp src/quality_governor.cpp)
   target_include_directories(test_quality_governor PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+  # test_exported_symbols: proves the linker version script written at
+  # configure time (overlume_node_hidden_libs.version, `local:` = sqlite3_*,
+  # curl_*, SSL_*, EVP_*, inflate*, deflate*, uriParse*, zstd*) keeps the
+  # vendored C libraries OUT of this .so's dynamic exports (they would
+  # interpose the system libsqlite3/libcurl/libssl/libcrypto/libz that
+  # ROS/rmw/python load into the same process) WHILE the C++ ABI runtime
+  # (__cxa_throw, __gxx_personality_v0) stays exported -- the first attempt,
+  # --exclude-libs,ALL, hid those too and the node aborted on its first tf2
+  # exception. A shell check like check_pod_header: ament writes a
+  # one-testcase xunit result on exit 0, so it adds one ctest target.
+ament_add_test(test_exported_symbols
+    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/test/test_exported_symbols.sh"
+      "$<TARGET_FILE:overlume_node_lib>"
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO)
 endif()
 
 ament_package()

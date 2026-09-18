@@ -95,6 +95,15 @@ private:
     // regardless of mode, same "ingest continues regardless of mode"
     // philosophy as sim_clock_sec_ below.
     void publish_diagnostics();
+    // FOLLOW-UP 9 (maintainer decision, 2026-09-18): computes
+    // environment_effectively_visible(render_mode_, environment_enabled_)
+    // (scene_assembly.hpp) and calls overlume::set_environment_visible()
+    // ONLY when that differs from the renderer's own stored flag
+    // (overlume::environment_visible() readback) -- never more than once per
+    // actual state change, safe to call speculatively from every mutation
+    // site: on_activate() (before arming), on_params()'s environment_enabled
+    // and render_mode branches, and the /rendering/set_mode subscription.
+    void apply_environment_visibility();
 
     // ── virtual-camera presets / eased switching (VM-013) ──────
     // Extracted into its own class (vcam.hpp/vcam.cpp) — owns the preset
@@ -410,21 +419,30 @@ private:
     // ── Environment (VM-052) ──────────────────────────────────────────────────
     // environment_enabled_/environment_chunks_dir_ declared in on_configure(),
     // same shape as hud_enabled_/hud_font_path_ below (STANDING directive
-    // disable knob + per-checkout-path gap). on_activate() calls
-    // overlume::set_environment_source() iff environment_enabled_ AND
-    // geo_anchor_solver_->solved() -- else WARNs once
-    // (environment_warned_) and never calls it, per spec §4.5/§9's "no
-    // anchor -> environment layer disabled with one WARN". Since VM-096,
-    // environment_enabled_ is ALSO live-updated in on_params(): it toggles
-    // the renderer's visibility flag via overlume::set_environment_visible(),
-    // which hides an already-loaded source without tearing down its chunk
-    // index (environment.cpp). environment_source_uri_ (below) is
-    // separately live-re-armable from on_params() too, same geo-anchor
-    // precondition as the arming path here. NOT gated per render_mode_ once
-    // armed: buildings render in BOWL/HYBRID too whenever a source is open,
-    // by design -- named exception 7, docs/runbooks/signoff.md (CLOSED
-    // for the visibility-toggle blocker; the remaining open item recorded
-    // there is that there is still no automatic per-render_mode gating).
+    // disable knob + per-checkout-path gap). FOLLOW-UP 2 (maintainer
+    // decision, 2026-09-18): on_activate() arms the configured source
+    // (environment_source_uri_ or environment_chunks_dir_) REGARDLESS of
+    // environment_enabled_ -- geo_anchor_solver_->solved() is still required
+    // (else WARNs once, environment_warned_, per spec §4.5/§9's "no anchor ->
+    // environment layer disabled with one WARN"), but the disable knob no
+    // longer decides WHETHER arming is attempted, only whether the result is
+    // shown. Previously a launch with environment_enabled:=false armed
+    // nothing at all, so the GUI switch alone could never show buildings
+    // later without also picking a preset live.
+    //
+    // Visibility itself is applied by apply_environment_visibility()
+    // (overlume::set_environment_visible() under the hood, environment.cpp --
+    // hides an already-loaded source without tearing down its chunk index),
+    // which since FOLLOW-UP 9 (same decision) also factors in render_mode_:
+    // environment_effectively_visible() (scene_assembly.hpp) is
+    // `environment_enabled_ && render_mode_ == FREE_LOOK` -- buildings are
+    // part of the VISUAL autonomy scene, so BOWL/HYBRID (the camera-textured
+    // surround) always hide them now, regardless of environment_enabled_.
+    // This closes named exception 7, docs/runbooks/signoff.md, BOTH halves:
+    // the VM-096 library toggle (operator-driven) and this per-render_mode
+    // gate. environment_source_uri_ (below) is separately live-re-armable
+    // from on_params() too, same geo-anchor precondition as the arming path
+    // here.
     bool environment_enabled_{true};
     std::string environment_chunks_dir_;
     bool environment_warned_{false};
