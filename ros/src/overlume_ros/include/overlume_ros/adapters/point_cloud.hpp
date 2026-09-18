@@ -93,7 +93,7 @@
 #include "overlume_ros/scene_assembly.hpp"
 #include "overlume/scene.h"
 
-namespace overlume_node {
+namespace overlume::ros {
 
 // Packs r,g,b,a (each 0..255) into scene.h's documented PointCloudPoint::
 // rgba convention (byte0=r, byte1=g, byte2=b, byte3=a). Exposed (not
@@ -133,4 +133,4 @@ private:
     AdapterStats stats_;
 };
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

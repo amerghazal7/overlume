@@ -40,7 +40,7 @@
 
 #include "overlume_ros/adapter_stats.hpp"
 
-namespace overlume_node {
+namespace overlume::ros {
 
 // One profile row's diagnostics input. `last_msg_age_sec`/`timeout_sec` are
 // caller-computed (overlume_node.cpp already has sim_clock_sec_ and the
@@ -63,4 +63,4 @@ struct RowStats {
 diagnostic_msgs::msg::DiagnosticArray BuildDiagnostics(const std::vector<RowStats>& rows,
                                                        double render_ms);
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

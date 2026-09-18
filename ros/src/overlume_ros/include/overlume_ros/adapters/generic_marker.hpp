@@ -87,7 +87,7 @@
 #include "overlume_ros/scene_assembly.hpp"
 #include "overlume/scene.h"
 
-namespace overlume_node {
+namespace overlume::ros {
 
 class GenericMarkerAdapter {
 public:
@@ -162,4 +162,4 @@ private:
     AdapterStats stats_;
 };
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

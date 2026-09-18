@@ -29,7 +29,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace overlume_node {
+namespace overlume::ros {
 
 // A no-op most ticks -- only set on the tick that CLOSES a window and that
 // window's own verdict actually changes the preset.
@@ -91,4 +91,4 @@ private:
     uint32_t consecutive_good_windows_{0};
 };
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

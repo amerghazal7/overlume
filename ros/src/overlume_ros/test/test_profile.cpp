@@ -11,18 +11,18 @@
 #include "overlume/scene.h"
 #include "fixture_msgs.hpp"
 
-using overlume_node::classify;
-using overlume_node::find_row;
-using overlume_node::load_profile;
-using overlume_node::load_profile_string;
-using overlume_node::match_rule;
-using overlume_node::NsRender;
-using overlume_node::subscriptions_for;
+using overlume::ros::classify;
+using overlume::ros::find_row;
+using overlume::ros::load_profile;
+using overlume::ros::load_profile_string;
+using overlume::ros::match_rule;
+using overlume::ros::NsRender;
+using overlume::ros::subscriptions_for;
 
 TEST(Profile, ShippedUrbanProfileLoads) {
     std::vector<std::string> errs;
     auto p =
-        overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
+        overlume::ros::load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
     EXPECT_TRUE(errs.empty());
     EXPECT_FALSE(p->rows.empty());
@@ -31,7 +31,7 @@ TEST(Profile, ShippedUrbanProfileLoads) {
 TEST(Profile, ShippedOffroadProfileLoads) {
     std::vector<std::string> errs;
     auto p =
-        overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/offroad_profile.yaml", errs);
+        overlume::ros::load_profile(std::string(TEST_CONFIG_DIR) + "/offroad_profile.yaml", errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
     EXPECT_TRUE(errs.empty());
     EXPECT_FALSE(p->rows.empty());
@@ -41,7 +41,7 @@ TEST(Profile, ShippedSimProfileLoadsAndMarksTheLatchedHdMapRow) {
     // sim_profile.yaml is the only shipped profile with a TRANSIENT_LOCAL
     // hd_map row (/sim/hd_map/markers); this pins that QoS bit.
     std::vector<std::string> errs;
-    auto p = overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/sim_profile.yaml", errs);
+    auto p = overlume::ros::load_profile(std::string(TEST_CONFIG_DIR) + "/sim_profile.yaml", errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
     const auto* row = find_row(*p, "/sim/hd_map/markers");
     ASSERT_NE(row, nullptr);
@@ -180,10 +180,10 @@ TEST(Profile, ShippedProfilesRouteEveryKnownNamespaceOfEveryShippedTopic) {
     // namespaces don't match its rules renders as garbage, silently.
     std::vector<std::string> errs;
     auto urban =
-        overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
+        overlume::ros::load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
     ASSERT_TRUE(urban.has_value());
     auto sim =
-        overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/sim_profile.yaml", errs);
+        overlume::ros::load_profile(std::string(TEST_CONFIG_DIR) + "/sim_profile.yaml", errs);
     ASSERT_TRUE(sim.has_value());
 
     // /road_markers row is disabled (bad upstream publisher data); on
@@ -476,7 +476,7 @@ TEST(Profile, TfAxesRowHasNoTopicAndEverythingElseMustHaveOne) {
 
 TEST(Profile, UnknownAdapterIsRejectedWithRowContext) {
     std::vector<std::string> errs;
-    auto p = overlume_node::load_profile_string(
+    auto p = overlume::ros::load_profile_string(
         "name: bad\nrows:\n  - {topic: /x, type: visualization_msgs/msg/MarkerArray,"
         " adapter: teleporter, role: lane}\n",
         errs);
@@ -639,7 +639,7 @@ TEST(Profile, ShippedProfilesCarryEveryCollisionPathAndOgmRow) {
          {"urban_profile.yaml", "offroad_profile.yaml", "sim_profile.yaml"}) {
         std::vector<std::string> errs;
         auto p =
-            overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/" + profile_file, errs);
+            overlume::ros::load_profile(std::string(TEST_CONFIG_DIR) + "/" + profile_file, errs);
         ASSERT_TRUE(p.has_value()) << profile_file << ": " << (errs.empty() ? "" : errs[0]);
         for (const auto& exp : kExpectedRows) {
             const auto* row = find_row(*p, exp.topic);
@@ -669,7 +669,7 @@ TEST(Profile, CoexistsWithTheRendererLibrarysOwnYamlCpp) {
     // guard. Vendor yaml-cpp (gcc/libstdc++) parses a profile...
     std::vector<std::string> errs;
     auto p =
-        overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
+        overlume::ros::load_profile(std::string(TEST_CONFIG_DIR) + "/urban_profile.yaml", errs);
     ASSERT_TRUE(p.has_value());
     // Row COUNT, not just has_value(): an ABI-mismatched YAML::Node can link
     // fine and still return a Profile with the right error count (0) but the
@@ -691,7 +691,7 @@ TEST(Profile, CoexistsWithTheRendererLibrarysOwnYamlCpp) {
     EXPECT_FALSE(overlume::theme_parses(OVERLUME_THEME_DIR, "no_such_theme"));
     // ...and the vendor copy still works afterwards (ordering-sensitive
     // static state is the failure mode a single call would miss).
-    auto p2 = overlume_node::load_profile(std::string(TEST_CONFIG_DIR) + "/sim_profile.yaml", errs);
+    auto p2 = overlume::ros::load_profile(std::string(TEST_CONFIG_DIR) + "/sim_profile.yaml", errs);
     EXPECT_TRUE(p2.has_value());
 }
 
@@ -700,7 +700,7 @@ TEST(FixtureMsgs, DynamicObjectsListFixtureRoundTrips) {
     // Fixture generated by scripts/bag_to_fixture.py from the real bag;
     // message 0 has 15 markers -- first is the ns="" action=DELETEALL
     // marker, second is a dynamic_objects_bbox CUBE.
-    auto arr = overlume_node::testing::load_marker_array("perception_dynamic_objects_list_0.yaml");
+    auto arr = overlume::ros::testing::load_marker_array("perception_dynamic_objects_list_0.yaml");
     ASSERT_EQ(arr.markers.size(), 15u);
     EXPECT_EQ(arr.markers[0].ns, "");
     EXPECT_EQ(arr.markers[0].action, 3);

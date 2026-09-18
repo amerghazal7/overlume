@@ -24,8 +24,8 @@
 
 using overlume::ros::FrameTransformer;
 using overlume::ros::SceneAssembly;
-using overlume_node::ClassInferenceTable;
-using overlume_node::DynamicObjectsAdapter;
+using overlume::ros::ClassInferenceTable;
+using overlume::ros::DynamicObjectsAdapter;
 
 namespace {
 
@@ -137,28 +137,28 @@ const overlume::TrackedObject* FindById(const SceneAssembly& out, uint32_t id) {
 // ── Class inference (Task 3 Step 2) ─────────────────────────────────────────
 
 TEST(ClassInference, PrefixWinsOverFootprint) {
-    const auto cfg = overlume_node::testing::inference_table();
-    EXPECT_EQ(overlume_node::infer(cfg, "V_1105", {5.03, 2.15, 1.65}), overlume::ObjectClass::CAR);
+    const auto cfg = overlume::ros::testing::inference_table();
+    EXPECT_EQ(overlume::ros::infer(cfg, "V_1105", {5.03, 2.15, 1.65}), overlume::ObjectClass::CAR);
 }
 
 TEST(ClassInference, UnknownPrefixFallsBackToFootprintBands) {
-    const auto cfg = overlume_node::testing::inference_table();
-    EXPECT_EQ(overlume_node::infer(cfg, "Z_9", {0.6, 0.6, 1.8}), overlume::ObjectClass::PEDESTRIAN);
-    EXPECT_EQ(overlume_node::infer(cfg, "Z_9", {1.9, 0.7, 1.7}), overlume::ObjectClass::CYCLIST);
-    EXPECT_EQ(overlume_node::infer(cfg, "Z_9", {12.0, 2.5, 3.2}), overlume::ObjectClass::BUS);
+    const auto cfg = overlume::ros::testing::inference_table();
+    EXPECT_EQ(overlume::ros::infer(cfg, "Z_9", {0.6, 0.6, 1.8}), overlume::ObjectClass::PEDESTRIAN);
+    EXPECT_EQ(overlume::ros::infer(cfg, "Z_9", {1.9, 0.7, 1.7}), overlume::ObjectClass::CYCLIST);
+    EXPECT_EQ(overlume::ros::infer(cfg, "Z_9", {12.0, 2.5, 3.2}), overlume::ObjectClass::BUS);
 }
 
 TEST(ClassInference, NoLabelAndNoMatchingBandIsUnknownNotACrash) {
-    const auto cfg = overlume_node::testing::inference_table();
-    EXPECT_EQ(overlume_node::infer(cfg, nullptr, {0, 0, 0}), overlume::ObjectClass::UNKNOWN);
+    const auto cfg = overlume::ros::testing::inference_table();
+    EXPECT_EQ(overlume::ros::infer(cfg, nullptr, {0, 0, 0}), overlume::ObjectClass::UNKNOWN);
 }
 
 // ── Fusion / field-source rules (Task 3 Step 1) ──────────────────────────────
 
 TEST(DynamicObjects, FourNamespacesFuseIntoOneTrackedObject) {
     TfFixture kTf;
-    auto classes = overlume_node::testing::inference_table();
-    DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
+    auto classes = overlume::ros::testing::inference_table();
+    DynamicObjectsAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_objects_list"),
                             kTf.tf, classes);
 
     std::vector<geometry_msgs::msg::Point> path_wire;
@@ -191,10 +191,10 @@ TEST(DynamicObjects, HeadingComesFromTheBboxPoseOrientationNotTheArrow) {
     // "map" -- identity transform) -- verified against an independent
     // atan2(2(wz+xy), 1-2(y^2+z^2)) computation, NOT the adapter's own
     // formula, so this is an actual check of the math, not a tautology.
-    auto msg = overlume_node::testing::load_marker_array("perception_dynamic_objects_list_0.yaml");
+    auto msg = overlume::ros::testing::load_marker_array("perception_dynamic_objects_list_0.yaml");
     TfFixture kTf;
-    auto classes = overlume_node::testing::inference_table();
-    DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
+    auto classes = overlume::ros::testing::inference_table();
+    DynamicObjectsAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_objects_list"),
                             kTf.tf, classes);
     a.ingest(msg, 1.0);
     SceneAssembly out;
@@ -218,8 +218,8 @@ TEST(DynamicObjects, HeadingComesFromTheBboxPoseOrientationNotTheArrow) {
 
 TEST(DynamicObjects, ArrowSuppliesVelocityOnlyAndZeroLengthIsZeroVelocity) {
     TfFixture kTf;
-    auto classes = overlume_node::testing::inference_table();
-    DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
+    auto classes = overlume::ros::testing::inference_table();
+    DynamicObjectsAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_objects_list"),
                             kTf.tf, classes);
 
     visualization_msgs::msg::MarkerArray msg;
@@ -251,10 +251,10 @@ TEST(DynamicObjects, ArrowSuppliesVelocityOnlyAndZeroLengthIsZeroVelocity) {
 }
 
 TEST(DynamicObjects, FirstFramePerObjectHasNoArrow_StillEmitsObject) {
-    auto msg = overlume_node::testing::load_marker_array("perception_dynamic_objects_list_0.yaml");
+    auto msg = overlume::ros::testing::load_marker_array("perception_dynamic_objects_list_0.yaml");
     TfFixture kTf;
-    auto classes = overlume_node::testing::inference_table();
-    DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
+    auto classes = overlume::ros::testing::inference_table();
+    DynamicObjectsAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_objects_list"),
                             kTf.tf, classes);
     a.ingest(msg, 1.0);
     SceneAssembly out;
@@ -278,8 +278,8 @@ TEST(DynamicObjects, PredictedPathLineListPairsCollapseToAPolyline) {
     ASSERT_EQ(wire.size(), 144u);
 
     TfFixture kTf;
-    auto classes = overlume_node::testing::inference_table();
-    DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
+    auto classes = overlume::ros::testing::inference_table();
+    DynamicObjectsAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_objects_list"),
                             kTf.tf, classes);
     visualization_msgs::msg::MarkerArray msg;
     msg.markers.push_back(DeleteAll());
@@ -303,12 +303,12 @@ TEST(DynamicObjects, NonContiguousLineListIsDroppedNotStitched) {
     std::vector<geometry_msgs::msg::Point> disjoint = {Pt(0, 0, 0), Pt(1, 0, 0), Pt(5, 0, 0),
                                                        Pt(6, 0, 0)};
     std::vector<overlume::Vec3> out_pts;
-    EXPECT_FALSE(overlume_node::line_list_to_polyline(disjoint, out_pts));
+    EXPECT_FALSE(overlume::ros::line_list_to_polyline(disjoint, out_pts));
 
     // Adapter-level: the object still renders, just without a predicted path.
     TfFixture kTf;
-    auto classes = overlume_node::testing::inference_table();
-    DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
+    auto classes = overlume::ros::testing::inference_table();
+    DynamicObjectsAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_objects_list"),
                             kTf.tf, classes);
     visualization_msgs::msg::MarkerArray msg;
     msg.markers.push_back(DeleteAll());
@@ -331,8 +331,8 @@ TEST(DynamicObjects, PredictedPathReadsPerVertexColorsTopLevelRgbaIsBlack) {
     BuildChainedLineList(4, wire, expected);  // small chain, 5 verts
 
     TfFixture kTf;
-    auto classes = overlume_node::testing::inference_table();
-    DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
+    auto classes = overlume::ros::testing::inference_table();
+    DynamicObjectsAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_objects_list"),
                             kTf.tf, classes);
     visualization_msgs::msg::MarkerArray msg;
     msg.markers.push_back(DeleteAll());
@@ -368,8 +368,8 @@ TEST(DynamicObjects, PathDotsNamespaceIsDroppedByRuleAndCounted) {
     BuildChainedLineList(2, wire, expected);  // 4 pts -> 3 verts
 
     TfFixture kTf;
-    auto classes = overlume_node::testing::inference_table();
-    auto row = overlume_node::testing::urban_row("/perception/dynamic_objects_list");
+    auto classes = overlume::ros::testing::inference_table();
+    auto row = overlume::ros::testing::urban_row("/perception/dynamic_objects_list");
     DynamicObjectsAdapter a(row, kTf.tf, classes);
 
     visualization_msgs::msg::MarkerArray msg;
@@ -382,10 +382,10 @@ TEST(DynamicObjects, PathDotsNamespaceIsDroppedByRuleAndCounted) {
     msg.markers.push_back(PathMarker("dynamic_objects_hd_map_path_dots", 1007, wire));
     msg.markers.push_back(PathMarker("dynamic_objects_hd_map_path_dots", 1008, wire));
 
-    ASSERT_EQ(overlume_node::classify(row, "dynamic_objects_hd_map_path_dots"),
-              overlume_node::NsRender::kDrop);
-    ASSERT_EQ(overlume_node::classify(row, "dynamic_objects_hd_map_path"),
-              overlume_node::NsRender::kPolyline);
+    ASSERT_EQ(overlume::ros::classify(row, "dynamic_objects_hd_map_path_dots"),
+              overlume::ros::NsRender::kDrop);
+    ASSERT_EQ(overlume::ros::classify(row, "dynamic_objects_hd_map_path"),
+              overlume::ros::NsRender::kPolyline);
 
     a.ingest(msg, 1.0);
     SceneAssembly out;
@@ -401,10 +401,10 @@ TEST(DynamicObjects, PathDotsNamespaceIsDroppedByRuleAndCounted) {
 // ── DELETEALL / malformed (Task 3 Step 1, last two tests) ────────────────────
 
 TEST(DynamicObjects, DeleteAllMarkerClearsPreviousFrame) {
-    auto msg = overlume_node::testing::load_marker_array("perception_dynamic_objects_list_0.yaml");
+    auto msg = overlume::ros::testing::load_marker_array("perception_dynamic_objects_list_0.yaml");
     TfFixture kTf;
-    auto classes = overlume_node::testing::inference_table();
-    DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
+    auto classes = overlume::ros::testing::inference_table();
+    DynamicObjectsAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_objects_list"),
                             kTf.tf, classes);
 
     a.ingest(msg, 1.0);
@@ -425,10 +425,10 @@ TEST(DynamicObjects, MalformedMarkersDroppedAndCounted) {
     // an empty text string (3003), a bbox with no matching text marker at
     // all (3004) -- all four dropped and counted -- plus one fully valid
     // track (3005) proving neighbours survive.
-    auto msg = overlume_node::testing::load_marker_array("dynamic_objects_malformed.yaml");
+    auto msg = overlume::ros::testing::load_marker_array("dynamic_objects_malformed.yaml");
     TfFixture kTf;
-    auto classes = overlume_node::testing::inference_table();
-    DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
+    auto classes = overlume::ros::testing::inference_table();
+    DynamicObjectsAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_objects_list"),
                             kTf.tf, classes);
 
     a.ingest(msg, 1.0);
@@ -451,8 +451,8 @@ TEST(DynamicObjects, PathMarkerOwnPoseComposesBeforePolylineConversion) {
     // The PATH marker's own pose (5,0,0), NO rotation, applied to a local
     // 2-vertex chain (0,0,0)->(1,0,0) -> polyline lands at (5,0,0),(6,0,0).
     TfFixture kTf;
-    auto classes = overlume_node::testing::inference_table();
-    DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
+    auto classes = overlume::ros::testing::inference_table();
+    DynamicObjectsAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_objects_list"),
                             kTf.tf, classes);
 
     std::vector<geometry_msgs::msg::Point> wire;
@@ -485,8 +485,8 @@ TEST(DynamicObjects, ArrowPureTranslationPoseLeavesVelocityUnchanged) {
     // pose must reproduce the identity-pose velocity exactly (see
     // ArrowSuppliesVelocityOnlyAndZeroLengthIsZeroVelocity's (3,4) case).
     TfFixture kTf;
-    auto classes = overlume_node::testing::inference_table();
-    DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
+    auto classes = overlume::ros::testing::inference_table();
+    DynamicObjectsAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_objects_list"),
                             kTf.tf, classes);
 
     visualization_msgs::msg::MarkerArray msg;
@@ -510,8 +510,8 @@ TEST(DynamicObjects, ArrowPureTranslationPoseLeavesVelocityUnchanged) {
 
 TEST(DynamicObjects, ArrowNinetyDegreeYawPoseRotatesVelocity) {
     TfFixture kTf;
-    auto classes = overlume_node::testing::inference_table();
-    DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
+    auto classes = overlume::ros::testing::inference_table();
+    DynamicObjectsAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_objects_list"),
                             kTf.tf, classes);
 
     visualization_msgs::msg::MarkerArray msg;
@@ -554,8 +554,8 @@ TEST(DynamicObjects, MarkerPoseAndNonMapFrameComposeInFrameInsideOrder) {
     buffer.setTransform(xf, "test_authority", /*is_static=*/true);
     FrameTransformer ft(buffer);
 
-    auto classes = overlume_node::testing::inference_table();
-    DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
+    auto classes = overlume::ros::testing::inference_table();
+    DynamicObjectsAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_objects_list"),
                             ft, classes);
 
     std::vector<geometry_msgs::msg::Point> wire;
@@ -596,8 +596,8 @@ TEST(DynamicObjects, NanArrowPoseIsDroppedAsMalformed) {
     // not. The object still renders (bbox+text are fine); velocity stays
     // zero because the malformed arrow contributed nothing.
     TfFixture kTf;
-    auto classes = overlume_node::testing::inference_table();
-    DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
+    auto classes = overlume::ros::testing::inference_table();
+    DynamicObjectsAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_objects_list"),
                             kTf.tf, classes);
 
     visualization_msgs::msg::MarkerArray msg;
@@ -625,8 +625,8 @@ TEST(DynamicObjects, ZeroQuaternionBboxPoseIsIdentityHeadingNotNan) {
     // still emitted, heading 0, position honoured, nothing counted
     // malformed.
     TfFixture kTf;
-    auto classes = overlume_node::testing::inference_table();
-    DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
+    auto classes = overlume::ros::testing::inference_table();
+    DynamicObjectsAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_objects_list"),
                             kTf.tf, classes);
 
     visualization_msgs::msg::MarkerArray msg;
@@ -650,8 +650,8 @@ TEST(DynamicObjects, NonZeroBboxZIsFlattenedToTheMapPlane) {
     // bbox centers carry z (half the box height); rendered objects must
     // flatten to the 2D HD-map plane.
     TfFixture kTf;
-    auto classes = overlume_node::testing::inference_table();
-    DynamicObjectsAdapter a(overlume_node::testing::urban_row("/perception/dynamic_objects_list"),
+    auto classes = overlume::ros::testing::inference_table();
+    DynamicObjectsAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_objects_list"),
                             kTf.tf, classes);
 
     visualization_msgs::msg::MarkerArray msg;

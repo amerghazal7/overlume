@@ -10,7 +10,7 @@
 #include <tf2/LinearMath/Transform.h>
 #include <tf2/LinearMath/Vector3.h>
 
-namespace overlume_node {
+namespace overlume::ros {
 namespace {
 
 // visualization_msgs/msg/Marker.msg action + type constants -- not worth a
@@ -184,4 +184,4 @@ void CollisionAdapter::fill(overlume::ros::SceneAssembly& out) const {
     }
 }
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

@@ -96,7 +96,7 @@
 #include "overlume_ros/scene_assembly.hpp"
 #include "overlume/scene.h"
 
-namespace overlume_node {
+namespace overlume::ros {
 
 // One footprint band (class_inference.yaml's `footprint:` list) -- first
 // band whose length/width/height all satisfy wins; an absent bound is the
@@ -188,4 +188,4 @@ private:
     AdapterStats stats_;
 };
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

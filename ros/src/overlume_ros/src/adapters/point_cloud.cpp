@@ -11,7 +11,7 @@
 #include <tf2/LinearMath/Transform.h>
 #include <tf2/LinearMath/Vector3.h>
 
-namespace overlume_node {
+namespace overlume::ros {
 namespace {
 
 // STATED DEVIATION (see point_cloud.hpp's own header comment): soft-
@@ -211,4 +211,4 @@ void PointCloudAdapter::fill(overlume::ros::SceneAssembly& out) const {
     out.point_clouds.push_back(pc);
 }
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

@@ -20,8 +20,8 @@
 #include "overlume_ros/scene_assembly.hpp"
 
 using overlume::ros::SceneAssembly;
-using overlume_node::ProfileRow;
-using overlume_node::TfAxesAdapter;
+using overlume::ros::ProfileRow;
+using overlume::ros::TfAxesAdapter;
 
 namespace {
 

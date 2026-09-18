@@ -74,6 +74,33 @@
 # regex would silently miss the trailing-`_`-attached forms. Verified safe:
 # none of these eight patterns is a substring of unrelated, real-word text
 # anywhere in this repo (confirmed by the Task 2 survey).
+#
+# --- 2026-09-17: open follow-up 11 (C++ namespace merge, not run through --
+# this script, recorded here only so the one-shot rename record stays
+# complete) ---
+#
+# ros/src/overlume_ros carried two C++ namespaces left over from the Task 2
+# rename above: `overlume_node` (31 files -- the former `visualization_node`
+# namespace) and `overlume::ros` (the former `micropilot::visualization_app`).
+# Merged into one: `overlume::ros` (tests: `overlume::ros::testing`).
+#
+# Survey: every symbol declared directly in each namespace (classes, structs,
+# enums, free functions, constants, using-decls; anonymous-namespace helpers
+# excluded) was enumerated and cross-checked -- ZERO name collisions between
+# the two sets. No rename-on-merge was needed as a result; the merge is a
+# pure mechanical namespace-token rewrite:
+#   `namespace overlume_node {`            -> `namespace overlume::ros {`
+#   `}  // namespace overlume_node`        -> `}  // namespace overlume::ros`
+#   `overlume_node::` (incl. `overlume_node::testing`, `using overlume_node::X`)
+#                                           -> `overlume::ros::` (`overlume::ros::testing`, ...)
+# Left untouched (not C++ namespace tokens): the ROS node name string
+# "overlume_node" (rclcpp_lifecycle::LifecycleNode ctor arg, log lines), the
+# `overlume_node`/`overlume_node_lib`/`overlume_node_test_paths` CMake target
+# names, the `OVERLUME_NODE_FIXTURES_DIR`/`OVERLUME_NODE_STB_DIR` macros, the
+# `overlume_node.{hpp,cpp}` file names (in `#include`s and comments), and
+# every ROS-graph reference in tools/vcam_ws_bridge.py / launch files / params
+# YAML (topics, services, the node name) -- those name the ROS graph, not a
+# C++ namespace.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

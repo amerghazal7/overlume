@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace overlume_node {
+namespace overlume::ros {
 
 namespace {
 
@@ -78,4 +78,4 @@ QualityTransition QualityGovernor::record_render_ms(double render_ms) {
     return QualityTransition::NONE;
 }
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

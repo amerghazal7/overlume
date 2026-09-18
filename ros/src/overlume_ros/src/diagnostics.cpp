@@ -10,7 +10,7 @@
 
 #include <sstream>
 
-namespace overlume_node {
+namespace overlume::ros {
 
 namespace {
 
@@ -76,4 +76,4 @@ diagnostic_msgs::msg::DiagnosticArray BuildDiagnostics(const std::vector<RowStat
     return msg;
 }
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

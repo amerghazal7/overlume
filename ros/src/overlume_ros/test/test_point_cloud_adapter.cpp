@@ -43,9 +43,9 @@ struct TfFixture {
 // No shipped profile carries a live adapter: point_cloud row (FIXTURE GAP)
 // -- hand-built directly here, same "no urban_row()/sim_row() to borrow"
 // shape test_tf_axes_adapter.cpp already uses for its own row.
-overlume_node::ProfileRow MakeRow(const std::string& color_mode = "auto", uint32_t max_points = 0,
+overlume::ros::ProfileRow MakeRow(const std::string& color_mode = "auto", uint32_t max_points = 0,
                                   uint32_t stride = 1) {
-    overlume_node::ProfileRow row;
+    overlume::ros::ProfileRow row;
     row.topic = "/lidar/points";
     row.type = "sensor_msgs/msg/PointCloud2";
     row.adapter = "point_cloud";
@@ -139,7 +139,7 @@ TEST(PointCloudAdapter, AutoModePicksRgbWhenFieldPresent) {
     };
     auto msg = BuildCloud(pts, "rgb");
     TfFixture kTf;
-    overlume_node::PointCloudAdapter a(MakeRow("auto"), kTf.tf);
+    overlume::ros::PointCloudAdapter a(MakeRow("auto"), kTf.tf);
     a.ingest(msg, /*sim_time_sec=*/1.0);
     ASSERT_EQ(a.stats().msgs, 1u);
 
@@ -163,7 +163,7 @@ TEST(PointCloudAdapter, AutoModeFallsBackToIntensityRampWhenNoRgbFieldExists) {
     };
     auto msg = BuildCloud(pts, "intensity");
     TfFixture kTf;
-    overlume_node::PointCloudAdapter a(MakeRow("auto"), kTf.tf);
+    overlume::ros::PointCloudAdapter a(MakeRow("auto"), kTf.tf);
     a.ingest(msg, 1.0);
 
     SceneAssembly asm_;
@@ -189,7 +189,7 @@ TEST(PointCloudAdapter, AutoModeFallsBackToHeightRampWhenNeitherRgbNorIntensityE
     };
     auto msg = BuildCloud(pts, "");  // bare XYZ -- no rgb, no intensity field at all
     TfFixture kTf;
-    overlume_node::PointCloudAdapter a(MakeRow("auto"), kTf.tf);
+    overlume::ros::PointCloudAdapter a(MakeRow("auto"), kTf.tf);
     a.ingest(msg, 1.0);
 
     SceneAssembly asm_;
@@ -221,7 +221,7 @@ TEST(PointCloudAdapter, IntensityRangeAutoRangesWhenRowLeavesItUnset) {
     };
     auto msg = BuildCloud(pts, "intensity");
     TfFixture kTf;
-    overlume_node::PointCloudAdapter a(MakeRow("intensity"), kTf.tf);
+    overlume::ros::PointCloudAdapter a(MakeRow("intensity"), kTf.tf);
     a.ingest(msg, 1.0);
 
     SceneAssembly asm_;
@@ -255,7 +255,7 @@ TEST(PointCloudAdapter, DecimationRespectsMaxPointsAndStride) {
     }
     auto msg = BuildCloud(pts, "rgb");
     TfFixture kTf;
-    overlume_node::PointCloudAdapter a(MakeRow("rgb", /*max_points=*/3, /*stride=*/2), kTf.tf);
+    overlume::ros::PointCloudAdapter a(MakeRow("rgb", /*max_points=*/3, /*stride=*/2), kTf.tf);
     a.ingest(msg, 1.0);
 
     SceneAssembly asm_;
@@ -275,7 +275,7 @@ TEST(PointCloudAdapter, MissingXyzFieldDropsWholeMessage) {
     auto msg = BuildCloud(pts, "");
     msg.fields.erase(msg.fields.begin() + 2);  // drop "z"
     TfFixture kTf;
-    overlume_node::PointCloudAdapter a(MakeRow(), kTf.tf);
+    overlume::ros::PointCloudAdapter a(MakeRow(), kTf.tf);
     a.ingest(msg, 1.0);
     EXPECT_EQ(a.stats().dropped_malformed, 1u);
 
@@ -288,7 +288,7 @@ TEST(PointCloudAdapter, FlatModeBakesTheAlphaZeroSentinel) {
     std::vector<SyntheticPoint> pts = {{0, 0, 0, 0}, {1, 0, 0, 0}};
     auto msg = BuildCloud(pts, "");
     TfFixture kTf;
-    overlume_node::PointCloudAdapter a(MakeRow("flat"), kTf.tf);
+    overlume::ros::PointCloudAdapter a(MakeRow("flat"), kTf.tf);
     a.ingest(msg, 1.0);
 
     SceneAssembly asm_;
@@ -402,7 +402,7 @@ std::vector<SyntheticPoint> MakeGoldenGrid(const std::string& extra_name) {
 void RenderGoldenAndAssert(const std::string& tier_name, const std::string& extra_field_name) {
     auto msg = BuildCloud(MakeGoldenGrid(extra_field_name), extra_field_name);
     TfFixture kTf;
-    overlume_node::PointCloudAdapter adapter(MakeRow("auto"), kTf.tf);
+    overlume::ros::PointCloudAdapter adapter(MakeRow("auto"), kTf.tf);
     adapter.ingest(msg, /*sim_time_sec=*/1.0);
 
     SceneAssembly asm_;

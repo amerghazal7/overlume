@@ -8,7 +8,7 @@
 #include <tf2/LinearMath/Transform.h>
 #include <tf2/LinearMath/Vector3.h>
 
-namespace overlume_node {
+namespace overlume::ros {
 namespace {
 
 // Hand-kept mirror of the library's kStaleFadeTimeoutSec (renderer-internal,
@@ -93,4 +93,4 @@ void PathAdapter::fill(overlume::ros::SceneAssembly& out) const {
     out.paths.push_back(r);
 }
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

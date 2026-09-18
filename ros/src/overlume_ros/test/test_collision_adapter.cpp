@@ -49,8 +49,8 @@ struct TfFixture {
 // MakeRow() already uses. The topic name itself is never read by
 // CollisionAdapter (severity comes from `role` alone), so a placeholder is
 // fine.
-overlume_node::ProfileRow MakeRow(const std::string& role) {
-    overlume_node::ProfileRow row;
+overlume::ros::ProfileRow MakeRow(const std::string& role) {
+    overlume::ros::ProfileRow row;
     row.topic = "/test/collision";
     row.type = "visualization_msgs/msg/MarkerArray";
     row.adapter = "collision";
@@ -80,7 +80,7 @@ TEST(CollisionAdapter, EveryShippedRoleMapsToItsSeverity) {
     for (const auto& c : cases) {
         TfFixture kTf;
         auto row = MakeRow(c.role);
-        overlume_node::CollisionAdapter a(row, kTf.tf);
+        overlume::ros::CollisionAdapter a(row, kTf.tf);
 
         // One trivial valid triangle -- proves the FULL path (ctor's
         // severity_for_role() -> storage -> fill()), not just the free
@@ -112,7 +112,7 @@ TEST(CollisionAdapter, UnknownRoleThrowsRatherThanDefaultingToInfo) {
     // bug (profile.cpp's RoleSets already rejects it for a REAL profile
     // file) -- this is the unit-level guard on severity_for_role() itself:
     // it must assert/throw, never silently return info (severity 0).
-    EXPECT_THROW(overlume_node::severity_for_role("not_a_real_role"), std::invalid_argument);
+    EXPECT_THROW(overlume::ros::severity_for_role("not_a_real_role"), std::invalid_argument);
 }
 
 // ── Step 1: open vs. producer-closed polylines both become CLOSED polygons ──
@@ -123,8 +123,8 @@ TEST(CollisionAdapter, OpenPolylineIsClosedIntoAPolygon) {
     // (first == last), point_count == 5.
     TfFixture kTf;
     auto row = MakeRow("sweep");
-    overlume_node::CollisionAdapter open(row, kTf.tf);
-    auto openMsg = overlume_node::testing::load_marker_array("collision_sweep_0.yaml");
+    overlume::ros::CollisionAdapter open(row, kTf.tf);
+    auto openMsg = overlume::ros::testing::load_marker_array("collision_sweep_0.yaml");
     open.ingest(openMsg, 1.0);
     SceneAssembly openOut;
     open.fill(openOut);
@@ -138,8 +138,8 @@ TEST(CollisionAdapter, OpenPolylineIsClosedIntoAPolygon) {
     // IDENTICALLY shaped: point_count == 5, no doubled closing vertex.
     TfFixture kTf2;
     auto predictedRow = MakeRow("predicted");
-    overlume_node::CollisionAdapter closed(predictedRow, kTf2.tf);
-    auto closedMsg = overlume_node::testing::load_marker_array("collision_predicted_0.yaml");
+    overlume::ros::CollisionAdapter closed(predictedRow, kTf2.tf);
+    auto closedMsg = overlume::ros::testing::load_marker_array("collision_predicted_0.yaml");
     closed.ingest(closedMsg, 1.0);
     SceneAssembly closedOut;
     closed.fill(closedOut);
@@ -157,8 +157,8 @@ TEST(CollisionAdapter, DegenerateAndNaNPolygonsDroppedAndCounted) {
     // is stripped), and one valid neighbour in between them.
     TfFixture kTf;
     auto row = MakeRow("merged_object");
-    overlume_node::CollisionAdapter a(row, kTf.tf);
-    auto msg = overlume_node::testing::load_marker_array("collision_malformed_0.yaml");
+    overlume::ros::CollisionAdapter a(row, kTf.tf);
+    auto msg = overlume::ros::testing::load_marker_array("collision_malformed_0.yaml");
     a.ingest(msg, 1.0);
 
     EXPECT_EQ(a.stats().dropped_malformed, 2u);
@@ -176,7 +176,7 @@ TEST(CollisionAdapter, SilentTopicYieldsZeroAlertsAndDoesNotWedge) {
     // -- every collision topic published zero messages in the bag.
     TfFixture kTf;
     auto row = MakeRow("collision");
-    overlume_node::CollisionAdapter a(row, kTf.tf);
+    overlume::ros::CollisionAdapter a(row, kTf.tf);
 
     EXPECT_EQ(a.stats().msgs, 0u);
     SceneAssembly out;
@@ -189,8 +189,8 @@ TEST(CollisionAdapter, SilentTopicYieldsZeroAlertsAndDoesNotWedge) {
 TEST(CollisionAdapter, DeleteAllClearsPreviousPolygons) {
     TfFixture kTf;
     auto row = MakeRow("sweep");
-    overlume_node::CollisionAdapter a(row, kTf.tf);
-    auto msg = overlume_node::testing::load_marker_array("collision_sweep_0.yaml");
+    overlume::ros::CollisionAdapter a(row, kTf.tf);
+    auto msg = overlume::ros::testing::load_marker_array("collision_sweep_0.yaml");
     a.ingest(msg, 1.0);
     SceneAssembly first;
     a.fill(first);
@@ -214,8 +214,8 @@ TEST(CollisionAdapter, MarkerPoseComposesAndZeroQuaternionIsIdentity) {
     // coordinates, nothing dropped.
     TfFixture kTf;
     auto row = MakeRow("sweep");
-    overlume_node::CollisionAdapter a(row, kTf.tf);
-    auto msg = overlume_node::testing::load_marker_array("collision_sweep_0.yaml");
+    overlume::ros::CollisionAdapter a(row, kTf.tf);
+    auto msg = overlume::ros::testing::load_marker_array("collision_sweep_0.yaml");
     ASSERT_FALSE(msg.markers.empty());
     const double base_x = msg.markers[0].points[0].x;
     const double base_y = msg.markers[0].points[0].y;

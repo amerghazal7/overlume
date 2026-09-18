@@ -63,7 +63,7 @@
 #include "overlume_ros/scene_assembly.hpp"
 #include "overlume/scene.h"
 
-namespace overlume_node {
+namespace overlume::ros {
 
 class HdMapAdapter {
 public:
@@ -153,4 +153,4 @@ private:
     double last_recv_sec_{-1.0};
 };
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

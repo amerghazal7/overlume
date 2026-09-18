@@ -13,9 +13,9 @@
 
 namespace {
 
-using overlume_node::QualityGovernor;
-using overlume_node::QualityGovernorParams;
-using overlume_node::QualityTransition;
+using overlume::ros::QualityGovernor;
+using overlume::ros::QualityGovernorParams;
+using overlume::ros::QualityTransition;
 
 QualityGovernorParams SmallParams() {
     QualityGovernorParams p;

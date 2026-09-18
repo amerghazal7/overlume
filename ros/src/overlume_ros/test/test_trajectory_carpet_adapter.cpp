@@ -40,8 +40,8 @@ struct TfFixture {
 // No shipped profile row is needed by these tests -- hand-built directly,
 // same "no urban_row()/sim_row() to borrow" shape test_point_cloud_adapter.
 // cpp already uses for its own row.
-overlume_node::ProfileRow MakeRow() {
-    overlume_node::ProfileRow row;
+overlume::ros::ProfileRow MakeRow() {
+    overlume::ros::ProfileRow row;
     row.topic = "/navigation_motion_obstacle_planner_node/output_trajectory_carpet";
     row.type = "visualization_msgs/msg/MarkerArray";
     row.adapter = "trajectory_carpet";
@@ -108,7 +108,7 @@ visualization_msgs::msg::Marker MakeTwoQuadCarpetMarker() {
 TEST(TrajectoryCarpetAdapter, IngestExtractsCenterlineStationsFromDualRailQuadPairing) {
     TfFixture kTf;
     auto row = MakeRow();
-    overlume_node::TrajectoryCarpetAdapter a(row, kTf.tf);
+    overlume::ros::TrajectoryCarpetAdapter a(row, kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {MakeTwoQuadCarpetMarker()};
@@ -152,7 +152,7 @@ TEST(TrajectoryCarpetAdapter, IngestExtractsCenterlineStationsFromDualRailQuadPa
 TEST(TrajectoryCarpetAdapter, MismatchedColorsLengthBakesAlphaZeroSentinel) {
     TfFixture kTf;
     auto row = MakeRow();
-    overlume_node::TrajectoryCarpetAdapter a(row, kTf.tf);
+    overlume::ros::TrajectoryCarpetAdapter a(row, kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     auto m = MakeTwoQuadCarpetMarker();
@@ -177,7 +177,7 @@ TEST(TrajectoryCarpetAdapter, MismatchedColorsLengthBakesAlphaZeroSentinel) {
 TEST(TrajectoryCarpetAdapter, PointCountNotMultipleOfSixDropsMalformed) {
     TfFixture kTf;
     auto row = MakeRow();
-    overlume_node::TrajectoryCarpetAdapter a(row, kTf.tf);
+    overlume::ros::TrajectoryCarpetAdapter a(row, kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     auto m = MakeTriangleMarker(kActionAdd, kTypeTriangleList);
@@ -197,7 +197,7 @@ TEST(TrajectoryCarpetAdapter, PointCountNotMultipleOfSixDropsMalformed) {
     // Fewer than 6 points (a single triangle, the old %3 floor) is also
     // malformed now -- one quad is the minimum unit.
     TfFixture kTf2;
-    overlume_node::TrajectoryCarpetAdapter b(row, kTf2.tf);
+    overlume::ros::TrajectoryCarpetAdapter b(row, kTf2.tf);
     visualization_msgs::msg::MarkerArray arr2;
     auto three = MakeTriangleMarker(kActionAdd, kTypeTriangleList);
     three.points = {MakePoint(0, 0, 0), MakePoint(1, 0, 0), MakePoint(1, 1, 0)};
@@ -208,7 +208,7 @@ TEST(TrajectoryCarpetAdapter, PointCountNotMultipleOfSixDropsMalformed) {
     // A non-TRIANGLE_LIST type is malformed too -- this adapter has no
     // representation for anything else.
     TfFixture kTf3;
-    overlume_node::TrajectoryCarpetAdapter c(row, kTf3.tf);
+    overlume::ros::TrajectoryCarpetAdapter c(row, kTf3.tf);
     visualization_msgs::msg::MarkerArray arr3;
     auto lineStrip = MakeTriangleMarker(kActionAdd, kTypeLineStrip);
     lineStrip.points = {MakePoint(0, 0, 0), MakePoint(1, 0, 0), MakePoint(1, 1, 0)};
@@ -222,7 +222,7 @@ TEST(TrajectoryCarpetAdapter, PointCountNotMultipleOfSixDropsMalformed) {
 TEST(TrajectoryCarpetAdapter, DeleteAllClearsStoredCarpet) {
     TfFixture kTf;
     auto row = MakeRow();
-    overlume_node::TrajectoryCarpetAdapter a(row, kTf.tf);
+    overlume::ros::TrajectoryCarpetAdapter a(row, kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {MakeTwoQuadCarpetMarker()};
@@ -248,7 +248,7 @@ TEST(TrajectoryCarpetAdapter, ReplacesStoredCarpetWholesaleNotAppend) {
     // ingest() calls, second's content is what fill() emits, not a union.
     TfFixture kTf;
     auto row = MakeRow();
-    overlume_node::TrajectoryCarpetAdapter a(row, kTf.tf);
+    overlume::ros::TrajectoryCarpetAdapter a(row, kTf.tf);
 
     visualization_msgs::msg::MarkerArray first_arr;
     first_arr.markers = {MakeTwoQuadCarpetMarker()};  // 2 quads -> 3 stations
@@ -279,7 +279,7 @@ TEST(TrajectoryCarpetAdapter, ReplacesStoredCarpetWholesaleNotAppend) {
 TEST(TrajectoryCarpetAdapter, NanCornerDropsWholeMessageKeepingThePreviousCarpet) {
     TfFixture kTf;
     auto row = MakeRow();
-    overlume_node::TrajectoryCarpetAdapter a(row, kTf.tf);
+    overlume::ros::TrajectoryCarpetAdapter a(row, kTf.tf);
 
     visualization_msgs::msg::MarkerArray first_arr;
     first_arr.markers = {MakeTwoQuadCarpetMarker()};

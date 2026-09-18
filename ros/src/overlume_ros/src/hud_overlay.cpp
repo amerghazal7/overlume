@@ -18,7 +18,7 @@
 #include <string>
 #include <vector>
 
-namespace overlume_node {
+namespace overlume::ros {
 
 void PopulateHud(overlume::SceneGraph& scene, int render_mode) {
     scene.hud.speed_mps = scene.ego.speed_mps;
@@ -231,4 +231,4 @@ void DrawLine(uint8_t* rgb, uint32_t width, uint32_t height, float x0, float y0,
     }
 }
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

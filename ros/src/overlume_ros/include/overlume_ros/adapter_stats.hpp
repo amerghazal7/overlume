@@ -16,7 +16,7 @@
 
 #include <cstdint>
 
-namespace overlume_node {
+namespace overlume::ros {
 
 struct AdapterStats {
     double last_msg_sec{0.0};
@@ -27,4 +27,4 @@ struct AdapterStats {
     uint64_t dropped_by_rule{0};
 };
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

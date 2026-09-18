@@ -84,7 +84,7 @@
 #include "overlume_ros/scene_assembly.hpp"
 #include "overlume/scene.h"
 
-namespace overlume_node {
+namespace overlume::ros {
 
 // See this file's header comment: the ONE number shared across the frozen
 // POD boundary that nothing enforces except this comment mirror (here,
@@ -146,4 +146,4 @@ private:
     AdapterStats stats_;
 };
 
-}  // namespace overlume_node
+}  // namespace overlume::ros
