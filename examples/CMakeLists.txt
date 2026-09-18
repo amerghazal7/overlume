@@ -28,4 +28,9 @@ foreach(_example_src ${_overlume_examples_srcs})
     # this loop uniform.
     target_compile_definitions(${_example_name} PRIVATE
         OVERLUME_EXAMPLES_ENV_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/fixtures/environment_test_town_0")
+    # OVERLUME_EXAMPLES_MODEL_DIR: the shipped per-class clay-model dir
+    # (VM-022 / set_object_model_dir()), same OVERLUME_..._DIR
+    # baked-in-compile-definition pattern as OVERLUME_EXAMPLES_THEME_DIR above.
+    target_compile_definitions(${_example_name} PRIVATE
+        OVERLUME_EXAMPLES_MODEL_DIR="${PROJECT_SOURCE_DIR}/assets/models")
 endforeach()
