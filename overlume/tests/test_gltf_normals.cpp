@@ -136,8 +136,14 @@ std::vector<uint8_t> build_json_only_glb(const std::string& json) {
 
 const std::string kBakedChunk = std::string(OVERLUME_TEST_DATA_DIR) +
                                 "/tests/fixtures/environment_test_town_0/chunks/chunk_-1_-1.glb";
-const std::string kIonTile =
-    std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_ion_fixture_0/tile_a.b3dm";
+const std::string kTileWithNormal =
+    std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_tiles_fixture_0/tile_a.b3dm";
+// tile_b.b3dm is generated (make_tile_fixture.py) deliberately WITHOUT a
+// NORMAL attribute -- unlike kBakedChunk (a synthetic single-primitive
+// glTF, not a real b3dm envelope), this is a real streamed tile exercising
+// the "actually adds normals" path end to end through the b3dm/GLB split.
+const std::string kTileNoNormal =
+    std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_tiles_fixture_0/tile_b.b3dm";
 
 }  // namespace
 
@@ -223,13 +229,51 @@ TEST(GltfNormals, SecondPassIsANoOp) {
 // directly, not assumed) -- this is the real "already has normals" case the
 // load-time hook must leave untouched.
 TEST(GltfNormals, StreamedTileWithNormalAlreadyIsUntouched) {
-    const std::vector<uint8_t> glb = glb_from_b3dm(read_file(kIonTile));
+    const std::vector<uint8_t> glb = glb_from_b3dm(read_file(kTileWithNormal));
     YAML::Node beforeJson = parse_glb_json(glb);
     ASSERT_EQ(count_primitives_without_normal(beforeJson), 0)
         << "fixture precondition: tile_a.b3dm is expected to already carry NORMAL";
 
     const std::vector<uint8_t> patched = overlume::ensure_flat_normals(glb);
     EXPECT_EQ(patched, glb) << "geometry that already has normals must pass through byte-for-byte";
+}
+
+// tile_b.b3dm (make_tile_fixture.py) is generated with NO NORMAL attribute
+// on purpose -- the real streamed-tile counterpart to
+// GltfNormals.AddsNormalToChunkMissingIt above (which only exercises a
+// baked, non-b3dm chunk). Same assertions: normals actually get added, are
+// unit length, and aren't all the degenerate (0,0,1) fallback.
+TEST(GltfNormals, AddsNormalToStreamedTileMissingIt) {
+    const std::vector<uint8_t> glb = glb_from_b3dm(read_file(kTileNoNormal));
+    YAML::Node beforeJson = parse_glb_json(glb);
+    ASSERT_GT(count_primitives_without_normal(beforeJson), 0)
+        << "fixture precondition: tile_b.b3dm is expected to carry NO NORMAL";
+
+    const std::vector<uint8_t> patched = overlume::ensure_flat_normals(glb);
+    EXPECT_NE(patched.size(), glb.size()) << "normals should have been appended";
+
+    YAML::Node afterJson = parse_glb_json(patched);
+    EXPECT_EQ(count_primitives_without_normal(afterJson), 0);
+
+    const std::vector<uint8_t> patchedBin = parse_glb_bin(patched);
+    bool anyNonDegenerate = false;
+    for (const YAML::Node& mesh : afterJson["meshes"]) {
+        for (const YAML::Node& prim : mesh["primitives"]) {
+            const int normalIdx = prim["attributes"]["NORMAL"].as<int>();
+            const std::vector<float> normals = read_vec3_accessor(afterJson, patchedBin, normalIdx);
+            for (size_t v = 0; v + 2 < normals.size(); v += 3) {
+                const float len =
+                    std::sqrt(normals[v] * normals[v] + normals[v + 1] * normals[v + 1] +
+                              normals[v + 2] * normals[v + 2]);
+                EXPECT_NEAR(len, 1.0f, 1e-3f);
+                const bool isDegenerateFallback = std::abs(normals[v]) < 1e-6f &&
+                                                  std::abs(normals[v + 1]) < 1e-6f &&
+                                                  std::abs(normals[v + 2] - 1.0f) < 1e-6f;
+                if (!isDegenerateFallback) anyNonDegenerate = true;
+            }
+        }
+    }
+    EXPECT_TRUE(anyNonDegenerate);
 }
 
 TEST(GltfNormals, MalformedInputIsReturnedUnchanged) {

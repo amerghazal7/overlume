@@ -170,7 +170,7 @@ private:
 
 // ── Test-only fixture accessors (Decision 13; environment_test_hooks.hpp's
 //    opaque FixtureStreamHandle wraps one of these). Serves
-//    tests/fixtures/environment_ion_fixture_0/ from disk -- no network, no
+//    tests/fixtures/environment_tiles_fixture_0/ from disk -- no network, no
 //    token. KillableFixtureAccessor additionally honors a kill switch
 //    (Task 3 Step 4's cache-offline proof; Task 4's network-loss e2e). ───
 class FileFixtureAssetAccessor : public CesiumAsync::IAssetAccessor {
