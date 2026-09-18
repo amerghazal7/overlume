@@ -1,9 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
 # Replay profile for real-robot logger sessions played by mp_play, which
 # re-publishes recorded topics with the recorder's BEST_EFFORT QoS: the four
 # marker rows below add best_effort: true (a reliable subscription never
 # connects to a best-effort publisher). Otherwise identical to urban_profile.yaml.
-# SPDX-License-Identifier: Apache-2.0
-# Copyright 2026 Amer Ghazal
 
 # DEVIATION from the epic2 plan's literal YAML text (Task 1 Step 3): every
 # `namespaces:` list here is written as a flow SEQUENCE (`[{...}, {...}]`)

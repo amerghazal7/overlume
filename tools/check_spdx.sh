@@ -27,6 +27,8 @@
 # overlume/assets/themes/*.yaml, overlume/CMakeLists.txt,
 # ros/src/overlume_ros/CMakeLists.txt, examples/CMakeLists.txt.
 #
+# Untracked-but-not-ignored files are included too (--others), so a new file
+# is checked before it is ever staged.
 # Usage: tools/check_spdx.sh
 # Exits non-zero (and lists every offender) if any file in the set above is
 # missing "SPDX-License-Identifier" from its first 3 lines.
@@ -36,7 +38,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
-mapfile -t CPP_FILES < <(git ls-files \
+mapfile -t CPP_FILES < <(git ls-files --cached --others --exclude-standard \
     'overlume/src' 'overlume/include' 'overlume/tests' 'overlume/tools' 'overlume/smoke' 'examples' \
     'ros/src/overlume_ros' \
     | grep -E '\.(c|cc|cpp|cxx|h|hpp|hxx|mat)$' \
