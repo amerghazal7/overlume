@@ -2,7 +2,7 @@
 # Copyright 2026 Amer Ghazal
 
 # DynamicObjectsAdapter class inference (VM-021).
-# Loaded by overlume_node::load_class_inference(), consumed by overlume_node::infer().
+# Loaded by overlume::ros::load_class_inference(), consumed by overlume::ros::infer().
 # Label format "<prefix>_<track_id>" (e.g. "V_1105"). Verified against the
 # recorded bags: the epic2 bag emitted prefix "V" only (15559/15559 labels,
 # 46 track ids); stack_v2_full_sensors_2026-09-09 emits "V" (CAR) and "P"

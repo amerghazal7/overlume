@@ -37,7 +37,7 @@
 
 #include "overlume/scene.h"
 
-namespace overlume_node {
+namespace overlume::ros {
 
 // Step 0: scene.hud.speed_mps + the render mode only -- chips are Task 4 scope.
 void PopulateHud(overlume::SceneGraph& scene, int render_mode);
@@ -87,4 +87,4 @@ bool DrawText(uint8_t* rgb, uint32_t width, uint32_t height, const char* text, f
 void DrawLine(uint8_t* rgb, uint32_t width, uint32_t height, float x0, float y0, float x1, float y1,
               HudRgb rgb_color);
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

@@ -9,7 +9,7 @@
 
 #include <yaml-cpp/yaml.h>
 
-namespace overlume_node::testing {
+namespace overlume::ros::testing {
 namespace {
 
 std::string FixturePath(const std::string& fixture_name) {
@@ -225,4 +225,4 @@ ClassInferenceTable inference_table() {
     return *table;
 }
 
-}  // namespace overlume_node::testing
+}  // namespace overlume::ros::testing

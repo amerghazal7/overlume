@@ -23,7 +23,7 @@
 
 #include "overlume/scene.h"
 
-namespace overlume_node {
+namespace overlume::ros {
 
 // The ONE namespace rule, used by every marker adapter: longest matching
 // prefix wins; no match -> row.ns_default.
@@ -132,4 +132,4 @@ const NsRule* match_rule(const ProfileRow& row, std::string_view ns);
 // cases.
 std::vector<SubSpec> subscriptions_for(const ProfileRow& row);
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

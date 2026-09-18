@@ -90,7 +90,7 @@ private:
     void destroy_renderer_if_any();
     // Gathers every subscribed row's AdapterStats (hd_map/dynamic_objects/
     // path/ogm/collision/generic_marker -- NOT tf_axes_rows_, a PRODUCER
-    // with no topic/stats of its own) into overlume_node::BuildDiagnostics(),
+    // with no topic/stats of its own) into overlume::ros::BuildDiagnostics(),
     // stamps it, and publishes on ~/diagnostics. Called every tick
     // regardless of mode, same "ingest continues regardless of mode"
     // philosophy as sim_clock_sec_ below.
@@ -236,7 +236,7 @@ private:
     // FrameTransformer holds a `const tf2_ros::Buffer&` that can only bind
     // once tf_buffer_ exists (on_configure, not construction).
     struct HdMapRow {
-        std::unique_ptr<overlume_node::HdMapAdapter> adapter;
+        std::unique_ptr<overlume::ros::HdMapAdapter> adapter;
         double timeout_sec;
         std::string topic;              // named in drop-growth WARNs
         uint64_t warned_malformed = 0;  // counts already reported by
@@ -253,13 +253,13 @@ private:
     // adapter, which holds a `const ClassInferenceTable&` (same reference-
     // member shape as FrameTransformer above).
     struct DynamicObjectsRow {
-        std::unique_ptr<overlume_node::DynamicObjectsAdapter> adapter;
+        std::unique_ptr<overlume::ros::DynamicObjectsAdapter> adapter;
         double timeout_sec;
         std::string topic;  // named in drop-growth WARNs
         uint64_t warned_malformed = 0;
         uint64_t warned_no_tf = 0;
     };
-    overlume_node::ClassInferenceTable class_inference_;
+    overlume::ros::ClassInferenceTable class_inference_;
     std::vector<DynamicObjectsRow> dynamic_objects_rows_;
     std::vector<rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr>
         dynamic_objects_subs_;
@@ -273,7 +273,7 @@ private:
     // FADE -- mark_stale_tick() past timeout_sec, same as the
     // dynamic_objects loop.
     struct PathRow {
-        std::unique_ptr<overlume_node::PathAdapter> adapter;
+        std::unique_ptr<overlume::ros::PathAdapter> adapter;
         double timeout_sec;
         std::string topic;              // named in drop-growth WARNs
         uint64_t warned_malformed = 0;  // counts already reported by
@@ -296,7 +296,7 @@ private:
     // (ground_grid.mat's own alpha), same "stop filling past timeout_sec,
     // mark_stale_tick() instead" shape as dynamic_objects/path above.
     struct OgmRow {
-        std::unique_ptr<overlume_node::OgmAdapter> adapter;
+        std::unique_ptr<overlume::ros::OgmAdapter> adapter;
         double timeout_sec;
         std::string topic;              // named in drop-growth WARNs (the base topic)
         uint64_t warned_malformed = 0;  // counts already reported by
@@ -319,7 +319,7 @@ private:
     // (its severity's constant alpha, multiplied down) -- mark_stale_tick()
     // past timeout_sec, same as every other faded category.
     struct CollisionRow {
-        std::unique_ptr<overlume_node::CollisionAdapter> adapter;
+        std::unique_ptr<overlume::ros::CollisionAdapter> adapter;
         double timeout_sec;
         std::string topic;              // named in drop-growth WARNs
         uint64_t warned_malformed = 0;  // counts already reported by
@@ -339,7 +339,7 @@ private:
     // above -- GenericMarker carries last_update_sec, so this category
     // gets the library's staleness FADE.
     struct GenericMarkerRow {
-        std::unique_ptr<overlume_node::GenericMarkerAdapter> adapter;
+        std::unique_ptr<overlume::ros::GenericMarkerAdapter> adapter;
         double timeout_sec;
         std::string topic;              // named in drop-growth WARNs
         uint64_t warned_malformed = 0;  // counts already reported by
@@ -358,7 +358,7 @@ private:
     // carries last_update_sec, so this category gets the library's
     // staleness FADE (point_cloud.mat's own settable alpha).
     struct PointCloudRow {
-        std::unique_ptr<overlume_node::PointCloudAdapter> adapter;
+        std::unique_ptr<overlume::ros::PointCloudAdapter> adapter;
         double timeout_sec;
         std::string topic;              // named in drop-growth WARNs
         uint64_t warned_malformed = 0;  // counts already reported by
@@ -376,7 +376,7 @@ private:
     // category gets the library's staleness FADE
     // (trajectory_carpet.mat's own settable alpha).
     struct CarpetRow {
-        std::unique_ptr<overlume_node::TrajectoryCarpetAdapter> adapter;
+        std::unique_ptr<overlume::ros::TrajectoryCarpetAdapter> adapter;
         double timeout_sec;
         std::string topic;              // named in drop-growth WARNs
         uint64_t warned_malformed = 0;  // counts already reported by
@@ -393,7 +393,7 @@ private:
     // subscription branch, no timeout/staleness gating (a live tf2 buffer
     // walk has no "message" to go stale) -- fill() runs every tick,
     // unconditionally, for every row here.
-    std::vector<std::unique_ptr<overlume_node::TfAxesAdapter>> tf_axes_rows_;
+    std::vector<std::unique_ptr<overlume::ros::TfAxesAdapter>> tf_axes_rows_;
 
     // ── Geo-anchor (VM-050) ───────────────────────────────────────────────────
     // Reuses tf_buffer_ above (the SAME buffer TfAdapter reads) -- no second
@@ -497,7 +497,7 @@ private:
     // entry point -- no renderer re-create) and RCLCPP_WARNs, then updates
     // quality_ so `ros2 param get quality` reports what is actually live.
     bool governor_enabled_{false};
-    std::unique_ptr<overlume_node::QualityGovernor> quality_governor_;
+    std::unique_ptr<overlume::ros::QualityGovernor> quality_governor_;
 
     // ── HUD overlay (Epic 3 Task 3 / VM-030) ─────────────────────────────────
     // hud_font_path_ read once in on_configure() (VM-044 closes the

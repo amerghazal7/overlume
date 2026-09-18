@@ -11,8 +11,8 @@
 
 namespace {
 
-overlume_node::AdapterStats StatsWithSomeDrops() {
-    overlume_node::AdapterStats s;
+overlume::ros::AdapterStats StatsWithSomeDrops() {
+    overlume::ros::AdapterStats s;
     s.last_msg_sec = 12.0;
     s.msgs = 40;
     s.dropped_malformed = 1;
@@ -25,13 +25,13 @@ overlume_node::AdapterStats StatsWithSomeDrops() {
 }  // namespace
 
 TEST(Diagnostics, OneStatusPerRowPlusRenderMs) {
-    std::vector<overlume_node::RowStats> rows(1);
+    std::vector<overlume::ros::RowStats> rows(1);
     rows[0].topic = "/hd_map_local_elements";
     rows[0].stats = StatsWithSomeDrops();
     rows[0].last_msg_age_sec = 0.5;
     rows[0].timeout_sec = 2.0;
 
-    const auto msg = overlume_node::BuildDiagnostics(rows, /*render_ms=*/4.2);
+    const auto msg = overlume::ros::BuildDiagnostics(rows, /*render_ms=*/4.2);
 
     ASSERT_EQ(msg.status.size(), 2u);  // 1 row + 1 node-level
     EXPECT_EQ(msg.status[0].name, "/hd_map_local_elements");
@@ -39,13 +39,13 @@ TEST(Diagnostics, OneStatusPerRowPlusRenderMs) {
 }
 
 TEST(Diagnostics, ValuesCarryEveryAdapterStatsCounterVerbatim) {
-    std::vector<overlume_node::RowStats> rows(1);
+    std::vector<overlume::ros::RowStats> rows(1);
     rows[0].topic = "/perception/dynamic_objects_list";
     rows[0].stats = StatsWithSomeDrops();
     rows[0].last_msg_age_sec = 0.5;
     rows[0].timeout_sec = 2.0;
 
-    const auto msg = overlume_node::BuildDiagnostics(rows, 1.0);
+    const auto msg = overlume::ros::BuildDiagnostics(rows, 1.0);
     const auto& status = msg.status[0];
 
     auto find = [&](const std::string& key) -> std::string {
@@ -72,12 +72,12 @@ TEST(Diagnostics, NeverPublishedRowReportsOkNoDataYetWithNoBogusAge) {
     // hands BuildDiagnostics a large, meaningless "age" here, same as it
     // would for a row that has been silent since node start. This must not
     // read as stale.
-    std::vector<overlume_node::RowStats> rows(1);
+    std::vector<overlume::ros::RowStats> rows(1);
     rows[0].topic = "/never_published";
     rows[0].last_msg_age_sec = 123.0;  // sim_clock_sec_ - 0.0, bogus for an absent row
     rows[0].timeout_sec = 2.0;
 
-    const auto msg = overlume_node::BuildDiagnostics(rows, 0.0);
+    const auto msg = overlume::ros::BuildDiagnostics(rows, 0.0);
     const auto& status = msg.status[0];
 
     EXPECT_EQ(status.level, diagnostic_msgs::msg::DiagnosticStatus::OK);
@@ -88,13 +88,13 @@ TEST(Diagnostics, NeverPublishedRowReportsOkNoDataYetWithNoBogusAge) {
 }
 
 TEST(Diagnostics, PublishedThenSilentRowStillReportsItsRealAgeAndStaleLevel) {
-    std::vector<overlume_node::RowStats> rows(1);
+    std::vector<overlume::ros::RowStats> rows(1);
     rows[0].topic = "/went_quiet";
     rows[0].stats.msgs = 5;  // published before, so this is genuine staleness
     rows[0].last_msg_age_sec = 5.0;
     rows[0].timeout_sec = 2.0;
 
-    const auto msg = overlume_node::BuildDiagnostics(rows, 0.0);
+    const auto msg = overlume::ros::BuildDiagnostics(rows, 0.0);
     const auto& status = msg.status[0];
 
     EXPECT_EQ(status.level, diagnostic_msgs::msg::DiagnosticStatus::WARN);
@@ -109,7 +109,7 @@ TEST(Diagnostics, PublishedThenSilentRowStillReportsItsRealAgeAndStaleLevel) {
 }
 
 TEST(Diagnostics, RowPastItsOwnTimeoutSecIsWarnEverythingElseIsOk) {
-    std::vector<overlume_node::RowStats> rows(2);
+    std::vector<overlume::ros::RowStats> rows(2);
     rows[0].topic = "/fresh";
     rows[0].stats.msgs = 1;  // published, and recently -- not the msgs==0 absent case
     rows[0].last_msg_age_sec = 0.1;
@@ -119,14 +119,14 @@ TEST(Diagnostics, RowPastItsOwnTimeoutSecIsWarnEverythingElseIsOk) {
     rows[1].last_msg_age_sec = 5.0;
     rows[1].timeout_sec = 2.0;
 
-    const auto msg = overlume_node::BuildDiagnostics(rows, 0.0);
+    const auto msg = overlume::ros::BuildDiagnostics(rows, 0.0);
 
     EXPECT_EQ(msg.status[0].level, diagnostic_msgs::msg::DiagnosticStatus::OK);
     EXPECT_EQ(msg.status[1].level, diagnostic_msgs::msg::DiagnosticStatus::WARN);
 }
 
 TEST(Diagnostics, RenderMsNodeLevelStatusCarriesTheValueVerbatim) {
-    const auto msg = overlume_node::BuildDiagnostics({}, 7.75);
+    const auto msg = overlume::ros::BuildDiagnostics({}, 7.75);
     ASSERT_EQ(msg.status.size(), 1u);  // 0 rows + 1 node-level
     ASSERT_EQ(msg.status[0].values.size(), 1u);
     EXPECT_EQ(msg.status[0].values[0].key, "render_ms");

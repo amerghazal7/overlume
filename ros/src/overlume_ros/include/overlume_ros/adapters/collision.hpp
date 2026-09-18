@@ -67,7 +67,7 @@
 #include "overlume_ros/scene_assembly.hpp"
 #include "overlume/scene.h"
 
-namespace overlume_node {
+namespace overlume::ros {
 
 // Task 7's ONE role -> severity table. Throws std::invalid_argument on any
 // role outside the five shipped ones (`collision`, `predicted`,
@@ -121,4 +121,4 @@ private:
     AdapterStats stats_;
 };
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

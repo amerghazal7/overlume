@@ -8,7 +8,7 @@
 #include <tf2/LinearMath/Transform.h>
 #include <tf2/LinearMath/Vector3.h>
 
-namespace overlume_node {
+namespace overlume::ros {
 namespace {
 
 uint8_t KindFromRole(const std::string& role) {
@@ -167,4 +167,4 @@ void OgmAdapter::fill(overlume::ros::SceneAssembly& out) const {
     out.grids.push_back(g);
 }
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

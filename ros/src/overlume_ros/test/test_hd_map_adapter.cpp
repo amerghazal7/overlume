@@ -40,9 +40,9 @@ struct TfFixture {
 }  // namespace
 
 TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks) {
-    auto msg = overlume_node::testing::load_marker_array("hd_map_local_elements_0.yaml");
+    auto msg = overlume::ros::testing::load_marker_array("hd_map_local_elements_0.yaml");
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(overlume_node::testing::urban_row("/hd_map_local_elements"),
+    overlume::ros::HdMapAdapter a(overlume::ros::testing::urban_row("/hd_map_local_elements"),
                                   kTf.tf);
     a.ingest(msg, /*sim_time_sec=*/1.0);
     SceneAssembly out;
@@ -190,10 +190,10 @@ TEST(HdMapAdapter, SimProfileRowMakesCrosswalksPolygonsToo) {
     // the only full-extent map source -- uses namespace "crosswalks"
     // (plural, no numeric suffix), which urban's "crosswalk_" prefix does
     // NOT match. Same adapter, sim row, same shape of assertion.
-    auto msg = overlume_node::testing::load_marker_array("sim_hd_map_markers_0.yaml");
+    auto msg = overlume::ros::testing::load_marker_array("sim_hd_map_markers_0.yaml");
     TfFixture kTf;
-    auto row = overlume_node::testing::sim_row("/sim/hd_map/markers");
-    overlume_node::HdMapAdapter a(row, kTf.tf);
+    auto row = overlume::ros::testing::sim_row("/sim/hd_map/markers");
+    overlume::ros::HdMapAdapter a(row, kTf.tf);
     a.ingest(msg, 1.0);
     SceneAssembly out;
     a.fill(out);
@@ -207,7 +207,7 @@ TEST(HdMapAdapter, SimProfileRowMakesCrosswalksPolygonsToo) {
     uint64_t expected_drops = 0;
     for (const auto& m : msg.markers) {
         if (m.action == 3) continue;  // DELETEALL isn't a namespace decision
-        if (overlume_node::classify(row, m.ns) == overlume_node::NsRender::kDrop) ++expected_drops;
+        if (overlume::ros::classify(row, m.ns) == overlume::ros::NsRender::kDrop) ++expected_drops;
     }
     EXPECT_GT(expected_drops, 0u);
     EXPECT_EQ(a.stats().dropped_by_rule, expected_drops);
@@ -222,10 +222,10 @@ TEST(HdMapAdapter, SimCrosswalksPluralUnsuffixedGetsCrosswalkKind) {
     // row ever lost its `kind: crosswalk`, is_polygon would still be set
     // (SimProfileRowMakesCrosswalksPolygonsToo, above, would stay green) but
     // hatching would go dark on sim's only full-extent map source, silently.
-    auto msg = overlume_node::testing::load_marker_array("sim_hd_map_markers_0.yaml");
+    auto msg = overlume::ros::testing::load_marker_array("sim_hd_map_markers_0.yaml");
     TfFixture kTf;
-    auto row = overlume_node::testing::sim_row("/sim/hd_map/markers");
-    overlume_node::HdMapAdapter a(row, kTf.tf);
+    auto row = overlume::ros::testing::sim_row("/sim/hd_map/markers");
+    overlume::ros::HdMapAdapter a(row, kTf.tf);
     a.ingest(msg, 1.0);
     SceneAssembly out;
     a.fill(out);
@@ -245,9 +245,9 @@ TEST(HdMapAdapter, CrosswalkTrailingDuplicateVertexIsDeduped) {
     // adapter's dedupe must drop that trailing duplicate so the STORED
     // element has 4 points, not 5 -- build_crosswalk_hatch()'s n==4 guard
     // never fires on real data otherwise.
-    auto msg = overlume_node::testing::load_marker_array("hd_map_local_elements_0.yaml");
+    auto msg = overlume::ros::testing::load_marker_array("hd_map_local_elements_0.yaml");
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(overlume_node::testing::urban_row("/hd_map_local_elements"),
+    overlume::ros::HdMapAdapter a(overlume::ros::testing::urban_row("/hd_map_local_elements"),
                                   kTf.tf);
     a.ingest(msg, /*sim_time_sec=*/1.0);
     SceneAssembly out;
@@ -277,10 +277,10 @@ TEST(HdMapAdapter, ArrowNamespaceIsDroppedByLongestPrefixWins) {
     // same row: ns "centerline_arrows_0" matches BOTH by prefix and the
     // LONGER rule must win. A naive prefix include-list would admit every
     // arrow marker and the epic's headline decimation claim evaporates.
-    auto msg = overlume_node::testing::load_marker_array("hd_map_local_elements_0.yaml");
+    auto msg = overlume::ros::testing::load_marker_array("hd_map_local_elements_0.yaml");
     TfFixture kTf;
-    auto row = overlume_node::testing::urban_row("/hd_map_local_elements");
-    overlume_node::HdMapAdapter a(row, kTf.tf);
+    auto row = overlume::ros::testing::urban_row("/hd_map_local_elements");
+    overlume::ros::HdMapAdapter a(row, kTf.tf);
     a.ingest(msg, 1.0);
 
     // 64 centerline_arrows_* markers in this fixture -- every one dropped BY
@@ -297,7 +297,7 @@ TEST(HdMapAdapter, NonMapFrameMessageIsTransformedNotCopied) {
     // through FrameTransformer like every other adapter: feed the same
     // fixture with header.frame_id = "base_link" and a known
     // map<-base_link, assert the points moved.
-    auto msg = overlume_node::testing::load_marker_array("hd_map_local_elements_0.yaml");
+    auto msg = overlume::ros::testing::load_marker_array("hd_map_local_elements_0.yaml");
     for (auto& m : msg.markers) m.header.frame_id = "base_link";
 
     auto clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
@@ -312,8 +312,8 @@ TEST(HdMapAdapter, NonMapFrameMessageIsTransformedNotCopied) {
     buffer.setTransform(xf, "test_authority", /*is_static=*/true);
     FrameTransformer ft(buffer);
 
-    auto row = overlume_node::testing::urban_row("/hd_map_local_elements");
-    overlume_node::HdMapAdapter a(row, ft);
+    auto row = overlume::ros::testing::urban_row("/hd_map_local_elements");
+    overlume::ros::HdMapAdapter a(row, ft);
     a.ingest(msg, 1.0);
     SceneAssembly out;
     a.fill(out);
@@ -333,10 +333,10 @@ TEST(HdMapAdapter, NonMapFrameMessageIsTransformedNotCopied) {
 
 TEST(HdMapAdapter, TfLookupFailureDropsTheMessageAndCounts) {
     TfFixture kTf;
-    auto row = overlume_node::testing::urban_row("/hd_map_local_elements");
-    overlume_node::HdMapAdapter a(row, kTf.tf);
+    auto row = overlume::ros::testing::urban_row("/hd_map_local_elements");
+    overlume::ros::HdMapAdapter a(row, kTf.tf);
 
-    auto good = overlume_node::testing::load_marker_array("hd_map_local_elements_0.yaml");
+    auto good = overlume::ros::testing::load_marker_array("hd_map_local_elements_0.yaml");
     a.ingest(good, 1.0);
     SceneAssembly before;
     a.fill(before);
@@ -359,9 +359,9 @@ TEST(HdMapAdapter, DeleteAllClearsPreviousElements) {
     // Every real message starts with a DELETEALL marker (ns="", id=0);
     // ingesting two messages must not accumulate.
     TfFixture kTf;
-    auto row = overlume_node::testing::urban_row("/hd_map_local_elements");
-    overlume_node::HdMapAdapter a(row, kTf.tf);
-    auto msg = overlume_node::testing::load_marker_array("hd_map_local_elements_0.yaml");
+    auto row = overlume::ros::testing::urban_row("/hd_map_local_elements");
+    overlume::ros::HdMapAdapter a(row, kTf.tf);
+    auto msg = overlume::ros::testing::load_marker_array("hd_map_local_elements_0.yaml");
 
     a.ingest(msg, 1.0);
     SceneAssembly first;
@@ -383,10 +383,10 @@ TEST(HdMapAdapter, MalformedMarkersAreDroppedAndCounted) {
     // markers, not centerline_*: urban's centerline_ rule is `render: drop`
     // by default, which would drop a centerline_ marker BY RULE before ever
     // reaching this test's malformed-detection path.
-    auto msg = overlume_node::testing::load_marker_array("hd_map_malformed_0.yaml");
+    auto msg = overlume::ros::testing::load_marker_array("hd_map_malformed_0.yaml");
     TfFixture kTf;
-    auto row = overlume_node::testing::urban_row("/hd_map_local_elements");
-    overlume_node::HdMapAdapter a(row, kTf.tf);
+    auto row = overlume::ros::testing::urban_row("/hd_map_local_elements");
+    overlume::ros::HdMapAdapter a(row, kTf.tf);
     a.ingest(msg, 1.0);
 
     EXPECT_EQ(a.stats().dropped_malformed, 3u);
@@ -407,10 +407,10 @@ TEST(HdMapAdapter, FillStampsLastUpdateSecOnEveryElementIncludingRoadSurface) {
     // ingest-time stamp or the zero-init default -- staleness_alpha checks
     // sim_time_sec against this field, so a wrong stamp fades the whole
     // HD-map layer to alpha 0.
-    auto msg = overlume_node::testing::load_marker_array("hd_map_local_elements_0.yaml");
+    auto msg = overlume::ros::testing::load_marker_array("hd_map_local_elements_0.yaml");
     TfFixture kTf;
-    auto row = overlume_node::testing::urban_row("/hd_map_local_elements");
-    overlume_node::HdMapAdapter a(row, kTf.tf);
+    auto row = overlume::ros::testing::urban_row("/hd_map_local_elements");
+    overlume::ros::HdMapAdapter a(row, kTf.tf);
     constexpr double kSimTime = 42.0;
     a.ingest(msg, kSimTime);
     SceneAssembly out;
@@ -446,10 +446,10 @@ TEST(HdMapAdapter, ThrottledRowStaysFreshOnReceiptNotOnAcceptedRebuildCadence) {
     // reports 1.5 + (timeout_sec - kMapFadeWindowSec), not the one accepted
     // rebuild's own time (0.0) offset the same way.
     TfFixture kTf;
-    auto row = overlume_node::testing::urban_row("/hd_map_global_elements");
+    auto row = overlume::ros::testing::urban_row("/hd_map_global_elements");
     ASSERT_DOUBLE_EQ(row.max_rate_hz, 0.5)
         << "urban_profile.yaml's row no longer matches this test's premise";
-    overlume_node::HdMapAdapter a(row, kTf.tf);
+    overlume::ros::HdMapAdapter a(row, kTf.tf);
 
     // Same one-marker shape as RateLimitHonoursMaxRateHz above, built
     // inline (its own helper isn't declared until further down this file).
@@ -496,8 +496,8 @@ TEST(HdMapAdapter, LowRateReceiptDoesNotSawtoothBetweenReceipts) {
     // stamped last_update_sec still keeps the element's implied age
     // comfortably under kStaleFadeStartSec.
     TfFixture kTf;
-    auto row = overlume_node::testing::urban_row("/hd_map_local_elements");
-    overlume_node::HdMapAdapter a(row, kTf.tf);
+    auto row = overlume::ros::testing::urban_row("/hd_map_local_elements");
+    overlume::ros::HdMapAdapter a(row, kTf.tf);
 
     visualization_msgs::msg::MarkerArray msg;
     visualization_msgs::msg::Marker m;
@@ -551,12 +551,12 @@ TEST(HdMapAdapter, PublishOnceTransientLocalRowStaysOpaqueWellPastOldOneSecondFa
     // near the row's real timeout_sec=5.0 cutoff), and assert the row is
     // still FULLY opaque (age comfortably under kStaleFadeStartSec).
     TfFixture kTf;
-    auto row = overlume_node::testing::sim_row("/sim/hd_map/markers");
+    auto row = overlume::ros::testing::sim_row("/sim/hd_map/markers");
     ASSERT_DOUBLE_EQ(row.timeout_sec, 5.0)
         << "sim_profile.yaml's row no longer matches this test's premise";
-    overlume_node::HdMapAdapter a(row, kTf.tf);
+    overlume::ros::HdMapAdapter a(row, kTf.tf);
 
-    auto msg = overlume_node::testing::load_marker_array("sim_hd_map_markers_0.yaml");
+    auto msg = overlume::ros::testing::load_marker_array("sim_hd_map_markers_0.yaml");
     a.ingest(msg, /*sim_time_sec=*/0.0);  // the ONE latched receipt this row ever gets
 
     SceneAssembly out;
@@ -580,8 +580,8 @@ TEST(HdMapAdapter, RateLimitHonoursMaxRateHz) {
     // than the 0.5s cooldown for two of the four gaps: only the ones
     // spaced >= 0.5s apart from the last ACCEPTED rebuild land.
     TfFixture kTf;
-    auto row = overlume_node::testing::urban_row("/hd_map_local_elements");
-    overlume_node::HdMapAdapter a(row, kTf.tf);
+    auto row = overlume::ros::testing::urban_row("/hd_map_local_elements");
+    overlume::ros::HdMapAdapter a(row, kTf.tf);
 
     auto make_one_marker = [](const char* ns, int32_t id, double x0) {
         visualization_msgs::msg::MarkerArray arr;
@@ -625,7 +625,7 @@ namespace {
 // independent of the shipped config so they exercise the geometry op in
 // isolation from urban_profile.yaml. right_boundary_ is needed by the
 // road-edge-detection tests below, which need both rails.
-overlume_node::ProfileRow MapRuleRow() {
+overlume::ros::ProfileRow MapRuleRow() {
     std::vector<std::string> errs;
     const std::string yaml =
         "name: t\nrows:\n  - {topic: /hd_map, type: visualization_msgs/msg/MarkerArray,"
@@ -633,7 +633,7 @@ overlume_node::ProfileRow MapRuleRow() {
         " [{prefix: centerline_,     render: polyline, kind: centerline},"
         "  {prefix: left_boundary_,  render: polyline, kind: left_boundary},"
         "  {prefix: right_boundary_, render: polyline, kind: right_boundary}]}\n";
-    auto p = overlume_node::load_profile_string(yaml, errs);
+    auto p = overlume::ros::load_profile_string(yaml, errs);
     if (!p) throw std::runtime_error("MapRuleRow: profile failed to parse");
     return p->rows[0];
 }
@@ -663,7 +663,7 @@ visualization_msgs::msg::Marker RailMarker(const char* ns, int32_t id, double x)
 // junction) for the junction-cleanup tests below -- optionally with
 // `junction_interior_boundaries: false` set at row level (default true,
 // matching every shipped profile).
-overlume_node::ProfileRow JunctionRuleRow(bool junction_interior_boundaries = true) {
+overlume::ros::ProfileRow JunctionRuleRow(bool junction_interior_boundaries = true) {
     std::vector<std::string> errs;
     std::string yaml =
         "name: t\nrows:\n  - {topic: /hd_map, type: visualization_msgs/msg/MarkerArray,"
@@ -674,7 +674,7 @@ overlume_node::ProfileRow JunctionRuleRow(bool junction_interior_boundaries = tr
         " [{prefix: left_boundary_,  render: polyline, kind: left_boundary},"
         "  {prefix: right_boundary_, render: polyline, kind: right_boundary},"
         "  {prefix: junction,        render: polyline, kind: junction}]}\n";
-    auto p = overlume_node::load_profile_string(yaml, errs);
+    auto p = overlume::ros::load_profile_string(yaml, errs);
     if (!p)
         throw std::runtime_error("JunctionRuleRow: profile failed to parse: " +
                                  (errs.empty() ? "" : errs[0]));
@@ -727,7 +727,7 @@ TEST(HdMapAdapter, MarkerOfAnyKindStaysOneElementOutOfTheAdapter) {
     // AND under a centerline namespace.
     TfFixture kTf;
 
-    overlume_node::HdMapAdapter boundary(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter boundary(MapRuleRow(), kTf.tf);
     boundary.ingest(StraightTenMeterMarker("left_boundary_x"), 1.0);
     SceneAssembly boundary_out;
     boundary.fill(boundary_out);
@@ -740,7 +740,7 @@ TEST(HdMapAdapter, MarkerOfAnyKindStaysOneElementOutOfTheAdapter) {
     // unaffected.
     EXPECT_EQ(boundary_out.map_elements[0].kind, overlume::MapKind::ROAD_EDGE);
 
-    overlume_node::HdMapAdapter centerline(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter centerline(MapRuleRow(), kTf.tf);
     centerline.ingest(StraightTenMeterMarker("centerline_x"), 1.0);
     SceneAssembly centerline_out;
     centerline.fill(centerline_out);
@@ -755,7 +755,7 @@ TEST(HdMapAdapter, CenterlineAndBoundaryKindAndLaneIdFromMarkerId) {
     // marker carry the same lane_id purely via the marker's own `id`, not
     // the ns string.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     auto make_marker = [](const char* ns, int32_t id) {
         visualization_msgs::msg::Marker m;
@@ -806,7 +806,7 @@ TEST(HdMapAdapter, LaneWithOnlyOneBoundaryProducesNoRoadSurfaceElement) {
     // elements, and this is "missing data," not "bad data" (spec §9), so no
     // dropped_malformed bump either.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
     a.ingest(StraightTenMeterMarker("left_boundary_x"), 1.0);  // marker id 1 -> lane_id 1
 
     SceneAssembly out;
@@ -827,9 +827,9 @@ TEST(HdMapAdapter, MismatchedRailPointCountsResampledStationsSpanRecordedEndpoin
     // arc-length walk) would pass that aggregate too. Lane 955 (left 8 /
     // right 9 recorded points) is the real mismatched-count case in the
     // committed fixture.
-    auto msg = overlume_node::testing::load_marker_array("hd_map_local_elements_0.yaml");
+    auto msg = overlume::ros::testing::load_marker_array("hd_map_local_elements_0.yaml");
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(overlume_node::testing::urban_row("/hd_map_local_elements"),
+    overlume::ros::HdMapAdapter a(overlume::ros::testing::urban_row("/hd_map_local_elements"),
                                   kTf.tf);
     a.ingest(msg, /*sim_time_sec=*/1.0);
     SceneAssembly out;
@@ -892,7 +892,7 @@ TEST(HdMapAdapter, OuterBoundariesOfThreeAdjacentLanesPromoteToRoadEdge) {
     // twin from another lane -- everything between stays a shared interior
     // divider.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -931,7 +931,7 @@ TEST(HdMapAdapter, SingleIsolatedLaneHasBothBoundariesPromotedToRoadEdge) {
     // A lane with no neighbour on either side: BOTH its boundaries are road
     // edges (there is nothing to be interior to).
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {RailMarker("left_boundary_solo", 1, 0.0),
@@ -956,7 +956,7 @@ TEST(HdMapAdapter, JunctionPolygonClipSplitsRoadEdgeIntoTwoSubElementsWithInterp
     // through a 6x6 m JUNCTION box centered on the origin: cut off inside
     // the box, resuming past it.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(JunctionRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(JunctionRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -996,7 +996,7 @@ TEST(HdMapAdapter, MutualCrossingCutSplitsBothRoadEdgesWithBackoff) {
     // that covers urban's real feed (verified: no `junction` namespace
     // rule anywhere in urban_profile.yaml).
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1039,7 +1039,7 @@ TEST(HdMapAdapter, ParallelRoadEdgesAreNeverCut) {
     // rails must render whole, unsplit, regardless of how close together
     // they run.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1070,7 +1070,7 @@ TEST(HdMapAdapter, AbuttingNearCollinearRoadEdgesAreNeverCut) {
     // touch at all, so it never reaches the t/u-at-an-endpoint case
     // SegSegIntersect2D's near-parallel/near-antiparallel guard rejects.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     const double kink_rad = 1.0 * M_PI / 180.0;
     visualization_msgs::msg::MarkerArray arr;
@@ -1107,7 +1107,7 @@ TEST(HdMapAdapter, JunctionGapMergeCutsSliverBetweenCloseCrossings) {
     // them into one [-6.5,6.5] cut. A bare touch/overlap test would leave a
     // 5.0 m gap as its own emitted sliver between the two crossings.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1143,7 +1143,7 @@ TEST(HdMapAdapter, JunctionGapMergeAtThresholdStillMerges) {
     // just below it: still one merged cut. The merge test is <=, and
     // nothing here depends on the exact-equality case.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1175,7 +1175,7 @@ TEST(HdMapAdapter, JunctionGapMergeKeepsLegitInteriorSpanAboveThreshold) {
     // survives as its own legit piece (a real stub is never shorter than
     // 7.027 m, see kJunctionGapMergeM's own comment in hd_map.cpp).
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1213,7 +1213,7 @@ TEST(HdMapAdapter, BoundariesUntouchedByJunctionCutsAtDefaultFlag) {
     // neither promotes to ROAD_EDGE -- running straight through a JUNCTION
     // box renders whole, unclipped.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(JunctionRuleRow(/*junction_interior_boundaries=*/true), kTf.tf);
+    overlume::ros::HdMapAdapter a(JunctionRuleRow(/*junction_interior_boundaries=*/true), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1243,7 +1243,7 @@ TEST(HdMapAdapter, JunctionInteriorBoundariesFalseDropsSegmentsInsideJunctionPol
     // crossing-cut's back-off: the cut point sits exactly on the box edge,
     // y=+/-3, not offset by kJunctionCutBackoffM).
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(JunctionRuleRow(/*junction_interior_boundaries=*/false), kTf.tf);
+    overlume::ros::HdMapAdapter a(JunctionRuleRow(/*junction_interior_boundaries=*/false), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1289,7 +1289,7 @@ TEST(HdMapAdapter, ArcSnapExtendsCutPastFixedBackoffToTheCornerArcsFarEdge) {
     // fixed-backoff boundary -- not just the farthest vertex the search
     // margin alone could reach (v4).
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1352,7 +1352,7 @@ TEST(HdMapAdapter, ArcSnapDoesNotFireOnTheMeasuredWorstCaseGentleOpenRoadCurve) 
     // a false positive would show up -- and must NOT move the cut at all:
     // both boundaries stay at the fixed-backoff points.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1406,7 +1406,7 @@ TEST(HdMapAdapter, ArcSnapExtendsBothWindowBoundariesToTheirOwnCornerArcs) {
     // snap to that one run's own two true ends (v1 and v13), each looking
     // only at its own nearby geometry (no cross-polyline pairing logic).
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1472,7 +1472,7 @@ TEST(HdMapAdapter, ArcSnapAdjacentWindowsFromTwoCrossingsProduceOneContinuousCut
     // SnapWindowsToArcs; this test does not depend on which of the two
     // MergeWindows calls folds these windows together.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1527,7 +1527,7 @@ TEST(HdMapAdapter, PureArcCornerConnectorStillFramesItsOwnTwoRecordedEndpoints) 
     // framing its own two recorded ends, not zero pieces. This is the
     // outward-only design's own stated ceiling, not a bug.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1583,7 +1583,7 @@ TEST(HdMapAdapter, TerminalArcStubIsRemovedAndArcSnapStaysSafeAtTheClamp) {
     // edge sits BEFORE the already-larger clamped boundary, exactly like
     // here).
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1643,7 +1643,7 @@ TEST(HdMapAdapter, ArcSnapReachesTheArcsTrueStartEvenBeyondTheOldSearchMargin) {
     // FindArcSpanNear's own definition of an arc, THIS is where the fillet
     // actually starts, and it is where the snap lands.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1712,7 +1712,7 @@ TEST(HdMapAdapter, RedundantArcTailTrimCutsBackToTheCornerArcsDepartureVertex) {
     // the real confirmed instance (lane 955), which has no crossing
     // anywhere near its own tail either.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1768,7 +1768,7 @@ TEST(HdMapAdapter, RedundantArcTailTrimDoesNotFireOnAnOpenElbowConnector) {
     // penultimate-vertex distance sits just past the real measured boundary
     // instead of far past it.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1816,7 +1816,7 @@ TEST(HdMapAdapter, RedundantArcTailTrimFiresOnTheWorstMeasuredTrueCase) {
     // above; lane 2's penultimate-vertex distance sits just inside the
     // measured true-case boundary instead of deep inside it.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1855,7 +1855,7 @@ TEST(HdMapAdapter, RedundantArcTailTrimDoesNotFireJustOutsideTheSharedNodeEpsilo
     // confirmed-duplicate test above. Proximity along the way is not enough
     // without the shared-endpoint condition too.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1901,7 +1901,7 @@ TEST(HdMapAdapter, NeighborArcDepartureSnapCutsBackAStraightEdgeOvershootingTheC
     // extent) specifically so it crosses ONLY lane 3, not lane 1 --
     // isolating this mechanism from the ordinary crossing-cut.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1961,7 +1961,7 @@ TEST(HdMapAdapter, NeighborArcDepartureSnapDoesNotFireWithoutASharedNode) {
     // fixed-backoff crossing-cut boundary is left exactly where it was.
     // Same scene as the test above otherwise.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -2001,7 +2001,7 @@ TEST(HdMapAdapter, OneMarkerCountsAsOneIngestedMarkerForStats) {
     // producing one MapElement (dashing moved renderer-side) -- msgs and
     // the dropped_* counters reflect that one marker.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
     a.ingest(StraightTenMeterMarker("centerline_x"), 1.0);
 
     SceneAssembly out;
@@ -2022,7 +2022,7 @@ TEST(HdMapAdapter, MarkerPoseComposesRotationBeforeTranslation) {
     // tf2::Transform's own point-multiply composition order. Single marker,
     // so it stays exactly one MapElement.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     visualization_msgs::msg::Marker m;
@@ -2060,7 +2060,7 @@ TEST(HdMapAdapter, IdentityMarkerPoseIsByteIdenticalToRawPoints) {
     // `float64 w 1`) -- must reproduce today's un-posed behaviour exactly:
     // no rotation, no translation (regression for the identity fast path).
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
     a.ingest(StraightTenMeterMarker("centerline_x"), 1.0);
 
     SceneAssembly out;
@@ -2078,7 +2078,7 @@ TEST(HdMapAdapter, NanMarkerPoseIsDroppedAsMalformedNotAppliedRaw) {
     // The malformed marker is dropped; a valid neighbour still comes
     // through (spec §9, "drop the one primitive, never propagate").
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     auto bad = StraightTenMeterMarker("centerline_x").markers[0];
@@ -2108,7 +2108,7 @@ TEST(HdMapAdapter, ZeroQuaternionPoseIsTreatedAsIdentityRotationNotNan) {
     // whole marker as dropped_malformed. Zero quat + translation -> points
     // still come through translated, nothing counted malformed.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
     auto arr = StraightTenMeterMarker("centerline_x");
     arr.markers[0].pose.position.y = 7.0;
     arr.markers[0].pose.orientation.w = 0.0;  // all-zero quaternion
@@ -2127,7 +2127,7 @@ TEST(HdMapAdapter, NonZeroZPointsAreFlattenedToTheMapPlane) {
     // flatten_z: the HD map is a 2D plane, so publisher z must not float
     // geometry above it. Default is ON.
     TfFixture kTf;
-    overlume_node::HdMapAdapter a(MapRuleRow(), kTf.tf);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
     auto arr = StraightTenMeterMarker("centerline_x");
     for (auto& p : arr.markers[0].points) p.z = 3.0;
     a.ingest(arr, 1.0);
@@ -2145,7 +2145,7 @@ TEST(HdMapAdapter, FlattenZOffPreservesPublisherZ) {
     // coordinates.
     TfFixture kTf;
     overlume::ros::FrameTransformer tf3d(kTf.buffer, "map", /*flatten_z=*/false);
-    overlume_node::HdMapAdapter a(MapRuleRow(), tf3d);
+    overlume::ros::HdMapAdapter a(MapRuleRow(), tf3d);
     auto arr = StraightTenMeterMarker("centerline_x");
     for (auto& p : arr.markers[0].points) p.z = 3.0;
     a.ingest(arr, 1.0);

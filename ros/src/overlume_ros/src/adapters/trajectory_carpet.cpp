@@ -9,7 +9,7 @@
 #include <tf2/LinearMath/Transform.h>
 #include <tf2/LinearMath/Vector3.h>
 
-namespace overlume_node {
+namespace overlume::ros {
 namespace {
 
 // visualization_msgs/msg/Marker.msg action + type constants -- not worth a
@@ -178,4 +178,4 @@ void TrajectoryCarpetAdapter::fill(overlume::ros::SceneAssembly& out) const {
     out.trajectory_carpets.push_back(tc);
 }
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

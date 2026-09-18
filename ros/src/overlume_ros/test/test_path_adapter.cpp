@@ -55,11 +55,11 @@ TEST(PathAdapter, BehaviorPathHeadingDerivedFromPointsNotOrientation) {
     // orientations (0,0,0,1) for every pose in the recorded bag. PathRibbon
     // is positions-only, so this is mostly a "don't be clever" guard --
     // assert the ribbon's points match the msg's pose positions exactly.
-    auto msg = overlume_node::testing::load_path("behavior_output_path_0.yaml");
+    auto msg = overlume::ros::testing::load_path("behavior_output_path_0.yaml");
     ASSERT_GE(msg.poses.size(), 2u);
     TfFixture kTf;
-    overlume_node::PathAdapter a(
-        overlume_node::testing::urban_row("/behavior_path_planner/output_path_visualization"),
+    overlume::ros::PathAdapter a(
+        overlume::ros::testing::urban_row("/behavior_path_planner/output_path_visualization"),
         kTf.tf);
     a.ingest(msg, /*sim_time_sec=*/1.0);
     SceneAssembly out;
@@ -89,13 +89,13 @@ TEST(PathAdapter, RoleComesFromTheProfileRowNotTheTopicName) {
     TfFixture kTf;
     auto msg = MakePath({{0, 0, 0}, {1, 0, 0}, {2, 0, 0}});
 
-    overlume_node::ProfileRow row =
-        overlume_node::testing::urban_row("/behavior_path_planner/output_path_visualization");
+    overlume::ros::ProfileRow row =
+        overlume::ros::testing::urban_row("/behavior_path_planner/output_path_visualization");
     ASSERT_EQ(row.role, "behavior");
 
     row.role = "behavior";
     {
-        overlume_node::PathAdapter a(row, kTf.tf);
+        overlume::ros::PathAdapter a(row, kTf.tf);
         a.ingest(msg, 1.0);
         SceneAssembly out;
         a.fill(out);
@@ -104,7 +104,7 @@ TEST(PathAdapter, RoleComesFromTheProfileRowNotTheTopicName) {
     }
     row.role = "global";
     {
-        overlume_node::PathAdapter a(row, kTf.tf);
+        overlume::ros::PathAdapter a(row, kTf.tf);
         a.ingest(msg, 1.0);
         SceneAssembly out;
         a.fill(out);
@@ -113,7 +113,7 @@ TEST(PathAdapter, RoleComesFromTheProfileRowNotTheTopicName) {
     }
     row.role = "local";
     {
-        overlume_node::PathAdapter a(row, kTf.tf);
+        overlume::ros::PathAdapter a(row, kTf.tf);
         a.ingest(msg, 1.0);
         SceneAssembly out;
         a.fill(out);
@@ -126,7 +126,7 @@ TEST(PathAdapter, RoleComesFromTheProfileRowNotTheTopicName) {
 
 TEST(PathAdapter, EmptyAndSinglePosePathsAreDroppedAndCounted) {
     TfFixture kTf;
-    overlume_node::PathAdapter a(overlume_node::testing::urban_row("/local_vel_path"), kTf.tf);
+    overlume::ros::PathAdapter a(overlume::ros::testing::urban_row("/local_vel_path"), kTf.tf);
 
     auto empty = MakePath({});
     a.ingest(empty, 1.0);
@@ -149,11 +149,11 @@ TEST(PathAdapter, EmptyAndSinglePosePathsAreDroppedAndCounted) {
 // ── Step 1: a new path REPLACES the stored one, never appends ──────────────
 
 TEST(PathAdapter, PathChangeReplacesRatherThanAppends) {
-    auto long_path = overlume_node::testing::load_path("behavior_output_path_0.yaml");
+    auto long_path = overlume::ros::testing::load_path("behavior_output_path_0.yaml");
     ASSERT_GT(long_path.poses.size(), 33u);
     TfFixture kTf;
-    overlume_node::PathAdapter a(
-        overlume_node::testing::urban_row("/behavior_path_planner/output_path_visualization"),
+    overlume::ros::PathAdapter a(
+        overlume::ros::testing::urban_row("/behavior_path_planner/output_path_visualization"),
         kTf.tf);
     a.ingest(long_path, 1.0);
     SceneAssembly out1;
@@ -163,7 +163,7 @@ TEST(PathAdapter, PathChangeReplacesRatherThanAppends) {
 
     // The real recorded 33-pose /local_vel_path message -- real recorded
     // coordinates beat a synthetic straight line.
-    auto short_path = overlume_node::testing::load_path("local_vel_path_0.yaml");
+    auto short_path = overlume::ros::testing::load_path("local_vel_path_0.yaml");
     ASSERT_EQ(short_path.poses.size(), 33u);
     a.ingest(short_path, 2.0);
     SceneAssembly out2;
@@ -180,8 +180,8 @@ TEST(PathAdapter, PathChangeReplacesRatherThanAppends) {
 TEST(PathAdapter, FillStampsLastUpdateSecAnchoredToRowTimeoutNotRawReceipt) {
     TfFixture kTf;
     const auto row =
-        overlume_node::testing::urban_row("/behavior_path_planner/output_path_visualization");
-    overlume_node::PathAdapter a(row, kTf.tf);
+        overlume::ros::testing::urban_row("/behavior_path_planner/output_path_visualization");
+    overlume::ros::PathAdapter a(row, kTf.tf);
     a.ingest(MakePath({{0, 0, 0}, {5, 0, 0}}), /*sim_time_sec=*/10.0);
 
     SceneAssembly out;

@@ -64,18 +64,18 @@ TEST(Callouts, NearestObstacleChipTracksAcrossCameraMove) {
     pose1.vfov_deg = 80.0;
     ASSERT_TRUE(overlume::render_frame(r, pose1, view));
 
-    overlume_node::Callout c1{};
+    overlume::ros::Callout c1{};
     const overlume::Vec3 ego1{pose1.eye[0], pose1.eye[1], pose1.eye[2]};
-    ASSERT_TRUE(overlume_node::BuildNearestCallout(r, &alert, 1, ego1, c1));
+    ASSERT_TRUE(overlume::ros::BuildNearestCallout(r, &alert, 1, ego1, c1));
 
     // Second tick: camera orbits to a different eye, same target/obstacle.
     overlume::CameraPose pose2 = pose1;
     pose2.eye[1] = 3.0;
     ASSERT_TRUE(overlume::render_frame(r, pose2, view));
 
-    overlume_node::Callout c2{};
+    overlume::ros::Callout c2{};
     const overlume::Vec3 ego2{pose2.eye[0], pose2.eye[1], pose2.eye[2]};
-    ASSERT_TRUE(overlume_node::BuildNearestCallout(r, &alert, 1, ego2, c2));
+    ASSERT_TRUE(overlume::ros::BuildNearestCallout(r, &alert, 1, ego2, c2));
 
     EXPECT_TRUE(std::fabs(c1.anchor_x - c2.anchor_x) > 0.01f ||
                 std::fabs(c1.anchor_y - c2.anchor_y) > 0.01f)
@@ -113,9 +113,9 @@ TEST(Callouts, ChipForAnObjectBehindCameraIsSuppressedNotMisdrawn) {
     alert.point_count = 1;
     alert.severity = 2;
 
-    overlume_node::Callout c{};
+    overlume::ros::Callout c{};
     const overlume::Vec3 ego_pos{pose.eye[0], pose.eye[1], pose.eye[2]};
-    EXPECT_FALSE(overlume_node::BuildNearestCallout(r, &alert, 1, ego_pos, c));
+    EXPECT_FALSE(overlume::ros::BuildNearestCallout(r, &alert, 1, ego_pos, c));
 
     overlume::destroy_renderer(r);
 }
@@ -123,8 +123,8 @@ TEST(Callouts, ChipForAnObjectBehindCameraIsSuppressedNotMisdrawn) {
 TEST(Callouts, NoAlertsReturnsFalse) {
     // alert_count==0 short-circuits before ever touching `renderer` --
     // nullptr here is deliberate, not an oversight.
-    overlume_node::Callout c{};
-    EXPECT_FALSE(overlume_node::BuildNearestCallout(nullptr, nullptr, 0, overlume::Vec3{}, c));
+    overlume::ros::Callout c{};
+    EXPECT_FALSE(overlume::ros::BuildNearestCallout(nullptr, nullptr, 0, overlume::Vec3{}, c));
 }
 
 // ── Sanctioned-red callouts golden (Task 4 Step 2's own instruction) ────────
@@ -227,20 +227,20 @@ TEST(CalloutsGolden, SyntheticFrameWithVisibleCallout720pLowPreset) {
     scene.ego.valid = 1;
     scene.alerts = &alert;
     scene.alert_count = 1;
-    overlume_node::PopulateHud(scene, /*active_mode=*/3);
+    overlume::ros::PopulateHud(scene, /*active_mode=*/3);
     overlume::set_scene(r, scene);
 
     std::vector<uint8_t> frame(static_cast<size_t>(kW) * kH * 3, 0);
     overlume::FrameView view{frame.data(), kW, kH};
     ASSERT_TRUE(overlume::render_frame(r, pose, view));
 
-    overlume_node::Callout callout{};
-    ASSERT_TRUE(overlume_node::BuildNearestCallout(r, &alert, 1, scene.ego.position, callout))
+    overlume::ros::Callout callout{};
+    ASSERT_TRUE(overlume::ros::BuildNearestCallout(r, &alert, 1, scene.ego.position, callout))
         << "obstacle expected in view for this golden's own fixed pose";
 
     const overlume::HudColors colors = overlume::get_hud_colors(r);
-    overlume_node::DrawCallout(frame.data(), kW, kH, callout,
-                               overlume_node::HudRgb{colors.accent_color[0], colors.accent_color[1],
+    overlume::ros::DrawCallout(frame.data(), kW, kH, callout,
+                               overlume::ros::HudRgb{colors.accent_color[0], colors.accent_color[1],
                                                      colors.accent_color[2]},
                                colors.scale, OVERLUME_NODE_FONT_PATH);
 

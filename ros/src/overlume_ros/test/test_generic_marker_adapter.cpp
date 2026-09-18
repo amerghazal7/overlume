@@ -23,7 +23,7 @@
 
 using overlume::ros::FrameTransformer;
 using overlume::ros::SceneAssembly;
-using overlume_node::GenericMarkerAdapter;
+using overlume::ros::GenericMarkerAdapter;
 
 namespace {
 
@@ -77,9 +77,9 @@ visualization_msgs::msg::Marker DeleteAll() {
 // urban_row("/sim/ground_truth/boxes") throws for every test below. Build
 // the CANONICAL disabled row text directly instead (best_effort: true is
 // load-bearing), independent of the row's shipped state.
-overlume_node::ProfileRow GroundTruthBoxesRow() {
+overlume::ros::ProfileRow GroundTruthBoxesRow() {
     std::vector<std::string> errs;
-    auto p = overlume_node::load_profile_string(
+    auto p = overlume::ros::load_profile_string(
         "name: t\nrows:\n  - {topic: /sim/ground_truth/boxes, "
         "type: visualization_msgs/msg/MarkerArray, adapter: generic, role: neutral, "
         "best_effort: true}\n",
@@ -231,7 +231,7 @@ TEST(GenericMarkerAdapter, DeleteAllClearsPreviousMarkers) {
 TEST(GenericMarkerAdapter, DroppedByRuleNamespaceNeverReachesStorage) {
     auto row = GroundTruthBoxesRow();
     row.namespaces.push_back(
-        overlume_node::NsRule{"noisy_", overlume_node::NsRender::kDrop, overlume::MapKind::OTHER});
+        overlume::ros::NsRule{"noisy_", overlume::ros::NsRender::kDrop, overlume::MapKind::OTHER});
     TfFixture kTf;
     GenericMarkerAdapter a(row, kTf.tf);
 

@@ -11,7 +11,7 @@
 
 #include <yaml-cpp/yaml.h>
 
-namespace overlume_node {
+namespace overlume::ros {
 namespace {
 
 std::optional<NsRender> ParseNsRender(const std::string& s) {
@@ -433,4 +433,4 @@ std::vector<SubSpec> subscriptions_for(const ProfileRow& row) {
     return specs;
 }
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

@@ -13,7 +13,7 @@
 #include <tf2/utils.h>
 #include <yaml-cpp/yaml.h>
 
-namespace overlume_node {
+namespace overlume::ros {
 namespace {
 
 // visualization_msgs/msg/Marker.msg action constants -- see hd_map.cpp's
@@ -379,4 +379,4 @@ void DynamicObjectsAdapter::fill(overlume::ros::SceneAssembly& out) const {
     }
 }
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

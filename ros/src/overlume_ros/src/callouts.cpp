@@ -10,7 +10,7 @@
 #include <cstdio>
 #include <limits>
 
-namespace overlume_node {
+namespace overlume::ros {
 namespace {
 
 // Plain point-to-point distance -- same one-line formula every adapter file
@@ -71,4 +71,4 @@ void DrawCallout(uint8_t* rgb, uint32_t width, uint32_t height, const Callout& c
     DrawText(rgb, width, height, callout.text, tx, ty, chip_rgb, scale, font_path);
 }
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

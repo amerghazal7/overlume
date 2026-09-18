@@ -33,7 +33,7 @@
 #include "overlume_ros/hud_overlay.hpp"
 #include "overlume/scene.h"
 
-namespace overlume_node {
+namespace overlume::ros {
 
 struct Callout {
     char text[16];             // "%.1f m", nul-terminated -- fixed buffer, no std::string needed
@@ -56,4 +56,4 @@ bool BuildNearestCallout(overlume::VisualRenderer* renderer, const overlume::Ale
 void DrawCallout(uint8_t* rgb, uint32_t width, uint32_t height, const Callout& callout,
                  HudRgb chip_rgb, float scale, const char* font_path);
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

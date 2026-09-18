@@ -58,7 +58,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     // handled set; a live-retunable governor is future scope, stated rather
     // than implied).
     governor_enabled_ = declare_parameter<bool>("governor_enabled", false);
-    overlume_node::QualityGovernorParams governor_params;
+    overlume::ros::QualityGovernorParams governor_params;
     const int governor_window_size_param = declare_parameter<int>(
         "governor_window_size", static_cast<int>(governor_params.window_size));
     governor_params.drop_threshold_ms =
@@ -94,7 +94,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     governor_params.recover_windows_required =
         static_cast<uint32_t>(governor_recover_windows_required_param);
     governor_params.min_dwell_windows = static_cast<uint32_t>(governor_min_dwell_windows_param);
-    quality_governor_ = std::make_unique<overlume_node::QualityGovernor>(
+    quality_governor_ = std::make_unique<overlume::ros::QualityGovernor>(
         governor_params, static_cast<uint32_t>(quality_));
 
     // Post-cutover (VM-095): the two-process race-handling this parameter
@@ -182,7 +182,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     }
 
     // ── profile YAML loader ───────────────────────────────────────────────────
-    // Drives which adapters subscribe to what, via overlume_node::subscriptions_for(row)
+    // Drives which adapters subscribe to what, via overlume::ros::subscriptions_for(row)
     // over profile->rows. Failure to load is fatal; every collected error is
     // logged, not just the first, so a config file with several mistakes
     // takes one edit pass, not several.
@@ -194,7 +194,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     }
     const std::string profile_path = profile_dir + "/" + profile_name + "_profile.yaml";
     std::vector<std::string> profile_errors;
-    auto profile = overlume_node::load_profile(profile_path, profile_errors);
+    auto profile = overlume::ros::load_profile(profile_path, profile_errors);
     if (!profile.has_value()) {
         RCLCPP_ERROR(get_logger(), "failed to load profile '%s':", profile_path.c_str());
         for (const auto& err : profile_errors) RCLCPP_ERROR(get_logger(), "  %s", err.c_str());
@@ -206,7 +206,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     // or the diagnostic naming a config typo is computed and silently dropped.
     for (const auto& err : profile_errors) RCLCPP_WARN(get_logger(), "  %s", err.c_str());
     for (const auto& row : profile->rows) {
-        const auto specs = overlume_node::subscriptions_for(row);
+        const auto specs = overlume::ros::subscriptions_for(row);
         if (specs.empty()) {
             RCLCPP_INFO(get_logger(), "  (no subscription) -> %s/%s", row.adapter.c_str(),
                         row.role.c_str());
@@ -654,12 +654,12 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     frame_transformer_ = std::make_unique<FrameTransformer>(*tf_buffer_, "map", flatten_z);
     for (const auto& row : profile->rows) {
         if (row.adapter != "hd_map") continue;
-        const auto specs = overlume_node::subscriptions_for(row);
+        const auto specs = overlume::ros::subscriptions_for(row);
         if (specs.empty()) continue;
         const auto& spec = specs.front();
 
-        auto adapter = std::make_unique<overlume_node::HdMapAdapter>(row, *frame_transformer_);
-        overlume_node::HdMapAdapter* adapter_ptr = adapter.get();
+        auto adapter = std::make_unique<overlume::ros::HdMapAdapter>(row, *frame_transformer_);
+        overlume::ros::HdMapAdapter* adapter_ptr = adapter.get();
         rclcpp::QoS qos(10);
         if (spec.best_effort) qos.best_effort();
         if (spec.transient_local) qos.transient_local();
@@ -679,7 +679,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     const std::string class_inference_path = profile_dir + "/class_inference.yaml";
     std::vector<std::string> class_inference_errors;
     if (auto table =
-            overlume_node::load_class_inference(class_inference_path, class_inference_errors)) {
+            overlume::ros::load_class_inference(class_inference_path, class_inference_errors)) {
         class_inference_ = std::move(*table);
     } else {
         RCLCPP_ERROR(get_logger(),
@@ -691,13 +691,13 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
 
     for (const auto& row : profile->rows) {
         if (row.adapter != "dynamic_objects") continue;
-        const auto specs = overlume_node::subscriptions_for(row);
+        const auto specs = overlume::ros::subscriptions_for(row);
         if (specs.empty()) continue;
         const auto& spec = specs.front();
 
-        auto adapter = std::make_unique<overlume_node::DynamicObjectsAdapter>(
+        auto adapter = std::make_unique<overlume::ros::DynamicObjectsAdapter>(
             row, *frame_transformer_, class_inference_);
-        overlume_node::DynamicObjectsAdapter* adapter_ptr = adapter.get();
+        overlume::ros::DynamicObjectsAdapter* adapter_ptr = adapter.get();
         rclcpp::QoS qos(10);
         if (spec.best_effort) qos.best_effort();
         if (spec.transient_local) qos.transient_local();
@@ -715,12 +715,12 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     // ── Path ribbons ──────────────────────────────────────────────────────────
     for (const auto& row : profile->rows) {
         if (row.adapter != "path") continue;
-        const auto specs = overlume_node::subscriptions_for(row);
+        const auto specs = overlume::ros::subscriptions_for(row);
         if (specs.empty()) continue;
         const auto& spec = specs.front();
 
-        auto adapter = std::make_unique<overlume_node::PathAdapter>(row, *frame_transformer_);
-        overlume_node::PathAdapter* adapter_ptr = adapter.get();
+        auto adapter = std::make_unique<overlume::ros::PathAdapter>(row, *frame_transformer_);
+        overlume::ros::PathAdapter* adapter_ptr = adapter.get();
         rclcpp::QoS qos(10);
         if (spec.best_effort) qos.best_effort();
         if (spec.transient_local) qos.transient_local();
@@ -739,13 +739,13 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     // the update stream (it's inherently VOLATILE); best_effort still does.
     for (const auto& row : profile->rows) {
         if (row.adapter != "ogm") continue;
-        const auto specs = overlume_node::subscriptions_for(row);
+        const auto specs = overlume::ros::subscriptions_for(row);
         if (specs.size() != 2) continue;  // profile.cpp always returns 2 for adapter: ogm
         const auto& gridSpec = specs[0];
         const auto& updateSpec = specs[1];
 
-        auto adapter = std::make_unique<overlume_node::OgmAdapter>(row, *frame_transformer_);
-        overlume_node::OgmAdapter* adapter_ptr = adapter.get();
+        auto adapter = std::make_unique<overlume::ros::OgmAdapter>(row, *frame_transformer_);
+        overlume::ros::OgmAdapter* adapter_ptr = adapter.get();
 
         rclcpp::QoS gridQos(10);
         if (gridSpec.best_effort) gridQos.best_effort();
@@ -774,12 +774,12 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     // -- unvalidated against a live publisher.
     for (const auto& row : profile->rows) {
         if (row.adapter != "collision") continue;
-        const auto specs = overlume_node::subscriptions_for(row);
+        const auto specs = overlume::ros::subscriptions_for(row);
         if (specs.empty()) continue;
         const auto& spec = specs.front();
 
-        auto adapter = std::make_unique<overlume_node::CollisionAdapter>(row, *frame_transformer_);
-        overlume_node::CollisionAdapter* adapter_ptr = adapter.get();
+        auto adapter = std::make_unique<overlume::ros::CollisionAdapter>(row, *frame_transformer_);
+        overlume::ros::CollisionAdapter* adapter_ptr = adapter.get();
         rclcpp::QoS qos(10);
         if (spec.best_effort) qos.best_effort();
         if (spec.transient_local) qos.transient_local();
@@ -796,13 +796,13 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     // Adding a topic is one YAML row, no code change (spec §7 parity guarantee).
     for (const auto& row : profile->rows) {
         if (row.adapter != "generic") continue;
-        const auto specs = overlume_node::subscriptions_for(row);
+        const auto specs = overlume::ros::subscriptions_for(row);
         if (specs.empty()) continue;
         const auto& spec = specs.front();
 
         auto adapter =
-            std::make_unique<overlume_node::GenericMarkerAdapter>(row, *frame_transformer_);
-        overlume_node::GenericMarkerAdapter* adapter_ptr = adapter.get();
+            std::make_unique<overlume::ros::GenericMarkerAdapter>(row, *frame_transformer_);
+        overlume::ros::GenericMarkerAdapter* adapter_ptr = adapter.get();
         rclcpp::QoS qos(10);
         if (spec.best_effort) qos.best_effort();
         if (spec.transient_local) qos.transient_local();
@@ -823,12 +823,12 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     // above (collision/generic).
     for (const auto& row : profile->rows) {
         if (row.adapter != "point_cloud") continue;
-        const auto specs = overlume_node::subscriptions_for(row);
+        const auto specs = overlume::ros::subscriptions_for(row);
         if (specs.empty()) continue;
         const auto& spec = specs.front();
 
-        auto adapter = std::make_unique<overlume_node::PointCloudAdapter>(row, *frame_transformer_);
-        overlume_node::PointCloudAdapter* adapter_ptr = adapter.get();
+        auto adapter = std::make_unique<overlume::ros::PointCloudAdapter>(row, *frame_transformer_);
+        overlume::ros::PointCloudAdapter* adapter_ptr = adapter.get();
         rclcpp::QoS qos(10);
         if (spec.best_effort) qos.best_effort();
         if (spec.transient_local) qos.transient_local();
@@ -864,13 +864,13 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     // ── Trajectory carpet (VM-077) ────────────────────────────────────────────
     for (const auto& row : profile->rows) {
         if (row.adapter != "trajectory_carpet") continue;
-        const auto specs = overlume_node::subscriptions_for(row);
+        const auto specs = overlume::ros::subscriptions_for(row);
         if (specs.empty()) continue;
         const auto& spec = specs.front();
 
         auto adapter =
-            std::make_unique<overlume_node::TrajectoryCarpetAdapter>(row, *frame_transformer_);
-        overlume_node::TrajectoryCarpetAdapter* adapter_ptr = adapter.get();
+            std::make_unique<overlume::ros::TrajectoryCarpetAdapter>(row, *frame_transformer_);
+        overlume::ros::TrajectoryCarpetAdapter* adapter_ptr = adapter.get();
         rclcpp::QoS qos(10);
         if (spec.best_effort) qos.best_effort();
         if (spec.transient_local) qos.transient_local();
@@ -890,7 +890,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     // adapter's own header comment).
     for (const auto& row : profile->rows) {
         if (row.adapter != "tf_axes") continue;
-        tf_axes_rows_.push_back(std::make_unique<overlume_node::TfAxesAdapter>(row, *tf_buffer_));
+        tf_axes_rows_.push_back(std::make_unique<overlume::ros::TfAxesAdapter>(row, *tf_buffer_));
     }
     RCLCPP_INFO(get_logger(), "tf_axes: %zu row(s) configured", tf_axes_rows_.size());
 
@@ -1326,7 +1326,7 @@ namespace {
 // is the designed steady state and never warns. Watermarks advance even while
 // throttled, since the counters are cumulative, so the next growth still warns.
 void warn_on_drop_growth(const rclcpp::Logger& logger, rclcpp::Clock& clock,
-                         const std::string& topic, const overlume_node::AdapterStats& s,
+                         const std::string& topic, const overlume::ros::AdapterStats& s,
                          uint64_t& warned_malformed, uint64_t& warned_no_tf) {
     if (s.dropped_malformed > warned_malformed || s.dropped_no_tf > warned_no_tf) {
         RCLCPP_WARN_THROTTLE(logger, clock, 5000,
@@ -1593,7 +1593,7 @@ void OverlumeNode::timer_callback() {
     // / VM-031 scope). See hud_overlay.hpp's own comment for why this is a
     // free function, not the two lines inlined here. Post-cutover, this
     // node's render_mode_ IS the active mode (no separate mux value).
-    overlume_node::PopulateHud(scene, render_mode_);
+    overlume::ros::PopulateHud(scene, render_mode_);
 
     // Epic 3 Task 5 (VM-032) Step 0: layer visibility is a NODE-SIDE gate,
     // not a renderer API -- clearing a category's vector right before
@@ -1837,9 +1837,9 @@ void OverlumeNode::timer_callback() {
     // Opt-in. On a transition, applies it live via overlume::set_quality() and
     // mirrors quality_ onto the ROS param too.
     if (governor_enabled_) {
-        const overlume_node::QualityTransition transition =
+        const overlume::ros::QualityTransition transition =
             quality_governor_->record_render_ms(render_ms_);
-        if (transition != overlume_node::QualityTransition::NONE) {
+        if (transition != overlume::ros::QualityTransition::NONE) {
             const uint32_t new_preset = quality_governor_->current_preset();
             overlume::set_quality(renderer_, new_preset);
             quality_ = static_cast<int>(new_preset);
@@ -1847,7 +1847,7 @@ void OverlumeNode::timer_callback() {
             set_parameter(rclcpp::Parameter("quality", quality_));
             RCLCPP_WARN(
                 get_logger(), "quality governor: %s -> preset %u (render_ms p95 over window)",
-                transition == overlume_node::QualityTransition::DROPPED ? "DROPPED" : "RECOVERED",
+                transition == overlume::ros::QualityTransition::DROPPED ? "DROPPED" : "RECOVERED",
                 new_preset);
         }
     }
@@ -1870,13 +1870,13 @@ void OverlumeNode::timer_callback() {
     // itself, so it's restored exactly on returning to FREE_LOOK.
     if (hud_enabled_ && overlays_visible_for_mode(render_mode)) {
         const overlume::HudColors hud_colors = overlume::get_hud_colors(renderer_);
-        const overlume_node::HudSnapshot hud_snapshot{scene.hud.speed_mps, scene.hud.active_mode};
-        if (!overlume_node::CompositeHud(
+        const overlume::ros::HudSnapshot hud_snapshot{scene.hud.speed_mps, scene.hud.active_mode};
+        if (!overlume::ros::CompositeHud(
                 frame_buf_.data(), static_cast<uint32_t>(out_width_),
                 static_cast<uint32_t>(out_height_), hud_snapshot,
-                overlume_node::HudRgb{hud_colors.text_color[0], hud_colors.text_color[1],
+                overlume::ros::HudRgb{hud_colors.text_color[0], hud_colors.text_color[1],
                                       hud_colors.text_color[2]},
-                overlume_node::HudRgb{hud_colors.accent_color[0], hud_colors.accent_color[1],
+                overlume::ros::HudRgb{hud_colors.accent_color[0], hud_colors.accent_color[1],
                                       hud_colors.accent_color[2]},
                 hud_colors.scale, hud_font_path_.c_str()) &&
             !hud_font_warned_) {
@@ -1920,11 +1920,11 @@ void OverlumeNode::timer_callback() {
         // docs/runbooks/cesium.md's Google section for the
         // verify-at-implementation note on confirming/updating this exact
         // wording for a given deployment's ion asset before go-live.
-        if (!overlume_node::DrawText(
+        if (!overlume::ros::DrawText(
                 frame_buf_.data(), static_cast<uint32_t>(out_width_),
                 static_cast<uint32_t>(out_height_), "3D Tiles data (c) Google", 8.0f,
                 static_cast<float>(out_height_) - 8.0f,
-                overlume_node::HudRgb{hud_colors.text_color[0], hud_colors.text_color[1],
+                overlume::ros::HudRgb{hud_colors.text_color[0], hud_colors.text_color[1],
                                       hud_colors.text_color[2]},
                 hud_colors.scale, hud_font_path_.c_str()) &&
             !environment_attribution_warned_) {
@@ -1957,18 +1957,18 @@ void OverlumeNode::timer_callback() {
     // had a callout in the CUDA reference, and callouts_enabled_ itself is
     // left untouched.
     if (callouts_enabled_ && overlays_visible_for_mode(render_mode) && scene.ego.valid != 0) {
-        overlume_node::Callout callout{};
-        if (overlume_node::BuildNearestCallout(renderer_, scene.alerts, scene.alert_count,
+        overlume::ros::Callout callout{};
+        if (overlume::ros::BuildNearestCallout(renderer_, scene.alerts, scene.alert_count,
                                                scene.ego.position, callout)) {
             // Style token (STANDING directive): theme hud.accent_color,
             // reused verbatim -- the same live (possibly mid-transition)
             // color the HUD's own mode chip already draws with, not a new
             // theme.hud field just for this.
             const overlume::HudColors hud_colors = overlume::get_hud_colors(renderer_);
-            overlume_node::DrawCallout(
+            overlume::ros::DrawCallout(
                 frame_buf_.data(), static_cast<uint32_t>(out_width_),
                 static_cast<uint32_t>(out_height_), callout,
-                overlume_node::HudRgb{hud_colors.accent_color[0], hud_colors.accent_color[1],
+                overlume::ros::HudRgb{hud_colors.accent_color[0], hud_colors.accent_color[1],
                                       hud_colors.accent_color[2]},
                 hud_colors.scale, hud_font_path_.c_str());
         }
@@ -2016,14 +2016,14 @@ void OverlumeNode::timer_callback() {
 // here, not inside diagnostics.hpp, which deliberately takes no ROS clock so
 // it stays a pure, easily unit-tested data transform.
 void OverlumeNode::publish_diagnostics() {
-    std::vector<overlume_node::RowStats> rows;
+    std::vector<overlume::ros::RowStats> rows;
     rows.reserve(hd_map_rows_.size() + dynamic_objects_rows_.size() + path_rows_.size() +
                  ogm_rows_.size() + collision_rows_.size() + generic_marker_rows_.size() +
                  point_cloud_rows_.size() + carpet_rows_.size());
 
-    auto append_row = [&](const std::string& topic, const overlume_node::AdapterStats& stats,
+    auto append_row = [&](const std::string& topic, const overlume::ros::AdapterStats& stats,
                           double timeout_sec) {
-        overlume_node::RowStats rs;
+        overlume::ros::RowStats rs;
         rs.topic = topic;
         rs.stats = stats;
         rs.last_msg_age_sec = sim_clock_sec_ - stats.last_msg_sec;
@@ -2044,7 +2044,7 @@ void OverlumeNode::publish_diagnostics() {
         append_row(pcr.topic, pcr.adapter->stats(), pcr.timeout_sec);
     for (const auto& cr : carpet_rows_) append_row(cr.topic, cr.adapter->stats(), cr.timeout_sec);
 
-    auto msg = overlume_node::BuildDiagnostics(rows, render_ms_);
+    auto msg = overlume::ros::BuildDiagnostics(rows, render_ms_);
     msg.header.stamp = now();
     pub_diagnostics_->publish(msg);
 }

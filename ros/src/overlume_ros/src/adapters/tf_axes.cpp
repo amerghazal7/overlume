@@ -8,7 +8,7 @@
 #include <tf2/exceptions.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
-namespace overlume_node {
+namespace overlume::ros {
 namespace {
 
 constexpr double kAxisLengthM = 0.5;
@@ -86,4 +86,4 @@ void TfAxesAdapter::fill(overlume::ros::SceneAssembly& out, double sim_time_sec)
     for (const auto& m : axis_markers_) out.markers.push_back(m);
 }
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

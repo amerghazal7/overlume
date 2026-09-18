@@ -33,7 +33,7 @@ using filament::math::float2;
 using filament::math::float3;
 using filament::math::float4;
 
-// kUnknownCell = 255 -- mirrors overlume_node::OgmAdapter::kUnknownCell
+// kUnknownCell = 255 -- mirrors overlume::ros::OgmAdapter::kUnknownCell
 // (ogm.hpp, the source of truth). The frozen POD boundary
 // (GroundGridLayer::cells is a bare uint8_t*) can't carry a shared
 // constant across the ABI, so this number is stated by comment in three

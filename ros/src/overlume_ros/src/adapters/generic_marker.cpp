@@ -11,7 +11,7 @@
 #include <tf2/LinearMath/Vector3.h>
 #include <tf2/utils.h>
 
-namespace overlume_node {
+namespace overlume::ros {
 namespace {
 
 // visualization_msgs/msg/Marker.msg action + type constants -- not worth a
@@ -365,4 +365,4 @@ void GenericMarkerAdapter::fill(overlume::ros::SceneAssembly& out) const {
     }
 }
 
-}  // namespace overlume_node
+}  // namespace overlume::ros

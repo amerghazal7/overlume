@@ -24,7 +24,7 @@
 TEST(HudOverlay, PopulateHudCopiesEgoSpeedAndActiveMode) {
     overlume::SceneGraph scene{};
     scene.ego.speed_mps = 12.3;
-    overlume_node::PopulateHud(scene, /*active_mode=*/3);
+    overlume::ros::PopulateHud(scene, /*active_mode=*/3);
     EXPECT_DOUBLE_EQ(scene.hud.speed_mps, 12.3);
     EXPECT_EQ(scene.hud.active_mode, 3);
     // chips/chip_count untouched -- Task 4 (VM-031) scope, not this one's.
@@ -41,9 +41,9 @@ constexpr uint8_t kBackground = 40;  // known mid-gray frame
 
 TEST(HudOverlay, CompositesLegibleTextAtLowPreset) {
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, kBackground);
-    overlume_node::HudSnapshot hud{/*speed_mps=*/12.3, /*active_mode=*/3};
+    overlume::ros::HudSnapshot hud{/*speed_mps=*/12.3, /*active_mode=*/3};
 
-    ASSERT_TRUE(overlume_node::CompositeHud(rgb.data(), kWidth, kHeight, hud,
+    ASSERT_TRUE(overlume::ros::CompositeHud(rgb.data(), kWidth, kHeight, hud,
                                             /*text_rgb=*/{0.9f, 0.95f, 1.0f},
                                             /*accent_rgb=*/{0.1f, 1.0f, 0.4f},
                                             /*scale=*/1.0f, OVERLUME_NODE_FONT_PATH));
@@ -78,12 +78,12 @@ TEST(HudOverlay, CompositesLegibleTextAtLowPreset) {
 TEST(HudOverlay, MissingOrUnloadableFontIsNonFatalAndLeavesFrameUnchanged) {
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, kBackground);
     const std::vector<uint8_t> before = rgb;
-    overlume_node::HudSnapshot hud{/*speed_mps=*/12.3, /*active_mode=*/3};
+    overlume::ros::HudSnapshot hud{/*speed_mps=*/12.3, /*active_mode=*/3};
 
     // spec §9 "asset load failure -> non-fatal, WARN once" -- same
     // philosophy as set_ego_model's clay-box fallback, applied here as "no
     // HUD drawn, not a crash, not garbage pixels."
-    const bool ok = overlume_node::CompositeHud(rgb.data(), kWidth, kHeight, hud,
+    const bool ok = overlume::ros::CompositeHud(rgb.data(), kWidth, kHeight, hud,
                                                 /*text_rgb=*/{0.9f, 0.95f, 1.0f},
                                                 /*accent_rgb=*/{0.1f, 1.0f, 0.4f},
                                                 /*scale=*/1.0f, "/nonexistent/does_not_exist.ttf");
@@ -94,8 +94,8 @@ TEST(HudOverlay, MissingOrUnloadableFontIsNonFatalAndLeavesFrameUnchanged) {
 TEST(HudOverlay, EmptyFontPathIsNonFatal) {
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, kBackground);
     const std::vector<uint8_t> before = rgb;
-    overlume_node::HudSnapshot hud{12.3, 3};
-    EXPECT_FALSE(overlume_node::CompositeHud(rgb.data(), kWidth, kHeight, hud, {0, 0, 0}, {0, 0, 0},
+    overlume::ros::HudSnapshot hud{12.3, 3};
+    EXPECT_FALSE(overlume::ros::CompositeHud(rgb.data(), kWidth, kHeight, hud, {0, 0, 0}, {0, 0, 0},
                                              1.0f, ""));
     EXPECT_EQ(rgb, before);
 }
@@ -104,10 +104,10 @@ TEST(HudOverlay, EmptyFontPathIsNonFatal) {
 TEST(HudOverlay, DrawTextAndDrawLineComposeACallout) {
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, kBackground);
 
-    overlume_node::DrawLine(rgb.data(), kWidth, kHeight, /*x0=*/100, /*y0=*/100, /*x1=*/140,
-                            /*y1=*/60, overlume_node::HudRgb{1.0f, 0.2f, 0.2f});
-    ASSERT_TRUE(overlume_node::DrawText(rgb.data(), kWidth, kHeight, "3.2 m", /*x=*/140, /*y=*/60,
-                                        overlume_node::HudRgb{1.0f, 0.2f, 0.2f}, /*scale=*/1.0f,
+    overlume::ros::DrawLine(rgb.data(), kWidth, kHeight, /*x0=*/100, /*y0=*/100, /*x1=*/140,
+                            /*y1=*/60, overlume::ros::HudRgb{1.0f, 0.2f, 0.2f});
+    ASSERT_TRUE(overlume::ros::DrawText(rgb.data(), kWidth, kHeight, "3.2 m", /*x=*/140, /*y=*/60,
+                                        overlume::ros::HudRgb{1.0f, 0.2f, 0.2f}, /*scale=*/1.0f,
                                         OVERLUME_NODE_FONT_PATH));
 
     // One presence check over the whole region the line+text pair was drawn
@@ -134,8 +134,8 @@ TEST(HudOverlay, DrawTextAndDrawLineComposeACallout) {
 TEST(HudOverlay, DrawTextMissingFontIsNonFatal) {
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, kBackground);
     const std::vector<uint8_t> before = rgb;
-    EXPECT_FALSE(overlume_node::DrawText(rgb.data(), kWidth, kHeight, "3.2 m", 10, 10,
-                                         overlume_node::HudRgb{1, 1, 1}, 1.0f,
+    EXPECT_FALSE(overlume::ros::DrawText(rgb.data(), kWidth, kHeight, "3.2 m", 10, 10,
+                                         overlume::ros::HudRgb{1, 1, 1}, 1.0f,
                                          "/nonexistent/does_not_exist.ttf"));
     EXPECT_EQ(rgb, before);
 }
@@ -233,7 +233,7 @@ TEST(HudOverlayGolden, SyntheticSceneWithHud720pLowPreset) {
     scene.ego.heading_rad = 0.0;
     scene.ego.speed_mps = 12.3;
     scene.ego.valid = 1;
-    overlume_node::PopulateHud(scene, /*active_mode=*/3);
+    overlume::ros::PopulateHud(scene, /*active_mode=*/3);
     overlume::set_scene(r, scene);
 
     std::vector<uint8_t> frame(static_cast<size_t>(kWidth) * kHeight * 3, 0);
@@ -241,11 +241,11 @@ TEST(HudOverlayGolden, SyntheticSceneWithHud720pLowPreset) {
     ASSERT_TRUE(overlume::render_frame(r, pose, view));
 
     const overlume::HudColors colors = overlume::get_hud_colors(r);
-    const overlume_node::HudSnapshot hud{scene.hud.speed_mps, scene.hud.active_mode};
-    ASSERT_TRUE(overlume_node::CompositeHud(
+    const overlume::ros::HudSnapshot hud{scene.hud.speed_mps, scene.hud.active_mode};
+    ASSERT_TRUE(overlume::ros::CompositeHud(
         frame.data(), kWidth, kHeight, hud,
-        overlume_node::HudRgb{colors.text_color[0], colors.text_color[1], colors.text_color[2]},
-        overlume_node::HudRgb{colors.accent_color[0], colors.accent_color[1],
+        overlume::ros::HudRgb{colors.text_color[0], colors.text_color[1], colors.text_color[2]},
+        overlume::ros::HudRgb{colors.accent_color[0], colors.accent_color[1],
                               colors.accent_color[2]},
         colors.scale, OVERLUME_NODE_FONT_PATH));
 
