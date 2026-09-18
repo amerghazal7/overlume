@@ -39,17 +39,19 @@ namespace {
 
 const std::string kTestTownDir =
     std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_test_town_0";
-const std::string kIonFixtureDir =
-    std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_ion_fixture_0";
-// VM-063 (Task 4): a dedicated, synthetic 16-real-tile fixture for the
+// VM-097: synthesized locally by overlume/scripts/make_tile_fixture.py --
+// no Cesium ion/OSM content, see that directory's own PROVENANCE.md.
+const std::string kTilesFixtureDir =
+    std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_tiles_fixture_0";
+// VM-063 (Task 4): a dedicated, synthetic 16-tile fixture for the
 // network-loss e2e -- see its own PROVENANCE.md for why
-// environment_ion_fixture_0's 3 tiles cannot produce
+// environment_tiles_fixture_0's 3 tiles cannot produce
 // kNetworkLossConsecutiveFailures (8) distinct failing requests (a
 // succeeded/cached tile can't be forced to fail again inside one short
 // test process; a failed tile isn't auto-retried without a fresh
-// unload/redesire cycle) and why 16 real (duplicated) tiles fixes that.
-const std::string kIonFixtureFallbackDir =
-    std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_ion_fixture_fallback_0";
+// unload/redesire cycle) and why 16 (duplicated) tiles fixes that.
+const std::string kTilesFixtureFallbackDir =
+    std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_tiles_fixture_fallback_0";
 
 constexpr overlume::Vec3 kChunk0Center{-128.0, -128.0, 0.0};
 
@@ -148,17 +150,87 @@ TEST(EnvironmentStream, FixtureTilesLoadRenderAsClayAndCount) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(),
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kTilesFixtureDir.c_str(),
                                                                     kFixtureAnchor));
 
-    overlume::SceneGraph s{};
-    s.ego.valid = 1;
-    s.ego.position = kFixtureBlockCenterMap;
-    overlume::set_scene(r, s);
-
     std::vector<uint8_t> buf(320u * 240u * 3u);
-    const uint64_t loaded = pump_until_loaded(r, kStdPose, buf);
-    EXPECT_GT(loaded, 0u);
+    // Moves ego to `pos` and pumps render_frame(), bounded, until
+    // environment_loaded_chunk_count() stops climbing (stable for 10
+    // consecutive ticks), returning the settled count.
+    // pump_until_loaded()'s own first-nonzero return is racy (it fires as
+    // soon as ANY tile lands, not once every reachable tile has) -- this is
+    // what actually pins a stable, reproducible number.
+    auto settle_count = [&](overlume::Vec3 pos) -> uint64_t {
+        overlume::SceneGraph s{};
+        s.ego.valid = 1;
+        s.ego.position = pos;
+        overlume::set_scene(r, s);
+        uint64_t count = 0;
+        for (int tick = 0, stableTicks = 0; tick < 500 && stableTicks < 10; ++tick) {
+            overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+            const uint64_t next = overlume::testing::environment_loaded_chunk_count(r);
+            // Only start counting stability once at least one tile has
+            // landed: the initial all-zero window must not read as settled
+            // on a slow box. The 500-tick outer bound is the real timeout.
+            if (next == count && count > 0) {
+                ++stableTicks;
+            } else {
+                count = next;
+                stableTicks = 0;
+            }
+        }
+        return count;
+    };
+
+    // kFixtureBlockCenterMap (the anchor itself) sits INSIDE tile_root's own
+    // region, but a verified ~1.4 km outside tile_a's nearest edge and
+    // ~5.2 km outside tile_b's -- both far past the synthesized streaming
+    // view's own ~230 m footprint (kStreamViewHeightM=300, matching
+    // kStreamViewFovRad=1.3 in environment_stream.hpp), so only tile_root is
+    // EVER reachable from here (empirically confirmed: pumping this ego
+    // position never yields more than 1, no matter how long). Gate round 1
+    // finding 2 originally wanted a single EXPECT_EQ(3u) at this one ego
+    // position; that isn't achievable -- tile_a/tile_b's regions (copied
+    // verbatim from the pre-existing real fixture's own tileset.json, same
+    // distances from the anchor as before this fixture was synthesized) put
+    // them outside the streaming radius by design, not by regression. Pin
+    // what is actually true here, then prove tile_a and tile_b each load too
+    // by moving ego to sit inside their OWN regions -- this is what actually
+    // gives consolidate_buffers() (tile_a's multi-buffer merge) and
+    // ensure_flat_normals() (tile_b's missing-NORMAL patch) real,
+    // full-streaming-pipeline coverage; test_gltf_normals.cpp's own
+    // GltfNormals.StreamedTileWithNormalAlreadyIsUntouched /
+    // AddsNormalToStreamedTileMissingIt tests only exercise
+    // ensure_flat_normals() at the raw-byte level, never through the
+    // Tileset traversal + consolidate_buffers() this test drives.
+    EXPECT_EQ(settle_count(kFixtureBlockCenterMap), 1u)
+        << "tile_root (single-buffer+NORMAL, +_BATCHID) must load from the anchor's own "
+           "position";
+
+    // tile_a's / tile_b's own region-center map positions, via the SAME
+    // anchor-relative transform install_fixture_streaming_source() itself
+    // uses internally (ecef_to_map_probe wraps compute_ecef_to_map()).
+    // ponytail: the lat/lon literals are retyped from
+    // make_tile_fixture.py's own TILE_REGIONS midpoints, not re-derived here
+    // -- same convention as EcefToMapAgreesWithCppPinWithinHalfMeter's own
+    // probes above.
+    double xA = 0, yA = 0, zA = 0;
+    ASSERT_TRUE(overlume::testing::ecef_to_map_probe(
+        kFixtureAnchor.origin_lat_deg, kFixtureAnchor.origin_lon_deg, 0.0, 25.114938650000003,
+        55.39303970000001, 0.0, &xA, &yA, &zA));
+    EXPECT_EQ(settle_count(overlume::Vec3{xA, yA, zA}), 1u)
+        << "tile_a (multi-buffer) must load once ego sits inside its own region -- a "
+           "consolidate_buffers() regression on the multi-buffer merge would drop this to 0";
+
+    double xB = 0, yB = 0, zB = 0;
+    ASSERT_TRUE(overlume::testing::ecef_to_map_probe(
+        kFixtureAnchor.origin_lat_deg, kFixtureAnchor.origin_lon_deg, 0.0, 25.127951550000006,
+        55.430998900000006, 0.0, &xB, &yB, &zB));
+    EXPECT_EQ(settle_count(overlume::Vec3{xB, yB, zB}), 1u)
+        << "tile_b (no NORMAL) must load once ego sits inside its own region -- an "
+           "ensure_flat_normals() regression on the streamed (not baked-chunk) path would "
+           "drop this to 0";
+
     overlume::destroy_renderer(r);
 }
 
@@ -249,7 +321,7 @@ TEST(EnvironmentStream, DiskCacheServesTilesWithNetworkDead) {
     // (under std::filesystem::temp_directory_path(), NOT the committed
     // fixture tree -- gate round 1 finding 4).
     auto* handle1 = overlume::testing::install_fixture_streaming_source_with_fallback(
-        r, kIonFixtureDir.c_str(), /*fallback_baked_dir=*/nullptr, kFixtureAnchor);
+        r, kTilesFixtureDir.c_str(), /*fallback_baked_dir=*/nullptr, kFixtureAnchor);
     ASSERT_NE(handle1, nullptr);
     overlume::SceneGraph s{};
     s.ego.valid = 1;
@@ -268,7 +340,7 @@ TEST(EnvironmentStream, DiskCacheServesTilesWithNetworkDead) {
     // "network" killed from tick 0 -- any tile that still loads came from
     // the sqlite cache, not a live fetch.
     auto* handle2 = overlume::testing::install_fixture_streaming_source_with_fallback(
-        r, kIonFixtureDir.c_str(), /*fallback_baked_dir=*/nullptr, kFixtureAnchor);
+        r, kTilesFixtureDir.c_str(), /*fallback_baked_dir=*/nullptr, kFixtureAnchor);
     ASSERT_NE(handle2, nullptr);
     overlume::testing::kill_fixture_network(handle2);
     overlume::set_scene(r, s);  // re-publish ego (install_* only swaps r->environmentSource)
@@ -282,7 +354,7 @@ TEST(EnvironmentStreamGolden, FixtureBlock_DarkAdas) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(),
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kTilesFixtureDir.c_str(),
                                                                     kFixtureAnchor));
 
     overlume::SceneGraph s{};
@@ -330,7 +402,7 @@ TEST(EnvironmentStreamGolden, SetVisibleFalseHidesFixtureTilesWithoutTearingDown
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(),
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kTilesFixtureDir.c_str(),
                                                                     kFixtureAnchor));
 
     overlume::SceneGraph s{};
@@ -402,7 +474,7 @@ TEST(EnvironmentStreamGolden, TileLoadedWhileHiddenDoesNotPopIntoView) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(),
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kTilesFixtureDir.c_str(),
                                                                     kFixtureAnchor));
     ASSERT_TRUE(overlume::set_environment_visible(r, false));
 
@@ -474,7 +546,7 @@ TEST(EnvironmentStreamPerf, RenderMsDeltaAndWorstFrameWithFixtureLoaded) {
 
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(),
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kTilesFixtureDir.c_str(),
                                                                     kFixtureAnchor));
     overlume::SceneGraph s{};
     s.ego.valid = 1;
@@ -554,7 +626,7 @@ namespace {
 // Pumps until `stop_state` is observed or `max_ticks` pass, asserting every
 // tick's render_frame() still succeeds throughout (spec §9, never a crash).
 // Ego stays put at kFixtureBlockCenterMap the whole time -- with
-// environment_ion_fixture_fallback_0's 16 same-region tiles, the killed
+// environment_tiles_fixture_fallback_0's 16 same-region tiles, the killed
 // accessor produces >= kNetworkLossConsecutiveFailures within the first
 // couple of ticks without any ego motion (unlike the original 3-tile
 // fixture, where a stationary ego issues no NEW tile requests once
@@ -586,7 +658,7 @@ void pump_until_state(overlume::VisualRenderer* r, const overlume::CameraPose& p
 // this test (and its e2e/negative sibling below) exercises Decision 11's
 // OTHER real regime: the network is already dead before the first content
 // request ever completes (the root tileset.json manifest is deliberately
-// exempted from the kill switch, per environment_ion_fixture_fallback_0's
+// exempted from the kill switch, per environment_tiles_fixture_fallback_0's
 // own PROVENANCE.md, modeling "resolved once at startup, while healthy").
 // **Gap, named rather than silently dropped:** fallback from a truly live
 // STREAMING state with resident streamed assets -- and therefore the
@@ -610,7 +682,7 @@ TEST(EnvironmentStream, NetworkDeadFromFirstRequestFallsBackToBakedChunksOnce) {
     // town's own chunk_-1_-1 (center (-128,-128,0), radius_m ~181 < 300),
     // so the fallback loads real chunks with no ego motion needed.
     auto* killable = overlume::testing::install_fixture_streaming_source_with_fallback(
-        r, kIonFixtureFallbackDir.c_str(), kTestTownDir.c_str(), kFixtureAnchor);
+        r, kTilesFixtureFallbackDir.c_str(), kTestTownDir.c_str(), kFixtureAnchor);
     ASSERT_NE(killable, nullptr);
 
     overlume::SceneGraph s{};
@@ -669,7 +741,7 @@ TEST(EnvironmentStream, NetworkLossWithNoFallbackDirStillTransitionsAndStaysEmpt
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
     auto* killable = overlume::testing::install_fixture_streaming_source_with_fallback(
-        r, kIonFixtureFallbackDir.c_str(), /*fallback_baked_dir=*/nullptr, kFixtureAnchor);
+        r, kTilesFixtureFallbackDir.c_str(), /*fallback_baked_dir=*/nullptr, kFixtureAnchor);
     ASSERT_NE(killable, nullptr);
 
     overlume::SceneGraph s{};
@@ -702,7 +774,7 @@ TEST(EnvironmentStream, MaterialsOriginalDefaultsFalse) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(),
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kTilesFixtureDir.c_str(),
                                                                     kFixtureAnchor));
     EXPECT_FALSE(overlume::testing::environment_stream_materials_original(r));
     overlume::destroy_renderer(r);
@@ -713,7 +785,7 @@ TEST(EnvironmentStream, MaterialsOriginalTrueIsMirroredByHook) {
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(
-        r, kIonFixtureDir.c_str(), kFixtureAnchor, /*materials_original=*/true));
+        r, kTilesFixtureDir.c_str(), kFixtureAnchor, /*materials_original=*/true));
     EXPECT_TRUE(overlume::testing::environment_stream_materials_original(r));
     overlume::destroy_renderer(r);
 }
@@ -759,7 +831,7 @@ TEST(EnvironmentStream, ClayModeRemapsFirstPrimitiveToBuildingMaterial) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kIonFixtureDir.c_str(),
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kTilesFixtureDir.c_str(),
                                                                     kFixtureAnchor));
     overlume::SceneGraph s{};
     s.ego.valid = 1;
@@ -776,7 +848,7 @@ TEST(EnvironmentStream, OriginalModeSkipsClayRemapOnFirstPrimitive) {
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(
-        r, kIonFixtureDir.c_str(), kFixtureAnchor, /*materials_original=*/true));
+        r, kTilesFixtureDir.c_str(), kFixtureAnchor, /*materials_original=*/true));
     overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.ego.position = kFixtureBlockCenterMap;
@@ -1155,10 +1227,9 @@ TEST(EnvSourceCapture, Clipped) {
            "so this case is reported as not-renderable rather than faked with a made-up id";
 }
 
-// Fixture provenance (Step 0): tests/fixtures/environment_ion_fixture_0/ --
-// see that directory's own PROVENANCE.md (real ion OSM Buildings tiles,
-// fetched once with the live token, tileset.json hand-pruned to a
-// self-contained 3-tile subtree with relative local uris; token appears
-// nowhere in the fixture, verified by grep before commit). Task 4's own
-// environment_ion_fixture_fallback_0/PROVENANCE.md documents the
+// Fixture provenance (VM-097): tests/fixtures/environment_tiles_fixture_0/ --
+// see that directory's own PROVENANCE.md. Synthesized locally by
+// overlume/scripts/make_tile_fixture.py (fixed seed, deterministic); no
+// Cesium ion/OSM Buildings content, no token, no network. Task 4's own
+// environment_tiles_fixture_fallback_0/PROVENANCE.md documents the
 // duplicated-tile fixture used by the network-loss e2e above.

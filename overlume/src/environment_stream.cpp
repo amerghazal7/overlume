@@ -137,10 +137,14 @@ filament::math::mat4f to_filament_mat4(const glm::dmat4& m) {
 }
 
 // Decision 7 / Decision 15.4's named unknown, RESOLVED at implementation:
-// real OSM Buildings b3dm tiles are NOT single-buffer (verified against
-// this fixture's 3 real tiles: 21/9/89 buffers each -- draco/meshopt
-// compression splits per-primitive, one buffer per compressed
-// bufferView). writeGlb's own single-buffer contract
+// real OSM Buildings b3dm tiles are NOT single-buffer (draco/meshopt
+// compression splits per-primitive, one buffer per compressed bufferView --
+// verified at implementation against the live ion asset this file's own
+// production path streams from; VM-097's committed test fixture
+// (environment_tiles_fixture_0/tile_a.b3dm, see its own PROVENANCE.md)
+// is a synthesized, dependency-free stand-in that keeps this path
+// exercised in ctest without any real ion content or token). writeGlb's
+// own single-buffer contract
 // (CesiumGltfWriter/GltfWriter.h: "the first buffer object implicitly
 // refers to the GLB binary chunk") means every real tile would be
 // silently skipped without this pass. Concatenates every buffer into one
@@ -181,10 +185,17 @@ bool consolidate_buffers(CesiumGltf::Model& model) {
 
 // gltfio's AssetLoader rejects (createAsset returns nullptr, logging
 // "Unrecognized vertex semantic") any primitive carrying a non-standard
-// vertex attribute -- confirmed against this fixture's real tiles: OSM
-// Buildings b3dm content carries a per-vertex `_BATCHID` attribute (the
-// legacy b3dm batch-table linkage), which is not one of glTF's core
-// semantics gltfio recognizes. We re-materialize every primitive onto
+// vertex attribute -- confirmed against the live ion asset this file's
+// production path streams from: OSM Buildings b3dm content carries a
+// per-vertex `_BATCHID` attribute (the legacy b3dm batch-table linkage),
+// which is not one of glTF's core semantics gltfio recognizes. The
+// synthesized test fixture (VM-097) carries `_BATCHID` on tile_root for
+// exactly this reason -- tile_root dominates the golden frame, so a
+// regression in this strip still blanks the golden the way it would
+// against the real tiles this fixture replaces; tile_a/tile_b omit it
+// (their own attribute-coverage purpose is buffer-consolidation and
+// missing-NORMAL, respectively, see make_tile_fixture.py). We
+// re-materialize every primitive onto
 // r.buildingMaterial regardless of feature/batch id (Decision 7's clay
 // remap), so batch linkage is unused here -- stripped before writeGlb
 // rather than worked around downstream. Strips every attribute whose name
@@ -540,7 +551,7 @@ std::shared_ptr<CesiumAsync::IAssetRequest> FileFixtureAssetAccessor::makeReques
     // exemption, killing from before the root ever resolves leaves cesium
     // with no known children to request at all (root fetch fails once,
     // permanently, with nothing to retry -- verified empirically, see
-    // environment_ion_fixture_fallback_0/PROVENANCE.md), which can never
+    // environment_tiles_fixture_fallback_0/PROVENANCE.md), which can never
     // reach kNetworkLossConsecutiveFailures. Real ion tilesets don't
     // special-case this (the accessor decorator stack has no such
     // exemption) -- it exists only in this test-only fixture accessor.
@@ -600,12 +611,18 @@ StreamRendererResources::prepareInLoadThread(
             const CesiumGltfWriter::GltfWriterResult res =
                 writer.writeGlb(*model, std::span<const std::byte>(bufData.data(), bufData.size()));
             if (res.errors.empty()) {
-                // Defense-in-depth, not a known-needed fix: every committed
-                // ion b3dm already carries NORMAL, so this is
-                // a measured no-op on real tiles -- kept as the same
-                // load-time hook environment.cpp uses for baked chunks, so a
-                // normal-less tileset degrades to flat-shaded rather than
-                // unlit. It is NOT free though (gate round 1 correction to
+                // Defense-in-depth, not a known-needed fix for the real ion
+                // path: every OSM Buildings b3dm this project has streamed
+                // live already carries NORMAL, so this is a measured no-op
+                // there -- kept as the same load-time hook environment.cpp
+                // uses for baked chunks, so a normal-less tileset degrades
+                // to flat-shaded rather than unlit. The committed test
+                // fixture (VM-097) deliberately has ONE real streamed-tile
+                // case that IS missing NORMAL
+                // (environment_tiles_fixture_0/tile_b.b3dm, see its own
+                // PROVENANCE.md) precisely so this call stays a genuine,
+                // exercised fix and not just a defensive no-op in ctest. It
+                // is NOT free though (gate round 1 correction to
                 // an earlier "costs nothing" claim): ensure_flat_normals()
                 // parses the JSON chunk before it can know there is nothing
                 // to do. That parse is the price of the guarantee; what we

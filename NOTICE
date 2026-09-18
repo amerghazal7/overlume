@@ -167,16 +167,17 @@ that runbook's citation — the runbook itself flags the exact attribution
 wording and cache-lifetime policy as due for a pre-go-live manual recheck.
 
 --------------------------------------------------------------------------------
-Committed test fixtures derived from Cesium ion / OpenStreetMap
+Committed test fixtures (synthesized, no third-party data)
 --------------------------------------------------------------------------------
-overlume/tests/fixtures/environment_ion_fixture_0/ holds real, unmodified
-3D Tiles payloads (tileset.json + .b3dm) fetched once on 2026-09-15 from
-Cesium ion asset 96188, "Cesium OSM Buildings"; environment_ion_fixture_fallback_0/
-duplicates one of those tiles under other names. See the PROVENANCE.md next to
-each. Building geometry: (c) OpenStreetMap contributors, Open Database License
-(ODbL) 1.0 — https://www.openstreetmap.org/copyright. The tiles are used as
-offline test fixtures only; redistribution basis: ODbL for the underlying data.
-Cesium ion's own terms for redistributing served tile bytes were NOT
-independently verified for this repository — a maintainer legal check is
-recorded as an open item in docs/status.md; if it fails, these fixtures are to
-be replaced by synthesised payloads.
+overlume/tests/fixtures/environment_tiles_fixture_0/ and
+environment_tiles_fixture_fallback_0/ hold 3D Tiles payloads (tileset.json +
+.b3dm) generated entirely by overlume/scripts/make_tile_fixture.py — a
+deterministic, fixed-seed, dependency-free generator producing synthetic
+extruded-box "buildings". Nothing in either directory is fetched from Cesium
+ion, OpenStreetMap, or any other service; there is no OpenStreetMap/ODbL
+attribution obligation for these fixtures. See the PROVENANCE.md next to
+each for exactly what each tile carries and how to regenerate it.
+
+These replace an earlier version of these fixtures that held real,
+unmodified Cesium ion asset 96188 ("Cesium OSM Buildings") tile bytes; those
+blobs were purged from this repository's history by path on 2026-09-18 (git filter-repo, force-pushed; a GitHub Support request covers the unreachable and LFS objects).

@@ -15,11 +15,15 @@
 // call right before handing bytes to gltfio's AssetLoader::createAsset().
 //
 // It is a NO-OP -- returns the input unchanged -- for every primitive that
-// already carries a NORMAL attribute, which per the committed
-// environment_ion_fixture_*/*.b3dm fixtures is every real streamed tile
-// today. It only ever ADDS data (a new accessor + bufferView + normal
-// bytes appended to the bin chunk); nothing existing is rewritten in
-// place, so geometry that already has normals passes through byte-for-byte.
+// already carries a NORMAL attribute, which is every real OSM Buildings b3dm
+// tile this project has streamed live to date. The committed
+// environment_tiles_fixture_0/tile_b.b3dm fixture (VM-097,
+// overlume/scripts/make_tile_fixture.py) deliberately carries NO NORMAL, so
+// this function's actual add-a-normal path stays exercised on a real
+// streamed tile in ctest, not just on the synthetic baked-chunk case. It
+// only ever ADDS data (a new accessor + bufferView + normal bytes appended
+// to the bin chunk); nothing existing is rewritten in place, so geometry
+// that already has normals passes through byte-for-byte.
 //
 // Computes area-weighted flat/per-face normals (glTF's own suggested
 // fallback for missing NORMAL) directly from POSITION + indices, using
