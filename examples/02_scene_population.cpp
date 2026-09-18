@@ -61,6 +61,7 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "02_scene_population: create_renderer() failed (no GPU/EGL?)\n");
         return 1;
     }
+    overlume_examples::apply_model_dir(renderer, args);
 
     // ── Ego ──────────────────────────────────────────────────────────────
     overlume::EgoState ego{};

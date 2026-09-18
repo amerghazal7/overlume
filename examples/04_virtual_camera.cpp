@@ -55,6 +55,7 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "04_virtual_camera: create_renderer() failed (no GPU/EGL?)\n");
         return 1;
     }
+    overlume_examples::apply_model_dir(renderer, args);
 
     // A world point every preset below frames toward — a spot on the road
     // roughly 10m ahead of the ego.

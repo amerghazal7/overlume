@@ -27,13 +27,17 @@ source tree second — with `-S overlume` a relative path here would become
 `overlume/overlume/cmake/...`, which doesn't exist. Run this from the repo
 root; the absolute form above is what `README.md` and `AGENTS.md` use too.)
 
-Each program takes two optional arguments: an output image path (default:
-the example's own name, e.g. `01_hello_frame.png`), and a theme assets
-directory (default: the shipped `overlume/assets/themes`, baked in at
-compile time). For example:
+Each program takes three optional arguments: an output image path (default:
+the example's own name, e.g. `01_hello_frame.png`), a theme assets directory
+(default: the shipped `overlume/assets/themes`, baked in at compile time),
+and a per-class model directory (default: the shipped `overlume/assets/models`,
+same baked-in pattern — the car/truck_van/pedestrian glTF/GLB clay models
+`set_object_model_dir()` loads; see `overlume/assets/models/ATTRIBUTION.md`
+for their CC0 sources, and the note under `02`/`04` below for which classes
+still fall back to the procedural clay box). For example:
 
 ```sh
-./overlume/build/examples/03_themes /tmp/out.png overlume/assets/themes
+./overlume/build/examples/02_scene_population /tmp/out.png overlume/assets/themes overlume/assets/models
 ```
 
 ## Image format
@@ -60,7 +64,11 @@ dependency.
    between to demonstrate the freeze-frame/double-buffer contract
    explicitly: the second frame must reproduce the first, because
    `render_frame()` always re-derives the picture from whatever was last
-   *published*, not from anything render time itself changes.
+   *published*, not from anything render time itself changes. Calls
+   `set_object_model_dir()` right after `create_renderer()`, so `CAR`,
+   `TRUCK_VAN`, and `PEDESTRIAN` render as their real glTF meshes; `BUS`,
+   `CYCLIST` (no shipped CC0 model — see `ATTRIBUTION.md`) and `UNKNOWN`
+   (always the clay box, by design) still render as the procedural clay box.
 3. **`03_themes`** — loads both shipped themes (`dark_adas`, `light_clay`),
    calls `set_theme()` to start a transition between them, and renders using
    the deterministic clock the API exposes (`SceneGraph::sim_time_sec`)
@@ -69,7 +77,10 @@ dependency.
 4. **`04_virtual_camera`** — a small set of named camera "presets" (plain
    `CameraPose` literals — the public API has no preset registry of its
    own), a linear tween between two of them, and `project_to_screen()` to
-   project a world point onto each pose's screen.
+   project a world point onto each pose's screen. Also calls
+   `set_object_model_dir()` after `create_renderer()`; its three
+   `TrackedObject`s (`CAR`, `TRUCK_VAN`, `PEDESTRIAN`) all have shipped
+   models, so none of them fall back to the clay box here.
 5. **`05_environment`** — loads a baked environment chunk index from the
    same committed fixture directory the library's own environment tests
    use (`overlume/tests/fixtures/environment_test_town_0`). Only if
@@ -77,13 +88,13 @@ dependency.
    streaming (`ion://96188`) backend briefly; otherwise it prints one line
    saying streaming was skipped and exits 0 — a CI run has no token, and
    this example never needs one to pass. The streaming path exists only when
-   the library was configured with `-DOVERLUME_ENABLE_CESIUM=ON` (default
-   OFF); with it OFF the open call returns false and the example continues.
+   the library was configured with `-DOVERLUME_ENABLE_CESIUM=ON` (the default since 2026-09-18; hosted CI passes OFF); with it OFF the open call returns false and the example continues.
 6. **`06_overlays_and_pointcloud`** — a synthetic point cloud, a
    warning-severity alert polygon, a live HUD-color query
    (`get_hud_colors()`), and a live quality-preset switch
    (`set_quality()`/`get_quality()`) against the same renderer, no
-   re-create.
+   re-create. Publishes no `TrackedObject`s, so it doesn't call
+   `set_object_model_dir()` — there's nothing for a class model to apply to.
 
 ## The reference integration app
 
