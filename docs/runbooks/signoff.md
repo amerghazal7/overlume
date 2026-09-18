@@ -92,14 +92,26 @@ item below being closed or explicitly accepted.
    the blocker this finding named ("the fix needs a library-side
    `set_environment_visible()`").
 
-   **Still open, by design, not silently patched**: this toggle is
-   OPERATOR-DRIVEN (a manual GUI/WS switch), not automatically tied to
-   `render_mode_` -- buildings still render in BOWL/HYBRID exactly as
-   before unless an operator explicitly hides them. Auto-gating
-   `environment_enabled` per render_mode (so BOWL/HYBRID never shows
-   buildings without an explicit opt-in) remains a follow-up task if
-   product wants that default changed; the primitive it would need
-   (`set_environment_visible()`) now exists.
+   **CLOSED in full (this commit, maintainer decision 2026-09-18,
+   FOLLOW-UPS 2+9)**: the remaining open half above — auto-gating per
+   `render_mode_` — is now done. `environment_effectively_visible(RenderMode,
+   bool)` (`scene_assembly.hpp`) is `environment_enabled && mode ==
+   FREE_LOOK`: buildings are part of the VISUAL autonomy scene, so BOWL/HYBRID
+   (the camera-textured surround) now ALWAYS hide them, regardless of the
+   operator's `environment_enabled` switch — no opt-in needed, the mode
+   switch itself gates it. Applied via `apply_environment_visibility()`
+   (`overlume_node.cpp`) at every state change: after arming in
+   `on_activate()`, in `on_params()` when `environment_enabled` OR
+   `render_mode` changes, and on every `/rendering/set_mode` switch — so
+   BOWL→FREE_LOOK re-shows an already-armed source and FREE_LOOK→BOWL hides
+   it, no re-arm either way. Same commit also closes the separate
+   `docs/status.md` open item 2 (`on_activate()` now arms the configured
+   source regardless of `environment_enabled`, so a deployment launched
+   disabled is recoverable from the GUI switch alone) — see
+   `test_environment_live_switch.py`'s check 5 and
+   `test_scene_assembly.cpp`'s `EnvironmentHiddenInBowlRegardlessOfEnabled`/
+   `EnvironmentHiddenInHybridRegardlessOfEnabled`/
+   `EnvironmentInFreeLookFollowsEnabledSwitch` for the regression coverage.
 8. **Lidar colorization samples cameras through BASE extrinsics; the bowl
    samples through ego-motion-delta-compensated extrinsics** (VM-094 review
    round 1 minor finding, 2026-09-11). `camera_ingest_->fill_bowl_intrinsics()`

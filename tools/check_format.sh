@@ -24,6 +24,7 @@
 # Usage:
 #   tools/check_format.sh          # dry-run, fails on any formatting diff
 #   tools/check_format.sh --fix    # reformat in place
+#   tools/check_format.sh [--fix] path/to/a.cpp ...   # only these files
 
 set -euo pipefail
 
@@ -65,7 +66,20 @@ if [[ ${#FILES[@]} -eq 0 ]]; then
     exit 1
 fi
 
-if [[ "${1:-}" == "--fix" ]]; then
+FIX=0
+if [[ "${1:-}" == "--fix" ]]; then FIX=1; shift; fi
+# Explicit file arguments restrict the run to those files (so two people
+# editing the same tree do not reformat each other's work); no args = all.
+if [[ $# -gt 0 ]]; then
+    FILES=()
+    for f in "$@"; do
+        case "$f" in
+            *.c|*.cc|*.cpp|*.cxx|*.h|*.hh|*.hpp|*.hxx) FILES+=("$f") ;;
+            *) echo "check_format.sh: not a C/C++ source, refusing to format: $f" >&2; exit 2 ;;
+        esac
+    done
+fi
+if [[ "${FIX}" == "1" ]]; then
     "${CLANG_FORMAT}" -i "${FILES[@]}"
     echo "check_format.sh: reformatted ${#FILES[@]} files with clang-format ${PINNED_VERSION}"
     exit 0

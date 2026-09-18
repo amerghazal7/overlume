@@ -140,13 +140,14 @@ include(cmake/GetFilament.cmake)
 # cesium-touching piece below (this include, the overlume_stream
 # C++20 OBJECT library, the cesium target_link_libraries/link_options on
 # overlume, the vendor-merge archive walk, and cesium_link_probe) —
-# default stays OFF so an ordinary `build/` configure (no `-D` override)
-# keeps behaving exactly as it did pre-Epic-6; pass -DOVERLUME_ENABLE_CESIUM=ON
-# to build the cesium path (no longer needs a different toolchain to do so).
-option(OVERLUME_ENABLE_CESIUM
-    "Build the cesium-native path (Epic 6 / VM-061). Requires the (now \
-primary) clang-18 toolchain (scripts/setup_toolchain_cesium.sh). OFF keeps \
-the ordinary build/ tree buildable without ever touching cesium-native." OFF)
+# default ON since 2026-09-18 (user decision, restructure follow-up 3): a
+# fresh clone builds the streaming backend the GUI presets expect; the
+# first configure fetches and builds cesium-native + its vcpkg ports
+# (10-20 min). Pass -DOVERLUME_ENABLE_CESIUM=OFF for a faster, token- and
+# network-free library-only build -- hosted CI does exactly that.
+option(OVERLUME_ENABLE_CESIUM "Build the cesium-native path (Epic 6 / VM-061). Requires the (now \
+primary) clang-18 toolchain (scripts/setup_toolchain_cesium.sh). OFF gives a \
+library-only build that never touches cesium-native (hosted CI uses OFF)." ON)
 if(OVERLUME_ENABLE_CESIUM)
     include(cmake/GetCesiumNative.cmake)
 endif()

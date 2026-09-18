@@ -39,6 +39,28 @@ The Overlume open-source restructure (`docs/plans/2026-09-17-overlume-restructur
 - Agent instructions consolidated into `AGENTS.md` (imported by `CLAUDE.md`);
   the repository knowledge-graph hook is no longer strict.
 
+`overlume_ros` environment/buildings follow-ups (maintainer decision,
+2026-09-18):
+
+- `on_activate()` now arms the configured environment source
+  (`environment_chunks_dir`/`environment_source_uri`) regardless of
+  `environment_enabled` — a deployment launched with the disable knob off is
+  now recoverable from the GUI Switch alone, no preset re-pick needed.
+- Buildings are now gated per `render_mode`: `environment_effectively_visible()`
+  (`scene_assembly.hpp`) shows them only in FREE_LOOK (VISUAL), hiding them
+  unconditionally in BOWL/HYBRID — closes `docs/runbooks/signoff.md`
+  exception 7 in full.
+- Node library no longer exports cesium-native's vendored C-library symbols
+  (`sqlite3_*`, `curl_*`, `SSL_*`, `EVP_*`, zlib), which interposed the system
+  copies ROS loads into the same process; a linker version script hides just
+  those, and `test_exported_symbols` guards both that and the C++ ABI runtime.
+- `gps_topic` parameter, `replay` profile, `validate_visual_mode.sh
+  --profile-dir` / `--param`, and a runbook for replaying real-robot logger
+  sessions (including a network-loss check via a local kill-switch proxy).
+- Examples load the shipped per-class models (`set_object_model_dir`);
+  `OVERLUME_ENABLE_CESIUM` now defaults ON; `check_spdx.sh` scans untracked
+  files; `check_format.sh` accepts explicit C/C++ paths.
+
 ## [0.1.0] - 2026-09-17
 
 The first tagged release (tag `v0.1.0` on the post-restructure tree,

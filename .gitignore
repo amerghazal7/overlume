@@ -29,3 +29,5 @@ graphify-out/
 # assets/ego/ATTRIBUTION.md (same convention as assets/fonts, assets/models)
 # can still be committed.
 ros/src/overlume_ros/assets/ego/*.glb
+# colcon run-from-anywhere output at the repo root
+log/
