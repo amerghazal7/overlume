@@ -60,6 +60,8 @@ The Overlume open-source restructure (`docs/plans/2026-09-17-overlume-restructur
 - Examples load the shipped per-class models (`set_object_model_dir`);
   `OVERLUME_ENABLE_CESIUM` now defaults ON; `check_spdx.sh` scans untracked
   files; `check_format.sh` accepts explicit C/C++ paths.
+- Measured the Google Photorealistic preset against OSM clay and no environment on a live replayed robot session: render_ms p50 9.5 / 10.4 / 9.9 ms, p99 22.7 / 24.9 / 23.3 ms — not materially heavier; `kMaxTileCreatesPerTick` remains unimplemented by evidence, not omission.
+- Fixed streamed 3D Tiles sagging below the map plane at range (docs/status.md item 4): each vertex is now corrected to the true WGS84 ellipsoid height at load, on top of the existing rigid x/y transform, instead of the flat-tangent-plane approximation that sagged ~d²/(2R) (0.53 m at 2.6 km, 7.8 m at 10 km). Delivered accuracy is bounded by the pre-existing float32 quantization of the tile source geometry, not the sub-mm formula on doubles: a no-op within ~1.5 km of the anchor, ~0.1 m residual at the committed fixture's actual tile ranges (3.8–6.6 km) — see docs/status.md item 4 for the measured before/after on the real fixtures.
 
 ## [0.1.0] - 2026-09-17
 

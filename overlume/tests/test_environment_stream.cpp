@@ -310,6 +310,82 @@ TEST(EnvironmentStream, EcefToMapAgreesWithCppPinWithinHalfMeter) {
     }
 }
 
+// ── Open Follow-up 4: streamed-tile ellipsoid-height correction (pure math,
+//    docs/status.md item 4) ────────────────────────────────────────────────
+// Points ON the WGS84 ellipsoid at horizontal offsets 0/1/2.6/10 km due
+// north of the SAME fixture anchor (25.0803 N, 55.3910 E) every other
+// cross-pin test in this file uses. Proves both halves in one test: the
+// UNcorrected rigid transform (ecef_height_correction_probe's
+// out_z_uncorrected, identical formula to ecef_to_map_probe's own z, which
+// EcefToMapAgreesWithCppPinWithinHalfMeter above already pins at its own
+// probes) sags by the documented tangent-plane amount
+// -d^2/(2R) (0.08 m / 0.54 m / 7.85 m at 1 / 2.6 / 10 km -- Open Follow-up
+// 4's own numbers), AND the corrected z (correct_ecef_point_height(),
+// environment_stream.hpp/.cpp -- the SAME function
+// strip_attributes_and_correct_heights() calls per real vertex, gate round 1
+// major finding: this probe must not carry an independently-typed copy of
+// that formula) lands within 5 mm of the map plane at every offset,
+// including 0 (the anchor itself).
+//
+// This is a PURE-MATH test: it proves the z-correction formula itself
+// (ellipsoid-height-of-the-point minus the anchor's) is right, on doubles,
+// for a point that is already exactly on the ellipsoid. It does NOT touch a
+// glTF accessor, a float32 store, or the mesh/primitive traversal
+// strip_attributes_and_correct_heights() does around this formula -- gate
+// round 1 measured that those mechanics, applied to the REAL committed
+// fixture geometry (which is authored as absolute-ECEF float32, ULP
+// 0.25-0.5 m at Earth-radius magnitude), quantize this correction away
+// entirely within about 1.5 km of the anchor and leave a 0.04-0.11 m
+// residual at the fixture's actual tile ranges (3.8/6.6 km) -- see
+// docs/status.md item 4 and docs/runbooks/cesium.md 5b for the measured
+// numbers. An ingestion-level check that reads those float32-quantized
+// results back through a loaded tile was scoped but not added here --
+// FilamentAsset::getBoundingBox() reads the glTF accessor's DECLARED
+// min/max (computed once at fixture-authoring time), which
+// strip_attributes_and_correct_heights() does not update when it rewrites
+// the accessor's data, so it would not reflect this correction at all
+// without also teaching that function to refresh accessor min/max (real
+// production scope, not a test-only addition); the alternative -- invoking
+// Cesium3DTilesContent::B3dmToGltfConverter directly on the fixture bytes,
+// bypassing the full Tileset pipeline -- needs a real AssetFetcher/
+// AsyncSystem wired up outside the existing streaming-source machinery.
+// Both are real follow-up work, not a small addition to this test.
+TEST(EnvironmentStream, EllipsoidHeightCorrectionRemovesTangentPlaneSag) {
+    constexpr double kAnchorLat = 25.0803, kAnchorLon = 55.391;
+    // Same mean-sphere radius compute_ecef_to_map()'s own east/north rescale
+    // targets (VM-062 gate round 1 Finding 1) and the sag model above uses --
+    // duplicated here rather than shared across the C++17/C++20 test
+    // boundary, same convention as every other literal-retyped constant in
+    // this file.
+    constexpr double kSphereRadiusM = 6371000.0;
+    const std::vector<double> offsets_m = {0.0, 1000.0, 2600.0, 10000.0};
+    for (const double offset_m : offsets_m) {
+        // Due-north offset: dlat = offset / R (radians), same small-angle
+        // relation geo_anchor.cpp's own WgsToMap north formula inverts.
+        const double lat = kAnchorLat + (offset_m / kSphereRadiusM) * (180.0 / M_PI);
+
+        double zUncorrected = 0.0, zCorrected = 0.0;
+        ASSERT_TRUE(overlume::testing::ecef_height_correction_probe(
+            kAnchorLat, kAnchorLon, /*heading_rad=*/0.0, lat, kAnchorLon, /*alt_m=*/0.0,
+            &zUncorrected, &zCorrected));
+
+        const double wantSag = -(offset_m * offset_m) / (2.0 * kSphereRadiusM);
+        EXPECT_NEAR(zUncorrected, wantSag, 0.05)
+            << "offset=" << offset_m << "m: uncorrected z=" << zUncorrected << " should sag ~"
+            << wantSag << "m below the tangent plane -- the bug this "
+            << "follow-up fixes";
+        EXPECT_LT(std::abs(zCorrected), 0.005)
+            << "offset=" << offset_m << "m: corrected z=" << zCorrected
+            << " should sit on the map plane within 5mm";
+        // Gate round 1 major finding, minimum fix: assert the APPLIED DELTA
+        // too, not just that corrected lands near 0 -- this at least fails
+        // if the correction's sign or magnitude is wrong even at an offset
+        // where both halves independently look small.
+        EXPECT_NEAR(zCorrected - zUncorrected, -wantSag, 0.05)
+            << "offset=" << offset_m << "m: correction should remove exactly the sag amount";
+    }
+}
+
 // ── Step 4: disk cache proves itself (offline second-run reload) ────────
 TEST(EnvironmentStream, DiskCacheServesTilesWithNetworkDead) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};

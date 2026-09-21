@@ -30,7 +30,7 @@ Seed: `20260917` (module constant `SEED`, `make_tile_fixture.py`).
   per-vertex `_BATCHID` accessor (float32 SCALAR, all zeros) -- the
   plain/default case (also the tile duplicated 16x into
   `environment_tiles_fixture_fallback_0/`). `_BATCHID` is here so
-  `environment_stream.cpp`'s `strip_custom_vertex_attributes()` (the guard
+  `environment_stream.cpp`'s `strip_attributes_and_correct_heights()` (the guard
   a real committed ion b3dm always needed, since gltfio's `createAsset()`
   rejects any non-core vertex attribute) has a real attribute to strip in
   this fixture too -- a regression there now blanks the golden, exactly as

@@ -132,6 +132,32 @@ or any node process.
   `default_params.yaml`) — those are VM-063's param table, not this runbook;
   this runbook stops at "the token works against the chosen asset".
 
+## 5b. Placement: rigid x/y, per-vertex ellipsoid-height z (Open Follow-up 4)
+
+Every streamed tile is placed by one rigid ECEF->map matrix per asset root
+(`compute_ecef_to_map()`) — accurate for x/y (curvature error ~d³/(6R²),
+sub-mm at 10 km), but its z axis is a flat tangent plane at the anchor, so
+real (ellipsoid-following) tile geometry sags below it at range (~d²/(2R):
+0.08 m at 1 km, 0.54 m at 2.6 km, 7.85 m at 10 km) while the baked chunks and
+the rendered robot both sit on a flat plane at z=0 — buildings floated below
+the ground. Fixed by rewriting each vertex at load
+(`strip_attributes_and_correct_heights()`, `environment_stream.cpp`): x/y
+stay whatever the rigid transform gives; z is replaced with (WGS84 ellipsoid
+height at that vertex) − (anchor's ellipsoid height, 0.0 by construction —
+matching `bake_environment.py`'s own `wgs_to_map(..., alt_m=0.0)`), computed
+via `CesiumGeospatial::Ellipsoid::WGS84`, never hand-rolled.
+
+**Delivered accuracy** is bounded by the source geometry, not this formula:
+real tile positions (the committed fixtures and, per `environment_stream.cpp`'s
+own load-thread comment, real streamed OSM b3dm content) are stored as
+absolute-ECEF **float32**, whose ULP is 0.25–0.5 m at Earth-radius magnitude
+— so the correction is a no-op within roughly 1.5 km of the anchor (rounded
+away below half a ULP) and leaves a ~0.04–0.11 m residual at the fixture's
+actual tile ranges (3.8–6.6 km), not the sub-5-mm figure the formula gives on
+doubles (see `docs/status.md` item 4 for the measured per-tile numbers).
+Sub-decimetre accuracy at range would need tile positions rebased to a local
+origin (RTC-style) before the float32 store, not a further per-vertex tweak.
+
 ## 6. Google Photorealistic 3D Tiles (VM-064)
 
 A textured, photorealistic mesh, not clay — `default_params.yaml`'s

@@ -295,6 +295,17 @@ struct LoadThreadGlb {
 // asset root instead of per-vertex).
 glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor);
 
+// Open Follow-up 4 (docs/status.md item 4): the ONE implementation of the
+// ellipsoid-height correction formula -- given a point already in ECEF,
+// keeps x/y from the rigid `ecefToMap` transform and replaces z with
+// (ellipsoid height at this point) - (anchor's ellipsoid height, 0.0 by
+// construction). Both `strip_attributes_and_correct_heights()`
+// (environment_stream.cpp, per real glTF vertex at tile load) and the
+// `ecef_height_correction_probe()` test hook call this SAME function --
+// gate round 1 minor finding: the two must not be independently-typed
+// formulas that can silently drift apart.
+glm::dvec3 correct_ecef_point_height(const glm::dvec3& ecef_pos, const glm::dmat4& ecef_to_map);
+
 class StreamingEnvironmentSource : public EnvironmentSource {
 public:
     // externals carry the composed accessor stack (fixture or

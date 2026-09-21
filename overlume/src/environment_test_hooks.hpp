@@ -89,6 +89,21 @@ bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double head
                        double lat_deg, double lon_deg, double alt_m, double* out_x, double* out_y,
                        double* out_z);
 
+// Open Follow-up 4 (docs/status.md item 4, streamed-tile ellipsoid-height
+// sag): exercises the SAME correction formula
+// strip_attributes_and_correct_heights() applies to every streamed vertex
+// (environment_stream.cpp), from a plain C++17 test TU. For the WGS84 point
+// (lat_deg, lon_deg, alt_m), writes through both out-pointers (each may be
+// null): `out_z_uncorrected` is ecef_to_map_probe()'s own z (the rigid
+// tangent-plane transform, i.e. the sag) and `out_z_corrected` is that same
+// point's ellipsoid height minus the anchor's (0.0 by construction -- see
+// strip_attributes_and_correct_heights()'s own comment). A single call
+// proves both that the sag exists (uncorrected) and that the fix removes it
+// (corrected). Always returns true.
+bool ecef_height_correction_probe(double origin_lat_deg, double origin_lon_deg, double heading_rad,
+                                  double lat_deg, double lon_deg, double alt_m,
+                                  double* out_z_uncorrected, double* out_z_corrected);
+
 // VM-064 (Task 5) Step 0: true iff the installed source is a
 // StreamingEnvironmentSource running in original-materials mode. False if
 // `r` is null, no source is installed, or the installed source is not a
