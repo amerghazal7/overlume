@@ -18,8 +18,8 @@ profile and `gps_topic`, and optionally arms an environment source once the
 geo anchor solves. Ctrl-C tears everything down.
 
 ```bash
-env -u CESIUM_ION_TOKEN bash -lic 'tools/validate_logger_session.sh --arm osm'          # default session
-env -u CESIUM_ION_TOKEN bash -lic 'tools/validate_logger_session.sh ~/session_<stamp> --no-gui'
+tools/validate_logger_session.sh --arm osm                    # default session
+tools/validate_logger_session.sh ~/session_<stamp> --no-gui
 ```
 
 The session defaults to `$OVERLUME_SESSION`, then
@@ -38,10 +38,12 @@ breaks one of the assumptions.
   topic.
 - Overlume's node built (`ros/colcon_build.sh`) with the streaming backend
   (`OVERLUME_ENABLE_CESIUM=ON`) if you want to test 3D Tiles.
-- `CESIUM_ION_TOKEN` exported in `~/.bashrc`. Launch the rig from a **fresh
-  login shell** (`env -u CESIUM_ION_TOKEN bash -lic '…'`): a long-lived
-  shell keeps a pre-rotation token in its environment and the node
-  inherits it.
+- `CESIUM_ION_TOKEN` exported in `~/.bashrc`. `validate_visual_mode.sh`
+  re-reads it from a fresh login shell before launching the node, because a
+  long-lived terminal keeps a pre-rotation token in its environment and the
+  node would inherit it: ion then answers 401 on every tileset and nothing
+  renders (seen 2026-09-21). The script prints a `[token]` line when the
+  shell's value differed from the login shell's.
 
 ## 2. Player config
 
@@ -115,7 +117,7 @@ switched ("geo-anchor not solved yet").
 Run the rig with sim time, since the player owns `/clock`:
 
 ```bash
-env -u CESIUM_ION_TOKEN bash -lic 'LIVE_SIM_TIME=true tools/validate_visual_mode.sh --live --profile replay --param gps_topic:=/fixposition/odometry_llh'
+LIVE_SIM_TIME=true tools/validate_visual_mode.sh --live --profile replay --param gps_topic:=/fixposition/odometry_llh
 ```
 
 Then switch the Environment Tiles source in the GUI (or over the bridge:

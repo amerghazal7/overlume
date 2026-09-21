@@ -170,6 +170,18 @@ source /opt/ros/humble/setup.bash
 source "${REPO_ROOT}/ros/install/setup.bash"
 set -u
 
+# Token hygiene: a long-lived terminal keeps a pre-rotation CESIUM_ION_TOKEN
+# and the node inherits it -- ion answers 401 on every tileset, no tiles
+# (2026-09-21). Take whatever value a fresh login shell has NOW. Never printed.
+_fresh_token="$(env -u CESIUM_ION_TOKEN bash -lic 'printf %s "${CESIUM_ION_TOKEN:-}"' 2>/dev/null || true)"
+if [[ -n "${_fresh_token}" ]]; then
+    if [[ -n "${CESIUM_ION_TOKEN:-}" && "${CESIUM_ION_TOKEN}" != "${_fresh_token}" ]]; then
+        echo "[token] CESIUM_ION_TOKEN in this shell differs from the login shell's -- using the login shell's"
+    fi
+    export CESIUM_ION_TOKEN="${_fresh_token}"
+fi
+unset _fresh_token
+
 declare -a CHILD_PIDS=()
 declare -a CHILD_PGIDS=()
 RIG_DOWN=0

@@ -19,8 +19,8 @@
 #   SESSION_DIR defaults to $OVERLUME_SESSION, then ~/session_2026-09-01_13-57-00.
 #   --arm PRESET   baked|osm|clipped|google, sent after the health gate; retried
 #                  while the node answers "geo-anchor not solved yet".
-# Run from a fresh login shell so the node inherits the current token:
-#   env -u CESIUM_ION_TOKEN bash -lic 'tools/validate_logger_session.sh --arm osm'
+# CESIUM_ION_TOKEN is re-read from a fresh login shell by validate_visual_mode.sh,
+# so a stale value in a long-lived terminal is not inherited by the node.
 # Ctrl-C tears everything down. Logs: /tmp/overlume_validate/.
 set -euo pipefail
 
