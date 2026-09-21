@@ -17,6 +17,8 @@
  *  function.
  */
 
+#include <locale>
+#include <sstream>
 #include <string>
 
 namespace overlume::ros {
@@ -33,10 +35,20 @@ namespace overlume::ros {
 // function's own pinned-string unit tests; the node's default is TRUE
 // (environment_follow_terrain), so every node call site passes
 // environment_follow_terrain_ explicitly -- never rely on the default there.
+// Mirrors IonSpec::ground_bias_m's default (environment_stream.cpp).
+inline constexpr double kGroundBiasDefaultM = 0.3;
+// Mirrors IonSpec::replaces_ground's default (environment_stream.cpp):
+// 2026-09-21 live finding, the clay ground plane comes out of the scene
+// once a streamed tileset PROVES it has ground under the ego -- true keeps
+// that behaviour, false is the escape hatch that keeps the plane always.
+inline constexpr bool kReplacesGroundDefault = true;
+
 inline std::string compose_environment_source_uri(const std::string& environment_chunks_dir,
                                                   const std::string& environment_source_uri,
                                                   const std::string& environment_tile_cache_dir,
-                                                  bool follow_terrain = false) {
+                                                  bool follow_terrain = false,
+                                                  double ground_bias_m = kGroundBiasDefaultM,
+                                                  bool replaces_ground = kReplacesGroundDefault) {
     std::string source_uri = environment_chunks_dir;
     if (!environment_source_uri.empty()) {
         source_uri = environment_source_uri;
@@ -54,6 +66,31 @@ inline std::string compose_environment_source_uri(const std::string& environment
             environment_source_uri.find("follow_terrain=") == std::string::npos) {
             source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
             source_uri += follow_terrain ? "follow_terrain=on" : "follow_terrain=off";
+        }
+        // ground_bias= is appended only when it differs from the library's own
+        // default (0.3 m): the default rides on the parser, so the composed
+        // strings pinned by test_environment_source_uri.cpp stay unchanged.
+        if (environment_source_uri.rfind("ion://", 0) == 0 &&
+            environment_source_uri.find("ground_bias=") == std::string::npos &&
+            ground_bias_m != kGroundBiasDefaultM) {
+            std::ostringstream v;
+            // Classic locale: a non-C LC_NUMERIC would otherwise compose
+            // "ground_bias=0,5" (review minor, 2026-09-21).
+            v.imbue(std::locale::classic());
+            v << ground_bias_m;
+            source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
+            source_uri += "ground_bias=" + v.str();
+        }
+        // replaces_ground= is appended only when it differs from the
+        // library's own default (true): same "only when it differs from
+        // default" shape ground_bias= uses immediately above, so the
+        // composed strings pinned by test_environment_source_uri.cpp stay
+        // unchanged for every existing call site.
+        if (environment_source_uri.rfind("ion://", 0) == 0 &&
+            environment_source_uri.find("replaces_ground=") == std::string::npos &&
+            !replaces_ground) {
+            source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
+            source_uri += "replaces_ground=off";
         }
     }
     return source_uri;

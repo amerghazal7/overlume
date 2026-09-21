@@ -1688,6 +1688,28 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
         r->environmentSource->update(*r, r->scene_buffer.active().ego.position);
     }
 
+    // 2026-09-21 live finding (real-robot replay, Google Photorealistic
+    // tiles + terrain following): build_ground_plane()'s own 120 m clay
+    // quad, re-centred on the ego every tick, cleanly wins z-order over
+    // streamed photoreal ground once the two surfaces stopped being
+    // coplanar (the ground-bias fix above) -- it just HIDES the tiles'
+    // roadside detail instead of z-fighting with it. A tileset only earns
+    // the right to take the clay plane out of the scene by EVIDENCE (a
+    // successful terrain height sample under the ego, latched for the
+    // source's life), never by preset name: Cesium OSM Buildings is
+    // buildings-only and never samples ground, so it keeps the clay plane;
+    // Google Photorealistic does sample it, so the plane comes out once
+    // proven. No per-frame churn -- only touch scene membership when it
+    // actually disagrees with the target state.
+    const bool hideGround = r->environmentSource != nullptr && r->environmentVisible &&
+                            r->environmentSource->provides_ground();
+    const bool groundInScene = r->scene->hasEntity(r->ground.entity);
+    if (hideGround && groundInScene) {
+        r->scene->remove(r->ground.entity);
+    } else if (!hideGround && !groundInScene) {
+        r->scene->addEntity(r->ground.entity);
+    }
+
     r->camera->lookAt({pose.eye[0], pose.eye[1], pose.eye[2]},
                       {pose.target[0], pose.target[1], pose.target[2]}, {0.0, 0.0, 1.0});
     const double aspect = static_cast<double>(out.width) / static_cast<double>(out.height);

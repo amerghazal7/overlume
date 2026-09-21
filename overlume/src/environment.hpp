@@ -82,6 +82,14 @@ public:
     // depending on whether it has fallen back to a baked dir after a
     // network-loss detection.
     virtual EnvironmentSourceState state() const = 0;
+    // 2026-09-21 live finding: the renderer's own 120 m clay ground quad
+    // (renderer.cpp's build_ground_plane()) covers Google Photorealistic 3D
+    // Tiles' streamed ground/roadside detail near the ego. Whether a
+    // source's tiles already cover the ground under the ego is decided by
+    // EVIDENCE (a successful height sample), not by preset name -- Cesium
+    // OSM Buildings is buildings-only and still needs the clay plane.
+    // Default false: BakedEnvironmentSource never overrides this.
+    virtual bool provides_ground() const { return false; }
 };
 
 // Named hysteresis band: kUnloadRadiusM > kLoadRadiusM so a chunk sitting

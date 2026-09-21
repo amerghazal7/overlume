@@ -434,7 +434,13 @@ public:
                                std::string ion_access_token, std::string root_tileset_uri,
                                std::string fallback_baked_dir, GeoAnchor anchor,
                                std::shared_ptr<CountingAssetAccessor> counting_accessor,
-                               bool materials_original = false, bool follow_terrain = false);
+                               bool materials_original = false, bool follow_terrain = false,
+                               // Defaults MATCH IonSpec's own (ground_bias_m 0.3,
+                               // replaces_ground true) so a caller that omits them
+                               // gets the same behaviour as the equivalent URI
+                               // (review minor, 2026-09-21); both real call sites
+                               // pass them explicitly regardless.
+                               double ground_bias_m = 0.3, bool replaces_ground = true);
     ~StreamingEnvironmentSource() override;
 
     void update(VisualRenderer& r, Vec3 ego_map_pos) override;
@@ -443,6 +449,16 @@ public:
     size_t loaded_count() const override;
     size_t scene_membership_count(VisualRenderer& r) const override;
     EnvironmentSourceState state() const override;
+    // 2026-09-21 live finding (see EnvironmentSource::provides_ground()):
+    // true once EVIDENCE (a successful sampleHeightMostDetailed() hit under
+    // the ego) proves this streamed tileset actually has ground geometry
+    // there -- latched by TerrainFollowState::ground_hit for the life of
+    // this source, gated on replacesGround_ so `replaces_ground=off` (or a
+    // node param) forces the clay plane to stay regardless of evidence.
+    // Defined out-of-line (environment_stream.cpp, after TerrainFollowState
+    // itself) -- TerrainFollowState is only forward-declared here, so an
+    // inline body at this point in the class would need its incomplete type.
+    bool provides_ground() const override;
 
     // Recorded, not asserted (same class as budget_probe.md numbers) --
     // how many times teardown()'s bounded wait (kTeardownPumpBound) gave
@@ -487,6 +503,24 @@ public:
     // camera has ever been positioned, 2 (synthetic + camera) once it has.
     // 0 if update() has never run yet.
     size_t last_view_frustum_count() const { return lastViewFrustumCount_; }
+
+    // Test-only (2026-09-21 Opus gate fix round, provides_ground() vs
+    // fallenBack_): directly invokes the SAME fall_back() a real
+    // kNetworkLossConsecutiveFailures trip calls -- reaches a genuine
+    // post-fallback state (teardown run, fallenBack_ set, fallbackSource_
+    // opened if one was configured) deterministically, without racing
+    // consecutive-failure counting against a file fixture. Empirically (see
+    // NetworkDeadFromFirstRequestFallsBackToBakedChunksOnce's own "Gap"
+    // comment, environment_stream.cpp's testing section), a tile that has
+    // loaded once is thereafter served from the warmed on-disk sqlite cache
+    // and never touches a "killed" accessor again -- so a fixture that has
+    // already proven ground_hit true can never be driven into
+    // STREAMING_FALLBACK through the real counting path inside one short
+    // test process. Calling the real fall_back() directly is the only way
+    // to exercise "ground_hit was latched true, THEN the source fell back"
+    // deterministically; it is not a reimplementation of fall_back()'s own
+    // logic, so it cannot mask a break in that logic itself.
+    void force_fall_back_for_testing(VisualRenderer& r) { fall_back(r); }
 
 private:
     void synthesize_view_and_pump(VisualRenderer& r, Vec3 ego_map_pos);
@@ -542,6 +576,12 @@ private:
 
     // ── 2026-09-21 terrain following ("option 2") ────────────────────────
     bool followTerrain_ = false;
+    double groundBiasM_ = 0.0;  // IonSpec::ground_bias_m; 0 on the fixture path
+    // IonSpec::replaces_ground (default true): gates provides_ground() above
+    // regardless of evidence -- `replaces_ground=off` / node param forces
+    // the renderer's clay ground plane to stay even if this tileset would
+    // otherwise prove it has ground under the ego.
+    bool replacesGround_ = true;
     std::shared_ptr<TerrainFollowState> terrainState_;
     double groundOffsetZ_ = 0.0;             // current smoothed offset (map-frame +Z, metres)
     double lastAppliedGroundOffsetZ_ = 0.0;  // value last pushed to renderResources_
