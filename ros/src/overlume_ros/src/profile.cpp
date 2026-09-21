@@ -93,7 +93,7 @@ const std::set<std::string>& KnownRowKeys() {
                                                 "ns_default",   "transient_local",
                                                 "best_effort",  "junction_interior_boundaries",
                                                 "color_mode",   "max_points",
-                                                "stride"};
+                                                "stride",       "min_z_m"};
     return kKeys;
 }
 
@@ -172,6 +172,15 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
             ok = false;
         } else {
             out.stride = node["stride"].as<uint32_t>();
+        }
+    }
+    if (node["min_z_m"]) {
+        if (out.adapter != "point_cloud") {
+            errors.push_back(RowTag(file, idx, out.topic) +
+                             "min_z_m is only valid on adapter: point_cloud rows");
+            ok = false;
+        } else {
+            out.min_z_m = node["min_z_m"].as<double>();
         }
     }
 

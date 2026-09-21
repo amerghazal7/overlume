@@ -22,14 +22,21 @@
 namespace overlume::ros {
 
 // Pure function: VM-063 Decision 5's "<uri>[?cache=<dir>][&fallback=<dir>]"
-// composition. environment_source_uri empty -> environment_chunks_dir
-// verbatim (today's pre-VM-063 behavior). Non-empty -> the cache=/fallback=
-// keys are appended ONLY when the configured URI does not already carry
-// that key -- an inline cache= (or fallback=) in environment_source_uri
-// always wins over the separate dir param, never silently overwritten.
+// composition, plus 2026-09-21's "[&follow_terrain=on|off]" ("option 2").
+// environment_source_uri empty -> environment_chunks_dir verbatim (today's
+// pre-VM-063 behavior, and never gets a follow_terrain= key -- a plain
+// baked-chunk directory URI has no query string at all). Non-empty -> the
+// cache=/fallback=/follow_terrain= keys are appended ONLY when the
+// configured URI does not already carry that key -- an inline key in
+// environment_source_uri always wins over the separate param, never
+// silently overwritten. `follow_terrain` defaults false only for this
+// function's own pinned-string unit tests; the node's default is TRUE
+// (environment_follow_terrain), so every node call site passes
+// environment_follow_terrain_ explicitly -- never rely on the default there.
 inline std::string compose_environment_source_uri(const std::string& environment_chunks_dir,
                                                   const std::string& environment_source_uri,
-                                                  const std::string& environment_tile_cache_dir) {
+                                                  const std::string& environment_tile_cache_dir,
+                                                  bool follow_terrain = false) {
     std::string source_uri = environment_chunks_dir;
     if (!environment_source_uri.empty()) {
         source_uri = environment_source_uri;
@@ -42,6 +49,11 @@ inline std::string compose_environment_source_uri(const std::string& environment
             environment_source_uri.find("fallback=") == std::string::npos) {
             source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
             source_uri += "fallback=" + environment_chunks_dir;
+        }
+        if (environment_source_uri.rfind("ion://", 0) == 0 &&
+            environment_source_uri.find("follow_terrain=") == std::string::npos) {
+            source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
+            source_uri += follow_terrain ? "follow_terrain=on" : "follow_terrain=off";
         }
     }
     return source_uri;

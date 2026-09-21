@@ -673,6 +673,14 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     // combines with these.
     environment_source_uri_ = declare_parameter<std::string>("environment_source_uri", "");
     environment_tile_cache_dir_ = declare_parameter<std::string>("environment_tile_cache_dir", "");
+    // 2026-09-21 ("option 2"): the map frame is flat (ego z always 0) but
+    // real terrain is not -- true (default) samples Google's own terrain
+    // height under the ego and shifts the streamed environment to meet it;
+    // false keeps the pre-existing flat behavior. Read-once, same shape as
+    // environment_enabled_ above; composed into the ion:// URI by
+    // compose_environment_source_uri() (environment_source_uri.hpp), never
+    // appended to a plain baked-chunk directory.
+    environment_follow_terrain_ = declare_parameter<bool>("environment_follow_terrain", true);
     // VM-064 (Epic 6 Task 5): Google's Map Tiles terms require visible
     // attribution wherever Photorealistic 3D Tiles content is shown -- a
     // plain disable knob (STANDING directive), independent of whether this
@@ -1110,7 +1118,8 @@ OverlumeNode::CallbackReturn OverlumeNode::on_activate(const rclcpp_lifecycle::S
         // gate round 1 finding -- an explicit cache=off from the google
         // preset must not be silently overwritten by this separate dir).
         const std::string source_uri = compose_environment_source_uri(
-            environment_chunks_dir_, environment_source_uri_, environment_tile_cache_dir_);
+            environment_chunks_dir_, environment_source_uri_, environment_tile_cache_dir_,
+            environment_follow_terrain_);
         if (!overlume::set_environment_source(renderer_, source_uri.c_str(),
                                               geo_anchor_solver_->anchor())) {
             RCLCPP_WARN(get_logger(),
@@ -1289,7 +1298,8 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                     // environment_enabled_ alone.
                     apply_environment_visibility();
                     const std::string source_uri = compose_environment_source_uri(
-                        environment_chunks_dir_, requested, environment_tile_cache_dir_);
+                        environment_chunks_dir_, requested, environment_tile_cache_dir_,
+                        environment_follow_terrain_);
                     if (source_uri.empty()) {
                         // Finding #19: an empty requested preset (e.g. the
                         // GUI's "baked" preset) composes to "" whenever
@@ -1909,7 +1919,8 @@ void OverlumeNode::timer_callback() {
         // is rendering.
         const std::string fallback_dir =
             fallback_dir_from_source_uri(compose_environment_source_uri(
-                environment_chunks_dir_, environment_source_uri_, environment_tile_cache_dir_));
+                environment_chunks_dir_, environment_source_uri_, environment_tile_cache_dir_,
+                environment_follow_terrain_));
         if (fallback_dir.empty()) {
             RCLCPP_WARN(get_logger(),
                         "environment source: network loss detected -- switched to fallback, "

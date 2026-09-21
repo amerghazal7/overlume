@@ -132,6 +132,15 @@ void PointCloudAdapter::ingest(const sensor_msgs::msg::PointCloud2& msg, double 
             any_nan = true;
             continue;
         }
+        // Road-surface filter (row_.min_z_m, profile.hpp; maintainer
+        // decision 2026-09-21): NaN (default) leaves this a no-op --
+        // comparisons against NaN are always false. Finite -> drop points
+        // at/below the configured road plane so they stop z-fighting with
+        // the HD-map surface and other road-drawn elements.
+        if (world.z() < row_.min_z_m) {
+            ++dropped_below_min_z_;
+            continue;
+        }
         RawPoint rp;
         rp.world = world;
         if (tier == Tier::kRgb) std::memcpy(&rp.color_bits, rec + offColor, 4);

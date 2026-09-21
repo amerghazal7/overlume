@@ -130,6 +130,10 @@ The anchor's height (used to place streamed tiles' ground correctly, see
 param (added to the height, so an antenna h m above `base_link` needs `-h`),
 or pin it outright with `geo_datum_height_m`.
 
+Real relief along the route (not just at the anchor) is handled by the
+`environment_follow_terrain` param (default `true`, see `docs/runbooks/cesium.md`
+section 5c) — leave it on for a replay of any route with meaningful grade.
+
 ## 5. What this session could and could not show
 
 Recorded (18 topics): one camera, five lidar clouds, Fixposition

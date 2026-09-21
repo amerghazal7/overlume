@@ -284,6 +284,55 @@ TEST(PointCloudAdapter, MissingXyzFieldDropsWholeMessage) {
     EXPECT_TRUE(asm_.point_clouds.empty());
 }
 
+// ── road-surface min_z_m filter (maintainer decision 2026-09-21) ───────────
+
+TEST(PointCloudAdapter, MinZDropsPointsBelowTheThreshold) {
+    // Map-frame z: one point well below the road plane, one just under the
+    // 0.2m threshold, one comfortably above it -- only the last survives.
+    // TfFixture's empty tf2_ros::Buffer means FrameTransformer's identity
+    // shortcut applies, so map-frame z == the point's own z here.
+    std::vector<SyntheticPoint> pts = {
+        {0.0f, 0.0f, -0.5f, 0.0f},
+        {1.0f, 0.0f, 0.1f, 0.0f},
+        {2.0f, 0.0f, 0.5f, 0.0f},
+    };
+    auto msg = BuildCloud(pts, "");
+    TfFixture kTf;
+    auto row = MakeRow();
+    row.min_z_m = 0.2;
+    overlume::ros::PointCloudAdapter a(row, kTf.tf);
+    a.ingest(msg, 1.0);
+
+    SceneAssembly asm_;
+    a.fill(asm_);
+    const overlume::PointCloud* pc = OnlyCloud(asm_);
+    ASSERT_NE(pc, nullptr);
+    ASSERT_EQ(pc->point_count, 1u);
+    EXPECT_DOUBLE_EQ(pc->points[0].position.z, 0.5);
+    EXPECT_EQ(a.dropped_below_min_z(), 2u);
+}
+
+TEST(PointCloudAdapter, MinZNaNDefaultKeepsEveryPoint) {
+    // MakeRow() leaves min_z_m at its NaN default (filter off) -- same three
+    // z values as above, all three must survive.
+    std::vector<SyntheticPoint> pts = {
+        {0.0f, 0.0f, -0.5f, 0.0f},
+        {1.0f, 0.0f, 0.1f, 0.0f},
+        {2.0f, 0.0f, 0.5f, 0.0f},
+    };
+    auto msg = BuildCloud(pts, "");
+    TfFixture kTf;
+    overlume::ros::PointCloudAdapter a(MakeRow(), kTf.tf);
+    a.ingest(msg, 1.0);
+
+    SceneAssembly asm_;
+    a.fill(asm_);
+    const overlume::PointCloud* pc = OnlyCloud(asm_);
+    ASSERT_NE(pc, nullptr);
+    EXPECT_EQ(pc->point_count, 3u);
+    EXPECT_EQ(a.dropped_below_min_z(), 0u);
+}
+
 TEST(PointCloudAdapter, FlatModeBakesTheAlphaZeroSentinel) {
     std::vector<SyntheticPoint> pts = {{0, 0, 0, 0}, {1, 0, 0, 0}};
     auto msg = BuildCloud(pts, "");

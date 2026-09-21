@@ -197,6 +197,65 @@ transform sent node-matrix vertices to the wrong ECEF position entirely —
 symptom: the tile renders as one giant tilted slab across the sky, not a mere
 height sag.
 
+## 5c. Terrain following (2026-09-21, "option 2")
+
+**Why:** the map frame this node renders into is flat — the ego's own z is
+always 0 — but real terrain is not. 5b's per-vertex ellipsoid-height fix
+gets Google's streamed ground meeting the road *at the anchor*; a few
+hundred metres later, real relief (a rise, a dip) puts that same flat map
+frame either above or below the actual streamed ground, so the environment
+buries or floats away from everything else in the scene (the robot, the
+HD-map layers, the point cloud). Terrain following corrects for that by
+moving the *whole streamed environment* up/down to track the ground
+elevation under the ego, instead of trying to re-flatten Google's mesh.
+
+**What is sampled, and how often:** `StreamingEnvironmentSource` calls
+`Cesium3DTilesSelection::Tileset::sampleHeightMostDetailed()` for the ego's
+current map-frame (x, y) — converted through the same `mapToEcef_` transform
+5b describes — once when no sample is already in flight and either no
+sample has landed yet, the ego has moved ≥5 m (map x/y) since the last
+sample request, or ≥2 s have passed. The continuation lands on the main
+thread via `asyncSystem_.dispatchMainThreadTasks()` (the same pump
+`update()` already runs every tick) and captures only a shared
+`TerrainFollowState`, never the source itself — the source can be destroyed
+with a sample in flight.
+
+**Smoothing and clamp:** the target offset is
+`-(sampled_height_m − anchor.origin_height_m)`, clamped to ±30 m (clamped,
+not rejected — an out-of-range sample saturates at the ceiling rather than
+being discarded).
+
+**Cost:** `sampleHeightMostDetailed()` requests the MOST detailed tiles
+under the ego, not necessarily the level being rendered, at least every 2 s
+(or 5 m) — extra ion quota and bandwidth on a path that defaults ON; not yet
+measured on the live rig. `environment_follow_terrain` is read once at
+configure; a runtime `ros2 param set` takes effect only when a preset switch
+re-composes the URI.
+The applied offset first-order-smooths toward that target with a 0.5 s time
+constant — except the very first sample, which snaps immediately (no
+half-second slide-up from a flat 0 on the first frame a tileset loads).
+
+**Mechanism:** every streamed tile's asset root is parented (Filament
+`TransformManager::setParent`) under one shared "terrain root" entity owned
+by `StreamRendererResources`; the smoothed offset becomes that one entity's
+translation (`set_ground_offset_z()`), so a single transform moves the
+entire streamed environment regardless of how many tiles are currently
+loaded. **The baked fallback source is never parented or shifted** — VM-063's
+`fall_back()` tears down streaming entirely before opening the baked
+directory, so a network-loss fallback is unaffected by terrain following one
+way or the other.
+
+**The knob:** the `follow_terrain=on|off` key on the `ion://` source URI
+(`parse_ion_spec()`, `environment_stream.cpp`) — an unrecognized value fails
+the whole URI parse (unlike `materials=`, which degrades to clay on a bad
+value: there is no safe silent default for "did the caller mean to shift the
+ground"). The ROS node's `environment_follow_terrain` param (default `true`)
+composes this key onto any `ion://` `environment_source_uri`
+(`compose_environment_source_uri()`, `environment_source_uri.hpp`) — never
+onto a plain baked-chunk directory, which has no query string to append to.
+Off keeps the pre-existing flat-map-frame behaviour exactly: nothing is
+sampled, and the offset stays 0.
+
 ## 6. Google Photorealistic 3D Tiles (VM-064)
 
 A textured, photorealistic mesh, not clay — `default_params.yaml`'s

@@ -298,9 +298,11 @@ rows:
   # best-effort QoS; a reliable subscription silently receives nothing.
   # Disable knob: layer_point_clouds param (STANDING directive); style:
   # theme point_cloud.point_size_px + per-point colors from color_mode.
+  # min_z_m: 0.2 (maintainer decision 2026-09-21) -- drops ground returns and
+  # the lane-marking z-fight against the HD-map road surface (z=0).
   - {topic: /iv_points_fusion, type: sensor_msgs/msg/PointCloud2,
      adapter: point_cloud, role: points, color_mode: auto, max_points: 60000,
-     stride: 2, best_effort: true, timeout_sec: 2.0}
+     stride: 2, best_effort: true, timeout_sec: 2.0, min_z_m: 0.2}
 
   # Trajectory carpet (VM-077, 2026-09-09; REDIRECTED 2026-09-10 per user
   # directive -- see the plan's 2026-09-10 "carpet-as-ribbon redirect"

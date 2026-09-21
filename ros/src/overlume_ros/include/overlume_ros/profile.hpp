@@ -16,6 +16,7 @@
  */
 
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -86,6 +87,18 @@ struct ProfileRow {
     std::string color_mode{"auto"};
     uint32_t max_points{0};
     uint32_t stride{1};
+
+    // adapter: point_cloud only, same restriction shape as color_mode/
+    // max_points/stride above (maintainer decision 2026-09-21: point-cloud
+    // points conflicting with other elements drawn on the road surface).
+    // NaN (default) = filter off, every point keeps rendering regardless of
+    // height. Finite = after the per-point map-frame transform (point_cloud.
+    // cpp's full-3D transform, z NOT flattened -- see that file's header
+    // comment), a point whose map-frame z is < min_z_m is dropped. The road
+    // plane is z=0 in the map frame (flatten_z convention), so 0.15-0.25 m
+    // removes ground returns and the lane-marking z-fight while keeping
+    // curbs, poles and pedestrians.
+    double min_z_m{std::numeric_limits<double>::quiet_NaN()};
 };
 
 struct Profile {

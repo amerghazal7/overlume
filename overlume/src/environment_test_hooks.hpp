@@ -57,15 +57,22 @@ struct FixtureStreamHandle;  // opaque kill-switch handle; owned by the
 // left untouched). `materials_original` (VM-064, Task 5): defaults false
 // (today's clay remap, every pre-VM-064 call site unaffected); true installs
 // in original-materials mode (the Google Photorealistic 3D Tiles path).
+// `follow_terrain` (2026-09-21, "option 2"): defaults false (today's flat
+// map frame, every pre-existing call site unaffected); true samples
+// Google's own terrain height under the ego, same as the production
+// ion:// URI's follow_terrain= key.
 bool install_fixture_streaming_source(overlume::VisualRenderer* r, const char* fixture_dir,
-                                      overlume::GeoAnchor anchor, bool materials_original = false);
+                                      overlume::GeoAnchor anchor, bool materials_original = false,
+                                      bool follow_terrain = false);
 
 // Same, plus a baked fallback dir and a kill switch for Task 4's
 // network-loss e2e. Returns the kill-switch handle; nullptr on failure.
+// `follow_terrain`: see install_fixture_streaming_source() above.
 FixtureStreamHandle* install_fixture_streaming_source_with_fallback(overlume::VisualRenderer* r,
                                                                     const char* fixture_dir,
                                                                     const char* fallback_baked_dir,
-                                                                    overlume::GeoAnchor anchor);
+                                                                    overlume::GeoAnchor anchor,
+                                                                    bool follow_terrain = false);
 
 // Flips the kill switch: every subsequent fixture "network" request fails.
 void kill_fixture_network(FixtureStreamHandle* handle);
@@ -125,12 +132,53 @@ bool environment_stream_materials_original(overlume::VisualRenderer* r);
 // numeric asset id).
 bool environment_stream_parse_materials_original(const char* ion_spec);
 
+// 2026-09-21 terrain following ("option 2"): same shape/reasoning as
+// environment_stream_parse_materials_original() above, exercising the real
+// parser's follow_terrain= key instead. Unlike materials= (which degrades a
+// bad value to clay rather than failing), an unrecognized follow_terrain=
+// value fails parse_ion_spec() entirely -- `*out_parse_ok` reports that
+// separately from the returned bool, so a caller can tell "absent -> false"
+// apart from "malformed -> the whole spec failed to parse" (both would
+// otherwise read as the same `false`). `out_parse_ok` may be null.
+bool environment_stream_parse_follow_terrain(const char* ion_spec, bool* out_parse_ok);
+
+// ponytail: pure-math probe (no live tileset/renderer needed), added to
+// keep AGENTS.md's "runnable check that fails when reverted" honest for the
+// smoothing/clamp formula even though this pass didn't build the
+// height-sampling ground-fixture integration test (see the report this
+// shipped with) -- upgrade to a real sampleHeightMostDetailed() e2e is the
+// fast-follow once that fixture exists. Applies ONE smoothing step: `snap`
+// true reproduces update_ground_offset()'s first-sample snap (returns the
+// clamped target immediately); false applies one step of the first-order
+// smoothing toward it from `current_offset_m` over `delta_seconds`.
+double terrain_ground_offset_probe(double sampled_height_m, double anchor_height_m,
+                                   double current_offset_m, float delta_seconds, bool snap);
+
 // VM-064 Step 1: true iff the first currently-loaded tile's first
 // renderable's first primitive is bound to r->buildingMaterial (the clay
 // remap) -- false in original-materials mode. False on the same
 // null/non-streaming conditions as the hook above, or if nothing has
 // loaded yet.
 bool environment_stream_first_primitive_is_clay(overlume::VisualRenderer* r);
+
+// 2026-09-21 terrain following ("option 2"): the installed
+// StreamingEnvironmentSource's own ground_offset_z() -- NaN if `r` is null,
+// no source is installed, or the installed source is not a
+// StreamingEnvironmentSource, same null-safety pattern as
+// environment_stream_materials_original() above (that hook returns a
+// meaningful `false` for "no source"; this one can't, since 0.0 is also a
+// meaningful in-range offset, so it returns NaN instead).
+double environment_terrain_offset_z(overlume::VisualRenderer* r);
+
+// Gate round 1 finding 1: the REAL Filament read-back
+// StreamingEnvironmentSource::first_tracked_tile_world_z() exposes (see its
+// own declaration comment, environment_stream.hpp) -- unlike
+// environment_terrain_offset_z() above, this fails when either the
+// tm.setParent(assetRoot, terrainRoot) call or the
+// renderResources_->set_ground_offset_z() call is deleted, not just when
+// groundOffsetZ_'s own bookkeeping breaks. NaN on the same null/non-
+// streaming/nothing-tracked-yet conditions as every other hook here.
+double environment_terrain_first_tile_world_z(overlume::VisualRenderer* r);
 
 // Finding #0 (security, token redaction) test hooks -- environment_stream.cpp
 // only, cesium-free signatures so this header stays includable from a plain

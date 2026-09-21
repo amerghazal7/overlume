@@ -56,6 +56,7 @@ all keys `KnownRowKeys()` recognizes (profile.cpp:93–101):
 | `color_mode` | no | `"auto"` | **`adapter: point_cloud` only** — rejected elsewhere (profile.cpp:155–163) |
 | `max_points` | no | `0` | **`adapter: point_cloud` only** — rejected elsewhere (profile.cpp:164–172); `0` = no cap |
 | `stride` | no | `1` | **`adapter: point_cloud` only** — rejected elsewhere (profile.cpp:173–181); must be `>= 1` |
+| `min_z_m` | no | `NaN` (filter off) | **`adapter: point_cloud` only** — rejected elsewhere; finite = drop points whose map-frame z is `< min_z_m`. Road plane is z=0; `0.2` (shipped on `urban`/`replay`) removes ground returns and lane-marking z-fight while keeping curbs/poles/pedestrians |
 
 Row defaults come straight from the `ProfileRow` struct
 (`profile.hpp:45–89`).
@@ -183,7 +184,10 @@ author needs to reason about placement/behavior.
   decimates (keep every Nth point, `>=1`), `max_points` caps the survivor
   count (`0` = uncapped). `flatten_z` is deliberately **not** applied here —
   real 3D height is load-bearing data for this category, unlike every other
-  adapter's 2D map-plane convention.
+  adapter's 2D map-plane convention. `min_z_m` (default `NaN` = off) drops
+  points whose map-frame z is below `min_z_m` after the per-point transform
+  (the road plane is z=0), so the cloud stops conflicting with other
+  road-drawn elements.
 - **`trajectory_carpet`** — `MarkerArray` (`TRIANGLE_LIST`, quads of 6
   points) → a centerline-station ribbon, stacked with the `PathRole` ribbons.
   One row ships today; a second would need its own topic, same shape.

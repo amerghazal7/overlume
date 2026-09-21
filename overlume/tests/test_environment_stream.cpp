@@ -52,6 +52,18 @@ const std::string kTilesFixtureDir =
 // unload/redesire cycle) and why 16 (duplicated) tiles fixes that.
 const std::string kTilesFixtureFallbackDir =
     std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_tiles_fixture_fallback_0";
+// 2026-09-21 terrain following ("option 2"), gate round 1 finding 2:
+// synthesized via `make_tile_fixture.py --encoding ecef --anchor-lat
+// 25.08001258 --anchor-lon 55.38847719 --ground-height 3.0 --no-fallback`
+// -- adds tile_ground.b3dm (a flat quad at ellipsoid height 3.0 m around
+// its own anchor) to the usual tile_root/tile_a/tile_b set. Same anchor
+// convention as NodeMatrixEncodingRendersIdenticallyToEcefEncoding's own
+// kSessionAnchor above (the real-robot session's own lat/lon/heading), not
+// the file's usual kFixtureAnchor -- see this dir's own PROVENANCE.md.
+const std::string kSessionGroundFixtureDir =
+    std::string(OVERLUME_TEST_DATA_DIR) +
+    "/tests/fixtures/environment_tiles_fixture_session_ground_0";
+const overlume::GeoAnchor kSessionGroundAnchor{25.08001258, 55.38847719, 90.1178 * M_PI / 180.0};
 
 constexpr overlume::Vec3 kChunk0Center{-128.0, -128.0, 0.0};
 
@@ -1050,6 +1062,138 @@ TEST(EnvironmentStream, UnknownMaterialsValueOnIonUriIsNonFatalFalse) {
     EXPECT_FALSE(overlume::set_environment_source(r, "ion://96188?materials=bogus", a));
     std::vector<uint8_t> buf(320u * 240u * 3u);
     EXPECT_TRUE(overlume::render_frame(r, kStdPose, {buf.data(), 320, 240}));
+    overlume::destroy_renderer(r);
+}
+
+// ── 2026-09-21 terrain following ("option 2") ────────────────────────────
+// Design item 1: unlike materials= (bad value degrades to clay), an
+// unrecognized follow_terrain= value fails parse_ion_spec() entirely -- see
+// environment_stream_parse_follow_terrain()'s own comment for why the hook
+// reports parse success separately from the returned bool.
+TEST(EnvironmentStream, ParseIonSpecFollowTerrain) {
+    bool ok = false;
+    EXPECT_TRUE(
+        overlume::testing::environment_stream_parse_follow_terrain("96188?follow_terrain=on", &ok));
+    EXPECT_TRUE(ok);
+    EXPECT_FALSE(overlume::testing::environment_stream_parse_follow_terrain("96188", &ok));
+    EXPECT_TRUE(ok);  // absent key -- parses fine, just defaults false
+    overlume::testing::environment_stream_parse_follow_terrain("96188?follow_terrain=maybe", &ok);
+    EXPECT_FALSE(ok);  // malformed value -- the WHOLE spec fails to parse
+}
+
+// Design item 3's smoothing/clamp math, pinned directly (no tileset/renderer
+// needed -- terrain_ground_offset_probe() exercises the exact same
+// terrain_target_offset_z()/terrain_smooth_toward() functions
+// FollowTerrainShiftsEnvironmentToGroundUnderEgo below drives end to end
+// through a real tileset).
+TEST(EnvironmentStream, TerrainGroundOffsetSmoothingMath) {
+    // Snap on the first sample: sampled height 3.0 m, anchor at 0.0 m ->
+    // target offset -3.0 m, applied immediately regardless of dt.
+    EXPECT_NEAR(overlume::testing::terrain_ground_offset_probe(
+                    /*sampled_height_m=*/3.0, /*anchor_height_m=*/0.0,
+                    /*current_offset_m=*/0.0, /*delta_seconds=*/0.0f, /*snap=*/true),
+                -3.0, 1e-9);
+    // Clamp: a 500 m sampled height (way outside the ±30 m ceiling) still
+    // clamps to -30.0, not -500.0.
+    EXPECT_NEAR(overlume::testing::terrain_ground_offset_probe(500.0, 0.0, 0.0, 0.0f, true), -30.0,
+                1e-9);
+    // Smoothing (not snapping) moves the offset PART of the way to the
+    // target over one 0.5 s tick (the time constant) -- strictly between
+    // the start and the target, never past it in one step.
+    const double stepped =
+        overlume::testing::terrain_ground_offset_probe(3.0, 0.0, /*current_offset_m=*/0.0,
+                                                       /*delta_seconds=*/0.5f, /*snap=*/false);
+    EXPECT_GT(stepped, -3.0);
+    EXPECT_LT(stepped, 0.0);
+}
+
+// Design item 6: the real end-to-end path -- installs the ground-height
+// fixture (tile_ground.b3dm sits at ellipsoid height 3.0 m; the anchor's
+// own origin_height_m is 0.0), places the ego at the fixture's own block
+// center (0,0,0), and pumps render_frame() until the smoothed offset
+// converges on -3.0 m (design item 3: target = -(sampled_height -
+// anchor_height) = -(3.0 - 0.0)). Bounded at 600 frames with a small sleep
+// per tick -- sampleHeightMostDetailed() is a real async cesium request
+// (needs the ground tile to have loaded first), same "bounded pump + sleep"
+// shape pump_and_settle() above uses for its own async-latency tests.
+//
+// Gate round 1 finding 1: offset convergence alone does not prove the
+// shift actually reached Filament (groundOffsetZ_ is bookkeeping this
+// class keeps regardless of whether the apply call ran) -- so this also
+// reads back the REAL world-space transform of the first tracked tile
+// BEFORE and AFTER convergence and requires the same ~-3.0 m delta.
+// Deleting tm.setParent(assetRoot, terrainRoot) (environment_stream.cpp,
+// prepareInMainThread) or renderResources_->set_ground_offset_z()
+// (update_ground_offset()) each make this delta stay ~0 -- see
+// first_tracked_tile_world_z()'s own comment (environment_stream.hpp).
+TEST(EnvironmentStream, FollowTerrainShiftsEnvironmentToGroundUnderEgo) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(
+        r, kSessionGroundFixtureDir.c_str(), kSessionGroundAnchor, /*materials_original=*/false,
+        /*follow_terrain=*/true));
+
+    overlume::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kFixtureBlockCenterMap;  // (0,0,0) -- the anchor itself
+    overlume::set_scene(r, s);
+
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    ASSERT_GT(pump_until_loaded(r, kStdPose, buf), 0u)
+        << "session_ground fixture must load from its own anchor's block center";
+    const double worldZBefore = overlume::testing::environment_terrain_first_tile_world_z(r);
+    ASSERT_FALSE(std::isnan(worldZBefore))
+        << "a tracked tile must expose a real Filament transform once loaded";
+
+    // Tolerance 0.1 m, not the design's own 0.05: cesium's height sampler
+    // raycasts against the tile's own glTF POSITION accessor, encoded
+    // float32 at full ECEF magnitude (~6.4e6 m, make_tile_fixture.py's
+    // f32_bytes()) -- ~0.05-0.08 m of float32 quantization noise on the
+    // sampled height is inherent to that encoding (every streamed tile in
+    // every fixture this project ships uses it, not something this test
+    // can special-case away) and reproduces deterministically (fixed seed,
+    // fixed anchor) rather than flaking.
+    constexpr double kHeightSamplePrecisionM = 0.1;
+    double offset = overlume::testing::environment_terrain_offset_z(r);
+    for (int i = 0; i < 600 && std::abs(offset - (-3.0)) > kHeightSamplePrecisionM; ++i) {
+        overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        offset = overlume::testing::environment_terrain_offset_z(r);
+    }
+    EXPECT_NEAR(offset, -3.0, kHeightSamplePrecisionM)
+        << "groundOffsetZ_ must converge on -(3.0 - 0.0) m";
+
+    const double worldZAfter = overlume::testing::environment_terrain_first_tile_world_z(r);
+    ASSERT_FALSE(std::isnan(worldZAfter));
+    EXPECT_NEAR(worldZAfter - worldZBefore, -3.0, kHeightSamplePrecisionM)
+        << "the REAL Filament world transform of the tracked tile must have shifted by the "
+           "same amount -- see this test's own top comment";
+
+    overlume::destroy_renderer(r);
+}
+
+// Design item 3's last sentence: "When follow_terrain is off, nothing is
+// sampled and the offset stays 0" -- same fixture as the test above (design
+// item 6), follow_terrain=false, same pump bound, proving it's a true
+// no-op end to end, not just in the isolated math above.
+TEST(EnvironmentStream, FollowTerrainOffStaysAtZero) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(
+        r, kSessionGroundFixtureDir.c_str(), kSessionGroundAnchor, /*materials_original=*/false,
+        /*follow_terrain=*/false));
+    overlume::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kFixtureBlockCenterMap;
+    overlume::set_scene(r, s);
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    for (int i = 0; i < 600; ++i) {
+        overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_EQ(overlume::testing::environment_terrain_offset_z(r), 0.0);
     overlume::destroy_renderer(r);
 }
 
