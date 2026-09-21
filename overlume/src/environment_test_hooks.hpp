@@ -149,18 +149,51 @@ bool environment_stream_parse_follow_terrain(const char* ion_spec, bool* out_par
 // reasoning). `out_parse_ok` may be null.
 bool environment_stream_parse_replaces_ground(const char* ion_spec, bool* out_parse_ok);
 
+// 2026-09-21 multi-point plane fit: same shape as
+// environment_stream_parse_replaces_ground() above, exercising the real
+// parser's max_tilt_deg= key instead -- a non-numeric OR negative value
+// fails the whole parse (`*out_parse_ok` reports that separately); absent
+// defaults to 2.0 (kTerrainMaxTiltRad's own default). `out_parse_ok` may be
+// null.
+double environment_stream_parse_max_tilt_deg(const char* ion_spec, bool* out_parse_ok);
+
 // ponytail: pure-math probe (no live tileset/renderer needed), added to
 // keep AGENTS.md's "runnable check that fails when reverted" honest for the
 // smoothing/clamp formula even though this pass didn't build the
 // height-sampling ground-fixture integration test (see the report this
 // shipped with) -- upgrade to a real sampleHeightMostDetailed() e2e is the
 // fast-follow once that fixture exists. Applies ONE smoothing step: `snap`
-// true reproduces update_ground_offset()'s first-sample snap (returns the
+// true reproduces update_terrain_transform()'s first-fit snap (returns the
 // clamped target immediately); false applies one step of the first-order
 // smoothing toward it from `current_offset_m` over `delta_seconds`.
 double terrain_ground_offset_probe(double sampled_height_m, double anchor_height_m,
                                    double ground_bias_m, double current_offset_m,
                                    float delta_seconds, bool snap);
+
+// 2026-09-21 multi-point plane fit, design item 7a: exercises the real
+// least-squares fit (terrain_plane_fit(), environment_stream.cpp) from a
+// plain C++17 test TU. `s`/`h` are `n` parallel along-track-offset/sampled-
+// ellipsoid-height arrays; writes the fitted slope/intercept/residual RMS
+// through the three out-pointers (each may be null). n>=3 is a real fit;
+// n in {1,2} degrades to slope 0, intercept = mean(h) (today's single-point
+// behaviour, generalized); n==0 is undefined (this function mirrors the
+// production continuation, which never calls the underlying fit on a
+// 0-hit batch).
+void terrain_plane_fit_probe(const double* s, const double* h, int n, double* out_slope,
+                             double* out_intercept, double* out_rms);
+
+// 2026-09-21 multi-point plane fit, design item 7b/c/d: the map-frame z a
+// terrain point at along-track offset `s` from `(pivot_x, pivot_y)` lands
+// at after StreamRendererResources::set_terrain_transform()'s full composed
+// matrix is applied to it -- given a fit (`slope`/`intercept`), the anchor
+// height + ground bias the offset target is computed from, the tilt clamp
+// (`max_tilt_rad`; 0 reproduces the pre-fit offset-only behaviour exactly),
+// and the heading the fit's pivot/axis were taken at. Pure double math, no
+// glm/filament types -- see the .cpp definition's own comment for the
+// derivation.
+double terrain_transform_probe(double slope, double intercept, double anchor_height_m,
+                               double ground_bias_m, double max_tilt_rad, double heading_rad,
+                               double pivot_x, double pivot_y, double s);
 
 // VM-064 Step 1: true iff the first currently-loaded tile's first
 // renderable's first primitive is bound to r->buildingMaterial (the clay

@@ -1152,6 +1152,157 @@ TEST(EnvironmentStream, ParseIonSpecFollowTerrain) {
     EXPECT_FALSE(ok);  // malformed value -- the WHOLE spec fails to parse
 }
 
+// 2026-09-21 multi-point plane fit, design item 5: max_tilt_deg= is the same
+// shape as ground_bias= (non-numeric fails the whole parse) PLUS a
+// negativity check ground_bias= doesn't have.
+TEST(EnvironmentStream, ParseIonSpecMaxTiltDeg) {
+    bool ok = false;
+    EXPECT_DOUBLE_EQ(
+        overlume::testing::environment_stream_parse_max_tilt_deg("96188?max_tilt_deg=5", &ok), 5.0);
+    EXPECT_TRUE(ok);
+    EXPECT_DOUBLE_EQ(overlume::testing::environment_stream_parse_max_tilt_deg("96188", &ok), 2.0)
+        << "absent key -- parses fine, defaults to 2.0 (kTerrainMaxTiltRad)";
+    EXPECT_TRUE(ok);
+    EXPECT_DOUBLE_EQ(
+        overlume::testing::environment_stream_parse_max_tilt_deg("96188?max_tilt_deg=0", &ok), 0.0)
+        << "0 is a valid value -- the offset-only escape hatch";
+    EXPECT_TRUE(ok);
+    overlume::testing::environment_stream_parse_max_tilt_deg("96188?max_tilt_deg=bogus", &ok);
+    EXPECT_FALSE(ok) << "non-numeric -- the WHOLE spec fails to parse";
+    overlume::testing::environment_stream_parse_max_tilt_deg("96188?max_tilt_deg=-1", &ok);
+    EXPECT_FALSE(ok) << "negative -- a tilt clamp can't be negative, same 'fails the whole "
+                        "parse' shape";
+}
+
+// Design item 7a: the real least-squares fit, pinned directly.
+TEST(EnvironmentStream, TerrainPlaneFitProbe) {
+    // Exact recovery of a synthetic line: slope 0.02, intercept 1.5, every
+    // point exactly on it -> residual RMS ~0.
+    {
+        const double s[5] = {-20.0, -10.0, 0.0, 10.0, 20.0};
+        double h[5];
+        for (int i = 0; i < 5; ++i) h[i] = 0.02 * s[i] + 1.5;
+        double slope = 0.0, intercept = 0.0, rms = 0.0;
+        overlume::testing::terrain_plane_fit_probe(s, h, 5, &slope, &intercept, &rms);
+        EXPECT_NEAR(slope, 0.02, 1e-9);
+        EXPECT_NEAR(intercept, 1.5, 1e-9);
+        EXPECT_NEAR(rms, 0.0, 1e-9);
+    }
+    // Noisy set (symmetric +-0.1 m jitter about the same line) -- the fit
+    // still recovers slope/intercept closely, but RMS is now > 0 (the whole
+    // point of reporting it: a caller can tell a clean fit from a noisy
+    // one).
+    {
+        const double s[5] = {-20.0, -10.0, 0.0, 10.0, 20.0};
+        const double noise[5] = {0.1, -0.1, 0.1, -0.1, 0.1};
+        double h[5];
+        for (int i = 0; i < 5; ++i) h[i] = 0.02 * s[i] + 1.5 + noise[i];
+        double slope = 0.0, intercept = 0.0, rms = 0.0;
+        overlume::testing::terrain_plane_fit_probe(s, h, 5, &slope, &intercept, &rms);
+        EXPECT_NEAR(slope, 0.02, 0.02);
+        EXPECT_NEAR(intercept, 1.5, 0.1);
+        EXPECT_GT(rms, 0.0);
+    }
+    // Design item 2's degrade ladder: 1-2 hits -> slope 0, intercept = mean.
+    {
+        const double s2[2] = {-10.0, 10.0};
+        const double h2[2] = {2.0, 4.0};
+        double slope = 0.0, intercept = 0.0, rms = 0.0;
+        overlume::testing::terrain_plane_fit_probe(s2, h2, 2, &slope, &intercept, &rms);
+        EXPECT_DOUBLE_EQ(slope, 0.0);
+        EXPECT_DOUBLE_EQ(intercept, 3.0);
+
+        const double s1[1] = {0.0};
+        const double h1[1] = {7.0};
+        overlume::testing::terrain_plane_fit_probe(s1, h1, 1, &slope, &intercept, &rms);
+        EXPECT_DOUBLE_EQ(slope, 0.0);
+        EXPECT_DOUBLE_EQ(intercept, 7.0);
+        EXPECT_DOUBLE_EQ(rms, 0.0);
+    }
+}
+
+// Design item 7b: the transform cancels a fitted grade -- points at
+// s = -20, 0, +20 all land within 0.02 m of -ground_bias, unlike the OLD
+// offset-only path (max_tilt_rad=0), which leaves +-0.4 m of error at
+// s = +-20 for the SAME 2% grade (design item 7d exercises that
+// old-path-equivalent directly too).
+TEST(EnvironmentStream, TerrainTransformProbeCancelsGradeOnFittedLine) {
+    constexpr double kSlope = 0.02;     // 2% grade
+    constexpr double kIntercept = 3.0;  // fitted height at the pivot, ellipsoid metres
+    constexpr double kAnchorHeightM = 0.0;
+    constexpr double kGroundBiasM = 0.3;
+    constexpr double kMaxTiltRad = 2.0 * M_PI / 180.0;  // kTerrainMaxTiltRad's own default
+    constexpr double kHeadingRad = 0.0;
+    for (const double s : {-20.0, 0.0, 20.0}) {
+        const double z = overlume::testing::terrain_transform_probe(
+            kSlope, kIntercept, kAnchorHeightM, kGroundBiasM, kMaxTiltRad, kHeadingRad,
+            /*pivot_x=*/0.0, /*pivot_y=*/0.0, s);
+        EXPECT_NEAR(z, -kGroundBiasM, 0.02)
+            << "s=" << s << ": the fitted tilt must cancel the grade, landing near -ground_bias";
+    }
+}
+
+// Design item 7c: a 20% slope's atan() (~11.3 deg) exceeds the 2 deg
+// default clamp -- the applied tilt clamps to EXACTLY kTerrainMaxTiltRad,
+// and the resulting residual error at the fit's own span edge is asserted
+// (not pretended away as flat): with theta clamped below the exact-cancel
+// angle, the s-dependent term s*(slope*cos(theta) - sin(theta)) is nonzero.
+TEST(EnvironmentStream, TerrainTransformProbeClampsSteepGrade) {
+    constexpr double kSlope = 0.20;  // 20% grade -- atan(0.20) ~= 0.1974 rad, well past the clamp
+    constexpr double kIntercept = 3.0;
+    constexpr double kAnchorHeightM = 0.0;
+    constexpr double kGroundBiasM = 0.3;
+    constexpr double kMaxTiltRad = 2.0 * M_PI / 180.0;
+    constexpr double kHeadingRad = 0.0;
+    constexpr double kS = 20.0;
+
+    ASSERT_GT(std::atan(kSlope), kMaxTiltRad) << "test setup: this slope must actually clamp";
+    const double clampedTheta = kMaxTiltRad;
+    const double expectedResidual = kS * (kSlope * std::cos(clampedTheta) - std::sin(clampedTheta));
+    const double z = overlume::testing::terrain_transform_probe(
+        kSlope, kIntercept, kAnchorHeightM, kGroundBiasM, kMaxTiltRad, kHeadingRad,
+        /*pivot_x=*/0.0, /*pivot_y=*/0.0, kS);
+    // z = -ground_bias*cos(theta) + s*(slope*cos(theta) - sin(theta)) at the clamped theta.
+    // Tolerance 1e-5, not 1e-9 (Opus gate fix round): terrain_transform_probe()
+    // now multiplies the point through the REAL terrain_root_matrix(), a
+    // filament::math::mat4f (float32) -- so this pins the shipped code
+    // path's own float32 rounding (~1e-7 relative at this magnitude), not a
+    // bit-exact double reimplementation of it.
+    EXPECT_NEAR(z, -kGroundBiasM * std::cos(clampedTheta) + expectedResidual, 1e-5);
+    // The clamp leaves a REAL, nonzero residual at the span edge -- this is
+    // the honest cost of the clamp, not a flat result.
+    EXPECT_GT(std::abs(expectedResidual), 0.01);
+}
+
+// Design item 7d: max_tilt_deg=0 (max_tilt_rad=0.0) reproduces the pre-fit
+// offset-only behaviour EXACTLY -- theta is forced to 0 regardless of
+// slope, so every along-track point drifts by exactly slope*s away from
+// -ground_bias (the SAME error the old single-scalar offset always had).
+TEST(EnvironmentStream, TerrainTransformProbeZeroMaxTiltMatchesOldOffsetOnlyBehaviour) {
+    constexpr double kSlope = 0.02;
+    constexpr double kIntercept = 3.0;
+    constexpr double kAnchorHeightM = 0.0;
+    constexpr double kGroundBiasM = 0.3;
+    constexpr double kHeadingRad = 0.0;
+    // Tolerance 1e-5, not 1e-9 (Opus gate fix round): terrain_transform_probe()
+    // now multiplies the point through the REAL terrain_root_matrix(), a
+    // filament::math::mat4f (float32) -- so this pins the shipped code
+    // path's own float32 rounding (~1e-7 relative at this magnitude), not a
+    // bit-exact double reimplementation of it.
+    for (const double s : {-20.0, 0.0, 20.0}) {
+        const double z = overlume::testing::terrain_transform_probe(
+            kSlope, kIntercept, kAnchorHeightM, kGroundBiasM, /*max_tilt_rad=*/0.0, kHeadingRad,
+            /*pivot_x=*/0.0, /*pivot_y=*/0.0, s);
+        EXPECT_NEAR(z, -kGroundBiasM + kSlope * s, 1e-5)
+            << "max_tilt_deg=0 must reproduce the OLD offset-only error exactly";
+    }
+    // At s=+-20 that error is exactly 0.02*20 = 0.4 m -- the OLD path's own
+    // documented failure this whole fix exists to close.
+    const double zAt20 = overlume::testing::terrain_transform_probe(
+        kSlope, kIntercept, kAnchorHeightM, kGroundBiasM, 0.0, kHeadingRad, 0.0, 0.0, 20.0);
+    EXPECT_NEAR(zAt20 - (-kGroundBiasM), 0.4, 1e-5);
+}
+
 // Design item 3's smoothing/clamp math, pinned directly (no tileset/renderer
 // needed -- terrain_ground_offset_probe() exercises the exact same
 // terrain_target_offset_z()/terrain_smooth_toward() functions

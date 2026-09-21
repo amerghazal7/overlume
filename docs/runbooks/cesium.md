@@ -209,21 +209,59 @@ HD-map layers, the point cloud). Terrain following corrects for that by
 moving the *whole streamed environment* up/down to track the ground
 elevation under the ego, instead of trying to re-flatten Google's mesh.
 
-**What is sampled, and how often:** `StreamingEnvironmentSource` calls
-`Cesium3DTilesSelection::Tileset::sampleHeightMostDetailed()` for the ego's
-current map-frame (x, y) — converted through the same `mapToEcef_` transform
-5b describes — once when no sample is already in flight and either no
-sample has landed yet, the ego has moved ≥5 m (map x/y) since the last
-sample request, or ≥2 s have passed. The continuation lands on the main
-thread via `asyncSystem_.dispatchMainThreadTasks()` (the same pump
-`update()` already runs every tick) and captures only a shared
-`TerrainFollowState`, never the source itself — the source can be destroyed
-with a sample in flight.
+**What is sampled, and how often (2026-09-21 multi-point plane fit):** a
+single global offset — sampling ONE point under the ego and shifting the
+whole tileset by that scalar — isn't enough: the map frame is flat but a
+real road has grade, so 20–50 m ahead the true ground has drifted off the
+sampled height and crosses the road plane, rendering as photoreal wedges
+slicing across the road. `StreamingEnvironmentSource` now samples **5
+points along the ego's own heading** at along-track offsets
+s = {−20, −10, 0, +10, +20} m from the ego's map (x, y) — each converted
+through the same `mapToEcef_` transform 5b describes, then
+`Ellipsoid::WGS84::cartesianToCartographic()` — in **one batched**
+`Cesium3DTilesSelection::Tileset::sampleHeightMostDetailed()` call (it takes
+a `std::vector` of positions and returns one `Future` with parallel
+`positions`/`sampleSuccess` results), on the same cadence as before: once
+when no sample is already in flight and either no sample has landed yet,
+the ego has moved ≥5 m (map x/y) since the last batch, or ≥2 s have passed.
+Sampling 5 points therefore costs ONE async request, not 5 — this is what
+keeps the change inside the render-time budget (see Cost below). The
+continuation lands on the main thread via
+`asyncSystem_.dispatchMainThreadTasks()` (the same pump `update()` already
+runs every tick) and captures only a shared `TerrainFollowState`, never the
+source itself — the source can be destroyed with a sample batch in flight.
 
-**Smoothing and clamp:** the target offset is
-`-(sampled_height_m − anchor.origin_height_m)`, clamped to ±30 m (clamped,
-not rejected — an out-of-range sample saturates at the ceiling rather than
-being discarded).
+**Along-track only, deliberately:** lateral (across-track) samples are never
+taken. The verge/kerb either side of the carriageway is genuinely higher
+than the road surface, so a lateral sample would pull the fit toward the
+kerb's own height/grade instead of the road's, corrupting the very slope
+this fit exists to recover.
+
+**The fit:** each successful sample is paired with its own along-track
+offset `s` and least-squares fit to `h = a·s + c` (slope `a`, intercept
+`c`). ≥3 hits is a real fit; 1–2 hits degrades to `a = 0, c = mean(h)` — the
+pre-fit single-point behaviour, generalized; 0 hits keeps the PREVIOUS fit
+and logs "no geometry hit", same as before. A successful batch also latches
+`ground_hit` (unchanged from before — see Ground plane below).
+
+**Smoothing and clamp — offset AND tilt:** the offset target is unchanged,
+evaluated at the fit's own s = 0 (the intercept IS the fitted height at the
+ego's own position): `-(intercept − anchor.origin_height_m) − ground_bias`,
+clamped to ±30 m. The fit's slope also produces a TILT target —
+`clamp(atan(slope), ±max_tilt_rad)` (`max_tilt_deg` below) — rotating the
+whole streamed environment about the across-track axis so it matches the
+fitted grade instead of just its height at one point: for a 2% grade, the
+old offset-only path left ±0.4 m of error 20 m ahead/behind the sample
+point; the tilt cancels that down to a few centimetres (the clamp's own
+cosine term). A linear fit extrapolates forever, so the tilt is clamped —
+`max_tilt_deg` (URI key `max_tilt_deg=<deg>`; node param
+`environment_max_tilt_deg`, default 2.0) bounds both how wrong the far field
+gets past the fitted ±20 m span and how far streamed buildings visibly lean
+(a tilt rotates the whole scene, not just the ground). `max_tilt_deg=0`
+disables tilt entirely — offset-only, byte-identical to the pre-fit
+behaviour — the escape hatch if a tilted environment ever looks worse than
+the wedges it replaces. Both offset and tilt first-order-smooth toward their
+targets independently (see below), each snapping on the very first fit.
 
 **Ground bias:** the follower parks the sampled ground `ground_bias=` metres
 BELOW the map plane (URI key; node param `environment_ground_bias_m`, default
@@ -236,22 +274,38 @@ knob for lidar ground returns.
 **Cost:** `sampleHeightMostDetailed()` requests the MOST detailed tiles
 under the ego, not necessarily the level being rendered, at least every 2 s
 (or 5 m) — extra ion quota and bandwidth on a path that defaults ON; not yet
-measured on the live rig. `environment_follow_terrain` is read once at
-configure; a runtime `ros2 param set` takes effect only when a preset switch
-re-composes the URI.
-The applied offset first-order-smooths toward that target with a 0.5 s time
-constant — except the very first sample, which snaps immediately (no
-half-second slide-up from a flat 0 on the first frame a tileset loads).
+measured on the live rig. The 5-point batch is still ONE request per cycle
+(see What is sampled above), so this didn't change with the multi-point fit
+— `overlume/tests/test_environment_stream.cpp`'s
+`EnvironmentStreamPerf.RenderMsDeltaAndWorstFrameWithFixtureLoaded` measured
+the per-frame render-time delta flat (well under the 5 ms budget) before and
+after; the only new per-frame work is one extra `mat4` build (the tilt
+rotation) in `update_terrain_transform()`. `environment_follow_terrain` is
+read once at configure; a runtime `ros2 param set` takes effect only when a
+preset switch re-composes the URI.
+The applied offset AND tilt each first-order-smooth toward their own target
+with the SAME 0.5 s time constant — except the very first fit, which snaps
+both immediately (no half-second slide-up/tilt-in from flat/0 on the first
+frame a tileset loads).
 
 **Mechanism:** every streamed tile's asset root is parented (Filament
 `TransformManager::setParent`) under one shared "terrain root" entity owned
-by `StreamRendererResources`; the smoothed offset becomes that one entity's
-translation (`set_ground_offset_z()`), so a single transform moves the
-entire streamed environment regardless of how many tiles are currently
-loaded. **The baked fallback source is never parented or shifted** — VM-063's
-`fall_back()` tears down streaming entirely before opening the baked
-directory, so a network-loss fallback is unaffected by terrain following one
-way or the other.
+by `StreamRendererResources`; the smoothed offset AND tilt become that one
+entity's transform (`set_terrain_transform(z, tilt_rad, pivot_x, pivot_y,
+heading_rad)`, renamed from `set_ground_offset_z()`), so a single transform
+moves/tilts the entire streamed environment regardless of how many tiles are
+currently loaded:
+`translation(pivot) · rotation(tilt_rad, lateral_axis) · translation(−pivot)
+· translation({0, 0, z})`, where `pivot` is the ego map (x, y) the FIT was
+sampled at (not the live ego position — a moving pivot would sway the whole
+world with every ego jitter) and `lateral_axis = {−sin(heading), cos(heading), 0}`
+is the across-track direction at the same heading the fit's samples were
+taken along, so the rotation pitches about the across-track axis rather than
+yawing the scene. `tilt_rad == 0` (`max_tilt_deg=0`, or a flat fit) reduces
+this to exactly the old translation-only matrix. **The baked fallback source
+is never parented or shifted** — VM-063's `fall_back()` tears down streaming
+entirely before opening the baked directory, so a network-loss fallback is
+unaffected by terrain following one way or the other.
 
 **The knob:** the `follow_terrain=on|off` key on the `ion://` source URI
 (`parse_ion_spec()`, `environment_stream.cpp`) — an unrecognized value fails

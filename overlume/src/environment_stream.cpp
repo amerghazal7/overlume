@@ -81,6 +81,14 @@ struct IonSpec {
     // to stay even over a tileset that proves it has ground there --
     // an escape hatch, not today's default behaviour.
     bool replaces_ground = true;
+    // max_tilt_deg=<deg> (2026-09-21 multi-point plane fit): degrees the
+    // fitted along-track grade's tilt is clamped to; default 2.0
+    // (kTerrainMaxTiltRad). 0 means offset-only -- the previous
+    // single-scalar behaviour, and the escape hatch. Same shape as
+    // ground_bias= immediately below in the parser: a non-numeric value
+    // fails the whole parse, PLUS (unlike ground_bias=) a negative value
+    // fails too -- a tilt clamp can't be negative.
+    double max_tilt_deg = 2.0;
 };
 
 std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
@@ -156,6 +164,20 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                 } else if (val == "off" || val == "false" || val == "0") {
                     out.follow_terrain = false;
                 } else {
+                    return std::nullopt;
+                }
+            } else if (key == "max_tilt_deg") {
+                // Degrees the fitted grade's tilt is clamped to; a
+                // non-numeric OR negative value fails the whole parse (same
+                // shape as ground_bias= above, plus the negativity check --
+                // review, 2026-09-21).
+                try {
+                    size_t used = 0;
+                    out.max_tilt_deg = std::stod(val, &used);
+                    if (used != val.size() || !std::isfinite(out.max_tilt_deg) ||
+                        out.max_tilt_deg < 0.0)
+                        return std::nullopt;
+                } catch (const std::exception&) {
                     return std::nullopt;
                 }
             } else if (key == "replaces_ground") {
@@ -813,13 +835,48 @@ std::shared_ptr<CesiumAsync::IAssetRequest> FileFixtureAssetAccessor::makeReques
 // else is written only by the source itself, on the main thread.
 struct TerrainFollowState {
     std::atomic<bool> in_flight{false};
-    std::optional<double> latest_height_m;  // last successfully sampled ellipsoid height
-    double sampled_x = 0.0;                 // ego map-frame x/y the last sample was requested at
+    // 2026-09-21 multi-point plane fit (maintainer decision): replaces the
+    // single `latest_height_m` -- a least-squares fit `h = a*s + c` of up to
+    // 5 along-track samples (s in metres from the pivot, h the sampled
+    // ellipsoid height). Written only by the sampleHeightMostDetailed()
+    // continuation's SUCCESS branch (>=1 hit); a 0-hit batch leaves these
+    // untouched, so the previous fit keeps being applied (same "keep the
+    // previous offset on a miss" behaviour the single-point version had).
+    std::optional<double> fit_slope;  // "a" -- ellipsoid-height metres per along-track metre
+    std::optional<double>
+        fit_intercept;       // "c" -- fitted height at s=0 (the pivot), ellipsoid metres
+    double fit_rms_m = 0.0;  // residual RMS of the fit, for the log line only
+    int fit_hit_count = 0;   // how many of the 5 batched samples actually hit geometry
+    // Opus gate fix round (2026-09-21), blocking finding #2: the pivot
+    // update_terrain_transform() must use is the ego map x/y/heading AT THE
+    // MOMENT THIS FIT'S BATCH WAS REQUESTED -- i.e. the same position the
+    // fitted s=0 height (fit_intercept) actually corresponds to -- NOT
+    // whatever the most recently issued (possibly still in-flight) batch's
+    // request position is. Those can differ: in_flight only blocks a NEW
+    // request from being issued, but a fit's own request-time position is
+    // written to sampled_x/sampled_y (below) synchronously, before its
+    // continuation lands; reading sampled_x/sampled_y from
+    // update_terrain_transform() therefore paired the PREVIOUS fit with the
+    // CURRENT (in-flight) request's pivot while a batch was in flight,
+    // popping the whole environment by delta*sin(theta) every sample cycle
+    // with no smoothing -- exactly the "world sways with ego jitter"
+    // symptom the pivot was introduced to prevent. Written ONLY in the
+    // continuation's success branch, in lockstep with fit_slope/fit_intercept,
+    // from values captured BY VALUE at request time (see
+    // maybe_trigger_terrain_sample()) -- never the live ego state.
+    double fit_pivot_x = 0.0;
+    double fit_pivot_y = 0.0;
+    double fit_pivot_heading_rad = 0.0;
+    // Ego map x/y at the moment a batch was last REQUESTED -- used only for
+    // the move/elapsed cadence check in maybe_trigger_terrain_sample();
+    // NOT the transform pivot (see fit_pivot_x/fit_pivot_y above).
+    double sampled_x = 0.0;
     double sampled_y = 0.0;
     std::chrono::steady_clock::time_point sampled_at{};
     bool ever_sampled = false;  // false only before the first sample request of this source's life
     double anchor_height_m = 0.0;  // copy of anchor_.origin_height_m, for the sample log line only
     double ground_bias_m = 0.0;    // copy of groundBiasM_, same purpose
+    double max_tilt_rad = 0.0;     // copy of maxTiltRad_, same purpose (log line's "applied tilt")
     // 2026-09-21 live finding: latched true the first time
     // sampleHeightMostDetailed() actually hits geometry under the ego --
     // never cleared afterward (a later miss does not flicker it back to
@@ -827,6 +884,94 @@ struct TerrainFollowState {
     // proven. Set in the SUCCESS branch of the continuation only.
     std::atomic<bool> ground_hit{false};
 };
+
+// Pure math, factored out for the same reason terrain_target_offset_z()
+// below is: a plain C++17 test TU can pin it (terrain_plane_fit_probe(),
+// test hooks section) without a live tileset/renderer. Least-squares fit of
+// `h = a*s + c` over `n` (s[i], h[i]) pairs. Design item 2's degrade
+// ladder: n>=3 is a real fit; n in {1,2} (or a degenerate n>=3 batch where
+// every s is identical, so the normal equations' denominator is ~0) is
+// a=0, c=mean(h) -- today's single-point behaviour, generalized to "the
+// mean of whatever hit"; n==0 is the CALLER's job (this function is only
+// ever invoked with n>=1 -- see maybe_trigger_terrain_sample()'s
+// continuation, which keeps the previous fit on a 0-hit batch rather than
+// calling this at all). `out_rms` is the fit's own residual RMS
+// (sqrt(mean((a*s+c-h)^2))) -- 0 for an exact fit (or a single point),
+// nonzero once real noise/curvature doesn't lie exactly on one line.
+namespace {
+void terrain_plane_fit(const double* s, const double* h, int n, double* out_slope,
+                       double* out_intercept, double* out_rms) {
+    double a = 0.0, c = 0.0;
+    if (n >= 3) {
+        double sumS = 0.0, sumH = 0.0, sumSS = 0.0, sumSH = 0.0;
+        for (int i = 0; i < n; ++i) {
+            sumS += s[i];
+            sumH += h[i];
+            sumSS += s[i] * s[i];
+            sumSH += s[i] * h[i];
+        }
+        const double denom = static_cast<double>(n) * sumSS - sumS * sumS;
+        if (std::abs(denom) > 1e-6) {
+            a = (static_cast<double>(n) * sumSH - sumS * sumH) / denom;
+            c = (sumH - a * sumS) / static_cast<double>(n);
+        } else {
+            // Degenerate (every sample landed at the same along-track s --
+            // not reachable through maybe_trigger_terrain_sample()'s own
+            // fixed 5-offset batch, but a defensive fallback for any other
+            // caller of this pure function): same degrade as n<3.
+            a = 0.0;
+            c = sumH / static_cast<double>(n);
+        }
+    } else if (n > 0) {
+        double sumH = 0.0;
+        for (int i = 0; i < n; ++i) sumH += h[i];
+        c = sumH / static_cast<double>(n);
+    }
+    double sumSq = 0.0;
+    for (int i = 0; i < n; ++i) {
+        const double residual = a * s[i] + c - h[i];
+        sumSq += residual * residual;
+    }
+    if (out_slope) *out_slope = a;
+    if (out_intercept) *out_intercept = c;
+    if (out_rms) *out_rms = n > 0 ? std::sqrt(sumSq / static_cast<double>(n)) : 0.0;
+}
+
+// Opus gate fix round (2026-09-21), blocking finding #1: shared by every
+// caller that needs the clamped tilt (the sample-log line,
+// update_terrain_transform(), and terrain_transform_probe() below) so the
+// probe pins the SAME clamp the shipped code applies rather than a second
+// hand-typed copy of it.
+double terrain_tilt_target(double slope, double max_tilt_rad) {
+    return std::clamp(std::atan(slope), -max_tilt_rad, max_tilt_rad);
+}
+
+// Opus gate fix round (2026-09-21), blocking finding #1: the terrain root's
+// full composed transform -- factored out of
+// StreamRendererResources::set_terrain_transform() (below) so
+// terrain_transform_probe() (test hooks section) can call THIS function and
+// multiply a point through its result, instead of reimplementing the
+// matrix by hand (Rodrigues formula included) as a second, driftable copy.
+// Pure math -- no Engine/renderer state -- so it needs only the
+// filament::math types this TU already includes for rendering elsewhere.
+// P = {pivot_x, pivot_y, 0}, u = {-sin(heading), cos(heading), 0} (the
+// across-track/lateral axis -- z-axis cross forward, forward =
+// (cos(heading), sin(heading), 0), this codebase's own heading convention,
+// ego.cpp's quatf::fromAxisAngle({0,0,1}, heading_rad)). tilt_rad == 0
+// (max_tilt_deg=0, or a flat fit) reduces this to plain
+// translation({0,0,z}) -- the pre-fit single-offset matrix, byte-identical.
+filament::math::mat4f terrain_root_matrix(double z, double tilt_rad, double pivot_x, double pivot_y,
+                                          double heading_rad) {
+    using filament::math::float3;
+    using filament::math::mat4f;
+    const float3 pivot{static_cast<float>(pivot_x), static_cast<float>(pivot_y), 0.0f};
+    const float3 lateralAxis{static_cast<float>(-std::sin(heading_rad)),
+                             static_cast<float>(std::cos(heading_rad)), 0.0f};
+    return mat4f::translation(pivot) * mat4f::rotation(static_cast<float>(tilt_rad), lateralAxis) *
+           mat4f::translation(-pivot) *
+           mat4f::translation(float3{0.0f, 0.0f, static_cast<float>(z)});
+}
+}  // namespace
 
 // Out-of-line (declaration: environment_stream.hpp) -- needs
 // TerrainFollowState's complete type, which is only forward-declared in
@@ -850,15 +995,19 @@ void StreamRendererResources::ensure_terrain_root() {
     r_->engine->getTransformManager().create(terrainRoot_);
 }
 
-void StreamRendererResources::set_ground_offset_z(double z) {
+void StreamRendererResources::set_terrain_transform(double z, double tilt_rad, double pivot_x,
+                                                    double pivot_y, double heading_rad) {
     ensure_terrain_root();
     if (!terrainRoot_)
         return;  // no renderer yet -- next prepareInMainThread's ensure_terrain_root() catches up
     filament::TransformManager& tm = r_->engine->getTransformManager();
     const auto inst = tm.getInstance(terrainRoot_);
     if (!inst.isValid()) return;
-    tm.setTransform(inst, filament::math::mat4f::translation(
-                              filament::math::float3{0.0f, 0.0f, static_cast<float>(z)}));
+    // Pivot at the map-frame position the fit was SAMPLED at (see this
+    // method's own header comment) -- matrix build shared with
+    // terrain_transform_probe() via terrain_root_matrix() (Opus gate fix
+    // round, 2026-09-21) so the test pins the exact matrix applied here.
+    tm.setTransform(inst, terrain_root_matrix(z, tilt_rad, pivot_x, pivot_y, heading_rad));
 }
 
 void StreamRendererResources::destroy_terrain_root() {
@@ -1000,11 +1149,11 @@ void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile&
         tm.setTransform(tinst, to_filament_mat4(ecefToMap_ * glb->transform));
         // 2026-09-21 terrain following ("option 2"): parent every streamed
         // asset root under the one shared terrain root so
-        // set_ground_offset_z() moves the whole streamed environment with a
-        // single translation -- AFTER the asset's own placement transform is
-        // set (Filament composes world = parent * child; the terrain root
-        // starts at identity, so this is a no-op until follow_terrain
-        // shifts it).
+        // set_terrain_transform() moves/tilts the whole streamed environment
+        // with a single transform -- AFTER the asset's own placement
+        // transform is set (Filament composes world = parent * child; the
+        // terrain root starts at identity, so this is a no-op until
+        // follow_terrain shifts it).
         ensure_terrain_root();
         const auto terrainInst = tm.getInstance(terrainRoot_);
         if (terrainInst.isValid()) tm.setParent(tinst, terrainInst);
@@ -1048,7 +1197,8 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
     Cesium3DTilesSelection::TilesetExternals externals, int64_t asset_id,
     std::string ion_access_token, std::string root_tileset_uri, std::string fallback_baked_dir,
     GeoAnchor anchor, std::shared_ptr<CountingAssetAccessor> counting_accessor,
-    bool materials_original, bool follow_terrain, double ground_bias_m, bool replaces_ground)
+    bool materials_original, bool follow_terrain, double ground_bias_m, bool replaces_ground,
+    double max_tilt_deg)
     : asyncSystem_(externals.asyncSystem),
       anchor_(anchor),
       ecefToMap_(compute_ecef_to_map(anchor)),
@@ -1058,6 +1208,7 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
       followTerrain_(follow_terrain),
       groundBiasM_(ground_bias_m),
       replacesGround_(replaces_ground),
+      maxTiltRad_(max_tilt_deg * M_PI / 180.0),
       countingAccessor_(std::move(counting_accessor)) {
     // GltfConverters' magic-byte dispatch table (b3dm/glTF/cmpt/i3dm/pnts)
     // is empty until this is called once, process-wide -- cesium-native
@@ -1148,10 +1299,12 @@ void StreamingEnvironmentSource::fall_back(VisualRenderer& r) {
     // (Decision 11's "no automatic recovery" + "no fallback dir" paths).
 }
 
-void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos) {
+void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos,
+                                                              double heading_rad) {
     if (!terrainState_) terrainState_ = std::make_shared<TerrainFollowState>();
     terrainState_->anchor_height_m = anchor_.origin_height_m;
     terrainState_->ground_bias_m = groundBiasM_;
+    terrainState_->max_tilt_rad = maxTiltRad_;
     if (terrainState_->in_flight.load()) return;
 
     const double dx = ego_map_pos.x - terrainState_->sampled_x;
@@ -1165,10 +1318,29 @@ void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos) 
         return;
     }
 
-    const glm::dvec4 sampleEcef4 = mapToEcef_ * glm::dvec4(ego_map_pos.x, ego_map_pos.y, 0.0, 1.0);
-    const std::optional<CesiumGeospatial::Cartographic> carto =
-        CesiumGeospatial::Ellipsoid::WGS84.cartesianToCartographic(glm::dvec3(sampleEcef4));
-    if (!carto.has_value()) return;  // degenerate point (ECEF origin) -- spec §9, never crash
+    // 5 along-track offsets, ONE batched sampleHeightMostDetailed() request
+    // (Design item 1) -- LATERAL offsets are deliberately never sampled:
+    // the verge/kerb either side of the carriageway is genuinely higher
+    // than the road surface, so a lateral sample would pull the fit toward
+    // the kerb's own height/grade instead of the road's, corrupting the
+    // very slope this fit exists to recover. Along-track-only keeps every
+    // sample on (or very near) the same lane the ego is actually driving.
+    static constexpr double kAlongTrackOffsetsM[5] = {-20.0, -10.0, 0.0, 10.0, 20.0};
+    const double fwdX = std::cos(heading_rad), fwdY = std::sin(heading_rad);
+    std::vector<double> validS;
+    std::vector<CesiumGeospatial::Cartographic> cartos;
+    validS.reserve(5);
+    cartos.reserve(5);
+    for (const double s : kAlongTrackOffsetsM) {
+        const glm::dvec4 sampleEcef4 =
+            mapToEcef_ * glm::dvec4(ego_map_pos.x + s * fwdX, ego_map_pos.y + s * fwdY, 0.0, 1.0);
+        const std::optional<CesiumGeospatial::Cartographic> carto =
+            CesiumGeospatial::Ellipsoid::WGS84.cartesianToCartographic(glm::dvec3(sampleEcef4));
+        if (!carto.has_value()) continue;  // degenerate point -- spec §9, skip it, never crash
+        validS.push_back(s);
+        cartos.push_back(*carto);
+    }
+    if (cartos.empty()) return;  // every offset degenerate -- nothing to request this tick
 
     terrainState_->sampled_x = ego_map_pos.x;
     terrainState_->sampled_y = ego_map_pos.y;
@@ -1177,28 +1349,64 @@ void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos) 
     terrainState_->in_flight.store(true);
 
     // Captured BY VALUE, never `this` -- see this method's own declaration
-    // comment (environment_stream.hpp).
+    // comment (environment_stream.hpp). `validS` travels with the request
+    // so the continuation can pair each result position back to the along-
+    // track offset it came from (sampleHeightMostDetailed()'s own
+    // `positions`/`sampleSuccess` are parallel to the INPUT positions, not
+    // filtered -- a failed sample still occupies its index). `pivotX`/
+    // `pivotY`/`pivotHeadingRad` are this SAME request's ego position/
+    // heading (opus gate fix round, blocking finding #2) -- captured here,
+    // not read back from terrainState_ inside the continuation, because a
+    // later request (still respecting in_flight) could otherwise overwrite
+    // sampled_x/sampled_y before this one's continuation lands.
     std::shared_ptr<TerrainFollowState> state = terrainState_;
-    tileset_->sampleHeightMostDetailed(std::vector<CesiumGeospatial::Cartographic>{*carto})
-        .thenInMainThread([state](Cesium3DTilesSelection::SampleHeightResult&& res) {
-            if (!res.sampleSuccess.empty() && res.sampleSuccess[0] && !res.positions.empty()) {
-                state->latest_height_m = res.positions[0].height;
+    const double pivotX = ego_map_pos.x;
+    const double pivotY = ego_map_pos.y;
+    const double pivotHeadingRad = heading_rad;
+    tileset_->sampleHeightMostDetailed(cartos)
+        .thenInMainThread([state, validS, pivotX, pivotY,
+                           pivotHeadingRad](Cesium3DTilesSelection::SampleHeightResult&& res) {
+            std::vector<double> hitS, hitH;
+            const size_t n = std::min(res.sampleSuccess.size(), res.positions.size());
+            for (size_t i = 0; i < n && i < validS.size(); ++i) {
+                if (res.sampleSuccess[i]) {
+                    hitS.push_back(validS[i]);
+                    hitH.push_back(res.positions[i].height);
+                }
+            }
+            if (!hitS.empty()) {
+                double slope = 0.0, intercept = 0.0, rms = 0.0;
+                terrain_plane_fit(hitS.data(), hitH.data(), static_cast<int>(hitS.size()), &slope,
+                                  &intercept, &rms);
+                state->fit_slope = slope;
+                state->fit_intercept = intercept;
+                state->fit_rms_m = rms;
+                state->fit_hit_count = static_cast<int>(hitS.size());
+                // Pivot written in lockstep with the fit it belongs to --
+                // see fit_pivot_x's own comment (TerrainFollowState).
+                state->fit_pivot_x = pivotX;
+                state->fit_pivot_y = pivotY;
+                state->fit_pivot_heading_rad = pivotHeadingRad;
                 // Evidence latch (2026-09-21 live finding): a real geometry
                 // hit under the ego proves this tileset has ground there --
                 // never cleared, see the field's own comment.
                 state->ground_hit.store(true);
-                // One line per sample (>=2 s apart by construction): the only
-                // live evidence of what the follower sees vs. what is rendered.
+                // One line per fit (>=2 s apart by construction): the only
+                // live evidence of what the follower sees vs. what is
+                // rendered -- hit count, slope as a percent grade, residual
+                // RMS, the tilt this fit will produce (clamped, degrees),
+                // and the resulting (un-smoothed) offset target.
+                const double clampedThetaRad = terrain_tilt_target(slope, state->max_tilt_rad);
+                const double offsetTarget =
+                    std::clamp(-(intercept - state->anchor_height_m) - state->ground_bias_m,
+                               -kTerrainOffsetClampM, kTerrainOffsetClampM);
                 make_redacting_logger()->info(
-                    "terrain sample under ego: ellipsoid height {:.2f} m (anchor {:.2f} m -> "
-                    "ground offset target {:.2f} m)",
-                    res.positions[0].height, state->anchor_height_m,
-                    std::clamp(
-                        -(res.positions[0].height - state->anchor_height_m) - state->ground_bias_m,
-                        -kTerrainOffsetClampM, kTerrainOffsetClampM));
+                    "terrain fit under ego: {}/5 hits, grade {:.2f}%, residual RMS {:.3f} m -> "
+                    "tilt {:.2f} deg, ground offset {:.2f} m",
+                    hitS.size(), slope * 100.0, rms, clampedThetaRad * 180.0 / M_PI, offsetTarget);
             } else {
                 make_redacting_logger()->warn(
-                    "terrain sample under ego: no geometry hit (offset unchanged)");
+                    "terrain sample under ego: no geometry hit (offset/tilt unchanged)");
             }
             state->in_flight.store(false);
         })
@@ -1208,7 +1416,7 @@ void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos) 
         .catchInMainThread([state](std::exception&&) { state->in_flight.store(false); });
 }
 
-// Pure math, factored out of update_ground_offset() below so a plain
+// Pure math, factored out of update_terrain_transform() below so a plain
 // C++17 test TU can pin it via terrain_ground_offset_probe() (test hooks
 // section, near the end of this file) without a live tileset/renderer --
 // same "pure-math probe" discipline correct_ecef_point_height() documents
@@ -1227,23 +1435,71 @@ double terrain_smooth_toward(double current, double target, float deltaSeconds) 
 }
 }  // namespace
 
-void StreamingEnvironmentSource::update_ground_offset(float deltaSeconds) {
-    if (!terrainState_ || !terrainState_->latest_height_m.has_value()) return;
+void StreamingEnvironmentSource::update_terrain_transform(float deltaSeconds) {
+    if (!terrainState_ || !terrainState_->fit_intercept.has_value()) return;
 
-    const double target = terrain_target_offset_z(*terrainState_->latest_height_m,
-                                                  anchor_.origin_height_m, groundBiasM_);
+    const double slope = terrainState_->fit_slope.value_or(0.0);
+    const double intercept = *terrainState_->fit_intercept;
+    // Offset target: UNCHANGED formula, evaluated at the fit's own s=0 (the
+    // intercept IS the fitted height at the pivot) -- Design item 3.
+    const double zTarget =
+        terrain_target_offset_z(intercept, anchor_.origin_height_m, groundBiasM_);
+    // Tilt target: clamp(atan(slope), +-maxTiltRad_) -- a linear fit
+    // extrapolates forever, so the clamp bounds both how wrong the far
+    // field gets past the fitted span and how far streamed buildings
+    // visibly lean (see kTerrainMaxTiltRad's own comment).
+    //
+    // Sign: POSITIVE atan(slope), not negative -- verified against this
+    // codebase's own conventions rather than assumed. The tilt rotates
+    // about the across-track axis u = z x forward =
+    // {-sin(heading), cos(heading), 0} (set_terrain_transform()'s own
+    // param), using Filament's mat4f::rotation(), which is the standard
+    // right-hand-rule active rotation matrix (TMatHelpers.h's generic-axis
+    // branch, cross-checked term by term against the textbook Rodrigues
+    // matrix). With forward = (cos(heading), sin(heading), 0) (this
+    // codebase's own heading convention -- ego.cpp's
+    // quatf::fromAxisAngle({0,0,1}, heading_rad)), a terrain point at
+    // along-track offset s from the pivot lands, after
+    // set_terrain_transform()'s full composed matrix, at map-frame z =
+    // (z_raw(s) + zTarget)*cos(theta) - s*sin(theta), where z_raw(s) is
+    // that point's OWN (already anchor-height-corrected) height before this
+    // transform. Substituting z_raw(s) = slope*s + intercept - anchor and
+    // zTarget above, that simplifies to s*(slope*cos(theta) - sin(theta)) -
+    // ground_bias*cos(theta) -- the s-dependent term is EXACTLY ZERO at
+    // theta = atan(slope) (cos(atan(slope)) = 1/sqrt(1+slope^2),
+    // sin(atan(slope)) = slope/sqrt(1+slope^2), so
+    // slope*cos(theta)-sin(theta) = 0), leaving every along-track point at
+    // -ground_bias*cos(theta) ~= -ground_bias -- the whole point of the
+    // fit. theta = -atan(slope) instead DOUBLES the s-dependent error
+    // (2*slope*s) rather than cancelling it -- pinned by this file's own
+    // terrain_transform_probe() test hook and
+    // EnvironmentStream.TerrainTransformProbeCancelsGradeOnFittedLine.
+    const double thetaTarget = terrain_tilt_target(slope, maxTiltRad_);
+
     if (!groundOffsetSnapped_) {
-        // Snap on the very first sample -- Design item 3 -- so the initial
-        // frame isn't a 0.5 s slide up from a flat-map-frame 0.
-        groundOffsetZ_ = target;
+        // Snap on the very first fit -- Design item 3 -- so the initial
+        // frame isn't a 0.5 s slide up from a flat-map-frame 0/0.
+        groundOffsetZ_ = zTarget;
+        terrainTiltRad_ = thetaTarget;
         groundOffsetSnapped_ = true;
     } else {
-        groundOffsetZ_ = terrain_smooth_toward(groundOffsetZ_, target, deltaSeconds);
+        groundOffsetZ_ = terrain_smooth_toward(groundOffsetZ_, zTarget, deltaSeconds);
+        terrainTiltRad_ = terrain_smooth_toward(terrainTiltRad_, thetaTarget, deltaSeconds);
     }
 
-    if (std::abs(groundOffsetZ_ - lastAppliedGroundOffsetZ_) > 1e-3) {
-        renderResources_->set_ground_offset_z(groundOffsetZ_);
+    if (std::abs(groundOffsetZ_ - lastAppliedGroundOffsetZ_) > 1e-3 ||
+        std::abs(terrainTiltRad_ - lastAppliedTiltRad_) > 1e-3) {
+        // Pivot at the position THIS FIT was taken at (fit_pivot_x/y/heading),
+        // NOT terrainState_->sampled_x/sampled_y -- those are the most
+        // recently REQUESTED position, which can be ahead of the fit
+        // actually applied here while a newer batch is still in flight (see
+        // fit_pivot_x's own comment, TerrainFollowState -- Opus gate fix
+        // round, blocking finding #2).
+        renderResources_->set_terrain_transform(
+            groundOffsetZ_, terrainTiltRad_, terrainState_->fit_pivot_x, terrainState_->fit_pivot_y,
+            terrainState_->fit_pivot_heading_rad);
         lastAppliedGroundOffsetZ_ = groundOffsetZ_;
+        lastAppliedTiltRad_ = terrainTiltRad_;
     }
 }
 
@@ -1340,10 +1596,14 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
 
     // 2026-09-21 terrain following ("option 2"): SAME deltaSeconds the view
     // pump just computed above, per Design item 3 -- a no-op on both calls
-    // when followTerrain_ is false.
+    // when followTerrain_ is false. Heading comes from the SAME published
+    // scene the renderer itself just drove the ego transform from
+    // (render_frame() -> update_ego_transform(), renderer.cpp) --
+    // r.scene_buffer.active().ego.heading_rad, not ego_map_pos (Vec3 has no
+    // heading component).
     if (followTerrain_) {
-        maybe_trigger_terrain_sample(ego_map_pos);
-        update_ground_offset(deltaSeconds);
+        maybe_trigger_terrain_sample(ego_map_pos, r.scene_buffer.active().ego.heading_rad);
+        update_terrain_transform(deltaSeconds);
     }
 
     // 2026-09-21 two-frustum selection (see this file's kStreamViewHeightM
@@ -1594,7 +1854,7 @@ std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::
     return std::make_unique<StreamingEnvironmentSource>(
         externals, spec->asset_id, std::string(token), std::string(), spec->fallback_dir, anchor,
         std::move(counting), spec->materials_original, spec->follow_terrain, spec->ground_bias_m,
-        spec->replaces_ground);
+        spec->replaces_ground, spec->max_tilt_deg);
 }
 
 }  // namespace overlume
@@ -1794,12 +2054,69 @@ bool environment_stream_parse_replaces_ground(const char* ion_spec, bool* out_pa
     return spec.has_value() && spec->replaces_ground;
 }
 
+// 2026-09-21 multi-point plane fit: exercises the real parser's
+// max_tilt_deg= key. *out_parse_ok reports whether the WHOLE spec parsed
+// (false for a non-numeric or negative value, same "fails the whole parse"
+// shape as follow_terrain=/replaces_ground=); the returned double is
+// spec->max_tilt_deg (2.0, the default, when the key is absent but the rest
+// parses, or on a total parse failure -- callers must check *out_parse_ok).
+double environment_stream_parse_max_tilt_deg(const char* ion_spec, bool* out_parse_ok) {
+    const std::optional<IonSpec> spec = parse_ion_spec(ion_spec ? ion_spec : "");
+    if (out_parse_ok) *out_parse_ok = spec.has_value();
+    return spec.has_value() ? spec->max_tilt_deg : 2.0;
+}
+
 double terrain_ground_offset_probe(double sampled_height_m, double anchor_height_m,
                                    double ground_bias_m, double current_offset_m,
                                    float delta_seconds, bool snap) {
     const double target =
         overlume::terrain_target_offset_z(sampled_height_m, anchor_height_m, ground_bias_m);
     return snap ? target : overlume::terrain_smooth_toward(current_offset_m, target, delta_seconds);
+}
+
+// 2026-09-21 multi-point plane fit, design item 7a: exercises the REAL
+// least-squares fit (terrain_plane_fit(), anonymous namespace above) from a
+// plain C++17 test TU -- the same function maybe_trigger_terrain_sample()'s
+// continuation calls on every batched sample.
+void terrain_plane_fit_probe(const double* s, const double* h, int n, double* out_slope,
+                             double* out_intercept, double* out_rms) {
+    overlume::terrain_plane_fit(s, h, n, out_slope, out_intercept, out_rms);
+}
+
+// 2026-09-21 multi-point plane fit, design item 7b/c/d, reworked in the
+// Opus gate fix round (blocking finding #1): the map-frame z a terrain
+// point at along-track offset `s` from the pivot lands at AFTER
+// StreamRendererResources::set_terrain_transform()'s full composed matrix
+// -- computed by calling terrain_root_matrix() (the SAME anonymous-
+// namespace function set_terrain_transform() itself calls, above) and
+// multiplying a point placed at `pivot + s*forward` with raw (already
+// anchor-height-corrected) height `slope*s + intercept - anchor_height_m`
+// through it, rather than a hand-typed second copy of the matrix (a prior
+// version of this probe reimplemented it via Rodrigues' formula by hand,
+// which pinned a COPY of the math, not the shipped code path -- caught in
+// review). See update_terrain_transform()'s own comment for the closed-form
+// derivation of why theta = atan(slope) cancels the along-track error.
+// `theta` itself is computed exactly as update_terrain_transform() does, by
+// calling the shared terrain_tilt_target() helper -- so `max_tilt_rad=0`
+// reproduces the pre-fit offset-only behaviour exactly (design item 7d),
+// and a slope whose atan() exceeds max_tilt_rad exercises the clamp
+// (design item 7c).
+double terrain_transform_probe(double slope, double intercept, double anchor_height_m,
+                               double ground_bias_m, double max_tilt_rad, double heading_rad,
+                               double pivot_x, double pivot_y, double s) {
+    const double zTarget =
+        overlume::terrain_target_offset_z(intercept, anchor_height_m, ground_bias_m);
+    const double theta = overlume::terrain_tilt_target(slope, max_tilt_rad);
+    const double fwdX = std::cos(heading_rad), fwdY = std::sin(heading_rad);
+    const double rawZ = slope * s + intercept - anchor_height_m;
+
+    const filament::math::mat4f m =
+        overlume::terrain_root_matrix(zTarget, theta, pivot_x, pivot_y, heading_rad);
+    const filament::math::float4 p{static_cast<float>(pivot_x + s * fwdX),
+                                   static_cast<float>(pivot_y + s * fwdY), static_cast<float>(rawZ),
+                                   1.0f};
+    const filament::math::float4 result = m * p;
+    return static_cast<double>(result.z);
 }
 
 // VM-064 Step 1: see StreamingEnvironmentSource::first_primitive_is_building_material()'s

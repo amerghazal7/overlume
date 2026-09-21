@@ -15,6 +15,7 @@ static_assert(__cplusplus >= 202002L,
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -115,6 +116,17 @@ inline constexpr double kTerrainSampleMoveThresholdM =
 inline constexpr double kTerrainSampleIntervalS = 2.0;  // or once this much time has passed
 inline constexpr double kTerrainOffsetClampM = 30.0;    // clamp |ground offset| to this many metres
 inline constexpr double kTerrainSmoothTimeConstantS = 0.5;  // first-order smoothing time constant
+// 2026-09-21 maintainer decision (multi-point plane fit): the fitted along-
+// track grade is clamped to this tilt before it's applied to the terrain
+// root -- a linear fit extrapolates forever, so far outside the fitted span
+// (well past +-20 m) an unclamped tilt would rotate the environment by an
+// ever-growing angle for one noisy/steep sample. The clamp bounds both how
+// wrong the far field can get AND how far streamed buildings visibly lean
+// (a tilt is a whole-scene rotation, not just a ground correction). Default
+// 2 degrees; `max_tilt_deg=0` on the ion:// URI (IonSpec) disables tilt
+// entirely (offset-only, byte-identical to the pre-fit single-scalar
+// behaviour) -- the escape hatch.
+inline constexpr double kTerrainMaxTiltRad = 2.0 * M_PI / 180.0;
 
 // Defined in environment_stream.cpp, just above StreamingEnvironmentSource's
 // own terrain-sampling methods -- only forward-declared here so it can be
@@ -321,17 +333,32 @@ public:
 
     // 2026-09-21 terrain-following (option 2): every streamed asset root is
     // parented under this ONE entity (prepareInMainThread(), after the
-    // per-asset placement transform is set) so a single translation here
-    // moves the whole streamed environment. Created lazily -- on the first
-    // prepareInMainThread() call that has an `r_` to create it with --
+    // per-asset placement transform is set) so a single transform here
+    // moves/tilts the whole streamed environment. Created lazily -- on the
+    // first prepareInMainThread() call that has an `r_` to create it with --
     // rather than at StreamRendererResources construction time, since the
     // Filament engine isn't available yet then. Identity (no-op) until
-    // set_ground_offset_z() is first called, so a follow_terrain=off source
-    // is visually unaffected. Destroyed by destroy_terrain_root(), called
-    // from StreamingEnvironmentSource::teardown() after every streamed
-    // asset (its children) has already been torn down -- same ordering
-    // discipline as the rest of that function.
-    void set_ground_offset_z(double z);
+    // set_terrain_transform() is first called, so a follow_terrain=off
+    // source is visually unaffected. Destroyed by destroy_terrain_root(),
+    // called from StreamingEnvironmentSource::teardown() after every
+    // streamed asset (its children) has already been torn down -- same
+    // ordering discipline as the rest of that function.
+    //
+    // 2026-09-21 multi-point plane fit: renamed from set_ground_offset_z(),
+    // which only ever built translation({0,0,z}) -- a single global height
+    // shift. The fitted grade now also needs a TILT about the across-track
+    // axis, pivoted at the ego position the fit was sampled at (not the
+    // live ego position -- a moving pivot would sway the whole world with
+    // every ego jitter). `pivot_x`/`pivot_y` are that sample-time position
+    // (map frame); `heading_rad` is the ego heading the fit was taken
+    // against, which defines the across-track (lateral) axis
+    // `u = {-sin(heading), cos(heading), 0}` the tilt rotates about. Builds
+    // `translation(P) * rotation(tilt_rad, u) * translation(-P) *
+    // translation({0,0,z})` with `P = {pivot_x, pivot_y, 0}` -- `tilt_rad ==
+    // 0` (max_tilt_deg=0, or a fit with slope 0) reduces this to exactly the
+    // old translation-only matrix.
+    void set_terrain_transform(double z, double tilt_rad, double pivot_x, double pivot_y,
+                               double heading_rad);
     void destroy_terrain_root();
 
 private:
@@ -440,7 +467,13 @@ public:
                                // gets the same behaviour as the equivalent URI
                                // (review minor, 2026-09-21); both real call sites
                                // pass them explicitly regardless.
-                               double ground_bias_m = 0.3, bool replaces_ground = true);
+                               double ground_bias_m = 0.3, bool replaces_ground = true,
+                               // `max_tilt_deg` (2026-09-21 multi-point plane fit): degrees the
+                               // fitted grade's tilt is clamped to; default MATCHES IonSpec's own
+                               // (2.0), same "caller that omits it gets the URI-equivalent
+                               // behaviour" reasoning as the two params above. 0 disables tilt
+                               // (offset-only, the pre-fit behaviour) -- see kTerrainMaxTiltRad.
+                               double max_tilt_deg = 2.0);
     ~StreamingEnvironmentSource() override;
 
     void update(VisualRenderer& r, Vec3 ego_map_pos) override;
@@ -527,19 +560,25 @@ private:
     // Issues a new sampleHeightMostDetailed() request when none is already
     // in flight and the ego has moved/enough time has passed since the last
     // one (kTerrainSampleMoveThresholdM / kTerrainSampleIntervalS) -- a
-    // no-op unless followTerrain_ is set. The continuation captures
-    // `terrainState_` BY VALUE, never `this`: `this` can be destroyed with
-    // a sample in flight (teardown()/~StreamingEnvironmentSource() do not
-    // wait for it), so the continuation must only touch the shared state,
-    // not the source.
-    void maybe_trigger_terrain_sample(Vec3 ego_map_pos);
-    // Applies first-order smoothing (kTerrainSmoothTimeConstantS) of
-    // groundOffsetZ_ toward the latest sample (clamped to
-    // +-kTerrainOffsetClampM), snapping instead of sliding on the very
-    // first sample; calls renderResources_->set_ground_offset_z() only when
-    // the value actually moved by more than 1e-3 m since the last call. A
-    // no-op unless followTerrain_ is set and a sample has landed.
-    void update_ground_offset(float deltaSeconds);
+    // no-op unless followTerrain_ is set. `heading_rad` is the ego heading
+    // (r.scene_buffer.active().ego.heading_rad, read by the caller) the
+    // batch's 5 along-track offsets are sampled against; stored on
+    // `terrainState_` as the pivot heading so update_terrain_transform()
+    // rotates about the SAME axis the fit was taken against, even if the
+    // ego has since turned. The continuation captures `terrainState_` BY
+    // VALUE, never `this`: `this` can be destroyed with a sample in flight
+    // (teardown()/~StreamingEnvironmentSource() do not wait for it), so the
+    // continuation must only touch the shared state, not the source.
+    void maybe_trigger_terrain_sample(Vec3 ego_map_pos, double heading_rad);
+    // Recomputes the target offset+tilt from the fit currently stored on
+    // `terrainState_` (unchanged since the last call unless a sample just
+    // landed) and applies first-order smoothing (kTerrainSmoothTimeConstantS)
+    // of both toward that target, snapping instead of sliding on the very
+    // first fit; calls renderResources_->set_terrain_transform() only when
+    // EITHER value actually moved by more than 1e-3 (metres for the offset,
+    // radians for the tilt) since the last call. A no-op unless
+    // followTerrain_ is set and at least one fit has landed.
+    void update_terrain_transform(float deltaSeconds);
     // Decision 11 (VM-063): tears down every streamed tile + the tileset
     // itself (via teardown(), the same discipline destroy_renderer() uses),
     // then opens `fallbackBakedDir_` (empty -> no fallback source, tiles
@@ -585,7 +624,17 @@ private:
     std::shared_ptr<TerrainFollowState> terrainState_;
     double groundOffsetZ_ = 0.0;             // current smoothed offset (map-frame +Z, metres)
     double lastAppliedGroundOffsetZ_ = 0.0;  // value last pushed to renderResources_
-    bool groundOffsetSnapped_ = false;  // true once the first sample has snapped groundOffsetZ_
+    // 2026-09-21 multi-point plane fit: current smoothed tilt (radians,
+    // about the across-track axis) and the value last pushed to
+    // renderResources_ -- same shape as the two offset members immediately
+    // above.
+    double terrainTiltRad_ = 0.0;
+    double lastAppliedTiltRad_ = 0.0;
+    // max_tilt_deg (URI key) / StreamingEnvironmentSource ctor param,
+    // stored pre-converted to radians -- kTerrainMaxTiltRad's own default.
+    double maxTiltRad_ = kTerrainMaxTiltRad;
+    bool groundOffsetSnapped_ =
+        false;  // true once the first fit has snapped groundOffsetZ_/terrainTiltRad_
 
     // ── VM-063 (Task 4): fallback state ──────────────────────────────────
     std::shared_ptr<CountingAssetAccessor> countingAccessor_;

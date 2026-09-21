@@ -144,3 +144,25 @@ TEST(ComposeEnvironmentSourceUri, ReplacesGroundAppendedOnlyWhenFalse) {
     EXPECT_EQ(overlume::ros::compose_environment_source_uri("/baked", "", "", true, 0.3, false),
               "/baked");
 }
+
+// 2026-09-21 multi-point plane fit: max_tilt_deg= rides on the library
+// default (2.0) and is only composed when the node param differs from it --
+// same "only when it differs from default" shape as ground_bias=/
+// replaces_ground= above, so every pre-existing pinned string in this file
+// (all omitting the 7th param) stays unchanged.
+TEST(ComposeEnvironmentSourceUri, MaxTiltDegAppendedOnlyWhenNotDefault) {
+    EXPECT_EQ(
+        overlume::ros::compose_environment_source_uri("", "ion://96188", "", true, 0.3, true, 2.0),
+        "ion://96188?follow_terrain=on");
+    EXPECT_EQ(
+        overlume::ros::compose_environment_source_uri("", "ion://96188", "", true, 0.3, true, 5.0),
+        "ion://96188?follow_terrain=on&max_tilt_deg=5");
+    EXPECT_EQ(
+        overlume::ros::compose_environment_source_uri("", "ion://96188", "", true, 0.3, true, 0.0),
+        "ion://96188?follow_terrain=on&max_tilt_deg=0");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "ion://96188?max_tilt_deg=0", "",
+                                                            true, 0.3, true, 5.0),
+              "ion://96188?max_tilt_deg=0&follow_terrain=on");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("/baked", "", "", true, 0.3, true, 5.0),
+              "/baked");
+}
