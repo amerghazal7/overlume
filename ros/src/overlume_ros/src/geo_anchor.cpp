@@ -66,7 +66,8 @@ double GreatCircleDistanceM(double lat1_deg, double lon1_deg, double lat2_deg, d
 }
 
 overlume::GeoAnchor SolveAnchor(const std::vector<std::pair<double, double>>& fixes,
-                                const std::vector<std::pair<double, double>>& map_xy) {
+                                const std::vector<std::pair<double, double>>& map_xy,
+                                const std::vector<double>& altitudes_m) {
     overlume::GeoAnchor out{};
     if (fixes.empty() || fixes.size() != map_xy.size()) return out;
 
@@ -121,7 +122,21 @@ overlume::GeoAnchor SolveAnchor(const std::vector<std::pair<double, double>>& fi
     out.origin_lat_deg = sum_lat0 / static_cast<double>(fixes.size());
     out.origin_lon_deg = sum_lon0 / static_cast<double>(fixes.size());
 
+    // 2026-09-21 finding (docs/status.md item 4): origin_height_m is the
+    // mean of the accepted (non-NaN) NavSatFix altitudes, or 0.0 if none
+    // were given -- the anchor's WGS84 ellipsoid height was previously
+    // implicitly 0 everywhere, true only in simulation.
+    if (!altitudes_m.empty()) {
+        double sum_alt = 0.0;
+        for (const double alt : altitudes_m) sum_alt += alt;
+        out.origin_height_m = sum_alt / static_cast<double>(altitudes_m.size());
+    }
+
     return out;
+}
+
+double ChooseAnchorHeightM(double datum_height_m, double sampled_height_m, double offset_m) {
+    return (std::isfinite(datum_height_m) ? datum_height_m : sampled_height_m) + offset_m;
 }
 
 GeoDatumOverride ClassifyGeoDatum(double lat_deg, double lon_deg, double heading_deg) {
@@ -160,6 +175,10 @@ void GeoAnchorSolver::on_fix(const sensor_msgs::msg::NavSatFix& fix) {
 
     fixes_.emplace_back(fix.latitude, fix.longitude);
     map_xy_.emplace_back(t.transform.translation.x, t.transform.translation.y);
+    // 2026-09-21 finding (docs/status.md item 4): skip NaN altitudes --
+    // some sources may not fill NavSatFix::altitude -- rather than let one
+    // NaN poison the mean.
+    if (std::isfinite(fix.altitude)) altitudes_.push_back(fix.altitude);
 
     if (fixes_.size() >= kMinAnchorSamples) {
         // Sample count alone is necessary but not sufficient (see
@@ -168,7 +187,7 @@ void GeoAnchorSolver::on_fix(const sensor_msgs::msg::NavSatFix& fix) {
         const auto& [x0, y0] = map_xy_.front();
         const auto& [x1, y1] = map_xy_.back();
         if (std::hypot(x1 - x0, y1 - y0) >= kMinAnchorBaselineM) {
-            anchor_ = SolveAnchor(fixes_, map_xy_);
+            anchor_ = SolveAnchor(fixes_, map_xy_, altitudes_);
             solved_ = true;
         }
     }

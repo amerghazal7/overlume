@@ -85,9 +85,12 @@ void revive_fixture_network(FixtureStreamHandle* handle);
 // minimal POD-only probe that exercises it from a plain test TU. Always
 // returns true (kept bool, not void, for the same "hook reports success"
 // shape as the other hooks here).
+// `origin_height_m` (2026-09-21 finding, docs/status.md item 4): the
+// anchor's own WGS84 ellipsoid height (GeoAnchor::origin_height_m); pass
+// 0.0 to reproduce the previous (simulation-only-correct) behaviour.
 bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double heading_rad,
-                       double lat_deg, double lon_deg, double alt_m, double* out_x, double* out_y,
-                       double* out_z);
+                       double origin_height_m, double lat_deg, double lon_deg, double alt_m,
+                       double* out_x, double* out_y, double* out_z);
 
 // Open Follow-up 4 (docs/status.md item 4, streamed-tile ellipsoid-height
 // sag): exercises the SAME correction formula
@@ -96,13 +99,15 @@ bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double head
 // (lat_deg, lon_deg, alt_m), writes through both out-pointers (each may be
 // null): `out_z_uncorrected` is ecef_to_map_probe()'s own z (the rigid
 // tangent-plane transform, i.e. the sag) and `out_z_corrected` is that same
-// point's ellipsoid height minus the anchor's (0.0 by construction -- see
+// point's ellipsoid height minus `origin_height_m` (2026-09-21 finding: was
+// hard-coded 0.0, only correct in simulation -- on the real robot the
+// anchor sits ~1.7 m above the ellipsoid, see
 // strip_attributes_and_correct_heights()'s own comment). A single call
 // proves both that the sag exists (uncorrected) and that the fix removes it
 // (corrected). Always returns true.
 bool ecef_height_correction_probe(double origin_lat_deg, double origin_lon_deg, double heading_rad,
-                                  double lat_deg, double lon_deg, double alt_m,
-                                  double* out_z_uncorrected, double* out_z_corrected);
+                                  double origin_height_m, double lat_deg, double lon_deg,
+                                  double alt_m, double* out_z_uncorrected, double* out_z_corrected);
 
 // VM-064 (Task 5) Step 0: true iff the installed source is a
 // StreamingEnvironmentSource running in original-materials mode. False if

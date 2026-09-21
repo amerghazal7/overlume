@@ -209,11 +209,19 @@ private:
 //    streaming uses no raster overlays. ──────────────────────────────────
 class StreamRendererResources final : public Cesium3DTilesSelection::IPrepareRendererResources {
 public:
+    // `anchorHeightM` (2026-09-21 finding, docs/status.md item 4): the
+    // anchor's own WGS84 ellipsoid height (GeoAnchor::origin_height_m),
+    // threaded through to prepareInLoadThread's per-vertex height
+    // correction (strip_attributes_and_correct_heights()) -- 0.0 keeps the
+    // previous (simulation-only-correct) behaviour.
     // `materialsOriginal` (VM-064, Task 5): false (default) is today's clay
     // remap; true skips it in prepareInMainThread() -- gltfio's own loaded
     // ubershader materials stay bound (Google Photorealistic 3D Tiles).
-    explicit StreamRendererResources(const glm::dmat4& ecefToMap, bool materialsOriginal = false)
-        : ecefToMap_(ecefToMap), materialsOriginal_(materialsOriginal) {}
+    explicit StreamRendererResources(const glm::dmat4& ecefToMap, double anchorHeightM,
+                                     bool materialsOriginal = false)
+        : ecefToMap_(ecefToMap),
+          anchorHeightM_(anchorHeightM),
+          materialsOriginal_(materialsOriginal) {}
 
     // `r` is only valid for the duration of the StreamingEnvironmentSource
     // call that supplied it (update()/teardown() -- the seam's own
@@ -260,6 +268,7 @@ public:
 private:
     VisualRenderer* r_ = nullptr;
     glm::dmat4 ecefToMap_;
+    double anchorHeightM_ = 0.0;      // 2026-09-21 finding: anchor's own WGS84 ellipsoid height
     bool materialsOriginal_ = false;  // VM-064: gates the clay remap, see prepareInMainThread()
     std::mutex freeMutex_;
     std::vector<filament::gltfio::FilamentAsset*> pendingFrees_;
@@ -292,23 +301,33 @@ struct LoadThreadGlb {
 // (the SAME convention geo_anchor.cpp's WgsToMap implements node-side --
 // this is that same linear map, expressed as a 4x4 instead of two scalar
 // formulas, so it can premultiply a tile's own ECEF transform once per
-// asset root instead of per-vertex).
+// asset root instead of per-vertex). The ENU origin's own height is
+// `anchor.origin_height_m` (2026-09-21 finding, docs/status.md item 4) --
+// previously hard-coded 0.0, which is only correct in simulation.
 glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor);
 
 // Open Follow-up 4 (docs/status.md item 4): the ONE implementation of the
 // ellipsoid-height correction formula -- given a point already in ECEF,
 // keeps x/y from the rigid `ecefToMap` transform and replaces z with
-// (ellipsoid height at this point) - (anchor's ellipsoid height, 0.0 by
-// construction). Both `strip_attributes_and_correct_heights()`
+// z_map = (ellipsoid height at this point) - anchor_height_m, i.e.
+// `carto.height - anchor_height_m`. 2026-09-21 finding (docs/status.md item
+// 4): `anchor_height_m` was hard-coded 0.0 here on the (only
+// simulation-true) assumption that the anchor sits exactly on the
+// ellipsoid; on the real robot the anchor's own WGS84 ellipsoid height is
+// ~1.7 m (Fixposition NavSatFix altitude), so Google's streamed terrain
+// rendered ~1.7 m above the road until this was made a real parameter.
+// Callers pass the SAME GeoAnchor::origin_height_m compute_ecef_to_map()
+// used to build `ecef_to_map` -- both `strip_attributes_and_correct_heights()`
 // (environment_stream.cpp, per real glTF vertex at tile load) and the
 // `ecef_height_correction_probe()` test hook call this SAME function --
 // gate round 1 minor finding: the two must not be independently-typed
 // formulas that can silently drift apart. This function only ever sees an
-// already-ECEF point, so it is unaffected by the 2026-09-21 Google finding
-// (glTF node-local positions under a per-primitive node transform, see
-// strip_attributes_and_correct_heights()'s own comment) -- getting the
-// point INTO ECEF correctly is the caller's job, not this one's.
-glm::dvec3 correct_ecef_point_height(const glm::dvec3& ecef_pos, const glm::dmat4& ecef_to_map);
+// already-ECEF point, so it is unaffected by the 2026-09-21 Google
+// node-matrix finding (glTF node-local positions under a per-primitive node
+// transform, see strip_attributes_and_correct_heights()'s own comment) --
+// getting the point INTO ECEF correctly is the caller's job, not this one's.
+glm::dvec3 correct_ecef_point_height(const glm::dvec3& ecef_pos, const glm::dmat4& ecef_to_map,
+                                     double anchor_height_m);
 
 class StreamingEnvironmentSource : public EnvironmentSource {
 public:

@@ -114,6 +114,19 @@
     geo_datum_lat_deg: .nan
     geo_datum_lon_deg: .nan
     geo_datum_heading_deg: .nan
+    # 2026-09-21 finding (docs/status.md item 4, docs/runbooks/cesium.md
+    # section 5b): the anchor's WGS84 ellipsoid height was implicitly 0.0
+    # everywhere -- true in simulation, false on the real robot (~1.7 m,
+    # Fixposition NavSatFix altitude), which buried Google's streamed
+    # terrain ~1.7 m above the road. geo_datum_height_m: NaN (default) =
+    # use the sampled NavSatFix altitude mean; finite = override the anchor
+    # height (also applied when the lat/lon/heading override above is
+    # active, which never samples NavSatFix). geo_anchor_height_offset_m:
+    # always added to whichever height was chosen -- the trim knob for a
+    # receiver mounted above the base_link plane (its altitude then reads
+    # h m too high, so enter -h).
+    geo_datum_height_m: .nan
+    geo_anchor_height_offset_m: 0.0
     # VM-052 (Epic 4 Task 3): baked-environment (clay buildings) VISIBILITY
     # knob (STANDING directive). FOLLOW-UP 2 (maintainer decision,
     # 2026-09-18): on_activate() now arms the configured source regardless of

@@ -58,7 +58,13 @@ namespace overlume {
 /// EnvironmentSourceState below. environment_source_state() itself, being a
 /// free-function-only addition, bumps nothing (VM-090 precedent) -- the
 /// appended ENUM is what bumps this constant.
-constexpr uint32_t kSceneVersion = 6;
+///
+/// Appended 2026-09-21 (real-robot Google 3D Tiles finding, docs/status.md
+/// item 4) -- kSceneVersion 6 -> 7, for GeoAnchor::origin_height_m below:
+/// the anchor's WGS84 ellipsoid height was hard-coded 0.0 in the streaming
+/// z-correction, which is only true in simulation; on the real robot it is
+/// ~1.7 m and streamed Google terrain buried the road.
+constexpr uint32_t kSceneVersion = 7;
 
 /// @brief A plain 3D point or vector, map frame unless documented otherwise.
 struct Vec3 {
@@ -640,12 +646,24 @@ bool theme_parses(const char* dir, const char* theme_name);
 struct GeoAnchor {
     double origin_lat_deg;
     double origin_lon_deg;
-    double heading_rad;  ///< Bearing of map-frame +X from true north, radians.
+    double heading_rad;      ///< Bearing of map-frame +X from true north, radians.
+    double origin_height_m;  ///< @since kSceneVersion 7. WGS84 ellipsoid height of the
+                             ///< map-frame origin plane (z=0), metres; 0.0 keeps the
+                             ///< previous (simulation-only-correct) behaviour.
 };
 /// @var GeoAnchor::origin_lat_deg
 /// Map-frame origin latitude, degrees.
 /// @var GeoAnchor::origin_lon_deg
 /// Map-frame origin longitude, degrees.
+/// @var GeoAnchor::origin_height_m
+/// WGS84 ellipsoid height of the map-frame origin (z=0 plane), metres.
+/// 2026-09-21 finding (docs/status.md item 4): this was implicitly 0.0
+/// everywhere -- true in simulation (CARLA), false on the real robot, where
+/// the Fixposition NavSatFix altitude at the anchor is ~1.7 m, so streamed
+/// Google 3D Tiles ground rendered ~1.7 m above the road. Sampled node-side
+/// from NavSatFix altitude (GeoAnchorSolver, ros/src/overlume_ros), or from
+/// the `geo_datum_height_m` param override; `geo_anchor_height_offset_m`
+/// trims either. @since kSceneVersion 7.
 
 // ── Camera bowl POD boundary (VM-090, unified-engine migration Task 1;
 //    ADR-0004 additive; ADR-0005 camera-frame POD boundary) ─────────────────

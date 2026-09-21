@@ -221,13 +221,23 @@ bool consolidate_buffers(CesiumGltf::Model& model) {
 // ECEF position and rewrite it so that once the UNCHANGED root transform is
 // applied at render time, z_map lands at (ellipsoid height) - (anchor's
 // ellipsoid height); x/y keep whatever that same rigid transform already
-// produces (`ecefToMap * ecefPos`, read off before the z substitution). The
-// anchor's ellipsoid height is 0.0, not a runtime lookup: compute_ecef_to_map()'s
-// own ENU origin is pinned to Cartographic::fromDegrees(..., 0.0), and
-// bake_environment.py's wgs_to_map() always projects footprints at
-// alt_m=0.0 too (never the anchor's real measured elevation) -- both sides
-// of the streamed-vs-baked seam already assume height 0 at the anchor, so
-// z_map = h - h_anchor collapses to z_map = h.
+// produces (`ecefToMap * ecefPos`, read off before the z substitution).
+//
+// 2026-09-21 Google finding #2 (docs/status.md item 4, verified live against
+// the real-robot session replay, Google 3D Tiles via ion asset 2275207): the
+// anchor's ellipsoid height is NOT 0.0 by construction -- that was true only
+// in simulation (CARLA), where the anchor really does sit on the ellipsoid.
+// compute_ecef_to_map()'s ENU origin and this correction both now use
+// `anchor.origin_height_m` (GeoAnchor, scene.h, kSceneVersion 7), sampled
+// node-side from the Fixposition NavSatFix altitude (GeoAnchorSolver,
+// ros/src/overlume_ros/geo_anchor.cpp) -- on the real robot that is ~1.7 m,
+// not 0. Before this fix, Google's streamed ground rendered ~1.7 m above the
+// road and buried it. bake_environment.py's wgs_to_map() still projects
+// baked-chunk footprints at alt_m=0.0 (unaffected by this change -- the
+// baked layer and the flattened robot both live on the flat map plane at
+// z=0 by their own, separate convention); z_map = h - anchor_height_m is
+// the general formula, which collapses to z_map = h only when
+// anchor_height_m is 0 (simulation).
 //
 // 2026-09-21 Google finding: recovering "true ECEF position" is NOT just
 // `modelToEcef * p` (prepareInLoadThread's own `transform` param, RTC_CENTER
@@ -273,7 +283,7 @@ bool consolidate_buffers(CesiumGltf::Model& model) {
 std::shared_ptr<spdlog::logger> make_redacting_logger();
 
 void strip_attributes_and_correct_heights(CesiumGltf::Model& model, const glm::dmat4& modelToEcef,
-                                          const glm::dmat4& ecefToMap) {
+                                          const glm::dmat4& ecefToMap, double anchorHeightM) {
     // The '_'-prefixed attribute strip runs over ALL meshes, scene-reachable
     // or not: gltfio rejects unknown attributes even on a mesh no node
     // references, so this loop stays a plain traversal of model.meshes
@@ -346,7 +356,7 @@ void strip_attributes_and_correct_heights(CesiumGltf::Model& model, const glm::d
                 // minor finding: the two must call one formula, not carry
                 // independently-typed copies that can drift apart).
                 const glm::dvec3 newMapPos =
-                    correct_ecef_point_height(glm::dvec3(ecefPos), ecefToMap);
+                    correct_ecef_point_height(glm::dvec3(ecefPos), ecefToMap, anchorHeightM);
                 const glm::dvec4 newLocalPos = mapToLocal * glm::dvec4(newMapPos, 1.0);
                 p = glm::vec3(newLocalPos);
             }
@@ -572,9 +582,13 @@ Cesium3DTilesSelection::TilesetExternals build_externals(
 
 // ── ECEF <-> map-frame (Decision 8) ──────────────────────────────────────
 glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor) {
+    // 2026-09-21 finding (docs/status.md item 4): the ENU origin's height
+    // used to be hard-coded 0.0 here -- only correct in simulation, where
+    // the anchor really sits on the ellipsoid. `anchor.origin_height_m` now
+    // carries the real value (0.0 default keeps the old behaviour).
     const CesiumGeospatial::LocalHorizontalCoordinateSystem enu(
         CesiumGeospatial::Cartographic::fromDegrees(anchor.origin_lon_deg, anchor.origin_lat_deg,
-                                                    0.0));
+                                                    anchor.origin_height_m));
     const glm::dmat4 ecefToEnu = enu.getEcefToLocalTransformation();
 
     // VM-062 gate round 1, Finding 1: getEcefToLocalTransformation() above
@@ -626,18 +640,22 @@ glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor) {
 // Open Follow-up 4 (docs/status.md item 4): see this function's own
 // declaration comment in environment_stream.hpp. x/y are whatever the rigid
 // `ecefToMap` transform already gives (unchanged, curvature error
-// sub-millimetre at 10 km); z is replaced with `ecefPos`'s own WGS84
-// ellipsoid height minus the anchor's (0.0 by construction: compute_ecef_to_map()'s
-// ENU origin above is pinned to `fromDegrees(..., 0.0)`, and
-// bake_environment.py's wgs_to_map() always projects at alt_m=0.0 too --
-// both sides of the streamed-vs-baked seam already assume height 0 at the
-// anchor).
-glm::dvec3 correct_ecef_point_height(const glm::dvec3& ecef_pos, const glm::dmat4& ecef_to_map) {
+// sub-millimetre at 10 km); z is replaced with z_map = (ecef_pos's own
+// WGS84 ellipsoid height) - anchor_height_m. 2026-09-21 finding: this used
+// to subtract 0.0 unconditionally ("anchor height is 0.0 by construction"),
+// which held only in simulation -- on the real robot the anchor's ellipsoid
+// height is ~1.7 m (Fixposition NavSatFix altitude), so Google's streamed
+// terrain rendered ~1.7 m above the road until callers started passing the
+// real `anchor.origin_height_m` here. bake_environment.py's wgs_to_map()
+// still projects baked-chunk footprints at alt_m=0.0, unaffected -- that is
+// the baked layer's own, separate flat-plane convention.
+glm::dvec3 correct_ecef_point_height(const glm::dvec3& ecef_pos, const glm::dmat4& ecef_to_map,
+                                     double anchor_height_m) {
     const glm::dvec4 oldMapPos = ecef_to_map * glm::dvec4(ecef_pos, 1.0);
     const auto carto = CesiumGeospatial::Ellipsoid::WGS84.cartesianToCartographic(ecef_pos);
     // Empty only at the Earth's center (never a real tile vertex) -- fall
     // back to the old (sagged) z rather than fabricate one.
-    const double zMap = carto.has_value() ? carto->height : oldMapPos.z;
+    const double zMap = carto.has_value() ? carto->height - anchor_height_m : oldMapPos.z;
     return glm::dvec3(oldMapPos.x, oldMapPos.y, zMap);
 }
 
@@ -760,7 +778,8 @@ StreamRendererResources::prepareInLoadThread(
         // (verified at implementation) -- consolidate before writeGlb,
         // whose own single-buffer GLB-chunk contract requires exactly one.
         if (consolidate_buffers(*model)) {
-            strip_attributes_and_correct_heights(*model, pGlb->transform, ecefToMap_);
+            strip_attributes_and_correct_heights(*model, pGlb->transform, ecefToMap_,
+                                                 anchorHeightM_);
             const auto& bufData = model->buffers[0].cesium.data;
             CesiumGltfWriter::GltfWriter writer;
             const CesiumGltfWriter::GltfWriterResult res =
@@ -926,7 +945,8 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
     // reach it directly -- the SAME object also becomes
     // externals.pPrepareRendererResources below, so cesium's Tileset holds
     // the other half of this shared_ptr's ownership.
-    renderResources_ = std::make_shared<StreamRendererResources>(ecefToMap_, materialsOriginal_);
+    renderResources_ = std::make_shared<StreamRendererResources>(
+        ecefToMap_, anchor_.origin_height_m, materialsOriginal_);
     externals.pPrepareRendererResources = renderResources_;
 
     Cesium3DTilesSelection::TilesetOptions options;
@@ -1404,9 +1424,9 @@ bool environment_stream_first_primitive_is_clay(overlume::VisualRenderer* r) {
 }
 
 bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double heading_rad,
-                       double lat_deg, double lon_deg, double alt_m, double* out_x, double* out_y,
-                       double* out_z) {
-    const overlume::GeoAnchor anchor{origin_lat_deg, origin_lon_deg, heading_rad};
+                       double origin_height_m, double lat_deg, double lon_deg, double alt_m,
+                       double* out_x, double* out_y, double* out_z) {
+    const overlume::GeoAnchor anchor{origin_lat_deg, origin_lon_deg, heading_rad, origin_height_m};
     const glm::dmat4 ecefToMap = overlume::compute_ecef_to_map(anchor);
     const CesiumGeospatial::Cartographic carto =
         CesiumGeospatial::Cartographic::fromDegrees(lon_deg, lat_deg, alt_m);
@@ -1419,9 +1439,10 @@ bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double head
 }
 
 bool ecef_height_correction_probe(double origin_lat_deg, double origin_lon_deg, double heading_rad,
-                                  double lat_deg, double lon_deg, double alt_m,
-                                  double* out_z_uncorrected, double* out_z_corrected) {
-    const overlume::GeoAnchor anchor{origin_lat_deg, origin_lon_deg, heading_rad};
+                                  double origin_height_m, double lat_deg, double lon_deg,
+                                  double alt_m, double* out_z_uncorrected,
+                                  double* out_z_corrected) {
+    const overlume::GeoAnchor anchor{origin_lat_deg, origin_lon_deg, heading_rad, origin_height_m};
     const glm::dmat4 ecefToMap = overlume::compute_ecef_to_map(anchor);
     const CesiumGeospatial::Cartographic carto =
         CesiumGeospatial::Cartographic::fromDegrees(lon_deg, lat_deg, alt_m);
@@ -1439,7 +1460,7 @@ bool ecef_height_correction_probe(double origin_lat_deg, double origin_lon_deg, 
         // test, not by this pure-math probe or any ctest assertion; see
         // docs/status.md item 4's own note on why the ingestion-level
         // FilamentAsset readback was not added.
-        *out_z_corrected = overlume::correct_ecef_point_height(ecef, ecefToMap).z;
+        *out_z_corrected = overlume::correct_ecef_point_height(ecef, ecefToMap, origin_height_m).z;
     }
     return true;
 }

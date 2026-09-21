@@ -357,10 +357,32 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
         declare_parameter<double>("geo_datum_lon_deg", std::numeric_limits<double>::quiet_NaN());
     const double geo_datum_heading_deg = declare_parameter<double>(
         "geo_datum_heading_deg", std::numeric_limits<double>::quiet_NaN());
+    // 2026-09-21 finding (docs/status.md item 4): the anchor's WGS84
+    // ellipsoid height was implicitly 0.0 everywhere -- true in simulation,
+    // false on the real robot (~1.7 m, Fixposition NavSatFix altitude),
+    // which buried Google's streamed terrain ~1.7 m above the road.
+    // `geo_datum_height_m`: NaN (default) = use the sampled NavSatFix
+    // altitude mean; finite = override the anchor height (also used when
+    // the lat/lon/heading override above is active, since that path never
+    // samples NavSatFix at all). `geo_anchor_height_offset_m`: added to
+    // whichever height was chosen -- the trim knob for a receiver mounted
+    // above the base_link plane (its altitude then reads h m too high, so
+    // enter -h).
+    const double geo_datum_height_m =
+        declare_parameter<double>("geo_datum_height_m", std::numeric_limits<double>::quiet_NaN());
+    const double geo_anchor_height_offset_m =
+        declare_parameter<double>("geo_anchor_height_offset_m", 0.0);
     switch (ClassifyGeoDatum(geo_datum_lat_deg, geo_datum_lon_deg, geo_datum_heading_deg)) {
-        case GeoDatumOverride::Complete:
+        case GeoDatumOverride::Complete: {
             geo_anchor_solver_->set_override(geo_datum_lat_deg, geo_datum_lon_deg,
                                              geo_datum_heading_deg);
+            // set_override() leaves origin_height_m at 0.0 (no NavSatFix is
+            // ever sampled on this path) -- apply the height override/trim
+            // the same way the sampled path below does.
+            const double chosen_height_m =
+                (std::isfinite(geo_datum_height_m) ? geo_datum_height_m : 0.0) +
+                geo_anchor_height_offset_m;
+            geo_anchor_solver_->set_origin_height_m(chosen_height_m);
             // set_override() makes solved() true synchronously (Step 2) --
             // log the transition right here, same one-shot field order as
             // the on_fix()-driven log below (gps_sub_'s lambda never fires
@@ -368,9 +390,11 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
             geo_anchor_logged_ = true;
             RCLCPP_INFO(get_logger(),
                         "geo-anchor solved (geo_datum override): --anchor-lat %.8f --anchor-lon "
-                        "%.8f --anchor-heading-deg %.4f",
-                        geo_datum_lat_deg, geo_datum_lon_deg, geo_datum_heading_deg);
+                        "%.8f --anchor-heading-deg %.4f --anchor-height %.2f",
+                        geo_datum_lat_deg, geo_datum_lon_deg, geo_datum_heading_deg,
+                        chosen_height_m);
             break;
+        }
         case GeoDatumOverride::Partial:
             // All-or-nothing (spec): a partial override is a config ERROR,
             // not a silently-applied partial anchor. Logged once at
@@ -395,10 +419,19 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     const std::string gps_topic = declare_parameter<std::string>("gps_topic", "/sim/feedback/gps");
     gps_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
         gps_topic, rclcpp::QoS(10).best_effort(),
-        [this](const sensor_msgs::msg::NavSatFix::SharedPtr msg) {
+        [this, geo_datum_height_m,
+         geo_anchor_height_offset_m](const sensor_msgs::msg::NavSatFix::SharedPtr msg) {
             geo_anchor_solver_->on_fix(*msg);
             if (!geo_anchor_logged_ && geo_anchor_solver_->solved()) {
                 geo_anchor_logged_ = true;
+                // 2026-09-21 finding (docs/status.md item 4): the solved
+                // anchor's own origin_height_m is already the sampled
+                // NavSatFix altitude mean (GeoAnchorSolver::on_fix ->
+                // SolveAnchor) -- geo_datum_height_m, if finite, overrides
+                // it; geo_anchor_height_offset_m always trims the result.
+                const double sampled_height_m = geo_anchor_solver_->anchor().origin_height_m;
+                geo_anchor_solver_->set_origin_height_m(ChooseAnchorHeightM(
+                    geo_datum_height_m, sampled_height_m, geo_anchor_height_offset_m));
                 const overlume::GeoAnchor a = geo_anchor_solver_->anchor();
                 // Field order matches bake_environment.py's --anchor-lat/
                 // --anchor-lon/--anchor-heading-deg flags exactly (Task 2's
@@ -406,8 +439,9 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
                 // numbers straight onto that script's command line.
                 RCLCPP_INFO(get_logger(),
                             "geo-anchor solved: --anchor-lat %.8f --anchor-lon %.8f "
-                            "--anchor-heading-deg %.4f",
-                            a.origin_lat_deg, a.origin_lon_deg, a.heading_rad * 180.0 / M_PI);
+                            "--anchor-heading-deg %.4f --anchor-height %.2f",
+                            a.origin_lat_deg, a.origin_lon_deg, a.heading_rad * 180.0 / M_PI,
+                            a.origin_height_m);
             }
         });
 

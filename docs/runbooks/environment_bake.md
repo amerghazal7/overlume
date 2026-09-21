@@ -61,17 +61,24 @@ The node solves this anchor itself (VM-050, `GeoAnchorSolver` in
 (`overlume_node.cpp`'s `gps_sub_` callback):
 
 ```
-geo-anchor solved: --anchor-lat %.8f --anchor-lon %.8f --anchor-heading-deg %.4f
+geo-anchor solved: --anchor-lat %.8f --anchor-lon %.8f --anchor-heading-deg %.4f --anchor-height %.2f
 ```
 
-Copy those three logged numbers onto this script's command line verbatim —
-no unit conversion, no reordering (the script's own module docstring states
-this explicitly, and the log line is deliberately formatted to make the copy
-mechanical). If the node was configured with a `geo_datum_lat_deg` /
-`geo_datum_lon_deg` / `geo_datum_heading_deg` override (all three, or the
-override is rejected as a config error), the same log line fires
-synchronously at `on_configure()` instead of waiting on live GPS+TF, tagged
-`(geo_datum override)`.
+Copy the first three logged numbers onto this script's command line verbatim
+(`--anchor-lat`/`--anchor-lon`/`--anchor-heading-deg`) — no unit conversion,
+no reordering (the script's own module docstring states this explicitly, and
+the log line is deliberately formatted to make the copy mechanical). The
+trailing `--anchor-height` is the anchor's own WGS84 ellipsoid height
+(2026-09-21 finding, `docs/status.md` item 4, `docs/runbooks/cesium.md`
+section 5b) — not one of this script's own flags; `bake_environment.py`
+still bakes at `alt_m=0.0` by its own, separate convention. If the node was
+configured with a `geo_datum_lat_deg` / `geo_datum_lon_deg` /
+`geo_datum_heading_deg` override (all three, or the override is rejected as
+a config error), the same log line fires synchronously at `on_configure()`
+instead of waiting on live GPS+TF, tagged `(geo_datum override)`. Two more
+params trim the height itself: `geo_datum_height_m` (finite overrides the
+sampled/override height) and `geo_anchor_height_offset_m` (always added on
+top) — see `docs/runbooks/cesium.md` section 5b.
 
 ## Fetch source: Overpass primary, Mapbox fallback (env var only)
 

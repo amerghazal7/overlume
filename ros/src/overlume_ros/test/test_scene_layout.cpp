@@ -24,7 +24,7 @@
 
 #include <gtest/gtest.h>
 
-static_assert(overlume::kSceneVersion == 6, "node/library scene.h version drifted");
+static_assert(overlume::kSceneVersion == 7, "node/library scene.h version drifted");
 
 static_assert(sizeof(overlume::MapElement) == 32, "node/library scene.h version drifted");
 static_assert(offsetof(overlume::MapElement, points) == 0, "node/library scene.h version drifted");
@@ -75,12 +75,16 @@ static_assert(offsetof(overlume::SceneGraph, trajectory_carpet_count) == 208,
 
 // GeoAnchor, appended VM-050 (Epic 4 Task 1, ADR-0004) -- kSceneVersion
 // 3 -> 4. NOT a SceneGraph field (Decision 1) -- standalone POD.
-static_assert(sizeof(overlume::GeoAnchor) == 24, "node/library scene.h version drifted");
+// origin_height_m appended 2026-09-21 (docs/status.md item 4) --
+// kSceneVersion 6 -> 7.
+static_assert(sizeof(overlume::GeoAnchor) == 32, "node/library scene.h version drifted");
 static_assert(offsetof(overlume::GeoAnchor, origin_lat_deg) == 0,
               "node/library scene.h version drifted");
 static_assert(offsetof(overlume::GeoAnchor, origin_lon_deg) == 8,
               "node/library scene.h version drifted");
 static_assert(offsetof(overlume::GeoAnchor, heading_rad) == 16,
+              "node/library scene.h version drifted");
+static_assert(offsetof(overlume::GeoAnchor, origin_height_m) == 24,
               "node/library scene.h version drifted");
 
 // CameraExtrinsics/CameraIntrinsics/BowlConfig, appended VM-090 (unified-
