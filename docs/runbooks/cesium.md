@@ -256,6 +256,33 @@ onto a plain baked-chunk directory, which has no query string to append to.
 Off keeps the pre-existing flat-map-frame behaviour exactly: nothing is
 sampled, and the offset stays 0.
 
+## 5d. Tile selection: two frustums (2026-09-21 coarse-LOD finding)
+
+**The finding:** through VM-097, tile selection was driven by exactly ONE
+view — a synthetic top-down camera 300 m above the ego, 256 px viewport, at
+`maximumScreenSpaceError`=48. That geometry only refines a tile once its own
+geometric error drops below ~85 m, so Google Photorealistic ground rendered
+as a blurry, coarse mesh sitting metres above the real surface — and 5c's
+terrain follower then sampled the MOST detailed height under the ego
+(`sampleHeightMostDetailed()`) and lifted that coarse mesh clean through the
+road.
+
+**The fix:** `synthesize_view_and_pump()` now selects tiles with the real
+render camera's own `ViewState` as a SECOND frustum, alongside the synthetic
+one — standard Cesium usage (a tileset can be driven by more than one
+simultaneous view). Tiles the render camera can actually see refine to real
+detail through that frustum (a typical ~20 m range at the same
+`maximumScreenSpaceError`=48 already refines to ~1-2 m geometric error, an
+order of magnitude tighter than the synthetic view's own 300 m/256 px
+geometry, so the threshold itself did not need to change); the synthetic
+top-down view keeps doing its original job — a wide coverage frustum so
+everything past the camera's view stays loaded coarse instead of unloading
+and popping back in. Because `update()` runs before that frame's own
+`camera->lookAt()`/`setProjection()` (`renderer.cpp`), the camera frustum
+used here is always one frame stale — acceptable lag. `last_view_frustum_count()`
+(1 before the render camera has ever been positioned, 2 once it has) is the
+test hook this is pinned by (`EnvironmentStream.TileSelectionUsesRenderCameraAsSecondFrustum`).
+
 ## 6. Google Photorealistic 3D Tiles (VM-064)
 
 A textured, photorealistic mesh, not clay — `default_params.yaml`'s

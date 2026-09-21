@@ -24,7 +24,9 @@ tools/validate_logger_session.sh ~/session_<stamp> --no-gui
 
 The session defaults to `$OVERLUME_SESSION`, then
 `~/session_2026-09-01_13-57-00`; `--gps-topic`, `--profile`,
-`--collector-install` and `-- <extra validate args>` override the rest.
+`--collector-install`, `--anchor-height-offset M` (this robot's receiver
+reads ~1.8 m above the map plane, so `-1.8`; see §4) and
+`-- <extra validate args>` override the rest.
 The sections below explain what it does and why, for when a new session
 breaks one of the assumptions.
 
@@ -128,7 +130,10 @@ The anchor's height (used to place streamed tiles' ground correctly, see
 `docs/runbooks/cesium.md` section 5b) comes from the same NavSatFix stream's
 `altitude` field by default — trim it with the `geo_anchor_height_offset_m`
 param (added to the height, so an antenna h m above `base_link` needs `-h`),
-or pin it outright with `geo_datum_height_m`.
+or pin it outright with `geo_datum_height_m`. Measured 2026-09-21 on
+`session_2026-09-01_13-57-00`: the altitude mean is 2.15 m while Google's
+detailed ground under the ego samples at 0.2–0.5 m, so this robot needs
+about `-1.8` (`tools/validate_logger_session.sh --anchor-height-offset -1.8`).
 
 Real relief along the route (not just at the anchor) is handled by the
 `environment_follow_terrain` param (default `true`, see `docs/runbooks/cesium.md`

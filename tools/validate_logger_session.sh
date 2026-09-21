@@ -19,6 +19,10 @@
 #   SESSION_DIR defaults to $OVERLUME_SESSION, then ~/session_2026-09-01_13-57-00.
 #   --arm PRESET   baked|osm|clipped|google, sent after the health gate; retried
 #                  while the node answers "geo-anchor not solved yet".
+#   --anchor-height-offset M   geo_anchor_height_offset_m for the node: added to
+#                  the NavSatFix-sampled anchor height. On this robot the receiver
+#                  reads ~1.8 m above the map plane (Google ground under the ego
+#                  samples at ~0.3 m vs a 2.15 m altitude mean, 2026-09-21), so -1.8.
 # CESIUM_ION_TOKEN is re-read from a fresh login shell by validate_visual_mode.sh,
 # so a stale value in a long-lived terminal is not inherited by the node.
 # Ctrl-C tears everything down. Logs: /tmp/overlume_validate/.
@@ -37,6 +41,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --no-gui) VALIDATE_ARGS+=(--no-gui); shift ;;
         --arm) ARM="$2"; shift 2 ;;
+        --anchor-height-offset) VALIDATE_ARGS+=(--param "geo_anchor_height_offset_m:=$2"); shift 2 ;;
         --profile) PROFILE="$2"; shift 2 ;;
         --gps-topic) GPS_TOPIC="$2"; shift 2 ;;
         --collector-install) COLLECTOR_INSTALL="$2"; shift 2 ;;

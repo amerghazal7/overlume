@@ -172,14 +172,38 @@ TEST(EnvironmentStream, FixtureTilesLoadRenderAsClayAndCount) {
     // pump_until_loaded()'s own first-nonzero return is racy (it fires as
     // soon as ANY tile lands, not once every reachable tile has) -- this is
     // what actually pins a stable, reproducible number.
+    //
+    // 2026-09-21 two-frustum tile selection: the render camera is now ALSO a
+    // selection frustum (see kStreamViewHeightM's comment,
+    // environment_stream.hpp). This test's own job is to pin exact per-
+    // position tile counts driven by the SYNTHETIC (ego-following) view
+    // alone -- TileSelectionUsesRenderCameraAsSecondFrustum above is the
+    // dedicated test for the camera-driven half. kStdPose's fixed,
+    // origin-anchored eye/target would otherwise let the camera frustum
+    // pin extra, position-independent tiles resident through every
+    // settle_count() call, corrupting the counts pinned here -- so instead
+    // of trying to co-locate it with `pos` (introducing its OWN new
+    // geometric coverage the fixture's tile layout isn't shaped for), the
+    // camera here points straight up and far above `pos` (all fixture tile
+    // heights sit within roughly -25..40 m, this file's tileset.json), well
+    // outside its own frustum -- present (camera_view_state() returns a
+    // real ViewState, exercising the code path) but geometrically
+    // contributing nothing, isolating this test back to the synthetic
+    // view's own counts.
     auto settle_count = [&](overlume::Vec3 pos) -> uint64_t {
         overlume::SceneGraph s{};
         s.ego.valid = 1;
         s.ego.position = pos;
         overlume::set_scene(r, s);
+        const overlume::CameraPose pose{
+            // 1 mm lateral offset: a target exactly along render_frame()'s
+            // fixed up vector (+Z) would be a degenerate lookAt().
+            {pos.x, pos.y, pos.z + 5000.0},
+            {pos.x + 0.001, pos.y, pos.z + 5001.0},
+            60};
         uint64_t count = 0;
         for (int tick = 0, stableTicks = 0; tick < 500 && stableTicks < 10; ++tick) {
-            overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+            overlume::render_frame(r, pose, {buf.data(), 320, 240});
             const uint64_t next = overlume::testing::environment_loaded_chunk_count(r);
             // Only start counting stability once at least one tile has
             // landed: the initial all-zero window must not read as settled
@@ -242,6 +266,53 @@ TEST(EnvironmentStream, FixtureTilesLoadRenderAsClayAndCount) {
         << "tile_b (no NORMAL) must load once ego sits inside its own region -- an "
            "ensure_flat_normals() regression on the streamed (not baked-chunk) path would "
            "drop this to 0";
+
+    overlume::destroy_renderer(r);
+}
+
+// 2026-09-21 two-frustum tile selection (coarse-LOD finding, docs/status.md
+// item 4 addendum): synthesize_view_and_pump() must add the real render
+// camera's own ViewState as a SECOND selection frustum, once the camera has
+// actually been positioned -- see environment_stream.hpp's kStreamViewHeightM
+// comment for the full "why" (Google Photorealistic ground rendering as a
+// coarse, terrain-follower-lifted mesh with only the synthetic top-down
+// frustum in play).
+TEST(EnvironmentStream, TileSelectionUsesRenderCameraAsSecondFrustum) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(r, kTilesFixtureDir.c_str(),
+                                                                    kFixtureAnchor));
+    // environmentSource->update() (which reaches synthesize_view_and_pump())
+    // only runs when the scene's ego is valid (renderer.cpp) -- same
+    // precondition every other streaming test here sets via set_scene().
+    overlume::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kFixtureBlockCenterMap;
+    overlume::set_scene(r, s);
+
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    // render_frame() calls environmentSource->update() (which reaches
+    // synthesize_view_and_pump()) BEFORE this same frame's own
+    // camera->lookAt()/setProjection() (renderer.cpp) -- the documented
+    // one-frame lag -- so the FIRST frame's pump still sees an unpositioned
+    // camera (1 frustum: synthetic only) and only positions the camera for
+    // the frame that follows.
+    ASSERT_TRUE(overlume::render_frame(r, kStdPose, {buf.data(), 320, 240}));
+    // Fix-round finding (2026-09-21): an earlier version of the "camera not
+    // positioned yet" guard was dead code (it also required a zero forward
+    // vector, which Filament's camera -- unit-length by construction -- can
+    // never report), so this frame's pump silently fed the untouched
+    // identity camera to updateViewGroup() as a real selection frustum.
+    // Pin the actual FIRST-frame count so a regression of the guard (not
+    // just the steady-state count below) fails this test.
+    EXPECT_EQ(overlume::testing::environment_stream_last_view_frustum_count(r), 1);
+    // Second frame: synthesize_view_and_pump() now runs against a camera
+    // positioned by the PRIOR frame's lookAt()/setProjection() -- the
+    // steady-state case this test pins.
+    ASSERT_TRUE(overlume::render_frame(r, kStdPose, {buf.data(), 320, 240}));
+
+    EXPECT_EQ(overlume::testing::environment_stream_last_view_frustum_count(r), 2);
 
     overlume::destroy_renderer(r);
 }
@@ -1139,8 +1210,23 @@ TEST(EnvironmentStream, FollowTerrainShiftsEnvironmentToGroundUnderEgo) {
     s.ego.position = kFixtureBlockCenterMap;  // (0,0,0) -- the anchor itself
     overlume::set_scene(r, s);
 
+    // 2026-09-21 two-frustum tile selection: this test's own job is the
+    // synthetic (ego-following) view's terrain-follow convergence + a
+    // STABLE single tracked tile to read the before/after world-Z delta off
+    // of (inScene_.begin()->first -- see first_tracked_tile_world_z()'s own
+    // comment) -- kStdPose sits near this fixture's own anchor too, so as a
+    // SECOND selection frustum it would load additional tiles over the
+    // course of this test and can shift which tile "first" resolves to
+    // between the two readings, confounding the delta with two different
+    // tiles' own placement instead of one tile's real shift. Same
+    // "point the camera away, exercise the code path, contribute nothing
+    // geometrically" isolation FixtureTilesLoadRenderAsClayAndCount's own
+    // settle_count() uses above.
+    // 1 mm lateral offset keeps the straight-up lookAt() non-degenerate.
+    const overlume::CameraPose awayPose{{0, 0, 5000}, {0.001, 0, 5001}, 60};
+
     std::vector<uint8_t> buf(320u * 240u * 3u);
-    ASSERT_GT(pump_until_loaded(r, kStdPose, buf), 0u)
+    ASSERT_GT(pump_until_loaded(r, awayPose, buf), 0u)
         << "session_ground fixture must load from its own anchor's block center";
     const double worldZBefore = overlume::testing::environment_terrain_first_tile_world_z(r);
     ASSERT_FALSE(std::isnan(worldZBefore))
@@ -1157,7 +1243,7 @@ TEST(EnvironmentStream, FollowTerrainShiftsEnvironmentToGroundUnderEgo) {
     constexpr double kHeightSamplePrecisionM = 0.1;
     double offset = overlume::testing::environment_terrain_offset_z(r);
     for (int i = 0; i < 600 && std::abs(offset - (-3.0)) > kHeightSamplePrecisionM; ++i) {
-        overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+        overlume::render_frame(r, awayPose, {buf.data(), 320, 240});
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         offset = overlume::testing::environment_terrain_offset_z(r);
     }
