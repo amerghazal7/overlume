@@ -52,8 +52,14 @@ using overlume::GeoAnchor;  // re-export, not a new type -- unqualified GeoAncho
 // "bearing of map-frame +X from true north" -- at heading_rad == 0, map +X
 // points true north, map +Y points true west, the unique right-handed (Z
 // up) orientation consistent with that bearing definition).
+// `altitudes_m` (2026-09-21 finding, docs/status.md item 4): NavSatFix
+// altitudes paired with `fixes`/`map_xy` (NaN ones already dropped by the
+// caller, GeoAnchorSolver::on_fix) -- out.origin_height_m is their mean, or
+// 0.0 if `altitudes_m` is empty (keeps the previous, simulation-only-correct
+// behaviour). Defaulted so existing pure-position callers are unaffected.
 overlume::GeoAnchor SolveAnchor(const std::vector<std::pair<double, double>>& fixes,
-                                const std::vector<std::pair<double, double>>& map_xy);
+                                const std::vector<std::pair<double, double>>& map_xy,
+                                const std::vector<double>& altitudes_m = {});
 
 overlume::Vec3 WgsToMap(const overlume::GeoAnchor& anchor, double lat_deg, double lon_deg,
                         double alt_m = 0.0);
@@ -93,6 +99,14 @@ enum class GeoDatumOverride {
 
 GeoDatumOverride ClassifyGeoDatum(double lat_deg, double lon_deg, double heading_deg);
 
+// The anchor's WGS84 ellipsoid height (GeoAnchor::origin_height_m) the node
+// hands to the library: `datum_height_m` (geo_datum_height_m) wins when
+// finite, else `sampled_height_m` (the NavSatFix altitude mean, 0.0 on the
+// override path); `offset_m` (geo_anchor_height_offset_m) is ADDED to the
+// result, so an antenna h m above the base_link plane needs -h. One function
+// for both node branches (review minor, 2026-09-21).
+double ChooseAnchorHeightM(double datum_height_m, double sampled_height_m, double offset_m);
+
 // ROS-facing accumulator: subscribes NavSatFix (node owns the subscription,
 // forwards each sample via on_fix()), looks up (map_frame, base_frame) via
 // the SAME tf2_ros::Buffer the ego TfAdapter already reads, and calls
@@ -117,6 +131,13 @@ public:
     // Undefined (returns a default-constructed GeoAnchor) if !solved().
     overlume::GeoAnchor anchor() const { return anchor_; }
 
+    // 2026-09-21 finding (docs/status.md item 4): lets the node apply the
+    // `geo_datum_height_m` override / `geo_anchor_height_offset_m` trim on
+    // top of whatever height solving (sampled NavSatFix mean) or
+    // set_override() (0.0) produced -- called only after solved()/set_override()
+    // already ran. A no-op on origin_lat_deg/origin_lon_deg/heading_rad.
+    void set_origin_height_m(double origin_height_m) { anchor_.origin_height_m = origin_height_m; }
+
 private:
     tf2_ros::Buffer& buffer_;
     std::string map_frame_;
@@ -128,6 +149,7 @@ private:
 
     std::vector<std::pair<double, double>> fixes_;   // (lat_deg, lon_deg)
     std::vector<std::pair<double, double>> map_xy_;  // paired map-frame (x, y)
+    std::vector<double> altitudes_;  // accepted (non-NaN) NavSatFix altitudes, meters
 };
 
 }  // namespace overlume::ros

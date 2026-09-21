@@ -124,6 +124,12 @@ Then switch the Environment Tiles source in the GUI (or over the bridge:
 `{"cmd":"set_environment_source","preset":"osm"}`); the ack carries the
 node's reason when it refuses.
 
+The anchor's height (used to place streamed tiles' ground correctly, see
+`docs/runbooks/cesium.md` section 5b) comes from the same NavSatFix stream's
+`altitude` field by default — trim it with the `geo_anchor_height_offset_m`
+param (added to the height, so an antenna h m above `base_link` needs `-h`),
+or pin it outright with `geo_datum_height_m`.
+
 ## 5. What this session could and could not show
 
 Recorded (18 topics): one camera, five lidar clouds, Fixposition

@@ -88,7 +88,7 @@ TEST(StalenessAlpha, PastTimeoutIsFullyFaded) {
     EXPECT_FLOAT_EQ(overlume::detail::SceneBuffer::staleness_alpha(13.0, 10.0, 0.5, 2.0), 0.0f);
 }
 
-static_assert(overlume::kSceneVersion == 6,
+static_assert(overlume::kSceneVersion == 7,
               "bump this alongside every additive scene.h change, and update the "
               "node-side test_scene_layout.cpp mirror");
 
@@ -259,13 +259,16 @@ static_assert(offsetof(overlume::SceneGraph, trajectory_carpet_count) == 208,
 
 // GeoAnchor, appended VM-050 (Epic 4 Task 1, ADR-0004) -- kSceneVersion
 // 3 -> 4. NOT a SceneGraph field (Decision 1) -- standalone POD, three
-// doubles, no padding.
-static_assert(sizeof(overlume::GeoAnchor) == 24, "GeoAnchor layout, ADR-0004 additive");
+// doubles, no padding. origin_height_m appended 2026-09-21 (docs/status.md
+// item 4) -- kSceneVersion 6 -> 7, four doubles, still no padding.
+static_assert(sizeof(overlume::GeoAnchor) == 32, "GeoAnchor layout, ADR-0004 additive");
 static_assert(offsetof(overlume::GeoAnchor, origin_lat_deg) == 0,
               "GeoAnchor layout, ADR-0004 additive");
 static_assert(offsetof(overlume::GeoAnchor, origin_lon_deg) == 8,
               "GeoAnchor layout, ADR-0004 additive");
 static_assert(offsetof(overlume::GeoAnchor, heading_rad) == 16,
+              "GeoAnchor layout, ADR-0004 additive");
+static_assert(offsetof(overlume::GeoAnchor, origin_height_m) == 24,
               "GeoAnchor layout, ADR-0004 additive");
 
 // CameraExtrinsics/CameraIntrinsics/BowlConfig, appended VM-090 (unified-

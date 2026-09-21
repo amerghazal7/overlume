@@ -266,6 +266,39 @@ TEST(ClassifyGeoDatum, ExactlyTwoFiniteIsPartial) {
     EXPECT_EQ(ClassifyGeoDatum(nan, 55.39, 45.0), GeoDatumOverride::Partial);
 }
 
+// ── 2026-09-21 finding: anchor height sampled from NavSatFix altitude ────
+// (docs/status.md item 4) -- GeoAnchorSolver accumulates fix.altitude
+// (skipping NaN) and SolveAnchor's mean feeds anchor().origin_height_m.
+
+TEST(GeoAnchorSolver, SolvedAnchorOriginHeightIsMeanAcceptedAltitude) {
+    tf2_ros::Buffer buffer(std::make_shared<rclcpp::Clock>(RCL_ROS_TIME));
+    GeoAnchorSolver solver(buffer, "map", "base_link");
+
+    // 1.0 m of map-frame movement per sample -- same baseline-clearing
+    // pattern as ReachingMinSamplesWithSufficientBaselineSolves above.
+    ASSERT_LT(kMinAnchorBaselineM, static_cast<double>(kMinAnchorSamples));
+    for (uint32_t i = 0; i < kMinAnchorSamples; ++i) {
+        buffer.setTransform(MapToBaseLink(static_cast<double>(i), 2.0), "test_authority",
+                            /*is_static=*/true);
+        sensor_msgs::msg::NavSatFix fix = Fix(25.08, 55.39);
+        // One NaN altitude mixed in -- must be skipped, not poison the mean.
+        fix.altitude = (i == 0) ? std::numeric_limits<double>::quiet_NaN() : 1.7;
+        solver.on_fix(fix);
+    }
+    ASSERT_TRUE(solver.solved());
+    EXPECT_NEAR(solver.anchor().origin_height_m, 1.7, 1e-9);
+}
+
+TEST(GeoAnchorSolver, ChooseAnchorHeightAppliesOverrideThenOffset) {
+    // The one function both node branches route through (review minor,
+    // 2026-09-21): NaN datum -> sampled + offset; finite datum -> datum +
+    // offset; the override path passes sampled = 0.0.
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    EXPECT_NEAR(overlume::ros::ChooseAnchorHeightM(nan, 1.7, -0.3), 1.4, 1e-12);
+    EXPECT_NEAR(overlume::ros::ChooseAnchorHeightM(25.0, 1.7, -0.3), 24.7, 1e-12);
+    EXPECT_NEAR(overlume::ros::ChooseAnchorHeightM(nan, 0.0, 0.5), 0.5, 1e-12);
+}
+
 TEST(GeoAnchorSolver, PartialGeoDatumNeverAppliedLeavesSolverUnsolved) {
     // Pins "a partial override never becomes an anchor": ClassifyGeoDatum
     // alone doesn't touch the solver, so a caller that (correctly, per the

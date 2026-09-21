@@ -143,9 +143,30 @@ the rendered robot both sit on a flat plane at z=0 — buildings floated below
 the ground. Fixed by rewriting each vertex at load
 (`strip_attributes_and_correct_heights()`, `environment_stream.cpp`): x/y
 stay whatever the rigid transform gives; z is replaced with (WGS84 ellipsoid
-height at that vertex) − (anchor's ellipsoid height, 0.0 by construction —
-matching `bake_environment.py`'s own `wgs_to_map(..., alt_m=0.0)`), computed
-via `CesiumGeospatial::Ellipsoid::WGS84`, never hand-rolled.
+height at that vertex) − `anchor.origin_height_m` (`GeoAnchor`, `scene.h`,
+`kSceneVersion` 7), computed via `CesiumGeospatial::Ellipsoid::WGS84`, never
+hand-rolled.
+
+**2026-09-21 finding, verified live on the real-robot session replay
+(Google 3D Tiles, ion asset 2275207):** the anchor's own ellipsoid height was
+hard-coded 0.0 everywhere (`compute_ecef_to_map()`'s ENU origin and this
+z-correction both), on the assumption the anchor sits exactly on the
+ellipsoid — true in simulation (CARLA) but not on the real robot, where the
+Fixposition NavSatFix altitude at the anchor is ~1.7 m: Google's streamed
+ground rendered ~1.7 m above the road and buried it. Fixed by sampling the
+real height instead of assuming zero: `GeoAnchorSolver` (`geo_anchor.cpp`,
+`ros/src/overlume_ros`) now also accumulates `NavSatFix::altitude` (skipping
+NaN samples) and sets `GeoAnchor::origin_height_m` to their mean. Two node
+params tune it — `geo_datum_height_m` (default NaN = use the sampled mean;
+finite overrides it, including under the `geo_datum_lat_deg`/`lon_deg`/
+`heading_deg` override, which never samples NavSatFix) and
+`geo_anchor_height_offset_m` (default 0.0, always added on top — the trim
+knob for a receiver mounted above the `base_link` plane: its altitude then
+reads h m too high, so enter `-h`). Both are logged in
+the node's `geo-anchor solved` line's `--anchor-height` field.
+`bake_environment.py`'s own `wgs_to_map(..., alt_m=0.0)` is unaffected — the
+baked layer and the flattened robot both live on their own, separate flat
+plane at z=0.
 
 **Delivered accuracy** is bounded by the source geometry, not this formula:
 real tile positions (the committed fixtures and, per `environment_stream.cpp`'s

@@ -216,7 +216,7 @@ TEST(EnvironmentStream, FixtureTilesLoadRenderAsClayAndCount) {
     // probes above.
     double xA = 0, yA = 0, zA = 0;
     ASSERT_TRUE(overlume::testing::ecef_to_map_probe(
-        kFixtureAnchor.origin_lat_deg, kFixtureAnchor.origin_lon_deg, 0.0, 25.114938650000003,
+        kFixtureAnchor.origin_lat_deg, kFixtureAnchor.origin_lon_deg, 0.0, 0.0, 25.114938650000003,
         55.39303970000001, 0.0, &xA, &yA, &zA));
     EXPECT_EQ(settle_count(overlume::Vec3{xA, yA, zA}), 1u)
         << "tile_a (multi-buffer) must load once ego sits inside its own region -- a "
@@ -224,7 +224,7 @@ TEST(EnvironmentStream, FixtureTilesLoadRenderAsClayAndCount) {
 
     double xB = 0, yB = 0, zB = 0;
     ASSERT_TRUE(overlume::testing::ecef_to_map_probe(
-        kFixtureAnchor.origin_lat_deg, kFixtureAnchor.origin_lon_deg, 0.0, 25.127951550000006,
+        kFixtureAnchor.origin_lat_deg, kFixtureAnchor.origin_lon_deg, 0.0, 0.0, 25.127951550000006,
         55.430998900000006, 0.0, &xB, &yB, &zB));
     EXPECT_EQ(settle_count(overlume::Vec3{xB, yB, zB}), 1u)
         << "tile_b (no NORMAL) must load once ego sits inside its own region -- an "
@@ -293,7 +293,7 @@ TEST(EnvironmentStream, NodeMatrixEncodingRendersIdenticallyToEcefEncoding) {
     double targetX = 0, targetY = 0, targetZ = 0;
     ASSERT_TRUE(overlume::testing::ecef_to_map_probe(
         kSessionAnchor.origin_lat_deg, kSessionAnchor.origin_lon_deg, kSessionAnchor.heading_rad,
-        25.080637330000002, 55.38380269000002, 0.0, &targetX, &targetY, &targetZ));
+        0.0, 25.080637330000002, 55.38380269000002, 0.0, &targetX, &targetY, &targetZ));
     overlume::CameraPose pose{
         {targetX + 80, targetY - 120, targetZ + 90}, {targetX, targetY, targetZ}, 60.0};
 
@@ -412,7 +412,7 @@ TEST(EnvironmentStream, EcefToMapAgreesWithCppPinWithinHalfMeter) {
     // itself, so an up-axis/z-scale regression still fails this test.
     for (const Probe& p : probes) {
         double x = 0, y = 0, z = 0;
-        ASSERT_TRUE(overlume::testing::ecef_to_map_probe(25.0803, 55.391, p.heading_rad, p.lat,
+        ASSERT_TRUE(overlume::testing::ecef_to_map_probe(25.0803, 55.391, p.heading_rad, 0.0, p.lat,
                                                          p.lon, 0.0, &x, &y, &z));
         const double err = std::sqrt((x - p.map_x) * (x - p.map_x) + (y - p.map_y) * (y - p.map_y));
         EXPECT_LT(err, 0.5) << "lat=" << p.lat << " lon=" << p.lon << " heading=" << p.heading_rad
@@ -484,8 +484,8 @@ TEST(EnvironmentStream, EllipsoidHeightCorrectionRemovesTangentPlaneSag) {
 
         double zUncorrected = 0.0, zCorrected = 0.0;
         ASSERT_TRUE(overlume::testing::ecef_height_correction_probe(
-            kAnchorLat, kAnchorLon, /*heading_rad=*/0.0, lat, kAnchorLon, /*alt_m=*/0.0,
-            &zUncorrected, &zCorrected));
+            kAnchorLat, kAnchorLon, /*heading_rad=*/0.0, /*origin_height_m=*/0.0, lat, kAnchorLon,
+            /*alt_m=*/0.0, &zUncorrected, &zCorrected));
 
         const double wantSag = -(offset_m * offset_m) / (2.0 * kSphereRadiusM);
         EXPECT_NEAR(zUncorrected, wantSag, 0.05)
@@ -502,6 +502,39 @@ TEST(EnvironmentStream, EllipsoidHeightCorrectionRemovesTangentPlaneSag) {
         EXPECT_NEAR(zCorrected - zUncorrected, -wantSag, 0.05)
             << "offset=" << offset_m << "m: correction should remove exactly the sag amount";
     }
+}
+
+// ── 2026-09-21 finding: anchor height is no longer hard-coded 0.0 ────────
+// (docs/status.md item 4). On the real robot the anchor sits ~1.7 m above
+// the WGS84 ellipsoid (Fixposition NavSatFix altitude); with
+// origin_height_m set to a nonzero anchor height, a point at that SAME
+// altitude must now correct to z=0 (the map plane), not to its old,
+// simulation-only z=0-at-ellipsoid meaning.
+TEST(EnvironmentStream, AnchorHeightShiftsCorrectedZ) {
+    constexpr double kAnchorLat = 25.0803, kAnchorLon = 55.391;
+    constexpr double kOriginHeightM = 25.0;
+
+    double zUncorrected = 0.0, zCorrected = 0.0;
+    ASSERT_TRUE(overlume::testing::ecef_height_correction_probe(
+        kAnchorLat, kAnchorLon, /*heading_rad=*/0.0, kOriginHeightM, kAnchorLat, kAnchorLon,
+        /*alt_m=*/25.0, &zUncorrected, &zCorrected));
+    // Covers compute_ecef_to_map()'s half of the fix (review minor, 2026-09-21):
+    // the rigid transform's ENU origin must sit at origin_height_m, not on the
+    // ellipsoid -- pinned back at 0.0 this reads ~25 m.
+    EXPECT_NEAR(zUncorrected, 0.0, 1e-3)
+        << "the ENU origin must sit at origin_height_m, not on the ellipsoid; got " << zUncorrected;
+    EXPECT_NEAR(zCorrected, 0.0, 1e-3)
+        << "a point at the anchor's own altitude (25.0 m) must correct to z=0 when "
+           "origin_height_m=25.0, got "
+        << zCorrected;
+
+    ASSERT_TRUE(overlume::testing::ecef_height_correction_probe(
+        kAnchorLat, kAnchorLon, /*heading_rad=*/0.0, kOriginHeightM, kAnchorLat, kAnchorLon,
+        /*alt_m=*/30.0, &zUncorrected, &zCorrected));
+    EXPECT_NEAR(zCorrected, 5.0, 1e-3)
+        << "a point 5 m above the anchor's own altitude must correct to z=5.0 when "
+           "origin_height_m=25.0, got "
+        << zCorrected;
 }
 
 // ── Step 4: disk cache proves itself (offline second-run reload) ────────
