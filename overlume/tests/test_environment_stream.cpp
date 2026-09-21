@@ -234,6 +234,124 @@ TEST(EnvironmentStream, FixtureTilesLoadRenderAsClayAndCount) {
     overlume::destroy_renderer(r);
 }
 
+// ── Node-matrix regression: real Google 3D Tiles glbs vs. this generator's
+//    own identity-node convention ──────────────────────────────────────────
+// BUG (diagnosed 2026-09-21 against a real Google tile, ion asset 2275207,
+// over the real-robot session_2026-09-01_13-57-00 geo anchor):
+// strip_attributes_and_correct_heights() (environment_stream.cpp) rewrites
+// every POSITION using ONLY the glTF ROOT transform (modelToEcef passed in
+// from prepareInLoadThread()) -- it never looks at the per-primitive NODE
+// transform gltfio itself applies at render time (ecefToMap_ * glb->transform
+// composed with each node's own matrix). That's invisible against every
+// OTHER committed fixture in this file, because make_tile_fixture.py's usual
+// "ecef" encoding authors absolute-ECEF-scale positions under an IDENTITY
+// node ({"mesh":0}, no matrix) -- exactly the one case where "root transform
+// only" happens to be the whole transform. A real Google glb is not shaped
+// like that: it carries node-LOCAL float32 positions under a real
+// {"mesh":0,"matrix":[...]} node (see make_tile_fixture.py's own
+// --encoding node-matrix comment for the exact matrix), so the root-only
+// rewrite sends its vertices to the wrong ECEF position entirely --
+// symptom: Google tiles render as giant tilted slabs across the sky.
+//
+// The two fixtures below encode the exact SAME synthetic geometry (same
+// seed, same anchor -- the real session's own lat 25.08001258 /
+// lon 55.38847719 / heading 90.1178 deg, not the file's usual
+// kFixtureAnchor), one identity-node ("ecef"), one node-matrix -- a correct
+// pipeline renders them identically (the node-matrix fixture's node matrix
+// exactly reconstructs the ecef fixture's own authored positions, see
+// build_tile_glb()'s comment), so this test renders both and requires a high
+// SSIM between them. On current HEAD this MUST fail: frame B (node-matrix)
+// is the one strip_attributes_and_correct_heights() mis-corrects.
+TEST(EnvironmentStream, NodeMatrixEncodingRendersIdenticallyToEcefEncoding) {
+    const std::string kSessionEcefDir = std::string(OVERLUME_TEST_DATA_DIR) +
+                                        "/tests/fixtures/environment_tiles_fixture_session_ecef_0";
+    const std::string kSessionNodeMatrixDir =
+        std::string(OVERLUME_TEST_DATA_DIR) +
+        "/tests/fixtures/environment_tiles_fixture_session_nodematrix_0";
+    // Real-robot session_2026-09-01_13-57-00's own geo anchor -- the session
+    // fixtures' TILE_REGIONS were shifted to sit around this exact anchor
+    // (make_tile_fixture.py --anchor-lat/--anchor-lon), so kFixtureBlockCenterMap
+    // (the anchor itself, map-frame origin by construction -- same reasoning
+    // as kFixtureAnchor's own PROVENANCE.md note) and FixtureTilesLoadRenderAsClayAndCount
+    // / EnvironmentStreamGolden.FixtureBlock_DarkAdas's own pose both carry
+    // over unchanged: the geometry is anchor-relative, so shifting the
+    // anchor by the same delta as the regions leaves every map-frame
+    // position (ego, camera, tile footprint) exactly where it was.
+    const overlume::GeoAnchor kSessionAnchor{25.08001258, 55.38847719, 90.1178 * M_PI / 180.0};
+    // Framed on tile_root's own region-center map position -- NOT a
+    // hardcoded literal like EnvironmentStreamGolden.FixtureBlock_DarkAdas's
+    // own pose (measured from a heading=0 anchor): this fixture's heading is
+    // 90.1178 deg, which rotates the ENU->map basis, so a heading=0-derived
+    // camera offset would no longer point at the buildings at all. Computed
+    // via the SAME ecef_to_map_probe() hook / literal-midpoint convention
+    // the tile_a/tile_b probes above use (region center lat/lon retyped from
+    // make_tile_fixture.py's own shifted TILE_REGIONS, not re-derived here),
+    // then offset by the SAME relative vector FixtureBlock_DarkAdas's own
+    // pose uses relative to ITS target ((149,352,90) - (69,472,0)) -- a
+    // fixed map-frame offset, so it stays a sane framing distance regardless
+    // of which way heading rotated the target.
+    double targetX = 0, targetY = 0, targetZ = 0;
+    ASSERT_TRUE(overlume::testing::ecef_to_map_probe(
+        kSessionAnchor.origin_lat_deg, kSessionAnchor.origin_lon_deg, kSessionAnchor.heading_rad,
+        25.080637330000002, 55.38380269000002, 0.0, &targetX, &targetY, &targetZ));
+    overlume::CameraPose pose{
+        {targetX + 80, targetY - 120, targetZ + 90}, {targetX, targetY, targetZ}, 60.0};
+
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+
+    // Frame A: identity-node ("ecef") encoding -- this generator's usual
+    // convention, unaffected by the bug above.
+    auto* rA = overlume::create_renderer(cfg);
+    if (!rA) GTEST_SKIP() << "no GPU/EGL";
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(rA, kSessionEcefDir.c_str(),
+                                                                    kSessionAnchor));
+    overlume::SceneGraph sA{};
+    sA.ego.valid = 1;
+    sA.ego.position = kFixtureBlockCenterMap;
+    overlume::set_scene(rA, sA);
+    std::vector<uint8_t> bufA(320u * 240u * 3u);
+    ASSERT_GT(pump_until_loaded(rA, pose, bufA), 0u)
+        << "session_ecef fixture must load from its own (shifted) anchor's block center";
+    for (int i = 0; i < 60; ++i) overlume::render_frame(rA, pose, {bufA.data(), 320, 240});
+    // Manual visual-confidence artifact only -- the returned SSIM is
+    // discarded (there is no golden at this path by construction); this
+    // call's only job is writing frame A out so frame B can be compared
+    // against it below, same "compare-against-a-just-captured-frame"
+    // idiom EnvironmentStreamPerf.GooglePresetLiveRenderMsDeltaVsOsmClay's
+    // own pump_live() uses.
+    overlume::testing::render_and_compare(rA, pose, "/nonexistent_no_golden.png",
+                                          "/tmp/environment_stream_session_ecef_actual.png");
+    overlume::destroy_renderer(rA);
+
+    // Frame B: the SAME synthetic geometry, node-matrix encoded (Google's
+    // own convention) -- fresh renderer to swap sources, same pattern
+    // DiskCacheServesTilesWithNetworkDead / FixtureBlock_DarkAdas use.
+    auto* rB = overlume::create_renderer(cfg);
+    if (!rB) GTEST_SKIP() << "no GPU/EGL";
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(
+        rB, kSessionNodeMatrixDir.c_str(), kSessionAnchor));
+    overlume::SceneGraph sB{};
+    sB.ego.valid = 1;
+    sB.ego.position = kFixtureBlockCenterMap;
+    overlume::set_scene(rB, sB);
+    std::vector<uint8_t> bufB(320u * 240u * 3u);
+    ASSERT_GT(pump_until_loaded(rB, pose, bufB), 0u)
+        << "session_nodematrix fixture must load too -- loading doesn't inspect vertex "
+           "correctness, only the render below can see the mis-corrected positions";
+    for (int i = 0; i < 60; ++i) overlume::render_frame(rB, pose, {bufB.data(), 320, 240});
+
+    const double ssim = overlume::testing::render_and_compare(
+        rB, pose, "/tmp/environment_stream_session_ecef_actual.png",
+        "/tmp/environment_stream_session_nodematrix_actual.png");
+    EXPECT_GE(ssim, 0.97)
+        << "node-matrix-encoded tiles (Google's own convention) must render identically to "
+           "the SAME geometry's identity-node encoding -- strip_attributes_and_correct_heights() "
+           "ignoring the primitive's own node transform sends node-matrix vertices to the wrong "
+           "ECEF position (root-transform-only correction), got ssim="
+        << ssim;
+    overlume::destroy_renderer(rB);
+}
+
 // ── Step 3: geo placement cross-pin (Epic 4's committed pin fixture) ─────
 // Same truth table as test_geo_anchor.cpp's own cross-language pin, applied
 // to the STREAMING transform chain (ecef_to_map * wgs_to_ecef) instead of

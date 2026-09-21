@@ -303,7 +303,11 @@ glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor);
 // (environment_stream.cpp, per real glTF vertex at tile load) and the
 // `ecef_height_correction_probe()` test hook call this SAME function --
 // gate round 1 minor finding: the two must not be independently-typed
-// formulas that can silently drift apart.
+// formulas that can silently drift apart. This function only ever sees an
+// already-ECEF point, so it is unaffected by the 2026-09-21 Google finding
+// (glTF node-local positions under a per-primitive node transform, see
+// strip_attributes_and_correct_heights()'s own comment) -- getting the
+// point INTO ECEF correctly is the caller's job, not this one's.
 glm::dvec3 correct_ecef_point_height(const glm::dvec3& ecef_pos, const glm::dmat4& ecef_to_map);
 
 class StreamingEnvironmentSource : public EnvironmentSource {

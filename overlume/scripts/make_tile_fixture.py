@@ -76,7 +76,25 @@ Pass an output root as argv[1] to write the fixtures somewhere other than
 this repo's own tests/fixtures/ (e.g. a scratch tree, to verify
 determinism by diffing two independent runs):
     python3 overlume/scripts/make_tile_fixture.py [output_root]
+
+CLI options (all optional; the no-argument invocation above is unchanged and
+must keep reproducing environment_tiles_fixture_0 / _fallback_0
+byte-identically):
+    --encoding {ecef,node-matrix}  default ecef. node-matrix authors
+        node-LOCAL positions under a real glTF node {mesh, matrix} (Google's
+        own 3D Tiles convention) instead of this generator's usual
+        absolute-ECEF-scale positions under an identity node -- see
+        build_tile_glb()'s own comment for the exact math.
+    --anchor-lat / --anchor-lon    default the implicit anchor every
+        TILE_REGION below is already built around (DEFAULT_ANCHOR_LAT_DEG /
+        DEFAULT_ANCHOR_LON_DEG). Shifting either translates every
+        TILE_REGION (and the tileset root region) by the same lat/lon delta.
+    --name          fixture directory base name (default
+        environment_tiles_fixture_0). The fallback dir's own name is derived
+        from this (see fallback_dir_name()).
+    --no-fallback   skip the 16-tile fallback fixture dir entirely.
 """
+import argparse
 import base64
 import json
 import math
@@ -125,6 +143,19 @@ def ecef_to_authored(ecef):
     """Inverse of CesiumGeometry::Transforms::Y_UP_TO_Z_UP, see module doc."""
     x, y, z = ecef
     return (x, z, -y)
+
+
+def apply_node_matrix_rotation_transpose(v):
+    """R^T for the node-matrix encoding's R = [[1,0,0],[0,0,1],[0,-1,0]] (the
+    3x3 upper-left of the {"matrix":[1,0,0,0, 0,0,-1,0, 0,1,0,0, tx,ty,tz,1]}
+    node build_tile_glb() emits for --encoding node-matrix, column-major per
+    the glTF spec). R is a pure axis-swap (orthogonal, no scale), so
+    R^T == R^-1 -- this is what turns an authored (world-frame, identity-node
+    convention) vector into the node-LOCAL vector a real node matrix expects,
+    same direction ecef_to_authored() above already goes in for the
+    Y_UP_TO_Z_UP fixed rotation."""
+    x, y, z = v
+    return (x, -z, y)
 
 
 # ---- Synthetic building geometry (local ENU offsets from a tile's own
@@ -213,23 +244,45 @@ def build_glb(gltf_json, bin_chunk):
     return out
 
 
-def build_tile_glb(ecef_center, include_normal, multi_buffer, seed, include_batchid=False):
+def build_tile_glb(ecef_center, include_normal, multi_buffer, seed, include_batchid=False,
+                    encoding="ecef"):
     """One tile's GLB: a single mesh primitive combining every synthetic
     building's geometry, positions authored per the module doc's
     Y-UP_TO_Z_UP inverse so cesium-native's fixed up-axis conversion lands
-    them at their true ECEF position."""
+    them at their true ECEF position.
+
+    `encoding="ecef"` (default): identity node ({"mesh": 0}), POSITION is the
+    authored value directly -- this generator's original convention.
+
+    `encoding="node-matrix"`: mimics a real Google 3D Tiles glb -- the node
+    is {"mesh":0, "matrix":[1,0,0,0, 0,0,-1,0, 0,1,0,0, tx,ty,tz,1]}
+    (column-major, R = the fixed axis-swap 3x3, t = the tile center in the
+    SAME authored Y-up frame the ecef encoding authors every vertex in), and
+    each POSITION is node-LOCAL: R^T @ (p_authored - t) (R orthogonal, so
+    R^T == R^-1 -- applying the node matrix back at render time exactly
+    reconstructs p_authored, so a correct consumer renders this identically
+    to the ecef encoding). Normals are rotated by R^T too (no translation).
+    """
     verts_enu, normals_enu, tris = generate_tile_geometry(seed=seed)
     lat = math.asin(ecef_center[2] / math.sqrt(sum(c * c for c in ecef_center)))
     lon = math.atan2(ecef_center[1], ecef_center[0])
     east, north, up = enu_basis(lat, lon)
+    t_authored = ecef_to_authored(ecef_center)
 
     positions = []
     normals = []
     for (ex, ny, uz), (nex, nny, nuz) in zip(verts_enu, normals_enu):
         vertex_ecef = add(ecef_center, scale(east, ex), scale(north, ny), scale(up, uz))
-        positions.append(ecef_to_authored(vertex_ecef))
+        p_authored = ecef_to_authored(vertex_ecef)
         normal_ecef = add(scale(east, nex), scale(north, nny), scale(up, nuz))
-        normals.append(ecef_to_authored(normal_ecef))
+        normal_authored = ecef_to_authored(normal_ecef)
+        if encoding == "node-matrix":
+            d = tuple(a - b for a, b in zip(p_authored, t_authored))
+            positions.append(apply_node_matrix_rotation_transpose(d))
+            normals.append(apply_node_matrix_rotation_transpose(normal_authored))
+        else:
+            positions.append(p_authored)
+            normals.append(normal_authored)
     indices = [i for tri in tris for i in tri]
 
     pos_flat = [c for v in positions for c in v]
@@ -321,11 +374,20 @@ def build_tile_glb(ecef_center, include_normal, multi_buffer, seed, include_batc
     if batchid_accessor is not None:
         attributes["_BATCHID"] = batchid_accessor
 
+    if encoding == "node-matrix":
+        node = {
+            "mesh": 0,
+            "matrix": [1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0,
+                       t_authored[0], t_authored[1], t_authored[2], 1],
+        }
+    else:
+        node = {"mesh": 0}
+
     gltf = {
         "asset": {"version": "2.0", "generator": "overlume make_tile_fixture.py"},
         "scene": 0,
         "scenes": [{"nodes": [0]}],
-        "nodes": [{"mesh": 0}],
+        "nodes": [node],
         "meshes": [{"primitives": [{
             "attributes": attributes, "indices": index_accessor, "material": 0, "mode": 4,
         }]}],
@@ -377,13 +439,39 @@ TILE_REGIONS = {
                0.4386812399377695, -8.958795091376492, 39.20705412661656],
 }
 
+# The implicit anchor TILE_REGIONS/ROOT_REGION above are already built
+# around -- test_environment_stream.cpp's own kFixtureAnchor. --anchor-lat/
+# --anchor-lon shift every region by the same lat/lon delta FROM this pair,
+# in radians (region tuples are already radians), leaving each tile's
+# footprint identical relative to the new anchor.
+DEFAULT_ANCHOR_LAT_DEG = 25.0803
+DEFAULT_ANCHOR_LON_DEG = 55.3910
 
-def write_tileset(path, children):
+
+def shift_region(region, dlat_rad, dlon_rad):
+    """region = [west, south, east, north, min_h, max_h] in radians (west/
+    east are longitude, south/north latitude, per geodetic_to_ecef()'s own
+    convention) -- translate the whole box by a fixed lat/lon delta."""
+    west, south, east, north, min_h, max_h = region
+    return [west + dlon_rad, south + dlat_rad, east + dlon_rad, north + dlat_rad, min_h, max_h]
+
+
+def fallback_dir_name(name):
+    """environment_tiles_fixture_0 -> environment_tiles_fixture_fallback_0
+    (insert "fallback_" before a trailing numeric suffix, same shape as the
+    committed pair); any other name gets a plain "_fallback" suffix."""
+    base, sep, suffix = name.rpartition("_")
+    if sep and suffix.isdigit():
+        return base + "_fallback_" + suffix
+    return name + "_fallback"
+
+
+def write_tileset(path, root_region, children):
     tileset = {
         "asset": {"version": "1.0"},
         "geometricError": ROOT_GEOMETRIC_ERROR,
         "root": {
-            "boundingVolume": {"region": ROOT_REGION},
+            "boundingVolume": {"region": root_region},
             "geometricError": ROOT_GEOMETRIC_ERROR,
             "refine": "ADD",
             "children": children,
@@ -494,17 +582,117 @@ own PROVENANCE.md.
 No token, no network, no third-party data anywhere in this directory.
 """
 
+PROVENANCE_GENERIC = """# {name} provenance
+
+Synthesized entirely by `overlume/scripts/make_tile_fixture.py` -- nothing in
+this directory is fetched from Cesium ion, OpenStreetMap, or any other
+service. Every `.b3dm` byte is generated locally from the WGS84 ellipsoid
+plus this file's own fixed-seed RNG (deterministic; regenerating reproduces
+the same bytes). No token, no network, no third-party data anywhere in this
+directory.
+
+## Regenerate
+
+```
+{cmdline}
+```
+
+Seed: `{seed}` (module constant `SEED`, `make_tile_fixture.py`).
+Encoding: `{encoding}`{encoding_note}
+Anchor: lat {anchor_lat} deg, lon {anchor_lon} deg -- every TILE_REGION
+(and the tileset root region) shifted by the same lat/lon delta from the
+generator's own implicit default anchor ({default_lat} N / {default_lon} E,
+`DEFAULT_ANCHOR_LAT_DEG`/`DEFAULT_ANCHOR_LON_DEG` in `make_tile_fixture.py`),
+same anchor `test_environment_stream.cpp` installs as `GeoAnchor` when
+loading this fixture.
+
+## What's here
+
+- `tileset.json`: a content-less root + 3 children -- `tile_root.b3dm` (the
+  leaf tile whose region contains the anchor), `tile_a.b3dm` (a sibling),
+  `tile_b.b3dm` (a second sibling). Region numbers are
+  `environment_tiles_fixture_0`'s own region numbers, shifted by the anchor
+  delta above (so every tile keeps the same footprint relative to the new
+  anchor). No fallback dir generated for this fixture (`--no-fallback`).
+"""
+
+
+def parse_args(argv):
+    p = argparse.ArgumentParser(
+        description="Generates the synthesized b3dm/tileset.json test fixtures -- see this "
+                    "module's own docstring.")
+    p.add_argument("output_root", nargs="?", default=None,
+                   help="write here instead of this repo's own tests/fixtures/ (e.g. a scratch "
+                        "dir, to verify determinism)")
+    p.add_argument("--encoding", choices=["ecef", "node-matrix"], default="ecef",
+                   help="ecef (default, this generator's original convention): absolute-ECEF-"
+                        "scale authored positions under an identity node. node-matrix: Google-"
+                        "3D-Tiles-style node-LOCAL positions under a {mesh, matrix} node.")
+    p.add_argument("--anchor-lat", type=float, default=DEFAULT_ANCHOR_LAT_DEG,
+                   help="degrees (default %s); shifts every TILE_REGION by the same lat delta "
+                        "from the implicit default anchor" % DEFAULT_ANCHOR_LAT_DEG)
+    p.add_argument("--anchor-lon", type=float, default=DEFAULT_ANCHOR_LON_DEG,
+                   help="degrees (default %s); same, longitude" % DEFAULT_ANCHOR_LON_DEG)
+    p.add_argument("--name", default="environment_tiles_fixture_0",
+                   help="fixture directory base name under tests/fixtures/")
+    p.add_argument("--no-fallback", action="store_true",
+                   help="skip the 16-tile fallback fixture dir")
+    args = p.parse_args(argv)
+    _validate_args(p, args)
+    return args
+
+
+def _cmdline_for_provenance(args):
+    """Reconstructs the argv that produced this run's own fixture, for that
+    fixture's committed PROVENANCE.md -- only the non-default flags, same
+    spirit as argparse's own defaulting (nothing here changes the actual
+    generation, it's just the "how to regenerate this" text)."""
+    parts = ["python3 overlume/scripts/make_tile_fixture.py"]
+    if args.encoding != "ecef":
+        parts.append("--encoding %s" % args.encoding)
+    if args.anchor_lat != DEFAULT_ANCHOR_LAT_DEG:
+        parts.append("--anchor-lat %s" % args.anchor_lat)
+    if args.anchor_lon != DEFAULT_ANCHOR_LON_DEG:
+        parts.append("--anchor-lon %s" % args.anchor_lon)
+    if args.name != "environment_tiles_fixture_0":
+        parts.append("--name %s" % args.name)
+    if args.no_fallback:
+        parts.append("--no-fallback")
+    return " ".join(parts)
+
+
+def _validate_args(p, args):
+    # PROVENANCE_FALLBACK names environment_tiles_fixture_0 throughout, so a
+    # renamed fixture can only be generated without its fallback twin.
+    if args.name != "environment_tiles_fixture_0" and not args.no_fallback:
+        p.error("--name requires --no-fallback (the fallback provenance text is fixture_0-specific)")
+
+
+def _is_default_invocation(args):
+    return (args.encoding == "ecef" and args.anchor_lat == DEFAULT_ANCHOR_LAT_DEG and
+            args.anchor_lon == DEFAULT_ANCHOR_LON_DEG and
+            args.name == "environment_tiles_fixture_0" and not args.no_fallback)
+
 
 def main():
-    # Optional argv[1]: an output root other than this repo's own tree (e.g.
-    # a scratch dir, to verify determinism by diffing two independent runs
-    # without touching the committed fixtures) -- gate round 1 finding 5.
-    root = (os.path.abspath(sys.argv[1]) if len(sys.argv) > 1
+    args = parse_args(sys.argv[1:])
+    # Optional positional output_root: an output root other than this repo's
+    # own tree (e.g. a scratch dir, to verify determinism by diffing two
+    # independent runs without touching the committed fixtures) -- gate
+    # round 1 finding 5.
+    root = (os.path.abspath(args.output_root) if args.output_root
             else os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    main_dir = os.path.join(root, "tests", "fixtures", "environment_tiles_fixture_0")
-    fallback_dir = os.path.join(root, "tests", "fixtures", "environment_tiles_fixture_fallback_0")
+    main_dir = os.path.join(root, "tests", "fixtures", args.name)
     os.makedirs(main_dir, exist_ok=True)
-    os.makedirs(fallback_dir, exist_ok=True)
+    fallback_dir = None
+    if not args.no_fallback:
+        fallback_dir = os.path.join(root, "tests", "fixtures", fallback_dir_name(args.name))
+        os.makedirs(fallback_dir, exist_ok=True)
+
+    dlat = math.radians(args.anchor_lat - DEFAULT_ANCHOR_LAT_DEG)
+    dlon = math.radians(args.anchor_lon - DEFAULT_ANCHOR_LON_DEG)
+    regions = {name: shift_region(r, dlat, dlon) for name, r in TILE_REGIONS.items()}
+    shifted_root_region = shift_region(ROOT_REGION, dlat, dlon)
 
     tiles = {}
     specs = {
@@ -516,42 +704,58 @@ def main():
                    "include_batchid": False},
     }
     for name, spec in specs.items():
-        region = TILE_REGIONS[name]
+        region = regions[name]
         ecef_center = region_center_ecef(region)
         glb = build_tile_glb(ecef_center, spec["include_normal"], spec["multi_buffer"], spec["seed"],
-                              include_batchid=spec["include_batchid"])
+                              include_batchid=spec["include_batchid"], encoding=args.encoding)
         b3dm = build_b3dm(glb, ecef_center)
         tiles[name] = b3dm
         with open(os.path.join(main_dir, name + ".b3dm"), "wb") as f:
             f.write(b3dm)
 
-    write_tileset(os.path.join(main_dir, "tileset.json"), [
-        child_entry(TILE_REGIONS["tile_root"], "tile_root.b3dm"),
-        child_entry(TILE_REGIONS["tile_a"], "tile_a.b3dm"),
-        child_entry(TILE_REGIONS["tile_b"], "tile_b.b3dm"),
+    write_tileset(os.path.join(main_dir, "tileset.json"), shifted_root_region, [
+        child_entry(regions["tile_root"], "tile_root.b3dm"),
+        child_entry(regions["tile_a"], "tile_a.b3dm"),
+        child_entry(regions["tile_b"], "tile_b.b3dm"),
     ])
     with open(os.path.join(main_dir, "PROVENANCE.md"), "w") as f:
-        f.write(PROVENANCE_MAIN.format(seed=SEED))
+        if _is_default_invocation(args):
+            f.write(PROVENANCE_MAIN.format(seed=SEED))
+        else:
+            encoding_note = (
+                " -- Google-3D-Tiles-style node-LOCAL positions under a "
+                "{mesh, matrix} node (see build_tile_glb()'s own comment)."
+                if args.encoding == "node-matrix" else
+                " -- absolute-ECEF-scale authored positions under an identity node "
+                "(this generator's usual convention).")
+            f.write(PROVENANCE_GENERIC.format(
+                name=args.name, seed=SEED, encoding=args.encoding, encoding_note=encoding_note,
+                anchor_lat=args.anchor_lat, anchor_lon=args.anchor_lon,
+                default_lat=DEFAULT_ANCHOR_LAT_DEG, default_lon=DEFAULT_ANCHOR_LON_DEG,
+                cmdline=_cmdline_for_provenance(args)))
 
-    # Fallback fixture: 16 byte-identical copies of tile_root, all sharing
-    # its own region.
-    root_region = TILE_REGIONS["tile_root"]
-    fallback_children = [child_entry(root_region, "tile_root.b3dm")]
-    with open(os.path.join(fallback_dir, "tile_root.b3dm"), "wb") as f:
-        f.write(tiles["tile_root"])
-    for i in range(1, 16):
-        name = "tile_extra_%d.b3dm" % i
-        with open(os.path.join(fallback_dir, name), "wb") as f:
+    if fallback_dir is not None:
+        # Fallback fixture: 16 byte-identical copies of tile_root, all
+        # sharing its own (shifted) region.
+        root_region = regions["tile_root"]
+        fallback_children = [child_entry(root_region, "tile_root.b3dm")]
+        with open(os.path.join(fallback_dir, "tile_root.b3dm"), "wb") as f:
             f.write(tiles["tile_root"])
-        fallback_children.append(child_entry(root_region, name))
-    write_tileset(os.path.join(fallback_dir, "tileset.json"), fallback_children)
-    with open(os.path.join(fallback_dir, "PROVENANCE.md"), "w") as f:
-        f.write(PROVENANCE_FALLBACK)
+        for i in range(1, 16):
+            name = "tile_extra_%d.b3dm" % i
+            with open(os.path.join(fallback_dir, name), "wb") as f:
+                f.write(tiles["tile_root"])
+            fallback_children.append(child_entry(root_region, name))
+        write_tileset(os.path.join(fallback_dir, "tileset.json"), shifted_root_region,
+                      fallback_children)
+        with open(os.path.join(fallback_dir, "PROVENANCE.md"), "w") as f:
+            f.write(PROVENANCE_FALLBACK)
 
     for name, b3dm in tiles.items():
         print("%s.b3dm: %d bytes" % (name, len(b3dm)))
     print("wrote %s" % main_dir)
-    print("wrote %s" % fallback_dir)
+    if fallback_dir is not None:
+        print("wrote %s" % fallback_dir)
 
 
 if __name__ == "__main__":
