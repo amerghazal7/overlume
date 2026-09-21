@@ -55,7 +55,7 @@ the "how"):
     `_BATCHID` accessor (float32 SCALAR, all zeros) -- the plain/default
     case (also the one duplicated 16x into the fallback fixture). The
     `_BATCHID` attribute is what environment_stream.cpp's own
-    strip_custom_vertex_attributes() strips before gltfio's createAsset()
+    strip_attributes_and_correct_heights() strips before gltfio's createAsset()
     ever sees the primitive (a real committed ion b3dm always carried one;
     a regression in that strip must blank the golden exactly as it would
     against the real tiles this replaces -- gate round 1 finding 1). Only
@@ -273,7 +273,7 @@ def build_tile_glb(ecef_center, include_normal, multi_buffer, seed, include_batc
     if include_batchid:
         # A per-vertex `_BATCHID` (float32 SCALAR, all zeros -- one real
         # value would do, every real b3dm batch table assigns SOME id) so
-        # strip_custom_vertex_attributes() has a real attribute to strip
+        # strip_attributes_and_correct_heights() has a real attribute to strip
         # (gate round 1 finding 1). Appended to buffer 0 alongside
         # POSITION/NORMAL, same as a real b3dm's own layout.
         batchid_bytes = f32_bytes([0.0] * len(positions))
@@ -434,7 +434,7 @@ Seed: `{seed}` (module constant `SEED`, `make_tile_fixture.py`).
   per-vertex `_BATCHID` accessor (float32 SCALAR, all zeros) -- the
   plain/default case (also the tile duplicated 16x into
   `environment_tiles_fixture_fallback_0/`). `_BATCHID` is here so
-  `environment_stream.cpp`'s `strip_custom_vertex_attributes()` (the guard
+  `environment_stream.cpp`'s `strip_attributes_and_correct_heights()` (the guard
   a real committed ion b3dm always needed, since gltfio's `createAsset()`
   rejects any non-core vertex attribute) has a real attribute to strip in
   this fixture too -- a regression there now blanks the golden, exactly as

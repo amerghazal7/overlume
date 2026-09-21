@@ -19,6 +19,7 @@
 #include <CesiumGeometry/Transforms.h>
 #include <CesiumGeospatial/Cartographic.h>
 #include <CesiumGeospatial/Ellipsoid.h>
+#include <CesiumGltf/AccessorWriter.h>
 #include <CesiumGltf/Model.h>
 #include <CesiumGltfWriter/GltfWriter.h>
 
@@ -37,6 +38,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <unordered_set>
 
 #include <unistd.h>  // getpid() -- test_cache_dir()'s per-process key (Linux-only build, fine here)
 
@@ -202,7 +204,73 @@ bool consolidate_buffers(CesiumGltf::Model& model) {
 // starts with `_` (glTF's own "application-specific attribute" prefix
 // convention, so this also covers any `_FEATURE_ID_n` an EXT_mesh_features
 // tile might carry, not just `_BATCHID`).
-void strip_custom_vertex_attributes(CesiumGltf::Model& model) {
+// Open Follow-up 4 (docs/status.md item 4): streamed tiles follow the true
+// WGS84 ellipsoid, but ecefToMap_ is ONE rigid ECEF->map matrix per asset
+// root (Decision 8) -- correct for x/y (the curvature error there is
+// ~d^3/(6R^2), sub-millimetre at 10 km) but its z axis is a flat TANGENT
+// PLANE at the anchor, so a real tile sags ~d^2/(2R) BELOW it at range
+// (0.08 m at 1 km, 0.54 m at 2.6 km, 7.85 m at 10 km -- see
+// EcefToMapAgreesWithCppPinWithinHalfMeter, which pins that exact
+// uncorrected number). The baked chunks (bake_environment.py) and the
+// rendered robot (flatten_z=true) both live on a flat plane at z=0, so
+// uncorrected streamed buildings float below the ground at range.
+//
+// Fixed PER VERTEX here rather than by changing the root transform (which
+// stays the same rigid `ecefToMap_ * modelToEcef` matrix
+// prepareInMainThread always applied): for each vertex, recover its true
+// ECEF position via `modelToEcef` (prepareInLoadThread's own `transform`
+// param, RTC_CENTER + the up-axis fix already folded in -- the exact value
+// the root transform itself premultiplies), convert to geodetic height with
+// the real WGS84 ellipsoid (CesiumGeospatial::Ellipsoid::WGS84, never
+// hand-rolled), and rewrite the vertex so that once the UNCHANGED root
+// transform is applied at render time, z_map lands at (ellipsoid height) -
+// (anchor's ellipsoid height); x/y keep whatever that same rigid transform
+// already produces (`ecefToMap * ecefPos`, read off before the z
+// substitution). The anchor's ellipsoid height is 0.0, not a runtime
+// lookup: compute_ecef_to_map()'s own ENU origin is pinned to
+// Cartographic::fromDegrees(..., 0.0), and bake_environment.py's
+// wgs_to_map() always projects footprints at alt_m=0.0 too (never the
+// anchor's real measured elevation) -- both sides of the streamed-vs-baked
+// seam already assume height 0 at the anchor, so z_map = h - h_anchor
+// collapses to z_map = h.
+//
+// Normals are unaffected to first order: this only translates each vertex
+// along the local up direction by a curvature term that varies negligibly
+// over one building footprint's own extent, so ensure_flat_normals()'s
+// downstream per-face computation (called right after this, on the
+// serialized bytes) stays correct untouched.
+//
+// Deliberately NOT refreshed: the POSITION accessor's declared min/max. gltfio
+// derives the asset/renderable AABB (frustum culling, shadow bounds) from
+// those, so the AABB stays stale by the applied correction -- ~1-3 m on the
+// committed fixtures, ~8 m at 10 km -- far below any tile's own extent; the
+// worst realistic symptom is edge-of-frustum pop-in. Refreshing min/max is
+// also the prerequisite for an ingestion-level readback test through
+// FilamentAsset::getBoundingBox() (deferred, see docs/status.md item 4).
+//
+// Cost: one WGS84 cartesian->cartographic conversion (the "trig
+// conversion") plus two 4x4 matrix-vector products per vertex, once at tile
+// load -- reuses the SAME mesh/primitive traversal this function already
+// walks for the attribute strip below, so no second pass over
+// meshes/primitives is added for the height fix (only the added inner loop
+// over each primitive's own POSITION accessor).
+// Forward-declared: defined further down this same anonymous namespace
+// (RedactingSink's factory). strip_attributes_and_correct_heights() below
+// needs it to log the invalid-accessor case (gate round 1 minor finding).
+std::shared_ptr<spdlog::logger> make_redacting_logger();
+
+void strip_attributes_and_correct_heights(CesiumGltf::Model& model, const glm::dmat4& modelToEcef,
+                                          const glm::dmat4& ecefToMap) {
+    const glm::dmat4 mapToModel = glm::inverse(ecefToMap * modelToEcef);
+    // glTF legally lets two primitives share one POSITION accessor (common
+    // for material-split meshes, each primitive with its own index
+    // accessor into the same vertex buffer). Without this guard, a shared
+    // accessor gets the height correction applied once per primitive that
+    // references it -- the second pass reads back its OWN already-corrected
+    // z, so it moves the vertex a second time (gate round 1 minor finding).
+    // Not reachable by the committed fixtures (verified: one primitive per
+    // mesh, no shared POSITION), so no existing test exercises this guard.
+    std::unordered_set<int32_t> correctedPositionAccessors;
     for (CesiumGltf::Mesh& mesh : model.meshes) {
         for (CesiumGltf::MeshPrimitive& prim : mesh.primitives) {
             for (auto it = prim.attributes.begin(); it != prim.attributes.end();) {
@@ -211,6 +279,39 @@ void strip_custom_vertex_attributes(CesiumGltf::Model& model) {
                 } else {
                     ++it;
                 }
+            }
+            const auto posIt = prim.attributes.find("POSITION");
+            if (posIt == prim.attributes.end()) continue;
+            if (!correctedPositionAccessors.insert(posIt->second).second) continue;
+            CesiumGltf::AccessorWriter<glm::vec3> pos(model, posIt->second);
+            if (pos.status() != CesiumGltf::AccessorViewStatus::Valid) {
+                // KHR_mesh_quantization / meshopt-compressed POSITION (not a
+                // plain float32 VEC3) -- this pass can't rewrite it, so the
+                // tile is silently left on the sagged tangent plane. Log
+                // once so a quantized tileset is diagnosable rather than
+                // just floating below the ground with no trace -- once per
+                // process (a quantized tileset would otherwise emit one line
+                // per primitive per tile at streaming rate).
+                static std::once_flag quantizedWarnOnce;
+                std::call_once(quantizedWarnOnce, [&] {
+                    make_redacting_logger()->warn(
+                        "strip_attributes_and_correct_heights: POSITION accessor {} is not a "
+                        "valid float32 VEC3 (status {}); height correction skipped, tile may "
+                        "sag (further occurrences not logged)",
+                        posIt->second, static_cast<int>(pos.status()));
+                });
+                continue;
+            }
+            for (int64_t i = 0; i < pos.size(); ++i) {
+                glm::vec3& p = pos[i];
+                const glm::dvec4 ecefPos = modelToEcef * glm::dvec4(glm::dvec3(p), 1.0);
+                // Shared with ecef_height_correction_probe() (gate round 1
+                // minor finding: the two must call one formula, not carry
+                // independently-typed copies that can drift apart).
+                const glm::dvec3 newMapPos =
+                    correct_ecef_point_height(glm::dvec3(ecefPos), ecefToMap);
+                const glm::dvec4 newModelPos = mapToModel * glm::dvec4(newMapPos, 1.0);
+                p = glm::vec3(newModelPos);
             }
         }
     }
@@ -486,6 +587,24 @@ glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor) {
     return rot * sphereScale * ecefToEnu;
 }
 
+// Open Follow-up 4 (docs/status.md item 4): see this function's own
+// declaration comment in environment_stream.hpp. x/y are whatever the rigid
+// `ecefToMap` transform already gives (unchanged, curvature error
+// sub-millimetre at 10 km); z is replaced with `ecefPos`'s own WGS84
+// ellipsoid height minus the anchor's (0.0 by construction: compute_ecef_to_map()'s
+// ENU origin above is pinned to `fromDegrees(..., 0.0)`, and
+// bake_environment.py's wgs_to_map() always projects at alt_m=0.0 too --
+// both sides of the streamed-vs-baked seam already assume height 0 at the
+// anchor).
+glm::dvec3 correct_ecef_point_height(const glm::dvec3& ecef_pos, const glm::dmat4& ecef_to_map) {
+    const glm::dvec4 oldMapPos = ecef_to_map * glm::dvec4(ecef_pos, 1.0);
+    const auto carto = CesiumGeospatial::Ellipsoid::WGS84.cartesianToCartographic(ecef_pos);
+    // Empty only at the Earth's center (never a real tile vertex) -- fall
+    // back to the old (sagged) z rather than fabricate one.
+    const double zMap = carto.has_value() ? carto->height : oldMapPos.z;
+    return glm::dvec3(oldMapPos.x, oldMapPos.y, zMap);
+}
+
 // ── FileFixtureAssetAccessor (Decision 13; test-only) ────────────────────
 namespace {
 
@@ -605,7 +724,7 @@ StreamRendererResources::prepareInLoadThread(
         // (verified at implementation) -- consolidate before writeGlb,
         // whose own single-buffer GLB-chunk contract requires exactly one.
         if (consolidate_buffers(*model)) {
-            strip_custom_vertex_attributes(*model);
+            strip_attributes_and_correct_heights(*model, pGlb->transform, ecefToMap_);
             const auto& bufData = model->buffers[0].cesium.data;
             CesiumGltfWriter::GltfWriter writer;
             const CesiumGltfWriter::GltfWriterResult res =
@@ -688,11 +807,16 @@ void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile&
         rm.setReceiveShadows(inst, true);
     }
 
-    // Geo placement (Decision 8): one root-entity transform, no per-vertex
-    // math. `glb->transform` (captured in prepareInLoadThread, NOT
-    // tile.getTransform() -- see LoadThreadGlb's own comment) is this
-    // content's local-to-ECEF transform, RTC_CENTER included; ecefToMap_
-    // was computed once at open().
+    // Geo placement (Decision 8): one root-entity transform. `glb->transform`
+    // (captured in prepareInLoadThread, NOT tile.getTransform() -- see
+    // LoadThreadGlb's own comment) is this content's local-to-ECEF
+    // transform, RTC_CENTER included; ecefToMap_ was computed once at
+    // open(). x/y placement is exactly this one rigid matrix, no per-vertex
+    // math; z is NOT (Open Follow-up 4) -- strip_attributes_and_correct_heights()
+    // already rewrote each vertex's position, back in prepareInLoadThread,
+    // so that applying this SAME unchanged transform lands z on the true
+    // WGS84 ellipsoid height rather than the tangent-plane sag. See that
+    // function's own comment for the math.
     filament::TransformManager& tm = r_->engine->getTransformManager();
     const auto tinst = tm.getInstance(asset->getRoot());
     if (tinst.isValid()) {
@@ -1251,6 +1375,32 @@ bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double head
     if (out_x) *out_x = mapPt.x;
     if (out_y) *out_y = mapPt.y;
     if (out_z) *out_z = mapPt.z;
+    return true;
+}
+
+bool ecef_height_correction_probe(double origin_lat_deg, double origin_lon_deg, double heading_rad,
+                                  double lat_deg, double lon_deg, double alt_m,
+                                  double* out_z_uncorrected, double* out_z_corrected) {
+    const overlume::GeoAnchor anchor{origin_lat_deg, origin_lon_deg, heading_rad};
+    const glm::dmat4 ecefToMap = overlume::compute_ecef_to_map(anchor);
+    const CesiumGeospatial::Cartographic carto =
+        CesiumGeospatial::Cartographic::fromDegrees(lon_deg, lat_deg, alt_m);
+    const glm::dvec3 ecef = CesiumGeospatial::Ellipsoid::WGS84.cartographicToCartesian(carto);
+    const glm::dvec4 oldMapPt = ecefToMap * glm::dvec4(ecef, 1.0);
+    if (out_z_uncorrected) *out_z_uncorrected = oldMapPt.z;
+    if (out_z_corrected) {
+        // Gate round 1 major finding: this must call the SAME function
+        // strip_attributes_and_correct_heights() calls per real vertex
+        // (correct_ecef_point_height(), environment_stream.hpp), not an
+        // independently-typed copy of its formula -- a bug in one is now a
+        // bug in both. This still only exercises the z-correction FORMULA,
+        // not the accessor-rewrite mechanics (matrix order, float32 store,
+        // shared-accessor dedup) -- those remain covered only by the golden
+        // test, not by this pure-math probe or any ctest assertion; see
+        // docs/status.md item 4's own note on why the ingestion-level
+        // FilamentAsset readback was not added.
+        *out_z_corrected = overlume::correct_ecef_point_height(ecef, ecefToMap).z;
+    }
     return true;
 }
 
