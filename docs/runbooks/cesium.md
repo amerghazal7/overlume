@@ -158,6 +158,24 @@ doubles (see `docs/status.md` item 4 for the measured per-tile numbers).
 Sub-decimetre accuracy at range would need tile positions rebased to a local
 origin (RTC-style) before the float32 store, not a further per-vertex tweak.
 
+**Node transforms are part of the vertex-to-ECEF map.** The formula above
+recovers a vertex's ECEF position as `modelToEcef * p`, which only holds when
+a mesh sits directly under the glTF root with an identity node transform —
+true of the committed synthesized fixtures but not of real Google 3D Tiles
+glbs (ion asset 2275207), which carry `scenes:[{nodes:[0]}]`,
+`nodes:[{matrix:[...axis swap..., tx,ty,tz,1], mesh:0}]` (translation ~2.4e6
+m) and node-LOCAL float32 positions. `strip_attributes_and_correct_heights()`
+now walks primitives via `CesiumGltf::Model::forEachPrimitiveInScene(-1, …)`
+and corrects each one against `modelToEcef * nodeTransform`, matching how
+gltfio itself places the mesh at render time. The regression is pinned by
+`EnvironmentStream.NodeMatrixEncodingRendersIdenticallyToEcefEncoding`
+(fixtures `environment_tiles_fixture_session_{ecef,nodematrix}_0`): the same
+geometry encoded identity-node (absolute ECEF) vs. node-matrix (Google's own
+convention) must render to the same frame. Before the fix, ignoring the node
+transform sent node-matrix vertices to the wrong ECEF position entirely —
+symptom: the tile renders as one giant tilted slab across the sky, not a mere
+height sag.
+
 ## 6. Google Photorealistic 3D Tiles (VM-064)
 
 A textured, photorealistic mesh, not clay — `default_params.yaml`'s

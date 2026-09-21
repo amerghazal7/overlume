@@ -218,21 +218,34 @@ bool consolidate_buffers(CesiumGltf::Model& model) {
 // Fixed PER VERTEX here rather than by changing the root transform (which
 // stays the same rigid `ecefToMap_ * modelToEcef` matrix
 // prepareInMainThread always applied): for each vertex, recover its true
-// ECEF position via `modelToEcef` (prepareInLoadThread's own `transform`
-// param, RTC_CENTER + the up-axis fix already folded in -- the exact value
-// the root transform itself premultiplies), convert to geodetic height with
-// the real WGS84 ellipsoid (CesiumGeospatial::Ellipsoid::WGS84, never
-// hand-rolled), and rewrite the vertex so that once the UNCHANGED root
-// transform is applied at render time, z_map lands at (ellipsoid height) -
-// (anchor's ellipsoid height); x/y keep whatever that same rigid transform
-// already produces (`ecefToMap * ecefPos`, read off before the z
-// substitution). The anchor's ellipsoid height is 0.0, not a runtime
-// lookup: compute_ecef_to_map()'s own ENU origin is pinned to
-// Cartographic::fromDegrees(..., 0.0), and bake_environment.py's
-// wgs_to_map() always projects footprints at alt_m=0.0 too (never the
-// anchor's real measured elevation) -- both sides of the streamed-vs-baked
-// seam already assume height 0 at the anchor, so z_map = h - h_anchor
-// collapses to z_map = h.
+// ECEF position and rewrite it so that once the UNCHANGED root transform is
+// applied at render time, z_map lands at (ellipsoid height) - (anchor's
+// ellipsoid height); x/y keep whatever that same rigid transform already
+// produces (`ecefToMap * ecefPos`, read off before the z substitution). The
+// anchor's ellipsoid height is 0.0, not a runtime lookup: compute_ecef_to_map()'s
+// own ENU origin is pinned to Cartographic::fromDegrees(..., 0.0), and
+// bake_environment.py's wgs_to_map() always projects footprints at
+// alt_m=0.0 too (never the anchor's real measured elevation) -- both sides
+// of the streamed-vs-baked seam already assume height 0 at the anchor, so
+// z_map = h - h_anchor collapses to z_map = h.
+//
+// 2026-09-21 Google finding: recovering "true ECEF position" is NOT just
+// `modelToEcef * p` (prepareInLoadThread's own `transform` param, RTC_CENTER
+// + the up-axis fix already folded in). That formula assumes every mesh
+// sits directly under the glTF root with an identity node transform, which
+// the committed synthesized fixtures (make_tile_fixture.py) happen to use
+// (`nodes:[{mesh:0}]`, absolute-ECEF positions) but real Google 3D Tiles
+// glbs (ion asset 2275207) do not: they carry `scenes:[{nodes:[0]}]`,
+// `nodes:[{matrix:[...axis swap..., tx,ty,tz,1], mesh:0}]` with
+// tx,ty,tz ~ millions of metres, and node-LOCAL float32 positions --
+// gltfio applies that node matrix at render time under the root transform
+// (see prepareInMainThread's own comment below), so the per-vertex ECEF
+// recovery must include it too: `localToEcef = modelToEcef * nodeTransform`,
+// per primitive, via `Model::forEachPrimitiveInScene`. Ignoring it (the old
+// root-transform-only correction) sent every vertex of a node-matrix tile
+// to the wrong ECEF position -- symptom: Google tiles rendered as one giant
+// tilted slab across the sky. See
+// EnvironmentStream.NodeMatrixEncodingRendersIdenticallyToEcefEncoding.
 //
 // Normals are unaffected to first order: this only translates each vertex
 // along the local up direction by a curvature term that varies negligibly
@@ -261,16 +274,13 @@ std::shared_ptr<spdlog::logger> make_redacting_logger();
 
 void strip_attributes_and_correct_heights(CesiumGltf::Model& model, const glm::dmat4& modelToEcef,
                                           const glm::dmat4& ecefToMap) {
-    const glm::dmat4 mapToModel = glm::inverse(ecefToMap * modelToEcef);
-    // glTF legally lets two primitives share one POSITION accessor (common
-    // for material-split meshes, each primitive with its own index
-    // accessor into the same vertex buffer). Without this guard, a shared
-    // accessor gets the height correction applied once per primitive that
-    // references it -- the second pass reads back its OWN already-corrected
-    // z, so it moves the vertex a second time (gate round 1 minor finding).
-    // Not reachable by the committed fixtures (verified: one primitive per
-    // mesh, no shared POSITION), so no existing test exercises this guard.
-    std::unordered_set<int32_t> correctedPositionAccessors;
+    // The '_'-prefixed attribute strip runs over ALL meshes, scene-reachable
+    // or not: gltfio rejects unknown attributes even on a mesh no node
+    // references, so this loop stays a plain traversal of model.meshes
+    // rather than moving inside the forEachPrimitiveInScene walk below.
+    // Conversely the height correction below is deliberately scene-scoped: a
+    // mesh no node references is never instantiated by gltfio, so correcting
+    // it would be dead work (review minor, 2026-09-21).
     for (CesiumGltf::Mesh& mesh : model.meshes) {
         for (CesiumGltf::MeshPrimitive& prim : mesh.primitives) {
             for (auto it = prim.attributes.begin(); it != prim.attributes.end();) {
@@ -280,10 +290,37 @@ void strip_attributes_and_correct_heights(CesiumGltf::Model& model, const glm::d
                     ++it;
                 }
             }
+        }
+    }
+
+    // glTF legally lets two primitives share one POSITION accessor (common
+    // for material-split meshes, each primitive with its own index
+    // accessor into the same vertex buffer). Without this guard, a shared
+    // accessor gets the height correction applied once per primitive that
+    // references it -- the second pass reads back its OWN already-corrected
+    // z, so it moves the vertex a second time (gate round 1 minor finding).
+    // Not reachable by the committed fixtures (verified: one primitive per
+    // mesh, no shared POSITION), so no existing test exercises this guard.
+    // NOTE: this also means an accessor shared by two NODES with different
+    // transforms can only be corrected against the first node's transform
+    // -- the second node's own (different) nodeTransform is silently
+    // skipped rather than double-applied. No known real tileset does this
+    // (a shared POSITION accessor under two different node placements), and
+    // no committed fixture exercises it either.
+    std::unordered_set<int32_t> correctedPositionAccessors;
+    model.forEachPrimitiveInScene(
+        -1, [&](CesiumGltf::Model& m, CesiumGltf::Node& /*node*/, CesiumGltf::Mesh& /*mesh*/,
+                CesiumGltf::MeshPrimitive& prim, const glm::dmat4& nodeTransform) {
             const auto posIt = prim.attributes.find("POSITION");
-            if (posIt == prim.attributes.end()) continue;
-            if (!correctedPositionAccessors.insert(posIt->second).second) continue;
-            CesiumGltf::AccessorWriter<glm::vec3> pos(model, posIt->second);
+            if (posIt == prim.attributes.end()) return;
+            if (!correctedPositionAccessors.insert(posIt->second).second) return;
+            // 2026-09-21 Google finding (see this function's own comment
+            // above): a primitive's vertices are node-LOCAL, not
+            // root-local, so the model-to-ECEF map for THIS primitive is
+            // modelToEcef * nodeTransform, not modelToEcef alone.
+            const glm::dmat4 localToEcef = modelToEcef * nodeTransform;
+            const glm::dmat4 mapToLocal = glm::inverse(ecefToMap * localToEcef);
+            CesiumGltf::AccessorWriter<glm::vec3> pos(m, posIt->second);
             if (pos.status() != CesiumGltf::AccessorViewStatus::Valid) {
                 // KHR_mesh_quantization / meshopt-compressed POSITION (not a
                 // plain float32 VEC3) -- this pass can't rewrite it, so the
@@ -300,21 +337,20 @@ void strip_attributes_and_correct_heights(CesiumGltf::Model& model, const glm::d
                         "sag (further occurrences not logged)",
                         posIt->second, static_cast<int>(pos.status()));
                 });
-                continue;
+                return;
             }
             for (int64_t i = 0; i < pos.size(); ++i) {
                 glm::vec3& p = pos[i];
-                const glm::dvec4 ecefPos = modelToEcef * glm::dvec4(glm::dvec3(p), 1.0);
+                const glm::dvec4 ecefPos = localToEcef * glm::dvec4(glm::dvec3(p), 1.0);
                 // Shared with ecef_height_correction_probe() (gate round 1
                 // minor finding: the two must call one formula, not carry
                 // independently-typed copies that can drift apart).
                 const glm::dvec3 newMapPos =
                     correct_ecef_point_height(glm::dvec3(ecefPos), ecefToMap);
-                const glm::dvec4 newModelPos = mapToModel * glm::dvec4(newMapPos, 1.0);
-                p = glm::vec3(newModelPos);
+                const glm::dvec4 newLocalPos = mapToLocal * glm::dvec4(newMapPos, 1.0);
+                p = glm::vec3(newLocalPos);
             }
-        }
-    }
+        });
 }
 
 // ── Finding #0 (blocking, security): cesium-native's own ion-handshake
@@ -815,8 +851,12 @@ void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile&
     // math; z is NOT (Open Follow-up 4) -- strip_attributes_and_correct_heights()
     // already rewrote each vertex's position, back in prepareInLoadThread,
     // so that applying this SAME unchanged transform lands z on the true
-    // WGS84 ellipsoid height rather than the tangent-plane sag. See that
-    // function's own comment for the math.
+    // WGS84 ellipsoid height rather than the tangent-plane sag. That rewrite
+    // is per-PRIMITIVE, not just per-root: gltfio itself applies each
+    // primitive's own glTF node matrix (see the 2026-09-21 Google finding in
+    // that function's own comment) under this root transform, so the
+    // per-vertex correction has to account for the same node matrix or the
+    // two disagree. See that function's own comment for the math.
     filament::TransformManager& tm = r_->engine->getTransformManager();
     const auto tinst = tm.getInstance(asset->getRoot());
     if (tinst.isValid()) {
