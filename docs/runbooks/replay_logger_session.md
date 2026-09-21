@@ -8,6 +8,26 @@ cannot read it; the logger's own `mp_play` replays it onto ROS topics.
 Written 2026-09-18 from the first real-robot session validated this way
 (`session_2026-09-01_13-57-00`, 408 s, 18 topics).
 
+## 0. The one-command version
+
+`tools/validate_logger_session.sh` does §2–§4 for you: it derives the
+player config from the session's own `config/player.yaml`, publishes the
+static transforms from `config/sensors_extrinsic_calib.yaml` (full 4×4 →
+quaternion), waits for the player, runs the validate rig with the `replay`
+profile and `gps_topic`, and optionally arms an environment source once the
+geo anchor solves. Ctrl-C tears everything down.
+
+```bash
+env -u CESIUM_ION_TOKEN bash -lic 'tools/validate_logger_session.sh --arm osm'          # default session
+env -u CESIUM_ION_TOKEN bash -lic 'tools/validate_logger_session.sh ~/session_<stamp> --no-gui'
+```
+
+The session defaults to `$OVERLUME_SESSION`, then
+`~/session_2026-09-01_13-57-00`; `--gps-topic`, `--profile`,
+`--collector-install` and `-- <extra validate args>` override the rest.
+The sections below explain what it does and why, for when a new session
+breaks one of the assumptions.
+
 ## 1. Prerequisites
 
 - The data collector workspace built from CURRENT source

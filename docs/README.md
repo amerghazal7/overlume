@@ -40,7 +40,8 @@ index; `docs/status.md` is the one status ledger.
   unified-engine migration's parity golden packages.
 - [`replay_logger_session.md`](runbooks/replay_logger_session.md) — validate
   against a real-robot Micropilot logger session: `mp_play` config, the static
-  transforms the recorder misses, the `replay` profile, `gps_topic`.
+  transforms the recorder misses, the `replay` profile, `gps_topic`. One
+  command: `tools/validate_logger_session.sh [SESSION_DIR] [--arm osm]`.
 - [`ci_gate.md`](runbooks/ci_gate.md) — what `tools/ci_visual_mode.sh`
   actually runs, what its green does and does not cover, and the
   `viz_benchmark` perf tool.

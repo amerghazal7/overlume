@@ -53,6 +53,7 @@ Library: `overlume/scripts/setup_toolchain_cesium.sh`, then `cmake --toolchain
 "$PWD/overlume/cmake/toolchain-clang-libcxx.cmake" -S overlume -B overlume/build -DOVERLUME_ENABLE_CESIUM=ON
 && cmake --build overlume/build -j`. Node: `ros/colcon_build.sh`.
 Gate: `tools/ci_visual_mode.sh`. Live rig: `tools/validate_visual_mode.sh --live`.
+Logger-session replay (mp_play + static TFs + live rig): `tools/validate_logger_session.sh [SESSION_DIR]`.
 API docs: `cmake --build overlume/build --target docs` (Doxygen; not part of
 the default build) — see `docs/README.md`'s "API documentation" section.
 
