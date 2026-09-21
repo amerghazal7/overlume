@@ -200,6 +200,39 @@ def make_box(cx, cy, sx, sy, h):
     return verts, normals, tris
 
 
+def generate_ground_quad_geometry(half_extent_m=300.0):
+    """One flat quad (two triangles, a single flat 'up' normal), +-
+    half_extent_m around the tile's own ENU origin -- the --ground-height
+    fixture's single tile geometry (no RNG, deterministic; unlike
+    generate_tile_geometry() above this is not a scatter of buildings)."""
+    p = {
+        "00": (-half_extent_m, -half_extent_m, 0.0),
+        "10": (half_extent_m, -half_extent_m, 0.0),
+        "11": (half_extent_m, half_extent_m, 0.0),
+        "01": (-half_extent_m, half_extent_m, 0.0),
+    }
+    corners = ["00", "10", "11", "01"]
+    n = (0.0, 0.0, 1.0)
+    verts = [p[c] for c in corners]
+    normals = [n] * len(corners)
+    tris = [(0, 1, 2), (0, 2, 3)]
+    return verts, normals, tris
+
+
+def ground_quad_region(anchor_lat_rad, anchor_lon_rad, height_m, half_extent_m=300.0):
+    """Bounding region (same [west, south, east, north, min_h, max_h]-in-
+    radians shape as TILE_REGIONS/ROOT_REGION above) covering a
+    +-half_extent_m quad centered on (anchor_lat_rad, anchor_lon_rad) at
+    ellipsoid height height_m. Flat-earth deg/radian approximation
+    (half_extent_m / WGS84_A) -- good enough for a bounding VOLUME on a
+    300 m fixture quad, same precision every other region in this file
+    already assumes."""
+    dlat = half_extent_m / WGS84_A
+    dlon = half_extent_m / (WGS84_A * max(math.cos(anchor_lat_rad), 1e-6))
+    return [anchor_lon_rad - dlon, anchor_lat_rad - dlat, anchor_lon_rad + dlon,
+            anchor_lat_rad + dlat, height_m - 1.0, height_m + 1.0]
+
+
 def generate_tile_geometry(seed, n_buildings=5):
     """Buildings scattered in a plausible city-block footprint (+-40m),
     5-16m footprints, 6-28m tall -- returns (verts_enu, normals_enu, tris)."""
@@ -245,7 +278,7 @@ def build_glb(gltf_json, bin_chunk):
 
 
 def build_tile_glb(ecef_center, include_normal, multi_buffer, seed, include_batchid=False,
-                    encoding="ecef"):
+                    encoding="ecef", geometry=None):
     """One tile's GLB: a single mesh primitive combining every synthetic
     building's geometry, positions authored per the module doc's
     Y-UP_TO_Z_UP inverse so cesium-native's fixed up-axis conversion lands
@@ -263,7 +296,7 @@ def build_tile_glb(ecef_center, include_normal, multi_buffer, seed, include_batc
     reconstructs p_authored, so a correct consumer renders this identically
     to the ecef encoding). Normals are rotated by R^T too (no translation).
     """
-    verts_enu, normals_enu, tris = generate_tile_geometry(seed=seed)
+    verts_enu, normals_enu, tris = geometry if geometry is not None else generate_tile_geometry(seed=seed)
     lat = math.asin(ecef_center[2] / math.sqrt(sum(c * c for c in ecef_center)))
     lon = math.atan2(ecef_center[1], ecef_center[0])
     east, north, up = enu_basis(lat, lon)
@@ -614,7 +647,7 @@ loading this fixture.
   `environment_tiles_fixture_0`'s own region numbers, shifted by the anchor
   delta above (so every tile keeps the same footprint relative to the new
   anchor). No fallback dir generated for this fixture (`--no-fallback`).
-"""
+{ground_height_line}"""
 
 
 def parse_args(argv):
@@ -637,6 +670,11 @@ def parse_args(argv):
                    help="fixture directory base name under tests/fixtures/")
     p.add_argument("--no-fallback", action="store_true",
                    help="skip the 16-tile fallback fixture dir")
+    p.add_argument("--ground-height", type=float, default=None,
+                   help="metres, ellipsoid height (default: none -- no ground tile emitted). "
+                        "When given, emits an extra tile_ground.b3dm: one flat quad (two "
+                        "triangles, a flat normal) spanning +-300m around the anchor at this "
+                        "height, with its own tileset.json region entry.")
     args = p.parse_args(argv)
     _validate_args(p, args)
     return args
@@ -658,6 +696,8 @@ def _cmdline_for_provenance(args):
         parts.append("--name %s" % args.name)
     if args.no_fallback:
         parts.append("--no-fallback")
+    if args.ground_height is not None:
+        parts.append("--ground-height %s" % args.ground_height)
     return " ".join(parts)
 
 
@@ -671,7 +711,8 @@ def _validate_args(p, args):
 def _is_default_invocation(args):
     return (args.encoding == "ecef" and args.anchor_lat == DEFAULT_ANCHOR_LAT_DEG and
             args.anchor_lon == DEFAULT_ANCHOR_LON_DEG and
-            args.name == "environment_tiles_fixture_0" and not args.no_fallback)
+            args.name == "environment_tiles_fixture_0" and not args.no_fallback and
+            args.ground_height is None)
 
 
 def main():
@@ -713,11 +754,40 @@ def main():
         with open(os.path.join(main_dir, name + ".b3dm"), "wb") as f:
             f.write(b3dm)
 
-    write_tileset(os.path.join(main_dir, "tileset.json"), shifted_root_region, [
+    children = [
         child_entry(regions["tile_root"], "tile_root.b3dm"),
         child_entry(regions["tile_a"], "tile_a.b3dm"),
         child_entry(regions["tile_b"], "tile_b.b3dm"),
-    ])
+    ]
+    if args.ground_height is not None:
+        anchor_lat_rad = math.radians(args.anchor_lat)
+        anchor_lon_rad = math.radians(args.anchor_lon)
+        ground_region = ground_quad_region(anchor_lat_rad, anchor_lon_rad, args.ground_height)
+        ground_ecef_center = geodetic_to_ecef(anchor_lat_rad, anchor_lon_rad, args.ground_height)
+        ground_glb = build_tile_glb(ground_ecef_center, include_normal=True, multi_buffer=False,
+                                    seed=SEED, include_batchid=True, encoding=args.encoding,
+                                    geometry=generate_ground_quad_geometry())
+        # RTC_CENTER = (0,0,0), NOT ground_ecef_center like every other
+        # tile's own build_b3dm() call: this tile's authored vertex
+        # positions are already absolute-ECEF (module doc, "Vertex
+        # positions are baked as REAL, absolute ECEF-scale numbers"), and
+        # this generator's own rendering path never reads RTC_CENTER back
+        # out (same doc) -- BUT cesium-native's height-sampling path
+        # (Cesium3DTilesSelection::Tileset::sampleHeightMostDetailed ->
+        # CesiumGltfContent::GltfUtilities::intersectRayGltfModel ->
+        # applyRtcCenter()) DOES fold RTC_CENTER back into the ray-model
+        # transform. A nonzero RTC_CENTER here (as every other tile
+        # authors, for b3dm format realism) would double-translate this
+        # tile's already-absolute geometry away from the query ray,
+        # silently failing every height sample (verified empirically:
+        # sampleSuccess stayed false with 0 warnings until this was zeroed).
+        ground_b3dm = build_b3dm(ground_glb, (0.0, 0.0, 0.0))
+        with open(os.path.join(main_dir, "tile_ground.b3dm"), "wb") as f:
+            f.write(ground_b3dm)
+        children.append(child_entry(ground_region, "tile_ground.b3dm"))
+        print("tile_ground.b3dm: %d bytes" % len(ground_b3dm))
+
+    write_tileset(os.path.join(main_dir, "tileset.json"), shifted_root_region, children)
     with open(os.path.join(main_dir, "PROVENANCE.md"), "w") as f:
         if _is_default_invocation(args):
             f.write(PROVENANCE_MAIN.format(seed=SEED))
@@ -728,11 +798,16 @@ def main():
                 if args.encoding == "node-matrix" else
                 " -- absolute-ECEF-scale authored positions under an identity node "
                 "(this generator's usual convention).")
+            ground_height_line = (
+                "- `tile_ground.b3dm`: a flat quad (two triangles, one flat normal) spanning "
+                "+-300 m around the anchor at ellipsoid height %s m (`--ground-height`), its "
+                "own tileset.json region entry.\n" % args.ground_height
+                if args.ground_height is not None else "")
             f.write(PROVENANCE_GENERIC.format(
                 name=args.name, seed=SEED, encoding=args.encoding, encoding_note=encoding_note,
                 anchor_lat=args.anchor_lat, anchor_lon=args.anchor_lon,
                 default_lat=DEFAULT_ANCHOR_LAT_DEG, default_lon=DEFAULT_ANCHOR_LON_DEG,
-                cmdline=_cmdline_for_provenance(args)))
+                cmdline=_cmdline_for_provenance(args), ground_height_line=ground_height_line))
 
     if fallback_dir is not None:
         # Fallback fixture: 16 byte-identical copies of tile_root, all

@@ -32,7 +32,11 @@
 #include <filament/RenderableManager.h>
 #include <filament/TransformManager.h>
 
+#include <utils/EntityManager.h>
+
+#include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -61,6 +65,11 @@ struct IonSpec {
     // (Google Photorealistic 3D Tiles); "clay"/absent (default) is today's
     // buildingMaterial remap, byte-identical to every pre-VM-064 URI.
     bool materials_original = false;
+    // 2026-09-21 ("option 2"): "on"/"true"/"1" samples Google's own terrain
+    // height under the ego and shifts the streamed environment to meet it;
+    // "off"/"false"/"0"/absent (default) is today's flat-map-frame
+    // behaviour, byte-identical to every pre-existing URI.
+    bool follow_terrain = false;
 };
 
 std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
@@ -112,6 +121,20 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                             "environment_stream: unknown materials='{}' -- treating as clay", val);
                     });
                     out.materials_original = false;
+                }
+            } else if (key == "follow_terrain") {
+                // Unlike materials= (degrades to clay on a bad value), an
+                // unrecognized follow_terrain= value fails the WHOLE parse
+                // -- there is no safe silent default for "did the caller
+                // mean to shift the ground or not", so this is treated the
+                // same as a malformed asset id (return std::nullopt), same
+                // as every other genuinely-required key in this parser.
+                if (val == "on" || val == "true" || val == "1") {
+                    out.follow_terrain = true;
+                } else if (val == "off" || val == "false" || val == "0") {
+                    out.follow_terrain = false;
+                } else {
+                    return std::nullopt;
                 }
             }
         }
@@ -749,7 +772,46 @@ std::shared_ptr<CesiumAsync::IAssetRequest> FileFixtureAssetAccessor::makeReques
         verb, url, std::make_unique<FixtureAssetResponse>(200, std::move(bytes)));
 }
 
+// 2026-09-21 terrain following ("option 2"): shared between
+// StreamingEnvironmentSource and the sampleHeightMostDetailed() continuation
+// it launches, which MUST NOT capture `this` (the source can be destroyed
+// with a sample still in flight -- teardown()/the destructor never wait for
+// it). `in_flight` is the only field the continuation writes; everything
+// else is written only by the source itself, on the main thread.
+struct TerrainFollowState {
+    std::atomic<bool> in_flight{false};
+    std::optional<double> latest_height_m;  // last successfully sampled ellipsoid height
+    double sampled_x = 0.0;                 // ego map-frame x/y the last sample was requested at
+    double sampled_y = 0.0;
+    std::chrono::steady_clock::time_point sampled_at{};
+    bool ever_sampled = false;  // false only before the first sample request of this source's life
+};
+
 // ── StreamRendererResources (Decision 7) ─────────────────────────────────
+void StreamRendererResources::ensure_terrain_root() {
+    if (terrainRoot_ || r_ == nullptr) return;
+    terrainRoot_ = utils::EntityManager::get().create();
+    r_->engine->getTransformManager().create(terrainRoot_);
+}
+
+void StreamRendererResources::set_ground_offset_z(double z) {
+    ensure_terrain_root();
+    if (!terrainRoot_)
+        return;  // no renderer yet -- next prepareInMainThread's ensure_terrain_root() catches up
+    filament::TransformManager& tm = r_->engine->getTransformManager();
+    const auto inst = tm.getInstance(terrainRoot_);
+    if (!inst.isValid()) return;
+    tm.setTransform(inst, filament::math::mat4f::translation(
+                              filament::math::float3{0.0f, 0.0f, static_cast<float>(z)}));
+}
+
+void StreamRendererResources::destroy_terrain_root() {
+    if (!terrainRoot_ || r_ == nullptr) return;
+    r_->engine->destroy(terrainRoot_);
+    utils::EntityManager::get().destroy(terrainRoot_);
+    terrainRoot_ = {};
+}
+
 CesiumAsync::Future<Cesium3DTilesSelection::TileLoadResultAndRenderResources>
 StreamRendererResources::prepareInLoadThread(
     const CesiumAsync::AsyncSystem& asyncSystem,
@@ -880,6 +942,16 @@ void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile&
     const auto tinst = tm.getInstance(asset->getRoot());
     if (tinst.isValid()) {
         tm.setTransform(tinst, to_filament_mat4(ecefToMap_ * glb->transform));
+        // 2026-09-21 terrain following ("option 2"): parent every streamed
+        // asset root under the one shared terrain root so
+        // set_ground_offset_z() moves the whole streamed environment with a
+        // single translation -- AFTER the asset's own placement transform is
+        // set (Filament composes world = parent * child; the terrain root
+        // starts at identity, so this is a no-op until follow_terrain
+        // shifts it).
+        ensure_terrain_root();
+        const auto terrainInst = tm.getInstance(terrainRoot_);
+        if (terrainInst.isValid()) tm.setParent(tinst, terrainInst);
     }
     return asset;
 }
@@ -920,14 +992,15 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
     Cesium3DTilesSelection::TilesetExternals externals, int64_t asset_id,
     std::string ion_access_token, std::string root_tileset_uri, std::string fallback_baked_dir,
     GeoAnchor anchor, std::shared_ptr<CountingAssetAccessor> counting_accessor,
-    bool materials_original)
+    bool materials_original, bool follow_terrain)
     : asyncSystem_(externals.asyncSystem),
       anchor_(anchor),
       ecefToMap_(compute_ecef_to_map(anchor)),
       mapToEcef_(glm::inverse(ecefToMap_)),
       fallbackBakedDir_(std::move(fallback_baked_dir)),
-      countingAccessor_(std::move(counting_accessor)),
-      materialsOriginal_(materials_original) {
+      materialsOriginal_(materials_original),
+      followTerrain_(follow_terrain),
+      countingAccessor_(std::move(counting_accessor)) {
     // GltfConverters' magic-byte dispatch table (b3dm/glTF/cmpt/i3dm/pnts)
     // is empty until this is called once, process-wide -- cesium-native
     // deliberately leaves it to the embedding application (not every
@@ -1017,6 +1090,97 @@ void StreamingEnvironmentSource::fall_back(VisualRenderer& r) {
     // (Decision 11's "no automatic recovery" + "no fallback dir" paths).
 }
 
+void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos) {
+    if (!terrainState_) terrainState_ = std::make_shared<TerrainFollowState>();
+    if (terrainState_->in_flight.load()) return;
+
+    const double dx = ego_map_pos.x - terrainState_->sampled_x;
+    const double dy = ego_map_pos.y - terrainState_->sampled_y;
+    const double movedM = std::sqrt(dx * dx + dy * dy);
+    const double elapsedS =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - terrainState_->sampled_at)
+            .count();
+    if (terrainState_->ever_sampled && movedM < kTerrainSampleMoveThresholdM &&
+        elapsedS < kTerrainSampleIntervalS) {
+        return;
+    }
+
+    const glm::dvec4 sampleEcef4 = mapToEcef_ * glm::dvec4(ego_map_pos.x, ego_map_pos.y, 0.0, 1.0);
+    const std::optional<CesiumGeospatial::Cartographic> carto =
+        CesiumGeospatial::Ellipsoid::WGS84.cartesianToCartographic(glm::dvec3(sampleEcef4));
+    if (!carto.has_value()) return;  // degenerate point (ECEF origin) -- spec §9, never crash
+
+    terrainState_->sampled_x = ego_map_pos.x;
+    terrainState_->sampled_y = ego_map_pos.y;
+    terrainState_->sampled_at = std::chrono::steady_clock::now();
+    terrainState_->ever_sampled = true;
+    terrainState_->in_flight.store(true);
+
+    // Captured BY VALUE, never `this` -- see this method's own declaration
+    // comment (environment_stream.hpp).
+    std::shared_ptr<TerrainFollowState> state = terrainState_;
+    tileset_->sampleHeightMostDetailed(std::vector<CesiumGeospatial::Cartographic>{*carto})
+        .thenInMainThread([state](Cesium3DTilesSelection::SampleHeightResult&& res) {
+            if (!res.sampleSuccess.empty() && res.sampleSuccess[0] && !res.positions.empty()) {
+                state->latest_height_m = res.positions[0].height;
+            }
+            state->in_flight.store(false);
+        })
+        // A rejected future skips the value continuation above; without this
+        // in_flight would stay true for the life of the source and terrain
+        // following would silently freeze (review minor, 2026-09-21).
+        .catchInMainThread([state](std::exception&&) { state->in_flight.store(false); });
+}
+
+// Pure math, factored out of update_ground_offset() below so a plain
+// C++17 test TU can pin it via terrain_ground_offset_probe() (test hooks
+// section, near the end of this file) without a live tileset/renderer --
+// same "pure-math probe" discipline correct_ecef_point_height() documents
+// its own reason for existing. Internal linkage: the probe lives in this TU.
+namespace {
+double terrain_target_offset_z(double sampled_height_m, double anchor_height_m) {
+    return std::clamp(-(sampled_height_m - anchor_height_m), -kTerrainOffsetClampM,
+                      kTerrainOffsetClampM);
+}
+double terrain_smooth_toward(double current, double target, float deltaSeconds) {
+    if (deltaSeconds <= 0.0f) return current;
+    const double alpha =
+        1.0 - std::exp(-static_cast<double>(deltaSeconds) / kTerrainSmoothTimeConstantS);
+    return current + (target - current) * alpha;
+}
+}  // namespace
+
+void StreamingEnvironmentSource::update_ground_offset(float deltaSeconds) {
+    if (!terrainState_ || !terrainState_->latest_height_m.has_value()) return;
+
+    const double target =
+        terrain_target_offset_z(*terrainState_->latest_height_m, anchor_.origin_height_m);
+    if (!groundOffsetSnapped_) {
+        // Snap on the very first sample -- Design item 3 -- so the initial
+        // frame isn't a 0.5 s slide up from a flat-map-frame 0.
+        groundOffsetZ_ = target;
+        groundOffsetSnapped_ = true;
+    } else {
+        groundOffsetZ_ = terrain_smooth_toward(groundOffsetZ_, target, deltaSeconds);
+    }
+
+    if (std::abs(groundOffsetZ_ - lastAppliedGroundOffsetZ_) > 1e-3) {
+        renderResources_->set_ground_offset_z(groundOffsetZ_);
+        lastAppliedGroundOffsetZ_ = groundOffsetZ_;
+    }
+}
+
+double StreamingEnvironmentSource::first_tracked_tile_world_z(VisualRenderer& r) const {
+    if (inScene_.empty() || r.engine == nullptr) return std::nan("");
+    auto* asset =
+        static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(inScene_.begin()->first));
+    if (asset == nullptr) return std::nan("");
+    filament::TransformManager& tm = r.engine->getTransformManager();
+    const auto inst = tm.getInstance(asset->getRoot());
+    if (!inst.isValid()) return std::nan("");
+    return static_cast<double>(tm.getWorldTransform(inst)[3].z);
+}
+
 void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec3 ego_map_pos) {
     using Cesium3DTilesSelection::ViewState;
     using Cesium3DTilesSelection::ViewUpdateResult;
@@ -1041,6 +1205,14 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
         deltaSeconds = std::chrono::duration<float>(now - *lastUpdate_).count();
     }
     lastUpdate_ = now;
+
+    // 2026-09-21 terrain following ("option 2"): SAME deltaSeconds the view
+    // pump just computed above, per Design item 3 -- a no-op on both calls
+    // when followTerrain_ is false.
+    if (followTerrain_) {
+        maybe_trigger_terrain_sample(ego_map_pos);
+        update_ground_offset(deltaSeconds);
+    }
 
     const ViewUpdateResult& result = tileset_->updateViewGroup(*viewGroup_, {view}, deltaSeconds);
     tileset_->loadTiles();  // NOT optional -- without this no tile ever loads (Decision 9).
@@ -1148,6 +1320,10 @@ void StreamingEnvironmentSource::teardown(VisualRenderer& r) {
     // drain of whatever's already queued, using `r` while it's still
     // valid, THEN the flag goes up.
     renderResources_->drain_pending_frees();
+    // 2026-09-21 terrain following: every streamed asset (this terrain
+    // root's children) is gone by this point (step (1)/(2) above) -- safe
+    // to destroy the now-childless root itself, while `r` is still valid.
+    renderResources_->destroy_terrain_root();
     renderResources_->note_torn_down();
     tornDown_ = true;
 }
@@ -1274,7 +1450,7 @@ std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::
 
     return std::make_unique<StreamingEnvironmentSource>(
         externals, spec->asset_id, std::string(token), std::string(), spec->fallback_dir, anchor,
-        std::move(counting), spec->materials_original);
+        std::move(counting), spec->materials_original, spec->follow_terrain);
 }
 
 }  // namespace overlume
@@ -1326,7 +1502,8 @@ std::string test_cache_dir() {
 // `killed` non-null makes the accessor honor kill_fixture_network().
 std::unique_ptr<overlume::EnvironmentSource> make_fixture_source(
     const char* fixture_dir, const char* fallback_baked_dir, overlume::GeoAnchor anchor,
-    std::shared_ptr<std::atomic<bool>> killed, bool materials_original) {
+    std::shared_ptr<std::atomic<bool>> killed, bool materials_original,
+    bool follow_terrain = false) {
     if (fixture_dir == nullptr) return nullptr;
     auto fileAccessor = std::make_shared<overlume::FileFixtureAssetAccessor>(std::move(killed));
     CesiumAsync::AsyncSystem asyncSystem(std::make_shared<overlume::SimpleTaskProcessor>());
@@ -1338,13 +1515,14 @@ std::unique_ptr<overlume::EnvironmentSource> make_fixture_source(
     return std::make_unique<overlume::StreamingEnvironmentSource>(
         externals, /*asset_id=*/0, /*ion_access_token=*/std::string(), tilesetUri,
         fallback_baked_dir ? std::string(fallback_baked_dir) : std::string(), anchor,
-        std::move(counting), materials_original);
+        std::move(counting), materials_original, follow_terrain);
 }
 
 }  // namespace
 
 bool install_fixture_streaming_source(overlume::VisualRenderer* r, const char* fixture_dir,
-                                      overlume::GeoAnchor anchor, bool materials_original) {
+                                      overlume::GeoAnchor anchor, bool materials_original,
+                                      bool follow_terrain) {
     if (r == nullptr) return false;
     // Teardown-THEN-construct (not build-then-swap, unlike
     // set_environment_source()'s general baked/streaming dispatch): two
@@ -1356,7 +1534,7 @@ bool install_fixture_streaming_source(overlume::VisualRenderer* r, const char* f
     // re-entrant-swap contract, so they tear down first.
     if (r->environmentSource) r->environmentSource->teardown(*r);
     auto source = make_fixture_source(fixture_dir, /*fallback_baked_dir=*/nullptr, anchor,
-                                      /*killed=*/nullptr, materials_original);
+                                      /*killed=*/nullptr, materials_original, follow_terrain);
     if (!source) {
         r->environmentSource.reset();
         return false;
@@ -1368,13 +1546,14 @@ bool install_fixture_streaming_source(overlume::VisualRenderer* r, const char* f
 FixtureStreamHandle* install_fixture_streaming_source_with_fallback(overlume::VisualRenderer* r,
                                                                     const char* fixture_dir,
                                                                     const char* fallback_baked_dir,
-                                                                    overlume::GeoAnchor anchor) {
+                                                                    overlume::GeoAnchor anchor,
+                                                                    bool follow_terrain) {
     if (r == nullptr) return nullptr;
     if (r->environmentSource)
         r->environmentSource->teardown(*r);  // see install_fixture_streaming_source's comment
     auto killed = std::make_shared<std::atomic<bool>>(false);
     auto source = make_fixture_source(fixture_dir, fallback_baked_dir, anchor, killed,
-                                      /*materials_original=*/false);
+                                      /*materials_original=*/false, follow_terrain);
     if (!source) {
         r->environmentSource.reset();
         return nullptr;
@@ -1404,6 +1583,26 @@ bool environment_stream_materials_original(overlume::VisualRenderer* r) {
     return stream != nullptr && stream->materials_original();
 }
 
+// 2026-09-21 terrain following ("option 2"): see this hook's own declaration
+// comment (environment_test_hooks.hpp) for the NaN-vs-false null-safety
+// choice.
+double environment_terrain_offset_z(overlume::VisualRenderer* r) {
+    if (r == nullptr || !r->environmentSource) return std::nan("");
+    auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
+    if (stream == nullptr) return std::nan("");
+    return stream->ground_offset_z();
+}
+
+// Gate round 1 finding 1: see this hook's own declaration comment
+// (environment_test_hooks.hpp) for why this reads back the real Filament
+// transform instead of the groundOffsetZ_ bookkeeping variable.
+double environment_terrain_first_tile_world_z(overlume::VisualRenderer* r) {
+    if (r == nullptr || !r->environmentSource) return std::nan("");
+    auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
+    if (stream == nullptr) return std::nan("");
+    return stream->first_tracked_tile_world_z(*r);
+}
+
 // VM-064 gate round 1 finding: exercises the REAL parser (parse_ion_spec(),
 // anonymous namespace above), unlike the hook above which only reads back an
 // already-installed source's flag -- the two Step 0 tests that reach
@@ -1412,6 +1611,18 @@ bool environment_stream_materials_original(overlume::VisualRenderer* r) {
 bool environment_stream_parse_materials_original(const char* ion_spec) {
     const std::optional<IonSpec> spec = parse_ion_spec(ion_spec ? ion_spec : "");
     return spec.has_value() && spec->materials_original;
+}
+
+bool environment_stream_parse_follow_terrain(const char* ion_spec, bool* out_parse_ok) {
+    const std::optional<IonSpec> spec = parse_ion_spec(ion_spec ? ion_spec : "");
+    if (out_parse_ok) *out_parse_ok = spec.has_value();
+    return spec.has_value() && spec->follow_terrain;
+}
+
+double terrain_ground_offset_probe(double sampled_height_m, double anchor_height_m,
+                                   double current_offset_m, float delta_seconds, bool snap) {
+    const double target = overlume::terrain_target_offset_z(sampled_height_m, anchor_height_m);
+    return snap ? target : overlume::terrain_smooth_toward(current_offset_m, target, delta_seconds);
 }
 
 // VM-064 Step 1: see StreamingEnvironmentSource::first_primitive_is_building_material()'s

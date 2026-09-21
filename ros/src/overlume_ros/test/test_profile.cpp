@@ -6,6 +6,8 @@
  */
 #include "overlume_ros/profile.hpp"
 
+#include <cmath>
+
 #include <gtest/gtest.h>
 
 #include "overlume/scene.h"
@@ -327,6 +329,47 @@ TEST(Profile, PointCloudRowRejectsZeroStride) {
     EXPECT_FALSE(p.has_value());
     ASSERT_FALSE(errs.empty());
     EXPECT_NE(errs[0].find("stride"), std::string::npos);
+}
+
+TEST(Profile, PointCloudRowMinZDefaultsToNaN) {
+    std::vector<std::string> errs;
+    auto p = load_profile_string(
+        "name: t\nrows:\n  - {topic: /lidar/points, type: sensor_msgs/msg/PointCloud2,"
+        " adapter: point_cloud, role: points}\n",
+        errs);
+    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
+    EXPECT_TRUE(std::isnan(p->rows[0].min_z_m));
+}
+
+TEST(Profile, PointCloudRowParsesMinZ) {
+    std::vector<std::string> errs;
+    auto p = load_profile_string(
+        "name: t\nrows:\n  - {topic: /lidar/points, type: sensor_msgs/msg/PointCloud2,"
+        " adapter: point_cloud, role: points, min_z_m: 0.2}\n",
+        errs);
+    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
+    EXPECT_DOUBLE_EQ(p->rows[0].min_z_m, 0.2);
+}
+
+TEST(Profile, PointCloudRowRejectsNonNumericMinZ) {
+    std::vector<std::string> errs;
+    auto p = load_profile_string(
+        "name: t\nrows:\n  - {topic: /lidar/points, type: sensor_msgs/msg/PointCloud2,"
+        " adapter: point_cloud, role: points, min_z_m: not_a_number}\n",
+        errs);
+    EXPECT_FALSE(p.has_value());
+    ASSERT_FALSE(errs.empty());
+}
+
+TEST(Profile, MinZIsRejectedOnNonPointCloudRows) {
+    std::vector<std::string> errs;
+    auto p = load_profile_string(
+        "name: t\nrows:\n  - {topic: /planning/path, type: nav_msgs/msg/Path,"
+        " adapter: path, role: local, min_z_m: 0.2}\n",
+        errs);
+    EXPECT_FALSE(p.has_value());
+    ASSERT_FALSE(errs.empty());
+    EXPECT_NE(errs[0].find("min_z_m"), std::string::npos);
 }
 
 TEST(Profile, ColorModeMaxPointsStrideAreRejectedOnNonPointCloudRows) {

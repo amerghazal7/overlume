@@ -39,6 +39,8 @@ static_assert(__cplusplus >= 202002L,
 #include <CesiumAsync/ITaskProcessor.h>
 #include <CesiumGeospatial/LocalHorizontalCoordinateSystem.h>
 
+#include <utils/Entity.h>
+
 #include "environment.hpp"
 #include "overlume/scene.h"
 
@@ -69,6 +71,25 @@ inline constexpr int kNetworkLossConsecutiveFailures = 8;
 // hang destroy_renderer(), and the leak is counted + logged.
 // ponytail: bounded join with a leak-and-log fallback, not a hang.
 inline constexpr int kTeardownPumpBound = 2000;
+
+// ── Terrain following (2026-09-21 maintainer decision, "option 2"): the map
+//    frame is flat (ego z always 0) but real terrain is not -- these tune
+//    how often/how far the ego must move before re-sampling Google's own
+//    terrain height under it, and how the streamed environment's root
+//    entity chases that sample. ──────────────────────────────────────────
+inline constexpr double kTerrainSampleMoveThresholdM =
+    5.0;  // re-sample once ego moves this far (map x/y)
+inline constexpr double kTerrainSampleIntervalS = 2.0;  // or once this much time has passed
+inline constexpr double kTerrainOffsetClampM = 30.0;    // clamp |ground offset| to this many metres
+inline constexpr double kTerrainSmoothTimeConstantS = 0.5;  // first-order smoothing time constant
+
+// Defined in environment_stream.cpp, just above StreamingEnvironmentSource's
+// own terrain-sampling methods -- only forward-declared here so it can be
+// named by a std::shared_ptr<TerrainFollowState> member below (incomplete
+// type is fine for a shared_ptr member; the .cpp TU has the full definition
+// wherever it constructs/destroys one, including this class's own
+// out-of-line, defaulted destructor).
+struct TerrainFollowState;
 
 // ── A minimal fixed-size thread pool ITaskProcessor (Decision 2's "~20
 //    lines"; a std::thread pool, nothing fancier -- ponytail: no work
@@ -265,7 +286,24 @@ public:
     std::vector<filament::gltfio::FilamentAsset*> drain_pending_frees();
     void note_torn_down() { tornDown_.store(true); }
 
+    // 2026-09-21 terrain-following (option 2): every streamed asset root is
+    // parented under this ONE entity (prepareInMainThread(), after the
+    // per-asset placement transform is set) so a single translation here
+    // moves the whole streamed environment. Created lazily -- on the first
+    // prepareInMainThread() call that has an `r_` to create it with --
+    // rather than at StreamRendererResources construction time, since the
+    // Filament engine isn't available yet then. Identity (no-op) until
+    // set_ground_offset_z() is first called, so a follow_terrain=off source
+    // is visually unaffected. Destroyed by destroy_terrain_root(), called
+    // from StreamingEnvironmentSource::teardown() after every streamed
+    // asset (its children) has already been torn down -- same ordering
+    // discipline as the rest of that function.
+    void set_ground_offset_z(double z);
+    void destroy_terrain_root();
+
 private:
+    void ensure_terrain_root();
+
     VisualRenderer* r_ = nullptr;
     glm::dmat4 ecefToMap_;
     double anchorHeightM_ = 0.0;      // 2026-09-21 finding: anchor's own WGS84 ellipsoid height
@@ -273,6 +311,7 @@ private:
     std::mutex freeMutex_;
     std::vector<filament::gltfio::FilamentAsset*> pendingFrees_;
     std::atomic<bool> tornDown_{false};
+    utils::Entity terrainRoot_;  // invalid (default) until ensure_terrain_root()
 };
 
 // Holds the GLB bytes produced in the load thread + parse errors, handed
@@ -351,11 +390,18 @@ public:
     // original-materials mode Google Photorealistic 3D Tiles needs --
     // parsed from the ion:// URI's `materials=` key (production path) or
     // passed directly by the fixture install hook (test path).
+    // `follow_terrain` (2026-09-21, "option 2"): false (default, every
+    // pre-existing call site) keeps the map frame flat, byte-identical to
+    // before -- true samples Google's own terrain height under the ego
+    // (Tileset::sampleHeightMostDetailed) and shifts the whole streamed
+    // environment to meet it. Parsed from the ion:// URI's
+    // `follow_terrain=` key (production path) or passed directly by the
+    // fixture install hook (test path), same shape as `materials_original`.
     StreamingEnvironmentSource(Cesium3DTilesSelection::TilesetExternals externals, int64_t asset_id,
                                std::string ion_access_token, std::string root_tileset_uri,
                                std::string fallback_baked_dir, GeoAnchor anchor,
                                std::shared_ptr<CountingAssetAccessor> counting_accessor,
-                               bool materials_original = false);
+                               bool materials_original = false, bool follow_terrain = false);
     ~StreamingEnvironmentSource() override;
 
     void update(VisualRenderer& r, Vec3 ego_map_pos) override;
@@ -379,8 +425,47 @@ public:
     bool materials_original() const { return materialsOriginal_; }
     bool first_primitive_is_building_material(VisualRenderer& r) const;
 
+    // 2026-09-21 terrain following: current smoothed ground offset (metres,
+    // map-frame +Z), same value last handed to
+    // StreamRendererResources::set_ground_offset_z() (or 0.0 if
+    // follow_terrain is off, or on but no sample has landed yet).
+    double ground_offset_z() const { return groundOffsetZ_; }
+
+    // Gate round 1 finding 1: ground_offset_z() above reads groundOffsetZ_,
+    // a plain double this class keeps updating on its own regardless of
+    // whether renderResources_->set_ground_offset_z() or
+    // tm.setParent(assetRoot, terrainRoot) actually ran -- so a check built
+    // only on ground_offset_z() cannot fail when either of those two lines
+    // is deleted. This instead reads back the REAL Filament transform: the
+    // WORLD-space (post parent-composition) z translation of the first
+    // currently-tracked streamed tile's own root entity. Deleting the
+    // setParent call leaves the asset unparented (world == its own local
+    // placement transform, terrain offset never composes in); deleting
+    // set_ground_offset_z() leaves the terrain root's own transform at
+    // identity forever (world == local too, just via the parent instead).
+    // Either revert makes this value stop moving with groundOffsetZ_. NaN
+    // if `r` has no tracked tile yet (nothing loaded) or its root has no
+    // transform component.
+    double first_tracked_tile_world_z(VisualRenderer& r) const;
+
 private:
     void synthesize_view_and_pump(VisualRenderer& r, Vec3 ego_map_pos);
+    // Issues a new sampleHeightMostDetailed() request when none is already
+    // in flight and the ego has moved/enough time has passed since the last
+    // one (kTerrainSampleMoveThresholdM / kTerrainSampleIntervalS) -- a
+    // no-op unless followTerrain_ is set. The continuation captures
+    // `terrainState_` BY VALUE, never `this`: `this` can be destroyed with
+    // a sample in flight (teardown()/~StreamingEnvironmentSource() do not
+    // wait for it), so the continuation must only touch the shared state,
+    // not the source.
+    void maybe_trigger_terrain_sample(Vec3 ego_map_pos);
+    // Applies first-order smoothing (kTerrainSmoothTimeConstantS) of
+    // groundOffsetZ_ toward the latest sample (clamped to
+    // +-kTerrainOffsetClampM), snapping instead of sliding on the very
+    // first sample; calls renderResources_->set_ground_offset_z() only when
+    // the value actually moved by more than 1e-3 m since the last call. A
+    // no-op unless followTerrain_ is set and a sample has landed.
+    void update_ground_offset(float deltaSeconds);
     // Decision 11 (VM-063): tears down every streamed tile + the tileset
     // itself (via teardown(), the same discipline destroy_renderer() uses),
     // then opens `fallbackBakedDir_` (empty -> no fallback source, tiles
@@ -412,6 +497,13 @@ private:
     // comment.
     std::unordered_map<const void*, bool> inScene_;
     bool visible_ = true;
+
+    // ── 2026-09-21 terrain following ("option 2") ────────────────────────
+    bool followTerrain_ = false;
+    std::shared_ptr<TerrainFollowState> terrainState_;
+    double groundOffsetZ_ = 0.0;             // current smoothed offset (map-frame +Z, metres)
+    double lastAppliedGroundOffsetZ_ = 0.0;  // value last pushed to renderResources_
+    bool groundOffsetSnapped_ = false;  // true once the first sample has snapped groundOffsetZ_
 
     // ── VM-063 (Task 4): fallback state ──────────────────────────────────
     std::shared_ptr<CountingAssetAccessor> countingAccessor_;

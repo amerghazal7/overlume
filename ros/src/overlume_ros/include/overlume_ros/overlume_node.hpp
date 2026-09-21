@@ -459,6 +459,10 @@ private:
     // changed not-configured gate.
     std::string environment_source_uri_;
     std::string environment_tile_cache_dir_;
+    // 2026-09-21 ("option 2"): composed into the ion:// URI as
+    // follow_terrain=on|off (compose_environment_source_uri()); default
+    // true. Read-once, same shape as environment_tile_cache_dir_ above.
+    bool environment_follow_terrain_{true};
     // WARN-once latch on the STREAMING -> STREAMING_FALLBACK transition
     // (Decision 11), polled once per tick in timer_callback() alongside
     // render_ms_ -- same one-shot-bool shape as environment_warned_ above

@@ -205,6 +205,18 @@
     # set this only to override that location (e.g. a different
     # disk/quota on a specific robot). Same '?'/'&' path ceiling as above.
     environment_tile_cache_dir: ""
+    # 2026-09-21 ("option 2", maintainer decision): the map frame is flat
+    # (ego z always 0) but real terrain is not -- true (the shipped
+    # default) samples Google's own terrain height under the ego and
+    # shifts the streamed environment to meet it (composed into the ion://
+    # URI as follow_terrain=on/off, environment_source_uri.hpp); false
+    # keeps the flat map frame. Ignored by a plain baked-chunk directory
+    # URI (no query string to append to). Only observable once
+    # environment_source_uri above is an ion:// preset. Costs extra ion
+    # quota (it pulls the most-detailed tiles under the ego every >=2 s or
+    # 5 m). Read once at configure: a runtime `ros2 param set` applies only
+    # when a preset switch re-composes the URI.
+    environment_follow_terrain: true
     # VM-064 (Epic 6 Task 5): Google Photorealistic 3D Tiles attribution
     # disable knob (STANDING directive) -- on by default, but only actually
     # draws a line while environment_source_uri above is running in

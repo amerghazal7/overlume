@@ -123,6 +123,15 @@ public:
     // Node-side staleness bookkeeping -- same shape as every other adapter.
     void mark_stale_tick() { ++stats_.dropped_stale; }
 
+    // row_.min_z_m road-surface filter (maintainer decision 2026-09-21):
+    // count of points dropped this way, cumulative across every ingest()
+    // call. NOT folded into AdapterStats::dropped_malformed -- those points
+    // are well-formed, just below the configured road plane. Kept as its
+    // own accessor rather than a new AdapterStats field: no other adapter
+    // has a road-plane concept, and overlume_node.cpp's cumulative WARN
+    // line is out of scope for this change.
+    uint64_t dropped_below_min_z() const { return dropped_below_min_z_; }
+
 private:
     ProfileRow row_;
     const overlume::ros::FrameTransformer& tf_;
@@ -131,6 +140,7 @@ private:
     std::vector<overlume::PointCloudPoint> storage_;
     double last_update_sec_{0.0};
     AdapterStats stats_;
+    uint64_t dropped_below_min_z_{0};
 };
 
 }  // namespace overlume::ros

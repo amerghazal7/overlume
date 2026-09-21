@@ -22,14 +22,19 @@ TEST(ComposeEnvironmentSourceUri, EmptySourceUriUsesChunksDirVerbatim) {
     EXPECT_EQ(compose_environment_source_uri("/baked/chunks", "", ""), "/baked/chunks");
 }
 
+// 2026-09-21: compose_environment_source_uri() gained a 4th `follow_terrain`
+// param (default false, see its own header comment) -- every ion:// URI now
+// also gets an explicit follow_terrain=on/off key, so these pre-existing
+// pinned strings (the 3-arg overload omits the new param) grew that key
+// too. See the FollowTerrain* tests below for coverage of the key itself.
 TEST(ComposeEnvironmentSourceUri, PlainIonUriWithCacheDirAppendsCache) {
     EXPECT_EQ(compose_environment_source_uri("", "ion://96188", "/mnt/data/tiles"),
-              "ion://96188?cache=/mnt/data/tiles");
+              "ion://96188?cache=/mnt/data/tiles&follow_terrain=off");
 }
 
 TEST(ComposeEnvironmentSourceUri, ChunksDirFallbackAppendedWhenNotAlreadyPresent) {
     EXPECT_EQ(compose_environment_source_uri("/baked/chunks", "ion://96188", ""),
-              "ion://96188?fallback=/baked/chunks");
+              "ion://96188?fallback=/baked/chunks&follow_terrain=off");
 }
 
 // The actual gate finding: the google preset's URI already carries
@@ -39,14 +44,45 @@ TEST(ComposeEnvironmentSourceUri, ChunksDirFallbackAppendedWhenNotAlreadyPresent
 TEST(ComposeEnvironmentSourceUri, GooglePresetCacheOffSurvivesNonEmptyCacheDirParam) {
     const std::string google_preset_uri = "ion://2275207?materials=original&cache=off";
     EXPECT_EQ(compose_environment_source_uri("", google_preset_uri, "/mnt/data/tiles"),
-              google_preset_uri);
+              google_preset_uri + "&follow_terrain=off");
 }
 
 // Same duplicate-key hazard for fallback=.
 TEST(ComposeEnvironmentSourceUri, ExplicitFallbackInUriSurvivesNonEmptyChunksDir) {
     const std::string uri_with_fallback = "ion://96188?fallback=/explicit/dir";
     EXPECT_EQ(compose_environment_source_uri("/baked/chunks", uri_with_fallback, ""),
-              uri_with_fallback);
+              uri_with_fallback + "&follow_terrain=off");
+}
+
+// 2026-09-21 ("option 2"): follow_terrain=on|off is appended to an ion://
+// URI only, only when absent, and defaults false (every pre-existing call
+// in this file, above, is unaffected by the new 4th param's default).
+TEST(ComposeEnvironmentSourceUri, FollowTerrainAppendedWhenAbsent) {
+    EXPECT_EQ(compose_environment_source_uri("", "ion://96188", "", /*follow_terrain=*/true),
+              "ion://96188?follow_terrain=on");
+    EXPECT_EQ(compose_environment_source_uri("", "ion://96188", "", /*follow_terrain=*/false),
+              "ion://96188?follow_terrain=off");
+}
+
+TEST(ComposeEnvironmentSourceUri, FollowTerrainNotDuplicatedWhenPresent) {
+    const std::string uri_with_follow_terrain = "ion://96188?follow_terrain=off";
+    EXPECT_EQ(compose_environment_source_uri("", uri_with_follow_terrain, "",
+                                             /*follow_terrain=*/true),
+              uri_with_follow_terrain);
+}
+
+TEST(ComposeEnvironmentSourceUri, FollowTerrainNeverAppendedToPlainDirectoryUri) {
+    // environment_source_uri empty -> environment_chunks_dir_ verbatim (a
+    // plain baked-chunk directory, no query string at all) -- true here
+    // must have no effect.
+    EXPECT_EQ(compose_environment_source_uri("/baked/chunks", "", "", /*follow_terrain=*/true),
+              "/baked/chunks");
+}
+
+TEST(ComposeEnvironmentSourceUri, FollowTerrainCombinesWithCacheAndFallback) {
+    EXPECT_EQ(compose_environment_source_uri("/baked/chunks", "ion://96188", "/mnt/data/tiles",
+                                             /*follow_terrain=*/true),
+              "ion://96188?cache=/mnt/data/tiles&fallback=/baked/chunks&follow_terrain=on");
 }
 
 }  // namespace
