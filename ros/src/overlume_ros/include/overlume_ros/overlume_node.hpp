@@ -463,6 +463,11 @@ private:
     // follow_terrain=on|off (compose_environment_source_uri()); default
     // true. Read-once, same shape as environment_tile_cache_dir_ above.
     bool environment_follow_terrain_{true};
+    double environment_ground_bias_m_{0.3};  // ground_bias= on the composed ion:// URI
+    // 2026-09-21 live finding: composed as replaces_ground=off only when
+    // false (compose_environment_source_uri()'s kReplacesGroundDefault
+    // shape); default true keeps today's evidence-based clay-plane removal.
+    bool environment_replaces_ground_{true};
     // WARN-once latch on the STREAMING -> STREAMING_FALLBACK transition
     // (Decision 11), polled once per tick in timer_callback() alongside
     // render_ms_ -- same one-shot-bool shape as environment_warned_ above

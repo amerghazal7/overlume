@@ -113,3 +113,34 @@ TEST(FallbackDirFromSourceUri, InlineFallbackWinsThroughCompose) {
         "/chunks", "ion://96188?fallback=/explicit", "");
     EXPECT_EQ(overlume::ros::fallback_dir_from_source_uri(composed), "/explicit");
 }
+
+// 2026-09-21: ground_bias= rides on the library default (0.3 m) and is only
+// composed when the node param differs from it.
+TEST(ComposeEnvironmentSourceUri, GroundBiasAppendedOnlyWhenNotDefault) {
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "ion://96188", "", true, 0.3),
+              "ion://96188?follow_terrain=on");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "ion://96188", "", true, 0.5),
+              "ion://96188?follow_terrain=on&ground_bias=0.5");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "ion://96188?ground_bias=0", "",
+                                                            true, 0.5),
+              "ion://96188?ground_bias=0&follow_terrain=on");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("/baked", "", "", true, 0.5), "/baked");
+}
+
+// 2026-09-21 live finding: replaces_ground= rides on the library default
+// (true) and is only composed (as "off") when the node param differs from
+// it -- same "only when it differs from default" shape as ground_bias=
+// above, so every pre-existing pinned string in this file (all omitting
+// the 6th param) stays unchanged.
+TEST(ComposeEnvironmentSourceUri, ReplacesGroundAppendedOnlyWhenFalse) {
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "ion://96188", "", true, 0.3, true),
+              "ion://96188?follow_terrain=on");
+    EXPECT_EQ(
+        overlume::ros::compose_environment_source_uri("", "ion://96188", "", true, 0.3, false),
+        "ion://96188?follow_terrain=on&replaces_ground=off");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "ion://96188?replaces_ground=off",
+                                                            "", true, 0.3, false),
+              "ion://96188?replaces_ground=off&follow_terrain=on");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("/baked", "", "", true, 0.3, false),
+              "/baked");
+}

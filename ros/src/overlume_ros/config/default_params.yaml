@@ -217,6 +217,26 @@
     # 5 m). Read once at configure: a runtime `ros2 param set` applies only
     # when a preset switch re-composes the URI.
     environment_follow_terrain: true
+    # Metres the terrain follower parks the sampled ground BELOW the map
+    # plane (composed as ground_bias= on the ion:// URI). 0 puts Google's
+    # ground exactly on the z=0 road plane and it z-fights the HD-map
+    # surface and ribbons (seen live 2026-09-21); raise it if terrain still
+    # pokes through at range.
+    environment_ground_bias_m: 0.3
+    # 2026-09-21 live finding: the renderer's own 120 m clay ground plane
+    # covers streamed roadside detail near the ego once terrain following
+    # is on (a real-robot capture with Google Photorealistic tiles found it
+    # hiding buildings/road-edge detail within 60 m). true (the shipped
+    # default) removes the clay plane once a streamed tileset PROVES it has
+    # ground there -- a successful height sample under the ego -- and
+    # latches that for the source's life; a source that never samples
+    # ground (e.g. Cesium OSM Buildings, buildings-only) keeps the plane
+    # regardless. false forces the plane to always stay (composed as
+    # replaces_ground=off on the ion:// URI, environment_source_uri.hpp).
+    # Only takes effect while environment_follow_terrain is true: the proof
+    # that a tileset has ground is a terrain height sample, and none are
+    # taken with following off (so the clay plane stays).
+    environment_replaces_ground: true
     # VM-064 (Epic 6 Task 5): Google Photorealistic 3D Tiles attribution
     # disable knob (STANDING directive) -- on by default, but only actually
     # draws a line while environment_source_uri above is running in

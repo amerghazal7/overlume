@@ -225,6 +225,14 @@ with a sample in flight.
 not rejected — an out-of-range sample saturates at the ceiling rather than
 being discarded).
 
+**Ground bias:** the follower parks the sampled ground `ground_bias=` metres
+BELOW the map plane (URI key; node param `environment_ground_bias_m`, default
+0.3). At 0 Google's ground lands exactly on the z=0 road plane and z-fights
+the HD-map surface and ribbons — tiles and map elements flicker over each
+other (seen live 2026-09-21). Raise it if terrain still pokes through at
+range; the point-cloud `min_z_m` (0.35 on `urban`/`replay`) is the matching
+knob for lidar ground returns.
+
 **Cost:** `sampleHeightMostDetailed()` requests the MOST detailed tiles
 under the ego, not necessarily the level being rendered, at least every 2 s
 (or 5 m) — extra ion quota and bandwidth on a path that defaults ON; not yet
@@ -255,6 +263,27 @@ composes this key onto any `ion://` `environment_source_uri`
 onto a plain baked-chunk directory, which has no query string to append to.
 Off keeps the pre-existing flat-map-frame behaviour exactly: nothing is
 sampled, and the offset stays 0.
+
+**Ground plane (needs `follow_terrain=on`):** the evidence this rule waits
+for is a terrain height sample, which is only taken while terrain following
+is on. With `follow_terrain=off` nothing is ever sampled, so the clay quad
+stays and hides Google's roadside detail inside 60 m — the very symptom this
+rule exists to fix. Leave `environment_follow_terrain` on for any
+ground-bearing tileset.
+
+**Ground plane:** the renderer's own 120 m clay ground quad
+(`build_ground_plane()`, `renderer.cpp`) is removed from the scene once the
+streamed tileset PROVES it has ground under the ego — a successful
+`sampleHeightMostDetailed()` hit, latched for the life of the source (never
+un-latched, so an intermittent later miss can't flicker the plane back in).
+Cesium OSM Buildings (buildings-only) never samples ground, so it keeps the
+clay plane; Google Photorealistic does, so the plane comes out once proven —
+found live 2026-09-21: with the two surfaces no longer z-fighting (the
+ground-bias fix above), the clay quad cleanly won z-order and simply hid
+every bit of streamed roadside detail within its own 60 m half-extent.
+`replaces_ground=off` on the `ion://` URI (or the node's
+`environment_replaces_ground: false`) forces the clay plane to always stay,
+regardless of evidence.
 
 ## 5d. Tile selection: two frustums (2026-09-21 coarse-LOD finding)
 

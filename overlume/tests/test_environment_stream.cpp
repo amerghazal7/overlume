@@ -1161,19 +1161,25 @@ TEST(EnvironmentStream, TerrainGroundOffsetSmoothingMath) {
     // Snap on the first sample: sampled height 3.0 m, anchor at 0.0 m ->
     // target offset -3.0 m, applied immediately regardless of dt.
     EXPECT_NEAR(overlume::testing::terrain_ground_offset_probe(
-                    /*sampled_height_m=*/3.0, /*anchor_height_m=*/0.0,
+                    /*sampled_height_m=*/3.0, /*anchor_height_m=*/0.0, /*ground_bias_m=*/0.0,
                     /*current_offset_m=*/0.0, /*delta_seconds=*/0.0f, /*snap=*/true),
                 -3.0, 1e-9);
+    // Ground bias (2026-09-21 z-fight fix): the follower parks the ground
+    // ground_bias_m BELOW the map plane, so the same 3.0 m sample with a
+    // 0.3 m bias targets -3.3, not -3.0.
+    EXPECT_NEAR(overlume::testing::terrain_ground_offset_probe(3.0, 0.0, 0.3, 0.0, 0.0f, true),
+                -3.3, 1e-9);
     // Clamp: a 500 m sampled height (way outside the ±30 m ceiling) still
     // clamps to -30.0, not -500.0.
-    EXPECT_NEAR(overlume::testing::terrain_ground_offset_probe(500.0, 0.0, 0.0, 0.0f, true), -30.0,
-                1e-9);
+    EXPECT_NEAR(overlume::testing::terrain_ground_offset_probe(500.0, 0.0, /*ground_bias_m=*/0.0,
+                                                               0.0, 0.0f, true),
+                -30.0, 1e-9);
     // Smoothing (not snapping) moves the offset PART of the way to the
     // target over one 0.5 s tick (the time constant) -- strictly between
     // the start and the target, never past it in one step.
-    const double stepped =
-        overlume::testing::terrain_ground_offset_probe(3.0, 0.0, /*current_offset_m=*/0.0,
-                                                       /*delta_seconds=*/0.5f, /*snap=*/false);
+    const double stepped = overlume::testing::terrain_ground_offset_probe(
+        3.0, 0.0, /*ground_bias_m=*/0.0, /*current_offset_m=*/0.0,
+        /*delta_seconds=*/0.5f, /*snap=*/false);
     EXPECT_GT(stepped, -3.0);
     EXPECT_LT(stepped, 0.0);
 }
@@ -1281,6 +1287,159 @@ TEST(EnvironmentStream, FollowTerrainOffStaysAtZero) {
     }
     EXPECT_EQ(overlume::testing::environment_terrain_offset_z(r), 0.0);
     overlume::destroy_renderer(r);
+}
+
+// ── 2026-09-21 live finding: clay ground plane vs streamed roadside detail
+// ──────────────────────────────────────────────────────────────────────
+// A tileset only earns the right to take the renderer's own 120 m clay
+// ground plane out of the scene by EVIDENCE (a successful terrain height
+// sample under the ego), never by preset name -- see
+// EnvironmentSource::provides_ground()'s own comment (environment.hpp).
+// Same session_ground fixture/anchor/pump-until-converged shape as
+// FollowTerrainShiftsEnvironmentToGroundUnderEgo above (a real
+// sampleHeightMostDetailed() round trip, bounded at 600 frames + a small
+// per-tick sleep, pointed at an away pose so the loaded tile set stays
+// stable across ticks).
+TEST(EnvironmentStream, GroundPlaneHiddenWhenTilesetSuppliesGround) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(
+        r, kSessionGroundFixtureDir.c_str(), kSessionGroundAnchor, /*materials_original=*/false,
+        /*follow_terrain=*/true));
+
+    overlume::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kFixtureBlockCenterMap;
+    overlume::set_scene(r, s);
+
+    // 1 mm lateral offset keeps the straight-up lookAt() non-degenerate --
+    // same away-pose isolation FollowTerrainShiftsEnvironmentToGroundUnderEgo
+    // uses above.
+    const overlume::CameraPose awayPose{{0, 0, 5000}, {0.001, 0, 5001}, 60};
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    ASSERT_GT(pump_until_loaded(r, awayPose, buf), 0u)
+        << "session_ground fixture must load from its own anchor's block center";
+
+    bool hit = overlume::testing::environment_stream_provides_ground(r);
+    for (int i = 0; i < 600 && !hit; ++i) {
+        overlume::render_frame(r, awayPose, {buf.data(), 320, 240});
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        hit = overlume::testing::environment_stream_provides_ground(r);
+    }
+    ASSERT_TRUE(hit) << "sampleHeightMostDetailed() must hit the ground quad under the ego";
+    EXPECT_FALSE(overlume::testing::renderer_ground_plane_in_scene(r))
+        << "evidence of streamed ground must take the clay plane out of the scene";
+    overlume::destroy_renderer(r);
+}
+
+// The OSM-Buildings analogue: kTilesFixtureDir has NO ground quad (buildings
+// only), so even with follow_terrain=true, sampleHeightMostDetailed() never
+// hits anything under the ego -- the clay plane must stay.
+TEST(EnvironmentStream, GroundPlaneKeptWhenTilesetIsBuildingsOnly) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(
+        r, kTilesFixtureDir.c_str(), kFixtureAnchor, /*materials_original=*/false,
+        /*follow_terrain=*/true));
+    overlume::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kFixtureBlockCenterMap;
+    overlume::set_scene(r, s);
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    ASSERT_GT(pump_until_loaded(r, kStdPose, buf), 0u);
+    // Same bound as the test above -- buildings-only tiles never sample
+    // ground, so this just proves repeated tries don't flip it. 200 ticks at
+    // 10 ms is ~2 s, a full kTerrainSampleIntervalS window of resampling --
+    // a longer bound only burns wall clock (review minor, 2026-09-21).
+    for (int i = 0; i < 200; ++i) {
+        overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_FALSE(overlume::testing::environment_stream_provides_ground(r));
+    EXPECT_TRUE(overlume::testing::renderer_ground_plane_in_scene(r));
+    overlume::destroy_renderer(r);
+}
+
+// Opus gate fix round (2026-09-21): provides_ground() must go false once
+// fallen back, even though ground_hit is a one-way latch -- fall_back()
+// tears the tileset down but never resets terrainState_, so without a
+// !fallenBack_ guard the clay plane would stay hidden forever after a
+// network-loss fallback and the robot would render over a void.
+//
+// Get a real ground hit first (same session_ground fixture + away-pose
+// pump as GroundPlaneHiddenWhenTilesetSuppliesGround, so the latch is
+// PROVEN true, not assumed), then drive a REAL fall_back() via
+// environment_stream_force_fall_back() rather than racing
+// kNetworkLossConsecutiveFailures through kill_fixture_network(): empirically
+// (verified live while writing this test, and consistent with
+// NetworkDeadFromFirstRequestFallsBackToBakedChunksOnce's own "Gap" comment
+// below), once a tile has loaded once, every subsequent
+// sampleHeightMostDetailed() call is served from the warmed on-disk sqlite
+// cache and never touches the accessor again -- so a fixture that has
+// already proven ground_hit true cannot be raced into STREAMING_FALLBACK
+// through the real counting path inside one short test process; up to 1500
+// ticks / 15 real seconds of continued resampling after killing the fixture
+// "network" were observed to never trip it. force_fall_back_for_testing()
+// calls the SAME fall_back() a real trip would, so this still exercises the
+// real teardown/fallenBack_/fallbackSource_ path, just reached
+// deterministically. Fails if the `!fallenBack_` term is removed from
+// provides_ground().
+TEST(EnvironmentStream, GroundPlaneReturnsAfterNetworkLossFallback) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    auto* killable = overlume::testing::install_fixture_streaming_source_with_fallback(
+        r, kSessionGroundFixtureDir.c_str(), kTestTownDir.c_str(), kSessionGroundAnchor,
+        /*follow_terrain=*/true);
+    ASSERT_NE(killable, nullptr);
+
+    overlume::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kFixtureBlockCenterMap;
+    overlume::set_scene(r, s);
+
+    // Away pose, same isolation reason as GroundPlaneHiddenWhenTilesetSuppliesGround.
+    const overlume::CameraPose awayPose{{0, 0, 5000}, {0.001, 0, 5001}, 60};
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    ASSERT_GT(pump_until_loaded(r, awayPose, buf), 0u)
+        << "session_ground fixture must load from its own anchor's block center";
+
+    bool hit = overlume::testing::environment_stream_provides_ground(r);
+    for (int i = 0; i < 600 && !hit; ++i) {
+        overlume::render_frame(r, awayPose, {buf.data(), 320, 240});
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        hit = overlume::testing::environment_stream_provides_ground(r);
+    }
+    ASSERT_TRUE(hit) << "sampleHeightMostDetailed() must hit the ground quad under the ego";
+    ASSERT_FALSE(overlume::testing::renderer_ground_plane_in_scene(r))
+        << "clay plane must be hidden once the tileset proves it has ground";
+
+    ASSERT_TRUE(overlume::testing::environment_stream_force_fall_back(r));
+    // One more tick: render_frame's reconcile (renderer.cpp) re-checks
+    // provides_ground() and puts r->ground back into the scene when it goes
+    // false -- the reconcile itself is not re-run just by calling fall_back().
+    overlume::render_frame(r, awayPose, {buf.data(), 320, 240});
+
+    EXPECT_TRUE(overlume::testing::renderer_ground_plane_in_scene(r))
+        << "the clay plane must return once the streamed source has fallen back -- the ground "
+           "hit latch must not survive Decision 11's network-loss fallback";
+    overlume::destroy_renderer(r);
+}
+
+// Design item 4c: replaces_ground= parses the same way follow_terrain=
+// does -- "off" -> false, absent -> true (today's default), any other
+// value fails the WHOLE parse.
+TEST(EnvironmentStream, ParseIonSpecReplacesGround) {
+    bool ok = false;
+    EXPECT_FALSE(overlume::testing::environment_stream_parse_replaces_ground(
+        "96188?replaces_ground=off", &ok));
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(overlume::testing::environment_stream_parse_replaces_ground("96188", &ok));
+    EXPECT_TRUE(ok);  // absent key -- parses fine, defaults true
+    overlume::testing::environment_stream_parse_replaces_ground("96188?replaces_ground=maybe", &ok);
+    EXPECT_FALSE(ok);  // malformed value -- the WHOLE spec fails to parse
 }
 
 // ── Step 1: original mode skips the clay remap ──────────────────────────

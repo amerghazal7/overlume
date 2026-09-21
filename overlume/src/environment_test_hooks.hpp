@@ -142,6 +142,13 @@ bool environment_stream_parse_materials_original(const char* ion_spec);
 // otherwise read as the same `false`). `out_parse_ok` may be null.
 bool environment_stream_parse_follow_terrain(const char* ion_spec, bool* out_parse_ok);
 
+// 2026-09-21 live finding: same shape as environment_stream_parse_follow_terrain()
+// above, exercising the real parser's replaces_ground= key instead --
+// "off"/"false"/"0" -> false, absent (default) -> true, any other value
+// fails the whole parse (`*out_parse_ok` reports that separately, same
+// reasoning). `out_parse_ok` may be null.
+bool environment_stream_parse_replaces_ground(const char* ion_spec, bool* out_parse_ok);
+
 // ponytail: pure-math probe (no live tileset/renderer needed), added to
 // keep AGENTS.md's "runnable check that fails when reverted" honest for the
 // smoothing/clamp formula even though this pass didn't build the
@@ -152,7 +159,8 @@ bool environment_stream_parse_follow_terrain(const char* ion_spec, bool* out_par
 // clamped target immediately); false applies one step of the first-order
 // smoothing toward it from `current_offset_m` over `delta_seconds`.
 double terrain_ground_offset_probe(double sampled_height_m, double anchor_height_m,
-                                   double current_offset_m, float delta_seconds, bool snap);
+                                   double ground_bias_m, double current_offset_m,
+                                   float delta_seconds, bool snap);
 
 // VM-064 Step 1: true iff the first currently-loaded tile's first
 // renderable's first primitive is bound to r->buildingMaterial (the clay
@@ -189,6 +197,17 @@ double environment_terrain_first_tile_world_z(overlume::VisualRenderer* r);
 // environment_stream_materials_original() above.
 int environment_stream_last_view_frustum_count(overlume::VisualRenderer* r);
 
+// 2026-09-21 Opus gate fix round (provides_ground() must go false once
+// fallen back): directly invokes the installed StreamingEnvironmentSource's
+// real fall_back() -- the SAME method a genuine kNetworkLossConsecutiveFailures
+// trip calls (teardown, fallenBack_ = true, fallbackSource_ opened if one was
+// configured) -- instead of racing the counting-accessor path, which cannot
+// be raced against a fixture that has already proven ground_hit true (see
+// force_fall_back_for_testing()'s own comment, environment_stream.hpp).
+// False if `r` is null, no source is installed, or the installed source is
+// not a StreamingEnvironmentSource; true on success.
+bool environment_stream_force_fall_back(overlume::VisualRenderer* r);
+
 // Finding #0 (security, token redaction) test hooks -- environment_stream.cpp
 // only, cesium-free signatures so this header stays includable from a plain
 // C++17 test TU (Decision 3).
@@ -207,5 +226,21 @@ std::string captured_cesium_log_text();
 // the capture is a process-wide singleton an earlier test may have written
 // to), false if `max_ticks` elapse first.
 bool drive_ion_token_redaction_probe(const char* bogus_token, int64_t asset_id, int max_ticks);
+
+// 2026-09-21 live finding (clay ground plane occluding streamed roadside
+// detail): the installed EnvironmentSource's own provides_ground() --
+// false if `r` is null or no source is installed, same null-safety
+// pattern as every other hook here. Goes through the virtual (Decision 12
+// precedent), so it works for either concrete EnvironmentSource type even
+// though only StreamingEnvironmentSource ever overrides it.
+bool environment_stream_provides_ground(overlume::VisualRenderer* r);
+
+// Same finding: true iff the renderer's own 120 m clay ground plane
+// (r->ground.entity) is currently a member of r->scene. False if `r` is
+// null. Lives here (not environment_stream.cpp) because it reads
+// VisualRenderer's own renderer-side state, not anything EnvironmentSource-
+// specific -- environment.cpp already has renderer_internal.hpp's full
+// VisualRenderer/Scene types via the baked-source hooks above.
+bool renderer_ground_plane_in_scene(overlume::VisualRenderer* r);
 
 }  // namespace overlume::testing

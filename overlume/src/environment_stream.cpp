@@ -70,6 +70,17 @@ struct IonSpec {
     // "off"/"false"/"0"/absent (default) is today's flat-map-frame
     // behaviour, byte-identical to every pre-existing URI.
     bool follow_terrain = false;
+    // ground_bias=<m>: how far BELOW the map plane the terrain follower parks the
+    // sampled ground. 0 puts Google's ground exactly on the z=0 road plane, which
+    // z-fights the HD-map surface and ribbons (seen live 2026-09-21); 0.3 m default.
+    double ground_bias_m = 0.3;
+    // replaces_ground=on|off (default on): gates whether a successful
+    // terrain height sample under the ego is allowed to take the
+    // renderer's own clay ground plane out of the scene (see
+    // EnvironmentSource::provides_ground()). "off" forces the clay plane
+    // to stay even over a tileset that proves it has ground there --
+    // an escape hatch, not today's default behaviour.
+    bool replaces_ground = true;
 };
 
 std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
@@ -122,6 +133,17 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                     });
                     out.materials_original = false;
                 }
+            } else if (key == "ground_bias") {
+                // Metres the follower parks the ground BELOW the map plane; a
+                // non-numeric value fails the whole parse like follow_terrain=.
+                try {
+                    size_t used = 0;
+                    out.ground_bias_m = std::stod(val, &used);
+                    if (used != val.size() || !std::isfinite(out.ground_bias_m))
+                        return std::nullopt;
+                } catch (const std::exception&) {
+                    return std::nullopt;
+                }
             } else if (key == "follow_terrain") {
                 // Unlike materials= (degrades to clay on a bad value), an
                 // unrecognized follow_terrain= value fails the WHOLE parse
@@ -133,6 +155,17 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                     out.follow_terrain = true;
                 } else if (val == "off" || val == "false" || val == "0") {
                     out.follow_terrain = false;
+                } else {
+                    return std::nullopt;
+                }
+            } else if (key == "replaces_ground") {
+                // Same shape as follow_terrain= immediately above: an
+                // unrecognized value fails the WHOLE parse rather than
+                // silently picking a default.
+                if (val == "on" || val == "true" || val == "1") {
+                    out.replaces_ground = true;
+                } else if (val == "off" || val == "false" || val == "0") {
+                    out.replaces_ground = false;
                 } else {
                     return std::nullopt;
                 }
@@ -786,7 +819,29 @@ struct TerrainFollowState {
     std::chrono::steady_clock::time_point sampled_at{};
     bool ever_sampled = false;  // false only before the first sample request of this source's life
     double anchor_height_m = 0.0;  // copy of anchor_.origin_height_m, for the sample log line only
+    double ground_bias_m = 0.0;    // copy of groundBiasM_, same purpose
+    // 2026-09-21 live finding: latched true the first time
+    // sampleHeightMostDetailed() actually hits geometry under the ego --
+    // never cleared afterward (a later miss does not flicker it back to
+    // false), so provides_ground() latches for the life of the source once
+    // proven. Set in the SUCCESS branch of the continuation only.
+    std::atomic<bool> ground_hit{false};
 };
+
+// Out-of-line (declaration: environment_stream.hpp) -- needs
+// TerrainFollowState's complete type, which is only forward-declared in
+// the header (this struct is defined here, in the .cpp).
+bool StreamingEnvironmentSource::provides_ground() const {
+    // Opus gate fix round (2026-09-21): must go false once fallen back --
+    // fall_back() tears down the tileset and never resets terrainState_
+    // (nothing else clears it either), so without this guard the ground
+    // hit latch outlives the streamed source and the clay ground plane
+    // never returns after a network-loss fallback, leaving the robot
+    // rendering over a void. Every other fallenBack_-aware member
+    // (set_visible, loaded_count, scene_membership_count, state) already
+    // branches on it; this keeps provides_ground() consistent with them.
+    return !fallenBack_ && replacesGround_ && terrainState_ && terrainState_->ground_hit.load();
+}
 
 // ── StreamRendererResources (Decision 7) ─────────────────────────────────
 void StreamRendererResources::ensure_terrain_root() {
@@ -993,7 +1048,7 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
     Cesium3DTilesSelection::TilesetExternals externals, int64_t asset_id,
     std::string ion_access_token, std::string root_tileset_uri, std::string fallback_baked_dir,
     GeoAnchor anchor, std::shared_ptr<CountingAssetAccessor> counting_accessor,
-    bool materials_original, bool follow_terrain)
+    bool materials_original, bool follow_terrain, double ground_bias_m, bool replaces_ground)
     : asyncSystem_(externals.asyncSystem),
       anchor_(anchor),
       ecefToMap_(compute_ecef_to_map(anchor)),
@@ -1001,6 +1056,8 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
       fallbackBakedDir_(std::move(fallback_baked_dir)),
       materialsOriginal_(materials_original),
       followTerrain_(follow_terrain),
+      groundBiasM_(ground_bias_m),
+      replacesGround_(replaces_ground),
       countingAccessor_(std::move(counting_accessor)) {
     // GltfConverters' magic-byte dispatch table (b3dm/glTF/cmpt/i3dm/pnts)
     // is empty until this is called once, process-wide -- cesium-native
@@ -1094,6 +1151,7 @@ void StreamingEnvironmentSource::fall_back(VisualRenderer& r) {
 void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos) {
     if (!terrainState_) terrainState_ = std::make_shared<TerrainFollowState>();
     terrainState_->anchor_height_m = anchor_.origin_height_m;
+    terrainState_->ground_bias_m = groundBiasM_;
     if (terrainState_->in_flight.load()) return;
 
     const double dx = ego_map_pos.x - terrainState_->sampled_x;
@@ -1125,14 +1183,19 @@ void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos) 
         .thenInMainThread([state](Cesium3DTilesSelection::SampleHeightResult&& res) {
             if (!res.sampleSuccess.empty() && res.sampleSuccess[0] && !res.positions.empty()) {
                 state->latest_height_m = res.positions[0].height;
+                // Evidence latch (2026-09-21 live finding): a real geometry
+                // hit under the ego proves this tileset has ground there --
+                // never cleared, see the field's own comment.
+                state->ground_hit.store(true);
                 // One line per sample (>=2 s apart by construction): the only
                 // live evidence of what the follower sees vs. what is rendered.
                 make_redacting_logger()->info(
                     "terrain sample under ego: ellipsoid height {:.2f} m (anchor {:.2f} m -> "
                     "ground offset target {:.2f} m)",
                     res.positions[0].height, state->anchor_height_m,
-                    std::clamp(-(res.positions[0].height - state->anchor_height_m),
-                               -kTerrainOffsetClampM, kTerrainOffsetClampM));
+                    std::clamp(
+                        -(res.positions[0].height - state->anchor_height_m) - state->ground_bias_m,
+                        -kTerrainOffsetClampM, kTerrainOffsetClampM));
             } else {
                 make_redacting_logger()->warn(
                     "terrain sample under ego: no geometry hit (offset unchanged)");
@@ -1151,8 +1214,9 @@ void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos) 
 // same "pure-math probe" discipline correct_ecef_point_height() documents
 // its own reason for existing. Internal linkage: the probe lives in this TU.
 namespace {
-double terrain_target_offset_z(double sampled_height_m, double anchor_height_m) {
-    return std::clamp(-(sampled_height_m - anchor_height_m), -kTerrainOffsetClampM,
+double terrain_target_offset_z(double sampled_height_m, double anchor_height_m,
+                               double ground_bias_m) {
+    return std::clamp(-(sampled_height_m - anchor_height_m) - ground_bias_m, -kTerrainOffsetClampM,
                       kTerrainOffsetClampM);
 }
 double terrain_smooth_toward(double current, double target, float deltaSeconds) {
@@ -1166,8 +1230,8 @@ double terrain_smooth_toward(double current, double target, float deltaSeconds) 
 void StreamingEnvironmentSource::update_ground_offset(float deltaSeconds) {
     if (!terrainState_ || !terrainState_->latest_height_m.has_value()) return;
 
-    const double target =
-        terrain_target_offset_z(*terrainState_->latest_height_m, anchor_.origin_height_m);
+    const double target = terrain_target_offset_z(*terrainState_->latest_height_m,
+                                                  anchor_.origin_height_m, groundBiasM_);
     if (!groundOffsetSnapped_) {
         // Snap on the very first sample -- Design item 3 -- so the initial
         // frame isn't a 0.5 s slide up from a flat-map-frame 0.
@@ -1529,7 +1593,8 @@ std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::
 
     return std::make_unique<StreamingEnvironmentSource>(
         externals, spec->asset_id, std::string(token), std::string(), spec->fallback_dir, anchor,
-        std::move(counting), spec->materials_original, spec->follow_terrain);
+        std::move(counting), spec->materials_original, spec->follow_terrain, spec->ground_bias_m,
+        spec->replaces_ground);
 }
 
 }  // namespace overlume
@@ -1594,7 +1659,8 @@ std::unique_ptr<overlume::EnvironmentSource> make_fixture_source(
     return std::make_unique<overlume::StreamingEnvironmentSource>(
         externals, /*asset_id=*/0, /*ion_access_token=*/std::string(), tilesetUri,
         fallback_baked_dir ? std::string(fallback_baked_dir) : std::string(), anchor,
-        std::move(counting), materials_original, follow_terrain);
+        std::move(counting), materials_original, follow_terrain, /*ground_bias_m=*/0.0,
+        /*replaces_ground=*/true);
 }
 
 }  // namespace
@@ -1692,6 +1758,20 @@ int environment_stream_last_view_frustum_count(overlume::VisualRenderer* r) {
     return static_cast<int>(stream->last_view_frustum_count());
 }
 
+// 2026-09-21 Opus gate fix round: see this hook's own declaration comment
+// (environment_test_hooks.hpp) and force_fall_back_for_testing()'s own
+// comment (environment_stream.hpp) for why this calls the real fall_back()
+// directly instead of racing the counting-accessor path. Same null/non-
+// streaming null-safety class as environment_stream_materials_original()
+// above; `r` must still be non-null (needed to pass to fall_back()).
+bool environment_stream_force_fall_back(overlume::VisualRenderer* r) {
+    if (r == nullptr || !r->environmentSource) return false;
+    auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
+    if (stream == nullptr) return false;
+    stream->force_fall_back_for_testing(*r);
+    return true;
+}
+
 // VM-064 gate round 1 finding: exercises the REAL parser (parse_ion_spec(),
 // anonymous namespace above), unlike the hook above which only reads back an
 // already-installed source's flag -- the two Step 0 tests that reach
@@ -1708,9 +1788,17 @@ bool environment_stream_parse_follow_terrain(const char* ion_spec, bool* out_par
     return spec.has_value() && spec->follow_terrain;
 }
 
+bool environment_stream_parse_replaces_ground(const char* ion_spec, bool* out_parse_ok) {
+    const std::optional<IonSpec> spec = parse_ion_spec(ion_spec ? ion_spec : "");
+    if (out_parse_ok) *out_parse_ok = spec.has_value();
+    return spec.has_value() && spec->replaces_ground;
+}
+
 double terrain_ground_offset_probe(double sampled_height_m, double anchor_height_m,
-                                   double current_offset_m, float delta_seconds, bool snap) {
-    const double target = overlume::terrain_target_offset_z(sampled_height_m, anchor_height_m);
+                                   double ground_bias_m, double current_offset_m,
+                                   float delta_seconds, bool snap) {
+    const double target =
+        overlume::terrain_target_offset_z(sampled_height_m, anchor_height_m, ground_bias_m);
     return snap ? target : overlume::terrain_smooth_toward(current_offset_m, target, delta_seconds);
 }
 

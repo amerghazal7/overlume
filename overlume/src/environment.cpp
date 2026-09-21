@@ -336,4 +336,16 @@ uint64_t environment_scene_membership_count(overlume::VisualRenderer* r) {
     return static_cast<uint64_t>(r->environmentSource->scene_membership_count(*r));
 }
 
+// 2026-09-21 live finding: see this hook's own declaration comment
+// (environment_test_hooks.hpp).
+bool environment_stream_provides_ground(overlume::VisualRenderer* r) {
+    if (r == nullptr || !r->environmentSource) return false;
+    return r->environmentSource->provides_ground();
+}
+
+bool renderer_ground_plane_in_scene(overlume::VisualRenderer* r) {
+    if (r == nullptr || r->scene == nullptr) return false;
+    return r->scene->hasEntity(r->ground.entity);
+}
+
 }  // namespace overlume::testing
