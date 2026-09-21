@@ -468,6 +468,11 @@ private:
     // false (compose_environment_source_uri()'s kReplacesGroundDefault
     // shape); default true keeps today's evidence-based clay-plane removal.
     bool environment_replaces_ground_{true};
+    // 2026-09-21 multi-point plane fit: degrees the fitted along-track
+    // grade's tilt is clamped to; composed as max_tilt_deg= on the ion://
+    // URI only when it differs from the library's own default (2.0), same
+    // shape as environment_ground_bias_m_ above.
+    double environment_max_tilt_deg_{2.0};
     // WARN-once latch on the STREAMING -> STREAMING_FALLBACK transition
     // (Decision 11), polled once per tick in timer_callback() alongside
     // render_ms_ -- same one-shot-bool shape as environment_warned_ above

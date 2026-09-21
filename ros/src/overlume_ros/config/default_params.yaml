@@ -237,6 +237,23 @@
     # that a tileset has ground is a terrain height sample, and none are
     # taken with following off (so the clay plane stays).
     environment_replaces_ground: true
+    # 2026-09-21 multi-point plane fit (maintainer decision): a single
+    # global ground offset can't track a real road's grade -- 50 m ahead of
+    # the sampled point, real terrain has drifted off the flat map plane and
+    # crosses it, rendering as photoreal wedges slicing across the road. The
+    # follower now fits 5 along-track height samples (-20/-10/0/+10/+20 m
+    # from the ego, along its heading only -- never lateral, which would
+    # sample the verge/kerb) to a line and tilts the whole streamed
+    # environment to match, in addition to the offset above. This degrees
+    # value clamps that tilt: 2.0 (the shipped default) bounds both how
+    # wrong a far extrapolation can get past the fitted span and how far
+    # streamed buildings visibly lean (a tilt rotates the whole scene, not
+    # just the ground). 0 disables tilt entirely -- offset-only, the pre-fit
+    # behaviour -- the escape hatch if a tilted environment ever looks worse
+    # than the wedges it replaces. Composed as max_tilt_deg= on the ion://
+    # URI only when it differs from the library's own default (same
+    # "differs from default" shape as environment_ground_bias_m above).
+    environment_max_tilt_deg: 2.0
     # VM-064 (Epic 6 Task 5): Google Photorealistic 3D Tiles attribution
     # disable knob (STANDING directive) -- on by default, but only actually
     # draws a line while environment_source_uri above is running in

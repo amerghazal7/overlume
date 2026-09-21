@@ -691,6 +691,13 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     // evidence. Composed as replaces_ground=off only when false
     // (compose_environment_source_uri()).
     environment_replaces_ground_ = declare_parameter<bool>("environment_replaces_ground", true);
+    // 2026-09-21 multi-point plane fit: degrees the fitted along-track
+    // grade's tilt is clamped to -- see the library's own kTerrainMaxTiltRad
+    // comment (environment_stream.hpp) for why a linear fit needs a clamp
+    // at all. 0 disables tilt entirely (offset-only, the pre-fit
+    // behaviour) -- the escape hatch. Composed as max_tilt_deg= only when
+    // it differs from the library default (compose_environment_source_uri()).
+    environment_max_tilt_deg_ = declare_parameter<double>("environment_max_tilt_deg", 2.0);
     // VM-064 (Epic 6 Task 5): Google's Map Tiles terms require visible
     // attribution wherever Photorealistic 3D Tiles content is shown -- a
     // plain disable knob (STANDING directive), independent of whether this
@@ -1129,7 +1136,8 @@ OverlumeNode::CallbackReturn OverlumeNode::on_activate(const rclcpp_lifecycle::S
         // preset must not be silently overwritten by this separate dir).
         const std::string source_uri = compose_environment_source_uri(
             environment_chunks_dir_, environment_source_uri_, environment_tile_cache_dir_,
-            environment_follow_terrain_, environment_ground_bias_m_, environment_replaces_ground_);
+            environment_follow_terrain_, environment_ground_bias_m_, environment_replaces_ground_,
+            environment_max_tilt_deg_);
         if (!overlume::set_environment_source(renderer_, source_uri.c_str(),
                                               geo_anchor_solver_->anchor())) {
             RCLCPP_WARN(get_logger(),
@@ -1310,7 +1318,7 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                     const std::string source_uri = compose_environment_source_uri(
                         environment_chunks_dir_, requested, environment_tile_cache_dir_,
                         environment_follow_terrain_, environment_ground_bias_m_,
-                        environment_replaces_ground_);
+                        environment_replaces_ground_, environment_max_tilt_deg_);
                     if (source_uri.empty()) {
                         // Finding #19: an empty requested preset (e.g. the
                         // GUI's "baked" preset) composes to "" whenever
@@ -1932,7 +1940,7 @@ void OverlumeNode::timer_callback() {
             fallback_dir_from_source_uri(compose_environment_source_uri(
                 environment_chunks_dir_, environment_source_uri_, environment_tile_cache_dir_,
                 environment_follow_terrain_, environment_ground_bias_m_,
-                environment_replaces_ground_));
+                environment_replaces_ground_, environment_max_tilt_deg_));
         if (fallback_dir.empty()) {
             RCLCPP_WARN(get_logger(),
                         "environment source: network loss detected -- switched to fallback, "
