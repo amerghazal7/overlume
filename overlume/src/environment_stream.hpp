@@ -52,9 +52,42 @@ inline constexpr double kStreamViewHeightM = 300.0;  // synthetic-camera height 
 inline constexpr int kStreamViewportPx = 256;
 inline constexpr double kStreamViewFovRad = 1.3;  // vertical AND horizontal (square viewport)
 inline constexpr double kStreamMaxSseErr = 48.0;
-// ponytail: nadir synthetic view sized to kLoadRadiusM; driving selection
-// from the real render camera is the upgrade if building pop-in bothers
-// anyone.
+// 2026-09-21 finding (docs/status.md item 4 addendum): the synthetic nadir
+// view above stayed the ONLY selection frustum through VM-097, and at its
+// own geometry -- 256 px viewport, kStreamViewHeightM=300 m range,
+// kStreamViewFovRad=1.3 rad half-angle-ish fov -- screen-space error for a
+// tile of geometric error `ge` works out to `ge * 256 / (2 * 300 *
+// tan(0.65)) ~= 0.56 * ge`, so tiles only refine past kStreamMaxSseErr=48
+// once their OWN geometric error drops below ~85 m: Google Photorealistic
+// ground renders as a blurry, coarse mesh sitting metres above the real
+// surface, and the terrain follower then samples the MOST detailed height
+// under the ego (Tileset::sampleHeightMostDetailed) and lifts that coarse
+// mesh clean through the road.
+//
+// Fix: synthesize_view_and_pump() now selects tiles with the real render
+// camera's OWN ViewState as a SECOND frustum (camera_view_state(), just
+// above that function) alongside this synthetic one -- standard Cesium
+// usage (a tileset can be driven by more than one simultaneous view). Tiles
+// the real camera can actually see refine to real detail through that
+// frustum; the synthetic nadir view keeps doing its original job -- a wide
+// top-down coverage frustum so everything past the camera's view stays
+// loaded at coarse LOD instead of unloading and popping back in. Because
+// render_frame() calls environmentSource->update() BEFORE this frame's
+// camera->lookAt()/setProjection() (renderer.cpp), the camera frustum used
+// here is always ONE FRAME STALE (the previous frame's pose) -- acceptable
+// lag, noted here and at the call site.
+//
+// kStreamMaxSseErr stays 48 for BOTH frustums rather than getting its own
+// tighter camera-frustum threshold: the camera frustum's own geometry
+// already does the refining. At a typical ~20 m range from a ~720 px-tall
+// render viewport with a ~50 deg vertical fov, screen-space error for
+// geometric error `ge` is roughly `ge * 720 / (2 * 20 * tan(25 deg)) ~= 39
+// * ge` -- nearly two orders of magnitude steeper than the synthetic view's own 0.56
+// factor above -- so the SAME 48 threshold already refines tiles near the
+// camera down to ~1-2 m geometric error without touching the constant.
+// ponytail: two fixed frustums (synthetic coverage + real camera); a
+// LOD-budget-aware N-frustum scheme is the upgrade if a future render mode
+// wants more than one live camera at once.
 inline constexpr double kStreamHeightOffsetM = 0.0;  // Decision 8: absorbs any
                                                      // measured float/sink, none measured yet.
 inline constexpr uint64_t kDefaultMaxCacheItems = 4096;
@@ -448,6 +481,13 @@ public:
     // transform component.
     double first_tracked_tile_world_z(VisualRenderer& r) const;
 
+    // 2026-09-21 two-frustum tile selection: how many ViewState frustums the
+    // MOST RECENT synthesize_view_and_pump() call passed to
+    // tileset_->updateViewGroup() -- 1 (synthetic-only) before the render
+    // camera has ever been positioned, 2 (synthetic + camera) once it has.
+    // 0 if update() has never run yet.
+    size_t last_view_frustum_count() const { return lastViewFrustumCount_; }
+
 private:
     void synthesize_view_and_pump(VisualRenderer& r, Vec3 ego_map_pos);
     // Issues a new sampleHeightMostDetailed() request when none is already
@@ -497,6 +537,8 @@ private:
     // comment.
     std::unordered_map<const void*, bool> inScene_;
     bool visible_ = true;
+    // 2026-09-21 two-frustum tile selection: mirrors last_view_frustum_count().
+    size_t lastViewFrustumCount_ = 0;
 
     // ── 2026-09-21 terrain following ("option 2") ────────────────────────
     bool followTerrain_ = false;

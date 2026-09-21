@@ -180,6 +180,15 @@ double environment_terrain_offset_z(overlume::VisualRenderer* r);
 // streaming/nothing-tracked-yet conditions as every other hook here.
 double environment_terrain_first_tile_world_z(overlume::VisualRenderer* r);
 
+// 2026-09-21 two-frustum tile selection (coarse-LOD finding, docs/status.md
+// item 4 addendum): the installed StreamingEnvironmentSource's own
+// last_view_frustum_count() -- 1 before the render camera has ever been
+// positioned (synthetic view only), 2 once it has (synthetic + camera). -1
+// if `r` is null, no source is installed, or the installed source is not a
+// StreamingEnvironmentSource, same null-safety pattern as
+// environment_stream_materials_original() above.
+int environment_stream_last_view_frustum_count(overlume::VisualRenderer* r);
+
 // Finding #0 (security, token redaction) test hooks -- environment_stream.cpp
 // only, cesium-free signatures so this header stays includable from a plain
 // C++17 test TU (Decision 3).

@@ -785,6 +785,7 @@ struct TerrainFollowState {
     double sampled_y = 0.0;
     std::chrono::steady_clock::time_point sampled_at{};
     bool ever_sampled = false;  // false only before the first sample request of this source's life
+    double anchor_height_m = 0.0;  // copy of anchor_.origin_height_m, for the sample log line only
 };
 
 // ── StreamRendererResources (Decision 7) ─────────────────────────────────
@@ -1092,6 +1093,7 @@ void StreamingEnvironmentSource::fall_back(VisualRenderer& r) {
 
 void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos) {
     if (!terrainState_) terrainState_ = std::make_shared<TerrainFollowState>();
+    terrainState_->anchor_height_m = anchor_.origin_height_m;
     if (terrainState_->in_flight.load()) return;
 
     const double dx = ego_map_pos.x - terrainState_->sampled_x;
@@ -1123,6 +1125,17 @@ void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos) 
         .thenInMainThread([state](Cesium3DTilesSelection::SampleHeightResult&& res) {
             if (!res.sampleSuccess.empty() && res.sampleSuccess[0] && !res.positions.empty()) {
                 state->latest_height_m = res.positions[0].height;
+                // One line per sample (>=2 s apart by construction): the only
+                // live evidence of what the follower sees vs. what is rendered.
+                make_redacting_logger()->info(
+                    "terrain sample under ego: ellipsoid height {:.2f} m (anchor {:.2f} m -> "
+                    "ground offset target {:.2f} m)",
+                    res.positions[0].height, state->anchor_height_m,
+                    std::clamp(-(res.positions[0].height - state->anchor_height_m),
+                               -kTerrainOffsetClampM, kTerrainOffsetClampM));
+            } else {
+                make_redacting_logger()->warn(
+                    "terrain sample under ego: no geometry hit (offset unchanged)");
             }
             state->in_flight.store(false);
         })
@@ -1181,6 +1194,61 @@ double StreamingEnvironmentSource::first_tracked_tile_world_z(VisualRenderer& r)
     return static_cast<double>(tm.getWorldTransform(inst)[3].z);
 }
 
+namespace {
+// 2026-09-21 (docs/status.md item 4 addendum, coarse-LOD finding): the real
+// render camera's own ViewState, used as synthesize_view_and_pump()'s SECOND
+// selection frustum alongside the synthetic top-down one -- see this file's
+// kStreamViewHeightM comment (environment_stream.hpp) for the full "why".
+// nullopt when the camera isn't ready to answer this: `r.camera` null,
+// `r.width`/`r.height` zero (renderer not fully set up yet), OR the camera
+// still sits at Filament's untouched default pose (no lookAt() has ever
+// run). 2026-09-21 fix-round finding: an EARLIER version of this guard
+// tested position and forward vector both being exactly zero -- dead code,
+// since Filament derives the forward vector from the camera's model matrix
+// and it is always unit-length, never the zero vector, so that second
+// conjunct could never hold and this guard never fired (confirmed by a
+// temporary probe: on the very first render_frame(), before any lookAt()
+// has ever run, Filament reports pos=(0,0,0) fwd=(-0,-0,-1) up=(0,1,0)).
+// The fix tests the FULL untouched-default triple instead -- position at
+// the origin AND forward == {0,0,-1} AND up == {0,1,0} -- which is robust
+// because every real lookAt() call in this codebase (renderer.cpp) passes
+// up={0,0,1}, never up={0,1,0}; a legitimately positioned camera can never
+// match this triple even if it happens to sit at the map origin.
+std::optional<Cesium3DTilesSelection::ViewState> camera_view_state(const VisualRenderer& r,
+                                                                   const glm::dmat4& mapToEcef) {
+    if (r.camera == nullptr || r.width == 0 || r.height == 0) return std::nullopt;
+
+    const filament::math::double3 pos = r.camera->getPosition();
+    const filament::math::float3 fwd = r.camera->getForwardVector();
+    const filament::math::float3 up = r.camera->getUpVector();
+    if (pos.x == 0.0 && pos.y == 0.0 && pos.z == 0.0 && fwd.x == 0.0f && fwd.y == 0.0f &&
+        fwd.z == -1.0f && up.x == 0.0f && up.y == 1.0f && up.z == 0.0f) {
+        return std::nullopt;
+    }
+
+    // Camera position/direction/up are in Filament world space, which this
+    // project's convention (renderer.cpp's lookAt() calls) makes the SAME
+    // map frame ego_map_pos below is expressed in -- so the exact same
+    // mapToEcef transform synthesize_view_and_pump() already uses applies
+    // here unchanged (w=1 for the point, w=0 for the two directions).
+    const glm::dvec4 posEcef4 = mapToEcef * glm::dvec4(pos.x, pos.y, pos.z, 1.0);
+    const glm::dvec3 dirEcef =
+        glm::normalize(glm::dvec3(mapToEcef * glm::dvec4(fwd.x, fwd.y, fwd.z, 0.0)));
+    const glm::dvec3 upEcef =
+        glm::normalize(glm::dvec3(mapToEcef * glm::dvec4(up.x, up.y, up.z, 0.0)));
+
+    const double aspect = static_cast<double>(r.width) / static_cast<double>(r.height);
+    const double vfovRad =
+        static_cast<double>(r.camera->getFieldOfViewInDegrees(filament::Camera::Fov::VERTICAL)) *
+        (M_PI / 180.0);
+    const double hfovRad = 2.0 * std::atan(std::tan(vfovRad * 0.5) * aspect);
+
+    return Cesium3DTilesSelection::ViewState(
+        glm::dvec3(posEcef4), dirEcef, upEcef,
+        glm::dvec2(static_cast<double>(r.width), static_cast<double>(r.height)), hfovRad, vfovRad);
+}
+}  // namespace
+
 void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec3 ego_map_pos) {
     using Cesium3DTilesSelection::ViewState;
     using Cesium3DTilesSelection::ViewUpdateResult;
@@ -1214,7 +1282,18 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
         update_ground_offset(deltaSeconds);
     }
 
-    const ViewUpdateResult& result = tileset_->updateViewGroup(*viewGroup_, {view}, deltaSeconds);
+    // 2026-09-21 two-frustum selection (see this file's kStreamViewHeightM
+    // comment, environment_stream.hpp): the render camera's ViewState is
+    // ONE FRAME STALE here -- render_frame() calls
+    // environmentSource->update() (which reaches this) BEFORE this frame's
+    // camera->lookAt()/setProjection() (renderer.cpp) -- acceptable lag,
+    // same class as every other "previous frame's state" seam in this file.
+    const std::optional<ViewState> cameraView = camera_view_state(r, mapToEcef_);
+    const std::vector<ViewState> views = cameraView.has_value()
+                                             ? std::vector<ViewState>{view, *cameraView}
+                                             : std::vector<ViewState>{view};
+    lastViewFrustumCount_ = views.size();
+    const ViewUpdateResult& result = tileset_->updateViewGroup(*viewGroup_, views, deltaSeconds);
     tileset_->loadTiles();  // NOT optional -- without this no tile ever loads (Decision 9).
     // Runs continuations queued onto the main thread (root-tile-available,
     // prepareInMainThread, free()...) -- TilesetExternals.h's own doc says
@@ -1601,6 +1680,16 @@ double environment_terrain_first_tile_world_z(overlume::VisualRenderer* r) {
     auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
     if (stream == nullptr) return std::nan("");
     return stream->first_tracked_tile_world_z(*r);
+}
+
+// 2026-09-21 two-frustum tile selection: see this hook's own declaration
+// comment (environment_test_hooks.hpp). -1 on the same null/non-streaming
+// conditions as environment_stream_materials_original() above.
+int environment_stream_last_view_frustum_count(overlume::VisualRenderer* r) {
+    if (r == nullptr || !r->environmentSource) return -1;
+    auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
+    if (stream == nullptr) return -1;
+    return static_cast<int>(stream->last_view_frustum_count());
 }
 
 // VM-064 gate round 1 finding: exercises the REAL parser (parse_ion_spec(),
