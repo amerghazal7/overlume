@@ -73,10 +73,8 @@ INSTALL_DIR = os.path.join(REPO_ROOT, "ros", "install")
 NODE_NAME = "/overlume_node"
 PKG = "overlume_ros"
 
-
 def _popen(cmd: str) -> subprocess.Popen:
     return subprocess.Popen(["bash", "-c", cmd], start_new_session=True)
-
 
 def _kill(proc: subprocess.Popen):
     try:
@@ -92,11 +90,9 @@ def _kill(proc: subprocess.Popen):
             pass
         proc.wait()
 
-
 def _run(cmd: str, timeout: float = 15.0) -> subprocess.CompletedProcess:
     full = f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && {cmd}"
     return subprocess.run(["bash", "-c", full], capture_output=True, text=True, timeout=timeout)
-
 
 def _lifecycle(transition: str, timeout: float = 15.0) -> bool:
     for _ in range(20):
@@ -108,11 +104,9 @@ def _lifecycle(transition: str, timeout: float = 15.0) -> bool:
         time.sleep(1)
     return False
 
-
 def _param_get(name: str) -> str:
     result = _run(f"ros2 param get {NODE_NAME} {name} --hide-type")
     return result.stdout.strip()
-
 
 def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
     t0 = time.time()
@@ -122,7 +116,6 @@ def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
             return False
     return True
 
-
 def _pkg_share_dir() -> str:
     result = _run(f"ros2 pkg prefix {PKG}")
     prefix = result.stdout.strip()
@@ -130,7 +123,6 @@ def _pkg_share_dir() -> str:
         raise RuntimeError(f"`ros2 pkg prefix {PKG}` returned nothing "
                             f"(stderr: {result.stderr!r})")
     return os.path.join(prefix, "share", PKG)
-
 
 def _launch(extra_args: str, log_path: str) -> subprocess.Popen:
     cmd = (
@@ -141,20 +133,16 @@ def _launch(extra_args: str, log_path: str) -> subprocess.Popen:
         f"> {log_path} 2>&1")
     return _popen(cmd)
 
-
 def _fresh_log() -> str:
     fd, path = tempfile.mkstemp(prefix="viz_asset_paths_", suffix=".log")
     os.close(fd)
     return path
 
-
 def _read(path: str) -> str:
     with open(path) as f:
         return f.read()
 
-
-SHARE_DIR = ""  # set in main() once we know INSTALL_DIR is real
-
+SHARE_DIR = ""
 
 def main() -> int:
     global SHARE_DIR
@@ -168,7 +156,6 @@ def main() -> int:
               "package not actually installed under this prefix.")
         return 0
 
-    # ---- Case 1: default params, no theme override ----
     log1 = _fresh_log()
     proc = _launch("", log1)
     try:
@@ -192,11 +179,9 @@ def main() -> int:
             print(f"FAIL: hud_font_path '{hud_font}' does not start with "
                   f"installed share dir '{SHARE_DIR}'.", file=sys.stderr)
             return 1
-        # ego_model_path is allowed to be exactly "" (unprovisioned box) --
-        # assert exactly one of the two honest outcomes, not "whichever".
         ego_resolved = ego_path.startswith(SHARE_DIR)
         ego_empty = ego_path == ""
-        if ego_resolved == ego_empty:  # both true or both false: neither is right
+        if ego_resolved == ego_empty:
             print(f"FAIL: ego_model_path '{ego_path}' is neither a resolved "
                   f"installed path nor the honest empty-default.", file=sys.stderr)
             return 1
@@ -206,9 +191,6 @@ def main() -> int:
             print(f"FAIL: unexpected theme-fallback WARN in log:\n{log_text[-3000:]}",
                   file=sys.stderr)
             return 1
-        # A resolved ego path that then silently clay-boxes is the exact
-        # failure mode VM-044 exists to kill (gate minor 1): the WARN string
-        # is real and reachable (verified against a bogus ego_model_path).
         if ego_resolved and "set_ego_model: failed to load" in log_text:
             print(f"FAIL: ego path resolved but the model fell back to the "
                   f"clay box:\n{log_text[-3000:]}", file=sys.stderr)
@@ -219,7 +201,6 @@ def main() -> int:
         _kill(proc)
         os.remove(log1)
 
-    # ---- Case 2: initial_theme:=light_clay ----
     log2 = _fresh_log()
     proc = _launch("-p initial_theme:=light_clay", log2)
     try:
@@ -246,7 +227,6 @@ def main() -> int:
         _kill(proc)
         os.remove(log2)
 
-    # ---- Case 3: initial_theme:=definitely_not_a_theme ----
     log3 = _fresh_log()
     proc = _launch("-p initial_theme:=definitely_not_a_theme", log3)
     try:
@@ -276,7 +256,6 @@ def main() -> int:
 
     print("PASS: overlume_node asset-path resolution test passed.")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

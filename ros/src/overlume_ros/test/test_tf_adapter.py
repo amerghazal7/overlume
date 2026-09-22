@@ -46,23 +46,19 @@ OUT_W, OUT_H = 160, 120
 TF_RATE_HZ = 20.0
 TF_DT = 1.0 / TF_RATE_HZ
 SPEED_MPS = 2.0
-N_STEPS = 100                # 5s of straight-line motion at 20Hz
-OUTLIER_STEP = 40            # inject the bad sample partway through (t=2.0s)
-OUTLIER_JUMP_M = 5.0         # instantaneous position jump for that one sample
-SMOOTHING_ALPHA = 0.2        # matches the node's declared default (ego_speed_smoothing_alpha)
-# EMA ceiling for the outlier tick: alpha*(raw~100 m/s - prev~2 m/s) bounds
-# the single-step jump; 60 sits comfortably above that bound, far below raw.
+N_STEPS = 100
+OUTLIER_STEP = 40
+OUTLIER_JUMP_M = 5.0
+SMOOTHING_ALPHA = 0.2
 OUTLIER_SMOOTHED_CEILING_MPS = 60.0
 
 INSTALL_DIR = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)),
                  "../../../install"))
 
-
 def _popen(cmd: str) -> subprocess.Popen:
     return subprocess.Popen(["bash", "-c", cmd], stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, start_new_session=True)
-
 
 def _kill(proc: subprocess.Popen):
     try:
@@ -78,7 +74,6 @@ def _kill(proc: subprocess.Popen):
             pass
         proc.wait()
 
-
 def _lifecycle(transition: str, timeout: float = 15.0) -> bool:
     cmd = (f"source /opt/ros/humble/setup.bash && "
            f"ros2 lifecycle set /overlume_node {transition}")
@@ -86,7 +81,6 @@ def _lifecycle(transition: str, timeout: float = 15.0) -> bool:
     if result.returncode != 0:
         print(f"  [lifecycle {transition}] stderr: {result.stderr.strip()}", file=sys.stderr)
     return result.returncode == 0
-
 
 def _wait_for_start(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
     t0 = time.time()
@@ -96,14 +90,10 @@ def _wait_for_start(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
             return False
     return True
 
-
 def test_tf_adapter_speed_converges():
     if not os.path.isdir(INSTALL_DIR):
         pytest.skip("ros/install/ not found -- build with colcon_build.sh first")
 
-    # Imports deferred past the skip check: only meaningful once the ROS
-    # environment (sourced by the caller, per this file's own docstring) is
-    # actually on the path.
     import rclpy
     from geometry_msgs.msg import TransformStamped
     from rclpy.node import Node
@@ -116,7 +106,7 @@ def test_tf_adapter_speed_converges():
         def __init__(self):
             super().__init__("tf_adapter_fixture")
             self.broadcaster = TransformBroadcaster(self)
-            self.samples = []  # [x, y, z, heading_rad, speed_mps, valid], one per tick
+            self.samples = []
             self.create_subscription(Float64MultiArray, "/overlume_node/ego_state",
                                      self._on_ego, 20)
 
@@ -153,21 +143,14 @@ def test_tf_adapter_speed_converges():
         rclpy.init()
         fixture = TfFixtureNode()
 
-        # Real-time-paced (not spin-once-as-fast-as-possible): finite-difference
-        # math is dx/dt off real TF timestamps, so the loop must take ~TF_DT
-        # per step for the "constant 2.0 m/s" fixture to actually measure as
-        # 2.0 m/s once timestamped.
         for i in range(N_STEPS):
             x = SPEED_MPS * i * TF_DT
             if i == OUTLIER_STEP:
-                x += OUTLIER_JUMP_M  # single noisy sample -- see module docstring
+                x += OUTLIER_JUMP_M
             fixture.publish_tf(x)
             rclpy.spin_once(fixture, timeout_sec=0.0)
             time.sleep(TF_DT)
 
-        # Drain a few more of the node's own 33ms ticks past the last TF
-        # sample so the tail-window assertion below isn't racing the last
-        # publish.
         t_end = time.time() + 0.5
         while time.time() < t_end:
             rclpy.spin_once(fixture, timeout_sec=0.05)
@@ -181,24 +164,17 @@ def test_tf_adapter_speed_converges():
 
     assert len(samples) > 10, f"expected ~/ego_state samples, got {len(samples)}"
 
-    # (b) outlier robustness: the *reported* (smoothed) speed must never
-    # approach the outlier's raw magnitude (~100 m/s) -- see
-    # OUTLIER_SMOOTHED_CEILING_MPS's derivation in the module docstring.
     max_speed = max(s[4] for s in samples)
     assert max_speed < OUTLIER_SMOOTHED_CEILING_MPS, (
         f"reported speed spiked to {max_speed:.1f} m/s -- smoothing did not "
         f"absorb the single noisy TF sample (ceiling {OUTLIER_SMOOTHED_CEILING_MPS})")
 
-    # (a) convergence: the tail (well after the outlier and several EMA time
-    # constants past the last real TF update) should sit close to 2.0 m/s,
-    # with ego.valid == 1 throughout (TF was flowing).
     tail = samples[-20:]
     assert all(s[5] == 1.0 for s in tail), f"expected ego.valid==1 in tail, got {tail}"
     tail_avg = sum(s[4] for s in tail) / len(tail)
     assert abs(tail_avg - SPEED_MPS) < 0.4, (
         f"expected smoothed speed to converge near {SPEED_MPS} m/s, tail avg={tail_avg:.3f} "
         f"(tail speeds={[s[4] for s in tail]})")
-
 
 def test_robot_speed_topic_preferred_over_tf_diff():
     """Spec §7 (docs/design/2026-08-18-visual-mode-design.md:264):
@@ -266,7 +242,7 @@ def test_robot_speed_topic_preferred_over_tf_diff():
         rclpy.init()
         fixture = SpeedFixtureNode()
 
-        for i in range(30):  # 1.5s -- TF alone implies ~2.0 m/s, topic says 9.0
+        for i in range(30):
             fixture.publish_tf(SPEED_MPS * i * TF_DT)
             fixture.publish_speed(TOPIC_SPEED_MPS)
             rclpy.spin_once(fixture, timeout_sec=0.0)
@@ -291,7 +267,6 @@ def test_robot_speed_topic_preferred_over_tf_diff():
         f"({TOPIC_SPEED_MPS} m/s), got tail avg={tail_avg:.3f} -- TF-diff "
         f"fallback used instead of the preferred topic (tail speeds="
         f"{[s[4] for s in tail]})")
-
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

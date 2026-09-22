@@ -60,10 +60,8 @@ REPO_ROOT = os.path.normpath(
 INSTALL_DIR = os.path.join(REPO_ROOT, "ros", "install")
 NODE_NAME = "/overlume_node"
 
-
 def _popen(cmd: str) -> subprocess.Popen:
     return subprocess.Popen(["bash", "-c", cmd], start_new_session=True)
-
 
 def _kill(proc: subprocess.Popen):
     try:
@@ -79,11 +77,9 @@ def _kill(proc: subprocess.Popen):
             pass
         proc.wait()
 
-
 def _run(cmd: str, timeout: float = 15.0) -> subprocess.CompletedProcess:
     full = f"source /opt/ros/humble/setup.bash && {cmd}"
     return subprocess.run(["bash", "-c", full], capture_output=True, text=True, timeout=timeout)
-
 
 def _lifecycle(transition: str, timeout: float = 15.0) -> bool:
     for _ in range(20):
@@ -97,7 +93,6 @@ def _lifecycle(transition: str, timeout: float = 15.0) -> bool:
         time.sleep(1)
     return False
 
-
 def _param_set(name: str, value_literal: str) -> bool:
     result = _run(f"ros2 param set {NODE_NAME} {name} {value_literal}")
     ok = result.returncode == 0 and "Set parameter successful" in result.stdout
@@ -105,7 +100,6 @@ def _param_set(name: str, value_literal: str) -> bool:
         print(f"  [param set {name}={value_literal}] stdout={result.stdout!r} "
               f"stderr={result.stderr!r}", file=sys.stderr)
     return ok
-
 
 def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
     t0 = time.time()
@@ -115,7 +109,6 @@ def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
             return False
     return True
 
-
 def main() -> int:
     if not os.path.isdir(INSTALL_DIR):
         print("SKIP: ros/install not built -- run colcon_build.sh first.")
@@ -124,9 +117,6 @@ def main() -> int:
     log_fd, log_path = tempfile.mkstemp(prefix="viz_bowl_node_params_", suffix=".log")
     os.close(log_fd)
 
-    # Deliberately NO --params-file: image_topics/info_topics/bowl_enabled
-    # are the declared defaults (empty vectors / false) -- finding 1's own
-    # repro shape ("node with default params must configure cleanly").
     viz_cmd = (
         f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
         f"ros2 run overlume_ros overlume_node --ros-args "
@@ -161,7 +151,6 @@ def main() -> int:
         print("PASS (1/3): on_configure()/on_activate() succeeded with default params, "
               "node still alive -- no segfault (finding 1).")
 
-        # ---- Finding 2 / Decision 3: fill_blind_zone/exposure_match clamp ----
         if not _param_set("fill_blind_zone", "true"):
             print("FAIL: `ros2 param set fill_blind_zone true` was rejected outright -- "
                   "expected ACCEPTED (clamped internally to false + WARN, not rejected).",
@@ -174,7 +163,6 @@ def main() -> int:
             return 1
         time.sleep(0.5)
 
-        # ---- Finding 4: layer_* param set still round-trips ----
         if not _param_set("layer_objects", "false"):
             print("FAIL: `ros2 param set layer_objects false` was rejected -- the bowl "
                   "on_params() handling must fall through unmatched names as successful, "
@@ -205,7 +193,6 @@ def main() -> int:
             os.remove(log_path)
         except OSError:
             pass
-
 
 if __name__ == "__main__":
     sys.exit(main())

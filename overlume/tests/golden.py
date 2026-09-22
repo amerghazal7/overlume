@@ -16,21 +16,18 @@ import argparse
 import shutil
 import sys
 
-
 def show(path: str) -> None:
     try:
-        from PIL import Image  # ponytail: optional dep, only needed for --show
+        from PIL import Image
     except ImportError:
         print(f"(Pillow not installed; can't display {path} -- "
               f"pip install pillow, or just open the file yourself)")
         return
     Image.open(path).show()
 
-
 def promote(src: str, dest: str) -> None:
     shutil.copyfile(src, dest)
     print(f"copied {src} -> {dest}")
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -46,7 +43,6 @@ def main() -> int:
     else:
         promote(*args.promote)
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

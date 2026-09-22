@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// polyline.cpp — see polyline.hpp. Pure geometry, no Filament, no GPU.
 #include "polyline.hpp"
 
 #include <algorithm>
@@ -32,18 +31,15 @@ Vec2f normalize(Vec2f v) {
     return {v.x / len, v.y / len};
 }
 
-// Rotates `d` by +90 degrees about +Z (in the XY plane) — "left" of travel.
 Vec2f perp(Vec2f d) { return {-d.y, d.x}; }
 
-// Cleans `pts` per polyline.hpp's documented rules: truncate at the first
-// NaN, drop zero-length-segment duplicates. Returns the surviving points.
 std::vector<Vec3> clean_polyline(const Vec3* pts, uint32_t n) {
     std::vector<Vec3> out;
     if (pts == nullptr) return out;
     out.reserve(n);
     for (uint32_t i = 0; i < n; ++i) {
-        if (!is_finite(pts[i])) break;  // truncate, don't propagate
-        if (!out.empty() && nearly_equal(out.back(), pts[i])) continue;  // zero-length segment
+        if (!is_finite(pts[i])) break;
+        if (!out.empty() && nearly_equal(out.back(), pts[i])) continue;
         out.push_back(pts[i]);
     }
     return out;
@@ -56,10 +52,6 @@ std::vector<Vec3> extrude_polyline(const Vec3* pts, uint32_t n, float half_width
     const size_t m = clean.size();
     if (m < 2) return {};
 
-    // A near-reversal corner's raw mitre length (half_width / cos(half the
-    // turn angle)) blows up as the turn approaches 180 degrees; clamping it
-    // turns an unbounded spike into a bounded pinch instead — still visibly
-    // "a sharp corner", never a vertex flung far off the ribbon.
     constexpr float kMaxMiterRatio = 4.0f;
 
     std::vector<Vec2f> dirs(m - 1);
@@ -80,12 +72,9 @@ std::vector<Vec3> extrude_polyline(const Vec3* pts, uint32_t n, float half_width
             const Vec2f pNext = perp(dirs[i]);
             Vec2f avg = normalize(Vec2f{pPrev.x + pNext.x, pPrev.y + pNext.y});
             if (avg.x == 0.0f && avg.y == 0.0f) {
-                // Exact 180-degree reversal: no well-defined miter direction —
-                // fall back to the incoming segment's own normal (a clean
-                // bevel at that one point, not a NaN).
                 avg = pPrev;
             }
-            const float cosHalf = avg.x * pPrev.x + avg.y * pPrev.y;  // both unit-length
+            const float cosHalf = avg.x * pPrev.x + avg.y * pPrev.y;
             float scale = (cosHalf > 1e-3f) ? (1.0f / cosHalf) : kMaxMiterRatio;
             if (scale > kMaxMiterRatio) scale = kMaxMiterRatio;
             normal = {avg.x * scale, avg.y * scale};
@@ -121,7 +110,7 @@ std::vector<uint16_t> extrude_polyline_indices(uint32_t point_count) {
 std::vector<Vec3> triangulate_convex_polygon(const Vec3* pts, uint32_t n, float z_lift) {
     if (pts == nullptr || n < 3) return {};
     for (uint32_t i = 0; i < n; ++i) {
-        if (!is_finite(pts[i])) return {};  // malformed polygon: no safe partial reading
+        if (!is_finite(pts[i])) return {};
     }
     std::vector<Vec3> out;
     out.reserve(static_cast<size_t>(n - 2) * 3);
@@ -164,12 +153,8 @@ std::pair<double, double> closest_arc_station(const Vec3* pts, uint32_t n, const
 PolylineClip compute_polyline_clip(const Vec3* pts, uint32_t n, const Vec3& ego_position) {
     PolylineClip clip;
     const auto [station, dist] = closest_arc_station(pts, n, ego_position);
-    if (dist >= kPolylineEgoClipLateralM) return clip;  // proximity gate: too far, render whole
+    if (dist >= kPolylineEgoClipLateralM) return clip;
     clip.active = true;
-    // ceil, not lround: round-to-nearest would land the cut up to 0.25m
-    // behind the closest-approach station about half the time, rendering
-    // part of the polyline behind the ego. ceil keeps the cut at-or-ahead,
-    // equally deterministic (parked-ego zero-rebuild property unchanged).
     clip.quantized_units = static_cast<int64_t>(std::ceil(station / kPolylineClipQuantizeM));
     clip.station_m = static_cast<double>(clip.quantized_units) * kPolylineClipQuantizeM;
     return clip;
@@ -183,8 +168,8 @@ std::vector<double> clean_polyline_stations(const Vec3* pts, uint32_t n) {
     bool havePrev = false;
     double cum = 0.0;
     for (uint32_t i = 0; i < n; ++i) {
-        if (!is_finite(pts[i])) break;  // truncate, don't propagate -- mirrors clean_polyline()
-        if (havePrev && nearly_equal(prev, pts[i])) continue;  // zero-length segment, adds 0 arc
+        if (!is_finite(pts[i])) break;
+        if (havePrev && nearly_equal(prev, pts[i])) continue;
         if (havePrev) {
             const double dx = pts[i].x - prev.x, dy = pts[i].y - prev.y;
             cum += std::sqrt(dx * dx + dy * dy);
@@ -200,25 +185,19 @@ void collapse_clipped_positions(std::vector<Vec3>& positions, const std::vector<
                                 bool clip_active, double clip_station_m) {
     const size_t m = stations.size();
     if (!clip_active || m == 0) return;
-    if (positions.size() != 2 * m) return;  // caller contract violated -- no-op, not a crash
+    if (positions.size() != 2 * m) return;
 
-    // Last point index still behind the cut (station < clip_station_m); -1
-    // (via the m sentinel below) means the whole strip is already ahead.
-    size_t behind = m;  // m == "none behind" sentinel
+    size_t behind = m;
     for (size_t i = 0; i < m; ++i) {
         if (stations[i] < clip_station_m)
             behind = i;
         else
             break;
     }
-    if (behind == m) return;  // nothing behind the cut in this strip
+    if (behind == m) return;
 
     Vec3 cutL, cutR;
     if (behind + 1 >= m) {
-        // The cut itself lies beyond this strip (only possible across a
-        // >kMaxPointsPerMesh chunk boundary) -- collapse the whole strip to
-        // its own last pair, a zero-area sliver; the chunk that actually
-        // contains the cut draws the real edge.
         cutL = positions[2 * (m - 1)];
         cutR = positions[2 * (m - 1) + 1];
         behind = m - 1;
@@ -246,7 +225,7 @@ std::vector<std::pair<uint32_t, uint32_t>> polyline_chunks(uint32_t n) {
         if (end > n) end = n;
         chunks.emplace_back(start, end);
         if (end >= n) break;
-        start = end - 1;  // overlap by one point so strips join with no gap
+        start = end - 1;
     }
     return chunks;
 }

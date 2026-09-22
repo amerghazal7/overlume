@@ -1,21 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-/** @file lidar_colorize.cpp
- *  @brief See lidar_colorize.hpp. VM-094 (unified-engine migration Task 5)
- *  Steps 0-2.
- */
 #include "overlume_ros/lidar_colorize.hpp"
 
-// overlume's own private, portable, host-only projection math
-// (Task 2 Step 0) -- not part of its public include/ surface, so this
-// package's CMakeLists.txt adds OVERLUME_DIR/src as an extra
-// PRIVATE include dir for this one file's sake (see that file's own
-// comment). Pure-POD signature (Vec3/CameraExtrinsics/CameraIntrinsics by
-// value/pointer, no std:: types crossing), so calling into the symbol
-// already compiled into liboverlume.a from this gcc/libstdc++ TU is
-// exactly as safe as every other api.h/scene.h POD-boundary call this node
-// already makes (Global Constraints).
 #include "bowl_projection.hpp"
 
 #include <array>
@@ -24,19 +11,6 @@
 namespace overlume::ros {
 
 namespace {
-// scene.h's PointCloudPoint::rgba convention (point_cloud.cpp's own
-// comment): byte0=r, byte1=g, byte2=b, byte3=a. Every point this file
-// returns has a real camera sample, so alpha is always 255 -- Decision 5's
-// "uncovered points are dropped, never emitted at alpha 0" rule.
-// sRGB -> linear, 256-entry LUT: point_cloud.mat binds this byte as a plain
-// normalized vertex COLOR (no sampler, so no hardware sRGB decode -- unlike
-// the bowl's SRGB8 camera textures, fixed 2026-09-11), and the renderer's
-// output OETF re-encodes at the end -- packing raw sRGB camera bytes here
-// double-encodes them, the same washed-out bug the bowl had. Adapter-baked
-// point-cloud colors (intensity/height colormaps) are NOT linearized: they
-// were authored against the existing pipeline and are not camera samples.
-// 8-bit linear loses some shadow precision (mild banding in darks) --
-// acceptable for lidar speckle.
 const std::array<uint8_t, 256>& srgb_to_linear_lut() {
     static const std::array<uint8_t, 256> lut = [] {
         std::array<uint8_t, 256> t{};
@@ -73,11 +47,9 @@ std::vector<overlume::PointCloudPoint> ColorizeFromCameras(
             float u, v;
             if (!overlume::bowl::ProjectToCameraUv(cameras.extrinsics[cam], cameras.intrinsics[cam],
                                                    w, h, p, &u, &v)) {
-                continue;  // this camera doesn't cover this point -- try the next configured one
+                continue;
             }
 
-            // Nearest-neighbor sample: first-match has no blend weight to
-            // interpolate against, so bilinear buys nothing here (Decision 5).
             uint32_t px = static_cast<uint32_t>(u * static_cast<float>(w));
             uint32_t py = static_cast<uint32_t>(v * static_cast<float>(h));
             if (px >= w) px = w - 1;
@@ -88,10 +60,8 @@ std::vector<overlume::PointCloudPoint> ColorizeFromCameras(
             pt.position = p;
             pt.rgba = pack_rgba(pixel[0], pixel[1], pixel[2]);
             out.push_back(pt);
-            break;  // first-match wins (Decision 5 / Step 2) -- never try a later camera
+            break;
         }
-        // No configured camera covered this point: DROPPED (Step 1), not
-        // appended with any sentinel color.
     }
     return out;
 }

@@ -1,19 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// 04_virtual_camera.cpp — a small set of named camera "presets" (just plain
-// overlume::CameraPose literals — the POD public API has no preset registry
-// of its own, see the NOTE below), a linear tween between two of them, and
-// overlume::project_to_screen() to project a world point onto each pose's
-// screen. Public headers only: <overlume/api.h>, <overlume/scene.h>.
-//
-// NOTE on scope (see this task's skipped_or_deviated notes): named camera
-// presets and pose tweening are a ROS-node/GUI concept (vcam_ws_bridge,
-// overlume_ros) — the public library only exposes the raw CameraPose POD
-// struct render_frame() takes each call. There is no `set_camera_preset()`
-// or `tween_camera()` entry point to call here, so this example builds its
-// own tiny pose set and does its own linear interpolation entirely in
-// application code, using nothing overlume doesn't already expose.
 #include <overlume/api.h>
 #include <overlume/scene.h>
 
@@ -24,9 +11,6 @@
 
 namespace {
 
-// A linear tween between two poses at t in [0, 1] — eye/target lerp
-// componentwise, vfov_deg lerps too. Plain application-level math; nothing
-// here is an overlume API.
 overlume::CameraPose tween(const overlume::CameraPose& a, const overlume::CameraPose& b, double t) {
     overlume::CameraPose out{};
     for (int i = 0; i < 3; ++i) {
@@ -57,15 +41,8 @@ int main(int argc, char** argv) {
     }
     overlume_examples::apply_model_dir(renderer, args);
 
-    // A world point every preset below frames toward — a spot on the road
-    // roughly 10m ahead of the ego.
     const overlume::Vec3 world_point{10.0, 0.0, 0.0};
 
-    // A small but visible scene, so each preset's frame shows something to
-    // judge the framing by: a road surface with its centerline and
-    // boundaries running +X, the ego at the origin, and three tracked
-    // objects ahead. (02_scene_population.cpp covers every kind in depth;
-    // this is the minimum that makes camera choices legible.)
     overlume::EgoState ego{};
     ego.valid = 1;
     ego.position = {0.0, 0.0, 0.0};
@@ -113,10 +90,8 @@ int main(int argc, char** argv) {
     scene.object_count = static_cast<uint32_t>(objects.size());
     scene.map_elements = map_elements.data();
     scene.map_element_count = static_cast<uint32_t>(map_elements.size());
-    overlume::set_scene(renderer, scene);  // one publish; the arrays above are copied
+    overlume::set_scene(renderer, scene);
 
-    // Three named presets — a chase view, an overhead view, and a low
-    // first-person-ish view. Plain data, no special API for "preset".
     const overlume::CameraPose chase{{-8.0, 0.0, 4.0}, {10.0, 0.0, 0.0}, 60.0};
     const overlume::CameraPose overhead{{5.0, 0.0, 40.0}, {5.0, 0.0, 0.0}, 50.0};
     const overlume::CameraPose first_person{{0.0, 0.0, 1.5}, {10.0, 0.0, 1.2}, 90.0};
@@ -135,9 +110,6 @@ int main(int argc, char** argv) {
             overlume::destroy_renderer(renderer);
             return 1;
         }
-        // project_to_screen() uses the camera state the MOST RECENT
-        // render_frame() call set — not a separately passed pose — so this
-        // call must follow the render_frame() above for this same preset.
         float x = -1.0f, y = -1.0f;
         const bool on_screen = overlume::project_to_screen(renderer, world_point, &x, &y);
         if (on_screen) {
@@ -153,10 +125,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Tween from chase to overhead and render at t=0.5; that mid-flight frame
-    // is the one written to disk. It shows the road markings and the three
-    // clay-box objects from an elevated pose neither preset uses on its own
-    // (the ego at the origin sits below the frame edge from here).
     const overlume::CameraPose midway = tween(chase, overhead, 0.5);
     if (!overlume::render_frame(renderer, midway, view)) {
         std::fprintf(stderr, "04_virtual_camera: render_frame() failed for the tween\n");

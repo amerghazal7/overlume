@@ -1,15 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// environment.cpp — see environment.hpp. Runtime chunk load/unload behind
-// EnvironmentSource, distance-culled against SceneGraph::EgoState::position
-// (no per-tick SceneGraph field needed -- ego position is already there).
-// Buildings are OPAQUE clay (r.buildingMaterial) the entire time they're
-// loaded -- chunks load/unload by distance, they never stale-fade, so there
-// is no fade-blended building material to introduce (the standing library
-// convention since the flicker root-cause fix: a fade-blended always-on
-// material on a category with no real staleness concept is exactly the
-// mistake that bit ribbon/carpet).
 #include "environment.hpp"
 #include "environment_test_hooks.hpp"
 #include "gltf_normals.hpp"
@@ -41,18 +32,12 @@ BakedEnvironmentSource::BakedEnvironmentSource(std::string dir,
     : dir_(std::move(dir)), chunks_(std::move(chunks)), anchor_(anchor) {}
 
 void BakedEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
-    // Load: any indexed chunk within kLoadRadiusM not already loaded.
     for (const EnvironmentChunk& chunk : chunks_) {
         if (loaded_.find(chunk.id) != loaded_.end()) continue;
-        // A chunk that failed to load is memoed, not retried per tick -- a
-        // truncated .glb would otherwise cost a full file read + createAsset
-        // attempt at frame rate. The memo clears when the ego leaves the
-        // unload radius (see the unload loop), so a fixed file is retried on
-        // the next approach.
         if (failed_.count(chunk.id) != 0) continue;
         if (distance(chunk.center, ego_map_pos) > kLoadRadiusM) continue;
 
-        if (!ensure_gltf_loader(r)) continue;  // global, not per-chunk: keep retrying
+        if (!ensure_gltf_loader(r)) continue;
         std::ifstream file(dir_ + "/" + chunk.path, std::ios::binary | std::ios::ate);
         if (!file) {
             failed_.insert(chunk.id);
@@ -70,13 +55,6 @@ void BakedEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
             continue;
         }
 
-        // Baked chunks carry POSITION only (scripts/bake_environment.py
-        // never wrote NORMAL) -- gltfio has no fallback for that (no
-        // flat-normal generation in libgltfio_core.a), so every building
-        // would otherwise get a degenerate default shading normal and
-        // render flat regardless of palette/lighting. ensure_flat_normals()
-        // is a no-op for any chunk that already has NORMAL (re-baked ones,
-        // eventually) -- see gltf_normals.hpp.
         bytes = ensure_flat_normals(std::move(bytes));
 
         filament::gltfio::FilamentAsset* asset =
@@ -92,10 +70,6 @@ void BakedEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
         }
         asset->releaseSourceData();
 
-        // Material remap: every primitive reads as building clay
-        // (r.buildingMaterial) -- same ifstream -> createAsset ->
-        // loadResources -> releaseSourceData + remap sequence
-        // set_ego_model() (ego.cpp) uses.
         filament::RenderableManager& rm = r.engine->getRenderableManager();
         const utils::Entity* renderables = asset->getRenderableEntities();
         const size_t renderableCount = asset->getRenderableEntityCount();
@@ -110,28 +84,15 @@ void BakedEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
             rm.setReceiveShadows(inst, true);
         }
 
-        // visible_ invariant (environment.hpp): only add to the scene if
-        // currently visible -- a chunk that loads while hidden must not
-        // pop into view. It stays in loaded_ either way (loaded_count()
-        // doesn't care), so a later set_visible(true) picks it up without
-        // a reload.
         if (visible_) {
             r.scene->addEntities(asset->getEntities(), asset->getEntityCount());
         }
         loaded_.emplace(chunk.id, LoadedChunk{asset, chunk.center});
     }
 
-    // Unload: any loaded chunk now beyond kUnloadRadiusM -- a wider radius
-    // than kLoadRadiusM above (named hysteresis band, environment.hpp), so
-    // a chunk right at one boundary doesn't reload/unload every tick.
     for (auto it = loaded_.begin(); it != loaded_.end();) {
         if (distance(it->second.center, ego_map_pos) > kUnloadRadiusM) {
             filament::gltfio::FilamentAsset* asset = it->second.asset;
-            // visible_ invariant: only remove from the scene if it was
-            // ever added there (skipped entirely while hidden, see the
-            // load loop above) -- removing an entity never added would
-            // still be harmless in Filament, but this keeps the intent
-            // explicit rather than relying on that.
             if (visible_) {
                 r.scene->removeEntities(asset->getEntities(), asset->getEntityCount());
             }
@@ -141,8 +102,6 @@ void BakedEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
             ++it;
         }
     }
-    // Retry-on-re-approach: a failed chunk's memo clears once the ego is
-    // beyond the unload radius, mirroring the loaded-chunk lifecycle.
     for (auto it = failed_.begin(); it != failed_.end();) {
         const EnvironmentChunk* chunk = find_chunk(*it);
         if (chunk == nullptr || distance(chunk->center, ego_map_pos) > kUnloadRadiusM) {
@@ -165,10 +124,6 @@ void BakedEnvironmentSource::teardown(VisualRenderer& r) {
 }
 
 size_t BakedEnvironmentSource::scene_membership_count(VisualRenderer& r) const {
-    // Finding #1: read real Filament scene membership per loaded_ entry
-    // (r.scene->hasEntity() on the asset's first entity) instead of
-    // re-deriving from visible_ -- see EnvironmentSource::scene_membership_count()'s
-    // own comment for why.
     size_t count = 0;
     for (const auto& [id, chunk] : loaded_) {
         (void)id;
@@ -181,7 +136,7 @@ size_t BakedEnvironmentSource::scene_membership_count(VisualRenderer& r) const {
 }
 
 void BakedEnvironmentSource::set_visible(VisualRenderer& r, bool visible) {
-    if (visible == visible_) return;  // no-op: matches the current state already
+    if (visible == visible_) return;
     visible_ = visible;
     for (auto& [id, chunk] : loaded_) {
         (void)id;
@@ -212,10 +167,6 @@ std::unique_ptr<BakedEnvironmentSource> open_baked_environment_source(const std:
             chunks.push_back(std::move(chunk));
         }
     } catch (const std::exception&) {
-        // Missing dir/file, unreadable, malformed YAML, or a missing/
-        // mistyped key -- all non-fatal (same load_theme() convention,
-        // theme.cpp): caller (set_environment_source) reports false, its
-        // own caller (the node) WARNs once.
         return nullptr;
     }
     return std::make_unique<BakedEnvironmentSource>(dir, std::move(chunks), anchor);
@@ -226,23 +177,10 @@ std::unique_ptr<BakedEnvironmentSource> open_baked_environment_source(const std:
 namespace overlume {
 
 namespace {
-// Epic 6 (VM-062) Decision 5: dispatch on a scheme prefix inside this
-// existing, otherwise-unchanged entry point. No URL library -- a literal
-// prefix compare, exactly as wide as the one distinction this function
-// needs to make.
 constexpr char kIonPrefix[] = "ion://";
 constexpr size_t kIonPrefixLen = sizeof(kIonPrefix) - 1;
 }  // namespace
 
-// Epic 6 (VM-062): `source_uri` with no "ion://" prefix opens the baked
-// backend, byte-for-byte today's behavior (Decision 5) -- every existing
-// caller/config/test unaffected. An "ion://" prefix opens the streaming
-// backend instead (`open_streaming_environment_source`, environment_stream.cpp,
-// the one C++20 TU); with OVERLUME_ENABLE_CESIUM off (the ordinary build/ tree,
-// see CMakeLists.txt), that TU isn't compiled in at all, so this branch
-// returns false rather than referencing an undefined symbol -- an "ion://"
-// source_uri configured against a cesium-less build degrades the same way
-// a missing bake dir does (non-fatal, caller WARNs).
 bool set_environment_source(VisualRenderer* r, const char* source_uri, GeoAnchor anchor) {
     if (r == nullptr || source_uri == nullptr || source_uri[0] == '\0') return false;
 
@@ -252,24 +190,13 @@ bool set_environment_source(VisualRenderer* r, const char* source_uri, GeoAnchor
 #ifdef OVERLUME_ENABLE_CESIUM
         source = open_streaming_environment_source(uri.substr(kIonPrefixLen), anchor);
 #else
-        return false;  // cesium not compiled into this build (OVERLUME_ENABLE_CESIUM off)
+        return false;
 #endif
     } else {
         source = open_baked_environment_source(uri, anchor);
     }
     if (!source) return false;
-    // VM-096: a freshly constructed source always defaults visible_ =
-    // true -- sync it to whatever set_environment_visible() last recorded
-    // on `r` BEFORE installing it, so a preset switch (baked/osm/clipped/
-    // google) made while the GUI's toggle is off doesn't pop the new
-    // source into view. Harmless no-op the very first time this ever runs
-    // (r->environmentVisible defaults true too, matching every pre-VM-096
-    // call site's behavior byte-for-byte).
     source->set_visible(*r, r->environmentVisible);
-    // on_activate() runs again after on_deactivate() on the SAME renderer
-    // (on_deactivate does not destroy it), so this entry point is
-    // re-entrant -- the old source's chunks must be released here, its
-    // destructor cannot.
     if (r->environmentSource) {
         r->environmentSource->teardown(*r);
     }
@@ -277,12 +204,6 @@ bool set_environment_source(VisualRenderer* r, const char* source_uri, GeoAnchor
     return true;
 }
 
-// VM-096 (vcam GUI Environment Tiles toggle): see scene.h's own comment
-// for the full contract. r->environmentVisible is the persisted flag
-// set_environment_source() above re-applies to every newly installed
-// source; here it is also pushed live onto whatever source is installed
-// right now (a no-op inside EnvironmentSource::set_visible() if it already
-// matches).
 bool set_environment_visible(VisualRenderer* r, bool visible) {
     if (r == nullptr) return false;
     r->environmentVisible = visible;
@@ -292,24 +213,11 @@ bool set_environment_visible(VisualRenderer* r, bool visible) {
     return true;
 }
 
-// VM-096 gate round 1 finding: see scene.h's own comment.
 bool environment_visible(VisualRenderer* r) {
     if (r == nullptr) return false;
     return r->environmentVisible;
 }
 
-// Epic 6 (VM-063) Decision 11: the node's only window into a streaming
-// source's live health, since the library does not log through the NODE's
-// own logger (POD-boundary convention, same as set_environment_source
-// above). Not an absolute "the library never logs anything itself" claim,
-// though: environment_stream.cpp's parse_ion_spec() does call plain
-// spdlog::warn() once (an unrecognized materials= value -- no credential in
-// that message, unrelated to build_externals()'s own dedicated/redacting
-// cesium logger) -- a narrow, named exception rather than a blanket rule.
-// Network loss itself happens mid-run, long after set_environment_source()
-// returned true. NONE on null r or when no source is configured -- everything else goes
-// through the EnvironmentSource virtual (Decision 12's precedent: a
-// downcast here would be unsafe against a second concrete type).
 EnvironmentSourceState environment_source_state(VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return EnvironmentSourceState::NONE;
     return r->environmentSource->state();
@@ -321,13 +229,6 @@ namespace overlume::testing {
 
 uint64_t environment_loaded_chunk_count(overlume::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return 0;
-    // Epic 6 (VM-062) Decision 12: goes through the virtual now that a
-    // second concrete EnvironmentSource type (StreamingEnvironmentSource)
-    // exists -- a static_cast to BakedEnvironmentSource* here would be
-    // undefined behavior against a streaming source. Same numbers as
-    // before through the virtual (BakedEnvironmentSource::loaded_count()
-    // forwards to loaded_chunk_count()), so every existing test stays
-    // green unchanged.
     return static_cast<uint64_t>(r->environmentSource->loaded_count());
 }
 
@@ -336,8 +237,6 @@ uint64_t environment_scene_membership_count(overlume::VisualRenderer* r) {
     return static_cast<uint64_t>(r->environmentSource->scene_membership_count(*r));
 }
 
-// 2026-09-21 live finding: see this hook's own declaration comment
-// (environment_test_hooks.hpp).
 bool environment_stream_provides_ground(overlume::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return false;
     return r->environmentSource->provides_ground();

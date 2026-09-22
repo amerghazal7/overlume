@@ -23,17 +23,9 @@ jobs:
           key: ${{ runner.os }}-overlume-toolchain-cesium-${{ hashFiles('overlume/scripts/setup_toolchain_cesium.sh') }}
 
       - name: Bootstrap toolchain
-        # Must be the -cesium bootstrap: toolchain-clang-libcxx.cmake (used
-        # below) resolves only the clang-18/libc++-18 prefix this script
-        # creates at ~/.cache/overlume-toolchain-cesium (matching the cache
-        # step above); there is no other bootstrap script.
         run: overlume/scripts/setup_toolchain_cesium.sh
 
       - name: Install Doxygen (release tarball, matches local install exactly)
-        # apt's Doxygen on ubuntu-22.04 is 1.9.x, which does not honour the
-        # same warning set this project's Doxyfile.in relies on
-        # (WARN_AS_ERROR=FAIL_ON_WARNINGS) — install the same release
-        # tarball a contributor would use locally instead.
         run: |
           curl -fsSL -o /tmp/doxygen.tar.gz \
             "https://github.com/doxygen/doxygen/releases/download/Release_${DOXYGEN_VERSION//./_}/doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz"

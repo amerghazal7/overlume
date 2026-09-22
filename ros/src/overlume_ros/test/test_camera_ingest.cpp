@@ -1,19 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-/** @file test_camera_ingest.cpp
- *  @brief VM-091 Task 2 Step 6. Exercises camera_ingest.hpp's pure, ROS/GPU-
- *  free math and bookkeeping directly -- no rclcpp node/spin, no GPU, same
- *  "no full OverlumeNode/rclcpp harness in this suite" shape
- *  test_ego_anchor.cpp/test_scene_layout.cpp already use. The ROS-facing
- *  CameraIngest wrapper itself (subscriptions, cv_bridge, the overlume:: call
- *  sites) is exercised end-to-end only by actually running the node (this
- *  epic's Step 5 perf-gate bag run) -- there is no rclcpp-node-harness
- *  convention in this package to stand one up here, and doing so just for
- *  this test would be new scaffolding this package's own test suite
- *  deliberately avoids elsewhere (see test_profile.cpp's comment on why
- *  even GPU-linking tests stay header/library-call-only).
- */
 #include "overlume_ros/camera_ingest.hpp"
 
 #include <cmath>
@@ -21,8 +8,6 @@
 #include <gtest/gtest.h>
 
 namespace overlume_test = overlume::ros;
-
-// ---- twist_at ---------------------------------------------------------
 
 TEST(TwistAt, EmptyBufferReturnsFalse) {
     std::deque<overlume_test::StampedTwist> twists;
@@ -46,8 +31,6 @@ TEST(TwistAt, InterpolatesLinearlyBetweenSamples) {
     EXPECT_NEAR(out.vx, 1.0, 1e-9);
 }
 
-// ---- rig_delta ----------------------------------------------------------
-
 TEST(RigDelta, NoOdometryReturnsFalse) {
     std::deque<overlume_test::StampedTwist> twists;
     double th, px, py;
@@ -61,9 +44,6 @@ TEST(RigDelta, DegenerateSpanReturnsFalse) {
 }
 
 TEST(RigDelta, ConstantForwardVelocityIntegratesToLinearDisplacement) {
-    // Constant vx=1 m/s, no yaw, over an 80ms span (this bag's real
-    // camera-phase spread, per the plan's own m2o1 note) -> ~0.08m of
-    // forward travel, zero yaw.
     std::deque<overlume_test::StampedTwist> twists{{9.0, 1.0, 0.0, 0.0}, {11.0, 1.0, 0.0, 0.0}};
     double th, px, py;
     ASSERT_TRUE(overlume_test::rig_delta(twists, 10.0, 10.08, th, px, py));
@@ -79,8 +59,6 @@ TEST(RigDelta, ConstantYawRateIntegratesToRotation) {
     EXPECT_NEAR(th, 0.5, 1e-6);
 }
 
-// ---- compensation_delta_4x4 ----------------------------------------------
-
 TEST(CompensationDelta4x4, IdentityWhenNoOdometry) {
     std::deque<overlume_test::StampedTwist> twists;
     double delta[16];
@@ -90,9 +68,6 @@ TEST(CompensationDelta4x4, IdentityWhenNoOdometry) {
 }
 
 TEST(CompensationDelta4x4, IdentityWhenCameraStampEqualsReferenceTime) {
-    // The "straddling cameras" pinning case for the camera whose stamp
-    // already IS t_max -- Step 6's own requirement (b)/(c): a camera at
-    // t_max needs no compensation, same as if odometry were absent.
     std::deque<overlume_test::StampedTwist> twists{{9.0, 1.0, 0.0, 0.3}, {11.0, 1.0, 0.0, 0.3}};
     double delta[16];
     overlume_test::compensation_delta_4x4(twists, 10.08, 10.08, delta);
@@ -101,13 +76,9 @@ TEST(CompensationDelta4x4, IdentityWhenCameraStampEqualsReferenceTime) {
 }
 
 TEST(CompensationDelta4x4, MatchesRigDeltaForTwoStraddlingCameraStamps) {
-    // Step 6's required pinning case: two cameras whose stamps straddle
-    // max_sync_latency (this bag's own ~80ms real spread) -- assert BOTH
-    // cameras' deltas equal rig_delta(stamp_i, t_max), independently
-    // recomputed, not merely "returns true".
     std::deque<overlume_test::StampedTwist> twists{{9.0, 0.5, 0.1, 0.2}, {11.0, 0.5, 0.1, 0.2}};
-    const double t_cam_a = 10.00;  // older camera
-    const double t_max = 10.08;    // newer camera == the tick's reference time
+    const double t_cam_a = 10.00;
+    const double t_max = 10.08;
 
     double th, px, py;
     ASSERT_TRUE(overlume_test::rig_delta(twists, t_cam_a, t_max, th, px, py));
@@ -117,17 +88,11 @@ TEST(CompensationDelta4x4, MatchesRigDeltaForTwoStraddlingCameraStamps) {
     const double expected_a[16] = {c, -s, 0, px, s, c, 0, py, 0, 0, 1, 0, 0, 0, 0, 1};
     for (int i = 0; i < 16; ++i) EXPECT_NEAR(delta_a[i], expected_a[i], 1e-9) << "index " << i;
 
-    // The newer camera (already at t_max) gets identity -- covered by
-    // IdenticalWhenCameraStampEqualsReferenceTime above; repeated here
-    // inline so this one test documents both halves of the straddling pair
-    // together.
     double delta_b[16];
     overlume_test::compensation_delta_4x4(twists, t_max, t_max, delta_b);
     const double I[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     for (int i = 0; i < 16; ++i) EXPECT_NEAR(delta_b[i], I[i], 1e-12) << "index " << i;
 }
-
-// ---- OrthonormalizeExtrinsics ---------------------------------------------
 
 TEST(OrthonormalizeExtrinsics, AlreadyOrthonormalPassesThroughWithNegligibleCorrection) {
     overlume::CameraExtrinsics ext{{1, 0, 0, 0, -1, 0, 0, 0, -1}, {1, 2, 3}};
@@ -139,9 +104,6 @@ TEST(OrthonormalizeExtrinsics, AlreadyOrthonormalPassesThroughWithNegligibleCorr
 }
 
 TEST(OrthonormalizeExtrinsics, SkewedRIsCorrectedToAnOrthonormalRightHandedBasis) {
-    // right/down/fwd nominally (1,0,0)/(0,-1,0)/(0,0,-1), but `down` is
-    // nudged off-orthogonal by a small amount -- plausible calibration
-    // noise, not an extreme case.
     overlume::CameraExtrinsics ext{{1, 0.05, 0, 0, -1, 0.03, 0, 0, -1}, {0, 0, 0}};
     double max_corr = 0.0;
     const overlume::CameraExtrinsics out = overlume_test::OrthonormalizeExtrinsics(ext, &max_corr);
@@ -160,8 +122,6 @@ TEST(OrthonormalizeExtrinsics, SkewedRIsCorrectedToAnOrthonormalRightHandedBasis
     EXPECT_NEAR(dot(right, down), 0.0, 1e-9);
     EXPECT_NEAR(dot(right, fwd), 0.0, 1e-9);
     EXPECT_NEAR(dot(down, fwd), 0.0, 1e-9);
-    // Right-handed: right x down == fwd (bowl.mat's own down=cross(fwd,right)
-    // reconstruction, cyclically).
     const std::array<double, 3> cross{right[1] * down[2] - right[2] * down[1],
                                       right[2] * down[0] - right[0] * down[2],
                                       right[0] * down[1] - right[1] * down[0]};
@@ -169,15 +129,11 @@ TEST(OrthonormalizeExtrinsics, SkewedRIsCorrectedToAnOrthonormalRightHandedBasis
 }
 
 TEST(OrthonormalizeExtrinsics, GrosslyNonOrthogonalRCrossesTheWarnThreshold) {
-    // down nudged by ~20 degrees worth of skew -- large enough that a real
-    // caller (CameraIngest's ctor) would WARN.
     overlume::CameraExtrinsics ext{{1, 0.36, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 0}};
     double max_corr = 0.0;
     overlume_test::OrthonormalizeExtrinsics(ext, &max_corr);
     EXPECT_GT(max_corr, overlume_test::kOrthonormalizeWarnThresholdRad);
 }
-
-// ---- IngestState: info_ready gate + monotonic frame_id --------------------
 
 TEST(IngestState, AllInfoReadyFalseUntilEveryConfiguredCameraReports) {
     std::vector<overlume::CameraExtrinsics> ext(2);
@@ -197,12 +153,10 @@ TEST(IngestState, SubsequentCameraInfoOnlySignalsRebakeWhenSomethingActuallyChan
     std::vector<overlume::CameraExtrinsics> ext(1);
     overlume_test::IngestState state(1, ext);
     overlume::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
-    ASSERT_TRUE(state.record_camera_info(0, in, 320, 240));  // first completion
+    ASSERT_TRUE(state.record_camera_info(0, in, 320, 240));
 
-    // Identical CameraInfo again -- nothing changed, no re-bake needed.
     EXPECT_FALSE(state.record_camera_info(0, in, 320, 240));
 
-    // A real change (driver reconnect / live extrinsics edit changing dims).
     EXPECT_TRUE(state.record_camera_info(0, in, 640, 480));
 }
 
@@ -215,20 +169,12 @@ TEST(IngestState, ImageArrivalBumpsAMonotonicPerCameraFrameId) {
     EXPECT_EQ(state.record_image_stamp(0, 10.2), 3u);
 }
 
-// ---- IngestState::rgb: CameraInfo/image-stream dim-mismatch guard ---------
-// CameraInfo can advertise different dims
-// than the image stream actually publishes (calibration-res CameraInfo +
-// a downscaled stream) -- rgb() must not hand out a buffer ingested at one
-// size once width(i)/height(i) says another, or ColorizeFromCameras' raw
-// pointer indexing reads past the end of it.
 TEST(IngestState, RgbReturnsNullptrWhenStoredBufferDimsDisagreeWithCameraInfo) {
     std::vector<overlume::CameraExtrinsics> ext(1);
     overlume_test::IngestState state(1, ext);
     overlume::CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};
-    // CameraInfo advertises 320x240 (e.g. the sensor's calibration resolution)...
     ASSERT_TRUE(state.record_camera_info(0, in, 320, 240));
     std::vector<uint8_t> frame(160 * 120 * 3, 42);
-    // ...but the actual published image stream is downscaled to 160x120.
     state.store_rgb(0, frame.data(), 160, 120);
     EXPECT_EQ(state.rgb(0), nullptr)
         << "mismatched dims must read as 'no image', not sample past the buffer's end";
@@ -251,7 +197,7 @@ TEST(IngestState, NewestStampIsTheFrameSyncGatesTMax) {
     EXPECT_FALSE(state.newest_stamp(t_max)) << "no image has arrived for either camera yet";
 
     state.record_image_stamp(0, 10.00);
-    state.record_image_stamp(1, 10.08);  // this bag's own ~80ms real spread
+    state.record_image_stamp(1, 10.08);
     ASSERT_TRUE(state.newest_stamp(t_max));
     EXPECT_NEAR(t_max, 10.08, 1e-9);
 }

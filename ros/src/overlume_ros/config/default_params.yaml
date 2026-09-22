@@ -6,21 +6,13 @@
     out_width: 1280
     out_height: 720
     quality: 1
-    # VM-040 (Epic 5): quality auto-drop with hysteresis. Opt-in (a new
-    # auto-behavior ships default off); the governor otherwise never touches
-    # `quality` above. Thresholds/windows are their own tunable params --
-    # see quality_governor.hpp for the reasoning behind these defaults.
     governor_enabled: false
     governor_window_size: 30
     governor_drop_threshold_ms: 28.0
     governor_recover_threshold_ms: 18.0
     governor_recover_windows_required: 3
     governor_min_dwell_windows: 3
-    # 1 = rendering_node bowl, 2 = hybrid, 3 = this node (visual). Both nodes
-    # must agree at startup (spec §3.1) so exactly one publisher is active
-    # on /rendering/image from the first frame.
     initial_mode: 1
-    # Static hello-frame camera pose [eye xyz | target xyz]; see overlume_node.cpp.
     virtual_pose:
     - -4.0
     - 0.0
@@ -29,51 +21,15 @@
     - 0.0
     - -0.5
     virtual_vfov_deg: 80.0
-    # Theme assets (VM-044): "" resolves via ament_index to this package's
-    # own installed share/assets/themes (overlume_node.cpp's
-    # on_configure) instead of DEFAULT_THEME_ASSETS_DIR's compiled-in
-    # absolute path to THIS checkout's source tree. Set an absolute path to
-    # point at a hand-edited theme dir instead.
     theme_assets_dir: ""
-    # Which shipped theme (yaml stem) loads at startup. Validated against
-    # theme_assets_dir's actual contents -- configure FAILS on an unknown name.
     initial_theme: dark_adas
-    # Ego robot mesh (VM-012); mirrors micropilot_rendering_node's
-    # robot_model_path convention. "" is not "disabled": overlume::set_ego_model
-    # always renders something (a themed clay box at ego_fallback_dims on
-    # load failure) -- "" resolves via ament_index to this package's own
-    # installed share/assets/ego/M02P.glb (VM-044) if
-    # scripts/provision_ego_model.sh has provisioned one, else stays "" and
-    # the clay-box fallback is honest about the gap. Set an absolute path to
-    # override with a different mesh.
     ego_model_path: ""
     ego_fallback_dims: [4.5, 2.0, 1.8]
     ego_speed_smoothing_alpha: 0.2
-    # flatten_z: the HD-map layer is a 2D plane, so real z (live TF altitude,
-    # dynamic-object bbox centers) would render as floating geometry above
-    # it -- every adapter zeroes z while this is true (frame_transform.hpp,
-    # tf_adapter.hpp). Set false once the HD-map layer has real 3D coords.
     flatten_z: true
-    # HUD compositor font (VM-030/VM-044): "" resolves via ament_index to
-    # this package's own installed share/assets/fonts (overlume_node.cpp's
-    # on_configure) instead of a per-checkout absolute path. Missing/
-    # unloadable is non-fatal (CompositeHud() WARNs once, HUD just isn't
-    # drawn that tick). Set an absolute path to point at a different font.
     hud_font_path: ""
-    # HUD disable knob (STANDING directive, visual-mode-epic3.md): false
-    # skips CompositeHud() entirely, frame passes through untouched.
     hud_enabled: true
-    # Alert-callout disable knob (VM-031, STANDING directive): false skips
-    # BuildNearestCallout() entirely, frame passes through untouched. Style
-    # (leader line + chip color) reuses the same theme hud.accent_color the
-    # HUD's own mode chip already draws with -- no new theme token.
     callouts_enabled: true
-    # Per-category layer visibility (VM-032, STANDING directive disable-knob
-    # story): unlike hud_enabled/callouts_enabled above, these are read LIVE
-    # every tick -- a set_layers WS command (or a plain `ros2 param set`)
-    # takes effect on the very next tick, no restart. layer_point_clouds is
-    # declared here but stays inert until Task 6 (VM-035) adds the
-    # PointCloud category it would gate.
     layer_objects: true
     layer_paths: true
     layer_map_elements: true
@@ -81,211 +37,29 @@
     layer_alerts: true
     layer_markers: true
     layer_point_clouds: true
-    # VM-077: gates the output_trajectory_carpet category. Singular knob
-    # name, matching the category's own singular topic/adapter/role.
     layer_trajectory_carpet: true
-    # Task 4 (VM-093): local render-mode switch, 1=BOWL/2=HYBRID/3=FREE_LOOK
-    # (default). Declare-time out-of-range WARNs and defaults to 3; a LIVE
-    # `ros2 param set`/set_parameters() out-of-range value is REJECTED
-    # instead -- see overlume_node.hpp's render_mode_ field comment for
-    # the full contract (mode content exclusivity, mux interaction).
     render_mode: 3
-    # Surround Stitching (Task 4/VM-093 follow-up directive): mode-3-only
-    # bowl-in-same-frame toggle, off by default -- see overlume_node.hpp's
-    # layer_surround_stitching_ field comment.
     layer_surround_stitching: false
     surround_stitching_profile: bowl
-    # Which shipped profile to load (urban|offroad|sim -> <profile>_profile.yaml).
-    # profile_dir: "" means this package's own installed share/config
-    # (resolved via ament_index_cpp in overlume_node.cpp); set an
-    # absolute path to point at a hand-edited profile instead (VM-042).
     profile: urban
     profile_dir: ""
-    # VM-050 (Epic 4 Task 1): manual geo-anchor override, for GPS-denied
-    # replays -- NaN (all three) means "no override, sample NavSatFix+TF
-    # instead" (the spec's PRIMARY path). All-or-nothing: setting only one
-    # or two of these three is a config ERROR (overlume_node.cpp logs
-    # it once at startup and does not apply a partial/blended anchor).
-    # NavSatFix topic the geo anchor samples (BEST_EFFORT subscription).
-    # Simulator default; a real robot with a Fixposition unit publishes
-    # /fixposition/odometry_llh -- set it per deployment or via
-    # validate_visual_mode.sh --param gps_topic:=<topic>.
     gps_topic: /sim/feedback/gps
     geo_datum_lat_deg: .nan
     geo_datum_lon_deg: .nan
     geo_datum_heading_deg: .nan
-    # 2026-09-21 finding (docs/status.md item 4, docs/runbooks/cesium.md
-    # section 5b): the anchor's WGS84 ellipsoid height was implicitly 0.0
-    # everywhere -- true in simulation, false on the real robot (~1.7 m,
-    # Fixposition NavSatFix altitude), which buried Google's streamed
-    # terrain ~1.7 m above the road. geo_datum_height_m: NaN (default) =
-    # use the sampled NavSatFix altitude mean; finite = override the anchor
-    # height (also applied when the lat/lon/heading override above is
-    # active, which never samples NavSatFix). geo_anchor_height_offset_m:
-    # always added to whichever height was chosen -- the trim knob for a
-    # receiver mounted above the base_link plane (its altitude then reads
-    # h m too high, so enter -h).
     geo_datum_height_m: .nan
     geo_anchor_height_offset_m: 0.0
-    # VM-052 (Epic 4 Task 3): baked-environment (clay buildings) VISIBILITY
-    # knob (STANDING directive). FOLLOW-UP 2 (maintainer decision,
-    # 2026-09-18): on_activate() now arms the configured source regardless of
-    # this flag -- false no longer skips overlume::set_environment_source()
-    # itself, only whether buildings are shown once armed, so a deployment
-    # launched with this false can still be shown live from the GUI switch
-    # alone (no preset re-pick needed). Since FOLLOW-UP 9 (same decision),
-    # "shown" also requires render_mode to be 3 (FREE_LOOK/VISUAL) --
-    # environment_effectively_visible() (scene_assembly.hpp): BOWL/HYBRID
-    # always hide buildings regardless of this flag.
     environment_enabled: true
-    # Path to Task 2 (VM-051)'s baked chunk index dir (index.yaml +
-    # chunks/*.glb) -- same CLASS of gap theme_assets_dir/ego_model_path used
-    # to be, but VM-044's backlog text scopes that task to themes + the ego
-    # mesh only, so this one stays a per-run manual path, not ament-resolved.
-    # "" is non-fatal: on_activate() WARNs once and never calls
-    # set_environment_source() (no anchor solved / no dir given -- same
-    # "missing data renders nothing" convention, spec §9).
     environment_chunks_dir: ""
-    # VM-063 (Epic 6 Task 4): source-selection config. "" (the shipped
-    # default) means keep using environment_chunks_dir_ above as a baked
-    # dir -- byte-for-byte today's behavior, every existing deployment
-    # unaffected. A non-empty value switches to the streamed backend.
-    # environment_chunks_dir above, if also set, becomes the automatic
-    # fallback dir on network loss (Decision 11) -- zero extra config
-    # needed for a streamed deployment that already has its own Epic-4
-    # bake. Known ceiling: a path containing '?' or '&' is unsupported by
-    # the library's split-only query parser (Decision 5).
-    #
-    # THREE documented presets (Decision 14, VM-064/Epic 6 Task 5) -- see
-    # docs/runbooks/cesium.md for the ion account/token setup in every
-    # case (by name, NEVER the token value itself; the library reads
-    # CESIUM_ION_TOKEN from the environment). Uncomment exactly one to pick
-    # a source; the shipped default below (plain "") keeps today's baked
-    # behavior.
-    #   ion://96188
-    #     Cesium OSM Buildings (curated, global coverage incl. this repo's
-    #     Dubai/Sharjah operating area) -- clay re-materialized, needs no
-    #     upload. The shipped default asset id (cesium.md Path A).
-    #   ion://<own-asset-id>
-    #     A clipped/uploaded tileset (cesium.md Path B) -- smaller,
-    #     cache-friendlier clay tiles at the cost of a per-deployment
-    #     upload step. Replace <own-asset-id> with the numeric id ion
-    #     assigned your upload.
-    #   ion://2275207?materials=original&cache=off
-    #     Google Photorealistic 3D Tiles (VM-064) -- textured photoreal
-    #     mesh, NOT clay: materials=original keeps gltfio's own loaded
-    #     materials instead of the buildingMaterial remap. Asset id 2275207
-    #     VERIFIED at VM-064 implementation against the live ion Asset
-    #     Depot API (name/type match, 2026-09-16) -- never guessed, per
-    #     VM-064's own factual rule. cache=off ships until this
-    #     deployment has re-verified Google's Map Tiles cache-lifetime
-    #     terms (cesium.md's Google section, Step 2(b)); attribution is
-    #     drawn automatically once uncommented (environment_attribution
-    #     below, on by default). Expected to be heavier than either clay
-    #     preset (textured photoreal mesh); the one dev-box single-tile live
-    #     measurement was INCONCLUSIVE and did not confirm it -- read this
-    #     epic's results block before budgeting for it (cesium.md).
     environment_source_uri: ""
-    # VM-096 (vcam GUI Environment Tiles toggle): the deployment's OWN
-    # ion asset id for the "clipped" preset above (cesium.md Path B) --
-    # "" (the shipped default, every checkout) means this deployment has
-    # not uploaded/clipped its own tileset yet. NEVER a fabricated id: the
-    # vcam GUI/WS bridge grey out the "clipped" option whenever this is
-    # empty rather than guess one. Set it to "ion://<own-asset-id>" (the
-    # SAME string this file's own comment above documents for
-    # environment_source_uri) once this deployment has one.
     environment_own_asset_uri: ""
-    # VM-063: on-disk tile cache dir for the streamed backend (ignored by
-    # the baked backend; an inline cache= already present in
-    # environment_source_uri, as the google preset above ships with
-    # cache=off, also takes precedence over this dir -- on_activate()
-    # only appends "cache=<this dir>" when the URI has no cache= key).
-    # "" (the shipped default) uses the library's own default
-    # (${XDG_CACHE_HOME:-$HOME/.cache}/overlume-tile-cache, Decision 10) --
-    # set this only to override that location (e.g. a different
-    # disk/quota on a specific robot). Same '?'/'&' path ceiling as above.
     environment_tile_cache_dir: ""
-    # 2026-09-21 ("option 2", maintainer decision): the map frame is flat
-    # (ego z always 0) but real terrain is not -- true (the shipped
-    # default) samples Google's own terrain height under the ego and
-    # shifts the streamed environment to meet it (composed into the ion://
-    # URI as follow_terrain=on/off, environment_source_uri.hpp); false
-    # keeps the flat map frame. Ignored by a plain baked-chunk directory
-    # URI (no query string to append to). Only observable once
-    # environment_source_uri above is an ion:// preset. Costs extra ion
-    # quota (it pulls the most-detailed tiles under the ego every >=2 s or
-    # 5 m). Read once at configure: a runtime `ros2 param set` applies only
-    # when a preset switch re-composes the URI.
     environment_follow_terrain: true
-    # Metres the terrain follower parks the sampled ground BELOW the map
-    # plane (composed as ground_bias= on the ion:// URI). 0 puts Google's
-    # ground exactly on the z=0 road plane and it z-fights the HD-map
-    # surface and ribbons (seen live 2026-09-21); raise it if terrain still
-    # pokes through at range.
     environment_ground_bias_m: 0.3
-    # 2026-09-21 live finding: the renderer's own 120 m clay ground plane
-    # covers streamed roadside detail near the ego once terrain following
-    # is on (a real-robot capture with Google Photorealistic tiles found it
-    # hiding buildings/road-edge detail within 60 m). true (the shipped
-    # default) removes the clay plane once a streamed tileset PROVES it has
-    # ground there -- a successful height sample under the ego -- and
-    # latches that for the source's life; a source that never samples
-    # ground (e.g. Cesium OSM Buildings, buildings-only) keeps the plane
-    # regardless. false forces the plane to always stay (composed as
-    # replaces_ground=off on the ion:// URI, environment_source_uri.hpp).
-    # Only takes effect while environment_follow_terrain is true: the proof
-    # that a tileset has ground is a terrain height sample, and none are
-    # taken with following off (so the clay plane stays).
     environment_replaces_ground: true
-    # 2026-09-21 multi-point plane fit (maintainer decision): a single
-    # global ground offset can't track a real road's grade -- 50 m ahead of
-    # the sampled point, real terrain has drifted off the flat map plane and
-    # crosses it, rendering as photoreal wedges slicing across the road. The
-    # follower now fits 5 along-track height samples (-20/-10/0/+10/+20 m
-    # from the ego, along its heading only -- never lateral, which would
-    # sample the verge/kerb) to a line and tilts the whole streamed
-    # environment to match, in addition to the offset above. This degrees
-    # value clamps that tilt: 2.0 (the shipped default) bounds both how
-    # wrong a far extrapolation can get past the fitted span and how far
-    # streamed buildings visibly lean (a tilt rotates the whole scene, not
-    # just the ground). 0 disables tilt entirely -- offset-only, the pre-fit
-    # behaviour -- the escape hatch if a tilted environment ever looks worse
-    # than the wedges it replaces. Composed as max_tilt_deg= on the ion://
-    # URI only when it differs from the library's own default (same
-    # "differs from default" shape as environment_ground_bias_m above).
     environment_max_tilt_deg: 2.0
-    # 2026-09-22: Google Photorealistic tiles (materials=original) declare
-    # KHR_materials_unlit, so they ignore this scene's own sun entirely and
-    # read dim/flat under dark_adas.yaml's fog density + dark HMI palette --
-    # not a bug in the tiles, a consequence of an unlit asset under a theme
-    # tuned for the renderer's own lit clay geometry. This gain multiplies
-    # each streamed material's own base colour after load; 1.0 (the shipped
-    # default) is a no-op. Has no effect on materials=clay/absent (that path
-    # rebinds every primitive to the renderer's own building material and
-    # never sees this). Composed as brightness= on the ion:// URI only when
-    # it differs from the library's own default (same "differs from
-    # default" shape as environment_max_tilt_deg above); lowering the
-    # theme's own fog.density is the other lever for the same symptom (see
-    # docs/runbooks/cesium.md).
     environment_brightness: 1.0
-    # VM-064 (Epic 6 Task 5): Google Photorealistic 3D Tiles attribution
-    # disable knob (STANDING directive) -- on by default, but only actually
-    # draws a line while environment_source_uri above is running in
-    # materials=original mode (Decision 14); a plain OSM-clay/clipped-clay
-    # preset draws nothing here even with this left true. See
-    # docs/runbooks/cesium.md's Google section for the attribution
-    # requirement and the exact wording to verify before go-live.
     environment_attribution: true
-    # VM-091 (unified-engine migration Task 2): mode-1 bowl camera ingest.
-    # The disable knob per the STANDING rule (declare-default off; false
-    # means no camera subs, no cv_bridge cost, no set_bowl_config/
-    # set_camera_frame/set_camera_motion_delta calls) -- but THIS shipped
-    # config sets it true since the VM-095 cutover (Step 6): modes 1/2 are
-    # live by default in the one surviving node.
-    # n_cameras/image_topics/info_topics/camera_extrinsics and
-    # bowl_R0/k/Rmax/feather_margin/sky_color below are ported verbatim from
-    # the retired CUDA node's default_params.yaml (the CARLA-sim config --
-    # same six camera topics the fixture bag publishes), not reinvented.
     bowl_enabled: true
     n_cameras: 6
     image_topics:
@@ -302,39 +76,19 @@
     - /bl_camera/camera_info
     - /bm_camera/camera_info
     - /br_camera/camera_info
-    # GUI-tunable; in this merged node it is the ego-motion re-alignment/
-    # staleness window (Step 6's redefined frame-sync gate semantics), no
-    # longer a render-withholding threshold the way the old node used it.
     max_sync_latency: 0.12
-    # "" disables ego-motion compensation (identity deltas every tick) --
-    # this epic's own fixture bag carries no odometry topic at all, so this
-    # stays the honest default; a real robot config sets it (m2o1_params.yaml
-    # uses /fixposition/odometry_enu).
     odom_topic: ""
-    # Read back by the GUI bridge's config-save path (mirrors
-    # micropilot_rendering_node's own config_path param, rendering_node.cpp).
     config_path: ""
     bowl_R0: 17.0
     bowl_k: 0.06
     bowl_Rmax: 40.0
     feather_margin: 480.0
-    # Declared false AND node-clamped to false with a WARN (Decision 3's
-    # exposure/blind-zone deferral -- see the layer_param_cb_ extension in
-    # overlume_node.cpp): neither has a Filament-side implementation in
-    # this epic, so a config source that carries `true` (m2o1_params.yaml
-    # does, for both) must not silently re-enable a capability that isn't
-    # actually there. The yaml default here is honesty, not the enforcement.
     fill_blind_zone: false
     exposure_match: false
     sky_color:
     - 0.53
     - 0.7
     - 0.92
-    # Style knob alongside sky_color/feather_margin (bowl.mat's
-    # exposureCompensation parameter). Default 1.56, MEASURED by
-    # tools/bowl_exposure_probe.cpp, not guessed -- full derivation and
-    # history at scene.h's BowlConfig::exposure_compensation. This param
-    # remains the live fine-tune knob over that measured default.
     bowl_exposure_compensation: 1.56
     camera_extrinsics:
     - 0.9961946980917455
@@ -409,44 +163,9 @@
     - -0.16731
     - -0.94884
     - 1.314
-    # VM-092 (unified-engine migration Task 3): self-view masks (the
-    # analytic ego-occlusion test folded into bowl_mesh.cpp's BakeBowlMesh).
-    # Keeps the CUDA node's exact param name and exact
-    # default -- rendering_node.cpp:85 declares self_view_masks_ default
-    # false, and its comment at :80-84 is the reason it stays off here too
-    # (Decision 4): correct masks require the rig origin to be exactly the
-    # body center, and this epic ships fill_blind_zone forced false above,
-    # so an occluded vertex would become an uncovered hole rather than a
-    # filled one if this were left on.
     self_view_masks: false
-    # VM-094 (unified-engine migration Task 5): mode-2 hybrid rendering --
-    # camera-colorized lidar (lidar_colorize.hpp's ColorizeFromCameras()),
-    # first-match-camera-wins (a NAMED fidelity regression vs the CUDA
-    # node's own feather-blended colorization, Decision 5). The disable knob
-    # per the STANDING rule (declare-default off; false means no PointCloud2
-    # subscription and HYBRID renders bowl-only, Decision 5's fallback) --
-    # but THIS shipped config sets it true since the VM-095 cutover
-    # (Step 6), same as bowl_enabled. Needs bowl_enabled true too -- the
-    # camera rig geometry and last-ingested RGB buffers it colorizes from
-    # come from the SAME camera_ingest_ the bowl uses (Task 2), not a
-    # second ingest path.
     hybrid_enabled: true
-    # "" disables (bowl-only, no lidar subscription) -- this epic's fixture
-    # bag's own lidar topic is /iv_points_fusion (stack_v3_full_sensors_2026-09-11).
     pointcloud_topic: ""
-    # [R(9 row-major)|t(3)] cloud-frame -> rig-frame -- same param name and
-    # convention as micropilot_rendering_node's own pointcloud_transform.
-    # t=(0,0,1.15) here matches micropilot_rendering_node's own SHIPPED
-    # default_params.yaml (its declare_parameter<> default is identity, but
-    # its checked-in yaml overrides that to tz=1.15 for every deployment,
-    # this fixture's stack_v2_full_sensors_2026-09-09 bag included) -- see
-    # rendering_node.cpp:91-94: the fused /iv_points_fusion cloud is in the
-    # calib-ego/top-lidar frame and needs the same +z ground offset the
-    # camera extrinsics bake in. Identity here would place this node's
-    # colorized cloud 1.15 m away from the CUDA node's own on the SAME bag.
-    # m2o1_params.yaml (the deployed robot config, :36-48) carries this SAME
-    # t=(0,0,1.15) -- not an m2o1-only override, this is the universal
-    # deployed value across every config source, which is the actual point.
     pointcloud_transform:
     - 1.0
     - 0.0
@@ -460,15 +179,4 @@
     - 0.0
     - 0.0
     - 1.15
-    # VESTIGIAL (Decision 5): declared for GUI/TUNABLE_PARAMS compatibility
-    # only (tools/vcam_ws_bridge.py's TUNABLE_PARAMS still carries this
-    # name) -- NOT read by this node's own code anywhere. Rendered point
-    # size is owned by the theme token point_cloud.point_size_px
-    # (point_cloud.cpp re-applies it every frame); there is no mechanism to
-    # wire a node-side param into that uniform without either a second
-    # kSceneVersion bump this epic's review gate forbids, or a free
-    # function whose only job mirrors a value the theme token already owns
-    # (the STANDING directive's own "style = theme tokens" rule). The GUI
-    # tuning panel's splat_radius row is inert; noted here, not silently
-    # absorbed.
     splat_radius: 2

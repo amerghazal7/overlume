@@ -43,12 +43,8 @@ LIVE_FILES = [
 LIVE_DIRS = ["docs/runbooks", "docs/design", "docs/adr"]
 
 LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
-# Strip fenced/inline code spans before scanning: C++/Python snippets can
-# contain `[capture](args)` lambda syntax that would otherwise false-positive
-# as a Markdown link.
 FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
 INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
-
 
 def collect_files(scan_all: bool) -> list[Path]:
     files: list[Path] = []
@@ -64,7 +60,6 @@ def collect_files(scan_all: bool) -> list[Path]:
         plans_dir = REPO_ROOT / "docs" / "plans"
         if plans_dir.is_dir():
             files.extend(sorted(plans_dir.rglob("*.md")))
-    # de-dupe, keep order
     seen = set()
     ordered = []
     for f in files:
@@ -73,10 +68,8 @@ def collect_files(scan_all: bool) -> list[Path]:
             ordered.append(f)
     return ordered
 
-
 def extract_targets(text: str) -> list[str]:
     return LINK_RE.findall(text)
-
 
 def is_skippable(target: str) -> bool:
     target = target.strip()
@@ -90,15 +83,12 @@ def is_skippable(target: str) -> bool:
         return True
     return False
 
-
 def normalize(target: str) -> str:
-    # Drop an optional trailing ` "title"` and any #fragment.
     target = target.strip()
     if " " in target:
         target = target.split(" ", 1)[0]
     target = target.split("#", 1)[0]
     return target
-
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
@@ -120,9 +110,6 @@ def main() -> int:
                 continue
             target = normalize(raw_target)
             if not target or target.startswith("/"):
-                # Root-relative links aren't resolvable against a file's own
-                # directory the way this repo's docs use links; skip rather
-                # than guess.
                 continue
             resolved = (f.parent / target).resolve()
             if resolved.exists():
@@ -138,7 +125,6 @@ def main() -> int:
 
     print("OK: no broken links")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

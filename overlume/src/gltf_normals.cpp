@@ -1,20 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// gltf_normals.cpp — see gltf_normals.hpp for the why. Implementation
-// summary:
-//   1. Split the .glb container into its JSON + BIN chunks (fixed 12-byte
-//      header + length-prefixed chunks -- glTF 2.0 spec §3.2, no library
-//      needed).
-//   2. Parse the JSON chunk with yaml-cpp (JSON is a subset of YAML flow
-//      style; verified against the real committed fixture chunks).
-//   3. For every primitive missing NORMAL, read POSITION + indices
-//      straight out of the BIN chunk bytes and compute an area-weighted
-//      flat normal per vertex.
-//   4. Append the new accessor/bufferView/bytes to the (mutated) parsed
-//      tree, then re-serialize it as real JSON -- yaml-cpp's own Emitter
-//      prints unquoted flow style (`key: value`), which is not valid JSON,
-//      so write_json() below is a small dedicated writer instead.
 #include "gltf_normals.hpp"
 
 #include <yaml-cpp/yaml.h>
@@ -31,11 +17,9 @@ namespace overlume {
 
 namespace {
 
-// ── GLB container (12-byte header + length-prefixed chunks) ─────────────
-
-constexpr uint32_t kGlbMagic = 0x46546C67;       // "glTF"
-constexpr uint32_t kChunkTypeJson = 0x4E4F534A;  // "JSON"
-constexpr uint32_t kChunkTypeBin = 0x004E4942;   // "BIN\0"
+constexpr uint32_t kGlbMagic = 0x46546C67;
+constexpr uint32_t kChunkTypeJson = 0x4E4F534A;
+constexpr uint32_t kChunkTypeBin = 0x004E4942;
 
 bool read_u32(const std::vector<uint8_t>& bytes, size_t offset, uint32_t& out) {
     if (offset + 4 > bytes.size()) return false;
@@ -43,11 +27,6 @@ bool read_u32(const std::vector<uint8_t>& bytes, size_t offset, uint32_t& out) {
     return true;
 }
 
-// Splits a .glb blob into its JSON text and (optional) BIN chunk bytes.
-// Returns false for anything that isn't a well-formed GLB container with a
-// JSON chunk -- every real caller only ever hands this bytes read straight
-// from a .glb file or produced by CesiumGltfWriter::writeGlb(), both of
-// which always emit one.
 bool parse_glb(const std::vector<uint8_t>& bytes, std::string& json_out,
                std::vector<uint8_t>& bin_out) {
     uint32_t magic = 0, version = 0, length = 0;
@@ -76,10 +55,9 @@ bool parse_glb(const std::vector<uint8_t>& bytes, std::string& json_out,
 std::vector<uint8_t> build_glb(const std::string& json, const std::vector<uint8_t>& bin) {
     auto pad4 = [](size_t n) { return (4 - (n % 4)) % 4; };
     std::string padded_json = json;
-    padded_json.append(pad4(padded_json.size()), ' ');  // JSON chunk pads with spaces (spec §3.2)
+    padded_json.append(pad4(padded_json.size()), ' ');
     std::vector<uint8_t> padded_bin = bin;
-    padded_bin.resize(padded_bin.size() + pad4(padded_bin.size()),
-                      uint8_t{0});  // BIN pads with zeros
+    padded_bin.resize(padded_bin.size() + pad4(padded_bin.size()), uint8_t{0});
 
     const uint32_t json_len = static_cast<uint32_t>(padded_json.size());
     const uint32_t bin_len = static_cast<uint32_t>(padded_bin.size());
@@ -93,7 +71,7 @@ std::vector<uint8_t> build_glb(const std::string& json, const std::vector<uint8_
         out.insert(out.end(), p, p + 4);
     };
     put_u32(kGlbMagic);
-    put_u32(2);  // version
+    put_u32(2);
     put_u32(total);
     put_u32(json_len);
     put_u32(kChunkTypeJson);
@@ -106,24 +84,6 @@ std::vector<uint8_t> build_glb(const std::string& json, const std::vector<uint8_
     return out;
 }
 
-// ── Minimal JSON writer for a YAML::Node parsed FROM JSON ────────────────
-// yaml-cpp stores every scalar as its original source string (Scalar()),
-// so a value we never touch round-trips byte-for-byte here; we only need
-// to re-decide, per scalar, whether it prints quoted (string) or bare
-// (number/bool/null). Content-sniffing that (e.g. "does it parse as a
-// number") is wrong: glTF's own "asset":{"version":"2.0"} is a STRING that
-// happens to look numeric, and a content heuristic emits it bare -- which
-// cgltf then rejects (verified: that exact miscompile made every patched
-// baked chunk fail "Unable to parse glTF file." against the real Filament
-// gltfio loader, not just this file's own yaml-cpp round-trip). The
-// correct signal is YAML's own quote-vs-bare distinction, which yaml-cpp
-// keeps: Tag() is "!" for anything that was double/single-quoted in the
-// source (JSON strings are always quoted) and "?" for a bare/plain token
-// (JSON only ever leaves true/false/null/numbers bare) -- verified against
-// yaml-cpp 0.8.0's own resolver. A node WE construct fresh (never parsed,
-// Tag() == "") falls back to content: safe there because we control
-// exactly what we assign (numeric C++ types for numeric fields, and only
-// non-numeric-looking strings like "VEC3" for string fields).
 bool looks_like_json_number(const std::string& s) {
     if (s.empty()) return false;
     char* end = nullptr;
@@ -171,11 +131,10 @@ void write_json(std::string& out, const YAML::Node& node) {
             const std::string& tag = node.Tag();
             bool bare;
             if (tag == "!") {
-                bare = false;  // was quoted in the source JSON -- always a string
+                bare = false;
             } else if (tag == "?") {
-                bare = true;  // was a bare token in the source JSON -- number/bool/null
+                bare = true;
             } else {
-                // Freshly constructed node (never parsed) -- we control the content.
                 bare = (s == "true" || s == "false" || looks_like_json_number(s));
             }
             if (bare) {
@@ -213,8 +172,6 @@ void write_json(std::string& out, const YAML::Node& node) {
             out += "null";
     }
 }
-
-// ── Reading raw accessor data straight out of the BIN chunk ─────────────
 
 struct AccessorInfo {
     int component_type = 0;
@@ -259,14 +216,11 @@ std::optional<BufferViewInfo> read_buffer_view(const YAML::Node& buffer_views, s
     return info;
 }
 
-// Reads a POSITION-shaped accessor (componentType FLOAT, type VEC3,
-// tightly packed, sourced from the single embedded buffer -- buffer index
-// 0, which is what every read_buffer_view() caller here requires).
 std::optional<std::vector<float>> read_float3_accessor(const YAML::Node& gltf,
                                                        const std::vector<uint8_t>& bin,
                                                        int accessor_index) {
     auto acc = read_accessor(gltf["accessors"], accessor_index);
-    if (!acc || acc->component_type != 5126 /* FLOAT */ || acc->type != "VEC3") return std::nullopt;
+    if (!acc || acc->component_type != 5126 || acc->type != "VEC3") return std::nullopt;
     auto view = read_buffer_view(gltf["bufferViews"], acc->buffer_view);
     if (!view || view->buffer != 0 || view->has_stride) return std::nullopt;
     const size_t start = view->byte_offset + acc->byte_offset;
@@ -277,7 +231,6 @@ std::optional<std::vector<float>> read_float3_accessor(const YAML::Node& gltf,
     return out;
 }
 
-// Reads an indices accessor (any unsigned glTF component type) as uint32.
 std::optional<std::vector<uint32_t>> read_index_accessor(const YAML::Node& gltf,
                                                          const std::vector<uint8_t>& bin,
                                                          int accessor_index) {
@@ -287,17 +240,17 @@ std::optional<std::vector<uint32_t>> read_index_accessor(const YAML::Node& gltf,
     if (!view || view->buffer != 0 || view->has_stride) return std::nullopt;
     const size_t start = view->byte_offset + acc->byte_offset;
     std::vector<uint32_t> out(acc->count);
-    if (acc->component_type == 5121) {  // UNSIGNED_BYTE
+    if (acc->component_type == 5121) {
         if (start + acc->count > bin.size()) return std::nullopt;
         for (size_t i = 0; i < acc->count; ++i) out[i] = bin[start + i];
-    } else if (acc->component_type == 5123) {  // UNSIGNED_SHORT
+    } else if (acc->component_type == 5123) {
         if (start + acc->count * 2 > bin.size()) return std::nullopt;
         for (size_t i = 0; i < acc->count; ++i) {
             uint16_t v = 0;
             std::memcpy(&v, bin.data() + start + i * 2, 2);
             out[i] = v;
         }
-    } else if (acc->component_type == 5125) {  // UNSIGNED_INT
+    } else if (acc->component_type == 5125) {
         if (start + acc->count * 4 > bin.size()) return std::nullopt;
         for (size_t i = 0; i < acc->count; ++i) {
             uint32_t v = 0;
@@ -310,18 +263,6 @@ std::optional<std::vector<uint32_t>> read_index_accessor(const YAML::Node& gltf,
     return out;
 }
 
-// Area-weighted VERTEX normals: one normal per POSITION vertex, accumulated
-// (unnormalized, so larger faces weigh more) from every triangle that
-// references it and normalized at the end -- glTF 2.0 spec §3.7.2.1's own
-// suggested fallback for meshes with no NORMAL attribute.
-//
-// NOTE (gate round 1): this is vertex-averaged (smooth) shading. It RENDERS
-// as crisp flat faces for the assets in play only because their exporters
-// emit one vertex per face corner (unwelded) -- so no vertex is shared
-// across faces and each normal ends up face-exact. A future POSITION-only
-// asset with WELDED vertices would get rounded-off building corners from
-// this same code. Kept as-is (correct for every producer we have); the
-// dependency is named here rather than left to be rediscovered.
 std::vector<float> compute_flat_normals(const std::vector<float>& positions,
                                         const std::vector<uint32_t>& indices) {
     const size_t vertex_count = positions.size() / 3;
@@ -350,8 +291,6 @@ std::vector<float> compute_flat_normals(const std::vector<float>& positions,
             n[1] /= len;
             n[2] /= len;
         } else {
-            // Degenerate (unreferenced or zero-area) vertex: arbitrary but
-            // well-defined, never divides by zero downstream.
             n[0] = 0.0f;
             n[1] = 0.0f;
             n[2] = 1.0f;
@@ -366,26 +305,16 @@ std::vector<uint8_t> ensure_flat_normals(std::vector<uint8_t> glb_bytes) {
     try {
         std::string json_text;
         std::vector<uint8_t> bin;
-        if (!parse_glb(glb_bytes, json_text, bin)) return glb_bytes;  // not a GLB we understand
+        if (!parse_glb(glb_bytes, json_text, bin)) return glb_bytes;
 
         YAML::Node gltf = YAML::Load(json_text);
         const YAML::Node meshes = gltf["meshes"];
         if (!meshes || !meshes.IsSequence()) return glb_bytes;
         if (!gltf["buffers"] || gltf["buffers"].size() == 0) return glb_bytes;
-        // buffers[0] must BE the embedded BIN chunk. A legal glTF may point
-        // buffers[0] at an external or data: URI instead -- the accessor
-        // readers below index straight into the BIN bytes, so that shape
-        // would read unrelated bytes and synthesize GARBAGE normals (worse
-        // than the absent ones this exists to fix). Latent today: neither
-        // producer in this repo emits it.
         if (gltf["buffers"][0]["uri"]) return glb_bytes;
 
-        // Two-phase: first collect every primitive we can and know how to
-        // fix, without mutating anything -- a read failure partway through
-        // then just leaves that one primitive unfixed, never a half-patched
-        // file. Second phase (below) does all the mutation.
         struct Fix {
-            YAML::Node attributes;  // this primitive's "attributes" map (reference semantics)
+            YAML::Node attributes;
             size_t vertex_count = 0;
             std::vector<float> normals;
         };
@@ -396,14 +325,13 @@ std::vector<uint8_t> ensure_flat_normals(std::vector<uint8_t> glb_bytes) {
             if (!primitives || !primitives.IsSequence()) continue;
             for (YAML::Node prim : primitives) {
                 YAML::Node attributes = prim["attributes"];
-                if (!attributes || attributes["NORMAL"]) continue;  // already has one -- untouched
-                if (!attributes["POSITION"] || !prim["indices"]) continue;  // nothing to build from
-                if (prim["mode"] && prim["mode"].as<int>() != 4)
-                    continue;  // only TRIANGLES (glTF default)
+                if (!attributes || attributes["NORMAL"]) continue;
+                if (!attributes["POSITION"] || !prim["indices"]) continue;
+                if (prim["mode"] && prim["mode"].as<int>() != 4) continue;
 
                 auto positions = read_float3_accessor(gltf, bin, attributes["POSITION"].as<int>());
                 auto indices = read_index_accessor(gltf, bin, prim["indices"].as<int>());
-                if (!positions || !indices) continue;  // unsupported accessor/bufferView shape
+                if (!positions || !indices) continue;
                 if (indices->empty() || indices->size() % 3 != 0) continue;
 
                 Fix fix;
@@ -413,13 +341,8 @@ std::vector<uint8_t> ensure_flat_normals(std::vector<uint8_t> glb_bytes) {
                 fixes.push_back(std::move(fix));
             }
         }
-        if (fixes.empty()) return glb_bytes;  // every primitive already has NORMAL -- no-op
+        if (fixes.empty()) return glb_bytes;
 
-        // glTF requires a FLOAT accessor's byteOffset to be 4-aligned. The BIN
-        // chunk is normally already padded to 4 (trimesh and CesiumGltfWriter
-        // both pad), but an unpadded one would put our appended normals at a
-        // non-aligned offset and cgltf would reject the WHOLE asset -- the
-        // buildings would vanish entirely, a worse failure than flat shading.
         bin.resize(bin.size() + (4 - bin.size() % 4) % 4);
 
         YAML::Node accessors = gltf["accessors"];
@@ -438,7 +361,7 @@ std::vector<uint8_t> ensure_flat_normals(std::vector<uint8_t> glb_bytes) {
             buffer_views.push_back(buffer_view);
 
             YAML::Node accessor;
-            accessor["componentType"] = 5126;  // FLOAT
+            accessor["componentType"] = 5126;
             accessor["type"] = "VEC3";
             accessor["count"] = fix.vertex_count;
             accessor["bufferView"] = next_buffer_view;
@@ -459,8 +382,7 @@ std::vector<uint8_t> ensure_flat_normals(std::vector<uint8_t> glb_bytes) {
         write_json(new_json, gltf);
         return build_glb(new_json, bin);
     } catch (const std::exception&) {
-        return glb_bytes;  // malformed/unexpected input -- fail safe, same as the caller's own
-                           // convention
+        return glb_bytes;
     }
 }
 

@@ -2,13 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Amer Ghazal
 
-# Proxy budget probe: overlume_node @1280x720 per quality preset, bag
-# replay. Single-process shape as of the unified-engine migration's Task 6
-# (VM-095) cutover -- micropilot_rendering_node no longer exists; the
-# rnode-cased branches this script used to carry (q1_rnode_idle/
-# q1_rnode_mode2, run_case's rn/rmode/rpid plumbing) are dropped, not left
-# to reference a deleted package. See budget_probe.md's own procedure text
-# (reworded to match) and Results (a)/(d) for what those rows used to mean.
 set -o pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BAG=$HOME/TPSProjector-fixtures/epic2_fixtures_full
@@ -28,7 +21,7 @@ lc(){ local n=$1 t=$2 i; for i in $(seq 1 20); do out=$(ros2 lifecycle set "$n" 
 hz(){ timeout 14 ros2 topic hz "$1" --window 100 2>/dev/null | grep -oE "average rate: [0-9.]+" | tail -1 | awk '{print $3}'; }
 gpu(){ nvidia-smi dmon -s um -c 8 2>/dev/null | awk 'NR>2 && $1!~/#/ {s+=$2; m+=$4; n++} END{ if(n) printf "%.0f %.0f", s/n, m/n; else print "na na"}'; }
 cpu(){ top -b -n 3 -d 2 -p "$1" 2>/dev/null | awk -v p="$1" '$1==p {c=$9} END{print c+0}'; }
-run_case(){ # name quality
+run_case(){
   local name=$1 q=$2 vpid
   echo "=== case $name (quality=$q)"
   ros2 run overlume_ros overlume_node --ros-args --params-file "$VPARAMS" \

@@ -2,33 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Amer Ghazal
 
-# validate_visual_mode.sh — one command to stand up the full visual-mode
-# validation rig (overlume_node + fixture bag + tf flattener + vcam
-# bridge/GUI) against the recorded fixture bag, and report PASS/FAIL.
-#
-# Usage: tools/validate_visual_mode.sh [--bag PATH] [--qos PATH] [--no-gui]
-#                                       [--build] [--profile NAME] [--live]
-#
-# --live: validate against the LIVE autonomy stack instead of the fixture
-#         bag -- skips bag playback and the tf flattener (a live stack
-#         publishes /tf itself), runs the node on wall time (override with
-#         LIVE_SIM_TIME=true when the live source, e.g. CARLA, publishes
-#         /clock), and relaxes the ego z==0.0 health check (that asserts
-#         the flattener's output, a bag-rig invariant). A FAIL in live mode
-#         can also mean "the stack just isn't publishing yet" -- the rig
-#         stays up for inspection either way.
-#
-# ==========================================================================
 set -euo pipefail
-set -m  # each backgrounded job gets its OWN process group (job leader = its
-        # own pid), even when this script itself is not a process-group
-        # leader (piped from a wrapper, `bash -c`, CI, an agent harness).
-        # Without this, all of this script's background jobs inherit
-        # whatever pgid the invoking shell happened to have, and teardown()
-        # below -- which kills by recorded child pgid -- ends up killing the
-        # wrapper and its unrelated siblings instead of just the rig.
+set -m
 
-# ---------------------------------------------------------------------- args
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 FIXTURES="${OVERLUME_FIXTURES:-${HOME}/overlume-fixtures}"
@@ -67,7 +43,6 @@ fi
 LOG_DIR=/tmp/overlume_validate
 mkdir -p "${LOG_DIR}"
 
-
 RIG_PATTERNS=(
     "ros2 run overlume_ros"
     "lib/overlume_ros/overlume_node"
@@ -97,7 +72,6 @@ kill_prior_rig() {
     done
     if [[ "${killed}" == "1" ]]; then
         sleep 1
-        # second pass, force, for anything that ignored SIGTERM
         for pid in $(rig_candidate_pids); do
             [[ "${pid}" == "${self_pid}" ]] && continue
             pgid="$(ps -o pgid= -p "${pid}" 2>/dev/null | tr -d ' ')"
@@ -123,7 +97,7 @@ if [[ "${LIVE}" == "1" ]]; then
         pgrep -af "ros2 bag play" >&2
         exit 1
     fi
-    
+
     if [[ "${LIVE_SIM_TIME:-false}" != "true" ]]; then
         set +u; source /opt/ros/humble/setup.bash >/dev/null 2>&1; set -u
         _clock_pubs="$(timeout -k 2 5 ros2 topic info /clock 2>/dev/null | sed -n 's/^Publisher count: //p' || true)"
@@ -137,10 +111,9 @@ if [[ "${LIVE}" == "1" ]]; then
     echo "[live] verified: no bag player, no unexpected /clock publisher"
 fi
 
-# ---------------------------------------------------------------- prereqs
 if [[ ! -d "${REPO_ROOT}/ros/install" ]]; then
     if [[ "${DO_BUILD}" == "1" ]]; then
-        :  # built below
+        :
     else
         echo "ros/install not found. Run ros/colcon_build.sh" \
              "or re-run with --build." >&2
@@ -164,15 +137,11 @@ if [[ "${LIVE}" != "1" ]]; then
     fi
 fi
 
-# ------------------------------------------------------------------- ROS env
 set +u
 source /opt/ros/humble/setup.bash
 source "${REPO_ROOT}/ros/install/setup.bash"
 set -u
 
-# Token hygiene: a long-lived terminal keeps a pre-rotation CESIUM_ION_TOKEN
-# and the node inherits it -- ion answers 401 on every tileset, no tiles
-# (2026-09-21). Take whatever value a fresh login shell has NOW. Never printed.
 _fresh_token="$(env -u CESIUM_ION_TOKEN bash -lic 'printf %s "${CESIUM_ION_TOKEN:-}"' 2>/dev/null || true)"
 if [[ -n "${_fresh_token}" ]]; then
     if [[ -n "${CESIUM_ION_TOKEN:-}" && "${CESIUM_ION_TOKEN}" != "${_fresh_token}" ]]; then
@@ -273,8 +242,6 @@ lifecycle_set_retry configure
 lifecycle_set_retry activate
 
 if [[ "${LIVE}" == "1" ]]; then
-    # Live mode: the stack publishes /tf itself (no /tf_raw remap to bridge,
-    # and flattening z would be WRONG against real TF), and there is no bag.
     echo "[live] skipping tf_flatten_fixture.py and bag playback -- reading live topics"
 else
     echo "[launch] tf_flatten_fixture.py (log: ${LOG_DIR}/tf_flatten.log)"
@@ -283,11 +250,6 @@ else
     track_child "$!"
 
     echo "[launch] ros2 bag play --loop (log: ${LOG_DIR}/bag_play.log)"
-    # stdin MUST be /dev/null: `set -m` (line 38) puts this job in its own
-    # BACKGROUND process group, and rosbag2 with a TTY on stdin enables keyboard
-    # controls and reads the terminal -- which SIGTTIN-stops a background group
-    # before it prints a single byte. Symptom: 0-byte bag_play.log, no /clock,
-    # no ego/map, only when launched from an interactive terminal (2026-08-20).
     ros2 bag play "${BAG}" --loop --clock \
         --qos-profile-overrides-path "${QOS}" --remap /tf:=/tf_raw \
         < /dev/null > "${LOG_DIR}/bag_play.log" 2>&1 &
@@ -310,7 +272,6 @@ else
     echo "  rqt_image_view /rendering/image"
 fi
 
-# -------------------------------------------------------------- health gate
 if [[ "${LIVE}" == "1" ]]; then
     echo "[health] waiting up to 20s for >=25 Hz on /rendering/image," \
          "valid ego_state, and a live /hd_map_local_elements feed ..."
@@ -324,7 +285,6 @@ read_hz() {
         | grep -o "average rate: [0-9.]*" | tail -1 | awk '{print $3}'
 }
 
-# ego_state is std_msgs/Float64MultiArray: data = [x, y, z, heading, speed, valid]
 read_ego_z_valid() {
     local out z valid
     out="$(timeout -k 2 3 ros2 topic echo --once /overlume_node/ego_state 2>/dev/null || true)"
@@ -337,7 +297,6 @@ read_hd_map_hz() {
     timeout -k 2 4 ros2 topic hz /hd_map_local_elements 2>/dev/null \
         | grep -o "average rate: [0-9.]*" | tail -1 | awk '{print $3}'
 }
-
 
 read_diagnostics_hz() {
     timeout -k 2 4 ros2 topic hz /overlume_node/diagnostics 2>/dev/null \
@@ -361,8 +320,6 @@ while [[ "${SECONDS}" -lt "${DEADLINE}" ]]; do
         HZ_OK=1
     fi
     EGO_OK=0
-    # z==0.0 asserts the tf flattener's output -- a bag-rig invariant. Live
-    # TF carries real z, so live mode checks validity only.
     if [[ "${LIVE}" == "1" ]]; then
         [[ "${EGO_VALID}" == "1.0" ]] && EGO_OK=1
     elif [[ "${EGO_VALID}" == "1.0" && "${EGO_Z}" == "0.0" ]]; then

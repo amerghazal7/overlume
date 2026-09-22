@@ -1,13 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-/** @file test_callouts.cpp
- *  @brief Epic 3 Task 4 (VM-031) Step 2: BuildNearestCallout()'s
- *  camera-tracking and behind-camera-suppression behavior. DrawCallout()
- *  itself is exercised visually by the callouts golden, not pixel-asserted
- *  here -- same split test_hud_overlay.cpp uses between CompositeHud()'s own
- *  presence-check tests and its golden.
- */
 #include "overlume_ros/callouts.hpp"
 
 #include <gtest/gtest.h>
@@ -27,7 +20,7 @@ overlume::VisualRenderer* MakeRenderer(uint32_t width, uint32_t height) {
     config.width = width;
     config.height = height;
     config.quality = 0;
-    config.theme_assets_dir = nullptr;  // compiled-in fallback theme -- no asset dir needed
+    config.theme_assets_dir = nullptr;
     config.initial_theme = nullptr;
     return overlume::create_renderer(config);
 }
@@ -39,12 +32,6 @@ TEST(Callouts, NearestObstacleChipTracksAcrossCameraMove) {
     overlume::VisualRenderer* r = MakeRenderer(kW, kH);
     ASSERT_NE(r, nullptr);
 
-    // Same anchor both ticks -- only the camera moves. Deliberately OFF the
-    // look-at target itself: projecting the exact target point always lands
-    // near screen center regardless of eye position (see the library's own
-    // ProjectToScreen.PointAtCameraTargetProjectsNearCenter test) which
-    // would make this test pass by coincidence, not because the anchor
-    // actually tracked anything.
     overlume::Vec3 obstacle{2.0, 1.5, -0.5};
     overlume::AlertPolygon alert{};
     alert.points = &obstacle;
@@ -68,7 +55,6 @@ TEST(Callouts, NearestObstacleChipTracksAcrossCameraMove) {
     const overlume::Vec3 ego1{pose1.eye[0], pose1.eye[1], pose1.eye[2]};
     ASSERT_TRUE(overlume::ros::BuildNearestCallout(r, &alert, 1, ego1, c1));
 
-    // Second tick: camera orbits to a different eye, same target/obstacle.
     overlume::CameraPose pose2 = pose1;
     pose2.eye[1] = 3.0;
     ASSERT_TRUE(overlume::render_frame(r, pose2, view));
@@ -102,9 +88,6 @@ TEST(Callouts, ChipForAnObjectBehindCameraIsSuppressedNotMisdrawn) {
     overlume::FrameView view{rgb.data(), kW, kH};
     ASSERT_TRUE(overlume::render_frame(r, pose, view));
 
-    // Straight behind the eye, opposite the look direction -- same
-    // construction as the library's own ProjectToScreen.PointBehindCamera
-    // ReturnsFalse test.
     overlume::Vec3 behind{pose.eye[0] + (pose.eye[0] - pose.target[0]),
                           pose.eye[1] + (pose.eye[1] - pose.target[1]),
                           pose.eye[2] + (pose.eye[2] - pose.target[2])};
@@ -121,23 +104,10 @@ TEST(Callouts, ChipForAnObjectBehindCameraIsSuppressedNotMisdrawn) {
 }
 
 TEST(Callouts, NoAlertsReturnsFalse) {
-    // alert_count==0 short-circuits before ever touching `renderer` --
-    // nullptr here is deliberate, not an oversight.
     overlume::ros::Callout c{};
     EXPECT_FALSE(overlume::ros::BuildNearestCallout(nullptr, nullptr, 0, overlume::Vec3{}, c));
 }
 
-// ── Sanctioned-red callouts golden (Task 4 Step 2's own instruction) ────────
-// Renders a real (headless-EGL, low-preset) 720p frame with one AlertPolygon
-// in view, builds + draws the callout on top, writes
-// /tmp/callouts_720p_actual.png, and SSIMs it against a golden this task
-// deliberately does NOT commit -- same "missing golden -> 0.0, never
-// silently passes" convention test_hud_overlay.cpp's own golden uses.
-// UNPROMOTED, sanctioned red: the user promotes the actual PNG into
-// test/fixtures/callouts_720p_golden.png once satisfied with it.
-//
-// This file's own vendored stb_image/stb_image_write (not overlume's
-// -- see test_hud_overlay.cpp's identical comment on why that split exists).
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -147,11 +117,6 @@ namespace {
 
 double luminance(uint8_t r, uint8_t g, uint8_t b) { return 0.2126 * r + 0.7152 * g + 0.0722 * b; }
 
-// ponytail: block-wise (8x8, non-overlapping, luminance-only) mean/
-// variance/covariance SSIM -- same deliberately-simplified approximation as
-// test_hud_overlay.cpp's own block_ssim (reimplemented here rather than
-// shared: separate test binary, same "no shared header between clang/libc++
-// and gcc/libstdc++ test trees" reason as everywhere else in this package).
 double block_ssim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, uint32_t width,
                   uint32_t height) {
     constexpr int kBlock = 8;
@@ -196,7 +161,7 @@ TEST(CalloutsGolden, SyntheticFrameWithVisibleCallout720pLowPreset) {
     overlume::RenderConfig config{};
     config.width = kW;
     config.height = kH;
-    config.quality = 0;  // low preset -- same AC shape as the HUD golden
+    config.quality = 0;
     config.theme_assets_dir = nullptr;
     config.initial_theme = nullptr;
     overlume::VisualRenderer* r = overlume::create_renderer(config);
@@ -211,8 +176,6 @@ TEST(CalloutsGolden, SyntheticFrameWithVisibleCallout720pLowPreset) {
     pose.target[2] = -0.5;
     pose.vfov_deg = 80.0;
 
-    // One obstacle, in view and off-center (see the tracking test's own
-    // comment on why not the exact look-at target).
     overlume::Vec3 obstacle{2.0, 1.0, -0.5};
     overlume::AlertPolygon alert{};
     alert.points = &obstacle;
@@ -227,7 +190,7 @@ TEST(CalloutsGolden, SyntheticFrameWithVisibleCallout720pLowPreset) {
     scene.ego.valid = 1;
     scene.alerts = &alert;
     scene.alert_count = 1;
-    overlume::ros::PopulateHud(scene, /*active_mode=*/3);
+    overlume::ros::PopulateHud(scene, 3);
     overlume::set_scene(r, scene);
 
     std::vector<uint8_t> frame(static_cast<size_t>(kW) * kH * 3, 0);
@@ -252,7 +215,7 @@ TEST(CalloutsGolden, SyntheticFrameWithVisibleCallout720pLowPreset) {
         std::string(OVERLUME_NODE_FIXTURES_DIR) + "/callouts_720p_golden.png";
     int golden_w = 0, golden_h = 0, golden_c = 0;
     uint8_t* golden = stbi_load(golden_path.c_str(), &golden_w, &golden_h, &golden_c, 3);
-    double ssim = 0.0;  // no committed golden yet -- same "missing golden -> 0.0" convention
+    double ssim = 0.0;
     if (golden != nullptr && static_cast<uint32_t>(golden_w) == kW &&
         static_cast<uint32_t>(golden_h) == kH) {
         const std::vector<uint8_t> golden_pixels(
@@ -261,8 +224,6 @@ TEST(CalloutsGolden, SyntheticFrameWithVisibleCallout720pLowPreset) {
     }
     if (golden != nullptr) stbi_image_free(golden);
 
-    // SANCTIONED RED (plan's own instruction): unpromoted until a human
-    // looks at actual_path and copies it to golden_path.
     EXPECT_GT(ssim, 0.98) << "actual frame written to " << actual_path << " -- promote to "
                           << golden_path << " once reviewed";
 

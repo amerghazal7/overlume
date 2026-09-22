@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Amer Ghazal
+
 """Generates the synthesized b3dm/tileset.json test fixtures that replaced
 the committed-from-Cesium-ion ones (VM-097: purge real ion/OSM tile bytes
 from history by path).
@@ -105,11 +106,9 @@ import sys
 
 SEED = 20260917
 
-# ---- WGS84 ellipsoid -------------------------------------------------------
 WGS84_A = 6378137.0
 WGS84_F = 1.0 / 298.257223563
 WGS84_E2 = WGS84_F * (2.0 - WGS84_F)
-
 
 def geodetic_to_ecef(lat_rad, lon_rad, h_m):
     sin_lat, cos_lat = math.sin(lat_rad), math.cos(lat_rad)
@@ -120,7 +119,6 @@ def geodetic_to_ecef(lat_rad, lon_rad, h_m):
     z = (n * (1.0 - WGS84_E2) + h_m) * sin_lat
     return (x, y, z)
 
-
 def enu_basis(lat_rad, lon_rad):
     """East/north/up unit vectors, in ECEF, at (lat_rad, lon_rad)."""
     sin_lat, cos_lat = math.sin(lat_rad), math.cos(lat_rad)
@@ -130,20 +128,16 @@ def enu_basis(lat_rad, lon_rad):
     up = (cos_lat * cos_lon, cos_lat * sin_lon, sin_lat)
     return east, north, up
 
-
 def add(*vs):
     return tuple(sum(c) for c in zip(*vs))
 
-
 def scale(v, s):
     return tuple(c * s for c in v)
-
 
 def ecef_to_authored(ecef):
     """Inverse of CesiumGeometry::Transforms::Y_UP_TO_Z_UP, see module doc."""
     x, y, z = ecef
     return (x, z, -y)
-
 
 def apply_node_matrix_rotation_transpose(v):
     """R^T for the node-matrix encoding's R = [[1,0,0],[0,0,1],[0,-1,0]] (the
@@ -157,9 +151,6 @@ def apply_node_matrix_rotation_transpose(v):
     x, y, z = v
     return (x, -z, y)
 
-
-# ---- Synthetic building geometry (local ENU offsets from a tile's own
-#      region center) -------------------------------------------------------
 def make_box(cx, cy, sx, sy, h):
     """One extruded box footprint -> (verts_enu, normals_enu, tris), each
     vert/normal in local (east, north, up) offsets from the tile origin.
@@ -182,13 +173,12 @@ def make_box(cx, cy, sx, sy, h):
         "111": (cx + hx, cy + hy, h),
         "011": (cx - hx, cy + hy, h),
     }
-    # (face vertices in outward-CCW order, face normal)
     faces = [
-        (["001", "101", "111", "011"], (0.0, 0.0, 1.0)),   # top
-        (["100", "110", "111", "101"], (1.0, 0.0, 0.0)),   # +east
-        (["010", "000", "001", "011"], (-1.0, 0.0, 0.0)),  # -east
-        (["010", "011", "111", "110"], (0.0, 1.0, 0.0)),   # +north
-        (["000", "100", "101", "001"], (0.0, -1.0, 0.0)),  # -north
+        (["001", "101", "111", "011"], (0.0, 0.0, 1.0)),
+        (["100", "110", "111", "101"], (1.0, 0.0, 0.0)),
+        (["010", "000", "001", "011"], (-1.0, 0.0, 0.0)),
+        (["010", "011", "111", "110"], (0.0, 1.0, 0.0)),
+        (["000", "100", "101", "001"], (0.0, -1.0, 0.0)),
     ]
     verts, normals, tris = [], [], []
     for corners, n in faces:
@@ -198,7 +188,6 @@ def make_box(cx, cy, sx, sy, h):
             normals.append(n)
         tris += [(base, base + 1, base + 2), (base, base + 2, base + 3)]
     return verts, normals, tris
-
 
 def generate_ground_quad_geometry(half_extent_m=300.0):
     """One flat quad (two triangles, a single flat 'up' normal), +-
@@ -218,7 +207,6 @@ def generate_ground_quad_geometry(half_extent_m=300.0):
     tris = [(0, 1, 2), (0, 2, 3)]
     return verts, normals, tris
 
-
 def ground_quad_region(anchor_lat_rad, anchor_lon_rad, height_m, half_extent_m=300.0):
     """Bounding region (same [west, south, east, north, min_h, max_h]-in-
     radians shape as TILE_REGIONS/ROOT_REGION above) covering a
@@ -231,7 +219,6 @@ def ground_quad_region(anchor_lat_rad, anchor_lon_rad, height_m, half_extent_m=3
     dlon = half_extent_m / (WGS84_A * max(math.cos(anchor_lat_rad), 1e-6))
     return [anchor_lon_rad - dlon, anchor_lat_rad - dlat, anchor_lon_rad + dlon,
             anchor_lat_rad + dlat, height_m - 1.0, height_m + 1.0]
-
 
 def generate_tile_geometry(seed, n_buildings=5):
     """Buildings scattered in a plausible city-block footprint (+-40m),
@@ -251,31 +238,25 @@ def generate_tile_geometry(seed, n_buildings=5):
         all_tris += [(a + offset, b + offset, c + offset) for a, b, c in tris]
     return all_verts, all_normals, all_tris
 
-
-# ---- glTF/GLB authoring ----------------------------------------------------
 def pad4(n):
     return (4 - (n % 4)) % 4
-
 
 def f32_bytes(vals):
     return struct.pack("<%df" % len(vals), *vals)
 
-
 def u16_bytes(vals):
     return struct.pack("<%dH" % len(vals), *vals)
-
 
 def build_glb(gltf_json, bin_chunk):
     json_text = json.dumps(gltf_json, separators=(",", ":"))
     json_bytes = json_text.encode("utf-8") + b" " * pad4(len(json_text))
     bin_bytes = bytes(bin_chunk) + b"\x00" * pad4(len(bin_chunk))
     total = 12 + 8 + len(json_bytes) + (8 + len(bin_bytes) if bin_bytes else 0)
-    out = struct.pack("<III", 0x46546C67, 2, total)  # "glTF", version 2
-    out += struct.pack("<II", len(json_bytes), 0x4E4F534A) + json_bytes  # "JSON"
+    out = struct.pack("<III", 0x46546C67, 2, total)
+    out += struct.pack("<II", len(json_bytes), 0x4E4F534A) + json_bytes
     if bin_bytes:
-        out += struct.pack("<II", len(bin_bytes), 0x004E4942) + bin_bytes  # "BIN\0"
+        out += struct.pack("<II", len(bin_bytes), 0x004E4942) + bin_bytes
     return out
-
 
 def build_tile_glb(ecef_center, include_normal, multi_buffer, seed, include_batchid=False,
                     encoding="ecef", geometry=None):
@@ -329,9 +310,6 @@ def build_tile_glb(ecef_center, include_normal, multi_buffer, seed, include_batc
     buffer_views = []
     accessors = []
 
-    # POSITION (+ NORMAL, if requested) always land in buffer 0 -- the GLB's
-    # own embedded BIN chunk (buffer 0 never carries a "uri", per the glTF
-    # 2.0 spec's own GLB convention).
     buf0 = bytearray(pos_bytes)
     buffer_views.append({"buffer": 0, "byteOffset": 0, "byteLength": len(pos_bytes)})
     accessors.append({
@@ -357,11 +335,6 @@ def build_tile_glb(ecef_center, include_normal, multi_buffer, seed, include_batc
 
     batchid_accessor = None
     if include_batchid:
-        # A per-vertex `_BATCHID` (float32 SCALAR, all zeros -- one real
-        # value would do, every real b3dm batch table assigns SOME id) so
-        # strip_attributes_and_correct_heights() has a real attribute to strip
-        # (gate round 1 finding 1). Appended to buffer 0 alongside
-        # POSITION/NORMAL, same as a real b3dm's own layout.
         batchid_bytes = f32_bytes([0.0] * len(positions))
         buffer_views.append({
             "buffer": 0, "byteOffset": len(buf0), "byteLength": len(batchid_bytes),
@@ -375,12 +348,7 @@ def build_tile_glb(ecef_center, include_normal, multi_buffer, seed, include_batc
         next_accessor += 1
 
     if multi_buffer:
-        # A SECOND glTF buffer (Decision 7/15.4's consolidate_buffers() path
-        # needs a real multi-buffer tile to exercise) -- a self-contained
-        # base64 data: URI, so this fixture stays a single committed file
-        # with no companion .bin. CesiumGltfReader resolves data: URIs
-        # synchronously (no network) when it parses the GLB's JSON chunk.
-        buffers.append({"byteLength": len(buf0)})  # buffer 0: embedded, no uri
+        buffers.append({"byteLength": len(buf0)})
         idx_pad = idx_bytes + b"\x00" * pad4(len(idx_bytes))
         buffers.append({
             "byteLength": len(idx_bytes),
@@ -437,14 +405,12 @@ def build_tile_glb(ecef_center, include_normal, multi_buffer, seed, include_batc
     }
     return build_glb(gltf, buf0)
 
-
 def region_center_ecef(region):
     west, south, east, north, min_h, max_h = region
     lat = (south + north) / 2.0
     lon = (west + east) / 2.0
     h = (min_h + max_h) / 2.0
     return geodetic_to_ecef(lat, lon, h)
-
 
 def build_b3dm(glb_bytes, rtc_center):
     feature_table = json.dumps({"BATCH_LENGTH": 1, "RTC_CENTER": list(rtc_center)},
@@ -456,9 +422,6 @@ def build_b3dm(glb_bytes, rtc_center):
     header = struct.pack("<4sIIIIII", b"b3dm", 1, total_len, len(ft_json), 0, 0, 0)
     return header + ft_json + glb_bytes
 
-
-# ---- Tileset regions (copied verbatim from the pre-existing real-tile
-#      fixtures -- coordinates only, not licensed OSM content) -------------
 ROOT_REGION = [0.9664051710363271, 0.43720384316056576, 0.9677587977896256,
                0.4387199792658467, -24.79683634514544, 39.20705412661656]
 ROOT_GEOMETRIC_ERROR = 100000.0
@@ -472,14 +435,8 @@ TILE_REGIONS = {
                0.4386812399377695, -8.958795091376492, 39.20705412661656],
 }
 
-# The implicit anchor TILE_REGIONS/ROOT_REGION above are already built
-# around -- test_environment_stream.cpp's own kFixtureAnchor. --anchor-lat/
-# --anchor-lon shift every region by the same lat/lon delta FROM this pair,
-# in radians (region tuples are already radians), leaving each tile's
-# footprint identical relative to the new anchor.
 DEFAULT_ANCHOR_LAT_DEG = 25.0803
 DEFAULT_ANCHOR_LON_DEG = 55.3910
-
 
 def shift_region(region, dlat_rad, dlon_rad):
     """region = [west, south, east, north, min_h, max_h] in radians (west/
@@ -487,7 +444,6 @@ def shift_region(region, dlat_rad, dlon_rad):
     convention) -- translate the whole box by a fixed lat/lon delta."""
     west, south, east, north, min_h, max_h = region
     return [west + dlon_rad, south + dlat_rad, east + dlon_rad, north + dlat_rad, min_h, max_h]
-
 
 def fallback_dir_name(name):
     """environment_tiles_fixture_0 -> environment_tiles_fixture_fallback_0
@@ -497,7 +453,6 @@ def fallback_dir_name(name):
     if sep and suffix.isdigit():
         return base + "_fallback_" + suffix
     return name + "_fallback"
-
 
 def write_tileset(path, root_region, children):
     tileset = {
@@ -514,14 +469,12 @@ def write_tileset(path, root_region, children):
         json.dump(tileset, f, indent=2)
         f.write("\n")
 
-
 def child_entry(region, uri):
     return {
         "boundingVolume": {"region": region},
         "geometricError": CHILD_GEOMETRIC_ERROR,
         "content": {"uri": uri},
     }
-
 
 PROVENANCE_MAIN = """# environment_tiles_fixture_0 provenance
 
@@ -649,7 +602,6 @@ loading this fixture.
   anchor). No fallback dir generated for this fixture (`--no-fallback`).
 {ground_height_line}"""
 
-
 def parse_args(argv):
     p = argparse.ArgumentParser(
         description="Generates the synthesized b3dm/tileset.json test fixtures -- see this "
@@ -679,7 +631,6 @@ def parse_args(argv):
     _validate_args(p, args)
     return args
 
-
 def _cmdline_for_provenance(args):
     """Reconstructs the argv that produced this run's own fixture, for that
     fixture's committed PROVENANCE.md -- only the non-default flags, same
@@ -700,13 +651,9 @@ def _cmdline_for_provenance(args):
         parts.append("--ground-height %s" % args.ground_height)
     return " ".join(parts)
 
-
 def _validate_args(p, args):
-    # PROVENANCE_FALLBACK names environment_tiles_fixture_0 throughout, so a
-    # renamed fixture can only be generated without its fallback twin.
     if args.name != "environment_tiles_fixture_0" and not args.no_fallback:
         p.error("--name requires --no-fallback (the fallback provenance text is fixture_0-specific)")
-
 
 def _is_default_invocation(args):
     return (args.encoding == "ecef" and args.anchor_lat == DEFAULT_ANCHOR_LAT_DEG and
@@ -714,13 +661,8 @@ def _is_default_invocation(args):
             args.name == "environment_tiles_fixture_0" and not args.no_fallback and
             args.ground_height is None)
 
-
 def main():
     args = parse_args(sys.argv[1:])
-    # Optional positional output_root: an output root other than this repo's
-    # own tree (e.g. a scratch dir, to verify determinism by diffing two
-    # independent runs without touching the committed fixtures) -- gate
-    # round 1 finding 5.
     root = (os.path.abspath(args.output_root) if args.output_root
             else os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     main_dir = os.path.join(root, "tests", "fixtures", args.name)
@@ -767,20 +709,6 @@ def main():
         ground_glb = build_tile_glb(ground_ecef_center, include_normal=True, multi_buffer=False,
                                     seed=SEED, include_batchid=True, encoding=args.encoding,
                                     geometry=generate_ground_quad_geometry())
-        # RTC_CENTER = (0,0,0), NOT ground_ecef_center like every other
-        # tile's own build_b3dm() call: this tile's authored vertex
-        # positions are already absolute-ECEF (module doc, "Vertex
-        # positions are baked as REAL, absolute ECEF-scale numbers"), and
-        # this generator's own rendering path never reads RTC_CENTER back
-        # out (same doc) -- BUT cesium-native's height-sampling path
-        # (Cesium3DTilesSelection::Tileset::sampleHeightMostDetailed ->
-        # CesiumGltfContent::GltfUtilities::intersectRayGltfModel ->
-        # applyRtcCenter()) DOES fold RTC_CENTER back into the ray-model
-        # transform. A nonzero RTC_CENTER here (as every other tile
-        # authors, for b3dm format realism) would double-translate this
-        # tile's already-absolute geometry away from the query ray,
-        # silently failing every height sample (verified empirically:
-        # sampleSuccess stayed false with 0 warnings until this was zeroed).
         ground_b3dm = build_b3dm(ground_glb, (0.0, 0.0, 0.0))
         with open(os.path.join(main_dir, "tile_ground.b3dm"), "wb") as f:
             f.write(ground_b3dm)
@@ -810,8 +738,6 @@ def main():
                 cmdline=_cmdline_for_provenance(args), ground_height_line=ground_height_line))
 
     if fallback_dir is not None:
-        # Fallback fixture: 16 byte-identical copies of tile_root, all
-        # sharing its own (shifted) region.
         root_region = regions["tile_root"]
         fallback_children = [child_entry(root_region, "tile_root.b3dm")]
         with open(os.path.join(fallback_dir, "tile_root.b3dm"), "wb") as f:
@@ -831,7 +757,6 @@ def main():
     print("wrote %s" % main_dir)
     if fallback_dir is not None:
         print("wrote %s" % fallback_dir)
-
 
 if __name__ == "__main__":
     main()

@@ -56,59 +56,19 @@ REPO_ROOT = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", ".."))
 INSTALL_DIR = os.path.join(REPO_ROOT, "ros", "install")
 NODE_NAME = "/overlume_node"
-# v2 (stack_v2_full_sensors_2026-09-09) no longer exists on this box (user
-# decision, 2026-09-11) -- stack_v3_full_sensors_2026-09-11 is the new
-# default fixture bag for this epic (67s, bm/br cameras under-deliver at
-# 67%/77% of the best camera -- a known recording deficit, not a rig bug;
-# harmless here since this check only needs cameras flowing, not full-rate
-# parity across all six).
 DEFAULT_BAG = os.path.expanduser("~/TPSProjector-fixtures/stack_v3_full_sensors_2026-09-11")
 OUT_W, OUT_H = 320, 240
 
-# render_mode_ int constants -- overlume_node.hpp's kRenderModeBowl/
-# kRenderModeHybrid/kRenderModeFreeLook (1/2/3).
 MODE_BOWL, MODE_FREE_LOOK = 1, 3
 
-# Salience metric: COUNT of pixels whose per-pixel mean-abs-channel-diff
-# exceeds PIXEL_DIFF_THRESH, not a whole-frame mean diff. A whole-frame mean
-# (flicker_capture.py's own metric, fine for a carpet ribbon that covers a
-# meaningful frame fraction) dilutes a car-class object's own footprint --
-# measured directly against this rig's default virtual_pose/class rendering:
-# a single "car"-classified box at this test's marker position changes
-# ~1800 of 76800 px (320x240) by up to +28, for a whole-frame MEAN of only
-# ~1.0 -- real, but too close to BOWL's own live-video frame-to-frame mean
-# diff to threshold reliably. Counting only pixels that moved by a real
-# amount is far more sensitive to "did an object's silhouette appear" while
-# staying just as usable for the coarse BOWL-vs-FREE_LOOK content check.
-PIXEL_DIFF_THRESH = 10.0    # per-pixel mean-abs-channel-diff to count as "changed"
-MODE_CONTENT_COUNT = 2000   # BOWL vs FREE_LOOK changed-px floor (whole frame), object off in both
-# ADDITIVE margins over each mode's own measured noise floor, not
-# multiplicative -- Surround Stitching's own ROI noise floor (real bowl
-# video showing through/around the object's screen position) measured
-# ~1800px in this rig's own runs, the same ORDER as the object's own
-# incremental signal (~3400px) -- a multiplicative factor big enough to
-# tolerate BOWL's much larger noise floor (~70px, but seen up to ~4400px
-# across runs) would never clear here, and one small enough to clear here
-# would pass BOWL's noise as "visible" too. Additive margins, sized to each
-# check's own actual measured gap (never the coin-flip a shared factor
-# would be), separate the two cleanly.
-VISIBLE_MARGIN = 500        # signal must clear noise_floor + this to count as "shown"
-HIDDEN_MARGIN = 100         # signal must stay under noise_floor + this to count as "hidden"
+PIXEL_DIFF_THRESH = 10.0
+MODE_CONTENT_COUNT = 2000
+VISIBLE_MARGIN = 500
+HIDDEN_MARGIN = 100
 
-# The object-ON-vs-OFF check is restricted to this ROI (y0, y1, x0, x1),
-# not the whole frame: measured directly (a standalone bowl-disabled probe
-# against this rig's default virtual_pose put the object's own footprint at
-# y in [103,137], x in [139,201] out of 320x240) and padded generously. A
-# whole-frame diff dilutes a ~2% -footprint object into noise once BOWL's
-# own real six-camera video is added to the scene (that video changes tens
-# of thousands of px between any two ~1s windows, regardless of the
-# marker) -- restricting to this ROI keeps that same live-video noise a much
-# smaller absolute count, without changing what's actually being asked
-# ("did the object's own screen region change").
-OBJ_ROI = (85, 155, 120, 220)  # y0, y1, x0, x1
-OBJ_VISIBLE_COUNT = 100     # object ON vs OFF changed-px floor (ROI), in a mode that should show it
-OBJ_HIDDEN_COUNT = 40       # object ON vs OFF changed-px floor (ROI), in a mode that should hide it
-
+OBJ_ROI = (85, 155, 120, 220)
+OBJ_VISIBLE_COUNT = 100
+OBJ_HIDDEN_COUNT = 40
 
 def _changed_px(a, b, roi=None):
     """Count of pixels whose per-pixel mean-abs-channel-diff between two
@@ -122,10 +82,8 @@ def _changed_px(a, b, roi=None):
     per_px = np.abs(a - b).mean(axis=2)
     return int(np.count_nonzero(per_px > PIXEL_DIFF_THRESH))
 
-
 def _popen(cmd: str) -> subprocess.Popen:
     return subprocess.Popen(["bash", "-c", cmd], start_new_session=True)
-
 
 def _kill(proc: subprocess.Popen):
     try:
@@ -141,11 +99,9 @@ def _kill(proc: subprocess.Popen):
             pass
         proc.wait()
 
-
 def _run(cmd: str, timeout: float = 15.0) -> subprocess.CompletedProcess:
     full = f"source /opt/ros/humble/setup.bash && {cmd}"
     return subprocess.run(["bash", "-c", full], capture_output=True, text=True, timeout=timeout)
-
 
 def _lifecycle(transition: str, timeout: float = 20.0) -> bool:
     for _ in range(20):
@@ -159,7 +115,6 @@ def _lifecycle(transition: str, timeout: float = 20.0) -> bool:
         time.sleep(1)
     return False
 
-
 def _param_set(name: str, value_literal: str) -> bool:
     result = _run(f"ros2 param set {NODE_NAME} {name} {value_literal}")
     ok = result.returncode == 0 and "Set parameter successful" in result.stdout
@@ -168,7 +123,6 @@ def _param_set(name: str, value_literal: str) -> bool:
               f"stderr={result.stderr!r}", file=sys.stderr)
     return ok
 
-
 def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -176,7 +130,6 @@ def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
         if proc.poll() is not None:
             return False
     return True
-
 
 class FrameAvg:
     """Subscribes /rendering/image, averages the next N frames it sees."""
@@ -216,11 +169,10 @@ class FrameAvg:
             raise RuntimeError("no frames captured within timeout")
         return (self._sum / self.count).astype(np.float32)
 
-
 def _publish_marker(pub, add: bool):
     from builtin_interfaces.msg import Duration
     from visualization_msgs.msg import Marker, MarkerArray
-    obj_id = 90001  # far outside any real bag track-id range
+    obj_id = 90001
 
     def _base(ns: str) -> Marker:
         m = Marker()
@@ -228,13 +180,9 @@ def _publish_marker(pub, add: bool):
         m.ns = ns
         m.id = obj_id
         m.action = Marker.ADD if add else Marker.DELETE
-        # Empirically confirmed in view of this rig's default virtual_pose
-        # (eye=(-4,0,3.5), target=(2,0,-0.5)): a 2m cube centered here lands
-        # on-screen (a standalone bowl-disabled probe measured its exact
-        # screen footprint, OBJ_ROI below).
         m.pose.position.x, m.pose.position.y, m.pose.position.z = 2.0, 0.0, -0.5
         m.pose.orientation.w = 1.0
-        m.lifetime = Duration(sec=0, nanosec=0)  # forever, this test manages ADD/DELETE itself
+        m.lifetime = Duration(sec=0, nanosec=0)
         return m
 
     bbox = _base("dynamic_objects_bbox")
@@ -242,11 +190,6 @@ def _publish_marker(pub, add: bool):
     bbox.scale.x = bbox.scale.y = bbox.scale.z = 2.0
     bbox.color.r, bbox.color.g, bbox.color.b, bbox.color.a = 1.0, 0.05, 0.05, 1.0
 
-    # A bbox with no matching (non-empty) TEXT marker of the same track id
-    # is dropped as malformed (dynamic_objects.cpp's ingest(): "bbox with no
-    # matching text" -- has_bbox && !has_text at the end of the message).
-    # "car" hits the class_inference keyword table for a real, visible clay
-    # asset/color instead of the dimension-fallback default.
     text = _base("dynamic_objects_text")
     text.type = Marker.TEXT_VIEW_FACING
     text.text = "car"
@@ -256,7 +199,6 @@ def _publish_marker(pub, add: bool):
     arr.markers.append(bbox)
     arr.markers.append(text)
     pub.publish(arr)
-
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -284,11 +226,6 @@ def main() -> int:
         f"--params-file {vparams} "
         f"-p out_width:={OUT_W} -p out_height:={OUT_H} -p use_sim_time:=true "
         f"-p profile:=urban -p bowl_enabled:=true -p render_mode:={MODE_FREE_LOOK} "
-        # initial_mode:=3 is harmless/ignored post-cutover (the param no
-        # longer exists once Task 6 Step 3 lands) and required pre-cutover
-        # (the still-live mux gate, active_mode_ != 3, would otherwise
-        # suppress every frame regardless of render_mode_) -- this launch
-        # line works unmodified on either side of the cutover commit.
         f"-p initial_mode:=3 "
         f"> {log_path} 2>&1")
     viz_proc = _popen(viz_cmd)
@@ -304,19 +241,6 @@ def main() -> int:
             print("FAIL: configure/activate failed.", file=sys.stderr)
             return 1
 
-        # --topics restricts playback to ONLY the six cameras' raw_images/
-        # camera_info -- this bag (stack_v2_full_sensors_2026-09-09) is
-        # richer than the epic's own camera-bag framing suggests: it ALSO
-        # carries ~30 real MarkerArray/Path topics (including a REAL
-        # /perception/dynamic_objects_list at ~9 Hz, 1889 msgs), which would
-        # otherwise swamp this test's own synthetic marker with real,
-        # constantly-changing object content on the very topic this test
-        # publishes to -- confirmed empirically (a first draft of this test
-        # measured FREE_LOOK's own back-to-back noise floor at ~30, higher
-        # than the synthetic marker's own on/off signal). Camera-only
-        # playback makes this test's marker the SOLE autonomy-content
-        # driver in FREE_LOOK, and isolates BOWL's noise floor to genuine
-        # camera/video motion, which is what that mode's own check needs.
         camera_topics = " ".join(
             f"/{cam}_camera/{kind}"
             for cam in ("fl", "fm", "fr", "bl", "bm", "br")
@@ -367,14 +291,11 @@ def main() -> int:
             return noise_floor, signal, no_obj_2
 
         try:
-            # Let the bag reach steady playback + all cameras' first
-            # CameraInfo/image -- same warm-up bowl_perf_gate.sh uses.
             print("INFO: warm-up (15s) -- bag reaching steady playback, bowl configuring ...")
             t0 = time.time()
             while time.time() - t0 < 15.0:
                 executor.spin_once(timeout_sec=0.5)
 
-            # ---- FREE_LOOK ----
             free_noise, d_free, free_ref = capture_mode("FREE_LOOK")
             if d_free < max(OBJ_VISIBLE_COUNT, free_noise + VISIBLE_MARGIN):
                 print(f"FAIL: FREE_LOOK should show the autonomy object (signal {d_free}px "
@@ -385,11 +306,10 @@ def main() -> int:
             print("PASS (1/3): FREE_LOOK renders the autonomy object (live pixel diff, "
                   "noise-floor-normalized).")
 
-            # ---- switch to BOWL ----
             if not _param_set("render_mode", str(MODE_BOWL)):
                 print("FAIL: render_mode -> BOWL was rejected.", file=sys.stderr)
                 return 1
-            time.sleep(1.0)  # let the mode switch's next tick land
+            time.sleep(1.0)
 
             bowl_noise, d_bowl, bowl_ref = capture_mode("BOWL")
             if d_bowl >= max(OBJ_HIDDEN_COUNT, bowl_noise + HIDDEN_MARGIN):
@@ -416,7 +336,6 @@ def main() -> int:
             print("PASS (3/3, part a): BOWL content visibly differs from FREE_LOOK "
                   "(bowl replaces the autonomy scene's own look).")
 
-            # ---- FREE_LOOK + Surround Stitching (bowl profile): object back ----
             if not _param_set("render_mode", str(MODE_FREE_LOOK)):
                 print("FAIL: render_mode -> FREE_LOOK was rejected.", file=sys.stderr)
                 return 1
@@ -457,7 +376,6 @@ def main() -> int:
             os.remove(log_path)
         except OSError:
             pass
-
 
 if __name__ == "__main__":
     sys.exit(main())

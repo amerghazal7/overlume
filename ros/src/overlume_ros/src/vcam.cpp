@@ -1,15 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-/** @file vcam.cpp
- *  @brief Virtual-camera presets + eased tween switching.
- *
- *  Ported from micropilot_rendering_node/src/rendering_node.cpp's
- *  smoothstep()/advance_tween() (float precision preserved — see
- *  LookPoint's doc comment in vcam.hpp for why). Math unchanged from the
- *  pre-extraction version.
- */
-
 #include "overlume_ros/vcam.hpp"
 
 #include <algorithm>
@@ -28,27 +19,18 @@ float smoothstep(float s) {
 
 Vcam::Vcam(rclcpp_lifecycle::LifecycleNode* node, const overlume::CameraPose& seed_pose)
     : pose_(seed_pose), logger_(node->get_logger()), clock_(node->get_clock()) {
-    // ── virtual-camera presets ───────────────────────────────────────────────
-    // Preset 1 ("config") is the just-declared virtual_pose, expressed
-    // directly as a look-point (no R/t derivation needed here — unlike
-    // rendering_node's CUDA camera, overlume::CameraPose already IS eye/target).
     for (int i = 0; i < 3; ++i) presets_[0].eye[i] = static_cast<float>(pose_.eye[i]);
     for (int i = 0; i < 3; ++i) presets_[0].target[i] = static_cast<float>(pose_.target[i]);
-    // Presets 2-5: identical formulas/constants to rendering_node's table
-    // (spec §6 — same framing in both worlds).
     presets_[1] =
         LookPoint{{-presets_[0].eye[0], -presets_[0].eye[1], presets_[0].eye[2]},
                   {-presets_[0].target[0], -presets_[0].target[1], presets_[0].target[2]}};
-    presets_[2] = LookPoint{{0.0f, 4.0f, 2.5f}, {0.0f, 0.0f, 0.5f}};    // left_side
-    presets_[3] = LookPoint{{0.0f, -4.0f, 2.5f}, {0.0f, 0.0f, 0.5f}};   // right_side
-    presets_[4] = LookPoint{{0.0f, 0.0f, 8.0f}, {0.0f, 0.001f, 0.0f}};  // top_down
+    presets_[2] = LookPoint{{0.0f, 4.0f, 2.5f}, {0.0f, 0.0f, 0.5f}};
+    presets_[3] = LookPoint{{0.0f, -4.0f, 2.5f}, {0.0f, 0.0f, 0.5f}};
+    presets_[4] = LookPoint{{0.0f, 0.0f, 8.0f}, {0.0f, 0.001f, 0.0f}};
     cur_ = src_ = dst_ = presets_[0];
-    tween_t_ = 1.0;  // start settled on the config preset
+    tween_t_ = 1.0;
     active_preset_ = 1;
 
-    // ── vcam control surface (spec §6) ───────────────────────────────────────
-    // Same message/service contracts as rendering_node's, under this node's
-    // own namespace — the WS bridge fans commands out to both.
     set_vcam_srv_ = node->create_service<SetVirtualCam>(
         "~/set_virtual_cam",
         std::bind(&Vcam::on_set_virtual_cam, this, std::placeholders::_1, std::placeholders::_2));
@@ -58,7 +40,6 @@ Vcam::Vcam(rclcpp_lifecycle::LifecycleNode* node, const overlume::CameraPose& se
 
 void Vcam::advance_tween() {
     if (tween_t_ < 1.0) {
-        // Timer fires at 33 ms; ~0.5 s transition -> step 0.033/0.5 per tick.
         tween_t_ = std::min(1.0, tween_t_ + 0.033 / 0.5);
         float w = smoothstep(static_cast<float>(tween_t_));
         for (int i = 0; i < 3; ++i) {
@@ -72,8 +53,6 @@ void Vcam::advance_tween() {
 
 void Vcam::on_set_virtual_cam(const std::shared_ptr<SetVirtualCam::Request> req,
                               std::shared_ptr<SetVirtualCam::Response> res) {
-    // ponytail: no lock — single-threaded executor (rclcpp::spin in main.cpp),
-    // so this callback and timer_callback() never overlap.
     const int p = req->preset;
     if (p < 1 || p > static_cast<int>(presets_.size())) {
         res->success = false;
@@ -83,7 +62,7 @@ void Vcam::on_set_virtual_cam(const std::shared_ptr<SetVirtualCam::Request> req,
     }
     src_ = cur_;
     dst_ = presets_[p - 1];
-    tween_t_ = 0.0;  // begin the eased transition
+    tween_t_ = 0.0;
     active_preset_ = p;
     res->success = true;
     res->active = kPresetNames[p - 1];
@@ -101,10 +80,10 @@ void Vcam::on_set_look(const std_msgs::msg::Float64MultiArray::SharedPtr msg) {
     for (int i = 0; i < 3; ++i) lp.eye[i] = static_cast<float>(msg->data[i]);
     for (int i = 0; i < 3; ++i) lp.target[i] = static_cast<float>(msg->data[3 + i]);
     cur_ = src_ = dst_ = lp;
-    tween_t_ = 1.0;  // cancel any in-flight preset tween
+    tween_t_ = 1.0;
     for (int i = 0; i < 3; ++i) pose_.eye[i] = static_cast<double>(cur_.eye[i]);
     for (int i = 0; i < 3; ++i) pose_.target[i] = static_cast<double>(cur_.target[i]);
-    active_preset_ = 0;  // free look
+    active_preset_ = 0;
 }
 
 }  // namespace overlume::ros

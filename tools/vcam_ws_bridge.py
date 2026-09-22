@@ -78,47 +78,25 @@ STATE_HZ = 15.0
 PRESET_RANGE = (1, 5)
 RENDER_MODES = {"bowl": 1, "pointcloud": 2, "visual": 3, 1: 1, 2: 2, 3: 3}
 
-# Epic 3 Task 5 (VM-032) + VM-077 + Task 4/VM-093: the layer_<name> bool
-# params overlume_node declares (scene_assembly.hpp's live categories --
-# trajectory_carpet added VM-077, surround_stitching added VM-093 (Surround
-# Stitching, follow-up USER DIRECTIVE 2026-09-11) -- see that node's
-# on_configure()). surround_stitching is the one entry here that doesn't gate
-# a SceneAssembly category (it gates set_bowl_visible() instead); it's a
-# plain layer_* bool param, same live-tuning contract as every other name
-# here, so it belongs in the same set.
 LAYER_NAMES = {
     "objects", "paths", "map_elements", "grids", "alerts", "markers", "point_clouds",
     "trajectory_carpet", "surround_stitching",
 }
-# quality preset name -> overlume_node's `quality` param encoding
-# (0=low, 1=med, 2=high, api.h's RenderConfig::quality).
 QUALITY_PRESETS = {"low": 0, "medium": 1, "high": 2, 0: 0, 1: 1, 2: 2}
-# Surround Stitching content profile (Task 4/VM-093 follow-up USER
-# DIRECTIVE) -- overlume_node's on_params() accepts exactly these two,
-# rejecting anything else (test_mode_dispatch.py check 3).
 SURROUND_PROFILES = {"bowl", "hybrid"}
-# Epic 6's four environment tile sources (VM-096 -- vcam GUI Environment
-# Tiles toggle). Three resolve to a literal URI here; "clipped" is resolved
-# server-side against the node's OWN `environment_own_asset_uri` param
-# (handle_client's set_environment_source branch) -- never fabricated here.
 ENVIRONMENT_PRESETS = {"baked", "osm", "clipped", "google"}
 ENVIRONMENT_PRESET_URIS = {
-    "baked": "",                                  # Epic 4 baked chunks (today's default)
-    "osm": "ion://96188",                         # Cesium OSM Buildings, clay
-    # cache=off is the shipped compliance lever (default_params.yaml,
-    # cesium.md's Google section) -- ships until Google's Map Tiles
-    # cache-lifetime terms are re-verified for this deployment.
-    "google": "ion://2275207?materials=original&cache=off",  # Google Photorealistic
+    "baked": "",
+    "osm": "ion://96188",
+    "google": "ion://2275207?materials=original&cache=off",
 }
 
-# Params the GUI tuning panel may read/write, with their declared ROS types.
 TUNABLE_PARAMS = {
     "bowl_R0": float, "bowl_k": float, "bowl_Rmax": float,
     "feather_margin": float, "max_sync_latency": float, "virtual_vfov_deg": float,
     "splat_radius": int, "fill_blind_zone": bool, "exposure_match": bool,
     "sky_color": list, "camera_extrinsics": list,
 }
-
 
 def patch_yaml_text(text: str, values: dict) -> str:
     """Update scalar and flat-list keys in a ROS params YAML, preserving all
@@ -167,7 +145,6 @@ def patch_yaml_text(text: str, values: dict) -> str:
                 out[idx + 1:idx + 1] = ins
                 break
     return "".join(out)
-
 
 def parse_cmd(text: str):
     """Validate one inbound JSON command.
@@ -227,7 +204,7 @@ def parse_cmd(text: str):
             if isinstance(v, bool) or not isinstance(v, (int, float)):
                 raise ValueError(f"set_param: {name} expects a number")
             v = float(v)
-        else:  # list of numbers
+        else:
             if not isinstance(v, (list, tuple)) or not v or \
                     not all(isinstance(x, (int, float)) and not isinstance(x, bool)
                             for x in v):
@@ -275,7 +252,6 @@ def parse_cmd(text: str):
         return "set_environment_source", preset
     raise ValueError(f"unknown cmd {cmd!r}")
 
-
 def main() -> int:
     import rclpy
     from rclpy.node import Node
@@ -284,8 +260,6 @@ def main() -> int:
     from diagnostic_msgs.msg import DiagnosticArray
     from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
     from rcl_interfaces.srv import GetParameters, SetParameters
-    # SetVirtualCam is owned by overlume_ros since the VM-095
-    # cutover (Step 4) -- the type's qualified name changed with the .srv move.
     from overlume_ros.srv import SetVirtualCam
     import websockets
 
@@ -301,26 +275,12 @@ def main() -> int:
                          "command that still passes it keeps working unchanged.")
     args = ap.parse_args()
 
-    # Post-cutover (VM-095): micropilot_rendering_node is decommissioned --
-    # overlume_node is the ONLY node implementing the vcam surface
-    # (spec §6). One namespace, not a fan-out list, but kept as a list (not
-    # a bare constant) so every VCAM_NAMESPACES call site below is
-    # untouched -- the collapse is in what the list CONTAINS, not its shape.
     VCAM_NAMESPACES = ["/overlume_node"]
 
     class BridgeNode(Node):
         def __init__(self):
             super().__init__("vcam_ws_bridge")
-            self.state: list[float] | None = None  # [eye3, target3, preset, mode]
-            # Post-cutover: exactly one namespace publishes ~/vcam_state, so
-            # the old "whichever arrived last" ambiguity (and the
-            # namespace-authority tracking it needed) is gone -- _on_state
-            # below just takes every message from the single namespace.
-            # diagnostics only exists on overlume_node (mode 3) -- no
-            # mux needed, harmless if it keeps arriving while mode 1/2 is
-            # active, same "ingest continues regardless of mode" philosophy
-            # vcam_state already follows. Display-only: reuses this same
-            # telemetry pipe rather than opening a second WS transport.
+            self.state: list[float] | None = None
             self.diagnostics: dict | None = None
             self.create_subscription(
                 DiagnosticArray, "/overlume_node/diagnostics",
@@ -328,48 +288,21 @@ def main() -> int:
             self._pub_look = [
                 self.create_publisher(Float64MultiArray, f"{ns}/set_look", 10)
                 for ns in VCAM_NAMESPACES]
-            # Post-cutover (VM-095 Step 2): with the mux arbitration deleted,
-            # this is a normal single-subscriber topic -- the merged node's
-            # ONLY subscriber assigns msg.data directly to its own
-            # render_mode_, no mux decision in between. Topic name/type/QoS
-            # are UNCHANGED (transient_local + reliable, depth 1, VM-037 Step
-            # (a)) specifically so this publisher needs no edit at all: a
-            # restarted node is a late-joiner against this durable publisher,
-            # which is what lets it resume the operator's last-published mode
-            # instead of its own declare-time default after a crash/restart.
             self._pub_mode = self.create_publisher(
                 Int32, "/rendering/set_mode",
                 QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
                            durability=DurabilityPolicy.TRANSIENT_LOCAL, depth=1))
-            # node-private, mode-3-only concept -- no mux needed, harmless if
-            # published while mode 1/2 is active (same "ingest continues
-            # regardless of mode" philosophy as /rendering/set_mode above).
             self._pub_theme = self.create_publisher(
                 String, "/overlume_node/set_theme", 10)
             self._cli = [
                 self.create_client(SetVirtualCam, f"{ns}/set_virtual_cam")
                 for ns in VCAM_NAMESPACES]
-            # Post-cutover (VM-095 Step 5): TUNABLE_PARAMS (bowl_R0/k/Rmax,
-            # feather_margin, sky_color, camera_extrinsics, etc.) are ALL
-            # already declared on overlume_node (Tasks 1/2/5 ported
-            # them verbatim from the old node) -- repointed from
-            # /rendering_node, which no longer exists. Kept as a separate
-            # client pair from _cli_setp_viz/_cli_getp_viz below (same
-            # target node, different param GROUP) rather than merged into
-            # one, to keep this diff to the repoint the plan actually asks
-            # for.
             self._cli_getp = self.create_client(
                 GetParameters, "/overlume_node/get_parameters")
             self._cli_setp = self.create_client(
                 SetParameters, "/overlume_node/set_parameters")
-            # Epic 3 Task 5 (VM-032): layer_*/quality are overlume_node's
-            # own params, not the TUNABLE_PARAMS group above -- a
-            # separate client, same SetParameters service type.
             self._cli_setp_viz = self.create_client(
                 SetParameters, "/overlume_node/set_parameters")
-            # get twin (review 2026-09-09): the GUI's layer switches must
-            # reflect the node's REAL layer_* values on load, not assert the
-            # defaults -- see get_layers_async()/the get_params handler.
             self._cli_getp_viz = self.create_client(
                 GetParameters, "/overlume_node/get_parameters")
             for ns in VCAM_NAMESPACES:
@@ -381,9 +314,6 @@ def main() -> int:
             self.state = list(msg.data)
 
         def _on_diagnostics(self, msg):
-            # DiagnosticStatus.level is `byte` (rclpy: a 1-length bytes
-            # object), not an int -- unwrap it once here so the GUI/WS
-            # client only ever sees plain JSON-serializable values.
             render_ms = None
             rows = []
             for st in msg.status:
@@ -409,13 +339,6 @@ def main() -> int:
                 pub.publish(m)
 
         def set_render_mode(self, mode: int):
-            # Post-cutover (VM-095 Step 2): the merged node's ONLY subscriber
-            # on /rendering/set_mode assigns msg.data straight to its own
-            # render_mode_ -- no mux, no second node to idle, no
-            # SetParameters detour needed (that path predates Step 2's
-            # topic-drives-render_mode_ change and is gone with it; the
-            # --local-mode flag is now a no-op kept only for CLI
-            # compatibility, see its help text above).
             m = Int32()
             m.data = mode
             self._pub_mode.publish(m)
@@ -551,8 +474,6 @@ def main() -> int:
             return None
 
     rclpy.init()
-    # rclpy.init() hooks SIGTERM but nothing here watches rclpy's shutdown flag,
-    # which would leave the process unkillable except by SIGKILL — restore default.
     import signal
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
     node = BridgeNode()
@@ -608,30 +529,16 @@ def main() -> int:
                 elif cmd == "set_theme":
                     node.set_theme(payload)
                 elif cmd == "set_param":
-                    # fire-and-forget: slider drags stream updates
                     if node.set_param_async(*payload) is None:
                         await ws.send(json.dumps({
                             "type": "error",
                             "message": "set_parameters service unavailable"}))
                 elif cmd == "get_params":
                     try:
-                        # environment_enabled/environment_source_uri/
-                        # environment_own_asset_uri live on overlume_node
-                        # (not TUNABLE_PARAMS -- they go through the dedicated
-                        # set_environment_* cmds above, not set_param),
-                        # fetched in the SAME call so the GUI can reflect the
-                        # real toggle state, the real source-preset combo
-                        # selection (VM-096 gate round 1 finding), and grey
-                        # out "clipped" when there is no own asset yet
-                        # (design decision (c) -- never fabricate one).
                         vals = await fetch_params(
                             list(TUNABLE_PARAMS) +
                             ["environment_enabled", "environment_source_uri",
                              "environment_own_asset_uri"])
-                        # layer_* live on overlume_node, best-effort
-                        # (review 2026-09-09): absent when that node isn't
-                        # up (bowl/pointcloud-only sessions) -- the GUI
-                        # skips switches it gets no value for.
                         lfut = node.get_layers_async()
                         if lfut is not None:
                             try:
@@ -707,9 +614,6 @@ def main() -> int:
                 elif cmd == "set_environment_source":
                     preset = payload
                     if preset == "clipped":
-                        # Resolved against the node's OWN param, never
-                        # fabricated (design decision (c)) -- an empty
-                        # value is a real error, not a silent no-op.
                         try:
                             own_vals = await fetch_params(["environment_own_asset_uri"])
                         except Exception as e:
@@ -754,17 +658,13 @@ def main() -> int:
                     except Exception as e:
                         await ws.send(json.dumps({"type": "ack", "cmd": "save_params",
                                                   "success": False, "path": str(e)}))
-                else:  # set_preset
+                else:
                     futs = node.set_preset_async(payload)
                     if not futs:
                         await ws.send(json.dumps({
                             "type": "error",
                             "message": "set_virtual_cam service unavailable"}))
                         continue
-                    # Fan out to every node whose service is ready (both node
-                    # namespaces share the preset table — spec §6); ack from
-                    # whichever answers first (VCAM_NAMESPACES order), since
-                    # both report the same success/active for the same preset.
                     responses = await asyncio.gather(
                         *(await_ros(fut, timeout=5.0) for _, fut in futs),
                         return_exceptions=True)
@@ -795,15 +695,9 @@ def main() -> int:
                     "eye": s[0:3], "target": s[3:6],
                     "preset": int(s[6]) if len(s) > 6 else 0,
                     "render_mode": int(s[7]) if len(s) > 7 else 2,
-                    # The MUX mode (which node owns /rendering/image) -- index
-                    # 7 is the node's own local render_mode since VM-093, so
-                    # the GUI's mode-cycle button needs this separately.
                     "mux_mode": int(s[8]) if len(s) > 8 else None})
                 await asyncio.gather(
                     *(ws.send(frame) for ws in list(clients)), return_exceptions=True)
-            # Same "send only on change" shape as state above, its own frame
-            # type -- the GUI panel renders it display-only, no ack/command
-            # round-trip involved.
             d = node.diagnostics
             if d is not None and d != last_diag:
                 last_diag = d
@@ -814,7 +708,7 @@ def main() -> int:
     async def serve():
         async with websockets.serve(handle_client, args.host, args.port):
             node.get_logger().info(f"vcam WS bridge listening on ws://{args.host}:{args.port}")
-            await broadcast_state()  # runs forever
+            await broadcast_state()
 
     try:
         asyncio.run(serve())
@@ -823,7 +717,6 @@ def main() -> int:
     finally:
         rclpy.shutdown()
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

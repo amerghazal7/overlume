@@ -1,13 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-/** @file test_ogm_adapter.cpp
- *  @brief OgmAdapter tests.
- *
- *  Zero OccupancyGrid topics exist in the recorded bag or stack -- every
- *  fixture here is SYNTHETIC (see fixtures/ogm_synthetic.yaml /
- *  ogm_update_synthetic.yaml's own header comments).
- */
 #include "overlume_ros/adapters/ogm.hpp"
 
 #include <memory>
@@ -24,10 +17,6 @@ using overlume::ros::SceneAssembly;
 
 namespace {
 
-// Hand-built tf2_ros::Buffer + FrameTransformer -- identical fixture style
-// to test_path_adapter.cpp/test_hd_map_adapter.cpp. An empty buffer is
-// enough: every fixture here is already in the "map" frame
-// (FrameTransformer's identity shortcut never touches it).
 struct TfFixture {
     std::shared_ptr<rclcpp::Clock> clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
     tf2_ros::Buffer buffer{clock};
@@ -40,8 +29,6 @@ const overlume::GroundGridLayer* OnlyGrid(const SceneAssembly& asm_) {
 
 }  // namespace
 
-// ── Step 1: full grid populates geometry + converted cells ─────────────────
-
 TEST(OgmAdapter, FullGridPopulatesLayerGeometryAndCells) {
     auto msg = overlume::ros::testing::load_occupancy_grid("ogm_synthetic.yaml");
     ASSERT_EQ(msg.info.width, 5u);
@@ -49,7 +36,7 @@ TEST(OgmAdapter, FullGridPopulatesLayerGeometryAndCells) {
     TfFixture kTf;
     overlume::ros::OgmAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_ogm"),
                                 kTf.tf);
-    a.ingest(msg, /*sim_time_sec=*/1.0);
+    a.ingest(msg, 1.0);
 
     SceneAssembly asm_;
     a.fill(asm_);
@@ -62,20 +49,17 @@ TEST(OgmAdapter, FullGridPopulatesLayerGeometryAndCells) {
     EXPECT_EQ(g->width_cells, 5u);
     EXPECT_EQ(g->height_cells, 2u);
     ASSERT_NE(g->cells, nullptr);
-    // Row 1 (filler): every cell converts 0 -> 0.
     for (uint32_t i = 5; i < 10; ++i) EXPECT_EQ(g->cells[i], 0u) << "cell " << i;
     EXPECT_EQ(a.stats().msgs, 1u);
 }
 
-// ── flatten_z: origin z zeroed by default ───────────────────────────────────
-
 TEST(OgmAdapter, OriginZFlattenedToZeroByDefault) {
     auto msg = overlume::ros::testing::load_occupancy_grid("ogm_synthetic.yaml");
-    msg.info.origin.position.z = 2.5;  // real altitude a live TF/publisher could carry
-    TfFixture kTf;  // FrameTransformer defaults flatten_z=true, same as the node's own default
+    msg.info.origin.position.z = 2.5;
+    TfFixture kTf;
     overlume::ros::OgmAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_ogm"),
                                 kTf.tf);
-    a.ingest(msg, /*sim_time_sec=*/1.0);
+    a.ingest(msg, 1.0);
 
     SceneAssembly asm_;
     a.fill(asm_);
@@ -85,20 +69,17 @@ TEST(OgmAdapter, OriginZFlattenedToZeroByDefault) {
         << "flatten_z (default true) must zero the stored grid origin z";
 }
 
-// ── Step 1: -1/0/50/100/127 -> 255/0/50/100/255, one dropped_malformed ──────
-
 TEST(OgmAdapter, UnknownCellsBecomeTheSentinelNotTwoFiftyFive) {
     auto msg = overlume::ros::testing::load_occupancy_grid("ogm_synthetic.yaml");
     TfFixture kTf;
     overlume::ros::OgmAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_ogm"),
                                 kTf.tf);
-    a.ingest(msg, /*sim_time_sec=*/1.0);
+    a.ingest(msg, 1.0);
 
     SceneAssembly asm_;
     a.fill(asm_);
     const overlume::GroundGridLayer* g = OnlyGrid(asm_);
     ASSERT_NE(g, nullptr);
-    // Row 0: -1, 0, 50, 100, 127 (wire) -> 255, 0, 50, 100, 255 (converted).
     EXPECT_EQ(g->cells[0], overlume::ros::kUnknownCell) << "-1 (unknown) must become the sentinel";
     EXPECT_EQ(g->cells[1], 0u);
     EXPECT_EQ(g->cells[2], 50u);
@@ -108,8 +89,6 @@ TEST(OgmAdapter, UnknownCellsBecomeTheSentinelNotTwoFiftyFive) {
     EXPECT_EQ(a.stats().dropped_malformed, 1u)
         << "exactly one malformed cell (127) in this message -- one dropped_malformed, not five";
 }
-
-// ── Step 2: a patch rewrites exactly its own sub-rectangle ─────────────────
 
 TEST(OgmAdapter, PartialUpdatePatchesInPlaceWithoutResizing) {
     auto grid = overlume::ros::testing::load_occupancy_grid("ogm_synthetic.yaml");
@@ -123,25 +102,21 @@ TEST(OgmAdapter, PartialUpdatePatchesInPlaceWithoutResizing) {
     overlume::ros::OgmAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_ogm"),
                                 kTf.tf);
     a.ingest(grid, 1.0);
-    a.ingest_update(patch, 1.1);  // SAME object, not a second instance
+    a.ingest_update(patch, 1.1);
 
     SceneAssembly asm_;
     a.fill(asm_);
     const overlume::GroundGridLayer* g = OnlyGrid(asm_);
     ASSERT_NE(g, nullptr);
-    ASSERT_EQ(g->width_cells, 5u);  // never resized by a patch
+    ASSERT_EQ(g->width_cells, 5u);
     ASSERT_EQ(g->height_cells, 2u);
 
-    // Row 0 -- entirely outside the patch rect -- byte-identical to the
-    // full-grid ingest.
     EXPECT_EQ(g->cells[0], overlume::ros::kUnknownCell);
     EXPECT_EQ(g->cells[1], 0u);
     EXPECT_EQ(g->cells[2], 50u);
     EXPECT_EQ(g->cells[3], 100u);
     EXPECT_EQ(g->cells[4], overlume::ros::kUnknownCell);
 
-    // Row 1: index (1,1)=6 and (2,1)=7 patched to [42, -1] -> [42, 255];
-    // everything else in row 1 stays the original filler 0.
     EXPECT_EQ(g->cells[5], 0u);
     EXPECT_EQ(g->cells[6], 42u);
     EXPECT_EQ(g->cells[7], overlume::ros::kUnknownCell)
@@ -150,15 +125,13 @@ TEST(OgmAdapter, PartialUpdatePatchesInPlaceWithoutResizing) {
     EXPECT_EQ(g->cells[9], 0u);
 }
 
-// ── Step 2: an _updates message with no base grid yet is a no-op ───────────
-
 TEST(OgmAdapter, UpdateBeforeAnyFullGridIsDroppedAndCounted) {
     auto patch = overlume::ros::testing::load_occupancy_grid_update("ogm_update_synthetic.yaml");
     TfFixture kTf;
     overlume::ros::OgmAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_ogm"),
                                 kTf.tf);
 
-    a.ingest_update(patch, 1.0);  // no ingest() ever called -- must not allocate/crash
+    a.ingest_update(patch, 1.0);
 
     SceneAssembly asm_;
     a.fill(asm_);
@@ -167,12 +140,9 @@ TEST(OgmAdapter, UpdateBeforeAnyFullGridIsDroppedAndCounted) {
     EXPECT_EQ(a.stats().msgs, 1u);
 }
 
-// ── Step 2: an out-of-bounds update rect is rejected, base untouched ───────
-
 TEST(OgmAdapter, OutOfBoundsUpdateRectIsRejected) {
     auto grid = overlume::ros::testing::load_occupancy_grid("ogm_synthetic.yaml");
     auto patch = overlume::ros::testing::load_occupancy_grid_update("ogm_update_synthetic.yaml");
-    // 5-wide base grid; x=4 + width=2 = 6 > 5 -- overruns by one column.
     patch.x = 4;
     patch.width = 2;
     patch.data = {7, 7};
@@ -187,22 +157,14 @@ TEST(OgmAdapter, OutOfBoundsUpdateRectIsRejected) {
     a.fill(asm_);
     const overlume::GroundGridLayer* g = OnlyGrid(asm_);
     ASSERT_NE(g, nullptr);
-    // Base untouched -- row 0 (where the rejected rect would have landed,
-    // y=1 actually, but the WHOLE patch is rejected, so check both rows)
-    // stays exactly the full-grid ingest's converted values.
     EXPECT_EQ(g->cells[0], overlume::ros::kUnknownCell);
     EXPECT_EQ(g->cells[1], 0u);
     EXPECT_EQ(g->cells[2], 50u);
     EXPECT_EQ(g->cells[3], 100u);
     EXPECT_EQ(g->cells[4], overlume::ros::kUnknownCell);
     for (uint32_t i = 5; i < 10; ++i) EXPECT_EQ(g->cells[i], 0u) << "cell " << i;
-    // 2 total: the base ingest()'s own 127-cell (ogm_synthetic.yaml's row 0)
-    // PLUS this out-of-bounds ingest_update() -- the rejected rect adds
-    // exactly one more, on top of whatever the base grid already carried.
     EXPECT_EQ(a.stats().dropped_malformed, 2u);
 }
-
-// ── Step 2: role -> kind ─────────────────────────────────────────────────
 
 TEST(OgmAdapter, RoleSelectsLayerKind) {
     auto grid = overlume::ros::testing::load_occupancy_grid("ogm_synthetic.yaml");
@@ -225,8 +187,6 @@ TEST(OgmAdapter, RoleSelectsLayerKind) {
     EXPECT_EQ(gradAsm.grids[0].kind, 1u) << "role gradient_ogm must select kind 1";
 }
 
-// ── The wiring test -- subscriptions_for(), not the adapter ────────────────
-
 TEST(OgmAdapter, OneRowYieldsTwoSubscriptionsAndOneAdapter) {
     const auto specs = overlume::ros::subscriptions_for(
         overlume::ros::testing::urban_row("/perception/dynamic_ogm"));
@@ -236,8 +196,6 @@ TEST(OgmAdapter, OneRowYieldsTwoSubscriptionsAndOneAdapter) {
     EXPECT_EQ(specs[1].topic, "/perception/dynamic_ogm_updates");
     EXPECT_EQ(specs[1].type, "map_msgs/msg/OccupancyGridUpdate");
 
-    // ...and ONE adapter consumes both, via two ingest overloads -- the same
-    // object, not a second instance.
     auto full_grid = overlume::ros::testing::load_occupancy_grid("ogm_synthetic.yaml");
     auto patch = overlume::ros::testing::load_occupancy_grid_update("ogm_update_synthetic.yaml");
     TfFixture kTf;

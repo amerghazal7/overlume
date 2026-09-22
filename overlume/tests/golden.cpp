@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// golden.cpp — see golden.hpp. Not a gtest file (excluded from
-// CMakeLists.txt's auto-glob-as-gtest-binary loop by name; compiled as a
-// plain extra source into every other test binary instead).
 #include "golden.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -23,18 +20,11 @@
 namespace overlume::testing {
 namespace {
 
-// This epic's goldens are all committed at a fixed 320x240 (see golden.hpp
-// / spec: "purely for CI speed/determinism, not a statement about the
-// shipped default").
 constexpr uint32_t kWidth = 320;
 constexpr uint32_t kHeight = 240;
 
 double luminance(uint8_t r, uint8_t g, uint8_t b) { return 0.2126 * r + 0.7152 * g + 0.0722 * b; }
 
-// ponytail: block-wise (8x8, non-overlapping, luminance-only) mean/
-// variance/covariance SSIM averaged over blocks -- a deliberately simpler
-// approximation of the full windowed-Gaussian SSIM (unnecessary precision
-// for a pass/fail regression gate at low-preset resolution).
 double block_ssim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, uint32_t width,
                   uint32_t height) {
     constexpr int kBlock = 8;
@@ -88,8 +78,6 @@ double render_and_compare(overlume::VisualRenderer* r, const overlume::CameraPos
     int goldenWidth = 0, goldenHeight = 0, goldenChannels = 0;
     uint8_t* golden = stbi_load(golden_png_path, &goldenWidth, &goldenHeight, &goldenChannels, 3);
     if (golden == nullptr) {
-        // Golden missing -- first run of a new golden always fails loudly,
-        // never silently "passes" with nothing to compare against.
         return 0.0;
     }
     if (static_cast<uint32_t>(goldenWidth) != kWidth ||
@@ -116,13 +104,7 @@ FrameStats analyze_png(const char* png_path) {
     size_t topN = 0, bottomN = 0;
     const int topEnd = height / 3;
     const int bottomStart = (2 * height) / 3;
-    // sky_row_mean/horizon_row_mean row bands -- see golden.hpp's comment on
-    // FrameStats for why these specific rows (fixed to this epic's fixed
-    // 320x240 / CameraPose test setup).
     constexpr int kSkyRowStart = 10, kSkyRowEnd = 40;
-    // Starts at 50, not 48: rows 48-49 are pure sky at this fixed pose (the
-    // first ground row is 50); including them understated the true
-    // ground/sky gap by ~4 levels.
     constexpr int kHorizonRowStart = 50, kHorizonRowEnd = 60;
     double skySum = 0.0, horizonSum = 0.0;
     size_t skyN = 0, horizonN = 0;
@@ -160,20 +142,11 @@ FrameStats analyze_png(const char* png_path) {
     return stats;
 }
 
-// See golden.hpp. `.geom` format, one element per line:
-// `<is_polygon:0|1> <kind> <lane_id> <n> <x1> <y1> <z1> ... <xn> <yn> <zn>`.
-// A malformed line (fewer than n points, non-numeric field) is skipped, not
-// half-consumed into the next line's read.
 MapGeom load_map_geom(const char* path) {
     MapGeom g;
     std::ifstream in(path);
     if (!in) return g;
 
-    // Two-pass: first pass appends every point into g.points and records
-    // each element's (is_polygon, kind, lane_id, offset, count); second
-    // pass builds g.elements from that metadata, once g.points is done
-    // growing -- so `MapElement::points` is computed only after g.points'
-    // buffer address is final, not re-derived from a moving target.
     struct Meta {
         uint8_t is_polygon;
         overlume::MapKind kind;
@@ -202,7 +175,7 @@ MapGeom load_map_geom(const char* path) {
             g.points.push_back({x, y, z});
         }
         if (!ok) {
-            g.points.resize(offset);  // drop the partially-read element's points
+            g.points.resize(offset);
             continue;
         }
         meta.push_back(Meta{static_cast<uint8_t>(isPolygon != 0),
@@ -222,8 +195,6 @@ MapGeom load_map_geom(const char* path) {
     return g;
 }
 
-// See golden.hpp. One TrackedObject per ObjectClass, positioned so a
-// camera looking roughly at the world origin sees all six.
 ObjectScene make_mixed_class_objects(double now) {
     struct Spec {
         overlume::ObjectClass cls;
@@ -231,11 +202,10 @@ ObjectScene make_mixed_class_objects(double now) {
         double heading;
         overlume::Vec3 dims;
         overlume::Vec3 velocity;
-        std::vector<overlume::Vec3> path;  // empty -> no predicted path
-        double age_sec;                    // last_update_sec = now - age_sec
+        std::vector<overlume::Vec3> path;
+        double age_sec;
     };
     const std::vector<Spec> specs = {
-        // CAR: fresh, nonzero velocity -- exercises the velocity-arrow path.
         {overlume::ObjectClass::CAR,
          {-6.0, -3.0, 0.0},
          0.3,
@@ -243,7 +213,6 @@ ObjectScene make_mixed_class_objects(double now) {
          {3.0, 1.0, 0.0},
          {},
          0.0},
-        // TRUCK_VAN: fresh, has a predicted path -- exercises extrude_polyline.
         {overlume::ObjectClass::TRUCK_VAN,
          {-3.0, 4.0, 0.0},
          -0.5,
@@ -251,7 +220,6 @@ ObjectScene make_mixed_class_objects(double now) {
          {0.0, 0.0, 0.0},
          {{-3.0, 4.0, 0.0}, {-1.0, 3.0, 0.0}, {1.0, 2.5, 0.0}, {3.0, 2.0, 0.0}},
          0.0},
-        // BUS: fresh, plain.
         {overlume::ObjectClass::BUS,
          {5.0, 5.0, 0.0},
          2.1,
@@ -259,7 +227,6 @@ ObjectScene make_mixed_class_objects(double now) {
          {0.0, 0.0, 0.0},
          {},
          0.0},
-        // PEDESTRIAN: fresh, plain.
         {overlume::ObjectClass::PEDESTRIAN,
          {2.0, -5.0, 0.0},
          1.0,
@@ -267,7 +234,6 @@ ObjectScene make_mixed_class_objects(double now) {
          {0.0, 0.0, 0.0},
          {},
          0.0},
-        // CYCLIST: fresh, plain.
         {overlume::ObjectClass::CYCLIST,
          {-2.0, -6.0, 0.0},
          0.6,
@@ -275,8 +241,6 @@ ObjectScene make_mixed_class_objects(double now) {
          {0.0, 0.0, 0.0},
          {},
          0.0},
-        // UNKNOWN: deliberately stale -- 0.9s behind `now`, inside the
-        // 0.5s/1.0s fade window (alpha ~0.2).
         {overlume::ObjectClass::UNKNOWN,
          {6.0, -6.0, 0.0},
          -1.2,
@@ -289,8 +253,7 @@ ObjectScene make_mixed_class_objects(double now) {
     ObjectScene s;
     size_t totalPathPoints = 0;
     for (const auto& sp : specs) totalPathPoints += sp.path.size();
-    s.path_points.reserve(totalPathPoints);  // fixed capacity FIRST -- see golden.hpp/MapGeom's
-                                             // own comment on why this must not reallocate mid-loop
+    s.path_points.reserve(totalPathPoints);
     s.objects.reserve(specs.size());
 
     uint32_t nextId = 1;
@@ -318,23 +281,14 @@ ObjectScene make_mixed_class_objects(double now) {
     return s;
 }
 
-// See golden.hpp. One ribbon per role, camera-visible from the same kind
-// of origin-looking pose test_objects.cpp uses (kPose there /
-// RibbonGolden.ThreeRoles_DarkAdas here).
 RibbonScene make_three_role_ribbons(double now) {
     struct Spec {
         overlume::PathRole role;
         std::vector<overlume::Vec3> points;
-        double age_sec;  // last_update_sec = now - age_sec
+        double age_sec;
     };
-    // All three share ONE corridor, matching how the bag publishes all
-    // three roles along the ego's lane: GLOBAL widest at the bottom of the
-    // z-stagger, LOCAL narrower above it, BEHAVIOR narrowest on top, each
-    // lower ribbon peeking out as a rim.
     const std::vector<Spec> specs = {
-        // BEHAVIOR: the hero ribbon, fresh, shortest -- the near-term plan.
         {overlume::PathRole::BEHAVIOR, {{-4.0, -1.2, 0.0}, {0.0, 0.0, 0.0}, {4.0, 1.2, 0.0}}, 0.0},
-        // GLOBAL: fresh, the longest -- the coarse route, same corridor.
         {overlume::PathRole::GLOBAL,
          {{-10.0, -3.0, 0.0},
           {-5.0, -1.5, 0.0},
@@ -342,7 +296,6 @@ RibbonScene make_three_role_ribbons(double now) {
           {5.0, 1.5, 0.0},
           {10.0, 3.0, 0.0}},
          0.0},
-        // LOCAL: fresh, mid-length, same corridor.
         {overlume::PathRole::LOCAL,
          {{-6.0, -1.8, 0.0}, {-3.0, -0.9, 0.0}, {0.0, 0.0, 0.0}, {3.0, 0.9, 0.0}, {6.0, 1.8, 0.0}},
          0.0},
@@ -351,8 +304,7 @@ RibbonScene make_three_role_ribbons(double now) {
     RibbonScene s;
     size_t totalPoints = 0;
     for (const auto& sp : specs) totalPoints += sp.points.size();
-    s.point_storage.reserve(totalPoints);  // fixed capacity FIRST -- see golden.hpp's own
-                                           // comment on why this must not reallocate mid-loop
+    s.point_storage.reserve(totalPoints);
     s.ribbons.reserve(specs.size());
 
     for (const auto& sp : specs) {
@@ -365,37 +317,25 @@ RibbonScene make_three_role_ribbons(double now) {
         r.last_update_sec = now - sp.age_sec;
         s.ribbons.push_back(r);
     }
-    // Ego sits exactly at (0,0,0), a point all three polylines pass through
-    // by construction -- well inside kRibbonEgoClipLateralM (5.0m) for
-    // every role, so the whole stack renders clipped at the ego.
-    s.ego = overlume::EgoState{{0.0, 0.0, 0.0}, 0.0, 0.0, /*valid=*/1};
+    s.ego = overlume::EgoState{{0.0, 0.0, 0.0}, 0.0, 0.0, 1};
     return s;
 }
 
-// See golden.hpp. Synthetic -- the five collision-checker topics were
-// silent in the recorded bag.
 AlertScene make_sweep_and_predicted_alerts(double now) {
     struct Spec {
         uint8_t severity;
         std::vector<overlume::Vec3> points;
-        double age_sec;  // last_update_sec = now - age_sec
+        double age_sec;
     };
     const std::vector<Spec> specs = {
-        // Ego footprint sweep: severity 0 (info) gets the ghost alpha as a
-        // property of the severity itself. Aged 0.75s stale (solidly inside
-        // kStaleFadeStartSec=0.5/kStaleFadeTimeoutSec=1.0) so the golden
-        // shows the fade actually applied, not just the low constant alpha.
         {0, {{-3.0, -2.0, 0.0}, {3.0, -2.0, 0.0}, {3.0, 2.0, 0.0}, {-3.0, 2.0, 0.0}}, 0.75},
-        // Object predicted polygon: severity 1 (warning), fresh, off to one
-        // side so a human sees both shapes distinctly.
         {1, {{5.0, 4.0, 0.0}, {8.0, 4.0, 0.0}, {8.0, 7.0, 0.0}, {5.0, 7.0, 0.0}}, 0.0},
     };
 
     AlertScene s;
     size_t totalPoints = 0;
     for (const auto& sp : specs) totalPoints += sp.points.size();
-    s.point_storage.reserve(totalPoints);  // fixed capacity FIRST -- see golden.hpp's own
-                                           // comment on why this must not reallocate mid-loop
+    s.point_storage.reserve(totalPoints);
     s.alerts.reserve(specs.size());
 
     for (const auto& sp : specs) {
@@ -411,14 +351,8 @@ AlertScene make_sweep_and_predicted_alerts(double now) {
     return s;
 }
 
-// See golden.hpp. Synthetic -- 7 of the 12 marker types never appear in
-// the recorded bag.
 GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_path) {
     GenericMarkerScene s;
-    // LINE_STRIP(4) + LINE_LIST(4) + POINTS(5) + TRIANGLE_LIST(3) -- fixed
-    // capacity FIRST, same reasoning as AlertScene's own comment: every
-    // GenericMarker::points below is a raw pointer into this buffer, so it
-    // must never reallocate mid-loop.
     s.point_storage.reserve(4 + 4 + 5 + 3);
     s.markers.reserve(16);
 
@@ -426,10 +360,9 @@ GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_p
         overlume::GenericMarker m{};
         m.primitive = prim;
         m.position = {x, 0.0, 0.5};
-        m.heading_rad = 0.3;  // nonzero -- proves heading is actually applied, not just position
+        m.heading_rad = 0.3;
         m.scale = scale;
-        m.last_update_sec =
-            now;  // fresh -- ZeroAlphaColorUsesThemeNeutralDefault's color[3]==0 default
+        m.last_update_sec = now;
         s.markers.push_back(m);
     };
     auto push_points = [&](overlume::MarkerPrimitive prim, const overlume::Vec3* pts, uint32_t n,
@@ -444,7 +377,7 @@ GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_p
             m.color[0] = 1.0f;
             m.color[1] = 1.0f;
             m.color[2] = 1.0f;
-            m.color[3] = 1.0f;  // supplied color -- exercises the quantized-color instance pool too
+            m.color[3] = 1.0f;
         }
         m.last_update_sec = now;
         s.markers.push_back(m);
@@ -457,18 +390,16 @@ GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_p
 
     const overlume::Vec3 lineStrip[] = {
         {7.5, -0.5, 0.2}, {8.0, 0.5, 0.2}, {8.5, -0.5, 0.2}, {9.0, 0.5, 0.2}};
-    push_points(overlume::MarkerPrimitive::LINE_STRIP, lineStrip, 4, /*colored=*/true);
+    push_points(overlume::MarkerPrimitive::LINE_STRIP, lineStrip, 4, true);
 
     const overlume::Vec3 lineList[] = {
         {9.5, -0.5, 0.2}, {10.5, 0.5, 0.2}, {9.5, 0.5, 0.2}, {10.5, -0.5, 0.2}};
-    push_points(overlume::MarkerPrimitive::LINE_LIST, lineList, 4, /*colored=*/false);
+    push_points(overlume::MarkerPrimitive::LINE_LIST, lineList, 4, false);
 
     const overlume::Vec3 points[] = {
         {11.0, 0.0, 0.3}, {11.5, 0.3, 0.3}, {12.0, -0.3, 0.3}, {12.5, 0.2, 0.3}, {13.0, -0.2, 0.3}};
-    push_points(overlume::MarkerPrimitive::POINTS, points, 5, /*colored=*/false);
+    push_points(overlume::MarkerPrimitive::POINTS, points, 5, false);
 
-    // TEXT: placeholder billboard (VM-030/Epic 3 owns real glyphs) --
-    // translation-only, a plain string literal needs no owned storage.
     {
         overlume::GenericMarker m{};
         m.primitive = overlume::MarkerPrimitive::TEXT;
@@ -479,10 +410,8 @@ GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_p
     }
 
     const overlume::Vec3 triangle[] = {{15.5, -0.5, 0.0}, {16.5, -0.5, 0.0}, {16.0, 0.5, 0.0}};
-    push_points(overlume::MarkerPrimitive::TRIANGLE_LIST, triangle, 3, /*colored=*/true);
+    push_points(overlume::MarkerPrimitive::TRIANGLE_LIST, triangle, 3, true);
 
-    // MESH: the shared test asset (Epic 1 Task 4's committed fixture) --
-    // `mesh_glb_path` is caller-owned, borrowed only for this call.
     {
         overlume::GenericMarker m{};
         m.primitive = overlume::MarkerPrimitive::MESH;
@@ -493,11 +422,6 @@ GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_p
         s.markers.push_back(m);
     }
 
-    // CUBE_LIST(6)/SPHERE_LIST(7) fan-out: a 3-point CUBE_LIST and a
-    // 3-point SPHERE_LIST each fan out into one GenericMarker per point,
-    // all sharing the source marker's scale -- hand-built here exactly as
-    // GenericMarkerAdapter would emit them (the node-side fan-out
-    // mechanism itself is a separate, node-side test).
     for (int i = 0; i < 3; ++i) {
         push_posed(overlume::MarkerPrimitive::CUBE, 20.0 + i * 1.2, {0.6, 0.6, 0.6});
     }
@@ -508,18 +432,14 @@ GenericMarkerScene make_all_primitive_markers(double now, const char* mesh_glb_p
     return s;
 }
 
-// See golden.hpp. Synthetic -- no OccupancyGrid topic exists in the
-// recorded bag/stack.
 GridScene make_two_layer_grids(double now) {
     constexpr uint32_t kW = 16, kH = 16;
-    constexpr double kRes = 0.5;  // 16 * 0.5 = 8m footprint
+    constexpr double kRes = 0.5;
 
     GridScene s;
     s.cell_storage.reserve(2);
     s.grids.reserve(2);
 
-    // Layer 0: dynamic OGM (kind 0) -- concentric occupancy blob, centered
-    // in its own footprint, corners forced to the 255 unknown sentinel.
     {
         std::vector<uint8_t> cells(static_cast<size_t>(kW) * kH);
         const double cx = (kW - 1) / 2.0, cy = (kH - 1) / 2.0;
@@ -532,9 +452,6 @@ GridScene make_two_layer_grids(double now) {
                 cells[y * kW + x] = static_cast<uint8_t>(occ + 0.5);
             }
         }
-        // Corners: the unknown sentinel, not a legal occupancy value --
-        // proves the golden itself (not just the adapter unit test) renders
-        // "ground shows through", never "very occupied".
         cells[0] = 255;
         cells[kW - 1] = 255;
         cells[(kH - 1) * kW] = 255;
@@ -552,10 +469,6 @@ GridScene make_two_layer_grids(double now) {
         s.grids.push_back(layer);
     }
 
-    // Layer 1: gradient OGM (kind 1) -- smooth left-to-right ramp, no
-    // unknown cells, offset +3m in X so the two footprints only partially
-    // overlap in the golden (two DISTINCT layers, not one fully occluding
-    // the other).
     {
         std::vector<uint8_t> cells(static_cast<size_t>(kW) * kH);
         for (uint32_t y = 0; y < kH; ++y) {

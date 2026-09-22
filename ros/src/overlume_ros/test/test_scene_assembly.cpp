@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-/** @file test_scene_assembly.cpp
- *  @brief SceneAssembly tests.
- */
 #include "overlume_ros/scene_assembly.hpp"
 
 #include <gtest/gtest.h>
@@ -25,11 +22,9 @@ overlume::MapElement MakeElement() {
 }  // namespace
 
 TEST(SceneAssembly, TwoAdaptersOnOneCategoryBothSurvive) {
-    // the finding that motivated SceneAssembly: fill() two hd_map adapters
-    // (3 + 5 elements) -> map_element_count == 8, not 5.
     SceneAssembly asm_;
-    for (int i = 0; i < 3; ++i) asm_.map_elements.push_back(MakeElement());  // adapter A's fill()
-    for (int i = 0; i < 5; ++i) asm_.map_elements.push_back(MakeElement());  // adapter B's fill()
+    for (int i = 0; i < 3; ++i) asm_.map_elements.push_back(MakeElement());
+    for (int i = 0; i < 5; ++i) asm_.map_elements.push_back(MakeElement());
 
     overlume::SceneGraph scene{};
     asm_.point_at(scene);
@@ -48,7 +43,7 @@ TEST(SceneAssembly, ClearBetweenTicksDoesNotAccumulate) {
     for (int i = 0; i < 2; ++i) asm_.map_elements.push_back(MakeElement());
     overlume::SceneGraph scene2{};
     asm_.point_at(scene2);
-    EXPECT_EQ(scene2.map_element_count, 2u);  // not 3+2 == 5
+    EXPECT_EQ(scene2.map_element_count, 2u);
 }
 
 TEST(SceneAssembly, ClearEmptiesEveryCategoryNotJustMapElements) {
@@ -77,8 +72,6 @@ TEST(SceneAssembly, ClearEmptiesEveryCategoryNotJustMapElements) {
 }
 
 TEST(SceneAssembly, PointCloudRowAppendsIntoScenePointClouds) {
-    // Same shape as TwoAdaptersOnOneCategoryBothSurvive above, for the new
-    // category (Task 6 / VM-035).
     SceneAssembly asm_;
     asm_.point_clouds.push_back(overlume::PointCloud{});
     asm_.point_clouds.push_back(overlume::PointCloud{});
@@ -90,15 +83,11 @@ TEST(SceneAssembly, PointCloudRowAppendsIntoScenePointClouds) {
 }
 
 TEST(SceneAssembly, ApplyLayerGatesPointCloudsOffZeroesOnlyPointClouds) {
-    // The finding this covers: overlume_node.cpp's
-    // `if (!layer_point_clouds_) scene_asm_.point_clouds.clear();` gate had
-    // no test exercising it directly. apply_layer_gates() is the exact
-    // function that line now calls, with the same LayerFlags shape.
     SceneAssembly asm_;
     asm_.point_clouds.push_back(overlume::PointCloud{});
-    asm_.objects.push_back(overlume::TrackedObject{});  // another category, must survive
+    asm_.objects.push_back(overlume::TrackedObject{});
 
-    LayerFlags flags;  // all true by default
+    LayerFlags flags;
     flags.point_clouds = false;
     apply_layer_gates(asm_, flags);
 
@@ -112,7 +101,7 @@ TEST(SceneAssembly, ApplyLayerGatesPointCloudsOnLeavesItIntact) {
     SceneAssembly asm_;
     asm_.point_clouds.push_back(overlume::PointCloud{});
 
-    LayerFlags flags;  // all true, including point_clouds
+    LayerFlags flags;
     apply_layer_gates(asm_, flags);
 
     overlume::SceneGraph scene{};
@@ -121,26 +110,17 @@ TEST(SceneAssembly, ApplyLayerGatesPointCloudsOnLeavesItIntact) {
 }
 
 TEST(SceneAssembly, ContentPushedAfterApplyLayerGatesSurvivesPointCloudsGateFalse) {
-    // overlume_node.cpp's hybrid block
-    // now pushes its colorized-lidar row AFTER apply_layer_gates() has
-    // already run for this tick (hoisted above the hybrid block, never
-    // re-applied later) -- this pins the general mechanism that immunity
-    // relies on: a category cleared by a false gate can still receive new
-    // content afterward, because clearing only affects what is in the
-    // container at the moment apply_layer_gates() runs, not what arrives
-    // later in the same tick.
     SceneAssembly asm_;
-    asm_.point_clouds.push_back(overlume::PointCloud{});  // e.g. a stale autonomy row
+    asm_.point_clouds.push_back(overlume::PointCloud{});
 
-    LayerFlags flags;            // all true by default
-    flags.point_clouds = false;  // user's own layer_point_clouds:=false
+    LayerFlags flags;
+    flags.point_clouds = false;
     apply_layer_gates(asm_, flags);
 
     overlume::SceneGraph mid{};
     asm_.point_at(mid);
-    EXPECT_EQ(mid.point_cloud_count, 0u);  // gate cleared the stale row
+    EXPECT_EQ(mid.point_cloud_count, 0u);
 
-    // Hybrid content pushed AFTER the gate call -- must survive.
     asm_.point_clouds.push_back(overlume::PointCloud{});
 
     overlume::SceneGraph scene{};
@@ -149,8 +129,6 @@ TEST(SceneAssembly, ContentPushedAfterApplyLayerGatesSurvivesPointCloudsGateFals
 }
 
 TEST(SceneAssembly, TrajectoryCarpetRowAppendsIntoSceneTrajectoryCarpets) {
-    // Same shape as PointCloudRowAppendsIntoScenePointClouds above, for the
-    // new category (VM-077).
     SceneAssembly asm_;
     asm_.trajectory_carpets.push_back(overlume::TrajectoryCarpet{});
 
@@ -161,14 +139,11 @@ TEST(SceneAssembly, TrajectoryCarpetRowAppendsIntoSceneTrajectoryCarpets) {
 }
 
 TEST(SceneAssembly, ApplyLayerGatesTrajectoryCarpetOffZeroesOnlyTrajectoryCarpets) {
-    // Task 3 Step 2: closes the gap the epic3 plan's own review fix named
-    // for layer_point_clouds -- this plan ships the gate test in the SAME
-    // task as the category, no forward-reference window left open.
     SceneAssembly asm_;
     asm_.trajectory_carpets.push_back(overlume::TrajectoryCarpet{});
-    asm_.objects.push_back(overlume::TrackedObject{});  // another category, must survive
+    asm_.objects.push_back(overlume::TrackedObject{});
 
-    LayerFlags flags;  // all true by default
+    LayerFlags flags;
     flags.trajectory_carpet = false;
     apply_layer_gates(asm_, flags);
 
@@ -182,7 +157,7 @@ TEST(SceneAssembly, ApplyLayerGatesTrajectoryCarpetOnLeavesItIntact) {
     SceneAssembly asm_;
     asm_.trajectory_carpets.push_back(overlume::TrajectoryCarpet{});
 
-    LayerFlags flags;  // all true, including trajectory_carpet
+    LayerFlags flags;
     apply_layer_gates(asm_, flags);
 
     overlume::SceneGraph scene{};
@@ -190,17 +165,11 @@ TEST(SceneAssembly, ApplyLayerGatesTrajectoryCarpetOnLeavesItIntact) {
     EXPECT_EQ(scene.trajectory_carpet_count, 1u);
 }
 
-// ── Task 4 (VM-093) per-mode content mask, USER DIRECTIVE 2026-09-11 ───────
-
 using overlume::ros::compose_layer_gates;
 using overlume::ros::mode_content_mask;
 using overlume::ros::RenderMode;
 
 TEST(SceneAssembly, ModeContentMaskBowlIsAllFalse) {
-    // BOWL = bowl + ego ONLY (Decision resolutions, mode content
-    // exclusivity): every SceneAssembly/LayerFlags category is masked off,
-    // regardless of the user's own layer_* settings (checked by
-    // compose_layer_gates below, not here).
     LayerFlags mask = mode_content_mask(RenderMode::BOWL);
     EXPECT_FALSE(mask.objects);
     EXPECT_FALSE(mask.paths);
@@ -213,9 +182,6 @@ TEST(SceneAssembly, ModeContentMaskBowlIsAllFalse) {
 }
 
 TEST(SceneAssembly, ModeContentMaskHybridAllowsOnlyPointClouds) {
-    // HYBRID = bowl + camera-colorized lidar + ego ONLY -- lidar rides the
-    // point_clouds category (Task 5/VM-094); everything else stays masked
-    // off, same as BOWL.
     LayerFlags mask = mode_content_mask(RenderMode::HYBRID);
     EXPECT_FALSE(mask.objects);
     EXPECT_FALSE(mask.paths);
@@ -228,8 +194,6 @@ TEST(SceneAssembly, ModeContentMaskHybridAllowsOnlyPointClouds) {
 }
 
 TEST(SceneAssembly, ModeContentMaskFreeLookIsAllTrue) {
-    // FREE_LOOK = the full autonomy scene, unmasked -- AND-ing this over the
-    // user's own flags in compose_layer_gates() must be a true no-op.
     LayerFlags mask = mode_content_mask(RenderMode::FREE_LOOK);
     EXPECT_TRUE(mask.objects);
     EXPECT_TRUE(mask.paths);
@@ -242,68 +206,49 @@ TEST(SceneAssembly, ModeContentMaskFreeLookIsAllTrue) {
 }
 
 TEST(SceneAssembly, ComposeLayerGatesBowlMasksEverythingEvenWhenUserWantsItOn) {
-    // The user has every layer turned ON (their persisted layer_* params) --
-    // BOWL must still mask everything off. This is the "AND, never
-    // overwrite" contract: composing must not touch `user` itself.
-    LayerFlags user;  // all true, default member initializers
+    LayerFlags user;
     LayerFlags effective = compose_layer_gates(user, mode_content_mask(RenderMode::BOWL));
     EXPECT_FALSE(effective.objects);
     EXPECT_FALSE(effective.paths);
     EXPECT_FALSE(effective.point_clouds);
-    // `user` itself is untouched -- compose_layer_gates takes it by const&
-    // and returns a new value, never mutates the caller's copy.
     EXPECT_TRUE(user.objects);
     EXPECT_TRUE(user.point_clouds);
 }
 
 TEST(SceneAssembly, ComposeLayerGatesNeverTurnsOnWhatTheUserTurnedOff) {
-    // The user turned `objects` off themselves (their own layer_objects
-    // param) -- FREE_LOOK's all-true mask must not resurrect it. This is
-    // the "switching back to FREE_LOOK restores the user's own settings
-    // exactly" half of the directive.
     LayerFlags user;
     user.objects = false;
     LayerFlags effective = compose_layer_gates(user, mode_content_mask(RenderMode::FREE_LOOK));
     EXPECT_FALSE(effective.objects);
-    EXPECT_TRUE(effective.paths);  // everything else the user left on stays on
+    EXPECT_TRUE(effective.paths);
 }
 
 TEST(SceneAssembly, ComposeLayerGatesHybridLeavesUsersPointCloudsChoiceUnion) {
-    // HYBRID's mask allows point_clouds through, but composition is still
-    // an AND against the user's own setting -- if the user had turned
-    // point_clouds off themselves, HYBRID must not turn it back on.
     LayerFlags user;
     user.point_clouds = false;
     LayerFlags effective = compose_layer_gates(user, mode_content_mask(RenderMode::HYBRID));
     EXPECT_FALSE(effective.point_clouds);
 }
 
-// ── Bowl visibility / overlay-suppression dispatch ──
-// Pulled out of overlume_node.cpp's timer_callback() so the actual
-// dispatch predicates -- not just the LayerFlags mask above -- are directly
-// unit-tested. Before this, nothing failed if `bowl_visible_for_mode()`'s
-// predicate were inverted or deleted (test_mode_dispatch.py only checks
-// param accept/reject; smoke_test.py only checks frame SHAPE).
-
 using overlume::ros::bowl_visible_for_mode;
 using overlume::ros::overlays_visible_for_mode;
 
 TEST(SceneAssembly, BowlVisibleForBowlMode) {
-    EXPECT_TRUE(bowl_visible_for_mode(RenderMode::BOWL, /*surround_stitching=*/false));
-    EXPECT_TRUE(bowl_visible_for_mode(RenderMode::BOWL, /*surround_stitching=*/true));
+    EXPECT_TRUE(bowl_visible_for_mode(RenderMode::BOWL, false));
+    EXPECT_TRUE(bowl_visible_for_mode(RenderMode::BOWL, true));
 }
 
 TEST(SceneAssembly, BowlVisibleForHybridMode) {
-    EXPECT_TRUE(bowl_visible_for_mode(RenderMode::HYBRID, /*surround_stitching=*/false));
-    EXPECT_TRUE(bowl_visible_for_mode(RenderMode::HYBRID, /*surround_stitching=*/true));
+    EXPECT_TRUE(bowl_visible_for_mode(RenderMode::HYBRID, false));
+    EXPECT_TRUE(bowl_visible_for_mode(RenderMode::HYBRID, true));
 }
 
 TEST(SceneAssembly, BowlHiddenInFreeLookWithSurroundStitchingOff) {
-    EXPECT_FALSE(bowl_visible_for_mode(RenderMode::FREE_LOOK, /*surround_stitching=*/false));
+    EXPECT_FALSE(bowl_visible_for_mode(RenderMode::FREE_LOOK, false));
 }
 
 TEST(SceneAssembly, BowlVisibleInFreeLookWithSurroundStitchingOn) {
-    EXPECT_TRUE(bowl_visible_for_mode(RenderMode::FREE_LOOK, /*surround_stitching=*/true));
+    EXPECT_TRUE(bowl_visible_for_mode(RenderMode::FREE_LOOK, true));
 }
 
 TEST(SceneAssembly, OverlaysVisibleOnlyInFreeLook) {
@@ -312,33 +257,22 @@ TEST(SceneAssembly, OverlaysVisibleOnlyInFreeLook) {
     EXPECT_TRUE(overlays_visible_for_mode(RenderMode::FREE_LOOK));
 }
 
-// ── Environment/buildings per-mode gate (FOLLOW-UP 9, 2026-09-18) ──────────
-// environment_effectively_visible() is the pure predicate
-// apply_environment_visibility() (overlume_node.cpp) calls before every
-// overlume::set_environment_visible() -- all six mode x enabled combinations,
-// same "pin every cell" shape as ModeContentMask*/BowlVisibleForMode* above.
-
 using overlume::ros::environment_effectively_visible;
 
 TEST(SceneAssembly, EnvironmentHiddenInBowlRegardlessOfEnabled) {
-    EXPECT_FALSE(environment_effectively_visible(RenderMode::BOWL, /*environment_enabled=*/true));
-    EXPECT_FALSE(environment_effectively_visible(RenderMode::BOWL, /*environment_enabled=*/false));
+    EXPECT_FALSE(environment_effectively_visible(RenderMode::BOWL, true));
+    EXPECT_FALSE(environment_effectively_visible(RenderMode::BOWL, false));
 }
 
 TEST(SceneAssembly, EnvironmentHiddenInHybridRegardlessOfEnabled) {
-    EXPECT_FALSE(environment_effectively_visible(RenderMode::HYBRID, /*environment_enabled=*/true));
-    EXPECT_FALSE(
-        environment_effectively_visible(RenderMode::HYBRID, /*environment_enabled=*/false));
+    EXPECT_FALSE(environment_effectively_visible(RenderMode::HYBRID, true));
+    EXPECT_FALSE(environment_effectively_visible(RenderMode::HYBRID, false));
 }
 
 TEST(SceneAssembly, EnvironmentInFreeLookFollowsEnabledSwitch) {
-    EXPECT_TRUE(
-        environment_effectively_visible(RenderMode::FREE_LOOK, /*environment_enabled=*/true));
-    EXPECT_FALSE(
-        environment_effectively_visible(RenderMode::FREE_LOOK, /*environment_enabled=*/false));
+    EXPECT_TRUE(environment_effectively_visible(RenderMode::FREE_LOOK, true));
+    EXPECT_FALSE(environment_effectively_visible(RenderMode::FREE_LOOK, false));
 }
-
-// ── Velocity-ribbon re-spine (user directive 2026-09-10) ────────────────────
 
 namespace {
 overlume::PointCloudPoint CarpetPt(double x, double y, uint32_t rgba) {
@@ -352,14 +286,12 @@ overlume::PointCloudPoint CarpetPt(double x, double y, uint32_t rgba) {
 TEST(SceneAssembly, RespineMovesVelocityRibbonOntoLocalSpineWithStationColors) {
     using overlume::ros::SceneAssembly;
     SceneAssembly a;
-    // Local path: straight, 5 points, 2m apart (stations 0,2,4,6,8).
     const overlume::Vec3 lp[] = {{0, 1, 0}, {2, 1, 0}, {4, 1, 0}, {6, 1, 0}, {8, 1, 0}};
     overlume::PathRibbon local{};
     local.role = overlume::PathRole::LOCAL;
     local.points = lp;
     local.point_count = 5;
     a.paths.push_back(local);
-    // Carpet: its OWN offset spine (y=0), 3 stations at 0/3/6m, colors R,G,B.
     const overlume::PointCloudPoint cp[] = {
         CarpetPt(0, 0, 0xff0000ffu), CarpetPt(3, 0, 0xff00ff00u), CarpetPt(6, 0, 0xffff0000u)};
     overlume::TrajectoryCarpet carpet{};
@@ -372,12 +304,9 @@ TEST(SceneAssembly, RespineMovesVelocityRibbonOntoLocalSpineWithStationColors) {
     ASSERT_EQ(a.trajectory_carpets[0].point_count, 5u);
     const auto* pts = a.trajectory_carpets[0].points;
     for (uint32_t i = 0; i < 5; ++i) {
-        // Geometry = the LOCAL spine verbatim (y=1), not the carpet's y=0.
         EXPECT_DOUBLE_EQ(pts[i].position.x, lp[i].x);
         EXPECT_DOUBLE_EQ(pts[i].position.y, 1.0);
     }
-    // Station-nearest colors: 0->R(0), 2->G(3 vs 0: |3-2|<|2-0|), 4->G(3),
-    // 6->B(6), 8->B held past the carpet's end.
     EXPECT_EQ(pts[0].rgba, 0xff0000ffu);
     EXPECT_EQ(pts[1].rgba, 0xff00ff00u);
     EXPECT_EQ(pts[2].rgba, 0xff00ff00u);
@@ -396,7 +325,7 @@ TEST(SceneAssembly, RespineWithoutLocalRibbonLeavesCarpetOnItsOwnSpine) {
 
     overlume::ros::respine_velocity_ribbon_onto_local_path(a);
 
-    EXPECT_EQ(a.trajectory_carpets[0].points, cp);  // untouched pointer
+    EXPECT_EQ(a.trajectory_carpets[0].points, cp);
     EXPECT_EQ(a.trajectory_carpets[0].point_count, 2u);
     EXPECT_TRUE(a.respined_carpet_points.empty());
 }

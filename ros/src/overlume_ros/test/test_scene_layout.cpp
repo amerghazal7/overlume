@@ -1,23 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-/** @file test_scene_layout.cpp
- *  @brief Node-side (gcc/libstdc++) mirror of tests/test_scene_buffer.cpp's
- *  scene.h layout static_asserts. ADR-0004
- *  (docs/adr/0004-scene-interface-versioning.md) requires kSceneVersion to
- *  be bumped alongside every additive scene.h change, guarded by
- *  sizeof/offsetof static_asserts on both toolchains --
- *  the library's own test_scene_buffer.cpp only compiles clang/libc++; this
- *  file is the gcc/libstdc++ half, so a layout mismatch between the two
- *  toolchains fails THIS build too, not only the library's, instead of
- *  silently reading garbage across the prebuilt-archive ABI boundary the
- *  next time the node links a stale liboverlume.a.
- *
- *  Numbers here are NOT re-derived independently -- they must stay in
- *  lockstep with tests/test_scene_buffer.cpp in overlume;
- *  a change to one without the other is exactly the drift this file exists
- *  to catch.
- */
 #include "overlume/scene.h"
 
 #include <cstddef>
@@ -38,8 +21,6 @@ static_assert(offsetof(overlume::MapElement, lane_id) == 16,
 static_assert(offsetof(overlume::MapElement, last_update_sec) == 24,
               "node/library scene.h version drifted");
 
-// PointCloudPoint/PointCloud + SceneGraph::point_clouds/point_cloud_count,
-// appended Epic 3 Task 6 (VM-035, ADR-0004) -- kSceneVersion 1 -> 2.
 static_assert(sizeof(overlume::PointCloudPoint) == 32, "node/library scene.h version drifted");
 static_assert(offsetof(overlume::PointCloudPoint, position) == 0,
               "node/library scene.h version drifted");
@@ -59,8 +40,6 @@ static_assert(offsetof(overlume::SceneGraph, point_clouds) == 184,
 static_assert(offsetof(overlume::SceneGraph, point_cloud_count) == 192,
               "node/library scene.h version drifted");
 
-// TrajectoryCarpet + SceneGraph::trajectory_carpets/trajectory_carpet_count,
-// appended VM-077 (ADR-0004) -- kSceneVersion 2 -> 3.
 static_assert(sizeof(overlume::TrajectoryCarpet) == 24, "node/library scene.h version drifted");
 static_assert(offsetof(overlume::TrajectoryCarpet, points) == 0,
               "node/library scene.h version drifted");
@@ -73,10 +52,6 @@ static_assert(offsetof(overlume::SceneGraph, trajectory_carpets) == 200,
 static_assert(offsetof(overlume::SceneGraph, trajectory_carpet_count) == 208,
               "node/library scene.h version drifted");
 
-// GeoAnchor, appended VM-050 (Epic 4 Task 1, ADR-0004) -- kSceneVersion
-// 3 -> 4. NOT a SceneGraph field (Decision 1) -- standalone POD.
-// origin_height_m appended 2026-09-21 (docs/status.md item 4) --
-// kSceneVersion 6 -> 7.
 static_assert(sizeof(overlume::GeoAnchor) == 32, "node/library scene.h version drifted");
 static_assert(offsetof(overlume::GeoAnchor, origin_lat_deg) == 0,
               "node/library scene.h version drifted");
@@ -87,9 +62,6 @@ static_assert(offsetof(overlume::GeoAnchor, heading_rad) == 16,
 static_assert(offsetof(overlume::GeoAnchor, origin_height_m) == 24,
               "node/library scene.h version drifted");
 
-// CameraExtrinsics/CameraIntrinsics/BowlConfig, appended VM-090 (unified-
-// engine migration Task 1, ADR-0005) -- kSceneVersion 4 -> 5. Not
-// SceneGraph fields, same reasoning as GeoAnchor above.
 static_assert(sizeof(overlume::CameraExtrinsics) == 96, "node/library scene.h version drifted");
 static_assert(offsetof(overlume::CameraExtrinsics, R) == 0, "node/library scene.h version drifted");
 static_assert(offsetof(overlume::CameraExtrinsics, t) == 72,
@@ -134,11 +106,7 @@ static_assert(offsetof(overlume::BowlConfig, sky_color) == 76,
 static_assert(offsetof(overlume::BowlConfig, exposure_compensation) == 88,
               "node/library scene.h version drifted");
 
-// EnvironmentSourceState, appended VM-063 (Epic 6 Task 4, ADR-0004) --
-// kSceneVersion 5 -> 6.
 static_assert(sizeof(overlume::EnvironmentSourceState) == 1,
               "node/library scene.h version drifted");
 
-// static_asserts above do the real work; this TEST body only exists so
-// ament_add_gtest/ctest has something runnable to report.
 TEST(SceneLayout, Placeholder) {}

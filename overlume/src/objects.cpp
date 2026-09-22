@@ -1,18 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// objects.cpp — clay object rendering. Instanced glTF per class
-// (car/truck_van/bus/pedestrian/cyclist), scaled to each TrackedObject's
-// measured bbox, per-class theme tints, velocity arrows, predicted-path
-// ribbons (reusing extrude_polyline — no second extruder), and the
-// staleness fade via clay_translucent.mat (see renderer_internal.hpp's
-// ObjectEntity comment for the fade mechanism).
-//
-// UNKNOWN and any class with no loaded/loadable model (bus/cyclist ship
-// with no model — see assets/models/ATTRIBUTION.md) fall back to a
-// procedural clay box, always built as a unit 1x1x1 cube so its
-// TransformManager scale is `dims / (1,1,1)` — identical math to the glTF
-// path (`dims / class_unit_footprint`).
 #include "objects.hpp"
 #include "objects_test_hooks.hpp"
 #include "polyline.hpp"
@@ -62,13 +50,6 @@ float3 to_f3(const Vec3& v) {
 
 bool is_zero_vec3(const Vec3& v) { return v.x == 0.0 && v.y == 0.0 && v.z == 0.0; }
 
-// A plain (not rounded — a fillet buys nothing a test or golden checks;
-// ponytail: upgrade if a human reviewing the golden ever flags the boxy
-// look) unit cube: X/Y in [-0.5, 0.5], Z in [0, 1] (ground-contact origin,
-// same convention as ego.cpp's build_ego_box — deliberately not shared
-// with it: this box is always unit-sized so per-object dims apply as a
-// TransformManager scale, whereas ego's is baked directly at its
-// fallback_dims).
 void build_unit_box(std::vector<Vertex>& verts, std::vector<uint16_t>& indices) {
     constexpr float h = 0.5f;
     const float3 p[8] = {
@@ -80,12 +61,8 @@ void build_unit_box(std::vector<Vertex>& verts, std::vector<uint16_t>& indices) 
         int i[4];
     };
     const Face faces[6] = {
-        {{0, 0, -1}, {0, 3, 2, 1}},  // bottom
-        {{0, 0, 1}, {4, 5, 6, 7}},   // top
-        {{0, -1, 0}, {0, 1, 5, 4}},  // -Y
-        {{0, 1, 0}, {3, 7, 6, 2}},   // +Y
-        {{-1, 0, 0}, {0, 4, 7, 3}},  // -X
-        {{1, 0, 0}, {1, 2, 6, 5}},   // +X
+        {{0, 0, -1}, {0, 3, 2, 1}}, {{0, 0, 1}, {4, 5, 6, 7}},  {{0, -1, 0}, {0, 1, 5, 4}},
+        {{0, 1, 0}, {3, 7, 6, 2}},  {{-1, 0, 0}, {0, 4, 7, 3}}, {{1, 0, 0}, {1, 2, 6, 5}},
     };
     std::vector<float3> normals;
     for (const Face& f : faces) {
@@ -101,10 +78,6 @@ void build_unit_box(std::vector<Vertex>& verts, std::vector<uint16_t>& indices) 
     fill_tangent_frames(verts, normals);
 }
 
-// The unit velocity-arrow geometry is the shared build_unit_arrow()
-// (renderer_internal.hpp / renderer.cpp) -- generic_markers.cpp's ARROW
-// primitive draws the same mesh.
-
 void remap_to_material(filament::RenderableManager& rm, const utils::Entity* ents, size_t n,
                        filament::MaterialInstance* material) {
     for (size_t i = 0; i < n; ++i) {
@@ -117,23 +90,12 @@ void remap_to_material(filament::RenderableManager& rm, const utils::Entity* ent
     }
 }
 
-// This class's own normalized unit footprint (X length / Y width / Z
-// height) — (1,1,1) for the procedural-box fallback (see build_unit_box's
-// comment), else the class pool's own value read back from the loaded
-// glb's bounding box (set_object_model_dir()).
 Vec3 unit_footprint_for(VisualRenderer& r, const ObjectEntity& e) {
     if (e.glInstance == nullptr) return {1.0, 1.0, 1.0};
     auto it = r.objectClassPools.find(static_cast<uint8_t>(e.cls));
     return it != r.objectClassPools.end() ? it->second.unitFootprint : Vec3{1.0, 1.0, 1.0};
 }
 
-// Acquires a renderable for a newly-seen track: pulls a FilamentInstance
-// off its class's free list, grows the pool (createInstance(), logged
-// once per class) if the free list is empty and the class hasn't hit
-// kMaxInstancesPerClass, or falls back to the procedural box (missing/
-// unloadable model, UNKNOWN, or pool exhaustion — all non-fatal). The clay
-// remap (setMaterialInstanceAt per primitive) happens here, once per
-// acquire, never per frame.
 void acquire_entity(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& out) {
     out.cls = obj.cls;
     const auto clsIdx = static_cast<uint8_t>(obj.cls);
@@ -147,8 +109,6 @@ void acquire_entity(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& o
             inst = pool.freeList.back();
             pool.freeList.pop_back();
         } else if (pool.pool.size() < kMaxInstancesPerClass) {
-            // Growth past the initial createInstancedAsset() batch: one at
-            // a time, amortized, debug-logged once per class.
             inst = r.sharedAssetLoader->createInstance(pool.asset);
             if (inst != nullptr) {
                 pool.pool.push_back(inst);
@@ -194,7 +154,7 @@ void acquire_entity(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& o
     build_unit_box(verts, indices);
     add_mesh(r, out.proceduralBox, std::move(verts), std::move(indices),
              filament::RenderableManager::PrimitiveType::TRIANGLES, r.objectClassMaterial[clsIdx],
-             /*cast_shadows=*/true, /*receive_shadows=*/false);
+             true, false);
     r.engine->getTransformManager().create(out.proceduralBox.entity);
     out.transformRoot = out.proceduralBox.entity;
     out.glInstance = nullptr;
@@ -208,8 +168,6 @@ void update_entity_transform(VisualRenderer& r, const TrackedObject& obj, Object
                      static_cast<float>(obj.position.z)};
     const quatf rot = quatf::fromAxisAngle(float3{0, 0, 1}, static_cast<float>(obj.heading_rad));
     const Vec3 unit = unit_footprint_for(r, e);
-    // Perception bbox always wins (stretch, never clip) — a misclassified
-    // object is cosmetic, never a rendering failure.
     const float3 scale{
         static_cast<float>(obj.dimensions.x / (unit.x > 0.0 ? unit.x : 1.0)),
         static_cast<float>(obj.dimensions.y / (unit.y > 0.0 ? unit.y : 1.0)),
@@ -228,17 +186,6 @@ void ensure_shared_arrow_mesh(VisualRenderer& r) {
     r.sharedArrowMesh.ib = make_index_buffer(*r.engine, std::move(indices));
 }
 
-// velocity == {0,0,0} -> no arrow. Otherwise one entity (created once,
-// recycled by transform alone afterward — never rebuilt) bound to the one
-// shared unit-arrow vb/ib, rotated to the velocity heading and scaled in
-// length by (clamped) speed, floating just above the object's own roof.
-//
-// ponytail: the arrow (and the predicted-path ribbon -- same shared opaque
-// objectClassMaterial binding) participates in NEITHER the staleness fade
-// NOR objects.opacity: the token governs the object BODY only, so a
-// translucent body keeps a solid arrow/ribbon. Upgrade path if orphan
-// arrows over see-through bodies ever read as a bug: gate a translucent
-// rebind on opacity < 1.0.
 void update_entity_arrow(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& e) {
     filament::TransformManager& tm = r.engine->getTransformManager();
     if (is_zero_vec3(obj.velocity)) {
@@ -254,8 +201,7 @@ void update_entity_arrow(VisualRenderer& r, const TrackedObject& obj, ObjectEnti
     if (!e.arrowEntity) {
         e.arrowEntity = utils::EntityManager::get().create();
         filament::RenderableManager::Builder(1)
-            .boundingBox(
-                {{0, 0, 0}, {50.0f, 50.0f, 50.0f}})  // culling(false) below -- exact box irrelevant
+            .boundingBox({{0, 0, 0}, {50.0f, 50.0f, 50.0f}})
             .geometry(0, filament::RenderableManager::PrimitiveType::TRIANGLES,
                       r.sharedArrowMesh.vb, r.sharedArrowMesh.ib)
             .material(0, r.objectClassMaterial[static_cast<uint8_t>(e.cls)])
@@ -280,10 +226,6 @@ void update_entity_arrow(VisualRenderer& r, const TrackedObject& obj, ObjectEnti
     }
 }
 
-// Content signature for a predicted path -- same shape as map_elements.cpp's
-// chunk_signature() (point count + first/last point; the source data is
-// re-published wholesale each tick, so array identity means nothing, but a
-// literally-unchanged prediction shouldn't re-extrude every frame).
 uint64_t path_signature(const Vec3* pts, uint32_t n) {
     auto mix = [](uint64_t seed, uint64_t v) {
         return seed ^ (v + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
@@ -302,12 +244,6 @@ uint64_t path_signature(const Vec3* pts, uint32_t n) {
     return h;
 }
 
-// Predicted-path ribbon: extrude_polyline() (shared helper — no second
-// extruder), rebuilt only when the path's content signature changes since
-// the last update (skip-rebuild guard, same spirit as map_elements.cpp's
-// diff cache). Baked directly in world space from the TrackedObject's own
-// absolute predicted_path points, so — unlike the object body — it needs
-// no TransformManager transform at all.
 void update_entity_path(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& e) {
     const uint32_t n = std::min(obj.predicted_path_count, detail::kMaxPointsPerMesh);
     if (obj.predicted_path == nullptr || n < 2) {
@@ -318,10 +254,6 @@ void update_entity_path(VisualRenderer& r, const TrackedObject& obj, ObjectEntit
         return;
     }
     const uint64_t sig = path_signature(obj.predicted_path, n);
-    // Signature-only guard, not entity-gated: a degenerate path (all
-    // points coincident -> extrude_polyline returns empty, no entity
-    // built) must still be skipped on every later frame while unchanged,
-    // or it is re-extruded ~30x/s forever.
     if (sig == e.pathSignature) return;
     if (e.pathRibbon.entity) destroy_mesh(*r.engine, *r.scene, e.pathRibbon);
 
@@ -331,12 +263,6 @@ void update_entity_path(VisualRenderer& r, const TrackedObject& obj, ObjectEntit
         detail::extrude_polyline(obj.predicted_path, n, kPathHalfWidthM, kPathZLiftM);
     e.pathSignature = sig;
     if (ribbon.empty()) return;
-    // True indexed mesh (ribbon.cpp's pattern): a flatten-then-identity-
-    // uint16-indices shortcut would wrap its counter and never terminate
-    // once flattened verts exceed 65535 -- reachable, since n is only
-    // capped at kMaxPointsPerMesh (32000) and flattening multiplies by ~6.
-    // Indexed: 2n distinct verts (<= 64000) + index values 0..2n-1, both
-    // safely under the uint16 ceiling.
     std::vector<uint16_t> idx =
         detail::extrude_polyline_indices(static_cast<uint32_t>(ribbon.size() / 2));
     if (idx.empty()) return;
@@ -345,23 +271,9 @@ void update_entity_path(VisualRenderer& r, const TrackedObject& obj, ObjectEntit
     fill_tangent_frames(verts, std::vector<float3>(ribbon.size(), float3{0, 0, 1}));
     add_mesh(r, e.pathRibbon, std::move(verts), std::move(idx),
              filament::RenderableManager::PrimitiveType::TRIANGLES,
-             r.objectClassMaterial[static_cast<uint8_t>(e.cls)],
-             /*cast_shadows=*/false, /*receive_shadows=*/true);
+             r.objectClassMaterial[static_cast<uint8_t>(e.cls)], false, true);
 }
 
-// Staleness fade (see renderer_internal.hpp's ObjectEntity comment for the
-// mechanism). Fresh (alpha>=1.0): stays/returns to the shared opaque
-// objectClassMaterial[cls] template, no per-entity instance. Fading: a
-// per-entity clay_translucent.mat instance, created from
-// r.clayTranslucentMaterial (never MaterialInstance::duplicate() of the
-// opaque template), seeded from the stored class tint (objectClassTint —
-// MaterialInstance has no getter), alpha set every call.
-//
-// objects.opacity (VM-078) multiplies straight into this same alpha rather
-// than adding a parallel opacity path: at the theme's default 1.0 it's a
-// no-op (alpha == staleness, byte-identical to before this token existed).
-// alpha = objects.opacity * staleness_alpha -- see Theme::Objects
-// (theme.hpp) for the token's contract; r.active_theme is live per frame.
 void update_entity_staleness(VisualRenderer& r, const TrackedObject& obj, ObjectEntity& e,
                              double sim_time_sec) {
     const auto staleness = static_cast<float>(detail::SceneBuffer::staleness_alpha(
@@ -426,19 +338,6 @@ bool ensure_gltf_loader(VisualRenderer& r) {
     resConfig.normalizeSkinningWeights = true;
     r.sharedResourceLoader = new gltfio::ResourceLoader(resConfig);
 
-    // VM-064 (Epic 6 Task 5): gltfio's ResourceLoader ships no texture
-    // decoder by default -- every consumer of this shared loader before
-    // this task either carried no embedded raster textures worth
-    // displaying or had them stripped by the clay remap (baked/streamed
-    // buildings), so the gap never mattered. Original-materials mode
-    // (Decision 14) is the first one that keeps an asset's OWN materials,
-    // and Google Photorealistic 3D Tiles content is JPEG-textured --
-    // confirmed against a live Google tile at implementation ("Missing
-    // texture provider for image/jpeg" without this). createStbProvider is
-    // Filament's own already-linked decoder (ladder: native feature, no
-    // new dependency) -- one instance, registered for both mime types it
-    // supports; a null provider (alloc failure) leaves textures unbound,
-    // same non-fatal shape as everything else in this function.
     r.sharedTextureProvider = gltfio::createStbProvider(r.engine);
     if (r.sharedTextureProvider != nullptr) {
         r.sharedResourceLoader->addTextureProvider("image/jpeg", r.sharedTextureProvider);
@@ -453,8 +352,6 @@ void release_object_entity(VisualRenderer& r, ObjectEntity& e) {
         e.fadeInstance = nullptr;
     }
     if (e.glInstance != nullptr) {
-        // Recycle -- remove from the scene, return to the class free list.
-        // No destroyInstance() exists in gltfio: recycled, never destroyed.
         r.scene->removeEntities(e.glInstance->getEntities(), e.glInstance->getEntityCount());
         r.objectClassPools[static_cast<uint8_t>(e.cls)].freeList.push_back(e.glInstance);
         e.glInstance = nullptr;
@@ -470,9 +367,6 @@ void release_object_entity(VisualRenderer& r, ObjectEntity& e) {
     if (e.pathRibbon.entity) destroy_mesh(*r.engine, *r.scene, e.pathRibbon);
 }
 
-// Diffs `s.objects`/`object_count` against `r.objectEntities` (keyed by
-// TrackedObject::id), acquiring/updating/releasing only what changed --
-// never rebuilt wholesale.
 void update_objects(VisualRenderer& r, const SceneGraph& s) {
     std::unordered_map<uint32_t, ObjectEntity> next;
     next.reserve(s.object_count);
@@ -485,9 +379,6 @@ void update_objects(VisualRenderer& r, const SceneGraph& s) {
             entity = std::move(it->second);
             r.objectEntities.erase(it);
             if (entity.cls != obj.cls) {
-                // Class flip mid-track (footprint-band jitter near a band
-                // boundary): re-acquire so model + tint follow the
-                // inference instead of sticking to the original class.
                 release_object_entity(r, entity);
                 entity = {};
                 acquire_entity(r, obj, entity);
@@ -500,35 +391,21 @@ void update_objects(VisualRenderer& r, const SceneGraph& s) {
         update_entity_path(r, obj, entity);
         update_entity_staleness(r, obj, entity, s.sim_time_sec);
         if (next.count(obj.id)) {
-            // Duplicate TrackedObject::id within one publish = malformed
-            // input: first wins, and the loser's entity must be released
-            // or its instance leaks in-scene until the class cap.
             release_object_entity(r, entity);
         } else {
             next.emplace(obj.id, std::move(entity));
         }
     }
 
-    // Anything left in r.objectEntities is a track that vanished between
-    // this publish and the last one -- released, not leaked, not left
-    // rendering at its stale pose.
     for (auto& [id, entity] : r.objectEntities) {
         release_object_entity(r, entity);
     }
     r.objectEntities = std::move(next);
 }
 
-// See scene.h's doc comment. Expected stems
-// car.glb/truck_van.glb/bus.glb/pedestrian.glb/cyclist.glb -- UNKNOWN is
-// deliberately never looked up here, always the procedural box. Any
-// missing/unparseable stem is non-fatal (that class stays on the box);
-// returns the count that actually loaded (0 is legal).
 uint32_t set_object_model_dir(VisualRenderer* r, const char* dir) {
     if (r == nullptr || dir == nullptr) return 0;
     if (!r->objectClassPools.empty()) {
-        // scene.h's contract is "call once, from on_configure()". A second
-        // call would overwrite the pools and leak every previously loaded
-        // FilamentAsset + its live instances; refuse it instead.
         std::fprintf(stderr,
                      "[overlume] set_object_model_dir called twice; "
                      "ignoring second call (contract: call once before the "
@@ -551,17 +428,13 @@ uint32_t set_object_model_dir(VisualRenderer* r, const char* dir) {
     for (const ClassStem& c : kClasses) {
         const std::string path = std::string(dir) + "/" + c.stem + ".glb";
         std::ifstream file(path, std::ios::binary | std::ios::ate);
-        if (!file) continue;  // missing stem -- non-fatal, procedural box for this class
+        if (!file) continue;
         const std::streamsize size = file.tellg();
         if (size <= 0) continue;
         std::vector<uint8_t> bytes(static_cast<size_t>(size));
         file.seekg(0);
         if (!file.read(reinterpret_cast<char*>(bytes.data()), size)) continue;
 
-        // createInstancedAsset: one parse feeding kInitialInstancesPerClass
-        // placements, not N re-parses per vehicle. Do not call
-        // releaseSourceData() -- it kills createInstance() growth past
-        // this initial batch.
         std::vector<filament::gltfio::FilamentInstance*> instances(kInitialInstancesPerClass);
         filament::gltfio::FilamentAsset* asset = r->sharedAssetLoader->createInstancedAsset(
             bytes.data(), static_cast<uint32_t>(bytes.size()), instances.data(), instances.size());
@@ -574,7 +447,7 @@ uint32_t set_object_model_dir(VisualRenderer* r, const char* dir) {
         ObjectClassPool pool;
         pool.asset = asset;
         pool.pool = instances;
-        pool.freeList = instances;  // none bound to a track yet
+        pool.freeList = instances;
         const filament::Aabb box = asset->getBoundingBox();
         const filament::math::float3 d = box.max - box.min;
         pool.unitFootprint = {static_cast<double>(d.x), static_cast<double>(d.y),
@@ -587,8 +460,6 @@ uint32_t set_object_model_dir(VisualRenderer* r, const char* dir) {
 
 }  // namespace overlume
 
-// Filament-free test introspection hooks; see objects_test_hooks.hpp for
-// why these live here.
 namespace overlume::testing {
 
 namespace {
@@ -610,13 +481,6 @@ bool object_in_scene(overlume::VisualRenderer* r, uint32_t id) {
     if (r == nullptr) return false;
     auto it = r->objectEntities.find(id);
     if (it == r->objectEntities.end()) return false;
-    // Not FilamentInstance::getRoot() -- that entity "has no matching glTF
-    // node" (FilamentInstance.h's own doc comment) and is deliberately
-    // absent from getEntities(), so it's never passed to
-    // scene->addEntities()/removeEntities() and checking it here would
-    // read as "never in the scene" even for a correctly-rendering object.
-    // Check one of the actual renderable entities instead -- they're
-    // always added/removed together, so any one of them proves membership.
     filament::RenderableManager& rm = r->engine->getRenderableManager();
     const utils::Entity ent = first_renderable(rm, it->second);
     return ent && r->scene->hasEntity(ent);

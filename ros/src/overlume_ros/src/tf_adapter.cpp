@@ -19,18 +19,13 @@ TfAdapter::TfAdapter(tf2_ros::Buffer& buffer, std::string map_frame, std::string
       flatten_z_(flatten_z) {}
 
 overlume::EgoState TfAdapter::update() {
-    overlume::EgoState ego{};  // valid = 0 unless a lookup below succeeds
+    overlume::EgoState ego{};
 
     geometry_msgs::msg::TransformStamped t;
     try {
         t = buffer_.lookupTransform(map_frame_, base_frame_, tf2::TimePointZero);
     } catch (const tf2::TransformException&) {
-        // No TF yet (LookupException) or can't extrapolate
-        // (ExtrapolationException) -- non-fatal, same "no data" philosophy
-        // as set_ego_model's "bad data" fallback: hide the ego, don't crash
-        // and don't park a clay box at the origin (scene.h's EgoState::valid
-        // comment).
-        have_prev_ = false;  // next successful lookup shouldn't finite-diff across the gap
+        have_prev_ = false;
         return ego;
     }
 
@@ -50,10 +45,8 @@ overlume::EgoState TfAdapter::update() {
             const double raw = std::sqrt(dx * dx + dy * dy + dz * dz) / dt;
             smoothed_speed_ += alpha_ * (raw - smoothed_speed_);
         }
-        // dt <= 0 (duplicate/out-of-order stamp): keep last smoothed_speed_,
-        // don't divide by ~0.
     } else {
-        smoothed_speed_ = 0.0;  // first sample: no prior sample to diff against
+        smoothed_speed_ = 0.0;
         have_prev_ = true;
     }
 
@@ -61,13 +54,8 @@ overlume::EgoState TfAdapter::update() {
     prev_stamp_ = stamp;
 
     ego.position = pos;
-    // flatten_z: 2D HD-map plane (see frame_transform.hpp) -- live TF
-    // carries real altitude and the ego would float above every flattened
-    // layer otherwise.
     if (flatten_z_) ego.position.z = 0.0;
     ego.heading_rad = heading;
-    // Spec §7: prefer /robot/feedback/robot_speed_mps over the TF-diff/EMA
-    // once the node has forwarded at least one sample (set_robot_speed_mps).
     ego.speed_mps = topic_speed_mps_.has_value() ? *topic_speed_mps_ : smoothed_speed_;
     ego.valid = 1;
     return ego;

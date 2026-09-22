@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// test_diagnostics.cpp — BuildDiagnostics() is a pure data transform
-// (diagnostics.hpp's own header comment) -- no ROS node, no clock, no
-// fixture -- so these are plain value-in/value-out assertions on
-// diagnostic_msgs::msg::DiagnosticArray.
 #include "overlume_ros/diagnostics.hpp"
 
 #include <gtest/gtest.h>
@@ -31,9 +27,9 @@ TEST(Diagnostics, OneStatusPerRowPlusRenderMs) {
     rows[0].last_msg_age_sec = 0.5;
     rows[0].timeout_sec = 2.0;
 
-    const auto msg = overlume::ros::BuildDiagnostics(rows, /*render_ms=*/4.2);
+    const auto msg = overlume::ros::BuildDiagnostics(rows, 4.2);
 
-    ASSERT_EQ(msg.status.size(), 2u);  // 1 row + 1 node-level
+    ASSERT_EQ(msg.status.size(), 2u);
     EXPECT_EQ(msg.status[0].name, "/hd_map_local_elements");
     EXPECT_EQ(msg.status[1].name, "render_ms");
 }
@@ -54,9 +50,6 @@ TEST(Diagnostics, ValuesCarryEveryAdapterStatsCounterVerbatim) {
         }
         return "<missing>";
     };
-    // dropped_by_rule stays a SEPARATE counter from dropped_malformed
-    // (adapter_stats.hpp's own header comment) -- both must be present and
-    // must carry their own distinct value, not one folded into the other.
     EXPECT_EQ(find("msgs"), "40");
     EXPECT_EQ(find("dropped_malformed"), "1");
     EXPECT_EQ(find("dropped_stale"), "2");
@@ -66,15 +59,9 @@ TEST(Diagnostics, ValuesCarryEveryAdapterStatsCounterVerbatim) {
 }
 
 TEST(Diagnostics, NeverPublishedRowReportsOkNoDataYetWithNoBogusAge) {
-    // stats defaults to msgs == 0 (never published) -- last_msg_sec also
-    // defaults to 0.0, so a caller computing last_msg_age_sec as
-    // sim_clock_sec_ - last_msg_sec (overlume_node.cpp's own formula)
-    // hands BuildDiagnostics a large, meaningless "age" here, same as it
-    // would for a row that has been silent since node start. This must not
-    // read as stale.
     std::vector<overlume::ros::RowStats> rows(1);
     rows[0].topic = "/never_published";
-    rows[0].last_msg_age_sec = 123.0;  // sim_clock_sec_ - 0.0, bogus for an absent row
+    rows[0].last_msg_age_sec = 123.0;
     rows[0].timeout_sec = 2.0;
 
     const auto msg = overlume::ros::BuildDiagnostics(rows, 0.0);
@@ -90,7 +77,7 @@ TEST(Diagnostics, NeverPublishedRowReportsOkNoDataYetWithNoBogusAge) {
 TEST(Diagnostics, PublishedThenSilentRowStillReportsItsRealAgeAndStaleLevel) {
     std::vector<overlume::ros::RowStats> rows(1);
     rows[0].topic = "/went_quiet";
-    rows[0].stats.msgs = 5;  // published before, so this is genuine staleness
+    rows[0].stats.msgs = 5;
     rows[0].last_msg_age_sec = 5.0;
     rows[0].timeout_sec = 2.0;
 
@@ -111,11 +98,11 @@ TEST(Diagnostics, PublishedThenSilentRowStillReportsItsRealAgeAndStaleLevel) {
 TEST(Diagnostics, RowPastItsOwnTimeoutSecIsWarnEverythingElseIsOk) {
     std::vector<overlume::ros::RowStats> rows(2);
     rows[0].topic = "/fresh";
-    rows[0].stats.msgs = 1;  // published, and recently -- not the msgs==0 absent case
+    rows[0].stats.msgs = 1;
     rows[0].last_msg_age_sec = 0.1;
     rows[0].timeout_sec = 2.0;
     rows[1].topic = "/stale";
-    rows[1].stats.msgs = 1;  // published before, then went quiet past timeout_sec
+    rows[1].stats.msgs = 1;
     rows[1].last_msg_age_sec = 5.0;
     rows[1].timeout_sec = 2.0;
 
@@ -127,7 +114,7 @@ TEST(Diagnostics, RowPastItsOwnTimeoutSecIsWarnEverythingElseIsOk) {
 
 TEST(Diagnostics, RenderMsNodeLevelStatusCarriesTheValueVerbatim) {
     const auto msg = overlume::ros::BuildDiagnostics({}, 7.75);
-    ASSERT_EQ(msg.status.size(), 1u);  // 0 rows + 1 node-level
+    ASSERT_EQ(msg.status.size(), 1u);
     ASSERT_EQ(msg.status[0].values.size(), 1u);
     EXPECT_EQ(msg.status[0].values[0].key, "render_ms");
     EXPECT_EQ(msg.status[0].values[0].value, "7.75");

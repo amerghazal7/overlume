@@ -8,9 +8,7 @@
 namespace overlume::detail {
 
 void OwnedScene::assign(const overlume::SceneGraph& src) {
-    view = src;  // copies every flat scalar field (sim_time_sec, ego, hud
-                 // scalars, all *_count fields) — pointer fields below get
-                 // overwritten with owned storage next.
+    view = src;
 
     objects.assign(src.objects, src.objects + src.object_count);
     object_paths.resize(src.object_count);

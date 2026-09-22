@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// test_theme.cpp — theme system on a real lit pipeline + golden-image
-// harness.
 #include "overlume/api.h"
 #include "overlume/scene.h"
 
@@ -26,13 +24,6 @@ bool AnyDiffer(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) { r
 
 }  // namespace
 
-// ── palette.ego ──────────────────────────────────────────────────────────
-// light_clay.ego is still a live mirror of dark_adas.ground (cross-theme
-// swap). dark_adas.ego is NOT a mirror of light_clay.ground -- it's now its
-// own independently-authored contrast color, since light_clay's ground
-// moved on and dark_adas's own shipped goldens require its ego fallback
-// box to keep that exact color. Both are asserted below.
-
 TEST(ThemePalette, EgoParsesFromYamlAsCrossThemeSwap) {
     const std::optional<overlume::detail::Theme> dark =
         overlume::detail::load_theme(kThemeDir, "dark_adas");
@@ -41,17 +32,10 @@ TEST(ThemePalette, EgoParsesFromYamlAsCrossThemeSwap) {
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
 
-    // light_clay.ego == dark_adas.ground (both authored [0.055, 0.055, 0.078]
-    // as of the 2026-09 ref-2 re-palette, Finding #28 -- was [0.05, 0.06,
-    // 0.08] before it) -- this half of the swap is untouched by ITEM 2.
     EXPECT_NEAR(light->palette.ego.r, dark->palette.ground.r, 1e-4f);
     EXPECT_NEAR(light->palette.ego.g, dark->palette.ground.g, 1e-4f);
     EXPECT_NEAR(light->palette.ego.b, dark->palette.ground.b, 1e-4f);
 
-    // dark_adas.ego is no longer light_clay.ground (see this test's own
-    // comment above) -- it must still be a bright, clearly-non-dark color
-    // so it keeps popping against dark_adas's own near-black ground,
-    // whatever light_clay does with its own palette.
     const float darkEgoLightness = overlume::detail::linear_srgb_to_oklab(dark->palette.ego).L;
     const float darkGroundLightness =
         overlume::detail::linear_srgb_to_oklab(dark->palette.ground).L;
@@ -60,10 +44,6 @@ TEST(ThemePalette, EgoParsesFromYamlAsCrossThemeSwap) {
 }
 
 TEST(ThemePalette, EgoFallsBackToBuiltinDefaultWhenMissingFromYaml) {
-    // sun_dir_a.yaml predates palette.ego and was deliberately not updated
-    // to add it -- proving `ego` is the one OPTIONAL palette key
-    // (theme.cpp's parse()); a required field would instead throw and fall
-    // back to kFallbackTheme(), failing the has_value() assertion below.
     const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
     const std::optional<overlume::detail::Theme> theme =
         overlume::detail::load_theme(fixtureDir, "sun_dir_a");
@@ -84,29 +64,17 @@ TEST(ThemePalette, EgoBlendsInOklabAcrossTransition) {
 
     const overlume::detail::Theme mid = overlume::detail::blend(*dark, *light, 0.5f);
 
-    // Self-consistency, same technique as ThemeTransition.MidpointBlend_
-    // IsBetweenEndpointsInOklab (test_theme_transition.cpp): the blended
-    // ego's Oklab lightness must sit between the two endpoints'.
     const float La = overlume::detail::linear_srgb_to_oklab(dark->palette.ego).L;
     const float Lb = overlume::detail::linear_srgb_to_oklab(light->palette.ego).L;
     const float Lmid = overlume::detail::linear_srgb_to_oklab(mid.palette.ego).L;
     EXPECT_GE(Lmid, std::min(La, Lb) - 1e-4f);
     EXPECT_LE(Lmid, std::max(La, Lb) + 1e-4f);
 
-    // And it must actually have moved off both endpoints -- guards against
-    // blend() silently skipping palette.ego (e.g. a copy-paste that left
-    // `out.palette.ego` default-constructed / equal to `a`'s value).
     EXPECT_GT(std::abs(Lmid - La), 1e-4f);
     EXPECT_GT(std::abs(Lmid - Lb), 1e-4f);
 }
 
-// ── palette.ribbon_global/ribbon_local + ribbon.width_m: soft-defaulted
-//    tokens ───────────────────────────────────────────────────────────────
-
 TEST(ThemePalette, RibbonGlobalLocalAndWidthFallBackToTodaysValuesWhenMissingFromYaml) {
-    // sun_dir_a.yaml predates ribbon_global/ribbon_local/the whole `ribbon:`
-    // section, same "prove the soft default, don't retrofit every old
-    // fixture" reasoning as EgoFallsBackToBuiltinDefaultWhenMissingFromYaml.
     const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
     const std::optional<overlume::detail::Theme> theme =
         overlume::detail::load_theme(fixtureDir, "sun_dir_a");
@@ -114,9 +82,6 @@ TEST(ThemePalette, RibbonGlobalLocalAndWidthFallBackToTodaysValuesWhenMissingFro
         << "a theme file missing only the optional ribbon_global/ribbon_local/ribbon keys "
            "must still parse";
 
-    // Missing ribbon_global/ribbon_local fall back to ribbon_core/ribbon_glow
-    // respectively -- today's reused-token look (renderer.cpp's old
-    // push_theme_to_scene() comment), not a new invented color.
     EXPECT_NEAR(theme->palette.ribbon_global.r, theme->palette.ribbon_core.r, 1e-4f);
     EXPECT_NEAR(theme->palette.ribbon_global.g, theme->palette.ribbon_core.g, 1e-4f);
     EXPECT_NEAR(theme->palette.ribbon_global.b, theme->palette.ribbon_core.b, 1e-4f);
@@ -124,8 +89,6 @@ TEST(ThemePalette, RibbonGlobalLocalAndWidthFallBackToTodaysValuesWhenMissingFro
     EXPECT_NEAR(theme->palette.ribbon_local.g, theme->palette.ribbon_glow.g, 1e-4f);
     EXPECT_NEAR(theme->palette.ribbon_local.b, theme->palette.ribbon_glow.b, 1e-4f);
 
-    // Missing `ribbon:` (or just `width_m` within it) falls back to 0.24 --
-    // 2*kRibbonHalfWidthM, the constant this field replaced.
     EXPECT_NEAR(theme->ribbon.width_m, 0.24f, 1e-4f);
 }
 
@@ -139,9 +102,6 @@ TEST(ThemePalette, RibbonGlobalLocalBlendInOklabAcrossTransition) {
 
     const overlume::detail::Theme mid = overlume::detail::blend(*dark, *light, 0.5f);
 
-    // Same self-consistency + "actually moved off both endpoints" technique
-    // as palette.ego's own EgoBlendsInOklabAcrossTransition above, applied to
-    // both new ribbon tokens.
     for (const auto& [a, b, m] :
          {std::tuple{dark->palette.ribbon_global, light->palette.ribbon_global,
                      mid.palette.ribbon_global},
@@ -158,9 +118,6 @@ TEST(ThemePalette, RibbonGlobalLocalBlendInOklabAcrossTransition) {
 }
 
 TEST(ThemePalette, RibbonWidthLerpsLinearlyAcrossTransition) {
-    // A plain scalar lerp (theme_transition.cpp's blend()), not Oklab -- so
-    // the midpoint must land at EXACTLY the arithmetic mean, unlike the
-    // color tokens above.
     const std::optional<overlume::detail::Theme> dark =
         overlume::detail::load_theme(kThemeDir, "dark_adas");
     const std::optional<overlume::detail::Theme> light =
@@ -173,13 +130,7 @@ TEST(ThemePalette, RibbonWidthLerpsLinearlyAcrossTransition) {
     EXPECT_NEAR(mid.ribbon.width_m, expectedMid, 1e-4f);
 }
 
-// ── ribbon.lane_width_m/margin_{behavior,global,local}_m: soft-defaulted,
-//    linearly-blended scalars ─────────────────────────────────────────────
-
 TEST(ThemePalette, RibbonLaneWidthAndMarginsFallBackToTheWidthMSeedWhenMissingFromYaml) {
-    // sun_dir_a.yaml has no `ribbon:` section at all, so width_m ALSO falls
-    // back to its own 0.24 default, and the margin default is computed from
-    // THAT: (3.5 - 0.24) / 2 == 1.63.
     const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
     const std::optional<overlume::detail::Theme> theme =
         overlume::detail::load_theme(fixtureDir, "sun_dir_a");
@@ -201,7 +152,6 @@ TEST(ThemePalette, RibbonLaneWidthAndMarginsLerpLinearlyAcrossTransition) {
     ASSERT_TRUE(light.has_value());
 
     const overlume::detail::Theme mid = overlume::detail::blend(*dark, *light, 0.5f);
-    // Plain scalar lerps, same as ribbon.width_m above -- not colors.
     EXPECT_NEAR(mid.ribbon.lane_width_m,
                 (dark->ribbon.lane_width_m + light->ribbon.lane_width_m) / 2.0f, 1e-4f);
     EXPECT_NEAR(mid.ribbon.margin_behavior_m,
@@ -212,16 +162,7 @@ TEST(ThemePalette, RibbonLaneWidthAndMarginsLerpLinearlyAcrossTransition) {
                 (dark->ribbon.margin_local_m + light->ribbon.margin_local_m) / 2.0f, 1e-4f);
 }
 
-// ── ribbon.margin_velocity_m (VM-077 carpet-as-ribbon redirect,
-//    2026-09-10): NOT derived from the width_m/marginDefault seed like the
-//    three role margins above -- a fixed 1.05 soft default, independent of
-//    whatever width_m/lane_width_m a theme authors ─────────────────────────
-
 TEST(ThemePalette, RibbonMarginVelocityFallsBackToOnePointZeroFiveWhenMissingFromYaml) {
-    // sun_dir_a.yaml has no `ribbon:` section at all -- unlike
-    // margin_{behavior,global,local}_m (which fall back to the width_m-seed
-    // formula), margin_velocity_m falls back to its own fixed 1.05,
-    // regardless of what width_m/lane_width_m this theme parsed to.
     const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
     const std::optional<overlume::detail::Theme> theme =
         overlume::detail::load_theme(fixtureDir, "sun_dir_a");
@@ -253,12 +194,6 @@ TEST(ThemePalette, RibbonMarginVelocityParsesExplicitYamlValue) {
 }
 
 TEST(ThemePalette, ShippedThemesFallBackMarginVelocityBetweenLocalAndBehavior) {
-    // Neither shipped theme authors margin_velocity_m on disk -- both read
-    // the 1.05 soft default, which sits strictly between margin_local_m
-    // (0.8, wider ribbon) and margin_behavior_m (1.3, narrower ribbon) so
-    // the velocity ribbon's own fill is narrower than LOCAL's (LOCAL's rim
-    // stays visible under it) but wider than BEHAVIOR's (the hero's rim
-    // shows through it in turn) -- see theme.hpp's own comment.
     const std::optional<overlume::detail::Theme> dark =
         overlume::detail::load_theme(kThemeDir, "dark_adas");
     const std::optional<overlume::detail::Theme> light =
@@ -274,12 +209,6 @@ TEST(ThemePalette, ShippedThemesFallBackMarginVelocityBetweenLocalAndBehavior) {
 }
 
 TEST(ThemePalette, ShippedThemesAuthorTheFillLookExplicitly) {
-    // Both shipped themes drop the old width_m key and author the fill look
-    // directly: lane_width_m 3.5, margins GLOBAL < LOCAL < BEHAVIOR
-    // (narrowest, on top of the existing z-stagger) -- proves the shipped
-    // YAMLs actually parsed these explicit values, not silently falling
-    // back to the width_m-seed default (which would instead read 1.63 for
-    // every role).
     const std::optional<overlume::detail::Theme> dark =
         overlume::detail::load_theme(kThemeDir, "dark_adas");
     const std::optional<overlume::detail::Theme> light =
@@ -297,12 +226,7 @@ TEST(ThemePalette, ShippedThemesAuthorTheFillLookExplicitly) {
     }
 }
 
-// ── objects.opacity: TrackedObject rendering opacity (VM-078) ────────────
-
 TEST(ThemeObjects, OpacityFallsBackToOnePointZeroWhenMissingFromYaml) {
-    // sun_dir_a.yaml predates the whole `objects:` section -- same
-    // "prove the soft default, don't retrofit every old fixture" reasoning
-    // as EgoFallsBackToBuiltinDefaultWhenMissingFromYaml above.
     const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
     const std::optional<overlume::detail::Theme> theme =
         overlume::detail::load_theme(fixtureDir, "sun_dir_a");
@@ -321,16 +245,12 @@ TEST(ThemeObjects, OpacityParsesExplicitYamlValue) {
 }
 
 TEST(ThemeObjects, ShippedThemesAuthorOpacityExplicitly) {
-    // AC: both theme YAMLs carry an explicit value (today's fully-opaque
-    // look), not a silent fall-through to the soft default.
     const std::optional<overlume::detail::Theme> dark =
         overlume::detail::load_theme(kThemeDir, "dark_adas");
     const std::optional<overlume::detail::Theme> light =
         overlume::detail::load_theme(kThemeDir, "light_clay");
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
-    // 0.25 since the user's own theme edit (7ca2d5e, 2026-09-14); previously
-    // 0.5 per the 2026-09-11 decision.
     EXPECT_NEAR(dark->objects.opacity, 0.25f, 1e-4f);
     EXPECT_NEAR(light->objects.opacity, 0.25f, 1e-4f);
 }
@@ -348,11 +268,6 @@ TEST(ThemeObjects, OpacityLerpsLinearlyAcrossTransition) {
     EXPECT_NEAR(mid.objects.opacity, (dark->objects.opacity + half->objects.opacity) / 2.0f, 1e-4f);
 }
 
-// ── palette.road/lane_centerline/lane_boundary/crosswalk: soft-defaulted
-//    tokens ────────────────────────────────────────────────────────────────
-
-// Out-of-range authored values clamp (VM-078 gate minor 2): >1 would keep
-// alpha >= 1 and suppress the staleness fade; <0 binds a negative alpha.
 TEST(ThemeObjects, OpacityOutOfRangeClampsToUnitInterval) {
     const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
     const auto theme = overlume::detail::load_theme(fixtureDir, "objects_overrange_opacity");
@@ -362,9 +277,6 @@ TEST(ThemeObjects, OpacityOutOfRangeClampsToUnitInterval) {
 }
 
 TEST(ThemePalette, RoadLaneCenterlineLaneBoundaryCrosswalkFallBackWhenMissingFromYaml) {
-    // sun_dir_a.yaml predates these four tokens, same "prove the soft
-    // default, don't retrofit every old fixture" reasoning as
-    // EgoFallsBackToBuiltinDefaultWhenMissingFromYaml above.
     const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
     const std::optional<overlume::detail::Theme> theme =
         overlume::detail::load_theme(fixtureDir, "sun_dir_a");
@@ -372,12 +284,9 @@ TEST(ThemePalette, RoadLaneCenterlineLaneBoundaryCrosswalkFallBackWhenMissingFro
         << "a theme file missing only the optional road/lane_centerline/lane_boundary/"
            "crosswalk keys must still parse";
 
-    // road falls back to ground -- today's "ground carries the road tone".
     EXPECT_NEAR(theme->palette.road.r, theme->palette.ground.r, 1e-4f);
     EXPECT_NEAR(theme->palette.road.g, theme->palette.ground.g, 1e-4f);
     EXPECT_NEAR(theme->palette.road.b, theme->palette.ground.b, 1e-4f);
-    // lane_centerline/lane_boundary/crosswalk fall back to lane_paint --
-    // today's "every map element is one stroke color" look.
     EXPECT_NEAR(theme->palette.lane_centerline.r, theme->palette.lane_paint.r, 1e-4f);
     EXPECT_NEAR(theme->palette.lane_centerline.g, theme->palette.lane_paint.g, 1e-4f);
     EXPECT_NEAR(theme->palette.lane_centerline.b, theme->palette.lane_paint.b, 1e-4f);
@@ -387,7 +296,6 @@ TEST(ThemePalette, RoadLaneCenterlineLaneBoundaryCrosswalkFallBackWhenMissingFro
     EXPECT_NEAR(theme->palette.crosswalk.r, theme->palette.lane_paint.r, 1e-4f);
     EXPECT_NEAR(theme->palette.crosswalk.g, theme->palette.lane_paint.g, 1e-4f);
     EXPECT_NEAR(theme->palette.crosswalk.b, theme->palette.lane_paint.b, 1e-4f);
-    // road_edge: same soft-default convention, falls back to lane_paint.
     EXPECT_NEAR(theme->palette.road_edge.r, theme->palette.lane_paint.r, 1e-4f);
     EXPECT_NEAR(theme->palette.road_edge.g, theme->palette.lane_paint.g, 1e-4f);
     EXPECT_NEAR(theme->palette.road_edge.b, theme->palette.lane_paint.b, 1e-4f);
@@ -403,8 +311,6 @@ TEST(ThemePalette, RoadLaneCenterlineLaneBoundaryBlendInOklabAcrossTransition) {
 
     const overlume::detail::Theme mid = overlume::detail::blend(*dark, *light, 0.5f);
 
-    // Same self-consistency + "actually moved off both endpoints" technique
-    // as palette.ego's own EgoBlendsInOklabAcrossTransition above.
     for (const auto& [a, b, m] :
          {std::tuple{dark->palette.road, light->palette.road, mid.palette.road},
           std::tuple{dark->palette.lane_centerline, light->palette.lane_centerline,
@@ -423,13 +329,6 @@ TEST(ThemePalette, RoadLaneCenterlineLaneBoundaryBlendInOklabAcrossTransition) {
 }
 
 TEST(ThemeLoad, BuiltinFallbackMatchesDarkAdasYaml) {
-    // kFallbackTheme() (theme.cpp) is a hand-kept C++ copy of dark_adas.yaml
-    // -- the two are supposed to be byte-for-byte the same values, but
-    // nothing enforced that before this test, so a future dark_adas.yaml
-    // edit could silently drift from what create_renderer() falls back to
-    // on a broken/missing theme-asset install (spec §9). Field-by-field,
-    // not exhaustive-by-reflection (C++ has none here), but every field
-    // this epic actually touches is covered, plus the pre-existing ones.
     const std::optional<overlume::detail::Theme> dark =
         overlume::detail::load_theme(kThemeDir, "dark_adas");
     ASSERT_TRUE(dark.has_value());
@@ -488,18 +387,10 @@ TEST(ThemeLoad, BuiltinFallbackMatchesDarkAdasYaml) {
 }
 
 TEST(ClayMaterial, RespondsToLightDirection) {
-    // Two renderers loaded from fixture themes byte-for-byte identical
-    // except `sun.direction` (sun_dir_{a,b}.yaml), rendering the same
-    // static ground+grid scene from the same pose, must NOT produce
-    // identical pixels -- proves clay.mat actually responds to the sun's
-    // direction. Deliberately does NOT compare two different shipped
-    // themes (dark_adas vs light_clay): those also differ in palette/fog/
-    // IBL, so a completely unlit material would pass that comparison
-    // trivially and prove nothing about lighting.
     constexpr uint32_t kWidth = 320, kHeight = 240;
     const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    overlume::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "sun_dir_a"};
-    overlume::RenderConfig cfgB{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(), "sun_dir_b"};
+    overlume::RenderConfig cfgA{kWidth, kHeight, 1, fixtureDir.c_str(), "sun_dir_a"};
+    overlume::RenderConfig cfgB{kWidth, kHeight, 1, fixtureDir.c_str(), "sun_dir_b"};
 
     overlume::VisualRenderer* rA = overlume::create_renderer(cfgA);
     if (rA == nullptr) {
@@ -527,23 +418,10 @@ TEST(ClayMaterial, RespondsToLightDirection) {
 }
 
 TEST(Fog, ColorAffectsRenderedOutput) {
-    // Guards setFogOptions() actually feeding `palette.fog` into
-    // `FogOptions::color` (scene radiance, Options.h) rather than leaving
-    // it effectively inert. Two frozen fixtures (Finding #27: NOT kept in
-    // sync with light_clay.yaml, which has moved on to fog.density 0.00025
-    // -- these fixtures deliberately stay at their own historical operating
-    // point, a modest fog.density of 0.008, chosen so an inflated density
-    // can't mask the regression with sheer extinction) that differ only in
-    // `palette.fog` (black vs. white) must render visibly different mean
-    // brightness. Fixed code moves the mean by ~90/255 here; unfixed by
-    // <1/255. Same isolation technique as ClayMaterial.RespondsToLightDirection
-    // above.
     constexpr uint32_t kWidth = 320, kHeight = 240;
     const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    overlume::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(),
-                                "fog_color_black"};
-    overlume::RenderConfig cfgB{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(),
-                                "fog_color_white"};
+    overlume::RenderConfig cfgA{kWidth, kHeight, 1, fixtureDir.c_str(), "fog_color_black"};
+    overlume::RenderConfig cfgB{kWidth, kHeight, 1, fixtureDir.c_str(), "fog_color_white"};
 
     overlume::VisualRenderer* rA = overlume::create_renderer(cfgA);
     if (rA == nullptr) {
@@ -553,9 +431,6 @@ TEST(Fog, ColorAffectsRenderedOutput) {
     ASSERT_NE(rB, nullptr);
 
     overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
-    // golden_png_path deliberately doesn't exist -- render_and_compare
-    // writes out_png_path unconditionally before checking it, and this test
-    // only wants the render, not the (meaningless-here) SSIM return value.
     overlume::testing::render_and_compare(rA, pose, "/nonexistent/no_such_golden.png",
                                           "/tmp/fog_color_black_actual.png");
     overlume::testing::render_and_compare(rB, pose, "/nonexistent/no_such_golden.png",
@@ -577,22 +452,10 @@ TEST(Fog, ColorAffectsRenderedOutput) {
 }
 
 TEST(Fog, ColorAffectsRenderedOutput_DarkAdas) {
-    // Closes a coverage gap: the fixtures in Fog.ColorAffectsRenderedOutput
-    // are both frozen at a light-pair historical operating point (derived
-    // from light_clay, ibl.intensity 8750-based) that no shipped theme
-    // occupies (light_clay ships at ibl.intensity 24000). This test's own
-    // fixtures are a separate dark-pair frozen point (256000-based; dark_adas
-    // ships at 350000). setFogOptions()'s color scale is a continuous
-    // function of ibl.intensity, not a per-theme branch -- this just exercises
-    // it at a second, far-apart point on that curve, against the same >15.0
-    // liveness bar. Do not change these fixture values to match shipped
-    // themes; they're frozen coverage points, not references.
     constexpr uint32_t kWidth = 320, kHeight = 240;
     const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
-    overlume::RenderConfig cfgA{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(),
-                                "fog_color_black_dark"};
-    overlume::RenderConfig cfgB{kWidth, kHeight, /*quality=*/1, fixtureDir.c_str(),
-                                "fog_color_white_dark"};
+    overlume::RenderConfig cfgA{kWidth, kHeight, 1, fixtureDir.c_str(), "fog_color_black_dark"};
+    overlume::RenderConfig cfgB{kWidth, kHeight, 1, fixtureDir.c_str(), "fog_color_white_dark"};
 
     overlume::VisualRenderer* rA = overlume::create_renderer(cfgA);
     if (rA == nullptr) {
@@ -627,28 +490,20 @@ TEST(ThemeLoad, MissingThemeDir_FallsBackToBuiltinTheme) {
     overlume::RenderConfig cfg{320, 240, 0, "/nonexistent/theme/dir", "dark_adas"};
     overlume::VisualRenderer* r = overlume::create_renderer(cfg);
     if (r == nullptr) {
-        // Only acceptable reason for null here is no GPU/EGL, same skip
-        // convention as every other renderer test -- NOT a missing theme dir.
         GTEST_SKIP() << "no GPU/EGL";
     }
-    // create_renderer must have succeeded despite the bad theme_assets_dir --
-    // rendering one frame with the built-in fallback theme must not crash.
     overlume::SceneGraph scene{};
     overlume::set_scene(r, scene);
     overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
     std::vector<uint8_t> pixels(320u * 240u * 3u);
     overlume::FrameView view{pixels.data(), 320, 240};
     EXPECT_TRUE(overlume::render_frame(r, pose, view));
-    // false here is the whole point of theme_assets_loaded() -- a
-    // caller-visible signal that create_renderer() had to substitute the
-    // compiled-in fallback, so callers (overlume_node.cpp's
-    // on_configure()) can WARN.
     EXPECT_FALSE(overlume::theme_assets_loaded(r));
     overlume::destroy_renderer(r);
 }
 
 TEST(ThemeLoad, RealAssetsDir_ThemeAssetsLoadedIsTrue) {
-    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     overlume::VisualRenderer* r = overlume::create_renderer(cfg);
     if (r == nullptr) {
         GTEST_SKIP() << "no GPU/EGL";
@@ -658,69 +513,29 @@ TEST(ThemeLoad, RealAssetsDir_ThemeAssetsLoadedIsTrue) {
 }
 
 TEST(ThemeGolden, EmptyWorld_DarkAdas) {
-    // quality=1 (medium: FXAA + SSAO half-res) -- the shipped default, so
-    // the committed golden matches what actually ships, not an arbitrary
-    // tier.
-    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     overlume::VisualRenderer* r = overlume::create_renderer(cfg);
     if (r == nullptr) {
         GTEST_SKIP() << "no GPU/EGL";
     }
-    overlume::SceneGraph scene{};  // empty: ego.valid=0, every count=0
+    overlume::SceneGraph scene{};
     scene.sim_time_sec = 0.0;
-    overlume::set_scene(r, scene);  // caller drives scene state...
-    // initial_theme is already "dark_adas" from cfg, so no set_theme() call
-    // needed here -- Task 3's transition tests are what exercise mid-blend.
+    overlume::set_scene(r, scene);
     overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
     double ssim = overlume::testing::render_and_compare(
-        r, pose,  // ...harness only renders + SSIMs `r` as-is
-        OVERLUME_TEST_DATA_DIR "/tests/goldens/empty_world_dark_adas.png",
+        r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/empty_world_dark_adas.png",
         "/tmp/empty_world_dark_adas_actual.png");
     EXPECT_GT(ssim, 0.98);
 
-    // Legibility floor ("clay surfaces read as mid-gray-ish, not clipped
-    // white or crushed black") -- catches an exposure/lux miscalibration.
-    // Bounds are deliberately loose: this is a floor, not a look-lock --
-    // SSIM above already pins the exact look.
     overlume::testing::FrameStats stats =
         overlume::testing::analyze_png("/tmp/empty_world_dark_adas_actual.png");
     EXPECT_GT(stats.mean, 20.0) << "frame reads as crushed black";
     EXPECT_LT(stats.mean, 200.0) << "frame reads as clipped white";
-    // 15: the golden legitimately carries ~23 distinct levels with the
-    // current 60m ground patch (ref-2 re-palette, 2026-09-16 -- was ~22
-    // under the previous palette); a genuinely lost fade/grid collapses to
-    // ~2-5, so the tripwire still fires for the failure it was built to
-    // catch.
     EXPECT_GT(stats.distinct_levels, 15)
         << "too few distinct luminance levels -- grid-vs-ground contrast and "
            "distance fade aren't visible";
-    // The sunlit ground must read brighter than the flat ambient sky
-    // backdrop -- regression guard for "sky 10x brighter than ground".
-    // ref-2 re-palette note (2026-09-16): this theme's much lower sun/IBL
-    // intensity than the previous dark_adas (a deliberate dusk-not-night
-    // read) left too little margin here at its first-tuned values -- grid
-    // color and fog density were swept first and neither one measurably
-    // moves this metric (grid lines cover too few pixels at this camera
-    // framing; fog only nudges it before 0.02+ starts visibly hazing the
-    // scene), so sun/ibl intensity (this file's actual light budget) is
-    // what widens the gap. See dark_adas.yaml's own sun/ibl comments.
     EXPECT_GT(stats.bottom_third_mean, stats.top_third_mean)
         << "sky backdrop is brighter than the sunlit ground";
-    // dark_adas authors palette.fog == palette.sky, so the far-field ground
-    // just below the horizon should read close to the flat sky backdrop
-    // (golden.hpp's FrameStats comment has the "why not exact" caveat). The
-    // mean-band check above can't express this: a fog scale ~10-15x too hot
-    // still lands inside that band.
-    //
-    // 45.0: dark_adas's ground plane is only 40m across (kGroundHalfExtent),
-    // so even the farthest on-plane ray never reaches near-total fog
-    // extinction -- full convergence to sky-row-exact isn't physically
-    // reachable. The honest live gap measured ~37.3 under the previous
-    // palette/fog (0.015) and measures ~16 under this one (fog 0.010,
-    // ref-2 re-palette 2026-09-16) -- both comfortably inside this bound.
-    // An un-scaled fog color bug measured a ~139-level gap, so this bound
-    // is still a real regression guard. See renderer.cpp's setFogOptions
-    // comment for the color-scale fix this depends on.
     EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 45.0)
         << "far-field ground (" << stats.horizon_row_mean
         << ") doesn't fade "
@@ -730,7 +545,7 @@ TEST(ThemeGolden, EmptyWorld_DarkAdas) {
 }
 
 TEST(ThemeGolden, EmptyWorld_LightClay) {
-    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "light_clay"};
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "light_clay"};
     overlume::VisualRenderer* r = overlume::create_renderer(cfg);
     if (r == nullptr) {
         GTEST_SKIP() << "no GPU/EGL";
@@ -744,40 +559,16 @@ TEST(ThemeGolden, EmptyWorld_LightClay) {
         "/tmp/empty_world_light_clay_actual.png");
     EXPECT_GT(ssim, 0.98);
 
-    // Same legibility floor as the dark_adas golden above.
     overlume::testing::FrameStats stats =
         overlume::testing::analyze_png("/tmp/empty_world_light_clay_actual.png");
     EXPECT_GT(stats.mean, 60.0) << "frame reads as crushed black";
     EXPECT_LT(stats.mean, 235.0) << "frame reads as clipped white";
-    // 12 (down from an earlier 40, ref-2 re-palette 2026-09-16): this
-    // theme's fixed sunny-16 exposure (renderer.cpp's setExposure, ~100k
-    // lux) needs a very high sun/IBL intensity to correctly expose ref-2's
-    // actual daylight brightness -- at that intensity the ACES tonemapper's
-    // highlight shoulder compresses most of the frame's luminance into a
-    // narrow near-white band (the same compression the theme's own comment
-    // documents for its residual roof-to-wall contrast gap). Verified this
-    // is an exposure/tonemap ceiling, not a fog/grid miscalibration this
-    // guard should catch instead: neither a 10x grid-color contrast swing
-    // nor an 80x fog-density sweep (0.00025 -> 0.02, well past "hazy") moved
-    // distinct_levels past ~29, and pushing fog that high visibly re-hazes
-    // ref-2's deliberately crisp-to-the-horizon look. The shipped value
-    // (fog 0.00025) measures 15-16 on this same camera/scene -- 12 keeps a
-    // real floor (an actually-lost fade/grid still collapses to ~2-5,
-    // tripping this) without asking for headroom this exposure regime
-    // cannot give. See this pass's report for the rendered frame this was
-    // judged against.
     EXPECT_GT(stats.distinct_levels, 12)
         << "frame luminance has collapsed to near-uniform. NOTE: at this "
            "theme's exposure the grid and distance fade are ALREADY not "
            "visible (the frame sits in a ~176-199 band), so passing this "
            "does NOT prove grid contrast -- it only catches a total "
            "(~2-5 level) collapse";
-    // Same "fog == sky" convergence guard as EmptyWorld_DarkAdas above.
-    // 55.0: light_clay deliberately runs a near-zero fog density (0.00025 --
-    // ref-2 is crisp to the horizon); manufacturing fog mass to force a
-    // lower horizon/sky gap would be the mistake dark_adas's own guard
-    // avoids. A genuinely over/under-scaled fog color still trips this at
-    // ~55+.
     EXPECT_LT(std::abs(stats.horizon_row_mean - stats.sky_row_mean), 55.0)
         << "far-field ground (" << stats.horizon_row_mean
         << ") doesn't fade "

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-/** @file main.cpp @brief Entry point for the overlume_node executable. */
-
 #include <memory>
 
 #include <rclcpp/rclcpp.hpp>

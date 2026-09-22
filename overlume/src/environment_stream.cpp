@@ -1,11 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// environment_stream.cpp — the ONE C++20 TU (Decision 3). Cesium-native
-// types NEVER leak outside this file: environment.hpp's factory declaration
-// and environment_test_hooks.hpp's test hooks are the only surfaces the
-// rest of the library (or any test TU) sees. See environment_stream.hpp's
-// header comment + the epic plan's Task 3 for the full design.
 #include "environment_stream.hpp"
 
 #include "environment_test_hooks.hpp"
@@ -48,61 +43,22 @@
 #include <optional>
 #include <unordered_set>
 
-#include <unistd.h>  // getpid() -- test_cache_dir()'s per-process key (Linux-only build, fine here)
+#include <unistd.h>
 
 namespace overlume {
 
 namespace {
 
-// ── Decision 5's ~30-line split-only parser: "<assetId>[?cache=<dir>]
-//    [&fallback=<baked_dir>][&max_cache_items=<n>][&materials=original|clay]"
-//    (the materials= key is VM-064/Task 5's one addition). No URL library --
-//    "?"/"&"/"=" split only.
-//    ponytail: split-only parser; percent-encoding if a real path ever
-//    needs it. ─────────────────────────────────────────────────────────
 struct IonSpec {
     int64_t asset_id = 0;
     std::string cache_dir;
     std::string fallback_dir;
     uint64_t max_cache_items = kDefaultMaxCacheItems;
-    // VM-064 (Task 5): "original" keeps gltfio's own ubershader materials
-    // (Google Photorealistic 3D Tiles); "clay"/absent (default) is today's
-    // buildingMaterial remap, byte-identical to every pre-VM-064 URI.
     bool materials_original = false;
-    // 2026-09-21 ("option 2"): "on"/"true"/"1" samples Google's own terrain
-    // height under the ego and shifts the streamed environment to meet it;
-    // "off"/"false"/"0"/absent (default) is today's flat-map-frame
-    // behaviour, byte-identical to every pre-existing URI.
     bool follow_terrain = false;
-    // ground_bias=<m>: how far BELOW the map plane the terrain follower parks the
-    // sampled ground. 0 puts Google's ground exactly on the z=0 road plane, which
-    // z-fights the HD-map surface and ribbons (seen live 2026-09-21); 0.3 m default.
     double ground_bias_m = 0.3;
-    // replaces_ground=on|off (default on): gates whether a successful
-    // terrain height sample under the ego is allowed to take the
-    // renderer's own clay ground plane out of the scene (see
-    // EnvironmentSource::provides_ground()). "off" forces the clay plane
-    // to stay even over a tileset that proves it has ground there --
-    // an escape hatch, not today's default behaviour.
     bool replaces_ground = true;
-    // max_tilt_deg=<deg> (2026-09-21 multi-point plane fit): degrees the
-    // fitted along-track grade's tilt is clamped to; default 2.0
-    // (kTerrainMaxTiltRad). 0 means offset-only -- the previous
-    // single-scalar behaviour, and the escape hatch. Same shape as
-    // ground_bias= immediately below in the parser: a non-numeric value
-    // fails the whole parse, PLUS (unlike ground_bias=) a negative value
-    // fails too -- a tilt clamp can't be negative.
     double max_tilt_deg = 2.0;
-    // brightness=<gain> (2026-09-22, dim/oddly-coloured streamed-tile fix):
-    // multiplies each streamed material's own baseColorFactor after load
-    // (materials=original path only -- see
-    // StreamRendererResources::prepareInMainThread; the clay path rebinds
-    // every primitive to r->buildingMaterial and is unaffected). Google
-    // Photorealistic glbs declare KHR_materials_unlit, so they ignore the
-    // scene's own sun entirely and are shaped only by fog + tone mapping +
-    // this gain. Default 1.0 (no change, byte-identical to every
-    // pre-existing URI); must parse as a finite value > 0 or the WHOLE
-    // parse fails -- same shape as ground_bias_m/max_tilt_deg above.
     double brightness = 1.0;
 };
 
@@ -136,7 +92,6 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                 try {
                     out.max_cache_items = std::stoull(val);
                 } catch (const std::exception&) {
-                    // malformed -- keep the default rather than fail the whole open.
                 }
             } else if (key == "materials") {
                 if (val == "original") {
@@ -144,11 +99,6 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                 } else if (val == "clay") {
                     out.materials_original = false;
                 } else {
-                    // Spec §9 "malformed data degrades, never crashes": an
-                    // unknown materials= value is treated as clay (today's
-                    // behavior) rather than failing the whole open --
-                    // WARNed once, process-wide (same std::call_once shape
-                    // as registerAllTileContentTypes() below).
                     static std::once_flag unknownMaterialsWarnOnce;
                     std::call_once(unknownMaterialsWarnOnce, [&val] {
                         spdlog::warn(
@@ -157,8 +107,6 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                     out.materials_original = false;
                 }
             } else if (key == "ground_bias") {
-                // Metres the follower parks the ground BELOW the map plane; a
-                // non-numeric value fails the whole parse like follow_terrain=.
                 try {
                     size_t used = 0;
                     out.ground_bias_m = std::stod(val, &used);
@@ -168,12 +116,6 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                     return std::nullopt;
                 }
             } else if (key == "follow_terrain") {
-                // Unlike materials= (degrades to clay on a bad value), an
-                // unrecognized follow_terrain= value fails the WHOLE parse
-                // -- there is no safe silent default for "did the caller
-                // mean to shift the ground or not", so this is treated the
-                // same as a malformed asset id (return std::nullopt), same
-                // as every other genuinely-required key in this parser.
                 if (val == "on" || val == "true" || val == "1") {
                     out.follow_terrain = true;
                 } else if (val == "off" || val == "false" || val == "0") {
@@ -182,10 +124,6 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                     return std::nullopt;
                 }
             } else if (key == "max_tilt_deg") {
-                // Degrees the fitted grade's tilt is clamped to; a
-                // non-numeric OR negative value fails the whole parse (same
-                // shape as ground_bias= above, plus the negativity check --
-                // review, 2026-09-21).
                 try {
                     size_t used = 0;
                     out.max_tilt_deg = std::stod(val, &used);
@@ -196,10 +134,6 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                     return std::nullopt;
                 }
             } else if (key == "brightness") {
-                // Gain multiplied onto each streamed material's own
-                // baseColorFactor after load; a non-numeric OR
-                // non-positive value fails the whole parse (same shape as
-                // ground_bias=/max_tilt_deg= above).
                 try {
                     size_t used = 0;
                     out.brightness = std::stod(val, &used);
@@ -210,9 +144,6 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                     return std::nullopt;
                 }
             } else if (key == "replaces_ground") {
-                // Same shape as follow_terrain= immediately above: an
-                // unrecognized value fails the WHOLE parse rather than
-                // silently picking a default.
                 if (val == "on" || val == "true" || val == "1") {
                     out.replaces_ground = true;
                 } else if (val == "off" || val == "false" || val == "0") {
@@ -245,23 +176,6 @@ filament::math::mat4f to_filament_mat4(const glm::dmat4& m) {
     return out;
 }
 
-// Decision 7 / Decision 15.4's named unknown, RESOLVED at implementation:
-// real OSM Buildings b3dm tiles are NOT single-buffer (draco/meshopt
-// compression splits per-primitive, one buffer per compressed bufferView --
-// verified at implementation against the live ion asset this file's own
-// production path streams from; VM-097's committed test fixture
-// (environment_tiles_fixture_0/tile_a.b3dm, see its own PROVENANCE.md)
-// is a synthesized, dependency-free stand-in that keeps this path
-// exercised in ctest without any real ion content or token). writeGlb's
-// own single-buffer contract
-// (CesiumGltfWriter/GltfWriter.h: "the first buffer object implicitly
-// refers to the GLB binary chunk") means every real tile would be
-// silently skipped without this pass. Concatenates every buffer into one
-// contiguous chunk (4-byte aligned, matching glTF's own alignment
-// convention), rebasing each bufferView's byteOffset by its original
-// buffer's new position and repointing it at buffer 0. Returns false only
-// if the model has zero buffers (nothing to consolidate -- not observed
-// against real content).
 bool consolidate_buffers(CesiumGltf::Model& model) {
     if (model.buffers.empty()) return false;
     if (model.buffers.size() == 1) return true;
@@ -292,112 +206,10 @@ bool consolidate_buffers(CesiumGltf::Model& model) {
     return true;
 }
 
-// gltfio's AssetLoader rejects (createAsset returns nullptr, logging
-// "Unrecognized vertex semantic") any primitive carrying a non-standard
-// vertex attribute -- confirmed against the live ion asset this file's
-// production path streams from: OSM Buildings b3dm content carries a
-// per-vertex `_BATCHID` attribute (the legacy b3dm batch-table linkage),
-// which is not one of glTF's core semantics gltfio recognizes. The
-// synthesized test fixture (VM-097) carries `_BATCHID` on tile_root for
-// exactly this reason -- tile_root dominates the golden frame, so a
-// regression in this strip still blanks the golden the way it would
-// against the real tiles this fixture replaces; tile_a/tile_b omit it
-// (their own attribute-coverage purpose is buffer-consolidation and
-// missing-NORMAL, respectively, see make_tile_fixture.py). We
-// re-materialize every primitive onto
-// r.buildingMaterial regardless of feature/batch id (Decision 7's clay
-// remap), so batch linkage is unused here -- stripped before writeGlb
-// rather than worked around downstream. Strips every attribute whose name
-// starts with `_` (glTF's own "application-specific attribute" prefix
-// convention, so this also covers any `_FEATURE_ID_n` an EXT_mesh_features
-// tile might carry, not just `_BATCHID`).
-// Open Follow-up 4 (docs/status.md item 4): streamed tiles follow the true
-// WGS84 ellipsoid, but ecefToMap_ is ONE rigid ECEF->map matrix per asset
-// root (Decision 8) -- correct for x/y (the curvature error there is
-// ~d^3/(6R^2), sub-millimetre at 10 km) but its z axis is a flat TANGENT
-// PLANE at the anchor, so a real tile sags ~d^2/(2R) BELOW it at range
-// (0.08 m at 1 km, 0.54 m at 2.6 km, 7.85 m at 10 km -- see
-// EcefToMapAgreesWithCppPinWithinHalfMeter, which pins that exact
-// uncorrected number). The baked chunks (bake_environment.py) and the
-// rendered robot (flatten_z=true) both live on a flat plane at z=0, so
-// uncorrected streamed buildings float below the ground at range.
-//
-// Fixed PER VERTEX here rather than by changing the root transform (which
-// stays the same rigid `ecefToMap_ * modelToEcef` matrix
-// prepareInMainThread always applied): for each vertex, recover its true
-// ECEF position and rewrite it so that once the UNCHANGED root transform is
-// applied at render time, z_map lands at (ellipsoid height) - (anchor's
-// ellipsoid height); x/y keep whatever that same rigid transform already
-// produces (`ecefToMap * ecefPos`, read off before the z substitution).
-//
-// 2026-09-21 Google finding #2 (docs/status.md item 4, verified live against
-// the real-robot session replay, Google 3D Tiles via ion asset 2275207): the
-// anchor's ellipsoid height is NOT 0.0 by construction -- that was true only
-// in simulation (CARLA), where the anchor really does sit on the ellipsoid.
-// compute_ecef_to_map()'s ENU origin and this correction both now use
-// `anchor.origin_height_m` (GeoAnchor, scene.h, kSceneVersion 7), sampled
-// node-side from the Fixposition NavSatFix altitude (GeoAnchorSolver,
-// ros/src/overlume_ros/geo_anchor.cpp) -- on the real robot that is ~1.7 m,
-// not 0. Before this fix, Google's streamed ground rendered ~1.7 m above the
-// road and buried it. bake_environment.py's wgs_to_map() still projects
-// baked-chunk footprints at alt_m=0.0 (unaffected by this change -- the
-// baked layer and the flattened robot both live on the flat map plane at
-// z=0 by their own, separate convention); z_map = h - anchor_height_m is
-// the general formula, which collapses to z_map = h only when
-// anchor_height_m is 0 (simulation).
-//
-// 2026-09-21 Google finding: recovering "true ECEF position" is NOT just
-// `modelToEcef * p` (prepareInLoadThread's own `transform` param, RTC_CENTER
-// + the up-axis fix already folded in). That formula assumes every mesh
-// sits directly under the glTF root with an identity node transform, which
-// the committed synthesized fixtures (make_tile_fixture.py) happen to use
-// (`nodes:[{mesh:0}]`, absolute-ECEF positions) but real Google 3D Tiles
-// glbs (ion asset 2275207) do not: they carry `scenes:[{nodes:[0]}]`,
-// `nodes:[{matrix:[...axis swap..., tx,ty,tz,1], mesh:0}]` with
-// tx,ty,tz ~ millions of metres, and node-LOCAL float32 positions --
-// gltfio applies that node matrix at render time under the root transform
-// (see prepareInMainThread's own comment below), so the per-vertex ECEF
-// recovery must include it too: `localToEcef = modelToEcef * nodeTransform`,
-// per primitive, via `Model::forEachPrimitiveInScene`. Ignoring it (the old
-// root-transform-only correction) sent every vertex of a node-matrix tile
-// to the wrong ECEF position -- symptom: Google tiles rendered as one giant
-// tilted slab across the sky. See
-// EnvironmentStream.NodeMatrixEncodingRendersIdenticallyToEcefEncoding.
-//
-// Normals are unaffected to first order: this only translates each vertex
-// along the local up direction by a curvature term that varies negligibly
-// over one building footprint's own extent, so ensure_flat_normals()'s
-// downstream per-face computation (called right after this, on the
-// serialized bytes) stays correct untouched.
-//
-// Deliberately NOT refreshed: the POSITION accessor's declared min/max. gltfio
-// derives the asset/renderable AABB (frustum culling, shadow bounds) from
-// those, so the AABB stays stale by the applied correction -- ~1-3 m on the
-// committed fixtures, ~8 m at 10 km -- far below any tile's own extent; the
-// worst realistic symptom is edge-of-frustum pop-in. Refreshing min/max is
-// also the prerequisite for an ingestion-level readback test through
-// FilamentAsset::getBoundingBox() (deferred, see docs/status.md item 4).
-//
-// Cost: one WGS84 cartesian->cartographic conversion (the "trig
-// conversion") plus two 4x4 matrix-vector products per vertex, once at tile
-// load -- reuses the SAME mesh/primitive traversal this function already
-// walks for the attribute strip below, so no second pass over
-// meshes/primitives is added for the height fix (only the added inner loop
-// over each primitive's own POSITION accessor).
-// Forward-declared: defined further down this same anonymous namespace
-// (RedactingSink's factory). strip_attributes_and_correct_heights() below
-// needs it to log the invalid-accessor case (gate round 1 minor finding).
 std::shared_ptr<spdlog::logger> make_redacting_logger();
 
 void strip_attributes_and_correct_heights(CesiumGltf::Model& model, const glm::dmat4& modelToEcef,
                                           const glm::dmat4& ecefToMap, double anchorHeightM) {
-    // The '_'-prefixed attribute strip runs over ALL meshes, scene-reachable
-    // or not: gltfio rejects unknown attributes even on a mesh no node
-    // references, so this loop stays a plain traversal of model.meshes
-    // rather than moving inside the forEachPrimitiveInScene walk below.
-    // Conversely the height correction below is deliberately scene-scoped: a
-    // mesh no node references is never instantiated by gltfio, so correcting
-    // it would be dead work (review minor, 2026-09-21).
     for (CesiumGltf::Mesh& mesh : model.meshes) {
         for (CesiumGltf::MeshPrimitive& prim : mesh.primitives) {
             for (auto it = prim.attributes.begin(); it != prim.attributes.end();) {
@@ -410,42 +222,17 @@ void strip_attributes_and_correct_heights(CesiumGltf::Model& model, const glm::d
         }
     }
 
-    // glTF legally lets two primitives share one POSITION accessor (common
-    // for material-split meshes, each primitive with its own index
-    // accessor into the same vertex buffer). Without this guard, a shared
-    // accessor gets the height correction applied once per primitive that
-    // references it -- the second pass reads back its OWN already-corrected
-    // z, so it moves the vertex a second time (gate round 1 minor finding).
-    // Not reachable by the committed fixtures (verified: one primitive per
-    // mesh, no shared POSITION), so no existing test exercises this guard.
-    // NOTE: this also means an accessor shared by two NODES with different
-    // transforms can only be corrected against the first node's transform
-    // -- the second node's own (different) nodeTransform is silently
-    // skipped rather than double-applied. No known real tileset does this
-    // (a shared POSITION accessor under two different node placements), and
-    // no committed fixture exercises it either.
     std::unordered_set<int32_t> correctedPositionAccessors;
     model.forEachPrimitiveInScene(
-        -1, [&](CesiumGltf::Model& m, CesiumGltf::Node& /*node*/, CesiumGltf::Mesh& /*mesh*/,
+        -1, [&](CesiumGltf::Model& m, CesiumGltf::Node&, CesiumGltf::Mesh&,
                 CesiumGltf::MeshPrimitive& prim, const glm::dmat4& nodeTransform) {
             const auto posIt = prim.attributes.find("POSITION");
             if (posIt == prim.attributes.end()) return;
             if (!correctedPositionAccessors.insert(posIt->second).second) return;
-            // 2026-09-21 Google finding (see this function's own comment
-            // above): a primitive's vertices are node-LOCAL, not
-            // root-local, so the model-to-ECEF map for THIS primitive is
-            // modelToEcef * nodeTransform, not modelToEcef alone.
             const glm::dmat4 localToEcef = modelToEcef * nodeTransform;
             const glm::dmat4 mapToLocal = glm::inverse(ecefToMap * localToEcef);
             CesiumGltf::AccessorWriter<glm::vec3> pos(m, posIt->second);
             if (pos.status() != CesiumGltf::AccessorViewStatus::Valid) {
-                // KHR_mesh_quantization / meshopt-compressed POSITION (not a
-                // plain float32 VEC3) -- this pass can't rewrite it, so the
-                // tile is silently left on the sagged tangent plane. Log
-                // once so a quantized tileset is diagnosable rather than
-                // just floating below the ground with no trace -- once per
-                // process (a quantized tileset would otherwise emit one line
-                // per primitive per tile at streaming rate).
                 static std::once_flag quantizedWarnOnce;
                 std::call_once(quantizedWarnOnce, [&] {
                     make_redacting_logger()->warn(
@@ -459,9 +246,6 @@ void strip_attributes_and_correct_heights(CesiumGltf::Model& model, const glm::d
             for (int64_t i = 0; i < pos.size(); ++i) {
                 glm::vec3& p = pos[i];
                 const glm::dvec4 ecefPos = localToEcef * glm::dvec4(glm::dvec3(p), 1.0);
-                // Shared with ecef_height_correction_probe() (gate round 1
-                // minor finding: the two must call one formula, not carry
-                // independently-typed copies that can drift apart).
                 const glm::dvec3 newMapPos =
                     correct_ecef_point_height(glm::dvec3(ecefPos), ecefToMap, anchorHeightM);
                 const glm::dvec4 newLocalPos = mapToLocal * glm::dvec4(newMapPos, 1.0);
@@ -470,29 +254,6 @@ void strip_attributes_and_correct_heights(CesiumGltf::Model& model, const glm::d
         });
 }
 
-// ── Finding #0 (blocking, security): cesium-native's own ion-handshake
-//    error path (CesiumIonTilesetLoader.cpp's endpoint-fetch failure ->
-//    TilesetContentManager::propagateTilesetContentLoaderResult ->
-//    ErrorList::logError) formats the FULL request URL into the error text
-//    it hands to `externals.pLogger` -- and that URL is
-//    ".../endpoint?access_token=<CESIUM_ION_TOKEN>" for the real ion path
-//    (Decision 6/15.6). Handing cesium spdlog::default_logger() (the plain
-//    stdout sink, pre-fix) therefore printed the live token verbatim to
-//    stdout/the ROS log on any expired/rotated token (a 401 -- already hit
-//    once in this project, epic6.md's "First live run FAILed HTTP 401") or
-//    dead link. This sink wraps a real sink and redacts before forwarding,
-//    so no code path through this library's own logger can leak a
-//    credential, regardless of which cesium-native error message triggers
-//    it. ──────────────────────────────────────────────────────────────────
-
-// Rewrites "access_token=<value>" (up to the next '&', whitespace, or end)
-// to "access_token=<redacted>", and "Bearer <value>" (up to the next
-// whitespace or end) to "Bearer <redacted>" -- the two shapes a credential
-// can appear in through this library's own accessor stack (the ion
-// endpoint query string, and the "Authorization: Bearer <token>" header
-// cesium-native's own refreshed-session-token path builds, per
-// mainThreadLoadTilesetJsonFromAssetEndpoint). Fixed-prefix scan, no regex
-// -- same style as this file's own split-only IonSpec parser above.
 std::string redact_credentials(std::string text) {
     auto redact_after = [&text](const std::string& marker) {
         size_t pos = 0;
@@ -513,20 +274,10 @@ std::string redact_credentials(std::string text) {
     return text;
 }
 
-// Wraps a real sink (the stdout color sink, in practice) and redacts every
-// payload through redact_credentials() before forwarding -- so whatever
-// reaches the terminal/ROS log/test capture has already had any credential
-// scrubbed. Also keeps its own copy of every (already-redacted) line so a
-// test can assert on exactly what this library ever emits, without
-// depending on capturing the process's real stdout.
 class RedactingSink final : public spdlog::sinks::base_sink<std::mutex> {
 public:
     explicit RedactingSink(std::shared_ptr<spdlog::sinks::sink> inner) : inner_(std::move(inner)) {}
 
-    // Test-only: every payload ever routed through this sink, POST-
-    // redaction, newline-joined. Locks base_sink's own `mutex_` explicitly
-    // (unlike sink_it_/flush_ below, this isn't called from inside
-    // base_sink::log()'s own lock).
     std::string captured_text_for_test() {
         std::lock_guard<std::mutex> lock(mutex_);
         return captured_;
@@ -534,15 +285,8 @@ public:
 
 protected:
     void sink_it_(const spdlog::details::log_msg& msg) override {
-        // Already under base_sink<std::mutex>::log()'s lock -- no re-lock here.
         std::string redacted =
             redact_credentials(std::string(msg.payload.data(), msg.payload.size()));
-        // ponytail: cap the test-capture buffer so a long-running process
-        // with a flaky tileset (repeated cesium error/warn lines) can't grow
-        // this string without bound -- redaction itself (above) stays
-        // unconditional; only the convenience copy is capped. Upgrade to a
-        // ring buffer of the last N lines if a test ever needs more history
-        // than this holds.
         if (captured_.size() < kMaxCapturedBytes) {
             captured_ += redacted;
             captured_ += '\n';
@@ -560,11 +304,7 @@ private:
     std::string captured_;
 };
 
-// Process-wide, same singleton shape as the `spdlog::default_logger()` this
-// replaces -- every open_streaming_environment_source()/build_externals()
-// call shares the one redacting logger, and the test-only hook below reads
-// the same instance's captured text.
-std::shared_ptr<RedactingSink> g_redactingSinkForTest;  // NOLINT: intentional file-scope singleton
+std::shared_ptr<RedactingSink> g_redactingSinkForTest;
 
 std::shared_ptr<spdlog::logger> make_redacting_logger() {
     static const std::shared_ptr<spdlog::logger> logger = [] {
@@ -572,24 +312,12 @@ std::shared_ptr<spdlog::logger> make_redacting_logger() {
         auto redacting = std::make_shared<RedactingSink>(inner);
         g_redactingSinkForTest = redacting;
         auto l = std::make_shared<spdlog::logger>("overlume.cesium", redacting);
-        // Registered so process-wide spdlog::set_level()/set_pattern() still
-        // reach cesium output the way they did through default_logger().
         spdlog::register_logger(l);
         return l;
     }();
     return logger;
 }
 
-// ── Finding #0/#6's local enforcement: any request whose URL contains
-//    "access_token=" is routed straight to the non-caching `direct` accessor
-//    (still counted, via CountingAssetAccessor, just never cached), no
-//    matter what Cache-Control header the remote response carries; everything
-//    else goes through `cached` as before. This is a URL-param check only --
-//    it does NOT inspect headers. That is sufficient for CESIUM_ION_TOKEN,
-//    which only ever rides on the endpoint handshake (URL param). Tile and
-//    tileset.json requests carry the SHORT-LIVED session token as a Bearer
-//    header and still take the caching branch -- the pre-existing Decision 6
-//    exposure class. See open_streaming_environment_source()'s comment.
 class TokenBypassAssetAccessor final : public CesiumAsync::IAssetAccessor {
 public:
     TokenBypassAssetAccessor(std::shared_ptr<CesiumAsync::IAssetAccessor> cached,
@@ -607,12 +335,7 @@ public:
         const std::span<const std::byte>& payload) override {
         return pick(url)->request(asyncSystem, verb, url, headers, payload);
     }
-    void tick() noexcept override {
-        // `cached_` (CachingAssetAccessor) already forwards tick() to the
-        // same inner accessor `direct_` points at -- ticking both would pump
-        // curl twice per frame.
-        cached_->tick();
-    }
+    void tick() noexcept override { cached_->tick(); }
 
 private:
     CesiumAsync::IAssetAccessor* pick(const std::string& url) const {
@@ -622,39 +345,14 @@ private:
     std::shared_ptr<CesiumAsync::IAssetAccessor> direct_;
 };
 
-// Builds the composed accessor stack shared by both the fixture and the
-// real ion path (Decision 10/11, Task 3 Step 2): base -> CountingAssetAccessor
-// -> CachingAssetAccessor(SqliteCache(dbPath, maxItems)). The
-// CountingAssetAccessor's failure count is Task 4's fallback trigger, not
-// read by anything in Task 3 -- built into the stack now (Step 4's
-// disk-cache proof explicitly wants it present) so Task 4 doesn't have to
-// re-plumb this.
-// `out_counting`, when non-null, receives the SAME CountingAssetAccessor
-// wrapped into the returned externals' pAssetAccessor chain (Decision 11 /
-// VM-063 Task 4: StreamingEnvironmentSource keeps its own shared_ptr to it
-// so update() can read consecutive_failures() -- the externals struct only
-// exposes the composed IAssetAccessor base, not this concrete type).
 Cesium3DTilesSelection::TilesetExternals build_externals(
     std::shared_ptr<CesiumAsync::IAssetAccessor> base, const CesiumAsync::AsyncSystem& asyncSystem,
     const std::string& cache_dir, uint64_t max_cache_items,
     std::shared_ptr<CountingAssetAccessor>* out_counting = nullptr) {
     auto counting = std::make_shared<CountingAssetAccessor>(std::move(base));
     if (out_counting != nullptr) *out_counting = counting;
-    // Finding #0: a dedicated, redacting logger -- NOT spdlog::default_logger()
-    // (the plain stdout sink), which prints cesium-native's own error text
-    // verbatim, credentials included, on any ion-handshake failure (see
-    // RedactingSink's own comment above).
     auto logger = make_redacting_logger();
 
-    // VM-064 Decision 14 / Task 5 Step 2(b): "off" is a documented sentinel
-    // (not a directory) -- Google's Map Tiles terms bound how long tile
-    // responses may be cached, and the google preset's shipped default sets
-    // `cache=off` until those cache-lifetime terms are re-verified for this
-    // deployment (docs/runbooks/cesium.md's Google section). No
-    // SqliteCache/CachingAssetAccessor is constructed in this branch --
-    // requests go straight through the counting decorator, nothing
-    // persisted to disk. ponytail: literal "off"/dir-path dispatch, an enum
-    // is the upgrade if a third cache mode is ever needed.
     if (cache_dir == "off") {
         Cesium3DTilesSelection::TilesetExternals externals{nullptr, nullptr, asyncSystem};
         externals.pAssetAccessor = counting;
@@ -663,22 +361,12 @@ Cesium3DTilesSelection::TilesetExternals build_externals(
     }
 
     std::error_code ec;
-    std::filesystem::create_directories(
-        cache_dir, ec);  // best-effort; SqliteCache errors loudly if this fails for real
+    std::filesystem::create_directories(cache_dir, ec);
     auto cacheDb = std::make_shared<CesiumAsync::SqliteCache>(
         logger, cache_dir + "/cesium-tiles.sqlite", max_cache_items);
     auto caching = std::make_shared<CesiumAsync::CachingAssetAccessor>(logger, counting, cacheDb);
-    // Finding #0/#6: any access_token=-bearing URL is diverted away from
-    // `caching`/`cacheDb` regardless of the remote's own Cache-Control header
-    // -- see TokenBypassAssetAccessor's own comment above for what this does
-    // and does not cover (URL params only -- which is where CESIUM_ION_TOKEN
-    // lives; the session-token Bearer header on tile requests still caches).
     auto tokenSafe = std::make_shared<TokenBypassAssetAccessor>(caching, counting);
 
-    // TilesetExternals has no default constructor (its `asyncSystem` member
-    // doesn't) -- aggregate-init the one member that actually requires a
-    // value at construction, then assign the rest (every other member has
-    // its own default member initializer, TilesetExternals.h).
     Cesium3DTilesSelection::TilesetExternals externals{nullptr, nullptr, asyncSystem};
     externals.pAssetAccessor = tokenSafe;
     externals.pLogger = logger;
@@ -687,55 +375,26 @@ Cesium3DTilesSelection::TilesetExternals build_externals(
 
 }  // namespace
 
-// ── ECEF <-> map-frame (Decision 8) ──────────────────────────────────────
 glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor) {
-    // 2026-09-21 finding (docs/status.md item 4): the ENU origin's height
-    // used to be hard-coded 0.0 here -- only correct in simulation, where
-    // the anchor really sits on the ellipsoid. `anchor.origin_height_m` now
-    // carries the real value (0.0 default keeps the old behaviour).
     const CesiumGeospatial::LocalHorizontalCoordinateSystem enu(
         CesiumGeospatial::Cartographic::fromDegrees(anchor.origin_lon_deg, anchor.origin_lat_deg,
                                                     anchor.origin_height_m));
     const glm::dmat4 ecefToEnu = enu.getEcefToLocalTransformation();
 
-    // VM-062 gate round 1, Finding 1: getEcefToLocalTransformation() above
-    // returns ENU on the TRUE WGS84 ellipsoid, but geo_anchor.cpp's
-    // WgsToMap/MapToWgs -- the map-frame model every other map-frame
-    // consumer (baked chunks, GPS-derived ego) actually agrees with -- is a
-    // fixed-radius SPHERE (kEarthRadiusM = 6371000, geo_anchor.cpp:14-20).
-    // Left unreconciled, streamed tiles drift off everything else in the
-    // map frame by a curvature-vs-sphere error that grows linearly with
-    // distance from the anchor (measured ~7.5 m at a 2.6 km probe -- see
-    // this task's Step 3 results block). Rescale the ellipsoidal
-    // east/north axes by the ratio of the sphere model's radius to the
-    // ellipsoid's own local radii of curvature at the anchor's latitude
-    // (N = prime-vertical radius, M = meridian radius), so this transform
-    // reproduces geo_anchor.cpp's own east/north formulas
-    // (kEarthRadiusM * cos(lat0) * dlon, kEarthRadiusM * dlat) instead of
-    // the ellipsoid's -- BEFORE applying the same heading rotation
-    // geo_anchor.cpp:23-37 uses.
-    constexpr double kWgs84A = 6378137.0;                   // WGS84 semi-major axis (m)
-    constexpr double kWgs84F = 1.0 / 298.257223563;         // WGS84 flattening
-    constexpr double kWgs84E2 = kWgs84F * (2.0 - kWgs84F);  // first eccentricity^2
-    // geo_anchor.cpp's own kEarthRadiusM, duplicated here rather than
-    // shared across the node/library boundary -- this TU cannot include
-    // geo_anchor.hpp (Decision 3's node/library quarantine).
+    constexpr double kWgs84A = 6378137.0;
+    constexpr double kWgs84F = 1.0 / 298.257223563;
+    constexpr double kWgs84E2 = kWgs84F * (2.0 - kWgs84F);
     constexpr double kMapSphereRadiusM = 6371000.0;
     const double lat0_rad = anchor.origin_lat_deg * (M_PI / 180.0);
     const double sin2Lat0 = std::sin(lat0_rad) * std::sin(lat0_rad);
     const double denom = 1.0 - kWgs84E2 * sin2Lat0;
-    const double N = kWgs84A / std::sqrt(denom);  // prime-vertical radius
-    const double M = kWgs84A * (1.0 - kWgs84E2) / (denom * std::sqrt(denom));  // meridian radius
+    const double N = kWgs84A / std::sqrt(denom);
+    const double M = kWgs84A * (1.0 - kWgs84E2) / (denom * std::sqrt(denom));
     glm::dmat4 sphereScale(1.0);
-    sphereScale[0][0] = kMapSphereRadiusM / N;  // east
-    sphereScale[1][1] = kMapSphereRadiusM / M;  // north
+    sphereScale[0][0] = kMapSphereRadiusM / N;
+    sphereScale[1][1] = kMapSphereRadiusM / M;
 
     const double s = std::sin(anchor.heading_rad), c = std::cos(anchor.heading_rad);
-    // Same rotation geo_anchor.cpp's WgsToMap applies to (east, north):
-    // map.x = east*s + north*c; map.y = -east*c + north*s; map.z = up
-    // (verbatim -- geo_anchor.cpp:23-37). Expressed as a 4x4 that leaves
-    // z/w alone: mat[col][row] is the coefficient of input axis `col` in
-    // output row `row` (glm's column-major convention).
     glm::dmat4 rot(1.0);
     rot[0][0] = s;
     rot[1][0] = c;
@@ -744,44 +403,20 @@ glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor) {
     return rot * sphereScale * ecefToEnu;
 }
 
-// Open Follow-up 4 (docs/status.md item 4): see this function's own
-// declaration comment in environment_stream.hpp. x/y are whatever the rigid
-// `ecefToMap` transform already gives (unchanged, curvature error
-// sub-millimetre at 10 km); z is replaced with z_map = (ecef_pos's own
-// WGS84 ellipsoid height) - anchor_height_m. 2026-09-21 finding: this used
-// to subtract 0.0 unconditionally ("anchor height is 0.0 by construction"),
-// which held only in simulation -- on the real robot the anchor's ellipsoid
-// height is ~1.7 m (Fixposition NavSatFix altitude), so Google's streamed
-// terrain rendered ~1.7 m above the road until callers started passing the
-// real `anchor.origin_height_m` here. bake_environment.py's wgs_to_map()
-// still projects baked-chunk footprints at alt_m=0.0, unaffected -- that is
-// the baked layer's own, separate flat-plane convention.
 glm::dvec3 correct_ecef_point_height(const glm::dvec3& ecef_pos, const glm::dmat4& ecef_to_map,
                                      double anchor_height_m) {
     const glm::dvec4 oldMapPos = ecef_to_map * glm::dvec4(ecef_pos, 1.0);
     const auto carto = CesiumGeospatial::Ellipsoid::WGS84.cartesianToCartographic(ecef_pos);
-    // Empty only at the Earth's center (never a real tile vertex) -- fall
-    // back to the old (sagged) z rather than fabricate one.
     const double zMap = carto.has_value() ? carto->height - anchor_height_m : oldMapPos.z;
     return glm::dvec3(oldMapPos.x, oldMapPos.y, zMap);
 }
 
-// ── FileFixtureAssetAccessor (Decision 13; test-only) ────────────────────
 namespace {
 
 class FixtureAssetResponse final : public CesiumAsync::IAssetResponse {
 public:
     FixtureAssetResponse(uint16_t status, std::vector<std::byte> data)
         : status_(status), data_(std::move(data)) {
-        // Step 4's disk-cache proof needs these responses to actually get
-        // stored: CachingAssetAccessor's shouldCacheRequest (Decision 10)
-        // requires a Cache-Control max-age/Expires/ETag/Last-Modified
-        // header on a 200 response before it persists anything -- with no
-        // headers at all (this class's original shape), every fixture
-        // response was silently treated as non-cacheable and NEVER
-        // written to the sqlite db, so a second source pointed at the
-        // same cache dir had nothing to read. A real ion response carries
-        // its own Cache-Control; this is the fixture-only equivalent.
         if (status_ == 200) headers_["Cache-Control"] = "max-age=3600";
     }
     uint16_t statusCode() const override { return status_; }
@@ -813,28 +448,12 @@ private:
     CesiumAsync::HttpHeaders headers_;
 };
 
-// "file://<abs path>" -> "<abs path>" (Decision 13: the fixture's own
-// scheme, resolved by cesium's own URI-join logic against the fixture's
-// tileset.json url exactly like a real http(s) url would be, but served
-// from local disk here -- no network, no token).
 constexpr char kFileScheme[] = "file://";
 
 }  // namespace
 
 std::shared_ptr<CesiumAsync::IAssetRequest> FileFixtureAssetAccessor::makeRequest(
     const std::string& verb, const std::string& url) {
-    // VM-063 (Task 4): the root tileset.json manifest is exempt from the
-    // kill switch -- it models the realistic shape of "network loss
-    // mid-run" (Decision 11): a real deployment resolves the root manifest
-    // ONCE at startup, while healthy, and every subsequent per-tile content
-    // request is what actually observes a later network loss. Without this
-    // exemption, killing from before the root ever resolves leaves cesium
-    // with no known children to request at all (root fetch fails once,
-    // permanently, with nothing to retry -- verified empirically, see
-    // environment_tiles_fixture_fallback_0/PROVENANCE.md), which can never
-    // reach kNetworkLossConsecutiveFailures. Real ion tilesets don't
-    // special-case this (the accessor decorator stack has no such
-    // exemption) -- it exists only in this test-only fixture accessor.
     const bool isRootManifest =
         url.size() >= 12 && url.compare(url.size() - 12, 12, "tileset.json") == 0;
     if (killed_ && killed_->load() && !isRootManifest) {
@@ -856,77 +475,25 @@ std::shared_ptr<CesiumAsync::IAssetRequest> FileFixtureAssetAccessor::makeReques
         verb, url, std::make_unique<FixtureAssetResponse>(200, std::move(bytes)));
 }
 
-// 2026-09-21 terrain following ("option 2"): shared between
-// StreamingEnvironmentSource and the sampleHeightMostDetailed() continuation
-// it launches, which MUST NOT capture `this` (the source can be destroyed
-// with a sample still in flight -- teardown()/the destructor never wait for
-// it). `in_flight` is the only field the continuation writes; everything
-// else is written only by the source itself, on the main thread.
 struct TerrainFollowState {
     std::atomic<bool> in_flight{false};
-    // 2026-09-21 multi-point plane fit (maintainer decision): replaces the
-    // single `latest_height_m` -- a least-squares fit `h = a*s + c` of up to
-    // 5 along-track samples (s in metres from the pivot, h the sampled
-    // ellipsoid height). Written only by the sampleHeightMostDetailed()
-    // continuation's SUCCESS branch (>=1 hit); a 0-hit batch leaves these
-    // untouched, so the previous fit keeps being applied (same "keep the
-    // previous offset on a miss" behaviour the single-point version had).
-    std::optional<double> fit_slope;  // "a" -- ellipsoid-height metres per along-track metre
-    std::optional<double>
-        fit_intercept;       // "c" -- fitted height at s=0 (the pivot), ellipsoid metres
-    double fit_rms_m = 0.0;  // residual RMS of the fit, for the log line only
-    int fit_hit_count = 0;   // how many of the 5 batched samples actually hit geometry
-    // Opus gate fix round (2026-09-21), blocking finding #2: the pivot
-    // update_terrain_transform() must use is the ego map x/y/heading AT THE
-    // MOMENT THIS FIT'S BATCH WAS REQUESTED -- i.e. the same position the
-    // fitted s=0 height (fit_intercept) actually corresponds to -- NOT
-    // whatever the most recently issued (possibly still in-flight) batch's
-    // request position is. Those can differ: in_flight only blocks a NEW
-    // request from being issued, but a fit's own request-time position is
-    // written to sampled_x/sampled_y (below) synchronously, before its
-    // continuation lands; reading sampled_x/sampled_y from
-    // update_terrain_transform() therefore paired the PREVIOUS fit with the
-    // CURRENT (in-flight) request's pivot while a batch was in flight,
-    // popping the whole environment by delta*sin(theta) every sample cycle
-    // with no smoothing -- exactly the "world sways with ego jitter"
-    // symptom the pivot was introduced to prevent. Written ONLY in the
-    // continuation's success branch, in lockstep with fit_slope/fit_intercept,
-    // from values captured BY VALUE at request time (see
-    // maybe_trigger_terrain_sample()) -- never the live ego state.
+    std::optional<double> fit_slope;
+    std::optional<double> fit_intercept;
+    double fit_rms_m = 0.0;
+    int fit_hit_count = 0;
     double fit_pivot_x = 0.0;
     double fit_pivot_y = 0.0;
     double fit_pivot_heading_rad = 0.0;
-    // Ego map x/y at the moment a batch was last REQUESTED -- used only for
-    // the move/elapsed cadence check in maybe_trigger_terrain_sample();
-    // NOT the transform pivot (see fit_pivot_x/fit_pivot_y above).
     double sampled_x = 0.0;
     double sampled_y = 0.0;
     std::chrono::steady_clock::time_point sampled_at{};
-    bool ever_sampled = false;  // false only before the first sample request of this source's life
-    double anchor_height_m = 0.0;  // copy of anchor_.origin_height_m, for the sample log line only
-    double ground_bias_m = 0.0;    // copy of groundBiasM_, same purpose
-    double max_tilt_rad = 0.0;     // copy of maxTiltRad_, same purpose (log line's "applied tilt")
-    // 2026-09-21 live finding: latched true the first time
-    // sampleHeightMostDetailed() actually hits geometry under the ego --
-    // never cleared afterward (a later miss does not flicker it back to
-    // false), so provides_ground() latches for the life of the source once
-    // proven. Set in the SUCCESS branch of the continuation only.
+    bool ever_sampled = false;
+    double anchor_height_m = 0.0;
+    double ground_bias_m = 0.0;
+    double max_tilt_rad = 0.0;
     std::atomic<bool> ground_hit{false};
 };
 
-// Pure math, factored out for the same reason terrain_target_offset_z()
-// below is: a plain C++17 test TU can pin it (terrain_plane_fit_probe(),
-// test hooks section) without a live tileset/renderer. Least-squares fit of
-// `h = a*s + c` over `n` (s[i], h[i]) pairs. Design item 2's degrade
-// ladder: n>=3 is a real fit; n in {1,2} (or a degenerate n>=3 batch where
-// every s is identical, so the normal equations' denominator is ~0) is
-// a=0, c=mean(h) -- today's single-point behaviour, generalized to "the
-// mean of whatever hit"; n==0 is the CALLER's job (this function is only
-// ever invoked with n>=1 -- see maybe_trigger_terrain_sample()'s
-// continuation, which keeps the previous fit on a 0-hit batch rather than
-// calling this at all). `out_rms` is the fit's own residual RMS
-// (sqrt(mean((a*s+c-h)^2))) -- 0 for an exact fit (or a single point),
-// nonzero once real noise/curvature doesn't lie exactly on one line.
 namespace {
 void terrain_plane_fit(const double* s, const double* h, int n, double* out_slope,
                        double* out_intercept, double* out_rms) {
@@ -944,10 +511,6 @@ void terrain_plane_fit(const double* s, const double* h, int n, double* out_slop
             a = (static_cast<double>(n) * sumSH - sumS * sumH) / denom;
             c = (sumH - a * sumS) / static_cast<double>(n);
         } else {
-            // Degenerate (every sample landed at the same along-track s --
-            // not reachable through maybe_trigger_terrain_sample()'s own
-            // fixed 5-offset batch, but a defensive fallback for any other
-            // caller of this pure function): same degrade as n<3.
             a = 0.0;
             c = sumH / static_cast<double>(n);
         }
@@ -966,29 +529,10 @@ void terrain_plane_fit(const double* s, const double* h, int n, double* out_slop
     if (out_rms) *out_rms = n > 0 ? std::sqrt(sumSq / static_cast<double>(n)) : 0.0;
 }
 
-// Opus gate fix round (2026-09-21), blocking finding #1: shared by every
-// caller that needs the clamped tilt (the sample-log line,
-// update_terrain_transform(), and terrain_transform_probe() below) so the
-// probe pins the SAME clamp the shipped code applies rather than a second
-// hand-typed copy of it.
 double terrain_tilt_target(double slope, double max_tilt_rad) {
     return std::clamp(std::atan(slope), -max_tilt_rad, max_tilt_rad);
 }
 
-// Opus gate fix round (2026-09-21), blocking finding #1: the terrain root's
-// full composed transform -- factored out of
-// StreamRendererResources::set_terrain_transform() (below) so
-// terrain_transform_probe() (test hooks section) can call THIS function and
-// multiply a point through its result, instead of reimplementing the
-// matrix by hand (Rodrigues formula included) as a second, driftable copy.
-// Pure math -- no Engine/renderer state -- so it needs only the
-// filament::math types this TU already includes for rendering elsewhere.
-// P = {pivot_x, pivot_y, 0}, u = {-sin(heading), cos(heading), 0} (the
-// across-track/lateral axis -- z-axis cross forward, forward =
-// (cos(heading), sin(heading), 0), this codebase's own heading convention,
-// ego.cpp's quatf::fromAxisAngle({0,0,1}, heading_rad)). tilt_rad == 0
-// (max_tilt_deg=0, or a flat fit) reduces this to plain
-// translation({0,0,z}) -- the pre-fit single-offset matrix, byte-identical.
 filament::math::mat4f terrain_root_matrix(double z, double tilt_rad, double pivot_x, double pivot_y,
                                           double heading_rad) {
     using filament::math::float3;
@@ -1002,22 +546,10 @@ filament::math::mat4f terrain_root_matrix(double z, double tilt_rad, double pivo
 }
 }  // namespace
 
-// Out-of-line (declaration: environment_stream.hpp) -- needs
-// TerrainFollowState's complete type, which is only forward-declared in
-// the header (this struct is defined here, in the .cpp).
 bool StreamingEnvironmentSource::provides_ground() const {
-    // Opus gate fix round (2026-09-21): must go false once fallen back --
-    // fall_back() tears down the tileset and never resets terrainState_
-    // (nothing else clears it either), so without this guard the ground
-    // hit latch outlives the streamed source and the clay ground plane
-    // never returns after a network-loss fallback, leaving the robot
-    // rendering over a void. Every other fallenBack_-aware member
-    // (set_visible, loaded_count, scene_membership_count, state) already
-    // branches on it; this keeps provides_ground() consistent with them.
     return !fallenBack_ && replacesGround_ && terrainState_ && terrainState_->ground_hit.load();
 }
 
-// ── StreamRendererResources (Decision 7) ─────────────────────────────────
 void StreamRendererResources::ensure_terrain_root() {
     if (terrainRoot_ || r_ == nullptr) return;
     terrainRoot_ = utils::EntityManager::get().create();
@@ -1027,15 +559,10 @@ void StreamRendererResources::ensure_terrain_root() {
 void StreamRendererResources::set_terrain_transform(double z, double tilt_rad, double pivot_x,
                                                     double pivot_y, double heading_rad) {
     ensure_terrain_root();
-    if (!terrainRoot_)
-        return;  // no renderer yet -- next prepareInMainThread's ensure_terrain_root() catches up
+    if (!terrainRoot_) return;
     filament::TransformManager& tm = r_->engine->getTransformManager();
     const auto inst = tm.getInstance(terrainRoot_);
     if (!inst.isValid()) return;
-    // Pivot at the map-frame position the fit was SAMPLED at (see this
-    // method's own header comment) -- matrix build shared with
-    // terrain_transform_probe() via terrain_root_matrix() (Opus gate fix
-    // round, 2026-09-21) so the test pins the exact matrix applied here.
     tm.setTransform(inst, terrain_root_matrix(z, tilt_rad, pivot_x, pivot_y, heading_rad));
 }
 
@@ -1050,29 +577,11 @@ CesiumAsync::Future<Cesium3DTilesSelection::TileLoadResultAndRenderResources>
 StreamRendererResources::prepareInLoadThread(
     const CesiumAsync::AsyncSystem& asyncSystem,
     Cesium3DTilesSelection::TileLoadResult&& tileLoadResult, const glm::dmat4& transform,
-    const std::any& /*rendererOptions*/) {
+    const std::any&) {
     auto* pGlb = new LoadThreadGlb();
-    // Real OSM Buildings b3dm content is Y-up (glTF's own convention,
-    // TileLoadResult::glTFUpAxis, default Y) with vertex positions already
-    // resolved to absolute ECEF-scale numbers (no separate RTC_CENTER node
-    // -- verified at implementation: the pre-existing FilamentAsset root
-    // transform was plain identity, yet raw vertex magnitudes were ~6.37e6,
-    // Earth-radius scale). ECEF itself is Z-up (Z = north-pole axis), so
-    // Y-up content must be rotated back to Z-up BEFORE `ecefToMap_` (built
-    // for genuine ECEF input, Decision 8) can place it correctly --
-    // skipping this rotated every real tile ~6-7 million meters from the
-    // anchor (confirmed empirically: same magnitude with or without
-    // `transform`, since neither tile.getTransform() nor this parameter
-    // carries the axis fix -- it's a fixed, content-format convention, not
-    // a per-tile placement value). cesium-native ships the exact
-    // conversion (Transforms::getUpAxisTransform) rather than a hand-rolled
-    // one.
     pGlb->transform = transform * CesiumGeometry::Transforms::getUpAxisTransform(
                                       tileLoadResult.glTFUpAxis, CesiumGeometry::Axis::Z);
     if (auto* model = std::get_if<CesiumGltf::Model>(&tileLoadResult.contentKind)) {
-        // Decision 7/15.4: real OSM Buildings tiles are multi-buffer
-        // (verified at implementation) -- consolidate before writeGlb,
-        // whose own single-buffer GLB-chunk contract requires exactly one.
         if (consolidate_buffers(*model)) {
             strip_attributes_and_correct_heights(*model, pGlb->transform, ecefToMap_,
                                                  anchorHeightM_);
@@ -1081,25 +590,6 @@ StreamRendererResources::prepareInLoadThread(
             const CesiumGltfWriter::GltfWriterResult res =
                 writer.writeGlb(*model, std::span<const std::byte>(bufData.data(), bufData.size()));
             if (res.errors.empty()) {
-                // Defense-in-depth, not a known-needed fix for the real ion
-                // path: every OSM Buildings b3dm this project has streamed
-                // live already carries NORMAL, so this is a measured no-op
-                // there -- kept as the same load-time hook environment.cpp
-                // uses for baked chunks, so a normal-less tileset degrades
-                // to flat-shaded rather than unlit. The committed test
-                // fixture (VM-097) deliberately has ONE real streamed-tile
-                // case that IS missing NORMAL
-                // (environment_tiles_fixture_0/tile_b.b3dm, see its own
-                // PROVENANCE.md) precisely so this call stays a genuine,
-                // exercised fix and not just a defensive no-op in ctest. It
-                // is NOT free though (gate round 1 correction to
-                // an earlier "costs nothing" claim): ensure_flat_normals()
-                // parses the JSON chunk before it can know there is nothing
-                // to do. That parse is the price of the guarantee; what we
-                // avoid below is the pointless second full-buffer copy --
-                // move the result straight into glbBytes instead of
-                // resize+memcpy (std::byte and uint8_t are layout-compatible
-                // but distinct types, so one conversion copy is unavoidable).
                 std::vector<uint8_t> bytes(
                     reinterpret_cast<const uint8_t*>(res.gltfBytes.data()),
                     reinterpret_cast<const uint8_t*>(res.gltfBytes.data() + res.gltfBytes.size()));
@@ -1115,7 +605,7 @@ StreamRendererResources::prepareInLoadThread(
     return asyncSystem.createResolvedFuture(std::move(out));
 }
 
-void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile& /*tile*/,
+void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile&,
                                                    void* pLoadThreadResult) {
     std::unique_ptr<LoadThreadGlb> glb(static_cast<LoadThreadGlb*>(pLoadThreadResult));
     if (tornDown_.load() || !glb || !glb->ok || r_ == nullptr) return nullptr;
@@ -1131,11 +621,6 @@ void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile&
     }
     asset->releaseSourceData();
 
-    // Clay re-materialization: verbatim baked ingestion sequence
-    // (environment.cpp:63-84, cited not paraphrased) -- streamed buildings
-    // are the SAME rendered element as baked ones (element-config
-    // directive), OPAQUE the entire time they're loaded (fresh-opaque
-    // convention, Global Constraints).
     filament::RenderableManager& rm = r_->engine->getRenderableManager();
     const utils::Entity* renderables = asset->getRenderableEntities();
     const size_t renderableCount = asset->getRenderableEntityCount();
@@ -1143,12 +628,6 @@ void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile&
         const auto inst = rm.getInstance(renderables[i]);
         if (!inst.isValid()) continue;
         const size_t primCount = rm.getPrimitiveCount(inst);
-        // VM-064 (Task 5) Step 1: the one-line gate that IS the feature --
-        // gltfio's loadResources() above already loaded this tile's own
-        // ubershader materials/textures; the clay remap below was
-        // DISCARDING them. Google Photorealistic 3D Tiles (materials=
-        // original) keeps them; every other preset (materialsOriginal_
-        // false, the default) remaps exactly as before -- byte-identical.
         if (!materialsOriginal_) {
             for (size_t p = 0; p < primCount; ++p) {
                 rm.setMaterialInstanceAt(inst, p, r_->buildingMaterial);
@@ -1158,17 +637,6 @@ void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile&
         rm.setReceiveShadows(inst, true);
     }
 
-    // brightness= gain (2026-09-22 dim-tile fix): materials=original path
-    // ONLY -- the clay remap just above rebinds every primitive to
-    // r_->buildingMaterial and must stay untouched. Google Photorealistic
-    // glbs declare KHR_materials_unlit, so they ignore the scene's own sun
-    // entirely and read flat-dim under the theme's fog/palette regardless
-    // of exposure; this scales each loaded ubershader material instance's
-    // own baseColorFactor uniform (gltfio's glTF-PBR ubershader parameter
-    // name, verified against the linked libgltfio.a shader source).
-    // brightness_ == 1.0 (default, every pre-existing call site) is
-    // skipped outright -- a no-op multiply is still a float op, and every
-    // golden this ships next to must stay byte-identical.
     if (materialsOriginal_ && brightness_ != 1.0) {
         if (filament::gltfio::FilamentInstance* finst = asset->getInstance(); finst != nullptr) {
             filament::MaterialInstance* const* insts = finst->getMaterialInstances();
@@ -1177,7 +645,7 @@ void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile&
                 filament::MaterialInstance* mi = insts[i];
                 if (mi == nullptr || mi->getMaterial() == nullptr ||
                     !mi->getMaterial()->hasParameter("baseColorFactor")) {
-                    continue;  // e.g. a vertex-color-only primitive -- nothing to scale
+                    continue;
                 }
                 filament::math::float4 base =
                     mi->getParameter<filament::math::float4>("baseColorFactor");
@@ -1190,31 +658,10 @@ void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile&
         }
     }
 
-    // Geo placement (Decision 8): one root-entity transform. `glb->transform`
-    // (captured in prepareInLoadThread, NOT tile.getTransform() -- see
-    // LoadThreadGlb's own comment) is this content's local-to-ECEF
-    // transform, RTC_CENTER included; ecefToMap_ was computed once at
-    // open(). x/y placement is exactly this one rigid matrix, no per-vertex
-    // math; z is NOT (Open Follow-up 4) -- strip_attributes_and_correct_heights()
-    // already rewrote each vertex's position, back in prepareInLoadThread,
-    // so that applying this SAME unchanged transform lands z on the true
-    // WGS84 ellipsoid height rather than the tangent-plane sag. That rewrite
-    // is per-PRIMITIVE, not just per-root: gltfio itself applies each
-    // primitive's own glTF node matrix (see the 2026-09-21 Google finding in
-    // that function's own comment) under this root transform, so the
-    // per-vertex correction has to account for the same node matrix or the
-    // two disagree. See that function's own comment for the math.
     filament::TransformManager& tm = r_->engine->getTransformManager();
     const auto tinst = tm.getInstance(asset->getRoot());
     if (tinst.isValid()) {
         tm.setTransform(tinst, to_filament_mat4(ecefToMap_ * glb->transform));
-        // 2026-09-21 terrain following ("option 2"): parent every streamed
-        // asset root under the one shared terrain root so
-        // set_terrain_transform() moves/tilts the whole streamed environment
-        // with a single transform -- AFTER the asset's own placement
-        // transform is set (Filament composes world = parent * child; the
-        // terrain root starts at identity, so this is a no-op until
-        // follow_terrain shifts it).
         ensure_terrain_root();
         const auto terrainInst = tm.getInstance(terrainRoot_);
         if (terrainInst.isValid()) tm.setParent(tinst, terrainInst);
@@ -1222,17 +669,12 @@ void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile&
     return asset;
 }
 
-void StreamRendererResources::free(Cesium3DTilesSelection::Tile& /*tile*/, void* pLoadThreadResult,
+void StreamRendererResources::free(Cesium3DTilesSelection::Tile&, void* pLoadThreadResult,
                                    void* pMainThreadResult) noexcept {
     delete static_cast<LoadThreadGlb*>(pLoadThreadResult);
     if (pMainThreadResult == nullptr) return;
     auto* asset = static_cast<filament::gltfio::FilamentAsset*>(pMainThreadResult);
     if (tornDown_.load()) {
-        // Arrived after teardown()'s own bounded wait gave up: r's
-        // sharedAssetLoader may already be gone by the time anyone would
-        // drain this. Deliberately leaked rather than risk a
-        // use-after-free -- see teardown()'s own comment.
-        // ponytail: bounded-wait leak path, same ceiling kTeardownPumpBound documents.
         return;
     }
     std::lock_guard<std::mutex> lock(freeMutex_);
@@ -1245,7 +687,7 @@ std::vector<filament::gltfio::FilamentAsset*> StreamRendererResources::drain_pen
         std::lock_guard<std::mutex> lock(freeMutex_);
         toFree.swap(pendingFrees_);
     }
-    if (r_ == nullptr) return {};  // nothing actually destroyed -- report none
+    if (r_ == nullptr) return {};
     for (filament::gltfio::FilamentAsset* asset : toFree) {
         r_->scene->removeEntities(asset->getEntities(), asset->getEntityCount());
         r_->sharedAssetLoader->destroyAsset(asset);
@@ -1253,7 +695,6 @@ std::vector<filament::gltfio::FilamentAsset*> StreamRendererResources::drain_pen
     return toFree;
 }
 
-// ── StreamingEnvironmentSource ────────────────────────────────────────────
 StreamingEnvironmentSource::StreamingEnvironmentSource(
     Cesium3DTilesSelection::TilesetExternals externals, int64_t asset_id,
     std::string ion_access_token, std::string root_tileset_uri, std::string fallback_baked_dir,
@@ -1272,23 +713,10 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
       maxTiltRad_(max_tilt_deg * M_PI / 180.0),
       brightness_(brightness),
       countingAccessor_(std::move(counting_accessor)) {
-    // GltfConverters' magic-byte dispatch table (b3dm/glTF/cmpt/i3dm/pnts)
-    // is empty until this is called once, process-wide -- cesium-native
-    // deliberately leaves it to the embedding application (not every
-    // consumer wants every content type linked in). Without it, EVERY
-    // tile's content -- b3dm included -- falls through to "must be an
-    // external tileset or GeoJSON" and fails to parse as JSON (found by
-    // running this task's own Step 2 test with tracing enabled: cesium's
-    // own TilesetJsonLoader logged "Error when parsing JSON content" for
-    // every real b3dm tile in the fixture).
     static std::once_flag registerContentTypesOnce;
     std::call_once(registerContentTypesOnce,
                    [] { Cesium3DTilesContent::registerAllTileContentTypes(); });
 
-    // Owned here (not passed in via `externals`) so update()/teardown() can
-    // reach it directly -- the SAME object also becomes
-    // externals.pPrepareRendererResources below, so cesium's Tileset holds
-    // the other half of this shared_ptr's ownership.
     renderResources_ = std::make_shared<StreamRendererResources>(
         ecefToMap_, anchor_.origin_height_m, materialsOriginal_, brightness_);
     externals.pPrepareRendererResources = renderResources_;
@@ -1308,10 +736,6 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
 StreamingEnvironmentSource::~StreamingEnvironmentSource() = default;
 
 void StreamingEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
-    // Decision 11 (VM-063): once fallen back, every subsequent update()
-    // delegates to the baked source (or is a no-op if none was configured
-    // -- Decision 11's "no &fallback= given" path). One-way: never
-    // re-checked against countingAccessor_ again.
     if (fallenBack_) {
         if (fallbackSource_) fallbackSource_->update(r, ego_map_pos);
         return;
@@ -1323,12 +747,6 @@ void StreamingEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
         return;
     }
     renderResources_->set_renderer(&r);
-    // VM-062 gate round 1, Finding 3: evict every just-destroyed asset from
-    // inScene_ BEFORE synthesize_view_and_pump()'s reconcile loop runs --
-    // otherwise a free() that lands between two ticks leaves a dangling
-    // pointer in inScene_ that the next tick's drain destroys and this
-    // tick's reconcile loop (stillPresent/removeEntities below) then
-    // dereferences again.
     for (filament::gltfio::FilamentAsset* freed : renderResources_->drain_pending_frees()) {
         inScene_.erase(freed);
     }
@@ -1336,29 +754,12 @@ void StreamingEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
 }
 
 void StreamingEnvironmentSource::fall_back(VisualRenderer& r) {
-    // teardown() with fallenBack_ still false at this point tears down ONLY
-    // the streamed tiles + tileset (fallbackSource_ is not yet set, so its
-    // own early-teardown branch is skipped) -- see teardown()'s own
-    // comment for why this ordering matters.
     teardown(r);
     fallenBack_ = true;
     if (!fallbackBakedDir_.empty()) {
         fallbackSource_ = open_baked_environment_source(fallbackBakedDir_, anchor_);
-        // A failed open (bad dir/missing index.yaml) is non-fatal, same as
-        // every other open_baked_environment_source() caller: fallbackSource_
-        // stays null, loaded_count() reports 0, state() still reports
-        // STREAMING_FALLBACK (network loss WAS declared -- the state names
-        // the transition, not whether the fallback dir itself was valid).
-        //
-        // VM-096: a freshly opened source defaults visible -- sync it
-        // to this source's OWN current visible_ (whatever the node/GUI
-        // last set via set_environment_visible()) so falling back while
-        // hidden doesn't pop the fallback baked chunks into view.
         if (fallbackSource_) fallbackSource_->set_visible(r, visible_);
     }
-    // No &fallback= configured (fallbackBakedDir_ empty): fallbackSource_
-    // stays null -- tiles simply stop appearing, state still reported
-    // (Decision 11's "no automatic recovery" + "no fallback dir" paths).
 }
 
 void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos,
@@ -1380,13 +781,6 @@ void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos,
         return;
     }
 
-    // 5 along-track offsets, ONE batched sampleHeightMostDetailed() request
-    // (Design item 1) -- LATERAL offsets are deliberately never sampled:
-    // the verge/kerb either side of the carriageway is genuinely higher
-    // than the road surface, so a lateral sample would pull the fit toward
-    // the kerb's own height/grade instead of the road's, corrupting the
-    // very slope this fit exists to recover. Along-track-only keeps every
-    // sample on (or very near) the same lane the ego is actually driving.
     static constexpr double kAlongTrackOffsetsM[5] = {-20.0, -10.0, 0.0, 10.0, 20.0};
     const double fwdX = std::cos(heading_rad), fwdY = std::sin(heading_rad);
     std::vector<double> validS;
@@ -1398,11 +792,11 @@ void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos,
             mapToEcef_ * glm::dvec4(ego_map_pos.x + s * fwdX, ego_map_pos.y + s * fwdY, 0.0, 1.0);
         const std::optional<CesiumGeospatial::Cartographic> carto =
             CesiumGeospatial::Ellipsoid::WGS84.cartesianToCartographic(glm::dvec3(sampleEcef4));
-        if (!carto.has_value()) continue;  // degenerate point -- spec §9, skip it, never crash
+        if (!carto.has_value()) continue;
         validS.push_back(s);
         cartos.push_back(*carto);
     }
-    if (cartos.empty()) return;  // every offset degenerate -- nothing to request this tick
+    if (cartos.empty()) return;
 
     terrainState_->sampled_x = ego_map_pos.x;
     terrainState_->sampled_y = ego_map_pos.y;
@@ -1410,17 +804,6 @@ void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos,
     terrainState_->ever_sampled = true;
     terrainState_->in_flight.store(true);
 
-    // Captured BY VALUE, never `this` -- see this method's own declaration
-    // comment (environment_stream.hpp). `validS` travels with the request
-    // so the continuation can pair each result position back to the along-
-    // track offset it came from (sampleHeightMostDetailed()'s own
-    // `positions`/`sampleSuccess` are parallel to the INPUT positions, not
-    // filtered -- a failed sample still occupies its index). `pivotX`/
-    // `pivotY`/`pivotHeadingRad` are this SAME request's ego position/
-    // heading (opus gate fix round, blocking finding #2) -- captured here,
-    // not read back from terrainState_ inside the continuation, because a
-    // later request (still respecting in_flight) could otherwise overwrite
-    // sampled_x/sampled_y before this one's continuation lands.
     std::shared_ptr<TerrainFollowState> state = terrainState_;
     const double pivotX = ego_map_pos.x;
     const double pivotY = ego_map_pos.y;
@@ -1444,20 +827,10 @@ void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos,
                 state->fit_intercept = intercept;
                 state->fit_rms_m = rms;
                 state->fit_hit_count = static_cast<int>(hitS.size());
-                // Pivot written in lockstep with the fit it belongs to --
-                // see fit_pivot_x's own comment (TerrainFollowState).
                 state->fit_pivot_x = pivotX;
                 state->fit_pivot_y = pivotY;
                 state->fit_pivot_heading_rad = pivotHeadingRad;
-                // Evidence latch (2026-09-21 live finding): a real geometry
-                // hit under the ego proves this tileset has ground there --
-                // never cleared, see the field's own comment.
                 state->ground_hit.store(true);
-                // One line per fit (>=2 s apart by construction): the only
-                // live evidence of what the follower sees vs. what is
-                // rendered -- hit count, slope as a percent grade, residual
-                // RMS, the tilt this fit will produce (clamped, degrees),
-                // and the resulting (un-smoothed) offset target.
                 const double clampedThetaRad = terrain_tilt_target(slope, state->max_tilt_rad);
                 const double offsetTarget =
                     std::clamp(-(intercept - state->anchor_height_m) - state->ground_bias_m,
@@ -1472,17 +845,9 @@ void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos,
             }
             state->in_flight.store(false);
         })
-        // A rejected future skips the value continuation above; without this
-        // in_flight would stay true for the life of the source and terrain
-        // following would silently freeze (review minor, 2026-09-21).
         .catchInMainThread([state](std::exception&&) { state->in_flight.store(false); });
 }
 
-// Pure math, factored out of update_terrain_transform() below so a plain
-// C++17 test TU can pin it via terrain_ground_offset_probe() (test hooks
-// section, near the end of this file) without a live tileset/renderer --
-// same "pure-math probe" discipline correct_ecef_point_height() documents
-// its own reason for existing. Internal linkage: the probe lives in this TU.
 namespace {
 double terrain_target_offset_z(double sampled_height_m, double anchor_height_m,
                                double ground_bias_m) {
@@ -1502,45 +867,11 @@ void StreamingEnvironmentSource::update_terrain_transform(float deltaSeconds) {
 
     const double slope = terrainState_->fit_slope.value_or(0.0);
     const double intercept = *terrainState_->fit_intercept;
-    // Offset target: UNCHANGED formula, evaluated at the fit's own s=0 (the
-    // intercept IS the fitted height at the pivot) -- Design item 3.
     const double zTarget =
         terrain_target_offset_z(intercept, anchor_.origin_height_m, groundBiasM_);
-    // Tilt target: clamp(atan(slope), +-maxTiltRad_) -- a linear fit
-    // extrapolates forever, so the clamp bounds both how wrong the far
-    // field gets past the fitted span and how far streamed buildings
-    // visibly lean (see kTerrainMaxTiltRad's own comment).
-    //
-    // Sign: POSITIVE atan(slope), not negative -- verified against this
-    // codebase's own conventions rather than assumed. The tilt rotates
-    // about the across-track axis u = z x forward =
-    // {-sin(heading), cos(heading), 0} (set_terrain_transform()'s own
-    // param), using Filament's mat4f::rotation(), which is the standard
-    // right-hand-rule active rotation matrix (TMatHelpers.h's generic-axis
-    // branch, cross-checked term by term against the textbook Rodrigues
-    // matrix). With forward = (cos(heading), sin(heading), 0) (this
-    // codebase's own heading convention -- ego.cpp's
-    // quatf::fromAxisAngle({0,0,1}, heading_rad)), a terrain point at
-    // along-track offset s from the pivot lands, after
-    // set_terrain_transform()'s full composed matrix, at map-frame z =
-    // (z_raw(s) + zTarget)*cos(theta) - s*sin(theta), where z_raw(s) is
-    // that point's OWN (already anchor-height-corrected) height before this
-    // transform. Substituting z_raw(s) = slope*s + intercept - anchor and
-    // zTarget above, that simplifies to s*(slope*cos(theta) - sin(theta)) -
-    // ground_bias*cos(theta) -- the s-dependent term is EXACTLY ZERO at
-    // theta = atan(slope) (cos(atan(slope)) = 1/sqrt(1+slope^2),
-    // sin(atan(slope)) = slope/sqrt(1+slope^2), so
-    // slope*cos(theta)-sin(theta) = 0), leaving every along-track point at
-    // -ground_bias*cos(theta) ~= -ground_bias -- the whole point of the
-    // fit. theta = -atan(slope) instead DOUBLES the s-dependent error
-    // (2*slope*s) rather than cancelling it -- pinned by this file's own
-    // terrain_transform_probe() test hook and
-    // EnvironmentStream.TerrainTransformProbeCancelsGradeOnFittedLine.
     const double thetaTarget = terrain_tilt_target(slope, maxTiltRad_);
 
     if (!groundOffsetSnapped_) {
-        // Snap on the very first fit -- Design item 3 -- so the initial
-        // frame isn't a 0.5 s slide up from a flat-map-frame 0/0.
         groundOffsetZ_ = zTarget;
         terrainTiltRad_ = thetaTarget;
         groundOffsetSnapped_ = true;
@@ -1551,12 +882,6 @@ void StreamingEnvironmentSource::update_terrain_transform(float deltaSeconds) {
 
     if (std::abs(groundOffsetZ_ - lastAppliedGroundOffsetZ_) > 1e-3 ||
         std::abs(terrainTiltRad_ - lastAppliedTiltRad_) > 1e-3) {
-        // Pivot at the position THIS FIT was taken at (fit_pivot_x/y/heading),
-        // NOT terrainState_->sampled_x/sampled_y -- those are the most
-        // recently REQUESTED position, which can be ahead of the fit
-        // actually applied here while a newer batch is still in flight (see
-        // fit_pivot_x's own comment, TerrainFollowState -- Opus gate fix
-        // round, blocking finding #2).
         renderResources_->set_terrain_transform(
             groundOffsetZ_, terrainTiltRad_, terrainState_->fit_pivot_x, terrainState_->fit_pivot_y,
             terrainState_->fit_pivot_heading_rad);
@@ -1577,25 +902,6 @@ double StreamingEnvironmentSource::first_tracked_tile_world_z(VisualRenderer& r)
 }
 
 namespace {
-// 2026-09-21 (docs/status.md item 4 addendum, coarse-LOD finding): the real
-// render camera's own ViewState, used as synthesize_view_and_pump()'s SECOND
-// selection frustum alongside the synthetic top-down one -- see this file's
-// kStreamViewHeightM comment (environment_stream.hpp) for the full "why".
-// nullopt when the camera isn't ready to answer this: `r.camera` null,
-// `r.width`/`r.height` zero (renderer not fully set up yet), OR the camera
-// still sits at Filament's untouched default pose (no lookAt() has ever
-// run). 2026-09-21 fix-round finding: an EARLIER version of this guard
-// tested position and forward vector both being exactly zero -- dead code,
-// since Filament derives the forward vector from the camera's model matrix
-// and it is always unit-length, never the zero vector, so that second
-// conjunct could never hold and this guard never fired (confirmed by a
-// temporary probe: on the very first render_frame(), before any lookAt()
-// has ever run, Filament reports pos=(0,0,0) fwd=(-0,-0,-1) up=(0,1,0)).
-// The fix tests the FULL untouched-default triple instead -- position at
-// the origin AND forward == {0,0,-1} AND up == {0,1,0} -- which is robust
-// because every real lookAt() call in this codebase (renderer.cpp) passes
-// up={0,0,1}, never up={0,1,0}; a legitimately positioned camera can never
-// match this triple even if it happens to sit at the map origin.
 std::optional<Cesium3DTilesSelection::ViewState> camera_view_state(const VisualRenderer& r,
                                                                    const glm::dmat4& mapToEcef) {
     if (r.camera == nullptr || r.width == 0 || r.height == 0) return std::nullopt;
@@ -1608,11 +914,6 @@ std::optional<Cesium3DTilesSelection::ViewState> camera_view_state(const VisualR
         return std::nullopt;
     }
 
-    // Camera position/direction/up are in Filament world space, which this
-    // project's convention (renderer.cpp's lookAt() calls) makes the SAME
-    // map frame ego_map_pos below is expressed in -- so the exact same
-    // mapToEcef transform synthesize_view_and_pump() already uses applies
-    // here unchanged (w=1 for the point, w=0 for the two directions).
     const glm::dvec4 posEcef4 = mapToEcef * glm::dvec4(pos.x, pos.y, pos.z, 1.0);
     const glm::dvec3 dirEcef =
         glm::normalize(glm::dvec3(mapToEcef * glm::dvec4(fwd.x, fwd.y, fwd.z, 0.0)));
@@ -1638,8 +939,6 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
     const glm::dvec4 eyeEcef4 = mapToEcef_ * glm::dvec4(ego_map_pos.x, ego_map_pos.y,
                                                         ego_map_pos.z + kStreamViewHeightM, 1.0);
     const glm::dvec3 eyeEcef(eyeEcef4);
-    // Map frame +Z is "up" by this project's own convention (ego.cpp, bowl.cpp);
-    // nadir direction is straight down that same axis, expressed in ECEF.
     const glm::dvec3 downEcef =
         glm::normalize(glm::dvec3(mapToEcef_ * glm::dvec4(0.0, 0.0, -1.0, 0.0)));
     const glm::dvec3 northEcef =
@@ -1656,36 +955,18 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
     }
     lastUpdate_ = now;
 
-    // 2026-09-21 terrain following ("option 2"): SAME deltaSeconds the view
-    // pump just computed above, per Design item 3 -- a no-op on both calls
-    // when followTerrain_ is false. Heading comes from the SAME published
-    // scene the renderer itself just drove the ego transform from
-    // (render_frame() -> update_ego_transform(), renderer.cpp) --
-    // r.scene_buffer.active().ego.heading_rad, not ego_map_pos (Vec3 has no
-    // heading component).
     if (followTerrain_) {
         maybe_trigger_terrain_sample(ego_map_pos, r.scene_buffer.active().ego.heading_rad);
         update_terrain_transform(deltaSeconds);
     }
 
-    // 2026-09-21 two-frustum selection (see this file's kStreamViewHeightM
-    // comment, environment_stream.hpp): the render camera's ViewState is
-    // ONE FRAME STALE here -- render_frame() calls
-    // environmentSource->update() (which reaches this) BEFORE this frame's
-    // camera->lookAt()/setProjection() (renderer.cpp) -- acceptable lag,
-    // same class as every other "previous frame's state" seam in this file.
     const std::optional<ViewState> cameraView = camera_view_state(r, mapToEcef_);
     const std::vector<ViewState> views = cameraView.has_value()
                                              ? std::vector<ViewState>{view, *cameraView}
                                              : std::vector<ViewState>{view};
     lastViewFrustumCount_ = views.size();
     const ViewUpdateResult& result = tileset_->updateViewGroup(*viewGroup_, views, deltaSeconds);
-    tileset_->loadTiles();  // NOT optional -- without this no tile ever loads (Decision 9).
-    // Runs continuations queued onto the main thread (root-tile-available,
-    // prepareInMainThread, free()...) -- TilesetExternals.h's own doc says
-    // this is called automatically from the OLD updateView(), but NOT from
-    // updateViewGroup()/loadTiles() (Decision 9's non-deprecated pair);
-    // confirmed empirically (root tile never resolved without this call).
+    tileset_->loadTiles();
     asyncSystem_.dispatchMainThreadTasks();
 
     std::unordered_map<const void*, bool> stillPresent;
@@ -1695,14 +976,9 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
         const auto* renderContent = tile->getContent().getRenderContent();
         if (renderContent == nullptr) continue;
         void* res = renderContent->getRenderResources();
-        if (res == nullptr) continue;  // prepareInMainThread hasn't produced it yet
+        if (res == nullptr) continue;
         auto* asset = static_cast<filament::gltfio::FilamentAsset*>(res);
         stillPresent[res] = true;
-        // visible_ invariant (VM-096): only add if currently visible --
-        // a tile that finishes loading while hidden must not pop into
-        // view. It's still tracked in stillPresent/inScene_ either way, so
-        // loaded_count() is unaffected and a later set_visible(true) picks
-        // it up without a re-fetch.
         if (visible_ && inScene_.find(res) == inScene_.end()) {
             r.scene->addEntities(asset->getEntities(), asset->getEntityCount());
         }
@@ -1711,8 +987,6 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
         if (stillPresent.find(it->first) == stillPresent.end()) {
             auto* asset =
                 static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(it->first));
-            // Only remove from the scene if it was ever added there (see
-            // the visible_ guard above) -- same invariant.
             if (visible_) {
                 r.scene->removeEntities(asset->getEntities(), asset->getEntityCount());
             }
@@ -1725,15 +999,6 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
 }
 
 void StreamingEnvironmentSource::teardown(VisualRenderer& r) {
-    // VM-063 (Task 4): a fallen-back source's OWN teardown discipline
-    // (BakedEnvironmentSource::teardown, or a no-op if none was ever
-    // opened) runs first, every time -- fall_back() calls teardown()
-    // itself BEFORE fallbackSource_ is constructed, so that first call
-    // takes the tornDown_-guarded branch below (tearing down the streamed
-    // tiles + tileset exactly once); every LATER teardown() call (the
-    // node's normal destroy_renderer() path, or set_environment_source()
-    // re-entry) finds fallbackSource_ already set and tears IT down here,
-    // then returns early via the tornDown_ guard below (already true).
     if (fallbackSource_) {
         fallbackSource_->teardown(r);
         fallbackSource_.reset();
@@ -1741,13 +1006,8 @@ void StreamingEnvironmentSource::teardown(VisualRenderer& r) {
     if (tornDown_) return;
     renderResources_->set_renderer(&r);
 
-    // (1) Remove/destroy every currently-in-scene asset (like
-    // BakedEnvironmentSource::teardown) and flush any already-queued frees.
     for (auto& [res, _] : inScene_) {
         auto* asset = static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(res));
-        // visible_ invariant, same as the reconcile loop above: nothing to
-        // remove from the scene for entries that were never added while
-        // hidden.
         if (visible_) {
             r.scene->removeEntities(asset->getEntities(), asset->getEntityCount());
         }
@@ -1755,58 +1015,32 @@ void StreamingEnvironmentSource::teardown(VisualRenderer& r) {
     inScene_.clear();
     renderResources_->drain_pending_frees();
 
-    // (2) Capture the async-destruction event BEFORE destroying the
-    // tileset (upstream: ~Tileset() does not join in-flight async work --
-    // "these tiles will be unloaded asynchronously some time after this
-    // destructor returns", Tileset.h). Then destroy it (unloads
-    // synchronously as much as it can) and pump main-thread tasks in a
-    // bounded loop until the event fires.
     CesiumAsync::SharedFuture<void> destructionComplete =
         tileset_->getAsyncDestructionCompleteEvent();
     tileset_.reset();
-    renderResources_->drain_pending_frees();  // whatever ~Tileset() freed synchronously
+    renderResources_->drain_pending_frees();
 
     int pumps = 0;
     for (; pumps < kTeardownPumpBound && !destructionComplete.isReady(); ++pumps) {
         asyncSystem_.dispatchMainThreadTasks();
     }
     if (pumps >= kTeardownPumpBound && !destructionComplete.isReady()) {
-        // ponytail: bounded join, kTeardownPumpBound -- hitting it means
-        // cesium's async work is wedged; we leak its in-flight tiles
-        // rather than hang destroy_renderer(). Not observed in this
-        // fixture-scale test suite.
         ++leakedOnTeardownBound_;
     }
 
-    // (3) Only now: any free() arriving after this point (a genuinely
-    // late async completion past the bound above) is unsafe to act on --
-    // r.sharedAssetLoader/sharedResourceLoader die shortly after this
-    // function returns (destroy_renderer()'s own contract). One final
-    // drain of whatever's already queued, using `r` while it's still
-    // valid, THEN the flag goes up.
     renderResources_->drain_pending_frees();
-    // 2026-09-21 terrain following: every streamed asset (this terrain
-    // root's children) is gone by this point (step (1)/(2) above) -- safe
-    // to destroy the now-childless root itself, while `r` is still valid.
     renderResources_->destroy_terrain_root();
     renderResources_->note_torn_down();
     tornDown_ = true;
 }
 
 void StreamingEnvironmentSource::set_visible(VisualRenderer& r, bool visible) {
-    // Once fallen back, this source's own inScene_ is permanently empty
-    // (teardown() already ran, Decision 11) -- delegate to whichever baked
-    // source is standing in, same as every other fallenBack_ member
-    // function here. visible_ is still recorded (not merely delegated)
-    // so a hypothetical future caller reading it directly sees the truth,
-    // and so a null fallbackSource_ (no &fallback= configured) doesn't
-    // silently drop the request.
     if (fallenBack_) {
         visible_ = visible;
         if (fallbackSource_) fallbackSource_->set_visible(r, visible);
         return;
     }
-    if (visible == visible_) return;  // no-op: matches the current state already
+    if (visible == visible_) return;
     visible_ = visible;
     for (auto& [res, _] : inScene_) {
         auto* asset = static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(res));
@@ -1825,13 +1059,6 @@ size_t StreamingEnvironmentSource::loaded_count() const {
 
 size_t StreamingEnvironmentSource::scene_membership_count(VisualRenderer& r) const {
     if (fallenBack_) return fallbackSource_ ? fallbackSource_->scene_membership_count(r) : 0;
-    // Finding #1: a genuine filament::Scene::hasEntity() read-back on each
-    // tracked tile's first entity, NOT a re-derivation from visible_ -- the
-    // visible_ invariant (VM-096, synthesize_view_and_pump()'s reconcile
-    // loop and set_visible() above) is what's SUPPOSED to keep these in
-    // sync, and this hook exists specifically to catch it if they ever
-    // don't (a set_visible()/reconcile bug that flips the flag without
-    // touching r.scene is exactly what a flag-only count could never see).
     size_t count = 0;
     for (const auto& [res, _] : inScene_) {
         auto* asset = static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(res));
@@ -1847,12 +1074,6 @@ EnvironmentSourceState StreamingEnvironmentSource::state() const {
                        : EnvironmentSourceState::STREAMING;
 }
 
-// VM-064 (Task 5) Step 1 test-hook mirror: the first currently-in-scene
-// tile's first renderable's first primitive, compared against
-// r.buildingMaterial -- true in every non-original-materials preset
-// (today's clay remap), false in original-materials mode. false (not a
-// crash) if nothing is loaded yet -- same null-safety shape as every other
-// test hook in this file.
 bool StreamingEnvironmentSource::first_primitive_is_building_material(VisualRenderer& r) const {
     if (inScene_.empty()) return false;
     auto* asset =
@@ -1868,7 +1089,6 @@ bool StreamingEnvironmentSource::first_primitive_is_building_material(VisualRend
 
 }  // namespace overlume
 
-// ── Public factory (production ion:// path, Decision 5/6/15.6) ───────────
 namespace overlume {
 
 std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::string& ion_spec,
@@ -1876,37 +1096,11 @@ std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::
     const std::optional<IonSpec> spec = parse_ion_spec(ion_spec);
     if (!spec) return nullptr;
 
-    // Decision 6: read once at open time, by NAME only. Corrected (Finding
-    // #0): the token DOES become a URI component -- cesium-native's own ion
-    // Tileset ctor builds the endpoint request as
-    // ".../endpoint?access_token=<token>" (Decision 15.6) and embeds that
-    // URL verbatim in its own error text on a handshake failure. What's
-    // actually true is narrower than "never persisted/never logged", and is
-    // enforced only to this extent: build_externals() gives cesium a logger
-    // (RedactingSink, above) that redacts any access_token=/Bearer credential
-    // out of every line THIS library's cesium logger emits, and
-    // TokenBypassAssetAccessor diverts any URL containing "access_token="
-    // away from the on-disk sqlite cache -- and the endpoint handshake is the
-    // ONLY request that ever carries CESIUM_ION_TOKEN (URL param + a Bearer
-    // header on that same request, CesiumIonTilesetLoader.cpp ~498), so
-    // the URL check covers it. Known residue, pre-existing and documented in
-    // Decision 6: tileset.json/tile requests carry "Authorization: Bearer
-    // <endpoint.accessToken>" -- the SHORT-LIVED session token ion's endpoint
-    // response hands back (CesiumIonTilesetLoader.cpp 74-77/143-146, refreshed
-    // by refreshTokenIfNeeded), not CESIUM_ION_TOKEN. Those requests take the
-    // caching branch and SqliteCache persists request headers verbatim, so a
-    // non-"off" cache_dir writes that session token to cesium-tiles.sqlite.
-    // Decision 6 said "URLs embed a short-lived session token"; it is the
-    // header, same exposure class. docs/runbooks/cesium.md §3 states it.
     const char* token = std::getenv("CESIUM_ION_TOKEN");
-    if (token == nullptr || token[0] == '\0') return nullptr;  // non-fatal, caller WARNs
+    if (token == nullptr || token[0] == '\0') return nullptr;
 
     const std::string cacheDir = spec->cache_dir.empty() ? default_cache_dir() : spec->cache_dir;
 
-    // CesiumCurl -> CountingAssetAccessor -> CachingAssetAccessor(SqliteCache)
-    // (Decision 10/11). The ion handshake itself is NOT here: the Tileset's
-    // own ion constructor (below) performs it and builds the session-token
-    // refresh accessor internally (Decision 15.6) -- nothing hand-rolled.
     auto curl = std::make_shared<CesiumCurl::CurlAssetAccessor>();
     CesiumAsync::AsyncSystem asyncSystem(std::make_shared<SimpleTaskProcessor>());
     std::shared_ptr<CountingAssetAccessor> counting;
@@ -1921,11 +1115,6 @@ std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::
 
 }  // namespace overlume
 
-// ── Test-only fixture hooks (Decision 13; environment_test_hooks.hpp) ────
-// Every function here is DEFINED in this, the one C++20 TU -- the header
-// they implement is C++17-safe and cesium-free (test TUs never see
-// FileFixtureAssetAccessor/StreamingEnvironmentSource, only the opaque
-// FixtureStreamHandle + bool/pointer-returning functions below).
 namespace overlume::testing {
 
 struct FixtureStreamHandle {
@@ -1934,21 +1123,7 @@ struct FixtureStreamHandle {
 
 namespace {
 
-// VM-062 gate round 1, Finding 4: a per-PROCESS cache dir under the system
-// temp path, NOT <fixture_dir>/.test_cache -- the old path wrote into the
-// committed fixture source tree and silently shared cache state across
-// separate ctest runs (a leftover cache from an earlier run made
-// DiskCacheServesTilesWithNetworkDead pass regardless of whether THIS run's
-// disk-cache write path actually worked). `static` gives every call in this
-// process the SAME path -- Step 4's proof needs its two
-// install_fixture_streaming_source_with_fallback() calls to share one
-// cache within a run -- while a fresh process (a new ctest invocation) gets
-// a fresh, genuinely cold directory.
 std::string test_cache_dir() {
-    // remove_all on first use: a reused pid must not inherit an earlier
-    // run's warm cache (that would let DiskCacheServesTilesWithNetworkDead
-    // pass with a broken cache-write path -- the exact spurious-pass mode
-    // gate round 1 finding 4 closed). One-time per process, like the path.
     static const std::string dir = [] {
         const std::string d = (std::filesystem::temp_directory_path() /
                                ("overlume-stream-test-cache-" + std::to_string(::getpid())))
@@ -1960,12 +1135,6 @@ std::string test_cache_dir() {
     return dir;
 }
 
-// Shared by both fixture install hooks: composes the SAME accessor stack
-// the production path uses (Decision 10/11's CachingAssetAccessor(SqliteCache)
-// over a CountingAssetAccessor) but rooted at the fixture's own
-// FileFixtureAssetAccessor instead of CesiumCurl -- Step 4's disk-cache
-// proof depends on this being the real stack, not a bare fixture accessor.
-// `killed` non-null makes the accessor honor kill_fixture_network().
 std::unique_ptr<overlume::EnvironmentSource> make_fixture_source(
     const char* fixture_dir, const char* fallback_baked_dir, overlume::GeoAnchor anchor,
     std::shared_ptr<std::atomic<bool>> killed, bool materials_original,
@@ -1979,10 +1148,9 @@ std::unique_ptr<overlume::EnvironmentSource> make_fixture_source(
         fileAccessor, asyncSystem, cacheDir, overlume::kDefaultMaxCacheItems, &counting);
     const std::string tilesetUri = std::string("file://") + fixture_dir + "/tileset.json";
     return std::make_unique<overlume::StreamingEnvironmentSource>(
-        externals, /*asset_id=*/0, /*ion_access_token=*/std::string(), tilesetUri,
+        externals, 0, std::string(), tilesetUri,
         fallback_baked_dir ? std::string(fallback_baked_dir) : std::string(), anchor,
-        std::move(counting), materials_original, follow_terrain, /*ground_bias_m=*/0.0,
-        /*replaces_ground=*/true);
+        std::move(counting), materials_original, follow_terrain, 0.0, true);
 }
 
 }  // namespace
@@ -1991,17 +1159,9 @@ bool install_fixture_streaming_source(overlume::VisualRenderer* r, const char* f
                                       overlume::GeoAnchor anchor, bool materials_original,
                                       bool follow_terrain) {
     if (r == nullptr) return false;
-    // Teardown-THEN-construct (not build-then-swap, unlike
-    // set_environment_source()'s general baked/streaming dispatch): two
-    // sqlite-backed accessor stacks pointed at the same on-disk cache file
-    // (Step 4's own disk-cache proof does exactly this, by design) cannot
-    // both be open at once -- SQLite's single-writer file lock rejects the
-    // second connection with "database is locked" if the first is still
-    // live. These test-only hooks aren't bound by set_environment_source's
-    // re-entrant-swap contract, so they tear down first.
     if (r->environmentSource) r->environmentSource->teardown(*r);
-    auto source = make_fixture_source(fixture_dir, /*fallback_baked_dir=*/nullptr, anchor,
-                                      /*killed=*/nullptr, materials_original, follow_terrain);
+    auto source = make_fixture_source(fixture_dir, nullptr, anchor, nullptr, materials_original,
+                                      follow_terrain);
     if (!source) {
         r->environmentSource.reset();
         return false;
@@ -2016,18 +1176,15 @@ FixtureStreamHandle* install_fixture_streaming_source_with_fallback(overlume::Vi
                                                                     overlume::GeoAnchor anchor,
                                                                     bool follow_terrain) {
     if (r == nullptr) return nullptr;
-    if (r->environmentSource)
-        r->environmentSource->teardown(*r);  // see install_fixture_streaming_source's comment
+    if (r->environmentSource) r->environmentSource->teardown(*r);
     auto killed = std::make_shared<std::atomic<bool>>(false);
-    auto source = make_fixture_source(fixture_dir, fallback_baked_dir, anchor, killed,
-                                      /*materials_original=*/false, follow_terrain);
+    auto source =
+        make_fixture_source(fixture_dir, fallback_baked_dir, anchor, killed, false, follow_terrain);
     if (!source) {
         r->environmentSource.reset();
         return nullptr;
     }
     r->environmentSource = std::move(source);
-    // ponytail: test-only handle, intentionally leaked -- this process is a
-    // short-lived gtest binary, and the handle is a single shared_ptr<atomic<bool>>.
     return new FixtureStreamHandle{std::move(killed)};
 }
 
@@ -2039,20 +1196,12 @@ void revive_fixture_network(FixtureStreamHandle* handle) {
     if (handle && handle->killed) handle->killed->store(false);
 }
 
-// VM-064 (Task 5) Step 0: mirrors the installed streaming source's own
-// materials_original flag. false on null r, no installed source, or a
-// non-streaming source (BakedEnvironmentSource) -- dynamic_cast is safe and
-// cheap here (this whole namespace lives in the one C++20 TU that has
-// StreamingEnvironmentSource's complete definition, Decision 3).
 bool environment_stream_materials_original(overlume::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return false;
     auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
     return stream != nullptr && stream->materials_original();
 }
 
-// 2026-09-21 terrain following ("option 2"): see this hook's own declaration
-// comment (environment_test_hooks.hpp) for the NaN-vs-false null-safety
-// choice.
 double environment_terrain_offset_z(overlume::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return std::nan("");
     auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
@@ -2060,9 +1209,6 @@ double environment_terrain_offset_z(overlume::VisualRenderer* r) {
     return stream->ground_offset_z();
 }
 
-// Gate round 1 finding 1: see this hook's own declaration comment
-// (environment_test_hooks.hpp) for why this reads back the real Filament
-// transform instead of the groundOffsetZ_ bookkeeping variable.
 double environment_terrain_first_tile_world_z(overlume::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return std::nan("");
     auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
@@ -2070,9 +1216,6 @@ double environment_terrain_first_tile_world_z(overlume::VisualRenderer* r) {
     return stream->first_tracked_tile_world_z(*r);
 }
 
-// 2026-09-21 two-frustum tile selection: see this hook's own declaration
-// comment (environment_test_hooks.hpp). -1 on the same null/non-streaming
-// conditions as environment_stream_materials_original() above.
 int environment_stream_last_view_frustum_count(overlume::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return -1;
     auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
@@ -2080,12 +1223,6 @@ int environment_stream_last_view_frustum_count(overlume::VisualRenderer* r) {
     return static_cast<int>(stream->last_view_frustum_count());
 }
 
-// 2026-09-21 Opus gate fix round: see this hook's own declaration comment
-// (environment_test_hooks.hpp) and force_fall_back_for_testing()'s own
-// comment (environment_stream.hpp) for why this calls the real fall_back()
-// directly instead of racing the counting-accessor path. Same null/non-
-// streaming null-safety class as environment_stream_materials_original()
-// above; `r` must still be non-null (needed to pass to fall_back()).
 bool environment_stream_force_fall_back(overlume::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return false;
     auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
@@ -2094,11 +1231,6 @@ bool environment_stream_force_fall_back(overlume::VisualRenderer* r) {
     return true;
 }
 
-// VM-064 gate round 1 finding: exercises the REAL parser (parse_ion_spec(),
-// anonymous namespace above), unlike the hook above which only reads back an
-// already-installed source's flag -- the two Step 0 tests that reach
-// materials_original both go through install_fixture_streaming_source(),
-// which never calls parse_ion_spec() at all.
 bool environment_stream_parse_materials_original(const char* ion_spec) {
     const std::optional<IonSpec> spec = parse_ion_spec(ion_spec ? ion_spec : "");
     return spec.has_value() && spec->materials_original;
@@ -2116,21 +1248,12 @@ bool environment_stream_parse_replaces_ground(const char* ion_spec, bool* out_pa
     return spec.has_value() && spec->replaces_ground;
 }
 
-// 2026-09-21 multi-point plane fit: exercises the real parser's
-// max_tilt_deg= key. *out_parse_ok reports whether the WHOLE spec parsed
-// (false for a non-numeric or negative value, same "fails the whole parse"
-// shape as follow_terrain=/replaces_ground=); the returned double is
-// spec->max_tilt_deg (2.0, the default, when the key is absent but the rest
-// parses, or on a total parse failure -- callers must check *out_parse_ok).
 double environment_stream_parse_max_tilt_deg(const char* ion_spec, bool* out_parse_ok) {
     const std::optional<IonSpec> spec = parse_ion_spec(ion_spec ? ion_spec : "");
     if (out_parse_ok) *out_parse_ok = spec.has_value();
     return spec.has_value() ? spec->max_tilt_deg : 2.0;
 }
 
-// 2026-09-22 dim/oddly-coloured streamed-tile fix: same shape as
-// environment_stream_parse_max_tilt_deg() above, exercising the real
-// parser's brightness= key instead.
 double environment_stream_parse_brightness(const char* ion_spec, bool* out_parse_ok) {
     const std::optional<IonSpec> spec = parse_ion_spec(ion_spec ? ion_spec : "");
     if (out_parse_ok) *out_parse_ok = spec.has_value();
@@ -2145,33 +1268,11 @@ double terrain_ground_offset_probe(double sampled_height_m, double anchor_height
     return snap ? target : overlume::terrain_smooth_toward(current_offset_m, target, delta_seconds);
 }
 
-// 2026-09-21 multi-point plane fit, design item 7a: exercises the REAL
-// least-squares fit (terrain_plane_fit(), anonymous namespace above) from a
-// plain C++17 test TU -- the same function maybe_trigger_terrain_sample()'s
-// continuation calls on every batched sample.
 void terrain_plane_fit_probe(const double* s, const double* h, int n, double* out_slope,
                              double* out_intercept, double* out_rms) {
     overlume::terrain_plane_fit(s, h, n, out_slope, out_intercept, out_rms);
 }
 
-// 2026-09-21 multi-point plane fit, design item 7b/c/d, reworked in the
-// Opus gate fix round (blocking finding #1): the map-frame z a terrain
-// point at along-track offset `s` from the pivot lands at AFTER
-// StreamRendererResources::set_terrain_transform()'s full composed matrix
-// -- computed by calling terrain_root_matrix() (the SAME anonymous-
-// namespace function set_terrain_transform() itself calls, above) and
-// multiplying a point placed at `pivot + s*forward` with raw (already
-// anchor-height-corrected) height `slope*s + intercept - anchor_height_m`
-// through it, rather than a hand-typed second copy of the matrix (a prior
-// version of this probe reimplemented it via Rodrigues' formula by hand,
-// which pinned a COPY of the math, not the shipped code path -- caught in
-// review). See update_terrain_transform()'s own comment for the closed-form
-// derivation of why theta = atan(slope) cancels the along-track error.
-// `theta` itself is computed exactly as update_terrain_transform() does, by
-// calling the shared terrain_tilt_target() helper -- so `max_tilt_rad=0`
-// reproduces the pre-fit offset-only behaviour exactly (design item 7d),
-// and a slope whose atan() exceeds max_tilt_rad exercises the clamp
-// (design item 7c).
 double terrain_transform_probe(double slope, double intercept, double anchor_height_m,
                                double ground_bias_m, double max_tilt_rad, double heading_rad,
                                double pivot_x, double pivot_y, double s) {
@@ -2190,9 +1291,6 @@ double terrain_transform_probe(double slope, double intercept, double anchor_hei
     return static_cast<double>(result.z);
 }
 
-// VM-064 Step 1: see StreamingEnvironmentSource::first_primitive_is_building_material()'s
-// own comment. false on the same null/non-streaming conditions as the hook
-// above, or if nothing has loaded yet.
 bool environment_stream_first_primitive_is_clay(overlume::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return false;
     auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
@@ -2226,56 +1324,20 @@ bool ecef_height_correction_probe(double origin_lat_deg, double origin_lon_deg, 
     const glm::dvec4 oldMapPt = ecefToMap * glm::dvec4(ecef, 1.0);
     if (out_z_uncorrected) *out_z_uncorrected = oldMapPt.z;
     if (out_z_corrected) {
-        // Gate round 1 major finding: this must call the SAME function
-        // strip_attributes_and_correct_heights() calls per real vertex
-        // (correct_ecef_point_height(), environment_stream.hpp), not an
-        // independently-typed copy of its formula -- a bug in one is now a
-        // bug in both. This still only exercises the z-correction FORMULA,
-        // not the accessor-rewrite mechanics (matrix order, float32 store,
-        // shared-accessor dedup) -- those remain covered only by the golden
-        // test, not by this pure-math probe or any ctest assertion; see
-        // docs/status.md item 4's own note on why the ingestion-level
-        // FilamentAsset readback was not added.
         *out_z_corrected = overlume::correct_ecef_point_height(ecef, ecefToMap, origin_height_m).z;
     }
     return true;
 }
 
-// Finding #0 test hook: everything this library's own named cesium logger
-// (build_externals()'s RedactingSink, process-wide singleton) has ever
-// emitted, POST-redaction -- i.e. exactly what an inner stdout sink would
-// have received. Empty if make_redacting_logger() has never been called
-// (no build_externals() call yet in this process).
 std::string captured_cesium_log_text() {
     return g_redactingSinkForTest ? g_redactingSinkForTest->captured_text_for_test()
                                   : std::string();
 }
 
-// Finding #0 test hook: drives the REAL ion-handshake error path (Decision
-// 15.6's asset_id + access_token Tileset ctor, the same one
-// open_streaming_environment_source() uses) against a FileFixtureAssetAccessor
-// instead of CesiumCurl -- no network, no real token needed. The endpoint
-// URL (".../endpoint?access_token=<bogus_token>") is treated as a local
-// file path by the fixture accessor, which 404s (no such file); cesium-native
-// treats any non-2xx response the same as a real HTTP failure and logs the
-// full request URL (CesiumIonTilesetLoader.cpp's own
-// mainThreadHandleEndpointResponse) through externals.pLogger --
-// build_externals()'s RedactingSink, exercising the real redaction path
-// end to end rather than a hand-typed string. Pumps up to `max_ticks`
-// asyncSystem ticks (TilesetContentManager::createFromCesiumIon fires the
-// request synchronously at Tileset construction; only the `.thenInMainThread`
-// completion needs pumping). Returns true once the captured log text
-// actually contains "access_token=" -- not merely non-empty, since
-// g_redactingSinkForTest is a process-wide singleton and an earlier test in
-// the same binary may have already logged something unrelated through it;
-// waiting for the specific marker keeps this probe's readiness check
-// order-independent (bounded by `max_ticks`, never hangs).
 bool drive_ion_token_redaction_probe(const char* bogus_token, int64_t asset_id, int max_ticks) {
     auto fileAccessor = std::make_shared<overlume::FileFixtureAssetAccessor>();
     CesiumAsync::AsyncSystem asyncSystem(std::make_shared<overlume::SimpleTaskProcessor>());
     std::shared_ptr<overlume::CountingAssetAccessor> counting;
-    // cache=off: this probe only cares about the log-redaction path, not the
-    // disk cache -- no throwaway temp dir needed for it.
     Cesium3DTilesSelection::TilesetExternals externals = overlume::build_externals(
         fileAccessor, asyncSystem, "off", overlume::kDefaultMaxCacheItems, &counting);
     Cesium3DTilesSelection::TilesetOptions options;

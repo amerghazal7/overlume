@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-/** @file camera_ingest.cpp
- *  @brief See camera_ingest.hpp. VM-091 Task 2 Step 6.
- */
 #include "overlume_ros/camera_ingest.hpp"
 
 #include <algorithm>
@@ -15,12 +12,6 @@
 
 namespace overlume::ros {
 
-// ── Pure math: odometry twist buffer + rig-pose-delta integration ──────────
-// Ported from micropilot_rendering_node/rendering_node.cpp:562-604, read in
-// full before porting -- unchanged algorithm, rewritten against a plain
-// std::deque<StampedTwist> parameter instead of a node member + its own
-// mutex (odom_mtx_ locking happens once at the CameraIngest call site, on a
-// snapshot, not per twist_at() call).
 bool twist_at(const std::deque<StampedTwist>& twists, double t, StampedTwist& out) {
     if (twists.empty()) return false;
     if (t <= twists.front().t) {
@@ -73,16 +64,10 @@ void compensation_delta_4x4(const std::deque<StampedTwist>& twists, double t_cam
         return;
     }
     const double c = std::cos(th), s = std::sin(th);
-    // Rows 0/1 = Rz(th)'s rows, translation (px, py); row 2 identity-z; row
-    // 3 = [0,0,0,1] -- see camera_ingest.hpp's own derivation comment: this
-    // is exactly the matrix bowl.cpp's apply_delta_rotation_transposed()
-    // expects (its transpose undoes Rz(th), matching
-    // rendering_node.cpp's compensate()).
     double m[16] = {c, -s, 0, px, s, c, 0, py, 0, 0, 1, 0, 0, 0, 0, 1};
     std::memcpy(out_delta_row_major, m, sizeof(m));
 }
 
-// ── Pure math: extrinsics orthonormalization ────────────────────────────────
 namespace {
 using Vec = std::array<double, 3>;
 Vec vsub(Vec a, const Vec& b, double s) {
@@ -112,7 +97,6 @@ double angle_between(const Vec& orig, const Vec& corrected_unit) {
 
 overlume::CameraExtrinsics OrthonormalizeExtrinsics(const overlume::CameraExtrinsics& in,
                                                     double* out_max_correction_rad) {
-    // R columns = (right, down, fwd) -- bowl_projection.hpp's own convention.
     const Vec right{in.R[0], in.R[3], in.R[6]};
     const Vec down{in.R[1], in.R[4], in.R[7]};
     const Vec fwd{in.R[2], in.R[5], in.R[8]};
@@ -124,10 +108,6 @@ overlume::CameraExtrinsics OrthonormalizeExtrinsics(const overlume::CameraExtrin
     double down_n = vnorm(down_orth);
     Vec down_u = down_n > 1e-12 ? vscale(down_orth, 1.0 / down_n) : vcross(Vec{0, 0, 1}, right_u);
 
-    // fwd reconstructed via the cross product, not a second Gram-Schmidt
-    // subtraction -- guarantees an EXACT right-handed orthonormal triple
-    // (right x down = fwd, matching bowl.mat's own down = cross(fwd,right)
-    // reconstruction cyclically) rather than one merely close to it.
     Vec fwd_u = vcross(right_u, down_u);
     const double fwd_n = vnorm(fwd_u);
     if (fwd_n > 1e-12) fwd_u = vscale(fwd_u, 1.0 / fwd_n);
@@ -151,7 +131,6 @@ overlume::CameraExtrinsics OrthonormalizeExtrinsics(const overlume::CameraExtrin
     return out;
 }
 
-// ── IngestState ──────────────────────────────────────────────────────────────
 IngestState::IngestState(uint32_t camera_count, std::vector<overlume::CameraExtrinsics> extrinsics)
     : camera_count_(camera_count), cams_(camera_count) {
     for (uint32_t i = 0; i < camera_count_ && i < extrinsics.size(); ++i)
@@ -169,12 +148,7 @@ bool IngestState::record_camera_info(uint32_t cam_idx, const overlume::CameraInt
     c.width = width;
     c.height = height;
     c.info_ready = true;
-    // Not everything was ready before this call -- the only question is
-    // whether THIS call completes the set (this camera's own change is
-    // irrelevant the first time; there's nothing to compare against yet).
     if (!all_ready_before) return all_info_ready();
-    // Every camera was already ready -- a re-bake is warranted only if this
-    // message actually changed something.
     return changed;
 }
 
@@ -212,17 +186,6 @@ void IngestState::store_rgb(uint32_t cam_idx, const uint8_t* data, uint32_t widt
     cams_[cam_idx].rgb.assign(data, data + n);
 }
 
-// CameraInfo (state_.width(i)/height(i),
-// what fill_bowl_intrinsics() hands BowlConfig::cam_width/cam_height) can
-// advertise different dims than the actual published image stream (a
-// routine calibration-res-vs-downscaled-stream ROS setup) -- ColorizeFromCameras
-// indexes this buffer with the BowlConfig dims, so a buffer ingested at the
-// image's own (possibly smaller) dims must never be handed out under a
-// larger CameraInfo size, or that indexing reads past the end of it. Only
-// hand out a buffer whose byte length still matches width(i)*height(i)*3
-// exactly; a stale/mismatched buffer reads as "this camera has never
-// delivered an image", which ColorizeFromCameras already treats as "covers
-// nothing" (falls through to the next configured camera).
 const uint8_t* IngestState::rgb(uint32_t cam_idx) const {
     if (cam_idx >= camera_count_ || cams_[cam_idx].rgb.empty()) return nullptr;
     const size_t expected =
@@ -231,7 +194,6 @@ const uint8_t* IngestState::rgb(uint32_t cam_idx) const {
     return cams_[cam_idx].rgb.data();
 }
 
-// ── CameraIngest ─────────────────────────────────────────────────────────────
 namespace {
 std::vector<overlume::CameraExtrinsics> orthonormalize_all(
     rclcpp_lifecycle::LifecycleNode* node, const std::vector<overlume::CameraExtrinsics>& in) {
@@ -263,9 +225,6 @@ CameraIngest::CameraIngest(rclcpp_lifecycle::LifecycleNode* node, uint32_t camer
         img_subs_[i] = node_->create_subscription<sensor_msgs::msg::Image>(
             image_topics[i], rclcpp::SensorDataQoS(),
             [this, i](const sensor_msgs::msg::Image::SharedPtr msg) {
-                // bowl_enabled_ is the STANDING disable knob -- false means
-                // this callback does no cv_bridge conversion work at all,
-                // not merely skips the upload.
                 if (!bowl_enabled_) return;
                 cv_bridge::CvImagePtr cv_img;
                 try {
@@ -279,21 +238,8 @@ CameraIngest::CameraIngest(rclcpp_lifecycle::LifecycleNode* node, uint32_t camer
                 const uint64_t frame_id = state_.record_image_stamp(i, stamp_sec);
                 const uint32_t w = static_cast<uint32_t>(cv_img->image.cols);
                 const uint32_t h = static_cast<uint32_t>(cv_img->image.rows);
-                // VM-094 (Task 5): retain a copy for lidar_colorize.hpp,
-                // independent of whether a renderer is attached yet -- a
-                // WARN-once-free no-op copy when hybrid rendering is off
-                // (the common case, STANDING disable knob).
                 if (hybrid_enabled_) state_.store_rgb(i, cv_img->image.data, w, h);
                 if (renderer_ == nullptr) return;
-                // Release-callback set_camera_frame (Decision resolution 1):
-                // hand Filament the SAME buffer cv_bridge already converted
-                // into -- one copy total (the toCvCopy conversion), not two.
-                // The heap-allocated CvImagePtr copy is just a refcount bump
-                // that keeps that buffer alive until Filament's release
-                // fires -- ON FILAMENT'S OWN THREAD (scene.h's contract), so
-                // a plain `delete` (dropping the shared_ptr, which may free
-                // the underlying cv::Mat) is safe: it calls nothing back
-                // into this library.
                 auto* owned = new cv_bridge::CvImagePtr(cv_img);
                 overlume::set_camera_frame(
                     renderer_, i, cv_img->image.data, w, h, frame_id,
@@ -370,15 +316,6 @@ void CameraIngest::update_motion_deltas() {
         std::lock_guard<std::mutex> lk(odom_mtx_);
         twists_snapshot = twists_;
     }
-    // VM-091 gate close-out finding 3: max_sync_latency was stored on the
-    // node but never read anywhere in this file. A camera whose last-image
-    // stamp is staler than max_sync_latency_ behind t_max keeps its last-
-    // uploaded texture (no upload happens here regardless -- this loop only
-    // ever calls set_camera_motion_delta, never set_camera_frame) AND keeps
-    // being delta-compensated to t_max below, same as every other camera --
-    // the merged node's redefined gate semantics (Task 2 Step 6) never
-    // withhold either for it. The one carryover from the old node's gate is
-    // this THROTTLED WARN when the spread exceeds the window.
     double max_spread = 0.0;
     for (uint32_t i = 0; i < state_.camera_count(); ++i) {
         if (!state_.has_stamp(i)) continue;

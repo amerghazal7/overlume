@@ -67,7 +67,6 @@ INSTALL_DIR = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)),
                  "../../../install"))
 
-
 class FrameCounter(Node):
     def __init__(self):
         super().__init__("smoke_frame_counter")
@@ -76,7 +75,6 @@ class FrameCounter(Node):
 
     def _on_image(self, msg: Image):
         self.frames.append(msg)
-
 
 class VcamStateWatcher(Node):
     """Scenario 4/5 (Task 6/VM-095 Step 2): tracks ~/vcam_state's index 7
@@ -93,7 +91,6 @@ class VcamStateWatcher(Node):
         if len(msg.data) >= 8:
             self.render_mode = int(msg.data[7])
 
-
 def make_mode_publisher(node: Node):
     """Scenario 4/5: a publisher on the global /rendering/set_mode topic,
     same transient_local+reliable QoS as the node's own subscription
@@ -107,7 +104,6 @@ def make_mode_publisher(node: Node):
         QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                    durability=QoSDurabilityPolicy.TRANSIENT_LOCAL))
 
-
 def publish_mode_and_wait(pub, spin_node: Node, mode: int, spins: int = 10):
     """Publish `mode` repeatedly for a beat so a not-yet-fully-matched
     subscriber (this run's watcher, or a not-yet-launched relaunch node in
@@ -116,7 +112,6 @@ def publish_mode_and_wait(pub, spin_node: Node, mode: int, spins: int = 10):
     for _ in range(spins):
         pub.publish(Int32(data=mode))
         rclpy.spin_once(spin_node, timeout_sec=0.1)
-
 
 def launch_node(initial_mode: int | None) -> subprocess.Popen:
     mode_arg = f"-p initial_mode:={initial_mode} " if initial_mode is not None else ""
@@ -132,7 +127,6 @@ def launch_node(initial_mode: int | None) -> subprocess.Popen:
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         start_new_session=True)
 
-
 def kill(proc: subprocess.Popen):
     try:
         os.killpg(os.getpgid(proc.pid), 15)
@@ -147,7 +141,6 @@ def kill(proc: subprocess.Popen):
             pass
         proc.wait()
 
-
 def lifecycle(transition: str, timeout: float = 15.0) -> bool:
     cmd = (f"source /opt/ros/humble/setup.bash && "
            f"ros2 lifecycle set /overlume_node {transition}")
@@ -157,12 +150,10 @@ def lifecycle(transition: str, timeout: float = 15.0) -> bool:
         print(f"  [lifecycle {transition}] stderr: {result.stderr.strip()}", file=sys.stderr)
     return result.returncode == 0
 
-
 def param_set(name: str, value_literal: str) -> bool:
     cmd = f"source /opt/ros/humble/setup.bash && ros2 param set /overlume_node {name} {value_literal}"
     result = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, timeout=15.0)
     return result.returncode == 0 and "Set parameter successful" in result.stdout
-
 
 def wait_for_start(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
     t0 = time.time()
@@ -171,7 +162,6 @@ def wait_for_start(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
         if proc.poll() is not None:
             return False
     return True
-
 
 def run_scenario(initial_mode: int, watch_s: float) -> list:
     """Launch, configure+activate, spin for watch_s, return received frames."""
@@ -198,7 +188,6 @@ def run_scenario(initial_mode: int, watch_s: float) -> list:
             counter.destroy_node()
             rclpy.shutdown()
         kill(node_proc)
-
 
 def run_mode_cycle_scenario(sequence: list, watch_s: float = 1.5) -> str:
     """Launch once with initial_mode:=3 (mux-authoritative throughout), then
@@ -241,9 +230,7 @@ def run_mode_cycle_scenario(sequence: list, watch_s: float = 1.5) -> str:
             rclpy.shutdown()
         kill(node_proc)
 
-
 def main() -> int:
-    # ── Scenario 1: initial_mode=3 -> frames flow ────────────────────────────
     print("INFO: scenario 1 -- initial_mode=3, expect >=5 frames in 3s ...")
     try:
         frames = run_scenario(initial_mode=3, watch_s=3.0)
@@ -262,11 +249,6 @@ def main() -> int:
         return 1
     print(f"INFO: got {len(frames)} frames, {f0.encoding} {f0.width}x{f0.height} -- OK.")
 
-    # ── Scenario 2 (rewritten, Task 6/VM-095 Step 3): initial_mode=1 -> ──────
-    # frames flow too now -- the mux-arbitration early return that used to
-    # zero this is deleted; the node renders/publishes every tick
-    # regardless of render_mode_. See module docstring for why this is
-    # still an interim (frames-flow-only, not content) assertion.
     print("INFO: scenario 2 -- initial_mode=1, expect frames to flow too "
           "(post-cutover: no mux early-return left to gate on) ...")
     try:
@@ -284,7 +266,6 @@ def main() -> int:
           "(bare launch: declare-defaults, no cameras -- content-blank by "
           "design; frames-flow is this scenario's whole scope).")
 
-    # ── Scenario 3 (Task 4/VM-093): local render_mode cycle, no topic ────────
     print("INFO: scenario 3 -- initial_mode=3 fixed, cycling render_mode "
           "1(BOWL)->2(HYBRID)->3(FREE_LOOK)->1(BOWL) via `ros2 param set` ...")
     err = run_mode_cycle_scenario([1, 2, 3, 1])
@@ -294,8 +275,6 @@ def main() -> int:
     print("INFO: frames kept flowing at the configured shape through the whole "
           "render_mode cycle, no crash -- OK.")
 
-    # ── Scenario 4 (Task 6/VM-095 Step 2): /rendering/set_mode drives ────────
-    # render_mode_ directly, no mux arbitration in between.
     print("INFO: scenario 4 -- publishing 1->2->3 on /rendering/set_mode, "
           "expect render_mode_ (vcam_state[7]) to follow directly ...")
     node_proc = launch_node(initial_mode=None)
@@ -327,8 +306,6 @@ def main() -> int:
             rclpy.shutdown()
         kill(node_proc)
 
-    # ── Scenario 5 (Task 6/VM-095 Step 2, restart case): a relaunched node ───
-    # resumes the durably-published mode, not its own declare-time default.
     print("INFO: scenario 5 -- publish render_mode=2 on /rendering/set_mode, "
           "kill+relaunch with no initial_mode/render_mode override, expect "
           "the relaunched node to resume mode 2 (late-join on the durable "
@@ -345,23 +322,13 @@ def main() -> int:
         if not lifecycle("configure") or not lifecycle("activate"):
             print("FAIL: configure/activate failed.", file=sys.stderr)
             return 1
-        # The publisher node stays ALIVE across the kill+relaunch below --
-        # matching the real shape (the WS bridge is a long-lived process
-        # that outlives any single viz-node restart). TRANSIENT_LOCAL
-        # durability is held by the WRITER; a destroyed writer takes its
-        # retained sample with it, so tearing this down before the
-        # relaunch would test something the real deployment never does.
         rclpy.init()
         pub_node = Node("smoke_set_mode_pub_s5")
         mode_pub = make_mode_publisher(pub_node)
         publish_mode_and_wait(mode_pub, pub_node, 2, spins=15)
-        time.sleep(1.0)  # let the first node's tick observe it before we kill it
+        time.sleep(1.0)
         kill(node_proc)
 
-        # Relaunch: no initial_mode, no render_mode override -- the ONLY way
-        # it can start at mode 2 is the durable /rendering/set_mode publish
-        # from above (kept resident by TRANSIENT_LOCAL on the still-live
-        # pub_node) delivering to this new subscriber as a late-joiner.
         node_proc = launch_node(initial_mode=None)
         if not wait_for_start(node_proc):
             stderr = node_proc.stderr.read().decode(errors="replace")
@@ -395,7 +362,6 @@ def main() -> int:
 
     print("PASS: overlume_node mode-mux smoke test passed.")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

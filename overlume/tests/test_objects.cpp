@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// test_objects.cpp — clay object rendering. Same "no Filament type"
-// boundary as every other tests/*.cpp — see objects_test_hooks.hpp /
-// map_elements_test_hooks.hpp / ego_test_hooks.hpp.
 #include "overlume/api.h"
 #include "overlume/scene.h"
 
@@ -42,17 +39,13 @@ overlume::TrackedObject make_car(uint32_t id, double x) {
 
 }  // namespace
 
-// ── Step 2: the mixed-class golden (no committed golden yet -- SSIM 0,
-// left red for human promotion; /tmp/objects_mixed_dark_adas_actual.png is
-// the viewable PNG for that review) ─────────────────────────────────────
-
 TEST(ObjectsGolden, MixedClassScene_DarkAdas) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    overlume::set_object_model_dir(r, OVERLUME_TEST_DATA_DIR "/assets/models");  // 0 is fine
+    overlume::set_object_model_dir(r, OVERLUME_TEST_DATA_DIR "/assets/models");
 
-    overlume::testing::ObjectScene objs = overlume::testing::make_mixed_class_objects(/*now=*/10.0);
+    overlume::testing::ObjectScene objs = overlume::testing::make_mixed_class_objects(10.0);
     overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
     s.ego = {{0, 0, 0}, 0, 0, 1};
@@ -67,25 +60,19 @@ TEST(ObjectsGolden, MixedClassScene_DarkAdas) {
     overlume::destroy_renderer(r);
 }
 
-// ── Staleness fade: shared clay_translucent.mat swap, CPU-mirrored alpha ──
-
 TEST(Objects, StaleObjectFadesViaSharedStalenessAlpha) {
-    // objects_overrange_opacity clamps to EXACTLY 1.0 -- the fresh-opaque
-    // invariant this test pins holds only at opacity 1.0 (the shipped
-    // themes author 0.5 since 2026-09-11, under which fresh objects bind
-    // translucent by design -- covered by the HalfOpacity tests).
     const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
     overlume::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), "objects_overrange_opacity"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
     overlume::TrackedObject objs[2]{};
-    objs[0] = make_car(1, 0.0);  // fresh
+    objs[0] = make_car(1, 0.0);
     objs[1].id = 2;
     objs[1].cls = overlume::ObjectClass::TRUCK_VAN;
     objs[1].position = {10.0, 0.0, 0.0};
     objs[1].dimensions = {5.5, 2.0, 2.2};
-    objs[1].last_update_sec = 10.0 - 0.75;  // 0.75s behind -> alpha ~0.5
+    objs[1].last_update_sec = 10.0 - 0.75;
 
     overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
@@ -107,22 +94,13 @@ TEST(Objects, StaleObjectFadesViaSharedStalenessAlpha) {
     overlume::destroy_renderer(r);
 }
 
-// ── objects.opacity theme token (VM-078) ──────────────────────────────────
-// Reuses the exact staleness-swap machinery above -- no parallel path. At
-// the shipped themes' default 1.0, alpha == staleness_alpha exactly (proven
-// by StaleObjectFadesViaSharedStalenessAlpha above, byte-identical to
-// before this token existed -- also why the existing goldens, unchanged by
-// this feature, stay pixel-identical). Below 1.0 (objects_half_opacity.yaml
-// fixture, VM-078's own theme.cpp test fixture), a FRESH object must now
-// also bind translucent, at alpha == opacity.
-
 TEST(Objects, HalfOpacityBindsTranslucentEvenWhileFresh) {
     const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
     overlume::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), "objects_half_opacity"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    overlume::TrackedObject obj = make_car(1, 0.0);  // fresh: last_update_sec == sim_time_sec
+    overlume::TrackedObject obj = make_car(1, 0.0);
     overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
     s.objects = &obj;
@@ -146,8 +124,7 @@ TEST(Objects, HalfOpacityStalenessRampsDownFromTheOpacityCeilingNeverAboveIt) {
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
     overlume::TrackedObject obj = make_car(1, 0.0);
-    obj.last_update_sec = 10.0 - 0.75;  // same offset as StaleObjectFadesViaSharedStalenessAlpha
-                                        // above -> staleness_alpha ~0.5
+    obj.last_update_sec = 10.0 - 0.75;
     overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
     s.objects = &obj;
@@ -157,16 +134,11 @@ TEST(Objects, HalfOpacityStalenessRampsDownFromTheOpacityCeilingNeverAboveIt) {
 
     const auto info = overlume::testing::object_material_info(r, 1);
     EXPECT_TRUE(info.bound_to_translucent);
-    // alpha = opacity(0.5) * staleness_alpha(~0.5) ~= 0.25 -- strictly below
-    // the 0.5 opacity ceiling, proving the fade still ramps DOWN from it
-    // rather than the opacity floor being clamped away.
     EXPECT_NEAR(info.alpha, 0.25f, 0.02f);
     EXPECT_LT(info.alpha, 0.5f);
 
     overlume::destroy_renderer(r);
 }
-
-// ── Dimensions drive scale, never the class model's own native size ──────
 
 TEST(Objects, DimensionsDriveScaleNotTheClassModel) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
@@ -178,9 +150,9 @@ TEST(Objects, DimensionsDriveScaleNotTheClassModel) {
     objs[0] = make_car(1, 0.0);
     objs[0].dimensions = {4.5, 1.8, 1.5};
     objs[1] = make_car(2, 10.0);
-    objs[1].dimensions = {12.0, 2.5, 3.2};  // same class, very different bbox
+    objs[1].dimensions = {12.0, 2.5, 3.2};
     objs[2].id = 3;
-    objs[2].cls = overlume::ObjectClass::UNKNOWN;  // always the procedural box
+    objs[2].cls = overlume::ObjectClass::UNKNOWN;
     objs[2].position = {-10.0, 0.0, 0.0};
     objs[2].dimensions = {2.0, 2.0, 2.0};
     objs[2].last_update_sec = 10.0;
@@ -192,13 +164,6 @@ TEST(Objects, DimensionsDriveScaleNotTheClassModel) {
     overlume::set_scene(r, s);
     render_once(r, kPose);
 
-    // Both CAR objects share the SAME loaded class model; the normalize
-    // pipeline guarantees every model's own X/Y footprint is exactly 1x1
-    // (scripts/normalize_models.py), so the APPLIED scale's X/Y always
-    // equal the raw perception dims regardless of which glb backs the
-    // class. This hook reads the APPLIED TransformManager scale, never
-    // RenderableManager's AABB -- add_mesh() hard-codes that to the same
-    // 40x40x2 box for every renderable, see renderer.cpp.
     const auto small = overlume::testing::object_transform_scale(r, 1);
     const auto big = overlume::testing::object_transform_scale(r, 2);
     EXPECT_NEAR(small.x, 4.5, 1e-4);
@@ -207,9 +172,6 @@ TEST(Objects, DimensionsDriveScaleNotTheClassModel) {
     EXPECT_NEAR(big.y, 2.5, 1e-4);
     EXPECT_GT(big.x, small.x);
 
-    // Procedural box path (UNKNOWN): build_unit_box() is always a unit
-    // cube, so its unit footprint is (1,1,1) BY CONSTRUCTION and scale ==
-    // dims exactly on every axis.
     const auto boxScale = overlume::testing::object_transform_scale(r, 3);
     EXPECT_NEAR(boxScale.x, 2.0, 1e-4);
     EXPECT_NEAR(boxScale.y, 2.0, 1e-4);
@@ -217,8 +179,6 @@ TEST(Objects, DimensionsDriveScaleNotTheClassModel) {
 
     overlume::destroy_renderer(r);
 }
-
-// ── Vanished track: removed from the scene AND recycled, not destroyed ───
 
 TEST(Objects, ObjectDisappearingIsRemovedFromTheSceneAndRecycled) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
@@ -240,8 +200,7 @@ TEST(Objects, ObjectDisappearingIsRemovedFromTheSceneAndRecycled) {
     const uint64_t id2Identity = overlume::testing::object_entity_identity(r, 2);
     const uint64_t id4Identity = overlume::testing::object_entity_identity(r, 4);
 
-    // Objects 2 and 4 vanish.
-    std::vector<overlume::TrackedObject> three = {five[0], five[2], five[4]};  // ids 1, 3, 5
+    std::vector<overlume::TrackedObject> three = {five[0], five[2], five[4]};
     overlume::SceneGraph s3{};
     s3.sim_time_sec = 10.0;
     s3.objects = three.data();
@@ -256,10 +215,6 @@ TEST(Objects, ObjectDisappearingIsRemovedFromTheSceneAndRecycled) {
     EXPECT_TRUE(overlume::testing::object_in_scene(r, 3));
     EXPECT_TRUE(overlume::testing::object_in_scene(r, 5));
 
-    // A 6th object arrives: its instance must be one of the two just freed
-    // (the free list is real, not a comment) — gltfio has no
-    // destroyInstance(), so recycling, not destruction, is the only shape
-    // available.
     std::vector<overlume::TrackedObject> four = {five[0], five[2], five[4], make_car(6, 50)};
     overlume::SceneGraph s4{};
     s4.sim_time_sec = 10.0;
@@ -276,9 +231,6 @@ TEST(Objects, ObjectDisappearingIsRemovedFromTheSceneAndRecycled) {
     overlume::destroy_renderer(r);
 }
 
-// ── Object class materials are themed on first data, no set_theme() ──────
-// needed (Step 8a's exemplar, copied — see map_elements.cpp's own version)
-
 TEST(Objects, ObjectMaterialIsThemedOnFirstDataWithNoTransition) {
     const auto theme = overlume::detail::load_theme(kThemeDir, "dark_adas");
     ASSERT_TRUE(theme.has_value());
@@ -287,7 +239,6 @@ TEST(Objects, ObjectMaterialIsThemedOnFirstDataWithNoTransition) {
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    // First-ever object data. Nothing calls set_theme().
     overlume::TrackedObject obj = make_car(1, 0.0);
     overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
@@ -302,8 +253,6 @@ TEST(Objects, ObjectMaterialIsThemedOnFirstDataWithNoTransition) {
     EXPECT_NEAR(carTint.b, theme->palette.object_tints.car.b, 1e-4);
     overlume::destroy_renderer(r);
 }
-
-// ── Step 5: the 50-object timing AC ───────────────────────────────────────
 
 TEST(Objects, FiftyObjectsSceneUpdateUnderTwoMilliseconds) {
     overlume::RenderConfig cfg{320, 240, 0, kThemeDir, "dark_adas"};
@@ -349,21 +298,11 @@ TEST(Objects, FiftyObjectsSceneUpdateUnderTwoMilliseconds) {
     }
     std::sort(msPerIter.begin(), msPerIter.end());
     const double median = msPerIter[kIterations / 2];
-    // Recorded in the plan's Epic 2 results block along with the machine
-    // this ran on (dev RTX 3090, possible CARLA contention) -- a regression
-    // tripwire, not a robot-hardware claim (Epic 0 Task 6 is unmeasured).
     std::fprintf(stderr, "[test_objects] 50-object render_frame median: %.3f ms\n", median);
     EXPECT_LT(median, 2.0);
 
     overlume::destroy_renderer(r);
 }
-
-// ── Predicted-path ribbon teardown must not double-destroy: destroy_mesh()
-// must null the Mesh it tears down, or a persistent track's predicted_path
-// vanishing (while a second object stays live) re-enters destroy_mesh() on
-// every subsequent frame, double-freeing Filament resources and recycling
-// the entity id into a live object. Repro: path present -> path gone (2nd
-// object present) -> repeat identical scene twice more.
 
 TEST(Objects, VanishingPredictedPathDoesNotDoubleDestroyRibbon) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
@@ -385,8 +324,7 @@ TEST(Objects, VanishingPredictedPathDoesNotDoubleDestroyRibbon) {
     render_once(r, kPose);
     ASSERT_TRUE(overlume::testing::object_in_scene(r, 1));
 
-    // Path vanishes on the SAME track, while a second object arrives.
-    overlume::TrackedObject noPath = make_car(1, 0.0);  // predicted_path == nullptr, count == 0
+    overlume::TrackedObject noPath = make_car(1, 0.0);
     overlume::TrackedObject second = make_car(2, 20.0);
     std::vector<overlume::TrackedObject> pair = {noPath, second};
 
@@ -396,9 +334,6 @@ TEST(Objects, VanishingPredictedPathDoesNotDoubleDestroyRibbon) {
     s2.object_count = static_cast<uint32_t>(pair.size());
     overlume::set_scene(r, s2);
 
-    // Render the identical no-path pair three more times: this is the
-    // steady-state re-entry the finding describes ("EVERY subsequent
-    // frame"). Must not throw/crash and object 2 must stay live throughout.
     for (int i = 0; i < 3; ++i) {
         overlume::set_scene(r, s2);
         render_once(r, kPose);

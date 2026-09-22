@@ -12,7 +12,6 @@ import rclpy
 from rclpy.node import Node
 from diagnostic_msgs.msg import DiagnosticArray
 
-
 def main():
     duration = float(sys.argv[1]) if len(sys.argv) > 1 else 14.0
     rclpy.init()
@@ -44,7 +43,6 @@ def main():
     p50 = samples[int(0.50 * (n - 1))]
     p99 = samples[int(0.99 * (n - 1))]
     print(f"render_ms_p50={p50:.3f} render_ms_p99={p99:.3f} render_ms_n={n}")
-
 
 if __name__ == "__main__":
     main()

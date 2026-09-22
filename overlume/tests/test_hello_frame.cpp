@@ -1,12 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// test_hello_frame.cpp — renders one frame from the node's default pose
-// and checks that something plausible came out: the buffer isn't all-zero,
-// and the sky (top rows, nothing drawn there) is visibly different from
-// the ground (bottom rows, the lit ground plane). GTEST_SKIP()s cleanly on
-// machines with no GPU/EGL device instead of failing, matching the repo's
-// GPU-test convention.
 #include "overlume/api.h"
 
 #include <EGL/egl.h>
@@ -32,10 +26,6 @@ bool HasGpuEglDevice() {
     return eglInitialize(display, &major, &minor) == EGL_TRUE;
 }
 
-// Redirects stderr to a temp file for the lifetime of the object, restoring
-// it (and reading the captured text) on Read(). Process-local (fd-level
-// dup2), safe here because gtest_discover_tests runs each TEST in its own
-// process invocation (--gtest_filter), never two tests in one process.
 class StderrCapture {
 public:
     StderrCapture() {
@@ -99,7 +89,6 @@ TEST(HelloFrame, RendersDistinctSkyAndGround) {
         return;
     }
 
-    // The node's default pose (docs/plans/2026-08-18-visual-mode.md, Task 2 Step 1).
     overlume::CameraPose pose{};
     pose.eye[0] = -4.0;
     pose.eye[1] = 0.0;
@@ -107,9 +96,6 @@ TEST(HelloFrame, RendersDistinctSkyAndGround) {
     pose.target[0] = 2.0;
     pose.target[1] = 0.0;
     pose.target[2] = -0.5;
-    // eye->target pitches down ~33.7 deg from horizontal; vfov must exceed
-    // 2x that (~67.4 deg) or the whole frustum stays below the horizon and
-    // no sky pixels exist to compare against the ground at all.
     pose.vfov_deg = 80.0;
 
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, 0);
@@ -120,8 +106,8 @@ TEST(HelloFrame, RendersDistinctSkyAndGround) {
     const bool anyNonZero = std::any_of(rgb.begin(), rgb.end(), [](uint8_t v) { return v != 0; });
     EXPECT_TRUE(anyNonZero) << "Rendered frame buffer is entirely zero.";
 
-    const double skyAvg = RowAverage(rgb, kWidth, 5);               // near top
-    const double groundAvg = RowAverage(rgb, kWidth, kHeight - 5);  // near bottom
+    const double skyAvg = RowAverage(rgb, kWidth, 5);
+    const double groundAvg = RowAverage(rgb, kWidth, kHeight - 5);
     EXPECT_GT(std::fabs(skyAvg - groundAvg), 5.0)
         << "sky rows and ground rows look indistinguishable (sky_avg=" << skyAvg
         << ", ground_avg=" << groundAvg << ")";
@@ -129,12 +115,6 @@ TEST(HelloFrame, RendersDistinctSkyAndGround) {
     overlume::destroy_renderer(renderer);
 }
 
-// Step (h), VM-037: create_renderer() (via HeadlessEglPlatform::createDriver(),
-// the only place the GL context is current on the same thread as the bluegl
-// binding) logs GL_VENDOR/GL_RENDERER/GL_VERSION once, so a recorded
-// render_ms budget can be attributed to real hardware vs. Mesa llvmpipe
-// (which also passes HasGpuEglDevice()). GTEST_SKIP()s per HasGpuEglDevice(),
-// same convention as RendersDistinctSkyAndGround above.
 TEST(CreateRenderer, LogsGlVendorRendererVersionOnce) {
     overlume::RenderConfig config{};
     config.width = 64;
@@ -156,10 +136,6 @@ TEST(CreateRenderer, LogsGlVendorRendererVersionOnce) {
     EXPECT_EQ(CountOccurrences(captured, "GL_VENDOR"), 1u) << captured;
     EXPECT_EQ(CountOccurrences(captured, "GL_RENDERER"), 1u) << captured;
     EXPECT_EQ(CountOccurrences(captured, "GL_VERSION"), 1u) << captured;
-    // Each label must be followed by a real (non-null, non-empty) value on
-    // its own line -- catches the label being logged while the underlying
-    // bluegl_glGetString() call itself silently returns null (e.g. from the
-    // wrong thread; see the call site's own comment for that exact history).
     EXPECT_EQ(captured.find("GL_VENDOR: (null)"), std::string::npos) << captured;
     EXPECT_EQ(captured.find("GL_RENDERER: (null)"), std::string::npos) << captured;
     EXPECT_EQ(captured.find("GL_VERSION: (null)"), std::string::npos) << captured;

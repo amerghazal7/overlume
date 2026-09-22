@@ -2,30 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Amer Ghazal
 
-# validate_logger_session.sh — replay a Micropilot data-logger session
-# (mp_record, NOT rosbag2) with mp_play and run validate_visual_mode.sh
-# --live against it. Encodes docs/runbooks/replay_logger_session.md:
-#   1. player yaml derived from the session's own config/player.yaml
-#      (asynchronous, looping, unpaused, require_all_topics=false)
-#   2. static TFs the recorder drops, from config/sensors_extrinsic_calib.yaml
-#      (full 4x4 -> translation + quaternion; on this robot a 180 deg yaw)
-#   3. LIVE_SIM_TIME=true validate_visual_mode.sh --live --profile replay
-#      --param gps_topic:=<NavSatFix topic>
-#   4. optional: arm an environment source over the bridge once the anchor solves
-#
-# Usage: tools/validate_logger_session.sh [SESSION_DIR] [--no-gui] [--arm PRESET]
-#            [--profile NAME] [--gps-topic TOPIC] [--collector-install PATH]
-#            [-- <extra validate_visual_mode.sh args>]
-#   SESSION_DIR defaults to $OVERLUME_SESSION, then ~/session_2026-09-01_13-57-00.
-#   --arm PRESET   baked|osm|clipped|google, sent after the health gate; retried
-#                  while the node answers "geo-anchor not solved yet".
-#   --anchor-height-offset M   geo_anchor_height_offset_m for the node: added to
-#                  the NavSatFix-sampled anchor height. On this robot the receiver
-#                  reads ~1.8 m above the map plane (Google ground under the ego
-#                  samples at ~0.3 m vs a 2.15 m altitude mean, 2026-09-21), so -1.8.
-# CESIUM_ION_TOKEN is re-read from a fresh login shell by validate_visual_mode.sh,
-# so a stale value in a long-lived terminal is not inherited by the node.
-# Ctrl-C tears everything down. Logs: /tmp/overlume_validate/.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -53,7 +29,6 @@ while [[ $# -gt 0 ]]; do
 done
 SESSION="${SESSION%/}"
 
-# ---------------------------------------------------------------- prereqs
 for f in config/player.yaml config/topics.yaml config/sensors_extrinsic_calib.yaml; do
     [[ -f "${SESSION}/${f}" ]] || { echo "not a logger session (missing ${f}): ${SESSION}" >&2; exit 1; }
 done
@@ -75,7 +50,6 @@ if [[ "$(publisher_count /clock)" =~ ^[1-9] ]]; then
     exit 1
 fi
 
-# --------------------------------------------------------- derived configs
 PLAYER_YAML="${LOG_DIR}/player_$(basename "${SESSION}").yaml"
 TF_LIST="${LOG_DIR}/static_tfs_$(basename "${SESSION}").txt"
 python3 - "${SESSION}" "${PLAYER_YAML}" "${TF_LIST}" <<'EOF'
@@ -90,8 +64,6 @@ p.setdefault("dashboard", {})["enable"] = False
 p.setdefault("controls", {})["keyboard"] = False
 yaml.safe_dump(p, open(player_out, "w"), sort_keys=False)
 
-# Static TFs: <key>.<*_to_ego> is base_link -> <frame>, frame from frame_renames.
-# fixposition has no rename entry; its NavSatFix/odometry frame is FP_POI.
 c = yaml.safe_load(open(f"{session}/config/sensors_extrinsic_calib.yaml"))
 renames = dict(c.get("frame_renames") or {})
 renames.setdefault("fixposition", "FP_POI")
@@ -117,13 +89,12 @@ echo "[config] player: ${PLAYER_YAML}"
 echo "[config] static TFs (base_link -> frame  x y z  qx qy qz qw):"
 sed 's/^/    /' "${TF_LIST}"
 
-# ------------------------------------------------------------------ launch
 PGIDS=()
 VALIDATE_PID=""
 teardown() {
     trap - INT TERM EXIT
     if [[ -n "${VALIDATE_PID}" ]]; then
-        kill -TERM "${VALIDATE_PID}" 2>/dev/null || true   # its own trap tears the rig down
+        kill -TERM "${VALIDATE_PID}" 2>/dev/null || true
         wait "${VALIDATE_PID}" 2>/dev/null || true
     fi
     for g in "${PGIDS[@]:-}"; do
@@ -137,7 +108,6 @@ teardown() {
 }
 trap teardown INT TERM EXIT
 
-# setsid: each ros2 wrapper + its child become one process group we can kill whole.
 echo "[launch] mp_play (log: ${LOG_DIR}/mp_play.log)"
 setsid ros2 run data_logger mp_play --session "${SESSION}" --player "${PLAYER_YAML}" \
     < /dev/null > "${LOG_DIR}/mp_play.log" 2>&1 &
@@ -171,7 +141,6 @@ LIVE_SIM_TIME=true "${REPO_ROOT}/tools/validate_visual_mode.sh" --live --profile
     > >(tee "${LOG_DIR}/validate_logger_session.log") 2>&1 &
 VALIDATE_PID=$!
 
-# ------------------------------------------------------------------- arm
 if [[ -n "${ARM}" ]]; then
     until grep -q '^Rig is up' "${LOG_DIR}/validate_logger_session.log" 2>/dev/null; do
         kill -0 "${VALIDATE_PID}" 2>/dev/null || { wait "${VALIDATE_PID}"; exit $?; }

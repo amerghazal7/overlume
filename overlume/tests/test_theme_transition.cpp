@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// test_theme_transition.cpp — animated theme toggle.
 #include "overlume/api.h"
 #include "overlume/scene.h"
 
@@ -32,13 +31,9 @@ double MaxAbsDiff(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) 
 }  // namespace
 
 TEST(OklabHelpers, RoundTripIsIdentity) {
-    // oklab_to_linear_srgb(linear_srgb_to_oklab(c)) must recover `c` --
-    // verifies the published matrices used here are genuine inverses of
-    // each other (catches a transposed/mistyped matrix element, which a
-    // "does it look about right" reading of blend() output alone wouldn't).
     const overlume::detail::Float3 colors[] = {
-        {0.05f, 0.06f, 0.08f},  // dark_adas.palette.ground
-        {0.82f, 0.80f, 0.76f},  // light_clay.palette.ground
+        {0.05f, 0.06f, 0.08f},
+        {0.82f, 0.80f, 0.76f},
         {1.0f, 1.0f, 1.0f},
         {0.0f, 0.0f, 0.0f},
     };
@@ -52,10 +47,6 @@ TEST(OklabHelpers, RoundTripIsIdentity) {
 }
 
 TEST(ThemeTransition, MidpointBlend_IsBetweenEndpointsInOklab) {
-    // dark_adas.ground vs light_clay.ground blended at w=0.5 must land near
-    // the Oklab midpoint of the two, NOT the naive-sRGB-lerp midpoint (the
-    // two differ measurably for colors this far apart -- that's the whole
-    // reason spec §4.3 calls out Oklab specifically).
     const std::optional<overlume::detail::Theme> dark =
         overlume::detail::load_theme(kThemeDir, "dark_adas");
     const std::optional<overlume::detail::Theme> light =
@@ -69,19 +60,12 @@ TEST(ThemeTransition, MidpointBlend_IsBetweenEndpointsInOklab) {
     const overlume::detail::Float3 naiveLerp{(a.r + b.r) / 2.0f, (a.g + b.g) / 2.0f,
                                              (a.b + b.b) / 2.0f};
 
-    // The two must differ measurably -- if this ever came back ~equal, either
-    // blend_color() silently degenerated into a plain component lerp, or the
-    // two ground colors stopped being far enough apart to tell the
-    // difference (neither should happen for the shipped themes).
     const double delta = std::abs(oklabBlend.r - naiveLerp.r) +
                          std::abs(oklabBlend.g - naiveLerp.g) +
                          std::abs(oklabBlend.b - naiveLerp.b);
     EXPECT_GT(delta, 0.01) << "Oklab-space blend and naive sRGB lerp landed on ~the same color -- "
                               "blend_color() isn't actually blending in Oklab space.";
 
-    // Self-consistency: the result's Oklab lightness must sit between the
-    // two endpoints' lightness (a genuinely "between" blend, not something
-    // that overshot/undershot due to a sign error in the matrices).
     const float La = overlume::detail::linear_srgb_to_oklab(a).L;
     const float Lb = overlume::detail::linear_srgb_to_oklab(b).L;
     const float Lmid = overlume::detail::linear_srgb_to_oklab(oklabBlend).L;
@@ -90,33 +74,28 @@ TEST(ThemeTransition, MidpointBlend_IsBetweenEndpointsInOklab) {
 }
 
 TEST(ThemeTransition, Smoothstep_EasesInAndOut) {
-    // smoothstep's defining property: weight(t) at t=0.1/0.9 sits closer to
-    // the endpoints (0/1) than a linear ramp (which would give exactly
-    // 0.1/0.9) would put it.
     EXPECT_LT(overlume::detail::smoothstep01(0.1f), 0.1f);
     EXPECT_GT(overlume::detail::smoothstep01(0.9f), 0.9f);
     EXPECT_FLOAT_EQ(overlume::detail::smoothstep01(0.0f), 0.0f);
     EXPECT_FLOAT_EQ(overlume::detail::smoothstep01(1.0f), 1.0f);
-    EXPECT_FLOAT_EQ(overlume::detail::smoothstep01(0.5f), 0.5f);  // symmetric at the midpoint
+    EXPECT_FLOAT_EQ(overlume::detail::smoothstep01(0.5f), 0.5f);
 }
 
 TEST(ThemeTransition, DeterministicClock_MatchesTargetAtDuration) {
-    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir,
-                               "dark_adas"};  // medium, same as Task 2's goldens
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     overlume::VisualRenderer* r = overlume::create_renderer(cfg);
     if (r == nullptr) {
         GTEST_SKIP() << "no GPU/EGL";
     }
     overlume::SceneGraph scene{};
     scene.sim_time_sec = 0.0;
-    overlume::set_scene(r, scene);                   // t=0, still dark_adas
-    overlume::set_theme(r, "light_clay", 0.0, 0.8);  // begin transition at t=0
+    overlume::set_scene(r, scene);
+    overlume::set_theme(r, "light_clay", 0.0, 0.8);
 
     overlume::CameraPose kFixedPose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
 
     scene.sim_time_sec = 0.0;
     overlume::set_scene(r, scene);
-    // golden at t=0.0 (still ~dark_adas -- first tick of the transition).
     EXPECT_GT(overlume::testing::render_and_compare(
                   r, kFixedPose, OVERLUME_TEST_DATA_DIR "/tests/goldens/transition_t0.png",
                   "/tmp/transition_t0_actual.png"),
@@ -124,8 +103,6 @@ TEST(ThemeTransition, DeterministicClock_MatchesTargetAtDuration) {
 
     scene.sim_time_sec = 0.4;
     overlume::set_scene(r, scene);
-    // golden at t=0.4s (~50% blended -- its own committed midpoint golden,
-    // not compared against either endpoint).
     EXPECT_GT(overlume::testing::render_and_compare(
                   r, kFixedPose, OVERLUME_TEST_DATA_DIR "/tests/goldens/transition_t0_4.png",
                   "/tmp/transition_t0_4_actual.png"),
@@ -133,7 +110,6 @@ TEST(ThemeTransition, DeterministicClock_MatchesTargetAtDuration) {
 
     scene.sim_time_sec = 0.8;
     overlume::set_scene(r, scene);
-    // golden at t=0.8s (fully light_clay -- transition_sec elapsed).
     EXPECT_GT(overlume::testing::render_and_compare(
                   r, kFixedPose, OVERLUME_TEST_DATA_DIR "/tests/goldens/transition_t0_8.png",
                   "/tmp/transition_t0_8_actual.png"),
@@ -143,16 +119,8 @@ TEST(ThemeTransition, DeterministicClock_MatchesTargetAtDuration) {
 }
 
 TEST(ThemeTransition, RetargetMidFlight_StartsFromCurrentBlendNotEndpoint) {
-    // set_theme(light_clay) at t=0, advance to sim_time_sec=0.4 (mid-blend)
-    // and render -- this is the frame we compare against. Then, WITHOUT
-    // advancing the clock, retarget back to dark_adas and render the SAME
-    // sim_time_sec again: with a correct retarget-from-current-blend
-    // implementation, `t` for the new transition is 0, so blend(from, to,
-    // 0) == `from` (the snapshot of the pre-retarget blend) and the two
-    // frames must match. A buggy implementation that snapped `from` to
-    // either endpoint would render a visibly different frame here.
     constexpr uint32_t kWidth = 320, kHeight = 240;
-    overlume::RenderConfig cfg{kWidth, kHeight, /*quality=*/1, kThemeDir, "dark_adas"};
+    overlume::RenderConfig cfg{kWidth, kHeight, 1, kThemeDir, "dark_adas"};
     overlume::VisualRenderer* r = overlume::create_renderer(cfg);
     if (r == nullptr) {
         GTEST_SKIP() << "no GPU/EGL";
@@ -170,21 +138,12 @@ TEST(ThemeTransition, RetargetMidFlight_StartsFromCurrentBlendNotEndpoint) {
     overlume::FrameView beforeView{beforeRetarget.data(), kWidth, kHeight};
     ASSERT_TRUE(overlume::render_frame(r, pose, beforeView));
 
-    // Retarget mid-flight, same instant on the clock.
     ASSERT_TRUE(overlume::set_theme(r, "dark_adas", 0.4, 0.8));
 
     std::vector<uint8_t> afterRetarget(static_cast<size_t>(kWidth) * kHeight * 3);
     overlume::FrameView afterView{afterRetarget.data(), kWidth, kHeight};
     ASSERT_TRUE(overlume::render_frame(r, pose, afterView));
 
-    // At w=0 every color field goes through one extra Oklab encode/decode
-    // round trip (bounded to ~1e-4 in linear color space by
-    // OklabHelpers.RoundTripIsIdentity above), which ACES tonemap + 8-bit
-    // quantization can turn into a few discrete levels of noise: measured
-    // worst-pixel diff is 11/255 on this build. 24.0 keeps comfortable
-    // margin above that while still catching a real snap-to-endpoint bug
-    // (dark_adas vs. light_clay differ by ~100+ mean luminance levels,
-    // spread across nearly every pixel) with wide margin.
     EXPECT_LT(MaxAbsDiff(beforeRetarget, afterRetarget), 24.0)
         << "retargeting set_theme() mid-flight visibly snapped the frame -- "
            "the new transition's `from` isn't the current blend.";
@@ -193,26 +152,14 @@ TEST(ThemeTransition, RetargetMidFlight_StartsFromCurrentBlendNotEndpoint) {
 }
 
 TEST(ThemeTransition, MidTransition_LuminanceDoesNotOvershootEndpoints) {
-    // sun.intensity/ibl.intensity are interpolated GEOMETRICALLY (log-space),
-    // not linearly: illumination x albedo is a PRODUCT, and a plain linear
-    // lerp of intensity across dark_adas/light_clay's ~19-29x range
-    // overshoots past both endpoints mid-transition (measured: peak mean
-    // luminance 205 vs. endpoint max ~175). Geometric interpolation can't
-    // overshoot either endpoint by construction. This test renders t=0.5
-    // and t=0.6 of the 0.8s transition and asserts each stays within
-    // [min(endpoint means)-3, max(endpoint means)+3].
     constexpr uint32_t kWidth = 320, kHeight = 240;
-    overlume::RenderConfig cfg{kWidth, kHeight, /*quality=*/1, kThemeDir, "dark_adas"};
+    overlume::RenderConfig cfg{kWidth, kHeight, 1, kThemeDir, "dark_adas"};
     overlume::VisualRenderer* r = overlume::create_renderer(cfg);
     if (r == nullptr) {
         GTEST_SKIP() << "no GPU/EGL";
     }
     overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
 
-    // Endpoint means come straight from the already-committed t0/t0_8
-    // goldens (t=0.0 == still dark_adas, t=0.8 == fully settled light_clay)
-    // -- no re-render needed, and this stays correct even if those two
-    // goldens are regenerated later for an unrelated reason.
     const overlume::testing::FrameStats endpointA =
         overlume::testing::analyze_png(OVERLUME_TEST_DATA_DIR "/tests/goldens/transition_t0.png");
     const overlume::testing::FrameStats endpointB =
@@ -227,7 +174,7 @@ TEST(ThemeTransition, MidTransition_LuminanceDoesNotOvershootEndpoints) {
     overlume::set_scene(r, scene);
     overlume::set_theme(r, "light_clay", 0.0, 0.8);
 
-    const double sampleTsOfDuration[] = {0.5, 0.6};  // t=0.5, t=0.6 of the 0.8s transition
+    const double sampleTsOfDuration[] = {0.5, 0.6};
     for (double tOfDuration : sampleTsOfDuration) {
         scene.sim_time_sec = tOfDuration * 0.8;
         overlume::set_scene(r, scene);
@@ -250,9 +197,6 @@ TEST(ThemeTransition, MidTransition_LuminanceDoesNotOvershootEndpoints) {
 
 namespace {
 
-// Every leaf field set to `scalar`: every color field is a Float3
-// (r=g=b=scalar, far from any real 0..1 color); every scalar field gets
-// `scalar` directly.
 overlume::detail::Theme MakeSentinelTheme(float scalar, const std::string& name) {
     using overlume::detail::Float3;
     const Float3 c{scalar, scalar, scalar};
@@ -323,13 +267,6 @@ void ExpectBetweenSentinels(const overlume::detail::Float3& v, const char* label
 }  // namespace
 
 TEST(ThemeTransition, SentinelThemesDetectAnyUnblendedField) {
-    // A field added to Palette/etc. without a matching line in blend()
-    // silently blends to black forever -- there is no compiler check
-    // (C++ has no reflection over aggregate members here). A with every
-    // leaf at 111.0f, B at 222.0f, blended at t=0.5: every leaf of the
-    // result must lie strictly between 100.0f and 230.0f. A field that
-    // silently defaulted to 0.0f (out's default-constructed Theme{}) fails
-    // this immediately.
     const overlume::detail::Theme a = MakeSentinelTheme(111.0f, "a");
     const overlume::detail::Theme b = MakeSentinelTheme(222.0f, "b");
     const overlume::detail::Theme mid = overlume::detail::blend(a, b, 0.5f);
@@ -362,11 +299,6 @@ TEST(ThemeTransition, SentinelThemesDetectAnyUnblendedField) {
     ExpectBetweenSentinels(mid.material.metallic, "material.metallic");
     ExpectBetweenSentinels(mid.emissive.ribbon_strength, "emissive.ribbon_strength");
     ExpectBetweenSentinels(mid.grid.line_color, "grid.line_color");
-    // grid.fade_start_m/fade_end_m are deliberately NOT blended (carried
-    // through as `b`'s value, per theme_transition.cpp's own comment) --
-    // still checked here since `b`'s sentinel (222.0f) is itself inside
-    // the [100,230] band, so this still catches a field that silently
-    // defaulted to 0.0f instead.
     ExpectBetweenSentinels(mid.grid.fade_start_m, "grid.fade_start_m");
     ExpectBetweenSentinels(mid.grid.fade_end_m, "grid.fade_end_m");
     ExpectBetweenSentinels(mid.hud.text_color, "hud.text_color");
@@ -390,7 +322,7 @@ TEST(ThemeTransition, SentinelThemesDetectAnyUnblendedField) {
 }
 
 TEST(ThemeTransition, UnknownThemeName_ReturnsFalseAndLeavesActiveThemeUnchanged) {
-    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     overlume::VisualRenderer* r = overlume::create_renderer(cfg);
     if (r == nullptr) {
         GTEST_SKIP() << "no GPU/EGL";
@@ -401,9 +333,6 @@ TEST(ThemeTransition, UnknownThemeName_ReturnsFalseAndLeavesActiveThemeUnchanged
 
     EXPECT_FALSE(overlume::set_theme(r, "no_such_theme", 0.0, 0.8));
 
-    // No transition should have started -- rendering right away must still
-    // match the dark_adas golden (Task 2's own empty-world golden), same
-    // pose/scene as that test.
     overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
     EXPECT_GT(overlume::testing::render_and_compare(
                   r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/empty_world_dark_adas.png",

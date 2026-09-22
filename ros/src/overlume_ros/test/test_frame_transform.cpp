@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-/** @file test_frame_transform.cpp
- *  @brief FrameTransformer tests.
- */
 #include "overlume_ros/frame_transform.hpp"
 
 #include <cmath>
@@ -19,7 +16,6 @@ using overlume::ros::FrameTransformer;
 
 namespace {
 
-// map <- base_link: translate (100, 50, 0), yaw +90 deg about Z.
 geometry_msgs::msg::TransformStamped MapToBaseLinkTransform() {
     geometry_msgs::msg::TransformStamped msg;
     msg.header.frame_id = "map";
@@ -37,8 +33,6 @@ geometry_msgs::msg::TransformStamped MapToBaseLinkTransform() {
 }  // namespace
 
 TEST(FrameTransform, MapFrameIsIdentityAndDoesNotTouchTheBuffer) {
-    // Empty buffer: any real lookup would throw. frame_id == "map" must
-    // short-circuit to identity without ever calling into it.
     tf2_ros::Buffer buffer(std::make_shared<rclcpp::Clock>(RCL_ROS_TIME));
     FrameTransformer ft(buffer, "map");
 
@@ -52,7 +46,6 @@ TEST(FrameTransform, MapFrameIsIdentityAndDoesNotTouchTheBuffer) {
     EXPECT_EQ(out.getOrigin().z(), 0.0);
     EXPECT_EQ(out.getRotation().getAngle(), 0.0);
 
-    // Empty frame_id (no publisher ever set one) -> same identity shortcut.
     std_msgs::msg::Header empty_header;
     tf2::Transform out2;
     ASSERT_TRUE(ft.lookup(empty_header, out2));
@@ -60,11 +53,8 @@ TEST(FrameTransform, MapFrameIsIdentityAndDoesNotTouchTheBuffer) {
 }
 
 TEST(FrameTransform, BaseLinkPointIsMovedIntoMapFrame) {
-    // /sim/ground_truth/boxes really does publish in base_link (every other
-    // bag topic is map). Feed a buffer a map<-base_link of (100, 50, yaw 90d),
-    // transform (1,0,0) -> expect (100,51,0), not (1,0,0).
     tf2_ros::Buffer buffer(std::make_shared<rclcpp::Clock>(RCL_ROS_TIME));
-    buffer.setTransform(MapToBaseLinkTransform(), "test_authority", /*is_static=*/true);
+    buffer.setTransform(MapToBaseLinkTransform(), "test_authority", true);
     FrameTransformer ft(buffer, "map");
 
     std_msgs::msg::Header header;
@@ -81,9 +71,6 @@ TEST(FrameTransform, BaseLinkPointIsMovedIntoMapFrame) {
 }
 
 TEST(FrameTransform, LookupFailureIsReportedNotSilentlyIdentity) {
-    // returns false -> caller drops the MESSAGE (not the marker) + dropped_no_tf.
-    // Silently passing untransformed coordinates through is the bug this
-    // whole helper exists to prevent: it renders wrong AND looks plausible.
     tf2_ros::Buffer buffer(std::make_shared<rclcpp::Clock>(RCL_ROS_TIME));
     FrameTransformer ft(buffer, "map");
 

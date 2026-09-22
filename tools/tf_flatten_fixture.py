@@ -16,7 +16,6 @@ import rclpy
 from rclpy.node import Node
 from tf2_msgs.msg import TFMessage
 
-
 class TfFlatten(Node):
     def __init__(self):
         super().__init__("tf_flatten")
@@ -29,11 +28,9 @@ class TfFlatten(Node):
                 t.transform.translation.z = 0.0
         self._pub.publish(msg)
 
-
 def main():
     rclpy.init()
     rclpy.spin(TfFlatten())
-
 
 if __name__ == "__main__":
     main()

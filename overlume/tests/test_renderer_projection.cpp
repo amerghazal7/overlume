@@ -1,12 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// tests/test_renderer_projection.cpp — Epic 3 Task 4 (VM-031) Step 1:
-// overlume::project_to_screen() against the camera state the most recent
-// render_frame() call set. Same "create_renderer() must succeed on this
-// box" convention as tests/test_hud_overlay.cpp's own golden (this repo's
-// CI box has a working GPU/EGL device) -- not the older GTEST_SKIP-on-no-GPU
-// shape test_hello_frame.cpp uses.
 #include "overlume/api.h"
 #include "overlume/scene.h"
 
@@ -22,13 +16,11 @@ overlume::VisualRenderer* MakeRenderer(uint32_t width, uint32_t height) {
     config.width = width;
     config.height = height;
     config.quality = 0;
-    config.theme_assets_dir = nullptr;  // compiled-in fallback theme -- no asset dir needed
+    config.theme_assets_dir = nullptr;
     config.initial_theme = nullptr;
     return overlume::create_renderer(config);
 }
 
-// The node's own default hello-frame pose (visual-mode.md Task 2 Step 1),
-// same one test_hello_frame.cpp uses -- an arbitrary-but-known eye/target/fov.
 overlume::CameraPose HelloFramePose() {
     overlume::CameraPose pose{};
     pose.eye[0] = -4.0;
@@ -72,8 +64,6 @@ TEST(ProjectToScreen, PointBehindCameraReturnsFalse) {
     overlume::FrameView view{rgb.data(), kW, kH};
     ASSERT_TRUE(overlume::render_frame(r, pose, view));
 
-    // eye + (eye - target): straight behind the eye, opposite the look
-    // direction, at the same distance the target sits in front of it.
     const overlume::Vec3 behind{pose.eye[0] + (pose.eye[0] - pose.target[0]),
                                 pose.eye[1] + (pose.eye[1] - pose.target[1]),
                                 pose.eye[2] + (pose.eye[2] - pose.target[2])};
@@ -93,8 +83,6 @@ TEST(ProjectToScreen, PointOutsideFrustumReturnsFalse) {
     overlume::FrameView view{rgb.data(), kW, kH};
     ASSERT_TRUE(overlume::render_frame(r, pose, view));
 
-    // Same depth as the target (in front of the camera, w > 0) but 500m off
-    // to the side -- far outside an 80deg vfov's horizontal extent at ~7m.
     const overlume::Vec3 way_off_to_the_side{pose.target[0], pose.target[1] + 500.0,
                                              pose.target[2]};
     float x = 0.0f, y = 0.0f;

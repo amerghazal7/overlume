@@ -34,14 +34,10 @@ import time
 
 import numpy as np
 
-# ego-front crop: rows 260:560, cols 440:840 -- where LOCAL/BEHAVIOR/velocity
-# ribbons nest in the chase-cam framing this rig uses (same crop the repro
-# pass's grab_burst.py used, so before/after captures compare pixel-for-pixel).
 CROP = (slice(260, 560), slice(440, 840))
 
 IMAGE_TOPIC = "/rendering/image"
 N_FRAMES = 24
-
 
 def corridor_fraction(crop: np.ndarray) -> float:
     """Fraction of a horizontal scan-line through the crop's vertical center
@@ -52,7 +48,6 @@ def corridor_fraction(crop: np.ndarray) -> float:
     b = row[:, 2].astype(int)
     return float(np.mean(r > b))
 
-
 def teal_fraction(crop: np.ndarray) -> float:
     """Fraction of the WHOLE crop that reads as the BEHAVIOR hero ribbon's
     teal/green emissive tint specifically (palette.ribbon_core under bloom):
@@ -62,7 +57,6 @@ def teal_fraction(crop: np.ndarray) -> float:
     b = crop[:, :, 2].astype(int)
     mask = (g > r + 25) & (b > r + 10) & (g > 60)
     return float(np.mean(mask))
-
 
 def summarize(crops: list[np.ndarray]) -> dict:
     """Per-frame corridor/teal stats plus the run-level dropout flags.
@@ -116,7 +110,6 @@ def summarize(crops: list[np.ndarray]) -> dict:
         "per_frame": stats,
     }
 
-
 def _run_capture(out_dir: str, deadline_s: float, warmup_s: float) -> None:
     import rclpy
     from rclpy.node import Node
@@ -140,7 +133,7 @@ def _run_capture(out_dir: str, deadline_s: float, warmup_s: float) -> None:
         if time.time() - t0 > warmup_s and len(frames) >= N_FRAMES:
             break
         if time.time() - t0 <= warmup_s:
-            frames.clear()  # discard warmup frames continuously
+            frames.clear()
     burst = frames[:N_FRAMES]
     print(f"captured {len(burst)} frames")
 
@@ -166,7 +159,6 @@ def _run_capture(out_dir: str, deadline_s: float, warmup_s: float) -> None:
     node.destroy_node()
     rclpy.shutdown()
 
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", required=True)
@@ -175,7 +167,6 @@ def main() -> None:
                      help="seconds of rig warmup to discard before the 24-frame burst")
     args = ap.parse_args()
     _run_capture(args.out_dir, args.deadline_s, args.warmup_s)
-
 
 if __name__ == "__main__":
     main()

@@ -40,17 +40,11 @@ from launch_ros.events.lifecycle import ChangeState
 from launch_ros.substitutions import FindPackageShare
 from lifecycle_msgs.msg import Transition
 
-
 def generate_launch_description() -> LaunchDescription:
     default_params = PathJoinSubstitution(
         [FindPackageShare("overlume_ros"), "config", "default_params.yaml"]
     )
 
-    # Same SHM-forcing config as rendering_node.launch.py:36-45, carried
-    # forward verbatim (Global Constraints / Task 4 Step 2) -- SHM only
-    # engages when BOTH this node AND the publisher (CARLA bridge) have it
-    # enabled; without it, every ~4 MB frame is copied per-subscriber and
-    # collapses the synchronous-mode sim FPS. Skip if already set.
     pre_actions = []
     if "CYCLONEDDS_URI" not in os.environ:
         pre_actions.append(SetEnvironmentVariable(

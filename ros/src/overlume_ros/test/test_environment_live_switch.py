@@ -79,21 +79,14 @@ REPO_ROOT = os.path.normpath(
 INSTALL_DIR = os.path.join(REPO_ROOT, "ros", "install")
 NODE_NAME = "/overlume_node"
 
-# The real, committed environment_test_town_0 fixture (test_environment.cpp's
-# own kTestTownDir) + its matching anchor -- a REAL baked dir, never a
-# fabricated path, so this run's geo-anchor solves via override and
-# on_activate()'s environment-arming branch actually fires (unlike main()'s
-# run above, which deliberately never arms a source).
 FIXTURE_CHUNKS_DIR = os.path.join(
     REPO_ROOT, "overlume", "tests", "fixtures", "environment_test_town_0")
 FIXTURE_LAT_DEG = 25.0803
 FIXTURE_LON_DEG = 55.3910
 FIXTURE_HEADING_DEG = 0.0
 
-
 def _popen(cmd: str) -> subprocess.Popen:
     return subprocess.Popen(["bash", "-c", cmd], start_new_session=True)
-
 
 def _kill(proc: subprocess.Popen):
     try:
@@ -109,11 +102,9 @@ def _kill(proc: subprocess.Popen):
             pass
         proc.wait()
 
-
 def _run(cmd: str, timeout: float = 15.0) -> subprocess.CompletedProcess:
     full = f"source /opt/ros/humble/setup.bash && {cmd}"
     return subprocess.run(["bash", "-c", full], capture_output=True, text=True, timeout=timeout)
-
 
 def _lifecycle(transition: str, timeout: float = 15.0) -> bool:
     for _ in range(20):
@@ -127,20 +118,16 @@ def _lifecycle(transition: str, timeout: float = 15.0) -> bool:
         time.sleep(1)
     return False
 
-
 def _param_set(name: str, value_literal: str) -> subprocess.CompletedProcess:
     return _run(f"ros2 param set {NODE_NAME} {name} {value_literal}")
-
 
 def _param_set_ok(name: str, value_literal: str) -> bool:
     result = _param_set(name, value_literal)
     return result.returncode == 0 and "Set parameter successful" in result.stdout
 
-
 def _param_get(name: str) -> str:
     result = _run(f"ros2 param get {NODE_NAME} {name}")
     return result.stdout.strip()
-
 
 def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
     t0 = time.time()
@@ -149,7 +136,6 @@ def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
         if proc.poll() is not None:
             return False
     return True
-
 
 def _run_hidden_arm_check() -> int:
     """FOLLOW-UP 2 + FOLLOW-UP 9 (maintainer decision, 2026-09-18): one run,
@@ -219,16 +205,6 @@ def _run_hidden_arm_check() -> int:
             print("FAIL: configure/activate failed (hidden-arm run).", file=sys.stderr)
             return 1
 
-        # (a) The real, committed fixture dir (a plain path, no '?'/'&') --
-        # a LIVE switch, not the launch config, is what arms a source this
-        # run (see the docstring above for why). FIX ROUND 1 finding: every
-        # step below captures `before` right before its own _param_set_ok()
-        # and asserts only against the log written AFTER it -- on_activate()
-        # (which ran before step (a) even starts) already logs its own
-        # "environment visibility -> hidden" line (want=false against the
-        # renderer's default-true), so a step that greped the WHOLE
-        # cumulative log for that bare substring could pass without its own
-        # action doing anything.
         before = len(_read_log())
         if not _param_set_ok("environment_source_uri", FIXTURE_CHUNKS_DIR):
             result = _param_set("environment_source_uri", FIXTURE_CHUNKS_DIR)
@@ -252,8 +228,6 @@ def _run_hidden_arm_check() -> int:
         print("PASS (a): launched disabled + a live environment_source_uri switch arms a "
               "HIDDEN source, not a visible one.")
 
-        # (b) FOLLOW-UP 2's "switch shows" half: enabling now shows the
-        # already-armed source.
         before = len(_read_log())
         if not _param_set_ok("environment_enabled", "true"):
             print("FAIL: `ros2 param set environment_enabled true` was rejected.",
@@ -270,12 +244,6 @@ def _run_hidden_arm_check() -> int:
         print("PASS (b): environment_enabled:=true shows the already-armed source "
               "(FOLLOW-UP 2's 'switch shows').")
 
-        # (c) FOLLOW-UP 9: BOWL hides buildings even with environment_enabled
-        # still true. Slicing to only the log written after THIS param set is
-        # what makes this check bite -- on_activate()'s own launch-time
-        # "-> hidden" line (want=false, logged long before step (a)) would
-        # otherwise satisfy a whole-log substring search with zero help from
-        # this step's actual render_mode:=1 change.
         before = len(_read_log())
         if not _param_set_ok("render_mode", "1"):
             print("FAIL: `ros2 param set render_mode 1` was rejected.", file=sys.stderr)
@@ -291,10 +259,6 @@ def _run_hidden_arm_check() -> int:
         print("PASS (c): render_mode:=1 (BOWL) hides buildings regardless of "
               "environment_enabled.")
 
-        # (d) FOLLOW-UP 9: FREE_LOOK restores them, no re-arm needed. Same
-        # after-this-action slicing as (b)/(c) -- the fragile
-        # `.count(...) >= 2` idiom this replaced only worked by coincidence
-        # (nothing earlier could produce a second "-> visible" line).
         before = len(_read_log())
         if not _param_set_ok("render_mode", "3"):
             print("FAIL: `ros2 param set render_mode 3` was rejected.", file=sys.stderr)
@@ -314,7 +278,6 @@ def _run_hidden_arm_check() -> int:
     finally:
         _kill(viz_proc)
 
-
 def main() -> int:
     if not os.path.isdir(INSTALL_DIR):
         print("SKIP: ros/install not built -- run colcon_build.sh first.")
@@ -323,12 +286,6 @@ def main() -> int:
     log_fd, log_path = tempfile.mkstemp(prefix="viz_environment_live_switch_", suffix=".log")
     os.close(log_fd)
 
-    # Deliberately NO environment_chunks_dir/environment_source_uri and NO
-    # geo_datum_* override: the geo-anchor never solves this run (no
-    # NavSatFix/TF is published), so renderer_->environmentSource stays
-    # null and on_activate()'s own environment-arming branch never fires
-    # either -- this is the cheapest way to reach "geo-anchor not solved"
-    # for check 3 below without a live GPS/TF feed.
     viz_cmd = (
         f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
         f"ros2 run overlume_ros overlume_node --ros-args "
@@ -347,7 +304,6 @@ def main() -> int:
             print("FAIL: configure/activate failed.", file=sys.stderr)
             return 1
 
-        # ---- 1. environment_own_asset_uri: declared, defaults to "" ----
         got = _param_get("environment_own_asset_uri")
         if "String value is:" not in got:
             print(f"FAIL: environment_own_asset_uri is not a declared string param -- "
@@ -356,7 +312,6 @@ def main() -> int:
             return 1
         print(f"PASS (1/4): environment_own_asset_uri is declared ({got!r}).")
 
-        # ---- 2. environment_enabled round-trips live + honest WARN when unarmed ----
         if not _param_set_ok("environment_enabled", "false"):
             print("FAIL: `ros2 param set environment_enabled false` was rejected -- "
                   "expected accepted (STANDING disable-knob shape).", file=sys.stderr)
@@ -377,16 +332,12 @@ def main() -> int:
         print("PASS (2/4): environment_enabled round-trips true/false live and WARNs "
               "honestly when no source is configured to show/hide.")
 
-        # ---- 3. environment_source_uri REJECTED while geo-anchor unsolved ----
         result = _param_set("environment_source_uri", "ion://96188")
         if "Set parameter successful" in result.stdout:
             print("FAIL: `ros2 param set environment_source_uri ion://96188` was ACCEPTED "
                   "with the geo-anchor never solved -- expected rejected (same precondition "
                   "on_activate()'s own environment-arming branch enforces).", file=sys.stderr)
             return 1
-        # `ros2 param set` prints a REJECTED result's reason to stderr, not
-        # stdout (confirmed empirically -- only the success message goes to
-        # stdout).
         if "anchor" not in result.stderr.lower():
             print(f"FAIL: environment_source_uri was rejected (good) but the reason doesn't "
                   f"name the geo-anchor precondition. stdout={result.stdout!r} "
@@ -395,7 +346,6 @@ def main() -> int:
         print("PASS (3/4): environment_source_uri live switch is REJECTED while the "
               "geo-anchor has not solved, with a reason naming the anchor.")
 
-        # ---- 4. node stayed alive throughout ----
         if viz_proc.poll() is not None:
             with open(log_path) as f:
                 tail = f.read()[-2000:]
@@ -409,7 +359,6 @@ def main() -> int:
         _kill(viz_proc)
 
     return _run_hidden_arm_check()
-
 
 if __name__ == "__main__":
     sys.exit(main())

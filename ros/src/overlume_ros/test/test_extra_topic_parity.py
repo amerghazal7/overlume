@@ -61,27 +61,14 @@ import time
 OUT_W, OUT_H = 320, 240
 TF_RATE_HZ = 20.0
 TF_DT = 1.0 / TF_RATE_HZ
-EGO_X_M = 150.0  # "100+ m from the map origin" per the plan
-# ~/set_look offset (ego-anchored, no tween): a SIDE view, since the
-# default chase-cam preset looks along +X where both boxes sit (base_link
-# +-3 in X) and the ego's own clay-box silhouette occludes most of them
-# from that angle (confirmed empirically).
+EGO_X_M = 150.0
 LOOK_OFFSET = [0.0, -3.5, 1.8, 0.0, 0.0, 0.0]
-# Marker scale: position (not size) is what the plan pins down. A 1x1x1
-# box measured ~0.7 mean-abs-diff here (confirmed empirically), nowhere
-# near DIFF_FLOOR=10.0 even unoccluded, so BOX_SCALE is sized up to a
-# decent-sized ground obstacle instead of moving the camera uncomfortably
-# close.
 BOX_SCALE = (4.0, 4.0, 3.0)
-SETTLE_SEC = 1.0     # TF alone -- let the ego/camera settle before the baseline capture
-PUBLISH_SEC = 1.5    # boxes + TF together -- long enough to clear the row's staleness window
-DIFF_FLOOR = 10.0    # matches test_ego_anchored_vcam.py-style generous noise floors
-NOCHANGE_CEILING = 5.0  # phase 1's own "nothing rendered" internal check
+SETTLE_SEC = 1.0
+PUBLISH_SEC = 1.5
+DIFF_FLOOR = 10.0
+NOCHANGE_CEILING = 5.0
 
-# TEST_PORT is this script's isolation knob (every E2E script in this
-# directory picks a distinct one); ROS_DOMAIN_ID is derived from it (mod
-# 232, the valid domain range) so it stays traceable to the assigned port
-# rather than being an unrelated magic constant.
 TEST_PORT = 18767
 ROS_DOMAIN_ID = TEST_PORT % 232
 
@@ -92,11 +79,9 @@ VIZ_SHARE_CONFIG = os.path.join(
     INSTALL_DIR, "overlume_ros", "share", "overlume_ros",
     "config")
 
-
 def _popen(cmd: str, env: dict) -> subprocess.Popen:
     return subprocess.Popen(["bash", "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             start_new_session=True, env=env)
-
 
 def _kill(proc: subprocess.Popen):
     try:
@@ -112,7 +97,6 @@ def _kill(proc: subprocess.Popen):
             pass
         proc.wait()
 
-
 def _lifecycle(env: dict, transition: str, timeout: float = 15.0) -> bool:
     cmd = f"source /opt/ros/humble/setup.bash && ros2 lifecycle set /overlume_node {transition}"
     result = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, timeout=timeout,
@@ -121,7 +105,6 @@ def _lifecycle(env: dict, transition: str, timeout: float = 15.0) -> bool:
         print(f"  [lifecycle {transition}] stderr: {result.stderr.strip()}", file=sys.stderr)
     return result.returncode == 0
 
-
 def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -129,7 +112,6 @@ def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
         if proc.poll() is not None:
             return False
     return True
-
 
 def _make_norow_profile(tmpdir: str) -> str:
     """Filters the REAL, installed urban_profile.yaml -- never a hand-typed
@@ -151,9 +133,6 @@ def _make_norow_profile(tmpdir: str) -> str:
     src = os.path.join(VIZ_SHARE_CONFIG, "urban_profile.yaml")
     with open(src) as f:
         profile = yaml.safe_load(f)
-    # The shipped profile carries no /sim/ground_truth/boxes row (see the
-    # profile's own comment block) -- assert that stays true, or this
-    # test's premise silently rots:
     assert not any(r.get("topic") == "/sim/ground_truth/boxes" for r in profile["rows"]), (
         "shipped urban_profile.yaml has a /sim/ground_truth/boxes row again -- "
         "phase 1 is no longer a no-row baseline; update this test")
@@ -162,7 +141,6 @@ def _make_norow_profile(tmpdir: str) -> str:
     with open(dst, "w") as f:
         yaml.safe_dump(profile, f)
     return "e2e_norow"
-
 
 def _make_withrow_profile(tmpdir: str) -> str:
     """The parity guarantee, literally: the SAME shipped profile plus ONE
@@ -186,7 +164,6 @@ def _make_withrow_profile(tmpdir: str) -> str:
         yaml.safe_dump(profile, f)
     return "e2e_withrow"
 
-
 def _launch_node(env: dict, profile_name: str, profile_dir: str) -> subprocess.Popen:
     cmd = (
         f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
@@ -195,7 +172,6 @@ def _launch_node(env: dict, profile_name: str, profile_dir: str) -> subprocess.P
         f"-p profile:={profile_name} -p profile_dir:={profile_dir}"
     )
     return _popen(cmd, env)
-
 
 def _run_phase(env: dict, profile_name: str, profile_dir: str):
     """Returns (frame_before_markers, frame_after_markers) -- both raw RGB
@@ -218,10 +194,6 @@ def _run_phase(env: dict, profile_name: str, profile_dir: str):
         def __init__(self):
             super().__init__("extra_topic_parity_fixture")
             self.broadcaster = TransformBroadcaster(self)
-            # LOAD-BEARING (module docstring): BEST_EFFORT, matching the
-            # shipped row's best_effort:true and the real bag's
-            # reliability:2 -- a RELIABLE publisher here would certify a
-            # row whose QoS is silently wrong on the real stack.
             qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
             self.boxes_pub = self.create_publisher(MarkerArray, "/sim/ground_truth/boxes", qos)
             self.look_pub = self.create_publisher(
@@ -272,13 +244,6 @@ def _run_phase(env: dict, profile_name: str, profile_dir: str):
         if not _lifecycle(env, "configure") or not _lifecycle(env, "activate"):
             raise RuntimeError("lifecycle transition failed")
 
-        # Wait for the FIRST frame explicitly: DDS discovery + the lifecycle
-        # CLI subprocess's startup jitter is variable and could eat a fixed
-        # settle window, failing this on timing noise rather than a real
-        # render-path problem. publish_look() is repeated (not fire-and-
-        # forget): the fixture's publisher must discovery-match the node's
-        # subscription first, same race as the image subscription; applying
-        # the offset is idempotent, so repeating it costs nothing.
         first_frame_deadline = time.time() + 8.0
         while fixture.latest_frame is None and time.time() < first_frame_deadline:
             fixture.publish_tf()
@@ -288,7 +253,6 @@ def _run_phase(env: dict, profile_name: str, profile_dir: str):
         if fixture.latest_frame is None:
             raise RuntimeError("no /rendering/image frame received within 8s of activation")
 
-        # TF-only settle -- ego valid, camera anchored, no markers yet.
         t_end = time.time() + SETTLE_SEC
         while time.time() < t_end:
             fixture.publish_tf()
@@ -297,14 +261,12 @@ def _run_phase(env: dict, profile_name: str, profile_dir: str):
             time.sleep(TF_DT)
         frame_before = fixture.latest_frame
 
-        # TF + boxes together.
         t_end = time.time() + PUBLISH_SEC
         while time.time() < t_end:
             fixture.publish_tf()
             fixture.publish_boxes()
             rclpy.spin_once(fixture, timeout_sec=0.0)
             time.sleep(TF_DT)
-        # Drain a few more ticks so frame_after isn't racing the last publish.
         t_end = time.time() + 0.3
         while time.time() < t_end:
             fixture.publish_tf()
@@ -317,7 +279,6 @@ def _run_phase(env: dict, profile_name: str, profile_dir: str):
         _kill(node_proc)
 
     return frame_before, frame_after
-
 
 def _diff_stats(a: bytes, b: bytes):
     """(mean_abs_diff, (centroid_row_frac, centroid_col_frac)) -- the
@@ -347,17 +308,11 @@ def _diff_stats(a: bytes, b: bytes):
     centroid = (weighted_row / weight_sum / OUT_H, weighted_col / weight_sum / OUT_W)
     return mean_abs, centroid
 
-
 def main() -> int:
     if not os.path.isdir(INSTALL_DIR):
         print("SKIP: ros/install not found -- build with colcon_build.sh first.")
         return 0
 
-    # Set on THIS process's environment, not just a dict handed to
-    # subprocess calls: the fixture's rclpy node runs in-process, so
-    # rclpy.init() must see the override too, or the node subprocess and
-    # this script end up on different DDS domains and never discover each
-    # other (confirmed the hard way).
     os.environ["ROS_DOMAIN_ID"] = str(ROS_DOMAIN_ID)
     env = os.environ
 
@@ -390,13 +345,6 @@ def main() -> int:
                   file=sys.stderr)
             return 1
         row_frac, col_frac = centroid
-        # Generous central window (not a tight bbox on the boxes' projected
-        # footprint, which would overfit this vcam preset): the diff must
-        # land where the ego-anchored camera is looking, not smeared across
-        # the frame or (the bug this guards against) sitting where an
-        # untransformed base_link->map bug would put it -- 100+ m outside
-        # this frustum, which would produce no diff pixels (already caught
-        # by DIFF_FLOOR above).
         if not (0.15 <= row_frac <= 0.95 and 0.1 <= col_frac <= 0.9):
             print(f"FAIL: diff centroid ({row_frac:.2f}, {col_frac:.2f}) is not in the ego's "
                   f"screen neighbourhood -- expected roughly central, not a corner/edge smear.",
@@ -410,7 +358,6 @@ def main() -> int:
         return 0
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
-
 
 if __name__ == "__main__":
     sys.exit(main())

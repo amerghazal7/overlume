@@ -16,15 +16,11 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 from nav_msgs.msg import Odometry
 
-
 def main():
     topic = sys.argv[1] if len(sys.argv) > 1 else "/synthetic/odom"
     vx = float(sys.argv[2]) if len(sys.argv) > 2 else 2.0
     wz = float(sys.argv[3]) if len(sys.argv) > 3 else 0.1
     rclpy.init()
-    # use_sim_time=True: the bag's /clock, not wall time -- stamps must land
-    # in the same time base as the (sim-time) camera image stamps this
-    # feeds rig_delta()/twist_at() against, or every lookup clamps/misses.
     node = Node("synthetic_odom_publisher",
                 parameter_overrides=[Parameter("use_sim_time", value=True)])
     pub = node.create_publisher(Odometry, topic, 10)
@@ -38,7 +34,6 @@ def main():
 
     node.create_timer(1.0 / 50.0, tick)
     rclpy.spin(node)
-
 
 if __name__ == "__main__":
     main()

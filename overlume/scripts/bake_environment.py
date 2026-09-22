@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Amer Ghazal
+
 """Bake OSM building footprints into chunked, map-frame glTF + an index
 (Epic 4 Task 2 / VM-051).
 
@@ -62,27 +63,13 @@ import shapely.geometry
 import trimesh
 import yaml
 
-# --------------------------------------------------------------------------
-# Geo math -- Python port of geo_anchor.cpp's WgsToMap (Task 1, VM-050).
-# Kept in sync via the cross-language pin selfcheck below, not by shared
-# source (this script has no C++ dependency; a second small copy on the
-# Python side of the ABI-adjacent boundary is the same "two copies, one per
-# toolchain" call Epic 3 already made for point_at/dash-walking).
-# --------------------------------------------------------------------------
-
-
 class GeoAnchor(NamedTuple):
     origin_lat_deg: float
     origin_lon_deg: float
-    heading_rad: float  # bearing of map-frame +X from true north, radians
-
+    heading_rad: float
 
 _DEG_TO_RAD = math.pi / 180.0
-# Mean Earth radius (m) -- matches geo_anchor.cpp's kEarthRadiusM exactly;
-# a spherical approximation is the AC's own stated sufficiency bound
-# ("~2 km area"), not a survey-grade ellipsoid.
 _EARTH_RADIUS_M = 6371000.0
-
 
 def wgs_to_local_enu(anchor: GeoAnchor, lat_deg: float, lon_deg: float) -> Tuple[float, float]:
     """WGS84 -> local ENU (east, north) around the anchor's own origin, with
@@ -93,7 +80,6 @@ def wgs_to_local_enu(anchor: GeoAnchor, lat_deg: float, lon_deg: float) -> Tuple
     north = _EARTH_RADIUS_M * (lat_deg - anchor.origin_lat_deg) * _DEG_TO_RAD
     return east, north
 
-
 def local_enu_to_wgs(anchor: GeoAnchor, east: float, north: float) -> Tuple[float, float]:
     """Inverse of wgs_to_local_enu -- used only to construct synthetic
     lat/lon footprints for --selfcheck (a realistic OSM-shaped input built
@@ -102,7 +88,6 @@ def local_enu_to_wgs(anchor: GeoAnchor, east: float, north: float) -> Tuple[floa
     lat = anchor.origin_lat_deg + north / (_EARTH_RADIUS_M * _DEG_TO_RAD)
     lon = anchor.origin_lon_deg + east / (_EARTH_RADIUS_M * _DEG_TO_RAD * math.cos(lat0_rad))
     return lat, lon
-
 
 def wgs_to_map(anchor: GeoAnchor, lat_deg: float, lon_deg: float, alt_m: float = 0.0) -> Tuple[float, float, float]:
     """Full WGS84 -> map-frame conversion (ENU + heading rotation). Pinned
@@ -113,7 +98,6 @@ def wgs_to_map(anchor: GeoAnchor, lat_deg: float, lon_deg: float, alt_m: float =
     h = anchor.heading_rad
     s, c = math.sin(h), math.cos(h)
     return east * s + north * c, -east * c + north * s, alt_m
-
 
 def _heading_rotation_matrix(heading_rad: float) -> np.ndarray:
     """4x4 rotation-only matrix matching wgs_to_map's east/north -> x/y
@@ -129,14 +113,8 @@ def _heading_rotation_matrix(heading_rad: float) -> np.ndarray:
         ]
     )
 
-
-# --------------------------------------------------------------------------
-# Height fallback chain (Decision 9, spec Sec.12's risk row, applied exactly).
-# --------------------------------------------------------------------------
-
 kMetersPerLevel = 3.0
-kDefaultBuildingHeightM = 6.0  # two levels' worth
-
+kDefaultBuildingHeightM = 6.0
 
 def footprint_height_m(tags: dict) -> float:
     height = tags.get("height")
@@ -153,17 +131,10 @@ def footprint_height_m(tags: dict) -> float:
             pass
     return kDefaultBuildingHeightM
 
-
-# --------------------------------------------------------------------------
-# Fetch: Overpass PRIMARY (cache read-through), Mapbox fallback (Decision 8).
-# --------------------------------------------------------------------------
-
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 OVERPASS_TIMEOUT_S = 30
-# ~300 m: padded past the recorded operating area's own measured net
-# displacement (~102 m over 205.7 s, Epic 4 plan Decision 6) for margin.
 DEFAULT_RADIUS_M = 300.0
-MAPBOX_TOKEN_ENV = "MAPBOX_TOKEN"  # Decision 8 -- env var only, never logged/committed.
+MAPBOX_TOKEN_ENV = "MAPBOX_TOKEN"
 
 _OVERPASS_QUERY_TMPL = (
     "[out:json][timeout:25];\n"
@@ -173,12 +144,10 @@ _OVERPASS_QUERY_TMPL = (
     "out body;\n>;\nout skel qt;\n"
 )
 
-
 def _bbox_for_anchor(lat_deg: float, lon_deg: float, radius_m: float) -> Tuple[float, float, float, float]:
     dlat = (radius_m / _EARTH_RADIUS_M) / _DEG_TO_RAD
     dlon = (radius_m / (_EARTH_RADIUS_M * math.cos(lat_deg * _DEG_TO_RAD))) / _DEG_TO_RAD
-    return lat_deg - dlat, lon_deg - dlon, lat_deg + dlat, lon_deg + dlon  # south, west, north, east
-
+    return lat_deg - dlat, lon_deg - dlon, lat_deg + dlat, lon_deg + dlon
 
 def fetch_overpass_json(anchor_lat: float, anchor_lon: float, radius_m: float,
                          cache_path: Optional[Path]) -> Optional[dict]:
@@ -195,7 +164,7 @@ def fetch_overpass_json(anchor_lat: float, anchor_lon: float, radius_m: float,
         resp = requests.post(OVERPASS_URL, data=query, timeout=OVERPASS_TIMEOUT_S)
         resp.raise_for_status()
         data = resp.json()
-    except Exception as exc:  # network/HTTP/JSON error -- all non-fatal here
+    except Exception as exc:
         print(f"WARN: Overpass fetch failed: {exc}", file=sys.stderr)
         return None
 
@@ -203,7 +172,6 @@ def fetch_overpass_json(anchor_lat: float, anchor_lon: float, radius_m: float,
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(json.dumps(data))
     return data
-
 
 def parse_overpass_footprints(data: Optional[dict]) -> List[dict]:
     """Overpass JSON -> [{"way_id", "tags", "ring": [(lat, lon), ...]}, ...].
@@ -224,10 +192,9 @@ def parse_overpass_footprints(data: Optional[dict]) -> List[dict]:
     for w in ways:
         ring = [nodes[n] for n in w["nodes"] if n in nodes]
         if len(ring) < 3:
-            continue  # degenerate -- not a usable polygon
+            continue
         footprints.append({"way_id": w["id"], "tags": w.get("tags", {}), "ring": ring})
     return footprints
-
 
 def fetch_mapbox_fallback_footprints(anchor: GeoAnchor, radius_m: float, token: str) -> List[dict]:
     """Best-effort Mapbox fallback (Decision 8): only reached when Overpass
@@ -266,10 +233,6 @@ def fetch_mapbox_fallback_footprints(anchor: GeoAnchor, radius_m: float, token: 
             for feat in data.get("features", []):
                 fx, fy = wgs_to_local_enu(anchor, lat, lon)
                 half = kMapboxFallbackFootprintSideM / 2.0
-                # ring in local ENU converted back to lat/lon so downstream
-                # code (parse_overpass_footprints's own consumers) sees the
-                # same {"way_id","tags","ring":[(lat,lon),...]} shape either
-                # source produces.
                 ring_ll = [
                     local_enu_to_wgs(anchor, fx - half, fy - half),
                     local_enu_to_wgs(anchor, fx + half, fy - half),
@@ -280,7 +243,6 @@ def fetch_mapbox_fallback_footprints(anchor: GeoAnchor, radius_m: float, token: 
             lon += (kMapboxFallbackGridStepM / _EARTH_RADIUS_M) / _DEG_TO_RAD
         lat += (kMapboxFallbackGridStepM / _EARTH_RADIUS_M) / _DEG_TO_RAD
     return footprints
-
 
 def fetch_footprints(anchor: GeoAnchor, radius_m: float, cache_path: Optional[Path]) -> List[dict]:
     """Orchestrates Overpass PRIMARY + Mapbox fallback exactly per Decision 8:
@@ -305,15 +267,8 @@ def fetch_footprints(anchor: GeoAnchor, radius_m: float, cache_path: Optional[Pa
               "missing data renders nothing).", file=sys.stderr)
     return []
 
-
-# --------------------------------------------------------------------------
-# Chunking + bake (Decision 3: map-frame placement happens HERE, at bake
-# time, never re-projected at load time).
-# --------------------------------------------------------------------------
-
 CHUNK_SIZE_M = 256.0
-CHUNK_RADIUS_M = CHUNK_SIZE_M * math.sqrt(2.0) / 2.0  # bounding-sphere radius of one cell
-
+CHUNK_RADIUS_M = CHUNK_SIZE_M * math.sqrt(2.0) / 2.0
 
 def build_footprint_mesh_local_enu(fp: dict, anchor: GeoAnchor) -> Optional[trimesh.Trimesh]:
     """Extrudes one footprint to its Decision-9 height, in UNROTATED local
@@ -323,16 +278,11 @@ def build_footprint_mesh_local_enu(fp: dict, anchor: GeoAnchor) -> Optional[trim
     ring_enu = [wgs_to_local_enu(anchor, lat, lon) for lat, lon in fp["ring"]]
     polygon = shapely.geometry.Polygon(ring_enu)
     if not polygon.is_valid:
-        polygon = polygon.buffer(0)  # best-effort repair of minor self-intersections
-    # buffer(0) can return a MultiPolygon or an empty geometry for a badly
-    # self-intersecting way -- extrude_polygon would raise. Same non-fatal
-    # "missing data renders nothing" shape as parse_overpass_footprints'
-    # len(ring) < 3 skip: return None, caller skips with one WARN.
+        polygon = polygon.buffer(0)
     if not isinstance(polygon, shapely.geometry.Polygon) or polygon.is_empty:
         return None
     height = footprint_height_m(fp["tags"])
     return trimesh.creation.extrude_polygon(polygon, height)
-
 
 def footprint_map_centroid(fp: dict, anchor: GeoAnchor) -> Tuple[float, float]:
     """Footprint centroid in the MAP frame -- used only to bucket the
@@ -345,10 +295,8 @@ def footprint_map_centroid(fp: dict, anchor: GeoAnchor) -> Tuple[float, float]:
     s, c = math.sin(anchor.heading_rad), math.cos(anchor.heading_rad)
     return cx * s + cy * c, -cx * c + cy * s
 
-
 def chunk_key(x: float, y: float, chunk_size_m: float = CHUNK_SIZE_M) -> Tuple[int, int]:
     return math.floor(x / chunk_size_m), math.floor(y / chunk_size_m)
-
 
 def build_chunk_scene(footprints: List[dict], anchor: GeoAnchor) -> trimesh.Scene:
     """Builds every footprint's mesh in unrotated local ENU, adds each as
@@ -367,10 +315,9 @@ def build_chunk_scene(footprints: List[dict], anchor: GeoAnchor) -> trimesh.Scen
         scene.add_geometry(mesh, node_name=f"footprint_{fp['way_id']}")
 
     M = _heading_rotation_matrix(anchor.heading_rad)
-    for geom in scene.geometry.values():  # PER-GEOMETRY, not scene.apply_transform(M)
+    for geom in scene.geometry.values():
         geom.apply_transform(M)
     return scene
-
 
 def bake(anchor: GeoAnchor, footprints: List[dict], out_dir: Path) -> dict:
     """Chunks `footprints` (~256 m quadtree cells), writes chunks/*.glb +
@@ -388,15 +335,7 @@ def bake(anchor: GeoAnchor, footprints: List[dict], out_dir: Path) -> dict:
         chunk_id = f"chunk_{i}_{j}"
         scene = build_chunk_scene(fps, anchor)
         if not scene.geometry:
-            continue  # every footprint in this cell was unrepairable -- no empty chunk file
-        # include_normals=True: trimesh's glb exporter otherwise only writes
-        # NORMAL when something already touched mesh.vertex_normals before
-        # export (its own default is "include only if already cached" --
-        # nothing here ever reads .vertex_normals, so every chunk baked
-        # without this came out POSITION-only and rendered flat/unlit
-        # regardless of palette or lighting). The load-time fix
-        # (gltf_normals.hpp) still covers chunks already baked without this
-        # -- this is the cheap, correct-at-the-source half for future bakes.
+            continue
         scene.export(chunks_dir / f"{chunk_id}.glb", include_normals=True)
         index_chunks.append(
             {
@@ -410,7 +349,6 @@ def bake(anchor: GeoAnchor, footprints: List[dict], out_dir: Path) -> dict:
     index = {"chunk_size_m": CHUNK_SIZE_M, "chunks": index_chunks}
     (out_dir / "index.yaml").write_text(yaml.safe_dump(index, sort_keys=False))
     return index
-
 
 def _glb_has_normals(glb_path: Path) -> bool:
     """True iff every mesh primitive this chunk's .glb carries actually
@@ -428,7 +366,6 @@ def _glb_has_normals(glb_path: Path) -> bool:
     primitives = [p for mesh in gltf.get("meshes", []) for p in mesh.get("primitives", [])]
     return bool(primitives) and all("NORMAL" in p.get("attributes", {}) for p in primitives)
 
-
 def _load_all_vertices(glb_path: Path) -> np.ndarray:
     """Loads a baked chunk .glb and returns every vertex across all its
     geometries (a chunk may hold >1 footprint as separate geometries,
@@ -439,12 +376,6 @@ def _load_all_vertices(glb_path: Path) -> np.ndarray:
             return np.zeros((0, 3))
         return np.vstack([g.vertices for g in loaded.geometry.values()])
     return loaded.vertices
-
-
-# --------------------------------------------------------------------------
-# Verification overlay (spec Sec.4.5's own AC: "overlay image sanity-approved").
-# --------------------------------------------------------------------------
-
 
 def load_ego_track_xy(csv_path: Path) -> List[Tuple[float, float]]:
     """Reads Task 1's own committed (lat, lon, map_x, map_y) fixture and
@@ -459,10 +390,8 @@ def load_ego_track_xy(csv_path: Path) -> List[Tuple[float, float]]:
         track.append((float(x), float(y)))
     return track
 
-
 def _footprint_map_ring(fp: dict, anchor: GeoAnchor) -> List[Tuple[float, float]]:
     return [wgs_to_map(anchor, lat, lon)[:2] for lat, lon in fp["ring"]]
-
 
 def render_verification_overlay(footprints: List[dict], anchor: GeoAnchor,
                                  ego_track_xy: List[Tuple[float, float]], out_path: Path,
@@ -475,7 +404,7 @@ def render_verification_overlay(footprints: List[dict], anchor: GeoAnchor,
     out_path.parent.mkdir(parents=True, exist_ok=True)
     points = [pt for fp in footprints for pt in _footprint_map_ring(fp, anchor)] + list(ego_track_xy)
     if not points:
-        points = [(0.0, 0.0), (1.0, 1.0)]  # degenerate but non-crashing bounds
+        points = [(0.0, 0.0), (1.0, 1.0)]
     xs = [p[0] for p in points]
     ys = [p[1] for p in points]
     margin = 0.05 * max(max(xs) - min(xs), max(ys) - min(ys), 1.0)
@@ -485,7 +414,7 @@ def render_verification_overlay(footprints: List[dict], anchor: GeoAnchor,
 
     def to_px(x: float, y: float) -> Tuple[int, int]:
         px = int((x - min_x) / (max_x - min_x) * (w - 1))
-        py = int((1.0 - (y - min_y) / (max_y - min_y)) * (h - 1))  # flip Y for image coords
+        py = int((1.0 - (y - min_y) / (max_y - min_y)) * (h - 1))
         return px, py
 
     try:
@@ -501,8 +430,6 @@ def render_verification_overlay(footprints: List[dict], anchor: GeoAnchor,
         out_path = out_path.with_suffix(".png")
         img.save(out_path)
     except ImportError:
-        # documented fallback: a raw PPM (P6), still openable by any image
-        # viewer, no new dependency.
         buf = bytearray(b"\xff" * (w * h * 3))
 
         def set_px(px: int, py: int, color: Tuple[int, int, int]) -> None:
@@ -521,15 +448,9 @@ def render_verification_overlay(footprints: List[dict], anchor: GeoAnchor,
             f.write(bytes(buf))
     return out_path
 
-
-# --------------------------------------------------------------------------
-# CLI
-# --------------------------------------------------------------------------
-
 _HERE = Path(__file__).resolve().parent
 _FIXTURES_DIR = _HERE.parent / "tests" / "fixtures"
 _DEFAULT_OVERPASS_CACHE = _FIXTURES_DIR / "environment_overpass_cache_0.json"
-
 
 def _load_anchor_from_args(args: argparse.Namespace) -> GeoAnchor:
     if args.anchor_file:
@@ -542,7 +463,6 @@ def _load_anchor_from_args(args: argparse.Namespace) -> GeoAnchor:
     if args.anchor_lat is None or args.anchor_lon is None:
         raise SystemExit("--anchor-lat/--anchor-lon (or --anchor-file) are required")
     return GeoAnchor(args.anchor_lat, args.anchor_lon, math.radians(args.anchor_heading_deg or 0.0))
-
 
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -572,23 +492,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     footprints = fetch_footprints(anchor, args.radius_m, cache_path)
     index = bake(anchor, footprints, out_dir)
-    # Ego track is optional (--ego-track, Task 1's own committed CSV, e.g.
-    # ros/src/overlume_ros/test/fixtures/geo_anchor_samples_0.csv) --
-    # footprints-only overlay if not given, rather than hard-failing a bake
-    # over a QA-only line (spec's AC is about footprint placement sanity
-    # first; the ego track is corroborating context, not a requirement).
     ego_track = load_ego_track_xy(Path(args.ego_track)) if args.ego_track else []
     overlay_path = render_verification_overlay(footprints, anchor, ego_track, out_dir / "verification_overlay.png")
     print(f"wrote {len(index['chunks'])} chunk(s), {len(footprints)} footprint(s), "
           f"index.yaml, {overlay_path.name}")
     return 0
-
-
-# --------------------------------------------------------------------------
-# --selfcheck -- no pytest framework, matching normalize_models.py's convention.
-# Each _selfcheck_* mirrors one plan Step (0-5); all must pass.
-# --------------------------------------------------------------------------
-
 
 def _selfcheck_step0_cache_no_network() -> bool:
     """Step 0/1: --selfcheck must NEVER hit the network -- monkeypatch
@@ -612,7 +520,6 @@ def _selfcheck_step0_cache_no_network() -> bool:
     print(f"[step0 cache-no-network] live_calls={calls['n']} footprints={len(footprints)} -> {'OK' if ok else 'FAIL'}")
     return ok
 
-
 def _selfcheck_step2_centroid_and_trap(tmp_dir: Path) -> bool:
     """Step 2: synthetic single footprint at a known map-frame offset from
     the anchor; bake; reload the .glb; assert its vertex centroid lands at
@@ -621,8 +528,8 @@ def _selfcheck_step2_centroid_and_trap(tmp_dir: Path) -> bool:
     "succeeds" with silently wrong geometry, verified live in this task:
     scene-level transform round-trips a centroid back to (0,0), per-geometry
     does not)."""
-    anchor = GeoAnchor(25.0803, 55.3910, 0.3)  # nonzero heading -- discriminates the trap
-    target_east, target_north = 150.0, -80.0  # a known, arbitrary local-ENU target
+    anchor = GeoAnchor(25.0803, 55.3910, 0.3)
+    target_east, target_north = 150.0, -80.0
     half = 5.0
     ring_enu = [
         (target_east - half, target_north - half),
@@ -647,7 +554,6 @@ def _selfcheck_step2_centroid_and_trap(tmp_dir: Path) -> bool:
           f"actual=({actual[0]:.3f},{actual[1]:.3f}) err={math.hypot(dx, dy):.4f} m -> {'OK' if ok else 'FAIL'}")
     return ok
 
-
 def _selfcheck_cross_language_pin() -> bool:
     """Step 2 (cross-language pin): Python's wgs_to_map() must match the
     committed C++-generated fixture within 1e-3 m per point."""
@@ -662,8 +568,6 @@ def _selfcheck_cross_language_pin() -> bool:
         ok = ok and point_ok
         print(f"[cross-lang pin] dlat={probe['dlat']} dlon={probe['dlon']} err={err:.2e} m -> "
               f"{'OK' if point_ok else 'FAIL'}")
-    # Nonzero-heading probes pin the rotation term itself -- a sign drift
-    # confined to the sin factor passes every heading-0 probe unchanged.
     for probe in fixture.get("probes_nonzero_heading", []):
         pa = probe["anchor"]
         p_anchor = GeoAnchor(pa["origin_lat_deg"], pa["origin_lon_deg"], pa["heading_rad"])
@@ -675,11 +579,10 @@ def _selfcheck_cross_language_pin() -> bool:
               f"{'OK' if point_ok else 'FAIL'}")
     return ok
 
-
 def _selfcheck_step3_chunking(tmp_dir: Path) -> bool:
     """Step 3: two footprints >256 m apart bake into two distinct chunk
     files; two placed in the same cell bake into one."""
-    anchor = GeoAnchor(25.0803, 55.3910, 0.0)  # heading 0 -- map frame == local ENU, easiest to reason about
+    anchor = GeoAnchor(25.0803, 55.3910, 0.0)
 
     def _square_fp(way_id: str, cx: float, cy: float, side: float = 4.0) -> dict:
         half = side / 2.0
@@ -697,12 +600,6 @@ def _selfcheck_step3_chunking(tmp_dir: Path) -> bool:
     index_near = bake(anchor, near, tmp_dir / "near")
     ok_near = len(index_near["chunks"]) == 1
 
-    # Index-row contract: center/radius_m are exactly what Task 3's distance
-    # cull consumes -- assert them, don't just count files. Vertex containment
-    # has a known ceiling: footprints are bucketed by CENTROID, so a building
-    # straddling a cell edge can poke outside the cell's bounding sphere by up
-    # to ~half its own extent -- Task 3's cull margin must absorb that
-    # overhang (these 4 m test squares sit well inside their cells).
     ok_rows = True
     for base, index in (("far", index_far), ("near", index_near)):
         for row in index["chunks"]:
@@ -719,7 +616,6 @@ def _selfcheck_step3_chunking(tmp_dir: Path) -> bool:
           f"index rows {'OK' if ok_rows else 'FAIL'} -> {'OK' if ok else 'FAIL'}")
     return ok
 
-
 def _selfcheck_step4_overlay(tmp_dir: Path) -> bool:
     """Step 4: the overlay artifact is written, non-empty, and has
     non-degenerate pixel dimensions -- this test only proves the artifact
@@ -730,8 +626,6 @@ def _selfcheck_step4_overlay(tmp_dir: Path) -> bool:
     ]}
     ego_track = [(0.0, 0.0), (10.0, 5.0), (20.0, -3.0)]
 
-    # Pins load_ego_track_xy()'s column contract (lat,lon,map_x,map_y) against
-    # Task 1's exact fixture format, independent of Task 1's file being present.
     csv_path = tmp_dir / "ego_track_0.csv"
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     csv_path.write_text("# lat_deg,lon_deg,map_x,map_y\n25.08031512,55.39096843,-48.514142,-1.027173\n")
@@ -747,13 +641,12 @@ def _selfcheck_step4_overlay(tmp_dir: Path) -> bool:
 
             with Image.open(out_path) as img:
                 ok = img.width > 1 and img.height > 1
-        else:  # .ppm fallback
+        else:
             header = out_path.read_bytes()[:32].decode("ascii", errors="ignore")
             w, h = map(int, header.split("\n")[1].split())
             ok = w > 1 and h > 1
     print(f"[step4 overlay] wrote {out_path.name} ({out_path.stat().st_size} bytes) -> {'OK' if ok else 'FAIL'}")
     return ok and ok_parse
-
 
 def _selfcheck_step5_height_fallback(tmp_dir: Path) -> bool:
     """Step 5: three footprints -- height tag, building:levels tag, neither
@@ -783,7 +676,6 @@ def _selfcheck_step5_height_fallback(tmp_dir: Path) -> bool:
               f"{'OK' if case_ok else 'FAIL'}")
     return ok
 
-
 def _selfcheck_end_to_end(tmp_dir: Path) -> bool:
     """Full pipeline against the committed Overpass cache fixture: output
     chunk count > 0, every chunk .glb non-empty and loadable, index.yaml
@@ -807,7 +699,6 @@ def _selfcheck_end_to_end(tmp_dir: Path) -> bool:
         ok = ok and _glb_has_normals(glb_path)
     print(f"[end-to-end] chunks={len(index['chunks'])} footprints={len(footprints)} -> {'OK' if ok else 'FAIL'}")
     return ok
-
 
 def _selfcheck() -> int:
     import tempfile
@@ -834,7 +725,6 @@ def _selfcheck() -> int:
     ok = all(results)
     print(f"selfcheck: {'PASS' if ok else 'FAIL'} ({sum(results)}/{len(results)})")
     return 0 if ok else 1
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
