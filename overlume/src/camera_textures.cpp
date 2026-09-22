@@ -58,7 +58,7 @@ void upload_camera_frame(filament::Engine& engine, filament::Texture* tex, const
     }
 }
 
-}  // namespace
+}
 
 bool set_bowl_config(VisualRenderer* r, const BowlConfig& cfg) {
     if (r == nullptr) return false;
@@ -131,7 +131,7 @@ bool set_camera_frame(VisualRenderer* r, uint32_t cam_idx, const uint8_t* rgb, u
     return true;
 }
 
-}  // namespace overlume
+}
 
 namespace overlume::testing {
 
@@ -145,4 +145,4 @@ void camera_motion_delta(overlume::VisualRenderer* r, uint32_t cam_idx, double o
     std::memcpy(out, r->cameraSlots[cam_idx].motionDelta, sizeof(double) * 16);
 }
 
-}  // namespace overlume::testing
+}

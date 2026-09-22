@@ -55,4 +55,4 @@ inline bool write_png(const std::string& path, uint32_t width, uint32_t height,
     return ok != 0;
 }
 
-}  // namespace overlume_examples
+}

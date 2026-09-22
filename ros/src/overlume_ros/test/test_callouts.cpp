@@ -25,7 +25,7 @@ overlume::VisualRenderer* MakeRenderer(uint32_t width, uint32_t height) {
     return overlume::create_renderer(config);
 }
 
-}  // namespace
+}
 
 TEST(Callouts, NearestObstacleChipTracksAcrossCameraMove) {
     constexpr uint32_t kW = 320, kH = 240;
@@ -154,7 +154,7 @@ double block_ssim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, 
     return blockCount > 0 ? total / blockCount : 0.0;
 }
 
-}  // namespace
+}
 
 TEST(CalloutsGolden, SyntheticFrameWithVisibleCallout720pLowPreset) {
     constexpr uint32_t kW = 1280, kH = 720;

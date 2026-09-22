@@ -23,4 +23,4 @@ struct CameraTextureSlot {
     double motionDelta[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 };
 
-}  // namespace overlume
+}

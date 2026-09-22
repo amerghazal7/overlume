@@ -37,7 +37,7 @@ void Unpack(uint32_t rgba, uint8_t& r, uint8_t& g, uint8_t& b, uint8_t& a) {
     b = static_cast<uint8_t>((rgba >> 16) & 0xFF);
     a = static_cast<uint8_t>((rgba >> 24) & 0xFF);
 }
-}  // namespace
+}
 
 TEST(LidarColorize, PointInSingleCameraFovGetsThatCamerasColor) {
     const CameraExtrinsics ext = IdentityCameraAt(0, 0, 0);

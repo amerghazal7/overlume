@@ -57,8 +57,8 @@ TEST(ComposeEnvironmentSourceUri, FollowTerrainCombinesWithCacheAndFallback) {
         "ion://96188?cache=/mnt/data/tiles&fallback=/baked/chunks&follow_terrain=on");
 }
 
-}  // namespace
-}  // namespace overlume::ros
+}
+}
 
 TEST(FallbackDirFromSourceUri, NoKeyIsEmpty) {
     EXPECT_EQ(overlume::ros::fallback_dir_from_source_uri("ion://96188?cache=/c"), "");

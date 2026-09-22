@@ -20,4 +20,4 @@ float BorderFeather(float xp, float yp, uint32_t width, uint32_t height, double 
 
 float CameraAlignment(const overlume::CameraExtrinsics& ext, overlume::Vec3 rig_point);
 
-}  // namespace overlume::bowl
+}

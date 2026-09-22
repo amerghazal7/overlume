@@ -33,7 +33,7 @@ overlume::ros::ProfileRow MakeRow(const std::string& role) {
     return row;
 }
 
-}  // namespace
+}
 
 TEST(CollisionAdapter, EveryShippedRoleMapsToItsSeverity) {
     struct Case {

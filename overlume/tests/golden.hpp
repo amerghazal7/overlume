@@ -104,4 +104,4 @@ struct FrameStats {
 };
 FrameStats analyze_png(const char* png_path);
 
-}  // namespace overlume::testing
+}

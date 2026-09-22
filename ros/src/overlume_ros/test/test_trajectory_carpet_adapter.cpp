@@ -77,7 +77,7 @@ visualization_msgs::msg::Marker MakeTwoQuadCarpetMarker() {
     return m;
 }
 
-}  // namespace
+}
 
 TEST(TrajectoryCarpetAdapter, IngestExtractsCenterlineStationsFromDualRailQuadPairing) {
     TfFixture kTf;

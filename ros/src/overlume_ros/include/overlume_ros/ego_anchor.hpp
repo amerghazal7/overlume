@@ -28,4 +28,4 @@ inline overlume::CameraPose compose_ego_anchored_pose(const overlume::CameraPose
     return out;
 }
 
-}  // namespace overlume::ros
+}

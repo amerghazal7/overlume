@@ -29,7 +29,7 @@ uint32_t pack_rgba(uint8_t r, uint8_t g, uint8_t b) {
     return static_cast<uint32_t>(lut[r]) | (static_cast<uint32_t>(lut[g]) << 8) |
            (static_cast<uint32_t>(lut[b]) << 16) | (static_cast<uint32_t>(255) << 24);
 }
-}  // namespace
+}
 
 std::vector<overlume::PointCloudPoint> ColorizeFromCameras(
     const std::vector<overlume::Vec3>& lidar_points_rig_frame, const overlume::BowlConfig& cameras,
@@ -66,4 +66,4 @@ std::vector<overlume::PointCloudPoint> ColorizeFromCameras(
     return out;
 }
 
-}  // namespace overlume::ros
+}

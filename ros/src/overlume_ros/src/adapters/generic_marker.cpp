@@ -61,7 +61,7 @@ std::string ToMeshPath(const std::string& uri) {
     return uri;
 }
 
-}  // namespace
+}
 
 GenericMarkerAdapter::GenericMarkerAdapter(const ProfileRow& row,
                                            const overlume::ros::FrameTransformer& tf)
@@ -331,4 +331,4 @@ void GenericMarkerAdapter::fill(overlume::ros::SceneAssembly& out) const {
     }
 }
 
-}  // namespace overlume::ros
+}

@@ -104,7 +104,7 @@ bowl::EgoBox ego_rig_frame_box(const VisualRenderer& r) {
     return {};
 }
 
-}  // namespace
+}
 
 bool build_bowl(VisualRenderer& r, const BowlConfig& cfg) {
     if (r.bowl) {
@@ -246,4 +246,4 @@ void update_bowl(VisualRenderer& r, const EgoState& ego) {
     tm.setTransform(inst, mat4f::translation(pos) * mat4f(rot));
 }
 
-}  // namespace overlume
+}

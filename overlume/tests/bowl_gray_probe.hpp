@@ -68,4 +68,4 @@ inline int render_gray_probe(overlume::VisualRenderer* r, uint8_t gray_byte,
     return static_cast<int>(sum / count);
 }
 
-}  // namespace overlume::testing
+}

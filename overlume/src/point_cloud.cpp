@@ -128,7 +128,7 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::PointCloudSlot& slot,
     }
 }
 
-}  // namespace
+}
 
 void update_point_clouds(VisualRenderer& r, const SceneGraph& s) {
     while (r.pointCloudSlots.size() > s.point_cloud_count) {
@@ -159,7 +159,7 @@ void update_point_clouds(VisualRenderer& r, const SceneGraph& s) {
     r.pointCloudAlpha = alpha;
 }
 
-}  // namespace overlume
+}
 
 namespace overlume::testing {
 
@@ -178,4 +178,4 @@ float point_cloud_material_alpha(overlume::VisualRenderer* r) {
     return r->pointCloudAlpha;
 }
 
-}  // namespace overlume::testing
+}

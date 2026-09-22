@@ -46,4 +46,4 @@ private:
     uint64_t dropped_below_min_z_{0};
 };
 
-}  // namespace overlume::ros
+}

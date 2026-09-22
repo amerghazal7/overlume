@@ -61,7 +61,7 @@ double percentile(std::vector<double>& sorted_ms, double p) {
     return sorted_ms[idx];
 }
 
-}  // namespace
+}
 
 int main() {
     std::vector<overlume::Vec3> behavior_pts = make_path(0.0, 40);

@@ -42,7 +42,7 @@ ProfileRow TfAxesRow() {
     return row;
 }
 
-}  // namespace
+}
 
 TEST(TfAxes, EmitsThreeMarkersPerKnownFrame) {
     auto clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);

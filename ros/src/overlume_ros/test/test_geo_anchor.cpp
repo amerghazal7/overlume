@@ -69,7 +69,7 @@ SamplePairs LoadFixture(const std::string& path) {
     return out;
 }
 
-}  // namespace
+}
 
 TEST(GeoAnchor, SolveAnchorMatchesBagDerivedMeanPositionAndCoarseHeading) {
     const std::string path = std::string(OVERLUME_NODE_FIXTURES_DIR) + "/geo_anchor_samples_0.csv";
@@ -131,7 +131,7 @@ sensor_msgs::msg::NavSatFix Fix(double lat, double lon) {
     return f;
 }
 
-}  // namespace
+}
 
 TEST(GeoAnchorSolver, OverrideSolvesImmediatelyWithoutAnyOnFixCall) {
     tf2_ros::Buffer buffer(std::make_shared<rclcpp::Clock>(RCL_ROS_TIME));

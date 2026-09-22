@@ -30,7 +30,7 @@ std::vector<overlume::PointCloudPoint> make_points(uint32_t n) {
     return pts;
 }
 
-}  // namespace
+}
 
 TEST(PointCloud, ChunkedUnderTheUint16IndexCeilingLikeEveryPolyline) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};

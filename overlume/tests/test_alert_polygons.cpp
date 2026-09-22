@@ -22,7 +22,7 @@ std::vector<uint8_t> render_once(overlume::VisualRenderer* r, const overlume::Ca
     return pixels;
 }
 
-}  // namespace
+}
 
 TEST(AlertGolden, SweepPlusPredicted_DarkAdas) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};

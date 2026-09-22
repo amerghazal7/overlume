@@ -80,4 +80,4 @@ std::unique_ptr<BakedEnvironmentSource> open_baked_environment_source(const std:
 std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::string& ion_spec,
                                                                      GeoAnchor anchor);
 
-}  // namespace overlume
+}

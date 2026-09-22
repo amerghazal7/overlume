@@ -22,4 +22,4 @@ uint32_t ground_grid_texture_upload_count(overlume::VisualRenderer* r, size_t sl
 
 float ground_grid_material_alpha(overlume::VisualRenderer* r, uint8_t kind);
 
-}  // namespace overlume::testing
+}

@@ -108,7 +108,7 @@ float draw_line(uint8_t* rgb, uint32_t width, uint32_t height, const FontAtlas& 
     return x;
 }
 
-}  // namespace
+}
 
 bool CompositeHud(uint8_t* rgb, uint32_t width, uint32_t height, const HudSnapshot& hud,
                   HudRgb text_rgb, HudRgb accent_rgb, float scale, const char* font_path) {
@@ -187,4 +187,4 @@ void DrawLine(uint8_t* rgb, uint32_t width, uint32_t height, float x0, float y0,
     }
 }
 
-}  // namespace overlume::ros
+}

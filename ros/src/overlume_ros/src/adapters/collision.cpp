@@ -44,7 +44,7 @@ double Dist(const overlume::Vec3& a, const overlume::Vec3& b) {
 
 constexpr double kDedupEpsM = 1e-6;
 
-}  // namespace
+}
 
 uint8_t severity_for_role(const std::string& role) {
     if (role == "collision") return 2;
@@ -148,4 +148,4 @@ void CollisionAdapter::fill(overlume::ros::SceneAssembly& out) const {
     }
 }
 
-}  // namespace overlume::ros
+}

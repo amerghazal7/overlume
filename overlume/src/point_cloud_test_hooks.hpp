@@ -15,4 +15,4 @@ size_t point_cloud_vertex_count(overlume::VisualRenderer* r, size_t slot);
 
 float point_cloud_material_alpha(overlume::VisualRenderer* r);
 
-}  // namespace overlume::testing
+}

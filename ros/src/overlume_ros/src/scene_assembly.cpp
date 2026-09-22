@@ -136,4 +136,4 @@ LayerFlags compose_layer_gates(const LayerFlags& user, const LayerFlags& mask) {
     };
 }
 
-}  // namespace overlume::ros
+}

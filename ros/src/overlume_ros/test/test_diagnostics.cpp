@@ -18,7 +18,7 @@ overlume::ros::AdapterStats StatsWithSomeDrops() {
     return s;
 }
 
-}  // namespace
+}
 
 TEST(Diagnostics, OneStatusPerRowPlusRenderMs) {
     std::vector<overlume::ros::RowStats> rows(1);

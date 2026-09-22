@@ -15,7 +15,7 @@ float smoothstep(float s) {
     s = std::min(1.0f, std::max(0.0f, s));
     return s * s * (3.0f - 2.0f * s);
 }
-}  // namespace
+}
 
 Vcam::Vcam(rclcpp_lifecycle::LifecycleNode* node, const overlume::CameraPose& seed_pose)
     : pose_(seed_pose), logger_(node->get_logger()), clock_(node->get_clock()) {
@@ -86,4 +86,4 @@ void Vcam::on_set_look(const std_msgs::msg::Float64MultiArray::SharedPtr msg) {
     active_preset_ = 0;
 }
 
-}  // namespace overlume::ros
+}

@@ -154,7 +154,7 @@ void rebind_slot_material(VisualRenderer& r, VisualRenderer::RibbonSlot& slot,
     }
 }
 
-}  // namespace
+}
 
 void update_ribbons(VisualRenderer& r, const SceneGraph& s) {
     while (r.ribbonSlots.size() > s.path_count) {
@@ -216,7 +216,7 @@ void update_ribbons(VisualRenderer& r, const SceneGraph& s) {
     }
 }
 
-}  // namespace overlume
+}
 
 namespace overlume::testing {
 
@@ -269,4 +269,4 @@ uint64_t ribbon_rebuild_count(overlume::VisualRenderer* r) {
     return r->ribbonRebuildCount;
 }
 
-}  // namespace overlume::testing
+}

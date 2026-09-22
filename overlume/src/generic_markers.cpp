@@ -518,7 +518,7 @@ void release_generic_marker_slot(VisualRenderer& r, VisualRenderer::GenericMarke
     slot.active = false;
 }
 
-}  // namespace
+}
 
 void update_generic_markers(VisualRenderer& r, const SceneGraph& s) {
     while (r.genericMarkerSlots.size() > s.marker_count) {
@@ -549,7 +549,7 @@ void update_generic_markers(VisualRenderer& r, const SceneGraph& s) {
     }
 }
 
-}  // namespace overlume
+}
 
 namespace overlume::testing {
 
@@ -599,4 +599,4 @@ GenericMarkerMaterialInfo generic_marker_material_info(overlume::VisualRenderer*
     return info;
 }
 
-}  // namespace overlume::testing
+}

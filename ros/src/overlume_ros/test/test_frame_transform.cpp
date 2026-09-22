@@ -30,7 +30,7 @@ geometry_msgs::msg::TransformStamped MapToBaseLinkTransform() {
     return msg;
 }
 
-}  // namespace
+}
 
 TEST(FrameTransform, MapFrameIsIdentityAndDoesNotTouchTheBuffer) {
     tf2_ros::Buffer buffer(std::make_shared<rclcpp::Clock>(RCL_ROS_TIME));

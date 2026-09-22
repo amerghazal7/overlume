@@ -28,7 +28,7 @@ double MaxAbsDiff(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) 
     return maxDiff;
 }
 
-}  // namespace
+}
 
 TEST(OklabHelpers, RoundTripIsIdentity) {
     const overlume::detail::Float3 colors[] = {
@@ -264,7 +264,7 @@ void ExpectBetweenSentinels(const overlume::detail::Float3& v, const char* label
     ExpectBetweenSentinels(v.b, (std::string(label) + ".b").c_str());
 }
 
-}  // namespace
+}
 
 TEST(ThemeTransition, SentinelThemesDetectAnyUnblendedField) {
     const overlume::detail::Theme a = MakeSentinelTheme(111.0f, "a");

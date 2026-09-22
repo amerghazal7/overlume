@@ -13,4 +13,4 @@ uint64_t camera_frame_upload_count(overlume::VisualRenderer* r, uint32_t cam_idx
 
 void camera_motion_delta(overlume::VisualRenderer* r, uint32_t cam_idx, double out[16]);
 
-}  // namespace overlume::testing
+}

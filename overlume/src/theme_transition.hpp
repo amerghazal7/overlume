@@ -27,4 +27,4 @@ struct ThemeTransition {
     double duration_sec = 0.8;
 };
 
-}  // namespace overlume::detail
+}

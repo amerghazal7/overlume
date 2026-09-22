@@ -18,7 +18,7 @@ double Dist(const overlume::Vec3& a, const overlume::Vec3& b) {
 constexpr float kChipOffsetXPx = 24.0f;
 constexpr float kChipOffsetYPx = -24.0f;
 
-}  // namespace
+}
 
 bool BuildNearestCallout(overlume::VisualRenderer* renderer, const overlume::AlertPolygon* alerts,
                          uint32_t alert_count, overlume::Vec3 ego_pos, Callout& out) {
@@ -57,4 +57,4 @@ void DrawCallout(uint8_t* rgb, uint32_t width, uint32_t height, const Callout& c
     DrawText(rgb, width, height, callout.text, tx, ty, chip_rgb, scale, font_path);
 }
 
-}  // namespace overlume::ros
+}

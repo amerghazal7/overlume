@@ -252,4 +252,4 @@ void set_quality(VisualRenderer*, uint32_t preset);
 
 uint32_t get_quality(VisualRenderer*);
 
-}  // namespace overlume
+}

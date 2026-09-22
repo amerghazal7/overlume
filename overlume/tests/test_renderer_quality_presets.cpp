@@ -23,7 +23,7 @@ overlume::VisualRenderer* MakeRenderer(uint8_t quality, uint32_t width = 1280,
     return overlume::create_renderer(config);
 }
 
-}  // namespace
+}
 
 TEST(RendererQuality, ShadowMapResolutionMatchesPresetTable) {
     overlume::VisualRenderer* high = MakeRenderer(2);

@@ -38,4 +38,4 @@ private:
     uint32_t consecutive_good_windows_{0};
 };
 
-}  // namespace overlume::ros
+}

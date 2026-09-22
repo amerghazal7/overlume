@@ -307,4 +307,4 @@ private:
     std::unique_ptr<EnvironmentSource> fallbackSource_;
 };
 
-}  // namespace overlume
+}

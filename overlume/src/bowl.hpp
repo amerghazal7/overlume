@@ -19,4 +19,4 @@ bool build_bowl(VisualRenderer& r, const BowlConfig& cfg);
 
 void update_bowl(VisualRenderer& r, const EgoState& ego);
 
-}  // namespace overlume
+}

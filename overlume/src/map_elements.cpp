@@ -58,7 +58,7 @@ std::vector<Vertex> to_verts(const std::vector<Vec3>& positions) {
     return verts;
 }
 
-}  // namespace
+}
 
 constexpr double kCrosswalkStripePitchM = 1.2;
 constexpr int kCrosswalkStripesMin = 3;
@@ -334,7 +334,7 @@ void apply_map_element_staleness(VisualRenderer& r, Mesh& mesh, MapKind kind,
     mesh.fadeAlpha = alpha;
 }
 
-}  // namespace
+}
 
 void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
     std::unordered_map<uint64_t, Mesh> next;
@@ -431,4 +431,4 @@ void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
     r.mapElementMeshes = std::move(next);
 }
 
-}  // namespace overlume
+}

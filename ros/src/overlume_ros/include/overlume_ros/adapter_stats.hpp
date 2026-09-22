@@ -16,4 +16,4 @@ struct AdapterStats {
     uint64_t dropped_by_rule{0};
 };
 
-}  // namespace overlume::ros
+}

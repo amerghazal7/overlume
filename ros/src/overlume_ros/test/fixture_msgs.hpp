@@ -25,4 +25,4 @@ ProfileRow sim_row(const std::string& topic);
 
 ClassInferenceTable inference_table();
 
-}  // namespace overlume::ros::testing
+}

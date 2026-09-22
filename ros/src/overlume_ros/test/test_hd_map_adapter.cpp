@@ -30,7 +30,7 @@ struct TfFixture {
     FrameTransformer tf{buffer};
 };
 
-}  // namespace
+}
 
 TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks) {
     auto msg = overlume::ros::testing::load_marker_array("hd_map_local_elements_0.yaml");
@@ -513,7 +513,7 @@ visualization_msgs::msg::MarkerArray StraightTenMeterMarker(const char* ns) {
     return arr;
 }
 
-}  // namespace
+}
 
 TEST(HdMapAdapter, MarkerOfAnyKindStaysOneElementOutOfTheAdapter) {
     TfFixture kTf;

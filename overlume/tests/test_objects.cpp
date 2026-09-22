@@ -37,7 +37,7 @@ overlume::TrackedObject make_car(uint32_t id, double x) {
     return o;
 }
 
-}  // namespace
+}
 
 TEST(ObjectsGolden, MixedClassScene_DarkAdas) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};

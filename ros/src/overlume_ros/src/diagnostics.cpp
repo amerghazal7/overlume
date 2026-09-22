@@ -22,7 +22,7 @@ diagnostic_msgs::msg::KeyValue kv(const std::string& key, const std::string& val
     return out;
 }
 
-}  // namespace
+}
 
 diagnostic_msgs::msg::DiagnosticArray BuildDiagnostics(const std::vector<RowStats>& rows,
                                                        double render_ms) {
@@ -60,4 +60,4 @@ diagnostic_msgs::msg::DiagnosticArray BuildDiagnostics(const std::vector<RowStat
     return msg;
 }
 
-}  // namespace overlume::ros
+}

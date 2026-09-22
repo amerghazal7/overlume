@@ -105,7 +105,7 @@ const overlume::PointCloud* OnlyCloud(const SceneAssembly& asm_) {
     return asm_.point_clouds.size() == 1 ? &asm_.point_clouds[0] : nullptr;
 }
 
-}  // namespace
+}
 
 TEST(PointCloudAdapter, AutoModePicksRgbWhenFieldPresent) {
     std::vector<SyntheticPoint> pts = {
@@ -425,7 +425,7 @@ void RenderGoldenAndAssert(const std::string& tier_name, const std::string& extr
     overlume::destroy_renderer(r);
 }
 
-}  // namespace
+}
 
 TEST(PointCloudGolden, RgbTier_DarkAdas) { RenderGoldenAndAssert("rgb", "rgb"); }
 TEST(PointCloudGolden, IntensityTier_DarkAdas) { RenderGoldenAndAssert("intensity", "intensity"); }

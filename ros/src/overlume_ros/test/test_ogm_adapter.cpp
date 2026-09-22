@@ -27,7 +27,7 @@ const overlume::GroundGridLayer* OnlyGrid(const SceneAssembly& asm_) {
     return asm_.grids.size() == 1 ? &asm_.grids[0] : nullptr;
 }
 
-}  // namespace
+}
 
 TEST(OgmAdapter, FullGridPopulatesLayerGeometryAndCells) {
     auto msg = overlume::ros::testing::load_occupancy_grid("ogm_synthetic.yaml");

@@ -21,7 +21,7 @@ overlume::CameraPose tween(const overlume::CameraPose& a, const overlume::Camera
     return out;
 }
 
-}  // namespace
+}
 
 int main(int argc, char** argv) {
     const overlume_examples::ExampleArgs args =

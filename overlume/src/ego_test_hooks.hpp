@@ -12,4 +12,4 @@ double rendered_bounding_box_diagonal(overlume::VisualRenderer* r);
 
 overlume::detail::Float3 ego_material_base_color(overlume::VisualRenderer* r);
 
-}  // namespace overlume::testing
+}

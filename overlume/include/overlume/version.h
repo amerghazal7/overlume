@@ -15,4 +15,4 @@ namespace overlume {
 inline constexpr const char* kVersionString = OVERLUME_STR(OVERLUME_VERSION_MAJOR) "." OVERLUME_STR(
     OVERLUME_VERSION_MINOR) "." OVERLUME_STR(OVERLUME_VERSION_PATCH);
 
-}  // namespace overlume
+}

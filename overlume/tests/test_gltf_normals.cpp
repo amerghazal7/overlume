@@ -121,7 +121,7 @@ const std::string kTileWithNormal =
 const std::string kTileNoNormal =
     std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_tiles_fixture_0/tile_b.b3dm";
 
-}  // namespace
+}
 
 TEST(GltfNormals, AddsNormalToChunkMissingIt) {
     const std::vector<uint8_t> original = read_file(kBakedChunk);

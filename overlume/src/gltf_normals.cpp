@@ -299,7 +299,7 @@ std::vector<float> compute_flat_normals(const std::vector<float>& positions,
     return normals;
 }
 
-}  // namespace
+}
 
 std::vector<uint8_t> ensure_flat_normals(std::vector<uint8_t> glb_bytes) {
     try {
@@ -386,4 +386,4 @@ std::vector<uint8_t> ensure_flat_normals(std::vector<uint8_t> glb_bytes) {
     }
 }
 
-}  // namespace overlume
+}

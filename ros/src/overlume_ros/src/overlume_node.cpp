@@ -927,7 +927,7 @@ void warn_on_drop_growth(const rclcpp::Logger& logger, rclcpp::Clock& clock,
         warned_no_tf = s.dropped_no_tf;
     }
 }
-}  // namespace
+}
 
 void OverlumeNode::timer_callback() {
     vcam_->advance_tween();
@@ -1447,4 +1447,4 @@ OverlumeNode::CallbackReturn OverlumeNode::on_shutdown(const rclcpp_lifecycle::S
     return CallbackReturn::SUCCESS;
 }
 
-}  // namespace overlume::ros
+}

@@ -41,4 +41,4 @@ BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double 
                       const overlume::CameraIntrinsics* intrinsics, const uint32_t* cam_width,
                       const uint32_t* cam_height, const EgoBox& ego_box = EgoBox{});
 
-}  // namespace overlume::bowl
+}

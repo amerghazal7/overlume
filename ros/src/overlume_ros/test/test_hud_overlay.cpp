@@ -28,7 +28,7 @@ namespace {
 constexpr uint32_t kWidth = 1280;
 constexpr uint32_t kHeight = 720;
 constexpr uint8_t kBackground = 40;
-}  // namespace
+}
 
 TEST(HudOverlay, CompositesLegibleTextAtLowPreset) {
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, kBackground);
@@ -161,7 +161,7 @@ double block_ssim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, 
     return blockCount > 0 ? total / blockCount : 0.0;
 }
 
-}  // namespace
+}
 
 TEST(HudOverlayGolden, SyntheticSceneWithHud720pLowPreset) {
     overlume::RenderConfig config{};

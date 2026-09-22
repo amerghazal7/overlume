@@ -125,7 +125,7 @@ void upload_occupancy_texture(filament::Engine& engine, filament::Texture* tex,
     tex->setImage(engine, 0, std::move(pbd));
 }
 
-}  // namespace
+}
 
 void update_ground_grids(VisualRenderer& r, const SceneGraph& s) {
     while (r.groundGridSlots.size() > s.grid_count) {
@@ -191,7 +191,7 @@ void update_ground_grids(VisualRenderer& r, const SceneGraph& s) {
     }
 }
 
-}  // namespace overlume
+}
 
 namespace overlume::testing {
 
@@ -225,4 +225,4 @@ overlume::detail::Float3 ground_grid_occupied_color(overlume::VisualRenderer* r)
     return r->groundGridOccupiedColor;
 }
 
-}  // namespace overlume::testing
+}

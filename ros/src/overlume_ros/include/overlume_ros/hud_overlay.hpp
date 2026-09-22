@@ -29,4 +29,4 @@ bool DrawText(uint8_t* rgb, uint32_t width, uint32_t height, const char* text, f
 void DrawLine(uint8_t* rgb, uint32_t width, uint32_t height, float x0, float y0, float x1, float y1,
               HudRgb rgb_color);
 
-}  // namespace overlume::ros
+}

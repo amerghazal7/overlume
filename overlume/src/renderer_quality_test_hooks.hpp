@@ -32,4 +32,4 @@ bool quality_taa_enabled(overlume::VisualRenderer* r);
 enum class QualityAntiAliasing : uint8_t { NONE = 0, FXAA = 1 };
 QualityAntiAliasing quality_antialiasing(overlume::VisualRenderer* r);
 
-}  // namespace overlume::testing
+}

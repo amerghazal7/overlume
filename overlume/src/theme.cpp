@@ -120,7 +120,7 @@ Theme parse(const YAML::Node& root) {
     return t;
 }
 
-}  // namespace
+}
 
 std::optional<Theme> load_theme(const std::string& dir, const std::string& name) {
     if (dir.empty() || name.empty()) return std::nullopt;
@@ -190,7 +190,7 @@ const Theme& kFallbackTheme() {
     return theme;
 }
 
-}  // namespace overlume::detail
+}
 
 namespace overlume {
 
@@ -199,4 +199,4 @@ bool theme_parses(const char* dir, const char* theme_name) {
     return detail::load_theme(dir, theme_name).has_value();
 }
 
-}  // namespace overlume
+}

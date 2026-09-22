@@ -56,4 +56,4 @@ bool overlays_visible_for_mode(RenderMode mode);
 
 bool environment_effectively_visible(RenderMode mode, bool environment_enabled);
 
-}  // namespace overlume::ros
+}

@@ -48,4 +48,4 @@ private:
     int active_idx_{0};
 };
 
-}  // namespace overlume::detail
+}

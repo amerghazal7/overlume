@@ -32,7 +32,7 @@ std::vector<overlume::PointCloudPoint> make_stations(uint32_t n, uint32_t rgba) 
     return pts;
 }
 
-}  // namespace
+}
 
 TEST(TrajectoryCarpet, BuildsExtrudedRibbonFromCenterlineStations) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};

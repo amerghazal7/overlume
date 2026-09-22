@@ -93,7 +93,7 @@ double angle_between(const Vec& orig, const Vec& corrected_unit) {
     const double d = std::clamp(vdot(vscale(orig, 1.0 / n), corrected_unit), -1.0, 1.0);
     return std::acos(d);
 }
-}  // namespace
+}
 
 overlume::CameraExtrinsics OrthonormalizeExtrinsics(const overlume::CameraExtrinsics& in,
                                                     double* out_max_correction_rad) {
@@ -210,7 +210,7 @@ std::vector<overlume::CameraExtrinsics> orthonormalize_all(
     }
     return out;
 }
-}  // namespace
+}
 
 CameraIngest::CameraIngest(rclcpp_lifecycle::LifecycleNode* node, uint32_t camera_count,
                            std::vector<std::string> image_topics,
@@ -339,4 +339,4 @@ void CameraIngest::update_motion_deltas() {
     }
 }
 
-}  // namespace overlume::ros
+}

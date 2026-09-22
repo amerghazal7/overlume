@@ -64,7 +64,7 @@ std::string env_or(const char* name, const std::string& fallback) {
     return (v && *v) ? std::string(v) : fallback;
 }
 
-}  // namespace
+}
 
 TEST(ThemeShowcase, Capture) {
     if (std::getenv("OVERLUME_SHOWCASE") == nullptr) {
