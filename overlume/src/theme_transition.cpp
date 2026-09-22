@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// theme_transition.cpp — see theme_transition.hpp.
 #include "theme_transition.hpp"
 
 #include <algorithm>
@@ -16,16 +15,6 @@ Float3 lerp_vec3(const Float3& a, const Float3& b, float w) {
     return Float3{lerpf(a.r, b.r, w), lerpf(a.g, b.g, w), lerpf(a.b, b.b, w)};
 }
 
-// Geometric (log-space) lerp for photometric intensity scalars only
-// (sun.intensity, ibl.intensity). Illumination x albedo is a product: a
-// plain linear lerp of two values far apart (dark_adas/light_clay differ
-// ~19-29x in lux) blended against simultaneously brightening albedo
-// overshoots both endpoints mid-transition (measured peak luminance ~205
-// vs. a settled ~175 under linear lerp). A geometric lerp
-// (out = a * pow(b/a, w)) is monotonic between endpoints by construction,
-// so it can't overshoot. Falls back to a linear lerp if either endpoint is
-// <= 0 (log/pow undefined there) -- a defensive guard; no shipped theme
-// hits it.
 float lerpf_geometric(float a, float b, float w) {
     if (a <= 0.0f || b <= 0.0f) return lerpf(a, b, w);
     return a * std::pow(b / a, w);
@@ -38,10 +27,6 @@ Oklab linear_srgb_to_oklab(const Float3& c) {
     const float m = 0.2119034982f * c.r + 0.6806995451f * c.g + 0.1073969566f * c.b;
     const float s = 0.0883024619f * c.r + 0.2817188376f * c.g + 0.6299787005f * c.b;
 
-    // cbrtf is the real (signed) cube root -- correct for the occasional
-    // out-of-[0,1] or negative component an authored theme color can have
-    // transiently during LMS projection, unlike a pow(x, 1/3) that would
-    // NaN on negative input.
     const float l_ = std::cbrt(l);
     const float m_ = std::cbrt(m);
     const float s_ = std::cbrt(s);
@@ -124,12 +109,6 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.emissive.ribbon_strength = lerpf(a.emissive.ribbon_strength, b.emissive.ribbon_strength, w);
 
     out.grid.line_color = blend_color(a.grid.line_color, b.grid.line_color, w);
-    // grid.fade_start_m/fade_end_m are not animated here: they're baked
-    // into the grid vertex buffer's per-vertex alpha once, at
-    // create_renderer() time (renderer.cpp's build_grid_lines()), and
-    // push_theme_to_scene() never re-reads them from the blended Theme.
-    // Carry `b`'s ("to") values through unchanged rather than lerping
-    // toward a value set_theme() can't actually apply mid-transition.
     out.grid.fade_start_m = b.grid.fade_start_m;
     out.grid.fade_end_m = b.grid.fade_end_m;
 
@@ -139,9 +118,6 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.point_cloud.point_size_px =
         lerpf(a.point_cloud.point_size_px, b.point_cloud.point_size_px, w);
 
-    // sun.direction: not a color -- see theme_transition.hpp's comment
-    // above blend()'s declaration. Plain vector lerp, un-normalized
-    // (matches the existing static-theme convention in renderer.cpp).
     out.sun.direction = lerp_vec3(a.sun.direction, b.sun.direction, w);
     out.sun.color = blend_color(a.sun.color, b.sun.color, w);
     out.sun.intensity = lerpf_geometric(a.sun.intensity, b.sun.intensity, w);
@@ -152,19 +128,13 @@ Theme blend(const Theme& a, const Theme& b, float t) {
 
     out.fog.density = lerpf(a.fog.density, b.fog.density, w);
 
-    // ribbon.width_m: a plain scalar lerp, same as
-    // roughness/metallic/hud.scale above -- not a color, no Oklab
-    // involved.
     out.ribbon.width_m = lerpf(a.ribbon.width_m, b.ribbon.width_m, w);
-    // ribbon.lane_width_m/margin_{behavior,global,local}_m: same plain
-    // scalar lerp.
     out.ribbon.lane_width_m = lerpf(a.ribbon.lane_width_m, b.ribbon.lane_width_m, w);
     out.ribbon.margin_behavior_m = lerpf(a.ribbon.margin_behavior_m, b.ribbon.margin_behavior_m, w);
     out.ribbon.margin_global_m = lerpf(a.ribbon.margin_global_m, b.ribbon.margin_global_m, w);
     out.ribbon.margin_local_m = lerpf(a.ribbon.margin_local_m, b.ribbon.margin_local_m, w);
     out.ribbon.margin_velocity_m = lerpf(a.ribbon.margin_velocity_m, b.ribbon.margin_velocity_m, w);
 
-    // objects.opacity: plain scalar lerp, same as roughness/hud.scale above.
     out.objects.opacity = lerpf(a.objects.opacity, b.objects.opacity, w);
 
     return out;

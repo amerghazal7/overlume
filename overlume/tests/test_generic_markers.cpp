@@ -1,13 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// test_generic_markers.cpp — the generic-marker fallback renderer, i.e.
-// the spec §7 parity guarantee. Same "no Filament type" boundary as every
-// other tests/*.cpp -- see generic_markers_test_hooks.hpp.
-//
-// 7 of the 12 ROS marker types never appear in the recorded bag --
-// GenericMarkersGolden.EveryPrimitiveType_DarkAdas's scene is entirely
-// synthetic by design (golden.cpp's make_all_primitive_markers()).
 #include "overlume/api.h"
 #include "overlume/scene.h"
 
@@ -31,21 +24,18 @@ std::vector<uint8_t> render_once(overlume::VisualRenderer* r, const overlume::Ca
 
 }  // namespace
 
-// ── Step 1/5: one of every FROZEN primitive, plus the CUBE_LIST/SPHERE_LIST
-//    fan-out result, laid out in a row for at-a-glance human counting ───────
-
 TEST(GenericMarkersGolden, EveryPrimitiveType_DarkAdas) {
-    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
     const std::string meshPath =
         std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/test_cube.glb";
     overlume::testing::GenericMarkerScene scene =
-        overlume::testing::make_all_primitive_markers(/*now=*/10.0, meshPath.c_str());
+        overlume::testing::make_all_primitive_markers(10.0, meshPath.c_str());
     overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
-    s.ego = {{0, 0, 0}, 0.0, 0.0, /*valid=*/1};
+    s.ego = {{0, 0, 0}, 0.0, 0.0, 1};
     s.markers = scene.markers.data();
     s.marker_count = static_cast<uint32_t>(scene.markers.size());
     overlume::set_scene(r, s);
@@ -58,8 +48,6 @@ TEST(GenericMarkersGolden, EveryPrimitiveType_DarkAdas) {
     overlume::destroy_renderer(r);
 }
 
-// ── §4.2: pooled primitive renderables, no per-frame allocation ────────────
-
 TEST(GenericMarkers, PooledRenderablesNoPerFrameAllocation) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
@@ -68,7 +56,7 @@ TEST(GenericMarkers, PooledRenderablesNoPerFrameAllocation) {
     const std::string meshPath =
         std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/test_cube.glb";
     overlume::testing::GenericMarkerScene scene =
-        overlume::testing::make_all_primitive_markers(/*now=*/10.0, meshPath.c_str());
+        overlume::testing::make_all_primitive_markers(10.0, meshPath.c_str());
     overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
     s.markers = scene.markers.data();
@@ -88,16 +76,13 @@ TEST(GenericMarkers, PooledRenderablesNoPerFrameAllocation) {
     overlume::destroy_renderer(r);
 }
 
-// ── A raw out-of-range primitive value is skipped and counted, not a
-//    silent no-op or a crash ───────────────────────────────────────────────
-
 TEST(GenericMarkers, UnknownOrUnsupportedPrimitiveIsSkippedAndCounted) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
     overlume::GenericMarker m{};
-    m.primitive = static_cast<overlume::MarkerPrimitive>(200);  // outside the frozen 0..9 range
+    m.primitive = static_cast<overlume::MarkerPrimitive>(200);
     m.position = {0, 0, 0.5};
     m.scale = {1, 1, 1};
     overlume::SceneGraph s{};
@@ -111,8 +96,6 @@ TEST(GenericMarkers, UnknownOrUnsupportedPrimitiveIsSkippedAndCounted) {
     EXPECT_EQ(overlume::testing::generic_marker_slot_count(r), 1u);
     overlume::destroy_renderer(r);
 }
-
-// ── spec §9: asset load failure -> clay-box fallback, WARN once ────────────
 
 TEST(GenericMarkers, MeshPathLoadFailureFallsBackToClayBoxWarnOnce) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
@@ -129,18 +112,12 @@ TEST(GenericMarkers, MeshPathLoadFailureFallsBackToClayBoxWarnOnce) {
     s.marker_count = 1;
     overlume::set_scene(r, s);
     overlume::CameraPose pose{{1, -8, 6}, {1, 1, 0}, 60.0};
-    // Render twice (two set_scene-free frames of the same load-failure
-    // marker) -- the WARN-once contract must not depend on a fresh
-    // set_scene() call to hold; the fallback itself must be stable either
-    // way.
     render_once(r, pose);
     render_once(r, pose);
 
     EXPECT_TRUE(overlume::testing::generic_marker_mesh_is_fallback(r, 0));
     overlume::destroy_renderer(r);
 }
-
-// ── GenericMarker::color alpha==0 -> theme-neutral default ─────────────────
 
 TEST(GenericMarkers, ZeroAlphaColorUsesThemeNeutralDefault) {
     const auto theme = overlume::detail::load_theme(kThemeDir, "dark_adas");
@@ -154,7 +131,7 @@ TEST(GenericMarkers, ZeroAlphaColorUsesThemeNeutralDefault) {
     m.primitive = overlume::MarkerPrimitive::CUBE;
     m.position = {0, 0, 0.5};
     m.scale = {1, 1, 1};
-    m.color[3] = 0.0f;  // no colour supplied
+    m.color[3] = 0.0f;
     overlume::SceneGraph s{};
     s.markers = &m;
     s.marker_count = 1;
@@ -169,10 +146,6 @@ TEST(GenericMarkers, ZeroAlphaColorUsesThemeNeutralDefault) {
     overlume::destroy_renderer(r);
 }
 
-// ── Staleness: shared clay_translucent.mat swap, driven by
-//    SceneBuffer::staleness_alpha -- same mechanism as objects/ribbons/
-//    alerts ─────────────────────────────────────────────────────────────────
-
 TEST(GenericMarkers, StaleMarkersFadeViaSharedStalenessAlpha) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
@@ -182,12 +155,12 @@ TEST(GenericMarkers, StaleMarkersFadeViaSharedStalenessAlpha) {
     markers[0].primitive = overlume::MarkerPrimitive::CUBE;
     markers[0].position = {0, 0, 0.5};
     markers[0].scale = {1, 1, 1};
-    markers[0].last_update_sec = 10.0;  // fresh at sim_time 10.0
+    markers[0].last_update_sec = 10.0;
 
     markers[1].primitive = overlume::MarkerPrimitive::CUBE;
     markers[1].position = {3, 0, 0.5};
     markers[1].scale = {1, 1, 1};
-    markers[1].last_update_sec = 9.25;  // 0.75s stale: mid-fade (0.5 <= t < 1.0)
+    markers[1].last_update_sec = 9.25;
 
     overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;

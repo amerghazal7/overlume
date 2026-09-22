@@ -3,15 +3,6 @@
 
 name: sim
 rows:
-  # Five namespaces on the wire (full-bag deserialization of all 1921 msgs):
-  # dynamic_objects_bbox 15559, _text 15559, _arrow 15522, _hd_map_path 5894,
-  # _hd_map_path_dots 5894. The first four fuse into one TrackedObject
-  # (Task 3). The fifth is the SAME predicted path drawn again as dots (also
-  # LINE_LIST, same 5894 count, same objects) -- ingesting it would draw every
-  # predicted ribbon TWICE. It is dropped by rule, not by silence, so it lands
-  # in dropped_by_rule and VM-034 reports it. Longest-prefix-wins is what makes
-  # this expressible: "dynamic_objects_hd_map_path" is a PREFIX of
-  # "dynamic_objects_hd_map_path_dots".
   - {topic: /perception/dynamic_objects_list, type: visualization_msgs/msg/MarkerArray,
      adapter: dynamic_objects, role: tracked, timeout_sec: 2.0,
      ns_default: drop,
@@ -22,23 +13,6 @@ rows:
        {prefix: dynamic_objects_hd_map_path,        render: polyline},
        {prefix: dynamic_objects_hd_map_path_dots,   render: drop}]}
 
-  # PRIMARY map source: rolling ~50 m local window, ~18 Hz, always joinable.
-  # Namespace rules: LONGEST MATCHING PREFIX WINS, unmatched -> ns_default.
-  # centerline_arrows_ is dropped: 93% of all map markers in the recorded bag
-  # (3.31M of 3.56M) for a cosmetic per-lane direction hint. Re-enable by
-  # changing its render: to polyline; no rebuild needed. Note it needs its own
-  # rule -- "centerline_" is a PREFIX of "centerline_arrows_0", so listing
-  # only centerline_ would admit every arrow marker.
-  # crosswalk_ is the only polygon namespace: on the wire it is a LINE_STRIP
-  # exactly like the centerlines, so is_polygon (and therefore the crosswalk
-  # hatching in spec §7) can only come from here.
-  # crosswalk_stopline_ is a real map element and is KEPT, as a polyline -- it
-  # is a painted stop bar, not a crosswalk box; again it needs its own rule
-  # because crosswalk_ is a prefix of it.
-  # centerline_ is dropped: hidden by default -- see urban_profile.yaml's
-  # matching comment for the full rationale and the re-enable steps (same
-  # `render: polyline, kind: centerline` restore; `kind` cannot be set while
-  # `render: drop`).
   - {topic: /hd_map_local_elements, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 2.0,
      ns_default: drop,
@@ -50,21 +24,6 @@ rows:
        {prefix: crosswalk,           render: polygon,  kind: crosswalk},
        {prefix: crosswalk_stopline_, render: polyline, kind: stopline}]}
 
-  # FIXTURE GAP: /hd_map_global_elements was silent in the recorded bag
-  # (Count 0), exactly like /local_path and /navigation/global_path -- and it
-  # ships as a live row for exactly the same reason: it is an ENABLED
-  # rviz_default_plugins/MarkerArray display (config/rviz/urban_config.rviz:147)
-  # and a named HdMapAdapter input in spec §5 / a row in the §7 parity matrix.
-  # Count 0 means a publisher is registered and did not fire in this calm
-  # recording, not that the topic does not exist; omitting the row would leave
-  # a deployment whose global map DOES publish rendering no global lane
-  # geometry, with nothing to uncomment and no rules to copy. Same namespaces
-  # as the local window (same publisher family, same marker types).
-  # CAVEAT, and the reason this row can look dead even when it works: the rviz
-  # display reads it as VOLATILE publish-once, so a late-joining subscriber
-  # gets nothing at all. If the layer stays empty, that is the first thing to
-  # check -- flip transient_local: true here IF the publisher is latched; if
-  # it is genuinely VOLATILE, the node must be up before the publisher.
   - {topic: /hd_map_global_elements, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 0.5,
      ns_default: drop,
@@ -76,163 +35,22 @@ rows:
        {prefix: crosswalk,           render: polygon,  kind: crosswalk},
        {prefix: crosswalk_stopline_, render: polyline, kind: stopline}]}
 
-  # /road_markers: live in the bag (1921 msgs, RELIABLE, frame map). NOT in
-  # either rviz config -- it ships because it is real painted-lane geometry
-  # the HdMapAdapter already knows how to draw, and dropping it would lose it
-  # with no row to uncomment.
-  # role is `lane`, NOT `corridor`: role must be a value the schema comment
-  # lists and something downstream reads, and MapElement carries no role at
-  # all -- Task 2 Step 9 tints every element with palette.lane_paint. An
-  # earlier draft shipped `corridor` here: unvalidated, unlisted, and read by
-  # nothing, i.e. a value that looks meaningful and drives zero pixels.
-  # Rules are SPELLED OUT rather than left to ns_default, for the same reason
-  # every other row's are: the two namespaces below are what the publisher
-  # emits today (verified, 5 messages: road_lane_left_boundary 320,
-  # road_lane_right_boundary 290, all Marker::type 4 LINE_STRIP, plus one
-  # ns="" action=3 DELETEALL per message). Riding on ns_default: polyline
-  # means the day this publisher adds a TEXT or ARROW namespace -- exactly
-  # what /sim/hd_map/markers did -- it silently becomes dropped_malformed
-  # noise instead of a rule decision.
-  # DISABLED 2026-08-20 — upstream /road_markers publisher output is wrong
-  # (user-verified in rviz: same broken view there). See urban_profile.yaml's
-  # /road_markers block for the full story and the re-enable checklist.
-  # - {topic: /road_markers, type: visualization_msgs/msg/MarkerArray,
-  #    adapter: hd_map, role: lane, timeout_sec: 2.0,
-  #    ns_default: drop,
-  #    namespaces: [
-  #      {prefix: road_lane_left_boundary,  render: polyline},
-  #      {prefix: road_lane_right_boundary, render: polyline}]}
-
   - {topic: /behavior_path_planner/output_path_visualization, type: nav_msgs/msg/Path,
      adapter: path, role: behavior, timeout_sec: 2.0}
   - {topic: /local_vel_path, type: nav_msgs/msg/Path, adapter: path, role: local}
-  # FIXTURE GAP (VM-023): silent in the recorded bag, but BOTH of these are
-  # enabled rviz_default_plugins/Path displays in config/rviz/offroad_config.rviz,
-  # so spec §7 requires a row for each. They stay stale-faded until something
-  # publishes -- that is the designed behaviour, not a missing feature.
   - {topic: /navigation/global_path, type: nav_msgs/msg/Path, adapter: path, role: global}
   - {topic: /local_path, type: nav_msgs/msg/Path, adapter: path, role: local}
 
-  # FIXTURE GAP (VM-025): no OccupancyGrid publisher in the recorded stack.
-  # ONE row per grid, carrying its own patch stream -- an OccupancyGridUpdate
-  # is meaningless without the base grid it patches, so a separate *_updates
-  # row would be an adapter that drops every message it ever receives (there
-  # is one adapter instance per row). This is also exactly how rviz models it:
-  # config/rviz/offroad_config.rviz:49-88 is ONE Map display with Topic and
-  # Update Topic.
   - {topic: /perception/dynamic_ogm, type: nav_msgs/msg/OccupancyGrid,
      adapter: ogm, role: dynamic_ogm, update_topic: /perception/dynamic_ogm_updates}
   - {topic: /perception/gradient_ogm, type: nav_msgs/msg/OccupancyGrid,
      adapter: ogm, role: gradient_ogm, update_topic: /perception/gradient_ogm_updates}
 
-  # Retargeted 2026-09-09 (VM-077): /navigation_urban_collision_checker_testing_node/*
-  # confirmed dead stack-wide (0 live topics, ros2 topic list -t at
-  # recording time). Role from CONTENT, not the rviz slot the topic
-  # happened to land in (see the epic3 plan's rviz-reference-update
-  # CAUTION) -- explicit "COLLISION\nobject N..." label, no "predicted
-  # path" qualifier, two closed-ring footprints (ego+object). See
-  # urban_profile.yaml's identical rows for the full evidence.
   - {topic: /behavior_path_planner/collision_markers,
      type: visualization_msgs/msg/MarkerArray, adapter: collision, role: collision}
-  # FLAGGED JUDGMENT CALL (VM-077 measurement report §2, not resolved by
-  # content alone) -- see urban_profile.yaml's identical row for the full
-  # story. Shipped as role: predicted per the measured recommendation.
   - {topic: /navigation_motion_obstacle_planner_node/collision_markers,
      type: visualization_msgs/msg/MarkerArray, adapter: collision, role: predicted}
 
-  # DISABLED 2026-09-09 -- VM-077 measurement pass found NO successor topic
-  # for these three roles anywhere in the new stack's recording; the whole
-  # /navigation_urban_collision_checker_testing_node/* namespace is
-  # confirmed dead. See urban_profile.yaml's identical block for the
-  # re-enable checklist.
-  # - {topic: /navigation_urban_collision_checker_testing_node/ego_footprint_sweep,
-  #    type: visualization_msgs/msg/MarkerArray, adapter: collision, role: sweep}
-  # - {topic: /navigation_urban_collision_checker_testing_node/ego_merged_polygon,
-  #    type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_ego}
-  # - {topic: /navigation_urban_collision_checker_testing_node/object_merged_polygons,
-  #    type: visualization_msgs/msg/MarkerArray, adapter: collision, role: merged_object}
-
-  # Parity fallback (VM-027): anything not stylized above, one row each.
-  # NOTE 1 (frames): this topic publishes in the base_link frame -- the only
-  # non-map frame in the recorded bag. It renders correctly only because every
-  # adapter runs FrameTransformer (see the node's frame_transform.hpp); with
-  # a straight copy its ~126 boxes pile up at the map origin while the ego is
-  # 100+ m away, and it still looks like "something rendered".
-  # NOTE 2 (QoS): best_effort: true is LOAD-BEARING. The bag's metadata.yaml
-  # records this publisher's offered `reliability: 2` (BEST_EFFORT), and an
-  # rclcpp subscription defaults to RELIABLE, which never matches it. Drop the
-  # flag and this row receives ZERO messages, forever, with no error anywhere --
-  # and every test in this epic still passes, because the Task 8 E2E's own
-  # rclpy publisher is RELIABLE. `ros2 topic info -v /sim/ground_truth/boxes`
-  # (or grep the bag metadata) before changing it.
-  # DISABLED BY DEFAULT: the ego's own gt box sits at base_link (0,0) = ON
-  # the robot proxy and flickers -- see urban_profile.yaml's identical block
-  # for the full story. Uncomment to overlay sim ground truth (NOTE 2 /
-  # best_effort still applies).
-  # - {topic: /sim/ground_truth/boxes, type: visualization_msgs/msg/MarkerArray,
-  #    adapter: generic, role: neutral, best_effort: true}
-
-  # Debug layer, OFF by default (spec §7 row 2). No topic and no type: nothing
-  # in this stack publishes TF as markers, so TfAxesAdapter GENERATES three
-  # coloured LINE_LIST markers per frame from the tf2 buffer the node already
-  # owns (Task 8 Step 7). Uncomment to turn it on; it is noisy on a stack with
-  # dozens of frames, which is why it ships commented.
-  # - {adapter: tf_axes, role: debug, timeout_sec: 1.0}
-
-  # /sim/hd_map/markers: the ONLY full-extent map source anywhere in the
-  # stack (1 latched message, 3725 markers, frame map). TRANSIENT_LOCAL, so a
-  # late-joining subscriber gets nothing without transient_local: true -- and
-  # "nothing" is indistinguishable from "the sim isn't publishing".
-  # Not in urban/offroad: it does not exist on the real robot, where
-  # /hd_map_local_elements' rolling ~50 m window is the only map (which is
-  # why the ground is ego-following geometry and not the HD map -- see
-  # "How the placeholder ground/grid is retired").
-  #
-  # ITS NAMESPACES ARE NOT /hd_map_local_elements' -- do not copy that row's
-  # rules and do not run this one on ns_default alone. Deserialized from the
-  # single latched message (3725 markers):
-  #   centerline_<n>          168
-  #   centerline_arrows_<n>  3066   type 0 ARROW  <-- 82% of the message
-  #   left_boundary_<n>       168 | right_boundary_<n> 168
-  #   crosswalks               16   type 4, NO numeric suffix (plural!)
-  #   junction                  9
-  #   landmark                 65   type 1 CUBE
-  #   landmark_text            65   type 9 TEXT
-  # With ns_default: polyline and no rules, all three of these ship broken:
-  # (a) 3066 ARROW markers carry no points[] -> 3066 dropped_malformed and a
-  #     WARN flood from ONE latched message (and the 93%-decimation story does
-  #     not apply here at all -- these are dropped by RULE, counted in
-  #     dropped_by_rule, which is the honest counter for a deliberate drop);
-  # (b) "crosswalks" (plural) was not matched by the original "crosswalk_"
-#     prefix ('s' != '_'); the shipped rule is now the bare prefix
-#     "crosswalk", which matches BOTH the urban publisher's crosswalk_<id>
-#     and this publisher's plural form,
-  #     so is_polygon would never be set and §7 crosswalk hatching would never
-  #     render on the only full-extent map source -- the exact defect Task 2's
-  #     urban-only assertion cannot see;
-  # (c) landmark/landmark_text are CUBE and TEXT: HdMapAdapter has no
-  #     representation for either, so they are dropped here by rule. Want them?
-  #     Uncomment the generic row below -- a second adapter on the same topic
-  #     is legal (the duplicate check is on topic+adapter) and renders them as
-  #     what they are.
-  # (d) centerline_ is dropped: hidden by default on this row too -- same
-  #     rationale/re-enable steps as urban_profile.yaml's matching comment.
-  #
-  # Junction cleanup: this is the one row anywhere that DOES carry
-  # `junction`-namespace geometry (9 markers, closed-ring boxes -- see the
-  # namespace count above), so both cut mechanisms are live here: ROAD_EDGE
-  # polylines get clipped at a JUNCTION polygon's boundary
-  # (stopping/resuming, not just trimmed by a fixed back-off) AND get the
-  # mutual-crossing cut for anything the polygon clip doesn't cover.
-  # `junction_interior_boundaries` (row key, default true, not written)
-  # keeps interior LEFT_/RIGHT_BOUNDARY dashed separators visible through a
-  # junction box -- set it to false to drop their in-box segments too.
-  #
-  # The mutual-crossing cut's own gap-merge/arc-snap/redundant-tail
-  # refinements (all in hd_map.cpp -- see urban_profile.yaml's matching
-  # comment and plan 2026-08-18-visual-mode-epic3.md for the measured
-  # bounds) apply here too; the JUNCTION-polygon clip above is a separate
-  # mechanism and is unaffected by any of them.
   - {topic: /sim/hd_map/markers, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, transient_local: true,
      ns_default: drop,
@@ -244,29 +62,3 @@ rows:
        {prefix: crosswalk,          render: polygon,  kind: crosswalk},
        {prefix: junction,           render: polyline, kind: junction},
        {prefix: landmark,           render: drop}]}
-
-  # Optional: the sim map's 65 landmarks (CUBE) + 65 labels (TEXT), rendered
-  # by the parity fallback instead of thrown away. Off by default -- 130 extra
-  # markers of scenery on a latched message nobody asked to see.
-  # - {topic: /sim/hd_map/markers, type: visualization_msgs/msg/MarkerArray,
-  #    adapter: generic, role: neutral, timeout_sec: 5.0, transient_local: true,
-  #    ns_default: drop,
-  #    namespaces:
-  #      - {prefix: landmark,      render: polyline}
-  #      - {prefix: landmark_text, render: polyline}}
-  # (`landmark` is a prefix of `landmark_text`, so the hd_map row's single
-  # `landmark` -> `drop` rule covers both; the generic row spells both out
-  # because they need different verdicts from `ns_default: drop`.)
-
-  # SKIP as a render layer (VM-077 measurement report §5, D4):
-  # /sim/hd_map/local_markers -- same centerline_N/left_boundary_N/
-  # right_boundary_N ns nomenclature as this row's own /sim/hd_map/markers,
-  # overlapping road-network content, but a much smaller id space (max ~167
-  # vs ~7625 here) -- a different (likely sim ground-truth) source
-  # describing largely the same geometry, plus extra categories
-  # (arrows/crosswalks/junction/landmark). ~297 KB/msg const, ~3 MB/s at
-  # ~10 Hz, BEST_EFFORT (reliability:2 per the bag's metadata.yaml) -- cost
-  # without new information as a default-on duplicate. Revisit only as a
-  # deliberately-scoped, separately-toggleable ground-truth overlay row; if
-  # ever added, best_effort: true is REQUIRED (same lesson /iv_points_fusion
-  # already teaches).

@@ -14,11 +14,6 @@
 namespace overlume::ros {
 namespace {
 
-// STATED DEVIATION (see point_cloud.hpp's own header comment): soft-
-// defaulted theme-token stand-ins for the intensity/height ramp endpoints
-// -- no cross-toolchain path exists today for this gcc/libstdc++ adapter
-// to read the clang/libc++ library's parsed theme.yaml. Replace with a
-// real theme lookup if/when that read path is ever added.
 constexpr uint8_t kIntensityLowRgb[3] = {24, 24, 40};
 constexpr uint8_t kIntensityHighRgb[3] = {255, 214, 120};
 constexpr uint8_t kHeightLowRgb[3] = {40, 70, 170};
@@ -30,8 +25,6 @@ Tier ResolveTier(const std::string& color_mode, bool has_color, bool has_intensi
     if (color_mode == "flat") return Tier::kFlat;
     if (color_mode == "height") return Tier::kHeight;
     if (color_mode == "intensity") return has_intensity ? Tier::kIntensity : Tier::kHeight;
-    // "rgb" and "auto" share the same fallback chain (this file's header
-    // comment): rgb -> intensity -> height.
     if (has_color) return Tier::kRgb;
     return has_intensity ? Tier::kIntensity : Tier::kHeight;
 }
@@ -41,8 +34,6 @@ uint8_t LerpByte(uint8_t lo, uint8_t hi, float t) {
                                             (static_cast<float>(hi) - static_cast<float>(lo)) * t));
 }
 
-// t in [0,1] (0.5 when the observed range is degenerate, lo==hi) -> a
-// packed opaque rgba between `lo`/`hi`'s endpoint bytes.
 uint32_t RampColor(const uint8_t lo[3], const uint8_t hi[3], float t) {
     return PackRgba(LerpByte(lo[0], hi[0], t), LerpByte(lo[1], hi[1], t), LerpByte(lo[2], hi[2], t),
                     255);
@@ -68,9 +59,6 @@ void PointCloudAdapter::ingest(const sensor_msgs::msg::PointCloud2& msg, double 
         return;
     }
 
-    // Field scan -- prior art: rendering_node.cpp:448-462. Only FLOAT32
-    // fields are recognized (see this adapter's header comment); a field
-    // present under a different wire datatype reads as absent.
     int offX = -1, offY = -1, offZ = -1, offColor = -1, offIntensity = -1;
     for (const auto& f : msg.fields) {
         if (f.datatype != sensor_msgs::msg::PointField::FLOAT32) continue;
@@ -88,14 +76,10 @@ void PointCloudAdapter::ingest(const sensor_msgs::msg::PointCloud2& msg, double 
             offIntensity = static_cast<int>(f.offset);
     }
     if (offX < 0 || offY < 0 || offZ < 0) {
-        // No coherent geometry at all -- whole message dropped, previously-
-        // stored cloud (if any) keeps rendering.
         ++stats_.dropped_malformed;
         return;
     }
 
-    // ONE lookup for the whole message -- same "per message, never per
-    // point" rule every other adapter's frame transform follows.
     tf2::Transform xform;
     if (!tf_.lookup(msg.header, xform)) {
         ++stats_.dropped_no_tf;
@@ -104,13 +88,10 @@ void PointCloudAdapter::ingest(const sensor_msgs::msg::PointCloud2& msg, double 
 
     const Tier tier = ResolveTier(row_.color_mode, offColor >= 0, offIntensity >= 0);
 
-    // Pass 1: stride/max_points decimation + per-point transform (z is
-    // NEVER flattened here -- see this file's header comment) + the
-    // per-point malformed guard (NaN/Inf x/y/z drops just that point).
     struct RawPoint {
         tf2::Vector3 world;
-        uint32_t color_bits = 0;  // meaningful iff tier == kRgb
-        float intensity = 0.0f;   // meaningful iff tier == kIntensity
+        uint32_t color_bits = 0;
+        float intensity = 0.0f;
     };
     std::vector<RawPoint> raw;
     raw.reserve(row_.stride > 0 ? (n / row_.stride) + 1 : n);
@@ -132,11 +113,6 @@ void PointCloudAdapter::ingest(const sensor_msgs::msg::PointCloud2& msg, double 
             any_nan = true;
             continue;
         }
-        // Road-surface filter (row_.min_z_m, profile.hpp; maintainer
-        // decision 2026-09-21): NaN (default) leaves this a no-op --
-        // comparisons against NaN are always false. Finite -> drop points
-        // at/below the configured road plane so they stop z-fighting with
-        // the HD-map surface and other road-drawn elements.
         if (world.z() < row_.min_z_m) {
             ++dropped_below_min_z_;
             continue;
@@ -149,9 +125,6 @@ void PointCloudAdapter::ingest(const sensor_msgs::msg::PointCloud2& msg, double 
     }
     if (any_nan) ++stats_.dropped_malformed;
 
-    // Pass 2: intensity/height auto-range, over exactly the survivors
-    // above (post-decimation) -- no profile-level override field exists
-    // (see this file's header comment).
     float lo = std::numeric_limits<float>::infinity();
     float hi = -std::numeric_limits<float>::infinity();
     if (tier == Tier::kIntensity) {
@@ -174,8 +147,6 @@ void PointCloudAdapter::ingest(const sensor_msgs::msg::PointCloud2& msg, double 
         p.position = {rp.world.x(), rp.world.y(), rp.world.z()};
         switch (tier) {
             case Tier::kRgb: {
-                // PCL packed-float convention: the field's bit pattern,
-                // reinterpreted as a uint32_t, is 0x00RRGGBB / 0xAARRGGBB.
                 const uint8_t r = static_cast<uint8_t>((rp.color_bits >> 16) & 0xFFu);
                 const uint8_t g = static_cast<uint8_t>((rp.color_bits >> 8) & 0xFFu);
                 const uint8_t b = static_cast<uint8_t>(rp.color_bits & 0xFFu);
@@ -196,8 +167,6 @@ void PointCloudAdapter::ingest(const sensor_msgs::msg::PointCloud2& msg, double 
             }
             case Tier::kFlat:
             default:
-                // alpha==0 sentinel (scene.h's PointCloudPoint comment) --
-                // point_cloud.cpp substitutes the theme's neutral token.
                 p.rgba = 0;
                 break;
         }
@@ -211,7 +180,7 @@ void PointCloudAdapter::ingest(const sensor_msgs::msg::PointCloud2& msg, double 
 }
 
 void PointCloudAdapter::fill(overlume::ros::SceneAssembly& out) const {
-    if (!has_data_) return;  // never received a valid message yet
+    if (!has_data_) return;
 
     overlume::PointCloud pc{};
     pc.points = storage_.data();

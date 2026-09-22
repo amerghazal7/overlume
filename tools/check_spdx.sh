@@ -1,37 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Amer Ghazal
-# SPDX header gate for Overlume's first-party source (Task 6b).
-#
-# File set (via `git ls-files`, so nothing untracked/generated/build ever
-# enters it): C/C++ (.c .cc .cpp .cxx .h .hpp .hxx) and Filament .mat files
-# under overlume/{src,include,tests,tools,smoke}, examples/, and
-# ros/src/overlume_ros/**; Python (.py) and shell (.sh) under those same
-# roots plus top-level tools/*.py, tools/*.sh, and ros/colcon_build.sh
-# (the colcon workspace root's own build script — a sibling of
-# ros/src/overlume_ros, not a descendant of it, so it needs its own entry);
-# CMake helper files (overlume/cmake/**/*.cmake) and examples/CMakeLists.txt;
-# and the "themes / profiles / params" YAML config under
-# ros/src/overlume_ros/config/*.yaml.
-#
-# Deliberately excluded (never in the set above, stated for the record):
-# - Test/golden fixtures (any path segment "fixtures/", e.g.
-#   overlume/tests/fixtures/**, ros/src/overlume_ros/test/fixtures/**,
-#   overlume/tests/goldens/**) and binary/data assets (.png .glb .b3dm
-#   .rviz .csv .ttf .json) — data, not source.
-# - PROVENANCE/ATTRIBUTION files and all .md docs.
-# - Generated files, and the downloaded stb headers (not tracked in-tree).
-# - Small non-code config carrying no copyrightable logic: package.xml,
-#   Doxyfile.in, ros/config_colcon.yaml, .github/**/*.yml, *.srv.
-# Covered (in addition to the roots above): overlume/assets/materials/*.mat,
-# overlume/assets/themes/*.yaml, overlume/CMakeLists.txt,
-# ros/src/overlume_ros/CMakeLists.txt, examples/CMakeLists.txt.
-#
-# Untracked-but-not-ignored files are included too (--others), so a new file
-# is checked before it is ever staged.
-# Usage: tools/check_spdx.sh
-# Exits non-zero (and lists every offender) if any file in the set above is
-# missing "SPDX-License-Identifier" from its first 3 lines.
 
 set -euo pipefail
 

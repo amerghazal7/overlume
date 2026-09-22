@@ -2,16 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Amer Ghazal
 
-# VM-091 Task 2 Step 5 perf gate. Real fixture bag (six live cameras), not
-# epic2_fixtures_full (no camera topics -- budget_probe.md's own existing
-# rows are not a valid baseline here, see the plan's Step 5).
 set -o pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BAG=$HOME/TPSProjector-fixtures/stack_v3_full_sensors_2026-09-11
-# VM-091 gate close-out finding 5: OUT defaults to a fresh mktemp -d dir (the
-# usual ${OUT:-...} pattern) instead of a hardcoded session-scratchpad path
-# outside the repo -- override with OUT=... to keep results. SAMPLER is the
-# committed copy next to this script, never a scratchpad path.
 OUT="${OUT:-$(mktemp -d)}"
 SAMPLER="$(dirname "$0")/sample_diagnostics.py"
 mkdir -p "$OUT"
@@ -38,7 +31,7 @@ hz(){ timeout 14 ros2 topic hz "$1" --window 100 2>/dev/null | grep -oE "average
 gpu(){ nvidia-smi dmon -s um -c 8 2>/dev/null | awk 'NR>2 && $1!~/#/ {s+=$2; m+=$4; n++} END{ if(n) printf "%.0f %.0f", s/n, m/n; else print "na na"}'; }
 cpu(){ top -b -n 3 -d 2 -p "$1" 2>/dev/null | awk -v p="$1" '$1==p {c=$9} END{print c+0}'; }
 
-run_case(){ # name bowl_enabled [odom_topic]
+run_case(){
   local name=$1 bowl=$2 odom=${3:-} vpid
   echo "=== case $name (bowl_enabled=$bowl odom_topic=${odom:-<none>})"
   cleanup >/dev/null 2>&1
@@ -50,24 +43,14 @@ run_case(){ # name bowl_enabled [odom_topic]
   vpid=$(pgrep -f "lib/overlume_ros/visualization_[n]ode" | head -1)
   if ! lc /overlume_node configure || ! lc /overlume_node activate; then cleanup; return 1; fi
 
-  # Fresh single-pass playback (no --loop -- a looping bag's clock jump
-  # stalls sim-time timers, per this task's own instructions). --clock so
-  # use_sim_time timers advance; sensor topics are SensorDataQoS
-  # (best_effort) on both the recorder side and this node's subscriptions.
   ros2 bag play "$BAG" --clock --rate 1.0 < /dev/null > "$OUT/$name.bag.log" 2>&1 &
-  sleep 15  # let the bag reach steady playback + camera info/first frames arrive
+  sleep 15
 
-  # bowl_on_driving case (finding 6): the fixture bag carries no odometry at
-  # all, so a real rig_delta()/twist_at() per-tick integration cost never
-  # runs without this synthetic constant-vx/wz publisher on $odom.
   if [ -n "$odom" ]; then
     python3 "$(dirname "$0")/synthetic_odom_publisher.py" "$odom" 2.0 0.1 \
       > "$OUT/$name.odom.log" 2>&1 &
   fi
 
-  # Live re-bake check (VM-091 close-out review, minor 1): a bowl-param edit
-  # mid-run must actually re-bake -- asserted against the node's own INFO
-  # line, only on the plain bowl_on case (bowl active, no other churn).
   if [ "$name" = "bowl_on" ]; then
     ros2 param set /overlume_node bowl_R0 12.0 > /dev/null 2>&1 || true
     sleep 1

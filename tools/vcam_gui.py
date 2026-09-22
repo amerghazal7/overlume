@@ -38,19 +38,16 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gst", "1.0")
-from gi.repository import GLib, Gst, Gtk  # noqa: E402
+from gi.repository import GLib, Gst, Gtk
 
 PRESETS = ["config", "reverse_follow", "left_side", "right_side", "top_down"]
-EL_MIN, EL_MAX = math.radians(5.0), math.radians(85.0)   # prototype clamps
+EL_MIN, EL_MAX = math.radians(5.0), math.radians(85.0)
 DIST_MIN = 1.5
-DRAG_GAIN = 0.006      # rad per pixel
-SCROLL_GAIN = 0.3      # m per wheel notch
+DRAG_GAIN = 0.006
+SCROLL_GAIN = 0.3
 
-# Prototype orbit geometry (app.py orbit_shot): the robot at the origin is the
-# orbit centre — eye moves on a sphere centred at z=+0.5, target is fixed.
 ORBIT_TARGET = [0.0, 0.0, 0.3]
 ORBIT_Z_OFFSET = 0.5
-
 
 def orbit_eye(az: float, el: float, dist: float) -> list[float]:
     """Prototype's orbit_shot(): spherical (az, el, dist) about the origin -> eye."""
@@ -58,24 +55,16 @@ def orbit_eye(az: float, el: float, dist: float) -> list[float]:
             dist * math.cos(el) * math.sin(az),
             dist * math.sin(el) + ORBIT_Z_OFFSET]
 
-
-# ── camera extrinsics <-> user-friendly pose ─────────────────────────────────
-# A camera row is 12 floats [R(9 row-major)|t(3)], R columns = optical
-# right/down/fwd in the rig frame (x-fwd, y-left, z-up). The panel edits it as
-# x/y/z (m) + yaw/pitch/roll (deg): yaw = heading of the optical axis, pitch =
-# its elevation, roll = rotation about it (0 = horizon level).
 CAM_NAMES_6 = ["fl", "fm", "fr", "bl", "bm", "br"]
 POSE_KEYS = ["x", "y", "z", "yaw", "pitch", "roll"]
-
 
 def _roll_basis(fwd):
     r0 = np.cross(fwd, [0.0, 0.0, 1.0])
     n = np.linalg.norm(r0)
-    if n < 1e-6:  # looking straight up/down
+    if n < 1e-6:
         r0, n = np.array([0.0, -1.0, 0.0]), 1.0
     r0 = r0 / n
     return r0, np.cross(fwd, r0)
-
 
 def rt_to_pose(row):
     R = np.array(row[:9], float).reshape(3, 3)
@@ -85,7 +74,6 @@ def rt_to_pose(row):
     r0, d0 = _roll_basis(fwd)
     roll = math.degrees(math.atan2(float(np.dot(right, d0)), float(np.dot(right, r0))))
     return [row[9], row[10], row[11], yaw, pitch, roll]
-
 
 def pose_to_rt(x, y, z, yaw, pitch, roll):
     cy, sy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
@@ -98,10 +86,6 @@ def pose_to_rt(x, y, z, yaw, pitch, roll):
     R = np.stack([right, down, fwd], axis=1)
     return [float(v) for v in R.reshape(-1)] + [float(x), float(y), float(z)]
 
-
-# (label, lo, hi, step, digits) for the render-tunable scalars.
-# Bounds are deliberately loose — they only guard against nonsense (negative
-# radii), not taste; tune freely and judge by the render.
 RENDER_SPINS = [
     ("bowl_R0", 0.1, 500.0, 0.5, 2),
     ("bowl_k", 0.0, 10.0, 0.01, 3),
@@ -113,47 +97,18 @@ RENDER_SPINS = [
 ]
 RENDER_BOOLS = ["fill_blind_zone", "exposure_match"]
 
-# Epic 3 Task 5 (VM-032) + VM-077 + Task 4/VM-093: overlume_node's
-# layer_<name> params -- trajectory_carpet added VM-077
-# (output_trajectory_carpet), surround_stitching added VM-093 (Surround
-# Stitching, follow-up USER DIRECTIVE 2026-09-11: toggles Task 2's
-# camera-textured bowl IN THE SAME FRAME as the full mode-3 autonomy scene).
-# All live: takes effect on the node's very next tick, no restart.
 LAYER_NAMES = [
     "objects", "paths", "map_elements", "grids", "alerts", "markers", "point_clouds",
     "trajectory_carpet", "surround_stitching",
 ]
-# quality preset dropdown -- unlike LAYER_NAMES above, this one is NOT live
-# (P4, deferred to Epic 5): see the "takes effect on next restart" label at
-# its call site.
 QUALITY_PRESETS = ["low", "medium", "high"]
-# Surround Stitching content profile (Task 4/VM-093 follow-up USER
-# DIRECTIVE) -- live, same as LAYER_NAMES above; "hybrid" renders identically
-# to "bowl" until Task 5/VM-094 lands (noted at the dropdown's own section
-# label, not silently absorbed).
 SURROUND_PROFILES = ["bowl", "hybrid"]
-# Epic 6's four environment tile sources (VM-096 -- vcam GUI Environment
-# Tiles toggle): "baked" (Epic 4 baked chunks, today's default), "osm"
-# (Cesium OSM Buildings, clay), "clipped" (this deployment's OWN uploaded
-# ion asset -- greyed out in the GUI whenever environment_own_asset_uri is
-# unset, see _update_clipped_availability()), "google" (Google
-# Photorealistic 3D Tiles, original textures). The bridge resolves each
-# name to a URI server-side (vcam_ws_bridge.py's ENVIRONMENT_PRESET_URIS) --
-# this GUI only ever sends the preset NAME, never a literal ion:// string.
 ENVIRONMENT_PRESETS = ["baked", "osm", "clipped", "google"]
-# Reverse of the bridge's ENVIRONMENT_PRESET_URIS (vcam_ws_bridge.py), kept
-# as its own literal rather than imported: this GUI is a pure WS client
-# (module docstring above), decoupled from the bridge process/module by
-# design. Used only to sync the combo FROM the node's real
-# environment_source_uri (_apply_params below) -- "clipped" isn't here
-# since its URI is per-deployment (environment_own_asset_uri), matched
-# separately.
 ENVIRONMENT_PRESET_URIS_FIXED = {
     "baked": "",
     "osm": "ion://96188",
     "google": "ion://2275207?materials=original&cache=off",
 }
-
 
 def initial_environment_sensitivity(preset: str) -> bool:
     """Fail-closed build-time sensitivity for an Environment Tiles combo row
@@ -163,13 +118,11 @@ def initial_environment_sensitivity(preset: str) -> bool:
     ever turns it on. Pure/no-GTK so it's unit-testable without a display."""
     return preset != "clipped"
 
-
 def ack_failure_text(msg: dict) -> str:
     """Formats a failed ack's status text (gate finding #4). Pure/no-GTK so
     it's unit-testable without a display, same discipline as
     resolve_environment_preset below."""
     return f"✘ {msg.get('cmd')}: {msg.get('reason', 'rejected')}"
-
 
 def resolve_environment_preset(source_uri, own_asset_uri):
     """Reverse-maps a node's real environment_source_uri (+ its
@@ -184,10 +137,7 @@ def resolve_environment_preset(source_uri, own_asset_uri):
         return "clipped"
     return None
 
-# A numeric tuning row: slider + value box sharing one Adjustment, plus
-# editable min/max boxes that rewrite the slider's range on the fly.
 Row = collections.namedtuple("Row", "val adj mn mx")
-
 
 def set_row_value(row: Row, v: float):
     """Set a row's value, auto-expanding its slider range if v falls outside."""
@@ -198,7 +148,7 @@ def set_row_value(row: Row, v: float):
         row.adj.set_upper(v)
         row.mx.set_value(v)
     row.val.set_value(v)
-POSE_SPINS = [  # (key, lo, hi, step, digits)
+POSE_SPINS = [
     ("x", -10.0, 10.0, 0.01, 3),
     ("y", -10.0, 10.0, 0.01, 3),
     ("z", -10.0, 10.0, 0.01, 3),
@@ -207,15 +157,14 @@ POSE_SPINS = [  # (key, lo, hi, step, digits)
     ("roll", -180.0, 180.0, 0.1, 2),
 ]
 
-
 class WsClient(threading.Thread):
     """Background websocket client; auto-reconnects. Thread-safe send()."""
 
     def __init__(self, url: str, on_state, on_conn):
         super().__init__(daemon=True)
         self.url = url
-        self.on_state = on_state          # called with the state dict (any thread)
-        self.on_conn = on_conn            # called with bool connected (any thread)
+        self.on_state = on_state
+        self.on_conn = on_conn
         self._q: queue.Queue = queue.Queue()
 
     def send(self, obj: dict):
@@ -233,10 +182,10 @@ class WsClient(threading.Thread):
                     sender = asyncio.ensure_future(self._sender(ws))
                     try:
                         async for text in ws:
-                            self.on_state(json.loads(text))  # all frame types
+                            self.on_state(json.loads(text))
                     finally:
                         sender.cancel()
-            except (OSError, Exception):  # ponytail: reconnect on anything
+            except (OSError, Exception):
                 pass
             self.on_conn(False)
             await asyncio.sleep(1.0)
@@ -245,7 +194,6 @@ class WsClient(threading.Thread):
         loop = asyncio.get_running_loop()
 
         def same_stream(a, b):
-            # bursts where only the newest value matters
             if a.get("cmd") != b.get("cmd"):
                 return False
             if a.get("cmd") == "set_look":
@@ -266,19 +214,16 @@ class WsClient(threading.Thread):
                     obj = nxt
             await ws.send(json.dumps(obj))
 
-
 class VcamWindow(Gtk.Window):
     def __init__(self, ws_url: str, topic: str):
         super().__init__(title="Overlume — virtual cam")
         self.set_default_size(1500, 680)
         self.connect("destroy", self._quit)
 
-        # latest telemetry + orbit state (prototype defaults)
         self._state: dict | None = None
         self._az, self._el, self._dist = math.radians(180.0), math.radians(28.0), 4.5
         self._drag_xy: tuple[float, float] | None = None
 
-        # ── gstreamer video ──────────────────────────────────────────────────
         self._pipeline = Gst.parse_launch(
             f"rosimagesrc ros-topic={topic} ! videoconvert ! gtksink name=sink sync=false")
         video = self._pipeline.get_by_name("sink").props.widget
@@ -291,7 +236,6 @@ class VcamWindow(Gtk.Window):
         ebox.connect("motion-notify-event", self._on_motion)
         ebox.connect("scroll-event", self._on_scroll)
 
-        # ── controls ─────────────────────────────────────────────────────────
         btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         btns.set_margin_top(6)
         btns.set_margin_bottom(6)
@@ -301,18 +245,11 @@ class VcamWindow(Gtk.Window):
             b.connect("clicked", self._on_preset, i)
             btns.pack_start(b, False, False, 0)
 
-        # view switch: bowl -> pointcloud -> visual cycle (label shows CURRENT
-        # mode as reported by the node's telemetry; click sends the next one)
         self._render_mode = 2
         self._mode_btn = Gtk.Button(label="view: pointcloud")
         self._mode_btn.connect("clicked", self._on_mode_toggle)
         btns.pack_end(self._mode_btn, False, False, 6)
 
-        # day/night theme toggle (visual mode only). Unlike _mode_btn above,
-        # there's no telemetry echo of the active theme yet -- the label
-        # just optimistically flips on click, same as preset buttons not
-        # waiting for confirmation today. Starts on "dark_adas", the
-        # shipped default (overlume_node's initial_theme).
         self._theme = "dark_adas"
         self._theme_btn = Gtk.Button(label="theme: dark_adas")
         self._theme_btn.connect("clicked", self._on_theme_toggle)
@@ -327,9 +264,8 @@ class VcamWindow(Gtk.Window):
         vbox.pack_start(btns, False, False, 0)
         vbox.pack_start(self._status, False, False, 0)
 
-        # ── live tuning panel (params from the node via the bridge) ──────────
-        self._loading = False          # True while populating widgets from node
-        self._params_loaded = False    # real values received from the node
+        self._loading = False
+        self._params_loaded = False
         self._param_spins = {}
         self._param_switches = {}
         self._layer_switches = {}
@@ -346,7 +282,6 @@ class VcamWindow(Gtk.Window):
         outer.pack_start(scroll, False, False, 0)
         self.add(outer)
 
-        # ── websocket client ─────────────────────────────────────────────────
         self._ws = WsClient(
             ws_url,
             on_state=lambda s: GLib.idle_add(self._on_ws_msg, s),
@@ -356,7 +291,6 @@ class VcamWindow(Gtk.Window):
 
         self._pipeline.set_state(Gst.State.PLAYING)
 
-    # ── tuning panel ───────────────────────────────────────────────────────────
     def _build_panel(self) -> Gtk.Box:
         panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         for m in ("set_margin_top", "set_margin_bottom", "set_margin_start",
@@ -370,8 +304,6 @@ class VcamWindow(Gtk.Window):
             panel.pack_start(lbl, False, False, 0)
 
         def spin_row(label, lo, hi, step, digits, cb, box=None):
-            # label | min | ── slider ── | max | value. Slider + value share one
-            # Adjustment; the min/max boxes rewrite the slider range live.
             outer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
             l = Gtk.Label(label=label, xalign=0.0)
             l.set_size_request(105, -1)
@@ -423,9 +355,6 @@ class VcamWindow(Gtk.Window):
             panel.pack_start(row, False, False, 0)
             self._param_switches[name] = sw
 
-        # Epic 3 Task 5 (VM-032): per-category visibility, visual mode only
-        # (harmless no-op in bowl/pointcloud mode -- the WS command just
-        # writes overlume_node's own params). Live: no restart needed.
         section("Layers (visual mode)")
         for name in LAYER_NAMES:
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
@@ -439,52 +368,28 @@ class VcamWindow(Gtk.Window):
             panel.pack_start(row, False, False, 0)
             self._layer_switches[name] = sw
 
-        # Task 4/VM-093 follow-up USER DIRECTIVE: which content backs the
-        # Surround Stitching layer above. Live, same contract as layer_*
-        # (unlike the quality dropdown below) -- "hybrid" falls back to
-        # "bowl" content until Task 5/VM-094 lands.
         section("Surround Stitching profile (visual mode)")
         profile_combo = Gtk.ComboBoxText()
         for profile in SURROUND_PROFILES:
             profile_combo.append_text(profile)
-        profile_combo.set_active(0)  # matches default_params.yaml's surround_stitching_profile: bowl
+        profile_combo.set_active(0)
         profile_combo.connect("changed", self._on_surround_profile_changed)
         panel.pack_start(profile_combo, False, False, 0)
 
-        # VM-096 (vcam GUI Environment Tiles toggle, Epic 6 follow-up):
-        # a Switch for the SAME environment_enabled disable knob VM-052
-        # already declared (STANDING directive -- reused, not a second
-        # knob) + a ComboBoxText-equivalent for the 4 source presets. Both
-        # live, no restart -- same contract as the Surround Stitching
-        # controls above. Build-time defaults below match
-        # default_params.yaml, same as the Surround Stitching/Quality combos
-        # above (gate finding #22 -- this section is NOT exempt from that
-        # rule); _apply_params() below re-syncs both from the node's REAL
-        # values once a params frame arrives, same rule as every other
-        # widget in this method.
         section("Environment tiles (visual mode)")
         env_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         env_label = Gtk.Label(label="enabled", xalign=0.0)
         env_label.set_size_request(130, -1)
         self._environment_enabled_switch = Gtk.Switch()
-        self._environment_enabled_switch.set_active(True)  # matches default_params.yaml's environment_enabled: true
+        self._environment_enabled_switch.set_active(True)
         self._environment_enabled_switch.connect("notify::active",
                                                   self._on_environment_enabled_changed)
         env_row.pack_start(env_label, False, False, 0)
         env_row.pack_start(self._environment_enabled_switch, False, False, 0)
         panel.pack_start(env_row, False, False, 0)
 
-        # A plain Gtk.ComboBoxText has no per-row sensitivity, so this is a
-        # Gtk.ComboBox over a small ListStore instead -- (preset id, label,
-        # sensitive) -- the only way to actually grey out "clipped" (design
-        # decision (c)) rather than just leaving it clickable with no
-        # effect.
         self._environment_store = Gtk.ListStore(str, str, bool)
         for preset in ENVIRONMENT_PRESETS:
-            # ponytail: fail-closed (gate finding #21) -- "clipped" starts
-            # NOT sensitive; its real availability isn't known until the
-            # first get_params round-trip, and _update_clipped_availability
-            # is the only thing that ever turns it on (never guessed True).
             self._environment_store.append(
                 [preset, preset, initial_environment_sensitivity(preset)])
         self._environment_combo = Gtk.ComboBox(model=self._environment_store)
@@ -492,7 +397,7 @@ class VcamWindow(Gtk.Window):
         self._environment_combo.pack_start(env_renderer, True)
         self._environment_combo.add_attribute(env_renderer, "text", 1)
         self._environment_combo.add_attribute(env_renderer, "sensitive", 2)
-        self._environment_combo.set_active(0)  # matches default_params.yaml's "" -> baked
+        self._environment_combo.set_active(0)
         self._environment_combo.connect("changed", self._on_environment_source_changed)
         self._environment_combo.set_tooltip_text(
             "clipped: availability not yet known -- waiting for the node's "
@@ -502,27 +407,18 @@ class VcamWindow(Gtk.Window):
         self._environment_status_label.set_line_wrap(True)
         panel.pack_start(self._environment_status_label, False, False, 0)
 
-        # Epic 3 Task 5 (VM-032): quality preset -- NOT live (P4, Epic 5's
-        # own set_quality() entry point is what would make this live); the
-        # label says so here, not just in the plan, so a user doesn't file
-        # a bug against this epic for a capability it never promised.
         section("Quality (visual mode) — takes effect on next restart")
         quality_combo = Gtk.ComboBoxText()
         for preset in QUALITY_PRESETS:
             quality_combo.append_text(preset)
-        quality_combo.set_active(1)  # matches default_params.yaml's quality: 1 (medium)
+        quality_combo.set_active(1)
         quality_combo.connect("changed", self._on_quality_changed)
         panel.pack_start(quality_combo, False, False, 0)
 
         section("Camera poses (calib)")
-        # one collapsible block per camera, created when extrinsics arrive
         self._cam_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         panel.pack_start(self._cam_box, False, False, 0)
 
-        # render_ms + a per-row staleness indicator, display-only -- no new
-        # WS command, this just renders whatever "diagnostics" frames
-        # vcam_ws_bridge.py already relays (same node-telemetry pipe
-        # vcam_state uses).
         section("Diagnostics")
         self._diag_label = Gtk.Label(xalign=0.0)
         self._diag_label.set_line_wrap(True)
@@ -544,7 +440,7 @@ class VcamWindow(Gtk.Window):
     def _on_param_spin(self, name, spin):
         if self._loading:
             return
-        v = spin.get_value()  # the row's value SpinButton
+        v = spin.get_value()
         if name == "splat_radius":
             v = int(round(v))
         self._ws.send({"cmd": "set_param", "name": name, "value": v})
@@ -640,7 +536,7 @@ class VcamWindow(Gtk.Window):
 
     def _apply_params(self, values: dict):
         if not any(v is not None for v in values.values()):
-            return False  # node not configured yet — retry timer keeps polling
+            return False
         self._params_loaded = True
         self._loading = True
         try:
@@ -652,38 +548,16 @@ class VcamWindow(Gtk.Window):
                 v = values.get(name)
                 if v is not None:
                     sw.set_active(bool(v))
-            # Layer switches sync from the node's REAL layer_* values
-            # (review 2026-09-09) -- absent keys (overlume_node not up)
-            # leave the switch at its shipped-default ON, same skip rule as
-            # the loops above.
             for name, sw in self._layer_switches.items():
                 v = values.get(f"layer_{name}")
                 if v is not None:
                     sw.set_active(bool(v))
-            # VM-096: environment_enabled reflects the node's REAL value,
-            # same "sync from real state, absent key leaves the shipped
-            # default" rule as the layer_* loop above: an absent key leaves
-            # the switch at whatever _build_panel initialized it to, same as
-            # every other switch in this method.
             env_enabled = values.get("environment_enabled")
             if env_enabled is not None:
                 self._environment_enabled_switch.set_active(bool(env_enabled))
-            # "" (falsy but not None) is the real, meaningful "no own asset
-            # configured" value -- only an ABSENT key (node not up yet)
-            # skips this update, same distinction environment_source_uri's
-            # own on_activate() gate draws between "" and "not given".
             own_asset = values.get("environment_own_asset_uri")
             if own_asset is not None:
                 self._update_clipped_availability(bool(own_asset))
-            # VM-096 gate round 1 finding: sync the source combo FROM the
-            # node's real environment_source_uri, same shape as the switch
-            # above -- otherwise a node launched on the osm/google/clipped
-            # preset always shows "baked" (the combo's build-time default,
-            # section comment above notwithstanding). "" -> baked, a fixed
-            # preset URI -> that row, a value equal to the deployment's OWN
-            # environment_own_asset_uri -> clipped; anything else (a hand-
-            # edited URI matching none of these) leaves the combo alone
-            # rather than guess.
             env_source_uri = values.get("environment_source_uri")
             if env_source_uri is not None:
                 preset = resolve_environment_preset(env_source_uri, own_asset)
@@ -710,33 +584,15 @@ class VcamWindow(Gtk.Window):
             self._status.set_text(
                 ("✔ saved " if ok else "✘ save failed: ") + str(msg.get("path")))
             return False
-        # Generic failure surface (gate finding #4): every other ack cmd
-        # (set_layers/set_quality/set_surround_profile/
-        # set_environment_enabled/set_environment_source/set_preset) used to
-        # be dropped silently here -- a rejected set_environment_source
-        # (e.g. the node's geo-anchor not solved yet) left the combo
-        # showing a preset that was never applied, with no signal anywhere.
-        # NOT surfaced via self._status: _apply_state() rewrites that label
-        # on every ~15Hz state frame, which would clobber a failure message
-        # before a human could read it -- the dedicated Environment Tiles
-        # label above survives that.
         is_env_cmd = cmd in ("set_environment_enabled", "set_environment_source")
         if not msg.get("success"):
             if is_env_cmd:
                 self._environment_status_label.set_text(ack_failure_text(msg))
                 if cmd == "set_environment_source":
-                    # The node refused the switch -- re-sync the combo from
-                    # the node's real state rather than keep showing the
-                    # preset it never applied.
                     self._ws.send({"cmd": "get_params"})
             else:
-                # Non-environment failures go to the general status line:
-                # best-effort (the next state frame may overwrite it), but
-                # never into the Environment Tiles section they don't belong to.
                 self._status.set_text(ack_failure_text(msg))
         elif is_env_cmd:
-            # Only an environment cmd's own success clears a standing
-            # environment failure; unrelated acks leave it readable.
             self._environment_status_label.set_text("")
         return False
 
@@ -750,12 +606,8 @@ class VcamWindow(Gtk.Window):
             self._ws.send({"cmd": "save_params", "path": dlg.get_filename()})
         dlg.destroy()
 
-    # ── telemetry → UI ─────────────────────────────────────────────────────────
     def _apply_state(self, s: dict):
         self._state = s
-        # Mode-cycle targets follow the MUX mode (who owns /rendering/image);
-        # index 7 is the node's own local render_mode since VM-093. Fall back
-        # to render_mode for a pre-VM-093 bridge (mux_mode absent/None).
         mode = s.get("mux_mode") or s.get("render_mode", 2)
         if mode != self._render_mode:
             self._render_mode = mode
@@ -772,15 +624,13 @@ class VcamWindow(Gtk.Window):
         return False
 
     def _apply_diagnostics(self, msg: dict):
-        # GLib.markup_escape_text so a topic name (arbitrary string, not
-        # under this GUI's control) can never be read as Pango markup.
         lines = [f"render_ms: {msg.get('render_ms') or '—'}"]
         for row in msg.get("rows", []):
-            stale = row.get("level", 0) != 0  # DiagnosticStatus.OK == 0
+            stale = row.get("level", 0) != 0
             topic = GLib.markup_escape_text(str(row.get("topic", "?")))
             age = row.get("age")
             age_s = f"{float(age):.2f}s" if age is not None else "?"
-            colour = "#e06666" if stale else "#93c47d"  # WARN red / OK green
+            colour = "#e06666" if stale else "#93c47d"
             lines.append(f'<span color="{colour}">{"WARN" if stale else "OK"}</span>  '
                          f"{topic}  age={age_s}")
         self._diag_label.set_markup("\n".join(lines))
@@ -805,8 +655,6 @@ class VcamWindow(Gtk.Window):
         if not ok:
             self._status.set_text("○ bridge disconnected — retrying…")
         else:
-            # Populate the tuning panel; keep retrying until the node is
-            # configured (its params only exist after the lifecycle transition).
             self._params_loaded = False
             self._ws.send({"cmd": "get_params"})
             GLib.timeout_add_seconds(2, self._retry_params)
@@ -815,10 +663,9 @@ class VcamWindow(Gtk.Window):
     def _retry_params(self):
         if self._connected and not self._params_loaded:
             self._ws.send({"cmd": "get_params"})
-            return True   # keep the timer running
+            return True
         return False
 
-    # ── orbit interaction ──────────────────────────────────────────────────────
     def _send_look(self):
         self._ws.send({"cmd": "set_look",
                        "eye": orbit_eye(self._az, self._el, self._dist),
@@ -827,7 +674,7 @@ class VcamWindow(Gtk.Window):
     def _on_press(self, _w, ev):
         if ev.button == 1:
             self._drag_xy = (ev.x, ev.y)
-            self._send_look()  # jump to the stored orbit pose, like the prototype's [o]
+            self._send_look()
         return True
 
     def _on_release(self, _w, ev):
@@ -861,9 +708,6 @@ class VcamWindow(Gtk.Window):
 
     def _on_mode_toggle(self, _btn):
         target = {1: 2, 2: 3, 3: 1}.get(self._render_mode, 3)
-        # Optimistic: telemetry echoes correct this when frames flow, but
-        # without it a dead node freezes self._render_mode and every click
-        # re-sends the same mode forever.
         self._render_mode = target
         self._ws.send({"cmd": "set_render_mode",
                        "mode": {1: "bowl", 2: "pointcloud", 3: "visual"}[target]})
@@ -877,7 +721,6 @@ class VcamWindow(Gtk.Window):
         self._pipeline.set_state(Gst.State.NULL)
         Gtk.main_quit()
 
-
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--ws", default="ws://localhost:8765", help="vcam_ws_bridge URL")
@@ -889,7 +732,6 @@ def main() -> int:
     win.show_all()
     Gtk.main()
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

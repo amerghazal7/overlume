@@ -1,35 +1,20 @@
 #!/bin/bash
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Amer Ghazal
-# colcon_build.sh [pkg1 pkg2 ...]
-# Build the Overlume ROS 2 packages via colcon.
-#
-# Usage:
-#   cd ros
-#   ./colcon_build.sh                               # build all packages
-#   ./colcon_build.sh overlume_ros # build specific package(s)
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # ros/ -- the colcon workspace root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# ── ROS2 environment ─────────────────────────────────────────────────────────
-# Note: ROS setup.bash uses unbound variables internally; disable -u around it.
 set +u
 source /opt/ros/humble/setup.bash
 set -u
 
-# ── colcon config ─────────────────────────────────────────────────────────────
 export COLCON_DEFAULTS_FILE="${SCRIPT_DIR}/config_colcon.yaml"
-# Build/install/log all use colcon's default bases (build/, install/, log/
-# under the cwd below) now that this workspace root has no extra nesting to
-# route around.
 
-# ── build type ────────────────────────────────────────────────────────────────
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 echo "Building ROS packages in ${CMAKE_BUILD_TYPE} mode."
 
-# ── cd to the workspace root (where src/ lives) ──────────────────────────────
 cd "${SCRIPT_DIR}"
 
 if [ "$#" -gt 0 ]; then

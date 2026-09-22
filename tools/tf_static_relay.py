@@ -25,11 +25,8 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from tf2_msgs.msg import TFMessage
 
-
 def main() -> int:
     if os.environ.get("CYCLONEDDS_URI"):
-        # Wrong transport = the relay itself misses the history it exists to
-        # replay. Refuse loudly rather than run as a silent no-op.
         print("tf_static_relay: CYCLONEDDS_URI is set -- launch with "
               "`env -u CYCLONEDDS_URI` so the relay uses the network path",
               file=sys.stderr)
@@ -40,13 +37,11 @@ def main() -> int:
     qos = QoSProfile(depth=100,
                      reliability=ReliabilityPolicy.RELIABLE,
                      durability=DurabilityPolicy.TRANSIENT_LOCAL)
-    latest = {}  # (parent, child) -> TransformStamped (latest wins, tf2 semantics)
+    latest = {}
 
     def on_static(msg: TFMessage) -> None:
         for t in msg.transforms:
             key = (t.header.frame_id, t.child_frame_id)
-            # Skip our own re-broadcasts: identical (parent, child, transform)
-            # already stored -- keeps the sub->pub loop idempotent.
             prev = latest.get(key)
             if prev is not None and prev.transform == t.transform:
                 continue
@@ -65,7 +60,6 @@ def main() -> int:
     except KeyboardInterrupt:
         pass
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

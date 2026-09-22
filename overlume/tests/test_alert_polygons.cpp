@@ -1,13 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// test_alert_polygons.cpp — translucent collision alert polygons. Same
-// "no Filament type" boundary as every other tests/*.cpp -- see
-// alert_polygons_test_hooks.hpp.
-//
-// The five collision-checker topics were silent in the recorded bag --
-// AlertGolden.SweepPlusPredicted_DarkAdas's scene is entirely synthetic
-// (golden.cpp's make_sweep_and_predicted_alerts()).
 #include "overlume/api.h"
 #include "overlume/scene.h"
 
@@ -31,21 +24,15 @@ std::vector<uint8_t> render_once(overlume::VisualRenderer* r, const overlume::Ca
 
 }  // namespace
 
-// ── Step 3: a ghost sweep trail + a warning predicted polygon ──────────────
-
 TEST(AlertGolden, SweepPlusPredicted_DarkAdas) {
-    overlume::RenderConfig cfg{320, 240, /*quality=*/1, kThemeDir, "dark_adas"};
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    // Synthetic scene: no live collision-checker publisher exists in the
-    // recorded stack. Points array kept alive by AlertScene across
-    // set_scene() (golden.cpp's move-only owner pattern).
-    overlume::testing::AlertScene alerts =
-        overlume::testing::make_sweep_and_predicted_alerts(/*now=*/10.0);
+    overlume::testing::AlertScene alerts = overlume::testing::make_sweep_and_predicted_alerts(10.0);
     overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
-    s.ego = {{0, 0, 0}, 0.0, 0.0, /*valid=*/1};
+    s.ego = {{0, 0, 0}, 0.0, 0.0, 1};
     s.alerts = alerts.alerts.data();
     s.alert_count = static_cast<uint32_t>(alerts.alerts.size());
     overlume::set_scene(r, s);
@@ -58,8 +45,6 @@ TEST(AlertGolden, SweepPlusPredicted_DarkAdas) {
     overlume::destroy_renderer(r);
 }
 
-// ── Step 4: severity picks the theme's alert ramp, not a hand-picked color ─
-
 TEST(Alerts, SeverityPicksTheThemeAlertRamp) {
     const auto theme = overlume::detail::load_theme(kThemeDir, "dark_adas");
     ASSERT_TRUE(theme.has_value());
@@ -68,10 +53,6 @@ TEST(Alerts, SeverityPicksTheThemeAlertRamp) {
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    // One fresh polygon per severity -- each must be bound to ITS OWN
-    // severity's template instance (not e.g. warning's polygon silently
-    // sharing critical's), and that template's rgb must be the matching
-    // palette.alert.* token.
     const overlume::Vec3 pts[] = {{0, 0, 0}, {2, 0, 0}, {2, 2, 0}, {0, 2, 0}};
     overlume::AlertPolygon polys[3]{};
     for (int i = 0; i < 3; ++i) {
@@ -112,9 +93,6 @@ TEST(Alerts, SeverityPicksTheThemeAlertRamp) {
     overlume::destroy_renderer(r);
 }
 
-// ── Staleness: shared clay_translucent.mat swap, MULTIPLYING the severity's
-//    constant alpha down -- a fading critical must not brighten past it ────
-
 TEST(Alerts, StaleAlertFadesViaSharedStalenessAlpha) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
@@ -125,12 +103,12 @@ TEST(Alerts, StaleAlertFadesViaSharedStalenessAlpha) {
     overlume::AlertPolygon polys[2]{};
     polys[0].points = freshPts;
     polys[0].point_count = 4;
-    polys[0].severity = 2;            // critical
-    polys[0].last_update_sec = 10.0;  // fresh at sim_time 10.0
+    polys[0].severity = 2;
+    polys[0].last_update_sec = 10.0;
     polys[1].points = stalePts;
     polys[1].point_count = 4;
-    polys[1].severity = 2;            // same severity -- isolates the fade, not a ramp difference
-    polys[1].last_update_sec = 9.25;  // 0.75s stale: mid-fade (0.5 <= t < 1.0)
+    polys[1].severity = 2;
+    polys[1].last_update_sec = 9.25;
     overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
     s.alerts = polys;
@@ -152,8 +130,6 @@ TEST(Alerts, StaleAlertFadesViaSharedStalenessAlpha) {
     overlume::destroy_renderer(r);
 }
 
-// ── Step 8a's exemplar, copied: themed on first data, no transition ────────
-
 TEST(Alerts, MaterialIsThemedOnFirstDataWithNoTransition) {
     const auto theme = overlume::detail::load_theme(kThemeDir, "dark_adas");
     ASSERT_TRUE(theme.has_value());
@@ -162,8 +138,6 @@ TEST(Alerts, MaterialIsThemedOnFirstDataWithNoTransition) {
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    // First-ever alert data, all three severities. Nothing calls
-    // set_theme().
     const overlume::Vec3 pts[] = {{0, 0, 0}, {2, 0, 0}, {2, 2, 0}, {0, 2, 0}};
     overlume::AlertPolygon polys[3]{};
     for (int i = 0; i < 3; ++i) {

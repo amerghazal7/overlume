@@ -47,28 +47,21 @@ import time
 OUT_W, OUT_H = 160, 120
 TF_RATE_HZ = 20.0
 TF_DT = 1.0 / TF_RATE_HZ
-# Known, non-trivial ego pose: nonzero x/y/z (the z in particular guards
-# against the "z is 0 in fixture bags" trap -- code must not assume it) and a
-# 45 degree heading (not 0/90/180, so a heading-agnostic bug wouldn't hide).
 EGO_POS = (5.0, 3.0, 1.5)
 EGO_HEADING_RAD = math.pi / 4.0
-# Offset sent via ~/set_look -- applied immediately (no tween), echoed
-# verbatim by ~/vcam_state in the existing (unchanged) offset frame.
 LOOK = [2.0, -6.0, 3.0, 0.5, 0.5, 0.5]
-SETTLE_SEC = 1.0     # TF flowing + ~/set_look applied + a few timer ticks
-OBSERVE_SEC = 1.5    # window to sample telemetry + frame cadence over
-MAX_FRAME_GAP_SEC = 0.3  # generous vs. the 33ms tick -- see test_theme_ws.py
+SETTLE_SEC = 1.0
+OBSERVE_SEC = 1.5
+MAX_FRAME_GAP_SEC = 0.3
 
 REPO_ROOT = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", ".."))
 INSTALL_DIR = os.path.join(REPO_ROOT, "ros", "install")
 
-
 def _popen(cmd: str) -> subprocess.Popen:
     return subprocess.Popen(["bash", "-c", cmd],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             start_new_session=True)
-
 
 def _kill(proc: subprocess.Popen):
     try:
@@ -84,7 +77,6 @@ def _kill(proc: subprocess.Popen):
             pass
         proc.wait()
 
-
 def _lifecycle(transition: str, timeout: float = 15.0) -> bool:
     cmd = (f"source /opt/ros/humble/setup.bash && "
            f"ros2 lifecycle set /overlume_node {transition}")
@@ -93,7 +85,6 @@ def _lifecycle(transition: str, timeout: float = 15.0) -> bool:
         print(f"  [lifecycle {transition}] stderr: {result.stderr.strip()}", file=sys.stderr)
     return result.returncode == 0
 
-
 def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -101,7 +92,6 @@ def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
         if proc.poll() is not None:
             return False
     return True
-
 
 def main() -> int:
     if not os.path.isdir(INSTALL_DIR):
@@ -167,9 +157,6 @@ def main() -> int:
             print("FAIL: lifecycle transition failed", file=sys.stderr)
             return 1
 
-        # Get TF flowing and send the offset BEFORE sampling -- the loop
-        # below keeps publishing TF at TF_RATE_HZ the whole time so the ego
-        # stays valid/fresh for the entire observation window.
         msg = Float64MultiArray()
         msg.data = LOOK
         t_end = time.time() + SETTLE_SEC
@@ -191,7 +178,6 @@ def main() -> int:
             fixture.publish_tf()
             rclpy.spin_once(fixture, timeout_sec=0.0)
             time.sleep(TF_DT)
-        # Drain any frames still in flight.
         t_end = time.time() + 0.3
         while time.time() < t_end:
             rclpy.spin_once(fixture, timeout_sec=0.05)
@@ -204,7 +190,6 @@ def main() -> int:
         rclpy.shutdown()
         _kill(node_proc)
 
-    # (b) ego actually anchored -- not a vacuous no-TF pass.
     if not ego_states:
         print("FAIL: no ~/ego_state samples received", file=sys.stderr)
         return 1
@@ -213,14 +198,11 @@ def main() -> int:
               f"{[s[5] for s in ego_states]}", file=sys.stderr)
         return 1
 
-    # (a) telemetry stayed in the offset frame: ~/vcam_state must still echo
-    # exactly what was sent via ~/set_look, regardless of the (nonzero,
-    # nonzero-z, 45-degree-heading) ego pose above.
     if not vcam_states:
         print("FAIL: no ~/vcam_state samples received", file=sys.stderr)
         return 1
     for s in vcam_states:
-        if len(s) != 9:  # VM-037 Step (d) appended mux_mode at index 8
+        if len(s) != 9:
             print(f"FAIL: unexpected ~/vcam_state shape {s}", file=sys.stderr)
             return 1
         diffs = [abs(s[i] - LOOK[i]) for i in range(6)]
@@ -236,8 +218,6 @@ def main() -> int:
     print(f"INFO: {len(vcam_states)} ~/vcam_state samples all echo the sent "
           f"offset {LOOK} exactly -- anchoring did not leak into telemetry.")
 
-    # (c) /rendering/image kept flowing (composition didn't stall the render
-    # path): at least a handful of frames, no gap wider than a few ticks.
     if len(frame_times) < 5:
         print(f"FAIL: too few /rendering/image frames ({len(frame_times)}) "
               f"during the observation window", file=sys.stderr)
@@ -254,7 +234,6 @@ def main() -> int:
 
     print("PASS: ego-anchored composition stays out of the vcam contract surface.")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

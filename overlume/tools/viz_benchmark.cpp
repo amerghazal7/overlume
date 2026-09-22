@@ -1,15 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// viz_benchmark.cpp — VM-041 (Epic 5). Renders one representative scene
-// (ribbons + trajectory carpet + map elements + point cloud, the same shapes
-// tests/test_ribbon.cpp / test_trajectory_carpet.cpp / test_map_elements.cpp /
-// test_point_cloud.cpp build) for N frames per quality preset and prints
-// render_ms p50/p99 per preset. These are the numbers VM-040's governor will
-// later be tuned against — this tool does not tune anything itself.
-//
-// GPU-less box: create_renderer() returns nullptr for every preset; each
-// preset line then reads SKIP (no GPU/EGL) rather than fabricating numbers.
 #include "overlume/api.h"
 #include "overlume/scene.h"
 
@@ -24,10 +15,8 @@ namespace {
 constexpr uint32_t kWidth = 1280;
 constexpr uint32_t kHeight = 720;
 constexpr int kFramesPerPreset = 120;
-constexpr int kWarmupFrames = 5;  // first-frame shader/texture upload cost excluded
+constexpr int kWarmupFrames = 5;
 
-// Three path roles, ~40 points each — same role shape as
-// tests/test_ribbon.cpp's ThreeRoles_DarkAdas golden.
 std::vector<overlume::Vec3> make_path(double y_offset, int n) {
     std::vector<overlume::Vec3> pts(static_cast<size_t>(n));
     for (int i = 0; i < n; ++i) {
@@ -36,8 +25,6 @@ std::vector<overlume::Vec3> make_path(double y_offset, int n) {
     return pts;
 }
 
-// Centerline station colors, same PointCloudPoint reuse as
-// tests/test_trajectory_carpet.cpp's make_stations().
 std::vector<overlume::PointCloudPoint> make_carpet_stations(int n) {
     std::vector<overlume::PointCloudPoint> pts(static_cast<size_t>(n));
     for (int i = 0; i < n; ++i) {
@@ -47,8 +34,6 @@ std::vector<overlume::PointCloudPoint> make_carpet_stations(int n) {
     return pts;
 }
 
-// A lane centerline + two boundaries + a crosswalk polygon — same MapKind
-// mix tests/test_map_elements.cpp exercises.
 std::vector<overlume::Vec3> make_lane_line(double x_offset, int n) {
     std::vector<overlume::Vec3> pts(static_cast<size_t>(n));
     for (int i = 0; i < n; ++i) {
@@ -68,10 +53,6 @@ std::vector<overlume::PointCloudPoint> make_point_cloud(uint32_t n) {
     return pts;
 }
 
-// Nearest-rank percentile (not linear interpolation): idx = ceil(p * n) - 1,
-// clamped to the array. For n=120, p=0.99 -> idx 118 (the 119th of 120
-// samples), the conventional definition of "p99" that VM-040's governor is
-// tuned against.
 double percentile(std::vector<double>& sorted_ms, double p) {
     if (sorted_ms.empty()) return 0.0;
     size_t idx = static_cast<size_t>(std::ceil(p * static_cast<double>(sorted_ms.size())));
@@ -83,8 +64,6 @@ double percentile(std::vector<double>& sorted_ms, double p) {
 }  // namespace
 
 int main() {
-    // Built once, reused across every quality preset — same scene, only the
-    // renderer's quality changes.
     std::vector<overlume::Vec3> behavior_pts = make_path(0.0, 40);
     std::vector<overlume::Vec3> global_pts = make_path(3.0, 40);
     std::vector<overlume::Vec3> local_pts = make_path(-3.0, 40);
@@ -131,7 +110,7 @@ int main() {
 
     overlume::SceneGraph scene{};
     scene.sim_time_sec = 0.0;
-    scene.ego = {{0.0, 0.0, 0.0}, 0.0, 5.0, /*valid=*/1};
+    scene.ego = {{0.0, 0.0, 0.0}, 0.0, 5.0, 1};
     scene.paths = ribbons;
     scene.path_count = 3;
     scene.trajectory_carpets = &carpet;

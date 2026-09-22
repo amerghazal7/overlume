@@ -2,31 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Amer Ghazal
 
-# ci_visual_mode.sh — VM-041 (Epic 5): the repo's one repo-local pre-merge
-# gate for visual mode. This repo has NO hosted CI (no .github/workflows, no
-# .gitlab-ci.yml) — this script IS "CI wiring" until a hosted platform
-# exists. Run it from anywhere; it cd's off its own path.
-#
-# Stages (each labeled, each can fail the whole run):
-#   1. POD header check      (overlume/scripts/check_pod_header.sh)
-#   2. Library ctest suite   (overlume's full ctest run)
-#   3. Node gtests           (colcon test, overlume_ros)
-#   4. WS bridge pytest      (tools/test_vcam_ws_bridge.py; count reported by the stage itself)
-#   5. Golden suite          (GPU-skip breakdown, honestly reported)
-#   6. Examples              (Task 4, open-source restructure plan: every
-#                             examples/*.cpp binary run headless, PASS iff
-#                             each exits 0 and writes a non-empty image)
-#
-# GPU/EGL required -- a GPU-less box fails at stage 2/3 by design; see
-# docs/runbooks/ci_gate.md (the single home of the GPU/skip rationale).
-#
-# What this script deliberately does NOT do (validate_visual_mode.sh's own
-# --live lesson): no bag is ever played, and nothing here touches a rig this
-# script didn't itself start. Stage 4's two E2E tests DO start
-# overlume_node and vcam_ws_bridge.py as their own
-# child processes -- but as their own isolated processes on an isolated
-# ROS_DOMAIN_ID, killed via killpg of the session they themselves started
-# (never a process the script did not start).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -36,10 +11,9 @@ LOG_DIR="/tmp/ci_visual_mode.$$"
 mkdir -p "${LOG_DIR}"
 echo "logs: ${LOG_DIR}/"
 
-# ── stage bookkeeping ───────────────────────────────────────────────────────
 declare -a STAGE_NAMES=()
-declare -a STAGE_RESULTS=()   # PASS | FAIL
-declare -a STAGE_NOTES=()     # extra context for the summary line
+declare -a STAGE_RESULTS=()
+declare -a STAGE_NOTES=()
 OVERALL_FAIL=0
 
 record_stage() {
@@ -57,7 +31,6 @@ banner() {
     echo "=============================================================="
 }
 
-# ── stage 1: POD header check ───────────────────────────────────────────────
 banner 1/6 "POD header check"
 POD_LOG="${LOG_DIR}/pod_header.log"
 if bash "${REPO_ROOT}/overlume/scripts/check_pod_header.sh" \
@@ -70,7 +43,6 @@ else
     record_stage "POD header check" FAIL
 fi
 
-# ── stage 2: library ctest suite (also feeds stage 5's golden breakdown) ───
 banner 2/6 "library ctest suite"
 LIB_DIR="${REPO_ROOT}/overlume"
 LIB_BUILD_DIR="${LIB_DIR}/build"
@@ -97,14 +69,8 @@ if [[ "${LIB_STAGE_OK}" == "1" ]]; then
 fi
 
 if [[ "${LIB_STAGE_OK}" == "1" ]]; then
-    # -V (not --output-on-failure): stage 5 below needs every test's own
-    # gtest "[ OK ]"/"[ SKIPPED ]" line, not just the failing ones.
     if ctest --test-dir "${LIB_BUILD_DIR}" -V > "${LIB_CTEST_LOG}" 2>&1; then
         LIB_SUMMARY="$(grep -E '^[0-9]+% tests passed' "${LIB_CTEST_LOG}" || true)"
-        # Suite-wide ok/skipped, not just goldens -- ctest's own "100% tests
-        # passed" line folds every GTEST_SKIP() (~125 GPU-gated guard sites)
-        # into "passed", which reads as full coverage on a degraded box.
-        # Same inline-line anchor as stage 5, no Golden filter.
         SUITE_OK=$(grep -cE '\[ *OK *\].*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
         SUITE_SKIPPED=$(grep -cE '\[ *SKIPPED *\].*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
         LIB_SUMMARY="${LIB_SUMMARY} (${SUITE_OK} ok / ${SUITE_SKIPPED} skipped)"
@@ -120,16 +86,8 @@ else
     record_stage "library ctest suite" FAIL
 fi
 
-# ── stage 3: node gtests (colcon test, overlume_ros) ──────
-# Never silently skipped: missing ROS/colcon infra is a loud FAIL here, not
-# a skip — this is the pre-merge gate, not an optional convenience check.
 banner 3/6 "node gtests (colcon test)"
 ROS_SETUP="/opt/ros/humble/setup.bash"
-# Post-cutover (VM-095): the node has no sibling ROS package dependency --
-# SetVirtualCam.srv is generated in-package. The install space sourced here
-# is the node's OWN prior install (needed for the srv typesupport at test
-# time). CI_VISUAL_MODE_ROS_APPS_INSTALL still overrides for a worktree
-# borrowing another checkout's install, read-only.
 MAIN_INSTALL="${CI_VISUAL_MODE_ROS_APPS_INSTALL:-${REPO_ROOT}/ros/install/setup.bash}"
 NODE_WS="${REPO_ROOT}/ros"
 NODE_LOG="${LOG_DIR}/node_colcon.log"
@@ -157,9 +115,6 @@ if [[ "${NODE_STAGE_OK}" == "1" ]]; then
         source "${MAIN_INSTALL}"
         set -u
         cd "${NODE_WS}"
-        # desktop_notification-: this box has no working dbus notification
-        # daemon (confirmed: notify2 throws a GDBus timeout) -- harmless but
-        # noisy in a log meant to be read for pass/fail, not desktop popups.
         colcon build --packages-select overlume_ros \
             --event-handlers desktop_notification- \
             --cmake-args -DCMAKE_BUILD_TYPE=Release \
@@ -178,25 +133,8 @@ if [[ "${NODE_STAGE_OK}" == "1" ]]; then
     fi
 fi
 
-# ── stage 4: WS bridge pytest suite ─────────────────────────────────────────
 banner 4/6 "WS bridge pytest suite"
 WS_LOG="${LOG_DIR}/ws_bridge_pytest.log"
-# -p no:anyio: this box's installed anyio pytest plugin is incompatible with
-# the system pytest (ModuleNotFoundError: _pytest.scope) and aborts
-# collection entirely before a single test runs -- confirmed the hard way.
-# The WS bridge tests need no anyio fixture, so disabling that one autoload
-# plugin is the whole fix.
-#
-# ROS_DOMAIN_ID: two of these tests (test_bridge_e2e_*) start real
-# overlume_node / vcam_ws_bridge.py processes and
-# drive them over ROS 2 by node name (ros2 lifecycle set, ros2 param
-# get/set). _ros_env() in test_vcam_ws_bridge.py copies this process's
-# environment into every one of those child processes, so pinning the
-# domain here is what keeps this stage off whatever ROS_DOMAIN_ID an
-# operator's shell already exports for a live rig -- CI_VISUAL_MODE_DOMAIN_ID
-# overrides it, but the default must never be a domain a real rig uses
-# (this repo's own tools default to 93/94, see validate_visual_mode.sh and
-# flicker_measure.sh).
 if ROS_DOMAIN_ID="${CI_VISUAL_MODE_DOMAIN_ID:-77}" \
         python3 -m pytest "${REPO_ROOT}/tools/test_vcam_ws_bridge.py" -q -p no:anyio \
         > "${WS_LOG}" 2>&1; then
@@ -209,14 +147,8 @@ else
     record_stage "WS bridge pytest suite" FAIL
 fi
 
-# ── stage 5: golden suite, GPU-skip reported honestly ───────────────────────
 banner 5/6 "golden suite (GPU-skip)"
 if [[ -f "${LIB_CTEST_LOG}" ]]; then
-    # `.*\([0-9]+ ms\)$` anchors each grep to gtest's inline per-test line
-    # only -- ctest -V also reprints every SKIPPED/FAILED name in its
-    # end-of-run summary list (no "(N ms)" suffix there), so without this
-    # anchor every skip/fail is counted twice. Golden-NAMED subset only;
-    # see docs/runbooks/ci_gate.md for what sits outside it.
     GOLDEN_OK=$(grep -cE '\[ *OK *\].*Golden.*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
     GOLDEN_SKIPPED=$(grep -cE '\[ *SKIPPED *\].*Golden.*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
     GOLDEN_FAILED=$(grep -cE '\[ *FAILED *\].*Golden.*\([0-9]+ ms\)$' "${LIB_CTEST_LOG}" || true)
@@ -228,8 +160,6 @@ if [[ -f "${LIB_CTEST_LOG}" ]]; then
         echo "FAIL  golden suite: no golden tests found in ${LIB_CTEST_LOG} -- stage 2 didn't run them"
         record_stage "golden suite" FAIL
     else
-        # PASS whether every golden ran (GPU present) or every golden skipped
-        # (no GPU/EGL) -- skipped is reported as its own count, never as "ok".
         SKIP_NOTE=""
         [[ "${GOLDEN_SKIPPED}" -gt 0 ]] && SKIP_NOTE=" (no GPU/EGL)"
         echo "PASS  golden suite: ${GOLDEN_OK} ok, ${GOLDEN_SKIPPED} skipped${SKIP_NOTE}"
@@ -240,11 +170,6 @@ else
     record_stage "golden suite" FAIL
 fi
 
-# ── stage 6: examples (Task 4, open-source restructure plan) ───────────────
-# Each examples/*.cpp binary (built by stage 2's cmake --build, under
-# overlume/build/examples/ via the OVERLUME_BUILD_EXAMPLES option) is run
-# once, headless, with its output path pointed at a throwaway temp dir --
-# PASS iff every one of them exits 0 and writes a non-empty output file.
 banner 6/6 "examples"
 EXAMPLES_BUILD_DIR="${LIB_BUILD_DIR}/examples"
 EXAMPLES_TMP_DIR="${LOG_DIR}/examples_out"
@@ -263,14 +188,6 @@ else
         _example_name="$(basename "${_example_bin}")"
         _out_png="${EXAMPLES_TMP_DIR}/${_example_name}.png"
         EXAMPLES_RAN=$((EXAMPLES_RAN + 1))
-        # argv[1] = output path; argv[2] (theme dir) left at its compile-time
-        # default (OVERLUME_EXAMPLES_THEME_DIR, the shipped assets/themes).
-        # CESIUM_ION_TOKEN is explicitly unset for each run (`env -u`), not
-        # merely left unexported by this script -- a box where the token IS
-        # exported in the ambient shell must not leak it in here, or
-        # 05_environment's streaming sub-demo would make a live network call
-        # instead of printing its own "skipped" line, against this repo's
-        # token rule.
         if ! env -u CESIUM_ION_TOKEN "${_example_bin}" "${_out_png}" >> "${EXAMPLES_LOG}" 2>&1; then
             echo "FAIL  examples: ${_example_name} exited non-zero (see ${EXAMPLES_LOG})"
             EXAMPLES_STAGE_OK=0
@@ -289,16 +206,12 @@ if [[ "${EXAMPLES_STAGE_OK}" == "1" && "${EXAMPLES_RAN}" -gt 0 \
     echo "PASS  examples  (${EXAMPLES_RAN} run, all exited 0 with non-empty output)"
     record_stage "examples" PASS "${EXAMPLES_RAN} run"
 else
-    # A binary silently missing from the build (one example stopped
-    # compiling) would otherwise still PASS this stage at a lower count --
-    # compare against examples/*.cpp on disk so a mismatch is a loud FAIL.
     echo "FAIL  examples: ran ${EXAMPLES_RAN}, expected ${EXAMPLES_EXPECTED}" \
          "(examples/*.cpp on disk) -- see ${EXAMPLES_LOG}"
     tail -40 "${EXAMPLES_LOG}" 2>/dev/null || true
     record_stage "examples" FAIL "${EXAMPLES_RAN} run / ${EXAMPLES_EXPECTED} expected"
 fi
 
-# ── summary ──────────────────────────────────────────────────────────────────
 banner SUMMARY "ci_visual_mode.sh"
 for i in "${!STAGE_NAMES[@]}"; do
     printf '%-4s %-28s %s\n' "${STAGE_RESULTS[$i]}" "${STAGE_NAMES[$i]}" "${STAGE_NOTES[$i]}"

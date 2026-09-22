@@ -1,13 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// test_bowl.cpp — VM-091 (unified-engine migration Task 2).
-//
-// Step 3: bowl_mesh.hpp's CPU-only mesh generation + per-vertex
-// weight/camera-slot-index bake, in isolation -- no Filament/GPU involved.
-// Step 4 (Filament sentinel-pixel render test) lives in this same file per
-// the plan's Files list, guarded by HasGpuEglDevice()/GTEST_SKIP() same as
-// every other GPU test in this suite.
 #include "bowl_mesh.hpp"
 #include "bowl_projection.hpp"
 
@@ -28,16 +21,7 @@ using overlume::CameraExtrinsics;
 using overlume::CameraIntrinsics;
 namespace bowl = overlume::bowl;
 
-// Overhead camera, directly above the bowl looking straight down (fwd =
-// -Z), TIGHT field of view (fx/fy large) so only vertices close to the
-// bowl's center (small radial extent) land within the image bounds --
-// everything else is "in front of the camera" but outside its FOV, giving
-// a clean covered/uncovered split driven by radius alone (not camera
-// facing, so it needs no elaborate rig geometry to reason about).
 CameraExtrinsics OverheadCamera() {
-    // col0=right=(1,0,0), col1=down=(0,-1,0), col2=fwd=(0,0,-1); R is
-    // row-major, column j = (R[j],R[3+j],R[6+j]) (bowl_projection.cpp's own
-    // convention, mirroring reproject.cu's CamDev).
     return CameraExtrinsics{{1, 0, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 10.0}};
 }
 
@@ -45,12 +29,6 @@ CameraIntrinsics TightFovIntrinsics() {
     return CameraIntrinsics{5000, 5000, 320, 240, {0, 0, 0, 0, 0}};
 }
 
-// Builds a CameraExtrinsics whose R aims exactly at `to` from `from`
-// (fwd == normalize(to - from)) -- CameraAlignment is then exactly 1.0 for
-// that one point by construction, and ProjectToCameraUv lands it exactly
-// at the intrinsics' principal point, regardless of camera position. Used
-// to get an exact, non-approximated per-camera weight without hand-deriving
-// R by hand for several cameras at once.
 CameraExtrinsics LookAtCamera(overlume::Vec3 from, overlume::Vec3 to) {
     auto sub = [](overlume::Vec3 a, overlume::Vec3 b) {
         return overlume::Vec3{a.x - b.x, a.y - b.y, a.z - b.z};
@@ -64,8 +42,7 @@ CameraExtrinsics LookAtCamera(overlume::Vec3 from, overlume::Vec3 to) {
     };
     const overlume::Vec3 fwd = norm(sub(to, from));
     overlume::Vec3 up{0, 0, 1};
-    if (std::abs(fwd.z) > 0.999)
-        up = overlume::Vec3{0, 1, 0};  // fwd near-vertical -- pick another up
+    if (std::abs(fwd.z) > 0.999) up = overlume::Vec3{0, 1, 0};
     const overlume::Vec3 right = norm(cross(fwd, up));
     const overlume::Vec3 down = cross(fwd, right);
     CameraExtrinsics ext{};
@@ -86,8 +63,6 @@ CameraExtrinsics LookAtCamera(overlume::Vec3 from, overlume::Vec3 to) {
 
 }  // namespace
 
-// ---- Step 3: CPU-only bake -------------------------------------------
-
 TEST(BowlMeshBake, InnerRingCoveredOuterRingUncoveredBySingleCamera) {
     const CameraExtrinsics ext = OverheadCamera();
     const CameraIntrinsics in = TightFovIntrinsics();
@@ -96,8 +71,7 @@ TEST(BowlMeshBake, InnerRingCoveredOuterRingUncoveredBySingleCamera) {
     bowl::BowlMeshParams params;
     params.theta_segments = 16;
     params.radial_rings = 8;
-    const bowl::BowlMesh mesh = bowl::BakeBowlMesh(params, /*R0=*/0.5, /*k=*/0.3, /*Rmax=*/8.0,
-                                                   /*camera_count=*/1, &ext, &in, &w, &h);
+    const bowl::BowlMesh mesh = bowl::BakeBowlMesh(params, 0.5, 0.3, 8.0, 1, &ext, &in, &w, &h);
 
     ASSERT_FALSE(mesh.vertices.empty());
 
@@ -109,9 +83,6 @@ TEST(BowlMeshBake, InnerRingCoveredOuterRingUncoveredBySingleCamera) {
     }
     for (const auto& v : mesh.vertices) {
         const double r = std::sqrt(v.position.x * v.position.x + v.position.y * v.position.y);
-        // Only one camera is configured -- every vertex's index_a must be
-        // camera 0, and coverage_b/coverage_c must be forced to 0 (never
-        // double-counts the single camera across slots).
         EXPECT_EQ(v.index_a, 0u);
         EXPECT_FLOAT_EQ(v.coverage_b, 0.0f);
         EXPECT_FLOAT_EQ(v.coverage_c, 0.0f);
@@ -124,13 +95,6 @@ TEST(BowlMeshBake, InnerRingCoveredOuterRingUncoveredBySingleCamera) {
 }
 
 TEST(BowlMeshBake, MidEdgeWeightInterpolationIsBoundedByTessellation) {
-    // Fine tessellation -> the rasterizer's linear interpolation of two
-    // baked vertices' coverage floats should closely reproduce an
-    // independent alignment^2 evaluation at their true geometric midpoint --
-    // the property bit-packing (banned by Decision 3) could never have.
-    // Coverage is alignment^2 ONLY -- border feather is computed
-    // per-fragment by bowl.mat, not baked, so the reference value below
-    // doesn't include a BorderFeather factor either.
     const CameraExtrinsics ext = OverheadCamera();
     const CameraIntrinsics in = TightFovIntrinsics();
     const uint32_t w = 640, h = 480;
@@ -140,8 +104,6 @@ TEST(BowlMeshBake, MidEdgeWeightInterpolationIsBoundedByTessellation) {
     params.radial_rings = 64;
     const bowl::BowlMesh mesh = bowl::BakeBowlMesh(params, 0.5, 0.3, 8.0, 1, &ext, &in, &w, &h);
 
-    // Find a triangle whose first two vertices are both covered by camera
-    // 0 with a meaningfully nonzero weight (well inside the FOV).
     bool checked = false;
     for (size_t t = 0; t + 2 < mesh.indices.size() && !checked; t += 3) {
         const auto& v0 = mesh.vertices[mesh.indices[t]];
@@ -162,15 +124,8 @@ TEST(BowlMeshBake, MidEdgeWeightInterpolationIsBoundedByTessellation) {
 }
 
 TEST(BowlMeshBake, EveryTriangleCarriesIdenticalCameraIndexPairAcrossAllThreeVertices) {
-    // Decision 3's construction rule, checked as a whole-mesh invariant: no
-    // triangle may have vertices that disagree on (index_a, index_b,
-    // index_c) -- that's exactly the "index interpolated into fractional
-    // garbage" corruption class the rule exists to prevent. Two cameras with
-    // different placements (splitting bowl coverage) exercise this at a
-    // real seam, not just trivially with one camera.
     const CameraExtrinsics extA{{1, 0, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 10.0}};
-    const CameraExtrinsics extB{{1, 0, 0, 0, 1, 0, 0, 0, 1},
-                                {0, 0, -10.0}};  // faces the opposite way
+    const CameraExtrinsics extB{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, -10.0}};
     const CameraExtrinsics exts[2] = {extA, extB};
     const CameraIntrinsics in{800, 800, 320, 240, {0, 0, 0, 0, 0}};
     const CameraIntrinsics ins[2] = {in, in};
@@ -197,14 +152,6 @@ TEST(BowlMeshBake, EveryTriangleCarriesIdenticalCameraIndexPairAcrossAllThreeVer
 }
 
 TEST(BowlMeshBake, FourCameraOverlapStillPicksAConsistentTripletPerTriangle) {
-    // Named parity exception (migration plan doc's Task 4 Step 1
-    // checklist, VM-091 gate close-out finding 7): this material contributes
-    // at most 3 cameras per fragment (CUSTOM0/CUSTOM2/CUSTOM3 are all spoken
-    // for), so a genuine FOUR-way overlap region -- four cameras all
-    // covering the same vertex -- can only ever surface 3 of the 4. Four
-    // IDENTICAL overhead cameras (same extrinsics/intrinsics, different slot
-    // indices) is the simplest real 4-way overlap: every vertex they cover,
-    // all four cover with EQUAL weight, so this isn't a near-miss, it's exact.
     const CameraExtrinsics ext = OverheadCamera();
     const CameraIntrinsics in{800, 800, 320, 240, {0, 0, 0, 0, 0}};
     const CameraExtrinsics exts[4] = {ext, ext, ext, ext};
@@ -223,8 +170,6 @@ TEST(BowlMeshBake, FourCameraOverlapStillPicksAConsistentTripletPerTriangle) {
         const auto& v0 = mesh.vertices[mesh.indices[t]];
         const auto& v1 = mesh.vertices[mesh.indices[t + 1]];
         const auto& v2 = mesh.vertices[mesh.indices[t + 2]];
-        // Existing per-triangle-uniform-index invariant still holds with 4
-        // configured cameras, not just 2/3.
         EXPECT_EQ(v0.index_a, v1.index_a);
         EXPECT_EQ(v0.index_a, v2.index_a);
         EXPECT_EQ(v0.index_b, v1.index_b);
@@ -234,13 +179,6 @@ TEST(BowlMeshBake, FourCameraOverlapStillPicksAConsistentTripletPerTriangle) {
 
         if (v0.coverage_a > 0.0f && v0.index_a != v0.index_b && v0.index_a != v0.index_c) {
             found_quad_overlap_triangle = true;
-            // Identical cameras -> ties resolve to the lowest slot indices
-            // examined first (bowl_mesh.cpp's strict `>` comparisons never
-            // displace a first-seen max on a tie) -- camera 3 is excluded
-            // even though it covers this triangle exactly as strongly as
-            // cameras 0/1/2. This is the named parity exception, pinned so
-            // a future 4-camera-per-fragment fix changes this test
-            // deliberately instead of silently.
             EXPECT_EQ(v0.index_a, 0u);
             EXPECT_EQ(v0.index_b, 1u);
             EXPECT_EQ(v0.index_c, 2u);
@@ -250,27 +188,13 @@ TEST(BowlMeshBake, FourCameraOverlapStillPicksAConsistentTripletPerTriangle) {
         << "no triangle found where all 4 identical cameras genuinely overlap";
 }
 
-// ---- VM-092 (Task 3) Step 1: analytic ego-occlusion, now inside the bake -
-
 TEST(BowlMeshBake, EgoOcclusionZeroesCoverageForTheOccludedCameraOnly) {
-    // Occlusion runs INSIDE BakeBowlMesh's own per-vertex weight loop
-    // rather than a separate post-pass, so it's exercised here through the
-    // public bake API. A minimal (2-ring, 4-seg) mesh puts a known vertex
-    // exactly at (r=Rmax=1.0, theta=90deg) -- BowlSurfacePoint's own
-    // formula gives its z, plus the bake's 1cm cosmetic lift.
-    //   - camera 0 sits on the FAR side of the ego box from that vertex
-    //     (straight line from camera to vertex crosses the box);
-    //   - camera 1 sits well clear of the box's shadow for the SAME vertex
-    //     (the line misses the box entirely).
-    // Both cameras are aimed exactly at the vertex (LookAtCamera) so their
-    // pre-occlusion weights are both == 1.0 -- the only difference the
-    // result can be attributed to is the occlusion test itself.
     constexpr double kR0 = 0.1, kK = 0.3, kRmax = 1.0;
     const overlume::Vec3 vertex{0.0, 1.0, kK * (kRmax - kR0) * (kRmax - kR0) + 0.01};
 
     const CameraExtrinsics exts[2] = {
-        LookAtCamera({0.0, -3.0, 0.5}, vertex),   // 0 -- occluded
-        LookAtCamera({10.0, -3.0, 0.5}, vertex),  // 1 -- clear
+        LookAtCamera({0.0, -3.0, 0.5}, vertex),
+        LookAtCamera({10.0, -3.0, 0.5}, vertex),
     };
     const CameraIntrinsics in{800, 800, 320, 240, {0, 0, 0, 0, 0}};
     const CameraIntrinsics ins[2] = {in, in};
@@ -308,9 +232,6 @@ TEST(BowlMeshBake, EgoOcclusionZeroesCoverageForTheOccludedCameraOnly) {
     }
     ASSERT_TRUE(checked) << "expected vertex not found in the baked mesh";
 
-    // A zero-extent box (bowl.cpp's "no ego configured" convention) is a
-    // documented no-op -- pin it so a future change can't silently start
-    // occluding everything when no ego was ever set.
     const bowl::BowlMesh noop_mesh =
         bowl::BakeBowlMesh(params, kR0, kK, kRmax, 2, exts, ins, widths, heights, bowl::EgoBox{});
     bool noop_checked = false;
@@ -327,38 +248,14 @@ TEST(BowlMeshBake, EgoOcclusionZeroesCoverageForTheOccludedCameraOnly) {
 }
 
 TEST(BowlMeshBake, OccludedCameraNeverBurnsATopThreeSlotAVisibleCameraCouldHaveTaken) {
-    // Folding the occlusion test into the same per-vertex loop that FEEDS
-    // the per-triangle top-3 selection (rather than a post-hoc pass applied
-    // after selection) fixes "an occluded camera burns a slot a genuinely
-    // visible one could have taken" BY CONSTRUCTION: a zeroed-out camera
-    // can't win a slot in the first place. Proving that needs a camera that
-    // is a genuine top-3 pick by the selection's own rule (summed
-    // alignment^2 across a triangle's three corners) WITHOUT occlusion, so
-    // that occlusion is the only thing that can explain its exclusion --
-    // this test is self-proving: it bakes the SAME 4-camera set twice, once
-    // with no ego configured (baseline) and once with the ego box that
-    // occludes camera 0, and asserts both halves of the premise before
-    // asserting the fix.
-    //
-    // Camera 0 sits on the far side of the ego box from the target vertex
-    // (occluded), but at a distance that gives it near-parallel (square)
-    // incidence to all three of every touching triangle's corners, which is
-    // what makes its triangle-summed weight a genuine top-3 pick pre-
-    // occlusion (ASSERTed below, not assumed) -- a lower-fidelity
-    // pre-occlusion setup does not exercise the bug this test targets, per
-    // Decision 4's own selection rule. Camera 3 is deliberately the
-    // weakest of the three clear cameras (shorter range -> more angular
-    // parallax to the same corners), so it is the one camera 0 must
-    // displace pre-occlusion and the one that must be promoted once
-    // occlusion removes camera 0.
     constexpr double kR0 = 0.1, kK = 0.3, kRmax = 1.0;
     const overlume::Vec3 vertex{0.0, 1.0, kK * (kRmax - kR0) * (kRmax - kR0) + 0.01};
 
     const CameraExtrinsics exts[4] = {
-        LookAtCamera({0.0, -11.0, 0.5}, vertex),  // 0 -- occluded, genuine top-3 pick pre-occlusion
-        LookAtCamera({14.0, -3.0, 0.5}, vertex),  // 1 -- clear
-        LookAtCamera({10.0, 3.0, 0.5}, vertex),   // 2 -- clear
-        LookAtCamera({-6.0, -3.0, 0.5}, vertex),  // 3 -- clear, deliberately the weakest of 1/2/3
+        LookAtCamera({0.0, -11.0, 0.5}, vertex),
+        LookAtCamera({14.0, -3.0, 0.5}, vertex),
+        LookAtCamera({10.0, 3.0, 0.5}, vertex),
+        LookAtCamera({-6.0, -3.0, 0.5}, vertex),
     };
     const CameraIntrinsics in{800, 800, 320, 240, {0, 0, 0, 0, 0}};
     const CameraIntrinsics ins[4] = {in, in, in, in};
@@ -374,11 +271,6 @@ TEST(BowlMeshBake, OccludedCameraNeverBurnsATopThreeSlotAVisibleCameraCouldHaveT
         return v.index_a == cam || v.index_b == cam || v.index_c == cam;
     };
 
-    // Baseline: no ego configured -- proves the PREMISE, not the fix. If
-    // camera 0 isn't a genuine top-3 pick here (or camera 3 already is
-    // one), the occluded assertions below would pass for the wrong reason
-    // (or vacuously), so this half is ASSERT, not EXPECT: the premise must
-    // never be allowed to silently rot.
     const bowl::BowlMesh baseline =
         bowl::BakeBowlMesh(params, kR0, kK, kRmax, 4, exts, ins, widths, heights, bowl::EgoBox{});
     int baseline_rows = 0;
@@ -397,9 +289,6 @@ TEST(BowlMeshBake, OccludedCameraNeverBurnsATopThreeSlotAVisibleCameraCouldHaveT
     }
     ASSERT_GT(baseline_rows, 0) << "expected vertex not found in the baseline mesh";
 
-    // Occluded: the actual fix under test. Camera 0 must lose the slot the
-    // baseline just proved it would otherwise win, and camera 3 -- excluded
-    // pre-occlusion -- must be promoted into the freed slot.
     const bowl::BowlMesh mesh =
         bowl::BakeBowlMesh(params, kR0, kK, kRmax, 4, exts, ins, widths, heights, ego_box);
     int occluded_rows = 0;
@@ -426,12 +315,6 @@ TEST(BowlMeshBake, OccludedCameraNeverBurnsATopThreeSlotAVisibleCameraCouldHaveT
 }
 
 TEST(BowlMeshBake, DeployedRigWithEveryCameraInsideItsOwnEgoBoxIsNotWholesaleZeroed) {
-    // Every camera in the deployed 6-camera rig (default_params.yaml's
-    // camera_extrinsics) sits INSIDE the ego_fallback_dims box. A segment
-    // starting inside a convex box is never occluded by it -- pin that
-    // this rig's own camera placement stays a genuine self-view-masking
-    // no-op rather than reading every (camera, vertex) pair as occluded and
-    // zeroing the whole bake to sky_color.
     const CameraExtrinsics exts[6] = {
         {{0.9961946980917455, -0.06269459458646724, 0.06054346623323177, -0.08715574274765814,
           -0.7166024952237391, 0.6920149856363047, 0.0, -0.6946583704589973, -0.7193398003386511},
@@ -461,12 +344,8 @@ TEST(BowlMeshBake, DeployedRigWithEveryCameraInsideItsOwnEgoBoxIsNotWholesaleZer
     bowl::BowlMeshParams params;
     params.theta_segments = 64;
     params.radial_rings = 24;
-    // ego_fallback_dims: [4.5, 2.0, 1.8] (default_params.yaml) -- centered on
-    // X/Y, resting on the ground plane, the same box ego_rig_frame_box()
-    // builds for the clay-box fallback (bowl.cpp).
     const bowl::EgoBox ego_box{{0.0, 0.0, 0.9}, {2.25, 1.0, 0.9}};
 
-    // bowl_R0/bowl_k/bowl_Rmax: default_params.yaml's own deployed values.
     auto count_covered = [](const bowl::BowlMesh& m) {
         size_t covered = 0;
         for (const auto& v : m.vertices) {
@@ -474,45 +353,25 @@ TEST(BowlMeshBake, DeployedRigWithEveryCameraInsideItsOwnEgoBoxIsNotWholesaleZer
         }
         return covered;
     };
-    // Baseline: no ego configured at all -- how much of the bowl these 6
-    // cameras cover before self-view masking enters the picture (this rig's
-    // narrow-ish assumed intrinsics don't cover the whole 40m-radius bowl,
-    // which is expected and irrelevant to what this test checks).
     const bowl::BowlMesh baseline =
-        bowl::BakeBowlMesh(params, /*bowl_R0=*/17.0, /*bowl_k=*/0.06, /*bowl_Rmax=*/40.0, 6, exts,
-                           ins, widths, heights, bowl::EgoBox{});
+        bowl::BakeBowlMesh(params, 17.0, 0.06, 40.0, 6, exts, ins, widths, heights, bowl::EgoBox{});
     const bowl::BowlMesh mesh =
-        bowl::BakeBowlMesh(params, /*bowl_R0=*/17.0, /*bowl_k=*/0.06, /*bowl_Rmax=*/40.0, 6, exts,
-                           ins, widths, heights, ego_box);
+        bowl::BakeBowlMesh(params, 17.0, 0.06, 40.0, 6, exts, ins, widths, heights, ego_box);
     ASSERT_FALSE(mesh.vertices.empty());
     ASSERT_GT(count_covered(baseline), 0u) << "sanity: these 6 cameras should cover something";
 
-    // Every camera sits inside the box, so self-view masking must be a
-    // complete no-op here -- it must match the no-ego-configured baseline
-    // exactly, not zero the bake to nothing.
     EXPECT_EQ(count_covered(mesh), count_covered(baseline))
         << "every deployed camera sits inside its own ego AABB -- a camera positioned inside the "
            "box can never be occluded by it, so enabling self-view masks on this rig must not "
            "change coverage at all, let alone zero the bake wholesale";
 }
 
-// ---- VM-092 (Task 3) Step 0: shared Filament Scene composites -----------
-// ---- robot-over-bowl with zero new code ---------------------------------
-
 TEST(Bowl, EgoMeshOccludesBowlSurfaceBehindIt) {
-    // Decision 4: robot-proxy compositing needs no bowl-specific rasterizer
-    // at all -- the ego entity (set_ego_model) and the bowl entity both
-    // live in the SAME r->scene (renderer.cpp), so Filament's own depth
-    // test composites robot-over-bowl for free. Proven with a NONZERO
-    // map-frame ego pose (not the origin): both entities are anchored from
-    // the SAME scene.ego every render_frame() call (update_ego_transform /
-    // update_bowl, Decision 3's frame convention), so this also catches a
-    // bug where one of them stayed at the map origin while the other moved.
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     const overlume::Vec3 ego_pos{3.0, 2.0, 0.0};
     overlume::CameraPose pose{{ego_pos.x, ego_pos.y - 6.0, 6.0}, {ego_pos.x, ego_pos.y, 0.0}, 70.0};
     overlume::SceneGraph scene{};
-    scene.ego = {ego_pos, /*heading_rad=*/0.0, /*speed_mps=*/0.0, /*valid=*/1};
+    scene.ego = {ego_pos, 0.0, 0.0, 1};
 
     overlume::CameraExtrinsics ext{{1, 0, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 10.0}};
     overlume::CameraIntrinsics in{200, 200, 160, 120, {0, 0, 0, 0, 0}};
@@ -538,21 +397,14 @@ TEST(Bowl, EgoMeshOccludesBowlSurfaceBehindIt) {
         cam_pixels[i + 2] = 255;
     }
 
-    // Baseline: bowl only, no ego -- how much of the frame the bowl's own
-    // camera-texture sentinel covers.
     auto* base_r = overlume::create_renderer(cfg);
     if (!base_r) GTEST_SKIP() << "no GPU/EGL";
     ASSERT_TRUE(overlume::set_bowl_config(base_r, bc));
     ASSERT_TRUE(overlume::set_bowl_visible(base_r, true));
-    ASSERT_TRUE(overlume::set_camera_frame(base_r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
+    ASSERT_TRUE(overlume::set_camera_frame(base_r, 0, cam_pixels.data(), w, h, 1));
     overlume::set_scene(base_r, scene);
     std::vector<uint8_t> baseline(320 * 240 * 3);
     ASSERT_TRUE(overlume::render_frame(base_r, pose, {baseline.data(), 320, 240}));
-    // R>150 && B>150 && G<100: the dark_adas theme's own ego color
-    // ([0.82, 0.80, 0.76], near-white clay) would ALSO satisfy a bare
-    // R>150&&B>150 check once the ego renders into this same frame --
-    // requiring G to stay low is what keeps this a genuine "the bowl
-    // sampled its camera texture" signature rather than "any bright pixel".
     auto is_magenta = [](uint8_t r8, uint8_t g8, uint8_t b8) {
         return r8 > 150 && b8 > 150 && g8 < 100;
     };
@@ -563,15 +415,11 @@ TEST(Bowl, EgoMeshOccludesBowlSurfaceBehindIt) {
     overlume::destroy_renderer(base_r);
     ASSERT_GT(baseline_magenta, 0u) << "bowl-only baseline should show its magenta sentinel";
 
-    // Same setup, plus a known-size fallback ego box (build_ego_fallback,
-    // no glTF file needed) at the SAME nonzero ego pose -- sitting well
-    // inside the bowl's own small inner-ring radius, so it sits squarely
-    // in front of a meaningful chunk of the magenta surface checked above.
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     ASSERT_TRUE(overlume::set_bowl_config(r, bc));
     ASSERT_TRUE(overlume::set_bowl_visible(r, true));
-    ASSERT_TRUE(overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
+    ASSERT_TRUE(overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, 1));
     overlume::set_ego_model(r, "/nonexistent/path.glb", {1.5, 1.5, 1.2});
     overlume::set_scene(r, scene);
     std::vector<uint8_t> with_ego(320 * 240 * 3);
@@ -595,28 +443,10 @@ TEST(Bowl, EgoMeshOccludesBowlSurfaceBehindIt) {
     overlume::destroy_renderer(r);
 }
 
-// ---- VM-092 (Task 3) Step 2: disable knob, shipped default off ----------
-
 TEST(Bowl, SelfViewMasksOffByDefaultThenEnabledSuppressesOccludedCameraViaExistingSkyColorPath) {
-    // Decision 4: with self_view_masks left at its shipped default
-    // (false), build_bowl() bakes with a zero-extent EgoBox, so the
-    // occlusion test never fires -- the bake behaves exactly as Task 2 left
-    // it. Force-enabling it for this test only must suppress
-    // the occluded camera's contribution; the "falls back to sky_color,
-    // not left unshaded" half of Decision 4's requirement is a STRUCTURAL
-    // property of bowl.mat's existing `if (wsum > 0.0) ... else skyColor`
-    // fragment code (untouched by this task -- a vertex whose only
-    // covering camera(s) all get zeroed by occlusion already has wsum==0,
-    // same as a vertex outside every camera's FOV), so this test's pixel
-    // checks are a smoke test on top of that, not the only proof of it.
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     overlume::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
 
-    // Camera 0 sits off to one side (rig frame), looking across the bowl --
-    // NOT overhead -- so a body-sized ego box between it and the far side
-    // of the bowl casts a real shadow (col0=right=(0,-1,0),
-    // col1=down=(0,0,-1), col2=fwd=(1,0,0): looking in +x, same
-    // column-extraction convention as OverheadCamera() above).
     overlume::CameraExtrinsics ext{{0, 0, 1, -1, 0, 0, 0, -1, 0}, {-5.0, 0, 0.3}};
     overlume::CameraIntrinsics in{250, 250, 320, 240, {0, 0, 0, 0, 0}};
     uint32_t w = 640, h = 480;
@@ -629,7 +459,7 @@ TEST(Bowl, SelfViewMasksOffByDefaultThenEnabledSuppressesOccludedCameraViaExisti
     bc.bowl_R0 = 0.5;
     bc.bowl_k = 0.3;
     bc.bowl_Rmax = 4.0;
-    bc.feather_margin = 0.0;  // isolate the weight question, no border feather
+    bc.feather_margin = 0.0;
     bc.sky_color[0] = 0.05f;
     bc.sky_color[1] = 0.05f;
     bc.sky_color[2] = 0.05f;
@@ -643,12 +473,10 @@ TEST(Bowl, SelfViewMasksOffByDefaultThenEnabledSuppressesOccludedCameraViaExisti
 
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    // A body-sized fallback box (no glTF needed), squarely between camera 0
-    // and a real chunk of the bowl on the far side.
     overlume::set_ego_model(r, "/nonexistent/path.glb", {1.6, 1.6, 0.7});
-    ASSERT_TRUE(overlume::set_bowl_config(r, bc));  // self_view_masks defaults false
+    ASSERT_TRUE(overlume::set_bowl_config(r, bc));
     ASSERT_TRUE(overlume::set_bowl_visible(r, true));
-    ASSERT_TRUE(overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
+    ASSERT_TRUE(overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, 1));
 
     std::vector<uint8_t> masks_off(320 * 240 * 3);
     ASSERT_TRUE(overlume::render_frame(r, pose, {masks_off.data(), 320, 240}));
@@ -659,14 +487,10 @@ TEST(Bowl, SelfViewMasksOffByDefaultThenEnabledSuppressesOccludedCameraViaExisti
     ASSERT_GT(magenta_off, masks_off.size() / 3 / 100)
         << "sanity: the bowl should show its magenta sentinel with masks off";
 
-    // Force-enable for this test only (shipped default stays false) and
-    // re-bake -- set_self_view_masks() only stores the flag; build_bowl()
-    // reads it at the NEXT set_bowl_config() call, same convention as
-    // every other bake-time-only knob on this POD boundary.
     ASSERT_TRUE(overlume::set_self_view_masks(r, true));
     ASSERT_TRUE(overlume::set_bowl_config(r, bc));
     ASSERT_TRUE(overlume::set_bowl_visible(r, true));
-    ASSERT_TRUE(overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/2));
+    ASSERT_TRUE(overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, 2));
 
     std::vector<uint8_t> masks_on(320 * 240 * 3);
     ASSERT_TRUE(overlume::render_frame(r, pose, {masks_on.data(), 320, 240}));
@@ -678,13 +502,6 @@ TEST(Bowl, SelfViewMasksOffByDefaultThenEnabledSuppressesOccludedCameraViaExisti
         << "camera 0's own body between it and part of the bowl should have its contribution "
            "suppressed once self_view_masks is enabled (declared off by default, Decision 4)";
 
-    // Decision 4's "falls back to sky_color, not left unshaded" half, made
-    // discriminating: restrict to the pixels that actually LOST their
-    // camera-0 contribution (magenta in masks_off, not magenta in
-    // masks_on) rather than the whole 320x240 frame -- dark_adas's own
-    // ground/sky already covers most of the frame above a bare >5-channel
-    // threshold, so a wholesale-unshaded (black) bowl would pass a
-    // whole-frame check just as easily as a correctly-repainted one.
     size_t unmasked_pixels = 0;
     size_t unmasked_and_shaded = 0;
     for (size_t i = 0; i < masks_off.size(); i += 3) {
@@ -707,19 +524,12 @@ TEST(Bowl, SelfViewMasksOffByDefaultThenEnabledSuppressesOccludedCameraViaExisti
     overlume::destroy_renderer(r);
 }
 
-// ---- Step 4: set_bowl_config() + set_camera_frame() + render_frame() -----
-
 TEST(Bowl, RenderFrameWithBowlConfiguredProducesSentinelPixels) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    // Angled view of the bowl (NOT straight-down -- an eye directly above
-    // the target with a world-up vector is a degenerate lookAt, forward and
-    // up parallel; every existing render_once() test in this suite uses an
-    // angled eye for the same reason).
     overlume::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    // One overhead camera, wide enough FOV to see the whole (small) bowl.
     overlume::CameraExtrinsics ext{{1, 0, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 10.0}};
     overlume::CameraIntrinsics in{200, 200, 160, 120, {0, 0, 0, 0, 0}};
     uint32_t w = 320, h = 240;
@@ -737,69 +547,34 @@ TEST(Bowl, RenderFrameWithBowlConfiguredProducesSentinelPixels) {
     bc.sky_color[1] = 0.1f;
     bc.sky_color[2] = 0.1f;
     ASSERT_TRUE(overlume::set_bowl_config(r, bc));
-    // set_bowl_config() defaults to hidden (bowlVisible=false, matching
-    // set_bowl_visible's own documented default and Task 4's later
-    // per-mode dispatch) -- this test explicitly opts in, same as Task 4's
-    // mode dispatch will do for BOWL/HYBRID modes.
     ASSERT_TRUE(overlume::set_bowl_visible(r, true));
 
-    // Saturated magenta sentinel: no theme emits it on all three channels
-    // at once, so "the bowl sampled the camera texture" is distinguishable
-    // from "the scene happens to contain a similar color".
     std::vector<uint8_t> cam_pixels(static_cast<size_t>(w) * h * 3);
     for (size_t i = 0; i < cam_pixels.size(); i += 3) {
         cam_pixels[i] = 255;
         cam_pixels[i + 1] = 0;
         cam_pixels[i + 2] = 255;
     }
-    ASSERT_TRUE(overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
+    ASSERT_TRUE(overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, 1));
 
     std::vector<uint8_t> buf(320 * 240 * 3);
     ASSERT_TRUE(overlume::render_frame(r, pose, {buf.data(), 320, 240}));
 
-    // Magenta-signature check, not an exact (255,0,255) proximity match:
-    // this renderer's fixed camera exposure (renderer.cpp's setExposure)
-    // tonemaps UNLIT baseColor nonlinearly (measured empirically -- a raw
-    // unlit (1,1,1) renders at only ~15% output brightness with no lighting
-    // to compensate the way clay.mat's albedo relies on the sun), so a
-    // sampled-and-EXPOSURE_COMPENSATION-boosted magenta pixel does not land
-    // tightly at (255,0,255); what it DOES do reliably is push R and B well
-    // above anything the "dark_adas" theme's own background/sky/ground ever
-    // produces (measured background max component ~90) while G stays
-    // comparatively low. R>150 AND B>150 is therefore a robust "the bowl
-    // sampled its camera texture" fingerprint no scene content could
-    // accidentally trigger, without depending on this renderer's exact
-    // tonemap curve.
     size_t magenta_pixels = 0;
     for (size_t i = 0; i < buf.size(); i += 3) {
         if (buf[i] > 150 && buf[i + 2] > 150) ++magenta_pixels;
     }
-    // >10% of the frame is this test's acceptance bar (measured ~40% with
-    // correct winding + rigPos wiring).
     EXPECT_GT(magenta_pixels, buf.size() / 3 / 10)
         << "expected the bowl's sampled surface to cover a meaningful fraction of the frame";
     overlume::destroy_renderer(r);
 }
 
 TEST(Bowl, PerFragmentSamplingReadsTheCorrectPixelNotAMirroredOne) {
-    // A UNIFORM magenta sentinel is blind to any position/orientation corruption (a
-    // mirrored or offset rigPos samples magenta just as well as the correct
-    // one). A camera texture split into four distinctly-colored quadrants
-    // instead lets this test assert the on-screen left/right and
-    // top/bottom ORDERING of sampled colors matches the overhead camera's
-    // known orientation -- a mirrored-V (or any position corruption) would
-    // scramble that ordering.
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     overlume::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    // Overhead camera, straight down: col0=right=(1,0,0), col1=down=(0,-1,0)
-    // (image +v/down is world -y), col2=fwd=(0,0,-1) (same convention as
-    // OverheadCamera()/reproject.cu's CamDev). A pixel in the source
-    // image's LEFT half (small xp) is world +x-ish (right = +x); a pixel in
-    // the image's TOP half (small yp) is world +y-ish (image +v is world
-    // -y, so image top/small-v is world +y).
     overlume::CameraExtrinsics ext{{1, 0, 0, 0, -1, 0, 0, 0, -1}, {0, 0, 10.0}};
     overlume::CameraIntrinsics in{200, 200, 160, 120, {0, 0, 0, 0, 0}};
     uint32_t w = 320, h = 240;
@@ -812,12 +587,10 @@ TEST(Bowl, PerFragmentSamplingReadsTheCorrectPixelNotAMirroredOne) {
     bc.bowl_R0 = 0.5;
     bc.bowl_k = 0.3;
     bc.bowl_Rmax = 4.0;
-    bc.feather_margin = 0.0;  // no feather -- isolate the position/UV question
+    bc.feather_margin = 0.0;
     ASSERT_TRUE(overlume::set_bowl_config(r, bc));
     ASSERT_TRUE(overlume::set_bowl_visible(r, true));
 
-    // Four quadrants, saturated + distinct on all 3 channels: TL=red,
-    // TR=green, BL=blue, BR=yellow.
     std::vector<uint8_t> cam_pixels(static_cast<size_t>(w) * h * 3);
     for (uint32_t y = 0; y < h; ++y) {
         for (uint32_t x = 0; x < w; ++x) {
@@ -828,33 +601,26 @@ TEST(Bowl, PerFragmentSamplingReadsTheCorrectPixelNotAMirroredOne) {
                 px[0] = 255;
                 px[1] = 0;
                 px[2] = 0;
-            }  // red
-            else if (top && !left) {
+            } else if (top && !left) {
                 px[0] = 0;
                 px[1] = 255;
                 px[2] = 0;
-            }  // green
-            else if (!top && left) {
+            } else if (!top && left) {
                 px[0] = 0;
                 px[1] = 0;
                 px[2] = 255;
-            }  // blue
-            else {
+            } else {
                 px[0] = 255;
                 px[1] = 255;
                 px[2] = 0;
-            }  // yellow
+            }
         }
     }
-    ASSERT_TRUE(overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, /*frame_id=*/1));
+    ASSERT_TRUE(overlume::set_camera_frame(r, 0, cam_pixels.data(), w, h, 1));
 
     std::vector<uint8_t> buf(320 * 240 * 3);
     ASSERT_TRUE(overlume::render_frame(r, pose, {buf.data(), 320, 240}));
 
-    // Classify each on-screen pixel by its dominant sampled quadrant color
-    // (exposure-compensated, so channels are boosted but the RED/GREEN/
-    // BLUE/YELLOW signature survives: yellow needs high R AND G with low
-    // B, the others need exactly one channel dominant).
     auto classify = [](uint8_t r8, uint8_t g8, uint8_t b8) -> char {
         const bool R = r8 > 120, G = g8 > 120, B = b8 > 120;
         if (R && G && !B) return 'Y';
@@ -863,9 +629,6 @@ TEST(Bowl, PerFragmentSamplingReadsTheCorrectPixelNotAMirroredOne) {
         if (!R && !G && B) return 'B';
         return '.';
     };
-    // Bucket by on-screen quadrant (this test's virtual camera looks down
-    // at an angle, but the bowl sits centered in frame -- screen-left/
-    // right and screen-top/bottom still partition it meaningfully).
     int left_red = 0, left_blue = 0, right_green = 0, right_yellow = 0;
     int wrong_left_is_greenish = 0, wrong_right_is_reddish = 0;
     for (int y = 0; y < 240; ++y) {
@@ -885,12 +648,6 @@ TEST(Bowl, PerFragmentSamplingReadsTheCorrectPixelNotAMirroredOne) {
             }
         }
     }
-    // The world's left/right camera-quadrant split (red|blue on world +x,
-    // green|yellow on world -x -- right=(1,0,0) maps image-left to world
-    // +x) must land predominantly on ONE screen side, not scrambled evenly
-    // across both -- a mirrored or offset rigPos (the bug this test targets)
-    // would scatter red/blue and green/yellow pixels roughly evenly on both
-    // screen halves instead of separating them.
     EXPECT_GT(left_red + left_blue, 50) << "expected red/blue (image-left) quadrants on screen";
     EXPECT_GT(right_green + right_yellow, 50)
         << "expected green/yellow (image-right) quadrants on screen";
@@ -904,8 +661,6 @@ TEST(Bowl, PerFragmentSamplingReadsTheCorrectPixelNotAMirroredOne) {
 }
 
 TEST(Bowl, SetBowlVisibleFalseHidesTheBowlEntirely) {
-    // Inverted sanity check for the same setup: with bowlVisible left
-    // false (the default), no sentinel pixels should appear at all.
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     overlume::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
     auto* r = overlume::create_renderer(cfg);
@@ -936,8 +691,6 @@ TEST(Bowl, SetBowlVisibleFalseHidesTheBowlEntirely) {
 
     std::vector<uint8_t> buf(320 * 240 * 3);
     ASSERT_TRUE(overlume::render_frame(r, pose, {buf.data(), 320, 240}));
-    // Same magenta-signature criterion as the companion test above -- with
-    // the bowl hidden, none of it should fire at all.
     size_t magenta_pixels = 0;
     for (size_t i = 0; i < buf.size(); i += 3) {
         if (buf[i] > 150 && buf[i + 2] > 150) ++magenta_pixels;
@@ -947,23 +700,11 @@ TEST(Bowl, SetBowlVisibleFalseHidesTheBowlEntirely) {
 }
 
 TEST(Bowl, TwoCamerasWithNonzeroSlotIndexBothAppearInFrame) {
-    // Every GPU render test above configures camera_count == 1, so only the
-    // `idxA == 0` unrolled camera block in bowl.mat's fragment shader has
-    // ever executed on a real GPU -- the bake-side tests above that use 2-3
-    // cameras (BowlMeshBake.*) are CPU-only and never reach the shader. Two
-    // overhead cameras straddling the bowl (camera 1 offset to +x, camera 0
-    // to -x) makes camera 1 the per-triangle winner (nonzero index_a) over
-    // the +x half of the bowl -- proving a non-zero slot's uniforms/sampler
-    // are wired to the shader block that reads them, not just slot 0's.
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     overlume::CameraPose pose{{0, -6, 6}, {0, 0, 0}, 70.0};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
-    // Same overhead R (col0=right=(1,0,0), col1=down=(0,-1,0), col2=fwd=
-    // (0,0,-1)) as OverheadCamera() above, offset in t along x so each
-    // camera's alignment (straight-down-ness) peaks on its own side of the
-    // bowl.
     overlume::CameraExtrinsics exts[2] = {
         {{1, 0, 0, 0, -1, 0, 0, 0, -1}, {-2.0, 0, 10.0}},
         {{1, 0, 0, 0, -1, 0, 0, 0, -1}, {2.0, 0, 10.0}},
@@ -990,7 +731,6 @@ TEST(Bowl, TwoCamerasWithNonzeroSlotIndexBothAppearInFrame) {
     ASSERT_TRUE(overlume::set_bowl_config(r, bc));
     ASSERT_TRUE(overlume::set_bowl_visible(r, true));
 
-    // Distinct saturated colors: camera 0 = pure red, camera 1 = pure green.
     std::vector<uint8_t> red(static_cast<size_t>(widths[0]) * heights[0] * 3);
     std::vector<uint8_t> green(static_cast<size_t>(widths[1]) * heights[1] * 3);
     for (size_t i = 0; i < red.size(); i += 3) {
@@ -1003,10 +743,8 @@ TEST(Bowl, TwoCamerasWithNonzeroSlotIndexBothAppearInFrame) {
         green[i + 1] = 255;
         green[i + 2] = 0;
     }
-    ASSERT_TRUE(
-        overlume::set_camera_frame(r, 0, red.data(), widths[0], heights[0], /*frame_id=*/1));
-    ASSERT_TRUE(
-        overlume::set_camera_frame(r, 1, green.data(), widths[1], heights[1], /*frame_id=*/1));
+    ASSERT_TRUE(overlume::set_camera_frame(r, 0, red.data(), widths[0], heights[0], 1));
+    ASSERT_TRUE(overlume::set_camera_frame(r, 1, green.data(), widths[1], heights[1], 1));
 
     std::vector<uint8_t> buf(320 * 240 * 3);
     ASSERT_TRUE(overlume::render_frame(r, pose, {buf.data(), 320, 240}));

@@ -14,10 +14,6 @@
 namespace overlume::ros {
 namespace {
 
-// visualization_msgs/msg/Marker.msg action + type constants -- not worth a
-// dependency on the generated enum names (same convention as
-// hd_map.cpp/dynamic_objects.cpp/collision.cpp). ADD=0 and MODIFY=0 are the
-// same value and there is no action 1, so kActionAdd alone covers both.
 constexpr int32_t kActionAdd = 0;
 constexpr int32_t kActionDelete = 2;
 constexpr int32_t kActionDeleteAll = 3;
@@ -39,9 +35,6 @@ bool HasNan(const overlume::Vec3& p) {
     return std::isnan(p.x) || std::isnan(p.y) || std::isnan(p.z);
 }
 
-// A marker's own pose is RELATIVE to the header frame -- same pair as every
-// other adapter's own copy (hd_map.cpp/dynamic_objects.cpp/collision.cpp;
-// each file keeps its own rather than a shared header).
 bool MarkerPoseIsIdentity(const geometry_msgs::msg::Pose& p) {
     constexpr double kEps = 1e-12;
     return std::abs(p.position.x) < kEps && std::abs(p.position.y) < kEps &&
@@ -50,8 +43,6 @@ bool MarkerPoseIsIdentity(const geometry_msgs::msg::Pose& p) {
            std::abs(p.orientation.w - 1.0) < kEps;
 }
 
-// Returns false only on a NaN pose. Zero/degenerate quaternion -> identity,
-// matching rviz (see dynamic_objects.cpp).
 bool BuildMarkerPoseTransform(const geometry_msgs::msg::Pose& p, tf2::Transform& out) {
     const tf2::Vector3 pos(p.position.x, p.position.y, p.position.z);
     tf2::Quaternion q(p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w);
@@ -64,11 +55,6 @@ bool BuildMarkerPoseTransform(const geometry_msgs::msg::Pose& p, tf2::Transform&
     return true;
 }
 
-// mesh_resource (a resource-retriever URI) -> a plain filesystem path for
-// GenericMarker::mesh_path. ponytail: only a "file://" prefix is stripped --
-// no package:// resolution (FIXTURE GAP 5: never appears in the recorded
-// bag; bare/absolute paths pass through, matching test fixtures). Upgrade
-// when a live publisher ships package:// MESH_RESOURCE markers.
 std::string ToMeshPath(const std::string& uri) {
     constexpr const char* kFilePrefix = "file://";
     if (uri.rfind(kFilePrefix, 0) == 0) return uri.substr(std::string(kFilePrefix).size());
@@ -86,9 +72,6 @@ void GenericMarkerAdapter::ingest(const visualization_msgs::msg::MarkerArray& ms
     ++stats_.msgs;
     if (msg.markers.empty()) return;
 
-    // Lifetime expiry, swept FIRST: expires_at_sec is judged against this
-    // message's sim_time_sec regardless of whether the TF lookup below
-    // succeeds -- an expired marker should vanish even in an unresolvable frame.
     for (auto it = storage_.begin(); it != storage_.end();) {
         if (it->second.expires_at_sec > 0.0 && it->second.expires_at_sec <= sim_time_sec) {
             it = storage_.erase(it);
@@ -97,12 +80,10 @@ void GenericMarkerAdapter::ingest(const visualization_msgs::msg::MarkerArray& ms
         }
     }
 
-    // ONE lookup for the whole message -- same convention as hd_map.cpp/
-    // dynamic_objects.cpp/collision.cpp.
     tf2::Transform xform;
     if (!tf_.lookup(msg.markers.front().header, xform)) {
         ++stats_.dropped_no_tf;
-        return;  // whole message dropped; previously-stored markers stay
+        return;
     }
 
     for (const auto& m : msg.markers) {
@@ -114,7 +95,7 @@ void GenericMarkerAdapter::ingest(const visualization_msgs::msg::MarkerArray& ms
             storage_.erase(Key{m.ns, m.id});
             continue;
         }
-        if (m.action != kActionAdd) continue;  // ADD and MODIFY are both 0
+        if (m.action != kActionAdd) continue;
 
         const NsRender verdict = classify(row_, m.ns);
         if (verdict == NsRender::kDrop) {
@@ -160,7 +141,6 @@ void GenericMarkerAdapter::ingest(const visualization_msgs::msg::MarkerArray& ms
                 is_fan_out = true;
                 break;
             default:
-                // Outside the 12 known ROS Marker types entirely.
                 ++stats_.dropped_malformed;
                 continue;
         }
@@ -173,8 +153,6 @@ void GenericMarkerAdapter::ingest(const visualization_msgs::msg::MarkerArray& ms
         }
 
         if (is_fan_out) {
-            // CUBE_LIST/SPHERE_LIST have no MarkerPrimitive slot -- fan out
-            // into one GenericMarker CUBE/SPHERE per point.
             if (m.points.empty() || m.scale.x <= 0.0 || m.scale.y <= 0.0 || m.scale.z <= 0.0) {
                 ++stats_.dropped_malformed;
                 continue;
@@ -207,11 +185,6 @@ void GenericMarkerAdapter::ingest(const visualization_msgs::msg::MarkerArray& ms
                 }
                 entry.fan_positions.push_back(v);
                 if (per_point_colors) {
-                    // colors[] alpha is documented as "not yet used"
-                    // (Marker.msg); a publisher routinely leaves it 0, which
-                    // would otherwise read as "no color supplied" and drop a
-                    // real per-point color. Force alpha 1.0 so a supplied
-                    // colors[i] always reads as supplied.
                     entry.fan_colors.push_back(m.colors[i].r);
                     entry.fan_colors.push_back(m.colors[i].g);
                     entry.fan_colors.push_back(m.colors[i].b);
@@ -249,9 +222,6 @@ void GenericMarkerAdapter::ingest(const visualization_msgs::msg::MarkerArray& ms
                 ++stats_.dropped_malformed;
                 continue;
             }
-            // The MULTIPLE matters, not just a floor -- a 5-point
-            // TRIANGLE_LIST or 3-point LINE_LIST would silently truncate in
-            // the renderer's flat indexing. rviz rejects these too.
             if ((primitive == overlume::MarkerPrimitive::TRIANGLE_LIST &&
                  m.points.size() % 3 != 0) ||
                 (primitive == overlume::MarkerPrimitive::LINE_LIST && m.points.size() % 2 != 0)) {
@@ -278,7 +248,6 @@ void GenericMarkerAdapter::ingest(const visualization_msgs::msg::MarkerArray& ms
             }
             entry.points = std::move(pts);
         } else {
-            // Pose+scale primitives: CUBE/SPHERE/CYLINDER/ARROW/TEXT/MESH.
             if (primitive == overlume::MarkerPrimitive::MESH) {
                 if (m.mesh_resource.empty()) {
                     ++stats_.dropped_malformed;
@@ -287,11 +256,8 @@ void GenericMarkerAdapter::ingest(const visualization_msgs::msg::MarkerArray& ms
                 entry.mesh_path = ToMeshPath(m.mesh_resource);
             }
             if (primitive == overlume::MarkerPrimitive::TEXT) {
-                entry.text = m.text;  // empty text is a legal (if pointless) label
+                entry.text = m.text;
             } else if (m.scale.x <= 0.0 || m.scale.y <= 0.0 || m.scale.z <= 0.0) {
-                // TEXT ignores scale entirely (library's placeholder
-                // billboard, see generic_markers.cpp); every other
-                // pose+scale primitive needs a real extent.
                 ++stats_.dropped_malformed;
                 continue;
             }

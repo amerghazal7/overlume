@@ -47,10 +47,6 @@ import time
 
 import numpy as np
 
-# Ego-centered crop (fraction of width/height): a chase-cam framing puts the
-# ego roughly center-lower. ponytail: fixed fractions, not detected from the
-# scene -- good enough for a relative ON-vs-OFF comparison; revisit only if a
-# future rig needs the exact crop the (unrecoverable) original script used.
 CROP_X = (0.30, 0.70)
 CROP_Y = (0.30, 0.90)
 
@@ -58,20 +54,17 @@ NODE_NAME = "/overlume_node"
 IMAGE_TOPIC = "/rendering/image"
 CARPET_TOPIC = "/navigation_motion_obstacle_planner_node/output_trajectory_carpet"
 
-
 def set_layer_param(value: bool) -> None:
     subprocess.run(
         ["ros2", "param", "set", NODE_NAME, "layer_trajectory_carpet", "true" if value else "false"],
         check=True, capture_output=True, text=True,
     )
 
-
 def crop(frame: np.ndarray) -> np.ndarray:
     h, w = frame.shape[:2]
     x0, x1 = int(w * CROP_X[0]), int(w * CROP_X[1])
     y0, y1 = int(h * CROP_Y[0]), int(h * CROP_Y[1])
     return frame[y0:y1, x0:x1]
-
 
 class Capture:
     def __init__(self, node, image_topic: str, carpet_topic: str):
@@ -114,7 +107,6 @@ class Capture:
         self._recording = False
         return self.frames[start_len:start_len + n_frames]
 
-
 def summarize(block_groups: list[list[tuple[float, np.ndarray]]], carpet_stamps: list[float]) -> tuple[dict, np.ndarray, np.ndarray]:
     """block_groups: list of contiguous same-condition frame blocks (each a
     list of (t, frame)). Diffs/dt computed WITHIN each block only, then
@@ -155,9 +147,8 @@ def summarize(block_groups: list[list[tuple[float, np.ndarray]]], carpet_stamps:
         "carpet_msg_in_interval": all_marks,
     }
     stack = np.stack(all_frames).astype(np.float32)
-    stddev = stack.std(axis=0).mean(axis=-1)  # per-pixel stddev, channel-averaged
+    stddev = stack.std(axis=0).mean(axis=-1)
     return summary, stddev, all_frames[0]
-
 
 def save_heatmap(stddev: np.ndarray, path: str) -> None:
     from PIL import Image as PILImage
@@ -167,12 +158,10 @@ def save_heatmap(stddev: np.ndarray, path: str) -> None:
         ((stddev - lo) / (hi - lo) * 255).astype(np.uint8)
     PILImage.fromarray(norm, mode="L").resize((320, 240)).save(path)
 
-
 def save_frame(frame: np.ndarray, path: str) -> None:
     from PIL import Image as PILImage
 
     PILImage.fromarray(frame, mode="RGB").save(path)
-
 
 def main() -> None:
     ap = argparse.ArgumentParser()
@@ -193,8 +182,6 @@ def main() -> None:
     executor = SingleThreadedExecutor()
     executor.add_node(node)
 
-    # Drain a bit of backlog before starting so the first recorded block
-    # isn't the node's very first (potentially unsteady) frames.
     for _ in range(20):
         executor.spin_once(timeout_sec=0.5)
 
@@ -211,7 +198,6 @@ def main() -> None:
         off_blocks.append(cap.record_block(args.block_frames, executor))
         print(f"[round {round_i}] OFF block: {len(off_blocks[-1])} frames")
 
-    # Leave the layer enabled (the node's own default) on exit.
     set_layer_param(True)
 
     on_summary, on_stddev, on_f0 = summarize(on_blocks, cap.carpet_stamps)
@@ -234,7 +220,6 @@ def main() -> None:
     executor.shutdown()
     node.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == "__main__":
     main()

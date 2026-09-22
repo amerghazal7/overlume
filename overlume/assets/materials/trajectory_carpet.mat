@@ -1,28 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
-// trajectory_carpet.mat — VM-077. output_trajectory_carpet's per-vertex
-// color IS the signal (the producer's own baked velocity gradient,
-// STANDING directive 2026-09-09) -- UNLIT for the same reason
-// point_cloud.mat is: PBR shading would add a light-direction term nobody
-// asked for, and `CarpetVertex` (position + packed rgba, no tangent frame)
-// couldn't feed one anyway.
-//
-// `requires : [ color ]`: the per-vertex rgba8 trajectory_carpet.cpp's
-// CarpetVertex carries, baked ONCE by the node-side adapter (from the
-// marker's own colors[]) and never re-baked.
-//
-// OPAQUE (flicker root-cause fix, 2026-09-10): this was `blending : fade`
-// with a staleness `alpha` uniform -- but that parked the velocity ribbon
-// PERMANENTLY in Filament's blended queue (per-renderable sort, no depth
-// writes), where it and the also-blended BEHAVIOR ribbon on the same spine
-// overpainted each other by rebuild order -- the live binary teal flicker
-// (see ribbon_emissive.mat's own 2026-09-10 note and test_ribbon_dropout
-// .cpp's repro). Opaque writes depth, so the z-stagger (velocity 0.052
-// below BEHAVIOR 0.058, above LOCAL 0.046) decides per-pixel. Staleness
-// now fades via an instance swap to trajectory_carpet_faded.mat (the fade
-// twin that keeps this shader plus the alpha uniform) -- the same swap
-// mechanism ribbon.cpp uses; clay_translucent.mat can't serve here because
-// it's LIT (CarpetVertex has no tangent frame) and has no vertex color.
+
 material {
     name : trajectory_carpet,
     shadingModel : unlit,

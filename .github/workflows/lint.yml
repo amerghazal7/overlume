@@ -20,10 +20,6 @@ jobs:
           python-version: "3.10"
 
       - name: Install clang-format
-        # Reads tools/check_format.sh's own PINNED_VERSION="x.y.z" so this
-        # workflow can never drift from what that script actually enforces
-        # (currently clang-format 23.1.1, per that script's header). Falls
-        # back to a placeholder only if that variable is ever missing/renamed.
         run: |
           version=""
           if [ -f tools/check_format.sh ]; then
@@ -44,9 +40,6 @@ jobs:
         run: tools/check_spdx.sh
 
       - name: Install shellcheck
-        # ubuntu-* GitHub-hosted runners ship shellcheck preinstalled; this
-        # is normally a fast no-op and just pins us to a known-present tool
-        # rather than trusting the runner image's bundled version.
         run: sudo apt-get update && sudo apt-get install -y shellcheck
 
       - name: Shellcheck
@@ -59,11 +52,6 @@ jobs:
           python3 -m py_compile tools/*.py ros/src/overlume_ros/test/*.py
 
       - name: Python unit tests (pytest tools/ subset)
-        # ROS/rclpy-, websockets-, PyGObject (gi)- and ros/install-dependent
-        # cases in this suite skip themselves (pytest.importorskip /
-        # skipif) when those aren't present on this runner — see
-        # tools/test_vcam_ws_bridge.py. No colcon/rclpy install here; this
-        # only exercises the plain-Python subset.
         run: |
           python -m pip install --user -r tools/requirements.txt
           python -m pytest tools/ -q

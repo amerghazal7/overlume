@@ -1,11 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-/** @file diagnostics.cpp
- *  @brief See diagnostics.hpp. Pure data transform -- no ROS node, no clock,
- *  no publisher -- so it is unit-testable with nothing but the AdapterStats
- *  values a test hand-builds.
- */
 #include "overlume_ros/diagnostics.hpp"
 
 #include <sstream>
@@ -37,16 +32,7 @@ diagnostic_msgs::msg::DiagnosticArray BuildDiagnostics(const std::vector<RowStat
     for (const auto& row : rows) {
         diagnostic_msgs::msg::DiagnosticStatus status;
         status.name = row.topic;
-        // ABSENT (never published) is not the same as STALE (published, then
-        // went quiet past timeout_sec) -- mirrors overlume_node.cpp's
-        // msgs==0 guard. For an absent row, last_msg_age_sec is really "how
-        // long sim_clock_sec_ has run," not a real age; reporting it as
-        // stale would be a bogus WARN on data that never existed.
         const bool absent = row.stats.msgs == 0;
-        // WARN once this row's OWN timeout_sec is exceeded -- past it,
-        // overlume_node.cpp's per-category gate stops calling fill(), so
-        // this WARN signals exactly that, not a fixed threshold. timeout_sec
-        // ==0.0 (unset) never WARNs.
         const bool stale =
             !absent && row.timeout_sec > 0.0 && row.last_msg_age_sec > row.timeout_sec;
         status.level = stale ? diagnostic_msgs::msg::DiagnosticStatus::WARN
@@ -60,8 +46,6 @@ diagnostic_msgs::msg::DiagnosticArray BuildDiagnostics(const std::vector<RowStat
             kv("dropped_malformed", std::to_string(row.stats.dropped_malformed)));
         status.values.push_back(kv("dropped_stale", std::to_string(row.stats.dropped_stale)));
         status.values.push_back(kv("dropped_no_tf", std::to_string(row.stats.dropped_no_tf)));
-        // Separate from dropped_malformed -- adapter_stats.hpp's own header
-        // comment explains why (a rule-drop is intentional, not malformed).
         status.values.push_back(kv("dropped_by_rule", std::to_string(row.stats.dropped_by_rule)));
         msg.status.push_back(std::move(status));
     }

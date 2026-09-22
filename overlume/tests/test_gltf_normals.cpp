@@ -1,11 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// test_gltf_normals.cpp — overlume::ensure_flat_normals() (gltf_normals.hpp), the
-// load-time fix for environment geometry with no vertex normals. No
-// Filament/gtfio types here (same tests/*.cpp boundary as every other file
-// in this directory -- see environment_test_hooks.hpp) -- these check the
-// byte/JSON level directly against the real committed fixtures.
 #include "gltf_normals.hpp"
 
 #include "test_paths.hpp"
@@ -39,8 +34,6 @@ uint32_t read_u32(const std::vector<uint8_t>& b, size_t off) {
     return v;
 }
 
-// b3dm envelope (28-byte header) -> the embedded .glb payload, same layout
-// StreamingEnvironmentSource's real tiles arrive in.
 std::vector<uint8_t> glb_from_b3dm(const std::vector<uint8_t>& b3dm) {
     const uint32_t ftJson = read_u32(b3dm, 12);
     const uint32_t ftBin = read_u32(b3dm, 16);
@@ -50,15 +43,12 @@ std::vector<uint8_t> glb_from_b3dm(const std::vector<uint8_t>& b3dm) {
     return std::vector<uint8_t>(b3dm.begin() + static_cast<long>(glbOffset), b3dm.end());
 }
 
-// Splits a .glb blob's JSON chunk out (independent of gltf_normals.cpp's
-// own parser -- duplicated here deliberately so a bug in one doesn't hide
-// behind the other).
 YAML::Node parse_glb_json(const std::vector<uint8_t>& glb) {
     size_t off = 12;
     while (off + 8 <= glb.size()) {
         const uint32_t len = read_u32(glb, off);
         const uint32_t type = read_u32(glb, off + 4);
-        if (type == 0x4E4F534A) {  // "JSON"
+        if (type == 0x4E4F534A) {
             std::string text(reinterpret_cast<const char*>(glb.data() + off + 8), len);
             return YAML::Load(text);
         }
@@ -77,14 +67,12 @@ int count_primitives_without_normal(const YAML::Node& gltf) {
     return missing;
 }
 
-// Splits a .glb blob's BIN chunk out -- same independent-of-gltf_normals.cpp
-// duplication reasoning as parse_glb_json() above.
 std::vector<uint8_t> parse_glb_bin(const std::vector<uint8_t>& glb) {
     size_t off = 12;
     while (off + 8 <= glb.size()) {
         const uint32_t len = read_u32(glb, off);
         const uint32_t type = read_u32(glb, off + 4);
-        if (type == 0x004E4942) {  // "BIN\0"
+        if (type == 0x004E4942) {
             return std::vector<uint8_t>(glb.begin() + static_cast<long>(off + 8),
                                         glb.begin() + static_cast<long>(off + 8 + len));
         }
@@ -93,11 +81,6 @@ std::vector<uint8_t> parse_glb_bin(const std::vector<uint8_t>& glb) {
     return {};
 }
 
-// Reads a VEC3 FLOAT accessor's raw values straight out of `bin`, assuming
-// buffer 0 / no stride (true of every accessor ensure_flat_normals() itself
-// appends) -- deliberately NOT reusing gltf_normals.cpp's own
-// read_float3_accessor() (that would let a bug in one hide behind the
-// other, same reasoning as parse_glb_json() above).
 std::vector<float> read_vec3_accessor(const YAML::Node& gltf, const std::vector<uint8_t>& bin,
                                       int accessorIdx) {
     const YAML::Node acc = gltf["accessors"][accessorIdx];
@@ -111,9 +94,6 @@ std::vector<float> read_vec3_accessor(const YAML::Node& gltf, const std::vector<
     return out;
 }
 
-// Minimal single-chunk GLB (JSON only, no BIN) -- enough to drive
-// ensure_flat_normals() through its early-return guards without needing a
-// real mesh.
 std::vector<uint8_t> build_json_only_glb(const std::string& json) {
     auto pad4 = [](size_t n) { return (4 - (n % 4)) % 4; };
     std::string padded = json;
@@ -125,11 +105,11 @@ std::vector<uint8_t> build_json_only_glb(const std::string& json) {
         const uint8_t* p = reinterpret_cast<const uint8_t*>(&v);
         out.insert(out.end(), p, p + 4);
     };
-    put_u32(0x46546C67);  // "glTF"
+    put_u32(0x46546C67);
     put_u32(2);
     put_u32(total);
     put_u32(jsonLen);
-    put_u32(0x4E4F534A);  // "JSON"
+    put_u32(0x4E4F534A);
     out.insert(out.end(), padded.begin(), padded.end());
     return out;
 }
@@ -138,10 +118,6 @@ const std::string kBakedChunk = std::string(OVERLUME_TEST_DATA_DIR) +
                                 "/tests/fixtures/environment_test_town_0/chunks/chunk_-1_-1.glb";
 const std::string kTileWithNormal =
     std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_tiles_fixture_0/tile_a.b3dm";
-// tile_b.b3dm is generated (make_tile_fixture.py) deliberately WITHOUT a
-// NORMAL attribute -- unlike kBakedChunk (a synthetic single-primitive
-// glTF, not a real b3dm envelope), this is a real streamed tile exercising
-// the "actually adds normals" path end to end through the b3dm/GLB split.
 const std::string kTileNoNormal =
     std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_tiles_fixture_0/tile_b.b3dm";
 
@@ -159,11 +135,6 @@ TEST(GltfNormals, AddsNormalToChunkMissingIt) {
     YAML::Node afterJson = parse_glb_json(patched);
     EXPECT_EQ(count_primitives_without_normal(afterJson), 0);
 
-    // Finding #12: metadata-only checks below (componentType/type/count)
-    // would stay green even if compute_flat_normals() returned its
-    // degenerate (0,0,1) fallback for every vertex -- read the actual
-    // appended floats back out of the patched GLB and assert they're real
-    // computed normals, not the fallback.
     const std::vector<uint8_t> patchedBin = parse_glb_bin(patched);
     bool anyNonDegenerate = false;
     for (const YAML::Node& mesh : afterJson["meshes"]) {
@@ -194,13 +165,6 @@ TEST(GltfNormals, AddsNormalToChunkMissingIt) {
                                      "compute_flat_normals() may not be computing real normals";
 }
 
-// Finding #12 (optional synthetic case, cheap): buffers[0].uri set means
-// buffer 0 is NOT the embedded BIN chunk (an external/data: URI instead) --
-// gltf_normals.cpp's own guard (`if (gltf["buffers"][0]["uri"]) return
-// glb_bytes;`) must bail out before ever indexing into `bin` with that
-// buffer's accessors, which would otherwise read unrelated/absent bytes and
-// synthesize garbage normals. No real mesh data needed: the guard fires
-// before any primitive is even inspected.
 TEST(GltfNormals, BuffersWithUriAreLeftUnchanged) {
     const std::string json =
         R"({"asset":{"version":"2.0"},)"
@@ -214,10 +178,6 @@ TEST(GltfNormals, BuffersWithUriAreLeftUnchanged) {
                                "unrelated/absent BIN bytes";
 }
 
-// Running the fix twice must be a no-op the second time -- every primitive
-// already has NORMAL after the first pass, so this also proves the "already
-// has normals" path is left untouched (bytes identical, not just
-// equivalent).
 TEST(GltfNormals, SecondPassIsANoOp) {
     const std::vector<uint8_t> original = read_file(kBakedChunk);
     const std::vector<uint8_t> oncePatched = overlume::ensure_flat_normals(original);
@@ -225,9 +185,6 @@ TEST(GltfNormals, SecondPassIsANoOp) {
     EXPECT_EQ(oncePatched, twicePatched);
 }
 
-// The committed streaming fixture already carries NORMAL (measured
-// directly, not assumed) -- this is the real "already has normals" case the
-// load-time hook must leave untouched.
 TEST(GltfNormals, StreamedTileWithNormalAlreadyIsUntouched) {
     const std::vector<uint8_t> glb = glb_from_b3dm(read_file(kTileWithNormal));
     YAML::Node beforeJson = parse_glb_json(glb);
@@ -238,11 +195,6 @@ TEST(GltfNormals, StreamedTileWithNormalAlreadyIsUntouched) {
     EXPECT_EQ(patched, glb) << "geometry that already has normals must pass through byte-for-byte";
 }
 
-// tile_b.b3dm (make_tile_fixture.py) is generated with NO NORMAL attribute
-// on purpose -- the real streamed-tile counterpart to
-// GltfNormals.AddsNormalToChunkMissingIt above (which only exercises a
-// baked, non-b3dm chunk). Same assertions: normals actually get added, are
-// unit length, and aren't all the degenerate (0,0,1) fallback.
 TEST(GltfNormals, AddsNormalToStreamedTileMissingIt) {
     const std::vector<uint8_t> glb = glb_from_b3dm(read_file(kTileNoNormal));
     YAML::Node beforeJson = parse_glb_json(glb);

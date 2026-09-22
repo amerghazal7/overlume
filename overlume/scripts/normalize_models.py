@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Amer Ghazal
+
 """Normalize a source glTF/GLB/OBJ model into overlume's per-class
 clay-object convention (Epic 2 Task 4 / VM-022).
 
@@ -39,8 +40,6 @@ import pathlib
 import numpy as np
 import trimesh
 
-# (x, y, z) -> (z, x, y): proper rotation (det +1), Y-up source -> +X-forward/
-# +Z-up target.
 _ROTATE_YUP_TO_ROS = np.array(
     [
         [0.0, 0.0, 1.0, 0.0],
@@ -50,7 +49,6 @@ _ROTATE_YUP_TO_ROS = np.array(
     ]
 )
 
-
 def normalize_scene(scene: trimesh.Scene) -> trimesh.Scene:
     """Applies the rotate/recenter/scale pipeline described in this module's
     docstring to `scene` in place (via apply_transform, so multi-material
@@ -58,7 +56,7 @@ def normalize_scene(scene: trimesh.Scene) -> trimesh.Scene:
     force="scene" for why that matters), and returns it."""
     scene.apply_transform(_ROTATE_YUP_TO_ROS)
 
-    bounds = scene.bounds  # already in the rotated (ROS) frame
+    bounds = scene.bounds
     mins, maxs = bounds[0], bounds[1]
     center_x = (mins[0] + maxs[0]) / 2.0
     center_y = (mins[1] + maxs[1]) / 2.0
@@ -71,11 +69,10 @@ def normalize_scene(scene: trimesh.Scene) -> trimesh.Scene:
         raise ValueError(f"degenerate footprint (extent_x={extent_x}, extent_y={extent_y})")
     scale_x = 1.0 / extent_x
     scale_y = 1.0 / extent_y
-    scale_forward = scale_x  # see docstring: height rescaled by the X factor
+    scale_forward = scale_x
     scale_matrix = np.diag([scale_x, scale_y, scale_forward, 1.0])
     scene.apply_transform(scale_matrix)
     return scene
-
 
 def _selfcheck() -> int:
     cube = trimesh.creation.box(extents=(2.0, 3.0, 1.0))
@@ -91,7 +88,6 @@ def _selfcheck() -> int:
     print(f"selfcheck bounds: {scene.bounds.tolist()} -> {'OK' if ok else 'FAIL'}")
     return 0 if ok else 1
 
-
 def main() -> int:
     if len(sys.argv) == 2 and sys.argv[1] == "--selfcheck":
         return _selfcheck()
@@ -105,7 +101,6 @@ def main() -> int:
     scene.export(dst)
     print(f"wrote {dst} ({dst.stat().st_size / 1e6:.2f} MB)")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Amer Ghazal
+
 """Minimal HTTP CONNECT proxy (stdlib only) used as a network kill switch.
 
 Point the node at it with `https_proxy=http://127.0.0.1:8899`; while the
@@ -16,7 +17,6 @@ import sys
 import threading
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8899
-
 
 def pipe(a, b):
     try:
@@ -37,7 +37,6 @@ def pipe(a, b):
                 s.close()
             except OSError:
                 pass
-
 
 def handle(client):
     try:
@@ -64,7 +63,6 @@ def handle(client):
         except OSError:
             pass
 
-
 def main():
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -74,7 +72,6 @@ def main():
     while True:
         c, _ = srv.accept()
         threading.Thread(target=handle, args=(c,), daemon=True).start()
-
 
 if __name__ == "__main__":
     main()

@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-/** @file test_hd_map_adapter.cpp
- *  @brief HdMapAdapter tests.
- */
 #include "overlume_ros/adapters/hd_map.hpp"
 
 #include <algorithm>
@@ -27,10 +24,6 @@ using overlume::ros::SceneAssembly;
 
 namespace {
 
-// Hand-built tf2_ros::Buffer + FrameTransformer, identical fixture style to
-// test_frame_transform.cpp -- an empty buffer is enough for every test
-// whose markers stay in the "map" frame (FrameTransformer's identity
-// shortcut never touches it).
 struct TfFixture {
     std::shared_ptr<rclcpp::Clock> clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
     tf2_ros::Buffer buffer{clock};
@@ -44,57 +37,22 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks) {
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(overlume::ros::testing::urban_row("/hd_map_local_elements"),
                                   kTf.tf);
-    a.ingest(msg, /*sim_time_sec=*/1.0);
+    a.ingest(msg, 1.0);
     SceneAssembly out;
-    a.fill(out);  // appends, never overwrites
+    a.fill(out);
 
     EXPECT_GT(out.map_elements.size(), 0u);
-    // Dashing moved renderer-side, so the adapter never chops a marker into
-    // pieces -- one marker, one MapElement, always. This fixture's committed
-    // markers: 16 centerline_ (dropped by rule, hidden by default), 16
-    // left_boundary_, 16 right_boundary_, 5 crosswalk_ polygons, 5
-    // crosswalk_stopline_ polylines (the 64 centerline_arrows_ markers are
-    // all dropped by rule too) = 42 lane/crosswalk elements, PLUS the
-    // road-surface fill: every one of those 16 lanes carries both
-    // boundaries, so pairing left_boundary_{id}/right_boundary_{id} by
-    // lane_id synthesizes 16 more kind==ROAD_SURFACE elements (42+16=58).
-    //
-    // Road-edge detection (IsRoadEdge()/hd_map.cpp) reclassifies some
-    // LEFT_BOUNDARY/RIGHT_BOUNDARY elements to ROAD_EDGE in place -- a
-    // re-label, so the total is unaffected by itself. The junction-cleanup
-    // mutual-crossing cut then finds this fixture's one genuine crossing
-    // (lanes 792/685 at (-40.36,-21.90) -- every other raw 2D "crossing" on
-    // this fixture is a shared-endpoint lanelet-chain abutment, rejected by
-    // SegSegIntersect2D's near-parallel/near-antiparallel guard; see plan
-    // 2026-08-18-visual-mode-epic3.md for the full classification) and
-    // splits both edges into 2 pieces each: +2 elements, 58 + 2 = 60. The
-    // arc-aware cut refinement only ever moves a boundary's own arc-length
-    // station (it can merge 2 pieces into 1 by fully consuming one, but
-    // never adds/removes a piece here), so this count stays 60 -- see the
-    // lane-792 pin below for how the refinement changes the GEOMETRY without
-    // changing this count.
     EXPECT_EQ(out.map_elements.size(), 60u);
-    // is_polygon comes from the row's namespace rules (crosswalk_ ->
-    // polygon) and from NOTHING else -- on the wire every hd_map marker in
-    // this fixture is a LINE_STRIP.
     EXPECT_TRUE(std::any_of(out.map_elements.begin(), out.map_elements.end(),
                             [](const overlume::MapElement& m) { return m.is_polygon == 1; }));
-    // ...and the crosswalk_stopline_ sibling is kept as a polyline, not
-    // silently dropped.
     EXPECT_TRUE(std::any_of(out.map_elements.begin(), out.map_elements.end(),
                             [](const overlume::MapElement& m) { return m.is_polygon == 0; }));
-    // centerline_ is hidden by default -- zero CENTERLINE elements reach
-    // fill()'s output for this fixture.
     EXPECT_EQ(std::count_if(out.map_elements.begin(), out.map_elements.end(),
                             [](const overlume::MapElement& m) {
                                 return m.kind == overlume::MapKind::CENTERLINE;
                             }),
               0);
 
-    // Road-surface fill: 16 synthesized ROAD_SURFACE elements, every one
-    // point_count == 2*16 == 32 regardless of the real rail's own recorded
-    // point count (lanes 813/955 are 10/11 and 8/9 on the wire -- resampling
-    // is what makes this uniform).
     const auto road_count = std::count_if(
         out.map_elements.begin(), out.map_elements.end(),
         [](const overlume::MapElement& m) { return m.kind == overlume::MapKind::ROAD_SURFACE; });
@@ -103,21 +61,6 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks) {
         if (e.kind == overlume::MapKind::ROAD_SURFACE) EXPECT_EQ(e.point_count, 32u);
     }
 
-    // Road-edge detection (IsRoadEdge() in hd_map.cpp, measured against this
-    // fixture's real geometry -- see hd_map.cpp's own comment on
-    // kRoadEdgeCoincidenceThresholdM): of the 16 lanes' 32 boundary
-    // elements, 15 have no coincident opposite-side twin and promote to
-    // ROAD_EDGE (9 stay LEFT_BOUNDARY, 8 stay RIGHT_BOUNDARY); lane 934 is
-    // the one lane
-    // fully interior on both sides (paired left AND right) and contributes
-    // no ROAD_EDGE. left/right/promoted-before-cutting still sums to 32,
-    // the original boundary total -- promotion re-labels, it never drops or
-    // duplicates an element. The junction-cleanup mutual-crossing cut then
-    // splits 2 of those 15 ROAD_EDGE elements (lanes 792/685, the one
-    // genuine crossing measured above) into 2 pieces each, so the ELEMENT
-    // count carrying kind==ROAD_EDGE is 17, not 15 -- left_count/right_count
-    // are untouched (boundaries never get the crossing cut), so the
-    // three-way sum is 32 + 2 == 34, not 32.
     const auto left_count = std::count_if(
         out.map_elements.begin(), out.map_elements.end(),
         [](const overlume::MapElement& m) { return m.kind == overlume::MapKind::LEFT_BOUNDARY; });
@@ -131,8 +74,6 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks) {
     EXPECT_EQ(right_count, 8);
     EXPECT_EQ(road_edge_count, 17);
     EXPECT_EQ(left_count + right_count + road_edge_count, 34);
-    // Lane 934 is the measured fully-interior exemplar: both its boundaries
-    // stay LEFT_BOUNDARY/RIGHT_BOUNDARY, never ROAD_EDGE.
     for (const auto& e : out.map_elements) {
         if (e.lane_id != 934u) continue;
         if (e.kind == overlume::MapKind::LEFT_BOUNDARY ||
@@ -144,13 +85,6 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks) {
                       << " -- it is measured fully-interior and should never promote to ROAD_EDGE";
     }
 
-    // Arc-aware cut refinement: lane 792's own HEAD piece ends exactly at
-    // (-46.4658864625989, -14.974389719737527) -- a REAL recorded vertex
-    // (the arc's own true start, see ArcSnapReachesTheArcsTrueStartEven
-    // BeyondTheOldSearchMargin below), not an interpolated fixed-backoff
-    // point. Pinned by coordinate, not just by count, since the piece COUNT
-    // alone (17 ROAD_EDGE, unchanged above) cannot tell the two behaviours
-    // apart.
     {
         std::vector<overlume::MapElement> lane792;
         for (const auto& e : out.map_elements) {
@@ -159,18 +93,13 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks) {
         ASSERT_EQ(lane792.size(), 2u);
         std::sort(lane792.begin(), lane792.end(),
                   [](const overlume::MapElement& a, const overlume::MapElement& b) {
-                      return a.points[0].y > b.points[0].y;  // head piece starts highest (y~2.1)
+                      return a.points[0].y > b.points[0].y;
                   });
         const auto& head = lane792[0];
         EXPECT_NEAR(head.points[head.point_count - 1].x, -46.4658864625989, 1e-6);
         EXPECT_NEAR(head.points[head.point_count - 1].y, -14.974389719737527, 1e-6);
     }
 
-    // Dump-and-exit: run once with OVERLUME_EMIT_GEOM set to emit the .geom
-    // fixture the library-side MapGolden.* tests render from (see
-    // golden.hpp/golden.cpp). One element per line:
-    // `<is_polygon> <kind> <lane_id> <n> <x1> <y1> <z1> ... <xn> <yn> <zn>`.
-    // ponytail: a text dump, not a serializer.
     if (const char* geom_path = std::getenv("OVERLUME_EMIT_GEOM")) {
         std::ofstream geom(geom_path);
         geom << std::setprecision(12);
@@ -186,10 +115,6 @@ TEST(HdMapAdapter, LocalElementsFixtureYieldsLanesAndCrosswalks) {
 }
 
 TEST(HdMapAdapter, SimProfileRowMakesCrosswalksPolygonsToo) {
-    // The assertion above covers ONE row's rules. /sim/hd_map/markers --
-    // the only full-extent map source -- uses namespace "crosswalks"
-    // (plural, no numeric suffix), which urban's "crosswalk_" prefix does
-    // NOT match. Same adapter, sim row, same shape of assertion.
     auto msg = overlume::ros::testing::load_marker_array("sim_hd_map_markers_0.yaml");
     TfFixture kTf;
     auto row = overlume::ros::testing::sim_row("/sim/hd_map/markers");
@@ -201,12 +126,9 @@ TEST(HdMapAdapter, SimProfileRowMakesCrosswalksPolygonsToo) {
     EXPECT_TRUE(std::any_of(out.map_elements.begin(), out.map_elements.end(),
                             [](const overlume::MapElement& m) { return m.is_polygon == 1; }));
 
-    // Relationship, not a magic number -- this must survive a re-cut fixture:
-    //   dropped_by_rule == count of fixture markers whose ns classifies kDrop
-    //   dropped_malformed == 0
     uint64_t expected_drops = 0;
     for (const auto& m : msg.markers) {
-        if (m.action == 3) continue;  // DELETEALL isn't a namespace decision
+        if (m.action == 3) continue;
         if (overlume::ros::classify(row, m.ns) == overlume::ros::NsRender::kDrop) ++expected_drops;
     }
     EXPECT_GT(expected_drops, 0u);
@@ -215,13 +137,6 @@ TEST(HdMapAdapter, SimProfileRowMakesCrosswalksPolygonsToo) {
 }
 
 TEST(HdMapAdapter, SimCrosswalksPluralUnsuffixedGetsCrosswalkKind) {
-    // test_profile.cpp:157 only covers urban's "crosswalk_" rule at rule
-    // level (match_rule/classify). Nothing exercises the ADAPTER on sim's
-    // plural, unsuffixed "crosswalks" namespace -- map_elements.cpp gates
-    // build_crosswalk_hatch() on kind == CROSSWALK, so if sim_profile.yaml's
-    // row ever lost its `kind: crosswalk`, is_polygon would still be set
-    // (SimProfileRowMakesCrosswalksPolygonsToo, above, would stay green) but
-    // hatching would go dark on sim's only full-extent map source, silently.
     auto msg = overlume::ros::testing::load_marker_array("sim_hd_map_markers_0.yaml");
     TfFixture kTf;
     auto row = overlume::ros::testing::sim_row("/sim/hd_map/markers");
@@ -240,22 +155,14 @@ TEST(HdMapAdapter, SimCrosswalksPluralUnsuffixedGetsCrosswalkKind) {
 }
 
 TEST(HdMapAdapter, CrosswalkTrailingDuplicateVertexIsDeduped) {
-    // The real crosswalk_8043 marker (committed fixture) arrives with 5
-    // points, point[0] == point[4] (a closed-polygon closing vertex). The
-    // adapter's dedupe must drop that trailing duplicate so the STORED
-    // element has 4 points, not 5 -- build_crosswalk_hatch()'s n==4 guard
-    // never fires on real data otherwise.
     auto msg = overlume::ros::testing::load_marker_array("hd_map_local_elements_0.yaml");
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(overlume::ros::testing::urban_row("/hd_map_local_elements"),
                                   kTf.tf);
-    a.ingest(msg, /*sim_time_sec=*/1.0);
+    a.ingest(msg, 1.0);
     SceneAssembly out;
     a.fill(out);
 
-    // crosswalk_8043's marker id is 8043 (crosswalk isn't lane-paired, so
-    // lane_id doesn't identify it); find it by its recorded first vertex
-    // instead of depending on storage iteration order.
     bool found = false;
     for (const auto& e : out.map_elements) {
         if (e.kind != overlume::MapKind::CROSSWALK || e.point_count == 0) continue;
@@ -263,9 +170,6 @@ TEST(HdMapAdapter, CrosswalkTrailingDuplicateVertexIsDeduped) {
             std::abs(e.points[0].y - 45.33743457749722) < 1e-6) {
             found = true;
             EXPECT_EQ(e.point_count, 4u);
-            // Crosswalks are not lane-paired -- KindCarriesLaneId()
-            // (hd_map.cpp) excludes CROSSWALK, so this element's lane_id
-            // must stay 0 regardless of the marker's own (irrelevant) id.
             EXPECT_EQ(e.lane_id, 0u);
         }
     }
@@ -273,30 +177,17 @@ TEST(HdMapAdapter, CrosswalkTrailingDuplicateVertexIsDeduped) {
 }
 
 TEST(HdMapAdapter, ArrowNamespaceIsDroppedByLongestPrefixWins) {
-    // "centerline_" -> polyline and "centerline_arrows_" -> drop in the
-    // same row: ns "centerline_arrows_0" matches BOTH by prefix and the
-    // LONGER rule must win. A naive prefix include-list would admit every
-    // arrow marker and the epic's headline decimation claim evaporates.
     auto msg = overlume::ros::testing::load_marker_array("hd_map_local_elements_0.yaml");
     TfFixture kTf;
     auto row = overlume::ros::testing::urban_row("/hd_map_local_elements");
     overlume::ros::HdMapAdapter a(row, kTf.tf);
     a.ingest(msg, 1.0);
 
-    // 64 centerline_arrows_* markers in this fixture -- every one dropped BY
-    // RULE, never counted as malformed even though they carry no points[]
-    // on the wire. PLUS centerline_ itself is also `render: drop` (hidden
-    // by default) -- its 16 markers land in dropped_by_rule alongside the
-    // arrows. 64 + 16 = 80.
     EXPECT_EQ(a.stats().dropped_by_rule, 80u);
     EXPECT_EQ(a.stats().dropped_malformed, 0u);
 }
 
 TEST(HdMapAdapter, NonMapFrameMessageIsTransformedNotCopied) {
-    // /hd_map_local_elements is frame "map" today, but the adapter goes
-    // through FrameTransformer like every other adapter: feed the same
-    // fixture with header.frame_id = "base_link" and a known
-    // map<-base_link, assert the points moved.
     auto msg = overlume::ros::testing::load_marker_array("hd_map_local_elements_0.yaml");
     for (auto& m : msg.markers) m.header.frame_id = "base_link";
 
@@ -309,7 +200,7 @@ TEST(HdMapAdapter, NonMapFrameMessageIsTransformedNotCopied) {
     xf.transform.translation.x = 1000.0;
     xf.transform.translation.y = 2000.0;
     xf.transform.rotation.w = 1.0;
-    buffer.setTransform(xf, "test_authority", /*is_static=*/true);
+    buffer.setTransform(xf, "test_authority", true);
     FrameTransformer ft(buffer);
 
     auto row = overlume::ros::testing::urban_row("/hd_map_local_elements");
@@ -319,9 +210,6 @@ TEST(HdMapAdapter, NonMapFrameMessageIsTransformedNotCopied) {
     a.fill(out);
     ASSERT_GT(out.map_elements.size(), 0u);
 
-    // A straight copy would leave every point within ~100m of the map
-    // ORIGIN (the fixture's own recorded coordinates); the transform
-    // above must move all of them out past (900, 1900).
     bool any_far = false;
     for (const auto& e : out.map_elements) {
         for (uint32_t i = 0; i < e.point_count; ++i) {
@@ -347,17 +235,12 @@ TEST(HdMapAdapter, TfLookupFailureDropsTheMessageAndCounts) {
     a.ingest(bad, 2.0);
     EXPECT_EQ(a.stats().dropped_no_tf, 1u);
 
-    // stats().dropped_no_tf == 1, previous elements still rendered (spec
-    // §9: "keeps rendering what exists and fades", never wrong-place
-    // geometry) -- never a silent identity substitution either.
     SceneAssembly after;
     a.fill(after);
     EXPECT_EQ(after.map_elements.size(), before.map_elements.size());
 }
 
 TEST(HdMapAdapter, DeleteAllClearsPreviousElements) {
-    // Every real message starts with a DELETEALL marker (ns="", id=0);
-    // ingesting two messages must not accumulate.
     TfFixture kTf;
     auto row = overlume::ros::testing::urban_row("/hd_map_local_elements");
     overlume::ros::HdMapAdapter a(row, kTf.tf);
@@ -368,8 +251,6 @@ TEST(HdMapAdapter, DeleteAllClearsPreviousElements) {
     a.fill(first);
     ASSERT_GT(first.map_elements.size(), 0u);
 
-    // Gap >= the row's rate-limit cooldown (max_rate_hz: 2.0 -> 0.5s) so
-    // this second ingest is actually processed, not skipped.
     a.ingest(msg, 3.0);
     SceneAssembly second;
     a.fill(second);
@@ -377,12 +258,6 @@ TEST(HdMapAdapter, DeleteAllClearsPreviousElements) {
 }
 
 TEST(HdMapAdapter, MalformedMarkersAreDroppedAndCounted) {
-    // Hand-edited fixture: a LINE_STRIP with 1 point, one with a NaN
-    // point, one with an empty points[]. All three dropped; the valid
-    // marker in the same message still comes through. Uses left_boundary_*
-    // markers, not centerline_*: urban's centerline_ rule is `render: drop`
-    // by default, which would drop a centerline_ marker BY RULE before ever
-    // reaching this test's malformed-detection path.
     auto msg = overlume::ros::testing::load_marker_array("hd_map_malformed_0.yaml");
     TfFixture kTf;
     auto row = overlume::ros::testing::urban_row("/hd_map_local_elements");
@@ -394,19 +269,11 @@ TEST(HdMapAdapter, MalformedMarkersAreDroppedAndCounted) {
 
     SceneAssembly out;
     a.fill(out);
-    // Dashing moved renderer-side, so the adapter never chops --
-    // left_boundary_ok stays ONE 2-point element.
     ASSERT_EQ(out.map_elements.size(), 1u);
     for (const auto& e : out.map_elements) EXPECT_EQ(e.point_count, 2u);
 }
 
 TEST(HdMapAdapter, FillStampsLastUpdateSecOnEveryElementIncludingRoadSurface) {
-    // Every emitted element (including the synthesized ROAD_SURFACE one)
-    // must carry MapElement::last_update_sec offset into the row's own
-    // timeout_sec (see kMapFadeWindowSec in hd_map.cpp), not a bare
-    // ingest-time stamp or the zero-init default -- staleness_alpha checks
-    // sim_time_sec against this field, so a wrong stamp fades the whole
-    // HD-map layer to alpha 0.
     auto msg = overlume::ros::testing::load_marker_array("hd_map_local_elements_0.yaml");
     TfFixture kTf;
     auto row = overlume::ros::testing::urban_row("/hd_map_local_elements");
@@ -416,8 +283,6 @@ TEST(HdMapAdapter, FillStampsLastUpdateSecOnEveryElementIncludingRoadSurface) {
     SceneAssembly out;
     a.fill(out);
 
-    // kMapFadeWindowSec = 1.0 (hd_map.cpp) -- mirrored here, not included,
-    // since it's a private implementation constant.
     constexpr double kMapFadeWindowSec = 1.0;
     const double expected_stamp = kSimTime + (row.timeout_sec - kMapFadeWindowSec);
     ASSERT_GT(out.map_elements.size(), 0u);
@@ -433,32 +298,18 @@ TEST(HdMapAdapter, FillStampsLastUpdateSecOnEveryElementIncludingRoadSurface) {
 }
 
 TEST(HdMapAdapter, ThrottledRowStaysFreshOnReceiptNotOnAcceptedRebuildCadence) {
-    // A row throttled by max_rate_hz (e.g. /hd_map_global_elements: 0.5 ->
-    // 2.0s min rebuild gap) keeps RECEIVING at its real publish rate between
-    // accepted rebuilds -- stamping last_update_sec from the throttled
-    // rebuild time (stats_.last_msg_sec) would blink the whole layer dark
-    // for most of every 2s window even while the topic is genuinely alive.
-    // Fix: stamp from last_recv_sec_ (set on every TF-lookup-succeeded
-    // ingest() call, BEFORE the rate gate), offset into the row's own
-    // timeout_sec (see kMapFadeWindowSec in hd_map.cpp). Pin it at a 0.5 Hz
-    // row: ingest every 0.3s (far faster than the 2.0s cooldown, so every
-    // rebuild past the first is skipped) and assert fill() at t=1.5s
-    // reports 1.5 + (timeout_sec - kMapFadeWindowSec), not the one accepted
-    // rebuild's own time (0.0) offset the same way.
     TfFixture kTf;
     auto row = overlume::ros::testing::urban_row("/hd_map_global_elements");
     ASSERT_DOUBLE_EQ(row.max_rate_hz, 0.5)
         << "urban_profile.yaml's row no longer matches this test's premise";
     overlume::ros::HdMapAdapter a(row, kTf.tf);
 
-    // Same one-marker shape as RateLimitHonoursMaxRateHz above, built
-    // inline (its own helper isn't declared until further down this file).
     visualization_msgs::msg::MarkerArray msg;
     visualization_msgs::msg::Marker m;
     m.header.frame_id = "map";
     m.ns = "left_boundary_x";
     m.id = 1;
-    m.type = 4;  // LINE_STRIP
+    m.type = 4;
     m.action = 0;
     geometry_msgs::msg::Point p0, p1;
     p1.x = 10.0;
@@ -471,8 +322,6 @@ TEST(HdMapAdapter, ThrottledRowStaysFreshOnReceiptNotOnAcceptedRebuildCadence) {
 
     SceneAssembly out;
     a.fill(out);
-    // kMapFadeWindowSec = 1.0 (hd_map.cpp) -- mirrored here, not included,
-    // since it's a private implementation constant.
     constexpr double kMapFadeWindowSec = 1.0;
     const double expected_stamp = 1.5 + (row.timeout_sec - kMapFadeWindowSec);
     ASSERT_GT(out.map_elements.size(), 0u);
@@ -484,17 +333,6 @@ TEST(HdMapAdapter, ThrottledRowStaysFreshOnReceiptNotOnAcceptedRebuildCadence) {
 }
 
 TEST(HdMapAdapter, LowRateReceiptDoesNotSawtoothBetweenReceipts) {
-    // ThrottledRowStaysFreshOnReceiptNotOnAcceptedRebuildCadence (above)
-    // only ever ingests at 0.3s spacing (3.33 Hz) -- it never pins behaviour
-    // in the 1-2 Hz regime. A straight last_update_sec == last_recv_sec_
-    // stamp DOES sawtooth there: staleness_alpha starts fading at age >
-    // kStaleFadeStartSec = 0.5s (renderer_internal.hpp), so a 1 Hz row
-    // (1.0s between receipts) would ride alpha all the way down to 0.0 just
-    // before every next receipt. Pin the actual fixed behaviour instead:
-    // ingest once per second (t = 0, 1, 2, 3, 4) and, just before each next
-    // receipt (i.e. fill() called at t=0.999, 1.999, ...), assert the
-    // stamped last_update_sec still keeps the element's implied age
-    // comfortably under kStaleFadeStartSec.
     TfFixture kTf;
     auto row = overlume::ros::testing::urban_row("/hd_map_local_elements");
     overlume::ros::HdMapAdapter a(row, kTf.tf);
@@ -504,16 +342,16 @@ TEST(HdMapAdapter, LowRateReceiptDoesNotSawtoothBetweenReceipts) {
     m.header.frame_id = "map";
     m.ns = "left_boundary_x";
     m.id = 1;
-    m.type = 4;  // LINE_STRIP
+    m.type = 4;
     m.action = 0;
     geometry_msgs::msg::Point p0, p1;
     p1.x = 10.0;
     m.points = {p0, p1};
     msg.markers = {m};
 
-    constexpr double kStaleFadeStartSec = 0.5;  // mirrors renderer_internal.hpp, not included
-    constexpr double kMapFadeWindowSec = 1.0;   // mirrors hd_map.cpp's own constant, not included
-    constexpr double kReceiptPeriodSec = 1.0;   // the 1 Hz regime under test
+    constexpr double kStaleFadeStartSec = 0.5;
+    constexpr double kMapFadeWindowSec = 1.0;
+    constexpr double kReceiptPeriodSec = 1.0;
     for (int receipt = 0; receipt < 5; ++receipt) {
         const double t_recv = receipt * kReceiptPeriodSec;
         a.ingest(msg, t_recv);
@@ -522,9 +360,6 @@ TEST(HdMapAdapter, LowRateReceiptDoesNotSawtoothBetweenReceipts) {
         a.fill(out);
         ASSERT_GT(out.map_elements.size(), 0u);
 
-        // "Just before the next receipt": age is measured against the row's
-        // real publish cadence, not last_recv_sec_'s own stamped value --
-        // this is what a bare straight-stamp implementation would fail.
         const double now_just_before_next_receipt = t_recv + kReceiptPeriodSec - 1e-3;
         const double expected_stamp = t_recv + (row.timeout_sec - kMapFadeWindowSec);
         for (const auto& e : out.map_elements) {
@@ -541,15 +376,6 @@ TEST(HdMapAdapter, LowRateReceiptDoesNotSawtoothBetweenReceipts) {
 }
 
 TEST(HdMapAdapter, PublishOnceTransientLocalRowStaysOpaqueWellPastOldOneSecondFadeFloor) {
-    // sim_profile.yaml's /sim/hd_map/markers is publish-once/transient_local
-    // (timeout_sec: 5.0) -- last_recv_sec_ freezes at its one ingest while
-    // sim_time keeps climbing. A straight last_update_sec == last_recv_sec_
-    // stamp would fade this row to alpha 0 by +1.0s even though
-    // overlume_node.cpp keeps calling fill() for it until +5.0s ("map
-    // never appears" for 4 of its 5 visible seconds). Ingest once at t=0.0,
-    // advance the sim clock to t=2.0 (past the old 1.0s fade floor, nowhere
-    // near the row's real timeout_sec=5.0 cutoff), and assert the row is
-    // still FULLY opaque (age comfortably under kStaleFadeStartSec).
     TfFixture kTf;
     auto row = overlume::ros::testing::sim_row("/sim/hd_map/markers");
     ASSERT_DOUBLE_EQ(row.timeout_sec, 5.0)
@@ -557,14 +383,14 @@ TEST(HdMapAdapter, PublishOnceTransientLocalRowStaysOpaqueWellPastOldOneSecondFa
     overlume::ros::HdMapAdapter a(row, kTf.tf);
 
     auto msg = overlume::ros::testing::load_marker_array("sim_hd_map_markers_0.yaml");
-    a.ingest(msg, /*sim_time_sec=*/0.0);  // the ONE latched receipt this row ever gets
+    a.ingest(msg, 0.0);
 
     SceneAssembly out;
     a.fill(out);
     ASSERT_GT(out.map_elements.size(), 0u);
 
-    constexpr double kStaleFadeStartSec = 0.5;  // mirrors renderer_internal.hpp, not included
-    constexpr double kSimTimeNow = 2.0;         // well past the old 1.0s fade floor
+    constexpr double kStaleFadeStartSec = 0.5;
+    constexpr double kSimTimeNow = 2.0;
     for (const auto& e : out.map_elements) {
         const double age = kSimTimeNow - e.last_update_sec;
         EXPECT_LT(age, kStaleFadeStartSec)
@@ -574,11 +400,6 @@ TEST(HdMapAdapter, PublishOnceTransientLocalRowStaysOpaqueWellPastOldOneSecondFa
 }
 
 TEST(HdMapAdapter, RateLimitHonoursMaxRateHz) {
-    // max_rate_hz: 2.0 -> ingesting faster than 2 Hz rebuilds at most
-    // twice a second. Four single-marker messages (no DELETEALL between
-    // them, so an accepted one always ADDs a new element) spaced closer
-    // than the 0.5s cooldown for two of the four gaps: only the ones
-    // spaced >= 0.5s apart from the last ACCEPTED rebuild land.
     TfFixture kTf;
     auto row = overlume::ros::testing::urban_row("/hd_map_local_elements");
     overlume::ros::HdMapAdapter a(row, kTf.tf);
@@ -600,31 +421,18 @@ TEST(HdMapAdapter, RateLimitHonoursMaxRateHz) {
         return arr;
     };
 
-    // Uses left_boundary_*, not centerline_*: urban's centerline_ rule is
-    // `render: drop` by default, so a centerline_ marker here would never
-    // reach storage_ at all -- this test's own point (rate-limiting
-    // REBUILDS) doesn't care which polyline-rendering kind matched.
-    a.ingest(make_one_marker("left_boundary_a", 1, 0.0), 1.0);   // accepted (first ever)
-    a.ingest(make_one_marker("left_boundary_b", 2, 10.0), 1.1);  // gap 0.1s < 0.5s -> skipped
-    a.ingest(make_one_marker("left_boundary_c", 3, 20.0), 1.2);  // gap 0.2s < 0.5s -> skipped
-    a.ingest(make_one_marker("left_boundary_d", 4, 30.0), 1.6);  // gap 0.6s >= 0.5s -> accepted
+    a.ingest(make_one_marker("left_boundary_a", 1, 0.0), 1.0);
+    a.ingest(make_one_marker("left_boundary_b", 2, 10.0), 1.1);
+    a.ingest(make_one_marker("left_boundary_c", 3, 20.0), 1.2);
+    a.ingest(make_one_marker("left_boundary_d", 4, 30.0), 1.6);
 
     SceneAssembly out;
     a.fill(out);
-    // Only the 2 accepted messages' markers made it in -- with no
-    // rate-limit honoured all 4 (no DELETEALL between them) would
-    // accumulate. Dashing moved renderer-side, so the adapter never chops --
-    // 2 accepted markers -> 2 elements.
     EXPECT_EQ(out.map_elements.size(), 2u);
 }
 
 namespace {
 
-// Builds a one-row profile with centerline_/left_boundary_/right_boundary_
-// namespace rules, for the pose-composition/flatten-z tests below --
-// independent of the shipped config so they exercise the geometry op in
-// isolation from urban_profile.yaml. right_boundary_ is needed by the
-// road-edge-detection tests below, which need both rails.
 overlume::ros::ProfileRow MapRuleRow() {
     std::vector<std::string> errs;
     const std::string yaml =
@@ -638,11 +446,6 @@ overlume::ros::ProfileRow MapRuleRow() {
     return p->rows[0];
 }
 
-// Straight LINE_STRIP marker at a given X offset, running the full Y span
-// -- three of these side by side (X=0, X=3.2, X=6.4) model three adjacent
-// lanes sharing painted lines: lane A's right rail == lane B's left rail,
-// lane B's right rail == lane C's left rail (road-edge-detection tests
-// below).
 visualization_msgs::msg::Marker RailMarker(const char* ns, int32_t id, double x) {
     visualization_msgs::msg::Marker m;
     m.header.frame_id = "map";
@@ -659,10 +462,6 @@ visualization_msgs::msg::Marker RailMarker(const char* ns, int32_t id, double x)
     return m;
 }
 
-// Same shape as MapRuleRow() but adds a `junction` namespace rule (kind:
-// junction) for the junction-cleanup tests below -- optionally with
-// `junction_interior_boundaries: false` set at row level (default true,
-// matching every shipped profile).
 overlume::ros::ProfileRow JunctionRuleRow(bool junction_interior_boundaries = true) {
     std::vector<std::string> errs;
     std::string yaml =
@@ -681,9 +480,6 @@ overlume::ros::ProfileRow JunctionRuleRow(bool junction_interior_boundaries = tr
     return p->rows[0];
 }
 
-// A LINE_STRIP marker with explicit (x,y) points (z=0), full control over
-// point spacing -- the junction-cleanup tests below need vertices that
-// straddle a polygon/crossing boundary without landing exactly on it.
 visualization_msgs::msg::Marker LineMarker(const char* ns, int32_t id,
                                            const std::vector<std::pair<double, double>>& xy) {
     visualization_msgs::msg::Marker m;
@@ -701,8 +497,6 @@ visualization_msgs::msg::Marker LineMarker(const char* ns, int32_t id,
     return m;
 }
 
-// One straight 10 m LINE_STRIP marker under the given namespace -- the
-// same shape RateLimitHonoursMaxRateHz's make_one_marker uses above.
 visualization_msgs::msg::MarkerArray StraightTenMeterMarker(const char* ns) {
     visualization_msgs::msg::MarkerArray arr;
     visualization_msgs::msg::Marker m;
@@ -722,9 +516,6 @@ visualization_msgs::msg::MarkerArray StraightTenMeterMarker(const char* ns) {
 }  // namespace
 
 TEST(HdMapAdapter, MarkerOfAnyKindStaysOneElementOutOfTheAdapter) {
-    // Dashing moved renderer-side, so the adapter never chops, for any kind
-    // -- a straight 10 m marker stays ONE element under a boundary namespace
-    // AND under a centerline namespace.
     TfFixture kTf;
 
     overlume::ros::HdMapAdapter boundary(MapRuleRow(), kTf.tf);
@@ -733,11 +524,6 @@ TEST(HdMapAdapter, MarkerOfAnyKindStaysOneElementOutOfTheAdapter) {
     boundary.fill(boundary_out);
     ASSERT_EQ(boundary_out.map_elements.size(), 1u);
     EXPECT_EQ(boundary_out.map_elements[0].point_count, 2u);
-    // This marker has no paired lane on the opposite side at all (it is the
-    // only lane in the scene), so IsRoadEdge() promotes it -- the emitted
-    // kind is ROAD_EDGE, not the raw LEFT_BOUNDARY the rule matched. This
-    // test's own point (one marker -> one element, never chopped) is
-    // unaffected.
     EXPECT_EQ(boundary_out.map_elements[0].kind, overlume::MapKind::ROAD_EDGE);
 
     overlume::ros::HdMapAdapter centerline(MapRuleRow(), kTf.tf);
@@ -750,10 +536,6 @@ TEST(HdMapAdapter, MarkerOfAnyKindStaysOneElementOutOfTheAdapter) {
 }
 
 TEST(HdMapAdapter, CenterlineAndBoundaryKindAndLaneIdFromMarkerId) {
-    // The marker's own `id` field *is* `lane_id` directly, no ns-suffix
-    // parsing: a centerline_934/id=934 marker and a left_boundary_934/id=934
-    // marker carry the same lane_id purely via the marker's own `id`, not
-    // the ns string.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -783,12 +565,7 @@ TEST(HdMapAdapter, CenterlineAndBoundaryKindAndLaneIdFromMarkerId) {
         if (e.kind == overlume::MapKind::CENTERLINE) {
             found_centerline = true;
             EXPECT_EQ(e.lane_id, 934u);
-        }
-        // This marker has no opposite-side partner (no right_boundary_934 in
-        // this test's scene), so IsRoadEdge() promotes it to ROAD_EDGE --
-        // this test's own point (lane_id carried via the marker's own `id`)
-        // doesn't care which of the two kinds it ends up as.
-        else if (e.kind == overlume::MapKind::ROAD_EDGE) {
+        } else if (e.kind == overlume::MapKind::ROAD_EDGE) {
             found_boundary = true;
             EXPECT_EQ(e.lane_id, 934u);
         }
@@ -798,16 +575,9 @@ TEST(HdMapAdapter, CenterlineAndBoundaryKindAndLaneIdFromMarkerId) {
 }
 
 TEST(HdMapAdapter, LaneWithOnlyOneBoundaryProducesNoRoadSurfaceElement) {
-    // The committed hd_map_local_elements_0.yaml has all 16 boundary-bearing
-    // lanes fully paired, so fill()'s `if (it == right_by_lane.end())
-    // continue;` branch has no real-fixture instance and is otherwise
-    // unexecuted by any test. Hand-built: only a left_boundary_ marker, no
-    // right_boundary_ counterpart for the same lane_id -> zero ROAD_SURFACE
-    // elements, and this is "missing data," not "bad data" (spec §9), so no
-    // dropped_malformed bump either.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
-    a.ingest(StraightTenMeterMarker("left_boundary_x"), 1.0);  // marker id 1 -> lane_id 1
+    a.ingest(StraightTenMeterMarker("left_boundary_x"), 1.0);
 
     SceneAssembly out;
     a.fill(out);
@@ -819,15 +589,6 @@ TEST(HdMapAdapter, LaneWithOnlyOneBoundaryProducesNoRoadSurfaceElement) {
 }
 
 TEST(HdMapAdapter, RoadSurfaceFillPersistsFromCacheWhenARailDropsForOneTick) {
-    // Flicker fix (2026-09-22, real-robot replay with streamed photoreal
-    // tiles): every real message is a DELETEALL-then-republish snapshot of
-    // the whole map, and a lane can lose one rail from a single snapshot
-    // (its local window shifts with the ego, then it's back next tick) even
-    // though the OTHER rail stays put -- without the per-lane_id cache,
-    // that tick's ROAD_SURFACE fill for the lane vanishes outright instead
-    // of holding its last complete pair, exposing whatever sits under the
-    // map layer (harmless over the old clay ground plane; a violent
-    // flicker now that streamed photoreal tiles sit there instead).
     TfFixture kTf;
     auto row = MapRuleRow();
     overlume::ros::HdMapAdapter a(row, kTf.tf);
@@ -847,19 +608,12 @@ TEST(HdMapAdapter, RoadSurfaceFillPersistsFromCacheWhenARailDropsForOneTick) {
         m.points = {p0, p1};
         return m;
     };
-    // Every real message from the upstream publisher opens with a DELETEALL
-    // marker (ns="", id=0) and then republishes the FULL current snapshot --
-    // it never DELETEs a single rail by id (see DeleteAllClearsPreviousElements
-    // above and hd_map.cpp's DELETEALL-branch comment). A lane loses a rail
-    // for one tick by that snapshot simply OMITTING it, not by an explicit
-    // per-id delete, so these fixtures model that shape, not a targeted
-    // DELETE marker.
     auto delete_all_marker = []() {
         visualization_msgs::msg::Marker m;
         m.header.frame_id = "map";
         m.ns = "";
         m.id = 0;
-        m.action = 3;  // kActionDeleteAll
+        m.action = 3;
         return m;
     };
     auto lane42_both_rails = [&]() {
@@ -868,12 +622,6 @@ TEST(HdMapAdapter, RoadSurfaceFillPersistsFromCacheWhenARailDropsForOneTick) {
                        rail_marker("right_boundary_42", 42, 3.2)};
         return arr;
     };
-    // Full snapshot with only the left rail -- the right rail is dropped by
-    // simply not being in this message, exactly how the real upstream
-    // source loses a rail for a single tick (the measured real-robot
-    // defect: every left_boundary_<id>/right_boundary_<id> namespace is
-    // present in 60/60 sampled messages, so the omission is transient, not
-    // a genuine map edit).
     auto lane42_left_rail_only = [&]() {
         visualization_msgs::msg::MarkerArray arr;
         arr.markers = {delete_all_marker(), rail_marker("left_boundary_42", 42, 0.0)};
@@ -886,8 +634,6 @@ TEST(HdMapAdapter, RoadSurfaceFillPersistsFromCacheWhenARailDropsForOneTick) {
         return nullptr;
     };
 
-    // Tick 1: both rails present -> fill() emits ROAD_SURFACE for lane 42
-    // and refreshes its cache entry.
     a.ingest(lane42_both_rails(), 1.0);
     SceneAssembly out1;
     a.fill(out1);
@@ -896,14 +642,6 @@ TEST(HdMapAdapter, RoadSurfaceFillPersistsFromCacheWhenARailDropsForOneTick) {
         << "lane 42 did not synthesize a ROAD_SURFACE element with both rails present";
     const uint32_t point_count = fill1->point_count;
 
-    // Tick 2: a full DELETEALL-then-republish snapshot that omits the right
-    // rail entirely (the real upstream publisher's actual shape -- see
-    // delete_all_marker()'s comment above). storage_ is wiped by this
-    // tick's own head-of-message DELETEALL and rebuilt from just
-    // left_boundary_42, so right_by_lane no longer carries lane 42 at all.
-    // fill() must STILL emit ROAD_SURFACE for lane 42, from the cache
-    // (road_fill_cache_ survives DELETEALL -- only storage_ is cleared by
-    // it), with the same point count.
     a.ingest(lane42_left_rail_only(), 1.5);
     SceneAssembly out2;
     a.fill(out2);
@@ -913,9 +651,6 @@ TEST(HdMapAdapter, RoadSurfaceFillPersistsFromCacheWhenARailDropsForOneTick) {
            "-- this is the flicker VM/2026-09-22 root-caused on the real-robot replay";
     EXPECT_EQ(fill2->point_count, point_count);
 
-    // Tick 3: another full DELETEALL-then-republish snapshot, sim time now
-    // past row.timeout_sec since the last complete pair (tick 1, at sim_time
-    // 1.0) -- the cache entry must now be retired, so the element is gone.
     a.ingest(lane42_left_rail_only(), 1.0 + row.timeout_sec + 0.1);
     SceneAssembly out3;
     a.fill(out3);
@@ -924,13 +659,6 @@ TEST(HdMapAdapter, RoadSurfaceFillPersistsFromCacheWhenARailDropsForOneTick) {
 }
 
 TEST(HdMapAdapter, RoadSurfaceFillCacheRetiresWhenTheClockRewinds) {
-    // Opus gate round 2: the retire check above is TWO-sided on purpose. The
-    // repo's own replay rig (tools/validate_logger_session.sh) plays the
-    // session with loop: true, so /clock rewinds to the session start every
-    // lap. With a one-sided (now - cached) age, every cache entry stamped in
-    // the last timeout_sec before the wrap carries a NEGATIVE age afterwards,
-    // is never retired, and is re-emitted for the rest of the replay -- a
-    // ghost carriageway frozen at last lap's coordinates.
     TfFixture kTf;
     auto row = MapRuleRow();
     overlume::ros::HdMapAdapter a(row, kTf.tf);
@@ -971,16 +699,12 @@ TEST(HdMapAdapter, RoadSurfaceFillCacheRetiresWhenTheClockRewinds) {
         return nullptr;
     };
 
-    // Late in a lap: both rails, so lane 42 is cached at sim time 400.0.
-    a.ingest(snapshot(/*with_right=*/true), 400.0);
+    a.ingest(snapshot(true), 400.0);
     SceneAssembly out1;
     a.fill(out1);
     ASSERT_NE(find_lane42_fill(out1), nullptr);
 
-    // The player wraps: /clock rewinds to the session start and the first
-    // snapshot of the new lap omits the right rail. The pre-wrap entry is
-    // 399 s in the FUTURE, so a one-sided age check would hold it forever.
-    a.ingest(snapshot(/*with_right=*/false), 1.0);
+    a.ingest(snapshot(false), 1.0);
     SceneAssembly out2;
     a.fill(out2);
     EXPECT_EQ(find_lane42_fill(out2), nullptr)
@@ -989,29 +713,14 @@ TEST(HdMapAdapter, RoadSurfaceFillCacheRetiresWhenTheClockRewinds) {
 }
 
 TEST(HdMapAdapter, MismatchedRailPointCountsResampledStationsSpanRecordedEndpoints) {
-    // LocalElementsFixtureYieldsLanesAndCrosswalks's aggregate (road_count
-    // ==16, every point_count==32) proves resampling produced the right
-    // SHAPE but never proves the resampled stations actually SPAN the
-    // recorded rail's own endpoints -- a resampler that silently clamped to
-    // a sub-range of the rail (e.g. an off-by-one in ResampleByArcLength's
-    // arc-length walk) would pass that aggregate too. Lane 955 (left 8 /
-    // right 9 recorded points) is the real mismatched-count case in the
-    // committed fixture.
     auto msg = overlume::ros::testing::load_marker_array("hd_map_local_elements_0.yaml");
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(overlume::ros::testing::urban_row("/hd_map_local_elements"),
                                   kTf.tf);
-    a.ingest(msg, /*sim_time_sec=*/1.0);
+    a.ingest(msg, 1.0);
     SceneAssembly out;
     a.fill(out);
 
-    // Recorded endpoints straight from the fixture message -- frame "map",
-    // identity pose (verified: pose.position=(0,0,0), pose.orientation=
-    // identity for both markers), so these are exactly what reaches
-    // storage_ too; comparing against the raw message rather than another
-    // emitted MapElement sidesteps the road-edge promotion's kind ambiguity
-    // (a lane-955 boundary may or may not have promoted to ROAD_EDGE; the
-    // raw marker ns is unambiguous either way).
     const geometry_msgs::msg::Point* left_first = nullptr;
     const geometry_msgs::msg::Point* left_last = nullptr;
     const geometry_msgs::msg::Point* right_first = nullptr;
@@ -1038,8 +747,6 @@ TEST(HdMapAdapter, MismatchedRailPointCountsResampledStationsSpanRecordedEndpoin
     ASSERT_NE(road, nullptr) << "lane 955 produced no ROAD_SURFACE element";
     ASSERT_EQ(road->point_count, 32u);
 
-    // points[0..15] = left rail, points[16..31] = right rail, index-parallel
-    // by normalized station (map_elements.hpp's own two-rail encoding note).
     constexpr double kEps = 1e-6;
     EXPECT_NEAR(road->points[0].x, left_first->x, kEps);
     EXPECT_NEAR(road->points[0].y, left_first->y, kEps);
@@ -1051,16 +758,7 @@ TEST(HdMapAdapter, MismatchedRailPointCountsResampledStationsSpanRecordedEndpoin
     EXPECT_NEAR(road->points[31].y, right_last->y, kEps);
 }
 
-// ── Road-edge detection: the road's outer edges render distinct from
-//    interior lane boundaries (see hd_map.cpp's IsRoadEdge()) ────────────
-
 TEST(HdMapAdapter, OuterBoundariesOfThreeAdjacentLanesPromoteToRoadEdge) {
-    // Three adjacent lanes sharing painted lines (A|B|C, each 3.2 m wide --
-    // RailMarker's own comment): A's right rail == B's left rail (x=3.2),
-    // B's right rail == C's left rail (x=6.4). Only the outermost two rails
-    // (A's left, x=0; C's right, x=9.6) have no coincident opposite-side
-    // twin from another lane -- everything between stays a shared interior
-    // divider.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -1074,8 +772,6 @@ TEST(HdMapAdapter, OuterBoundariesOfThreeAdjacentLanesPromoteToRoadEdge) {
     SceneAssembly out;
     a.fill(out);
 
-    // Direct scan by recorded X (simpler and unambiguous than re-deriving
-    // "which side" from kind alone, since kind is exactly what's under test).
     auto kind_at_x = [&](double x) -> overlume::MapKind {
         for (const auto& e : out.map_elements) {
             if (e.kind == overlume::MapKind::ROAD_SURFACE) continue;
@@ -1098,8 +794,6 @@ TEST(HdMapAdapter, OuterBoundariesOfThreeAdjacentLanesPromoteToRoadEdge) {
 }
 
 TEST(HdMapAdapter, SingleIsolatedLaneHasBothBoundariesPromotedToRoadEdge) {
-    // A lane with no neighbour on either side: BOTH its boundaries are road
-    // edges (there is nothing to be interior to).
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -1119,12 +813,7 @@ TEST(HdMapAdapter, SingleIsolatedLaneHasBothBoundariesPromotedToRoadEdge) {
     EXPECT_EQ(road_edge_count, 2);
 }
 
-// ---- Junction cleanup --
-
 TEST(HdMapAdapter, JunctionPolygonClipSplitsRoadEdgeIntoTwoSubElementsWithInterpolatedCuts) {
-    // A single isolated (hence ROAD_EDGE-promoted) rail running straight
-    // through a 6x6 m JUNCTION box centered on the origin: cut off inside
-    // the box, resuming past it.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(JunctionRuleRow(), kTf.tf);
 
@@ -1147,24 +836,16 @@ TEST(HdMapAdapter, JunctionPolygonClipSplitsRoadEdgeIntoTwoSubElementsWithInterp
                   return a.points[0].y < b.points[0].y;
               });
 
-    // First sub-element: y=-10 up to the box's entry edge (y=-3) -- the
-    // last point is INTERPOLATED (the box boundary), not one of the
-    // original recorded vertices (-5, 0, 5, 10).
     EXPECT_DOUBLE_EQ(edges[0].points[0].y, -10.0);
     EXPECT_NEAR(edges[0].points[edges[0].point_count - 1].y, -3.0, 1e-6);
     EXPECT_NE(edges[0].points[edges[0].point_count - 1].y, -5.0);
 
-    // Second sub-element: the box's exit edge (y=3) resuming out to y=10.
     EXPECT_NEAR(edges[1].points[0].y, 3.0, 1e-6);
     EXPECT_DOUBLE_EQ(edges[1].points[edges[1].point_count - 1].y, 10.0);
     EXPECT_NE(edges[1].points[0].y, 5.0);
 }
 
 TEST(HdMapAdapter, MutualCrossingCutSplitsBothRoadEdgesWithBackoff) {
-    // Two isolated (ROAD_EDGE-promoted) rails from DIFFERENT lane_ids
-    // crossing at the origin, no JUNCTION geometry at all -- the mechanism
-    // that covers urban's real feed (verified: no `junction` namespace
-    // rule anywhere in urban_profile.yaml).
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -1193,7 +874,6 @@ TEST(HdMapAdapter, MutualCrossingCutSplitsBothRoadEdgesWithBackoff) {
                   return a.points[0].y < b.points[0].y;
               });
 
-    // kJunctionCutBackoffM = 2.0 m either side of the crossing at the origin.
     EXPECT_EQ(lane_a[0].point_count, 2u);
     EXPECT_DOUBLE_EQ(lane_a[0].points[0].x, -10.0);
     EXPECT_NEAR(lane_a[0].points[1].x, -2.0, 1e-9);
@@ -1205,9 +885,6 @@ TEST(HdMapAdapter, MutualCrossingCutSplitsBothRoadEdgesWithBackoff) {
 }
 
 TEST(HdMapAdapter, ParallelRoadEdgesAreNeverCut) {
-    // A real road edge never legitimately crosses another -- two parallel
-    // rails must render whole, unsplit, regardless of how close together
-    // they run.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -1230,15 +907,6 @@ TEST(HdMapAdapter, ParallelRoadEdgesAreNeverCut) {
 }
 
 TEST(HdMapAdapter, AbuttingNearCollinearRoadEdgesAreNeverCut) {
-    // A lanelet-chain node where two ROAD_EDGE rails from DIFFERENT lane_ids
-    // share an endpoint with only a ~1 deg kink is NOT a junction crossing --
-    // it is the ordinary case of one lanelet boundary handing off to the
-    // next (21 of 24 raw SegSegIntersect2D detections on
-    // hd_map_local_elements_0.yaml are exactly this shape: shared-endpoint
-    // abutments at 175.2-179.8 deg or 0.5-2.8 deg, not genuine crossings).
-    // ParallelRoadEdgesAreNeverCut above can't pin this: its rails never
-    // touch at all, so it never reaches the t/u-at-an-endpoint case
-    // SegSegIntersect2D's near-parallel/near-antiparallel guard rejects.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -1261,21 +929,7 @@ TEST(HdMapAdapter, AbuttingNearCollinearRoadEdgesAreNeverCut) {
     EXPECT_EQ(road_edge_count, 2);
 }
 
-// ---- Junction gap-merge: a real multi-lane junction crosses one
-// through-edge SEVERAL times close together; each crossing's own
-// kJunctionCutBackoffM=2.0 window needs to merge with its neighbours' when
-// the gap between them is small, or the small real gap survives as its own
-// tiny leftover rendered piece. All three tests below share one long
-// through-rail (lane 1, x=-20 to 20 along y=0) crossed by two other lanes
-// (2, 3) at two x positions; only lane 1's own resulting ROAD_EDGE pieces
-// are asserted on.
-
 TEST(HdMapAdapter, JunctionGapMergeCutsSliverBetweenCloseCrossings) {
-    // Crossings at x=-4.5 and x=4.5 (separation 9.0 m): each gets its own
-    // [-2,+2] backoff window, [-6.5,-2.5] and [2.5,6.5] -- a 5.0 m gap
-    // between them, UNDER kJunctionGapMergeM=6.6 -- so MergeWindows folds
-    // them into one [-6.5,6.5] cut. A bare touch/overlap test would leave a
-    // 5.0 m gap as its own emitted sliver between the two crossings.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -1306,12 +960,6 @@ TEST(HdMapAdapter, JunctionGapMergeCutsSliverBetweenCloseCrossings) {
 }
 
 TEST(HdMapAdapter, JunctionGapMergeAtThresholdStillMerges) {
-    // Crossings at x=-5.3/+5.3 (separation 10.6 m): windows [-7.3,-3.3] and
-    // [3.3,7.3] -- the inter-window gap is kJunctionGapMergeM=6.6 m to
-    // within floating-point noise (6.599999999999998 as the arc-length walk
-    // computes it, ~2 ulp below 6.6), pinning the constant's boundary from
-    // just below it: still one merged cut. The merge test is <=, and
-    // nothing here depends on the exact-equality case.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -1339,11 +987,6 @@ TEST(HdMapAdapter, JunctionGapMergeAtThresholdStillMerges) {
 }
 
 TEST(HdMapAdapter, JunctionGapMergeKeepsLegitInteriorSpanAboveThreshold) {
-    // Crossings at x=-5.5/+5.5 (separation 11.0 m): windows [-7.5,-3.5] and
-    // [3.5,7.5] -- a 7.0 m gap, ABOVE kJunctionGapMergeM=6.6, so the two
-    // windows stay separate and the 7.0 m interior span between them
-    // survives as its own legit piece (a real stub is never shorter than
-    // 7.027 m, see kJunctionGapMergeM's own comment in hd_map.cpp).
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -1376,14 +1019,8 @@ TEST(HdMapAdapter, JunctionGapMergeKeepsLegitInteriorSpanAboveThreshold) {
 }
 
 TEST(HdMapAdapter, BoundariesUntouchedByJunctionCutsAtDefaultFlag) {
-    // junction_interior_boundaries defaults to true: an INTERIOR boundary
-    // -- lane 2's left rail coincides with lane 1's right rail (the shared
-    // painted line between two adjacent lanes, same coincidence check
-    // OuterBoundariesOfThreeAdjacentLanesPromoteToRoadEdge exercises), so
-    // neither promotes to ROAD_EDGE -- running straight through a JUNCTION
-    // box renders whole, unclipped.
     TfFixture kTf;
-    overlume::ros::HdMapAdapter a(JunctionRuleRow(/*junction_interior_boundaries=*/true), kTf.tf);
+    overlume::ros::HdMapAdapter a(JunctionRuleRow(true), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1407,13 +1044,8 @@ TEST(HdMapAdapter, BoundariesUntouchedByJunctionCutsAtDefaultFlag) {
 }
 
 TEST(HdMapAdapter, JunctionInteriorBoundariesFalseDropsSegmentsInsideJunctionPolygon) {
-    // Same interior (coincident, non-promoted) boundary + junction box as
-    // above, but with junction_interior_boundaries: false -- the boundary
-    // now gets the SAME polygon clip ROAD_EDGE always gets (never the
-    // crossing-cut's back-off: the cut point sits exactly on the box edge,
-    // y=+/-3, not offset by kJunctionCutBackoffM).
     TfFixture kTf;
-    overlume::ros::HdMapAdapter a(JunctionRuleRow(/*junction_interior_boundaries=*/false), kTf.tf);
+    overlume::ros::HdMapAdapter a(JunctionRuleRow(false), kTf.tf);
 
     visualization_msgs::msg::MarkerArray arr;
     arr.markers = {
@@ -1440,24 +1072,7 @@ TEST(HdMapAdapter, JunctionInteriorBoundariesFalseDropsSegmentsInsideJunctionPol
     EXPECT_DOUBLE_EQ(left[1].points[left[1].point_count - 1].y, 10.0);
 }
 
-// ---- Arc-aware cut refinement: a crossing-cut boundary snaps outward to a
-// real corner arc's own far vertex instead of stopping at a fixed distance.
-// Every polyline below is built from the measured thresholds
-// (kArcRadiusThresholdM=20.0, kArcMinTotalTurnDeg=15.0, kArcSearchMarginM=
-// 6.0 -- see hd_map.cpp's own comment) so each test pins a specific,
-// checkable arc-length station, not just "some point past the fixed
-// backoff".
-
 TEST(HdMapAdapter, ArcSnapExtendsCutPastFixedBackoffToTheCornerArcsFarEdge) {
-    // lane 1 crosses lane 2 near the origin; well past the fixed
-    // kJunctionCutBackoffM=2.0 m cut point (x=2), lane 1's own recorded curb
-    // geometry curves into a real corner arc (radius 8 m). The arc-snap must
-    // extend the cut out to a REAL recorded vertex on that curve, never an
-    // interpolated mid-curve point, all the way to the arc's own true far
-    // edge (v6, the run v2..v6 all measuring R=8.0 m, 75 deg total turn)
-    // even though that lies farther than kArcSearchMarginM=6.0 m from the
-    // fixed-backoff boundary -- not just the farthest vertex the search
-    // margin alone could reach (v4).
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -1489,19 +1104,11 @@ TEST(HdMapAdapter, ArcSnapExtendsCutPastFixedBackoffToTheCornerArcsFarEdge) {
                   return a.points[0].x < b.points[0].x;
               });
 
-    // Head piece: untouched by the arc (it's on the tail side only) --
-    // still the OLD fixed-backoff point (x=-2).
     ASSERT_EQ(lane_a[0].point_count, 2u);
     EXPECT_DOUBLE_EQ(lane_a[0].points[0].x, -30.0);
     EXPECT_NEAR(lane_a[0].points[1].x, -2.0, 1e-9);
     EXPECT_NEAR(lane_a[0].points[1].y, 0.0, 1e-9);
 
-    // Tail piece: the cut resumes at (8.727406610312546, 5.929447639179834)
-    // -- the arc's own TRUE far recorded vertex (v6), not an interpolated
-    // point. FindArcSpanNear extends a run past the +/-6.0 m search margin
-    // while curvature keeps clearing kArcRadiusThresholdM, so the cut
-    // reaches v6 in full, not just the farthest vertex the search margin
-    // alone could see (v4).
     ASSERT_EQ(lane_a[1].point_count, 3u);
     EXPECT_NEAR(lane_a[1].points[0].x, 8.727406610312546, 1e-9);
     EXPECT_NEAR(lane_a[1].points[0].y, 5.929447639179834, 1e-9);
@@ -1510,17 +1117,6 @@ TEST(HdMapAdapter, ArcSnapExtendsCutPastFixedBackoffToTheCornerArcsFarEdge) {
 }
 
 TEST(HdMapAdapter, ArcSnapDoesNotFireOnTheMeasuredWorstCaseGentleOpenRoadCurve) {
-    // kArcMinTotalTurnDeg gates a maximal contiguous R<kArcRadiusThresholdM
-    // RUN's own accumulated |TurnAngleDeg|, not one vertex's own kink --
-    // TurnAngleDeg sums absolute per-vertex turns, so a multi-vertex
-    // near-straight run is the false-positive shape this test targets: three
-    // interior vertices, each on a true R=15 m circular arc (well under the
-    // 20 m radius gate), each contributing 3.5267 deg, for an accumulated
-    // total of 10.58 deg -- the largest REJECTED R<threshold run measured in
-    // the bag-wide scan, still comfortably under the 15 deg gate. Sits well
-    // within kArcSearchMarginM of the crossing-cut boundary -- exactly where
-    // a false positive would show up -- and must NOT move the cut at all:
-    // both boundaries stay at the fixed-backoff points.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -1562,19 +1158,6 @@ TEST(HdMapAdapter, ArcSnapDoesNotFireOnTheMeasuredWorstCaseGentleOpenRoadCurve) 
 }
 
 TEST(HdMapAdapter, ArcSnapExtendsBothWindowBoundariesToTheirOwnCornerArcs) {
-    // lane 1 approaches the crossing (near the origin) through an entry-side
-    // corner arc AND leaves through an exit-side one (the same corner
-    // geometry as the test above, mirrored) -- both directions of travel
-    // through this one junction corner. Both window boundaries must snap
-    // outward independently. This lane's own entry lead-in (v0->v1,
-    // 7.0711 m) is short enough that CircumradiusXY at v1 itself (R=7.246 m)
-    // also clears kArcRadiusThresholdM, and CircumradiusXY takes the
-    // curvature's MAGNITUDE only, so the inflection at v7/v8 (where the
-    // entry arc's curve direction reverses into the exit arc, still
-    // R=15.63 m) never breaks the run either -- v1..v13 is ONE continuous
-    // qualifying corridor, not two independent corners. Both boundaries
-    // snap to that one run's own two true ends (v1 and v13), each looking
-    // only at its own nearby geometry (no cross-polyline pairing logic).
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -1613,16 +1196,11 @@ TEST(HdMapAdapter, ArcSnapExtendsBothWindowBoundariesToTheirOwnCornerArcs) {
                   return a.points[0].x < b.points[0].x;
               });
 
-    // Entry side: cut starts (the kept head ends) at v1 (-9.0, 8.0) -- the
-    // one continuous run's own true near end, reached even though it lies
-    // past the OLD +/-6.0 m search margin from the fixed-backoff boundary.
     ASSERT_EQ(lane_a[0].point_count, 2u);
     EXPECT_NEAR(lane_a[0].points[0].x, -14.0, 1e-9);
     EXPECT_NEAR(lane_a[0].points[1].x, -9.0, 1e-9);
     EXPECT_NEAR(lane_a[0].points[1].y, 8.0, 1e-9);
 
-    // Exit side: cutting resumes at v13 (8.727406610312546, 5.929447639179834)
-    // -- the same one continuous run's own true far end.
     ASSERT_EQ(lane_a[1].point_count, 3u);
     EXPECT_NEAR(lane_a[1].points[0].x, 8.727406610312546, 1e-9);
     EXPECT_NEAR(lane_a[1].points[0].y, 5.929447639179834, 1e-9);
@@ -1631,16 +1209,6 @@ TEST(HdMapAdapter, ArcSnapExtendsBothWindowBoundariesToTheirOwnCornerArcs) {
 }
 
 TEST(HdMapAdapter, ArcSnapAdjacentWindowsFromTwoCrossingsProduceOneContinuousCut) {
-    // Same crossing positions as JunctionGapMergeKeepsLegitInteriorSpanAboveThreshold
-    // above (gap 7.0 m, ABOVE kJunctionGapMergeM=6.6 -- MergeWindows alone
-    // leaves a legit interior span there). lane 1's own recorded geometry
-    // now carries a small real corner kink facing EACH crossing from the
-    // inside (turn ~25 deg, radius ~3.5 m). Models two different crossings,
-    // each with its own corner, close enough together that once each window
-    // snaps outward to its own arc, they meet -- the interior that used to
-    // survive whole is consumed. fill() re-runs MergeWindows after
-    // SnapWindowsToArcs; this test does not depend on which of the two
-    // MergeWindows calls folds these windows together.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -1674,10 +1242,6 @@ TEST(HdMapAdapter, ArcSnapAdjacentWindowsFromTwoCrossingsProduceOneContinuousCut
                   return a.points[0].x < b.points[0].x;
               });
 
-    // The OUTER bounds are exactly where the plain fixed backoff always put
-    // them (+/-2.0 m off the +/-5.5 m crossings) -- neither kink is close
-    // enough to the OUTER edge to move it; only the (now-vanished) interior
-    // moved.
     ASSERT_EQ(lane_a[0].point_count, 2u);
     EXPECT_DOUBLE_EQ(lane_a[0].points[0].x, -50.0);
     EXPECT_NEAR(lane_a[0].points[1].x, -7.5, 1e-9);
@@ -1687,15 +1251,6 @@ TEST(HdMapAdapter, ArcSnapAdjacentWindowsFromTwoCrossingsProduceOneContinuousCut
 }
 
 TEST(HdMapAdapter, PureArcCornerConnectorStillFramesItsOwnTwoRecordedEndpoints) {
-    // Edge case never observed in real data: a SHORT connector whose entire
-    // length between its own two recorded endpoints is one continuous
-    // corner arc (radius 6 m, ~45 deg total turn), crossed once. Stated
-    // behaviour, by design: the arc-snap can never swallow a polyline's own
-    // literal first/last vertex (FindArcSpanNear only tests INTERIOR
-    // vertices -- an endpoint has no far neighbour to compute curvature
-    // from), so even a 100%-arc connector still emits two short slivers
-    // framing its own two recorded ends, not zero pieces. This is the
-    // outward-only design's own stated ceiling, not a bug.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -1723,16 +1278,10 @@ TEST(HdMapAdapter, PureArcCornerConnectorStillFramesItsOwnTwoRecordedEndpoints) 
                   return a.points[0].x < b.points[0].x;
               });
 
-    // Head sliver: the connector's own literal FIRST point, plus the
-    // (unmoved -- the fixed backoff already reached further in than the
-    // arc's own near edge here) cut boundary.
     ASSERT_EQ(lane_a[0].point_count, 2u);
     EXPECT_NEAR(lane_a[0].points[0].x, 0.0, 1e-9);
     EXPECT_NEAR(lane_a[0].points[0].y, 0.0, 1e-9);
 
-    // Tail sliver: starts exactly at the arc's own far recorded vertex
-    // (4.242640687119285, 1.7573593128807143), not mid-curve, and still
-    // ends at the connector's own literal LAST point -- never dropped.
     ASSERT_EQ(lane_a[1].point_count, 2u);
     EXPECT_NEAR(lane_a[1].points[0].x, 4.242640687119285, 1e-9);
     EXPECT_NEAR(lane_a[1].points[0].y, 1.7573593128807143, 1e-9);
@@ -1741,17 +1290,6 @@ TEST(HdMapAdapter, PureArcCornerConnectorStillFramesItsOwnTwoRecordedEndpoints) 
 }
 
 TEST(HdMapAdapter, TerminalArcStubIsRemovedAndArcSnapStaysSafeAtTheClamp) {
-    // A crossing lands close enough to lane 1's own recorded END that the
-    // fixed kJunctionCutBackoffM=2.0 m window already clamps past its own
-    // total length (a terminal cut, not observed in the real bag but the
-    // mechanism must still behave correctly when it happens): the tail stub
-    // must be REMOVED ENTIRELY (zero pieces on that side), not left as a
-    // tiny leftover. There IS a real corner arc near that same boundary
-    // (the crossing lands inside it) -- this pins that FindArcSpanNear
-    // finding one there does NOT resurrect the already-clamped tail (the
-    // max() snap in SnapWindowsToArcs is a no-op whenever the arc's own far
-    // edge sits BEFORE the already-larger clamped boundary, exactly like
-    // here).
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -1766,10 +1304,6 @@ TEST(HdMapAdapter, TerminalArcStubIsRemovedAndArcSnapStaysSafeAtTheClamp) {
                     {7.928203230275509, 3.999999999999999},
                     {8.727406610312546, 5.929447639179834},
                     {9.0, 7.999999999999999}}),
-        // Crosses the final segment (index6->7) at arc-length 42.5, i.e.
-        // (8.865490872405871, 6.978301740877824) -- 1.03 m from lane 1's
-        // own recorded end (total length 43.53051445312495), well inside
-        // kJunctionCutBackoffM=2.0 m of it.
         LineMarker("left_boundary_b", 2, {{-10.0, 6.978301740877824}, {20.0, 6.978301740877824}}),
     };
     a.ingest(arr, 1.0);
@@ -1782,12 +1316,6 @@ TEST(HdMapAdapter, TerminalArcStubIsRemovedAndArcSnapStaysSafeAtTheClamp) {
     }
     ASSERT_EQ(lane_a.size(), 1u) << "the tail stub is gone -- only the head piece survives";
 
-    // Head piece: the arc-snap DOES fire here (the fixed backoff at 40.5 m
-    // landed mid-curve too) and extends it out to a real recorded vertex,
-    // exactly as ArcSnapExtendsCutPastFixedBackoffToTheCornerArcsFarEdge
-    // pins on the equivalent entry-side geometry -- reaching all the way
-    // back to v2, the run's own true near end (v2..v6, all R=8.0 m), not
-    // just the farthest vertex the +/-6.0 m search margin alone could reach.
     ASSERT_EQ(lane_a[0].point_count, 3u);
     EXPECT_DOUBLE_EQ(lane_a[0].points[0].x, -30.0);
     EXPECT_NEAR(lane_a[0].points[2].x, 3.070552360820166, 1e-9);
@@ -1795,23 +1323,6 @@ TEST(HdMapAdapter, TerminalArcStubIsRemovedAndArcSnapStaysSafeAtTheClamp) {
 }
 
 TEST(HdMapAdapter, ArcSnapReachesTheArcsTrueStartEvenBeyondTheOldSearchMargin) {
-    // When a qualifying arc run's own true start lies more than
-    // kArcSearchMarginM=6.0 m before the fixed-backoff boundary,
-    // FindArcSpanNear extends a run outward past the search margin while
-    // curvature keeps clearing kArcRadiusThresholdM (see that function's own
-    // comment), so the snap reaches the run's own true first vertex, not
-    // just the farthest vertex the search margin alone could see. This is a
-    // real, committed instance, not a hypothetical: lane_a's 10 points below
-    // are LocalElementsFixtureYieldsLanesAndCrosswalks' own real recorded
-    // lane 792 vertices (hd_map_local_elements_0.yaml), and lane_b crosses
-    // at that same fixture's own one genuine crossing point, (-40.36,-21.90)
-    // -- reproduced standalone here so this specific case is pinned by a
-    // dedicated, self-contained test.
-    //
-    // Lane 792's real contiguous R<kArcRadiusThresholdM run is vertices
-    // 4..7 (station 17.114 to 24.822, 73.96 deg total turn) -- by
-    // FindArcSpanNear's own definition of an arc, THIS is where the fillet
-    // actually starts, and it is where the snap lands.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -1822,12 +1333,10 @@ TEST(HdMapAdapter, ArcSnapReachesTheArcsTrueStartEvenBeyondTheOldSearchMargin) {
                     {-46.771308183612035, -6.249399325630099},
                     {-46.78021262964802, -9.742296952272927},
                     {-46.547218708994116, -12.837935483912194},
-                    {-46.4658864625989, -14.974389719737527},   // vertex 4, station 17.114 --
-                                                                // the arc's OWN true start
-                    {-46.0651262769608, -17.148459112710047},   // vertex 5, station 19.324
-                    {-44.95378149894339, -19.77721103359962},   // vertex 6, station 22.178 --
-                                                                // the search margin's own reach
-                    {-42.79181672520813, -21.299520261110413},  // vertex 7, station 24.822
+                    {-46.4658864625989, -14.974389719737527},
+                    {-46.0651262769608, -17.148459112710047},
+                    {-44.95378149894339, -19.77721103359962},
+                    {-42.79181672520813, -21.299520261110413},
                     {-38.17917117284436, -22.437475517352055},
                     {-30.297919317257183, -23.46468621338738}}),
         LineMarker("left_boundary_b", 685,
@@ -1847,9 +1356,6 @@ TEST(HdMapAdapter, ArcSnapReachesTheArcsTrueStartEvenBeyondTheOldSearchMargin) {
                   return a.points[0].x < b.points[0].x;
               });
 
-    // Head piece: stops at vertex 4, the arc's own TRUE start -- reached in
-    // full even though it lies 5.065 m past the +/-6.0 m search margin from
-    // the fixed-backoff boundary (25.3276 m).
     const auto& head = lane_a[0];
     ASSERT_EQ(head.point_count, 5u);
     EXPECT_NEAR(head.points[0].x, -46.980491978360725, 1e-9) << "lane's own literal first vertex";
@@ -1857,10 +1363,6 @@ TEST(HdMapAdapter, ArcSnapReachesTheArcsTrueStartEvenBeyondTheOldSearchMargin) {
         << "vertex 4 -- the arc's own true start";
     EXPECT_NEAR(head.points[4].y, -14.974389719737527, 1e-6);
 
-    // Tail piece: untouched -- the arc-snap's own outward-only max() never
-    // moves this boundary, since the far side's own reachable run (the same
-    // vertex 4..7 run, extended the same way from this side) never exceeds
-    // the fixed-backoff boundary already at 29.3276.
     const auto& tail = lane_a[1];
     ASSERT_EQ(tail.point_count, 3u);
     EXPECT_NEAR(tail.points[2].x, -30.297919317257183, 1e-9) << "lane's own literal last vertex";
@@ -1868,19 +1370,6 @@ TEST(HdMapAdapter, ArcSnapReachesTheArcsTrueStartEvenBeyondTheOldSearchMargin) {
 }
 
 TEST(HdMapAdapter, RedundantArcTailTrimCutsBackToTheCornerArcsDepartureVertex) {
-    // lane 1's own recorded polyline: a straight lead-in, then the SAME
-    // R=8 m/75 deg corner arc ArcSnapExtendsCutPastFixedBackoffToTheCorner
-    // ArcsFarEdge above uses, then a straight tail continuing 12 m past the
-    // arc's own rejoin vertex (v6) -- that tail is the redundant leftover.
-    // lane 2 is a SEPARATE, independently-promoted ROAD_EDGE piece that is
-    // what this tail actually duplicates: it shares lane 1's own exact
-    // final vertex (9.0, 20.0) and runs within 0.30 m of lane 1's own tail
-    // the whole way -- the measured discriminator (kSharedNodeEpsM at the
-    // shared vertex, kRoadEdgeCoincidenceThresholdM at the vertex just
-    // before it). No crossing exists anywhere in this scene (unlike the
-    // ArcSnap* tests above) -- this mechanism does not need one, matching
-    // the real confirmed instance (lane 955), which has no crossing
-    // anywhere near its own tail either.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -1893,9 +1382,9 @@ TEST(HdMapAdapter, RedundantArcTailTrimCutsBackToTheCornerArcsDepartureVertex) {
                     {5.0, 1.0717967697244903},
                     {6.65685424949238, 2.3431457505076194},
                     {7.928203230275509, 3.999999999999999},
-                    {8.727406610312546, 5.929447639179834},  // v6 -- the arc's own rejoin vertex
-                    {9.0, 8.0},                              // redundant tail starts
-                    {9.0, 20.0}}),                           // redundant tail ends, shared vertex
+                    {8.727406610312546, 5.929447639179834},
+                    {9.0, 8.0},
+                    {9.0, 20.0}}),
         LineMarker("left_boundary_b", 2, {{9.3, 8.0}, {9.0, 20.0}}),
     };
     a.ingest(arr, 1.0);
@@ -1911,8 +1400,6 @@ TEST(HdMapAdapter, RedundantArcTailTrimCutsBackToTheCornerArcsDepartureVertex) {
 
     ASSERT_EQ(lane_a.size(), 1u) << "no crossing exists -- the trim is the only cut on this piece";
     ASSERT_EQ(lane_a[0].point_count, 7u) << "v0..v6 kept -- the redundant tail (v7,v8) is gone";
-    // Upstream approach AND the arc itself are untouched -- the trim only
-    // ever looks at vertices past the arc's own rejoin vertex.
     EXPECT_NEAR(lane_a[0].points[0].x, -5.0, 1e-9) << "lane's own literal first vertex, unmoved";
     EXPECT_NEAR(lane_a[0].points[0].y, 0.0, 1e-9);
     EXPECT_NEAR(lane_a[0].points[6].x, 8.727406610312546, 1e-9)
@@ -1924,19 +1411,6 @@ TEST(HdMapAdapter, RedundantArcTailTrimCutsBackToTheCornerArcsDepartureVertex) {
 }
 
 TEST(HdMapAdapter, RedundantArcTailTrimDoesNotFireOnAnOpenElbowConnector) {
-    // Measured false-positive class: a tail's own last vertex CAN coincide
-    // exactly with another piece's own endpoint (kSharedNodeEpsM does NOT
-    // discriminate this case, see hd_map.cpp's own comment on that constant)
-    // while the vertex just before it sits outside
-    // kRoadEdgeCoincidenceThresholdM of that other piece's polyline, so the
-    // trim correctly does not fire. Pinned here at lane 232's own measured
-    // value -- the nearest legitimate straight edge sits at 1.5366 m, only
-    // a 1.73x margin past kRoadEdgeCoincidenceThresholdM=1.0 m, rather than
-    // an arbitrary far distance, so a future change eroding that real
-    // margin fails this test. Same lane-1 arc geometry as the test above;
-    // lane 2 now reaches the shared vertex from a direction whose
-    // penultimate-vertex distance sits just past the real measured boundary
-    // instead of far past it.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -1970,21 +1444,6 @@ TEST(HdMapAdapter, RedundantArcTailTrimDoesNotFireOnAnOpenElbowConnector) {
 }
 
 TEST(HdMapAdapter, RedundantArcTailTrimFiresOnTheWorstMeasuredTrueCase) {
-    // Companion to the false-case test above: pins the OTHER side of the
-    // real discriminating band. Lane 792 was the worst (largest lateral
-    // offset) of the 14 real bag-wide true cases (re-derived per-message,
-    // order-independent discriminator -- see hd_map.cpp's own corrected
-    // comment; three instances an earlier order-dependent measurement had
-    // misfiled as false, lanes 644/1305/14605@hi=8, are true cases too, but
-    // lane 792 remains the worst of all 14), at 0.8883 m -- still
-    // comfortably inside kRoadEdgeCoincidenceThresholdM=1.0 m, but only a
-    // 1.73x margin from lane 232's 1.5366 m false case above (not the
-    // ~30x this file used to wrongly attribute to kSharedNodeEpsM).
-    // Bracketing both sides of that measured 0.8883/1.5366 m band around
-    // the 1.0 m gate means a future change to that constant that erodes
-    // either margin fails a test. Same lane-1 arc geometry as both tests
-    // above; lane 2's penultimate-vertex distance sits just inside the
-    // measured true-case boundary instead of deep inside it.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -2018,12 +1477,6 @@ TEST(HdMapAdapter, RedundantArcTailTrimFiresOnTheWorstMeasuredTrueCase) {
 }
 
 TEST(HdMapAdapter, RedundantArcTailTrimDoesNotFireJustOutsideTheSharedNodeEpsilon) {
-    // Pins condition (a), kSharedNodeEpsM, for the piece that never shares
-    // an endpoint at all: lane 2's near endpoint sits 0.20 m from lane 1's
-    // own tail end -- outside kSharedNodeEpsM=0.10 m -- even though it
-    // otherwise runs close alongside lane 1's tail exactly like the
-    // confirmed-duplicate test above. Proximity along the way is not enough
-    // without the shared-endpoint condition too.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -2055,21 +1508,6 @@ TEST(HdMapAdapter, RedundantArcTailTrimDoesNotFireJustOutsideTheSharedNodeEpsilo
 }
 
 TEST(HdMapAdapter, NeighborArcDepartureSnapCutsBackAStraightEdgeOvershootingTheCorner) {
-    // A straight boundary sharing a corner-arc lane's start node, but
-    // carrying no arc of its own, dead-ends past the corner's own departure
-    // vertex under the plain fixed-backoff crossing cut -- this test targets
-    // that straight neighbour, not the corner-arc lane itself.
-    //
-    // lane 1: the SAME R=8 m/75 deg corner arc the ArcSnap*/
-    // RedundantArcTailTrim* tests above use (v0 = shared node, v2 = the
-    // corner's own departure vertex, v6 = rejoin -- unused here, no tail
-    // needed). lane 3: a plain straight boundary sharing lane 1's own start
-    // node (-5,0), crossed by an unrelated lane 4 far past the corner at
-    // x=15 -- the fixed kJunctionCutBackoffM=2.0 m back-off alone puts
-    // lane 3's own kept head at x=13, station 18, well past v2 at station
-    // 8.0706. lane 4 is placed at x=15 (far past lane 1's own x<=8.73
-    // extent) specifically so it crosses ONLY lane 3, not lane 1 --
-    // isolating this mechanism from the ordinary crossing-cut.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -2078,7 +1516,7 @@ TEST(HdMapAdapter, NeighborArcDepartureSnapCutsBackAStraightEdgeOvershootingTheC
         LineMarker("left_boundary_a", 1,
                    {{-5.0, 0.0},
                     {1.0, 0.0},
-                    {3.070552360820166, 0.2725933896874535},  // v2 -- the corner's own departure
+                    {3.070552360820166, 0.2725933896874535},
                     {5.0, 1.0717967697244903},
                     {6.65685424949238, 2.3431457505076194},
                     {7.928203230275509, 3.999999999999999},
@@ -2106,30 +1544,18 @@ TEST(HdMapAdapter, NeighborArcDepartureSnapCutsBackAStraightEdgeOvershootingTheC
                   return x.points[0].x < y.points[0].x;
               });
 
-    // Head piece: WITHOUT this fix, the fixed backoff alone would keep this
-    // at x=13 (station 18). With it, the boundary is pulled back to v2's
-    // own station projected onto lane 3's straight line -- the exact
-    // physical point where lane 1's own curb starts curving away.
     ASSERT_EQ(lane_c[0].point_count, 2u);
     EXPECT_NEAR(lane_c[0].points[0].x, -5.0, 1e-9) << "lane 3's own literal start, unmoved";
     EXPECT_NEAR(lane_c[0].points[1].x, 3.070552360820166, 1e-9)
         << "pulled back to v2's own station -- not left at the old fixed-backoff x=13";
     EXPECT_NEAR(lane_c[0].points[1].y, 0.0, 1e-9);
 
-    // Tail piece: lane 3's own end (30,0) shares no node with anything --
-    // untouched, still at the old fixed-backoff point (x=17).
     ASSERT_EQ(lane_c[1].point_count, 2u);
     EXPECT_NEAR(lane_c[1].points[0].x, 17.0, 1e-9);
     EXPECT_NEAR(lane_c[1].points[1].x, 30.0, 1e-9);
 }
 
 TEST(HdMapAdapter, NeighborArcDepartureSnapDoesNotFireWithoutASharedNode) {
-    // Pins the scoping condition: moving lane 3's own start 0.2 m away from
-    // lane 1's start -- outside kSharedNodeEpsM=0.10 m, the SAME
-    // node-coincidence gate TrimRedundantArcTails's own condition (a) uses
-    // -- means no neighbour is found to snap to at all, so the ordinary
-    // fixed-backoff crossing-cut boundary is left exactly where it was.
-    // Same scene as the test above otherwise.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -2167,9 +1593,6 @@ TEST(HdMapAdapter, NeighborArcDepartureSnapDoesNotFireWithoutASharedNode) {
 }
 
 TEST(HdMapAdapter, OneMarkerCountsAsOneIngestedMarkerForStats) {
-    // A centerline marker is one MARKER on the wire and one ingest() call,
-    // producing one MapElement (dashing moved renderer-side) -- msgs and
-    // the dropped_* counters reflect that one marker.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
     a.ingest(StraightTenMeterMarker("centerline_x"), 1.0);
@@ -2184,13 +1607,7 @@ TEST(HdMapAdapter, OneMarkerCountsAsOneIngestedMarkerForStats) {
     EXPECT_EQ(a.stats().dropped_no_tf, 0u);
 }
 
-// ── rviz-parity: points[] are RELATIVE to marker.pose ────────────────────
-
 TEST(HdMapAdapter, MarkerPoseComposesRotationBeforeTranslation) {
-    // pose position (10,20,0), yaw +90 deg, points (0,0) and (5,0) -> stored
-    // (10,20) and (10,25) -- rotation applied BEFORE translation, per
-    // tf2::Transform's own point-multiply composition order. Single marker,
-    // so it stays exactly one MapElement.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -2199,11 +1616,11 @@ TEST(HdMapAdapter, MarkerPoseComposesRotationBeforeTranslation) {
     m.header.frame_id = "map";
     m.ns = "centerline_x";
     m.id = 1;
-    m.type = 4;  // LINE_STRIP
+    m.type = 4;
     m.action = 0;
     m.pose.position.x = 10.0;
     m.pose.position.y = 20.0;
-    constexpr double kQuarterTurn = 0.70710678118654752440;  // sin/cos(45 deg)
+    constexpr double kQuarterTurn = 0.70710678118654752440;
     m.pose.orientation.z = kQuarterTurn;
     m.pose.orientation.w = kQuarterTurn;
     geometry_msgs::msg::Point p0;
@@ -2225,10 +1642,6 @@ TEST(HdMapAdapter, MarkerPoseComposesRotationBeforeTranslation) {
 }
 
 TEST(HdMapAdapter, IdentityMarkerPoseIsByteIdenticalToRawPoints) {
-    // Same shape marker, pose left at its default (all-zero position,
-    // identity quaternion -- geometry_msgs' own default, Quaternion.msg's
-    // `float64 w 1`) -- must reproduce today's un-posed behaviour exactly:
-    // no rotation, no translation (regression for the identity fast path).
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
     a.ingest(StraightTenMeterMarker("centerline_x"), 1.0);
@@ -2244,9 +1657,6 @@ TEST(HdMapAdapter, IdentityMarkerPoseIsByteIdenticalToRawPoints) {
 }
 
 TEST(HdMapAdapter, NanMarkerPoseIsDroppedAsMalformedNotAppliedRaw) {
-    // A pose on a marker is normal Marker semantics -- a NaN pose is not.
-    // The malformed marker is dropped; a valid neighbour still comes
-    // through (spec §9, "drop the one primitive, never propagate").
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
 
@@ -2267,21 +1677,12 @@ TEST(HdMapAdapter, NanMarkerPoseIsDroppedAsMalformedNotAppliedRaw) {
     EXPECT_DOUBLE_EQ(out.map_elements[0].points[1].x, 10.0);
 }
 
-// DashChopHappensAfterPoseComposition: DELETED. Its premise -- an
-// adapter-side chop that could theoretically run before vs. after pose
-// composition -- no longer exists: chopping is entirely renderer-side now
-// and only ever sees already-posed points crossing the ABI boundary.
-
 TEST(HdMapAdapter, ZeroQuaternionPoseIsTreatedAsIdentityRotationNotNan) {
-    // rviz renders a zero-filled orientation as identity (with a console
-    // warning); handing it to tf2 NaNs every point and silently voids the
-    // whole marker as dropped_malformed. Zero quat + translation -> points
-    // still come through translated, nothing counted malformed.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
     auto arr = StraightTenMeterMarker("centerline_x");
     arr.markers[0].pose.position.y = 7.0;
-    arr.markers[0].pose.orientation.w = 0.0;  // all-zero quaternion
+    arr.markers[0].pose.orientation.w = 0.0;
     a.ingest(arr, 1.0);
 
     SceneAssembly out;
@@ -2294,8 +1695,6 @@ TEST(HdMapAdapter, ZeroQuaternionPoseIsTreatedAsIdentityRotationNotNan) {
 }
 
 TEST(HdMapAdapter, NonZeroZPointsAreFlattenedToTheMapPlane) {
-    // flatten_z: the HD map is a 2D plane, so publisher z must not float
-    // geometry above it. Default is ON.
     TfFixture kTf;
     overlume::ros::HdMapAdapter a(MapRuleRow(), kTf.tf);
     auto arr = StraightTenMeterMarker("centerline_x");
@@ -2310,11 +1709,8 @@ TEST(HdMapAdapter, NonZeroZPointsAreFlattenedToTheMapPlane) {
 }
 
 TEST(HdMapAdapter, FlattenZOffPreservesPublisherZ) {
-    // A FrameTransformer built with flatten_z=false passes z through
-    // untouched -- the switch to flip when the HD-map layer grows 3D
-    // coordinates.
     TfFixture kTf;
-    overlume::ros::FrameTransformer tf3d(kTf.buffer, "map", /*flatten_z=*/false);
+    overlume::ros::FrameTransformer tf3d(kTf.buffer, "map", false);
     overlume::ros::HdMapAdapter a(MapRuleRow(), tf3d);
     auto arr = StraightTenMeterMarker("centerline_x");
     for (auto& p : arr.markers[0].points) p.z = 3.0;

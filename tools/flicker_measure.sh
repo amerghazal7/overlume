@@ -2,21 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Amer Ghazal
 
-# flicker_measure.sh — VM-077 carpet-flicker rig (2026-09-10).
-#
-# Stands up ONE continuous overlume_node + tf_flatten_fixture.py +
-# ros2 bag play session (same invocation pattern validate_visual_mode.sh
-# uses) and runs flicker_capture.py against it, which toggles
-# layer_trajectory_carpet live to sample both conditions from the SAME
-# bag window (see flicker_capture.py's own docstring for why that matters).
-#
-# Usage: tools/flicker_measure.sh [--out-dir PATH] [--bag PATH] [--qos PATH]
-#
-# Committed so the next measurement pass is reproducible from git, not just
-# from /tmp (2026-09-10 code review finding).
 set -euo pipefail
-set -m  # own process group per background job -- see validate_visual_mode.sh's
-        # own comment on this; same teardown hazard applies here.
+set -m
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BAG="${HOME}/TPSProjector-fixtures/stack_v3_full_sensors_2026-09-11"

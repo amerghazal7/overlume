@@ -1,21 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// 02_scene_population.cpp — populates the core driving-scene categories the
-// scene graph carries (ego, one tracked object per ObjectClass, one map
-// element per MapKind including the road surface + a crosswalk, and one
-// behavior path ribbon), then renders it. See scene.h for the full field
-// docs; ground grids, generic markers, HUD, and trajectory carpets are not
-// built here (point clouds/alerts: 06_overlays_and_pointcloud.cpp). Public
-// headers only: <overlume/api.h>, <overlume/scene.h>.
-//
-// THE FREEZE-FRAME / DOUBLE-BUFFER CONTRACT, demonstrated + enforced below:
-// set_scene() deep-copies `scene` into the renderer's own staging buffer and
-// atomically swaps which slot is "active" — it does NOT render, and every
-// array below may be freed the instant it returns. render_frame() always
-// re-derives the picture from whatever was last PUBLISHED, so a
-// render_frame() with no intervening set_scene() simply re-renders the same
-// scene — one set_scene(), two render_frame()s, failing exit if they differ.
 #include <overlume/api.h>
 #include <overlume/scene.h>
 
@@ -28,12 +13,6 @@
 
 namespace {
 
-// Counts bytes that differ by more than `tolerance` between two equal-sized
-// RGB8 buffers. GPU rendering has a little dithering/AO-sampling noise frame
-// to frame even with a fully static scene/camera (measured here: 1.74% of
-// bytes, 16002/921600) -- an exact byte-for-byte compare would be the wrong
-// tool, so this reuses the tolerance-then-threshold shape of
-// overlume/tests/test_environment.cpp's count_differing_bytes().
 size_t count_differing_bytes(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b,
                              int tolerance = 1) {
     size_t n = 0;
@@ -63,14 +42,12 @@ int main(int argc, char** argv) {
     }
     overlume_examples::apply_model_dir(renderer, args);
 
-    // ── Ego ──────────────────────────────────────────────────────────────
     overlume::EgoState ego{};
     ego.position = {0.0, 0.0, 0.0};
     ego.heading_rad = 0.0;
     ego.speed_mps = 8.0;
-    ego.valid = 1;  // 0 would hide the ego entirely (no TF yet)
+    ego.valid = 1;
 
-    // ── One TrackedObject per ObjectClass, fanned out along +X ──────────
     std::vector<overlume::TrackedObject> objects;
     const overlume::ObjectClass classes[] = {
         overlume::ObjectClass::CAR,     overlume::ObjectClass::TRUCK_VAN,
@@ -83,8 +60,7 @@ int main(int argc, char** argv) {
         obj.cls = classes[i];
         obj.position = {10.0 + static_cast<double>(i) * 6.0, 6.0, 0.0};
         obj.heading_rad = 0.0;
-        obj.dimensions = {4.5, 1.9,
-                          1.6};  // a plausible car-sized box; per-class fidelity is cosmetic
+        obj.dimensions = {4.5, 1.9, 1.6};
         obj.velocity = {5.0, 0.0, 0.0};
         obj.predicted_path = nullptr;
         obj.predicted_path_count = 0;
@@ -93,10 +69,6 @@ int main(int argc, char** argv) {
         objects.push_back(obj);
     }
 
-    // ── One MapElement per MapKind (scene.h enumerates 9); CROSSWALK and
-    //    ROAD_SURFACE are polygons (is_polygon=1), the rest polylines.
-    //    Illustrative points, not a real HD-map extraction (see
-    //    ros/src/overlume_ros for a real adapter) ─────────────────────────
     std::vector<overlume::Vec3> centerline_pts = {{0, -2, 0}, {40, -2, 0}};
     std::vector<overlume::Vec3> left_boundary_pts = {{0, -3.5, 0}, {40, -3.5, 0}};
     std::vector<overlume::Vec3> right_boundary_pts = {{0, -0.5, 0}, {40, -0.5, 0}};
@@ -137,7 +109,6 @@ int main(int argc, char** argv) {
         map_elements.push_back(el);
     }
 
-    // ── One behavior-role path ribbon (ego's planned/predicted path) ────
     std::vector<overlume::Vec3> ribbon_pts = {{0, -2, 0}, {15, -2, 0}, {25, -3, 0}, {40, -3, 0}};
     overlume::PathRibbon ribbon{};
     ribbon.role = overlume::PathRole::BEHAVIOR;
@@ -155,15 +126,12 @@ int main(int argc, char** argv) {
     scene.map_elements = map_elements.data();
     scene.map_element_count = static_cast<uint32_t>(map_elements.size());
 
-    // One publish. Every array above may now be left alone or go out of
-    // scope after this call — overlume already copied what it needs.
     overlume::set_scene(renderer, scene);
 
     overlume::CameraPose pose{{-6.0, -14.0, 14.0}, {18.0, 0.0, 0.0}, 60.0};
     std::vector<uint8_t> rgb(static_cast<size_t>(config.width) * config.height * 3);
     overlume::FrameView view{rgb.data(), config.width, config.height};
 
-    // First render of the published scene.
     if (!overlume::render_frame(renderer, pose, view)) {
         std::fprintf(stderr, "02_scene_population: render_frame() failed\n");
         overlume::destroy_renderer(renderer);
@@ -171,19 +139,11 @@ int main(int argc, char** argv) {
     }
     std::vector<uint8_t> first = rgb;
 
-    // Second render, no set_scene() in between: the freeze-frame contract
-    // says this must reproduce the same picture, not go blank or drift.
     if (!overlume::render_frame(renderer, pose, view)) {
         std::fprintf(stderr, "02_scene_population: render_frame() (freeze-frame check) failed\n");
         overlume::destroy_renderer(renderer);
         return 1;
     }
-    // Same content, not necessarily the same bytes: a little GPU dithering/
-    // AO/TAA-jitter noise between two static renders is normal -- measured
-    // 1.74% here, so nBytes/4 leaves a wide margin above that (single-GPU-box
-    // calibration; a noisier GPU/driver may need it raised) while still
-    // catching a real regression (a blank/dropped frame differs by most of
-    // the buffer). Enforced, not just printed: a violation fails this example.
     const size_t diff = count_differing_bytes(first, rgb);
     const size_t nBytes = first.size();
     if (diff < nBytes / 4) {

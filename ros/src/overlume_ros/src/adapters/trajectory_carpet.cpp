@@ -12,9 +12,6 @@
 namespace overlume::ros {
 namespace {
 
-// visualization_msgs/msg/Marker.msg action + type constants -- not worth a
-// dependency on the generated enum names for values used once each (same
-// convention as collision.cpp/generic_marker.cpp).
 constexpr int32_t kActionAdd = 0;
 constexpr int32_t kActionDeleteAll = 3;
 constexpr int32_t kTypeTriangleList = 11;
@@ -23,9 +20,6 @@ bool HasNan(double x, double y, double z) {
     return std::isnan(x) || std::isnan(y) || std::isnan(z);
 }
 
-// A marker's own pose is RELATIVE to the header frame -- same pair as every
-// other adapter's own copy (hd_map.cpp/dynamic_objects.cpp/collision.cpp/
-// generic_marker.cpp; each file keeps its own rather than a shared header).
 bool MarkerPoseIsIdentity(const geometry_msgs::msg::Pose& p) {
     constexpr double kEps = 1e-12;
     return std::abs(p.position.x) < kEps && std::abs(p.position.y) < kEps &&
@@ -51,12 +45,10 @@ void TrajectoryCarpetAdapter::ingest(const visualization_msgs::msg::MarkerArray&
     ++stats_.msgs;
     if (msg.markers.empty()) return;
 
-    // ONE lookup for the whole message -- same convention as every other
-    // marker adapter in this node.
     tf2::Transform xform;
     if (!tf_.lookup(msg.markers.front().header, xform)) {
         ++stats_.dropped_no_tf;
-        return;  // whole message dropped; previously-stored carpet stays
+        return;
     }
 
     for (const auto& m : msg.markers) {
@@ -65,11 +57,8 @@ void TrajectoryCarpetAdapter::ingest(const visualization_msgs::msg::MarkerArray&
             storage_.clear();
             continue;
         }
-        if (m.action != kActionAdd) continue;  // ignore DELETE(ns,id) -- one persistent marker
+        if (m.action != kActionAdd) continue;
 
-        // Always a multiple of 6 (measured, 1647/1647 ADD markers) -- two
-        // triangles per dual-rail quad, not just "a multiple of 3" (this
-        // file's own header comment has the full pairing algorithm).
         if (m.type != kTypeTriangleList || m.points.size() < 6 || m.points.size() % 6 != 0) {
             ++stats_.dropped_malformed;
             continue;
@@ -84,22 +73,13 @@ void TrajectoryCarpetAdapter::ingest(const visualization_msgs::msg::MarkerArray&
             }
             tf2::Quaternion q(m.pose.orientation.x, m.pose.orientation.y, m.pose.orientation.z,
                               m.pose.orientation.w);
-            if (q.length2() < 1e-12) q = tf2::Quaternion::getIdentity();  // rviz parity
+            if (q.length2() < 1e-12) q = tf2::Quaternion::getIdentity();
             marker_tf = tf2::Transform(
                 q, tf2::Vector3(m.pose.position.x, m.pose.position.y, m.pose.position.z));
         }
 
-        // A length mismatch means the WHOLE colors[] array is suspect (not
-        // a per-station concern) -- every station falls back to the
-        // alpha==0 sentinel together, same "whole-message fallback" rule
-        // this file's header comment states.
         const bool per_point_colors = m.colors.size() == m.points.size();
 
-        // Transforms ONE raw wire point (marker pose, then the message's
-        // one TF lookup, then flatten_z) -- same per-point composition
-        // every other adapter uses. Returns false (NaN) rather than
-        // throwing; the whole message is dropped on any NaN, same "no
-        // partial carpet" rule the old flat path used.
         auto transform_point = [&](size_t idx, tf2::Vector3* out) -> bool {
             const auto& p = m.points[idx];
             const tf2::Vector3 local(p.x, p.y, p.z);
@@ -111,10 +91,6 @@ void TrajectoryCarpetAdapter::ingest(const visualization_msgs::msg::MarkerArray&
             return true;
         };
 
-        // One centerline station from two raw corner indices (position:
-        // their midpoint) + one color index (colors[] alpha documented
-        // "not yet used"; force 255 so a supplied color always reads as
-        // "real", same convention GenericMarkerAdapter's fan_colors uses).
         auto make_station = [&](size_t idx_a, size_t idx_b, size_t color_idx,
                                 overlume::PointCloudPoint* out) -> bool {
             tf2::Vector3 a, b;
@@ -134,8 +110,6 @@ void TrajectoryCarpetAdapter::ingest(const visualization_msgs::msg::MarkerArray&
         stations.reserve(n_quads + 1);
         bool ok = true;
 
-        // station_0 = midpoint(quad_0.A, quad_0.B) = midpoint(points[0],
-        // points[1]), color from A (points[0]/colors[0]).
         overlume::PointCloudPoint s0{};
         if (!make_station(0, 1, 0, &s0)) {
             ok = false;
@@ -145,8 +119,6 @@ void TrajectoryCarpetAdapter::ingest(const visualization_msgs::msg::MarkerArray&
 
         for (size_t k = 0; ok && k < n_quads; ++k) {
             const size_t base = 6 * k;
-            // station_{k+1} = midpoint(quad_k.D, quad_k.C) = midpoint(
-            // points[base+5], points[base+4]), color from D (points[base+5]).
             overlume::PointCloudPoint sk1{};
             if (!make_station(base + 5, base + 4, base + 5, &sk1)) {
                 ok = false;
@@ -159,8 +131,6 @@ void TrajectoryCarpetAdapter::ingest(const visualization_msgs::msg::MarkerArray&
             continue;
         }
 
-        // REPLACES wholesale, never appends/merges -- same contract as
-        // PathAdapter (this file's own header comment).
         storage_ = std::move(stations);
         has_data_ = true;
         last_update_sec_ = sim_time_sec;

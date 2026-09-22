@@ -1,46 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
-// ribbon_emissive.mat — Epic 2 Task 5 (VM-023). The BEHAVIOR path ribbon's
-// material: the ref-1 "green hero glow" bloom, fed by palette.ribbon_core/
-// ribbon_glow + emissive.ribbon_strength. Bloom is already enabled in
-// renderer.cpp (BloomOptions, set up in Epic 1 precisely so this task needs
-// no renderer change to glow) -- this material only has to emit above the
-// bloom threshold.
-//
-// OPAQUE (flicker root-cause fix, 2026-09-10): this was `blending : fade`
-// so the BEHAVIOR ribbon could fade in place via its own alpha -- but that
-// parked the hero ribbon PERMANENTLY in Filament's blended queue, which
-// sorts per-renderable and writes no depth. Co-located with the (also
-// blended) velocity ribbon on the same spine, whichever strip was rebuilt
-// most recently drew LAST and fully overpainted the other at alpha 1 --
-// the exact binary teal on/off toggle of the live flicker report
-// (test_ribbon_dropout.cpp's BehaviorRibbonNeverVanishesUnderCoLocated-
-// CarpetChurn reproduces it against the fade version of this file).
-// Opaque writes depth, so the z-stagger (BEHAVIOR 0.058 above velocity
-// 0.052) decides visibility per-pixel regardless of draw order -- the same
-// reason fresh GLOBAL/LOCAL (opaque clay.mat) never flickered. Staleness
-// now fades via the clay_translucent.mat instance swap, the identical
-// mechanism GLOBAL/LOCAL always used (ribbon.cpp); the emissive glow is
-// not carried through the 1s death-fade (clay_translucent has no emissive
-// param), an accepted tradeoff -- both shipped themes author
-// emissive.ribbon_strength 0.0 today anyway.
-//
-// baseColor stays float4 (alpha ignored by the opaque pipeline) so
-// renderer.cpp's theme-apply writes need no signature change.
-//
-// NO COLOR VERTEX ATTRIBUTE DEMANDED: this ribbon's geometry comes from
-// extrude_polyline() (polyline.hpp), which emits position + tangent-frame
-// only -- no COLOR attribute, and must not grow one just to satisfy a
-// material's `requires:` line (clay_faded.mat's mistake, documented on
-// that file). So: no `requires:` line at all, exactly like clay.mat.
-//
-// LIT (not unlit): the glow reads as an EMISSIVE surface catching bloom, not
-// a flat self-lit decal -- `emissive.rgb` here is what Filament's bloom pass
-// actually keys off of (values driven above the tonemapper's 1.0 by
-// ribbonStrength read as a multiplier, not a fixed unlit color), and LIT
-// still gets a baseColor contribution from the scene's own lighting so the
-// ribbon doesn't go pitch-black if bloom/bloomStrength were ever tuned to
-// zero.
+
 material {
     name : ribbon_emissive,
     shadingModel : lit,
@@ -59,6 +19,6 @@ fragment {
         material.roughness = materialParams.roughness;
         material.metallic = materialParams.metallic;
         material.emissive.rgb = materialParams.emissiveColor * materialParams.emissiveStrength;
-        material.emissive.a = 0.0;  // Filament convention: emissive.a is NOT an alpha multiplier
+        material.emissive.a = 0.0;
     }
 }

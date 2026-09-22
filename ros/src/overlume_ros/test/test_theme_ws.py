@@ -55,32 +55,20 @@ import sys
 import time
 
 OUT_W, OUT_H = 160, 120
-# Default set_theme() transition_sec (overlume::set_theme's 0.8s default, see
-# scene.h) + margin for the node's 33ms tick + GPU scheduling jitter (may
-# be sharing the box with the live CARLA sim -- never assume an idle GPU).
 TRANSITION_SEC = 0.8
 WAIT_MARGIN_SEC = 2.0
-# A single timer tick is 33ms; the AC is "no frame drop > 1 tick" (~66ms at
-# 30Hz). 0.15s (~4-5 ticks) keeps GPU-contention headroom (last measured max
-# gap on this dev box was 0.039s) while still failing on a real per-frame
-# stall -- 1.0s was too loose to catch anything but a multi-second wedge.
 MAX_FRAME_GAP_SEC = 0.15
 
-# 4 levels up from this file is the repo root (see smoke_test.py's
-# 3-levels-up to INSTALL_DIR for the analogous offset).
 REPO_ROOT = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", ".."))
 INSTALL_DIR = os.path.join(REPO_ROOT, "ros", "install")
 BRIDGE_SCRIPT = os.path.join(REPO_ROOT, "tools", "vcam_ws_bridge.py")
-WS_PORT = 18766  # fixed test port; distinct from the default 8765 and from
-                  # tools/test_vcam_ws_bridge.py's own 18765
-
+WS_PORT = 18766
 
 def _popen(cmd: str) -> subprocess.Popen:
     return subprocess.Popen(["bash", "-c", cmd],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             start_new_session=True)
-
 
 def _kill(proc: subprocess.Popen):
     try:
@@ -96,14 +84,12 @@ def _kill(proc: subprocess.Popen):
             pass
         proc.wait()
 
-
 def _lifecycle(node_name: str, transition: str, timeout: float = 15.0) -> bool:
     cmd = f"source /opt/ros/humble/setup.bash && ros2 lifecycle set {node_name} {transition}"
     result = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, timeout=timeout)
     if result.returncode != 0:
         print(f"  [lifecycle {transition}] stderr: {result.stderr.strip()}", file=sys.stderr)
     return result.returncode == 0
-
 
 def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
     t0 = time.time()
@@ -113,11 +99,9 @@ def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
             return False
     return True
 
-
 def mean_abs_diff(a: bytes, b: bytes) -> float:
     n = min(len(a), len(b))
     return sum(abs(a[i] - b[i]) for i in range(n)) / n if n else 0.0
-
 
 def main() -> int:
     if not os.path.isdir(INSTALL_DIR):
@@ -144,7 +128,7 @@ def main() -> int:
     class FrameRecorder(Node):
         def __init__(self):
             super().__init__("theme_ws_frame_recorder")
-            self.frames: list[tuple[float, bytes]] = []  # (recv_time, rgb bytes)
+            self.frames: list[tuple[float, bytes]] = []
             self.create_subscription(Image, "/rendering/image", self._on_image, 10)
 
         def _on_image(self, msg: Image):
@@ -180,9 +164,6 @@ def main() -> int:
                 raise RuntimeError(f"could not connect to bridge: {last_err}")
 
             try:
-                # Drain frames for a moment so we have a real "before" frame
-                # rendered under the node's initial theme (dark_adas, the
-                # shipped default).
                 t0 = time.time()
                 while time.time() - t0 < 1.0:
                     rclpy.spin_once(recorder, timeout_sec=0.05)
@@ -192,7 +173,6 @@ def main() -> int:
 
                 await ws.send(json.dumps({"cmd": "set_theme", "theme": "light_clay"}))
 
-                # Keep collecting frames across the whole transition window.
                 t0 = time.time()
                 while time.time() - t0 < TRANSITION_SEC + WAIT_MARGIN_SEC:
                     rclpy.spin_once(recorder, timeout_sec=0.05)
@@ -207,9 +187,6 @@ def main() -> int:
 
         before_frame, after_frame = asyncio.run(run())
 
-        # (a) cadence: no gap between consecutive frames wider than
-        # MAX_FRAME_GAP_SEC across the whole observation window, including
-        # the moment the WS command landed.
         times = [t for t, _ in recorder.frames]
         gaps = [b - a for a, b in zip(times, times[1:])]
         max_gap = max(gaps) if gaps else 0.0
@@ -221,11 +198,6 @@ def main() -> int:
         print(f"INFO: max inter-frame gap {max_gap:.3f}s across {len(recorder.frames)} "
               f"frames -- OK.")
 
-        # (b) the theme actually finished blending: last frame must differ
-        # visibly from the pre-switch frame. dark_adas vs. light_clay differ
-        # by ~100+ mean luminance levels (tests/test_theme.cpp's own FrameStats
-        # guards) -- 10.0 is a generous noise floor, nowhere near that gap,
-        # so this only fails if the theme never actually changed on screen.
         diff = mean_abs_diff(before_frame, after_frame)
         if diff <= 10.0:
             print(f"FAIL: before/after set_theme frames are ~identical (mean abs "
@@ -246,7 +218,6 @@ def main() -> int:
         if bridge_proc is not None:
             _kill(bridge_proc)
         _kill(viz_proc)
-
 
 if __name__ == "__main__":
     sys.exit(main())

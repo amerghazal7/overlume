@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-/** @file callouts.cpp
- *  @brief See callouts.hpp.
- */
 #include "overlume_ros/callouts.hpp"
 
 #include <cmath>
@@ -13,17 +10,11 @@
 namespace overlume::ros {
 namespace {
 
-// Plain point-to-point distance -- same one-line formula every adapter file
-// already keeps its own local copy of (e.g. collision.cpp's own Dist());
-// not shared across translation units by convention in this package.
 double Dist(const overlume::Vec3& a, const overlume::Vec3& b) {
     const double dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-// Pixel offset from the anchor's own projected point to where the chip
-// text/leader-line start actually sits -- purely cosmetic (keeps the label
-// from sitting directly on top of the thing it's labeling).
 constexpr float kChipOffsetXPx = 24.0f;
 constexpr float kChipOffsetYPx = -24.0f;
 
@@ -45,11 +36,9 @@ bool BuildNearestCallout(overlume::VisualRenderer* renderer, const overlume::Ale
             }
         }
     }
-    if (!found) return false;  // no alert data this tick -- no chip to build
+    if (!found) return false;
 
     float x = 0.0f, y = 0.0f;
-    // Behind the camera / outside the frustum -- suppressed, not misdrawn
-    // (this task's own AC).
     if (!overlume::project_to_screen(renderer, best_anchor, &x, &y)) return false;
 
     std::snprintf(out.text, sizeof(out.text), "%.1f m", best_dist);
@@ -62,9 +51,6 @@ void DrawCallout(uint8_t* rgb, uint32_t width, uint32_t height, const Callout& c
                  HudRgb chip_rgb, float scale, const char* font_path) {
     const float ax = callout.anchor_x * static_cast<float>(width);
     const float ay = callout.anchor_y * static_cast<float>(height);
-    // Offsets scale with the theme's hud.scale (review 2026-09-09): fixed
-    // 24px offsets under grown glyphs would let the chip overlap the thing
-    // it labels.
     const float tx = ax + kChipOffsetXPx * scale;
     const float ty = ay + kChipOffsetYPx * scale;
     DrawLine(rgb, width, height, ax, ay, tx, ty, chip_rgb);

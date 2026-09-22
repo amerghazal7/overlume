@@ -1,20 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
-// alert_polygons.cpp — translucent collision alert polygons. Geometry
-// reuses triangulate_convex_polygon (polyline.hpp) — no second
-// triangulator. Every alert polygon lives on clay_translucent.mat from the
-// instant it exists, at its severity's constant alpha
-// (renderer_internal.hpp's kAlertSeverityAlpha); staleness_alpha() only
-// multiplies that constant down further while stale, via the same
-// per-entity MaterialInstance-swap objects.cpp/ribbon.cpp use.
-//
-// Z-order (alerts overlay everything): ground plane 0, ground-grid shading
-// 0.010/0.015 (ground_grid.cpp), HD-map lane paint/crosswalks 0.02
-// (map_elements.cpp), object predicted-path ribbons 0.03 (objects.cpp),
-// path ribbons 0.038-0.058 incl. the velocity ribbon at 0.052
-// (ribbon.cpp / trajectory_carpet.cpp), alert polygons here at 0.06 —
-// topmost.
 #include "alert_polygons.hpp"
 #include "alert_polygons_test_hooks.hpp"
 #include "polyline.hpp"
@@ -53,10 +39,6 @@ uint64_t hash_vec3(const Vec3& v) {
     return h;
 }
 
-// Content signature for one alert slot: severity + point count + first/last
-// point (same shape as ribbon.cpp's ribbon_signature()). Severity is
-// included so a slot re-homed to a different severity still rebuilds and
-// re-binds to the right template.
 uint64_t alert_signature(uint8_t severity, const Vec3* pts, uint32_t n) {
     uint64_t h = hash_combine(0, static_cast<uint64_t>(severity));
     h = hash_combine(h, static_cast<uint64_t>(n));
@@ -67,32 +49,15 @@ uint64_t alert_signature(uint8_t severity, const Vec3* pts, uint32_t n) {
     return h;
 }
 
-// z-lift for the fan-triangulated alert polygon; see file header for the
-// full z-stack. 0.06 sits above every other overlay (ribbons top out at
-// 0.05) so an alert never z-fights with what it's warning about.
 constexpr float kAlertZLiftM = 0.06f;
 
-// Rebuilds `slot`'s mesh from `poly`'s current points, bound to severity
-// `severity`'s opaque template (a fresh rebuild always starts there; the
-// staleness pass below re-applies a per-slot fade if already stale this
-// frame). Destroys any previous mesh first.
-//
-// Flat sequential uint16_t indexing (not ribbon.cpp's true-indexed
-// pattern): alert polygons are small, so a flat list plus a guard is
-// simplest here. The size check runs on a wide counter before any
-// uint16_t is assigned, so an oversized polygon fails loudly instead of
-// silently wrapping.
 void build_slot_mesh(VisualRenderer& r, VisualRenderer::AlertSlot& slot, const AlertPolygon& poly,
                      uint8_t severity) {
     if (slot.mesh.vb != nullptr) destroy_mesh(*r.engine, *r.scene, slot.mesh);
 
-    // The adapter stores rings closed (first == last), so the fan emits one
-    // zero-area trailing triangle per polygon -- accepted (a few wasted
-    // verts on an already-tiny mesh) rather than special-casing closed-ring
-    // detection here. Not a bug.
     std::vector<Vec3> tris =
         detail::triangulate_convex_polygon(poly.points, poly.point_count, kAlertZLiftM);
-    if (tris.empty()) return;  // malformed/degenerate -- nothing to render this frame
+    if (tris.empty()) return;
 
     if (tris.size() > 65535) {
         std::fprintf(stderr,
@@ -110,12 +75,9 @@ void build_slot_mesh(VisualRenderer& r, VisualRenderer::AlertSlot& slot, const A
 
     add_mesh(r, slot.mesh, std::move(verts), std::move(indices),
              filament::RenderableManager::PrimitiveType::TRIANGLES, r.alertMaterial[severity],
-             /*cast_shadows=*/false, /*receive_shadows=*/true);
+             false, true);
 }
 
-// Rebinds slot `slot`'s one renderable primitive to `mat` for the
-// fresh<->stale swap (single-mesh specialization of objects.cpp's
-// remap_to_material() / ribbon.cpp's rebind_slot_material()).
 void rebind_slot_material(VisualRenderer& r, VisualRenderer::AlertSlot& slot,
                           filament::MaterialInstance* mat) {
     if (!slot.mesh.entity) return;
@@ -127,7 +89,6 @@ void rebind_slot_material(VisualRenderer& r, VisualRenderer::AlertSlot& slot,
 }  // namespace
 
 void update_alert_polygons(VisualRenderer& r, const SceneGraph& s) {
-    // Release slots >= alert_count.
     while (r.alertSlots.size() > s.alert_count) {
         VisualRenderer::AlertSlot& slot = r.alertSlots.back();
         if (slot.mesh.vb != nullptr) destroy_mesh(*r.engine, *r.scene, slot.mesh);
@@ -140,10 +101,6 @@ void update_alert_polygons(VisualRenderer& r, const SceneGraph& s) {
         const AlertPolygon& poly = s.alerts[i];
         VisualRenderer::AlertSlot& slot = r.alertSlots[i];
 
-        // ponytail: severity is a raw uint8_t (no frozen enum here); clamp
-        // defensively to critical (fail open to most visible) instead of
-        // indexing out of bounds — node-side validation upstream is the
-        // real guarantee this never fires.
         const uint8_t severity =
             poly.severity < VisualRenderer::kAlertSeverityCount
                 ? poly.severity
@@ -151,9 +108,6 @@ void update_alert_polygons(VisualRenderer& r, const SceneGraph& s) {
 
         const uint64_t sig = alert_signature(severity, poly.points, poly.point_count);
         if (!slot.has_signature || slot.signature != sig) {
-            // Content or severity changed -- full rebuild. Drop any live
-            // fade instance (stale bookkeeping for the old geometry) and
-            // let the staleness pass below re-decide from scratch.
             if (slot.fadeInstance != nullptr) {
                 r.engine->destroy(slot.fadeInstance);
                 slot.fadeInstance = nullptr;
@@ -176,9 +130,6 @@ void update_alert_polygons(VisualRenderer& r, const SceneGraph& s) {
             }
             slot.fadeAlpha = kAlertSeverityAlpha[slot.severity];
         } else {
-            // Per-entity MaterialInstance swap (same mechanism as
-            // objects.cpp/ribbon.cpp) -- never MaterialInstance::duplicate()
-            // of the template.
             if (slot.fadeInstance == nullptr) {
                 slot.fadeInstance = r.clayTranslucentMaterial->createInstance();
                 slot.fadeInstance->setCullingMode(filament::backend::CullingMode::NONE);
@@ -195,8 +146,6 @@ void update_alert_polygons(VisualRenderer& r, const SceneGraph& s) {
 
 }  // namespace overlume
 
-// Filament-free test introspection hooks; see alert_polygons_test_hooks.hpp
-// for why these live here.
 namespace overlume::testing {
 
 overlume::detail::Float3 alert_severity_base_color(overlume::VisualRenderer* r, uint8_t severity) {

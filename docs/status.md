@@ -115,6 +115,14 @@ accepts" list:
 7. [Environment/buildings are not gated per `render_mode`](runbooks/signoff.md#named-exceptions-the-sign-off-explicitly-accepts-not-parity-gaps-to-close) — the visibility toggle is operator-driven (`set_environment_visible()`), not auto-gated; see open item 9 above.
 8. [Lidar colorization samples cameras through base extrinsics; the bowl uses ego-motion-compensated extrinsics](runbooks/signoff.md#named-exceptions-the-sign-off-explicitly-accepts-not-parity-gaps-to-close) — latent (not exercised) against every fixture bag captured so far, none of which carries odometry.
 
+9. **Source comments are gone repo-wide (2026-09-22).** Every first-party
+   C++/Python/shell/CMake/`.mat`/YAML file was stripped of comments on
+   request; only shebangs and the SPDX/copyright headers (`check_spdx.sh`)
+   survive. Consequence: the public headers carry no Doxygen prose, so
+   `Doxyfile.in`'s documented-symbol gate (`WARN_IF_UNDOCUMENTED` +
+   `WARN_AS_ERROR`) was turned off and `EXTRACT_ALL` on — the published
+   API docs are now a bare symbol listing.
+
 ## How to update this file
 
 - **Shipped** grows by one line per epic/task closed, sourced from that

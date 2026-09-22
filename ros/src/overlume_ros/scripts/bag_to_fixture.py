@@ -22,7 +22,7 @@ import re
 import sys
 from collections import OrderedDict
 
-import rclpy  # noqa: F401  -- initializes message type support as a side effect
+import rclpy
 import rosbag2_py
 from rclpy.serialization import deserialize_message
 from rosidl_runtime_py import message_to_yaml
@@ -30,14 +30,11 @@ from rosidl_runtime_py.utilities import get_message
 
 MAX_FIXTURE_BYTES = 256 * 1024
 
-# 'centerline_0' -> 'centerline_' ; 'crosswalks' (no numeric suffix) -> itself.
 _NUMERIC_SUFFIX_RE = re.compile(r"^(.*?)(\d+)$")
-
 
 def _namespace_family(ns: str) -> str:
     m = _NUMERIC_SUFFIX_RE.match(ns)
     return m.group(1) if m else ns
-
 
 def _filter_marker_array(msg, max_markers_per_ns, max_ns_per_prefix):
     """Keeps at most `max_markers_per_ns` markers per distinct namespace and
@@ -67,7 +64,6 @@ def _filter_marker_array(msg, max_markers_per_ns, max_ns_per_prefix):
 
     msg.markers = kept_markers
     return msg
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -125,7 +121,6 @@ def main() -> int:
         print(f"error: no messages found on topic '{args.topic}' in this bag", file=sys.stderr)
         return 1
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

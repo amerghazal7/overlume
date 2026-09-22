@@ -21,9 +21,6 @@ Float3 to_float3(const YAML::Node& node) {
     return Float3{node[0].as<float>(), node[1].as<float>(), node[2].as<float>()};
 }
 
-// Throws (caught by load_theme) on any missing/malformed key — most fields
-// in the schema are required; a handful of newer palette/ribbon keys are
-// soft-defaulted instead (see each field's own inline comment below).
 Theme parse(const YAML::Node& root) {
     Theme t;
     t.name = root["name"].as<std::string>();
@@ -35,24 +32,13 @@ Theme parse(const YAML::Node& root) {
     t.palette.lane_paint = to_float3(palette["lane_paint"]);
     t.palette.ribbon_core = to_float3(palette["ribbon_core"]);
     t.palette.ribbon_glow = to_float3(palette["ribbon_glow"]);
-    // ego: soft-defaulted rather than thrown on absence, so theme YAMLs
-    // written before this field existed keep parsing instead of falling
-    // back to the whole compiled-in kFallbackTheme() over one missing key.
-    // Default matches kFallbackTheme()'s own palette.ego below.
     t.palette.ego = palette["ego"] ? to_float3(palette["ego"]) : Float3{0.82f, 0.80f, 0.76f};
 
-    // ribbon_global/ribbon_local: same soft-default convention as `ego`
-    // above -- missing either reproduces the reused-token look (GLOBAL
-    // falls back to ribbon_core, LOCAL to ribbon_glow) instead of falling
-    // back to the whole compiled-in kFallbackTheme().
     t.palette.ribbon_global =
         palette["ribbon_global"] ? to_float3(palette["ribbon_global"]) : t.palette.ribbon_core;
     t.palette.ribbon_local =
         palette["ribbon_local"] ? to_float3(palette["ribbon_local"]) : t.palette.ribbon_glow;
 
-    // road/lane_centerline/lane_boundary/crosswalk: same soft-default
-    // convention as ribbon_global/ribbon_local above. `road` falls back to
-    // `ground`; the other three fall back to `lane_paint`.
     t.palette.road = palette["road"] ? to_float3(palette["road"]) : t.palette.ground;
     t.palette.lane_centerline =
         palette["lane_centerline"] ? to_float3(palette["lane_centerline"]) : t.palette.lane_paint;
@@ -60,14 +46,9 @@ Theme parse(const YAML::Node& root) {
         palette["lane_boundary"] ? to_float3(palette["lane_boundary"]) : t.palette.lane_paint;
     t.palette.crosswalk =
         palette["crosswalk"] ? to_float3(palette["crosswalk"]) : t.palette.lane_paint;
-    // road_edge: same soft-default convention, falls back to lane_paint --
-    // neither shipped theme relies on it, both author an explicit yellow.
     t.palette.road_edge =
         palette["road_edge"] ? to_float3(palette["road_edge"]) : t.palette.lane_paint;
 
-    // building: same soft-default convention as road_edge above -- falls
-    // back to `road`; both shipped themes author an explicit value (Decision
-    // 10, VM-052).
     t.palette.building = palette["building"] ? to_float3(palette["building"]) : t.palette.road;
 
     const YAML::Node tints = palette["object_tints"];
@@ -98,7 +79,6 @@ Theme parse(const YAML::Node& root) {
     t.hud.accent_color = to_float3(hud["accent_color"]);
     t.hud.scale = hud["scale"].as<float>();
 
-    // point_cloud: soft-defaulted (a YAML predating the token parses fine).
     const YAML::Node pc = root["point_cloud"];
     t.point_cloud.point_size_px =
         (pc && pc["point_size_px"]) ? pc["point_size_px"].as<float>() : 2.0f;
@@ -115,23 +95,9 @@ Theme parse(const YAML::Node& root) {
 
     t.fog.density = root["fog"]["density"].as<float>();
 
-    // ribbon.width_m: the whole `ribbon:` section, and width_m within it,
-    // are optional -- soft-defaulted to Theme::Ribbon's own 0.24 default
-    // (theme.hpp). No longer read directly by ribbon.cpp's geometry (see
-    // below).
     const YAML::Node ribbon = root["ribbon"];
     t.ribbon.width_m = (ribbon && ribbon["width_m"]) ? ribbon["width_m"].as<float>() : 0.24f;
 
-    // lane_width_m/margin_{behavior,global,local}_m: same soft-default
-    // convention. lane_width_m defaults to 3.5m; each margin defaults to
-    // (lane_width_m - width_m) / 2, using whatever lane_width_m/width_m
-    // this theme actually parsed to above -- that formula reproduces a
-    // pre-existing YAML's strip width to within one float ULP, not
-    // byte-for-byte (the round-trip computes 0x3df5c290 vs the old
-    // width_m * 0.5f's 0x3df5c28f, a 7.5e-9 m difference) -- do not assert
-    // exact equality here, tests use EXPECT_NEAR. Neither shipped theme
-    // relies on this default; it exists for a third-party theme file
-    // predating this directive.
     t.ribbon.lane_width_m =
         (ribbon && ribbon["lane_width_m"]) ? ribbon["lane_width_m"].as<float>() : 3.5f;
     const float marginDefault = (t.ribbon.lane_width_m - t.ribbon.width_m) / 2.0f;
@@ -144,22 +110,12 @@ Theme parse(const YAML::Node& root) {
     t.ribbon.margin_local_m =
         (ribbon && ribbon["margin_local_m"]) ? ribbon["margin_local_m"].as<float>() : marginDefault;
 
-    // margin_velocity_m: NOT derived from marginDefault (unlike the three
-    // role margins above) -- it's a fixed 1.05 soft default, deliberately
-    // between margin_local_m (0.8) and margin_behavior_m (1.3), independent
-    // of whatever width_m/lane_width_m this theme authors (see theme.hpp's
-    // own comment on why 1.05).
     t.ribbon.margin_velocity_m =
         (ribbon && ribbon["margin_velocity_m"]) ? ribbon["margin_velocity_m"].as<float>() : 1.05f;
 
-    // objects.opacity: soft-defaulted (VM-078), same convention as
-    // point_cloud.point_size_px above -- a theme YAML predating this key
-    // still parses, at the fully-opaque 1.0 default.
     const YAML::Node objects = root["objects"];
     t.objects.opacity = std::clamp(
         (objects && objects["opacity"]) ? objects["opacity"].as<float>() : 1.0f, 0.0f, 1.0f);
-    // Clamped: >1 would keep alpha >= 1 and silently SUPPRESS the staleness
-    // fade for most of its window; <0 would bind a negative baseColor alpha.
 
     return t;
 }
@@ -173,51 +129,28 @@ std::optional<Theme> load_theme(const std::string& dir, const std::string& name)
         const YAML::Node root = YAML::LoadFile(path);
         return parse(root);
     } catch (const std::exception&) {
-        // Missing dir/file, unreadable, malformed YAML, or a missing/
-        // mistyped key inside parse() above -- all non-fatal; caller
-        // (create_renderer) falls back to kFallbackTheme().
         return std::nullopt;
     }
 }
 
 const Theme& kFallbackTheme() {
     static const Theme theme = [] {
-        // Same values as dark_adas.yaml, kept in code so a broken/missing
-        // theme-asset install can never take rendering down.
         Theme t;
         t.name = "dark_adas";
         t.palette.ground = {0.055f, 0.055f, 0.078f};
         t.palette.sky = {0.028f, 0.036f, 0.085f};
         t.palette.fog = {0.028f, 0.036f, 0.085f};
-        // Must match dark_adas.yaml exactly (ThemeLoad.BuiltinFallbackMatchesDarkAdasYaml).
         t.palette.lane_paint = {0.85f, 0.85f, 0.88f};
-        // Cold green; glow intentionally killed (no neon/high ribbon_strength).
         t.palette.ribbon_core = {0.12f, 0.55f, 0.42f};
         t.palette.ribbon_glow = {0.12f, 0.55f, 0.42f};
-        // dark_adas.yaml's own authored `ego` value (Finding #29: NOT
-        // light_clay's ego OR ground -- this half of the old cross-theme
-        // swap no longer holds, see theme.hpp's Palette::ego comment) --
-        // must match dark_adas.yaml exactly (ThemeLoad.BuiltinFallbackMatchesDarkAdasYaml).
         t.palette.ego = {0.82f, 0.80f, 0.76f};
-        // dark_adas.yaml's own authored values -- not a reuse of
-        // ribbon_core/glow.
         t.palette.ribbon_global = {0.22f, 0.30f, 0.42f};
         t.palette.ribbon_local = {0.55f, 0.42f, 0.22f};
-        // Must match dark_adas.yaml exactly (ThemeLoad.BuiltinFallbackMatchesDarkAdasYaml).
-        // road is darker than palette.ground; lane_boundary is the same
-        // near-white as lane_paint; crosswalk is authored warm tan
-        // (distinct from boundaries by color, not just hatch geometry);
-        // lane_centerline is a
-        // low-contrast fade of lane_paint toward road (25%/75% -- faint dot
-        // guidance, not a bold stroke); road_edge is a clear, saturated
-        // road-paint gold, solid and readable on the dark road.
         t.palette.road = {0.034f, 0.042f, 0.078f};
         t.palette.lane_centerline = {0.238f, 0.244f, 0.279f};
         t.palette.lane_boundary = {0.85f, 0.85f, 0.88f};
-        t.palette.crosswalk = {0.42f, 0.36f, 0.22f};  // authored warm tan, matches dark_adas.yaml
+        t.palette.crosswalk = {0.42f, 0.36f, 0.22f};
         t.palette.road_edge = {0.720f, 0.520f, 0.090f};
-        // Must match dark_adas.yaml exactly, same convention as road/
-        // lane_boundary/etc above (VM-052, Decision 10).
         t.palette.building = {0.130f, 0.135f, 0.180f};
         t.palette.object_tints.car = {0.180f, 0.210f, 0.320f};
         t.palette.object_tints.truck_van = {0.28f, 0.32f, 0.55f};
@@ -230,7 +163,7 @@ const Theme& kFallbackTheme() {
         t.palette.alert.critical = {0.90f, 0.20f, 0.15f};
         t.material.roughness = 0.85f;
         t.material.metallic = 0.0f;
-        t.emissive.ribbon_strength = 0.0f;  // glow killed, matches dark_adas.yaml
+        t.emissive.ribbon_strength = 0.0f;
         t.grid.line_color = {0.130f, 0.130f, 0.180f};
         t.grid.fade_start_m = 15.0f;
         t.grid.fade_end_m = 40.0f;
@@ -245,20 +178,12 @@ const Theme& kFallbackTheme() {
         t.ibl.ground_color = {0.030f, 0.030f, 0.045f};
         t.ibl.intensity = 350000.0f;
         t.fog.density = 0.010f;
-        // width_m is no longer authored on disk (dark_adas.yaml drops the
-        // key) so it parses via the soft-default seed (0.24);
-        // lane_width_m/margins are explicit, matching dark_adas.yaml
-        // exactly (ThemeLoad.BuiltinFallbackMatchesDarkAdasYaml).
         t.ribbon.width_m = 0.24f;
         t.ribbon.lane_width_m = 3.5f;
-        // 0.5m rim per side so the 3 stacked ribbons stay visually distinct.
-        t.ribbon.margin_behavior_m = 1.3f;  // narrowest -- top of the z-stagger, the hero ribbon
-        t.ribbon.margin_global_m = 0.3f;    // widest -- bottom of the z-stagger
+        t.ribbon.margin_behavior_m = 1.3f;
+        t.ribbon.margin_global_m = 0.3f;
         t.ribbon.margin_local_m = 0.8f;
-        // Between margin_local_m and margin_behavior_m -- see theme.hpp's
-        // own comment (VM-077 carpet-as-ribbon redirect, 2026-09-10).
         t.ribbon.margin_velocity_m = 1.05f;
-        // Must match dark_adas.yaml exactly (VM-078).
         t.objects.opacity = 1.0f;
         return t;
     }();
@@ -269,10 +194,6 @@ const Theme& kFallbackTheme() {
 
 namespace overlume {
 
-// See scene.h for the full rationale. Two lines over the existing
-// GPU-free detail::load_theme(): guard against null (std::string's ctor is
-// UB on nullptr; detail::load_theme already treats an empty dir/name as a
-// non-fatal std::nullopt) and report success.
 bool theme_parses(const char* dir, const char* theme_name) {
     if (dir == nullptr || theme_name == nullptr) return false;
     return detail::load_theme(dir, theme_name).has_value();

@@ -1,159 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
-// bowl.mat — VM-091 (unified-engine migration Task 2). The camera bowl's
-// material: per-fragment sampling (Decision resolution 2, 2026-09-11) of up
-// to kMaxBowlCameras (6) camera textures, matching reproject.cu's bowl_kernel
-// per-camera loop (right/down/fwd/t projection, plumb_bob distortion, border
-// feather x alignment^2 weight) as closely as a rasterizer material can.
-//
-// UNLIT: the bowl's color IS the camera pixels, same rationale as
-// point_cloud.mat/trajectory_carpet.mat -- PBR shading would add a
-// light-direction term nobody asked for.
-//
-// The interpolant budget (MATERIAL_VARIABLES_COUNT = 4, Decision 3) holds
-// THREE custom vec4s here (VM-091 gate close-out finding 7 added the third,
-// `custom3` below -- Decision resolution 2's own text calls for "2-3
-// contributing cameras per fragment"; this material had shipped only 2),
-// still one interpolant (custom1) spare:
-//   CUSTOM0 (via `requires: [ color ]`, vertex passes material.color
-//     through) = {coverage_a, index_a, coverage_b, index_b} -- the per-vertex
-//     bake's output (bowl_mesh.cpp). index_a/index_b are LITERALLY IDENTICAL
-//     across a triangle's three vertices by construction (Decision 3's
-//     per-triangle-uniform-index rule), so linearly interpolating them
-//     reproduces the same integer everywhere in the triangle -- safe to
-//     round-trip through int(x + 0.5) in the fragment shader.
-//   CUSTOM2 (via `requires: [ custom0 ]`, a real vertex attribute -- NOT
-//     packed through uv0/uv1, which Filament's generated vertex shader
-//     V-flips: fine for an actual texture UV, silently wrong for a position
-//     payload) = the vertex's RIG-FRAME position (bowl_mesh.cpp bakes/
-//     generates positions in rig frame -- Decision 3's frame convention).
-//     This is NOT the same as Filament's own getWorldPosition(): the bowl
-//     entity's TransformManager transform is the map<-rig ego pose
-//     (renderer.cpp's update_bowl, matching update_ego_transform), so
-//     getWorldPosition() would be MAP frame -- wrong frame for camera
-//     extrinsics, which are rig-frame (scene.h). Carrying rig-frame position
-//     as its own interpolant is what makes "per-fragment sampling from the
-//     rasterized [rig-frame] position" (Decision resolution 2) mean the
-//     position is interpolated PER FRAGMENT across the triangle (much finer
-//     than the per-vertex bake this decision replaced), not merely read once
-//     per vertex. rigPos rides `filament::VertexAttribute::CUSTOM0` (FLOAT3,
-//     bound in bowl.cpp's make_bowl_vertex_buffer), requested here via
-//     `requires: [ custom0 ]` and read with `getCustom0()` in
-//     materialVertex -- Filament passes CUSTOM attributes through with no
-//     per-component arithmetic. It is then carried across the rasterizer on
-//     its own interpolant, `custom2`, exactly like weight/index use custom0.
-//   CUSTOM3 (via `requires: [ custom1 ]`, a SECOND real vertex attribute,
-//     FLOAT2 -- physically distinct from the raw-attribute pool `custom0`
-//     above draws from: Filament reserves 8 raw CUSTOM attribute slots
-//     (`MAX_CUSTOM_ATTRIBUTES`) against only 4 varying/interpolant slots
-//     (`MATERIAL_VARIABLES_COUNT`), so this is a second attribute, not reuse
-//     of the one custom0 already claims) = {coverage_c, index_c} -- the
-//     THIRD covering camera's bake output (bowl_mesh.cpp), bound in
-//     bowl.cpp as `filament::VertexAttribute::CUSTOM1`. Read with
-//     `getCustom1()` and carried on its own interpolant, `custom3` (left
-//     spare until this finding), zero-padded to a vec4 the same way rigPos
-//     zero-pads its own unused 4th component. index_c is LITERALLY
-//     IDENTICAL across a triangle's three vertices by the same
-//     per-triangle-uniform-index construction rule index_a/index_b already
-//     rely on (bowl_mesh.cpp's emit_triangle), so it round-trips through
-//     int(x + 0.5) exactly like they do. custom1 (the varying slot, not the
-//     attribute of the same name) stays spare.
-//
-// PARAMETER BUDGET, empirically discovered, not assumed: this matc build
-// (1.56.5) aborts with "Too many parameters" past a per-material uniform
-// float-count ceiling well below what MAX_SAMPLER_COUNT/interpolant-budget
-// math alone would predict (verified experimentally: a material with 6
-// cameras' full right/down/fwd/t + K + dist(4) + widthHeightK3(4) [24
-// floats/camera, 148 total] aborts; 5 cameras at that footprint [124 total]
-// does not). This material is therefore deliberately trimmed to 18
-// floats/camera (108 total + 6 shared = 114):
-//   - Per-camera parameters are 6 SEPARATELY NAMED uniforms each (camRightN/
-//     camFwdN/camTN/camKN/camDistN/camK3_N/camTexN), not a `size:`-declared
-//     array: this matc build does not correctly support array-typed
-//     material parameters at all (verified separately -- a
-//     `{ type: float4, name: arr, size: 6 }` parameter compiles, but
-//     `materialParams.arr[i]` type-checks as a scalar float / single-vec4
-//     access, not an array index, for both constant and dynamic indices).
-//     This also sidesteps a real hazard the plan names for a SAMPLER
-//     array: selecting a sampler by a fragment-computed index is
-//     non-dynamically-uniform sampler indexing (illegal/UB in GLSL) -- the
-//     fragment shader below instead unrolls a static (compile-time-
-//     constant) `addCam()` call per camera, each gated by a runtime
-//     equality check (`idxA == N`) against the baked index rather than by
-//     indexing a sampler array, so no dynamic sampler indexing ever occurs
-//     (sampler2D is a legal GLSL function parameter -- passing the already-
-//     bound texture into `addCam()` is not dynamic indexing either).
-//   - NO per-camera `down` uniform: reconstructed in-shader as
-//     cross(fwd, right) -- exact because camera_ingest.cpp orthonormalizes
-//     every camera's R (Gram-Schmidt on ingest, WARNing if the correction is
-//     more than cosmetic) before it reaches BowlConfig, so right/fwd are
-//     always the first and third columns of a true rotation matrix.
-//   - NO per-camera width/height uniform: read via textureSize() on the
-//     already-bound camera texture, which is exactly the camera's real
-//     pixel dimensions (BowlConfig's cam_width/cam_height are what sized
-//     the texture in the first place, camera_textures.cpp).
-//   - NO per-camera mat4 ego-motion-delta uniform: composing it into the
-//     EFFECTIVE right/fwd/t above on the CPU (bowl.cpp's update_bowl, once
-//     per render_frame call -- a 3x3 transpose-multiply per camera, no
-//     matrix inverse needed since an ego-motion delta's rotation is
-//     orthonormal) is both well inside this budget and cheaper than a
-//     GPU-side mat4 multiply per fragment would have been.
-//
-// Border feather is computed PER-FRAGMENT, from the `featherMargin`
-// parameter (bowl.cpp pushes BowlConfig::feather_margin), ported verbatim
-// from blend.cuh's border_feather/smoothstep01 at the fragment's own xp/yp
-// -- a vertex-baked feather would hard-reject at `xp > width-1` carrying the
-// full interpolated vertex weight right up to that line, stepping instead of
-// the smoothstep falloff reproject.cu produces. coverage_a/coverage_b
-// (bowl_mesh.cpp) carry only the alignment^2 term.
-//
-// Texture UV is pixel-CENTER sampled (`(xp,yp) + 0.5`), not pixel-CORNER
-// (`xp/width`): matches GL's own texel center convention and reproject.cu's
-// `bilinear()`, which samples at xp exactly. `bowl_projection.cpp`'s
-// `ProjectToCameraUv` keeps its own pixel-CORNER convention (stated
-// explicitly in its own header) -- this +0.5 is applied here, shader-side,
-// only, converting xp/yp (which bowl_mesh.cpp already derives as
-// `u*width`/`v*height`) back to a pixel-center-sampled UV.
-//
-// skyColor mirrors BowlConfig's own sky_color field -- bowl.cpp pushes it
-// once per set_bowl_config() call.
-//
-// exposureCompensation is a material PARAMETER (BowlConfig::
-// exposure_compensation, default 1.56, bowl.cpp pushes it), not a hardcoded
-// shader constant: a style knob alongside sky_color/feather_margin, per the
-// STANDING "every rendered element ships style tokens" directive. It
-// intentionally does NOT multiply skyColor (see the fragment code below) --
-// sky_color is authored already in display/post-tonemap space (what a user
-// picks in a color swatch), not in the same pre-tonemap space sampled camera
-// pixels live in, so multiplying it by exposureCompensation would make any
-// sky_color above ~0.1 clip to white for no reason a user configuring
-// sky_color would expect.
-//
-// 1.56 default, MEASURED by tools/bowl_exposure_probe.cpp (gray-ramp
-// bisection, not a guess) -- full derivation and history at scene.h's
-// BowlConfig::exposure_compensation; regression-locked by
-// tests/test_bowl_exposure_calibration.cpp.
-//
-// This material contributes at most 3 cameras per fragment (VM-091 gate
-// close-out finding 7: CUSTOM0/CUSTOM2/CUSTOM3 are all spoken for -- weight/
-// index pair A/B, rigPos, and weight/index C), and the top-3 triple is
-// chosen PER TRIANGLE (bowl_mesh.cpp), so across a genuine FOUR-camera
-// overlap band adjacent triangles can switch from blending (A,B,C) to
-// (A,B,D) at equal summed weight -- a mesh-aligned faceted seam reproject.cu's
-// all-camera blend does not have. This rig's real cameras never produce a
-// 4-way overlap (6 cameras arranged around one ring, per-neighbor overlap
-// only), so this exception is theoretical for the shipped rig geometry, but
-// recorded as a NAMED PARITY EXCEPTION (Task 4 Step 1's checklist, migration
-// plan doc) rather than assumed away -- test_bowl.cpp's
-// FourCameraOverlapStillPicksAConsistentTripletPerTriangle documents the
-// current (3-camera) behavior at a real 4-way-overlap triangle so a future
-// fix has a test to change deliberately, not silently.
-//
-// OPAQUE (no `blending:` line -- Filament's default): the STANDING
-// opaque-while-fresh convention (ribbon_emissive.mat's header) applies here
-// too -- the bowl is either fully covered (alpha 1, some camera contributed)
-// or shows sky_color (also alpha 1); it is never a blended/translucent
-// surface, so it must never sit in Filament's blended queue.
+
 material {
     name : bowl,
     shadingModel : unlit,
@@ -211,30 +58,13 @@ vertex {
     void materialVertex(inout MaterialVertexInputs material) {
         material.custom0 = material.color;
         material.custom2 = vec4(getCustom0().xyz, 0.0);
-        // Third camera slot (VM-091 gate close-out finding 7): getCustom1()
-        // reads the raw CUSTOM1 attribute (coverage_c/index_c, bound FLOAT2
-        // in bowl.cpp) -- a physically separate attribute slot from the
-        // custom0 attribute rigPos already claims above, carried on the
-        // spare custom3 varying.
         material.custom3 = vec4(getCustom1().xy, 0.0, 0.0);
     }
 }
 fragment {
-    // One camera's contribution to colorSum/wsum -- right/fwd/t are the
-    // EFFECTIVE (ego-motion-delta-composed) extrinsics bowl.cpp uploads
-    // each render_frame call; `down` is reconstructed as cross(fwd,right)
-    // rather than uploaded (see this material's header for the
-    // parameter-budget reason and the orthonormality guarantee). width/
-    // height come from textureSize(tex), not a uniform. `coverage` is
-    // this camera's already-selected per-triangle baked weight (0 if this
-    // camera isn't one of the triangle's top-3, computed by the caller).
-    // No dynamic sampler indexing: `tex` is passed in already bound to a
-    // statically-named sampler at each of the 6 call sites below.
     void addCam(sampler2D tex, vec3 right, vec3 fwd, vec3 t, vec4 K, vec4 dist, float k3,
                 float coverage, vec3 rigPos, inout vec3 colorSum, inout float wsum) {
         if (coverage <= 0.0) return;
-        // Exact, not approximate: camera_ingest.cpp orthonormalizes every
-        // camera's R on ingest, so right/fwd are always true rotation columns.
         vec3 down = cross(fwd, right);
         vec3 rel = rigPos - t;
         float zc = dot(fwd, rel);
@@ -289,21 +119,12 @@ fragment {
         int idxA = int(c0.y + 0.5);
         float coverageB = c0.z;
         int idxB = int(c0.w + 0.5);
-        // Third camera slot (VM-091 gate close-out finding 7, Decision
-        // resolution 2's "2-3 contributing cameras per fragment").
         float coverageC = c1.x;
         int idxC = int(c1.y + 0.5);
 
         vec3 colorSum = vec3(0.0);
         float wsum = 0.0;
 
-        // Per-camera coverage selection: a camera contributes only if it's
-        // one of this triangle's baked top-3 slots (idxA/idxB/idxC); the
-        // per-triangle-uniform-index rule (bowl_mesh.cpp) guarantees these
-        // three never collide within one triangle when they're distinct
-        // slots (has_second/has_third false collapses a slot onto idxA with
-        // its own coverage forced to 0 already, so checking idxA first is
-        // always safe and never double-counts).
         addCam(materialParams_camTex0, materialParams.camRight0, materialParams.camFwd0,
                materialParams.camT0, materialParams.camK0, materialParams.camDist0,
                materialParams.camK3_0,
@@ -335,15 +156,6 @@ fragment {
                (idxA == 5) ? coverageA : ((idxB == 5) ? coverageB : ((idxC == 5) ? coverageC : 0.0)),
                rigPos, colorSum, wsum);
 
-        // exposureCompensation brings this UNLIT material's raw camera
-        // baseColor back into the CUDA reference's own display range against
-        // THIS build's ACES tonemap + output OETF -- NOT renderer.cpp's
-        // setExposure (bowl.mat has no lighting/exposure input at all;
-        // matinfo confirms the compiled fragment never reads
-        // frameUniforms.exposure). Default 1.56, MEASURED, not a precise
-        // inverse everywhere (the tonemap curve compresses both ends: see
-        // this material's header / scene.h's BowlConfig::exposure_compensation
-        // for the full derivation and the measured ramp).
         if (wsum > 0.0) {
             material.baseColor.rgb = (colorSum / wsum) * materialParams.exposureCompensation;
         } else {

@@ -1,31 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Amer Ghazal
-# setup_toolchain_cesium.sh -- root-less bootstrap of Overlume's PRIMARY
-# toolchain: clang-18/libc++-18 from apt.llvm.org's jammy channel, unpacked
-# into ~/.cache/overlume-toolchain-cesium without sudo. Every part of the
-# library (its own C++17 code, yaml-cpp, GoogleTest, the examples) and the
-# cesium-native + vcpkg dependency build use this one toolchain;
-# cmake/toolchain-clang-libcxx.cmake resolves only this prefix.
-#
-# History: the "_cesium" in the name is from VM-061, when this was a SECOND
-# toolchain used only for cesium-native, whose vcpkg dependency "ada-url"
-# requires C++20 `std::ranges::replace` — a ranges <algorithm> overload
-# libc++-14/15 do not implement (verified) while libc++-18 does. VM-061
-# Step 6 (user decision 2026-09-15) then migrated the whole library from
-# clang-14 to this clang-18 toolchain, and the old clang-14 bootstrap script
-# was retired in the 2026-09-17 restructure. The name stays so every
-# document and command written since VM-061 keeps working.
-#
-# apt.llvm.org publishes plain .deb files over HTTPS with no apt source
-# registration needed -- `apt-get download` only searches configured
-# sources, so this uses the exact same root-less "fetch the .deb, dpkg-deb
-# -x it into a private prefix" recipe the old clang-14 bootstrap used, pointed at
-# LLVM's own (still official, still Ubuntu-built) package host.
-#
-# Usage: overlume/scripts/setup_toolchain_cesium.sh
-# Idempotent: does nothing (fast exit) if the prefix already has a working
-# clang++.
+
 set -euo pipefail
 
 PREFIX="${XDG_CACHE_HOME:-$HOME/.cache}/overlume-toolchain-cesium"

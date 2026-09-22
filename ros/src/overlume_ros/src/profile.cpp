@@ -21,9 +21,6 @@ std::optional<NsRender> ParseNsRender(const std::string& s) {
     return std::nullopt;
 }
 
-// YAML spelling -> MapKind. "road_surface" is deliberately NOT accepted here
-// -- ROAD_SURFACE is adapter-synthesized (paired boundary rails), never a
-// value a profile author can request.
 std::optional<overlume::MapKind> ParseMapKind(const std::string& s) {
     if (s == "other") return overlume::MapKind::OTHER;
     if (s == "centerline") return overlume::MapKind::CENTERLINE;
@@ -36,17 +33,12 @@ std::optional<overlume::MapKind> ParseMapKind(const std::string& s) {
     return std::nullopt;
 }
 
-// Which render verdicts a non-OTHER kind is legal on (ValidateRow's
-// cross-field check, same shape as the retired adapter-side chop-vs-render
-// check it replaces). CROSSWALK is polygon-only; every lane-geometry kind is
-// polyline-only.
 bool KindIsLegalOnRender(overlume::MapKind kind, NsRender render) {
     if (kind == overlume::MapKind::OTHER) return true;
     if (kind == overlume::MapKind::CROSSWALK) return render == NsRender::kPolygon;
     return render == NsRender::kPolyline;
 }
 
-// Adapter -> its closed role set (see profile.hpp struct comment).
 const std::map<std::string, std::set<std::string>>& RoleSets() {
     static const std::map<std::string, std::set<std::string>> kRoles = {
         {"path", {"behavior", "global", "local"}},
@@ -62,8 +54,6 @@ const std::map<std::string, std::set<std::string>>& RoleSets() {
     return kRoles;
 }
 
-// Adapter -> the message type(s) its rows may carry. tf_axes has none (it
-// generates its markers from the tf2 buffer -- no subscription at all).
 const std::map<std::string, std::set<std::string>>& TypeSets() {
     static const std::map<std::string, std::set<std::string>> kTypes = {
         {"path", {"nav_msgs/msg/Path"}},
@@ -103,10 +93,6 @@ std::string RowTag(const std::string& file, size_t idx, const std::string& topic
     return os.str();
 }
 
-// Builds one ProfileRow from its YAML node. Returns false on a malformed enum
-// value (namespaces[].render / ns_default) -- those can't be represented in
-// ProfileRow at all, so they must fail here, before validate_row() ever runs.
-// Unknown extra keys are a warning only (hand-edited by the autonomy team).
 bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, ProfileRow& out,
               std::vector<std::string>& errors) {
     if (!node.IsMap()) {
@@ -129,12 +115,6 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
     out.transient_local = node["transient_local"] ? node["transient_local"].as<bool>() : false;
     out.best_effort = node["best_effort"] ? node["best_effort"].as<bool>() : false;
 
-    // adapter: hd_map only -- the key's presence is what's restricted, not its
-    // value (same "typo'd key" concern update_topic's own adapter check
-    // guards against). Checked here, not in ValidateRow, because ValidateRow
-    // only sees the parsed bool -- it can't tell "explicitly true" from "left
-    // at default" -- and out.adapter is already parsed by the time this key
-    // is read.
     if (node["junction_interior_boundaries"]) {
         if (out.adapter != "hd_map") {
             errors.push_back(RowTag(file, idx, out.topic) +
@@ -145,8 +125,6 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
         }
     }
 
-    // adapter: point_cloud only (Epic 3 Task 6 / VM-035) -- same
-    // presence-restriction shape as junction_interior_boundaries above.
     if (node["color_mode"]) {
         if (out.adapter != "point_cloud") {
             errors.push_back(RowTag(file, idx, out.topic) +
@@ -204,10 +182,6 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
             NsRule rule;
             rule.prefix = item["prefix"] ? item["prefix"].as<std::string>() : "";
             if (rule.prefix.empty()) {
-                // An empty prefix matches every namespace (classify()'s
-                // prefix compare is trivially true against ""), silently
-                // overriding ns_default for everything -- almost always a
-                // missing/misspelled 'prefix' key, never intentional.
                 errors.push_back(RowTag(file, idx, out.topic) +
                                  "namespaces[] entry missing non-empty 'prefix'");
                 ok = false;
@@ -235,8 +209,6 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
                     continue;
                 }
             }
-            // kind vs. render is a cross-field semantic check, not a
-            // can't-represent-it-at-all parse failure -- see ValidateRow.
             for (auto it = item.begin(); it != item.end(); ++it) {
                 const std::string key = it->first.as<std::string>();
                 if (key != "prefix" && key != "render" && key != "kind") {
@@ -258,9 +230,6 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
     return ok;
 }
 
-// One problem per row is enough to report; the row is dropped either way
-// once it's invalid, so piling up every downstream consequence of the
-// first mistake would just be noise on top of the fix the user needs to make.
 bool ValidateRow(const ProfileRow& row, const std::string& file, size_t idx,
                  std::vector<std::string>& errors) {
     const auto fail = [&](const std::string& msg) {
@@ -332,9 +301,6 @@ std::optional<Profile> BuildProfile(const YAML::Node& root, const std::string& f
     }
 
     size_t idx = 0;
-    // Parallel to profile.rows: the row's index in the FILE, not among
-    // surviving rows -- a dropped earlier row must not shift later rows'
-    // reported numbers, or the duplicate-pair message below names the wrong row.
     std::vector<size_t> row_file_idx;
     for (const auto& node : root["rows"]) {
         ProfileRow row;
@@ -353,9 +319,6 @@ std::optional<Profile> BuildProfile(const YAML::Node& root, const std::string& f
         ++idx;
     }
 
-    // Cross-row: duplicate (topic, adapter) pairs. Meaningless for tf_axes
-    // rows (no topic at all -- any number of them is fine, they're just
-    // config for the same generated debug layer) so they're excluded.
     std::set<std::pair<std::string, std::string>> seen_topic_adapter;
     for (size_t i = 0; i < profile.rows.size(); ++i) {
         const auto& row = profile.rows[i];
@@ -431,11 +394,6 @@ std::vector<SubSpec> subscriptions_for(const ProfileRow& row) {
     std::vector<SubSpec> specs;
     specs.push_back(SubSpec{row.topic, row.type, row.best_effort, row.transient_local});
     if (row.adapter == "ogm" && !row.update_topic.empty()) {
-        // best_effort is safe to propagate (a BEST_EFFORT subscriber still
-        // matches a RELIABLE publisher); transient_local is NOT -- an update
-        // stream is inherently VOLATILE (each patch supersedes the last), so a
-        // TRANSIENT_LOCAL subscriber would never match it and go silently,
-        // permanently dead.
         specs.push_back(
             SubSpec{row.update_topic, "map_msgs/msg/OccupancyGridUpdate", row.best_effort, false});
     }

@@ -13,10 +13,9 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
-from vcam_ws_bridge import (  # noqa: E402
+from vcam_ws_bridge import (
     ENVIRONMENT_PRESET_URIS, ENVIRONMENT_PRESETS, parse_cmd, patch_yaml_text,
 )
-
 
 def test_set_look_valid():
     cmd, (eye, target) = parse_cmd(json.dumps(
@@ -25,10 +24,8 @@ def test_set_look_valid():
     assert eye == [1.0, 2.0, 3.5]
     assert target == [0.0, 0.0, 0.3]
 
-
 def test_set_preset_valid():
     assert parse_cmd('{"cmd": "set_preset", "preset": 5}') == ("set_preset", 5)
-
 
 @pytest.mark.parametrize("mode,expect", [
     ("bowl", 1), ("pointcloud", 2), ("visual", 3), (1, 1), (2, 2), (3, 3),
@@ -37,57 +34,54 @@ def test_set_render_mode_valid(mode, expect):
     assert parse_cmd(json.dumps({"cmd": "set_render_mode", "mode": mode})) == \
         ("set_render_mode", expect)
 
-
 @pytest.mark.parametrize("theme", ["dark_adas", "light_clay"])
 def test_set_theme_valid(theme):
     assert parse_cmd(json.dumps({"cmd": "set_theme", "theme": theme})) == \
         ("set_theme", theme)
 
-
 @pytest.mark.parametrize("text", [
     "not json",
-    "[1,2,3]",                                            # not an object
-    '{"cmd": "warp"}',                                    # unknown cmd
-    '{"cmd": "set_look", "eye": [1, 2], "target": [0, 0, 0]}',       # short eye
-    '{"cmd": "set_look", "eye": [1, 2, "x"], "target": [0, 0, 0]}',  # non-number
-    '{"cmd": "set_look", "eye": [1, 2, 3]}',              # missing target
-    '{"cmd": "set_preset", "preset": 0}',                 # out of range
+    "[1,2,3]",
+    '{"cmd": "warp"}',
+    '{"cmd": "set_look", "eye": [1, 2], "target": [0, 0, 0]}',
+    '{"cmd": "set_look", "eye": [1, 2, "x"], "target": [0, 0, 0]}',
+    '{"cmd": "set_look", "eye": [1, 2, 3]}',
+    '{"cmd": "set_preset", "preset": 0}',
     '{"cmd": "set_preset", "preset": 6}',
-    '{"cmd": "set_preset", "preset": true}',              # bool is not an index
+    '{"cmd": "set_preset", "preset": true}',
     '{"cmd": "set_preset", "preset": "2"}',
-    '{"cmd": "set_render_mode", "mode": 4}',              # unknown mode
+    '{"cmd": "set_render_mode", "mode": 4}',
     '{"cmd": "set_render_mode", "mode": "depth"}',
-    '{"cmd": "set_render_mode", "mode": true}',           # bool is not a mode
-    '{"cmd": "set_theme"}',                               # missing theme
-    '{"cmd": "set_theme", "theme": ""}',                  # empty string
-    '{"cmd": "set_theme", "theme": 1}',                   # non-string
-    '{"cmd": "set_param", "name": "nope", "value": 1}',   # untunable param
+    '{"cmd": "set_render_mode", "mode": true}',
+    '{"cmd": "set_theme"}',
+    '{"cmd": "set_theme", "theme": ""}',
+    '{"cmd": "set_theme", "theme": 1}',
+    '{"cmd": "set_param", "name": "nope", "value": 1}',
     '{"cmd": "set_param", "name": "bowl_R0", "value": "6"}',
     '{"cmd": "set_param", "name": "splat_radius", "value": 2.5}',
     '{"cmd": "set_param", "name": "fill_blind_zone", "value": 1}',
     '{"cmd": "set_param", "name": "camera_extrinsics", "value": []}',
     '{"cmd": "save_params", "path": ""}',
-    '{"cmd": "set_layers"}',                              # missing layers
-    '{"cmd": "set_layers", "layers": {}}',                # empty
-    '{"cmd": "set_layers", "layers": {"nope": true}}',    # unknown layer name
-    '{"cmd": "set_layers", "layers": {"objects": 1}}',    # non-bool value
-    '{"cmd": "set_quality"}',                             # missing preset
-    '{"cmd": "set_quality", "preset": "ultra"}',           # unknown preset
-    '{"cmd": "set_quality", "preset": 3}',                 # out of range
-    '{"cmd": "set_quality", "preset": true}',              # bool is not a preset
-    '{"cmd": "set_surround_profile"}',                    # missing profile
-    '{"cmd": "set_surround_profile", "profile": "lidar"}',  # unknown profile
-    '{"cmd": "set_environment_enabled"}',                 # missing enabled
-    '{"cmd": "set_environment_enabled", "enabled": "true"}',  # non-bool
-    '{"cmd": "set_environment_enabled", "enabled": 1}',   # non-bool (int)
-    '{"cmd": "set_environment_source"}',                  # missing preset
-    '{"cmd": "set_environment_source", "preset": "satellite"}',  # unknown preset
-    '{"cmd": "set_environment_source", "preset": true}',  # bool is not a preset
+    '{"cmd": "set_layers"}',
+    '{"cmd": "set_layers", "layers": {}}',
+    '{"cmd": "set_layers", "layers": {"nope": true}}',
+    '{"cmd": "set_layers", "layers": {"objects": 1}}',
+    '{"cmd": "set_quality"}',
+    '{"cmd": "set_quality", "preset": "ultra"}',
+    '{"cmd": "set_quality", "preset": 3}',
+    '{"cmd": "set_quality", "preset": true}',
+    '{"cmd": "set_surround_profile"}',
+    '{"cmd": "set_surround_profile", "profile": "lidar"}',
+    '{"cmd": "set_environment_enabled"}',
+    '{"cmd": "set_environment_enabled", "enabled": "true"}',
+    '{"cmd": "set_environment_enabled", "enabled": 1}',
+    '{"cmd": "set_environment_source"}',
+    '{"cmd": "set_environment_source", "preset": "satellite"}',
+    '{"cmd": "set_environment_source", "preset": true}',
 ])
 def test_rejects_malformed(text):
     with pytest.raises(ValueError):
         parse_cmd(text)
-
 
 def test_set_layers_valid():
     assert parse_cmd(json.dumps(
@@ -97,7 +91,6 @@ def test_set_layers_valid():
         {"cmd": "set_layers", "layers": {"objects": True, "grids": False}})) == \
         ("set_layers", {"objects": True, "grids": False})
 
-
 @pytest.mark.parametrize("preset,expect", [
     ("low", 0), ("medium", 1), ("high", 2), (0, 0), (1, 1), (2, 2),
 ])
@@ -105,32 +98,23 @@ def test_set_quality_valid(preset, expect):
     assert parse_cmd(json.dumps({"cmd": "set_quality", "preset": preset})) == \
         ("set_quality", expect)
 
-
 @pytest.mark.parametrize("profile", ["bowl", "hybrid"])
 def test_set_surround_profile_valid(profile):
     assert parse_cmd(json.dumps({"cmd": "set_surround_profile", "profile": profile})) == \
         ("set_surround_profile", profile)
-
 
 @pytest.mark.parametrize("enabled", [True, False])
 def test_set_environment_enabled_valid(enabled):
     assert parse_cmd(json.dumps({"cmd": "set_environment_enabled", "enabled": enabled})) == \
         ("set_environment_enabled", enabled)
 
-
 @pytest.mark.parametrize("preset", ["baked", "osm", "clipped", "google"])
 def test_set_environment_source_valid(preset):
     assert parse_cmd(json.dumps({"cmd": "set_environment_source", "preset": preset})) == \
         ("set_environment_source", preset)
 
-
 def test_google_preset_ships_cache_off():
-    # Regression: the google preset must keep the shipped `cache=off`
-    # compliance lever (default_params.yaml, cesium.md's Google section) --
-    # dropping it silently starts persisting Google tiles to an on-disk
-    # SQLite cache on every deployment that picks this preset.
     assert ENVIRONMENT_PRESET_URIS["google"].endswith("cache=off")
-
 
 def test_param_cmds_valid():
     assert parse_cmd('{"cmd": "get_params"}') == ("get_params", None)
@@ -148,7 +132,6 @@ def test_param_cmds_valid():
     assert parse_cmd('{"cmd": "save_params", "path": "/tmp/x.yaml"}') == \
         ("save_params", "/tmp/x.yaml")
 
-
 YAML = """# header comment
 /**:
   ros__parameters:
@@ -163,7 +146,6 @@ YAML = """# header comment
     - /b
 """
 
-
 def test_patch_yaml_scalar_and_list():
     out = patch_yaml_text(YAML, {"bowl_R0": 9.5, "fill_blind_zone": False,
                                  "camera_extrinsics": [3.0, 4.0, 5.0]})
@@ -171,20 +153,13 @@ def test_patch_yaml_scalar_and_list():
     assert "    bowl_R0: 9.5\n" in out
     assert "    fill_blind_zone: false\n" in out
     assert "    - 3\n" in out and "    - 5\n" in out and "- 1.0" not in out
-    assert "- /a" in out and "- /b" in out          # untouched string list
+    assert "- /a" in out and "- /b" in out
     assert "    n_cameras: 6" in out
-
 
 def test_patch_yaml_appends_missing_key():
     out = patch_yaml_text(YAML, {"exposure_match": True})
     assert "    exposure_match: true\n" in out
 
-
-# ── Bridge E2E: mode-3 switch + orbit while streaming ────────────────────────
-# Full-stack integration: bridge <-> both ROS nodes <-> a real websocket
-# client. Skips cleanly (not a failure) when the ROS install this repo
-# builds isn't present -- same spirit as the C++ GL tests skipping without a
-# GPU: this test needs `colcon_build.sh` to have run first.
 import asyncio
 import subprocess
 import time
@@ -194,18 +169,13 @@ INSTALL_DIR = os.path.join(REPO_ROOT, "ros", "install")
 BRIDGE_SCRIPT = os.path.join(os.path.dirname(__file__), "vcam_ws_bridge.py")
 E2E_OUT_W, E2E_OUT_H = 160, 120
 
-
 def _ros_env():
-    # The retired CUDA reprojector's pybind libs used to be prepended to
-    # LD_LIBRARY_PATH here; the Filament node needs nothing beyond its install.
     return os.environ.copy()
-
 
 def _popen(cmd: str) -> subprocess.Popen:
     return subprocess.Popen(["bash", "-c", cmd], env=_ros_env(),
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             start_new_session=True)
-
 
 def _kill(proc: subprocess.Popen):
     try:
@@ -221,20 +191,17 @@ def _kill(proc: subprocess.Popen):
             pass
         proc.wait()
 
-
 def _lifecycle(node_name: str, transition: str) -> bool:
     cmd = f"source /opt/ros/humble/setup.bash && ros2 lifecycle set {node_name} {transition}"
     result = subprocess.run(["bash", "-c", cmd], env=_ros_env(), capture_output=True,
                             text=True, timeout=15.0)
     return result.returncode == 0
 
-
 def _param_get(node_name: str, param_name: str) -> str:
     cmd = f"source /opt/ros/humble/setup.bash && ros2 param get {node_name} {param_name}"
     result = subprocess.run(["bash", "-c", cmd], env=_ros_env(), capture_output=True,
                             text=True, timeout=15.0)
     return result.stdout.strip()
-
 
 def _param_get_bool(node_name: str, param_name: str) -> bool:
     out = _param_get(node_name, param_name)
@@ -244,7 +211,6 @@ def _param_get_bool(node_name: str, param_name: str) -> bool:
         return False
     raise AssertionError(f"unexpected `ros2 param get {node_name} {param_name}` output: {out!r}")
 
-
 def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -252,7 +218,6 @@ def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
         if proc.poll() is not None:
             return False
     return True
-
 
 @pytest.mark.skipif(not os.path.isdir(INSTALL_DIR), reason="ros/install not built")
 def test_bridge_e2e_mode3_orbit_and_frames():
@@ -263,10 +228,7 @@ def test_bridge_e2e_mode3_orbit_and_frames():
     from sensor_msgs.msg import Image
     import websockets
 
-    port = 18765  # fixed test port; distinct from the default 8765
-    # Post-cutover (VM-095): the merged node is the ONLY rendering process --
-    # it serves every mode via its local render_mode dispatch, and
-    # /rendering/set_mode assigns render_mode directly (Step 2).
+    port = 18765
     viz_cmd = (
         f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
         f"ros2 run overlume_ros overlume_node --ros-args "
@@ -298,7 +260,6 @@ def test_bridge_e2e_mode3_orbit_and_frames():
         assert _lifecycle("/overlume_node", "activate")
 
         bridge_proc = _popen(bridge_cmd)
-        # Give the bridge's rclpy node + websocket server time to come up.
         deadline = time.time() + 12.0
         connected = None
         last_err = None
@@ -328,10 +289,6 @@ def test_bridge_e2e_mode3_orbit_and_frames():
                 return frames
 
             try:
-                # --- Regression: default config (no set_render_mode sent
-                # yet) must still emit state from the sole node (bug: a stale
-                # `_last_mode` filter initialized to 1 rejected this forever).
-                # render_mode expected: 1 (this launch's initial_mode). ---
                 default_states = await collect_states(3.0)
                 assert default_states, (
                     "no vcam_state telemetry in the default configuration "
@@ -341,12 +298,6 @@ def test_bridge_e2e_mode3_orbit_and_frames():
                     f"default-config state should read render_mode synced "
                     f"from initial_mode:=1 (1, bowl): {default_states}")
 
-                # --- Single-process pose stability: mode switches must not
-                # oscillate the reported pose (the two-node flicker this
-                # once guarded is gone with the mux; a stable pose per mode
-                # is still the contract). Drive to 2 first so the mode-1
-                # command below is a REAL value change (broadcast_state()
-                # emits only on change). ---
                 await ws.send(json.dumps({"cmd": "set_render_mode", "mode": 2}))
                 await collect_states(0.5)
                 await ws.send(json.dumps({"cmd": "set_render_mode", "mode": 1}))
@@ -357,14 +308,12 @@ def test_bridge_e2e_mode3_orbit_and_frames():
                     f"vcam_state pose oscillated between nodes while mode == 1: {poses}")
 
                 await ws.send(json.dumps({"cmd": "set_render_mode", "mode": 3}))
-                # Orbit a couple of steps via set_look while mode 3 is active.
                 for eye, target in (([1.0, 2.0, 3.0], [0.0, 0.0, 0.5]),
                                     ([-1.0, -2.0, 3.5], [0.0, 0.0, 0.3])):
                     await ws.send(json.dumps(
                         {"cmd": "set_look", "eye": eye, "target": target}))
                     await asyncio.sleep(0.3)
 
-                # Frames must keep flowing (now from overlume_node).
                 counter.frames.clear()
                 t0 = time.time()
                 mode3_state = None
@@ -395,9 +344,7 @@ def test_bridge_e2e_mode3_orbit_and_frames():
             _kill(bridge_proc)
         _kill(viz_proc)
 
-
 LIVE_LAYERS = ("objects", "paths", "map_elements", "grids", "alerts", "markers")
-
 
 @pytest.mark.skipif(not os.path.isdir(INSTALL_DIR), reason="ros/install not built")
 def test_bridge_e2e_set_layers_hides_and_shows():
@@ -485,8 +432,6 @@ def test_bridge_e2e_set_layers_hides_and_shows():
             grabber.feed_scene()
             rclpy.spin_once(grabber, timeout_sec=0.05)
             if grabber.latest is not None:
-                # one more fresh frame: the first may have been mid-flight
-                # (rendered before the toggle landed)
                 first = grabber.latest
                 grabber.latest = None
                 t1 = time.time()
@@ -521,9 +466,6 @@ def test_bridge_e2e_set_layers_hides_and_shows():
             ws = connected
             try:
                 async def recv_ack(cmd, timeout=5.0):
-                    # The bridge also streams "state"/"diagnostics" frames on
-                    # this same socket (broadcast_state(), ~15 Hz) -- skip
-                    # anything that isn't this command's own ack.
                     t0 = time.time()
                     while time.time() - t0 < timeout:
                         frame = json.loads(await asyncio.wait_for(
@@ -569,18 +511,15 @@ def test_bridge_e2e_set_layers_hides_and_shows():
             _kill(bridge_proc)
         _kill(viz_proc)
 
-
 def test_pose_roundtrip():
     pytest.importorskip("gi")
     np = pytest.importorskip("numpy")
     from vcam_gui import pose_to_rt, rt_to_pose
-    # a real bl-style row: yawed back-left, pitched slightly down
     row = pose_to_rt(0.21, 0.38, 0.72, 139.0, -2.2, 1.5)
     back = rt_to_pose(row)
     assert np.allclose(back, [0.21, 0.38, 0.72, 139.0, -2.2, 1.5], atol=1e-6)
     R = np.array(row[:9]).reshape(3, 3)
-    assert np.allclose(R.T @ R, np.eye(3), atol=1e-9)  # orthonormal
-
+    assert np.allclose(R.T @ R, np.eye(3), atol=1e-9)
 
 def test_resolve_environment_preset():
     pytest.importorskip("gi")
@@ -590,34 +529,22 @@ def test_resolve_environment_preset():
     assert resolve_environment_preset(
         "ion://2275207?materials=original&cache=off", "") == "google"
     assert resolve_environment_preset("ion://12345", "ion://12345") == "clipped"
-    # no own asset configured yet -- must never guess "clipped"
     assert resolve_environment_preset("ion://12345", "") is None
-    # a hand-edited URI matching nothing known -- leave the combo alone
     assert resolve_environment_preset("ion://99999?foo=bar", "ion://12345") is None
 
-
 def test_environment_initial_sensitivity_fails_closed():
-    # Regression for gate finding #21: every preset must start sensitive
-    # EXCEPT "clipped", which fails closed until the first get_params
-    # round-trip proves an own asset is configured. Reverting to "always
-    # True" (the pre-fix bug) makes this fail on the "clipped" case.
     pytest.importorskip("gi")
     from vcam_gui import ENVIRONMENT_PRESETS, initial_environment_sensitivity
     for preset in ENVIRONMENT_PRESETS:
         assert initial_environment_sensitivity(preset) == (preset != "clipped")
 
-
 def test_ack_failure_text():
-    # Regression for gate finding #4: a rejected ack must render its cmd +
-    # reason (or "rejected" when the bridge sent none), not be silently
-    # dropped.
     pytest.importorskip("gi")
     from vcam_gui import ack_failure_text
     assert ack_failure_text({"cmd": "set_environment_source",
                              "reason": "geo-anchor not solved yet"}) == \
         "✘ set_environment_source: geo-anchor not solved yet"
     assert ack_failure_text({"cmd": "set_layers"}) == "✘ set_layers: rejected"
-
 
 def test_gui_and_bridge_environment_preset_tables_agree():
     """The GUI keeps its own literal copy of the preset->URI table (it is a
@@ -630,13 +557,7 @@ def test_gui_and_bridge_environment_preset_tables_agree():
     from vcam_gui import ENVIRONMENT_PRESETS as GUI_PRESETS
     from vcam_gui import ENVIRONMENT_PRESET_URIS_FIXED
 
-    # Same preset names on both sides (the GUI orders them for display; the
-    # bridge validates membership, hence list-vs-set).
     assert set(GUI_PRESETS) == ENVIRONMENT_PRESETS
-    # "clipped" is per-deployment (environment_own_asset_uri), so it is
-    # absent from BOTH literal tables by design -- assert that too, so a
-    # future fabricated id in either file fails here.
     assert "clipped" not in ENVIRONMENT_PRESET_URIS_FIXED
     assert "clipped" not in ENVIRONMENT_PRESET_URIS
-    # Every fixed URI byte-identical across the two copies.
     assert ENVIRONMENT_PRESET_URIS_FIXED == ENVIRONMENT_PRESET_URIS

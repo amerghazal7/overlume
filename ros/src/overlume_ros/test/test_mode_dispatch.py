@@ -58,10 +58,8 @@ REPO_ROOT = os.path.normpath(
 INSTALL_DIR = os.path.join(REPO_ROOT, "ros", "install")
 NODE_NAME = "/overlume_node"
 
-
 def _popen(cmd: str) -> subprocess.Popen:
     return subprocess.Popen(["bash", "-c", cmd], start_new_session=True)
-
 
 def _kill(proc: subprocess.Popen):
     try:
@@ -77,11 +75,9 @@ def _kill(proc: subprocess.Popen):
             pass
         proc.wait()
 
-
 def _run(cmd: str, timeout: float = 15.0) -> subprocess.CompletedProcess:
     full = f"source /opt/ros/humble/setup.bash && {cmd}"
     return subprocess.run(["bash", "-c", full], capture_output=True, text=True, timeout=timeout)
-
 
 def _lifecycle(transition: str, timeout: float = 15.0) -> bool:
     for _ in range(20):
@@ -95,18 +91,15 @@ def _lifecycle(transition: str, timeout: float = 15.0) -> bool:
         time.sleep(1)
     return False
 
-
 def _param_set(name: str, value_literal: str) -> bool:
     result = _run(f"ros2 param set {NODE_NAME} {name} {value_literal}")
     return result.returncode == 0 and "Set parameter successful" in result.stdout
-
 
 def _param_get(name: str) -> str:
     """Last ':'-delimited token of `ros2 param get`'s one-line output,
     lowercased -- e.g. "Boolean value is: True" -> "true"."""
     result = _run(f"ros2 param get {NODE_NAME} {name}")
     return result.stdout.strip().rsplit(":", 1)[-1].strip().lower()
-
 
 def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
     t0 = time.time()
@@ -116,7 +109,6 @@ def _wait_running(proc: subprocess.Popen, timeout: float = 12.0) -> bool:
             return False
     return True
 
-
 def main() -> int:
     if not os.path.isdir(INSTALL_DIR):
         print("SKIP: ros/install not built -- run colcon_build.sh first.")
@@ -125,10 +117,6 @@ def main() -> int:
     log_fd, log_path = tempfile.mkstemp(prefix="viz_mode_dispatch_", suffix=".log")
     os.close(log_fd)
 
-    # initial_mode:=3 so this node is the mux-authoritative renderer
-    # throughout (Decision 7 untouched) -- every check below flips ONLY the
-    # local render_mode/layer_surround_stitching/surround_stitching_profile
-    # params, never /rendering/set_mode.
     viz_cmd = (
         f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
         f"ros2 run overlume_ros overlume_node --ros-args "
@@ -147,7 +135,6 @@ def main() -> int:
             print("FAIL: configure/activate failed.", file=sys.stderr)
             return 1
 
-        # ---- 1. render_mode: accepts 1/2/3 ----
         for mode in (1, 2, 3):
             if not _param_set("render_mode", str(mode)):
                 print(f"FAIL: `ros2 param set render_mode {mode}` was rejected -- "
@@ -155,7 +142,6 @@ def main() -> int:
                 return 1
         print("PASS (1a/5): render_mode accepts 1, 2, 3.")
 
-        # ---- 1b. render_mode: rejects out of range ----
         for bad in (0, 4):
             if _param_set("render_mode", str(bad)):
                 print(f"FAIL: `ros2 param set render_mode {bad}` was ACCEPTED -- "
@@ -163,7 +149,6 @@ def main() -> int:
                 return 1
         print("PASS (1b/5): render_mode rejects 0 and 4.")
 
-        # ---- 2. layer_surround_stitching round-trips ----
         if not _param_set("layer_surround_stitching", "true"):
             print("FAIL: `ros2 param set layer_surround_stitching true` was rejected.",
                   file=sys.stderr)
@@ -174,7 +159,6 @@ def main() -> int:
             return 1
         print("PASS (2/5): layer_surround_stitching round-trips true/false.")
 
-        # ---- 3. surround_stitching_profile: accepts bowl/hybrid, rejects other ----
         for profile in ("bowl", "hybrid"):
             if not _param_set("surround_stitching_profile", profile):
                 print(f"FAIL: `ros2 param set surround_stitching_profile {profile}` was "
@@ -186,7 +170,6 @@ def main() -> int:
             return 1
         print("PASS (3/5): surround_stitching_profile accepts bowl/hybrid, rejects lidar.")
 
-        # ---- 4. node stayed alive throughout, no /rendering/set_mode touched ----
         time.sleep(0.5)
         if viz_proc.poll() is not None:
             with open(log_path) as f:
@@ -197,9 +180,6 @@ def main() -> int:
         print("PASS (4/5): node stayed alive throughout -- no ROS message on any topic was "
               "needed for any of the above.")
 
-        # ---- 5. BOWL<->FREE_LOOK does not clobber the user's own layer_* prefs
-        # ----  (the mask composes, it must never overwrite -- see
-        #        scene_assembly.hpp's compose_layer_gates()) ----
         if not _param_set("layer_objects", "false") or not _param_set("layer_paths", "true"):
             print("FAIL: could not seed layer_objects/layer_paths for the restore check.",
                   file=sys.stderr)
@@ -224,7 +204,6 @@ def main() -> int:
             os.remove(log_path)
         except OSError:
             pass
-
 
 if __name__ == "__main__":
     sys.exit(main())
