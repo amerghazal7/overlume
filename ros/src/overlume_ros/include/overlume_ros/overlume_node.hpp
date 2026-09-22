@@ -473,6 +473,12 @@ private:
     // URI only when it differs from the library's own default (2.0), same
     // shape as environment_ground_bias_m_ above.
     double environment_max_tilt_deg_{2.0};
+    // 2026-09-22 dim/oddly-coloured streamed-tile fix: gain multiplied onto
+    // each streamed material's own base colour (materials=original path
+    // only); composed as brightness= on the ion:// URI only when it
+    // differs from the library's own default (1.0), same shape as
+    // environment_max_tilt_deg_ above.
+    double environment_brightness_{1.0};
     // WARN-once latch on the STREAMING -> STREAMING_FALLBACK transition
     // (Decision 11), polled once per tick in timer_callback() alongside
     // render_ms_ -- same one-shot-bool shape as environment_warned_ above

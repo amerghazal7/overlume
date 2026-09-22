@@ -46,14 +46,15 @@ inline constexpr bool kReplacesGroundDefault = true;
 // kTerrainMaxTiltRad in degrees): degrees the multi-point terrain fit's
 // tilt is clamped to; 0 is the offset-only escape hatch.
 inline constexpr double kMaxTiltDegDefault = 2.0;
+// Mirrors IonSpec::brightness's default (environment_stream.cpp): 1.0 is a
+// no-op gain on the streamed materials' own baseColorFactor.
+inline constexpr double kBrightnessDefault = 1.0;
 
-inline std::string compose_environment_source_uri(const std::string& environment_chunks_dir,
-                                                  const std::string& environment_source_uri,
-                                                  const std::string& environment_tile_cache_dir,
-                                                  bool follow_terrain = false,
-                                                  double ground_bias_m = kGroundBiasDefaultM,
-                                                  bool replaces_ground = kReplacesGroundDefault,
-                                                  double max_tilt_deg = kMaxTiltDegDefault) {
+inline std::string compose_environment_source_uri(
+    const std::string& environment_chunks_dir, const std::string& environment_source_uri,
+    const std::string& environment_tile_cache_dir, bool follow_terrain = false,
+    double ground_bias_m = kGroundBiasDefaultM, bool replaces_ground = kReplacesGroundDefault,
+    double max_tilt_deg = kMaxTiltDegDefault, double brightness = kBrightnessDefault) {
     std::string source_uri = environment_chunks_dir;
     if (!environment_source_uri.empty()) {
         source_uri = environment_source_uri;
@@ -110,6 +111,20 @@ inline std::string compose_environment_source_uri(const std::string& environment
             v << max_tilt_deg;
             source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
             source_uri += "max_tilt_deg=" + v.str();
+        }
+        // brightness= is appended only when it differs from the library's
+        // own default (1.0) -- same "only when it differs from default"
+        // shape as ground_bias=/max_tilt_deg= above, so every pre-existing
+        // pinned string in test_environment_source_uri.cpp (all omitting
+        // this 8th param) stays unchanged.
+        if (environment_source_uri.rfind("ion://", 0) == 0 &&
+            environment_source_uri.find("brightness=") == std::string::npos &&
+            brightness != kBrightnessDefault) {
+            std::ostringstream v;
+            v.imbue(std::locale::classic());  // same locale-safety as ground_bias= above
+            v << brightness;
+            source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
+            source_uri += "brightness=" + v.str();
         }
     }
     return source_uri;

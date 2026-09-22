@@ -29,8 +29,12 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
+#include <filament/Material.h>
+#include <filament/MaterialInstance.h>
 #include <filament/RenderableManager.h>
 #include <filament/TransformManager.h>
+
+#include <gltfio/FilamentInstance.h>
 
 #include <utils/EntityManager.h>
 
@@ -89,6 +93,17 @@ struct IonSpec {
     // fails the whole parse, PLUS (unlike ground_bias=) a negative value
     // fails too -- a tilt clamp can't be negative.
     double max_tilt_deg = 2.0;
+    // brightness=<gain> (2026-09-22, dim/oddly-coloured streamed-tile fix):
+    // multiplies each streamed material's own baseColorFactor after load
+    // (materials=original path only -- see
+    // StreamRendererResources::prepareInMainThread; the clay path rebinds
+    // every primitive to r->buildingMaterial and is unaffected). Google
+    // Photorealistic glbs declare KHR_materials_unlit, so they ignore the
+    // scene's own sun entirely and are shaped only by fog + tone mapping +
+    // this gain. Default 1.0 (no change, byte-identical to every
+    // pre-existing URI); must parse as a finite value > 0 or the WHOLE
+    // parse fails -- same shape as ground_bias_m/max_tilt_deg above.
+    double brightness = 1.0;
 };
 
 std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
@@ -176,6 +191,20 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                     out.max_tilt_deg = std::stod(val, &used);
                     if (used != val.size() || !std::isfinite(out.max_tilt_deg) ||
                         out.max_tilt_deg < 0.0)
+                        return std::nullopt;
+                } catch (const std::exception&) {
+                    return std::nullopt;
+                }
+            } else if (key == "brightness") {
+                // Gain multiplied onto each streamed material's own
+                // baseColorFactor after load; a non-numeric OR
+                // non-positive value fails the whole parse (same shape as
+                // ground_bias=/max_tilt_deg= above).
+                try {
+                    size_t used = 0;
+                    out.brightness = std::stod(val, &used);
+                    if (used != val.size() || !std::isfinite(out.brightness) ||
+                        out.brightness <= 0.0)
                         return std::nullopt;
                 } catch (const std::exception&) {
                     return std::nullopt;
@@ -1129,6 +1158,38 @@ void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile&
         rm.setReceiveShadows(inst, true);
     }
 
+    // brightness= gain (2026-09-22 dim-tile fix): materials=original path
+    // ONLY -- the clay remap just above rebinds every primitive to
+    // r_->buildingMaterial and must stay untouched. Google Photorealistic
+    // glbs declare KHR_materials_unlit, so they ignore the scene's own sun
+    // entirely and read flat-dim under the theme's fog/palette regardless
+    // of exposure; this scales each loaded ubershader material instance's
+    // own baseColorFactor uniform (gltfio's glTF-PBR ubershader parameter
+    // name, verified against the linked libgltfio.a shader source).
+    // brightness_ == 1.0 (default, every pre-existing call site) is
+    // skipped outright -- a no-op multiply is still a float op, and every
+    // golden this ships next to must stay byte-identical.
+    if (materialsOriginal_ && brightness_ != 1.0) {
+        if (filament::gltfio::FilamentInstance* finst = asset->getInstance(); finst != nullptr) {
+            filament::MaterialInstance* const* insts = finst->getMaterialInstances();
+            const size_t instCount = finst->getMaterialInstanceCount();
+            for (size_t i = 0; i < instCount; ++i) {
+                filament::MaterialInstance* mi = insts[i];
+                if (mi == nullptr || mi->getMaterial() == nullptr ||
+                    !mi->getMaterial()->hasParameter("baseColorFactor")) {
+                    continue;  // e.g. a vertex-color-only primitive -- nothing to scale
+                }
+                filament::math::float4 base =
+                    mi->getParameter<filament::math::float4>("baseColorFactor");
+                const float gain = static_cast<float>(brightness_);
+                base.r *= gain;
+                base.g *= gain;
+                base.b *= gain;
+                mi->setParameter("baseColorFactor", base);
+            }
+        }
+    }
+
     // Geo placement (Decision 8): one root-entity transform. `glb->transform`
     // (captured in prepareInLoadThread, NOT tile.getTransform() -- see
     // LoadThreadGlb's own comment) is this content's local-to-ECEF
@@ -1198,7 +1259,7 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
     std::string ion_access_token, std::string root_tileset_uri, std::string fallback_baked_dir,
     GeoAnchor anchor, std::shared_ptr<CountingAssetAccessor> counting_accessor,
     bool materials_original, bool follow_terrain, double ground_bias_m, bool replaces_ground,
-    double max_tilt_deg)
+    double max_tilt_deg, double brightness)
     : asyncSystem_(externals.asyncSystem),
       anchor_(anchor),
       ecefToMap_(compute_ecef_to_map(anchor)),
@@ -1209,6 +1270,7 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
       groundBiasM_(ground_bias_m),
       replacesGround_(replaces_ground),
       maxTiltRad_(max_tilt_deg * M_PI / 180.0),
+      brightness_(brightness),
       countingAccessor_(std::move(counting_accessor)) {
     // GltfConverters' magic-byte dispatch table (b3dm/glTF/cmpt/i3dm/pnts)
     // is empty until this is called once, process-wide -- cesium-native
@@ -1228,7 +1290,7 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
     // externals.pPrepareRendererResources below, so cesium's Tileset holds
     // the other half of this shared_ptr's ownership.
     renderResources_ = std::make_shared<StreamRendererResources>(
-        ecefToMap_, anchor_.origin_height_m, materialsOriginal_);
+        ecefToMap_, anchor_.origin_height_m, materialsOriginal_, brightness_);
     externals.pPrepareRendererResources = renderResources_;
 
     Cesium3DTilesSelection::TilesetOptions options;
@@ -1854,7 +1916,7 @@ std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::
     return std::make_unique<StreamingEnvironmentSource>(
         externals, spec->asset_id, std::string(token), std::string(), spec->fallback_dir, anchor,
         std::move(counting), spec->materials_original, spec->follow_terrain, spec->ground_bias_m,
-        spec->replaces_ground, spec->max_tilt_deg);
+        spec->replaces_ground, spec->max_tilt_deg, spec->brightness);
 }
 
 }  // namespace overlume
@@ -2064,6 +2126,15 @@ double environment_stream_parse_max_tilt_deg(const char* ion_spec, bool* out_par
     const std::optional<IonSpec> spec = parse_ion_spec(ion_spec ? ion_spec : "");
     if (out_parse_ok) *out_parse_ok = spec.has_value();
     return spec.has_value() ? spec->max_tilt_deg : 2.0;
+}
+
+// 2026-09-22 dim/oddly-coloured streamed-tile fix: same shape as
+// environment_stream_parse_max_tilt_deg() above, exercising the real
+// parser's brightness= key instead.
+double environment_stream_parse_brightness(const char* ion_spec, bool* out_parse_ok) {
+    const std::optional<IonSpec> spec = parse_ion_spec(ion_spec ? ion_spec : "");
+    if (out_parse_ok) *out_parse_ok = spec.has_value();
+    return spec.has_value() ? spec->brightness : 1.0;
 }
 
 double terrain_ground_offset_probe(double sampled_height_m, double anchor_height_m,

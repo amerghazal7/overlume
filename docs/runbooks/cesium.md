@@ -440,3 +440,21 @@ different beast from Path A/B's clay tilesets.
   multi-tile, live-rig measurement is done, and budget accordingly;
   `maximumScreenSpaceError`/load-radius tuning are the named first levers
   on a miss.
+- **Dim/oddly-coloured tiles (2026-09-22, real-robot replay finding).**
+  Google's glbs declare `KHR_materials_unlit`, so they ignore this scene's
+  own sun entirely — the shipped `dark_adas.yaml` theme was tuned for the
+  renderer's own LIT clay geometry, with a deliberately dark HMI palette
+  and exponential fog (`fog.density: 0.010`, ~63% fog colour by 100 m); an
+  unlit photoreal mesh under that combination reads dim, dark, and oddly
+  tinted even though nothing is actually malfunctioning. Two independent
+  levers, either one usable alone: (1) `environment_brightness` (node
+  param, default 1.0, composed as `brightness=<gain>` on the `ion://` URI
+  only when it differs from that default) multiplies each streamed
+  material's own base colour after load, on the `materials=original` path
+  only — the clay path is untouched, since it rebinds every primitive to
+  the renderer's own building material regardless. (2) lowering the
+  theme's own `fog.density` reduces how much of the tinted-dark fog colour
+  blends in at range, independent of the tiles' own unlit shading. Start
+  with `environment_brightness` if only the streamed tiles read wrong;
+  reach for the theme's `fog.density` if the whole scene (clay included)
+  reads too fog-heavy.

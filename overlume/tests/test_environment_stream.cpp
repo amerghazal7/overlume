@@ -1174,6 +1174,25 @@ TEST(EnvironmentStream, ParseIonSpecMaxTiltDeg) {
                         "parse' shape";
 }
 
+// 2026-09-22 dim/oddly-coloured streamed-tile fix: brightness= gain,
+// pinned against the real parser -- same shape as ParseIonSpecMaxTiltDeg
+// above.
+TEST(EnvironmentStream, ParseIonSpecBrightness) {
+    bool ok = false;
+    EXPECT_DOUBLE_EQ(
+        overlume::testing::environment_stream_parse_brightness("96188?brightness=2.5", &ok), 2.5);
+    EXPECT_TRUE(ok);
+    EXPECT_DOUBLE_EQ(overlume::testing::environment_stream_parse_brightness("96188", &ok), 1.0)
+        << "absent key -- parses fine, defaults to 1.0 (no-op gain)";
+    EXPECT_TRUE(ok);
+    overlume::testing::environment_stream_parse_brightness("96188?brightness=0", &ok);
+    EXPECT_FALSE(ok) << "0 -- a zero gain has no safe silent meaning, fails the whole parse";
+    overlume::testing::environment_stream_parse_brightness("96188?brightness=-1", &ok);
+    EXPECT_FALSE(ok) << "negative -- a gain can't be negative, same 'fails the whole parse' shape";
+    overlume::testing::environment_stream_parse_brightness("96188?brightness=bogus", &ok);
+    EXPECT_FALSE(ok) << "non-numeric -- the WHOLE spec fails to parse";
+}
+
 // Design item 7a: the real least-squares fit, pinned directly.
 TEST(EnvironmentStream, TerrainPlaneFitProbe) {
     // Exact recovery of a synthetic line: slope 0.02, intercept 1.5, every

@@ -157,6 +157,14 @@ bool environment_stream_parse_replaces_ground(const char* ion_spec, bool* out_pa
 // null.
 double environment_stream_parse_max_tilt_deg(const char* ion_spec, bool* out_parse_ok);
 
+// 2026-09-22 dim/oddly-coloured streamed-tile fix: same shape as
+// environment_stream_parse_max_tilt_deg() above, exercising the real
+// parser's brightness= key instead -- a non-numeric OR non-positive value
+// fails the whole parse (`*out_parse_ok` reports that separately); absent
+// defaults to 1.0 (IonSpec::brightness's own default, a no-op gain).
+// `out_parse_ok` may be null.
+double environment_stream_parse_brightness(const char* ion_spec, bool* out_parse_ok);
+
 // ponytail: pure-math probe (no live tileset/renderer needed), added to
 // keep AGENTS.md's "runnable check that fails when reverted" honest for the
 // smoothing/clamp formula even though this pass didn't build the

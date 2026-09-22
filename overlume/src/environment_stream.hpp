@@ -283,11 +283,16 @@ public:
     // `materialsOriginal` (VM-064, Task 5): false (default) is today's clay
     // remap; true skips it in prepareInMainThread() -- gltfio's own loaded
     // ubershader materials stay bound (Google Photorealistic 3D Tiles).
+    // `brightness` (2026-09-22 dim-tile fix): gain multiplied onto each
+    // loaded material's own baseColorFactor in prepareInMainThread(), on
+    // the materialsOriginal path only; 1.0 (default) is a no-op, applied
+    // nowhere, byte-identical to before this parameter existed.
     explicit StreamRendererResources(const glm::dmat4& ecefToMap, double anchorHeightM,
-                                     bool materialsOriginal = false)
+                                     bool materialsOriginal = false, double brightness = 1.0)
         : ecefToMap_(ecefToMap),
           anchorHeightM_(anchorHeightM),
-          materialsOriginal_(materialsOriginal) {}
+          materialsOriginal_(materialsOriginal),
+          brightness_(brightness) {}
 
     // `r` is only valid for the duration of the StreamingEnvironmentSource
     // call that supplied it (update()/teardown() -- the seam's own
@@ -368,6 +373,9 @@ private:
     glm::dmat4 ecefToMap_;
     double anchorHeightM_ = 0.0;      // 2026-09-21 finding: anchor's own WGS84 ellipsoid height
     bool materialsOriginal_ = false;  // VM-064: gates the clay remap, see prepareInMainThread()
+    // 2026-09-22 dim-tile fix: baseColorFactor gain, materialsOriginal_
+    // path only -- see prepareInMainThread().
+    double brightness_ = 1.0;
     std::mutex freeMutex_;
     std::vector<filament::gltfio::FilamentAsset*> pendingFrees_;
     std::atomic<bool> tornDown_{false};
@@ -473,7 +481,11 @@ public:
                                // (2.0), same "caller that omits it gets the URI-equivalent
                                // behaviour" reasoning as the two params above. 0 disables tilt
                                // (offset-only, the pre-fit behaviour) -- see kTerrainMaxTiltRad.
-                               double max_tilt_deg = 2.0);
+                               double max_tilt_deg = 2.0,
+                               // `brightness` (2026-09-22 dim-tile fix): default MATCHES
+                               // IonSpec's own (1.0, a no-op gain), same reasoning as the
+                               // params above. Threaded straight to StreamRendererResources.
+                               double brightness = 1.0);
     ~StreamingEnvironmentSource() override;
 
     void update(VisualRenderer& r, Vec3 ego_map_pos) override;
@@ -633,6 +645,11 @@ private:
     // max_tilt_deg (URI key) / StreamingEnvironmentSource ctor param,
     // stored pre-converted to radians -- kTerrainMaxTiltRad's own default.
     double maxTiltRad_ = kTerrainMaxTiltRad;
+    // 2026-09-22 dim-tile fix: IonSpec::brightness, threaded straight into
+    // renderResources_ at construction (same shape as materialsOriginal_
+    // above) -- never read again after that, so no groundOffsetZ_-style
+    // "current vs. last applied" pair is needed.
+    double brightness_ = 1.0;
     bool groundOffsetSnapped_ =
         false;  // true once the first fit has snapped groundOffsetZ_/terrainTiltRad_
 
