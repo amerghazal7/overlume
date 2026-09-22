@@ -126,13 +126,35 @@ private:
         }
     };
 
+    // Per-lane_id cache of the last COMPLETE resampled road-surface rail
+    // pair (flicker fix, 2026-09-22): left_by_lane/right_by_lane (fill())
+    // come from the CUT/promoted boundary pipeline, which is ego-position
+    // dependent and can drop one rail for a single tick even though the
+    // upstream source is still publishing both boundaries every message --
+    // without this cache the lane's ROAD_SURFACE fill blinks out for that
+    // tick, exposing whatever sits under the map layer (harmless over the
+    // old clay ground plane; a violent flicker now that streamed photoreal
+    // tiles sit there instead). fill() refreshes an entry whenever both
+    // rails are present for a lane_id this tick, and retires entries whose
+    // cached_recv_sec is more than row_.timeout_sec behind last_recv_sec_.
+    // Persists ACROSS fill() calls (unlike road_surface_points_/
+    // junction_cut_points_ below) -- that persistence is the whole point.
+    struct RoadFillCacheEntry {
+        std::vector<overlume::Vec3> left;
+        std::vector<overlume::Vec3> right;
+        double cached_recv_sec{-1.0};
+    };
+    mutable std::unordered_map<uint32_t, RoadFillCacheEntry> road_fill_cache_;
+
     ProfileRow row_;
     const overlume::ros::FrameTransformer& tf_;
     std::unordered_map<Key, std::vector<StoredElement>, KeyHash> storage_;
     // Rebuilt from scratch at the START of every fill() call (never touched
     // by ingest()) -- holds the resampled two-rail point buffers the
-    // synthesized ROAD_SURFACE MapElements point into. `mutable` because
-    // fill() is const.
+    // synthesized ROAD_SURFACE MapElements point into (copied out of
+    // road_fill_cache_ above, fresh or carried over -- MapElement::points
+    // must be one contiguous left+right buffer, which a bare cache entry
+    // isn't). `mutable` because fill() is const.
     mutable std::vector<std::vector<overlume::Vec3>> road_surface_points_;
     // Same "mutable, fill()-time cache" shape as road_surface_points_ above
     // -- holds every clipped/cut ROAD_EDGE and (junction_interior_boundaries:

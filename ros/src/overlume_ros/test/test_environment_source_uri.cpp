@@ -166,3 +166,23 @@ TEST(ComposeEnvironmentSourceUri, MaxTiltDegAppendedOnlyWhenNotDefault) {
     EXPECT_EQ(overlume::ros::compose_environment_source_uri("/baked", "", "", true, 0.3, true, 5.0),
               "/baked");
 }
+
+// 2026-09-22 dim/oddly-coloured streamed-tile fix: brightness= rides on the
+// library default (1.0) and is only composed when the node param differs
+// from it -- same "only when it differs from default" shape as
+// ground_bias=/max_tilt_deg= above, so every pre-existing pinned string in
+// this file (all omitting the 8th param) stays unchanged.
+TEST(ComposeEnvironmentSourceUri, BrightnessAppendedOnlyWhenNotDefault) {
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "ion://96188", "", true, 0.3, true,
+                                                            2.0, 1.0),
+              "ion://96188?follow_terrain=on");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "ion://96188", "", true, 0.3, true,
+                                                            2.0, 1.8),
+              "ion://96188?follow_terrain=on&brightness=1.8");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "ion://96188?brightness=2.5", "",
+                                                            true, 0.3, true, 2.0, 1.8),
+              "ion://96188?brightness=2.5&follow_terrain=on");
+    EXPECT_EQ(
+        overlume::ros::compose_environment_source_uri("/baked", "", "", true, 0.3, true, 2.0, 1.8),
+        "/baked");
+}

@@ -818,6 +818,176 @@ TEST(HdMapAdapter, LaneWithOnlyOneBoundaryProducesNoRoadSurfaceElement) {
     EXPECT_EQ(a.stats().dropped_malformed, 0u);
 }
 
+TEST(HdMapAdapter, RoadSurfaceFillPersistsFromCacheWhenARailDropsForOneTick) {
+    // Flicker fix (2026-09-22, real-robot replay with streamed photoreal
+    // tiles): every real message is a DELETEALL-then-republish snapshot of
+    // the whole map, and a lane can lose one rail from a single snapshot
+    // (its local window shifts with the ego, then it's back next tick) even
+    // though the OTHER rail stays put -- without the per-lane_id cache,
+    // that tick's ROAD_SURFACE fill for the lane vanishes outright instead
+    // of holding its last complete pair, exposing whatever sits under the
+    // map layer (harmless over the old clay ground plane; a violent
+    // flicker now that streamed photoreal tiles sit there instead).
+    TfFixture kTf;
+    auto row = MapRuleRow();
+    overlume::ros::HdMapAdapter a(row, kTf.tf);
+
+    auto rail_marker = [](const char* ns, int32_t id, double x) {
+        visualization_msgs::msg::Marker m;
+        m.header.frame_id = "map";
+        m.ns = ns;
+        m.id = id;
+        m.type = 4;
+        m.action = 0;
+        geometry_msgs::msg::Point p0, p1;
+        p0.x = x;
+        p0.y = 0.0;
+        p1.x = x;
+        p1.y = 20.0;
+        m.points = {p0, p1};
+        return m;
+    };
+    // Every real message from the upstream publisher opens with a DELETEALL
+    // marker (ns="", id=0) and then republishes the FULL current snapshot --
+    // it never DELETEs a single rail by id (see DeleteAllClearsPreviousElements
+    // above and hd_map.cpp's DELETEALL-branch comment). A lane loses a rail
+    // for one tick by that snapshot simply OMITTING it, not by an explicit
+    // per-id delete, so these fixtures model that shape, not a targeted
+    // DELETE marker.
+    auto delete_all_marker = []() {
+        visualization_msgs::msg::Marker m;
+        m.header.frame_id = "map";
+        m.ns = "";
+        m.id = 0;
+        m.action = 3;  // kActionDeleteAll
+        return m;
+    };
+    auto lane42_both_rails = [&]() {
+        visualization_msgs::msg::MarkerArray arr;
+        arr.markers = {delete_all_marker(), rail_marker("left_boundary_42", 42, 0.0),
+                       rail_marker("right_boundary_42", 42, 3.2)};
+        return arr;
+    };
+    // Full snapshot with only the left rail -- the right rail is dropped by
+    // simply not being in this message, exactly how the real upstream
+    // source loses a rail for a single tick (the measured real-robot
+    // defect: every left_boundary_<id>/right_boundary_<id> namespace is
+    // present in 60/60 sampled messages, so the omission is transient, not
+    // a genuine map edit).
+    auto lane42_left_rail_only = [&]() {
+        visualization_msgs::msg::MarkerArray arr;
+        arr.markers = {delete_all_marker(), rail_marker("left_boundary_42", 42, 0.0)};
+        return arr;
+    };
+    auto find_lane42_fill = [](const SceneAssembly& out) -> const overlume::MapElement* {
+        for (const auto& e : out.map_elements) {
+            if (e.kind == overlume::MapKind::ROAD_SURFACE && e.lane_id == 42u) return &e;
+        }
+        return nullptr;
+    };
+
+    // Tick 1: both rails present -> fill() emits ROAD_SURFACE for lane 42
+    // and refreshes its cache entry.
+    a.ingest(lane42_both_rails(), 1.0);
+    SceneAssembly out1;
+    a.fill(out1);
+    const overlume::MapElement* fill1 = find_lane42_fill(out1);
+    ASSERT_NE(fill1, nullptr)
+        << "lane 42 did not synthesize a ROAD_SURFACE element with both rails present";
+    const uint32_t point_count = fill1->point_count;
+
+    // Tick 2: a full DELETEALL-then-republish snapshot that omits the right
+    // rail entirely (the real upstream publisher's actual shape -- see
+    // delete_all_marker()'s comment above). storage_ is wiped by this
+    // tick's own head-of-message DELETEALL and rebuilt from just
+    // left_boundary_42, so right_by_lane no longer carries lane 42 at all.
+    // fill() must STILL emit ROAD_SURFACE for lane 42, from the cache
+    // (road_fill_cache_ survives DELETEALL -- only storage_ is cleared by
+    // it), with the same point count.
+    a.ingest(lane42_left_rail_only(), 1.5);
+    SceneAssembly out2;
+    a.fill(out2);
+    const overlume::MapElement* fill2 = find_lane42_fill(out2);
+    ASSERT_NE(fill2, nullptr)
+        << "lane 42's ROAD_SURFACE fill vanished for one tick instead of holding its cached pair "
+           "-- this is the flicker VM/2026-09-22 root-caused on the real-robot replay";
+    EXPECT_EQ(fill2->point_count, point_count);
+
+    // Tick 3: another full DELETEALL-then-republish snapshot, sim time now
+    // past row.timeout_sec since the last complete pair (tick 1, at sim_time
+    // 1.0) -- the cache entry must now be retired, so the element is gone.
+    a.ingest(lane42_left_rail_only(), 1.0 + row.timeout_sec + 0.1);
+    SceneAssembly out3;
+    a.fill(out3);
+    EXPECT_EQ(find_lane42_fill(out3), nullptr)
+        << "lane 42's stale ROAD_SURFACE cache entry outlived row.timeout_sec";
+}
+
+TEST(HdMapAdapter, RoadSurfaceFillCacheRetiresWhenTheClockRewinds) {
+    // Opus gate round 2: the retire check above is TWO-sided on purpose. The
+    // repo's own replay rig (tools/validate_logger_session.sh) plays the
+    // session with loop: true, so /clock rewinds to the session start every
+    // lap. With a one-sided (now - cached) age, every cache entry stamped in
+    // the last timeout_sec before the wrap carries a NEGATIVE age afterwards,
+    // is never retired, and is re-emitted for the rest of the replay -- a
+    // ghost carriageway frozen at last lap's coordinates.
+    TfFixture kTf;
+    auto row = MapRuleRow();
+    overlume::ros::HdMapAdapter a(row, kTf.tf);
+
+    auto rail_marker = [](const char* ns, int32_t id, double x) {
+        visualization_msgs::msg::Marker m;
+        m.header.frame_id = "map";
+        m.ns = ns;
+        m.id = id;
+        m.type = 4;
+        m.action = 0;
+        geometry_msgs::msg::Point p0, p1;
+        p0.x = x;
+        p0.y = 0.0;
+        p1.x = x;
+        p1.y = 20.0;
+        m.points = {p0, p1};
+        return m;
+    };
+    auto delete_all_marker = []() {
+        visualization_msgs::msg::Marker m;
+        m.header.frame_id = "map";
+        m.ns = "";
+        m.id = 0;
+        m.action = 3;
+        return m;
+    };
+    auto snapshot = [&](bool with_right) {
+        visualization_msgs::msg::MarkerArray arr;
+        arr.markers = {delete_all_marker(), rail_marker("left_boundary_42", 42, 0.0)};
+        if (with_right) arr.markers.push_back(rail_marker("right_boundary_42", 42, 3.2));
+        return arr;
+    };
+    auto find_lane42_fill = [](const SceneAssembly& out) -> const overlume::MapElement* {
+        for (const auto& e : out.map_elements) {
+            if (e.kind == overlume::MapKind::ROAD_SURFACE && e.lane_id == 42u) return &e;
+        }
+        return nullptr;
+    };
+
+    // Late in a lap: both rails, so lane 42 is cached at sim time 400.0.
+    a.ingest(snapshot(/*with_right=*/true), 400.0);
+    SceneAssembly out1;
+    a.fill(out1);
+    ASSERT_NE(find_lane42_fill(out1), nullptr);
+
+    // The player wraps: /clock rewinds to the session start and the first
+    // snapshot of the new lap omits the right rail. The pre-wrap entry is
+    // 399 s in the FUTURE, so a one-sided age check would hold it forever.
+    a.ingest(snapshot(/*with_right=*/false), 1.0);
+    SceneAssembly out2;
+    a.fill(out2);
+    EXPECT_EQ(find_lane42_fill(out2), nullptr)
+        << "a pre-rewind ROAD_SURFACE cache entry survived the clock going backwards -- it would "
+           "be re-emitted for the rest of the replay as a ghost carriageway";
+}
+
 TEST(HdMapAdapter, MismatchedRailPointCountsResampledStationsSpanRecordedEndpoints) {
     // LocalElementsFixtureYieldsLanesAndCrosswalks's aggregate (road_count
     // ==16, every point_count==32) proves resampling produced the right

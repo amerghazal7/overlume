@@ -928,6 +928,17 @@ void HdMapAdapter::ingest(const visualization_msgs::msg::MarkerArray& msg, doubl
         if (m.action == kActionDeleteAll) {
             // ROS Marker semantics: DELETEALL clears every marker this
             // adapter is tracking, regardless of ITS OWN ns/id fields.
+            // road_fill_cache_ is deliberately NOT cleared here: every
+            // real /hd_map_local_elements message from the upstream
+            // publisher IS a DELETEALL-then-republish snapshot (one
+            // action=3 marker followed by the full live set), so clearing
+            // the cache here would wipe it at the head of every message
+            // and make the flicker fix a no-op -- the very case it exists
+            // for (a lane missing one rail in THIS snapshot) would look
+            // identical to a lane that genuinely left the map. A lane
+            // that genuinely leaves the map is bounded instead by the
+            // timeout retire below (row_.timeout_sec), the same trade the
+            // rest of this adapter already makes for storage_ staleness.
             storage_.clear();
             continue;
         }
@@ -1203,40 +1214,74 @@ void HdMapAdapter::fill(overlume::ros::SceneAssembly& out) const {
         }
     }
 
-    // Road-surface fill: pair every lane_id present on BOTH rails; a
-    // lane_id on only one rail (0 of 16 in the committed fixture, but not
-    // provably impossible on other bags) emits nothing for it -- silently
-    // dropped, not malformed (spec §9's "missing data renders nothing").
-    // road_surface_points_ holds the resampled buffers these
-    // synthesized elements point into; cleared and rebuilt at the top of
-    // every fill() call, so it stays alive exactly as long as this fill()
-    // call's own out.map_elements does.
+    // Road-surface fill: pair every lane_id present on BOTH rails this
+    // tick and refresh road_fill_cache_'s entry for it (hd_map.hpp --
+    // flicker fix: the CUT pipeline above is ego-position dependent and
+    // can drop one rail for a single tick even though the upstream
+    // source keeps publishing both). A lane_id on only one rail this
+    // tick is NOT dropped outright: its cache entry (if any, and not
+    // past row_.timeout_sec) is what actually gets emitted below,
+    // instead of blinking the fill out for that tick. A lane_id on only
+    // one rail with no live cache entry emits nothing, same as before
+    // (spec §9's "missing data renders nothing").
     for (const auto& [lane_id, left_pts] : left_by_lane) {
         const auto it = right_by_lane.find(lane_id);
         if (it == right_by_lane.end()) continue;
 
-        const std::vector<overlume::Vec3> left_r = ResampleByArcLength(*left_pts, kRoadFillSamples);
-        const std::vector<overlume::Vec3> right_r =
-            ResampleByArcLength(*it->second, kRoadFillSamples);
+        std::vector<overlume::Vec3> left_r = ResampleByArcLength(*left_pts, kRoadFillSamples);
+        std::vector<overlume::Vec3> right_r = ResampleByArcLength(*it->second, kRoadFillSamples);
         if (left_r.empty() || right_r.empty()) continue;  // malformed rail, skip silently
+
+        RoadFillCacheEntry& entry = road_fill_cache_[lane_id];
+        entry.left = std::move(left_r);
+        entry.right = std::move(right_r);
+        entry.cached_recv_sec = last_recv_sec_;
+    }
+
+    // Emit from road_fill_cache_ (now the single source of truth for
+    // "what does every lane's fill look like this tick" -- fresh pairs
+    // were just written into it above, and lanes that dropped a rail
+    // this tick keep their last complete pair here). road_surface_points_
+    // holds the resampled buffers these synthesized elements point into
+    // (copied fresh out of the cache, never pointed at directly -- see
+    // hd_map.hpp); cleared and rebuilt at the top of every fill() call,
+    // so it stays alive exactly as long as this fill() call's own
+    // out.map_elements does.
+    for (auto cache_it = road_fill_cache_.begin(); cache_it != road_fill_cache_.end();) {
+        // Two-sided on purpose. A one-sided (now - cached) age never retires
+        // an entry stamped BEFORE a clock rewind, and the looping replay rig
+        // (tools/validate_logger_session.sh sets the player's loop: true)
+        // rewinds /clock to the session start every lap -- every entry
+        // stamped in the last timeout_sec before the wrap would then carry a
+        // negative age and be re-emitted forever, painting a ghost
+        // carriageway at last lap's coordinates (Opus gate round 2).
+        const double age_sec = last_recv_sec_ - cache_it->second.cached_recv_sec;
+        if (age_sec > row_.timeout_sec || age_sec < 0.0) {
+            cache_it = road_fill_cache_.erase(cache_it);  // past the timeout, or clock rewound
+            continue;
+        }
 
         road_surface_points_.emplace_back();
         std::vector<overlume::Vec3>& combined = road_surface_points_.back();
         combined.reserve(2 * kRoadFillSamples);
-        combined.insert(combined.end(), left_r.begin(), left_r.end());
-        combined.insert(combined.end(), right_r.begin(), right_r.end());
+        combined.insert(combined.end(), cache_it->second.left.begin(), cache_it->second.left.end());
+        combined.insert(combined.end(), cache_it->second.right.begin(),
+                        cache_it->second.right.end());
 
         overlume::MapElement e{};
         e.points = combined.data();
         e.point_count = static_cast<uint32_t>(combined.size());
         e.is_polygon = 0;
         e.kind = overlume::MapKind::ROAD_SURFACE;
-        e.lane_id = lane_id;
+        e.lane_id = cache_it->first;
         // Same offset stamp as every other emitted element above -- the
         // synthesized ROAD_SURFACE element must fade (and
-        // ramp-out-before-cutoff) too.
+        // ramp-out-before-cutoff) too. Unchanged by caching: it is
+        // always today's last_recv_sec_, whether this tick's pair is
+        // fresh or carried over from the cache.
         e.last_update_sec = last_recv_sec_ + (row_.timeout_sec - kMapFadeWindowSec);
         out.map_elements.push_back(e);
+        ++cache_it;
     }
 }
 

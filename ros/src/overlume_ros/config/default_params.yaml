@@ -254,6 +254,20 @@
     # URI only when it differs from the library's own default (same
     # "differs from default" shape as environment_ground_bias_m above).
     environment_max_tilt_deg: 2.0
+    # 2026-09-22: Google Photorealistic tiles (materials=original) declare
+    # KHR_materials_unlit, so they ignore this scene's own sun entirely and
+    # read dim/flat under dark_adas.yaml's fog density + dark HMI palette --
+    # not a bug in the tiles, a consequence of an unlit asset under a theme
+    # tuned for the renderer's own lit clay geometry. This gain multiplies
+    # each streamed material's own base colour after load; 1.0 (the shipped
+    # default) is a no-op. Has no effect on materials=clay/absent (that path
+    # rebinds every primitive to the renderer's own building material and
+    # never sees this). Composed as brightness= on the ion:// URI only when
+    # it differs from the library's own default (same "differs from
+    # default" shape as environment_max_tilt_deg above); lowering the
+    # theme's own fog.density is the other lever for the same symptom (see
+    # docs/runbooks/cesium.md).
+    environment_brightness: 1.0
     # VM-064 (Epic 6 Task 5): Google Photorealistic 3D Tiles attribution
     # disable knob (STANDING directive) -- on by default, but only actually
     # draws a line while environment_source_uri above is running in
