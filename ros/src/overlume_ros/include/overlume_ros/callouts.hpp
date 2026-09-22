@@ -21,4 +21,4 @@ bool BuildNearestCallout(overlume::VisualRenderer* renderer, const overlume::Ale
 void DrawCallout(uint8_t* rgb, uint32_t width, uint32_t height, const Callout& callout,
                  HudRgb chip_rgb, float scale, const char* font_path);
 
-}  // namespace overlume::ros
+}

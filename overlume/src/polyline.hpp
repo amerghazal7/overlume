@@ -40,4 +40,4 @@ void collapse_clipped_positions(std::vector<Vec3>& positions, const std::vector<
 
 std::vector<Vec3> build_crosswalk_hatch(const Vec3* pts, uint32_t n, float z_lift);
 
-}  // namespace overlume::detail
+}

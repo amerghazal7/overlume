@@ -373,7 +373,7 @@ Cesium3DTilesSelection::TilesetExternals build_externals(
     return externals;
 }
 
-}  // namespace
+}
 
 glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor) {
     const CesiumGeospatial::LocalHorizontalCoordinateSystem enu(
@@ -450,7 +450,7 @@ private:
 
 constexpr char kFileScheme[] = "file://";
 
-}  // namespace
+}
 
 std::shared_ptr<CesiumAsync::IAssetRequest> FileFixtureAssetAccessor::makeRequest(
     const std::string& verb, const std::string& url) {
@@ -544,7 +544,7 @@ filament::math::mat4f terrain_root_matrix(double z, double tilt_rad, double pivo
            mat4f::translation(-pivot) *
            mat4f::translation(float3{0.0f, 0.0f, static_cast<float>(z)});
 }
-}  // namespace
+}
 
 bool StreamingEnvironmentSource::provides_ground() const {
     return !fallenBack_ && replacesGround_ && terrainState_ && terrainState_->ground_hit.load();
@@ -860,7 +860,7 @@ double terrain_smooth_toward(double current, double target, float deltaSeconds) 
         1.0 - std::exp(-static_cast<double>(deltaSeconds) / kTerrainSmoothTimeConstantS);
     return current + (target - current) * alpha;
 }
-}  // namespace
+}
 
 void StreamingEnvironmentSource::update_terrain_transform(float deltaSeconds) {
     if (!terrainState_ || !terrainState_->fit_intercept.has_value()) return;
@@ -930,7 +930,7 @@ std::optional<Cesium3DTilesSelection::ViewState> camera_view_state(const VisualR
         glm::dvec3(posEcef4), dirEcef, upEcef,
         glm::dvec2(static_cast<double>(r.width), static_cast<double>(r.height)), hfovRad, vfovRad);
 }
-}  // namespace
+}
 
 void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec3 ego_map_pos) {
     using Cesium3DTilesSelection::ViewState;
@@ -1087,7 +1087,7 @@ bool StreamingEnvironmentSource::first_primitive_is_building_material(VisualRend
     return rm.getMaterialInstanceAt(inst, 0) == r.buildingMaterial;
 }
 
-}  // namespace overlume
+}
 
 namespace overlume {
 
@@ -1113,7 +1113,7 @@ std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::
         spec->replaces_ground, spec->max_tilt_deg, spec->brightness);
 }
 
-}  // namespace overlume
+}
 
 namespace overlume::testing {
 
@@ -1153,7 +1153,7 @@ std::unique_ptr<overlume::EnvironmentSource> make_fixture_source(
         std::move(counting), materials_original, follow_terrain, 0.0, true);
 }
 
-}  // namespace
+}
 
 bool install_fixture_streaming_source(overlume::VisualRenderer* r, const char* fixture_dir,
                                       overlume::GeoAnchor anchor, bool materials_original,
@@ -1351,4 +1351,4 @@ bool drive_ion_token_redaction_probe(const char* bogus_token, int64_t asset_id, 
     return captured_cesium_log_text().find("access_token=") != std::string::npos;
 }
 
-}  // namespace overlume::testing
+}

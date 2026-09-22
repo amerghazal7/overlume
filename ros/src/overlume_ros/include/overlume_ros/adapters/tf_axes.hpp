@@ -33,4 +33,4 @@ private:
     AdapterStats stats_;
 };
 
-}  // namespace overlume::ros
+}

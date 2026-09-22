@@ -26,7 +26,7 @@ constexpr overlume::Vec3 kFarFromTown{100000.0, 100000.0, 0.0};
 
 constexpr overlume::Vec3 kBuildingsCentroid{-109.2, -17.1, 3.0};
 
-}  // namespace
+}
 
 TEST(Environment, SetEnvironmentSourceWithMissingDirIsNonFatal) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
@@ -132,7 +132,7 @@ size_t count_differing_bytes(const std::vector<uint8_t>& a, const std::vector<ui
     }
     return n;
 }
-}  // namespace
+}
 
 TEST(Environment, SetEnvironmentVisibleNullRendererIsFalse) {
     EXPECT_FALSE(overlume::set_environment_visible(nullptr, true));

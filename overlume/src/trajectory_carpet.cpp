@@ -233,7 +233,7 @@ void apply_carpet_clip(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& 
     slot.appliedClipUnits = clip.quantized_units;
 }
 
-}  // namespace
+}
 
 void update_trajectory_carpets(VisualRenderer& r, const SceneGraph& s) {
     while (r.trajectoryCarpetSlots.size() > s.trajectory_carpet_count) {
@@ -291,7 +291,7 @@ void update_trajectory_carpets(VisualRenderer& r, const SceneGraph& s) {
     r.trajectoryCarpetAlpha = alpha;
 }
 
-}  // namespace overlume
+}
 
 namespace overlume::testing {
 
@@ -344,4 +344,4 @@ bool trajectory_carpet_slot_first_point(overlume::VisualRenderer* r, size_t slot
     return true;
 }
 
-}  // namespace overlume::testing
+}

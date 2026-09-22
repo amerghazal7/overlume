@@ -27,7 +27,7 @@ QualityTransition FeedWindow(QualityGovernor& gov, double ms, uint32_t n) {
     return last;
 }
 
-}  // namespace
+}
 
 TEST(QualityGovernor, NoTransitionUntilAWindowActuallyCloses) {
     QualityGovernor gov(SmallParams(), 1);

@@ -34,7 +34,7 @@ bool MarkerPoseHasNan(const geometry_msgs::msg::Pose& p) {
            std::isnan(p.orientation.z) || std::isnan(p.orientation.w);
 }
 
-}  // namespace
+}
 
 TrajectoryCarpetAdapter::TrajectoryCarpetAdapter(const ProfileRow& row,
                                                  const overlume::ros::FrameTransformer& tf)
@@ -148,4 +148,4 @@ void TrajectoryCarpetAdapter::fill(overlume::ros::SceneAssembly& out) const {
     out.trajectory_carpets.push_back(tc);
 }
 
-}  // namespace overlume::ros
+}

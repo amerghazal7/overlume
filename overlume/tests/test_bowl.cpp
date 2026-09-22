@@ -61,7 +61,7 @@ CameraExtrinsics LookAtCamera(overlume::Vec3 from, overlume::Vec3 to) {
     return ext;
 }
 
-}  // namespace
+}
 
 TEST(BowlMeshBake, InnerRingCoveredOuterRingUncoveredBySingleCamera) {
     const CameraExtrinsics ext = OverheadCamera();

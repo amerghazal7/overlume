@@ -16,7 +16,7 @@ namespace bowl = overlume::bowl;
 
 constexpr CameraExtrinsics kIdentityExt{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {0, 0, 0}};
 
-}  // namespace
+}
 
 TEST(BowlProjection, PinholeCenterPointProjectsToImageCenter) {
     CameraIntrinsics in{400, 400, 160, 120, {0, 0, 0, 0, 0}};

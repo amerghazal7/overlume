@@ -24,7 +24,7 @@ const Axis kAxes[3] = {
     {tf2::Vector3(0, 0, 1), {0.0f, 0.0f, 1.0f}},
 };
 
-}  // namespace
+}
 
 TfAxesAdapter::TfAxesAdapter(const ProfileRow& row, const tf2_ros::Buffer& buffer,
                              std::string target_frame)
@@ -73,4 +73,4 @@ void TfAxesAdapter::fill(overlume::ros::SceneAssembly& out, double sim_time_sec)
     for (const auto& m : axis_markers_) out.markers.push_back(m);
 }
 
-}  // namespace overlume::ros
+}

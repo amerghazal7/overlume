@@ -20,7 +20,7 @@ bool HasGpuEglDevice() {
     return eglInitialize(display, &major, &minor) == EGL_TRUE;
 }
 
-}  // namespace
+}
 
 TEST(BlueglLinkProbe, BindReturnsZeroOnSuccessfulContextAndFrameRenders) {
     constexpr uint32_t kWidth = 64;

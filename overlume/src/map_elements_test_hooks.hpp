@@ -29,4 +29,4 @@ struct MapElementMaterialInfo {
 };
 MapElementMaterialInfo map_element_material_info(overlume::VisualRenderer* r);
 
-}  // namespace overlume::testing
+}

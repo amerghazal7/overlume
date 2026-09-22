@@ -84,4 +84,4 @@ inline std::string fallback_dir_from_source_uri(const std::string& composed_sour
         value_start, value_end == std::string::npos ? std::string::npos : value_end - value_start);
 }
 
-}  // namespace overlume::ros
+}

@@ -38,4 +38,4 @@ private:
     std::optional<double> topic_speed_mps_;
 };
 
-}  // namespace overlume::ros
+}

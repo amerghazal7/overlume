@@ -19,7 +19,7 @@ double Percentile(std::vector<double> sorted_ms, double p) {
     return sorted_ms[idx];
 }
 
-}  // namespace
+}
 
 QualityGovernor::QualityGovernor(QualityGovernorParams params, uint32_t initial_preset)
     : params_(params),
@@ -63,4 +63,4 @@ QualityTransition QualityGovernor::record_render_ms(double render_ms) {
     return QualityTransition::NONE;
 }
 
-}  // namespace overlume::ros
+}

@@ -70,4 +70,4 @@ const NsRule* match_rule(const ProfileRow& row, std::string_view ns);
 
 std::vector<SubSpec> subscriptions_for(const ProfileRow& row);
 
-}  // namespace overlume::ros
+}

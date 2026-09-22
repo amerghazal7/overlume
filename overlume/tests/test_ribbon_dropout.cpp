@@ -234,7 +234,7 @@ RunResult drive(overlume::VisualRenderer* r, int numFrames, double stepMinM, dou
     return result;
 }
 
-}  // namespace
+}
 
 TEST(RibbonDropout, RealisticDrivingAtQuantize005DoesNotDropASingleThreadedFrame) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
@@ -291,7 +291,7 @@ int count_teal_pixels(const std::vector<uint8_t>& px, int width, int height) {
     return n;
 }
 
-}  // namespace
+}
 
 TEST(RibbonDropout, BehaviorRibbonNeverVanishesUnderCoLocatedCarpetChurn) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};

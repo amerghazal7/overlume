@@ -10,3 +10,4 @@ BreakBeforeBraces: Attach
 AllowShortFunctionsOnASingleLine: All
 AllowShortIfStatementsOnASingleLine: WithoutElse
 AllowShortLoopsOnASingleLine: true
+FixNamespaceComments: false

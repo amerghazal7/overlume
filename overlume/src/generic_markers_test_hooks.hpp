@@ -28,4 +28,4 @@ struct GenericMarkerMaterialInfo {
 };
 GenericMarkerMaterialInfo generic_marker_material_info(overlume::VisualRenderer* r, size_t slot);
 
-}  // namespace overlume::testing
+}

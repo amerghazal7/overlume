@@ -45,7 +45,7 @@ std::vector<Vec3> clean_polyline(const Vec3* pts, uint32_t n) {
     return out;
 }
 
-}  // namespace
+}
 
 std::vector<Vec3> extrude_polyline(const Vec3* pts, uint32_t n, float half_width, float z_lift) {
     const std::vector<Vec3> clean = clean_polyline(pts, n);
@@ -230,4 +230,4 @@ std::vector<std::pair<uint32_t, uint32_t>> polyline_chunks(uint32_t n) {
     return chunks;
 }
 
-}  // namespace overlume::detail
+}

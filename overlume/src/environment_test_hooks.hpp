@@ -80,4 +80,4 @@ bool environment_stream_provides_ground(overlume::VisualRenderer* r);
 
 bool renderer_ground_plane_in_scene(overlume::VisualRenderer* r);
 
-}  // namespace overlume::testing
+}

@@ -39,7 +39,7 @@ uint32_t RampColor(const uint8_t lo[3], const uint8_t hi[3], float t) {
                     255);
 }
 
-}  // namespace
+}
 
 PointCloudAdapter::PointCloudAdapter(const ProfileRow& row,
                                      const overlume::ros::FrameTransformer& tf)
@@ -189,4 +189,4 @@ void PointCloudAdapter::fill(overlume::ros::SceneAssembly& out) const {
     out.point_clouds.push_back(pc);
 }
 
-}  // namespace overlume::ros
+}

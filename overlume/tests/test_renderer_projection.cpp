@@ -33,7 +33,7 @@ overlume::CameraPose HelloFramePose() {
     return pose;
 }
 
-}  // namespace
+}
 
 TEST(ProjectToScreen, PointAtCameraTargetProjectsNearCenter) {
     constexpr uint32_t kW = 320, kH = 240;

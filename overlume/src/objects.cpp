@@ -311,7 +311,7 @@ void update_entity_staleness(VisualRenderer& r, const TrackedObject& obj, Object
     e.fadeAlpha = alpha;
 }
 
-}  // namespace
+}
 
 bool ensure_gltf_loader(VisualRenderer& r) {
     if (r.sharedAssetLoader != nullptr) return true;
@@ -458,7 +458,7 @@ uint32_t set_object_model_dir(VisualRenderer* r, const char* dir) {
     return loaded;
 }
 
-}  // namespace overlume
+}
 
 namespace overlume::testing {
 
@@ -475,7 +475,7 @@ utils::Entity first_renderable(filament::RenderableManager& rm, const overlume::
     return e.proceduralBox.entity;
 }
 
-}  // namespace
+}
 
 bool object_in_scene(overlume::VisualRenderer* r, uint32_t id) {
     if (r == nullptr) return false;
@@ -525,4 +525,4 @@ ObjectMaterialInfo object_material_info(overlume::VisualRenderer* r, uint32_t id
     return info;
 }
 
-}  // namespace overlume::testing
+}

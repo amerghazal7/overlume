@@ -62,7 +62,7 @@ double block_ssim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, 
     return blockCount > 0 ? total / blockCount : 0.0;
 }
 
-}  // namespace
+}
 
 double render_and_compare(overlume::VisualRenderer* r, const overlume::CameraPose& pose,
                           const char* golden_png_path, const char* out_png_path) {
@@ -508,4 +508,4 @@ overlume::Vec3 centroid(const std::vector<overlume::MapElement>& elems) {
     return {sx / static_cast<double>(n), sy / static_cast<double>(n), sz / static_cast<double>(n)};
 }
 
-}  // namespace overlume::testing
+}

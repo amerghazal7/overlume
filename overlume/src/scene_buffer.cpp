@@ -128,4 +128,4 @@ float SceneBuffer::staleness_alpha(double now_sec, double last_update_sec, doubl
     return static_cast<float>(std::clamp(1.0 - t, 0.0, 1.0));
 }
 
-}  // namespace overlume::detail
+}

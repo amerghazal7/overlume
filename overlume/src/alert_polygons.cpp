@@ -86,7 +86,7 @@ void rebind_slot_material(VisualRenderer& r, VisualRenderer::AlertSlot& slot,
     if (ri.isValid()) rm.setMaterialInstanceAt(ri, 0, mat);
 }
 
-}  // namespace
+}
 
 void update_alert_polygons(VisualRenderer& r, const SceneGraph& s) {
     while (r.alertSlots.size() > s.alert_count) {
@@ -144,7 +144,7 @@ void update_alert_polygons(VisualRenderer& r, const SceneGraph& s) {
     }
 }
 
-}  // namespace overlume
+}
 
 namespace overlume::testing {
 
@@ -171,4 +171,4 @@ AlertMaterialInfo alert_slot_material_info(overlume::VisualRenderer* r, size_t s
     return info;
 }
 
-}  // namespace overlume::testing
+}

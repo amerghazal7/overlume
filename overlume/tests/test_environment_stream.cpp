@@ -81,7 +81,7 @@ uint64_t pump_until_loaded(overlume::VisualRenderer* r, const overlume::CameraPo
     return count;
 }
 
-}  // namespace
+}
 
 TEST(EnvironmentStream, IonUriWithoutTokenIsNonFatalFalse) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
@@ -421,7 +421,7 @@ size_t count_differing_bytes_with_tolerance(const std::vector<uint8_t>& a,
     }
     return diff;
 }
-}  // namespace
+}
 
 TEST(EnvironmentStreamGolden, TileLoadedWhileHiddenDoesNotPopIntoView) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
@@ -548,7 +548,7 @@ void pump_until_state(overlume::VisualRenderer* r, const overlume::CameraPose& p
     }
 }
 
-}  // namespace
+}
 
 TEST(EnvironmentStream, NetworkDeadFromFirstRequestFallsBackToBakedChunksOnce) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
@@ -1138,7 +1138,7 @@ void capture_and_report(overlume::VisualRenderer* r, const char* name) {
               << " non_background_fraction=" << stats.non_background_fraction << "\n";
 }
 
-}  // namespace
+}
 
 TEST(EnvSourceCapture, Baked) {
     if (std::getenv("OVERLUME_CAPTURE_ENV_SOURCES") == nullptr) {

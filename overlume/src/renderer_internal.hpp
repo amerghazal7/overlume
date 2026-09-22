@@ -316,4 +316,4 @@ void add_mesh(VisualRenderer& r, Mesh& mesh, std::vector<Vertex> verts,
               std::vector<uint16_t> indices, filament::RenderableManager::PrimitiveType primitive,
               filament::MaterialInstance* material, bool cast_shadows, bool receive_shadows);
 
-}  // namespace overlume
+}

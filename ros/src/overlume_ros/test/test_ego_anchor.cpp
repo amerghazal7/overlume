@@ -56,5 +56,5 @@ TEST(ComposeEgoAnchoredPose, HeadingNegHalfPiRotatesEyeBehindEgoFacingMinusY) {
     EXPECT_NEAR(out.target[2], -0.5 + ego.position.z, kEps);
 }
 
-}  // namespace
-}  // namespace overlume::ros
+}
+}

@@ -24,7 +24,7 @@ double distance(const Vec3& a, const Vec3& b) {
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-}  // namespace
+}
 
 BakedEnvironmentSource::BakedEnvironmentSource(std::string dir,
                                                std::vector<EnvironmentChunk> chunks,
@@ -172,14 +172,14 @@ std::unique_ptr<BakedEnvironmentSource> open_baked_environment_source(const std:
     return std::make_unique<BakedEnvironmentSource>(dir, std::move(chunks), anchor);
 }
 
-}  // namespace overlume
+}
 
 namespace overlume {
 
 namespace {
 constexpr char kIonPrefix[] = "ion://";
 constexpr size_t kIonPrefixLen = sizeof(kIonPrefix) - 1;
-}  // namespace
+}
 
 bool set_environment_source(VisualRenderer* r, const char* source_uri, GeoAnchor anchor) {
     if (r == nullptr || source_uri == nullptr || source_uri[0] == '\0') return false;
@@ -223,7 +223,7 @@ EnvironmentSourceState environment_source_state(VisualRenderer* r) {
     return r->environmentSource->state();
 }
 
-}  // namespace overlume
+}
 
 namespace overlume::testing {
 
@@ -247,4 +247,4 @@ bool renderer_ground_plane_in_scene(overlume::VisualRenderer* r) {
     return r->scene->hasEntity(r->ground.entity);
 }
 
-}  // namespace overlume::testing
+}

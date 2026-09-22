@@ -22,4 +22,4 @@ struct RowStats {
 diagnostic_msgs::msg::DiagnosticArray BuildDiagnostics(const std::vector<RowStats>& rows,
                                                        double render_ms);
 
-}  // namespace overlume::ros
+}

@@ -88,7 +88,7 @@
 namespace bluegl {
 int bind();
 void unbind();
-}  // namespace bluegl
+}
 
 extern "C" const unsigned char* bluegl_glGetString(unsigned int name);
 constexpr unsigned int kGlVendor = 0x1F00;
@@ -111,7 +111,7 @@ float3 to_filament(const detail::Float3& c) { return float3{c.r, c.g, c.b}; }
 constexpr float kFogScaleExponent = 1.159f;
 constexpr float kFogScaleReferenceIntensity = 8750.0f;
 constexpr float kFogScaleReferenceValue = 50.0f;
-}  // namespace
+}
 
 class HeadlessEglPlatform : public filament::backend::OpenGLPlatform {
 public:
@@ -548,7 +548,7 @@ void on_readback_complete(void*, size_t, void* user) {
     static_cast<ReadbackState*>(user)->done.store(true, std::memory_order_release);
 }
 
-}  // namespace
+}
 
 void fill_tangent_frames(std::vector<Vertex>& verts, const std::vector<float3>& normals) {
     filament::geometry::SurfaceOrientation::Builder builder;
@@ -693,7 +693,7 @@ filament::LightManager::ShadowOptions ShadowOptionsForQuality(uint32_t quality) 
     return opts;
 }
 
-}  // namespace
+}
 
 VisualRenderer* create_renderer(const RenderConfig& config) {
     if (config.width == 0 || config.height == 0) return nullptr;
@@ -1082,7 +1082,7 @@ void update_ground_grid_transform(VisualRenderer& r, const EgoState& ego) {
     if (gridInst.isValid()) tm.setTransform(gridInst, xf);
 }
 
-}  // namespace
+}
 
 bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     if (r == nullptr || out.rgb == nullptr || out.width == 0 || out.height == 0) return false;
@@ -1192,7 +1192,7 @@ bool project_to_screen(VisualRenderer* r, Vec3 world_point, float* out_x, float*
     return true;
 }
 
-}  // namespace overlume
+}
 
 namespace overlume::testing {
 
@@ -1313,4 +1313,4 @@ QualityAntiAliasing quality_antialiasing(overlume::VisualRenderer* r) {
                                                                       : QualityAntiAliasing::NONE;
 }
 
-}  // namespace overlume::testing
+}

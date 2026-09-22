@@ -79,7 +79,7 @@ void build_ego_fallback(VisualRenderer& r, const Vec3& dims) {
     r.egoTransformEntity = r.egoFallback.entity;
 }
 
-}  // namespace
+}
 
 bool set_ego_model(VisualRenderer* r, const char* gltf_path, Vec3 fallback_dims) {
     if (r == nullptr || gltf_path == nullptr) return false;
@@ -154,7 +154,7 @@ void update_ego_transform(VisualRenderer& r, const EgoState& ego) {
     tm.setTransform(inst, mat4f::translation(pos) * mat4f(rot) * mat4f::scaling(scale));
 }
 
-}  // namespace overlume
+}
 
 namespace overlume::testing {
 
@@ -173,4 +173,4 @@ double rendered_bounding_box_diagonal(overlume::VisualRenderer* r) {
     return 0.0;
 }
 
-}  // namespace overlume::testing
+}

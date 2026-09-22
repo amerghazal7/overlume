@@ -39,7 +39,7 @@ nav_msgs::msg::Path MakePath(const std::vector<std::array<double, 3>>& xyz) {
     return msg;
 }
 
-}  // namespace
+}
 
 TEST(PathAdapter, BehaviorPathHeadingDerivedFromPointsNotOrientation) {
     auto msg = overlume::ros::testing::load_path("behavior_output_path_0.yaml");

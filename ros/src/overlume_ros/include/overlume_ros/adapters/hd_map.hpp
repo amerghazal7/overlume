@@ -61,4 +61,4 @@ private:
     double last_recv_sec_{-1.0};
 };
 
-}  // namespace overlume::ros
+}

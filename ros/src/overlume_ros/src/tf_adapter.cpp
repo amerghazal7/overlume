@@ -61,4 +61,4 @@ overlume::EgoState TfAdapter::update() {
     return ego;
 }
 
-}  // namespace overlume::ros
+}

@@ -336,7 +336,7 @@ std::optional<Profile> BuildProfile(const YAML::Node& root, const std::string& f
     return profile;
 }
 
-}  // namespace
+}
 
 std::optional<Profile> load_profile(const std::string& path, std::vector<std::string>& errors) {
     errors.clear();
@@ -400,4 +400,4 @@ std::vector<SubSpec> subscriptions_for(const ProfileRow& row) {
     return specs;
 }
 
-}  // namespace overlume::ros
+}

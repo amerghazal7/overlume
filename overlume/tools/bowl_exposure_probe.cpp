@@ -17,7 +17,7 @@ constexpr uint32_t kW = 320, kH = 240;
 constexpr int kMidGrayTarget = 128;
 constexpr int kToleranceBytes = 1;
 
-}  // namespace
+}
 
 int main() {
     overlume::RenderConfig cfg{kW, kH, 1, nullptr, "dark_adas"};

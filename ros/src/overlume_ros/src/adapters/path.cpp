@@ -21,7 +21,7 @@ overlume::PathRole RoleFromString(const std::string& s) {
 
 bool HasNan(double v) { return std::isnan(v); }
 
-}  // namespace
+}
 
 PathAdapter::PathAdapter(const ProfileRow& row, const overlume::ros::FrameTransformer& tf)
     : row_(row), tf_(tf), role_(RoleFromString(row.role)) {}
@@ -68,4 +68,4 @@ void PathAdapter::fill(overlume::ros::SceneAssembly& out) const {
     out.paths.push_back(r);
 }
 
-}  // namespace overlume::ros
+}

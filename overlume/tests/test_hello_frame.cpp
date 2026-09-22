@@ -69,7 +69,7 @@ double RowAverage(const std::vector<uint8_t>& rgb, uint32_t width, uint32_t row)
     return static_cast<double>(sum) / static_cast<double>(width * 3);
 }
 
-}  // namespace
+}
 
 TEST(HelloFrame, RendersDistinctSkyAndGround) {
     constexpr uint32_t kWidth = 320;

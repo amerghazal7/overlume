@@ -22,4 +22,4 @@ struct AlertMaterialInfo {
 };
 AlertMaterialInfo alert_slot_material_info(overlume::VisualRenderer* r, size_t slot);
 
-}  // namespace overlume::testing
+}

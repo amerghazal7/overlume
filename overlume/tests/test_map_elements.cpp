@@ -27,7 +27,7 @@ std::vector<uint8_t> render_once(overlume::VisualRenderer* r, const overlume::Ca
     return pixels;
 }
 
-}  // namespace
+}
 
 TEST(Ground, FollowsEgoQuantizedToGridPitch) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
@@ -502,7 +502,7 @@ bool RunMapGolden(const char* theme_name, const char* golden_name, const char* o
     return false;
 }
 
-}  // namespace
+}
 
 TEST(MapGolden, LaneNetworkAtEgoOffset_DarkAdas) {
     if (RunMapGolden("dark_adas", "map_ego_offset_dark_adas.png",
@@ -794,7 +794,7 @@ bool PixelDiffers(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, 
     return false;
 }
 
-}  // namespace
+}
 
 TEST(MapElementsZFight, CrosswalkOverBoundaryStaysStableAcrossTinyCameraMove) {
     overlume::Vec3 crosswalk_ring[] = {{-3, -1, 0}, {3, -1, 0}, {3, 1, 0}, {-3, 1, 0}, {-3, -1, 0}};

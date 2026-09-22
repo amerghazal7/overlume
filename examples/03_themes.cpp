@@ -22,7 +22,7 @@ bool render_at(overlume::VisualRenderer* r, const overlume::CameraPose& pose,
     return overlume::render_frame(r, pose, view);
 }
 
-}  // namespace
+}
 
 int main(int argc, char** argv) {
     const overlume_examples::ExampleArgs args =

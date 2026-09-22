@@ -12,4 +12,4 @@ void update_objects(VisualRenderer& r, const SceneGraph& scene);
 
 void release_object_entity(VisualRenderer& r, ObjectEntity& entity);
 
-}  // namespace overlume
+}

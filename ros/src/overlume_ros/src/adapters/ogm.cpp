@@ -27,7 +27,7 @@ uint8_t ConvertCell(int8_t v, bool& malformed) {
     return kUnknownCell;
 }
 
-}  // namespace
+}
 
 OgmAdapter::OgmAdapter(const ProfileRow& row, const overlume::ros::FrameTransformer& tf)
     : row_(row), tf_(tf), kind_(KindFromRole(row.role)) {}
@@ -131,4 +131,4 @@ void OgmAdapter::fill(overlume::ros::SceneAssembly& out) const {
     out.grids.push_back(g);
 }
 
-}  // namespace overlume::ros
+}

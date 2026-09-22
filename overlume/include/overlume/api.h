@@ -34,4 +34,4 @@ VisualRenderer* create_renderer(const RenderConfig&);
 void destroy_renderer(VisualRenderer*);
 bool render_frame(VisualRenderer*, const CameraPose&, FrameView out);
 
-}  // namespace overlume
+}

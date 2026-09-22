@@ -25,4 +25,4 @@ private:
     bool flatten_z_ = true;
 };
 
-}  // namespace overlume::ros
+}

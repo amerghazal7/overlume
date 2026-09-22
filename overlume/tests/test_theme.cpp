@@ -22,7 +22,7 @@ namespace {
 
 bool AnyDiffer(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) { return a != b; }
 
-}  // namespace
+}
 
 TEST(ThemePalette, EgoParsesFromYamlAsCrossThemeSwap) {
     const std::optional<overlume::detail::Theme> dark =

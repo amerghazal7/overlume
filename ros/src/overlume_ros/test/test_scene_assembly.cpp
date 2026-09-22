@@ -19,7 +19,7 @@ overlume::MapElement MakeElement() {
     return e;
 }
 
-}  // namespace
+}
 
 TEST(SceneAssembly, TwoAdaptersOnOneCategoryBothSurvive) {
     SceneAssembly asm_;
@@ -281,7 +281,7 @@ overlume::PointCloudPoint CarpetPt(double x, double y, uint32_t rgba) {
     p.rgba = rgba;
     return p;
 }
-}  // namespace
+}
 
 TEST(SceneAssembly, RespineMovesVelocityRibbonOntoLocalSpineWithStationColors) {
     using overlume::ros::SceneAssembly;

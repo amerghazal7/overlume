@@ -522,7 +522,7 @@ std::vector<std::vector<overlume::Vec3>> ApplyCutWindows(
     return out;
 }
 
-}  // namespace
+}
 
 HdMapAdapter::HdMapAdapter(const ProfileRow& row, const overlume::ros::FrameTransformer& tf)
     : row_(row), tf_(tf) {}
@@ -768,4 +768,4 @@ void HdMapAdapter::fill(overlume::ros::SceneAssembly& out) const {
     }
 }
 
-}  // namespace overlume::ros
+}

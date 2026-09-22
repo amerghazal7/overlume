@@ -63,7 +63,7 @@ std::optional<overlume::ObjectClass> ParseObjectClass(const std::string& s) {
     return std::nullopt;
 }
 
-}  // namespace
+}
 
 std::optional<ClassInferenceTable> load_class_inference(const std::string& path,
                                                         std::vector<std::string>& errors) {
@@ -325,4 +325,4 @@ void DynamicObjectsAdapter::fill(overlume::ros::SceneAssembly& out) const {
     }
 }
 
-}  // namespace overlume::ros
+}

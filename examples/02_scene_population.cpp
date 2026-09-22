@@ -22,7 +22,7 @@ size_t count_differing_bytes(const std::vector<uint8_t>& a, const std::vector<ui
     return n;
 }
 
-}  // namespace
+}
 
 int main(int argc, char** argv) {
     const overlume_examples::ExampleArgs args =

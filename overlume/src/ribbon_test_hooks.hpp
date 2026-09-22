@@ -31,4 +31,4 @@ bool ribbon_slot_first_point(overlume::VisualRenderer* r, size_t slot, overlume:
 
 uint64_t ribbon_rebuild_count(overlume::VisualRenderer* r);
 
-}  // namespace overlume::testing
+}

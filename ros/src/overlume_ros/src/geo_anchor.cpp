@@ -13,7 +13,7 @@ namespace overlume::ros {
 namespace {
 constexpr double kDegToRad = M_PI / 180.0;
 constexpr double kEarthRadiusM = 6371000.0;
-}  // namespace
+}
 
 overlume::Vec3 WgsToMap(const overlume::GeoAnchor& anchor, double lat_deg, double lon_deg,
                         double alt_m) {
@@ -145,4 +145,4 @@ void GeoAnchorSolver::on_fix(const sensor_msgs::msg::NavSatFix& fix) {
     }
 }
 
-}  // namespace overlume::ros
+}

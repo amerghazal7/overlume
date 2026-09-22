@@ -98,4 +98,4 @@ std::optional<Theme> load_theme(const std::string& dir, const std::string& name)
 
 const Theme& kFallbackTheme();
 
-}  // namespace overlume::detail
+}

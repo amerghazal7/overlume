@@ -23,4 +23,4 @@ struct ObjectMaterialInfo {
 };
 ObjectMaterialInfo object_material_info(overlume::VisualRenderer* r, uint32_t id);
 
-}  // namespace overlume::testing
+}

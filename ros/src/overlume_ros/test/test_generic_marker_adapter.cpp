@@ -77,7 +77,7 @@ overlume::ros::ProfileRow GroundTruthBoxesRow() {
     return p->rows[0];
 }
 
-}  // namespace
+}
 
 TEST(GenericMarkerAdapter, CubeListFansOutIntoOneMarkerPerPoint) {
     TfFixture kTf;

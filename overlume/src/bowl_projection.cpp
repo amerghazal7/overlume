@@ -18,7 +18,7 @@ double dot(const Vec3d& a, const Vec3d& b) { return a.x * b.x + a.y * b.y + a.z 
 
 Vec3d column(const double R[9], int j) { return {R[j], R[3 + j], R[6 + j]}; }
 
-}  // namespace
+}
 
 bool ProjectToCameraUv(const overlume::CameraExtrinsics& ext, const overlume::CameraIntrinsics& in,
                        uint32_t width, uint32_t height, overlume::Vec3 rig_point, float* out_u,
@@ -86,4 +86,4 @@ float CameraAlignment(const overlume::CameraExtrinsics& ext, overlume::Vec3 rig_
     return static_cast<float>(std::fmin(std::fmax(align, 0.0), 1.0));
 }
 
-}  // namespace overlume::bowl
+}

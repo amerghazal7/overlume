@@ -20,7 +20,7 @@ float lerpf_geometric(float a, float b, float w) {
     return a * std::pow(b / a, w);
 }
 
-}  // namespace
+}
 
 Oklab linear_srgb_to_oklab(const Float3& c) {
     const float l = 0.4122214708f * c.r + 0.5363325363f * c.g + 0.0514459929f * c.b;
@@ -140,4 +140,4 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     return out;
 }
 
-}  // namespace overlume::detail
+}

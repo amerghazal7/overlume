@@ -118,4 +118,4 @@ private:
     std::vector<rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr> info_subs_;
 };
 
-}  // namespace overlume::ros
+}

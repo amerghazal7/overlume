@@ -67,4 +67,4 @@ private:
     std::vector<double> altitudes_;
 };
 
-}  // namespace overlume::ros
+}

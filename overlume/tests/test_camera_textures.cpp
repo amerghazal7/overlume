@@ -41,7 +41,7 @@ void count_and_delete_release(void*, size_t, void* user) {
     delete static_cast<std::vector<uint8_t>*>(user);
 }
 
-}  // namespace
+}
 
 TEST(CameraTextures, SetCameraFrameBeforeBowlConfigIsNonFatal) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};

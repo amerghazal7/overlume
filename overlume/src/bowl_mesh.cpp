@@ -43,7 +43,7 @@ bool SegmentIntersectsAabb(const overlume::Vec3& from, const overlume::Vec3& to,
     return true;
 }
 
-}  // namespace
+}
 
 BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double bowl_k,
                       double bowl_Rmax, uint32_t camera_count,
@@ -148,4 +148,4 @@ BowlMesh BakeBowlMesh(const BowlMeshParams& mesh_params, double bowl_R0, double 
     return mesh;
 }
 
-}  // namespace overlume::bowl
+}

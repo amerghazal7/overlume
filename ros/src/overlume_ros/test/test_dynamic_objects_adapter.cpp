@@ -118,7 +118,7 @@ const overlume::TrackedObject* FindById(const SceneAssembly& out, uint32_t id) {
     return nullptr;
 }
 
-}  // namespace
+}
 
 TEST(ClassInference, PrefixWinsOverFootprint) {
     const auto cfg = overlume::ros::testing::inference_table();

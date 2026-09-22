@@ -125,7 +125,7 @@ visualization_msgs::msg::Marker ParseMarker(const YAML::Node& n) {
     return m;
 }
 
-}  // namespace
+}
 
 visualization_msgs::msg::MarkerArray load_marker_array(const std::string& fixture_name) {
     const YAML::Node root = LoadFixtureYaml(fixture_name);
@@ -204,7 +204,7 @@ ProfileRow RowFromProfile(const char* profile_stem, const std::string& topic) {
     return *row;
 }
 
-}  // namespace
+}
 
 ProfileRow urban_row(const std::string& topic) { return RowFromProfile("urban", topic); }
 ProfileRow sim_row(const std::string& topic) { return RowFromProfile("sim", topic); }
@@ -222,4 +222,4 @@ ClassInferenceTable inference_table() {
     return *table;
 }
 
-}  // namespace overlume::ros::testing
+}
