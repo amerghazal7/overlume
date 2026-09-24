@@ -4,6 +4,7 @@
 #include "theme.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 #include <yaml-cpp/yaml.h>
 
@@ -122,6 +123,13 @@ Theme parse(const YAML::Node& root) {
     t.objects.opacity = std::clamp(
         (objects && objects["opacity"]) ? objects["opacity"].as<float>() : 1.0f, 0.0f, 1.0f);
 
+    const YAML::Node environment = root["environment"];
+    const float tileRadius = (environment && environment["tile_radius_m"])
+                                 ? environment["tile_radius_m"].as<float>()
+                                 : kThemeDefaultTileRadiusM;
+    t.environment.tile_radius_m =
+        (std::isfinite(tileRadius) && tileRadius > 0.0f) ? tileRadius : kThemeDefaultTileRadiusM;
+
     return t;
 }
 
@@ -192,6 +200,7 @@ const Theme& kFallbackTheme() {
         t.ribbon.opacity = 1.0f;
         t.ribbon.fade_start = 1.0f;
         t.objects.opacity = 1.0f;
+        t.environment.tile_radius_m = kThemeDefaultTileRadiusM;
         return t;
     }();
     return theme;

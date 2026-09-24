@@ -8,6 +8,8 @@
 
 namespace overlume::detail {
 
+inline constexpr float kThemeDefaultTileRadiusM = 700.0f;
+
 struct Float3 {
     float r = 0.0f, g = 0.0f, b = 0.0f;
 };
@@ -94,6 +96,10 @@ struct Theme {
     struct Objects {
         float opacity = 1.0f;
     } objects;
+
+    struct Environment {
+        float tile_radius_m = kThemeDefaultTileRadiusM;
+    } environment;
 };
 
 std::optional<Theme> load_theme(const std::string& dir, const std::string& name);

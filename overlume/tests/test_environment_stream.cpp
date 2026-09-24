@@ -21,6 +21,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -192,6 +193,40 @@ TEST(EnvironmentStream, RadiusExcludesTileOutsideConfiguredRadius) {
     EXPECT_EQ(overlume::testing::environment_loaded_chunk_count(tight), 0u)
         << "same ego, same camera, near-zero radius: every selected tile must be culled";
     overlume::destroy_renderer(tight);
+}
+
+TEST(EnvironmentStream, ThemeTileRadiusGatesUnlessUriOverrides) {
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    overlume::SceneGraph farScene{};
+    farScene.ego.valid = 1;
+    farScene.ego.position = overlume::Vec3{0.0, -8000.0, 0.0};
+    auto loaded_after_settle = [&](const char* theme, std::optional<double> uriRadius) {
+        overlume::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), theme};
+        auto* r = overlume::create_renderer(cfg);
+        if (!r) return std::optional<uint64_t>{};
+        EXPECT_TRUE(overlume::testing::install_fixture_streaming_source(
+            r, kTilesFixtureDir.c_str(), kFixtureAnchor, false, false, uriRadius));
+        overlume::set_scene(r, farScene);
+        for (int i = 0; i < 60; ++i) overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+        const uint64_t n = overlume::testing::environment_loaded_chunk_count(r);
+        overlume::destroy_renderer(r);
+        return std::optional<uint64_t>{n};
+    };
+
+    const auto wideTheme = loaded_after_settle("tile_radius_wide", std::nullopt);
+    if (!wideTheme) GTEST_SKIP() << "no GPU/EGL";
+    EXPECT_GT(*wideTheme, 0u)
+        << "no radius= on the URI: the theme's 1e9 m tile_radius_m must let 8 km-away tiles "
+           "in (a hard-coded 700 m would cull them all)";
+
+    const auto tinyTheme = loaded_after_settle("tile_radius_tiny", std::nullopt);
+    ASSERT_TRUE(tinyTheme);
+    EXPECT_EQ(*tinyTheme, 0u) << "the theme's 0.001 m tile_radius_m culls every tile";
+
+    const auto tinyOverridden = loaded_after_settle("tile_radius_tiny", 1.0e9);
+    ASSERT_TRUE(tinyOverridden);
+    EXPECT_GT(*tinyOverridden, 0u) << "an explicit radius= on the URI overrides the theme value";
 }
 
 TEST(EnvironmentStream, TileSelectionUsesRenderCameraAsSecondFrustum) {
@@ -729,8 +764,11 @@ TEST(EnvironmentStream, ParseIonSpecBrightness) {
 TEST(EnvironmentStream, ParseIonSpecRadius) {
     bool ok = false;
     EXPECT_DOUBLE_EQ(overlume::testing::environment_stream_parse_radius("96188", &ok), 700.0)
-        << "absent key -- parses fine, defaults to 700.0";
+        << "absent key -- parses fine, probe reports the 700.0 default";
     EXPECT_TRUE(ok);
+    EXPECT_FALSE(overlume::testing::environment_stream_parse_has_radius("96188"))
+        << "absent key means defer to the theme, not an explicit 700";
+    EXPECT_TRUE(overlume::testing::environment_stream_parse_has_radius("96188?radius=700"));
     EXPECT_DOUBLE_EQ(overlume::testing::environment_stream_parse_radius("96188?radius=250", &ok),
                      250.0);
     EXPECT_TRUE(ok);
