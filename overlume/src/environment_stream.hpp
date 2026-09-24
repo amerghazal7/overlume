@@ -49,6 +49,8 @@ inline constexpr double kStreamHeightOffsetM = 0.0;
 inline constexpr uint64_t kDefaultMaxCacheItems = 4096;
 inline constexpr int kNetworkLossConsecutiveFailures = 8;
 inline constexpr int kTeardownPumpBound = 2000;
+inline constexpr double kDefaultTileRadiusM = 700.0;
+inline constexpr double kTileRadiusUnloadRatio = 4.0 / 3.0;
 
 inline constexpr double kTerrainSampleMoveThresholdM = 5.0;
 inline constexpr double kTerrainSampleIntervalS = 2.0;
@@ -244,7 +246,8 @@ public:
                                std::shared_ptr<CountingAssetAccessor> counting_accessor,
                                bool materials_original = false, bool follow_terrain = false,
                                double ground_bias_m = 0.3, bool replaces_ground = true,
-                               double max_tilt_deg = 2.0, double brightness = 1.0);
+                               double max_tilt_deg = 2.0, double brightness = 1.0,
+                               double radius_m = kDefaultTileRadiusM);
     ~StreamingEnvironmentSource() override;
 
     void update(VisualRenderer& r, Vec3 ego_map_pos) override;
@@ -301,6 +304,7 @@ private:
     double maxTiltRad_ = kTerrainMaxTiltRad;
     double brightness_ = 1.0;
     bool groundOffsetSnapped_ = false;
+    double tileRadiusM_ = kDefaultTileRadiusM;
 
     std::shared_ptr<CountingAssetAccessor> countingAccessor_;
     bool fallenBack_ = false;

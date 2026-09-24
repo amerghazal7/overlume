@@ -28,6 +28,7 @@ own per-task ledgers as the detailed record; this page is the roll-up.
 | Restructure Task 6 — LICENSE/NOTICE/SPDX, CONTRIBUTING, CoC, SECURITY, CHANGELOG, `.github` CI + release, one repo-wide clang-format | 2026-09-17 (2b96cc7, 790aa0a) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
 | Restructure Task 7 — graphify snapshot prune, vendored skill refresh, non-strict read hook, hooks documented in AGENTS.md, memory refresh | 2026-09-17 (adf901d) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
 | Restructure Task 8 — final cross-cutting review (50 findings fixed) + clean-worktree build; plan CLOSED | 2026-09-17 (see git log: `chore(restructure): Task 8`) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
+| Streamed environment tiles are culled to a configurable horizontal radius around the ego (`environment_tile_radius_m`, default 700 m; `radius=` on the `ion://` URI; 4/3 unload band) | 2026-09-24 | — |
 
 ## Open items
 

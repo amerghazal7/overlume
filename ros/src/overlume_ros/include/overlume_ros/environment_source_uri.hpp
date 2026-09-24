@@ -13,12 +13,14 @@ inline constexpr double kGroundBiasDefaultM = 0.3;
 inline constexpr bool kReplacesGroundDefault = true;
 inline constexpr double kMaxTiltDegDefault = 2.0;
 inline constexpr double kBrightnessDefault = 1.0;
+inline constexpr double kTileRadiusDefaultM = 700.0;
 
 inline std::string compose_environment_source_uri(
     const std::string& environment_chunks_dir, const std::string& environment_source_uri,
     const std::string& environment_tile_cache_dir, bool follow_terrain = false,
     double ground_bias_m = kGroundBiasDefaultM, bool replaces_ground = kReplacesGroundDefault,
-    double max_tilt_deg = kMaxTiltDegDefault, double brightness = kBrightnessDefault) {
+    double max_tilt_deg = kMaxTiltDegDefault, double brightness = kBrightnessDefault,
+    double tile_radius_m = kTileRadiusDefaultM) {
     std::string source_uri = environment_chunks_dir;
     if (!environment_source_uri.empty()) {
         source_uri = environment_source_uri;
@@ -69,6 +71,15 @@ inline std::string compose_environment_source_uri(
             v << brightness;
             source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
             source_uri += "brightness=" + v.str();
+        }
+        if (environment_source_uri.rfind("ion://", 0) == 0 &&
+            environment_source_uri.find("radius=") == std::string::npos &&
+            tile_radius_m != kTileRadiusDefaultM) {
+            std::ostringstream v;
+            v.imbue(std::locale::classic());
+            v << tile_radius_m;
+            source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
+            source_uri += "radius=" + v.str();
         }
     }
     return source_uri;

@@ -19,7 +19,7 @@ struct FixtureStreamHandle;
 
 bool install_fixture_streaming_source(overlume::VisualRenderer* r, const char* fixture_dir,
                                       overlume::GeoAnchor anchor, bool materials_original = false,
-                                      bool follow_terrain = false);
+                                      bool follow_terrain = false, double radius_m = 700.0);
 
 FixtureStreamHandle* install_fixture_streaming_source_with_fallback(overlume::VisualRenderer* r,
                                                                     const char* fixture_dir,
@@ -50,6 +50,8 @@ bool environment_stream_parse_replaces_ground(const char* ion_spec, bool* out_pa
 double environment_stream_parse_max_tilt_deg(const char* ion_spec, bool* out_parse_ok);
 
 double environment_stream_parse_brightness(const char* ion_spec, bool* out_parse_ok);
+
+double environment_stream_parse_radius(const char* ion_spec, bool* out_parse_ok);
 
 double terrain_ground_offset_probe(double sampled_height_m, double anchor_height_m,
                                    double ground_bias_m, double current_offset_m,
