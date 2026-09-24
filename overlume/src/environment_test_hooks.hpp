@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 #include "overlume/api.h"
@@ -19,7 +20,8 @@ struct FixtureStreamHandle;
 
 bool install_fixture_streaming_source(overlume::VisualRenderer* r, const char* fixture_dir,
                                       overlume::GeoAnchor anchor, bool materials_original = false,
-                                      bool follow_terrain = false, double radius_m = 700.0);
+                                      bool follow_terrain = false,
+                                      std::optional<double> radius_override_m = std::nullopt);
 
 FixtureStreamHandle* install_fixture_streaming_source_with_fallback(overlume::VisualRenderer* r,
                                                                     const char* fixture_dir,
@@ -52,6 +54,8 @@ double environment_stream_parse_max_tilt_deg(const char* ion_spec, bool* out_par
 double environment_stream_parse_brightness(const char* ion_spec, bool* out_parse_ok);
 
 double environment_stream_parse_radius(const char* ion_spec, bool* out_parse_ok);
+
+bool environment_stream_parse_has_radius(const char* ion_spec);
 
 double terrain_ground_offset_probe(double sampled_height_m, double anchor_height_m,
                                    double ground_bias_m, double current_offset_m,

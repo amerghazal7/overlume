@@ -138,6 +138,8 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.ribbon.fade_start = lerpf(a.ribbon.fade_start, b.ribbon.fade_start, w);
 
     out.objects.opacity = lerpf(a.objects.opacity, b.objects.opacity, w);
+    out.environment.tile_radius_m =
+        lerpf(a.environment.tile_radius_m, b.environment.tile_radius_m, w);
 
     return out;
 }

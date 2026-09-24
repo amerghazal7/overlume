@@ -458,9 +458,11 @@ different beast from Path A/B's clay tilesets.
   with `environment_brightness` if only the streamed tiles read wrong;
   reach for the theme's `fog.density` if the whole scene (clay included)
   reads too fog-heavy.
-- **Streamed-tile render radius.** `environment_tile_radius_m` (node param,
-  default 700.0, composed as `radius=<metres>` on the `ion://` URI only when
-  it differs from that default) culls streamed 3D Tiles whose bounding box
+- **Streamed-tile render radius.** The theme's `environment: { tile_radius_m }`
+  (700.0 in the shipped themes) is the default; `environment_tile_radius_m`
+  (node param, composed as `radius=<metres>` on the `ion://` URI only when
+  it differs from 700.0) is an explicit override that wins when present.
+  Either culls streamed 3D Tiles whose bounding box
   lies wholly beyond that horizontal distance from the ego, even when
   Cesium's own SSE-driven selection would otherwise pick them. It only gates
   which selected tiles get added to the scene (with a 4/3 unload band so a

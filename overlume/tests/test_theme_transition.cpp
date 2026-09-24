@@ -252,6 +252,7 @@ overlume::detail::Theme MakeSentinelTheme(float scalar, const std::string& name)
     t.ribbon.opacity = scalar;
     t.ribbon.fade_start = scalar;
     t.objects.opacity = scalar;
+    t.environment.tile_radius_m = scalar;
     return t;
 }
 
@@ -323,6 +324,7 @@ TEST(ThemeTransition, SentinelThemesDetectAnyUnblendedField) {
     ExpectBetweenSentinels(mid.ribbon.opacity, "ribbon.opacity");
     ExpectBetweenSentinels(mid.ribbon.fade_start, "ribbon.fade_start");
     ExpectBetweenSentinels(mid.objects.opacity, "objects.opacity");
+    ExpectBetweenSentinels(mid.environment.tile_radius_m, "environment.tile_radius_m");
 }
 
 TEST(ThemeTransition, UnknownThemeName_ReturnsFalseAndLeavesActiveThemeUnchanged) {

@@ -597,3 +597,20 @@ TEST(ThemeGolden, EmptyWorld_LightClay) {
         << stats.sky_row_mean << ") -- fog is over/under-scaled";
     overlume::destroy_renderer(r);
 }
+
+TEST(ThemeEnvironment, TileRadiusParsesDefaultsAndRejectsNonPositive) {
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<overlume::detail::Theme> shipped =
+        overlume::detail::load_theme(kThemeDir, "dark_adas");
+    ASSERT_TRUE(shipped.has_value());
+    EXPECT_NEAR(shipped->environment.tile_radius_m, 700.0f, 1e-3f);
+    const std::optional<overlume::detail::Theme> tiny =
+        overlume::detail::load_theme(fixtureDir, "tile_radius_tiny");
+    ASSERT_TRUE(tiny.has_value());
+    EXPECT_NEAR(tiny->environment.tile_radius_m, 0.001f, 1e-6f);
+    const std::optional<overlume::detail::Theme> absent =
+        overlume::detail::load_theme(fixtureDir, "ribbon_margin_a");
+    ASSERT_TRUE(absent.has_value());
+    EXPECT_NEAR(absent->environment.tile_radius_m, 700.0f, 1e-3f)
+        << "a theme without an environment: map keeps the 700 m default";
+}
