@@ -20,6 +20,19 @@
 #include <utility>
 #include <vector>
 
+namespace overlume::detail {
+
+float ribbon_fade_alpha(double station_m, double total_length_m, float fade_start) {
+    if (fade_start >= 1.0f || total_length_m <= 0.0) return 1.0f;
+    const double t = station_m / total_length_m;
+    const double fadeStart = static_cast<double>(fade_start);
+    if (t <= fadeStart) return 1.0f;
+    const double a = 1.0 - (t - fadeStart) / (1.0 - fadeStart);
+    return std::clamp(static_cast<float>(a), 0.0f, 1.0f);
+}
+
+}
+
 namespace overlume {
 
 namespace {
@@ -42,7 +55,8 @@ uint64_t hash_vec3(const Vec3& v) {
     return h;
 }
 
-uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float half_width_m) {
+uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float half_width_m,
+                          float fade_start) {
     uint64_t h = hash_combine(0, static_cast<uint64_t>(role));
     h = hash_combine(h, static_cast<uint64_t>(n));
     if (n > 0) {
@@ -52,6 +66,9 @@ uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float half
     uint32_t widthBits;
     std::memcpy(&widthBits, &half_width_m, sizeof(widthBits));
     h = hash_combine(h, static_cast<uint64_t>(widthBits));
+    uint32_t fadeBits;
+    std::memcpy(&fadeBits, &fade_start, sizeof(fadeBits));
+    h = hash_combine(h, static_cast<uint64_t>(fadeBits));
     return h;
 }
 
@@ -89,6 +106,22 @@ void destroy_slot_meshes(VisualRenderer& r, VisualRenderer::RibbonSlot& slot) {
     slot.has_applied_clip = false;
 }
 
+std::vector<Vertex> build_ribbon_vertices(const std::vector<Vec3>& positions,
+                                          const std::vector<double>& stations,
+                                          double total_length_m, float fade_start) {
+    std::vector<Vertex> verts(positions.size());
+    for (size_t i = 0; i < positions.size(); ++i) verts[i].position = to_f3(positions[i]);
+    fill_tangent_frames(verts, std::vector<float3>(positions.size(), float3{0.0f, 0.0f, 1.0f}));
+    const bool haveStations = positions.size() == 2 * stations.size();
+    for (size_t i = 0; i < verts.size(); ++i) {
+        const float a = haveStations
+                            ? detail::ribbon_fade_alpha(stations[i / 2], total_length_m, fade_start)
+                            : 1.0f;
+        verts[i].color = float4{1.0f, 1.0f, 1.0f, a};
+    }
+    return verts;
+}
+
 void build_slot_meshes(VisualRenderer& r, VisualRenderer::RibbonSlot& slot, PathRole role,
                        const Vec3* pts, uint32_t n) {
     destroy_slot_meshes(r, slot);
@@ -97,6 +130,15 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::RibbonSlot& slot, Path
     const float halfWidthM = build_effective_half_width(r.active_theme.ribbon, role);
     slot.halfWidthM = halfWidthM;
     slot.firstPointM = n > 0 ? pts[0] : Vec3{};
+
+    double totalLengthM = 0.0;
+    for (auto [a, b] : detail::polyline_chunks(n)) {
+        const std::vector<double> stations = detail::clean_polyline_stations(pts + a, b - a);
+        if (!stations.empty()) totalLengthM += stations.back();
+    }
+    slot.totalLengthM = totalLengthM;
+    slot.minVertexAlpha = 1.0f;
+
     double chunkStationOffset = 0.0;
     for (auto [a, b] : detail::polyline_chunks(n)) {
         const uint32_t chunkN = b - a;
@@ -111,9 +153,10 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::RibbonSlot& slot, Path
         for (double& s : stations) s += chunkStationOffset;
         if (!stations.empty()) chunkStationOffset = stations.back();
 
-        std::vector<Vertex> verts(strip.size());
-        for (size_t i = 0; i < strip.size(); ++i) verts[i].position = to_f3(strip[i]);
-        fill_tangent_frames(verts, std::vector<float3>(strip.size(), float3{0.0f, 0.0f, 1.0f}));
+        std::vector<Vertex> verts = build_ribbon_vertices(strip, stations, slot.totalLengthM,
+                                                          r.active_theme.ribbon.fade_start);
+        for (const Vertex& v : verts)
+            slot.minVertexAlpha = std::min(slot.minVertexAlpha, v.color.a);
 
         slot.totalVertexCount += static_cast<uint32_t>(verts.size());
         Mesh mesh;
@@ -130,14 +173,16 @@ void apply_ribbon_clip(VisualRenderer& r, VisualRenderer::RibbonSlot& slot,
     const bool changed = !slot.has_applied_clip || slot.appliedClipActive != clip.active ||
                          (clip.active && slot.appliedClipUnits != clip.quantized_units);
     if (!changed) return;
+    slot.minVertexAlpha = 1.0f;
     for (size_t i = 0; i < slot.meshes.size(); ++i) {
         std::vector<Vec3> positions = slot.baseStripPositions[i];
         detail::collapse_clipped_positions(positions, slot.pointStations[i], clip.active,
                                            clip.station_m);
         if (i == 0 && !positions.empty()) slot.firstPointM = positions[0];
-        std::vector<Vertex> verts(positions.size());
-        for (size_t v = 0; v < positions.size(); ++v) verts[v].position = to_f3(positions[v]);
-        fill_tangent_frames(verts, std::vector<float3>(positions.size(), float3{0.0f, 0.0f, 1.0f}));
+        std::vector<Vertex> verts = build_ribbon_vertices(
+            positions, slot.pointStations[i], slot.totalLengthM, r.active_theme.ribbon.fade_start);
+        for (const Vertex& v : verts)
+            slot.minVertexAlpha = std::min(slot.minVertexAlpha, v.color.a);
         update_mesh_positions(*r.engine, slot.meshes[i], std::move(verts));
     }
     slot.has_applied_clip = true;
@@ -174,7 +219,8 @@ void update_ribbons(VisualRenderer& r, const SceneGraph& s) {
         const float effectiveHalfWidthM =
             build_effective_half_width(r.active_theme.ribbon, ribbon.role);
         const uint64_t sig =
-            ribbon_signature(ribbon.role, ribbon.points, ribbon.point_count, effectiveHalfWidthM);
+            ribbon_signature(ribbon.role, ribbon.points, ribbon.point_count, effectiveHalfWidthM,
+                             r.active_theme.ribbon.fade_start);
         if (!slot.has_signature || slot.signature != sig) {
             if (slot.fadeInstance != nullptr) {
                 r.engine->destroy(slot.fadeInstance);
@@ -190,11 +236,14 @@ void update_ribbons(VisualRenderer& r, const SceneGraph& s) {
 
         apply_ribbon_clip(r, slot, clip);
 
-        const auto alpha = static_cast<float>(detail::SceneBuffer::staleness_alpha(
+        const auto stalenessAlpha = static_cast<float>(detail::SceneBuffer::staleness_alpha(
             s.sim_time_sec, ribbon.last_update_sec, kStaleFadeStartSec, kStaleFadeTimeoutSec));
         const auto roleIdx = static_cast<uint8_t>(slot.role);
+        const float opacity = r.active_theme.ribbon.opacity;
+        const bool lengthFade = r.active_theme.ribbon.fade_start < 1.0f;
+        const float alpha = stalenessAlpha * opacity;
 
-        if (alpha >= 1.0f) {
+        if (alpha >= 1.0f && !lengthFade) {
             if (slot.fadeInstance != nullptr) {
                 rebind_slot_material(r, slot, r.ribbonMaterial[roleIdx]);
                 r.engine->destroy(slot.fadeInstance);
@@ -203,14 +252,19 @@ void update_ribbons(VisualRenderer& r, const SceneGraph& s) {
             }
         } else {
             if (slot.fadeInstance == nullptr) {
-                slot.fadeInstance = r.clayTranslucentMaterial->createInstance();
+                slot.fadeInstance = r.ribbonFadedMaterial->createInstance();
                 slot.fadeInstance->setCullingMode(filament::backend::CullingMode::NONE);
                 rebind_slot_material(r, slot, slot.fadeInstance);
             }
             const detail::Float3& tint = r.ribbonTint[roleIdx];
+            const detail::Float3& glow = r.active_theme.palette.ribbon_glow;
             slot.fadeInstance->setParameter("baseColor", float4{tint.r, tint.g, tint.b, alpha});
             slot.fadeInstance->setParameter("roughness", r.active_theme.material.roughness);
             slot.fadeInstance->setParameter("metallic", r.active_theme.material.metallic);
+            slot.fadeInstance->setParameter("emissiveColor", float3{glow.r, glow.g, glow.b});
+            slot.fadeInstance->setParameter(
+                "emissiveStrength",
+                slot.role == PathRole::BEHAVIOR ? r.active_theme.emissive.ribbon_strength : 0.0f);
             slot.fadeAlpha = alpha;
         }
     }
@@ -219,6 +273,10 @@ void update_ribbons(VisualRenderer& r, const SceneGraph& s) {
 }
 
 namespace overlume::testing {
+
+float ribbon_fade_alpha(double station_m, double total_length_m, float fade_start) {
+    return overlume::detail::ribbon_fade_alpha(station_m, total_length_m, fade_start);
+}
 
 overlume::detail::Float3 ribbon_role_base_color(overlume::VisualRenderer* r,
                                                 overlume::PathRole role) {
@@ -241,13 +299,13 @@ RibbonMaterialInfo ribbon_slot_material_info(overlume::VisualRenderer* r, size_t
     const overlume::VisualRenderer::RibbonSlot& s = r->ribbonSlots[slot];
     RibbonMaterialInfo info;
     info.alpha = s.fadeAlpha;
+    info.minVertexAlpha = s.minVertexAlpha;
     if (s.meshes.empty()) return info;
     filament::RenderableManager& rm = r->engine->getRenderableManager();
     const auto ri = rm.getInstance(s.meshes.front().entity);
     if (!ri.isValid()) return info;
     filament::MaterialInstance* bound = rm.getMaterialInstanceAt(ri, 0);
-    info.bound_to_translucent =
-        bound != nullptr && bound->getMaterial() == r->clayTranslucentMaterial;
+    info.bound_to_translucent = bound != nullptr && bound->getMaterial() == r->ribbonFadedMaterial;
     return info;
 }
 

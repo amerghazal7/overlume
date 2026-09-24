@@ -51,6 +51,7 @@ struct BowlState;
 struct Vertex {
     filament::math::float3 position;
     filament::math::float4 tangentFrame;
+    filament::math::float4 color = {1.0f, 1.0f, 1.0f, 1.0f};
 };
 
 filament::VertexBuffer* make_vertex_buffer(filament::Engine& engine, std::vector<Vertex> verts);
@@ -179,6 +180,7 @@ public:
 
     static constexpr size_t kPathRoleCount = 3;
     filament::Material* ribbonEmissiveMaterial = nullptr;
+    filament::Material* ribbonFadedMaterial = nullptr;
     filament::MaterialInstance* ribbonMaterial[kPathRoleCount] = {};
     detail::Float3 ribbonTint[kPathRoleCount] = {};
 
@@ -191,6 +193,8 @@ public:
         filament::MaterialInstance* fadeInstance = nullptr;
         float fadeAlpha = 1.0f;
         float halfWidthM = 0.0f;
+        double totalLengthM = 0.0;
+        float minVertexAlpha = 1.0f;
         Vec3 firstPointM{};
         std::vector<std::vector<Vec3>> baseStripPositions;
         std::vector<std::vector<double>> pointStations;

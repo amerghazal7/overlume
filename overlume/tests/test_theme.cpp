@@ -90,6 +90,8 @@ TEST(ThemePalette, RibbonGlobalLocalAndWidthFallBackToTodaysValuesWhenMissingFro
     EXPECT_NEAR(theme->palette.ribbon_local.b, theme->palette.ribbon_glow.b, 1e-4f);
 
     EXPECT_NEAR(theme->ribbon.width_m, 0.24f, 1e-4f);
+    EXPECT_NEAR(theme->ribbon.opacity, 1.0f, 1e-4f);
+    EXPECT_NEAR(theme->ribbon.fade_start, 1.0f, 1e-4f);
 }
 
 TEST(ThemePalette, RibbonGlobalLocalBlendInOklabAcrossTransition) {
@@ -224,6 +226,23 @@ TEST(ThemePalette, ShippedThemesAuthorTheFillLookExplicitly) {
         EXPECT_LT(t->ribbon.margin_global_m, t->ribbon.margin_local_m);
         EXPECT_LT(t->ribbon.margin_local_m, t->ribbon.margin_behavior_m);
     }
+}
+
+TEST(ThemeRibbonFade, ShippedDarkAdasParsesNoOpFadeTokens) {
+    const std::optional<overlume::detail::Theme> theme =
+        overlume::detail::load_theme(kThemeDir, "dark_adas");
+    ASSERT_TRUE(theme.has_value());
+    EXPECT_NEAR(theme->ribbon.opacity, 1.0f, 1e-4f);
+    EXPECT_NEAR(theme->ribbon.fade_start, 1.0f, 1e-4f);
+}
+
+TEST(ThemeRibbonFade, FixtureParsesExplicitOpacityAndFadeStart) {
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<overlume::detail::Theme> theme =
+        overlume::detail::load_theme(fixtureDir, "ribbon_fade");
+    ASSERT_TRUE(theme.has_value());
+    EXPECT_NEAR(theme->ribbon.opacity, 0.6f, 1e-4f);
+    EXPECT_NEAR(theme->ribbon.fade_start, 0.5f, 1e-4f);
 }
 
 TEST(ThemeObjects, OpacityFallsBackToOnePointZeroWhenMissingFromYaml) {

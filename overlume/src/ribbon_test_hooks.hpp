@@ -12,6 +12,8 @@
 
 namespace overlume::testing {
 
+float ribbon_fade_alpha(double station_m, double total_length_m, float fade_start);
+
 overlume::detail::Float3 ribbon_role_base_color(overlume::VisualRenderer* r,
                                                 overlume::PathRole role);
 
@@ -22,6 +24,7 @@ size_t ribbon_vertex_count(overlume::VisualRenderer* r, size_t slot);
 struct RibbonMaterialInfo {
     bool bound_to_translucent = false;
     float alpha = 1.0f;
+    float minVertexAlpha = 1.0f;
 };
 RibbonMaterialInfo ribbon_slot_material_info(overlume::VisualRenderer* r, size_t slot);
 

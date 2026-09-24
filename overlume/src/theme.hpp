@@ -87,6 +87,8 @@ struct Theme {
         float margin_global_m = 1.63f;
         float margin_local_m = 1.63f;
         float margin_velocity_m = 1.05f;
+        float opacity = 1.0f;
+        float fade_start = 1.0f;
     } ribbon;
 
     struct Objects {

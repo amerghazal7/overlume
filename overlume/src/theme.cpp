@@ -113,6 +113,11 @@ Theme parse(const YAML::Node& root) {
     t.ribbon.margin_velocity_m =
         (ribbon && ribbon["margin_velocity_m"]) ? ribbon["margin_velocity_m"].as<float>() : 1.05f;
 
+    t.ribbon.opacity = std::clamp(
+        (ribbon && ribbon["opacity"]) ? ribbon["opacity"].as<float>() : 1.0f, 0.0f, 1.0f);
+    t.ribbon.fade_start = std::clamp(
+        (ribbon && ribbon["fade_start"]) ? ribbon["fade_start"].as<float>() : 1.0f, 0.0f, 1.0f);
+
     const YAML::Node objects = root["objects"];
     t.objects.opacity = std::clamp(
         (objects && objects["opacity"]) ? objects["opacity"].as<float>() : 1.0f, 0.0f, 1.0f);
@@ -184,6 +189,8 @@ const Theme& kFallbackTheme() {
         t.ribbon.margin_global_m = 0.3f;
         t.ribbon.margin_local_m = 0.8f;
         t.ribbon.margin_velocity_m = 1.05f;
+        t.ribbon.opacity = 1.0f;
+        t.ribbon.fade_start = 1.0f;
         t.objects.opacity = 1.0f;
         return t;
     }();
