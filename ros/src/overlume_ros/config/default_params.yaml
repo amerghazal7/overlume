@@ -59,6 +59,7 @@
     environment_replaces_ground: true
     environment_max_tilt_deg: 2.0
     environment_brightness: 1.0
+    environment_tile_radius_m: 700.0
     environment_attribution: true
     bowl_enabled: true
     n_cameras: 6

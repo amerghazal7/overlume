@@ -138,3 +138,18 @@ TEST(ComposeEnvironmentSourceUri, BrightnessAppendedOnlyWhenNotDefault) {
         overlume::ros::compose_environment_source_uri("/baked", "", "", true, 0.3, true, 2.0, 1.8),
         "/baked");
 }
+
+TEST(ComposeEnvironmentSourceUri, RadiusAppendedOnlyWhenNotDefault) {
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "ion://96188", "", true, 0.3, true,
+                                                            2.0, 1.0, 700.0),
+              "ion://96188?follow_terrain=on");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "ion://96188", "", true, 0.3, true,
+                                                            2.0, 1.0, 250.0),
+              "ion://96188?follow_terrain=on&radius=250");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "ion://96188?radius=50", "", true,
+                                                            0.3, true, 2.0, 1.0, 250.0),
+              "ion://96188?radius=50&follow_terrain=on");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("/baked", "", "", true, 0.3, true, 2.0,
+                                                            1.0, 250.0),
+              "/baked");
+}

@@ -165,6 +165,35 @@ TEST(EnvironmentStream, FixtureTilesLoadRenderAsClayAndCount) {
     overlume::destroy_renderer(r);
 }
 
+TEST(EnvironmentStream, RadiusExcludesTileOutsideConfiguredRadius) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    overlume::SceneGraph farScene{};
+    farScene.ego.valid = 1;
+    farScene.ego.position = overlume::Vec3{0.0, -8000.0, 0.0};
+
+    auto* wide = overlume::create_renderer(cfg);
+    if (!wide) GTEST_SKIP() << "no GPU/EGL";
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(
+        wide, kTilesFixtureDir.c_str(), kFixtureAnchor, false, false, 1.0e9));
+    overlume::set_scene(wide, farScene);
+    for (int i = 0; i < 60; ++i) overlume::render_frame(wide, kStdPose, {buf.data(), 320, 240});
+    EXPECT_GT(overlume::testing::environment_loaded_chunk_count(wide), 0u)
+        << "with an effectively unbounded radius the render camera's own selection must still "
+           "bring the fixture tiles into the scene, ego position notwithstanding";
+    overlume::destroy_renderer(wide);
+
+    auto* tight = overlume::create_renderer(cfg);
+    if (!tight) GTEST_SKIP() << "no GPU/EGL";
+    ASSERT_TRUE(overlume::testing::install_fixture_streaming_source(
+        tight, kTilesFixtureDir.c_str(), kFixtureAnchor, false, false, 0.001));
+    overlume::set_scene(tight, farScene);
+    for (int i = 0; i < 60; ++i) overlume::render_frame(tight, kStdPose, {buf.data(), 320, 240});
+    EXPECT_EQ(overlume::testing::environment_loaded_chunk_count(tight), 0u)
+        << "same ego, same camera, near-zero radius: every selected tile must be culled";
+    overlume::destroy_renderer(tight);
+}
+
 TEST(EnvironmentStream, TileSelectionUsesRenderCameraAsSecondFrustum) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);
@@ -694,6 +723,23 @@ TEST(EnvironmentStream, ParseIonSpecBrightness) {
     overlume::testing::environment_stream_parse_brightness("96188?brightness=-1", &ok);
     EXPECT_FALSE(ok) << "negative -- a gain can't be negative, same 'fails the whole parse' shape";
     overlume::testing::environment_stream_parse_brightness("96188?brightness=bogus", &ok);
+    EXPECT_FALSE(ok) << "non-numeric -- the WHOLE spec fails to parse";
+}
+
+TEST(EnvironmentStream, ParseIonSpecRadius) {
+    bool ok = false;
+    EXPECT_DOUBLE_EQ(overlume::testing::environment_stream_parse_radius("96188", &ok), 700.0)
+        << "absent key -- parses fine, defaults to 700.0";
+    EXPECT_TRUE(ok);
+    EXPECT_DOUBLE_EQ(overlume::testing::environment_stream_parse_radius("96188?radius=250", &ok),
+                     250.0);
+    EXPECT_TRUE(ok);
+    overlume::testing::environment_stream_parse_radius("96188?radius=0", &ok);
+    EXPECT_FALSE(ok) << "0 -- an empty radius has no safe silent meaning, fails the whole parse";
+    overlume::testing::environment_stream_parse_radius("96188?radius=-5", &ok);
+    EXPECT_FALSE(ok)
+        << "negative -- a radius can't be negative, same 'fails the whole parse' shape";
+    overlume::testing::environment_stream_parse_radius("96188?radius=abc", &ok);
     EXPECT_FALSE(ok) << "non-numeric -- the WHOLE spec fails to parse";
 }
 

@@ -445,6 +445,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     environment_replaces_ground_ = declare_parameter<bool>("environment_replaces_ground", true);
     environment_max_tilt_deg_ = declare_parameter<double>("environment_max_tilt_deg", 2.0);
     environment_brightness_ = declare_parameter<double>("environment_brightness", 1.0);
+    environment_tile_radius_m_ = declare_parameter<double>("environment_tile_radius_m", 700.0);
     environment_attribution_ = declare_parameter<bool>("environment_attribution", true);
     environment_own_asset_uri_ = declare_parameter<std::string>("environment_own_asset_uri", "");
 
@@ -734,7 +735,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_activate(const rclcpp_lifecycle::S
         const std::string source_uri = compose_environment_source_uri(
             environment_chunks_dir_, environment_source_uri_, environment_tile_cache_dir_,
             environment_follow_terrain_, environment_ground_bias_m_, environment_replaces_ground_,
-            environment_max_tilt_deg_, environment_brightness_);
+            environment_max_tilt_deg_, environment_brightness_, environment_tile_radius_m_);
         if (!overlume::set_environment_source(renderer_, source_uri.c_str(),
                                               geo_anchor_solver_->anchor())) {
             RCLCPP_WARN(get_logger(),
@@ -848,7 +849,7 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                         environment_chunks_dir_, requested, environment_tile_cache_dir_,
                         environment_follow_terrain_, environment_ground_bias_m_,
                         environment_replaces_ground_, environment_max_tilt_deg_,
-                        environment_brightness_);
+                        environment_brightness_, environment_tile_radius_m_);
                     if (source_uri.empty()) {
                         res.successful = false;
                         res.reason = "environment_source_uri: '" + requested +
@@ -1198,7 +1199,8 @@ void OverlumeNode::timer_callback() {
             fallback_dir_from_source_uri(compose_environment_source_uri(
                 environment_chunks_dir_, environment_source_uri_, environment_tile_cache_dir_,
                 environment_follow_terrain_, environment_ground_bias_m_,
-                environment_replaces_ground_, environment_max_tilt_deg_, environment_brightness_));
+                environment_replaces_ground_, environment_max_tilt_deg_, environment_brightness_,
+                environment_tile_radius_m_));
         if (fallback_dir.empty()) {
             RCLCPP_WARN(get_logger(),
                         "environment source: network loss detected -- switched to fallback, "

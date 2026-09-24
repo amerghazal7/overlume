@@ -219,6 +219,7 @@ private:
     bool environment_replaces_ground_{true};
     double environment_max_tilt_deg_{2.0};
     double environment_brightness_{1.0};
+    double environment_tile_radius_m_{700.0};
     bool environment_fallback_warned_{false};
     bool environment_attribution_{true};
     bool environment_attribution_warned_{false};

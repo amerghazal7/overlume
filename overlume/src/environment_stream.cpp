@@ -8,6 +8,7 @@
 #include "renderer_internal.hpp"
 
 #include <Cesium3DTilesContent/registerAllTileContentTypes.h>
+#include <Cesium3DTilesSelection/BoundingVolume.h>
 #include <CesiumAsync/CachingAssetAccessor.h>
 #include <CesiumAsync/SqliteCache.h>
 #include <CesiumCurl/CurlAssetAccessor.h>
@@ -60,6 +61,7 @@ struct IonSpec {
     bool replaces_ground = true;
     double max_tilt_deg = 2.0;
     double brightness = 1.0;
+    double radius_m = kDefaultTileRadiusM;
 };
 
 std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
@@ -149,6 +151,15 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                 } else if (val == "off" || val == "false" || val == "0") {
                     out.replaces_ground = false;
                 } else {
+                    return std::nullopt;
+                }
+            } else if (key == "radius") {
+                try {
+                    size_t used = 0;
+                    out.radius_m = std::stod(val, &used);
+                    if (used != val.size() || !std::isfinite(out.radius_m) || out.radius_m <= 0.0)
+                        return std::nullopt;
+                } catch (const std::exception&) {
                     return std::nullopt;
                 }
             }
@@ -700,7 +711,7 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
     std::string ion_access_token, std::string root_tileset_uri, std::string fallback_baked_dir,
     GeoAnchor anchor, std::shared_ptr<CountingAssetAccessor> counting_accessor,
     bool materials_original, bool follow_terrain, double ground_bias_m, bool replaces_ground,
-    double max_tilt_deg, double brightness)
+    double max_tilt_deg, double brightness, double radius_m)
     : asyncSystem_(externals.asyncSystem),
       anchor_(anchor),
       ecefToMap_(compute_ecef_to_map(anchor)),
@@ -712,6 +723,7 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
       replacesGround_(replaces_ground),
       maxTiltRad_(max_tilt_deg * M_PI / 180.0),
       brightness_(brightness),
+      tileRadiusM_(radius_m),
       countingAccessor_(std::move(counting_accessor)) {
     static std::once_flag registerContentTypesOnce;
     std::call_once(registerContentTypesOnce,
@@ -977,6 +989,18 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
         if (renderContent == nullptr) continue;
         void* res = renderContent->getRenderResources();
         if (res == nullptr) continue;
+        const CesiumGeometry::OrientedBoundingBox obb =
+            Cesium3DTilesSelection::getOrientedBoundingBoxFromBoundingVolume(
+                tile->getBoundingVolume(), CesiumGeospatial::Ellipsoid::WGS84);
+        const glm::dvec4 centerMap4 = ecefToMap_ * glm::dvec4(obb.getCenter(), 1.0);
+        const glm::dmat3& halfAxes = obb.getHalfAxes();
+        const double extentM =
+            glm::length(halfAxes[0]) + glm::length(halfAxes[1]) + glm::length(halfAxes[2]);
+        const double dx = centerMap4.x - ego_map_pos.x;
+        const double dy = centerMap4.y - ego_map_pos.y;
+        const bool wasInScene = inScene_.find(res) != inScene_.end();
+        const double limitM = wasInScene ? tileRadiusM_ * kTileRadiusUnloadRatio : tileRadiusM_;
+        if (std::hypot(dx, dy) - extentM > limitM) continue;
         auto* asset = static_cast<filament::gltfio::FilamentAsset*>(res);
         stillPresent[res] = true;
         if (visible_ && inScene_.find(res) == inScene_.end()) {
@@ -1110,7 +1134,7 @@ std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::
     return std::make_unique<StreamingEnvironmentSource>(
         externals, spec->asset_id, std::string(token), std::string(), spec->fallback_dir, anchor,
         std::move(counting), spec->materials_original, spec->follow_terrain, spec->ground_bias_m,
-        spec->replaces_ground, spec->max_tilt_deg, spec->brightness);
+        spec->replaces_ground, spec->max_tilt_deg, spec->brightness, spec->radius_m);
 }
 
 }
@@ -1137,8 +1161,8 @@ std::string test_cache_dir() {
 
 std::unique_ptr<overlume::EnvironmentSource> make_fixture_source(
     const char* fixture_dir, const char* fallback_baked_dir, overlume::GeoAnchor anchor,
-    std::shared_ptr<std::atomic<bool>> killed, bool materials_original,
-    bool follow_terrain = false) {
+    std::shared_ptr<std::atomic<bool>> killed, bool materials_original, bool follow_terrain = false,
+    double radius_m = overlume::kDefaultTileRadiusM) {
     if (fixture_dir == nullptr) return nullptr;
     auto fileAccessor = std::make_shared<overlume::FileFixtureAssetAccessor>(std::move(killed));
     CesiumAsync::AsyncSystem asyncSystem(std::make_shared<overlume::SimpleTaskProcessor>());
@@ -1150,18 +1174,18 @@ std::unique_ptr<overlume::EnvironmentSource> make_fixture_source(
     return std::make_unique<overlume::StreamingEnvironmentSource>(
         externals, 0, std::string(), tilesetUri,
         fallback_baked_dir ? std::string(fallback_baked_dir) : std::string(), anchor,
-        std::move(counting), materials_original, follow_terrain, 0.0, true);
+        std::move(counting), materials_original, follow_terrain, 0.0, true, 2.0, 1.0, radius_m);
 }
 
 }
 
 bool install_fixture_streaming_source(overlume::VisualRenderer* r, const char* fixture_dir,
                                       overlume::GeoAnchor anchor, bool materials_original,
-                                      bool follow_terrain) {
+                                      bool follow_terrain, double radius_m) {
     if (r == nullptr) return false;
     if (r->environmentSource) r->environmentSource->teardown(*r);
     auto source = make_fixture_source(fixture_dir, nullptr, anchor, nullptr, materials_original,
-                                      follow_terrain);
+                                      follow_terrain, radius_m);
     if (!source) {
         r->environmentSource.reset();
         return false;
@@ -1258,6 +1282,12 @@ double environment_stream_parse_brightness(const char* ion_spec, bool* out_parse
     const std::optional<IonSpec> spec = parse_ion_spec(ion_spec ? ion_spec : "");
     if (out_parse_ok) *out_parse_ok = spec.has_value();
     return spec.has_value() ? spec->brightness : 1.0;
+}
+
+double environment_stream_parse_radius(const char* ion_spec, bool* out_parse_ok) {
+    const std::optional<IonSpec> spec = parse_ion_spec(ion_spec ? ion_spec : "");
+    if (out_parse_ok) *out_parse_ok = spec.has_value();
+    return spec.has_value() ? spec->radius_m : kDefaultTileRadiusM;
 }
 
 double terrain_ground_offset_probe(double sampled_height_m, double anchor_height_m,
