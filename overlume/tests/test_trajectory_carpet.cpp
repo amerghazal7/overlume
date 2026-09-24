@@ -446,6 +446,8 @@ TEST(TrajectoryCarpet, ThemeOpacityAndLengthFadeApplyToFreshCarpet) {
     tc.last_update_sec = 0.0;
     overlume::SceneGraph s{};
     s.sim_time_sec = 0.0;
+    s.ego.valid = 1;
+    s.ego.position = {0.0, 0.0, 0.0};
     s.trajectory_carpets = &tc;
     s.trajectory_carpet_count = 1;
     overlume::set_scene(r, s);
@@ -457,9 +459,9 @@ TEST(TrajectoryCarpet, ThemeOpacityAndLengthFadeApplyToFreshCarpet) {
         << "the resolved data colour is untouched; the fade lives in the uploaded alpha byte";
     EXPECT_NEAR(overlume::testing::trajectory_carpet_vertex_fade_alpha(r, 0, 0), 1.0f, 1e-5f);
     EXPECT_NEAR(overlume::testing::trajectory_carpet_vertex_fade_alpha(r, 0, 10), 1.0f, 1e-5f)
-        << "station 5 of 10 sits exactly at fade_start 0.5 and is still fully opaque";
+        << "station 5 sits exactly at fade_start_m and is still fully opaque";
     EXPECT_NEAR(overlume::testing::trajectory_carpet_vertex_fade_alpha(r, 0, 14), 0.6f, 1e-5f)
-        << "station 7 of 10 is 40% into the ramp";
+        << "station 7 is 40% into the 5 m ramp";
     EXPECT_NEAR(overlume::testing::trajectory_carpet_vertex_fade_alpha(r, 0, 21), 0.0f, 1e-5f)
         << "the last vertex pair reaches zero";
     overlume::destroy_renderer(r);
@@ -490,7 +492,43 @@ TEST(TrajectoryCarpet, FadeStartChangeRebuildsGeometry) {
     overlume::set_scene(r, s);
     render_once(r, overlume::CameraPose{{0, -10, 10}, {0, 0, 0}, 60.0});
     EXPECT_GT(overlume::testing::trajectory_carpet_rebuild_count(r), before)
-        << "a fade_start-only theme change must rebuild the carpet so the ramp is re-baked";
+        << "a fade-metres-only theme change must rebuild the carpet so the ramp is re-baked";
+    overlume::destroy_renderer(r);
+}
+
+TEST(TrajectoryCarpet, FadeIsMeasuredFromTheEgoClipStationNotTheCarpetStart) {
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    overlume::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), "ribbon_fade"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    std::vector<overlume::PointCloudPoint> pts = make_stations(101, 0xFF0000FFu);
+    overlume::TrajectoryCarpet tc{};
+    tc.points = pts.data();
+    tc.point_count = static_cast<uint32_t>(pts.size());
+    tc.last_update_sec = 0.0;
+    overlume::SceneGraph s{};
+    s.sim_time_sec = 0.0;
+    s.ego.valid = 1;
+    s.ego.position = {60.0, 0.0, 0.0};
+    s.trajectory_carpets = &tc;
+    s.trajectory_carpet_count = 1;
+    overlume::set_scene(r, s);
+    render_once(r, overlume::CameraPose{{60, -10, 10}, {65, 0, 0}, 60.0});
+
+    EXPECT_NEAR(overlume::testing::trajectory_carpet_vertex_fade_alpha(r, 0, 130), 1.0f, 1e-3f)
+        << "5 m ahead of the ego (station 65) is still inside fade_start_m";
+    EXPECT_NEAR(overlume::testing::trajectory_carpet_vertex_fade_alpha(r, 0, 134), 0.6f, 1e-3f)
+        << "7 m ahead is 40% into the ramp, even though it is only 7% along a 100 m carpet";
+    EXPECT_NEAR(overlume::testing::trajectory_carpet_vertex_fade_alpha(r, 0, 140), 0.0f, 1e-3f)
+        << "10 m ahead of the ego the carpet is gone";
+    EXPECT_NEAR(overlume::testing::trajectory_carpet_vertex_fade_alpha(r, 0, 200), 0.0f, 1e-3f);
+
+    s.ego.position = {60.0, 10.0, 0.0};
+    overlume::set_scene(r, s);
+    render_once(r, overlume::CameraPose{{60, -10, 10}, {65, 0, 0}, 60.0});
+    EXPECT_NEAR(overlume::testing::trajectory_carpet_vertex_fade_alpha(r, 0, 200), 1.0f, 1e-3f)
+        << "ego 10 m off the carpet: no clip, so no ramp -- the carpet must not vanish";
     overlume::destroy_renderer(r);
 }
 
@@ -508,6 +546,8 @@ std::vector<uint8_t> render_carpet_probe(const std::string& fixtureDir, const ch
     tc.last_update_sec = 10.0;
     overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
+    s.ego.valid = 1;
+    s.ego.position = {0.0, 0.0, 0.0};
     s.trajectory_carpets = &tc;
     s.trajectory_carpet_count = withCarpet ? 1 : 0;
     overlume::set_scene(r, s);
@@ -565,7 +605,7 @@ TEST(TrajectoryCarpet, OpacityAndLengthFadeReachTheFramebuffer) {
     const double nearMean = band_mean(x0, x0 + span * 2 / 5);
     const double farMean = band_mean(x1 - span / 10, x1);
     EXPECT_LT(farMean, nearMean * 0.35)
-        << "with fade_start 0.5 the far end of the carpet must approach the ground colour "
+        << "with fade_end_m 10 on a 10 m carpet the far end must approach the ground colour "
            "(near-band mean delta "
         << nearMean << ", far-band mean delta " << farMean << ")";
 }

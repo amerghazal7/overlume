@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -76,10 +77,12 @@ uint64_t hash_vec3(const Vec3& v) {
 }
 
 uint64_t trajectory_carpet_signature(const Vec3* pts, uint32_t n, float half_width_m,
-                                     float fade_start) {
+                                     float fade_start_m, float fade_end_m) {
     uint64_t h = hash_combine(0, static_cast<uint64_t>(n));
     uint32_t fadeBits;
-    std::memcpy(&fadeBits, &fade_start, sizeof(fadeBits));
+    std::memcpy(&fadeBits, &fade_start_m, sizeof(fadeBits));
+    h = hash_combine(h, static_cast<uint64_t>(fadeBits));
+    std::memcpy(&fadeBits, &fade_end_m, sizeof(fadeBits));
     h = hash_combine(h, static_cast<uint64_t>(fadeBits));
     if (n > 0) {
         h = hash_combine(h, hash_vec3(pts[0]));
@@ -96,8 +99,11 @@ float velocity_ribbon_half_width_m(const detail::Theme::Ribbon& cfg) {
     return std::max(halfWidth, kRibbonMinHalfWidthM);
 }
 
-uint32_t with_fade_alpha(uint32_t rgba, double station_m, double total_length_m, float fade_start) {
-    const float a = detail::ribbon_fade_alpha(station_m, total_length_m, fade_start);
+uint32_t with_fade_alpha(uint32_t rgba, double station_m, std::optional<double> origin_station_m,
+                         const detail::Theme::Ribbon& cfg) {
+    const float a = origin_station_m ? detail::ribbon_fade_alpha(station_m, *origin_station_m,
+                                                                 cfg.fade_start_m, cfg.fade_end_m)
+                                     : 1.0f;
     const auto byte = static_cast<uint32_t>(std::clamp(a, 0.0f, 1.0f) * 255.0f + 0.5f);
     return (rgba & 0x00FFFFFFu) | (byte << 24);
 }
@@ -138,7 +144,7 @@ void destroy_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot
     slot.baseStripPositions.clear();
     slot.baseStripRgba.clear();
     slot.pointStations.clear();
-    slot.totalLengthM = 0.0;
+    slot.fadeOriginStationM.reset();
     slot.has_applied_clip = false;
 }
 
@@ -170,8 +176,7 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& 
 
     const std::vector<double> stations =
         detail::clean_polyline_stations(positions.data(), positions.size());
-    slot.totalLengthM = stations.empty() ? 0.0 : stations.back();
-    const float fadeStart = r.active_theme.ribbon.fade_start;
+    slot.fadeOriginStationM.reset();
 
     bool first_chunk = true;
     for (auto [a, b] : detail::polyline_chunks(static_cast<uint32_t>(cleaned.size()))) {
@@ -193,7 +198,7 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& 
                 float3{static_cast<float>(strip[i].x), static_cast<float>(strip[i].y),
                        static_cast<float>(strip[i].z)};
             verts[i].rgba =
-                with_fade_alpha(rgba[i], stations[a + i / 2], slot.totalLengthM, fadeStart);
+                with_fade_alpha(rgba[i], stations[a + i / 2], std::nullopt, r.active_theme.ribbon);
         }
         if (first_chunk) {
             slot.firstMeshRgba = rgba;
@@ -231,6 +236,7 @@ void apply_carpet_clip(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& 
     const bool changed = !slot.has_applied_clip || slot.appliedClipActive != clip.active ||
                          (clip.active && slot.appliedClipUnits != clip.quantized_units);
     if (!changed) return;
+    slot.fadeOriginStationM = clip.active ? std::optional<double>(clip.station_m) : std::nullopt;
     for (size_t i = 0; i < slot.meshes.size(); ++i) {
         std::vector<Vec3> positions = slot.baseStripPositions[i];
         detail::collapse_clipped_positions(positions, slot.pointStations[i], clip.active,
@@ -242,7 +248,7 @@ void apply_carpet_clip(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& 
                 float3{static_cast<float>(positions[v].x), static_cast<float>(positions[v].y),
                        static_cast<float>(positions[v].z)};
             verts[v].rgba = with_fade_alpha(slot.baseStripRgba[i][v], slot.pointStations[i][v / 2],
-                                            slot.totalLengthM, r.active_theme.ribbon.fade_start);
+                                            slot.fadeOriginStationM, r.active_theme.ribbon);
         }
         update_carpet_vertex_positions(*r.engine, slot.meshes[i], std::move(verts));
     }
@@ -277,7 +283,8 @@ void update_trajectory_carpets(VisualRenderer& r, const SceneGraph& s) {
                 : detail::PolylineClip{};
 
         const uint64_t sig = trajectory_carpet_signature(
-            rawPositions.data(), tc.point_count, halfWidthM, r.active_theme.ribbon.fade_start);
+            rawPositions.data(), tc.point_count, halfWidthM, r.active_theme.ribbon.fade_start_m,
+            r.active_theme.ribbon.fade_end_m);
         if (!slot.has_signature || slot.signature != sig) {
             ++r.trajectoryCarpetRebuildCount;
             build_slot_meshes(r, slot, tc.points, tc.point_count, halfWidthM);
@@ -292,7 +299,9 @@ void update_trajectory_carpets(VisualRenderer& r, const SceneGraph& s) {
                                     kStaleFadeTimeoutSec)));
     }
     alpha *= r.active_theme.ribbon.opacity;
-    const bool wantFaded = alpha < 1.0f || r.active_theme.ribbon.fade_start < 1.0f;
+    const bool wantFaded =
+        alpha < 1.0f || detail::ribbon_length_fade_enabled(r.active_theme.ribbon.fade_start_m,
+                                                           r.active_theme.ribbon.fade_end_m);
     if (wantFaded) {
         r.trajectoryCarpetFadedMaterialInstance->setParameter("alpha", alpha);
     }
@@ -351,11 +360,13 @@ float trajectory_carpet_half_width_m(overlume::VisualRenderer* r, size_t slot) {
 
 float trajectory_carpet_vertex_fade_alpha(overlume::VisualRenderer* r, size_t slot,
                                           size_t vertex_idx) {
-    if (r == nullptr || slot >= r->trajectoryCarpetSlots.size()) return 0.0f;
+    if (r == nullptr || slot >= r->trajectoryCarpetSlots.size()) return -1.0f;
     const auto& s = r->trajectoryCarpetSlots[slot];
-    if (s.pointStations.empty() || vertex_idx / 2 >= s.pointStations[0].size()) return 0.0f;
-    return overlume::detail::ribbon_fade_alpha(s.pointStations[0][vertex_idx / 2], s.totalLengthM,
-                                               r->active_theme.ribbon.fade_start);
+    if (s.pointStations.empty() || vertex_idx / 2 >= s.pointStations[0].size()) return -1.0f;
+    if (!s.fadeOriginStationM) return 1.0f;
+    return overlume::detail::ribbon_fade_alpha(
+        s.pointStations[0][vertex_idx / 2], *s.fadeOriginStationM,
+        r->active_theme.ribbon.fade_start_m, r->active_theme.ribbon.fade_end_m);
 }
 
 uint64_t trajectory_carpet_rebuild_count(overlume::VisualRenderer* r) {
