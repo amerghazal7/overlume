@@ -10,6 +10,10 @@ namespace overlume::detail {
 
 inline constexpr float kThemeDefaultTileRadiusM = 700.0f;
 
+inline bool ribbon_length_fade_enabled(float fade_start_m, float fade_end_m) {
+    return fade_start_m >= 0.0f && fade_end_m > fade_start_m;
+}
+
 struct Float3 {
     float r = 0.0f, g = 0.0f, b = 0.0f;
 };
@@ -90,7 +94,8 @@ struct Theme {
         float margin_local_m = 1.63f;
         float margin_velocity_m = 1.05f;
         float opacity = 1.0f;
-        float fade_start = 1.0f;
+        float fade_start_m = 0.0f;
+        float fade_end_m = 0.0f;
     } ribbon;
 
     struct Objects {

@@ -193,7 +193,7 @@ public:
         filament::MaterialInstance* fadeInstance = nullptr;
         float fadeAlpha = 1.0f;
         float halfWidthM = 0.0f;
-        double totalLengthM = 0.0;
+        std::optional<double> fadeOriginStationM;
         float minVertexAlpha = 1.0f;
         Vec3 firstPointM{};
         std::vector<std::vector<Vec3>> baseStripPositions;
@@ -302,7 +302,7 @@ public:
         int64_t appliedClipUnits = 0;
         bool boundFaded = false;
         Vec3 firstPointM{};
-        double totalLengthM = 0.0;
+        std::optional<double> fadeOriginStationM;
     };
     std::vector<TrajectoryCarpetSlot> trajectoryCarpetSlots;
     uint64_t trajectoryCarpetRebuildCount = 0;

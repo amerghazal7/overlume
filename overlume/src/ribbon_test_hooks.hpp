@@ -12,7 +12,10 @@
 
 namespace overlume::testing {
 
-float ribbon_fade_alpha(double station_m, double total_length_m, float fade_start);
+float ribbon_fade_alpha(double station_m, double origin_station_m, float fade_start_m,
+                        float fade_end_m);
+
+float ribbon_vertex_fade_alpha(overlume::VisualRenderer* r, size_t slot, size_t vertex_idx);
 
 overlume::detail::Float3 ribbon_role_base_color(overlume::VisualRenderer* r,
                                                 overlume::PathRole role);

@@ -28,21 +28,26 @@ std::vector<uint8_t> render_once(overlume::VisualRenderer* r, const overlume::Ca
 
 }
 
-TEST(RibbonFadeAlpha, FadeStartOneMeansNoFadeEverywhere) {
-    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(0.0, 10.0, 1.0f), 1.0f);
-    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(5.0, 10.0, 1.0f), 1.0f);
-    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(10.0, 10.0, 1.0f), 1.0f);
+TEST(RibbonFadeAlpha, DisabledUnlessEndIsBeyondStart) {
+    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(0.0, 0.0, 0.0f, 0.0f), 1.0f);
+    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(50.0, 0.0, 10.0f, 10.0f), 1.0f);
+    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(50.0, 0.0, 10.0f, 5.0f), 1.0f);
 }
 
-TEST(RibbonFadeAlpha, HalfwayFadeStartRampsLinearlyToZero) {
-    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(0.0, 10.0, 0.5f), 1.0f);
-    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(5.0, 10.0, 0.5f), 1.0f);
-    EXPECT_NEAR(overlume::testing::ribbon_fade_alpha(7.5, 10.0, 0.5f), 0.5f, 1e-6f);
-    EXPECT_NEAR(overlume::testing::ribbon_fade_alpha(10.0, 10.0, 0.5f), 0.0f, 1e-6f);
+TEST(RibbonFadeAlpha, RampsLinearlyInMetresFromTheOrigin) {
+    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(0.0, 0.0, 5.0f, 10.0f), 1.0f);
+    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(5.0, 0.0, 5.0f, 10.0f), 1.0f);
+    EXPECT_NEAR(overlume::testing::ribbon_fade_alpha(7.5, 0.0, 5.0f, 10.0f), 0.5f, 1e-6f);
+    EXPECT_NEAR(overlume::testing::ribbon_fade_alpha(10.0, 0.0, 5.0f, 10.0f), 0.0f, 1e-6f);
+    EXPECT_NEAR(overlume::testing::ribbon_fade_alpha(4000.0, 0.0, 5.0f, 10.0f), 0.0f, 1e-6f)
+        << "a kilometre-long ribbon fades out at fade_end_m regardless of its total length";
 }
 
-TEST(RibbonFadeAlpha, ZeroTotalLengthMeansNoFade) {
-    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(0.0, 0.0, 0.5f), 1.0f);
+TEST(RibbonFadeAlpha, OriginShiftsTheRampToTheEgo) {
+    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(30.0, 60.0, 5.0f, 10.0f), 1.0f);
+    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(65.0, 60.0, 5.0f, 10.0f), 1.0f);
+    EXPECT_NEAR(overlume::testing::ribbon_fade_alpha(67.5, 60.0, 5.0f, 10.0f), 0.5f, 1e-6f);
+    EXPECT_NEAR(overlume::testing::ribbon_fade_alpha(70.0, 60.0, 5.0f, 10.0f), 0.0f, 1e-6f);
 }
 
 TEST(RibbonGolden, ThreeRoles_DarkAdas) {
@@ -507,7 +512,7 @@ TEST(Ribbon, FreshRibbonsFadeMaterialWhenThemeEnablesLengthFadeOnly) {
         const auto info = overlume::testing::ribbon_slot_material_info(r, i);
         EXPECT_TRUE(info.bound_to_translucent)
             << "slot " << i
-            << " -- opacity==1.0 with fade_start<1.0 must still bind the blended material";
+            << " -- opacity==1.0 with a metre fade enabled must still bind the blended material";
         EXPECT_FLOAT_EQ(info.alpha, 1.0f) << "slot " << i;
     }
     overlume::destroy_renderer(r);
@@ -527,6 +532,8 @@ TEST(Ribbon, LengthFadeRampReachesZeroAtEndOfLongMultiChunkRibbon) {
     ribbon.points = pts.data();
     ribbon.point_count = kN;
     overlume::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = {0.0, 0.0, 0.0};
     s.paths = &ribbon;
     s.path_count = 1;
     overlume::CameraPose pose{{0, -8, 6}, {0, 0, 0}, 60.0};
@@ -588,8 +595,8 @@ TEST(Ribbon, FadeStartChangeRebuildsGeometry) {
     render_once(r, pose);
 
     EXPECT_GT(overlume::testing::ribbon_rebuild_count(r), before)
-        << "a fade_start-only theme change (no PathRibbon point data touched) did not rebuild "
-           "slot 0's geometry -- fade_start isn't part of the slot signature";
+        << "a fade-metres-only theme change (no PathRibbon point data touched) did not rebuild "
+           "slot 0's geometry -- fade_start_m/fade_end_m aren't part of the slot signature";
     overlume::destroy_renderer(r);
 }
 
@@ -608,6 +615,8 @@ std::vector<uint8_t> render_fade_probe(const std::string& fixtureDir, const char
     ribbon.last_update_sec = 10.0;
     overlume::SceneGraph s{};
     s.sim_time_sec = 10.0;
+    s.ego.valid = 1;
+    s.ego.position = {0.0, 0.0, 0.0};
     s.paths = &ribbon;
     s.path_count = withRibbon ? 1 : 0;
     overlume::set_scene(r, s);
@@ -623,6 +632,50 @@ int max_channel_delta(const std::vector<uint8_t>& a, const std::vector<uint8_t>&
     return d;
 }
 
+}
+
+TEST(Ribbon, FadeIsMeasuredFromTheEgoClipStationNotTheRibbonStart) {
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    overlume::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), "ribbon_fade"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    std::vector<overlume::Vec3> pts(101);
+    for (size_t i = 0; i < pts.size(); ++i) pts[i] = {static_cast<double>(i), 0.0, 0.0};
+    overlume::PathRibbon ribbon{};
+    ribbon.role = overlume::PathRole::LOCAL;
+    ribbon.points = pts.data();
+    ribbon.point_count = static_cast<uint32_t>(pts.size());
+    ribbon.last_update_sec = 0.0;
+    overlume::SceneGraph s{};
+    s.sim_time_sec = 0.0;
+    s.ego.valid = 1;
+    s.ego.position = {60.0, 0.0, 0.0};
+    s.paths = &ribbon;
+    s.path_count = 1;
+    overlume::set_scene(r, s);
+    render_once(r, overlume::CameraPose{{60, -10, 10}, {65, 0, 0}, 60.0});
+
+    EXPECT_NEAR(overlume::testing::ribbon_vertex_fade_alpha(r, 0, 130), 1.0f, 1e-3f)
+        << "5 m ahead of the ego (station 65) is still inside fade_start_m";
+    EXPECT_NEAR(overlume::testing::ribbon_vertex_fade_alpha(r, 0, 134), 0.6f, 1e-3f)
+        << "7 m ahead is 40% into the ramp although it is only 7% along a 100 m ribbon";
+    EXPECT_NEAR(overlume::testing::ribbon_vertex_fade_alpha(r, 0, 140), 0.0f, 1e-3f)
+        << "10 m ahead of the ego the ribbon is gone";
+
+    s.ego.position = {60.0, 10.0, 0.0};
+    overlume::set_scene(r, s);
+    render_once(r, overlume::CameraPose{{60, -10, 10}, {65, 0, 0}, 60.0});
+    EXPECT_NEAR(overlume::testing::ribbon_vertex_fade_alpha(r, 0, 140), 1.0f, 1e-3f)
+        << "ego 10 m off the polyline: the clip is inactive, so the ramp must switch off "
+           "rather than fade the whole ribbon from its first point";
+
+    s.ego.valid = 0;
+    overlume::set_scene(r, s);
+    render_once(r, overlume::CameraPose{{60, -10, 10}, {65, 0, 0}, 60.0});
+    EXPECT_NEAR(overlume::testing::ribbon_vertex_fade_alpha(r, 0, 200), 1.0f, 1e-3f)
+        << "no ego at all: everything stays visible";
+    overlume::destroy_renderer(r);
 }
 
 TEST(Ribbon, OpacityAndLengthFadeReachTheFramebuffer) {
@@ -668,7 +721,7 @@ TEST(Ribbon, OpacityAndLengthFadeReachTheFramebuffer) {
         const double farMean = band_mean(x1 - span / 10, x1);
         EXPECT_LT(farMean, nearMean * 0.35)
             << "role " << int(role)
-            << ": with fade_start 0.5 the far end of the ribbon must "
+            << ": with fade_end_m 10 on a 10 m ribbon the far end must "
                "approach the ground colour (near-band mean delta "
             << nearMean << ", far-band mean delta " << farMean << ")";
     }

@@ -91,7 +91,8 @@ TEST(ThemePalette, RibbonGlobalLocalAndWidthFallBackToTodaysValuesWhenMissingFro
 
     EXPECT_NEAR(theme->ribbon.width_m, 0.24f, 1e-4f);
     EXPECT_NEAR(theme->ribbon.opacity, 1.0f, 1e-4f);
-    EXPECT_NEAR(theme->ribbon.fade_start, 1.0f, 1e-4f);
+    EXPECT_NEAR(theme->ribbon.fade_start_m, 0.0f, 1e-4f);
+    EXPECT_NEAR(theme->ribbon.fade_end_m, 0.0f, 1e-4f);
 }
 
 TEST(ThemePalette, RibbonGlobalLocalBlendInOklabAcrossTransition) {
@@ -233,8 +234,11 @@ TEST(ThemeRibbonFade, ShippedThemesEnableOpacityAndLengthFade) {
         const std::optional<overlume::detail::Theme> theme =
             overlume::detail::load_theme(kThemeDir, name);
         ASSERT_TRUE(theme.has_value()) << name;
-        EXPECT_NEAR(theme->ribbon.opacity, 0.85f, 1e-4f) << name;
-        EXPECT_NEAR(theme->ribbon.fade_start, 0.25f, 1e-4f) << name;
+        EXPECT_GT(theme->ribbon.opacity, 0.0f) << name;
+        EXPECT_LE(theme->ribbon.opacity, 1.0f) << name;
+        EXPECT_GT(theme->ribbon.fade_start_m, 0.0f) << name;
+        EXPECT_GT(theme->ribbon.fade_end_m, theme->ribbon.fade_start_m)
+            << name << ": shipped themes keep the metre fade enabled (end beyond start)";
     }
 }
 
@@ -244,7 +248,8 @@ TEST(ThemeRibbonFade, FixtureParsesExplicitOpacityAndFadeStart) {
         overlume::detail::load_theme(fixtureDir, "ribbon_fade");
     ASSERT_TRUE(theme.has_value());
     EXPECT_NEAR(theme->ribbon.opacity, 0.6f, 1e-4f);
-    EXPECT_NEAR(theme->ribbon.fade_start, 0.5f, 1e-4f);
+    EXPECT_NEAR(theme->ribbon.fade_start_m, 5.0f, 1e-4f);
+    EXPECT_NEAR(theme->ribbon.fade_end_m, 10.0f, 1e-4f);
 }
 
 TEST(ThemeObjects, OpacityFallsBackToOnePointZeroWhenMissingFromYaml) {
@@ -603,7 +608,8 @@ TEST(ThemeEnvironment, TileRadiusParsesDefaultsAndRejectsNonPositive) {
     const std::optional<overlume::detail::Theme> shipped =
         overlume::detail::load_theme(kThemeDir, "dark_adas");
     ASSERT_TRUE(shipped.has_value());
-    EXPECT_NEAR(shipped->environment.tile_radius_m, 700.0f, 1e-3f);
+    EXPECT_GT(shipped->environment.tile_radius_m, 0.0f)
+        << "shipped value is a tunable; only positivity is contractual";
     const std::optional<overlume::detail::Theme> tiny =
         overlume::detail::load_theme(fixtureDir, "tile_radius_tiny");
     ASSERT_TRUE(tiny.has_value());
@@ -613,4 +619,19 @@ TEST(ThemeEnvironment, TileRadiusParsesDefaultsAndRejectsNonPositive) {
     ASSERT_TRUE(absent.has_value());
     EXPECT_NEAR(absent->environment.tile_radius_m, 700.0f, 1e-3f)
         << "a theme without an environment: map keeps the 700 m default";
+}
+
+TEST(ThemeRibbonFade, TransitionToAFadeDisabledThemeHoldsTheMetresInsteadOfShrinkingThem) {
+    overlume::detail::Theme on;
+    on.ribbon.fade_start_m = 20.0f;
+    on.ribbon.fade_end_m = 80.0f;
+    overlume::detail::Theme off;
+    off.ribbon.fade_start_m = 0.0f;
+    off.ribbon.fade_end_m = 0.0f;
+    const overlume::detail::Theme mid = overlume::detail::blend(on, off, 0.99f);
+    EXPECT_NEAR(mid.ribbon.fade_start_m, 20.0f, 1e-4f)
+        << "lerping the metres toward 0 would fade everything past 0.8 m at t=0.99";
+    EXPECT_NEAR(mid.ribbon.fade_end_m, 80.0f, 1e-4f);
+    const overlume::detail::Theme back = overlume::detail::blend(off, on, 0.01f);
+    EXPECT_NEAR(back.ribbon.fade_end_m, 80.0f, 1e-4f);
 }

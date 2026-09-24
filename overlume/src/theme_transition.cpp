@@ -135,7 +135,16 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.ribbon.margin_local_m = lerpf(a.ribbon.margin_local_m, b.ribbon.margin_local_m, w);
     out.ribbon.margin_velocity_m = lerpf(a.ribbon.margin_velocity_m, b.ribbon.margin_velocity_m, w);
     out.ribbon.opacity = lerpf(a.ribbon.opacity, b.ribbon.opacity, w);
-    out.ribbon.fade_start = lerpf(a.ribbon.fade_start, b.ribbon.fade_start, w);
+    const bool aFade = ribbon_length_fade_enabled(a.ribbon.fade_start_m, a.ribbon.fade_end_m);
+    const bool bFade = ribbon_length_fade_enabled(b.ribbon.fade_start_m, b.ribbon.fade_end_m);
+    if (aFade && bFade) {
+        out.ribbon.fade_start_m = lerpf(a.ribbon.fade_start_m, b.ribbon.fade_start_m, w);
+        out.ribbon.fade_end_m = lerpf(a.ribbon.fade_end_m, b.ribbon.fade_end_m, w);
+    } else {
+        const Theme::Ribbon& keep = aFade ? a.ribbon : b.ribbon;
+        out.ribbon.fade_start_m = keep.fade_start_m;
+        out.ribbon.fade_end_m = keep.fade_end_m;
+    }
 
     out.objects.opacity = lerpf(a.objects.opacity, b.objects.opacity, w);
     out.environment.tile_radius_m =

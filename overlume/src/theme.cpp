@@ -116,8 +116,12 @@ Theme parse(const YAML::Node& root) {
 
     t.ribbon.opacity = std::clamp(
         (ribbon && ribbon["opacity"]) ? ribbon["opacity"].as<float>() : 1.0f, 0.0f, 1.0f);
-    t.ribbon.fade_start = std::clamp(
-        (ribbon && ribbon["fade_start"]) ? ribbon["fade_start"].as<float>() : 1.0f, 0.0f, 1.0f);
+    const auto fadeMetres = [&](const char* key) {
+        const float v = (ribbon && ribbon[key]) ? ribbon[key].as<float>() : 0.0f;
+        return (std::isfinite(v) && v > 0.0f) ? v : 0.0f;
+    };
+    t.ribbon.fade_start_m = fadeMetres("fade_start_m");
+    t.ribbon.fade_end_m = fadeMetres("fade_end_m");
 
     const YAML::Node objects = root["objects"];
     t.objects.opacity = std::clamp(
@@ -198,7 +202,8 @@ const Theme& kFallbackTheme() {
         t.ribbon.margin_local_m = 0.8f;
         t.ribbon.margin_velocity_m = 1.05f;
         t.ribbon.opacity = 1.0f;
-        t.ribbon.fade_start = 1.0f;
+        t.ribbon.fade_start_m = 0.0f;
+        t.ribbon.fade_end_m = 0.0f;
         t.objects.opacity = 1.0f;
         t.environment.tile_radius_m = kThemeDefaultTileRadiusM;
         return t;

@@ -250,7 +250,8 @@ overlume::detail::Theme MakeSentinelTheme(float scalar, const std::string& name)
     t.ribbon.margin_local_m = scalar;
     t.ribbon.margin_velocity_m = scalar;
     t.ribbon.opacity = scalar;
-    t.ribbon.fade_start = scalar;
+    t.ribbon.fade_start_m = scalar;
+    t.ribbon.fade_end_m = scalar;
     t.objects.opacity = scalar;
     t.environment.tile_radius_m = scalar;
     return t;
@@ -322,7 +323,8 @@ TEST(ThemeTransition, SentinelThemesDetectAnyUnblendedField) {
     ExpectBetweenSentinels(mid.ribbon.margin_local_m, "ribbon.margin_local_m");
     ExpectBetweenSentinels(mid.ribbon.margin_velocity_m, "ribbon.margin_velocity_m");
     ExpectBetweenSentinels(mid.ribbon.opacity, "ribbon.opacity");
-    ExpectBetweenSentinels(mid.ribbon.fade_start, "ribbon.fade_start");
+    ExpectBetweenSentinels(mid.ribbon.fade_start_m, "ribbon.fade_start_m");
+    ExpectBetweenSentinels(mid.ribbon.fade_end_m, "ribbon.fade_end_m");
     ExpectBetweenSentinels(mid.objects.opacity, "objects.opacity");
     ExpectBetweenSentinels(mid.environment.tile_radius_m, "environment.tile_radius_m");
 }
