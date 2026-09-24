@@ -228,12 +228,14 @@ TEST(ThemePalette, ShippedThemesAuthorTheFillLookExplicitly) {
     }
 }
 
-TEST(ThemeRibbonFade, ShippedDarkAdasParsesNoOpFadeTokens) {
-    const std::optional<overlume::detail::Theme> theme =
-        overlume::detail::load_theme(kThemeDir, "dark_adas");
-    ASSERT_TRUE(theme.has_value());
-    EXPECT_NEAR(theme->ribbon.opacity, 1.0f, 1e-4f);
-    EXPECT_NEAR(theme->ribbon.fade_start, 1.0f, 1e-4f);
+TEST(ThemeRibbonFade, ShippedThemesEnableOpacityAndLengthFade) {
+    for (const char* name : {"dark_adas", "light_clay"}) {
+        const std::optional<overlume::detail::Theme> theme =
+            overlume::detail::load_theme(kThemeDir, name);
+        ASSERT_TRUE(theme.has_value()) << name;
+        EXPECT_NEAR(theme->ribbon.opacity, 0.85f, 1e-4f) << name;
+        EXPECT_NEAR(theme->ribbon.fade_start, 0.25f, 1e-4f) << name;
+    }
 }
 
 TEST(ThemeRibbonFade, FixtureParsesExplicitOpacityAndFadeStart) {

@@ -8,7 +8,9 @@
 #include "test_paths.hpp"
 #include "polyline.hpp"
 
+#include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -215,7 +217,8 @@ TEST(TrajectoryCarpet, SlotReleasedWhenCarpetCountDrops) {
 }
 
 TEST(TrajectoryCarpet, MaterialAlphaFollowsStalenessOpaqueWhileFresh) {
-    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    overlume::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), "ribbon_margin_a"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
@@ -428,4 +431,141 @@ TEST(TrajectoryCarpet, IdenticalRepublishCausesNoRebuild) {
     }
     EXPECT_EQ(overlume::testing::trajectory_carpet_rebuild_count(r), afterFirst);
     overlume::destroy_renderer(r);
+}
+
+TEST(TrajectoryCarpet, ThemeOpacityAndLengthFadeApplyToFreshCarpet) {
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    overlume::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), "ribbon_fade"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    std::vector<overlume::PointCloudPoint> pts = make_stations(11, 0xFF0000FFu);
+    overlume::TrajectoryCarpet tc{};
+    tc.points = pts.data();
+    tc.point_count = static_cast<uint32_t>(pts.size());
+    tc.last_update_sec = 0.0;
+    overlume::SceneGraph s{};
+    s.sim_time_sec = 0.0;
+    s.trajectory_carpets = &tc;
+    s.trajectory_carpet_count = 1;
+    overlume::set_scene(r, s);
+    render_once(r, overlume::CameraPose{{5, -10, 10}, {5, 0, 0}, 60.0});
+
+    EXPECT_NEAR(overlume::testing::trajectory_carpet_material_alpha(r), 0.6f, 1e-5f)
+        << "ribbon.opacity must multiply the carpet's material alpha even while fresh";
+    EXPECT_EQ(overlume::testing::trajectory_carpet_vertex_rgba(r, 0, 0), 0xFF0000FFu)
+        << "the resolved data colour is untouched; the fade lives in the uploaded alpha byte";
+    EXPECT_NEAR(overlume::testing::trajectory_carpet_vertex_fade_alpha(r, 0, 0), 1.0f, 1e-5f);
+    EXPECT_NEAR(overlume::testing::trajectory_carpet_vertex_fade_alpha(r, 0, 10), 1.0f, 1e-5f)
+        << "station 5 of 10 sits exactly at fade_start 0.5 and is still fully opaque";
+    EXPECT_NEAR(overlume::testing::trajectory_carpet_vertex_fade_alpha(r, 0, 14), 0.6f, 1e-5f)
+        << "station 7 of 10 is 40% into the ramp";
+    EXPECT_NEAR(overlume::testing::trajectory_carpet_vertex_fade_alpha(r, 0, 21), 0.0f, 1e-5f)
+        << "the last vertex pair reaches zero";
+    overlume::destroy_renderer(r);
+}
+
+TEST(TrajectoryCarpet, FadeStartChangeRebuildsGeometry) {
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    overlume::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), "ribbon_fade"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    std::vector<overlume::PointCloudPoint> pts = make_stations(5, 0xFF0000FFu);
+    overlume::TrajectoryCarpet tc{};
+    tc.points = pts.data();
+    tc.point_count = static_cast<uint32_t>(pts.size());
+    tc.last_update_sec = 0.0;
+    overlume::SceneGraph s{};
+    s.sim_time_sec = 0.0;
+    s.trajectory_carpets = &tc;
+    s.trajectory_carpet_count = 1;
+    overlume::set_scene(r, s);
+    render_once(r, overlume::CameraPose{{0, -10, 10}, {0, 0, 0}, 60.0});
+    const uint64_t before = overlume::testing::trajectory_carpet_rebuild_count(r);
+
+    ASSERT_TRUE(overlume::set_theme(r, "ribbon_fade_b", 0.0, 0.2));
+    s.sim_time_sec = 0.2;
+    tc.last_update_sec = 0.2;
+    overlume::set_scene(r, s);
+    render_once(r, overlume::CameraPose{{0, -10, 10}, {0, 0, 0}, 60.0});
+    EXPECT_GT(overlume::testing::trajectory_carpet_rebuild_count(r), before)
+        << "a fade_start-only theme change must rebuild the carpet so the ramp is re-baked";
+    overlume::destroy_renderer(r);
+}
+
+namespace {
+
+std::vector<uint8_t> render_carpet_probe(const std::string& fixtureDir, const char* theme,
+                                         bool withCarpet) {
+    overlume::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), theme};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) return {};
+    const overlume::PointCloudPoint pts[] = {{{0, 0, 0}, 0xFF3399FFu}, {{10, 0, 0}, 0xFF3399FFu}};
+    overlume::TrajectoryCarpet tc{};
+    tc.points = pts;
+    tc.point_count = 2;
+    tc.last_update_sec = 10.0;
+    overlume::SceneGraph s{};
+    s.sim_time_sec = 10.0;
+    s.trajectory_carpets = &tc;
+    s.trajectory_carpet_count = withCarpet ? 1 : 0;
+    overlume::set_scene(r, s);
+    std::vector<uint8_t> px = render_once(r, overlume::CameraPose{{5, -6, 14}, {5, 0, 0}, 60.0});
+    overlume::destroy_renderer(r);
+    return px;
+}
+
+int carpet_channel_delta(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, size_t i) {
+    int d = 0;
+    for (size_t c = 0; c < 3; ++c) d = std::max(d, std::abs(int(a[i + c]) - int(b[i + c])));
+    return d;
+}
+
+}
+
+TEST(TrajectoryCarpet, OpacityAndLengthFadeReachTheFramebuffer) {
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const auto ground = render_carpet_probe(fixtureDir, "ribbon_margin_a", false);
+    if (ground.empty()) GTEST_SKIP() << "no GPU/EGL";
+    const auto opaque = render_carpet_probe(fixtureDir, "ribbon_margin_a", true);
+    const auto faded = render_carpet_probe(fixtureDir, "ribbon_fade", true);
+    ASSERT_EQ(opaque.size(), ground.size());
+    ASSERT_EQ(faded.size(), ground.size());
+
+    std::vector<int> columns(320, 0);
+    size_t carpetPixels = 0, changed = 0;
+    for (size_t i = 0; i < ground.size(); i += 3) {
+        if (carpet_channel_delta(opaque, ground, i) <= 40) continue;
+        ++carpetPixels;
+        ++columns[(i / 3) % 320];
+        if (carpet_channel_delta(faded, opaque, i) > 12) ++changed;
+    }
+    ASSERT_GT(carpetPixels, 200u);
+    EXPECT_GT(changed, carpetPixels / 2)
+        << "opacity 0.6 must visibly blend the carpet, but only " << changed << " of "
+        << carpetPixels << " carpet pixels differ from the opaque render";
+
+    int x0 = 0, x1 = 319;
+    while (x0 < 320 && columns[x0] == 0) ++x0;
+    while (x1 > 0 && columns[x1] == 0) --x1;
+    ASSERT_LT(x0 + 20, x1);
+    const int span = x1 - x0;
+    auto band_mean = [&](int from, int to) {
+        double sum = 0.0;
+        size_t n = 0;
+        for (size_t i = 0; i < ground.size(); i += 3) {
+            const int x = static_cast<int>((i / 3) % 320);
+            if (x < from || x > to || carpet_channel_delta(opaque, ground, i) <= 40) continue;
+            sum += carpet_channel_delta(faded, ground, i);
+            ++n;
+        }
+        return n ? sum / static_cast<double>(n) : 0.0;
+    };
+    const double nearMean = band_mean(x0, x0 + span * 2 / 5);
+    const double farMean = band_mean(x1 - span / 10, x1);
+    EXPECT_LT(farMean, nearMean * 0.35)
+        << "with fade_start 0.5 the far end of the carpet must approach the ground colour "
+           "(near-band mean delta "
+        << nearMean << ", far-band mean delta " << farMean << ")";
 }

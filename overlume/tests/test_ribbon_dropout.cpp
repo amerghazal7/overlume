@@ -285,7 +285,7 @@ int count_teal_pixels(const std::vector<uint8_t>& px, int width, int height) {
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             const Rgb c = pixel_at(px, width, x, y);
-            if (c.g > c.r + 20 && c.g > 40) ++n;
+            if (c.g > c.r && c.g > 100) ++n;
         }
     }
     return n;

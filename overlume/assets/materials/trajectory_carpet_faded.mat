@@ -13,7 +13,8 @@ material {
 fragment {
     void material(inout MaterialInputs material) {
         prepareMaterial(material);
-        material.baseColor.rgb = getColor().rgb;
-        material.baseColor.a = materialParams.alpha;
+        float alpha = materialParams.alpha * getColor().a;
+        material.baseColor.rgb = getColor().rgb * alpha;
+        material.baseColor.a = alpha;
     }
 }

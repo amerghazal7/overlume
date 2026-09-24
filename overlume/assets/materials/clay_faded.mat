@@ -15,7 +15,7 @@ material {
 fragment {
     void material(inout MaterialInputs material) {
         prepareMaterial(material);
-        material.baseColor.rgb = materialParams.baseColor;
+        material.baseColor.rgb = materialParams.baseColor * getColor().a;
         material.roughness = materialParams.roughness;
         material.metallic = materialParams.metallic;
         material.baseColor.a = getColor().a;
