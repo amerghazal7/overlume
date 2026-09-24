@@ -134,6 +134,8 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.ribbon.margin_global_m = lerpf(a.ribbon.margin_global_m, b.ribbon.margin_global_m, w);
     out.ribbon.margin_local_m = lerpf(a.ribbon.margin_local_m, b.ribbon.margin_local_m, w);
     out.ribbon.margin_velocity_m = lerpf(a.ribbon.margin_velocity_m, b.ribbon.margin_velocity_m, w);
+    out.ribbon.opacity = lerpf(a.ribbon.opacity, b.ribbon.opacity, w);
+    out.ribbon.fade_start = lerpf(a.ribbon.fade_start, b.ribbon.fade_start, w);
 
     out.objects.opacity = lerpf(a.objects.opacity, b.objects.opacity, w);
 

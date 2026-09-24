@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
+material {
+    name : ribbon_faded,
+    shadingModel : lit,
+    parameters : [
+        { type : float4, name : baseColor },
+        { type : float, name : roughness },
+        { type : float, name : metallic },
+        { type : float3, name : emissiveColor },
+        { type : float, name : emissiveStrength }
+    ],
+    requires : [ color ],
+    blending : fade
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        float alpha = materialParams.baseColor.a * getColor().a;
+        material.baseColor.rgb = materialParams.baseColor.rgb * alpha;
+        material.baseColor.a = alpha;
+        material.roughness = materialParams.roughness;
+        material.metallic = materialParams.metallic;
+        material.emissive.rgb =
+            materialParams.emissiveColor * materialParams.emissiveStrength * alpha;
+        material.emissive.a = 0.0;
+    }
+}

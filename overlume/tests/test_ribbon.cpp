@@ -10,6 +10,8 @@
 #include "test_paths.hpp"
 #include "theme.hpp"
 
+#include <algorithm>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -24,6 +26,23 @@ std::vector<uint8_t> render_once(overlume::VisualRenderer* r, const overlume::Ca
     return pixels;
 }
 
+}
+
+TEST(RibbonFadeAlpha, FadeStartOneMeansNoFadeEverywhere) {
+    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(0.0, 10.0, 1.0f), 1.0f);
+    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(5.0, 10.0, 1.0f), 1.0f);
+    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(10.0, 10.0, 1.0f), 1.0f);
+}
+
+TEST(RibbonFadeAlpha, HalfwayFadeStartRampsLinearlyToZero) {
+    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(0.0, 10.0, 0.5f), 1.0f);
+    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(5.0, 10.0, 0.5f), 1.0f);
+    EXPECT_NEAR(overlume::testing::ribbon_fade_alpha(7.5, 10.0, 0.5f), 0.5f, 1e-6f);
+    EXPECT_NEAR(overlume::testing::ribbon_fade_alpha(10.0, 10.0, 0.5f), 0.0f, 1e-6f);
+}
+
+TEST(RibbonFadeAlpha, ZeroTotalLengthMeansNoFade) {
+    EXPECT_FLOAT_EQ(overlume::testing::ribbon_fade_alpha(0.0, 0.0, 0.5f), 1.0f);
 }
 
 TEST(RibbonGolden, ThreeRoles_DarkAdas) {
@@ -418,4 +437,237 @@ TEST(Ribbon, ParkedEgoCausesZeroRibbonRebuilds) {
     EXPECT_EQ(overlume::testing::ribbon_rebuild_count(r), afterFirst)
         << "a parked ego re-triggered rebuilds -- the quantized clip station isn't stable";
     overlume::destroy_renderer(r);
+}
+
+TEST(Ribbon, FreshRibbonsFadeMaterialWhenThemeEnablesOpacityAndLengthFade) {
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    overlume::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), "ribbon_fade"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    overlume::testing::RibbonScene ribbons = overlume::testing::make_three_role_ribbons(10.0);
+    overlume::SceneGraph s{};
+    s.sim_time_sec = 10.0;
+    s.ego = ribbons.ego;
+    s.paths = ribbons.ribbons.data();
+    s.path_count = static_cast<uint32_t>(ribbons.ribbons.size());
+    overlume::set_scene(r, s);
+    overlume::CameraPose pose{{-4, -8, 6}, {4, 1, 0}, 60.0};
+    render_once(r, pose);
+
+    for (size_t i = 0; i < ribbons.ribbons.size(); ++i) {
+        const auto info = overlume::testing::ribbon_slot_material_info(r, i);
+        EXPECT_TRUE(info.bound_to_translucent) << "slot " << i;
+        EXPECT_NEAR(info.alpha, 0.6f, 1e-4f) << "slot " << i;
+    }
+    overlume::destroy_renderer(r);
+}
+
+TEST(Ribbon, FreshRibbonsStayOpaqueWhenThemeDisablesOpacityAndLengthFade) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    overlume::testing::RibbonScene ribbons = overlume::testing::make_three_role_ribbons(10.0);
+    overlume::SceneGraph s{};
+    s.sim_time_sec = 10.0;
+    s.ego = ribbons.ego;
+    s.paths = ribbons.ribbons.data();
+    s.path_count = static_cast<uint32_t>(ribbons.ribbons.size());
+    overlume::set_scene(r, s);
+    overlume::CameraPose pose{{-4, -8, 6}, {4, 1, 0}, 60.0};
+    render_once(r, pose);
+
+    for (size_t i = 0; i < ribbons.ribbons.size(); ++i) {
+        const auto info = overlume::testing::ribbon_slot_material_info(r, i);
+        EXPECT_FALSE(info.bound_to_translucent) << "slot " << i;
+        EXPECT_FLOAT_EQ(info.alpha, 1.0f) << "slot " << i;
+    }
+    overlume::destroy_renderer(r);
+}
+
+TEST(Ribbon, FreshRibbonsFadeMaterialWhenThemeEnablesLengthFadeOnly) {
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    overlume::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), "ribbon_fade_b"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    overlume::testing::RibbonScene ribbons = overlume::testing::make_three_role_ribbons(10.0);
+    overlume::SceneGraph s{};
+    s.sim_time_sec = 10.0;
+    s.ego = ribbons.ego;
+    s.paths = ribbons.ribbons.data();
+    s.path_count = static_cast<uint32_t>(ribbons.ribbons.size());
+    overlume::set_scene(r, s);
+    overlume::CameraPose pose{{-4, -8, 6}, {4, 1, 0}, 60.0};
+    render_once(r, pose);
+
+    for (size_t i = 0; i < ribbons.ribbons.size(); ++i) {
+        const auto info = overlume::testing::ribbon_slot_material_info(r, i);
+        EXPECT_TRUE(info.bound_to_translucent)
+            << "slot " << i
+            << " -- opacity==1.0 with fade_start<1.0 must still bind the blended material";
+        EXPECT_FLOAT_EQ(info.alpha, 1.0f) << "slot " << i;
+    }
+    overlume::destroy_renderer(r);
+}
+
+TEST(Ribbon, LengthFadeRampReachesZeroAtEndOfLongMultiChunkRibbon) {
+    constexpr uint32_t kN = 40000;
+    std::vector<overlume::Vec3> pts(kN);
+    for (uint32_t i = 0; i < kN; ++i) pts[i] = {static_cast<double>(i) * 0.1, 0.0, 0.0};
+    ASSERT_GT(kN, overlume::detail::kMaxPointsPerMesh)
+        << "fixture must span more than one chunk to cover the whole-ribbon (not per-chunk) "
+           "length fade";
+
+    overlume::PathRibbon ribbon{};
+    ribbon.role = overlume::PathRole::LOCAL;
+    ribbon.points = pts.data();
+    ribbon.point_count = kN;
+    overlume::SceneGraph s{};
+    s.paths = &ribbon;
+    s.path_count = 1;
+    overlume::CameraPose pose{{0, -8, 6}, {0, 0, 0}, 60.0};
+
+    {
+        overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+        auto* r = overlume::create_renderer(cfg);
+        if (!r) GTEST_SKIP() << "no GPU/EGL";
+        overlume::set_scene(r, s);
+        render_once(r, pose);
+        const auto info = overlume::testing::ribbon_slot_material_info(r, 0);
+        EXPECT_FLOAT_EQ(info.minVertexAlpha, 1.0f)
+            << "no length fade configured -- every vertex must stay fully opaque";
+        overlume::destroy_renderer(r);
+    }
+    {
+        const std::string fixtureDir =
+            std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+        overlume::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), "ribbon_fade"};
+        auto* r = overlume::create_renderer(cfg);
+        if (!r) GTEST_SKIP() << "no GPU/EGL";
+        overlume::set_scene(r, s);
+        render_once(r, pose);
+        const auto info = overlume::testing::ribbon_slot_material_info(r, 0);
+        EXPECT_NEAR(info.minVertexAlpha, 0.0f, 1e-3f)
+            << "the far end of a ribbon longer than kMaxPointsPerMesh never reaches alpha 0 -- "
+               "the length fade ramp is being computed against a per-chunk length instead of "
+               "the whole ribbon, or the ramp isn't reaching build_slot_meshes/apply_ribbon_clip "
+               "at all";
+        overlume::destroy_renderer(r);
+    }
+}
+
+TEST(Ribbon, FadeStartChangeRebuildsGeometry) {
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    overlume::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), "ribbon_fade"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    const overlume::Vec3 pts[] = {{-5, 0, 0}, {-3, 0, 0}, {-1, 0, 0}, {1, 0, 0}, {3, 0, 0}};
+    overlume::PathRibbon ribbon{};
+    ribbon.role = overlume::PathRole::LOCAL;
+    ribbon.points = pts;
+    ribbon.point_count = 5;
+    ribbon.last_update_sec = 0.0;
+    overlume::SceneGraph s{};
+    s.sim_time_sec = 0.0;
+    s.paths = &ribbon;
+    s.path_count = 1;
+    overlume::set_scene(r, s);
+    overlume::CameraPose pose{{0, -8, 6}, {0, 0, 0}, 60.0};
+    render_once(r, pose);
+    const uint64_t before = overlume::testing::ribbon_rebuild_count(r);
+
+    ASSERT_TRUE(overlume::set_theme(r, "ribbon_fade_b", 0.0, 0.2));
+    s.sim_time_sec = 0.2;
+    ribbon.last_update_sec = 0.2;
+    overlume::set_scene(r, s);
+    render_once(r, pose);
+
+    EXPECT_GT(overlume::testing::ribbon_rebuild_count(r), before)
+        << "a fade_start-only theme change (no PathRibbon point data touched) did not rebuild "
+           "slot 0's geometry -- fade_start isn't part of the slot signature";
+    overlume::destroy_renderer(r);
+}
+
+namespace {
+
+std::vector<uint8_t> render_fade_probe(const std::string& fixtureDir, const char* theme,
+                                       overlume::PathRole role, bool withRibbon) {
+    overlume::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), theme};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) return {};
+    const overlume::Vec3 pts[] = {{0, 0, 0}, {10, 0, 0}};
+    overlume::PathRibbon ribbon{};
+    ribbon.role = role;
+    ribbon.points = pts;
+    ribbon.point_count = 2;
+    ribbon.last_update_sec = 10.0;
+    overlume::SceneGraph s{};
+    s.sim_time_sec = 10.0;
+    s.paths = &ribbon;
+    s.path_count = withRibbon ? 1 : 0;
+    overlume::set_scene(r, s);
+    const overlume::CameraPose pose{{5, -6, 14}, {5, 0, 0}, 60.0};
+    std::vector<uint8_t> px = render_once(r, pose);
+    overlume::destroy_renderer(r);
+    return px;
+}
+
+int max_channel_delta(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, size_t i) {
+    int d = 0;
+    for (size_t c = 0; c < 3; ++c) d = std::max(d, std::abs(int(a[i + c]) - int(b[i + c])));
+    return d;
+}
+
+}
+
+TEST(Ribbon, OpacityAndLengthFadeReachTheFramebuffer) {
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    for (overlume::PathRole role : {overlume::PathRole::LOCAL, overlume::PathRole::BEHAVIOR}) {
+        const auto ground = render_fade_probe(fixtureDir, "ribbon_margin_a", role, false);
+        if (ground.empty()) GTEST_SKIP() << "no GPU/EGL";
+        const auto opaque = render_fade_probe(fixtureDir, "ribbon_margin_a", role, true);
+        const auto faded = render_fade_probe(fixtureDir, "ribbon_fade", role, true);
+        ASSERT_EQ(opaque.size(), ground.size());
+        ASSERT_EQ(faded.size(), ground.size());
+
+        std::vector<int> columns(320, 0);
+        size_t ribbonPixels = 0, changed = 0;
+        for (size_t i = 0; i < ground.size(); i += 3) {
+            if (max_channel_delta(opaque, ground, i) <= 40) continue;
+            ++ribbonPixels;
+            ++columns[(i / 3) % 320];
+            if (max_channel_delta(faded, opaque, i) > 12) ++changed;
+        }
+        ASSERT_GT(ribbonPixels, 200u) << "role " << int(role);
+        EXPECT_GT(changed, ribbonPixels / 2)
+            << "role " << int(role) << ": opacity 0.6 must visibly blend the ribbon, but only "
+            << changed << " of " << ribbonPixels << " ribbon pixels differ from the opaque render";
+
+        int x0 = 0, x1 = 319;
+        while (x0 < 320 && columns[x0] == 0) ++x0;
+        while (x1 > 0 && columns[x1] == 0) --x1;
+        ASSERT_LT(x0 + 20, x1) << "role " << int(role);
+        const int span = x1 - x0;
+        auto band_mean = [&](int from, int to) {
+            double sum = 0.0;
+            size_t n = 0;
+            for (size_t i = 0; i < ground.size(); i += 3) {
+                const int x = static_cast<int>((i / 3) % 320);
+                if (x < from || x > to || max_channel_delta(opaque, ground, i) <= 40) continue;
+                sum += max_channel_delta(faded, ground, i);
+                ++n;
+            }
+            return n ? sum / static_cast<double>(n) : 0.0;
+        };
+        const double nearMean = band_mean(x0, x0 + span * 2 / 5);
+        const double farMean = band_mean(x1 - span / 10, x1);
+        EXPECT_LT(farMean, nearMean * 0.35)
+            << "role " << int(role)
+            << ": with fade_start 0.5 the far end of the ribbon must "
+               "approach the ground colour (near-band mean delta "
+            << nearMean << ", far-band mean delta " << farMean << ")";
+    }
 }

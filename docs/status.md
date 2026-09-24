@@ -29,6 +29,7 @@ own per-task ledgers as the detailed record; this page is the roll-up.
 | Restructure Task 7 — graphify snapshot prune, vendored skill refresh, non-strict read hook, hooks documented in AGENTS.md, memory refresh | 2026-09-17 (adf901d) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
 | Restructure Task 8 — final cross-cutting review (50 findings fixed) + clean-worktree build; plan CLOSED | 2026-09-17 (see git log: `chore(restructure): Task 8`) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
 | Streamed environment tiles are culled to a configurable horizontal radius around the ego (`environment_tile_radius_m`, default 700 m; `radius=` on the `ion://` URI; 4/3 unload band) | 2026-09-24 | — |
+| Ribbon style tokens `ribbon.opacity` (colour alpha) and `ribbon.fade_start` (fraction of ribbon length where a linear alpha ramp to zero begins), applied to all three path roles via a new blended `ribbon_faded.mat`; shipped themes carry both at their disabled values (1.0/1.0), so the ribbon golden is unchanged | 2026-09-24 | — |
 
 ## Open items
 
@@ -123,6 +124,7 @@ accepts" list:
    `Doxyfile.in`'s documented-symbol gate (`WARN_IF_UNDOCUMENTED` +
    `WARN_AS_ERROR`) was turned off and `EXTRACT_ALL` on — the published
    API docs are now a bare symbol listing.
+10. **Pre-existing: the clay blended materials do not premultiply.** `clay_translucent.mat`, `clay_faded.mat` and `trajectory_carpet_faded.mat` hand Filament an un-premultiplied `baseColor` under `blending: fade`, whose contract is premultiplied input. The visible result is `full colour + (1 - α) × background` — brighter than opaque, barely translucent — for `objects.opacity`, alert polygons, the ground grid fade and every staleness fade that still uses them. Found 2026-09-24 while landing the ribbon fade (`ribbon_faded.mat` premultiplies and has a framebuffer-level test, `Ribbon.OpacityAndLengthFadeReachTheFramebuffer`). Fixing the other three changes at least `objects_mixed_dark_adas.png` and `alerts_warning_dark_adas.png`, so it waits for a human golden promotion.
 
 ## How to update this file
 

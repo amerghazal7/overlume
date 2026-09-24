@@ -68,6 +68,7 @@
 #include "clay_faded_filamat.h"
 #include "clay_translucent_filamat.h"
 #include "ribbon_emissive_filamat.h"
+#include "ribbon_faded_filamat.h"
 #include "ground_grid_filamat.h"
 #include "point_cloud_filamat.h"
 #include "trajectory_carpet_filamat.h"
@@ -454,6 +455,10 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
                                         float4{tint.r, tint.g, tint.b, slot.fadeAlpha});
         slot.fadeInstance->setParameter("roughness", theme.material.roughness);
         slot.fadeInstance->setParameter("metallic", theme.material.metallic);
+        slot.fadeInstance->setParameter("emissiveColor", to_filament(theme.palette.ribbon_glow));
+        slot.fadeInstance->setParameter("emissiveStrength", slot.role == PathRole::BEHAVIOR
+                                                                ? theme.emissive.ribbon_strength
+                                                                : 0.0f);
     }
 
     for (auto* inst : r.groundGridMaterialInstance) {
@@ -601,6 +606,9 @@ filament::VertexBuffer* make_vertex_buffer(filament::Engine& engine, std::vector
                                      .attribute(filament::VertexAttribute::TANGENTS, 0,
                                                 filament::VertexBuffer::AttributeType::FLOAT4,
                                                 offsetof(Vertex, tangentFrame), sizeof(Vertex))
+                                     .attribute(filament::VertexAttribute::COLOR, 0,
+                                                filament::VertexBuffer::AttributeType::FLOAT4,
+                                                offsetof(Vertex, color), sizeof(Vertex))
                                      .build(engine);
     vb->setBufferAt(
         engine, 0,
@@ -792,6 +800,10 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
                                     .package(overlume::materials::kribbon_emissiveFilamat,
                                              overlume::materials::kribbon_emissiveFilamatSize)
                                     .build(*engine);
+    r->ribbonFadedMaterial = filament::Material::Builder()
+                                 .package(overlume::materials::kribbon_fadedFilamat,
+                                          overlume::materials::kribbon_fadedFilamatSize)
+                                 .build(*engine);
     r->ribbonMaterial[static_cast<uint8_t>(PathRole::BEHAVIOR)] =
         r->ribbonEmissiveMaterial->createInstance();
     r->ribbonMaterial[static_cast<uint8_t>(PathRole::GLOBAL)] = r->clayMaterial->createInstance();
@@ -991,6 +1003,7 @@ void destroy_renderer(VisualRenderer* r) {
         if (m) r->engine->destroy(m);
     }
     if (r->ribbonEmissiveMaterial) r->engine->destroy(r->ribbonEmissiveMaterial);
+    if (r->ribbonFadedMaterial) r->engine->destroy(r->ribbonFadedMaterial);
     for (auto& slot : r->groundGridSlots) {
         destroy_mesh(*r->engine, *r->scene, slot.quad);
         if (slot.texture) r->engine->destroy(slot.texture);
