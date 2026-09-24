@@ -73,6 +73,7 @@ uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float half
 }
 
 constexpr float kRibbonZLiftByRoleM[3] = {0.058f, 0.038f, 0.046f};
+constexpr uint8_t kRibbonPriorityByRole[3] = {3, 0, 1};
 
 float role_margin_m(const detail::Theme::Ribbon& cfg, PathRole role) {
     switch (role) {
@@ -162,6 +163,9 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::RibbonSlot& slot, Path
         Mesh mesh;
         add_mesh(r, mesh, std::move(verts), std::move(idx),
                  filament::RenderableManager::PrimitiveType::TRIANGLES, mat, false, true);
+        filament::RenderableManager& rm = r.engine->getRenderableManager();
+        rm.setPriority(rm.getInstance(mesh.entity),
+                       kRibbonPriorityByRole[static_cast<uint8_t>(role)]);
         slot.meshes.push_back(std::move(mesh));
         slot.baseStripPositions.push_back(std::move(strip));
         slot.pointStations.push_back(std::move(stations));

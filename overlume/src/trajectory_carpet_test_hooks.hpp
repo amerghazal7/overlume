@@ -23,6 +23,9 @@ float trajectory_carpet_vertex_z(overlume::VisualRenderer* r, size_t slot, size_
 
 float trajectory_carpet_half_width_m(overlume::VisualRenderer* r, size_t slot);
 
+float trajectory_carpet_vertex_fade_alpha(overlume::VisualRenderer* r, size_t slot,
+                                          size_t vertex_idx);
+
 uint64_t trajectory_carpet_rebuild_count(overlume::VisualRenderer* r);
 
 bool trajectory_carpet_slot_first_point(overlume::VisualRenderer* r, size_t slot,

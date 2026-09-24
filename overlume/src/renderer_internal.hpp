@@ -302,6 +302,7 @@ public:
         int64_t appliedClipUnits = 0;
         bool boundFaded = false;
         Vec3 firstPointM{};
+        double totalLengthM = 0.0;
     };
     std::vector<TrajectoryCarpetSlot> trajectoryCarpetSlots;
     uint64_t trajectoryCarpetRebuildCount = 0;

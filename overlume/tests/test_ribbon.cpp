@@ -464,7 +464,8 @@ TEST(Ribbon, FreshRibbonsFadeMaterialWhenThemeEnablesOpacityAndLengthFade) {
 }
 
 TEST(Ribbon, FreshRibbonsStayOpaqueWhenThemeDisablesOpacityAndLengthFade) {
-    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    overlume::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), "ribbon_margin_a"};
     auto* r = overlume::create_renderer(cfg);
     if (!r) GTEST_SKIP() << "no GPU/EGL";
 
@@ -513,6 +514,7 @@ TEST(Ribbon, FreshRibbonsFadeMaterialWhenThemeEnablesLengthFadeOnly) {
 }
 
 TEST(Ribbon, LengthFadeRampReachesZeroAtEndOfLongMultiChunkRibbon) {
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
     constexpr uint32_t kN = 40000;
     std::vector<overlume::Vec3> pts(kN);
     for (uint32_t i = 0; i < kN; ++i) pts[i] = {static_cast<double>(i) * 0.1, 0.0, 0.0};
@@ -530,7 +532,7 @@ TEST(Ribbon, LengthFadeRampReachesZeroAtEndOfLongMultiChunkRibbon) {
     overlume::CameraPose pose{{0, -8, 6}, {0, 0, 0}, 60.0};
 
     {
-        overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+        overlume::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), "ribbon_margin_a"};
         auto* r = overlume::create_renderer(cfg);
         if (!r) GTEST_SKIP() << "no GPU/EGL";
         overlume::set_scene(r, s);

@@ -4,6 +4,7 @@
 #include "trajectory_carpet.hpp"
 #include "trajectory_carpet_test_hooks.hpp"
 #include "polyline.hpp"
+#include "ribbon.hpp"
 #include "renderer_internal.hpp"
 #include "theme.hpp"
 #include "overlume/scene.h"
@@ -32,6 +33,7 @@ using filament::math::float3;
 constexpr float kTrajectoryCarpetBoundsM = 200.0f;
 
 constexpr float kVelocityRibbonZLiftM = 0.052f;
+constexpr uint8_t kVelocityRibbonPriority = 2;
 
 struct CarpetVertex {
     float3 position;
@@ -73,8 +75,12 @@ uint64_t hash_vec3(const Vec3& v) {
     return h;
 }
 
-uint64_t trajectory_carpet_signature(const Vec3* pts, uint32_t n, float half_width_m) {
+uint64_t trajectory_carpet_signature(const Vec3* pts, uint32_t n, float half_width_m,
+                                     float fade_start) {
     uint64_t h = hash_combine(0, static_cast<uint64_t>(n));
+    uint32_t fadeBits;
+    std::memcpy(&fadeBits, &fade_start, sizeof(fadeBits));
+    h = hash_combine(h, static_cast<uint64_t>(fadeBits));
     if (n > 0) {
         h = hash_combine(h, hash_vec3(pts[0]));
         h = hash_combine(h, hash_vec3(pts[n - 1]));
@@ -88,6 +94,12 @@ uint64_t trajectory_carpet_signature(const Vec3* pts, uint32_t n, float half_wid
 float velocity_ribbon_half_width_m(const detail::Theme::Ribbon& cfg) {
     const float halfWidth = (cfg.lane_width_m - 2.0f * cfg.margin_velocity_m) * 0.5f;
     return std::max(halfWidth, kRibbonMinHalfWidthM);
+}
+
+uint32_t with_fade_alpha(uint32_t rgba, double station_m, double total_length_m, float fade_start) {
+    const float a = detail::ribbon_fade_alpha(station_m, total_length_m, fade_start);
+    const auto byte = static_cast<uint32_t>(std::clamp(a, 0.0f, 1.0f) * 255.0f + 0.5f);
+    return (rgba & 0x00FFFFFFu) | (byte << 24);
 }
 
 uint32_t resolve_rgba(const VisualRenderer& r, uint32_t packed) {
@@ -126,6 +138,7 @@ void destroy_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot
     slot.baseStripPositions.clear();
     slot.baseStripRgba.clear();
     slot.pointStations.clear();
+    slot.totalLengthM = 0.0;
     slot.has_applied_clip = false;
 }
 
@@ -157,6 +170,8 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& 
 
     const std::vector<double> stations =
         detail::clean_polyline_stations(positions.data(), positions.size());
+    slot.totalLengthM = stations.empty() ? 0.0 : stations.back();
+    const float fadeStart = r.active_theme.ribbon.fade_start;
 
     bool first_chunk = true;
     for (auto [a, b] : detail::polyline_chunks(static_cast<uint32_t>(cleaned.size()))) {
@@ -177,7 +192,8 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& 
             verts[i].position =
                 float3{static_cast<float>(strip[i].x), static_cast<float>(strip[i].y),
                        static_cast<float>(strip[i].z)};
-            verts[i].rgba = rgba[i];
+            verts[i].rgba =
+                with_fade_alpha(rgba[i], stations[a + i / 2], slot.totalLengthM, fadeStart);
         }
         if (first_chunk) {
             slot.firstMeshRgba = rgba;
@@ -197,6 +213,7 @@ void build_slot_meshes(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& 
                  {kTrajectoryCarpetBoundsM, kTrajectoryCarpetBoundsM, kTrajectoryCarpetBoundsM}})
             .geometry(0, filament::RenderableManager::PrimitiveType::TRIANGLES, mesh.vb, mesh.ib)
             .material(0, r.trajectoryCarpetMaterialInstance)
+            .priority(kVelocityRibbonPriority)
             .culling(false)
             .castShadows(false)
             .receiveShadows(false)
@@ -224,7 +241,8 @@ void apply_carpet_clip(VisualRenderer& r, VisualRenderer::TrajectoryCarpetSlot& 
             verts[v].position =
                 float3{static_cast<float>(positions[v].x), static_cast<float>(positions[v].y),
                        static_cast<float>(positions[v].z)};
-            verts[v].rgba = slot.baseStripRgba[i][v];
+            verts[v].rgba = with_fade_alpha(slot.baseStripRgba[i][v], slot.pointStations[i][v / 2],
+                                            slot.totalLengthM, r.active_theme.ribbon.fade_start);
         }
         update_carpet_vertex_positions(*r.engine, slot.meshes[i], std::move(verts));
     }
@@ -258,8 +276,8 @@ void update_trajectory_carpets(VisualRenderer& r, const SceneGraph& s) {
                 ? detail::compute_polyline_clip(rawPositions.data(), tc.point_count, s.ego.position)
                 : detail::PolylineClip{};
 
-        const uint64_t sig =
-            trajectory_carpet_signature(rawPositions.data(), tc.point_count, halfWidthM);
+        const uint64_t sig = trajectory_carpet_signature(
+            rawPositions.data(), tc.point_count, halfWidthM, r.active_theme.ribbon.fade_start);
         if (!slot.has_signature || slot.signature != sig) {
             ++r.trajectoryCarpetRebuildCount;
             build_slot_meshes(r, slot, tc.points, tc.point_count, halfWidthM);
@@ -273,7 +291,8 @@ void update_trajectory_carpets(VisualRenderer& r, const SceneGraph& s) {
                                     s.sim_time_sec, tc.last_update_sec, kStaleFadeStartSec,
                                     kStaleFadeTimeoutSec)));
     }
-    const bool wantFaded = alpha < 1.0f;
+    alpha *= r.active_theme.ribbon.opacity;
+    const bool wantFaded = alpha < 1.0f || r.active_theme.ribbon.fade_start < 1.0f;
     if (wantFaded) {
         r.trajectoryCarpetFadedMaterialInstance->setParameter("alpha", alpha);
     }
@@ -328,6 +347,15 @@ float trajectory_carpet_vertex_z(overlume::VisualRenderer* r, size_t slot, size_
 float trajectory_carpet_half_width_m(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->trajectoryCarpetSlots.size()) return 0.0f;
     return r->trajectoryCarpetSlots[slot].halfWidthM;
+}
+
+float trajectory_carpet_vertex_fade_alpha(overlume::VisualRenderer* r, size_t slot,
+                                          size_t vertex_idx) {
+    if (r == nullptr || slot >= r->trajectoryCarpetSlots.size()) return 0.0f;
+    const auto& s = r->trajectoryCarpetSlots[slot];
+    if (s.pointStations.empty() || vertex_idx / 2 >= s.pointStations[0].size()) return 0.0f;
+    return overlume::detail::ribbon_fade_alpha(s.pointStations[0][vertex_idx / 2], s.totalLengthM,
+                                               r->active_theme.ribbon.fade_start);
 }
 
 uint64_t trajectory_carpet_rebuild_count(overlume::VisualRenderer* r) {

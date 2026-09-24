@@ -36,5 +36,5 @@ ibl:
   ground_color: [0.030, 0.030, 0.045]
   intensity: 350000.0
 fog: { density: 0.010 }
-ribbon: { lane_width_m: 3.5, margin_behavior_m: 1.3, margin_global_m: 0.3, margin_local_m: 0.8, opacity: 1.0, fade_start: 1.0 }
+ribbon: { lane_width_m: 3.5, margin_behavior_m: 1.3, margin_global_m: 0.3, margin_local_m: 0.8, opacity: 0.85, fade_start: 0.25 }
 objects: { opacity: 0.25 }
