@@ -17,8 +17,9 @@ PROFILE_DIR=""
 EXTRA_PARAMS=()
 LIVE=0
 BAG_SET=0
-SHM=0
+DDS_TUNING=1
 STATIC_TFS=()
+RATE=1.0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -30,8 +31,9 @@ while [[ $# -gt 0 ]]; do
         --profile-dir) PROFILE_DIR="$2"; shift 2 ;;
         --param) EXTRA_PARAMS+=("-p" "$2"); shift 2 ;;
         --live) LIVE=1; shift ;;
-        --shm) SHM=1; shift ;;
+        --no-dds-tuning) DDS_TUNING=0; shift ;;
         --static-tf) STATIC_TFS+=("$2"); shift 2 ;;
+        --rate) RATE="$2"; shift 2 ;;
         -h|--help)
             grep '^# ' "${BASH_SOURCE[0]}" | head -6 | sed 's/^# //'
             exit 0 ;;
@@ -52,18 +54,16 @@ for spec in "${STATIC_TFS[@]+"${STATIC_TFS[@]}"}"; do
     fi
 done
 
-if [[ "${SHM}" == "1" ]]; then
-    SHM_XML="${HOME}/.config/cyclonedds/cyclonedds.xml"
-    if [[ ! -f "${SHM_XML}" ]]; then
-        echo "--shm: ${SHM_XML} not found" >&2
-        exit 1
+if [[ "${DDS_TUNING}" == "1" && -z "${CYCLONEDDS_URI:-}" ]]; then
+    DDS_XML="${REPO_ROOT}/tools/cyclonedds_udp_large_msgs.xml"
+    RMEM_MAX="$(sysctl -n net.core.rmem_max 2>/dev/null || echo 0)"
+    if [[ "${RMEM_MAX}" -ge 125829120 ]]; then
+        export CYCLONEDDS_URI="file://${DDS_XML}"
+        echo "[dds] CYCLONEDDS_URI=${CYCLONEDDS_URI} (120 MB socket buffers for multi-MB camera frames)"
+    else
+        echo "[dds] net.core.rmem_max=${RMEM_MAX} < 120 MB -- running with CycloneDDS defaults; raw cameras may lag" >&2
+        echo "      raise it with: sudo sysctl -w net.core.rmem_max=2147483647 net.core.wmem_max=2147483647" >&2
     fi
-    if ! pgrep -x iox-roudi > /dev/null; then
-        echo "--shm: iox-roudi is not running; start it before using shared memory" >&2
-        exit 1
-    fi
-    export CYCLONEDDS_URI="file://${SHM_XML}"
-    echo "[shm] CYCLONEDDS_URI=${CYCLONEDDS_URI} for every process this rig starts"
 fi
 
 LOG_DIR=/tmp/overlume_validate
@@ -285,8 +285,8 @@ else
         > "${LOG_DIR}/tf_flatten.log" 2>&1 &
     track_child "$!"
 
-    echo "[launch] ros2 bag play --loop (log: ${LOG_DIR}/bag_play.log)"
-    ros2 bag play "${BAG}" --loop --clock \
+    echo "[launch] ros2 bag play --loop --rate ${RATE} (log: ${LOG_DIR}/bag_play.log)"
+    ros2 bag play "${BAG}" --loop --clock --rate "${RATE}" \
         --qos-profile-overrides-path "${QOS}" --remap /tf:=/tf_raw \
         < /dev/null > "${LOG_DIR}/bag_play.log" 2>&1 &
     track_child "$!"
