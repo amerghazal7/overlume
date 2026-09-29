@@ -24,7 +24,7 @@ bool AnyDiffer(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) { r
 
 }
 
-TEST(ThemePalette, EgoParsesFromYamlAndContrastsInTheDarkTheme) {
+TEST(ThemePalette, EgoContrastsWithTheGroundInBothThemes) {
     const std::optional<overlume::detail::Theme> dark =
         overlume::detail::load_theme(kThemeDir, "dark_adas");
     const std::optional<overlume::detail::Theme> light =
@@ -32,9 +32,12 @@ TEST(ThemePalette, EgoParsesFromYamlAndContrastsInTheDarkTheme) {
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
 
-    EXPECT_NEAR(light->palette.ego.r, 0.82f, 1e-4f) << "light_clay's ego comes from its yaml";
-    EXPECT_NEAR(light->palette.ego.g, 0.80f, 1e-4f);
-    EXPECT_NEAR(light->palette.ego.b, 0.76f, 1e-4f);
+    const auto lightEgo = overlume::detail::linear_srgb_to_oklab(light->palette.ego);
+    const auto lightGround = overlume::detail::linear_srgb_to_oklab(light->palette.ground);
+    EXPECT_GT(lightGround.L - lightEgo.L, 0.2f)
+        << "light_clay's ego must read as a darker grey against its light ground";
+    EXPECT_LT(std::sqrt(lightEgo.a * lightEgo.a + lightEgo.b * lightEgo.b), 0.02f)
+        << "light_clay's ego is a neutral grey";
 
     const float darkEgoLightness = overlume::detail::linear_srgb_to_oklab(dark->palette.ego).L;
     const float darkGroundLightness =
