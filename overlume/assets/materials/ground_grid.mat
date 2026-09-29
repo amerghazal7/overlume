@@ -12,6 +12,7 @@ material {
         { type : float, name : alpha }
     ],
     requires : [ uv0 ],
+    flipUV : false,
     blending : fade
 }
 fragment {
