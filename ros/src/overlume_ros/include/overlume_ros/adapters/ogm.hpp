@@ -41,6 +41,7 @@ private:
 
     bool has_grid_{false};
     overlume::Vec3 origin_{};
+    double yaw_rad_ = 0.0;
     double resolution_m_{0.0};
     uint32_t width_cells_{0};
     uint32_t height_cells_{0};

@@ -217,6 +217,8 @@ public:
         Mesh quad;
         bool has_geometry = false;
         Vec3 origin{};
+        double yaw_rad = 0.0;
+        Vec3 corners[4]{};
         double resolution_m = 0.0;
         uint32_t width_cells = 0, height_cells = 0;
         filament::Texture* texture = nullptr;

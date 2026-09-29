@@ -77,6 +77,11 @@ void OgmAdapter::ingest(const nav_msgs::msg::OccupancyGrid& msg, double sim_time
 
     cells_ = std::move(next);
     origin_ = {originTf.x(), originTf.y(), tf_.flatten_z() ? 0.0 : originTf.z()};
+    const auto& q = msg.info.origin.orientation;
+    const tf2::Quaternion gridInMap =
+        xform.getRotation() * tf2::Quaternion(q.x, q.y, q.z, q.w).normalized();
+    const tf2::Vector3 xAxis = tf2::Transform(gridInMap) * tf2::Vector3(1.0, 0.0, 0.0);
+    yaw_rad_ = std::atan2(xAxis.y(), xAxis.x());
     resolution_m_ = msg.info.resolution;
     width_cells_ = msg.info.width;
     height_cells_ = msg.info.height;
@@ -136,6 +141,7 @@ void OgmAdapter::fill(overlume::ros::SceneAssembly& out) const {
     overlume::GroundGridLayer g{};
     g.kind = kind_;
     g.origin = origin_;
+    g.yaw_rad = yaw_rad_;
     g.resolution_m = resolution_m_;
     g.width_cells = width_cells_;
     g.height_cells = height_cells_;

@@ -9,6 +9,9 @@
 #include "test_paths.hpp"
 #include "theme.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -229,5 +232,94 @@ TEST(GroundGrid, MaterialIsThemedOnFirstDataWithNoTransition) {
 
     EXPECT_FLOAT_EQ(overlume::testing::ground_grid_material_alpha(r, 0), 1.0f);
     EXPECT_FLOAT_EQ(overlume::testing::ground_grid_material_alpha(r, 1), 1.0f);
+    overlume::destroy_renderer(r);
+}
+
+namespace {
+
+overlume::GroundGridLayer MakeLayer(uint8_t kind, const std::vector<uint8_t>& cells,
+                                    overlume::Vec3 origin, double yaw_rad = 0.0) {
+    overlume::GroundGridLayer g{};
+    g.kind = kind;
+    g.origin = origin;
+    g.resolution_m = 0.2;
+    g.width_cells = 250;
+    g.height_cells = 250;
+    g.cells = cells.data();
+    g.last_update_sec = 10.0;
+    g.yaw_rad = yaw_rad;
+    return g;
+}
+
+std::vector<uint8_t> RenderGrids(const std::vector<overlume::GroundGridLayer>& gs,
+                                 const overlume::Vec3& ego) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    std::vector<uint8_t> px(320u * 240u * 3u);
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) return {};
+    overlume::SceneGraph s{};
+    s.sim_time_sec = 10.0;
+    s.ego = {ego, 0.0, 0.0, 1};
+    s.grids = gs.data();
+    s.grid_count = static_cast<uint32_t>(gs.size());
+    overlume::set_scene(r, s);
+    const overlume::CameraPose pose{{ego.x - 10, ego.y - 10, 20}, {ego.x, ego.y, 0}, 60.0};
+    overlume::render_frame(r, pose, {px.data(), 320, 240});
+    overlume::render_frame(r, pose, {px.data(), 320, 240});
+    overlume::destroy_renderer(r);
+    return px;
+}
+
+size_t ChangedPixels(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
+    size_t n = 0;
+    for (size_t i = 0; i < a.size(); i += 3) {
+        int d = 0;
+        for (int c = 0; c < 3; ++c) d = std::max(d, std::abs(int(a[i + c]) - int(b[i + c])));
+        if (d > 20) ++n;
+    }
+    return n;
+}
+
+}
+
+TEST(GroundGrid, AllFreeUpperLayerDoesNotHideTheLayerBelow) {
+    const overlume::Vec3 ego{343.3, -185.9, 0.0};
+    std::vector<uint8_t> occupied(250u * 250u, 0), allFree(250u * 250u, 0);
+    for (int y = 125; y < 175; ++y)
+        for (int x = 125; x < 175; ++x) occupied[y * 250 + x] = 100;
+    const overlume::Vec3 origin{ego.x - 25.0, ego.y - 25.0, 0.0};
+    const auto none = RenderGrids({}, ego);
+    if (none.empty()) GTEST_SKIP() << "no GPU/EGL";
+    const size_t alone = ChangedPixels(none, RenderGrids({MakeLayer(1, occupied, origin)}, ego));
+    const size_t stacked = ChangedPixels(
+        none, RenderGrids({MakeLayer(0, allFree, origin), MakeLayer(1, occupied, origin)}, ego));
+    ASSERT_GT(alone, 1000u);
+    EXPECT_GT(stacked, alone * 9 / 10)
+        << "free cells of the upper (dynamic) layer painted over the lower layer's obstacles: "
+        << stacked << " px visible vs " << alone << " alone";
+    EXPECT_LT(ChangedPixels(none, RenderGrids({MakeLayer(0, allFree, origin)}, ego)), 50u)
+        << "an all-free grid must leave the frame unchanged";
+}
+
+TEST(GroundGrid, YawRotatesTheQuadAboutTheGridOrigin) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    std::vector<uint8_t> cells(250u * 250u, 0);
+    const overlume::GroundGridLayer g = MakeLayer(0, cells, {100.0, 50.0, 0.0}, M_PI / 2.0);
+    overlume::SceneGraph s{};
+    s.sim_time_sec = 10.0;
+    s.grids = &g;
+    s.grid_count = 1;
+    overlume::set_scene(r, s);
+    std::vector<uint8_t> px(320u * 240u * 3u);
+    overlume::render_frame(r, {{0, -10, 10}, {0, 0, 0}, 60.0}, {px.data(), 320, 240});
+    overlume::Vec3 c1{}, c3{};
+    ASSERT_TRUE(overlume::testing::ground_grid_corner(r, 0, 1, &c1));
+    ASSERT_TRUE(overlume::testing::ground_grid_corner(r, 0, 3, &c3));
+    EXPECT_NEAR(c1.x, 100.0, 1e-3) << "the grid's +x edge (50 m) must point along map +y";
+    EXPECT_NEAR(c1.y, 100.0, 1e-3);
+    EXPECT_NEAR(c3.x, 50.0, 1e-3) << "the grid's +y edge must point along map -x";
+    EXPECT_NEAR(c3.y, 50.0, 1e-3);
     overlume::destroy_renderer(r);
 }
