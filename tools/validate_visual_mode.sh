@@ -17,6 +17,8 @@ PROFILE_DIR=""
 EXTRA_PARAMS=()
 LIVE=0
 BAG_SET=0
+SHM=0
+STATIC_TFS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -28,6 +30,8 @@ while [[ $# -gt 0 ]]; do
         --profile-dir) PROFILE_DIR="$2"; shift 2 ;;
         --param) EXTRA_PARAMS+=("-p" "$2"); shift 2 ;;
         --live) LIVE=1; shift ;;
+        --shm) SHM=1; shift ;;
+        --static-tf) STATIC_TFS+=("$2"); shift 2 ;;
         -h|--help)
             grep '^# ' "${BASH_SOURCE[0]}" | head -6 | sed 's/^# //'
             exit 0 ;;
@@ -38,6 +42,28 @@ done
 if [[ "${LIVE}" == "1" && "${BAG_SET}" == "1" ]]; then
     echo "--live and --bag are mutually exclusive (live mode plays no bag)" >&2
     exit 1
+fi
+
+for spec in "${STATIC_TFS[@]+"${STATIC_TFS[@]}"}"; do
+    read -r -a _tf <<< "${spec}"
+    if [[ "${#_tf[@]}" -ne 9 ]]; then
+        echo "--static-tf expects \"parent child x y z qx qy qz qw\", got: ${spec}" >&2
+        exit 1
+    fi
+done
+
+if [[ "${SHM}" == "1" ]]; then
+    SHM_XML="${HOME}/.config/cyclonedds/cyclonedds.xml"
+    if [[ ! -f "${SHM_XML}" ]]; then
+        echo "--shm: ${SHM_XML} not found" >&2
+        exit 1
+    fi
+    if ! pgrep -x iox-roudi > /dev/null; then
+        echo "--shm: iox-roudi is not running; start it before using shared memory" >&2
+        exit 1
+    fi
+    export CYCLONEDDS_URI="file://${SHM_XML}"
+    echo "[shm] CYCLONEDDS_URI=${CYCLONEDDS_URI} for every process this rig starts"
 fi
 
 LOG_DIR=/tmp/overlume_validate
@@ -207,6 +233,16 @@ if [[ "${LIVE}" == "1" ]]; then
         > "${LOG_DIR}/tf_static_relay.log" 2>&1 &
     track_child "$!"
 fi
+
+for spec in "${STATIC_TFS[@]+"${STATIC_TFS[@]}"}"; do
+    read -r -a _tf <<< "${spec}"
+    echo "[launch] static TF ${_tf[0]} -> ${_tf[1]}"
+    ros2 run tf2_ros static_transform_publisher --frame-id "${_tf[0]}" --child-frame-id "${_tf[1]}" \
+        --x "${_tf[2]}" --y "${_tf[3]}" --z "${_tf[4]}" \
+        --qx "${_tf[5]}" --qy "${_tf[6]}" --qz "${_tf[7]}" --qw "${_tf[8]}" \
+        > "${LOG_DIR}/static_tf_${_tf[1]}.log" 2>&1 &
+    track_child "$!"
+done
 
 ros2 run overlume_ros overlume_node --ros-args \
     --params-file "$(ros2 pkg prefix overlume_ros)/share/overlume_ros/config/default_params.yaml" \

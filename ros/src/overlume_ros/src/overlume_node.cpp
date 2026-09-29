@@ -528,9 +528,8 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     for (const auto& row : profile->rows) {
         if (row.adapter != "ogm") continue;
         const auto specs = overlume::ros::subscriptions_for(row);
-        if (specs.size() != 2) continue;
+        if (specs.empty()) continue;
         const auto& gridSpec = specs[0];
-        const auto& updateSpec = specs[1];
 
         auto adapter = std::make_unique<overlume::ros::OgmAdapter>(row, *frame_transformer_);
         overlume::ros::OgmAdapter* adapter_ptr = adapter.get();
@@ -544,14 +543,17 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
                 adapter_ptr->ingest(*msg, sim_clock_sec_);
             }));
 
-        rclcpp::QoS updateQos(10);
-        if (updateSpec.best_effort) updateQos.best_effort();
-        if (updateSpec.transient_local) updateQos.transient_local();
-        ogm_update_subs_.push_back(create_subscription<map_msgs::msg::OccupancyGridUpdate>(
-            updateSpec.topic, updateQos,
-            [this, adapter_ptr](const map_msgs::msg::OccupancyGridUpdate::SharedPtr msg) {
-                adapter_ptr->ingest_update(*msg, sim_clock_sec_);
-            }));
+        if (specs.size() > 1) {
+            const auto& updateSpec = specs[1];
+            rclcpp::QoS updateQos(10);
+            if (updateSpec.best_effort) updateQos.best_effort();
+            if (updateSpec.transient_local) updateQos.transient_local();
+            ogm_update_subs_.push_back(create_subscription<map_msgs::msg::OccupancyGridUpdate>(
+                updateSpec.topic, updateQos,
+                [this, adapter_ptr](const map_msgs::msg::OccupancyGridUpdate::SharedPtr msg) {
+                    adapter_ptr->ingest_update(*msg, sim_clock_sec_);
+                }));
+        }
 
         ogm_rows_.push_back(OgmRow{std::move(adapter), row.timeout_sec, row.topic});
     }

@@ -650,3 +650,58 @@ TEST(FixtureMsgs, DynamicObjectsListFixtureRoundTrips) {
     EXPECT_EQ(arr.markers[1].id, 1001);
     EXPECT_EQ(arr.markers[0].header.frame_id, "map");
 }
+
+TEST(Profile, FrameIdAndCostmapEncodingParseOnTheirAdapters) {
+    std::vector<std::string> errs;
+    auto p = load_profile_string(
+        "name: t\nrows:\n"
+        "  - {topic: /iv_points_fusion, type: sensor_msgs/msg/PointCloud2,"
+        " adapter: point_cloud, role: points, frame_id: seyond}\n"
+        "  - {topic: /perception/dynamic_costmap, type: nav_msgs/msg/OccupancyGrid,"
+        " adapter: ogm, role: dynamic_ogm, encoding: costmap}\n",
+        errs);
+    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
+    EXPECT_TRUE(errs.empty());
+    EXPECT_EQ(p->rows[0].frame_id, "seyond");
+    EXPECT_EQ(p->rows[1].encoding, "costmap");
+    EXPECT_EQ(p->rows[0].encoding, "occupancy");
+}
+
+TEST(Profile, EncodingIsRejectedOffOgmRowsAndForUnknownValues) {
+    std::vector<std::string> errs;
+    EXPECT_FALSE(
+        load_profile_string("name: t\nrows:\n  - {topic: /p, type: sensor_msgs/msg/PointCloud2,"
+                            " adapter: point_cloud, role: points, encoding: costmap}\n",
+                            errs)
+            .has_value());
+    errs.clear();
+    EXPECT_FALSE(
+        load_profile_string("name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
+                            " adapter: ogm, role: dynamic_ogm, encoding: rgb}\n",
+                            errs)
+            .has_value());
+    ASSERT_FALSE(errs.empty());
+    EXPECT_NE(errs[0].find("encoding"), std::string::npos);
+}
+
+TEST(Profile, ShippedRobotOffroadProfileTargetsTheRealRobotTopics) {
+    std::vector<std::string> errs;
+    auto p = overlume::ros::load_profile(
+        std::string(TEST_CONFIG_DIR) + "/robot-offroad_profile.yaml", errs);
+    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
+    EXPECT_TRUE(errs.empty()) << errs[0];
+    EXPECT_EQ(p->name, "robot-offroad");
+    for (const char* topic : {"/perception/dynamic_costmap", "/perception/geometric_costmap"}) {
+        const auto* row = find_row(*p, topic);
+        ASSERT_NE(row, nullptr) << topic;
+        EXPECT_EQ(row->adapter, "ogm") << topic;
+        EXPECT_EQ(row->encoding, "costmap") << topic << ": the robot publishes Nav2 uint8 costs";
+        EXPECT_TRUE(row->best_effort) << topic << ": the robot publishes costmaps BEST_EFFORT";
+        EXPECT_TRUE(row->update_topic.empty()) << topic;
+    }
+    const auto* lidar = find_row(*p, "/iv_points_fusion");
+    ASSERT_NE(lidar, nullptr);
+    EXPECT_EQ(lidar->frame_id, "seyond")
+        << "the driver stamps base_link but publishes in the 180-degree-yawed lidar frame";
+    EXPECT_EQ(find_row(*p, "/perception/dynamic_ogm"), nullptr);
+}
