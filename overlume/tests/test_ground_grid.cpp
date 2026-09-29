@@ -366,3 +366,45 @@ TEST(GroundGrid, RampRangeDecidesVisibilityAndDynamicDiffersFromGeometric) {
     EXPECT_GT(ChangedPixels(dyn, geo), 1000u)
         << "the same value must render in each layer's own ramp colour";
 }
+
+TEST(GroundGrid, CellRowsMapToIncreasingYNotMirrored) {
+    std::vector<uint8_t> cells(250u * 250u, 0);
+    for (int y = 150; y < 175; ++y)
+        for (int x = 125; x < 175; ++x) cells[y * 250 + x] = 100;
+    const overlume::GroundGridLayer g = MakeLayer(1, cells, {-25.0, -25.0, 0.0});
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto render = [&](bool withGrid) {
+        std::vector<uint8_t> px(320u * 240u * 3u);
+        auto* r = overlume::create_renderer(cfg);
+        if (!r) return std::vector<uint8_t>{};
+        overlume::SceneGraph s{};
+        s.sim_time_sec = 10.0;
+        s.ego = {{0, 0, 0}, 0.0, 0.0, 1};
+        s.grids = &g;
+        s.grid_count = withGrid ? 1 : 0;
+        overlume::set_scene(r, s);
+        const overlume::CameraPose pose{{-20, 0, 15}, {5, 0, 0}, 60.0};
+        overlume::render_frame(r, pose, {px.data(), 320, 240});
+        overlume::render_frame(r, pose, {px.data(), 320, 240});
+        overlume::destroy_renderer(r);
+        return px;
+    };
+    const auto none = render(false);
+    if (none.empty()) GTEST_SKIP() << "no GPU/EGL";
+    const auto with = render(true);
+    double sumX = 0.0;
+    size_t n = 0;
+    for (size_t i = 0; i < none.size(); i += 3) {
+        int d = 0;
+        for (int c = 0; c < 3; ++c) d = std::max(d, std::abs(int(with[i + c]) - int(none[i + c])));
+        if (d > 20) {
+            sumX += static_cast<double>((i / 3) % 320);
+            ++n;
+        }
+    }
+    ASSERT_GT(n, 200u);
+    EXPECT_LT(sumX / static_cast<double>(n), 160.0)
+        << "cells at +y (rows 150..174) must appear on screen-left for a camera looking along +x; "
+           "centroid x = "
+        << sumX / static_cast<double>(n);
+}
