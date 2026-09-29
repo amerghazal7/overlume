@@ -408,3 +408,27 @@ TEST(GroundGrid, CellRowsMapToIncreasingYNotMirrored) {
            "centroid x = "
         << sumX / static_cast<double>(n);
 }
+
+TEST(GroundGrid, DynamicLayerDrawsOverGeometricWhereTheyOverlap) {
+    const overlume::Vec3 ego{0.0, 0.0, 0.0};
+    const overlume::Vec3 origin{-25.0, -25.0, 0.0};
+    std::vector<uint8_t> occupied(250u * 250u, 0);
+    for (int y = 125; y < 175; ++y)
+        for (int x = 125; x < 175; ++x) occupied[y * 250 + x] = 100;
+    const auto none = RenderGrids({}, ego);
+    if (none.empty()) GTEST_SKIP() << "no GPU/EGL";
+    const auto dynAlone = RenderGrids({MakeLayer(0, occupied, origin)}, ego);
+    const auto geoAlone = RenderGrids({MakeLayer(1, occupied, origin)}, ego);
+    ASSERT_GT(ChangedPixels(dynAlone, geoAlone), 1000u);
+    for (const bool dynFirst : {true, false}) {
+        const auto both =
+            dynFirst
+                ? RenderGrids({MakeLayer(0, occupied, origin), MakeLayer(1, occupied, origin)}, ego)
+                : RenderGrids({MakeLayer(1, occupied, origin), MakeLayer(0, occupied, origin)},
+                              ego);
+        EXPECT_LT(ChangedPixels(both, dynAlone), 100u)
+            << "dynamic (moving obstacles) must be the visible layer where both are occupied "
+               "(scene order dynamic-first="
+            << dynFirst << ")";
+    }
+}

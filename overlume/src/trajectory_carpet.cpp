@@ -34,7 +34,7 @@ using filament::math::float3;
 constexpr float kTrajectoryCarpetBoundsM = 200.0f;
 
 constexpr float kVelocityRibbonZLiftM = 0.052f;
-constexpr uint8_t kVelocityRibbonPriority = 2;
+constexpr uint8_t kVelocityRibbonPriority = 4;
 
 struct CarpetVertex {
     float3 position;
