@@ -12,8 +12,8 @@
 
 namespace overlume::testing {
 
-overlume::detail::Float3 ground_grid_free_color(overlume::VisualRenderer* r);
-overlume::detail::Float3 ground_grid_occupied_color(overlume::VisualRenderer* r);
+bool ground_grid_ramp_entry(overlume::VisualRenderer* r, uint8_t kind, uint32_t value,
+                            overlume::detail::Float3* color, float* alpha);
 
 const void* ground_grid_texture_handle(overlume::VisualRenderer* r, size_t slot);
 

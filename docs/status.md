@@ -36,6 +36,7 @@ own per-task ledgers as the detailed record; this page is the roll-up.
 | Theme key `environment: { tile_radius_m }` (700.0 in shipped themes) is now the default source of the streamed-tile render radius, read per frame from the active theme; the `radius=` URI key / `environment_tile_radius_m` node param remain as an explicit override that wins when present | 2026-09-24 | — |
 | Ribbon/carpet fade re-specified in **metres ahead of the ego's clip point** (`ribbon.fade_start_m` / `fade_end_m`, 0/0 = off; no clip ⇒ ramp off) because a fraction of total length was useless on kilometres-long replay carpets (the visible stretch sat mid-ramp at constant alpha). Theme transitions hold the enabled side's metres instead of lerping them to 0 | 2026-09-24 | — |
 | First real-robot bag with cameras + OGMs replayed: `robot-offroad` profile; lidar `frame_id` override (driver stamps `base_link`, data in the 180°-yawed mount); Nav2 costmap decoding; grid-only OGM rows subscribed; best-effort costmaps; free OGM cells transparent; `GroundGridLayer.yaw_rad` (`kSceneVersion` 8) | 2026-09-29 | — |
+| Per-layer OGM colour ramps in the theme (`ogm.dynamic` / `ogm.geometric`: `{value, color, alpha}` stops over cell value 1–100, out-of-range and empty cells transparent); shipped themes use light ramps on dark, dark ramps on light | 2026-09-29 | — |
 
 ## Open items
 

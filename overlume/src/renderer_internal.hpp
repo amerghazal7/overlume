@@ -208,8 +208,8 @@ public:
     static constexpr size_t kGroundGridKindCount = 2;
     filament::Material* groundGridMaterial = nullptr;
     filament::MaterialInstance* groundGridMaterialInstance[kGroundGridKindCount] = {};
-    detail::Float3 groundGridFreeColor{};
-    detail::Float3 groundGridOccupiedColor{};
+    filament::Texture* groundGridRampTexture[kGroundGridKindCount] = {};
+    detail::Theme::OgmRamp groundGridRamp[kGroundGridKindCount];
     float groundGridAlpha[kGroundGridKindCount] = {1.0f, 1.0f};
 
     struct GroundGridSlot {

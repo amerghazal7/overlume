@@ -637,3 +637,76 @@ TEST(ThemeRibbonFade, TransitionToAFadeDisabledThemeHoldsTheMetresInsteadOfShrin
     const overlume::detail::Theme back = overlume::detail::blend(off, on, 0.01f);
     EXPECT_NEAR(back.ribbon.fade_end_m, 80.0f, 1e-4f);
 }
+
+TEST(ThemeOgmRamp, BakesStopsLinearlyAndLeavesOutOfRangeTransparent) {
+    const auto ramp = overlume::detail::bake_ogm_ramp(
+        {{100.0f, {1.0f, 0.0f, 0.0f}, 1.0f}, {50.0f, {0.0f, 0.0f, 1.0f}, 0.5f}});
+    EXPECT_FLOAT_EQ(ramp.alpha[0], 0.0f) << "value 0 (free / no value) is always transparent";
+    EXPECT_FLOAT_EQ(ramp.alpha[49], 0.0f) << "below the first stop is outside the range";
+    EXPECT_FLOAT_EQ(ramp.alpha[50], 0.5f);
+    EXPECT_FLOAT_EQ(ramp.color[50].b, 1.0f) << "stops are sorted by value";
+    EXPECT_NEAR(ramp.color[75].r, 0.5f, 1e-6f);
+    EXPECT_NEAR(ramp.color[75].b, 0.5f, 1e-6f);
+    EXPECT_NEAR(ramp.alpha[75], 0.75f, 1e-6f);
+    EXPECT_FLOAT_EQ(ramp.color[100].r, 1.0f);
+    EXPECT_FLOAT_EQ(ramp.alpha[100], 1.0f);
+}
+
+TEST(ThemeOgmRamp, ThemesWithoutAnOgmBlockKeepTheGroundToWarningMix) {
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<overlume::detail::Theme> t =
+        overlume::detail::load_theme(fixtureDir, "sun_dir_a");
+    ASSERT_TRUE(t.has_value());
+    for (uint32_t v : {1u, 37u, 100u}) {
+        const float w = static_cast<float>(v) / 100.0f;
+        const auto& g = t->palette.ground;
+        const auto& o = t->palette.alert.warning;
+        for (const auto* ramp : {&t->ogm.dynamic, &t->ogm.geometric}) {
+            EXPECT_NEAR(ramp->color[v].r, g.r + (o.r - g.r) * w, 1e-5f) << v;
+            EXPECT_NEAR(ramp->color[v].g, g.g + (o.g - g.g) * w, 1e-5f) << v;
+            EXPECT_NEAR(ramp->color[v].b, g.b + (o.b - g.b) * w, 1e-5f) << v;
+            EXPECT_FLOAT_EQ(ramp->alpha[v], 1.0f) << v;
+        }
+    }
+}
+
+TEST(ThemeOgmRamp, ShippedThemesGiveDynamicAndGeometricDistinctRamps) {
+    for (const char* name : {"dark_adas", "light_clay"}) {
+        const std::optional<overlume::detail::Theme> t =
+            overlume::detail::load_theme(kThemeDir, name);
+        ASSERT_TRUE(t.has_value()) << name;
+        for (uint32_t v : {1u, 100u}) {
+            const auto d = overlume::detail::linear_srgb_to_oklab(t->ogm.dynamic.color[v]);
+            const auto g = overlume::detail::linear_srgb_to_oklab(t->ogm.geometric.color[v]);
+            const float dist = std::sqrt((d.L - g.L) * (d.L - g.L) + (d.a - g.a) * (d.a - g.a) +
+                                         (d.b - g.b) * (d.b - g.b));
+            EXPECT_GT(dist, 0.08f) << name << ": dynamic and geometric must be perceptually "
+                                   << "distinct at v " << v << " (Oklab distance " << dist << ")";
+        }
+        EXPECT_LT(t->ogm.dynamic.alpha[1], t->ogm.dynamic.alpha[100])
+            << name << ": low values are shaded lighter than lethal ones";
+        EXPECT_FLOAT_EQ(t->ogm.dynamic.alpha[0], 0.0f) << name;
+    }
+}
+
+TEST(ThemeOgmRamp, RampsContrastWithTheirThemeGround) {
+    const auto lightness = [](const overlume::detail::Float3& c) {
+        return overlume::detail::linear_srgb_to_oklab(c).L;
+    };
+    const std::optional<overlume::detail::Theme> dark =
+        overlume::detail::load_theme(kThemeDir, "dark_adas");
+    const std::optional<overlume::detail::Theme> light =
+        overlume::detail::load_theme(kThemeDir, "light_clay");
+    ASSERT_TRUE(dark.has_value());
+    ASSERT_TRUE(light.has_value());
+    for (uint32_t v : {1u, 50u, 100u}) {
+        for (const auto* ramp : {&dark->ogm.dynamic, &dark->ogm.geometric}) {
+            EXPECT_GT(lightness(ramp->color[v]), lightness(dark->palette.ground) + 0.3f)
+                << "dark_adas OGM ramps must be light against its dark ground (v " << v << ")";
+        }
+        for (const auto* ramp : {&light->ogm.dynamic, &light->ogm.geometric}) {
+            EXPECT_LT(lightness(ramp->color[v]), lightness(light->palette.ground) - 0.3f)
+                << "light_clay OGM ramps must be dark against its light ground (v " << v << ")";
+        }
+    }
+}

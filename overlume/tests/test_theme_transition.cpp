@@ -254,6 +254,10 @@ overlume::detail::Theme MakeSentinelTheme(float scalar, const std::string& name)
     t.ribbon.fade_end_m = scalar;
     t.objects.opacity = scalar;
     t.environment.tile_radius_m = scalar;
+    t.ogm.dynamic.color.fill(c);
+    t.ogm.dynamic.alpha.fill(scalar);
+    t.ogm.geometric.color.fill(c);
+    t.ogm.geometric.alpha.fill(scalar);
     return t;
 }
 
@@ -327,6 +331,10 @@ TEST(ThemeTransition, SentinelThemesDetectAnyUnblendedField) {
     ExpectBetweenSentinels(mid.ribbon.fade_end_m, "ribbon.fade_end_m");
     ExpectBetweenSentinels(mid.objects.opacity, "objects.opacity");
     ExpectBetweenSentinels(mid.environment.tile_radius_m, "environment.tile_radius_m");
+    ExpectBetweenSentinels(mid.ogm.dynamic.color[50], "ogm.dynamic.color[50]");
+    ExpectBetweenSentinels(mid.ogm.dynamic.alpha[50], "ogm.dynamic.alpha[50]");
+    ExpectBetweenSentinels(mid.ogm.geometric.color[100], "ogm.geometric.color[100]");
+    ExpectBetweenSentinels(mid.ogm.geometric.alpha[100], "ogm.geometric.alpha[100]");
 }
 
 TEST(ThemeTransition, UnknownThemeName_ReturnsFalseAndLeavesActiveThemeUnchanged) {

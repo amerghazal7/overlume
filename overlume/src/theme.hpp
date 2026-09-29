@@ -3,8 +3,10 @@
 
 #pragma once
 
+#include <array>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace overlume::detail {
 
@@ -102,10 +104,28 @@ struct Theme {
         float opacity = 1.0f;
     } objects;
 
+    struct OgmRamp {
+        static constexpr size_t kEntries = 101;
+        std::array<Float3, kEntries> color{};
+        std::array<float, kEntries> alpha{};
+    };
+    struct Ogm {
+        OgmRamp dynamic;
+        OgmRamp geometric;
+    } ogm;
+
     struct Environment {
         float tile_radius_m = kThemeDefaultTileRadiusM;
     } environment;
 };
+
+struct OgmRampStop {
+    float value = 0.0f;
+    Float3 color;
+    float alpha = 1.0f;
+};
+
+Theme::OgmRamp bake_ogm_ramp(std::vector<OgmRampStop> stops);
 
 std::optional<Theme> load_theme(const std::string& dir, const std::string& name);
 
