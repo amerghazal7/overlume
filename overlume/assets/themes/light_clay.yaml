@@ -42,8 +42,8 @@ environment: { tile_radius_m: 100.0 }
 ogm:
   dynamic:
     ramp:
-      - { value: 1, color: [0.16, 0.06, 0.18], alpha: 0.35 }
-      - { value: 100, color: [0.07, 0.008, 0.09], alpha: 1.0 }
+      - { value: 1, color: [0.04, 0.25, 0.07], alpha: 0.35 }
+      - { value: 100, color: [0.015, 0.12, 0.03], alpha: 1.0 }
   geometric:
     ramp:
       - { value: 1, color: [0.20, 0.11, 0.03], alpha: 0.35 }

@@ -146,8 +146,8 @@ Each OGM layer is coloured from its own ramp, keyed by layer:
 ogm:
   dynamic:
     ramp:
-      - { value: 1,   color: [0.62, 0.50, 0.75], alpha: 0.35 }
-      - { value: 100, color: [0.95, 0.70, 1.00], alpha: 1.0 }
+      - { value: 1,   color: [0.05, 0.30, 0.08], alpha: 0.35 }
+      - { value: 100, color: [0.10, 0.45, 0.15], alpha: 1.0 }
   geometric:
     ramp:
       - { value: 1,   color: [0.80, 0.70, 0.50], alpha: 0.35 }
@@ -164,7 +164,10 @@ ogm:
 - Colours are linear RGB like every other palette entry — "dark" in linear
   terms is much lower than it looks (0.1 already reads as a dark tone).
 - A theme without the block gets the pre-ramp look: ground → `alert.warning`.
-- Pick ramps that contrast with the theme's ground: light on `dark_adas`,
-  dark on `light_clay` (`ThemeOgmRamp.RampsContrastWithTheirThemeGround`
-  enforces this for the shipped themes).
+- Pick ramps that contrast with the theme's ground: lighter than the ground
+  on `dark_adas`, darker on `light_clay`, and at least 0.25 Oklab away from it
+  (`ThemeOgmRamp.RampsContrastWithTheirThemeGround` enforces this for the
+  shipped themes). Dynamic is green in both shipped themes — a mid green on
+  `dark_adas`, a deep green on `light_clay` — because one identical dark green
+  cannot contrast with both grounds.
 

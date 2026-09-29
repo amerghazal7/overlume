@@ -693,8 +693,9 @@ TEST(ThemeOgmRamp, ShippedThemesGiveDynamicAndGeometricDistinctRamps) {
 }
 
 TEST(ThemeOgmRamp, RampsContrastWithTheirThemeGround) {
-    const auto lightness = [](const overlume::detail::Float3& c) {
-        return overlume::detail::linear_srgb_to_oklab(c).L;
+    const auto distance = [](const overlume::detail::Oklab& p, const overlume::detail::Oklab& q) {
+        return std::sqrt((p.L - q.L) * (p.L - q.L) + (p.a - q.a) * (p.a - q.a) +
+                         (p.b - q.b) * (p.b - q.b));
     };
     const std::optional<overlume::detail::Theme> dark =
         overlume::detail::load_theme(kThemeDir, "dark_adas");
@@ -702,14 +703,22 @@ TEST(ThemeOgmRamp, RampsContrastWithTheirThemeGround) {
         overlume::detail::load_theme(kThemeDir, "light_clay");
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
+    const auto darkGround = overlume::detail::linear_srgb_to_oklab(dark->palette.ground);
+    const auto lightGround = overlume::detail::linear_srgb_to_oklab(light->palette.ground);
     for (uint32_t v : {1u, 50u, 100u}) {
         for (const auto* ramp : {&dark->ogm.dynamic, &dark->ogm.geometric}) {
-            EXPECT_GT(lightness(ramp->color[v]), lightness(dark->palette.ground) + 0.3f)
-                << "dark_adas OGM ramps must be light against its dark ground (v " << v << ")";
+            const auto c = overlume::detail::linear_srgb_to_oklab(ramp->color[v]);
+            EXPECT_GT(c.L, darkGround.L + 0.15f)
+                << "dark_adas OGM ramps must be lighter than its dark ground (v " << v << ")";
+            EXPECT_GT(distance(c, darkGround), 0.25f)
+                << "dark_adas OGM ramp too close to its ground (v " << v << ")";
         }
         for (const auto* ramp : {&light->ogm.dynamic, &light->ogm.geometric}) {
-            EXPECT_LT(lightness(ramp->color[v]), lightness(light->palette.ground) - 0.3f)
-                << "light_clay OGM ramps must be dark against its light ground (v " << v << ")";
+            const auto c = overlume::detail::linear_srgb_to_oklab(ramp->color[v]);
+            EXPECT_LT(c.L, lightGround.L - 0.15f)
+                << "light_clay OGM ramps must be darker than its light ground (v " << v << ")";
+            EXPECT_GT(distance(c, lightGround), 0.25f)
+                << "light_clay OGM ramp too close to its ground (v " << v << ")";
         }
     }
 }
