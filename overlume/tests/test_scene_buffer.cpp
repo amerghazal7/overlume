@@ -80,7 +80,7 @@ TEST(StalenessAlpha, PastTimeoutIsFullyFaded) {
     EXPECT_FLOAT_EQ(overlume::detail::SceneBuffer::staleness_alpha(13.0, 10.0, 0.5, 2.0), 0.0f);
 }
 
-static_assert(overlume::kSceneVersion == 7,
+static_assert(overlume::kSceneVersion == 8,
               "bump this alongside every additive scene.h change, and update the "
               "node-side test_scene_layout.cpp mirror");
 
@@ -128,7 +128,7 @@ static_assert(offsetof(overlume::MapElement, lane_id) == 16,
 static_assert(offsetof(overlume::MapElement, last_update_sec) == 24,
               "MapElement layout, ADR-0004 additive");
 
-static_assert(sizeof(overlume::GroundGridLayer) == 64, "GroundGridLayer layout frozen");
+static_assert(sizeof(overlume::GroundGridLayer) == 72, "GroundGridLayer layout frozen");
 static_assert(offsetof(overlume::GroundGridLayer, kind) == 0, "GroundGridLayer layout frozen");
 static_assert(offsetof(overlume::GroundGridLayer, origin) == 8, "GroundGridLayer layout frozen");
 static_assert(offsetof(overlume::GroundGridLayer, resolution_m) == 32,
@@ -140,6 +140,7 @@ static_assert(offsetof(overlume::GroundGridLayer, height_cells) == 44,
 static_assert(offsetof(overlume::GroundGridLayer, cells) == 48, "GroundGridLayer layout frozen");
 static_assert(offsetof(overlume::GroundGridLayer, last_update_sec) == 56,
               "GroundGridLayer layout frozen");
+static_assert(offsetof(overlume::GroundGridLayer, yaw_rad) == 64, "GroundGridLayer layout frozen");
 
 static_assert(sizeof(overlume::AlertPolygon) == 24, "AlertPolygon layout frozen");
 static_assert(offsetof(overlume::AlertPolygon, points) == 0, "AlertPolygon layout frozen");

@@ -8,7 +8,7 @@
 
 namespace overlume {
 
-constexpr uint32_t kSceneVersion = 7;
+constexpr uint32_t kSceneVersion = 8;
 
 struct Vec3 {
     double x, y, z;
@@ -91,6 +91,7 @@ struct GroundGridLayer {
     uint32_t width_cells, height_cells;
     const uint8_t* cells;
     double last_update_sec;
+    double yaw_rad;
 };
 
 struct AlertPolygon {

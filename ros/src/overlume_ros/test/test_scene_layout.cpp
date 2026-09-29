@@ -7,7 +7,10 @@
 
 #include <gtest/gtest.h>
 
-static_assert(overlume::kSceneVersion == 7, "node/library scene.h version drifted");
+static_assert(overlume::kSceneVersion == 8, "node/library scene.h version drifted");
+static_assert(sizeof(overlume::GroundGridLayer) == 72, "node/library scene.h version drifted");
+static_assert(offsetof(overlume::GroundGridLayer, yaw_rad) == 64,
+              "node/library scene.h version drifted");
 
 static_assert(sizeof(overlume::MapElement) == 32, "node/library scene.h version drifted");
 static_assert(offsetof(overlume::MapElement, points) == 0, "node/library scene.h version drifted");

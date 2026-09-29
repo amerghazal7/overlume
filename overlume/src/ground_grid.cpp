@@ -69,19 +69,27 @@ filament::VertexBuffer* make_ground_grid_vertex_buffer(filament::Engine& engine,
 }
 
 void build_ground_grid_quad(VisualRenderer& r, Mesh& mesh, const GroundGridLayer& g, float z_lift,
-                            filament::MaterialInstance* material) {
+                            filament::MaterialInstance* material, Vec3 (&corners)[4]) {
     const float ox = static_cast<float>(g.origin.x);
     const float oy = static_cast<float>(g.origin.y);
     const float oz = static_cast<float>(g.origin.z) + z_lift;
     const float w = static_cast<float>(g.width_cells) * static_cast<float>(g.resolution_m);
     const float h = static_cast<float>(g.height_cells) * static_cast<float>(g.resolution_m);
+    const float c = static_cast<float>(std::cos(g.yaw_rad));
+    const float s = static_cast<float>(std::sin(g.yaw_rad));
+    const auto at = [&](float lx, float ly) {
+        return float3{ox + c * lx - s * ly, oy + s * lx + c * ly, oz};
+    };
 
     std::vector<GroundGridVertex> verts = {
-        {{ox, oy, oz}, {}, {0.0f, 0.0f}},
-        {{ox + w, oy, oz}, {}, {1.0f, 0.0f}},
-        {{ox + w, oy + h, oz}, {}, {1.0f, 1.0f}},
-        {{ox, oy + h, oz}, {}, {0.0f, 1.0f}},
+        {at(0.0f, 0.0f), {}, {0.0f, 0.0f}},
+        {at(w, 0.0f), {}, {1.0f, 0.0f}},
+        {at(w, h), {}, {1.0f, 1.0f}},
+        {at(0.0f, h), {}, {0.0f, 1.0f}},
     };
+    for (size_t i = 0; i < 4; ++i) {
+        corners[i] = {verts[i].position.x, verts[i].position.y, verts[i].position.z};
+    }
     std::vector<uint16_t> indices = {0, 1, 2, 0, 2, 3};
 
     std::vector<Vertex> plain(verts.size());
@@ -92,9 +100,9 @@ void build_ground_grid_quad(VisualRenderer& r, Mesh& mesh, const GroundGridLayer
     mesh.vb = make_ground_grid_vertex_buffer(*r.engine, std::move(verts));
     mesh.ib = make_index_buffer(*r.engine, std::move(indices));
     mesh.entity = utils::EntityManager::get().create();
-    const float halfW = w * 0.5f, halfH = h * 0.5f;
+    const float reach = std::hypot(w, h) + 1.0f;
     filament::RenderableManager::Builder(1)
-        .boundingBox({{0, 0, 0}, {halfW + std::abs(ox) + 1.0f, halfH + std::abs(oy) + 1.0f, 1.0f}})
+        .boundingBox({{0, 0, 0}, {reach + std::abs(ox), reach + std::abs(oy), 1.0f}})
         .geometry(0, filament::RenderableManager::PrimitiveType::TRIANGLES, mesh.vb, mesh.ib)
         .material(0, material)
         .culling(false)
@@ -149,16 +157,17 @@ void update_ground_grids(VisualRenderer& r, const SceneGraph& s) {
             !slot.has_geometry || slot.kind != kind || slot.width_cells != g.width_cells ||
             slot.height_cells != g.height_cells || slot.resolution_m != g.resolution_m ||
             slot.origin.x != g.origin.x || slot.origin.y != g.origin.y ||
-            slot.origin.z != g.origin.z;
+            slot.origin.z != g.origin.z || slot.yaw_rad != g.yaw_rad;
         if (geomChanged) {
             destroy_mesh(*r.engine, *r.scene, slot.quad);
             build_ground_grid_quad(r, slot.quad, g, z_lift_for_kind(kind),
-                                   r.groundGridMaterialInstance[kind]);
+                                   r.groundGridMaterialInstance[kind], slot.corners);
             slot.kind = kind;
             slot.width_cells = g.width_cells;
             slot.height_cells = g.height_cells;
             slot.resolution_m = g.resolution_m;
             slot.origin = g.origin;
+            slot.yaw_rad = g.yaw_rad;
             slot.has_geometry = true;
         }
 
@@ -208,6 +217,17 @@ uint32_t ground_grid_texture_generation(overlume::VisualRenderer* r, size_t slot
 uint32_t ground_grid_texture_upload_count(overlume::VisualRenderer* r, size_t slot) {
     if (r == nullptr || slot >= r->groundGridSlots.size()) return 0;
     return r->groundGridSlots[slot].uploadCount;
+}
+
+bool ground_grid_corner(overlume::VisualRenderer* r, size_t slot, size_t corner,
+                        overlume::Vec3* out) {
+    if (r == nullptr || out == nullptr || corner >= 4 || slot >= r->groundGridSlots.size()) {
+        return false;
+    }
+    const auto& s = r->groundGridSlots[slot];
+    if (!s.has_geometry) return false;
+    *out = s.corners[corner];
+    return true;
 }
 
 float ground_grid_material_alpha(overlume::VisualRenderer* r, uint8_t kind) {

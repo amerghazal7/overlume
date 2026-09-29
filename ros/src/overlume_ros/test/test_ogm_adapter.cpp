@@ -3,9 +3,11 @@
 
 #include "overlume_ros/adapters/ogm.hpp"
 
+#include <cmath>
 #include <memory>
 #include <string>
 
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <gtest/gtest.h>
 #include <rclcpp/clock.hpp>
 #include <tf2_ros/buffer.h>
@@ -254,4 +256,34 @@ TEST(OgmAdapter, DefaultOccupancyEncodingStillRejectsCostmapValues) {
     ASSERT_NE(g, nullptr);
     EXPECT_EQ(g->cells[0], overlume::ros::kUnknownCell);
     EXPECT_EQ(a.stats().dropped_malformed, 1u);
+}
+
+TEST(OgmAdapter, BaseLinkGridTakesTheVehicleYawIntoTheMapFrame) {
+    auto msg = overlume::ros::testing::load_occupancy_grid("ogm_synthetic.yaml");
+    msg.header.frame_id = "base_link";
+    msg.info.origin.position.x = -25.0;
+    msg.info.origin.position.y = -25.0;
+    msg.info.origin.orientation.x = 0.0;
+    msg.info.origin.orientation.y = 0.0;
+    msg.info.origin.orientation.z = 0.0;
+    msg.info.origin.orientation.w = 1.0;
+    TfFixture kTf;
+    geometry_msgs::msg::TransformStamped t;
+    t.header.frame_id = "map";
+    t.child_frame_id = "base_link";
+    t.transform.translation.x = 10.0;
+    t.transform.rotation.z = std::sin(M_PI / 4.0);
+    t.transform.rotation.w = std::cos(M_PI / 4.0);
+    kTf.buffer.setTransform(t, "test", true);
+
+    overlume::ros::OgmAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_ogm"),
+                                kTf.tf);
+    a.ingest(msg, 1.0);
+    SceneAssembly asm_;
+    a.fill(asm_);
+    const overlume::GroundGridLayer* g = OnlyGrid(asm_);
+    ASSERT_NE(g, nullptr);
+    EXPECT_NEAR(g->yaw_rad, M_PI / 2.0, 1e-9) << "vehicle yaw must reach the layer";
+    EXPECT_NEAR(g->origin.x, 35.0, 1e-9);
+    EXPECT_NEAR(g->origin.y, -25.0, 1e-9);
 }
