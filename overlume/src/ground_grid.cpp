@@ -35,6 +35,8 @@ constexpr float kDynamicZLiftM = 0.015f;
 
 float z_lift_for_kind(uint8_t kind) { return kind == 0 ? kDynamicZLiftM : kGradientZLiftM; }
 
+uint8_t priority_for_kind(uint8_t kind) { return kind == 0 ? 1 : 0; }
+
 struct GroundGridVertex {
     float3 position;
     float4 tangentFrame;
@@ -105,6 +107,7 @@ void build_ground_grid_quad(VisualRenderer& r, Mesh& mesh, const GroundGridLayer
         .boundingBox({{0, 0, 0}, {reach + std::abs(ox), reach + std::abs(oy), 1.0f}})
         .geometry(0, filament::RenderableManager::PrimitiveType::TRIANGLES, mesh.vb, mesh.ib)
         .material(0, material)
+        .priority(priority_for_kind(g.kind))
         .culling(false)
         .castShadows(false)
         .receiveShadows(true)

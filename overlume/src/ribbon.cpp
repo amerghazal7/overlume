@@ -77,7 +77,7 @@ uint64_t ribbon_signature(PathRole role, const Vec3* pts, uint32_t n, float half
 }
 
 constexpr float kRibbonZLiftByRoleM[3] = {0.058f, 0.038f, 0.046f};
-constexpr uint8_t kRibbonPriorityByRole[3] = {3, 0, 1};
+constexpr uint8_t kRibbonPriorityByRole[3] = {5, 2, 3};
 
 float role_margin_m(const detail::Theme::Ribbon& cfg, PathRole role) {
     switch (role) {
