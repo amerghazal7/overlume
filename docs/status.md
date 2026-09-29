@@ -130,6 +130,7 @@ accepts" list:
    `Doxyfile.in`'s documented-symbol gate (`WARN_IF_UNDOCUMENTED` +
    `WARN_AS_ERROR`) was turned off and `EXTRACT_ALL` on — the published
    API docs are now a bare symbol listing.
+10. **Real-robot bag 2026-09-28 (`~/amer_bag`) has recorder blackouts.** Every topic — including 50 Hz odometry and `/tf` — goes silent together for up to ~9.5 s; ~60 % of the 282 s recording lies in gaps > 0.5 s (likely the recorder stalling on ~130 MB/s of six raw bgr8 cameras into sqlite3). The renderer's 0.5–1.0 s stale fade therefore pulses every layer in and out during replay; that is the data, not a rendering fault. Next recordings: mcap storage and/or compressed or fewer camera topics.
 
 ## How to update this file
 
