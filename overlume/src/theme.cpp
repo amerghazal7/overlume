@@ -127,6 +127,26 @@ Theme parse(const YAML::Node& root) {
     t.objects.opacity = std::clamp(
         (objects && objects["opacity"]) ? objects["opacity"].as<float>() : 1.0f, 0.0f, 1.0f);
 
+    const auto parse_ramp = [&](const char* layer) {
+        const YAML::Node node = root["ogm"] ? root["ogm"][layer] : YAML::Node();
+        std::vector<OgmRampStop> stops;
+        if (node && node["ramp"]) {
+            for (const auto& s : node["ramp"]) {
+                OgmRampStop stop;
+                stop.value = s["value"].as<float>();
+                stop.color = to_float3(s["color"]);
+                stop.alpha = std::clamp(s["alpha"] ? s["alpha"].as<float>() : 1.0f, 0.0f, 1.0f);
+                stops.push_back(stop);
+            }
+        }
+        if (stops.empty()) {
+            stops = {{0.0f, t.palette.ground, 1.0f}, {100.0f, t.palette.alert.warning, 1.0f}};
+        }
+        return bake_ogm_ramp(std::move(stops));
+    };
+    t.ogm.dynamic = parse_ramp("dynamic");
+    t.ogm.geometric = parse_ramp("geometric");
+
     const YAML::Node environment = root["environment"];
     const float tileRadius = (environment && environment["tile_radius_m"])
                                  ? environment["tile_radius_m"].as<float>()
@@ -137,6 +157,33 @@ Theme parse(const YAML::Node& root) {
     return t;
 }
 
+}
+
+Theme::OgmRamp bake_ogm_ramp(std::vector<OgmRampStop> stops) {
+    Theme::OgmRamp ramp;
+    if (stops.empty()) return ramp;
+    for (auto& s : stops) s.value = std::clamp(s.value, 0.0f, 100.0f);
+    std::sort(stops.begin(), stops.end(),
+              [](const OgmRampStop& a, const OgmRampStop& b) { return a.value < b.value; });
+    for (size_t v = 1; v < Theme::OgmRamp::kEntries; ++v) {
+        const float x = static_cast<float>(v);
+        if (x < stops.front().value || x > stops.back().value) continue;
+        size_t hi = 0;
+        while (hi < stops.size() && stops[hi].value < x) ++hi;
+        if (hi == 0 || stops[hi].value == x) {
+            ramp.color[v] = stops[hi].color;
+            ramp.alpha[v] = stops[hi].alpha;
+            continue;
+        }
+        const OgmRampStop& a = stops[hi - 1];
+        const OgmRampStop& b = stops[hi];
+        const float w = (x - a.value) / (b.value - a.value);
+        ramp.color[v] = {a.color.r + (b.color.r - a.color.r) * w,
+                         a.color.g + (b.color.g - a.color.g) * w,
+                         a.color.b + (b.color.b - a.color.b) * w};
+        ramp.alpha[v] = a.alpha + (b.alpha - a.alpha) * w;
+    }
+    return ramp;
 }
 
 std::optional<Theme> load_theme(const std::string& dir, const std::string& name) {
@@ -206,6 +253,9 @@ const Theme& kFallbackTheme() {
         t.ribbon.fade_end_m = 0.0f;
         t.objects.opacity = 1.0f;
         t.environment.tile_radius_m = kThemeDefaultTileRadiusM;
+        t.ogm.dynamic = bake_ogm_ramp(
+            {{0.0f, t.palette.ground, 1.0f}, {100.0f, t.palette.alert.warning, 1.0f}});
+        t.ogm.geometric = t.ogm.dynamic;
         return t;
     }();
     return theme;

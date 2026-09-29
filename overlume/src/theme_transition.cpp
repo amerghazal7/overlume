@@ -147,6 +147,16 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     }
 
     out.objects.opacity = lerpf(a.objects.opacity, b.objects.opacity, w);
+    const auto blend_ramp = [w](const Theme::OgmRamp& ra, const Theme::OgmRamp& rb) {
+        Theme::OgmRamp o;
+        for (size_t i = 0; i < Theme::OgmRamp::kEntries; ++i) {
+            o.color[i] = blend_color(ra.color[i], rb.color[i], w);
+            o.alpha[i] = lerpf(ra.alpha[i], rb.alpha[i], w);
+        }
+        return o;
+    };
+    out.ogm.dynamic = blend_ramp(a.ogm.dynamic, b.ogm.dynamic);
+    out.ogm.geometric = blend_ramp(a.ogm.geometric, b.ogm.geometric);
     out.environment.tile_radius_m =
         lerpf(a.environment.tile_radius_m, b.environment.tile_radius_m, w);
 

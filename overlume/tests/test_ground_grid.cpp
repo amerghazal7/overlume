@@ -220,15 +220,18 @@ TEST(GroundGrid, MaterialIsThemedOnFirstDataWithNoTransition) {
     overlume::CameraPose pose{{0, -8, 4}, {0, 0, 0}, 60.0};
     render_once(r, pose);
 
-    const auto freeColor = overlume::testing::ground_grid_free_color(r);
-    EXPECT_NEAR(freeColor.r, theme->palette.ground.r, 1e-4);
-    EXPECT_NEAR(freeColor.g, theme->palette.ground.g, 1e-4);
-    EXPECT_NEAR(freeColor.b, theme->palette.ground.b, 1e-4);
-
-    const auto occupiedColor = overlume::testing::ground_grid_occupied_color(r);
-    EXPECT_NEAR(occupiedColor.r, theme->palette.alert.warning.r, 1e-4);
-    EXPECT_NEAR(occupiedColor.g, theme->palette.alert.warning.g, 1e-4);
-    EXPECT_NEAR(occupiedColor.b, theme->palette.alert.warning.b, 1e-4);
+    for (uint8_t kind : {uint8_t{0}, uint8_t{1}}) {
+        const auto& ramp = kind == 0 ? theme->ogm.dynamic : theme->ogm.geometric;
+        for (uint32_t v : {1u, 50u, 100u}) {
+            overlume::detail::Float3 c{};
+            float a = -1.0f;
+            ASSERT_TRUE(overlume::testing::ground_grid_ramp_entry(r, kind, v, &c, &a));
+            EXPECT_NEAR(c.r, ramp.color[v].r, 1e-5) << "kind " << int(kind) << " v " << v;
+            EXPECT_NEAR(c.g, ramp.color[v].g, 1e-5) << "kind " << int(kind) << " v " << v;
+            EXPECT_NEAR(c.b, ramp.color[v].b, 1e-5) << "kind " << int(kind) << " v " << v;
+            EXPECT_NEAR(a, ramp.alpha[v], 1e-5) << "kind " << int(kind) << " v " << v;
+        }
+    }
 
     EXPECT_FLOAT_EQ(overlume::testing::ground_grid_material_alpha(r, 0), 1.0f);
     EXPECT_FLOAT_EQ(overlume::testing::ground_grid_material_alpha(r, 1), 1.0f);
@@ -322,4 +325,44 @@ TEST(GroundGrid, YawRotatesTheQuadAboutTheGridOrigin) {
     EXPECT_NEAR(c3.x, 50.0, 1e-3) << "the grid's +y edge must point along map -x";
     EXPECT_NEAR(c3.y, 50.0, 1e-3);
     overlume::destroy_renderer(r);
+}
+
+TEST(GroundGrid, RampRangeDecidesVisibilityAndDynamicDiffersFromGeometric) {
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    overlume::RenderConfig cfg{320, 240, 1, fixtureDir.c_str(), "ogm_ramp"};
+    const overlume::Vec3 ego{0.0, 0.0, 0.0};
+    const overlume::Vec3 origin{-25.0, -25.0, 0.0};
+    auto block = [](uint8_t value) {
+        std::vector<uint8_t> c(250u * 250u, 0);
+        for (int y = 125; y < 175; ++y)
+            for (int x = 125; x < 175; ++x) c[y * 250 + x] = value;
+        return c;
+    };
+    auto render = [&](const std::vector<overlume::GroundGridLayer>& gs) {
+        std::vector<uint8_t> px(320u * 240u * 3u);
+        auto* r = overlume::create_renderer(cfg);
+        if (!r) return std::vector<uint8_t>{};
+        overlume::SceneGraph s{};
+        s.sim_time_sec = 10.0;
+        s.ego = {ego, 0.0, 0.0, 1};
+        s.grids = gs.data();
+        s.grid_count = static_cast<uint32_t>(gs.size());
+        overlume::set_scene(r, s);
+        const overlume::CameraPose pose{{-10, -10, 20}, {0, 0, 0}, 60.0};
+        overlume::render_frame(r, pose, {px.data(), 320, 240});
+        overlume::render_frame(r, pose, {px.data(), 320, 240});
+        overlume::destroy_renderer(r);
+        return px;
+    };
+    const auto none = render({});
+    if (none.empty()) GTEST_SKIP() << "no GPU/EGL";
+    const auto below = block(30), inside = block(75);
+    EXPECT_LT(ChangedPixels(none, render({MakeLayer(1, below, origin)})), 50u)
+        << "value 30 lies below the fixture's geometric ramp (50..100) and must stay transparent";
+    const auto geo = render({MakeLayer(1, inside, origin)});
+    const auto dyn = render({MakeLayer(0, inside, origin)});
+    EXPECT_GT(ChangedPixels(none, geo), 1000u) << "value 75 is inside the geometric ramp";
+    EXPECT_GT(ChangedPixels(none, dyn), 1000u) << "value 75 is inside the dynamic ramp";
+    EXPECT_GT(ChangedPixels(dyn, geo), 1000u)
+        << "the same value must render in each layer's own ramp colour";
 }

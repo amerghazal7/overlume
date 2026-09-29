@@ -235,14 +235,15 @@ float ground_grid_material_alpha(overlume::VisualRenderer* r, uint8_t kind) {
     return r->groundGridAlpha[kind];
 }
 
-overlume::detail::Float3 ground_grid_free_color(overlume::VisualRenderer* r) {
-    if (r == nullptr) return {};
-    return r->groundGridFreeColor;
-}
-
-overlume::detail::Float3 ground_grid_occupied_color(overlume::VisualRenderer* r) {
-    if (r == nullptr) return {};
-    return r->groundGridOccupiedColor;
+bool ground_grid_ramp_entry(overlume::VisualRenderer* r, uint8_t kind, uint32_t value,
+                            overlume::detail::Float3* color, float* alpha) {
+    if (r == nullptr || kind >= overlume::VisualRenderer::kGroundGridKindCount ||
+        value >= overlume::detail::Theme::OgmRamp::kEntries) {
+        return false;
+    }
+    if (color) *color = r->groundGridRamp[kind].color[value];
+    if (alpha) *alpha = r->groundGridRamp[kind].alpha[value];
+    return true;
 }
 
 }

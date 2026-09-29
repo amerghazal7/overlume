@@ -6,8 +6,7 @@ material {
     shadingModel : lit,
     parameters : [
         { type : sampler2d, name : occupancyTexture },
-        { type : float3, name : freeColor },
-        { type : float3, name : occupiedColor },
+        { type : sampler2d, name : rampTexture },
         { type : float, name : roughness },
         { type : float, name : metallic },
         { type : float, name : alpha }
@@ -18,10 +17,10 @@ material {
 fragment {
     void material(inout MaterialInputs material) {
         prepareMaterial(material);
-        float v = texture(materialParams_occupancyTexture, getUV0()).r * 255.0;
-        float occ = clamp(v, 0.0, 100.0) / 100.0;
-        float a = (v > 100.5 || v < 0.5) ? 0.0 : materialParams.alpha;
-        material.baseColor.rgb = mix(materialParams.freeColor, materialParams.occupiedColor, occ) * a;
+        float v = floor(texture(materialParams_occupancyTexture, getUV0()).r * 255.0 + 0.5);
+        vec4 ramp = texture(materialParams_rampTexture, vec2((min(v, 100.0) + 0.5) / 101.0, 0.5));
+        float a = (v > 100.5 || v < 0.5) ? 0.0 : ramp.a * materialParams.alpha;
+        material.baseColor.rgb = ramp.rgb * a;
         material.roughness = materialParams.roughness;
         material.metallic = materialParams.metallic;
         material.baseColor.a = a;

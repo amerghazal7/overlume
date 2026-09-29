@@ -461,14 +461,28 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
                                                                 : 0.0f);
     }
 
-    for (auto* inst : r.groundGridMaterialInstance) {
-        inst->setParameter("freeColor", to_filament(theme.palette.ground));
-        inst->setParameter("occupiedColor", to_filament(theme.palette.alert.warning));
+    const detail::Theme::OgmRamp* ramps[VisualRenderer::kGroundGridKindCount] = {
+        &theme.ogm.dynamic, &theme.ogm.geometric};
+    for (size_t kind = 0; kind < VisualRenderer::kGroundGridKindCount; ++kind) {
+        filament::MaterialInstance* inst = r.groundGridMaterialInstance[kind];
         inst->setParameter("roughness", theme.material.roughness);
         inst->setParameter("metallic", theme.material.metallic);
+        r.groundGridRamp[kind] = *ramps[kind];
+        auto* texels = new std::vector<float>(detail::Theme::OgmRamp::kEntries * 4);
+        for (size_t v = 0; v < detail::Theme::OgmRamp::kEntries; ++v) {
+            (*texels)[v * 4 + 0] = ramps[kind]->color[v].r;
+            (*texels)[v * 4 + 1] = ramps[kind]->color[v].g;
+            (*texels)[v * 4 + 2] = ramps[kind]->color[v].b;
+            (*texels)[v * 4 + 3] = ramps[kind]->alpha[v];
+        }
+        r.groundGridRampTexture[kind]->setImage(
+            *r.engine, 0,
+            filament::Texture::PixelBufferDescriptor(
+                texels->data(), texels->size() * sizeof(float), filament::Texture::Format::RGBA,
+                filament::Texture::Type::FLOAT,
+                [](void*, size_t, void* user) { delete static_cast<std::vector<float>*>(user); },
+                texels));
     }
-    r.groundGridFreeColor = theme.palette.ground;
-    r.groundGridOccupiedColor = theme.palette.alert.warning;
 
     const detail::Float3 alertTints[VisualRenderer::kAlertSeverityCount] = {
         theme.palette.alert.info,
@@ -813,8 +827,20 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
                                 .package(overlume::materials::kground_gridFilamat,
                                          overlume::materials::kground_gridFilamatSize)
                                 .build(*engine);
-    for (auto*& inst : r->groundGridMaterialInstance) {
-        inst = r->groundGridMaterial->createInstance();
+    for (size_t kind = 0; kind < VisualRenderer::kGroundGridKindCount; ++kind) {
+        r->groundGridMaterialInstance[kind] = r->groundGridMaterial->createInstance();
+        r->groundGridRampTexture[kind] =
+            filament::Texture::Builder()
+                .width(static_cast<uint32_t>(detail::Theme::OgmRamp::kEntries))
+                .height(1)
+                .levels(1)
+                .format(filament::Texture::InternalFormat::RGBA32F)
+                .sampler(filament::Texture::Sampler::SAMPLER_2D)
+                .build(*engine);
+        r->groundGridMaterialInstance[kind]->setParameter(
+            "rampTexture", r->groundGridRampTexture[kind],
+            filament::TextureSampler(filament::TextureSampler::MinFilter::NEAREST,
+                                     filament::TextureSampler::MagFilter::NEAREST));
     }
 
     r->pointCloudMaterial = filament::Material::Builder()
@@ -1011,6 +1037,9 @@ void destroy_renderer(VisualRenderer* r) {
     r->groundGridSlots.clear();
     for (auto* m : r->groundGridMaterialInstance) {
         if (m) r->engine->destroy(m);
+    }
+    for (auto* tex : r->groundGridRampTexture) {
+        if (tex) r->engine->destroy(tex);
     }
     if (r->groundGridMaterial) r->engine->destroy(r->groundGridMaterial);
 

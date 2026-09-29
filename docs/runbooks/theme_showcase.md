@@ -135,3 +135,36 @@ palette token in the schema, and none was added in this pass — a token needs
 a rendering consumer (park polygons), and it isn't clear the map data this
 codebase renders from has that geometry at all. Out of scope here; recorded
 so it isn't silently missing from the palette conversation.
+
+## OGM colour ramps (`ogm:` block)
+
+Each OGM layer is coloured from its own ramp, keyed by layer:
+`dynamic` (profile role `dynamic_ogm`) and `geometric` (role
+`gradient_ogm`, e.g. the robot's `/perception/geometric_costmap`).
+
+```yaml
+ogm:
+  dynamic:
+    ramp:
+      - { value: 1,   color: [0.62, 0.50, 0.75], alpha: 0.35 }
+      - { value: 100, color: [0.95, 0.70, 1.00], alpha: 1.0 }
+  geometric:
+    ramp:
+      - { value: 1,   color: [0.80, 0.70, 0.50], alpha: 0.35 }
+      - { value: 100, color: [1.00, 0.85, 0.40], alpha: 1.0 }
+```
+
+- `value` is the decoded cell value, 1–100 (OccupancyGrid 0–100; for
+  `encoding: costmap` rows it is `cost × 100 / 254`, so lethal 254 → 100).
+  Stops may be listed in any order; values are clamped to 0–100.
+- Colour and alpha (optional, default 1.0) interpolate linearly between
+  stops. Cells below the first stop or above the last are transparent, so a
+  ramp starting at `value: 50` hides low costs. Free (0) and unknown cells
+  are always transparent.
+- Colours are linear RGB like every other palette entry — "dark" in linear
+  terms is much lower than it looks (0.1 already reads as a dark tone).
+- A theme without the block gets the pre-ramp look: ground → `alert.warning`.
+- Pick ramps that contrast with the theme's ground: light on `dark_adas`,
+  dark on `light_clay` (`ThemeOgmRamp.RampsContrastWithTheirThemeGround`
+  enforces this for the shipped themes).
+
