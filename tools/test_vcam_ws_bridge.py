@@ -561,3 +561,50 @@ def test_gui_and_bridge_environment_preset_tables_agree():
     assert "clipped" not in ENVIRONMENT_PRESET_URIS_FIXED
     assert "clipped" not in ENVIRONMENT_PRESET_URIS
     assert ENVIRONMENT_PRESET_URIS_FIXED == ENVIRONMENT_PRESET_URIS
+
+
+@pytest.mark.skipif(not os.path.isdir(INSTALL_DIR), reason="ros/install not built")
+def test_node_subscribes_ogm_row_without_update_topic(tmp_path):
+    """A grid-only OccupancyGrid row (real Nav2 costmaps publish no _updates
+    topic) must still get a subscription; the node used to skip it silently."""
+    pytest.importorskip("rclpy")
+    import shutil
+    cfg = os.path.join(REPO_ROOT, "ros", "src", "overlume_ros", "config")
+    shutil.copy(os.path.join(cfg, "class_inference.yaml"), tmp_path / "class_inference.yaml")
+    (tmp_path / "gridonly_profile.yaml").write_text(
+        "name: gridonly\nrows:\n"
+        "  - {topic: /e2e/grid_only_costmap, type: nav_msgs/msg/OccupancyGrid,"
+        " adapter: ogm, role: dynamic_ogm, encoding: costmap}\n")
+    domain = "91"
+    env_prefix = (f"export ROS_DOMAIN_ID={domain} && source /opt/ros/humble/setup.bash && "
+                  f"source {INSTALL_DIR}/setup.bash && ")
+    node = _popen(env_prefix +
+                  "ros2 run overlume_ros overlume_node --ros-args "
+                  f"-p out_width:={E2E_OUT_W} -p out_height:={E2E_OUT_H} "
+                  f"-p profile:=gridonly -p profile_dir:={tmp_path}")
+    try:
+        assert _wait_running(node, timeout=6.0), (
+            f"overlume_node exited early:\n{node.stderr.read().decode(errors='replace')[-2000:]}")
+        configured = False
+        for _ in range(20):
+            r = subprocess.run(["bash", "-c", env_prefix +
+                                "ros2 lifecycle set /overlume_node configure"],
+                               capture_output=True, text=True, timeout=15.0)
+            if r.returncode == 0:
+                configured = True
+                break
+            time.sleep(0.5)
+        assert configured, "overlume_node never accepted configure"
+        count = ""
+        for _ in range(20):
+            info = subprocess.run(["bash", "-c", env_prefix +
+                                   "ros2 topic info /e2e/grid_only_costmap"],
+                                  capture_output=True, text=True, timeout=15.0).stdout
+            count = next((l.split(":")[1].strip() for l in info.splitlines()
+                          if l.startswith("Subscription count")), "")
+            if count and count != "0":
+                break
+            time.sleep(0.5)
+        assert count == "1", f"expected one subscriber on the grid-only OGM topic, got {count!r}"
+    finally:
+        _kill(node)

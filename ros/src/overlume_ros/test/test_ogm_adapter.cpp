@@ -209,3 +209,49 @@ TEST(OgmAdapter, OneRowYieldsTwoSubscriptionsAndOneAdapter) {
     ASSERT_EQ(asm_.grids.size(), 1u) << "one adapter, one GroundGridLayer, fed by both overloads";
     EXPECT_EQ(a.stats().msgs, 2u) << "stats().msgs counts BOTH overloads' accepted messages";
 }
+
+TEST(OgmAdapter, CostmapEncodingDecodesNav2CostsInsteadOfDroppingThem) {
+    auto msg = overlume::ros::testing::load_occupancy_grid("ogm_synthetic.yaml");
+    msg.data = {0,
+                1,
+                static_cast<int8_t>(127),
+                static_cast<int8_t>(-3),
+                static_cast<int8_t>(-2),
+                static_cast<int8_t>(-1)};
+    msg.info.width = 6;
+    msg.info.height = 1;
+    TfFixture kTf;
+    auto row = overlume::ros::testing::urban_row("/perception/dynamic_ogm");
+    row.encoding = "costmap";
+    overlume::ros::OgmAdapter a(row, kTf.tf);
+    a.ingest(msg, 1.0);
+
+    SceneAssembly asm_;
+    a.fill(asm_);
+    const overlume::GroundGridLayer* g = OnlyGrid(asm_);
+    ASSERT_NE(g, nullptr);
+    EXPECT_EQ(g->cells[0], 0u) << "cost 0 is free";
+    EXPECT_EQ(g->cells[1], 0u) << "cost 1 rounds to ~0";
+    EXPECT_EQ(g->cells[2], 50u) << "cost 127 is half-way";
+    EXPECT_EQ(g->cells[3], 100u) << "cost 253 (inscribed, int8 -3) renders as occupied";
+    EXPECT_EQ(g->cells[4], 100u) << "cost 254 (lethal, int8 -2) renders as occupied";
+    EXPECT_EQ(g->cells[5], overlume::ros::kUnknownCell) << "cost 255 is no-information";
+    EXPECT_EQ(a.stats().dropped_malformed, 0u) << "costmap values are never malformed";
+}
+
+TEST(OgmAdapter, DefaultOccupancyEncodingStillRejectsCostmapValues) {
+    auto msg = overlume::ros::testing::load_occupancy_grid("ogm_synthetic.yaml");
+    msg.data = {static_cast<int8_t>(-2)};
+    msg.info.width = 1;
+    msg.info.height = 1;
+    TfFixture kTf;
+    overlume::ros::OgmAdapter a(overlume::ros::testing::urban_row("/perception/dynamic_ogm"),
+                                kTf.tf);
+    a.ingest(msg, 1.0);
+    SceneAssembly asm_;
+    a.fill(asm_);
+    const overlume::GroundGridLayer* g = OnlyGrid(asm_);
+    ASSERT_NE(g, nullptr);
+    EXPECT_EQ(g->cells[0], overlume::ros::kUnknownCell);
+    EXPECT_EQ(a.stats().dropped_malformed, 1u);
+}

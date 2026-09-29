@@ -81,7 +81,9 @@ void PointCloudAdapter::ingest(const sensor_msgs::msg::PointCloud2& msg, double 
     }
 
     tf2::Transform xform;
-    if (!tf_.lookup(msg.header, xform)) {
+    std_msgs::msg::Header header = msg.header;
+    if (!row_.frame_id.empty()) header.frame_id = row_.frame_id;
+    if (!tf_.lookup(header, xform)) {
         ++stats_.dropped_no_tf;
         return;
     }

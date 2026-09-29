@@ -45,6 +45,9 @@ struct ProfileRow {
     uint32_t stride{1};
 
     double min_z_m{std::numeric_limits<double>::quiet_NaN()};
+
+    std::string frame_id;
+    std::string encoding{"occupancy"};
 };
 
 struct Profile {

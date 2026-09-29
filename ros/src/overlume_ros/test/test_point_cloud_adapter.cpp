@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <gtest/gtest.h>
 #include <rclcpp/clock.hpp>
 #include <tf2_ros/buffer.h>
@@ -430,3 +431,41 @@ void RenderGoldenAndAssert(const std::string& tier_name, const std::string& extr
 TEST(PointCloudGolden, RgbTier_DarkAdas) { RenderGoldenAndAssert("rgb", "rgb"); }
 TEST(PointCloudGolden, IntensityTier_DarkAdas) { RenderGoldenAndAssert("intensity", "intensity"); }
 TEST(PointCloudGolden, HeightTier_DarkAdas) { RenderGoldenAndAssert("height", ""); }
+
+TEST(PointCloudAdapter, FrameIdOverrideReplacesAMislabelledHeaderFrame) {
+    std::vector<SyntheticPoint> pts = {{2.0f, 1.0f, 0.5f, 0.0f}};
+    auto msg = BuildCloud(pts, "");
+    msg.header.frame_id = "base_link";
+    TfFixture kTf;
+    geometry_msgs::msg::TransformStamped lidar;
+    lidar.header.frame_id = "map";
+    lidar.child_frame_id = "seyond";
+    lidar.transform.rotation.z = 1.0;
+    lidar.transform.rotation.w = 0.0;
+    kTf.buffer.setTransform(lidar, "test", true);
+    geometry_msgs::msg::TransformStamped base;
+    base.header.frame_id = "map";
+    base.child_frame_id = "base_link";
+    base.transform.rotation.w = 1.0;
+    kTf.buffer.setTransform(base, "test", true);
+
+    auto labelled = MakeRow();
+    overlume::ros::PointCloudAdapter plain(labelled, kTf.tf);
+    plain.ingest(msg, 1.0);
+    SceneAssembly a1;
+    plain.fill(a1);
+    ASSERT_NE(OnlyCloud(a1), nullptr);
+    EXPECT_NEAR(OnlyCloud(a1)->points[0].position.x, 2.0, 1e-6) << "trusts the header frame";
+
+    auto overridden = MakeRow();
+    overridden.frame_id = "seyond";
+    overlume::ros::PointCloudAdapter fixed(overridden, kTf.tf);
+    fixed.ingest(msg, 1.0);
+    SceneAssembly a2;
+    fixed.fill(a2);
+    const overlume::PointCloud* pc = OnlyCloud(a2);
+    ASSERT_NE(pc, nullptr);
+    EXPECT_NEAR(pc->points[0].position.x, -2.0, 1e-6)
+        << "frame_id: seyond must apply the 180-degree seyond transform, not base_link's";
+    EXPECT_NEAR(pc->points[0].position.y, -1.0, 1e-6);
+}

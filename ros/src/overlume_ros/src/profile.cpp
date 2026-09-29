@@ -83,7 +83,8 @@ const std::set<std::string>& KnownRowKeys() {
                                                 "ns_default",   "transient_local",
                                                 "best_effort",  "junction_interior_boundaries",
                                                 "color_mode",   "max_points",
-                                                "stride",       "min_z_m"};
+                                                "stride",       "min_z_m",
+                                                "frame_id",     "encoding"};
     return kKeys;
 }
 
@@ -159,6 +160,30 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
             ok = false;
         } else {
             out.min_z_m = node["min_z_m"].as<double>();
+        }
+    }
+
+    if (node["frame_id"]) {
+        if (out.adapter != "point_cloud" && out.adapter != "ogm") {
+            errors.push_back(RowTag(file, idx, out.topic) +
+                             "frame_id is only valid on adapter: point_cloud or ogm rows");
+            ok = false;
+        } else {
+            out.frame_id = node["frame_id"].as<std::string>();
+        }
+    }
+    if (node["encoding"]) {
+        const std::string enc = node["encoding"].as<std::string>();
+        if (out.adapter != "ogm") {
+            errors.push_back(RowTag(file, idx, out.topic) +
+                             "encoding is only valid on adapter: ogm rows");
+            ok = false;
+        } else if (enc != "occupancy" && enc != "costmap") {
+            errors.push_back(RowTag(file, idx, out.topic) + "encoding '" + enc +
+                             "' must be one of occupancy|costmap");
+            ok = false;
+        } else {
+            out.encoding = enc;
         }
     }
 

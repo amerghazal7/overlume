@@ -27,6 +27,16 @@ uint8_t ConvertCell(int8_t v, bool& malformed) {
     return kUnknownCell;
 }
 
+uint8_t ConvertCostmapCell(int8_t v) {
+    const auto cost = static_cast<uint8_t>(v);
+    if (cost == 255) return kUnknownCell;
+    return static_cast<uint8_t>(std::lround(cost * 100.0 / 254.0));
+}
+
+uint8_t ConvertCellFor(const std::string& encoding, int8_t v, bool& malformed) {
+    return encoding == "costmap" ? ConvertCostmapCell(v) : ConvertCell(v, malformed);
+}
+
 }
 
 OgmAdapter::OgmAdapter(const ProfileRow& row, const overlume::ros::FrameTransformer& tf)
@@ -45,7 +55,9 @@ void OgmAdapter::ingest(const nav_msgs::msg::OccupancyGrid& msg, double sim_time
     }
 
     tf2::Transform xform;
-    if (!tf_.lookup(msg.header, xform)) {
+    std_msgs::msg::Header header = msg.header;
+    if (!row_.frame_id.empty()) header.frame_id = row_.frame_id;
+    if (!tf_.lookup(header, xform)) {
         ++stats_.dropped_no_tf;
         return;
     }
@@ -59,7 +71,7 @@ void OgmAdapter::ingest(const nav_msgs::msg::OccupancyGrid& msg, double sim_time
     std::vector<uint8_t> next(msg.data.size());
     bool malformed = false;
     for (size_t i = 0; i < msg.data.size(); ++i) {
-        next[i] = ConvertCell(msg.data[i], malformed);
+        next[i] = ConvertCellFor(row_.encoding, msg.data[i], malformed);
     }
     if (malformed) ++stats_.dropped_malformed;
 
@@ -108,7 +120,8 @@ void OgmAdapter::ingest_update(const map_msgs::msg::OccupancyGridUpdate& msg, do
         const uint32_t destRowStart = (y0 + row) * width_cells_ + x0;
         const uint32_t srcRowStart = row * msg.width;
         for (uint32_t col = 0; col < msg.width; ++col) {
-            cells_[destRowStart + col] = ConvertCell(msg.data[srcRowStart + col], malformed);
+            cells_[destRowStart + col] =
+                ConvertCellFor(row_.encoding, msg.data[srcRowStart + col], malformed);
         }
     }
     if (malformed) ++stats_.dropped_malformed;

@@ -57,6 +57,8 @@ all keys `KnownRowKeys()` recognizes (profile.cpp:93–101):
 | `max_points` | no | `0` | **`adapter: point_cloud` only** — rejected elsewhere (profile.cpp:164–172); `0` = no cap |
 | `stride` | no | `1` | **`adapter: point_cloud` only** — rejected elsewhere (profile.cpp:173–181); must be `>= 1` |
 | `min_z_m` | no | `NaN` (filter off) | **`adapter: point_cloud` only** — rejected elsewhere; finite = drop points whose map-frame z is `< min_z_m`. Road plane is z=0; `0.2` (shipped on `urban`/`replay`) removes ground returns and lane-marking z-fight while keeping curbs/poles/pedestrians |
+| `frame_id` | no | the message header's frame | **`adapter: point_cloud` / `ogm` only** — TF-lookup frame that replaces a mislabelled `header.frame_id`. The M02P lidar driver stamps `/iv_points_fusion` as `base_link` while its points are still in the 180°-yawed lidar mount, so `robot-offroad` sets `frame_id: seyond` (a `base_link→seyond` TF must exist) |
+| `encoding` | no | `occupancy` | **`adapter: ogm` only** — `occupancy` is `nav_msgs/OccupancyGrid` semantics (−1 unknown, 0–100; anything else counted malformed and hidden); `costmap` decodes Nav2 uint8 costs carried in the int8 array (0 free, 1–252 graded, 253/254 inscribed/lethal → occupied, 255 unknown) |
 
 Row defaults come straight from the `ProfileRow` struct
 (`profile.hpp:45–89`).

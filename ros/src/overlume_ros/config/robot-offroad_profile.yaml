@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
+name: robot-offroad
+rows:
+  - {topic: /perception/dynamic_objects_list, type: visualization_msgs/msg/MarkerArray,
+     adapter: dynamic_objects, role: tracked, timeout_sec: 2.0,
+     ns_default: drop,
+     namespaces: [
+       {prefix: dynamic_objects_bbox,              render: polyline},
+       {prefix: dynamic_objects_text,               render: polyline},
+       {prefix: dynamic_objects_arrow,              render: polyline},
+       {prefix: dynamic_objects_hd_map_path,        render: polyline},
+       {prefix: dynamic_objects_hd_map_path_dots,   render: drop}]}
+
+  - {topic: /behavior_path_planner/output_path_visualization, type: nav_msgs/msg/Path,
+     adapter: path, role: behavior, timeout_sec: 2.0}
+  - {topic: /local_vel_path, type: nav_msgs/msg/Path, adapter: path, role: local}
+  - {topic: /navigation/global_path, type: nav_msgs/msg/Path, adapter: path, role: global}
+  - {topic: /local_path, type: nav_msgs/msg/Path, adapter: path, role: local}
+
+  - {topic: /perception/dynamic_costmap, type: nav_msgs/msg/OccupancyGrid,
+     adapter: ogm, role: dynamic_ogm, encoding: costmap, best_effort: true}
+  - {topic: /perception/geometric_costmap, type: nav_msgs/msg/OccupancyGrid,
+     adapter: ogm, role: gradient_ogm, encoding: costmap, best_effort: true}
+
+  - {topic: /behavior_path_planner/collision_markers,
+     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: collision}
+  - {topic: /navigation_motion_obstacle_planner_node/collision_markers,
+     type: visualization_msgs/msg/MarkerArray, adapter: collision, role: predicted}
+
+  - {topic: /iv_points_fusion, type: sensor_msgs/msg/PointCloud2,
+     adapter: point_cloud, role: points, frame_id: seyond, color_mode: auto, max_points: 60000,
+     stride: 2, best_effort: true, timeout_sec: 2.0, min_z_m: 0.35}
+
+  - {topic: /navigation_motion_obstacle_planner_node/output_trajectory_carpet, best_effort: true,
+     type: visualization_msgs/msg/MarkerArray, adapter: trajectory_carpet,
+     role: carpet, timeout_sec: 2.0}
