@@ -8,7 +8,7 @@ palette:
   ribbon_glow: [0.125, 0.313, 0.905]
   ribbon_global: [0.40, 0.50, 0.68]
   ribbon_local:  [0.72, 0.58, 0.36]
-  ego: [0.82, 0.80, 0.76]
+  ego: [0.22, 0.22, 0.23]
   road: [0.300, 0.350, 0.600]
   lane_centerline: [0.455, 0.493, 0.675]
   lane_boundary: [0.92, 0.92, 0.90]
