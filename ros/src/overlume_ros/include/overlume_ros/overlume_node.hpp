@@ -277,6 +277,9 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
     std::mutex cloud_mtx_;
     std::vector<overlume::Vec3> cloud_pts_rig_;
+    double cloud_stamp_{0.0};   // header stamp of cloud_pts_rig_ (cloud_mtx_)
+    double cloud_rx_sec_{0.0};  // sim_clock_sec_ at receipt (cloud_mtx_)
+    bool hybrid_row_suppressed_{false};
 
     rclcpp::TimerBase::SharedPtr timer_;
 };

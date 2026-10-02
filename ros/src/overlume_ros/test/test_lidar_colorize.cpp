@@ -3,6 +3,7 @@
 
 #include "overlume_ros/lidar_colorize.hpp"
 
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -10,6 +11,7 @@
 
 namespace {
 using overlume::ros::ColorizeFromCameras;
+using overlume::ros::CompensateCloud;
 using overlume::CameraExtrinsics;
 using overlume::CameraIntrinsics;
 
@@ -59,9 +61,9 @@ TEST(LidarColorize, PointInSingleCameraFovGetsThatCamerasColor) {
     ASSERT_EQ(out.size(), 1u);
     uint8_t r, g, b, a;
     Unpack(out[0].rgba, r, g, b, a);
-    EXPECT_EQ(r, 1);
-    EXPECT_EQ(g, 2);
-    EXPECT_EQ(b, 3);
+    EXPECT_EQ(r, 10);  // raw sRGB bytes; the splat material decodes (no CPU LUT)
+    EXPECT_EQ(g, 20);
+    EXPECT_EQ(b, 30);
     EXPECT_EQ(a, 255);
     EXPECT_DOUBLE_EQ(out[0].position.x, 0.0);
     EXPECT_DOUBLE_EQ(out[0].position.y, 0.0);
@@ -117,9 +119,9 @@ TEST(LidarColorize, PointVisibleToTwoCamerasPicksFirstConfiguredMatch) {
     ASSERT_EQ(out.size(), 1u);
     uint8_t r, g, b, a;
     Unpack(out[0].rgba, r, g, b, a);
-    EXPECT_EQ(r, 41);
-    EXPECT_EQ(g, 41);
-    EXPECT_EQ(b, 42);
+    EXPECT_EQ(r, 111);
+    EXPECT_EQ(g, 112);
+    EXPECT_EQ(b, 113);
 }
 
 TEST(LidarColorize, NullBufferForACoveringCameraFallsThroughToTheNextOne) {
@@ -148,7 +150,30 @@ TEST(LidarColorize, NullBufferForACoveringCameraFallsThroughToTheNextOne) {
     ASSERT_EQ(out.size(), 1u);
     uint8_t r, g, b, a;
     Unpack(out[0].rgba, r, g, b, a);
-    EXPECT_EQ(r, 1);
-    EXPECT_EQ(g, 1);
-    EXPECT_EQ(b, 1);
+    EXPECT_EQ(r, 7);
+    EXPECT_EQ(g, 8);
+    EXPECT_EQ(b, 9);
+}
+
+TEST(CompensateCloud, ForwardTranslationMovesPointsBack) {
+    std::vector<overlume::Vec3> pts{{5, 0, 1}};
+    CompensateCloud(pts, 0.0, 1.0, 0.0);
+    EXPECT_NEAR(pts[0].x, 4.0, 1e-12);
+    EXPECT_NEAR(pts[0].y, 0.0, 1e-12);
+    EXPECT_DOUBLE_EQ(pts[0].z, 1.0);
+}
+
+TEST(CompensateCloud, YawRotatesByRdTranspose) {
+    std::vector<overlume::Vec3> pts{{5, 0, 1}};
+    CompensateCloud(pts, M_PI / 2, 0.0, 0.0);
+    EXPECT_NEAR(pts[0].x, 0.0, 1e-12);
+    EXPECT_NEAR(pts[0].y, -5.0, 1e-12);
+    EXPECT_DOUBLE_EQ(pts[0].z, 1.0);
+}
+
+TEST(CompensateCloud, IdentityWhenZero) {
+    std::vector<overlume::Vec3> pts{{5, -2, 1}};
+    CompensateCloud(pts, 0.0, 0.0, 0.0);
+    EXPECT_DOUBLE_EQ(pts[0].x, 5.0);
+    EXPECT_DOUBLE_EQ(pts[0].y, -2.0);
 }
