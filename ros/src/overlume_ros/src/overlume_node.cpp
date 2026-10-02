@@ -391,7 +391,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
         }
         for (int i = 0; i < 12; ++i) pointcloud_tf_[i] = static_cast<float>(pc_tf[i]);
     }
-    declare_parameter<int>("splat_radius", 2);
+    splat_radius_ = static_cast<int>(declare_parameter<int>("splat_radius", 3));
     if (hybrid_enabled_ && !pointcloud_topic_.empty()) {
         cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
             pointcloud_topic_, rclcpp::SensorDataQoS(),
@@ -873,6 +873,14 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                         RCLCPP_WARN(get_logger(), "%s", res.reason.c_str());
                     }
                 }
+            } else if (n == "splat_radius") {
+                const int v = static_cast<int>(p.as_int());
+                if (v < 0 || v > 30) {
+                    res.successful = false;
+                    res.reason = "splat_radius must be in [0, 30]";
+                } else {
+                    splat_radius_ = v;
+                }
             } else if (n == "bowl_R0") {
                 bowl_R0_ = p.as_double();
                 bowl_config_dirty_ = true;
@@ -1111,6 +1119,17 @@ void OverlumeNode::timer_callback() {
     if (camera_ingest_)
         camera_ingest_->set_hybrid_enabled(hybrid_enabled_ && hybrid_cloud_consumed());
 
+    // Re-evaluated every tick, so one site covers configure and every live switch.
+    hybrid_starved_reason_ =
+        overlume::ros::HybridStarvedReason(hybrid_cloud_consumed(), hybrid_enabled_, cloud_sub_ != nullptr);
+    if (!hybrid_starved_reason_.empty()) {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                             "hybrid: render_mode=%d/profile=%s consumes a lidar cloud but %s -- "
+                             "splats will not render",
+                             render_mode_, surround_stitching_profile_.c_str(),
+                             hybrid_starved_reason_.c_str());
+    }
+
     if (render_mode == RenderMode::HYBRID) scene_asm_.point_clouds.clear();
 
     std::vector<overlume::PointCloudPoint> hybrid_points;
@@ -1348,6 +1367,7 @@ void OverlumeNode::publish_diagnostics() {
     for (const auto& cr : carpet_rows_) append_row(cr.topic, cr.adapter->stats(), cr.timeout_sec);
 
     auto msg = overlume::ros::BuildDiagnostics(rows, render_ms_);
+    msg.status.push_back(overlume::ros::BuildHybridStatus(hybrid_starved_reason_));
     msg.header.stamp = now();
     pub_diagnostics_->publish(msg);
 }

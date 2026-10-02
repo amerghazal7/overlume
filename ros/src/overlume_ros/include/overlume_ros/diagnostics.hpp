@@ -22,4 +22,10 @@ struct RowStats {
 diagnostic_msgs::msg::DiagnosticArray BuildDiagnostics(const std::vector<RowStats>& rows,
                                                        double render_ms);
 
+// Empty string == healthy. Otherwise names the param the operator must set.
+std::string HybridStarvedReason(bool cloud_consumed, bool hybrid_enabled, bool has_cloud_sub);
+
+// name "hybrid"; ERROR + message=reason when non-empty, OK "ok" otherwise.
+diagnostic_msgs::msg::DiagnosticStatus BuildHybridStatus(const std::string& starved_reason);
+
 }

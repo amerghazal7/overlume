@@ -60,4 +60,20 @@ diagnostic_msgs::msg::DiagnosticArray BuildDiagnostics(const std::vector<RowStat
     return msg;
 }
 
+std::string HybridStarvedReason(bool cloud_consumed, bool hybrid_enabled, bool has_cloud_sub) {
+    if (!cloud_consumed) return "";
+    if (!hybrid_enabled) return "hybrid_enabled is false";
+    if (!has_cloud_sub) return "pointcloud_topic is empty -- set pointcloud_topic and reconfigure";
+    return "";
+}
+
+diagnostic_msgs::msg::DiagnosticStatus BuildHybridStatus(const std::string& starved_reason) {
+    diagnostic_msgs::msg::DiagnosticStatus st;
+    st.name = "hybrid";
+    st.level = starved_reason.empty() ? diagnostic_msgs::msg::DiagnosticStatus::OK
+                                      : diagnostic_msgs::msg::DiagnosticStatus::ERROR;
+    st.message = starved_reason.empty() ? "ok" : starved_reason;
+    return st;
+}
+
 }

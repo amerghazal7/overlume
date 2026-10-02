@@ -269,6 +269,9 @@ private:
     std::unique_ptr<CameraIngest> camera_ingest_;
 
     bool hybrid_enabled_{false};
+    int splat_radius_{3};
+    std::string hybrid_starved_reason_;
+    float hybrid_splat_px() const { return 2.0f * splat_radius_ + 1.0f; }
     std::string pointcloud_topic_;
     float pointcloud_tf_[12]{1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;

@@ -166,7 +166,7 @@
     - 1.314
     self_view_masks: false
     hybrid_enabled: true
-    pointcloud_topic: ""
+    pointcloud_topic: "/iv_points_fusion"
     pointcloud_transform:
     - 1.0
     - 0.0
@@ -180,4 +180,4 @@
     - 0.0
     - 0.0
     - 1.15
-    splat_radius: 2
+    splat_radius: 3

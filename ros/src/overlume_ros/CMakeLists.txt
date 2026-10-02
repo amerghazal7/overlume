@@ -289,6 +289,11 @@ if(BUILD_TESTING)
     COMMAND bash "${OVERLUME_DIR}/scripts/check_pod_header.sh"
     GENERATE_RESULT_FOR_RETURN_CODE_ZERO)
 
+  ament_add_test(test_default_params_hybrid
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_default_params_hybrid.py"
+      "${CMAKE_CURRENT_SOURCE_DIR}/config/default_params.yaml"
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO)
+
   add_library(overlume_node_test_paths INTERFACE)
   target_compile_definitions(overlume_node_test_paths INTERFACE
     TEST_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config"
