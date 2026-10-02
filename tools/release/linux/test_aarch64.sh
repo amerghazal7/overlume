@@ -10,6 +10,8 @@
 #   docker run --rm -v "$PWD":/src -w /src almalinux:8 bash tools/release/linux/test_aarch64.sh
 set -euo pipefail
 
+# Must match ARG CMAKE_VERSION in Dockerfile: the cross build bakes /usr/local/share/cmake-3.30/...
+# GoogleTestAddTests.cmake paths into the bundle's ctest include files.
 CMAKE_VERSION=3.30.5
 CMAKE_AARCH64_SHA256=da7dead2c92c1747b40d506d7f7d68590f5bab175316d2e7af73e48a2e417e48
 build=/src/overlume/build-release-aarch64
@@ -34,5 +36,5 @@ for tgz in /src/out/overlume-*-linux-aarch64.tar.gz; do
 done
 # FiftyObjectsSceneUpdateUnderTwoMilliseconds is a wall-clock budget that
 # llvmpipe cannot meet (docs/status.md, known gap 11).
-ctest --test-dir "$build" -L cpu --output-on-failure \
+ctest --test-dir "$build" -L cpu --no-tests=error --output-on-failure \
       -E FiftyObjectsSceneUpdateUnderTwoMilliseconds
