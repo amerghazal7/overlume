@@ -31,7 +31,7 @@ RUN dnf -y install dnf-plugins-core epel-release \
       ncurses-compat-libs \
       mesa-libEGL-devel mesa-libGL-devel mesa-libGLU-devel mesa-dri-drivers \
       libX11-devel libXi-devel libXext-devel libXrandr-devel libXxf86vm-devel libXcomposite-devel \
-      rpm-build dpkg dpkg-dev \
+      rpm-build rpm-sign dpkg dpkg-dev \
  && dnf clean all
 RUN alternatives --set python3 /usr/bin/python3.11 \
  && ln -s /usr/bin/ninja-build /usr/local/bin/ninja

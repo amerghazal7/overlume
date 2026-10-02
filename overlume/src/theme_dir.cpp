@@ -19,9 +19,12 @@ std::string resolve_default_theme_dir(const std::string& module_path,
     namespace fs = std::filesystem;
     if (!module_path.empty()) {
         std::error_code ec;
+        // Resolve symlinks first: on merged-/usr systems the loader reports
+        // /lib/liboverlume.so.0 for a library installed in /usr/lib.
+        fs::path mod = fs::weakly_canonical(module_path, ec);
+        if (ec) mod = module_path;
         const fs::path dir =
-            (fs::path(module_path).parent_path() / ".." / "share" / "overlume" / "themes")
-                .lexically_normal();
+            (mod.parent_path() / ".." / "share" / "overlume" / "themes").lexically_normal();
         if (fs::is_directory(dir, ec)) {
             for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
                 if (it->path().extension() == ".yaml") return dir.string();
@@ -34,9 +37,9 @@ std::string resolve_default_theme_dir(const std::string& module_path,
 std::string current_module_path() {
 #ifdef _WIN32
     HMODULE mod = nullptr;
-    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                            reinterpret_cast<LPCWSTR>(&current_module_path), &mod))
+    if (!GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(&current_module_path), &mod))
         return "";
     wchar_t buf[MAX_PATH * 4];
     const DWORD n = GetModuleFileNameW(mod, buf, static_cast<DWORD>(sizeof(buf) / sizeof(buf[0])));

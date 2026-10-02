@@ -50,7 +50,7 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/overlumeConfig.cmake"
               "${CMAKE_CURRENT_BINARY_DIR}/overlumeConfigVersion.cmake"
         DESTINATION ${_ovl_cmake_dir} COMPONENT overlume)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/overlume.pc"
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig COMPONENT overlume)
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/pkgconfig COMPONENT overlume)
 
 # ---- static component -------------------------------------------------------
 # Walk the static link line (same graph a consumer of in-tree `overlume` gets)
@@ -140,8 +140,8 @@ function(_overlume_collect_static_deps _out_files _out_libs)
                     list(APPEND _queue ${_deps})
                 endif()
             endforeach()
-        elseif(_cur MATCHES "^-l")
-            list(APPEND _libs "${_cur}")
+        elseif(_cur MATCHES "^-[A-Za-z]")
+            list(APPEND _libs "${_cur}")  # -lfoo, -pthread, ...
         elseif(_cur MATCHES "\\.a$")
             if(NOT _cur STREQUAL _libcxx_a AND NOT _cur STREQUAL _libcxxabi_a
                AND NOT _cur STREQUAL _libunwind_a)
