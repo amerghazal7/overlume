@@ -364,6 +364,14 @@ from the Dockerfile with `/opt/llvm` = LLVM 18.1.8.
   change**; `objdump -T liboverlume.so.0 | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1`
   ≤ `GLIBC_2.28` (this is the runnable check that fails if the build ever
   slips to a newer glibc). Record build times.
+  **Step 5 result (2026-10-02, fresh `HOME`, repo mounted read-only, x86_64
+  image, 32 cores):** Filament 1.56.5 source build ~76 s; cesium/vcpkg
+  ~4.5 min (configure total 365 s); overlume build 40 s; full `ctest` 210 s:
+  294/295 pass (cpu 285 + gpu 10 labels, goldens included, no golden change
+  possible on the read-only mount), 6 skipped (network/capture tests).
+  The one failure, `Objects.FiftyObjectsSceneUpdateUnderTwoMilliseconds`, is
+  deterministic (12.5 ms vs 2 ms budget, llvmpipe) and recorded as known gap
+  11 in `docs/status.md`. glibc floor: `GLIBC_2.28`.
 - [ ] **Step 6:** dev gate green on the host. **Commit**
   `feat(build): Alma 8 release toolchain, Filament source build, glibc 2.28 floor`.
 

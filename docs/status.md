@@ -132,6 +132,14 @@ accepts" list:
    `WARN_AS_ERROR`) was turned off and `EXTRACT_ALL` on — the published
    API docs are now a bare symbol listing.
 10. **Real-robot bag 2026-09-28 (`~/amer_bag`) has recorder blackouts.** Every topic — including 50 Hz odometry and `/tf` — goes silent together for up to ~9.5 s; ~60 % of the 282 s recording lies in gaps > 0.5 s (likely the recorder stalling on ~130 MB/s of six raw bgr8 cameras into sqlite3). The renderer's 0.5–1.0 s stale fade therefore pulses every layer in and out during replay; that is the data, not a rendering fault. Next recordings: mcap storage and/or compressed or fewer camera topics.
+11. **`Objects.FiftyObjectsSceneUpdateUnderTwoMilliseconds` fails in the Alma 8
+    release container (2026-10-02).** Deterministic, not flaky: median
+    `render_frame` is ~12.5 ms (budget 2 ms) on Mesa 23.1.4 llvmpipe
+    (LLVM 17, EGL surfaceless) versus under 2 ms on the dev host's GL stack;
+    the budget measures the GL implementation, not the scene update. The
+    other 294 tests (cpu + gpu + golden) pass in the container with no
+    golden change. Tasks 3+ must either run the container ctest with
+    `-E FiftyObjects` or loosen the budget under software GL.
 
 ## How to update this file
 

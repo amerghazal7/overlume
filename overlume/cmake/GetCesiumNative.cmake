@@ -8,8 +8,13 @@ set(CESIUM_NATIVE_SHA256
     "f3629345db4cb7412380cc31dea502aeb9e2eca75129ccbc04b7628970031c11")
 
 set(VCPKG_OVERLAY_TRIPLETS "${CMAKE_CURRENT_LIST_DIR}/vcpkg-triplets" CACHE STRING "" FORCE)
-set(VCPKG_TARGET_TRIPLET "x64-linux-clang-libcxx" CACHE STRING "" FORCE)
-set(VCPKG_HOST_TRIPLET "x64-linux-clang-libcxx" CACHE STRING "" FORCE)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    set(_overlume_cn_triplet "arm64-linux-clang-libcxx")
+else()
+    set(_overlume_cn_triplet "x64-linux-clang-libcxx")
+endif()
+set(VCPKG_TARGET_TRIPLET "${_overlume_cn_triplet}" CACHE STRING "" FORCE)
+set(VCPKG_HOST_TRIPLET "${_overlume_cn_triplet}" CACHE STRING "" FORCE)
 
 set(CESIUM_TESTS_ENABLED OFF CACHE BOOL "" FORCE)
 set(CESIUM_COVERAGE_ENABLED OFF CACHE BOOL "" FORCE)

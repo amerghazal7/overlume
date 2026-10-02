@@ -2,7 +2,7 @@
 # Copyright 2026 Amer Ghazal
 
 set(CMAKE_SYSTEM_NAME "Linux" CACHE STRING "")
-set(CMAKE_SYSTEM_PROCESSOR "x86_64" CACHE STRING "")
+set(CMAKE_SYSTEM_PROCESSOR "${CMAKE_HOST_SYSTEM_PROCESSOR}" CACHE STRING "")
 
 include("${CMAKE_CURRENT_LIST_DIR}/clang18-toolchain-common.cmake")
 set(_overlume_vcpkg_libdir1 "${_overlume_clang18_libdir1}")
