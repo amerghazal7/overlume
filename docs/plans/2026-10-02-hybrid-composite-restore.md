@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to work through this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 > **Execution model (AGENTS.md):** run this as a dynamic workflow. The orchestrator runs on the session model, implementers on Sonnet, review gates on Opus, with at most two fix rounds per task. The orchestrator applies any leftover minor fixes. Each task ends green on `tools/ci_visual_mode.sh`, run in the foreground, and is committed on its own.
 
-**Status: NOT STARTED.** Authored 2026-10-02 on branch `fix/hybrid-composite` (from `main` @ `c2e1feb`). Every path:line below was re-checked against that tree while writing. The Filament mechanism was chosen by running a spike and inspecting its rendered output (Decision 1). A second spike, after review, measured the splat colour pipeline and the ego-occlusion revert (Decision 1, *Re-spike*).
+**Status: DONE 2026-10-02** (tasks A, B1, B2, D each Opus-gated; see the ledger). Authored 2026-10-02 on branch `fix/hybrid-composite` (from `main` @ `c2e1feb`). Every path:line below was re-checked against that tree while writing. The Filament mechanism was chosen by running a spike and inspecting its rendered output (Decision 1). A second spike, after review, measured the splat colour pipeline and the ego-occlusion revert (Decision 1, *Re-spike*).
 
 ## User decision (the charter)
 
@@ -140,10 +140,10 @@ When odometry is absent (`default_params.yaml:81` sets `odom_topic: ""`), compen
 
 | Task | Status | Commit |
 |---|---|---|
-| A: node loud failure, `pointcloud_topic` default, `splat_radius` live | Not started | |
-| B1: library hybrid splat layer + `set_hybrid_splats` | Not started | |
-| B2: node feeds the layer, motion compensation, FREE_LOOK de-dup, pixel checks | Not started | |
-| D: docs, status, changelog, README caption, candidate capture | Not started | |
+| A: node loud failure, `pointcloud_topic` default, `splat_radius` live | Done 2026-10-02 | a83cd38 |
+| B1: library hybrid splat layer + `set_hybrid_splats` | Done 2026-10-02 | 579acef |
+| B2: node feeds the layer, motion compensation, FREE_LOOK de-dup, pixel checks | Done 2026-10-02 | d690a14 |
+| D: docs, status, changelog, README caption, candidate capture | Done 2026-10-02 | 41a720c |
 
 Order: **A → B1 → B2 → D.** A is independent of B1 and could run in parallel, but both touch `overlume_node.cpp`, so they run serially.
 
