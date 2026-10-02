@@ -15,7 +15,7 @@ list="$(mktemp)"; trap 'rm -f "$list"' EXIT
 {
     find "$build" -name CTestTestfile.cmake -o -name '*_tests.cmake' -o -name '*_include.cmake'
     # Top-level executables (tests, probes, tools) and the shared library.
-    find "$build" -maxdepth 1 -type f \( -perm -u+x -o -name 'liboverlume.so*' \)
+    find "$build" -maxdepth 1 \( -type f -perm -u+x -o -name 'liboverlume.so*' \)  # keeps soname symlinks
 } | LC_ALL=C sort -u > "$list"
 [ -s "$list" ] || { echo "FAIL: nothing to bundle under $build" >&2; exit 1; }
 tar -czf "$out" -T "$list"

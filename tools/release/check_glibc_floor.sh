@@ -8,6 +8,7 @@
 set -euo pipefail
 elf="${1:?usage: $0 <elf> [max-glibc]}"
 max="${2:-2.28}"
+[ -r "$elf" ] || { echo "FAIL glibc floor: cannot read $elf"; exit 1; }
 top="$("${OBJDUMP:-objdump}" -T "$elf" 2>/dev/null | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)"
 top="${top#GLIBC_}"
 if [[ -n "$top" && "$(printf '%s\n%s\n' "$top" "$max" | sort -V | tail -1)" != "$max" ]]; then
