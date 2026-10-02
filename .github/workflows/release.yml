@@ -128,6 +128,7 @@ jobs:
               ctest --test-dir overlume/build-release -L cpu --output-on-failure \
                     -E FiftyObjectsSceneUpdateUnderTwoMilliseconds
               cpack --config overlume/build-release/CPackConfig.cmake -B /src/overlume/build-release/pkg
+              tools/release/check_package_elf.sh overlume/build-release/pkg X86-64
             '
 
       - name: Sign rpm packages
@@ -226,7 +227,7 @@ jobs:
               tools/release/check_glibc_floor.sh "$b/liboverlume.so.0"
               overlume/scripts/check_shared_exports.sh /opt/llvm/bin/llvm-nm "$READELF" "$b/liboverlume.so.0"
               cpack --config "$b/CPackConfig.cmake" -B "/src/$b/pkg"
-              tools/release/check_package_elf.sh "$b"/pkg/overlume-*-linux-aarch64.tar.gz AArch64
+              tools/release/check_package_elf.sh "$b"/pkg AArch64
               tools/release/make_test_bundle.sh "$b" test-bundle/overlume-aarch64-tests.tar.gz
             '
 
