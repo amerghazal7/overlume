@@ -45,6 +45,17 @@ function(_overlume_fetch file_url file_sha out_path)
     file(RENAME "${out_path}.part" "${out_path}")
 endfunction()
 
+# One logged step of the source build; FATAL_ERROR names the log on failure.
+function(_overlume_fil_run step_name log)
+    execute_process(COMMAND ${ARGN}
+        RESULT_VARIABLE _rc OUTPUT_VARIABLE _out ERROR_VARIABLE _out)
+    file(APPEND "${log}" "=== ${step_name} ===\n${_out}\n")
+    if(NOT _rc EQUAL 0)
+        message(FATAL_ERROR "overlume: Filament source ${step_name} failed "
+                "(rc=${_rc}); see ${log}")
+    endif()
+endfunction()
+
 if(OVERLUME_FILAMENT_FROM_SOURCE)
     set(_fil_prefix "${CMAKE_BINARY_DIR}/_deps/filament-src-install")
     set(_fil_stamp "${_fil_prefix}/.overlume-filament-${FILAMENT_VERSION}.stamp")
@@ -78,20 +89,41 @@ if(OVERLUME_FILAMENT_FROM_SOURCE)
             -DFILAMENT_SKIP_SAMPLES=ON
             -DFILAMENT_SUPPORTS_VULKAN=OFF
             -DFILAMENT_ENABLE_JAVA=OFF)
+        set(_fil_host_tools OFF)
         if(CMAKE_TOOLCHAIN_FILE AND CMAKE_CROSSCOMPILING)
-            # Cross targets (Android, iOS, Windows arm64): forward the toolchain
-            # and ABI variables; matc must come from a host prebuilt.
+            # Cross targets (Linux aarch64, Android, iOS, Windows arm64): forward
+            # the toolchain and ABI variables. Filament's cross build includes
+            # ImportExecutables-Release.cmake from its source tree (written by a
+            # native build's configure) and needs a matc that runs on this host.
             list(APPEND _fil_args "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
             foreach(_v ANDROID_ABI ANDROID_PLATFORM ANDROID_STL CMAKE_SYSTEM_NAME
-                       CMAKE_OSX_ARCHITECTURES CMAKE_OSX_DEPLOYMENT_TARGET
+                       CMAKE_SYSTEM_PROCESSOR CMAKE_OSX_ARCHITECTURES CMAKE_OSX_DEPLOYMENT_TARGET
                        CMAKE_ANDROID_NDK CMAKE_SYSTEM_VERSION)
                 if(DEFINED ${_v})
                     list(APPEND _fil_args "-D${_v}=${${_v}}")
                 endif()
             endforeach()
             if(NOT FILAMENT_HOST_MATC)
-                message(FATAL_ERROR "overlume: cross-building Filament needs "
-                    "-DFILAMENT_HOST_MATC=<host matc> (from the host prebuilt SDK).")
+                # Build the host tools from the same source tree with the host
+                # toolchain (the release container's x86_64 LLVM).
+                if(NOT OVERLUME_FILAMENT_HOST_TOOLCHAIN AND OVERLUME_RELEASE_TRIPLE)
+                    set(OVERLUME_FILAMENT_HOST_TOOLCHAIN
+                        "${CMAKE_CURRENT_LIST_DIR}/toolchain-llvm-release.cmake")
+                endif()
+                if(NOT OVERLUME_FILAMENT_HOST_TOOLCHAIN)
+                    message(FATAL_ERROR "overlume: cross-building Filament needs "
+                        "-DFILAMENT_HOST_MATC=<host matc> or "
+                        "-DOVERLUME_FILAMENT_HOST_TOOLCHAIN=<toolchain file for the build host>.")
+                endif()
+                set(_fil_host_bld "${CMAKE_BINARY_DIR}/_deps/filament-host-build")
+                set(_fil_host_tools ON)
+                set(_fil_host_args
+                    -G Ninja
+                    -DCMAKE_BUILD_TYPE=Release
+                    -DCMAKE_TOOLCHAIN_FILE=${OVERLUME_FILAMENT_HOST_TOOLCHAIN}
+                    -DFILAMENT_SKIP_SAMPLES=ON
+                    -DFILAMENT_SUPPORTS_VULKAN=OFF
+                    -DFILAMENT_ENABLE_JAVA=OFF)
             endif()
         endif()
 
@@ -100,24 +132,26 @@ if(OVERLUME_FILAMENT_FROM_SOURCE)
         file(REMOVE "${_fil_log}")
         include(ProcessorCount)
         ProcessorCount(_fil_jobs)
-        foreach(_step
-                "configure;${CMAKE_COMMAND};-S;${_fil_src};-B;${_fil_bld};${_fil_args}"
-                "build;${CMAKE_COMMAND};--build;${_fil_bld};--target;install;-j;${_fil_jobs}")
-            list(POP_FRONT _step _step_name)
-            execute_process(COMMAND ${_step}
-                RESULT_VARIABLE _step_rc
-                OUTPUT_VARIABLE _step_out ERROR_VARIABLE _step_out)
-            file(APPEND "${_fil_log}" "=== ${_step_name} ===\n${_step_out}\n")
-            if(NOT _step_rc EQUAL 0)
-                message(FATAL_ERROR "overlume: Filament source ${_step_name} failed "
-                        "(rc=${_step_rc}); see ${_fil_log}")
-            endif()
-        endforeach()
+        if(_fil_host_tools)
+            _overlume_fil_run(host-configure "${_fil_log}"
+                ${CMAKE_COMMAND} -S ${_fil_src} -B ${_fil_host_bld} ${_fil_host_args})
+            _overlume_fil_run(host-build "${_fil_log}"
+                ${CMAKE_COMMAND} --build ${_fil_host_bld} --target
+                matc cmgen filamesh mipgen resgen uberz glslminifier)
+        endif()
+        _overlume_fil_run(configure "${_fil_log}"
+            ${CMAKE_COMMAND} -S ${_fil_src} -B ${_fil_bld} ${_fil_args})
+        _overlume_fil_run(build "${_fil_log}"
+            ${CMAKE_COMMAND} --build ${_fil_bld} --target install -j ${_fil_jobs})
         file(WRITE "${_fil_stamp}" "${FILAMENT_VERSION}\n")
     endif()
     set(FILAMENT_ROOT "${_fil_prefix}")
     if(NOT FILAMENT_HOST_MATC)
-        set(FILAMENT_HOST_MATC "${FILAMENT_ROOT}/bin/matc")
+        if(CMAKE_CROSSCOMPILING)
+            set(FILAMENT_HOST_MATC "${CMAKE_BINARY_DIR}/_deps/filament-host-build/tools/matc/matc")
+        else()
+            set(FILAMENT_HOST_MATC "${FILAMENT_ROOT}/bin/matc")
+        endif()
     endif()
 else()
     set(FILAMENT_FETCH_ROOT "${CMAKE_BINARY_DIR}/_deps/filament-${FILAMENT_VERSION}"

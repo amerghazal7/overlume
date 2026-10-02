@@ -43,6 +43,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
         /usr/lib/cmake /usr/share/pkgconfig /usr/share/doc)
     set(CPACK_ARCHIVE_COMPONENT_INSTALL OFF)  # one tar.gz with both components
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+        # Cross-built on x86_64: dpkg/rpmbuild would stamp the build host's arch.
+        set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE arm64)
+        set(CPACK_RPM_PACKAGE_ARCHITECTURE aarch64)
+    endif()
 endif()
 # The deb/rpm payloads install under /usr; the tar.gz is prefix-relative so it can be unpacked anywhere.
 configure_file("${CMAKE_CURRENT_LIST_DIR}/OverlumeCPackOptions.cmake.in"
