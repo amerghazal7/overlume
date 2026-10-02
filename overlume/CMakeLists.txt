@@ -235,10 +235,14 @@ set(_overlume_private_link
     yaml-cpp::yaml-cpp
     ${_overlume_cxx_runtime_libs}
 )
-if(OVERLUME_ENABLE_CESIUM AND CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
-    set(_overlume_private_link
-        "-Wl,--start-group" ${_overlume_private_link}
-        ${_overlume_vendor_merge_direct_targets} "-Wl,--end-group")
+if(OVERLUME_ENABLE_CESIUM)
+    if(CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
+        set(_overlume_private_link
+            "-Wl,--start-group" ${_overlume_private_link}
+            ${_overlume_vendor_merge_direct_targets} "-Wl,--end-group")
+    else()
+        list(APPEND _overlume_private_link ${_overlume_vendor_merge_direct_targets})
+    endif()
 endif()
 
 target_include_directories(overlume PUBLIC
@@ -353,9 +357,13 @@ if(OVERLUME_BUILD_SHARED)
     target_link_libraries(overlume_cxx_runtime INTERFACE
         ${_overlume_cxx_runtime_libs})
     set(_overlume_shared_link Filament::filament yaml-cpp::yaml-cpp)
-    if(OVERLUME_ENABLE_CESIUM AND CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
-        set(_overlume_shared_link "-Wl,--start-group" ${_overlume_shared_link}
-            ${_overlume_vendor_merge_direct_targets} "-Wl,--end-group")
+    if(OVERLUME_ENABLE_CESIUM)
+        if(CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
+            set(_overlume_shared_link "-Wl,--start-group" ${_overlume_shared_link}
+                ${_overlume_vendor_merge_direct_targets} "-Wl,--end-group")
+        else()
+            list(APPEND _overlume_shared_link ${_overlume_vendor_merge_direct_targets})
+        endif()
     endif()
     target_link_libraries(overlume_shared PRIVATE ${_overlume_shared_link} overlume_cxx_runtime)
     if(OVERLUME_ENABLE_CESIUM AND CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
