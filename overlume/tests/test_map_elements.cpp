@@ -850,3 +850,54 @@ TEST(MapElementsZFight, CrosswalkOverBoundaryStaysStableAcrossTinyCameraMove) {
            "z-fighting flip between the crosswalk and the boundary line, not a "
            "camera-induced content change";
 }
+
+// A ROAD_SURFACE given as a closed polygon outline (is_polygon=1) must fill the whole quad.
+// Regression: the two-rail strip builder ignored is_polygon and folded the quad into a bow-tie.
+TEST(MapElements, RoadSurfacePolygonOutlineFillsBothDiagonalHalves) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    overlume::CameraPose pose{{0, -0.5, 12}, {0, 0, 0}, 60.0};
+
+    auto* baseR = overlume::create_renderer(cfg);
+    if (!baseR) GTEST_SKIP() << "no GPU/EGL";
+    overlume::SceneGraph empty{};
+    overlume::set_scene(baseR, empty);
+    const std::vector<uint8_t> baseline = render_once(baseR, pose);
+    overlume::destroy_renderer(baseR);
+
+    auto* r = overlume::create_renderer(cfg);
+    ASSERT_TRUE(r);
+    overlume::Vec3 pts[4] = {{-3, -3, 0}, {3, -3, 0}, {3, 3, 0}, {-3, 3, 0}};
+    overlume::MapElement e{};
+    e.points = pts;
+    e.point_count = 4;
+    e.is_polygon = 1;
+    e.kind = overlume::MapKind::ROAD_SURFACE;
+    overlume::SceneGraph s{};
+    s.ego.valid = 1;
+    s.map_elements = &e;
+    s.map_element_count = 1;
+    overlume::set_scene(r, s);
+    const std::vector<uint8_t> img = render_once(r, pose);
+    overlume::destroy_renderer(r);
+
+    auto differs = [&](int x, int y) {
+        const size_t i = (static_cast<size_t>(y) * 320u + static_cast<size_t>(x)) * 3u;
+        return img[i] != baseline[i] || img[i + 1] != baseline[i + 1] ||
+               img[i + 2] != baseline[i + 2];
+    };
+    int x0 = 320, x1 = -1, y0 = 240, y1 = -1;
+    for (int y = 0; y < 240; ++y)
+        for (int x = 0; x < 320; ++x)
+            if (differs(x, y)) {
+                x0 = std::min(x0, x);
+                x1 = std::max(x1, x);
+                y0 = std::min(y0, y);
+                y1 = std::max(y1, y);
+            }
+    ASSERT_GE(x1, x0) << "road polygon drew nothing";
+    const int w = x1 - x0, h = y1 - y0;
+    for (double fx : {0.2, 0.5, 0.8})
+        for (double fy : {0.2, 0.5, 0.8})
+            EXPECT_TRUE(differs(x0 + static_cast<int>(fx * w), y0 + static_cast<int>(fy * h)))
+                << "road not filled at fraction " << fx << "," << fy;
+}
