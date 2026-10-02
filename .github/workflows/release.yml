@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Verify tag matches version.h
         run: |
@@ -80,6 +82,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: true
+          # The write token must not land in .git/config: this checkout is
+          # mounted into the build and signing containers.
+          persist-credentials: false
 
       - name: Cache release image
         uses: actions/cache@v4
@@ -115,6 +120,8 @@ jobs:
                     -DOVERLUME_BUILD_DOCS=OFF -DOVERLUME_BUILD_EXAMPLES=OFF \
                     -DOVERLUME_FILAMENT_FROM_SOURCE=ON
               cmake --build overlume/build-release
+              # glibc floor: liboverlume.so must not need anything newer than 2.28.
+              tools/release/check_glibc_floor.sh overlume/build-release/liboverlume.so.0
               # FiftyObjectsSceneUpdateUnderTwoMilliseconds is a wall-clock budget that
               # llvmpipe cannot meet (docs/status.md, known gap 11).
               ctest --test-dir overlume/build-release -L cpu --output-on-failure \
