@@ -512,6 +512,33 @@ include(CPack)
 
   Secrets are passed only to the signing steps via `env:`.
 - [ ] **Step 6:** `actionlint` (pinned binary in the scratchpad) clean; gate green.
+  **Task 3 result (2026-10-02, x86_64 only; aarch64 is exercised by CI):**
+  clean-room matrix 8/8 PASS (ubuntu 20.04/22.04/24.04, debian 11/12, alma 8/9,
+  fedora 40; `rpm -K` reports `digests signatures OK`; relocated tar.gz, upgrade,
+  clean removal, no-GPU and both static guards included); `cpu` ctest 285/285 in
+  the container (minus known gap 11); `shared_exports` and glibc floor 2.28 pass.
+  Revert check: dropping the version script and `--exclude-libs` fails
+  `shared_exports` (libcrypto/libssl symbols leak) and the yaml-cpp coexistence
+  smoke also fails (renderer run aborts on ubuntu:24.04 and debian:12).
+  Deviations from the text above, each found by the matrix: (1) smoke cannot tell
+  the installed theme from `kFallbackTheme()` by pixels (identical palette), so
+  it asserts `theme_assets_loaded()` plus default-dir frame == explicit-dir frame;
+  (2) `.pc` installs to `share/pkgconfig` (Fedora/Alma pkg-config does not search
+  `/usr/lib/pkgconfig`), the rpm registers `/usr/lib` via `ld.so.conf.d` (RHEL's
+  loader ignores it); (3) `shlibdeps` is replaced by explicit Depends/Requires
+  (no dpkg database in Alma) and adds `libgl1`/`libGL.so.1` (Filament dlopen()s
+  it); (4) theme lookup canonicalises the module path (`/lib` -> `/usr/lib`);
+  (5) static consumers: ubuntu:24.04 + fedora:40, not ubuntu:22.04 + alma:9
+  (alma 9 ships no libc++; ubuntu 22.04's libc++ 14 lacks `__cxa_init_primary_exception`)
+  and the config guard now requires LLVM >= 18, with a 22.04 negative case;
+  a statically linked executable has no `share/` beside it, so the static smoke
+  passes the installed theme dir explicitly; (6) no-GPU is `__EGL_VENDOR_LIBRARY_FILENAMES`
+  pointing nowhere (Mesa 25 keeps swrast inside libegl-mesa0, so removing
+  packages is not equivalent); (7) `sign_rpms.sh` and `OverlumeCPackOptions.cmake.in`
+  added (rpmsign wrapper; tar.gz prefix), `rpm-sign` added to the Dockerfile,
+  and debian:11 is pointed at archive.debian.org with libc6 pinned.
+  **Step 7 not done:** the `gh workflow run` dry run was denied by the
+  auto-mode permission classifier; the branch is pushed, the dispatch is pending.
 - [ ] **Step 7:** push work branch, `gh workflow run release.yml --ref <branch> -f dry_run=true`,
   both Linux jobs green. **Commit**
   `feat(release): signed deb/rpm/tgz (shared+static) for x86_64/aarch64, smoke-tested`.
