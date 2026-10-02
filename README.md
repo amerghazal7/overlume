@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/hero.gif" alt="Overlume rendering one live scene as a chase camera behind the ego vehicle swings out to the verge and back: tracked objects with predicted paths, LiDAR returns, HD-map lanes and crosswalks, path ribbons, trajectory carpet, occupancy grids, generic markers and a critical alert." width="860">
+<img src="docs/assets/hero.gif" alt="Overlume rendering one live scene as a chase camera behind the ego vehicle swings out to the verge and back, crossfading from the dark theme to the light theme and back: tracked objects with predicted paths, traffic that brakes and waits for a pedestrian on the crosswalk then pulls away, LiDAR returns, HD-map lanes and crosswalks that stay on the ground to the horizon, path ribbons, trajectory carpet, occupancy grids, generic markers and a critical alert." width="860">
 
 # Overlume
 
