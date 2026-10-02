@@ -469,3 +469,5 @@ elseif(OVERLUME_BUILD_DOCS)
 endif()
 
 include(cmake/OverlumeInstall.cmake)
+
+include(cmake/OverlumePackaging.cmake)

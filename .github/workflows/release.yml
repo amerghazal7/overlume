@@ -4,12 +4,21 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build, test and sign everything but publish nothing"
+        type: boolean
+        default: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  create:
+    if: ${{ github.event_name == 'push' }}
+    permissions:
+      contents: write
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -51,3 +60,101 @@ jobs:
           gh release create "${{ github.ref_name }}" --verify-tag \
             --title "${{ github.ref_name }}" \
             --notes-file /tmp/release-notes.md
+
+  package:
+    needs: create
+    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64,  os: ubuntu-22.04,     container_arch: x86_64 }
+          - { name: linux-aarch64, os: ubuntu-22.04-arm, container_arch: aarch64 }
+    runs-on: ${{ matrix.os }}
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+      IMAGE: overlume-release-linux:${{ matrix.container_arch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Cache release image
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/overlume-image.tar
+          key: overlume-image-${{ matrix.container_arch }}-${{ hashFiles('tools/release/linux/Dockerfile') }}
+
+      - name: Build or load release image
+        run: |
+          if [ -f "$RUNNER_TEMP/overlume-image.tar" ]; then
+            docker load -i "$RUNNER_TEMP/overlume-image.tar"
+          else
+            docker build -t "$IMAGE" tools/release/linux
+            docker save -o "$RUNNER_TEMP/overlume-image.tar" "$IMAGE"
+          fi
+
+      - name: Cache Filament source build and vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            overlume/build-release/_deps
+            ${{ runner.temp }}/overlume-home
+          key: overlume-deps-${{ matrix.container_arch }}-${{ hashFiles('overlume/cmake/**', 'tools/release/linux/Dockerfile') }}
+
+      - name: Configure, build, test, package (container)
+        run: |
+          mkdir -p "$RUNNER_TEMP/overlume-home"
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/home/h \
+            -v "$RUNNER_TEMP/overlume-home":/home/h -v "$PWD":/src -w /src "$IMAGE" bash -euo pipefail -c '
+              cmake --toolchain /src/overlume/cmake/toolchain-llvm-release.cmake \
+                    -S overlume -B overlume/build-release -G Ninja \
+                    -DCMAKE_BUILD_TYPE=Release -DOVERLUME_ENABLE_CESIUM=ON \
+                    -DOVERLUME_BUILD_DOCS=OFF -DOVERLUME_BUILD_EXAMPLES=OFF \
+                    -DOVERLUME_FILAMENT_FROM_SOURCE=ON
+              cmake --build overlume/build-release
+              # FiftyObjectsSceneUpdateUnderTwoMilliseconds is a wall-clock budget that
+              # llvmpipe cannot meet (docs/status.md, known gap 11).
+              ctest --test-dir overlume/build-release -L cpu --output-on-failure \
+                    -E FiftyObjectsSceneUpdateUnderTwoMilliseconds
+              cpack --config overlume/build-release/CPackConfig.cmake -B /src/overlume/build-release/pkg
+            '
+
+      - name: Sign rpm packages
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: |
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp \
+            -e OVERLUME_GPG_PRIVATE_KEY -e OVERLUME_GPG_PASSPHRASE \
+            -v "$PWD":/src -w /src "$IMAGE" tools/release/sign_rpms.sh overlume/build-release/pkg
+
+      - name: Collect packages
+        run: |
+          mkdir out
+          cp overlume/build-release/pkg/*.deb overlume/build-release/pkg/*.rpm \
+             overlume/build-release/pkg/*.tar.gz out/
+          ls -l out
+
+      - name: Clean-room install matrix
+        run: tools/package_smoke_test.sh out
+
+      - name: Checksums and detached signature
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: tools/release/sign_sums.sh out "${{ matrix.name }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ matrix.name }}
+          path: out/*
+          if-no-files-found: error
+
+      - name: Upload release assets
+        if: ${{ env.DRY_RUN != 'true' && github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" out/* --clobber

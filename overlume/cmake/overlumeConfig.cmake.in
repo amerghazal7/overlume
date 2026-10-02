@@ -5,11 +5,12 @@ set(overlume_THEMES_DIR "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_DATADIR@/overlume/
 set(overlume_MODELS_DIR "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_DATADIR@/overlume/models")
 if("static" IN_LIST overlume_FIND_COMPONENTS)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
-       (NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR NOT CMAKE_CXX_FLAGS MATCHES "-stdlib=libc\\+\\+"))
+       (NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR NOT CMAKE_CXX_FLAGS MATCHES "-stdlib=libc\\+\\+"
+        OR CMAKE_CXX_COMPILER_VERSION VERSION_LESS 18))
         set(overlume_FOUND FALSE)
-        set(overlume_NOT_FOUND_MESSAGE
-            "overlume static on Linux requires clang++ with -stdlib=libc++ (it embeds "
-            "libc++-ABI objects). Use the shared library (default component) with gcc.")
+        string(CONCAT overlume_NOT_FOUND_MESSAGE
+            "overlume static on Linux requires clang++ with -stdlib=libc++ and LLVM >= 18 "
+            "(it embeds libc++-ABI objects built against libc++ 18). Use the shared library (default component) with gcc.")
         return()
     endif()
     include("${CMAKE_CURRENT_LIST_DIR}/overlumeStaticTargets.cmake")
