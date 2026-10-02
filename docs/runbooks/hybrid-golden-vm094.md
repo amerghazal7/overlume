@@ -41,6 +41,17 @@ same-offset, same-bag, same-params A/B (`render_mode:=2`, identical except
 present with hybrid OFF too — it is the camera-textured bowl's own per-camera
 photographic noise/JPEG-ish artifacting, not lidar splats.
 
+> **Correction (2026-10-02).** The 0.493 / "visually indistinguishable" result
+> below *was the defect*, not a pass: hybrid lidar was drawn as depth-tested
+> 2 px fade-blended points under/behind the opaque bowl (ground points sit under
+> the lifted bowl floor, points beyond the wall behind it), and the shipped
+> `pointcloud_topic` was empty so the node often had no cloud at all. Fixed by
+> `set_hybrid_splats()` (opaque stencil-winning splats) plus a loud no-cloud
+> failure; see `docs/plans/2026-10-02-hybrid-composite-restore.md`. The
+> original measurements are kept unedited below.
+> `hybrid_test_town_merged_node.png` predates the fix and awaits human
+> re-promotion (candidates: `docs/evidence/2026-10-02-hybrid-restore/`).
+
 Measured over two fixed road-surface ROI strips (excluding the ego proxy),
 same capture session as the two golden PNGs above:
 

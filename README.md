@@ -81,7 +81,7 @@ These are golden frames from the test suite: the library renders them headlessly
     <td align="center"><img src="overlume/tests/goldens/bowl_test_town_dark_adas.png" alt="Surround-view bowl" width="260"><br><sub><b>Surround-view bowl</b><br>up to 6 camera feeds</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="overlume/tests/goldens/hybrid_test_town_merged_node.png" alt="Hybrid mode" width="260"><br><sub><b>Hybrid mode</b><br>bowl plus colourised lidar (node frame)</sub></td>
+    <td align="center"><img src="overlume/tests/goldens/hybrid_test_town_merged_node.png" alt="Hybrid mode" width="260"><br><sub><b>Hybrid mode</b><br>bowl plus colourised lidar (node frame; pre-fix capture, re-shoot pending)</sub></td>
     <td align="center"><img src="overlume/tests/goldens/environment_stream_dark_adas.png" alt="Streamed environment" width="260"><br><sub><b>Streamed buildings</b><br>Cesium 3D Tiles</sub></td>
     <td align="center"><img src="overlume/tests/goldens/transition_t0_4.png" alt="Theme crossfade" width="260"><br><sub><b>Theme crossfade</b><br>dark_adas to light_clay</sub></td>
   </tr>
