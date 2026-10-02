@@ -6,7 +6,7 @@
 # unpacked by dnf without emulation) and libc++/libc++abi/libunwind 18.1.8
 # built for aarch64 with /opt/llvm (x86_64 clang, lld) against that sysroot.
 # Nothing here runs aarch64 code; the result is tested natively on an arm64
-# runner (release.yml, job package-test-aarch64).
+# runner (release.yml, job package-linux-aarch64).
 #
 #   docker build -t overlume-release-linux:x86_64 tools/release/linux
 #   docker build -f tools/release/linux/Dockerfile.cross-aarch64 \
