@@ -306,15 +306,11 @@ struct SceneData {
 };
 
 // ponytail: scene content is rebuilt every frame; fine for an offline tool.
-void build(SceneData& d, double t, double periodSec, const std::string& meshPath, bool yield,
-           double lw = 0.0) {
+void build(SceneData& d, double t, double periodSec, const std::string& meshPath, bool yield) {
     d = SceneData{};
     d.pts.reserve(4096);
     d.strings.reserve(16);
 
-    // lw = light_clay weight: scene colours that sit on the pale ground darken with it.
-    auto mix = [&](double a, double b) { return static_cast<float>(a + (b - a) * lw); };
-    auto mixi = [&](int a, int b) { return static_cast<int>(a + (b - a) * lw); };
     const double egoX = kEgoX;
     const Vec3 ego = W(egoX, kLaneY);
     const double ph = 2 * kPi * t / periodSec;  // one full turn per loop
@@ -455,10 +451,8 @@ void build(SceneData& d, double t, double periodSec, const std::string& meshPath
         const double k = i / 19.0, s2 = i * 1.0;
         overlume::PointCloudPoint p{};
         p.position = W(egoX + s2, kLaneY);
-        p.rgba = rgba(mixi(static_cast<int>(40 + 200 * k), static_cast<int>(10 + 190 * k)),
-                      mixi(static_cast<int>(220 - 120 * k), static_cast<int>(150 - 110 * k)),
-                      mixi(static_cast<int>(255 - 120 * k), static_cast<int>(200 - 100 * k)),
-                      mixi(200, 230));
+        p.rgba = rgba(static_cast<int>(40 + 200 * k), static_cast<int>(220 - 120 * k),
+                      static_cast<int>(255 - 120 * k), 200);
         d.carpet.push_back(p);
     }
     d.tc.points = d.carpet.data();
@@ -545,10 +539,9 @@ void build(SceneData& d, double t, double periodSec, const std::string& meshPath
             const double k = ring / 8.0;
             overlume::PointCloudPoint p{};
             p.position = {ego.x + r * std::cos(a), ego.y + r * std::sin(a), 0.12};
-            // on the pale ground the rings go dark and saturated (lw-weighted) so they stay visible
-            p.rgba = rgba(static_cast<int>(br * (1.0 - 0.7 * k) * mix(1.0, 0.40)),
-                          static_cast<int>(br * (0.6 + 0.25 * k) * mix(1.0, 0.0)),
-                          static_cast<int>(br * (0.35 + 0.65 * k) * mix(1.0, 0.08)), 255);
+            p.rgba = rgba(static_cast<int>(br * (1.0 - 0.7 * k)),
+                          static_cast<int>(br * (0.6 + 0.25 * k)),
+                          static_cast<int>(br * (0.35 + 0.65 * k)), 255);
             d.cloud.push_back(p);
         }
     }
@@ -578,9 +571,8 @@ void build(SceneData& d, double t, double periodSec, const std::string& meshPath
                 const double k = z / o.dimensions.z;
                 overlume::PointCloudPoint p{};
                 p.position = {o.position.x + c * lx - sn * ly, o.position.y + sn * lx + c * ly, z};
-                p.rgba = rgba(mixi(255, 230),
-                              mixi(static_cast<int>(240 - 40 * k), static_cast<int>(120 - 50 * k)),
-                              mixi(static_cast<int>(120 - 60 * k), 0), 255);
+                p.rgba =
+                    rgba(255, static_cast<int>(240 - 40 * k), static_cast<int>(120 - 60 * k), 255);
                 d.cloud.push_back(p);
             }
         }
@@ -593,7 +585,7 @@ void build(SceneData& d, double t, double periodSec, const std::string& meshPath
             for (double z : {0.3, 1.0}) {
                 overlume::PointCloudPoint p{};
                 p.position = W(x, -kEdgeOffset - 0.55, z);
-                p.rgba = rgba(mixi(255, 215), mixi(190, 100), mixi(70, 0), 255);
+                p.rgba = rgba(255, 190, 70, 255);
                 d.cloud.push_back(p);
             }
     }
@@ -604,7 +596,7 @@ void build(SceneData& d, double t, double periodSec, const std::string& meshPath
             for (double z : {0.3, 1.0}) {
                 overlume::PointCloudPoint p{};
                 p.position = W(x0 - hl - 0.05, y, z);
-                p.rgba = rgba(mixi(255, 215), mixi(190, 100), mixi(70, 0), 255);
+                p.rgba = rgba(255, 190, 70, 255);
                 d.cloud.push_back(p);
             }
     }
@@ -614,7 +606,7 @@ void build(SceneData& d, double t, double periodSec, const std::string& meshPath
                 const double a = deg / 57.29578;
                 overlume::PointCloudPoint p{};
                 p.position = {ego.x + r * std::cos(a), ego.y + r * std::sin(a), 0.14 + dz};
-                p.rgba = rgba(mixi(255, 215), mixi(215, 120), mixi(120, 0), 255);
+                p.rgba = rgba(255, 215, 120, 255);
                 d.cloud.push_back(p);
             }
     }
@@ -656,12 +648,11 @@ void build(SceneData& d, double t, double periodSec, const std::string& meshPath
         const double pulse = 0.35 + 0.12 * std::sin(4 * ph + i);
         d.markers.push_back(base_marker(overlume::MarkerPrimitive::SPHERE,
                                         W(egoX + 5.0 + i * 4.0, kLaneY, 2.2), {pulse, pulse, pulse},
-                                        {0.3f, mix(1.0, 0.45), mix(0.8, 0.40), 1.0f}));
+                                        {0.3f, 1.0, 0.8, 1.0f}));
     }
     {
-        auto m =
-            base_marker(overlume::MarkerPrimitive::ARROW, W(10.0, -kEdgeOffset - 5.0, 0.4),
-                        {2.4, 0.6, 0.6}, {mix(1.0, 0.85), mix(0.9, 0.45), mix(0.2, 0.0), 1.0f});
+        auto m = base_marker(overlume::MarkerPrimitive::ARROW, W(10.0, -kEdgeOffset - 5.0, 0.4),
+                             {2.4, 0.6, 0.6}, {1.0, 0.9, 0.2, 1.0f});
         d.markers.push_back(m);
     }
     {
@@ -682,14 +673,14 @@ void build(SceneData& d, double t, double periodSec, const std::string& meshPath
         for (int i = 0; i < 7; ++i)
             zig.push_back(W(14.0 + i * 1.0, -kEdgeOffset - 9.0 + ((i % 2) ? 0.5 : -0.5), 0.3));
         auto m = base_marker(overlume::MarkerPrimitive::LINE_STRIP, {0, 0, 0}, {1, 1, 1},
-                             {mix(1.0, 0.40), mix(0.3, 0.0), mix(0.5, 0.12), 1.0f});
+                             {1.0, 0.3, 0.5, 1.0f});
         m.points = d.poly(zig);
         m.point_count = static_cast<uint32_t>(zig.size());
         d.markers.push_back(m);
         std::vector<Vec3> tri = {W(8.0, -kEdgeOffset - 8.0, 0.05), W(9.6, -kEdgeOffset - 8.0, 0.05),
                                  W(8.8, -kEdgeOffset - 9.2, 0.05)};
         auto tr = base_marker(overlume::MarkerPrimitive::TRIANGLE_LIST, {0, 0, 0}, {1, 1, 1},
-                              {mix(1.0, 0.85), mix(0.8, 0.40), 0.0f, 1.0f});
+                              {1.0, 0.8, 0.0f, 1.0f});
         tr.points = d.poly(tri);
         tr.point_count = 3;
         d.markers.push_back(tr);
@@ -1000,10 +991,10 @@ int main(int argc, char** argv) {
     const int period = a.frames;
     const double periodSec = static_cast<double>(period) / a.fps;
 
-    // The hero renders with its own theme dir: shipped themes copied into a
-    // temp dir with hero-only overrides (more opaque, saturated object tints,
-    // thinner ribbon). This is a legitimate use of data-driven themes; the
-    // shipped YAMLs under assets/themes are never modified.
+    // The hero renders with its own theme dir: dark_adas is copied with hero-only
+    // overrides (opaque, saturated object tints, thinner ribbon, distance fog);
+    // light_clay is copied verbatim so the light hold shows the shipped palette.
+    // The shipped YAMLs under assets/themes are never modified.
     namespace fs = std::filesystem;
     const fs::path heroThemes =
         fs::temp_directory_path() / ("overlume_hero_themes_" + std::to_string(::getpid()));
@@ -1022,52 +1013,22 @@ int main(int argc, char** argv) {
                              from.c_str());
         };
         const bool light = std::string(nm) == "light_clay";
+        if (light) {  // the light hold shows the shipped light_clay palette exactly as it ships
+            std::ofstream(heroThemes / (std::string(nm) + ".yaml")) << y;
+            continue;
+        }
         sub("objects: { opacity: 0.25 }", "objects: { opacity: 1.0 }");
         // Distance fade: far road / ground dissolve into the sky instead of ending at the ground's
         // rim. Fog colour is calibrated (by probing a dense-fog render) so a fully fogged pixel
         // equals the clear/sky colour: the renderer scales the fog colour by the IBL intensity.
-        sub(light ? "fog:         [0.355, 0.518, 0.889]" : "fog:         [0.028, 0.036, 0.085]",
-            light ? "fog:         [0.140, 0.079, 0.029]" : "fog:         [0.018, 0.022, 0.053]");
-        sub(light ? "fog: { density: 0.00025 }" : "fog: { density: 0.010 }",
-            light ? ("fog: { density: 0.0022 }") : "fog: { density: 0.035 }");
+        sub("fog:         [0.028, 0.036, 0.085]", "fog:         [0.018, 0.022, 0.053]");
+        sub("fog: { density: 0.010 }", "fog: { density: 0.035 }");
         sub("emissive: { ribbon_strength: 0.0 }", "emissive: { ribbon_strength: 0.6 }");
-        if (!light) {
-            sub("car: [0.180, 0.210, 0.320]", "car: [0.10, 0.45, 1.00]");
-            sub("truck_van: [0.28, 0.32, 0.55]", "truck_van: [0.60, 0.25, 0.95]");
-            sub("pedestrian: [0.85, 0.25, 0.25]", "pedestrian: [1.00, 0.20, 0.30]");
-            sub("cyclist: [0.80, 0.50, 0.15]", "cyclist: [1.00, 0.75, 0.05]");
-            sub("opacity: 0.75, fade_start_m", "opacity: 0.45, fade_start_m");
-        } else {
-            // Pale ground: darker asphalt and saturated, mutually distinct class colours so
-            // every layer reads against both the road and the sand-coloured verge.
-            sub("ground:      [0.762, 0.716, 0.672]", "ground:      [0.62, 0.38, 0.16]");
-            sub("road: [0.300, 0.350, 0.600]", "road: [0.07, 0.10, 0.20]");
-            sub("road_edge: [0.820, 0.560, 0.055]", "road_edge: [0.95, 0.60, 0.00]");
-            sub("building: [0.547, 0.534, 0.640]", "building: [0.22, 0.26, 0.50]");
-            sub("critical: [1.0, 0.06, 0.0]", "critical: [1.0, 0.00, 0.05]");
-            sub("grid: { line_color: [0.50, 0.48, 0.54]", "grid: { line_color: [0.03, 0.02, 0.01]");
-            sub("intensity: 112000.0", "intensity: 52000.0");
-            sub("intensity: 24000.0", "intensity: 12000.0");
-            sub("lane_centerline: [0.455, 0.493, 0.675]", "lane_centerline: [0.80, 0.82, 0.90]");
-            sub("crosswalk: [0.87, 0.79, 0.56]", "crosswalk: [0.97, 0.96, 0.90]");
-            sub("ribbon_core: [0.125, 0.313, 0.905]", "ribbon_core: [0.00, 0.85, 0.62]");
-            sub("ribbon_glow: [0.125, 0.313, 0.905]", "ribbon_glow: [0.00, 0.85, 0.62]");
-            sub("ribbon_global: [0.40, 0.50, 0.68]", "ribbon_global: [0.35, 0.55, 1.00]");
-            sub("ribbon_local:  [0.72, 0.58, 0.36]", "ribbon_local:  [1.00, 0.55, 0.10]");
-            sub("car: [0.657, 0.654, 0.764]", "car: [0.05, 0.30, 0.95]");
-            sub("truck_van: [0.55, 0.56, 0.66]", "truck_van: [0.55, 0.12, 0.85]");
-            sub("pedestrian: [0.82, 0.32, 0.30]", "pedestrian: [1.00, 0.10, 0.20]");
-            sub("cyclist: [0.78, 0.55, 0.28]", "cyclist: [1.00, 0.62, 0.00]");
-
-            sub("{ value: 1, color: [0.04, 0.25, 0.07], alpha: 0.35 }",
-                "{ value: 1, color: [0.00, 0.55, 0.20], alpha: 0.45 }");
-            sub("{ value: 100, color: [0.015, 0.12, 0.03], alpha: 1.0 }",
-                "{ value: 100, color: [0.00, 0.80, 0.30], alpha: 1.0 }");
-            sub("{ value: 1, color: [0.20, 0.11, 0.03], alpha: 0.35 }",
-                "{ value: 1, color: [0.70, 0.30, 0.00], alpha: 0.45 }");
-            sub("{ value: 100, color: [0.10, 0.04, 0.004], alpha: 1.0 }",
-                "{ value: 100, color: [1.00, 0.40, 0.00], alpha: 1.0 }");
-        }
+        sub("car: [0.180, 0.210, 0.320]", "car: [0.10, 0.45, 1.00]");
+        sub("truck_van: [0.28, 0.32, 0.55]", "truck_van: [0.60, 0.25, 0.95]");
+        sub("pedestrian: [0.85, 0.25, 0.25]", "pedestrian: [1.00, 0.20, 0.30]");
+        sub("cyclist: [0.80, 0.50, 0.15]", "cyclist: [1.00, 0.75, 0.05]");
+        sub("opacity: 0.75, fade_start_m", "opacity: 0.45, fade_start_m");
         std::ofstream(heroThemes / (std::string(nm) + ".yaml")) << y;
     }
     const std::string themes = heroThemes.string();
@@ -1096,8 +1057,7 @@ int main(int argc, char** argv) {
     // Warm-up: render the three frames preceding frame 0 (same scene/camera as the loop's tail)
     // so temporal history and lazily loaded assets are continuous at the wrap.
     for (int i = -3; i < 0; ++i) {
-        build(data, (i + a.phase * period) * dt, periodSec, mesh, a.yield,
-              themeLight(i * dt, periodSec));
+        build(data, (i + a.phase * period) * dt, periodSec, mesh, a.yield);
         overlume::set_scene(r, data.graph);
         overlume::render_frame(
             r, camera(pmod(static_cast<double>(i + period) / period + a.phase, 1.0)),
@@ -1116,7 +1076,7 @@ int main(int argc, char** argv) {
             toDark =
                 overlume::set_theme(r, "dark_adas", t0 + kFc * periodSec, (kFd - kFc) * periodSec);
         }
-        build(data, t, periodSec, mesh, a.yield, themeLight(i * dt, periodSec));
+        build(data, t, periodSec, mesh, a.yield);
         overlume::set_scene(r, data.graph);
         if (!overlume::render_frame(r, camera(pmod(static_cast<double>(i) / period + a.phase, 1.0)),
                                     {rgb.data(), a.width, a.height})) {
