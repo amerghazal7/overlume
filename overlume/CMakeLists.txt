@@ -57,6 +57,22 @@ execute_process(
     COMMAND "${CMAKE_CXX_COMPILER}" -stdlib=libc++ -print-file-name=libc++.a
     OUTPUT_VARIABLE _libcxx_a
     OUTPUT_STRIP_TRAILING_WHITESPACE)
+if(NOT EXISTS "${_libcxx_a}")
+    # LLVM release tarball layout: <root>/lib/<triple>/libc++.a, which clang
+    # does not report via -print-file-name.
+    execute_process(
+        COMMAND "${CMAKE_CXX_COMPILER}" -print-target-triple
+        OUTPUT_VARIABLE _libcxx_triple
+        OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    get_filename_component(_libcxx_cxx_bin "${CMAKE_CXX_COMPILER}" REALPATH)
+    get_filename_component(_libcxx_cxx_bin "${_libcxx_cxx_bin}" DIRECTORY)
+    foreach(_libcxx_triple_name "${_libcxx_triple}" "${CMAKE_SYSTEM_PROCESSOR}-unknown-linux-gnu")
+        if(EXISTS "${_libcxx_cxx_bin}/../lib/${_libcxx_triple_name}/libc++.a")
+            set(_libcxx_a "${_libcxx_cxx_bin}/../lib/${_libcxx_triple_name}/libc++.a")
+            break()
+        endif()
+    endforeach()
+endif()
 get_filename_component(_libcxx_a "${_libcxx_a}" REALPATH)
 if(NOT EXISTS "${_libcxx_a}")
     message(FATAL_ERROR
@@ -110,7 +126,7 @@ if(NOT EXISTS "${STB_IMAGE_H}")
          "${STB_IMAGE_H}" EXPECTED_HASH SHA256=${STB_IMAGE_SHA256})
 endif()
 
-set(_matc "${FILAMENT_ROOT}/bin/matc")
+set(_matc "${FILAMENT_HOST_MATC}")
 set(_generated_material_dir "${CMAKE_BINARY_DIR}/generated/overlume_materials")
 file(MAKE_DIRECTORY "${_generated_material_dir}")
 file(GLOB _material_srcs CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/materials/*.mat")
