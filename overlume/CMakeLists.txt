@@ -37,64 +37,70 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    message(FATAL_ERROR
-        "overlume must be built with clang++ (got CMAKE_CXX_COMPILER_ID="
-        "'${CMAKE_CXX_COMPILER_ID}'). Configure with:\n"
-        "  cmake --toolchain cmake/toolchain-clang-libcxx.cmake -B build -S . \n"
-        "(run scripts/setup_toolchain_cesium.sh first if you have no system clang++/libc++). "
-        "See README.md.")
-endif()
-if(NOT CMAKE_CXX_FLAGS MATCHES "-stdlib=libc\\+\\+")
-    message(FATAL_ERROR
-        "overlume must be built against libc++ (pass "
-        "-DCMAKE_CXX_FLAGS=-stdlib=libc++), which the toolchain file above "
-        "already does. See spec §2 for why gcc/libstdc++ and clang/libc++ "
-        "must not mix.")
-endif()
+# Linux only: the release/dev toolchain is clang + static libc++ (Apple, Windows
+# and the Android NDK bring their own C++ runtime and compiler).
+set(_overlume_cxx_runtime_libs "")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        message(FATAL_ERROR
+            "overlume must be built with clang++ (got CMAKE_CXX_COMPILER_ID="
+            "'${CMAKE_CXX_COMPILER_ID}'). Configure with:\n"
+            "  cmake --toolchain cmake/toolchain-clang-libcxx.cmake -B build -S . \n"
+            "(run scripts/setup_toolchain_cesium.sh first if you have no system clang++/libc++). "
+            "See README.md.")
+    endif()
+    if(NOT CMAKE_CXX_FLAGS MATCHES "-stdlib=libc\\+\\+")
+        message(FATAL_ERROR
+            "overlume must be built against libc++ (pass "
+            "-DCMAKE_CXX_FLAGS=-stdlib=libc++), which the toolchain file above "
+            "already does. See spec §2 for why gcc/libstdc++ and clang/libc++ "
+            "must not mix.")
+    endif()
 
-# Cross builds name the target triple so the probe looks at the target's runtime.
-set(_libcxx_target_arg "")
-if(CMAKE_CXX_COMPILER_TARGET)
-    set(_libcxx_target_arg "--target=${CMAKE_CXX_COMPILER_TARGET}")
-endif()
-execute_process(
-    COMMAND "${CMAKE_CXX_COMPILER}" ${_libcxx_target_arg} -stdlib=libc++ -print-file-name=libc++.a
-    OUTPUT_VARIABLE _libcxx_a
-    OUTPUT_STRIP_TRAILING_WHITESPACE)
-if(NOT EXISTS "${_libcxx_a}")
-    # LLVM release tarball layout: <root>/lib/<triple>/libc++.a, which clang
-    # does not report via -print-file-name.
+    # Cross builds name the target triple so the probe looks at the target's runtime.
+    set(_libcxx_target_arg "")
+    if(CMAKE_CXX_COMPILER_TARGET)
+        set(_libcxx_target_arg "--target=${CMAKE_CXX_COMPILER_TARGET}")
+    endif()
     execute_process(
-        COMMAND "${CMAKE_CXX_COMPILER}" ${_libcxx_target_arg} -print-target-triple
-        OUTPUT_VARIABLE _libcxx_triple
-        OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-    get_filename_component(_libcxx_cxx_bin "${CMAKE_CXX_COMPILER}" REALPATH)
-    get_filename_component(_libcxx_cxx_bin "${_libcxx_cxx_bin}" DIRECTORY)
-    foreach(_libcxx_triple_name "${_libcxx_triple}" "${CMAKE_SYSTEM_PROCESSOR}-unknown-linux-gnu")
-        if(EXISTS "${_libcxx_cxx_bin}/../lib/${_libcxx_triple_name}/libc++.a")
-            set(_libcxx_a "${_libcxx_cxx_bin}/../lib/${_libcxx_triple_name}/libc++.a")
-            break()
+        COMMAND "${CMAKE_CXX_COMPILER}" ${_libcxx_target_arg} -stdlib=libc++ -print-file-name=libc++.a
+        OUTPUT_VARIABLE _libcxx_a
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(NOT EXISTS "${_libcxx_a}")
+        # LLVM release tarball layout: <root>/lib/<triple>/libc++.a, which clang
+        # does not report via -print-file-name.
+        execute_process(
+            COMMAND "${CMAKE_CXX_COMPILER}" ${_libcxx_target_arg} -print-target-triple
+            OUTPUT_VARIABLE _libcxx_triple
+            OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+        get_filename_component(_libcxx_cxx_bin "${CMAKE_CXX_COMPILER}" REALPATH)
+        get_filename_component(_libcxx_cxx_bin "${_libcxx_cxx_bin}" DIRECTORY)
+        foreach(_libcxx_triple_name "${_libcxx_triple}" "${CMAKE_SYSTEM_PROCESSOR}-unknown-linux-gnu")
+            if(EXISTS "${_libcxx_cxx_bin}/../lib/${_libcxx_triple_name}/libc++.a")
+                set(_libcxx_a "${_libcxx_cxx_bin}/../lib/${_libcxx_triple_name}/libc++.a")
+                break()
+            endif()
+        endforeach()
+    endif()
+    get_filename_component(_libcxx_a "${_libcxx_a}" REALPATH)
+    if(NOT EXISTS "${_libcxx_a}")
+        message(FATAL_ERROR
+            "overlume: could not resolve a static libc++.a from compiler "
+            "'${CMAKE_CXX_COMPILER}' (looked at '${_libcxx_a}'). Is "
+            "CMAKE_CXX_COMPILER a real clang++ with a co-located libc++-dev?")
+    endif()
+    get_filename_component(_libcxx_lib_dir "${_libcxx_a}" DIRECTORY)
+    set(_libcxxabi_a "${_libcxx_lib_dir}/libc++abi.a")
+    set(_libunwind_a "${_libcxx_lib_dir}/libunwind.a")
+    foreach(_rt_lib "${_libcxxabi_a}" "${_libunwind_a}")
+        if(NOT EXISTS "${_rt_lib}")
+            message(FATAL_ERROR
+                "overlume: expected static runtime lib not found: "
+                "${_rt_lib} (sibling of ${_libcxx_a}). Toolchain layout mismatch?")
         endif()
     endforeach()
+    set(_overlume_cxx_runtime_libs "${_libcxx_a}" "${_libcxxabi_a}" "${_libunwind_a}")
 endif()
-get_filename_component(_libcxx_a "${_libcxx_a}" REALPATH)
-if(NOT EXISTS "${_libcxx_a}")
-    message(FATAL_ERROR
-        "overlume: could not resolve a static libc++.a from compiler "
-        "'${CMAKE_CXX_COMPILER}' (looked at '${_libcxx_a}'). Is "
-        "CMAKE_CXX_COMPILER a real clang++ with a co-located libc++-dev?")
-endif()
-get_filename_component(_libcxx_lib_dir "${_libcxx_a}" DIRECTORY)
-set(_libcxxabi_a "${_libcxx_lib_dir}/libc++abi.a")
-set(_libunwind_a "${_libcxx_lib_dir}/libunwind.a")
-foreach(_rt_lib "${_libcxxabi_a}" "${_libunwind_a}")
-    if(NOT EXISTS "${_rt_lib}")
-        message(FATAL_ERROR
-            "overlume: expected static runtime lib not found: "
-            "${_rt_lib} (sibling of ${_libcxx_a}). Toolchain layout mismatch?")
-    endif()
-endforeach()
 
 include(cmake/GetFilament.cmake)
 
@@ -227,11 +233,9 @@ target_compile_definitions(overlume_obj PRIVATE
 set(_overlume_private_link
     Filament::filament
     yaml-cpp::yaml-cpp
-    "${_libcxx_a}"
-    "${_libcxxabi_a}"
-    "${_libunwind_a}"
+    ${_overlume_cxx_runtime_libs}
 )
-if(OVERLUME_ENABLE_CESIUM)
+if(OVERLUME_ENABLE_CESIUM AND CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
     set(_overlume_private_link
         "-Wl,--start-group" ${_overlume_private_link}
         ${_overlume_vendor_merge_direct_targets} "-Wl,--end-group")
@@ -242,7 +246,7 @@ target_include_directories(overlume PUBLIC
 )
 target_link_libraries(overlume PRIVATE ${_overlume_private_link})
 
-if(OVERLUME_ENABLE_CESIUM)
+if(OVERLUME_ENABLE_CESIUM AND CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
     target_link_options(overlume INTERFACE "-Wl,--allow-multiple-definition")
 endif()
 
@@ -317,19 +321,23 @@ else()
     set(_overlume_vendor_merge_archives "")
 endif()
 
-add_custom_command(TARGET overlume POST_BUILD
-    COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/merge_yamlcpp.sh"
-            "${CMAKE_AR}" "${CMAKE_LINKER}" "${CMAKE_OBJCOPY}" "${CMAKE_NM}"
-            "${CMAKE_BINARY_DIR}/_yamlmerge"
-            "${CMAKE_BINARY_DIR}/overlume_merged.o"
-            "$<TARGET_FILE:overlume>"
-            $<TARGET_OBJECTS:overlume_obj>
-            ${_overlume_overlume_stream_objects}
-            --
-            "$<TARGET_FILE:yaml-cpp>"
-            ${_overlume_vendor_merge_archives}
-    COMMAND_EXPAND_LISTS VERBATIM
-    COMMENT "overlume: merging yaml-cpp + cesium-native + spdlog/fmt, renaming their vendored symbols (Epic 2 Task 1 Step 0.2; extended Epic 6 VM-061 Step 5)")
+# Apple/Windows: the static product ships without the symbol-rename step
+# (the static config warns consumers); see merge_yamlcpp.sh for the tools it needs.
+if(CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
+    add_custom_command(TARGET overlume POST_BUILD
+        COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/merge_yamlcpp.sh"
+                "${CMAKE_AR}" "${CMAKE_LINKER}" "${CMAKE_OBJCOPY}" "${CMAKE_NM}"
+                "${CMAKE_BINARY_DIR}/_yamlmerge"
+                "${CMAKE_BINARY_DIR}/overlume_merged.o"
+                "$<TARGET_FILE:overlume>"
+                $<TARGET_OBJECTS:overlume_obj>
+                ${_overlume_overlume_stream_objects}
+                --
+                "$<TARGET_FILE:yaml-cpp>"
+                ${_overlume_vendor_merge_archives}
+        COMMAND_EXPAND_LISTS VERBATIM
+        COMMENT "overlume: merging yaml-cpp + cesium-native + spdlog/fmt, renaming their vendored symbols (Epic 2 Task 1 Step 0.2; extended Epic 6 VM-061 Step 5)")
+endif()
 
 option(OVERLUME_BUILD_SHARED "Build the self-contained shared liboverlume (deps baked in, only overlume::* exported)" ON)
 if(OVERLUME_BUILD_SHARED)
@@ -343,14 +351,14 @@ if(OVERLUME_BUILD_SHARED)
     # items, in order): it must resolve what Filament/Cesium leave undefined.
     add_library(overlume_cxx_runtime INTERFACE)
     target_link_libraries(overlume_cxx_runtime INTERFACE
-        "${_libcxx_a}" "${_libcxxabi_a}" "${_libunwind_a}")
+        ${_overlume_cxx_runtime_libs})
     set(_overlume_shared_link Filament::filament yaml-cpp::yaml-cpp)
-    if(OVERLUME_ENABLE_CESIUM)
+    if(OVERLUME_ENABLE_CESIUM AND CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
         set(_overlume_shared_link "-Wl,--start-group" ${_overlume_shared_link}
             ${_overlume_vendor_merge_direct_targets} "-Wl,--end-group")
     endif()
     target_link_libraries(overlume_shared PRIVATE ${_overlume_shared_link} overlume_cxx_runtime)
-    if(OVERLUME_ENABLE_CESIUM)
+    if(OVERLUME_ENABLE_CESIUM AND CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
         target_link_options(overlume_shared PRIVATE "-Wl,--allow-multiple-definition")
     endif()
     if(CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
@@ -374,6 +382,10 @@ if(OVERLUME_BUILD_SHARED AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
                      "${CMAKE_NM}" "${CMAKE_READELF}" "$<TARGET_FILE:overlume_shared>")
     set_tests_properties(shared_exports PROPERTIES LABELS "cpu")
 endif()
+
+add_test(NAME cesium_triplet_mapping
+         COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_cesium_triplets.cmake)
+set_tests_properties(cesium_triplet_mapping PROPERTIES LABELS "cpu")
 
 add_executable(filament_link_probe smoke/filament_link_probe.cpp)
 target_include_directories(filament_link_probe PRIVATE "${FILAMENT_ROOT}/include")
@@ -417,6 +429,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
         list(REMOVE_ITEM _overlume_test_srcs
              "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_environment_stream.cpp")
     endif()
+    # Where tests find fixtures at run time (Android sets the on-device path).
+    set(OVERLUME_TEST_DATA_DIR_RUNTIME "${CMAKE_CURRENT_SOURCE_DIR}" CACHE STRING
+        "Run-time path of the overlume source tree's test data")
     foreach(_test_src ${_overlume_test_srcs})
         get_filename_component(_test_name "${_test_src}" NAME_WE)
         set(_test_extra_srcs "")
@@ -432,7 +447,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
                 $<TARGET_PROPERTY:yaml-cpp::yaml-cpp,INTERFACE_INCLUDE_DIRECTORIES>)
         endif()
         target_compile_definitions(${_test_name} PRIVATE
-            OVERLUME_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+            OVERLUME_TEST_DATA_DIR="${OVERLUME_TEST_DATA_DIR_RUNTIME}"
             OVERLUME_DEFAULT_THEME_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets/themes")
         include(GoogleTest)
         # Cross builds cannot run the binary at build time: list its tests when ctest loads.
@@ -456,7 +471,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools")
     foreach(_tool_src ${_overlume_tool_srcs})
         get_filename_component(_tool_name "${_tool_src}" NAME_WE)
         add_executable(${_tool_name} "${_tool_src}")
-        target_link_libraries(${_tool_name} PRIVATE overlume)
+        target_link_libraries(${_tool_name} PRIVATE overlume ${OVERLUME_PLATFORM_LIBS})
     endforeach()
 endif()
 
