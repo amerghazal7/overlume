@@ -38,13 +38,13 @@
 #include <gltfio/TextureProvider.h>
 
 #include "camera_textures.hpp"
+#include "platform.hpp"
 #include "scene_buffer.hpp"
 #include "theme.hpp"
 #include "theme_transition.hpp"
 
 namespace overlume {
 
-class HeadlessEglPlatform;
 class EnvironmentSource;
 struct BowlState;
 
@@ -111,7 +111,7 @@ struct ObjectEntity {
 
 class VisualRenderer {
 public:
-    HeadlessEglPlatform* platform = nullptr;
+    detail::HeadlessPlatform platform;
     filament::Engine* engine = nullptr;
     filament::SwapChain* swapChain = nullptr;
     filament::Renderer* renderer = nullptr;

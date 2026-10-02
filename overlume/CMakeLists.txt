@@ -164,6 +164,21 @@ endforeach()
 
 file(GLOB_RECURSE OVERLUME_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
+# Headless back end, selected at compile time (EGL; Metal/WGL arrive with their ports).
+if(APPLE)
+    set(OVERLUME_PLATFORM metal)
+elseif(WIN32)
+    set(OVERLUME_PLATFORM wgl)
+else()
+    set(OVERLUME_PLATFORM egl)
+endif()
+set(OVERLUME_PLATFORM_LIBS "")
+if(OVERLUME_PLATFORM STREQUAL "egl" AND NOT ANDROID)
+    set(OVERLUME_PLATFORM_LIBS EGL)
+endif()
+list(FILTER OVERLUME_SOURCES EXCLUDE REGEX "/platform_[a-z]+\\.cpp$")
+list(APPEND OVERLUME_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/platform_${OVERLUME_PLATFORM}.cpp")
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
     list(REMOVE_ITEM OVERLUME_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
 endif()
@@ -411,7 +426,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
         add_executable(${_test_name} "${_test_src}" ${_test_extra_srcs})
         target_include_directories(${_test_name} PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/src" "${STB_DIR}")
-        target_link_libraries(${_test_name} PRIVATE overlume gtest gtest_main EGL)
+        target_link_libraries(${_test_name} PRIVATE overlume gtest gtest_main ${OVERLUME_PLATFORM_LIBS})
         if(_test_name STREQUAL "test_gltf_normals")
             target_include_directories(${_test_name} PRIVATE
                 $<TARGET_PROPERTY:yaml-cpp::yaml-cpp,INTERFACE_INCLUDE_DIRECTORIES>)
@@ -427,7 +442,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
             set(_gtest_discovery "")
         endif()
         if(_test_name STREQUAL "test_renderer_projection" OR
-           _test_name STREQUAL "test_renderer_quality_presets")
+           _test_name STREQUAL "test_renderer_quality_presets" OR
+           _test_name STREQUAL "test_readback_orientation")
             gtest_discover_tests(${_test_name} ${_gtest_discovery} DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "gpu")
         else()
             gtest_discover_tests(${_test_name} ${_gtest_discovery} DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "cpu")
