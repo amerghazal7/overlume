@@ -236,6 +236,7 @@ overlume::detail::Theme MakeSentinelTheme(float scalar, const std::string& name)
     t.hud.accent_color = c;
     t.hud.scale = scalar;
     t.point_cloud.point_size_px = scalar;
+    t.hybrid_splat.size_px = scalar;
     t.sun.direction = c;
     t.sun.color = c;
     t.sun.intensity = scalar;
@@ -313,6 +314,7 @@ TEST(ThemeTransition, SentinelThemesDetectAnyUnblendedField) {
     ExpectBetweenSentinels(mid.hud.accent_color, "hud.accent_color");
     ExpectBetweenSentinels(mid.hud.scale, "hud.scale");
     ExpectBetweenSentinels(mid.point_cloud.point_size_px, "point_cloud.point_size_px");
+    ExpectBetweenSentinels(mid.hybrid_splat.size_px, "hybrid_splat.size_px");
     ExpectBetweenSentinels(mid.sun.direction, "sun.direction");
     ExpectBetweenSentinels(mid.sun.color, "sun.color");
     ExpectBetweenSentinels(mid.sun.intensity, "sun.intensity");

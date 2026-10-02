@@ -309,6 +309,16 @@ public:
     std::vector<TrajectoryCarpetSlot> trajectoryCarpetSlots;
     uint64_t trajectoryCarpetRebuildCount = 0;
 
+    filament::Material* hybridSplatMaterial = nullptr;
+    filament::MaterialInstance* hybridSplatInstance = nullptr;
+    std::vector<Mesh> hybridSplatMeshes;
+    uint32_t hybridSplatCount = 0;
+    float hybridSplatSizePx = 0.0f;
+    float bowlExposure = 1.56f;
+    bool hybridStencilOn = false;
+    bool hybridGroundNe = false;
+    bool hybridGridNe = false;
+
     uint32_t cameraCount = 0;
     CameraTextureSlot cameraSlots[kMaxBowlCameras];
     bool bowlVisible = false;

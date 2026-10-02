@@ -30,6 +30,7 @@ material: { roughness: 0.85, metallic: 0.0 }
 emissive: { ribbon_strength: 0.0 }
 grid: { line_color: [0.130, 0.130, 0.180], fade_start_m: 15.0, fade_end_m: 40.0 }
 hud: { text_color: [0.90, 0.92, 0.95], accent_color: [0.12, 0.60, 0.45], scale: 1.0 }
+hybrid_splat: { size_px: 7.0 }
 sun: { direction: [-0.6, -0.2, -0.5], color: [0.85, 0.65, 0.55], intensity: 350000.0 }
 ibl:
   sky_color:    [0.028, 0.036, 0.085]

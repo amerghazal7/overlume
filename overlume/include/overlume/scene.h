@@ -234,6 +234,15 @@ bool set_camera_frame(VisualRenderer*, uint32_t cam_idx, const uint8_t* rgb, uin
                       uint32_t height, uint64_t frame_id,
                       void (*release)(void*, size_t, void*) = nullptr, void* user = nullptr);
 
+/// Hybrid (CUDA-parity) lidar splat layer: opaque square splats composited over the bowl.
+/// Points are in RIG frame (same as BowlConfig); the library anchors them with the bowl's ego
+/// transform. Colour comes from rgba (alpha ignored). size_px <= 0 selects the theme token
+/// hybrid_splat.size_px. count == 0 or rig_points == nullptr clears the layer. Drawn only while
+/// the bowl is visible. The points are copied. Call on the render_frame thread. Returns false
+/// for a null renderer.
+bool set_hybrid_splats(VisualRenderer*, const PointCloudPoint* rig_points, uint32_t count,
+                       float size_px);
+
 bool set_environment_source(VisualRenderer*, const char* source_uri, GeoAnchor anchor);
 
 enum class EnvironmentSourceState : uint8_t {

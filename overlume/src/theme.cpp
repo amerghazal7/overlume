@@ -84,6 +84,9 @@ Theme parse(const YAML::Node& root) {
     t.point_cloud.point_size_px =
         (pc && pc["point_size_px"]) ? pc["point_size_px"].as<float>() : 2.0f;
 
+    const YAML::Node hs = root["hybrid_splat"];
+    t.hybrid_splat.size_px = (hs && hs["size_px"]) ? hs["size_px"].as<float>() : 7.0f;
+
     const YAML::Node sun = root["sun"];
     t.sun.direction = to_float3(sun["direction"]);
     t.sun.color = to_float3(sun["color"]);
@@ -235,6 +238,7 @@ const Theme& kFallbackTheme() {
         t.hud.accent_color = {0.12f, 0.60f, 0.45f};
         t.hud.scale = 1.0f;
         t.point_cloud.point_size_px = 2.0f;
+        t.hybrid_splat.size_px = 7.0f;
         t.sun.direction = {-0.6f, -0.2f, -0.5f};
         t.sun.color = {0.85f, 0.65f, 0.55f};
         t.sun.intensity = 350000.0f;

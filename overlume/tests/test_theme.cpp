@@ -722,3 +722,17 @@ TEST(ThemeOgmRamp, RampsContrastWithTheirThemeGround) {
         }
     }
 }
+
+TEST(ThemePalette, HybridSplatSizeParsesFromBothThemesAndDefaultsWhenMissing) {
+    for (const char* name : {"dark_adas", "light_clay"}) {
+        const std::optional<overlume::detail::Theme> t =
+            overlume::detail::load_theme(kThemeDir, name);
+        ASSERT_TRUE(t.has_value()) << name;
+        EXPECT_FLOAT_EQ(t->hybrid_splat.size_px, 7.0f) << name;
+    }
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<overlume::detail::Theme> bare =
+        overlume::detail::load_theme(fixtureDir, "sun_dir_a");
+    ASSERT_TRUE(bare.has_value());
+    EXPECT_FLOAT_EQ(bare->hybrid_splat.size_px, 7.0f);
+}

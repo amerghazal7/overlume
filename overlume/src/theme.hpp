@@ -72,6 +72,10 @@ struct Theme {
         float point_size_px = 2.0f;
     } point_cloud;
 
+    struct HybridSplatStyle {
+        float size_px = 7.0f;
+    } hybrid_splat;
+
     struct Sun {
         Float3 direction;
         Float3 color;
