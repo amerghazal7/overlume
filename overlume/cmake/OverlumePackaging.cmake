@@ -28,6 +28,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(CPACK_DEBIAN_STATIC_PACKAGE_DEPENDS "libegl-dev, libgles-dev")  # -lEGL -lGLESv2 in the static link line
     set(CPACK_DEBIAN_OVERLUME_PACKAGE_DEPENDS "libc6 (>= 2.28), libegl1, libgles2, libgl1")  # libGL.so.1 is dlopen'ed by Filament's bluegl
     set(CPACK_DEBIAN_ENABLE_COMPONENT_DEPENDS ON)
+    # shlibs control file + ldconfig postinst/postrm trigger for liboverlume.so.0 (the
+    # tool is only needed for the shlibs file, which cpack writes itself).
+    set(CPACK_DEBIAN_PACKAGE_GENERATE_SHLIBS ON)
+    set(CPACK_DEBIAN_PACKAGE_GENERATE_SHLIBS_POLICY "=")
     set(CPACK_DEBIAN_PACKAGE_SECTION libs)
     set(CPACK_RPM_COMPONENT_INSTALL ON)
     set(CPACK_RPM_OVERLUME_PACKAGE_NAME overlume)
