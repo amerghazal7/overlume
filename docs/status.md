@@ -140,6 +140,16 @@ accepts" list:
     other 294 tests (cpu + gpu + golden) pass in the container with no
     golden change. Tasks 3+ must either run the container ctest with
     `-E FiftyObjects` or loosen the budget under software GL.
+12. **Linux aarch64 release is cross-built and its native run is unproven
+    locally (2026-10-02).** The x86_64 runner cross-compiles against an
+    Alma 8 aarch64 sysroot; the build, packages, ELF-machine and glibc-2.28
+    checks pass on x86_64, but nothing aarch64 can execute there (no binfmt).
+    The cpu ctest run, `check_package_elf.sh` and the clean-room install matrix
+    run only in CI (`release.yml`, job `package-linux-aarch64` on
+    `ubuntu-22.04-arm`); checksums, their signature and the release upload wait
+    for it. Until a dry run is green the aarch64 packages are unverified. The
+    sysroot tracks Alma 8's latest 8.x packages (versions are recorded in the
+    image at `/opt/sysroot-aarch64.manifest`, not pinned).
 
 ## How to update this file
 

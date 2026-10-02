@@ -53,15 +53,20 @@ if(NOT CMAKE_CXX_FLAGS MATCHES "-stdlib=libc\\+\\+")
         "must not mix.")
 endif()
 
+# Cross builds name the target triple so the probe looks at the target's runtime.
+set(_libcxx_target_arg "")
+if(CMAKE_CXX_COMPILER_TARGET)
+    set(_libcxx_target_arg "--target=${CMAKE_CXX_COMPILER_TARGET}")
+endif()
 execute_process(
-    COMMAND "${CMAKE_CXX_COMPILER}" -stdlib=libc++ -print-file-name=libc++.a
+    COMMAND "${CMAKE_CXX_COMPILER}" ${_libcxx_target_arg} -stdlib=libc++ -print-file-name=libc++.a
     OUTPUT_VARIABLE _libcxx_a
     OUTPUT_STRIP_TRAILING_WHITESPACE)
 if(NOT EXISTS "${_libcxx_a}")
     # LLVM release tarball layout: <root>/lib/<triple>/libc++.a, which clang
     # does not report via -print-file-name.
     execute_process(
-        COMMAND "${CMAKE_CXX_COMPILER}" -print-target-triple
+        COMMAND "${CMAKE_CXX_COMPILER}" ${_libcxx_target_arg} -print-target-triple
         OUTPUT_VARIABLE _libcxx_triple
         OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
     get_filename_component(_libcxx_cxx_bin "${CMAKE_CXX_COMPILER}" REALPATH)
@@ -415,11 +420,17 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
             OVERLUME_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
             OVERLUME_DEFAULT_THEME_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets/themes")
         include(GoogleTest)
+        # Cross builds cannot run the binary at build time: list its tests when ctest loads.
+        if(CMAKE_CROSSCOMPILING)
+            set(_gtest_discovery DISCOVERY_MODE PRE_TEST)
+        else()
+            set(_gtest_discovery "")
+        endif()
         if(_test_name STREQUAL "test_renderer_projection" OR
            _test_name STREQUAL "test_renderer_quality_presets")
-            gtest_discover_tests(${_test_name} DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "gpu")
+            gtest_discover_tests(${_test_name} ${_gtest_discovery} DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "gpu")
         else()
-            gtest_discover_tests(${_test_name} DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "cpu")
+            gtest_discover_tests(${_test_name} ${_gtest_discovery} DISCOVERY_TIMEOUT 30 PROPERTIES LABELS "cpu")
         endif()
     endforeach()
 endif()

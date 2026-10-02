@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+#
+# aarch64 cross layer on top of the x86_64 release image (Dockerfile): an
+# AlmaLinux 8 aarch64 sysroot (glibc 2.28 + gcc 8 crt/libgcc + Mesa/X11 -devel,
+# unpacked by dnf without emulation) and libc++/libc++abi/libunwind 18.1.8
+# built for aarch64 with /opt/llvm (x86_64 clang, lld) against that sysroot.
+# Nothing here runs aarch64 code; the result is tested natively on an arm64
+# runner (release.yml, job package-test-aarch64).
+#
+#   docker build -t overlume-release-linux:x86_64 tools/release/linux
+#   docker build -f tools/release/linux/Dockerfile.cross-aarch64 \
+#     -t overlume-release-linux:cross-aarch64 tools/release/linux
+#
+# No tokens belong in this image; none are read at build time.
+ARG BASE=overlume-release-linux:x86_64
+FROM ${BASE}
+
+ARG LLVM_VERSION=18.1.8
+ARG LLVM_SRC_SHA256=0b58557a6d32ceee97c8d533a59b9212d87e0fc4d2833924eb6c611247db2f2a
+
+# 1. Sysroot. `filesystem` first: installing glibc before it makes its /lib64
+#    symlink collide with a directory. Scriptlets are skipped (they would need
+#    an aarch64 shell); the package set is recorded in the manifest. Absolute
+#    symlinks are rewritten relative (they would resolve against the build host).
+RUN set -eux; \
+    D="dnf -y --installroot=/opt/sysroot-aarch64 --forcearch=aarch64 --releasever=8 \
+       --setopt=tsflags=noscripts --setopt=install_weak_deps=False --nodocs --enablerepo=powertools"; \
+    $D install filesystem; \
+    $D install glibc-devel kernel-headers libgcc gcc \
+       mesa-libEGL-devel mesa-libGL-devel mesa-libGLU-devel \
+       libX11-devel libXi-devel libXext-devel libXrandr-devel libXxf86vm-devel libXcomposite-devel; \
+    rpm --root /opt/sysroot-aarch64 -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort \
+       > /opt/sysroot-aarch64.manifest; \
+    dnf --installroot=/opt/sysroot-aarch64 clean all; \
+    rm -rf /opt/sysroot-aarch64/var/cache /opt/sysroot-aarch64/var/lib/dnf /opt/sysroot-aarch64/var/log \
+           /opt/sysroot-aarch64/usr/libexec/gcc /opt/sysroot-aarch64/usr/share/man \
+           /opt/sysroot-aarch64/usr/share/doc /opt/sysroot-aarch64/usr/share/info \
+           /opt/sysroot-aarch64/usr/share/locale; \
+    find /opt/sysroot-aarch64 -type l -lname '/*' | while read -r l; do \
+      t="$(readlink "$l")"; ln -sfr "/opt/sysroot-aarch64${t}" "$l"; done; \
+    ! find /opt/sysroot-aarch64/usr/lib /opt/sysroot-aarch64/usr/lib64 /opt/sysroot-aarch64/usr/include -xtype l -not -path '*/.build-id/*' | grep .
+
+# 2. aarch64 C++ runtime from the pinned llvm-project source, into /opt/llvm in
+#    the tarball's own per-target layout (lib/aarch64-unknown-linux-gnu/,
+#    include/aarch64-unknown-linux-gnu/c++/v1), static, PIC. Objects are built
+#    against the glibc 2.28 headers of the sysroot.
+RUN set -eux; \
+    curl -fsSL -o /tmp/llvm-src.tar.xz \
+      "https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/llvm-project-${LLVM_VERSION}.src.tar.xz"; \
+    echo "${LLVM_SRC_SHA256}  /tmp/llvm-src.tar.xz" | sha256sum -c -; \
+    mkdir /tmp/llvm-src; \
+    tar -xJf /tmp/llvm-src.tar.xz -C /tmp/llvm-src --strip-components=1 \
+      --wildcards '*/cmake' '*/runtimes' '*/libcxx' '*/libcxxabi' '*/libunwind' '*/third-party'; \
+    rm /tmp/llvm-src.tar.xz; \
+    gcc_dir="$(echo /opt/sysroot-aarch64/usr/lib/gcc/aarch64-redhat-linux/*)"; \
+    cf="--target=aarch64-linux-gnu --sysroot=/opt/sysroot-aarch64 --gcc-install-dir=${gcc_dir} -fPIC"; \
+    cmake -S /tmp/llvm-src/runtimes -B /tmp/rt-build -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/llvm \
+      -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+      -DCMAKE_C_COMPILER=/opt/llvm/bin/clang -DCMAKE_CXX_COMPILER=/opt/llvm/bin/clang++ \
+      -DCMAKE_AR=/opt/llvm/bin/llvm-ar -DCMAKE_RANLIB=/opt/llvm/bin/llvm-ranlib \
+      -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+      "-DCMAKE_C_FLAGS=${cf}" "-DCMAKE_CXX_FLAGS=${cf}" "-DCMAKE_ASM_FLAGS=${cf}" \
+      -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld \
+      -DLLVM_ENABLE_RUNTIMES='libunwind;libcxxabi;libcxx' \
+      -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-unknown-linux-gnu -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON \
+      -DLIBCXX_ENABLE_SHARED=OFF -DLIBCXXABI_ENABLE_SHARED=OFF -DLIBUNWIND_ENABLE_SHARED=OFF \
+      -DLIBCXXABI_USE_LLVM_UNWINDER=ON -DLIBCXX_CXX_ABI=libcxxabi \
+      -DLIBCXX_INCLUDE_TESTS=OFF -DLIBCXXABI_INCLUDE_TESTS=OFF -DLIBUNWIND_INCLUDE_TESTS=OFF \
+      -DLIBCXX_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_TESTS=OFF; \
+    cmake --build /tmp/rt-build; \
+    cmake --install /tmp/rt-build; \
+    rm -rf /tmp/llvm-src /tmp/rt-build; \
+    ls -l /opt/llvm/lib/aarch64-unknown-linux-gnu
+
+# 3. Triple-prefixed compiler names: clang takes its target from the executable
+#    name, so even tools that run the bare compiler (KTX's cputypetest, probes)
+#    see aarch64 instead of the x86_64 host.
+RUN ln -s clang /opt/llvm/bin/aarch64-linux-gnu-clang \
+ && ln -s clang++ /opt/llvm/bin/aarch64-linux-gnu-clang++

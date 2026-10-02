@@ -73,7 +73,8 @@ jobs:
       matrix:
         include:
           - { name: linux-x86_64,  os: ubuntu-22.04,     container_arch: x86_64 }
-          - { name: linux-aarch64, os: ubuntu-22.04-arm, container_arch: aarch64 }
+          # linux-aarch64 is cross-built on x86_64 and tested natively on arm64:
+          # package-linux-aarch64-build + package-linux-aarch64 below.
     runs-on: ${{ matrix.os }}
     env:
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
@@ -157,6 +158,151 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: pkg-${{ matrix.name }}
+          path: out/*
+          if-no-files-found: error
+
+      - name: Upload release assets
+        if: ${{ env.DRY_RUN != 'true' && github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" out/* --clobber
+
+  # aarch64 is cross-compiled here (x86_64 runner, Alma 8 aarch64 sysroot, see
+  # tools/release/linux/Dockerfile.cross-aarch64) and tested natively by
+  # package-linux-aarch64 on an arm64 runner. Nothing is signed (beyond the rpm
+  # signature the clean-room test checks) or published from this job.
+  package-linux-aarch64-build:
+    needs: create
+    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    env:
+      IMAGE: overlume-release-linux:cross-aarch64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Cache cross release image
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/overlume-image.tar
+          key: overlume-image-cross-aarch64-${{ hashFiles('tools/release/linux/Dockerfile', 'tools/release/linux/Dockerfile.cross-aarch64') }}
+
+      - name: Build or load cross release image
+        run: |
+          if [ -f "$RUNNER_TEMP/overlume-image.tar" ]; then
+            docker load -i "$RUNNER_TEMP/overlume-image.tar"
+          else
+            docker build -t overlume-release-linux:x86_64 tools/release/linux
+            docker build -f tools/release/linux/Dockerfile.cross-aarch64 -t "$IMAGE" tools/release/linux
+            docker save -o "$RUNNER_TEMP/overlume-image.tar" "$IMAGE"
+          fi
+
+      - name: Cache Filament source build and vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            overlume/build-release-aarch64/_deps
+            ${{ runner.temp }}/overlume-home
+          key: overlume-deps-aarch64-cross-${{ hashFiles('overlume/cmake/**', 'tools/release/linux/Dockerfile', 'tools/release/linux/Dockerfile.cross-aarch64') }}
+
+      - name: Cross-configure, build, package (container)
+        run: |
+          mkdir -p "$RUNNER_TEMP/overlume-home" test-bundle
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/home/h \
+            -v "$RUNNER_TEMP/overlume-home":/home/h -v "$PWD":/src -w /src "$IMAGE" bash -euo pipefail -c '
+              b=overlume/build-release-aarch64
+              cmake --toolchain /src/overlume/cmake/toolchain-llvm-release-aarch64.cmake \
+                    -S overlume -B "$b" -G Ninja \
+                    -DCMAKE_BUILD_TYPE=Release -DOVERLUME_ENABLE_CESIUM=ON \
+                    -DOVERLUME_BUILD_DOCS=OFF -DOVERLUME_BUILD_EXAMPLES=OFF \
+                    -DOVERLUME_FILAMENT_FROM_SOURCE=ON
+              cmake --build "$b"
+              # Foreign-arch ELF: LLVM binutils. The native floor/export checks repeat on arm64.
+              export OBJDUMP=/opt/llvm/bin/llvm-objdump READELF=/opt/llvm/bin/llvm-readelf
+              tools/release/check_glibc_floor.sh "$b/liboverlume.so.0"
+              overlume/scripts/check_shared_exports.sh /opt/llvm/bin/llvm-nm "$READELF" "$b/liboverlume.so.0"
+              cpack --config "$b/CPackConfig.cmake" -B "/src/$b/pkg"
+              tools/release/check_package_elf.sh "$b"/pkg/overlume-*-linux-aarch64.tar.gz AArch64
+              tools/release/make_test_bundle.sh "$b" test-bundle/overlume-aarch64-tests.tar.gz
+            '
+
+      - name: Sign rpm packages
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: |
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp \
+            -e OVERLUME_GPG_PRIVATE_KEY -e OVERLUME_GPG_PASSPHRASE \
+            -v "$PWD":/src -w /src "$IMAGE" tools/release/sign_rpms.sh overlume/build-release-aarch64/pkg
+
+      - name: Collect packages
+        run: |
+          mkdir out
+          cp overlume/build-release-aarch64/pkg/*.deb overlume/build-release-aarch64/pkg/*.rpm \
+             overlume/build-release-aarch64/pkg/*.tar.gz out/
+          ls -l out test-bundle
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-linux-aarch64-unverified
+          path: out/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tests-linux-aarch64
+          path: test-bundle/*
+          if-no-files-found: error
+
+  # Native arm64: the cross-built tests in an almalinux:8 container (glibc 2.28
+  # for real), then the clean-room install matrix. Checksums, their signature
+  # and the release upload exist only after both pass.
+  package-linux-aarch64:
+    needs: package-linux-aarch64-build
+    if: ${{ !cancelled() && needs.package-linux-aarch64-build.result == 'success' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04-arm
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pkg-linux-aarch64-unverified
+          path: out
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: tests-linux-aarch64
+          path: test-bundle
+
+      - name: Unpack the test bundle
+        run: tar -xzf test-bundle/overlume-aarch64-tests.tar.gz
+
+      - name: Native cpu tests (almalinux:8 arm64)
+        run: docker run --rm -v "$PWD":/src -w /src almalinux:8 bash tools/release/linux/test_aarch64.sh
+
+      - name: Clean-room install matrix
+        run: tools/package_smoke_test.sh out
+
+      - name: Checksums and detached signature
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: tools/release/sign_sums.sh out linux-aarch64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-linux-aarch64
           path: out/*
           if-no-files-found: error
 

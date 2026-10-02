@@ -372,6 +372,28 @@ from the Dockerfile with `/opt/llvm` = LLVM 18.1.8.
   The one failure, `Objects.FiftyObjectsSceneUpdateUnderTwoMilliseconds`, is
   deterministic (12.5 ms vs 2 ms budget, llvmpipe) and recorded as known gap
   11 in `docs/status.md`. glibc floor: `GLIBC_2.28`.
+  **Task 2 amendment (2026-10-02, CI dry run 37022162508): Linux aarch64 is
+  cross-compiled, not built natively.** The official LLVM 18.1.8 aarch64 tarball's
+  `clang++` needs GLIBC_2.29/GLIBCXX_3.4.26, so it cannot even run in `almalinux:8`
+  on an arm64 runner (a from-source native LLVM was rejected). User decision
+  (option 2): build aarch64 on the x86_64 runner with the x86_64 `/opt/llvm`
+  (`--target=aarch64-linux-gnu`, lld) against an AlmaLinux 8 aarch64 sysroot.
+  `tools/release/linux/Dockerfile.cross-aarch64` (a layer on the unchanged x86_64
+  image, whose Dockerfile still contains the now-unused aarch64 download branch)
+  installs the sysroot with `dnf --installroot --forcearch=aarch64` (no emulation;
+  `filesystem` first, scriptlets off, absolute symlinks made relative, package
+  list recorded in `/opt/sysroot-aarch64.manifest`) and builds libc++/libc++abi/
+  libunwind 18.1.8 (pinned `llvm-project-18.1.8.src.tar.xz`, SHA256 in the
+  Dockerfile) into `/opt/llvm/lib/aarch64-unknown-linux-gnu/`, the tarball's own
+  per-target layout, so the `libc++.a` probe resolves unchanged apart from passing
+  `--target`. `toolchain-llvm-release-aarch64.cmake` only sets the triple and
+  sysroot; all flags stay in `toolchain-llvm-release.cmake`. `GetFilament.cmake`
+  cross mode first builds Filament's host tools (matc, resgen, ...; this writes the
+  `ImportExecutables-Release.cmake` Filament's cross build includes) with the x86_64
+  toolchain, then cross-builds the libraries; `FILAMENT_HOST_MATC` is that matc.
+  Cesium/vcpkg: the `arm64-linux-clang-libcxx` triplet chainloads the cross
+  toolchain (`vcpkg-llvm-release-aarch64-toolchain.cmake`, adds -fPIC and the vcpkg
+  prefix to the find roots); the vcpkg host triplet is `x64-linux-clang-libcxx`.
 - [ ] **Step 6:** dev gate green on the host. **Commit**
   `feat(build): Alma 8 release toolchain, Filament source build, glibc 2.28 floor`.
 
@@ -539,6 +561,23 @@ include(CPack)
   and debian:11 is pointed at archive.debian.org with libc6 pinned.
   **Step 7 not done:** the `gh workflow run` dry run was denied by the
   auto-mode permission classifier; the branch is pushed, the dispatch is pending.
+  **Task 3 amendment (cross-compiled aarch64, 2026-10-02).** The `package` matrix
+  keeps only `linux-x86_64`. aarch64 is two jobs: `package-linux-aarch64-build`
+  (ubuntu-22.04, cross image, read-only token: build, `check_glibc_floor.sh` and
+  `check_shared_exports.sh` with llvm-objdump/nm, cpack, `check_package_elf.sh`,
+  rpm signing, `make_test_bundle.sh`) and `package-linux-aarch64` (ubuntu-22.04-arm:
+  `tools/release/linux/test_aarch64.sh` in `almalinux:8`, the cpu ctest set from the
+  bundle with `gtest_discover_tests(DISCOVERY_MODE PRE_TEST)` plus the glibc and
+  machine checks, then `package_smoke_test.sh`, then `sign_sums.sh` and the tag
+  upload). Cross-only changes: CPack deb/rpm architecture are set explicitly
+  (arm64/aarch64), `CMAKE_STRIP/OBJDUMP/OBJCOPY` are llvm-*, `CMAKE_NM/READELF`
+  are bare names (resolved on the arm64 host), `<triple>-clang` symlinks give
+  bare-compiler probes (KTX's CPU check) the right target, and the vcpkg chainload
+  appends the vcpkg prefix to the find roots and links the static libc++ for port
+  executables. Local proof on x86_64: full cross build, 3 package kinds x2,
+  glibc floor `GLIBC_2.28`, `check_shared_exports` PASS, all shipped ELF AArch64,
+  `rpmsign` on the aarch64 rpms with a throwaway key; dev gate green. Native
+  execution is proven only by CI (see `docs/status.md`, known gap 12).
 - [ ] **Step 7:** push work branch, `gh workflow run release.yml --ref <branch> -f dry_run=true`,
   both Linux jobs green. **Commit**
   `feat(release): signed deb/rpm/tgz (shared+static) for x86_64/aarch64, smoke-tested`.
