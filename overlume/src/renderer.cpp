@@ -27,6 +27,7 @@
 #include "renderer_internal.hpp"
 #include "renderer_quality_test_hooks.hpp"
 #include "theme.hpp"
+#include "theme_dir.hpp"
 #include "theme_transition.hpp"
 
 #include <cmath>
@@ -720,8 +721,9 @@ filament::LightManager::ShadowOptions ShadowOptionsForQuality(uint32_t quality) 
 VisualRenderer* create_renderer(const RenderConfig& config) {
     if (config.width == 0 || config.height == 0) return nullptr;
 
-    const std::string themeDir = config.theme_assets_dir ? std::string(config.theme_assets_dir)
-                                                         : std::string(DEFAULT_THEME_ASSETS_DIR);
+    const std::string themeDir = config.theme_assets_dir
+        ? std::string(config.theme_assets_dir)
+        : detail::resolve_default_theme_dir(detail::current_module_path(), DEFAULT_THEME_ASSETS_DIR);
     const std::string themeName =
         config.initial_theme ? std::string(config.initial_theme) : std::string("dark_adas");
     std::optional<detail::Theme> loaded = detail::load_theme(themeDir, themeName);

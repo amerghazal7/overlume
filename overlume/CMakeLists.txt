@@ -91,6 +91,7 @@ FetchContent_Declare(
     URL_HASH SHA256=fbe74bbdcee21d656715688706da3c8becfd946d92cd44705cc6098bb23b3a16)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(yamlcpp)
 
 set(STB_IMAGE_WRITE_COMMIT "2c980bb59875b0d32144a71867fbdebb2f77cd20")
@@ -146,9 +147,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
     list(REMOVE_ITEM OVERLUME_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
 endif()
 
-add_library(overlume STATIC ${OVERLUME_SOURCES})
-add_library(overlume::overlume ALIAS overlume)
+# One OBJECT library feeds both link products: `overlume` (static, merged
+# archive; what the ROS node, tests and the gate link) and `overlume_shared`.
+add_library(overlume_obj OBJECT ${OVERLUME_SOURCES})
 
+if(OVERLUME_ENABLE_CESIUM)
+    set(_overlume_vendor_merge_direct_targets
+        Cesium3DTilesSelection CesiumGltfWriter CesiumGltfReader CesiumAsync CesiumCurl)
+endif()
+
+set(_overlume_overlume_stream_objects "")
 if(OVERLUME_ENABLE_CESIUM AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
     add_library(overlume_stream OBJECT src/environment_stream.cpp)
     target_compile_features(overlume_stream PRIVATE cxx_std_20)
@@ -158,34 +166,49 @@ if(OVERLUME_ENABLE_CESIUM AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/environmen
         Filament::filament
     )
     target_include_directories(overlume_stream PRIVATE src include)
-    target_sources(overlume PRIVATE $<TARGET_OBJECTS:overlume_stream>)
-endif()
-if(OVERLUME_ENABLE_CESIUM)
-    target_compile_options(overlume PRIVATE -std=gnu++${CMAKE_CXX_STANDARD})
-    target_compile_definitions(overlume PRIVATE OVERLUME_ENABLE_CESIUM=1)
+    set(_overlume_overlume_stream_objects $<TARGET_OBJECTS:overlume_stream>)
 endif()
 
-target_include_directories(overlume PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-)
-target_include_directories(overlume PRIVATE "${CMAKE_BINARY_DIR}/generated/overlume_materials")
+add_library(overlume STATIC $<TARGET_OBJECTS:overlume_obj> ${_overlume_overlume_stream_objects})
+set_target_properties(overlume PROPERTIES LINKER_LANGUAGE CXX)
+add_library(overlume::overlume ALIAS overlume)
+
 if(OVERLUME_ENABLE_CESIUM)
-    target_link_libraries(overlume PRIVATE "-Wl,--start-group")
+    target_compile_options(overlume_obj PRIVATE -std=gnu++${CMAKE_CXX_STANDARD})
+    target_compile_definitions(overlume_obj PRIVATE OVERLUME_ENABLE_CESIUM=1)
 endif()
-target_link_libraries(overlume PRIVATE
+
+# Usage requirements only (an OBJECT library never links).
+target_link_libraries(overlume_obj PRIVATE
+    Filament::filament yaml-cpp::yaml-cpp ${_overlume_vendor_merge_direct_targets})
+target_include_directories(overlume_obj PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_BINARY_DIR}/generated/overlume_materials")
+target_compile_definitions(overlume_obj PRIVATE
+    DEFAULT_THEME_ASSETS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets/themes")
+
+# Link line shared by both products (today's static link line, same order).
+set(_overlume_private_link
     Filament::filament
     yaml-cpp::yaml-cpp
     "${_libcxx_a}"
     "${_libcxxabi_a}"
     "${_libunwind_a}"
 )
+if(OVERLUME_ENABLE_CESIUM)
+    set(_overlume_private_link
+        "-Wl,--start-group" ${_overlume_private_link}
+        ${_overlume_vendor_merge_direct_targets} "-Wl,--end-group")
+endif()
+
+target_include_directories(overlume PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
+target_link_libraries(overlume PRIVATE ${_overlume_private_link})
 
 if(OVERLUME_ENABLE_CESIUM)
     target_link_options(overlume INTERFACE "-Wl,--allow-multiple-definition")
 endif()
-
-target_compile_definitions(overlume PRIVATE
-    DEFAULT_THEME_ASSETS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets/themes")
 
 function(_overlume_vendor_merge_target_p _tgt _out)
     string(REGEX REPLACE "^.*::" "" _short "${_tgt}")
@@ -228,15 +251,9 @@ macro(_overlume_collect_vendor_merge_archives _out_var)
 endmacro()
 
 if(OVERLUME_ENABLE_CESIUM)
-    set(_overlume_vendor_merge_direct_targets
-        Cesium3DTilesSelection CesiumGltfWriter CesiumGltfReader CesiumAsync CesiumCurl)
-
-    target_link_libraries(overlume PRIVATE ${_overlume_vendor_merge_direct_targets})
     _overlume_collect_vendor_merge_archives(_overlume_vendor_merge_archives
         ${_overlume_vendor_merge_direct_targets})
     list(REMOVE_DUPLICATES _overlume_vendor_merge_archives)
-
-    target_link_libraries(overlume PRIVATE "-Wl,--end-group")
 
     set(_overlume_spdlog_archive_count 0)
     set(_overlume_cesium_archive_count 0)
@@ -264,18 +281,13 @@ else()
     set(_overlume_vendor_merge_archives "")
 endif()
 
-set(_overlume_overlume_stream_objects "")
-if(OVERLUME_ENABLE_CESIUM AND TARGET overlume_stream)
-    set(_overlume_overlume_stream_objects $<TARGET_OBJECTS:overlume_stream>)
-endif()
-
 add_custom_command(TARGET overlume POST_BUILD
     COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/merge_yamlcpp.sh"
             "${CMAKE_AR}" "${CMAKE_LINKER}" "${CMAKE_OBJCOPY}" "${CMAKE_NM}"
             "${CMAKE_BINARY_DIR}/_yamlmerge"
             "${CMAKE_BINARY_DIR}/overlume_merged.o"
             "$<TARGET_FILE:overlume>"
-            $<TARGET_OBJECTS:overlume>
+            $<TARGET_OBJECTS:overlume_obj>
             ${_overlume_overlume_stream_objects}
             --
             "$<TARGET_FILE:yaml-cpp>"
@@ -283,11 +295,49 @@ add_custom_command(TARGET overlume POST_BUILD
     COMMAND_EXPAND_LISTS VERBATIM
     COMMENT "overlume: merging yaml-cpp + cesium-native + spdlog/fmt, renaming their vendored symbols (Epic 2 Task 1 Step 0.2; extended Epic 6 VM-061 Step 5)")
 
+option(OVERLUME_BUILD_SHARED "Build the self-contained shared liboverlume (deps baked in, only overlume::* exported)" ON)
+if(OVERLUME_BUILD_SHARED)
+    add_library(overlume_shared SHARED $<TARGET_OBJECTS:overlume_obj> ${_overlume_overlume_stream_objects})
+    set_target_properties(overlume_shared PROPERTIES
+        OUTPUT_NAME overlume VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR}
+        EXPORT_NAME overlume LINKER_LANGUAGE CXX)
+    target_include_directories(overlume_shared PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>)
+    # libc++ last (CMake emits an INTERFACE target's libs after the direct
+    # items, in order): it must resolve what Filament/Cesium leave undefined.
+    add_library(overlume_cxx_runtime INTERFACE)
+    target_link_libraries(overlume_cxx_runtime INTERFACE
+        "${_libcxx_a}" "${_libcxxabi_a}" "${_libunwind_a}")
+    set(_overlume_shared_link Filament::filament yaml-cpp::yaml-cpp)
+    if(OVERLUME_ENABLE_CESIUM)
+        set(_overlume_shared_link "-Wl,--start-group" ${_overlume_shared_link}
+            ${_overlume_vendor_merge_direct_targets} "-Wl,--end-group")
+    endif()
+    target_link_libraries(overlume_shared PRIVATE ${_overlume_shared_link} overlume_cxx_runtime)
+    if(OVERLUME_ENABLE_CESIUM)
+        target_link_options(overlume_shared PRIVATE "-Wl,--allow-multiple-definition")
+    endif()
+    if(CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
+        target_link_options(overlume_shared PRIVATE
+            "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/cmake/overlume_exports.map"
+            "-Wl,--exclude-libs,ALL" "-Wl,--no-undefined")
+        set_property(TARGET overlume_shared APPEND PROPERTY LINK_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/overlume_exports.map")
+    endif()
+endif()
+
 enable_testing()
 
 add_test(NAME check_pod_header
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_pod_header.sh)
 set_tests_properties(check_pod_header PROPERTIES LABELS "cpu")
+
+if(OVERLUME_BUILD_SHARED AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(NAME shared_exports
+             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_shared_exports.sh
+                     "${CMAKE_NM}" "${CMAKE_READELF}" "$<TARGET_FILE:overlume_shared>")
+    set_tests_properties(shared_exports PROPERTIES LABELS "cpu")
+endif()
 
 add_executable(filament_link_probe smoke/filament_link_probe.cpp)
 target_include_directories(filament_link_probe PRIVATE "${FILAMENT_ROOT}/include")
@@ -401,3 +451,5 @@ if(OVERLUME_BUILD_DOCS AND EXISTS "${PROJECT_SOURCE_DIR}/../Doxyfile.in")
 elseif(OVERLUME_BUILD_DOCS)
     message(STATUS "overlume: Doxyfile.in not found next to the library (library-only checkout) -- docs target skipped")
 endif()
+
+include(cmake/OverlumeInstall.cmake)
