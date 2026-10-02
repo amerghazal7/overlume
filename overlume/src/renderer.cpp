@@ -18,6 +18,7 @@
 #include "map_elements_test_hooks.hpp"
 #include "objects.hpp"
 #include "objects_test_hooks.hpp"
+#include "hybrid_splats.hpp"
 #include "point_cloud.hpp"
 #include "point_cloud_test_hooks.hpp"
 #include "trajectory_carpet.hpp"
@@ -849,6 +850,7 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
                                 .build(*engine);
     r->pointCloudMaterialInstance = r->pointCloudMaterial->createInstance();
     r->pointCloudMaterialInstance->setCullingMode(filament::backend::CullingMode::NONE);
+    create_hybrid_splat_material(*r);
 
     r->trajectoryCarpetMaterial = filament::Material::Builder()
                                       .package(overlume::materials::ktrajectory_carpetFilamat,
@@ -1053,6 +1055,7 @@ void destroy_renderer(VisualRenderer* r) {
         if (slot.texture) r->engine->destroy(slot.texture);
     }
 
+    destroy_hybrid_splats(*r);
     for (auto& slot : r->pointCloudSlots) {
         for (auto& mesh : slot.meshes) destroy_mesh(*r->engine, *r->scene, mesh);
     }
@@ -1132,6 +1135,7 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     apply_current_theme(*r, r->scene_buffer.active().sim_time_sec);
     update_ego_transform(*r, r->scene_buffer.active().ego);
     update_bowl(*r, r->scene_buffer.active().ego);
+    update_hybrid_splats(*r, r->scene_buffer.active().ego);
     update_ground_grid_transform(*r, r->scene_buffer.active().ego);
     update_map_elements(*r, r->scene_buffer.active());
     update_objects(*r, r->scene_buffer.active());

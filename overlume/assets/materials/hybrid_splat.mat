@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
+material {
+    name : hybrid_splat,
+    shadingModel : unlit,
+    parameters : [
+        { type : float, name : pointSizePx },
+        { type : float, name : exposureCompensation }
+    ],
+    requires : [ color ],
+    blending : opaque
+}
+vertex {
+    void materialVertex(inout MaterialVertexInputs material) {
+        gl_PointSize = materialParams.pointSizePx;
+    }
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        // Normalized UBYTE4 sRGB bytes, not decoded by the vertex fetch. Decode like the GPU does
+        // for the SRGB8 camera textures, then apply the bowl's exposure term (bowl.mat) so a
+        // splat matches the bowl pixel it covers.
+        vec3 c = getColor().rgb;
+        vec3 lin = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
+        material.baseColor = vec4(lin * materialParams.exposureCompensation, 1.0);
+    }
+}

@@ -22,17 +22,6 @@
 
 namespace overlume {
 
-namespace {
-
-using filament::math::float3;
-
-constexpr float kPointCloudBoundsM = 200.0f;
-
-struct PointVertex {
-    float3 position;
-    uint32_t rgba;
-};
-
 filament::VertexBuffer* make_point_vertex_buffer(filament::Engine& engine,
                                                  std::vector<PointVertex> verts) {
     auto* heap = new std::vector<PointVertex>(std::move(verts));
@@ -56,6 +45,12 @@ filament::VertexBuffer* make_point_vertex_buffer(filament::Engine& engine,
             heap));
     return vb;
 }
+
+namespace {
+
+using filament::math::float3;
+
+constexpr float kPointCloudBoundsM = 200.0f;
 
 uint64_t hash_combine(uint64_t seed, uint64_t v) {
     return seed ^ (v + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));

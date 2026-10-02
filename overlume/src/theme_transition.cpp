@@ -117,6 +117,7 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.hud.scale = lerpf(a.hud.scale, b.hud.scale, w);
     out.point_cloud.point_size_px =
         lerpf(a.point_cloud.point_size_px, b.point_cloud.point_size_px, w);
+    out.hybrid_splat.size_px = lerpf(a.hybrid_splat.size_px, b.hybrid_splat.size_px, w);
 
     out.sun.direction = lerp_vec3(a.sun.direction, b.sun.direction, w);
     out.sun.color = blend_color(a.sun.color, b.sun.color, w);
