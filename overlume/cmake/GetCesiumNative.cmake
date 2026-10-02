@@ -8,16 +8,20 @@ set(CESIUM_NATIVE_SHA256
     "f3629345db4cb7412380cc31dea502aeb9e2eca75129ccbc04b7628970031c11")
 
 set(VCPKG_OVERLAY_TRIPLETS "${CMAKE_CURRENT_LIST_DIR}/vcpkg-triplets" CACHE STRING "" FORCE)
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
-    set(_overlume_cn_triplet "arm64-linux-clang-libcxx")
-else()
-    set(_overlume_cn_triplet "x64-linux-clang-libcxx")
+include("${CMAKE_CURRENT_LIST_DIR}/CesiumTriplet.cmake")
+set(_overlume_cn_arch "${CMAKE_SYSTEM_PROCESSOR}")
+if(ANDROID)
+    set(_overlume_cn_arch "${CMAKE_ANDROID_ARCH_ABI}")
+elseif(APPLE AND CMAKE_OSX_ARCHITECTURES)
+    list(GET CMAKE_OSX_ARCHITECTURES 0 _overlume_cn_arch)
 endif()
+overlume_cesium_triplet(_overlume_cn_triplet "${CMAKE_SYSTEM_NAME}" "${_overlume_cn_arch}" "${CMAKE_OSX_SYSROOT}")
 set(VCPKG_TARGET_TRIPLET "${_overlume_cn_triplet}" CACHE STRING "" FORCE)
 if(CMAKE_CROSSCOMPILING)
-    # Cross (aarch64 on x86_64): the target is arm64, helper tools run on x64.
-    set(VCPKG_HOST_TRIPLET "x64-linux-clang-libcxx" CACHE STRING "" FORCE)
-    set(ENV{VCPKG_DEFAULT_HOST_TRIPLET} "x64-linux-clang-libcxx")
+    # Helper tools run on the build host, not the target.
+    overlume_cesium_triplet(_overlume_cn_host_triplet "${CMAKE_HOST_SYSTEM_NAME}" "${CMAKE_HOST_SYSTEM_PROCESSOR}" "")
+    set(VCPKG_HOST_TRIPLET "${_overlume_cn_host_triplet}" CACHE STRING "" FORCE)
+    set(ENV{VCPKG_DEFAULT_HOST_TRIPLET} "${_overlume_cn_host_triplet}")
 else()
     set(VCPKG_HOST_TRIPLET "${_overlume_cn_triplet}" CACHE STRING "" FORCE)
 endif()
@@ -30,25 +34,27 @@ set(CESIUM_INSTALL_HEADERS OFF CACHE BOOL "" FORCE)
 
 set(CMAKE_COMPILE_WARNING_AS_ERROR OFF)
 
-file(GLOB _overlume_cn_libstdcxx_dev_dirs "/usr/lib/gcc/*/*")
-set(_overlume_cn_libstdcxx_dev_dir "")
-foreach(_d ${_overlume_cn_libstdcxx_dev_dirs})
-    if(EXISTS "${_d}/libstdc++.so" AND IS_DIRECTORY "${_d}")
-        set(_overlume_cn_libstdcxx_dev_dir "${_d}")
-        break()
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    file(GLOB _overlume_cn_libstdcxx_dev_dirs "/usr/lib/gcc/*/*")
+    set(_overlume_cn_libstdcxx_dev_dir "")
+    foreach(_d ${_overlume_cn_libstdcxx_dev_dirs})
+        if(EXISTS "${_d}/libstdc++.so" AND IS_DIRECTORY "${_d}")
+            set(_overlume_cn_libstdcxx_dev_dir "${_d}")
+            break()
+        endif()
+    endforeach()
+    if(_overlume_cn_libstdcxx_dev_dir)
+        set(ENV{LIBRARY_PATH} "${_overlume_cn_libstdcxx_dev_dir}:$ENV{LIBRARY_PATH}")
+    else()
+        message(WARNING
+            "overlume/GetCesiumNative: no /usr/lib/gcc/*/*/libstdc++.so "
+            "dev symlink found anywhere -- vcpkg's own scripts/detect_compiler "
+            "pseudo-port (see comment above) may fail to link its bare "
+            "no-flags compiler probe on this box.")
     endif()
-endforeach()
-if(_overlume_cn_libstdcxx_dev_dir)
-    set(ENV{LIBRARY_PATH} "${_overlume_cn_libstdcxx_dev_dir}:$ENV{LIBRARY_PATH}")
-else()
-    message(WARNING
-        "overlume/GetCesiumNative: no /usr/lib/gcc/*/*/libstdc++.so "
-        "dev symlink found anywhere -- vcpkg's own scripts/detect_compiler "
-        "pseudo-port (see comment above) may fail to link its bare "
-        "no-flags compiler probe on this box.")
-endif()
 
-set(ENV{LD_LIBRARY_PATH} "${_libcxx_lib_dir}:$ENV{LD_LIBRARY_PATH}")
+    set(ENV{LD_LIBRARY_PATH} "${_libcxx_lib_dir}:$ENV{LD_LIBRARY_PATH}")
+endif()
 
 set(CMAKE_FIND_PACKAGE_TARGETS_GLOBAL TRUE)
 include(FetchContent)
