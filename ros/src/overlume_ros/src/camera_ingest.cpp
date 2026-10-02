@@ -41,7 +41,7 @@ bool rig_delta(const std::deque<StampedTwist>& twists, double t_from, double t_r
                double& px, double& py) {
     th = px = py = 0.0;
     const double span = t_ref - t_from;
-    if (std::abs(span) < 1e-4) return false;
+    if (std::abs(span) < 1e-4 || std::abs(span) > kTwistHistoryS) return false;
     const int n = std::max(1, static_cast<int>(std::ceil(std::abs(span) / 0.005)));
     const double dt = span / n;
     for (int i = 0; i < n; ++i) {
@@ -55,6 +55,13 @@ bool rig_delta(const std::deque<StampedTwist>& twists, double t_from, double t_r
     return true;
 }
 
+bool cloud_comp_delta(const std::deque<StampedTwist>& twists, double t_cloud, double t_max,
+                      double& th, double& px, double& py) {
+    th = px = py = 0.0;
+    if (t_cloud <= 0.0 || std::abs(t_max - t_cloud) > kMaxCloudCompSpanS) return false;
+    return rig_delta(twists, t_cloud, t_max, th, px, py);
+}
+
 void compensation_delta_4x4(const std::deque<StampedTwist>& twists, double t_cam, double t_ref,
                             double out_delta_row_major[16]) {
     double th, px, py;
@@ -66,6 +73,26 @@ void compensation_delta_4x4(const std::deque<StampedTwist>& twists, double t_cam
     const double c = std::cos(th), s = std::sin(th);
     double m[16] = {c, -s, 0, px, s, c, 0, py, 0, 0, 1, 0, 0, 0, 0, 1};
     std::memcpy(out_delta_row_major, m, sizeof(m));
+}
+
+overlume::CameraExtrinsics ApplyMotionDelta(const overlume::CameraExtrinsics& in,
+                                            const double d[16]) {
+    // v' = Rd^T v for each basis column; t' = Rd^T (t - pd)  (bowl.cpp update_bowl)
+    auto rot = [&](double x, double y, double z, double* o) {
+        o[0] = d[0] * x + d[4] * y + d[8] * z;
+        o[1] = d[1] * x + d[5] * y + d[9] * z;
+        o[2] = d[2] * x + d[6] * y + d[10] * z;
+    };
+    overlume::CameraExtrinsics out = in;
+    for (int c = 0; c < 3; ++c) {
+        double v[3];
+        rot(in.R[c], in.R[3 + c], in.R[6 + c], v);
+        out.R[c] = v[0];
+        out.R[3 + c] = v[1];
+        out.R[6 + c] = v[2];
+    }
+    rot(in.t[0] - d[3], in.t[1] - d[7], in.t[2] - d[11], out.t);
+    return out;
 }
 
 namespace {
@@ -273,7 +300,7 @@ CameraIngest::CameraIngest(rclcpp_lifecycle::LifecycleNode* node, uint32_t camer
                 tw.wz = msg->twist.twist.angular.z;
                 std::lock_guard<std::mutex> lk(odom_mtx_);
                 twists_.push_back(tw);
-                while (!twists_.empty() && tw.t - twists_.front().t > 2.0) twists_.pop_front();
+                while (!twists_.empty() && tw.t - twists_.front().t > kTwistHistoryS) twists_.pop_front();
             });
     }
 }
@@ -336,7 +363,36 @@ void CameraIngest::update_motion_deltas() {
             std::memcpy(delta, I, sizeof(I));
         }
         overlume::set_camera_motion_delta(renderer_, i, delta);
+        if (last_deltas_.size() <= i) last_deltas_.resize(state_.camera_count());
+        std::memcpy(last_deltas_[i].data(), delta, sizeof(delta));
     }
+}
+
+bool CameraIngest::cloud_motion_delta(double t_cloud, double& th, double& px, double& py) {
+    th = px = py = 0.0;
+    double t_max;
+    if (!state_.newest_stamp(t_max)) return false;
+    std::deque<StampedTwist> snap;
+    {
+        std::lock_guard<std::mutex> lk(odom_mtx_);
+        snap = twists_;
+    }
+    if (std::abs(t_max - t_cloud) > kMaxCloudCompSpanS) {
+        RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 5000,
+                             "hybrid: cloud stamp %.3fs from image ref, compensation skipped",
+                             std::abs(t_max - t_cloud));
+    }
+    return cloud_comp_delta(snap, t_cloud, t_max, th, px, py);
+}
+
+void CameraIngest::fill_compensated_extrinsics(
+    std::vector<overlume::CameraExtrinsics>& out) const {
+    const uint32_t n = state_.camera_count();
+    out.resize(n);
+    const double I[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    for (uint32_t i = 0; i < n; ++i)
+        out[i] = ApplyMotionDelta(state_.extrinsics(i),
+                                  i < last_deltas_.size() ? last_deltas_[i].data() : I);
 }
 
 }

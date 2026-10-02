@@ -475,6 +475,7 @@ if(BUILD_TESTING)
     ${OVERLUME_DIR}/include)
   ament_target_dependencies(test_camera_ingest ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_camera_ingest overlume_prebuilt)
+  set_tests_properties(test_camera_ingest PROPERTIES TIMEOUT 30)
 
   ament_add_gtest(test_lidar_colorize test/test_lidar_colorize.cpp src/lidar_colorize.cpp)
   target_include_directories(test_lidar_colorize PRIVATE
