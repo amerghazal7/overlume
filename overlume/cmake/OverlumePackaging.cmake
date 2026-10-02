@@ -48,6 +48,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE arm64)
         set(CPACK_RPM_PACKAGE_ARCHITECTURE aarch64)
     endif()
+    if(CMAKE_CROSSCOMPILING)
+        # rpmbuild's brp-strip* post-process the payload with the HOST (x86) GNU strip/objdump,
+        # which rewrites foreign-arch archive members to e_machine 0 ("file in wrong format" at the
+        # consumer's link). Point the macros the brp scripts take (%__brp_strip* use %__strip and
+        # %__objdump) at the cross-capable LLVM tools; keeps the same stripping, correct for any arch.
+        set(CPACK_RPM_SPEC_MORE_DEFINE "%define __strip ${CMAKE_STRIP}\n%define __objdump ${CMAKE_OBJDUMP}")
+    endif()
 endif()
 # The deb/rpm payloads install under /usr; the tar.gz is prefix-relative so it can be unpacked anywhere.
 configure_file("${CMAKE_CURRENT_LIST_DIR}/OverlumeCPackOptions.cmake.in"

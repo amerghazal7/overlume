@@ -21,7 +21,7 @@ build=/src/overlume/build-release-aarch64
 dnf -y install dnf-plugins-core epel-release >/dev/null
 dnf config-manager --set-enabled powertools
 # The build image's runtime set (Dockerfile) minus the toolchains.
-dnf -y install binutils file which curl tar gzip \
+dnf -y install binutils file which curl tar gzip cpio \
     mesa-libEGL-devel mesa-libGL-devel mesa-dri-drivers >/dev/null
 curl -fsSL -o /tmp/cmake.tgz \
     "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-aarch64.tar.gz"
@@ -31,9 +31,7 @@ rm /tmp/cmake.tgz
 
 export EGL_PLATFORM=surfaceless LIBGL_ALWAYS_SOFTWARE=1
 /src/tools/release/check_glibc_floor.sh "$build/liboverlume.so.0"
-for tgz in /src/out/overlume-*-linux-aarch64.tar.gz; do
-    /src/tools/release/check_package_elf.sh "$tgz" AArch64
-done
+/src/tools/release/check_package_elf.sh /src/out AArch64
 # FiftyObjectsSceneUpdateUnderTwoMilliseconds is a wall-clock budget that
 # llvmpipe cannot meet (docs/status.md, known gap 11).
 ctest --test-dir "$build" -L cpu --no-tests=error --output-on-failure \
