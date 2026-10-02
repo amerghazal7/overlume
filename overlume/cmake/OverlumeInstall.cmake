@@ -184,11 +184,10 @@ foreach(_ovl_dep ${_ovl_dep_files})
     list(APPEND _ovl_dep_items "\${_overlume_prefix}/lib/overlume/deps/${_ovl_name}")
 endforeach()
 
-set(_overlume_static_link_libs "-Wl,--start-group;${_ovl_dep_items};-Wl,--end-group;${_ovl_dep_libs}")
-set(_overlume_static_link_options "")
-if(OVERLUME_ENABLE_CESIUM)
-    set(_overlume_static_link_options "-Wl,--allow-multiple-definition")
-endif()
+include("${CMAKE_CURRENT_LIST_DIR}/OverlumeStaticLinkFlags.cmake")
+overlume_static_link_flags("${CMAKE_SYSTEM_NAME}" "${OVERLUME_ENABLE_CESIUM}"
+    "${_ovl_dep_items}" "${_ovl_dep_libs}"
+    _overlume_static_link_libs _overlume_static_link_options)
 configure_file(cmake/overlumeStaticTargets.cmake.in
     "${CMAKE_CURRENT_BINARY_DIR}/overlumeStaticTargets.cmake" @ONLY)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/overlumeStaticTargets.cmake"

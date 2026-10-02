@@ -384,6 +384,10 @@ add_test(NAME check_pod_header
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_pod_header.sh)
 set_tests_properties(check_pod_header PROPERTIES LABELS "cpu")
 
+add_test(NAME static_link_flags
+         COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/test_static_link_flags.cmake)
+set_tests_properties(static_link_flags PROPERTIES LABELS "cpu")
+
 if(OVERLUME_BUILD_SHARED AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_test(NAME shared_exports
              COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_shared_exports.sh
