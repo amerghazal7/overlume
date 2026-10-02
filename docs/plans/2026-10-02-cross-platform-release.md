@@ -172,7 +172,7 @@ Create `overlume/cmake/overlume_exports.map`, `overlume/cmake/overlumeConfig.cma
   `std::string overlume::detail::current_module_path();`
 - Install layout (component `overlume`): `lib/liboverlume.so*` (Windows: `bin/overlume.dll`
   + `lib/overlume.lib`), `include/overlume/*.h`, `share/overlume/{themes,models}/`,
-  `lib/cmake/overlume/`, `lib/pkgconfig/overlume.pc`, `share/doc/overlume/{LICENSE,NOTICE,ATTRIBUTION.md}`.
+  `lib/cmake/overlume/`, `share/pkgconfig/overlume.pc`, `share/doc/overlume/{LICENSE,NOTICE,ATTRIBUTION.md}`.
   Component `static`: `lib/liboverlume.a` (the merged archive) + `lib/overlume/deps/*.a`
   (Filament archives, plus libc++/abi/unwind? **no** — the consumer's own
   libc++ provides them) + `lib/cmake/overlume/overlumeStaticTargets.cmake`.
@@ -461,7 +461,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(CPACK_RPM_PACKAGE_LICENSE "Apache-2.0")
     set(CPACK_RPM_PACKAGE_AUTOREQ ON)
     set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
-        /usr/lib/cmake /usr/lib/pkgconfig /usr/share/doc)
+        /usr/lib/cmake /usr/share/pkgconfig /usr/share/doc)
     set(CPACK_ARCHIVE_COMPONENT_INSTALL OFF)  # one tar.gz with both components
 endif()
 # Tasks 6-8 append ANDROID / APPLE / WIN32 branches here.
@@ -559,8 +559,9 @@ include(CPack)
   packages is not equivalent); (7) `sign_rpms.sh` and `OverlumeCPackOptions.cmake.in`
   added (rpmsign wrapper; tar.gz prefix), `rpm-sign` added to the Dockerfile,
   and debian:11 is pointed at archive.debian.org with libc6 pinned.
-  **Step 7 not done:** the `gh workflow run` dry run was denied by the
-  auto-mode permission classifier; the branch is pushed, the dispatch is pending.
+  **Step 7 dry runs:** 37022162508 (x86 green); 37037401298 (x86 green; aarch64
+  cross build + native cpu tests green; the fedora:40 static rpm failure was fixed
+  by 62595c4); 37045928609 (pending).
   **Task 3 amendment (cross-compiled aarch64, 2026-10-02).** The `package` matrix
   keeps only `linux-x86_64`. aarch64 is two jobs: `package-linux-aarch64-build`
   (ubuntu-22.04, cross image, read-only token: build, `check_glibc_floor.sh` and

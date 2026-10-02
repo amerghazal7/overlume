@@ -118,6 +118,14 @@ for t in package_smoke package_smoke_pc; do
   case "$out" in *PASS*) ;; *) echo "$out" >&2; die;; esac
 done
 
+# The shared .deb must register its soname (shlibs) and run ldconfig on install.
+if [ "$fam" = deb ]; then
+  step="deb ships shlibs"
+  grep -q '^liboverlume 0 overlume (= ' /var/lib/dpkg/info/overlume.shlibs 2>/dev/null || die
+  step="deb postinst runs ldconfig"
+  grep -q ldconfig /var/lib/dpkg/info/overlume.postinst 2>/dev/null || die
+fi
+
 # Upgrade path (same version reinstalled in place), then clean removal.
 if [ "$fam" = deb ]; then
   run "reinstall" dpkg -i /pkg/overlume_*.deb
@@ -129,7 +137,8 @@ else
   run "remove packages" rpm -e $names
 fi
 step="removal left files behind"
-left="$(ls -d /usr/include/overlume /usr/share/overlume /usr/lib/cmake/overlume /usr/lib/liboverlume* 2>/dev/null || true)"
+left="$(ls -d /usr/include/overlume /usr/share/overlume /usr/lib/cmake/overlume /usr/lib/liboverlume* \
+  /usr/lib/overlume /usr/share/pkgconfig/overlume.pc /etc/ld.so.conf.d/overlume.conf 2>/dev/null || true)"
 [ -z "$left" ] || { echo "$left" >&2; die; }
 
 # Relocated prefix from the tar.gz (ubuntu:22.04 only).
@@ -140,6 +149,12 @@ if [ "$image" = ubuntu:22.04 ]; then
   run "build relocated consumer" cmake --build /tmp/br
   step="relocated package_smoke --expect-render"
   out="$(LD_LIBRARY_PATH=/opt/ov/lib /tmp/br/package_smoke --expect-render 2>&1)" || { echo "$out" >&2; die; }
+  case "$out" in *PASS*) ;; *) echo "$out" >&2; die;; esac
+  # The relocated .pc must resolve ${pcfiledir}/../.. to /opt/ov (nothing is left in /usr).
+  step="relocated pkg-config: prefix"
+  [ "$(realpath "$(PKG_CONFIG_PATH=/opt/ov/share/pkgconfig pkg-config --variable=libdir overlume)")" = /opt/ov/lib ] || die
+  step="relocated package_smoke_pc --expect-render"
+  out="$(LD_LIBRARY_PATH=/opt/ov/lib /tmp/br/package_smoke_pc --expect-render 2>&1)" || { echo "$out" >&2; die; }
   case "$out" in *PASS*) ;; *) echo "$out" >&2; die;; esac
 fi
 echo "PASS $image"
