@@ -2,7 +2,7 @@
 # Copyright 2026 Amer Ghazal
 #
 # Target (CMAKE_SYSTEM_NAME, arch, sdk) -> overlay triplet in vcpkg-triplets/.
-# sdk is only meaningful for iOS ("iphonesimulator" selects the simulator).
+# sdk is only meaningful for iOS ("iphonesimulator", or the resolved iPhoneSimulator*.sdk path, selects the simulator).
 function(overlume_cesium_triplet out system arch sdk)
     if(arch MATCHES "^(x86_64|AMD64|x64)$")
         set(_a x64)
@@ -22,7 +22,7 @@ function(overlume_cesium_triplet out system arch sdk)
     elseif(system STREQUAL "Darwin")
         set(_t "${_a}-osx-overlume")
     elseif(system STREQUAL "iOS")
-        if(sdk MATCHES "simulator")
+        if(sdk MATCHES "[Ss]imulator")
             set(_t "${_a}-ios-simulator-overlume")
         else()
             set(_t "${_a}-ios-overlume")
