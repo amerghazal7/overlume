@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Hybrid composite restore (`docs/plans/2026-10-02-hybrid-composite-restore.md`):
+
+- Fixed: hybrid mode rendered bowl-only. Lidar was a depth-tested 2 px fade
+  point row hidden by the opaque bowl, and `pointcloud_topic` defaulted empty
+  so no cloud was subscribed. Lidar is now drawn as opaque splats composited
+  over the bowl (nearest splat wins, ego-motion compensated), the default
+  topic is `/iv_points_fusion`, `splat_radius` takes effect (size 2r+1 px),
+  FREE_LOOK + stitching profile `hybrid` no longer draws the cloud twice, and
+  a missing cloud subscription raises an ERROR diagnostic.
+- Added: `set_hybrid_splats()` (free function, `kSceneVersion` unchanged),
+  theme token `hybrid_splat.size_px`, and the `hybrid` diagnostic.
+
 The Overlume open-source restructure (`docs/plans/2026-09-17-overlume-restructure.md`):
 
 - Renamed the project to **Overlume**: `mpviz`/`MPVIZ_*` identifiers,

@@ -37,6 +37,7 @@ own per-task ledgers as the detailed record; this page is the roll-up.
 | Ribbon/carpet fade re-specified in **metres ahead of the ego's clip point** (`ribbon.fade_start_m` / `fade_end_m`, 0/0 = off; no clip ⇒ ramp off) because a fraction of total length was useless on kilometres-long replay carpets (the visible stretch sat mid-ramp at constant alpha). Theme transitions hold the enabled side's metres instead of lerping them to 0 | 2026-09-24 | — |
 | First real-robot bag with cameras + OGMs replayed: `robot-offroad` profile; lidar `frame_id` override (driver stamps `base_link`, data in the 180°-yawed mount); Nav2 costmap decoding; grid-only OGM rows subscribed; best-effort costmaps; free OGM cells transparent; `GroundGridLayer.yaw_rad` (`kSceneVersion` 8) | 2026-09-29 | — |
 | Per-layer OGM colour ramps in the theme (`ogm.dynamic` / `ogm.geometric`: `{value, color, alpha}` stops over cell value 1–100, out-of-range and empty cells transparent); shipped themes use light ramps on dark, dark ramps on light | 2026-09-29 | — |
+| Hybrid composite restore (lidar over bowl). Root cause: mode-2 lidar was a depth-tested 2 px fade point row hidden by the opaque bowl, and `pointcloud_topic` defaulted empty (silent no-op). Fix: new `set_hybrid_splats()` free function (opaque 2r+1 px splats at priority 0 write stencil; bowl/ground/grid instances stencil-reject it; `kSceneVersion` stays 8), node feed with ego-motion compensation, FREE_LOOK profile-row de-dup, loud `hybrid` diagnostic, `splat_radius` live. Checks: `test_mode_dispatch_pixels.py` hybrid floors (fail on the pre-fix path: 5.3-6.4 vs fixed 13-19) and library splat pixel tests | 2026-10-02 | [plan](plans/2026-10-02-hybrid-composite-restore.md) (579acef, a83cd38, d690a14) |
 
 ## Open items
 
@@ -132,6 +133,7 @@ accepts" list:
    `WARN_AS_ERROR`) was turned off and `EXTRACT_ALL` on — the published
    API docs are now a bare symbol listing.
 10. **Real-robot bag 2026-09-28 (`~/amer_bag`) has recorder blackouts.** Every topic — including 50 Hz odometry and `/tf` — goes silent together for up to ~9.5 s; ~60 % of the 282 s recording lies in gaps > 0.5 s (likely the recorder stalling on ~130 MB/s of six raw bgr8 cameras into sqlite3). The renderer's 0.5–1.0 s stale fade therefore pulses every layer in and out during replay; that is the data, not a rendering fault. Next recordings: mcap storage and/or compressed or fewer camera topics.
+11. **Hybrid golden not re-promoted; motion compensation inert by default (2026-10-02).** `overlume/tests/goldens/hybrid_test_town_merged_node.png` still shows the pre-fix bowl-only output and awaits human promotion (candidates in `docs/evidence/2026-10-02-hybrid-restore/`). Hybrid ego-motion compensation needs `odom_topic`, which is empty by default and absent in the fixture bag, so it is a no-op there.
 
 ## How to update this file
 
