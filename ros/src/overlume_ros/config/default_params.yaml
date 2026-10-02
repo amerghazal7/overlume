@@ -179,5 +179,5 @@
     - 1.0
     - 0.0
     - 0.0
-    - 1.15
+    - 2.444  # lidar height in the rig frame: CARLA stack_v3 base_link->seyond 2.4 + 0.044 rig ground offset (as camera_extrinsics). NOT the m2o1 1.15.
     splat_radius: 3

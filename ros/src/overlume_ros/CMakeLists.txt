@@ -292,6 +292,7 @@ if(BUILD_TESTING)
   ament_add_test(test_default_params_hybrid
     COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_default_params_hybrid.py"
       "${CMAKE_CURRENT_SOURCE_DIR}/config/default_params.yaml"
+      "~/overlume-fixtures/stack_v3_full_sensors_2026-09-11"
     GENERATE_RESULT_FOR_RETURN_CODE_ZERO)
 
   add_library(overlume_node_test_paths INTERFACE)

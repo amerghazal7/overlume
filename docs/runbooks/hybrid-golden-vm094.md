@@ -28,9 +28,10 @@ while the CUDA node's own shipped `default_params.yaml` carries t=(0,0,1.15)
 calib-ego/top-lidar frame and needs the same +z ground offset the camera
 extrinsics bake in) — the two nodes placed the same cloud 1.15 m apart under
 their own defaults. `overlume_ros/config/default_params.yaml`
-now ships t=(0,0,1.15) too (not an `m2o1_params.yaml`-only override — the old
-node's OWN shipped default carries it), and both PNGs above were re-captured
-against that same transform.
+was then set to t=(0,0,1.15) too. **That was wrong for the fixture bag** (2026-10-02): its lidar sits at
+base_link+2.4 m with no yaw, so 1.15 put the splat ground 1.28 m below the bowl floor and doubled the
+crosswalk stripes. The default is now 2.444 (2.4 + the 0.044 rig offset); 1.15 stays the m2o1 value in
+`m2o1_params.yaml`. Any PNG captured at 1.15 is misregistered and needs re-capture and human re-promotion.
 
 ## Review round 1 finding 3: honest hybrid-on/hybrid-off A/B
 

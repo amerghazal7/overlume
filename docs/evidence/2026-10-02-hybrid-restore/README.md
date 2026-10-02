@@ -19,11 +19,17 @@ averaged capture windows; the bag keeps moving between them.
 | `stitch_bowl.png` | FREE_LOOK + Surround Stitching, `bowl` profile |
 | `stitch_hybrid.png` | FREE_LOOK + Surround Stitching, `hybrid` profile |
 
-Measured mean-abs deltas (this run): mode 2 vs mode 1 = 15.281 (noise 5.486,
-need >= 10.973); stitching hybrid vs bowl profile = 19.240 (noise 6.097, need
->= 12.195). Pre-fix the same metric was 5.3-6.4 (= noise).
+Measured mean-abs deltas (this run, after the registration fix): mode 2 vs
+mode 1 = 13.089 (noise 5.223, need >= 10.447); stitching hybrid vs bowl
+profile = 16.344 (noise 6.218, need >= 12.436). Pre-fix the same metric was
+5.3-6.4 (= noise).
 
-Visual check: mode 2 shows blocky splat carpet over the road and a splat
-outline of the pedestrian over the bowl texture. Frames are only 320x240 and
-the lidar-yaw/transform registration (plan open question 1) was judged
-plausible, not verified to the pixel.
+Registration: the first candidates (shipped `pointcloud_transform` tz=1.15, the
+m2o1 value) showed doubled crosswalk stripes, because the fixture bag's lidar
+sits 2.4 m above base_link and the splat ground landed 1.28 m below the bowl
+floor. `default_params.yaml` now ships tz=2.444 (tf_static 2.4 + the 0.044
+rig offset the camera extrinsics carry); manhole shift mode 2 vs mode 1 went
+from 20.8 px to under 1 px at 640x480, and the stripes are single in
+`mode2_hybrid.png`. Guard: `test_default_params_hybrid.py` (ground z of the
+bag cloud through the shipped transform must be within 0.15 m of 0). These
+files replace the earlier misregistered candidates; still not promoted.

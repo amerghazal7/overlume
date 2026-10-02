@@ -41,6 +41,8 @@ own per-task ledgers as the detailed record; this page is the roll-up.
 
 ## Open items
 
+- **m2o1 lidar transform unverified.** `m2o1_params.yaml` ships `pointcloud_transform` R=I, t=(0,0,1.15) (CUDA-era value); replay notes say the real-robot lidar needs a 180 deg yaw. Never measured. The fixture-bag default is 2.444 (fixed 2026-10-02); VM-094 hybrid goldens predate it and need re-capture and human re-promotion.
+
 From Epic 6's "Post-close tail + final review" section
 (`plans/2026-08-18-visual-mode-epic6.md`), copied faithfully:
 
