@@ -378,9 +378,15 @@ void update_map_elements(VisualRenderer& r, const SceneGraph& s) {
         const float z_lift = z_lift_for_kind(e.kind);
 
         if (e.kind == MapKind::ROAD_SURFACE) {
-            const uint64_t key = chunk_signature(false, e.points, e.point_count);
-            adopt_or_build(key, material, e.kind, e.last_update_sec,
-                           [&]() { return build_road_strip(e.points, e.point_count, z_lift); });
+            // is_polygon=1: closed outline -> fan; is_polygon=0: paired rails [left;right] ->
+            // strip. ponytail: fan assumes a convex outline; concave road outlines need ear
+            // clipping.
+            const bool poly = e.is_polygon != 0;
+            const uint64_t key = chunk_signature(poly, e.points, e.point_count);
+            adopt_or_build(key, material, e.kind, e.last_update_sec, [&]() {
+                return poly ? detail::triangulate_convex_polygon(e.points, e.point_count, z_lift)
+                            : build_road_strip(e.points, e.point_count, z_lift);
+            });
         } else if (e.is_polygon) {
             const uint64_t key = chunk_signature(true, e.points, e.point_count);
             adopt_or_build(key, material, e.kind, e.last_update_sec, [&]() {
