@@ -51,7 +51,7 @@ for pkg in "${pkgs[@]}"; do
         rel="${pkg##*/}:${f#"$d"/}"
         case "$f" in
         *.a)
-            out="$("$readelf" -h "$f")"
+            out="$("$readelf" -h "$f" 2>/dev/null)"
             n="$(grep -c 'Machine:' <<<"$out" || true)"
             bad="$(grep 'Machine:' <<<"$out" | grep -vc "$machine" || true)"
             if [ "$n" -eq 0 ] || [ "$bad" != 0 ]; then
@@ -60,7 +60,7 @@ for pkg in "${pkgs[@]}"; do
             members=$((members + n)); archives=$((archives + 1)) ;;
         *)
             [ "$(head -c4 "$f" | od -An -c | tr -d ' ')" = '177ELF' ] || continue
-            if ! "$readelf" -h "$f" | grep -q "Machine:.*$machine"; then echo "FAIL machine: $rel is not $machine"; exit 1; fi
+            if ! "$readelf" -h "$f" 2>/dev/null | grep -q "Machine:.*$machine"; then echo "FAIL machine: $rel is not $machine"; exit 1; fi
             "$here/check_glibc_floor.sh" "$f" "$max"
             elfs=$((elfs + 1)) ;;
         esac
