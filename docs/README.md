@@ -143,7 +143,8 @@ exactly what hosted CI does and does not cover.
 - [`docs/evidence/`](evidence/) (LFS) — measurement captures cited by the
   plans (`vm040-governor-2026-09-11/`, `vm077-flicker-2026-09-10/`).
 - [`docs/assets/`](assets/) (LFS) — images cited by the docs and the root
-  README (`hero.png`). The two vendor HMI reference images the themes were
+  README (`hero.gif`, poster `hero.png`; regenerate both with
+  `tools/make_hero_gif.sh`). The two vendor HMI reference images the themes were
   authored against are third-party captures and are **not** redistributed;
   older documents that cite `visualization-reference-{1,2}.jpg` refer to
   them.
