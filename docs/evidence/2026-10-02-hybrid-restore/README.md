@@ -57,14 +57,28 @@ launch (single published `/rendering/image` frame, rgb8, no averaging).
 Frame grab: a ~10-line rclpy subscriber saving one `/rendering/image` frame (the runbooks
 name no grab tool). Log at capture: `hybrid: colorized 83725/163632 lidar points (51.2%)`.
 
-Differences from the existing golden (documented, not hidden): the golden is from the v2
-fixture bag and a build that shipped an M02P ego mesh and a lower, farther free-look
-camera; today's shipped defaults give the clay-box ego (`ego_model_path: ""`) and a
-higher, closer default camera on the v3 bag, so framing and scene differ. Not
-scene-matched; judged on registration only.
+Re-captured 2026-10-03 with the M02P ego (see below); sha256 prefix of the candidate PNG
+`3275158d29195c35`. Log at capture: `hybrid: colorized 84217/160658 lidar points (52.4%)`.
 
-Visual check: lidar splats visible (blocky colorized points on road, sky edge and the
-off-bowl structure); crosswalk stripes single, manhole and lane paint aligned, no doubled
-ground.
+Correction: the first 1280x720 candidate showed a giant clay box because the proprietary,
+git-ignored M02P mesh (`ros/src/overlume_ros/assets/ego/ATTRIBUTION.md`) was not in this
+worktree. It is now symlinked from the main checkout (still untracked) and `colcon_build.sh
+overlume_ros` re-installed it; the node log carries no clay-box fallback line.
+
+Camera: no override needed. The golden-era node (362cb89,
+`micropilot_visualization_node/config/default_params.yaml`) and today's
+`default_params.yaml` ship the same `virtual_pose` [-4,0,3.5 | 2,0,-0.5] and vfov 80; the
+"lower, farther" look was the 4.5 m clay box vs. the small M02P. With the M02P the ego
+occupies the same pixels as in the golden (x 570-715, y 320-480).
+
+Hybrid ON vs OFF (same bag offset, identical params except `hybrid_enabled`): mean-abs
+delta 12.975 (8-bit; OFF has no colorize log lines). Crosswalk stripes are single and
+aligned between ON and OFF, lane paint and manhole coincide; ON adds blocky splats on the
+sky edge, off-bowl structure and the passing car.
+
+Residual differences from the golden: different scene (the golden is an earlier capture
+with a red car and a black police car at the intersection; this is the v3 bag at
+~40 s, ego on the crosswalk) and the splat rendering (opaque stencil splats, new since the
+golden). Not scene-matched; judged on ego, framing and registration.
 
 The CUDA-era `*_cuda_reference.png` goldens were retired 2026-10-03; the side-by-side above compares against the merged-node golden only.
