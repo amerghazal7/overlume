@@ -140,6 +140,8 @@ if(OVERLUME_FILAMENT_FROM_SOURCE)
             list(APPEND _fil_args "-DCMAKE_C_FLAGS_RELEASE=-O2 -DNDEBUG -g0"
                                   "-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG -g0")
         endif()
+        # This project enables CXX only: with no C compiler of its own, let Filament find one.
+        list(FILTER _fil_args EXCLUDE REGEX "^-DCMAKE_C_COMPILER=$")
         set(_fil_host_tools OFF)
         if(APPLE)
             # Metal only. Filament's own iOS toolchain (-DIOS=1) takes the compilers and SDK from
