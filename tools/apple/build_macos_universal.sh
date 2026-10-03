@@ -43,7 +43,7 @@ merge() {
     while IFS= read -r f; do
         if is_macho "$a/$f"; then
             lipo -create "$a/$f" "$x/$f" -output "$out/$f"
-            lipo -verify_arch "$out/$f" arm64 x86_64 || die "$f is not universal"
+            lipo "$out/$f" -verify_arch arm64 x86_64 || die "$f is not universal"
         else
             cmp -s "$a/$f" "$x/$f" || die "$f differs between arm64 and x86_64 installs"
         fi

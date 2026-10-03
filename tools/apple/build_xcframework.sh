@@ -95,7 +95,7 @@ assemble() {
     make_framework "$ar" "$(dylib_of "$ar")" "$w/sim"
     lipo -create "$(dylib_of "$ar")" "$(dylib_of "$x")" -output "$w/sim/Overlume.framework/Overlume"
     install_name_tool -id @rpath/Overlume.framework/Overlume "$w/sim/Overlume.framework/Overlume"
-    lipo -verify_arch "$w/sim/Overlume.framework/Overlume" arm64 x86_64 || die "simulator framework is not arm64+x86_64"
+    lipo "$w/sim/Overlume.framework/Overlume" -verify_arch arm64 x86_64 || die "simulator framework is not arm64+x86_64"
     # The export hygiene check on each platform's binary.
     cp "$w/device/Overlume.framework/Overlume" "$w/chk-device"
     lipo -thin arm64 "$w/sim/Overlume.framework/Overlume" -output "$w/chk-sim-arm64"

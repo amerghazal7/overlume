@@ -653,7 +653,7 @@ jobs:
         run: |
           sudo installer -pkg out/overlume-*-macos-universal.pkg -target /
           tools/apple/smoke_macos.sh /usr/local arm64
-          lipo -verify_arch /usr/local/lib/liboverlume.dylib arm64 x86_64
+          lipo /usr/local/lib/liboverlume.dylib -verify_arch arm64 x86_64
 
       - name: Homebrew formula against the dry-run tarball (local tap)
         run: |
