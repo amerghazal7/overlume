@@ -10,7 +10,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 apple="$here/../apple"
 w="$(mktemp -d)"; trap 'rm -rf "$w"' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
-sha=$(printf 'x' | sha256sum | cut -d' ' -f1)
+sha=2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881
 url=https://example.invalid/overlume-0.1.0-macos-universal.tar.gz
 
 "$here/publish_homebrew.sh" render "$w/overlume.rb" 0.1.0 "$sha" "$url" >/dev/null
