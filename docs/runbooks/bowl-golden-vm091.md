@@ -6,7 +6,7 @@ Same frame (early steady-state, `~/TPSProjector-fixtures/stack_v2_full_sensors_2
 pixel diff (Global Constraints' Golden scoping rule; this samples through a
 genuinely different mechanism than the CUDA backward sampler, per Decision 3):
 
-- `overlume/tests/goldens/bowl_test_town_cuda_reference.png`
+- `overlume/tests/goldens/bowl_test_town_cuda_reference.png` — RETIRED 2026-10-03 (CUDA pipeline removed; image in git history at 4790fdd^)
   — `micropilot_rendering_node`, `initial_mode:=1` (bowl-only), default params.
 - `overlume/tests/goldens/bowl_test_town_dark_adas.png`
   — `overlume_ros` (this epic's Filament port), `bowl_enabled:=true`,
@@ -76,7 +76,7 @@ rig, same fixture bag, single-pass playback, `bowl_enabled:=true
 initial_mode:=3 layer_surround_stitching:=true` — note `layer_surround_stitching`
 is now required for the bowl to show under mode 3's free-look view; it did
 not exist as a separate gate at the time of the original capture above).
-`bowl_test_town_cuda_reference.png` is UNCHANGED (this fix touches only the
+`bowl_test_town_cuda_reference.png` (since retired) is UNCHANGED (this fix touches only the
 Filament port, never `micropilot_rendering_node`/reproject.cu).
 
 Visual result: the new capture's road surface/buildings read as normal

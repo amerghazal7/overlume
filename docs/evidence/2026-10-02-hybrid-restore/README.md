@@ -66,3 +66,5 @@ scene-matched; judged on registration only.
 Visual check: lidar splats visible (blocky colorized points on road, sky edge and the
 off-bowl structure); crosswalk stripes single, manhole and lane paint aligned, no doubled
 ground.
+
+The CUDA-era `*_cuda_reference.png` goldens were retired 2026-10-03; the side-by-side above compares against the merged-node golden only.

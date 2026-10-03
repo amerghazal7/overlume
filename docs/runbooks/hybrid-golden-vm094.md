@@ -7,7 +7,7 @@ scoping rule and same reason bowl-golden-vm091.md gives: first-match
 colorization is a genuinely different mechanism than the CUDA feather-blended
 sampler, Decision 5's own named fidelity exception):
 
-- `overlume/tests/goldens/hybrid_test_town_cuda_reference.png`
+- `overlume/tests/goldens/hybrid_test_town_cuda_reference.png` — RETIRED 2026-10-03 (CUDA pipeline removed; image in git history at 4790fdd^)
   — `micropilot_rendering_node`, `initial_mode:=2` (CUDA hybrid: bowl +
   every-camera feather-blended lidar colorization), default params
   (`pointcloud_transform` t=(0,0,1.15) is the shipped default — see review
@@ -157,7 +157,7 @@ camera textures.
 `hybrid_test_town_merged_node.png` above is RECAPTURED (same fixture bag,
 `bowl_enabled:=true render_mode:=2 hybrid_enabled:=true
 pointcloud_topic:=/iv_points_fusion`, `default_params.yaml`'s
-`pointcloud_transform` unchanged). `hybrid_test_town_cuda_reference.png` is
+`pointcloud_transform` unchanged). `hybrid_test_town_cuda_reference.png` (since retired) is
 UNCHANGED (untouched by this fix). One deviation from the original
 recipe: recaptured at `--start-offset 0` (single-pass from the start of the
 bag), not `--start-offset 40` — this session's rig also needed an explicit
@@ -226,7 +226,7 @@ bowl_enabled:=true hybrid_enabled:=true pointcloud_topic:=/iv_points_fusion`,
 all other params at shipped defaults. Frame grabbed at **~40.0 s of
 playback** (2026-09-11T17:00:36+04:00); colorization live at capture time
 (`hybrid: colorized 93711/162348 lidar points (57.7% coverage)`).
-`hybrid_test_town_cuda_reference.png` remains UNTOUCHED (still the original
+`hybrid_test_town_cuda_reference.png` (since retired) remains UNTOUCHED (still the original
 `--start-offset 40` CUDA capture — the review-round-1 "NOT scene-matched"
 caveat above still applies to the pair).
 
