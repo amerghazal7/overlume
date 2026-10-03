@@ -1101,7 +1101,8 @@ void OverlumeNode::timer_callback() {
     if (suppressed != hybrid_row_suppressed_) {
         hybrid_row_suppressed_ = suppressed;
         if (suppressed)
-            RCLCPP_INFO(get_logger(), "hybrid: profile row %s suppressed", pointcloud_topic_.c_str());
+            RCLCPP_INFO(get_logger(), "hybrid: profile row %s suppressed",
+                        pointcloud_topic_.c_str());
     }
 
     for (auto& cr : carpet_rows_) {
@@ -1136,8 +1137,8 @@ void OverlumeNode::timer_callback() {
         camera_ingest_->set_hybrid_enabled(hybrid_enabled_ && hybrid_cloud_consumed());
 
     // Re-evaluated every tick, so one site covers configure and every live switch.
-    hybrid_starved_reason_ =
-        overlume::ros::HybridStarvedReason(hybrid_cloud_consumed(), hybrid_enabled_, cloud_sub_ != nullptr);
+    hybrid_starved_reason_ = overlume::ros::HybridStarvedReason(
+        hybrid_cloud_consumed(), hybrid_enabled_, cloud_sub_ != nullptr);
     if (!hybrid_starved_reason_.empty()) {
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
                              "hybrid: render_mode=%d/profile=%s consumes a lidar cloud but %s -- "
@@ -1182,11 +1183,11 @@ void OverlumeNode::timer_callback() {
 
         const auto colorized = ColorizeFromCameras(pts, cams, rgb_bufs);
         if (!pts.empty()) {
-            RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 5000,
-                                 "hybrid: colorized %zu/%zu lidar points (%.1f%% coverage)",
-                                 colorized.size(), pts.size(),
-                                 100.0 * static_cast<double>(colorized.size()) /
-                                     static_cast<double>(pts.size()));
+            RCLCPP_INFO_THROTTLE(
+                get_logger(), *get_clock(), 5000,
+                "hybrid: colorized %zu/%zu lidar points (%.1f%% coverage)", colorized.size(),
+                pts.size(),
+                100.0 * static_cast<double>(colorized.size()) / static_cast<double>(pts.size()));
         }
         // Rig-frame points: the library anchors them with the bowl's ego transform.
         overlume::set_hybrid_splats(renderer_, colorized.data(),

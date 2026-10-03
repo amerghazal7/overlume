@@ -249,7 +249,8 @@ TEST(CloudCompDelta, SpanBoundedAndFast) {
     EXPECT_EQ(py, 0.0);
     EXPECT_FALSE(overlume_test::cloud_comp_delta(tw, 10.0 - 1e6, 10.0, th, px, py));
     EXPECT_EQ(px, 0.0);
-    const auto ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0);
+    const auto ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0);
     EXPECT_LT(ms.count(), 10.0) << "unbounded rig_delta loop";
     EXPECT_FALSE(overlume_test::cloud_comp_delta(tw, 10.0 - 0.6, 10.0, th, px, py));
     EXPECT_TRUE(overlume_test::cloud_comp_delta(tw, 10.0 - 0.4, 10.0, th, px, py));

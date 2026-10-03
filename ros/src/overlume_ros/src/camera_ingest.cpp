@@ -300,7 +300,8 @@ CameraIngest::CameraIngest(rclcpp_lifecycle::LifecycleNode* node, uint32_t camer
                 tw.wz = msg->twist.twist.angular.z;
                 std::lock_guard<std::mutex> lk(odom_mtx_);
                 twists_.push_back(tw);
-                while (!twists_.empty() && tw.t - twists_.front().t > kTwistHistoryS) twists_.pop_front();
+                while (!twists_.empty() && tw.t - twists_.front().t > kTwistHistoryS)
+                    twists_.pop_front();
             });
     }
 }
@@ -385,8 +386,7 @@ bool CameraIngest::cloud_motion_delta(double t_cloud, double& th, double& px, do
     return cloud_comp_delta(snap, t_cloud, t_max, th, px, py);
 }
 
-void CameraIngest::fill_compensated_extrinsics(
-    std::vector<overlume::CameraExtrinsics>& out) const {
+void CameraIngest::fill_compensated_extrinsics(std::vector<overlume::CameraExtrinsics>& out) const {
     const uint32_t n = state_.camera_count();
     out.resize(n);
     const double I[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
