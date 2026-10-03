@@ -12,6 +12,7 @@ class Overlume < Formula
   license "Apache-2.0"
 
   depends_on macos: :ventura
+  depends_on "cmake" => :test
 
   def install
     prefix.install Dir["*"]

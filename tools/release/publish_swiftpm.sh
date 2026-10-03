@@ -20,8 +20,11 @@ render() {  # OUT VERSION CHECKSUM URL
 asset_url() { echo "https://github.com/amerghazal7/overlume/releases/download/v$1/Overlume-$1.xcframework.zip"; }
 
 prepare() {  # ZIP VERSION OUT -> renders OUT, parses it
-    local sum
-    sum="$(swift package compute-checksum "$1")"
+    local sum zip
+    zip="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+    # compute-checksum is a package command: give it a (placeholder) manifest to run in.
+    render "$3" "$2" "$(printf '0%.0s' {1..64})" "$(asset_url "$2")"
+    sum="$(cd "$(dirname "$3")" && swift package compute-checksum "$zip")"
     render "$3" "$2" "$sum" "$(asset_url "$2")"
     ( cd "$(dirname "$3")" && swift package dump-package >/dev/null ) || { echo "FAIL: swift cannot parse the manifest" >&2; exit 1; }
 }

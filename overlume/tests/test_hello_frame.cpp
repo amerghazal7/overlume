@@ -3,7 +3,6 @@
 
 #include "overlume/api.h"
 
-#include <EGL/egl.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
@@ -16,14 +15,24 @@
 #include <string>
 #include <vector>
 
+#if defined(__APPLE__)
+extern "C" void* MTLCreateSystemDefaultDevice(void);  // Metal.framework
+#else
+#include <EGL/egl.h>
+#endif
+
 namespace {
 
 bool HasGpuEglDevice() {
+#if defined(__APPLE__)
+    return MTLCreateSystemDefaultDevice() != nullptr;  // the probe leaks one device reference
+#else
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (display == EGL_NO_DISPLAY) return false;
     EGLint major = 0;
     EGLint minor = 0;
     return eglInitialize(display, &major, &minor) == EGL_TRUE;
+#endif
 }
 
 class StderrCapture {
