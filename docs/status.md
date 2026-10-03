@@ -136,7 +136,7 @@ accepts" list:
    API docs are now a bare symbol listing.
 10. **Real-robot bag 2026-09-28 (`~/amer_bag`) has recorder blackouts.** Every topic — including 50 Hz odometry and `/tf` — goes silent together for up to ~9.5 s; ~60 % of the 282 s recording lies in gaps > 0.5 s (likely the recorder stalling on ~130 MB/s of six raw bgr8 cameras into sqlite3). The renderer's 0.5–1.0 s stale fade therefore pulses every layer in and out during replay; that is the data, not a rendering fault. Next recordings: mcap storage and/or compressed or fewer camera topics.
 11. **Hybrid golden not re-promoted; motion compensation inert by default (2026-10-02).** `overlume/tests/goldens/hybrid_test_town_merged_node.png` still shows the pre-fix bowl-only output and awaits human promotion (candidates in `docs/evidence/2026-10-02-hybrid-restore/`). Hybrid ego-motion compensation needs `odom_topic`, which is empty by default and absent in the fixture bag, so it is a no-op there.
-12. **Retired 2026-10-03** — `hybrid_test_town_cuda_reference.png` and `bowl_test_town_cuda_reference.png` (CUDA pipeline removed in the unified-engine migration; merged-node hybrid restored and re-captured, candidate in `docs/evidence/2026-10-02-hybrid-restore/`; images in git history at 4790fdd^).
+12. **Retired 2026-10-03** — `hybrid_test_town_cuda_reference.png` and `bowl_test_town_cuda_reference.png` (CUDA pipeline removed in the unified-engine migration; merged-node hybrid restored, re-captured and `hybrid_test_town_merged_node.png` re-promoted 2026-10-03 from `docs/evidence/2026-10-02-hybrid-restore/`; images in git history at 4790fdd^).
 
 ## How to update this file
 
