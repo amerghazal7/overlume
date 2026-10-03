@@ -389,6 +389,17 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
 
+      # gtest_discover_tests (PRE_TEST) bakes the container CMake's module path into the build dir,
+      # so the runner's ctest must be the container's, at the same prefix.
+      - name: Install the container's CMake/ctest on the runner
+        if: ${{ matrix.emulator != '' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/cm"
+          docker run --rm -v "$RUNNER_TEMP/cm":/out "$IMAGE" bash -c 'cp -r /usr/local/bin/cmake /usr/local/bin/ctest /usr/local/share/cmake-* /out/'
+          sudo cp -rf "$RUNNER_TEMP"/cm/cmake-* /usr/local/share/
+          sudo install -m755 "$RUNNER_TEMP/cm/cmake" "$RUNNER_TEMP/cm/ctest" /usr/local/bin/
+          ctest --version | head -1
+
       - name: Unpack this ABI's package for the consumer check
         if: ${{ matrix.emulator != '' }}
         run: |

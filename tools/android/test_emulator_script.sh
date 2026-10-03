@@ -32,4 +32,8 @@ for sel in "-L cpu" "ReadbackOrientation"; do
     if FAKE_FAIL="$sel" "$here/run_tests_on_emulator.sh" "$build" >"$w/out" 2>&1; then echo "FAIL: '$sel' failure swallowed"; exit 1; fi
     grep -q '^FAIL: android tests' "$w/out" || { echo "FAIL: no FAIL line for '$sel'"; exit 1; }
 done
+# A CMake-version mismatch (PRE_TEST include path absent on this machine) must fail loudly up front.
+mkdir "$w/bad"; printf '    include("/nonexistent/GoogleTestAddTests.cmake")\n' > "$w/bad/test_x[1]_include.cmake"
+if "$here/run_tests_on_emulator.sh" "$w/bad" >"$w/out" 2>&1; then echo "FAIL: missing CMake include not detected"; exit 1; fi
+grep -q 'nonexistent.*missing' "$w/out" || { echo "FAIL: guard message"; exit 1; }
 echo "PASS: emulator script (plan, pushes, ctest selections, failure => exit 1)"
