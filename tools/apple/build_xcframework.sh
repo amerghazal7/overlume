@@ -40,7 +40,7 @@ slice() {
         -DOVERLUME_ENABLE_CESIUM=ON -DOVERLUME_BUILD_DOCS=OFF -DOVERLUME_BUILD_EXAMPLES=OFF \
         ${OVERLUME_APPLE_CMAKE_ARGS:-}
     # Libraries only: iOS test executables cannot run on the build host.
-    cmake --build "$b" --target overlume_shared overlume
+    cmake --build "$b" --target overlume_shared overlume -- -k 0
     rm -rf "$st"
     cmake --install "$b" --prefix "$st"
     echo "PASS: built iOS slice $name ($st)"

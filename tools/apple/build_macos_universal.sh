@@ -24,7 +24,7 @@ build() {
     cmake -S "$repo/overlume" -B "$b" -G Ninja -DCMAKE_BUILD_TYPE=Release \
         "-DCMAKE_OSX_ARCHITECTURES=$arch" -DOVERLUME_ENABLE_CESIUM=ON \
         -DOVERLUME_BUILD_DOCS=OFF -DOVERLUME_BUILD_EXAMPLES=OFF ${OVERLUME_APPLE_CMAKE_ARGS:-}
-    cmake --build "$b"
+    cmake --build "$b" -- -k 0   # report every compile error, not just the first
     rm -rf "$st"
     cmake --install "$b" --prefix "$st"
     echo "PASS: built $arch ($st)"

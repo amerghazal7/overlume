@@ -249,8 +249,18 @@ if(OVERLUME_FILAMENT_FROM_SOURCE)
         endif()
         _overlume_fil_run(configure "${_fil_log}"
             ${CMAKE_COMMAND} -S ${_fil_src} -B ${_fil_bld} ${_fil_args})
-        _overlume_fil_run(build "${_fil_log}"
-            ${CMAKE_COMMAND} --build ${_fil_bld} --target install -j ${_fil_jobs})
+        if(APPLE)
+            # Keep going past Filament's own test executables (backend_test_mac, test_filamat do not
+            # link for every slice and are not needed); the install step below fails loudly if a
+            # library we do need was not built.
+            execute_process(COMMAND ${CMAKE_COMMAND} --build ${_fil_bld} -j ${_fil_jobs} -- -k 0
+                RESULT_VARIABLE _rc OUTPUT_VARIABLE _out ERROR_VARIABLE _out)
+            file(APPEND "${_fil_log}" "=== build (keep going, rc=${_rc}) ===\n${_out}\n")
+            _overlume_fil_run(install "${_fil_log}" ${CMAKE_COMMAND} --install ${_fil_bld})
+        else()
+            _overlume_fil_run(build "${_fil_log}"
+                ${CMAKE_COMMAND} --build ${_fil_bld} --target install -j ${_fil_jobs})
+        endif()
         file(WRITE "${_fil_stamp}" "${FILAMENT_VERSION}\n")
     endif()
     set(FILAMENT_ROOT "${_fil_prefix}")
