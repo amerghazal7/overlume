@@ -28,6 +28,12 @@ if [ $plan = 1 ]; then
     echo "ctest -R ^ReadbackOrientation\\."
     echo "PASS: plan ($build, $n test executables)"; exit 0
 fi
+# Cross builds use PRE_TEST gtest discovery: each test_*_include.cmake hard-codes the configuring
+# CMake's GoogleTestAddTests.cmake path, so the running ctest needs that same CMake install.
+for f in "$build"/*_include.cmake; do
+    inc="$(sed -n 's/^ *include("\(.*GoogleTestAddTests.cmake\)")$/\1/p' "$f" | head -1)"
+    [ -z "$inc" ] || [ -f "$inc" ] || { echo "FAIL: $inc missing (CMake that configured $build is not installed here)"; exit 1; }
+done
 "$adb" wait-for-device
 until [ "$("$adb" shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; do sleep 2; done
 "$adb" shell 'rm -rf /data/local/tmp/ov; mkdir -p /data/local/tmp/ov/bin /data/local/tmp/ov/tmp /data/local/tmp/ov/data'

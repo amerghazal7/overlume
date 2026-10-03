@@ -23,6 +23,10 @@ for d in "$work"/aar/prefab/modules/overlume/libs/android.*; do
         if java -jar "$jar" --build-system cmake --platform android --abi "$abi" --os-version 26 \
                 --stl "$stl" --ndk-version 27 --output "$out" "$work/aar/prefab" >"$work/log" 2>&1; then
             echo "PASS: prefab resolves ($abi, consumer $stl)"
+            # The static target must carry the system libs (Prefab v2: an android.export_libraries
+            # override replaces the top-level list), else Gradle consumers fail to link.
+            grep -rh INTERFACE_LINK_LIBRARIES "$out" | grep -q -- '-lEGL;-lGLESv3;-landroid;-llog;-ldl' \
+                || { echo "FAIL: static target exports no system libs ($abi, consumer $stl)"; exit 1; }
         else
             cat "$work/log"; echo "FAIL: prefab ($abi, consumer $stl)"; exit 1
         fi
