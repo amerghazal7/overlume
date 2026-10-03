@@ -3,6 +3,13 @@
 
 cmake_minimum_required(VERSION 3.18)
 
+# Apple floors (docs/plans/2026-10-02-cross-platform-release.md); must precede project().
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET 15.0 CACHE STRING "")
+elseif(APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET 13.0 CACHE STRING "")
+endif()
+
 project(overlume VERSION 0.1.0 LANGUAGES CXX)
 
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/include/overlume/version.h"
@@ -140,8 +147,12 @@ endif()
 set(_matc "${FILAMENT_HOST_MATC}")
 # Mobile (GLES) materials on Android, desktop GL elsewhere.
 set(_matc_profile desktop)
-if(ANDROID)
+set(_matc_api opengl)
+if(ANDROID OR IOS)
     set(_matc_profile mobile)
+endif()
+if(APPLE)
+    set(_matc_api metal)
 endif()
 set(_generated_material_dir "${CMAKE_BINARY_DIR}/generated/overlume_materials")
 file(MAKE_DIRECTORY "${_generated_material_dir}")
@@ -153,7 +164,7 @@ foreach(_mat_src ${_material_srcs})
     set(_mat_header "${_generated_material_dir}/${_mat_name}_filamat.h")
     if("${_mat_src}" IS_NEWER_THAN "${_mat_header}")
         execute_process(
-            COMMAND "${_matc}" -a opengl -p ${_matc_profile} -o "${_mat_out}" "${_mat_src}"
+            COMMAND "${_matc}" -a ${_matc_api} -p ${_matc_profile} -o "${_mat_out}" "${_mat_src}"
             RESULT_VARIABLE _matc_result
             ERROR_VARIABLE _matc_error)
         if(NOT _matc_result EQUAL 0)
@@ -186,6 +197,8 @@ endif()
 set(OVERLUME_PLATFORM_LIBS "")
 if(ANDROID)
     set(OVERLUME_PLATFORM_LIBS EGL GLESv3 log android)
+elseif(APPLE)
+    set(OVERLUME_PLATFORM_LIBS "")  # frameworks ride on Filament::filament (GetFilament.cmake)
 elseif(OVERLUME_PLATFORM STREQUAL "egl")
     set(OVERLUME_PLATFORM_LIBS EGL)
 endif()
@@ -386,6 +399,13 @@ if(OVERLUME_BUILD_SHARED)
     if(OVERLUME_ENABLE_CESIUM AND CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
         target_link_options(overlume_shared PRIVATE "-Wl,--allow-multiple-definition")
     endif()
+    if(APPLE)
+        set_target_properties(overlume_shared PROPERTIES MACOSX_RPATH ON INSTALL_NAME_DIR "@rpath")
+        target_link_options(overlume_shared PRIVATE
+            "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/cmake/overlume_exports_apple.txt")
+        set_property(TARGET overlume_shared APPEND PROPERTY LINK_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/overlume_exports_apple.txt")
+    endif()
     if(CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
         target_link_options(overlume_shared PRIVATE
             "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/cmake/overlume_exports.map"
@@ -411,6 +431,18 @@ if(OVERLUME_BUILD_SHARED AND CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
                      "${CMAKE_NM}" "${CMAKE_READELF}" "$<TARGET_FILE:overlume_shared>")
     set_tests_properties(shared_exports PROPERTIES LABELS "cpu")
 endif()
+
+if(OVERLUME_BUILD_SHARED AND APPLE)
+    # CMAKE_OTOOL takes the readelf slot; the script picks its Mach-O branch from the file itself.
+    add_test(NAME shared_exports
+             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_shared_exports.sh
+                     "${CMAKE_NM}" "${CMAKE_OTOOL}" "$<TARGET_FILE:overlume_shared>")
+    set_tests_properties(shared_exports PROPERTIES LABELS "cpu")
+endif()
+
+add_test(NAME shared_exports_selftest
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_check_shared_exports.sh)
+set_tests_properties(shared_exports_selftest PROPERTIES LABELS "cpu")
 
 add_test(NAME cesium_triplet_mapping
          COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_cesium_triplets.cmake)
@@ -463,6 +495,11 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
         "Run-time path of the overlume source tree's test data")
     # Where tests write their *_actual.png / scratch files (Android has no /tmp).
     set(OVERLUME_TEST_TMP_DIR_RUNTIME "/tmp" CACHE STRING "Run-time scratch directory for tests")
+    if(APPLE)
+        # Probes EGL directly; Apple has no EGL.
+        list(REMOVE_ITEM _overlume_test_srcs
+             "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_bluegl_link_probe.cpp")
+    endif()
     foreach(_test_src ${_overlume_test_srcs})
         get_filename_component(_test_name "${_test_src}" NAME_WE)
         set(_test_extra_srcs "")
