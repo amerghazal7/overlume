@@ -21,9 +21,9 @@ if [ $macho = 0 ]; then
 fi
 
 # Mach-O (macOS dylib, iOS framework binary): external defined symbols, demangled.
-bad=$("$nm_tool" -gU "$lib" | awk 'NF >= 3 {print substr($NF, 2)}' | c++filt | grep -vE '^overlume::' || true)
+bad=$("$nm_tool" -gU "$lib" | awk 'NF >= 3 {print $NF}' | c++filt -_ | grep -vE '^overlume::' || true)
 if [ -n "$bad" ]; then echo "FAIL: non-overlume exports:"; echo "$bad" | head -20; exit 1; fi
-if [ -z "$("$nm_tool" -gU "$lib" | awk 'NF >= 3 {print substr($NF, 2)}' | c++filt | grep -E '^overlume::' | head -1)" ]; then
+if [ -z "$("$nm_tool" -gU "$lib" | awk 'NF >= 3 {print $NF}' | c++filt -_ | grep -E '^overlume::' | head -1)" ]; then
   echo "FAIL: no overlume:: symbol exported"; exit 1; fi
 # Dependencies: the dylib's own id line is the first entry; everything else must be a system
 # library (libc++ stays dynamic on Apple: it is the OS's, not ours to bake in).
