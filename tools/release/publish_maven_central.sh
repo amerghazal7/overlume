@@ -19,7 +19,9 @@ case "$mode" in validate|publish) ;; *) echo "FAIL: MODE must be validate or pub
 base="${CENTRAL_PORTAL_URL:-https://central.sonatype.com}/api/v1/publisher"
 poll="${CENTRAL_POLL_SECONDS:-10}"; max="${CENTRAL_POLL_MAX:-90}"
 token="$(printf '%s:%s' "$MAVEN_CENTRAL_USERNAME" "$MAVEN_CENTRAL_PASSWORD" | base64 -w0)"
-name="$(basename "$bundle" .zip)"
+# Deployment name "overlume-<ver>" (plan Step 6): the version is the .pom's directory inside the bundle.
+ver="$(unzip -Z1 "$bundle" | grep -m1 -E '/overlume-[^/]+\.pom$' | sed -E 's#.*/overlume-([^/]+)\.pom$#\1#')"
+name="overlume-${ver:-$(basename "$bundle" .zip)}"
 [ "$mode" = validate ] && ptype=USER_MANAGED || ptype=AUTOMATIC
 
 # call METHOD URL [extra curl args...] -> body in $body, HTTP code in $code
@@ -51,7 +53,12 @@ while :; do
         PUBLISHING|PUBLISHED) [ "$mode" = publish ] && break;;
     esac
     tries=$((tries + 1))
-    [ $tries -lt "$max" ] || { echo "FAIL: timed out in state $state"; exit 1; }
+    if [ $tries -ge "$max" ]; then
+        echo "FAIL: timed out in state $state"
+        # Never leave a USER_MANAGED deployment behind on the portal.
+        if [ "$mode" = validate ]; then call DELETE "$base/deployment/$id"; echo "drop: HTTP $code"; fi
+        exit 1
+    fi
     sleep "$poll"
 done
 
