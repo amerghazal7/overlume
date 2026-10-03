@@ -16,6 +16,7 @@
 #include <vector>
 
 #if defined(__APPLE__)
+#include <objc/runtime.h>
 extern "C" void* MTLCreateSystemDefaultDevice(void);  // Metal.framework
 #else
 #include <EGL/egl.h>
@@ -25,7 +26,12 @@ namespace {
 
 bool HasGpuEglDevice() {
 #if defined(__APPLE__)
-    return MTLCreateSystemDefaultDevice() != nullptr;  // the probe leaks one device reference
+    // Same test as platform_metal.cpp: a device Filament can drive (the runners' paravirtual GPU
+    // exists but has no argument encoders). The probe leaks one device reference.
+    void* device = MTLCreateSystemDefaultDevice();
+    return device != nullptr &&
+           class_respondsToSelector(object_getClass(reinterpret_cast<id>(device)),
+                                    sel_registerName("newArgumentEncoderWithLayout:"));
 #else
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (display == EGL_NO_DISPLAY) return false;
