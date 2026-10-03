@@ -131,6 +131,10 @@ TEST(HelloFrame, RendersDistinctSkyAndGround) {
 }
 
 TEST(CreateRenderer, LogsGlVendorRendererVersionOnce) {
+#if defined(__APPLE__)
+    GTEST_SKIP()
+        << "GL_VENDOR/GL_RENDERER/GL_VERSION are logged by the EGL platform only (Metal on Apple).";
+#endif
     overlume::RenderConfig config{};
     config.width = 64;
     config.height = 64;

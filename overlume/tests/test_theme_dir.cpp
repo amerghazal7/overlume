@@ -8,7 +8,8 @@ namespace fs = std::filesystem;
 using overlume::detail::resolve_default_theme_dir;
 
 TEST(ThemeDir, PrefersInstalledShareDirNextToModule) {
-    const fs::path root = fs::temp_directory_path() / "overlume_theme_dir_test";
+    const fs::path root =
+        fs::weakly_canonical(fs::temp_directory_path()) / "overlume_theme_dir_test";
     fs::remove_all(root);
     fs::create_directories(root / "lib");
     fs::create_directories(root / "share/overlume/themes");
@@ -20,7 +21,8 @@ TEST(ThemeDir, PrefersInstalledShareDirNextToModule) {
 
 TEST(ThemeDir, FindsFrameworkResourcesNextToBinary) {
     // Apple framework layout: Overlume.framework/{Overlume,Resources/themes}.
-    const fs::path root = fs::temp_directory_path() / "overlume_theme_dir_framework_test";
+    const fs::path root =
+        fs::weakly_canonical(fs::temp_directory_path()) / "overlume_theme_dir_framework_test";
     fs::remove_all(root);
     fs::create_directories(root / "Overlume.framework/Resources/themes");
     std::ofstream(root / "Overlume.framework/Resources/themes/dark_adas.yaml") << "x: 1\n";
@@ -32,7 +34,8 @@ TEST(ThemeDir, FindsFrameworkResourcesNextToBinary) {
 
 TEST(ThemeDir, FollowsSymlinkedLibDir) {
     // Merged-/usr: the loader reports /lib/liboverlume.so.0 for /usr/lib/liboverlume.so.0.
-    const fs::path root = fs::temp_directory_path() / "overlume_theme_dir_symlink_test";
+    const fs::path root =
+        fs::weakly_canonical(fs::temp_directory_path()) / "overlume_theme_dir_symlink_test";
     fs::remove_all(root);
     fs::create_directories(root / "usr/lib");
     fs::create_directories(root / "usr/share/overlume/themes");

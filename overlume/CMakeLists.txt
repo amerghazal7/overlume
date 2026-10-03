@@ -433,10 +433,11 @@ if(OVERLUME_BUILD_SHARED AND CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
 endif()
 
 if(OVERLUME_BUILD_SHARED AND APPLE)
-    # CMAKE_OTOOL takes the readelf slot; the script picks its Mach-O branch from the file itself.
+    # otool takes the readelf slot; the script picks its Mach-O branch from the file itself.
+    find_program(OVERLUME_OTOOL otool REQUIRED)
     add_test(NAME shared_exports
              COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_shared_exports.sh
-                     "${CMAKE_NM}" "${CMAKE_OTOOL}" "$<TARGET_FILE:overlume_shared>")
+                     "${CMAKE_NM}" "${OVERLUME_OTOOL}" "$<TARGET_FILE:overlume_shared>")
     set_tests_properties(shared_exports PROPERTIES LABELS "cpu")
 endif()
 
