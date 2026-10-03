@@ -30,6 +30,7 @@ for z in "$zips"/overlume-*-android-*.zip; do
 done
 [ -n "$ver" ] || { echo "FAIL: no overlume-*-android-<abi>.zip in $zips" >&2; exit 1; }
 
+rm -f "$out/overlume-$ver-android.zip" "$out/overlume-$ver-android.aar"  # zip -r would update a stale archive in place
 (cd "$stage/abis" && zip -qr -X "$out/overlume-$ver-android.zip" .)
 
 p="$stage/aar/prefab"
@@ -37,12 +38,13 @@ mkdir -p "$p/modules/overlume/libs" "$p/modules/overlume_static/libs"
 sed "s/@VERSION@/$ver/" "$here/prefab/prefab.json.in" > "$p/prefab.json"
 cp "$here/prefab/module.json" "$p/modules/overlume/module.json"
 cp "$here/prefab/module_static.json" "$p/modules/overlume_static/module.json"
-first_abi="$(ls "$stage/abis" | head -1)"
+abis=(); for d in "$stage/abis"/*/; do abis+=("$(basename "$d")"); done
+first_abi="${abis[0]}"
 for m in overlume overlume_static; do
     mkdir -p "$p/modules/$m/include"
     cp -r "$stage/abis/$first_abi/include/overlume" "$p/modules/$m/include/"
 done
-for abi in $(ls "$stage/abis"); do
+for abi in "${abis[@]}"; do
     t="$stage/abis/$abi"
     d="$p/modules/overlume/libs/android.$abi"; mkdir -p "$d" "$stage/aar/jni/$abi"
     cp "$t/lib/liboverlume.so" "$d/liboverlume.so"; cp "$t/lib/liboverlume.so" "$stage/aar/jni/$abi/"
@@ -62,4 +64,4 @@ cp "$here/prefab/AndroidManifest.xml" "$stage/aar/AndroidManifest.xml"
     && (cd jar && zip -qr -X ../aar/classes.jar META-INF))   # AGP expects a classes.jar, even an empty one
 # AAR = zip, AndroidManifest.xml first.
 (cd "$stage/aar" && zip -qr -X "$out/overlume-$ver-android.aar" AndroidManifest.xml . )
-echo "PASS: $(ls "$stage/abis" | tr '\n' ' ')-> overlume-$ver-android.{zip,aar}"
+echo "PASS: ${abis[*]} -> overlume-$ver-android.{zip,aar}"
