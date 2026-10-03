@@ -50,8 +50,10 @@ photographic noise/JPEG-ish artifacting, not lidar splats.
 > `set_hybrid_splats()` (opaque stencil-winning splats) plus a loud no-cloud
 > failure; see `docs/plans/2026-10-02-hybrid-composite-restore.md`. The
 > original measurements are kept unedited below.
-> `hybrid_test_town_merged_node.png` predates the fix and awaits human
-> re-promotion (candidates: `docs/evidence/2026-10-02-hybrid-restore/`).
+> `hybrid_test_town_merged_node.png` was RE-PROMOTED by the maintainer on 2026-10-03 from
+> `docs/evidence/2026-10-02-hybrid-restore/hybrid_test_town_merged_node_1280x720_candidate.png`
+> (M02P ego, lidar height 2.444 m, hybrid ON/OFF delta 13.0; capture recipe in that directory's
+> README). The pre-fix image is in git history before this commit.
 
 Measured over two fixed road-surface ROI strips (excluding the ego proxy),
 same capture session as the two golden PNGs above:

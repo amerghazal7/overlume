@@ -1,7 +1,8 @@
 # Hybrid restore: candidate capture (2026-10-02)
 
 Candidates for human promotion over
-`overlume/tests/goldens/hybrid_test_town_merged_node.png`. **Not promoted.**
+`overlume/tests/goldens/hybrid_test_town_merged_node.png`. **Promoted 2026-10-03** (the 1280x720
+candidate below, by the maintainer).
 
 Command (GPU box, ROS sourced):
 
