@@ -1025,12 +1025,22 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
 
     if (out.width != r->width || out.height != r->height) return false;
 
-    const size_t byteCount = static_cast<size_t>(out.width) * out.height * 3;
+    const size_t pixelCount = static_cast<size_t>(out.width) * out.height;
     ReadbackState state;
+#if defined(__ANDROID__)
+    // GLES only guarantees glReadPixels(GL_RGBA, GL_UNSIGNED_BYTE); GL_RGB can fail with
+    // GL_INVALID_OPERATION (the emulator does), leaving the buffer untouched. Read RGBA, pack to RGB.
+    std::vector<uint8_t> rgba(pixelCount * 4);
     filament::backend::PixelBufferDescriptor buffer(
-        out.rgb, byteCount, filament::backend::PixelBufferDescriptor::PixelDataFormat::RGB,
+        rgba.data(), rgba.size(), filament::backend::PixelBufferDescriptor::PixelDataFormat::RGBA,
         filament::backend::PixelBufferDescriptor::PixelDataType::UBYTE, on_readback_complete,
         &state);
+#else
+    filament::backend::PixelBufferDescriptor buffer(
+        out.rgb, pixelCount * 3, filament::backend::PixelBufferDescriptor::PixelDataFormat::RGB,
+        filament::backend::PixelBufferDescriptor::PixelDataType::UBYTE, on_readback_complete,
+        &state);
+#endif
 
     if (r->renderer->beginFrame(r->swapChain)) {
         r->renderer->render(r->view);
@@ -1049,6 +1059,13 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     }
     if (!state.done.load(std::memory_order_acquire)) return false;
 
+#if defined(__ANDROID__)
+    for (size_t i = 0; i < pixelCount; ++i) {
+        out.rgb[i * 3 + 0] = rgba[i * 4 + 0];
+        out.rgb[i * 3 + 1] = rgba[i * 4 + 1];
+        out.rgb[i * 3 + 2] = rgba[i * 4 + 2];
+    }
+#endif
     return true;
 }
 

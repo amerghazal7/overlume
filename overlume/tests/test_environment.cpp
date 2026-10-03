@@ -162,8 +162,8 @@ TEST(Environment, SetEnvironmentVisibleFalseHidesLoadedChunksWithoutTearingDown)
     ASSERT_EQ(overlume::testing::environment_scene_membership_count(r), loadedBefore);
     const double ssimVisible = overlume::testing::render_and_compare(
         r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/environment_test_town_dark_adas.png",
-        "/tmp/environment_visible_before_hide_actual.png");
-    ASSERT_GT(ssimVisible, 0.98);
+        OVERLUME_TMP_DIR "/environment_visible_before_hide_actual.png");
+    ASSERT_GT(ssimVisible, overlume::testing::kSsimMin);
 
     ASSERT_TRUE(overlume::set_environment_visible(r, false));
     std::vector<uint8_t> hiddenBuf(nBytes);
@@ -319,8 +319,8 @@ TEST(EnvironmentGolden, TestTown_DarkAdas) {
 
     double ssim = overlume::testing::render_and_compare(
         r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/environment_test_town_dark_adas.png",
-        "/tmp/environment_test_town_dark_adas_actual.png");
-    EXPECT_GT(ssim, 0.98);
+        OVERLUME_TMP_DIR "/environment_test_town_dark_adas_actual.png");
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
     overlume::destroy_renderer(r);
 }
 

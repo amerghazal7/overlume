@@ -56,6 +56,17 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_NAME STREQUAL "Linux
     set(ENV{LD_LIBRARY_PATH} "${_libcxx_lib_dir}:$ENV{LD_LIBRARY_PATH}")
 endif()
 
+if(ANDROID AND CMAKE_ANDROID_ARCH_ABI STREQUAL "x86")
+    # KTX-Software refuses 32-bit x86 at configure time; this overlay port patches that guard out.
+    set(VCPKG_OVERLAY_PORTS "${CMAKE_CURRENT_LIST_DIR}/vcpkg-ports" CACHE STRING "" FORCE)
+endif()
+
+if(ANDROID)
+    # openssl's Configure takes its compiler from $CC (its Android config is patched to skip the NDK
+    # lookup); the target triple and sysroot arrive through vcpkg's detected flags.
+    set(ENV{CC} "${CMAKE_C_COMPILER}")
+endif()
+
 set(CMAKE_FIND_PACKAGE_TARGETS_GLOBAL TRUE)
 include(FetchContent)
 FetchContent_Declare(

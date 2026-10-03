@@ -51,6 +51,13 @@ function(_overlume_fil_run step_name log)
         RESULT_VARIABLE _rc OUTPUT_VARIABLE _out ERROR_VARIABLE _out)
     file(APPEND "${log}" "=== ${step_name} ===\n${_out}\n")
     if(NOT _rc EQUAL 0)
+        # ponytail: matc (glslang) segfaults now and then under a heavily parallel material build;
+        # every step is resumable (ninja/cmake), so one retry is the whole fix.
+        execute_process(COMMAND ${ARGN}
+            RESULT_VARIABLE _rc OUTPUT_VARIABLE _out ERROR_VARIABLE _out)
+        file(APPEND "${log}" "=== ${step_name} (retry) ===\n${_out}\n")
+    endif()
+    if(NOT _rc EQUAL 0)
         message(FATAL_ERROR "overlume: Filament source ${step_name} failed "
                 "(rc=${_rc}); see ${log}")
     endif()
@@ -89,6 +96,14 @@ if(OVERLUME_FILAMENT_FROM_SOURCE)
             -DFILAMENT_SKIP_SAMPLES=ON
             -DFILAMENT_SUPPORTS_VULKAN=OFF
             -DFILAMENT_ENABLE_JAVA=OFF)
+        if(ANDROID)
+            # 1.56.5 only compiles PlatformEGL.cpp (base of PlatformEGLAndroid) when EGL is set,
+            # and only sets it for Linux; without it libbackend.a has unresolved PlatformEGL symbols.
+            list(APPEND _fil_args -DEGL=ON)
+            # The NDK toolchain adds -g to every compile; the static package would carry it.
+            list(APPEND _fil_args "-DCMAKE_C_FLAGS_RELEASE=-O2 -DNDEBUG -g0"
+                                  "-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG -g0")
+        endif()
         set(_fil_host_tools OFF)
         if(CMAKE_TOOLCHAIN_FILE AND CMAKE_CROSSCOMPILING)
             # Cross targets (Linux aarch64, Android, iOS, Windows arm64): forward
@@ -106,9 +121,16 @@ if(OVERLUME_FILAMENT_FROM_SOURCE)
             if(NOT FILAMENT_HOST_MATC)
                 # Build the host tools from the same source tree with the host
                 # toolchain (the release container's x86_64 LLVM).
-                if(NOT OVERLUME_FILAMENT_HOST_TOOLCHAIN AND OVERLUME_RELEASE_TRIPLE)
-                    set(OVERLUME_FILAMENT_HOST_TOOLCHAIN
-                        "${CMAKE_CURRENT_LIST_DIR}/toolchain-llvm-release.cmake")
+                if(NOT OVERLUME_FILAMENT_HOST_TOOLCHAIN AND (OVERLUME_RELEASE_TRIPLE OR ANDROID))
+                    # Android: the host tools use the same libc++ toolchain as the
+                    # Linux builds (release tarball if OVERLUME_LLVM_ROOT, else the dev one).
+                    if(OVERLUME_RELEASE_TRIPLE OR NOT "$ENV{OVERLUME_LLVM_ROOT}" STREQUAL "")
+                        set(OVERLUME_FILAMENT_HOST_TOOLCHAIN
+                            "${CMAKE_CURRENT_LIST_DIR}/toolchain-llvm-release.cmake")
+                    else()
+                        set(OVERLUME_FILAMENT_HOST_TOOLCHAIN
+                            "${CMAKE_CURRENT_LIST_DIR}/toolchain-clang-libcxx.cmake")
+                    endif()
                 endif()
                 if(NOT OVERLUME_FILAMENT_HOST_TOOLCHAIN)
                     message(FATAL_ERROR "overlume: cross-building Filament needs "
@@ -193,12 +215,15 @@ file(GLOB _filament_static_libs "${FILAMENT_LIB_DIR}/*.a")
 add_library(Filament::filament INTERFACE IMPORTED)
 target_include_directories(Filament::filament INTERFACE "${FILAMENT_ROOT}/include")
 
+if(ANDROID)
+    # Bionic folds pthread into libc; Filament drives GLES through libGLESv3.
+    set(_filament_sys_libs EGL GLESv3 android log dl)
+else()
+    set(_filament_sys_libs EGL GLESv2 dl pthread)
+endif()
 target_link_libraries(Filament::filament INTERFACE
     -Wl,--start-group
     ${_filament_static_libs}
     -Wl,--end-group
-    EGL
-    GLESv2
-    dl
-    pthread
+    ${_filament_sys_libs}
 )

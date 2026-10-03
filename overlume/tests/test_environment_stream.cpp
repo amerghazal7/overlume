@@ -279,7 +279,7 @@ TEST(EnvironmentStream, NodeMatrixEncodingRendersIdenticallyToEcefEncoding) {
         << "session_ecef fixture must load from its own (shifted) anchor's block center";
     for (int i = 0; i < 60; ++i) overlume::render_frame(rA, pose, {bufA.data(), 320, 240});
     overlume::testing::render_and_compare(rA, pose, "/nonexistent_no_golden.png",
-                                          "/tmp/environment_stream_session_ecef_actual.png");
+                                          OVERLUME_TMP_DIR "/environment_stream_session_ecef_actual.png");
     overlume::destroy_renderer(rA);
 
     auto* rB = overlume::create_renderer(cfg);
@@ -297,8 +297,8 @@ TEST(EnvironmentStream, NodeMatrixEncodingRendersIdenticallyToEcefEncoding) {
     for (int i = 0; i < 60; ++i) overlume::render_frame(rB, pose, {bufB.data(), 320, 240});
 
     const double ssim = overlume::testing::render_and_compare(
-        rB, pose, "/tmp/environment_stream_session_ecef_actual.png",
-        "/tmp/environment_stream_session_nodematrix_actual.png");
+        rB, pose, OVERLUME_TMP_DIR "/environment_stream_session_ecef_actual.png",
+        OVERLUME_TMP_DIR "/environment_stream_session_nodematrix_actual.png");
     EXPECT_GE(ssim, 0.97)
         << "node-matrix-encoded tiles (Google's own convention) must render identically to "
            "the SAME geometry's identity-node encoding -- strip_attributes_and_correct_heights() "
@@ -437,8 +437,8 @@ TEST(EnvironmentStreamGolden, FixtureBlock_DarkAdas) {
 
     double ssim = overlume::testing::render_and_compare(
         r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/environment_stream_dark_adas.png",
-        "/tmp/environment_stream_dark_adas_actual.png");
-    EXPECT_GT(ssim, 0.98);
+        OVERLUME_TMP_DIR "/environment_stream_dark_adas_actual.png");
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
     overlume::destroy_renderer(r);
 }
 
@@ -1122,7 +1122,7 @@ TEST(EnvironmentStreamPerf, GooglePresetLiveRenderMsDeltaVsOsmClay) {
         std::cerr << "[EnvironmentStreamPerf/live] source='" << source_uri << "' loaded=" << loaded
                   << " mean_render_ms=" << meanMs << " worst_single_frame_ms=" << worstMs << "\n";
         overlume::testing::render_and_compare(r, pose, "/nonexistent_no_golden.png",
-                                              "/tmp/environment_stream_live_actual.png");
+                                              OVERLUME_TMP_DIR "/environment_stream_live_actual.png");
         overlume::destroy_renderer(r);
         return loaded;
     };
@@ -1148,7 +1148,7 @@ constexpr uint32_t kCaptureHeight = 720;
 
 std::string capture_out_path(const char* name) {
     const char* dir = std::getenv("OVERLUME_CAPTURE_OUT_DIR");
-    return std::string(dir && *dir ? dir : "/tmp") + "/env_source_" + name + ".png";
+    return std::string(dir && *dir ? dir : OVERLUME_TMP_DIR) + "/env_source_" + name + ".png";
 }
 
 struct ContentStats {

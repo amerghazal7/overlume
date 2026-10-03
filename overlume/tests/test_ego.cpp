@@ -119,8 +119,8 @@ TEST(EgoGolden, ClayBoxFallback_DarkAdas) {
     overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
     double ssim = overlume::testing::render_and_compare(
         r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/ego_clay_box_dark_adas.png",
-        "/tmp/ego_clay_box_dark_adas_actual.png");
-    EXPECT_GT(ssim, 0.98);
+        OVERLUME_TMP_DIR "/ego_clay_box_dark_adas_actual.png");
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
 
     overlume::destroy_renderer(r);
 }
