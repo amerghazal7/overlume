@@ -167,6 +167,18 @@ if(OVERLUME_FILAMENT_FROM_SOURCE)
                 else()
                     set(_fil_ios_platform iphoneos)
                 endif()
+                # Filament's toolchain tags every simulator object as device iOS (-mios-version-min), which
+                # ld64 rejects ("building for 'iOS-simulator', but linking in object file built for 'iOS'").
+                if(_fil_ios_platform STREQUAL "iphonesimulator")
+                    file(READ "${_fil_src}/third_party/clang/iOS.cmake" _fc)
+                    string(REPLACE "SET(IOS_COMMON_FLAGS \"-m\${PLATFORM_FLAG_NAME}-version-min=\${IOS_MIN_TARGET}\")"
+                        "SET(IOS_COMMON_FLAGS \"-mios-simulator-version-min=\${IOS_MIN_TARGET}\")" _fc_patched "${_fc}")
+                    if(_fc_patched STREQUAL _fc AND NOT _fc MATCHES "-mios-simulator-version-min")
+                        message(FATAL_ERROR "overlume: Filament's iOS.cmake no longer has the line this patch targets")
+                    endif()
+                    set(_fc "${_fc_patched}")
+                    file(WRITE "${_fil_src}/third_party/clang/iOS.cmake" "${_fc}")
+                endif()
                 list(FILTER _fil_args EXCLUDE REGEX "^-DCMAKE_(C|CXX)_COMPILER=|^-DCMAKE_OSX_")
                 list(APPEND _fil_args -DIOS=1 "-DIOS_ARCH=${_overlume_apple_arch}"
                      -DPLATFORM_NAME=${_fil_ios_platform} -DIMPORT_EXECUTABLES_DIR=out
