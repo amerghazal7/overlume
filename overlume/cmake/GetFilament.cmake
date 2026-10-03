@@ -119,6 +119,17 @@ if(OVERLUME_FILAMENT_FROM_SOURCE)
             file(RENAME "${_fil_src}.tmp" "${_fil_src}")
         endif()
 
+        if(APPLE)
+            # Filament 1.56.5 builds -Werror with -Wdeprecated after any flag we could add, and
+            # Xcode 15's SDK deprecates the Metal calls it uses: drop -Werror from its own targets.
+            foreach(_f filament/CMakeLists.txt filament/backend/CMakeLists.txt libs/gltfio/CMakeLists.txt)
+                file(READ "${_fil_src}/${_f}" _fc)
+                string(REPLACE "-Werror\n" "\n" _fc "${_fc}")
+                string(REPLACE "-Wall -Werror)" "-Wall)" _fc "${_fc}")
+                file(WRITE "${_fil_src}/${_f}" "${_fc}")
+            endforeach()
+        endif()
+
         set(_fil_args
             -G Ninja
             -DCMAKE_BUILD_TYPE=Release
@@ -147,12 +158,6 @@ if(OVERLUME_FILAMENT_FROM_SOURCE)
             # Metal only. Filament's own iOS toolchain (-DIOS=1) takes the compilers and SDK from
             # xcrun; its cross build imports the host tools from <src>/out/, which here are the
             # arm64 tools of the prebuilt mac SDK (no second, native Filament build).
-            # Filament 1.56.5 builds -Werror; Xcode 15's SDK deprecates the Metal calls it uses.
-            list(FILTER _fil_args EXCLUDE REGEX "^-DCMAKE_CXX_FLAGS=")
-            list(APPEND _fil_args "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations"
-                 "-DCMAKE_C_FLAGS=-Wno-deprecated-declarations"
-                 "-DCMAKE_OBJCXX_FLAGS=-Wno-deprecated-declarations"
-                 "-DCMAKE_OBJC_FLAGS=-Wno-deprecated-declarations")
             list(APPEND _fil_args -DFILAMENT_SUPPORTS_OPENGL=OFF -DFILAMENT_SUPPORTS_METAL=ON
                  "-DCMAKE_OSX_ARCHITECTURES=${_overlume_apple_arch}"
                  "-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
