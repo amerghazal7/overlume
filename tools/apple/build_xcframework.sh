@@ -16,6 +16,8 @@
 # Slices: device = iphoneos arm64; simulator = iphonesimulator arm64 + x86_64, lipo'd into one. Prints
 # PASS/FAIL only.
 set -euo pipefail
+# CMake 4 (Homebrew on the runners) rejects the < 3.5 minimums of pinned third-party projects.
+export CMAKE_POLICY_VERSION_MINIMUM=3.5
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 die() { echo "FAIL: $*" >&2; exit 1; }
 version() {

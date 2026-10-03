@@ -9,6 +9,8 @@
 #   build_macos_universal.sh package STAGE OUTDIR  -> overlume-<ver>-macos-universal.{tar.gz,pkg}
 # Prefix of the payload is /usr/local (pkg) or relocatable (tar.gz). Prints PASS/FAIL only.
 set -euo pipefail
+# CMake 4 (Homebrew on the runners) rejects the < 3.5 minimums of pinned third-party projects.
+export CMAKE_POLICY_VERSION_MINIMUM=3.5
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 die() { echo "FAIL: $*" >&2; exit 1; }
 version() {
