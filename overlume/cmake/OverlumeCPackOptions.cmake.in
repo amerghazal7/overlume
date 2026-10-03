@@ -2,6 +2,6 @@
 # Copyright 2026 Amer Ghazal
 #
 # Per-generator CPack overrides (CPACK_PROJECT_CONFIG_FILE); see OverlumePackaging.cmake.
-if(CPACK_GENERATOR STREQUAL "TGZ")
+if(CPACK_GENERATOR STREQUAL "TGZ" OR CPACK_GENERATOR STREQUAL "ZIP")
     set(CPACK_PACKAGING_INSTALL_PREFIX "/")
 endif()

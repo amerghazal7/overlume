@@ -138,6 +138,11 @@ if(NOT EXISTS "${STB_IMAGE_H}")
 endif()
 
 set(_matc "${FILAMENT_HOST_MATC}")
+# Mobile (GLES) materials on Android, desktop GL elsewhere.
+set(_matc_profile desktop)
+if(ANDROID)
+    set(_matc_profile mobile)
+endif()
 set(_generated_material_dir "${CMAKE_BINARY_DIR}/generated/overlume_materials")
 file(MAKE_DIRECTORY "${_generated_material_dir}")
 file(GLOB _material_srcs CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/materials/*.mat")
@@ -148,7 +153,7 @@ foreach(_mat_src ${_material_srcs})
     set(_mat_header "${_generated_material_dir}/${_mat_name}_filamat.h")
     if("${_mat_src}" IS_NEWER_THAN "${_mat_header}")
         execute_process(
-            COMMAND "${_matc}" -a opengl -p desktop -o "${_mat_out}" "${_mat_src}"
+            COMMAND "${_matc}" -a opengl -p ${_matc_profile} -o "${_mat_out}" "${_mat_src}"
             RESULT_VARIABLE _matc_result
             ERROR_VARIABLE _matc_error)
         if(NOT _matc_result EQUAL 0)
@@ -179,11 +184,19 @@ else()
     set(OVERLUME_PLATFORM egl)
 endif()
 set(OVERLUME_PLATFORM_LIBS "")
-if(OVERLUME_PLATFORM STREQUAL "egl" AND NOT ANDROID)
+if(ANDROID)
+    set(OVERLUME_PLATFORM_LIBS EGL GLESv3 log android)
+elseif(OVERLUME_PLATFORM STREQUAL "egl")
     set(OVERLUME_PLATFORM_LIBS EGL)
 endif()
 list(FILTER OVERLUME_SOURCES EXCLUDE REGEX "/platform_[a-z]+\\.cpp$")
 list(APPEND OVERLUME_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/platform_${OVERLUME_PLATFORM}.cpp")
+if(ANDROID)
+    # Filament's Android Release build is -fno-rtti, so libbackend.a carries no typeinfo for
+    # OpenGLPlatform; the subclass in platform_egl.cpp must not ask for it.
+    set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/src/platform_egl.cpp"
+        PROPERTIES COMPILE_OPTIONS "-fno-rtti")
+endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
     list(REMOVE_ITEM OVERLUME_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
@@ -347,8 +360,12 @@ option(OVERLUME_BUILD_SHARED "Build the self-contained shared liboverlume (deps 
 if(OVERLUME_BUILD_SHARED)
     add_library(overlume_shared SHARED $<TARGET_OBJECTS:overlume_obj> ${_overlume_overlume_stream_objects})
     set_target_properties(overlume_shared PROPERTIES
-        OUTPUT_NAME overlume VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR}
-        EXPORT_NAME overlume LINKER_LANGUAGE CXX)
+        OUTPUT_NAME overlume EXPORT_NAME overlume LINKER_LANGUAGE CXX)
+    # Android packages plain liboverlume.so (APKs and Prefab cannot carry versioned sonames).
+    if(NOT ANDROID)
+        set_target_properties(overlume_shared PROPERTIES
+            VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR})
+    endif()
     target_include_directories(overlume_shared PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>)
     # libc++ last (CMake emits an INTERFACE target's libs after the direct
@@ -388,7 +405,7 @@ add_test(NAME static_link_flags
          COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/test_static_link_flags.cmake)
 set_tests_properties(static_link_flags PROPERTIES LABELS "cpu")
 
-if(OVERLUME_BUILD_SHARED AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(OVERLUME_BUILD_SHARED AND CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
     add_test(NAME shared_exports
              COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_shared_exports.sh
                      "${CMAKE_NM}" "${CMAKE_READELF}" "$<TARGET_FILE:overlume_shared>")
@@ -444,6 +461,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     # Where tests find fixtures at run time (Android sets the on-device path).
     set(OVERLUME_TEST_DATA_DIR_RUNTIME "${CMAKE_CURRENT_SOURCE_DIR}" CACHE STRING
         "Run-time path of the overlume source tree's test data")
+    # Where tests write their *_actual.png / scratch files (Android has no /tmp).
+    set(OVERLUME_TEST_TMP_DIR_RUNTIME "/tmp" CACHE STRING "Run-time scratch directory for tests")
     foreach(_test_src ${_overlume_test_srcs})
         get_filename_component(_test_name "${_test_src}" NAME_WE)
         set(_test_extra_srcs "")
@@ -460,7 +479,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
         endif()
         target_compile_definitions(${_test_name} PRIVATE
             OVERLUME_TEST_DATA_DIR="${OVERLUME_TEST_DATA_DIR_RUNTIME}"
-            OVERLUME_DEFAULT_THEME_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets/themes")
+            OVERLUME_TMP_DIR="${OVERLUME_TEST_TMP_DIR_RUNTIME}"
+            $<$<BOOL:${ANDROID}>:OVERLUME_GOLDEN_SSIM_MIN=0.97>
+            OVERLUME_DEFAULT_THEME_DIR="${OVERLUME_TEST_DATA_DIR_RUNTIME}/assets/themes")
         include(GoogleTest)
         # Cross builds cannot run the binary at build time: list its tests when ctest loads.
         if(CMAKE_CROSSCOMPILING)

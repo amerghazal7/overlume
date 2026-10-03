@@ -64,5 +64,12 @@ endif()
 configure_file("${CMAKE_CURRENT_LIST_DIR}/OverlumeCPackOptions.cmake.in"
                "${CMAKE_CURRENT_BINARY_DIR}/OverlumeCPackOptions.cmake" @ONLY)
 set(CPACK_PROJECT_CONFIG_FILE "${CMAKE_CURRENT_BINARY_DIR}/OverlumeCPackOptions.cmake")
-# Tasks 6-8 append ANDROID / APPLE / WIN32 branches here.
+if(ANDROID)
+    # One zip per ABI (both components, prefix-relative); tools/android/build_aar.sh merges the four
+    # into overlume-<ver>-android.zip and the Prefab AAR.
+    set(CPACK_GENERATOR ZIP)
+    set(CPACK_PACKAGE_FILE_NAME "overlume-${PROJECT_VERSION}-android-${ANDROID_ABI}")
+    set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
+endif()
+# Tasks 7-8 append APPLE / WIN32 branches here.
 include(CPack)

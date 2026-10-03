@@ -29,7 +29,7 @@ bool HasGpuEglDevice() {
 class StderrCapture {
 public:
     StderrCapture() {
-        std::snprintf(path_, sizeof(path_), "/tmp/test_hello_frame_stderr_XXXXXX");
+        std::snprintf(path_, sizeof(path_), OVERLUME_TMP_DIR "/test_hello_frame_stderr_XXXXXX");
         fd_ = mkstemp(path_);
         savedStderr_ = dup(fileno(stderr));
         std::fflush(stderr);

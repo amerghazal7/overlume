@@ -98,22 +98,22 @@ TEST(ThemeTransition, DeterministicClock_MatchesTargetAtDuration) {
     overlume::set_scene(r, scene);
     EXPECT_GT(overlume::testing::render_and_compare(
                   r, kFixedPose, OVERLUME_TEST_DATA_DIR "/tests/goldens/transition_t0.png",
-                  "/tmp/transition_t0_actual.png"),
-              0.98);
+                  OVERLUME_TMP_DIR "/transition_t0_actual.png"),
+              overlume::testing::kSsimMin);
 
     scene.sim_time_sec = 0.4;
     overlume::set_scene(r, scene);
     EXPECT_GT(overlume::testing::render_and_compare(
                   r, kFixedPose, OVERLUME_TEST_DATA_DIR "/tests/goldens/transition_t0_4.png",
-                  "/tmp/transition_t0_4_actual.png"),
-              0.98);
+                  OVERLUME_TMP_DIR "/transition_t0_4_actual.png"),
+              overlume::testing::kSsimMin);
 
     scene.sim_time_sec = 0.8;
     overlume::set_scene(r, scene);
     EXPECT_GT(overlume::testing::render_and_compare(
                   r, kFixedPose, OVERLUME_TEST_DATA_DIR "/tests/goldens/transition_t0_8.png",
-                  "/tmp/transition_t0_8_actual.png"),
-              0.98);
+                  OVERLUME_TMP_DIR "/transition_t0_8_actual.png"),
+              overlume::testing::kSsimMin);
 
     overlume::destroy_renderer(r);
 }
@@ -179,7 +179,7 @@ TEST(ThemeTransition, MidTransition_LuminanceDoesNotOvershootEndpoints) {
         scene.sim_time_sec = tOfDuration * 0.8;
         overlume::set_scene(r, scene);
         const std::string outPath =
-            "/tmp/transition_mid_t" + std::to_string(tOfDuration) + "_actual.png";
+            OVERLUME_TMP_DIR "/transition_mid_t" + std::to_string(tOfDuration) + "_actual.png";
         overlume::testing::render_and_compare(r, pose, "/nonexistent/no_such_golden.png",
                                               outPath.c_str());
         const overlume::testing::FrameStats stats = overlume::testing::analyze_png(outPath.c_str());
@@ -352,7 +352,7 @@ TEST(ThemeTransition, UnknownThemeName_ReturnsFalseAndLeavesActiveThemeUnchanged
     overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
     EXPECT_GT(overlume::testing::render_and_compare(
                   r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/empty_world_dark_adas.png",
-                  "/tmp/set_theme_unknown_actual.png"),
-              0.98);
+                  OVERLUME_TMP_DIR "/set_theme_unknown_actual.png"),
+              overlume::testing::kSsimMin);
     overlume::destroy_renderer(r);
 }

@@ -1,0 +1,1 @@
+{"export_libraries": ["-lEGL", "-lGLESv3", "-landroid", "-llog", "-ldl"], "library_name": "liboverlume", "android": {"export_libraries": []}}

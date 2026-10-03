@@ -10,12 +10,21 @@
 
 #include <cstdio>
 
+#if defined(__ANDROID__)
+#include <GLES3/gl3.h>
+// libbackend.a: resolves the GLES extension entry points (glInsertEventMarkerEXT, ...) through
+// eglGetProcAddress; Filament's own PlatformEGL calls it, this platform must too.
+namespace glext {
+void importGLESExtensionsEntryPoints();
+}
+#else
 namespace bluegl {
 int bind();
 void unbind();
 }
 
 extern "C" const unsigned char* bluegl_glGetString(unsigned int name);
+#endif
 constexpr unsigned int kGlVendor = 0x1F00;
 constexpr unsigned int kGlRenderer = 0x1F01;
 constexpr unsigned int kGlVersion = 0x1F02;
@@ -37,13 +46,22 @@ public:
         display_ = eglGetDisplay(EGL_DEFAULT_DISPLAY);
         if (display_ == EGL_NO_DISPLAY) return nullptr;
         if (eglInitialize(display_, nullptr, nullptr) != EGL_TRUE) return nullptr;
+#if defined(__ANDROID__)
+        glext::importGLESExtensionsEntryPoints();
+        if (eglBindAPI(EGL_OPENGL_ES_API) != EGL_TRUE) return nullptr;
+#else
         if (eglBindAPI(EGL_OPENGL_API) != EGL_TRUE) return nullptr;
+#endif
 
         const EGLint configAttribs[] = {
             EGL_SURFACE_TYPE,
             EGL_PBUFFER_BIT,
             EGL_RENDERABLE_TYPE,
+#if defined(__ANDROID__)
+            EGL_OPENGL_ES3_BIT,
+#else
             EGL_OPENGL_BIT,
+#endif
             EGL_RED_SIZE,
             8,
             EGL_GREEN_SIZE,
@@ -64,6 +82,13 @@ public:
             return nullptr;
         }
 
+#if defined(__ANDROID__)
+        const EGLint ctxAttribs[] = {
+            EGL_CONTEXT_CLIENT_VERSION,
+            3,
+            EGL_NONE,
+        };
+#else
         const EGLint ctxAttribs[] = {
             EGL_CONTEXT_MAJOR_VERSION,
             4,
@@ -73,6 +98,7 @@ public:
             EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
             EGL_NONE,
         };
+#endif
         context_ = eglCreateContext(display_, config_, EGL_NO_CONTEXT, ctxAttribs);
         if (context_ == EGL_NO_CONTEXT) return nullptr;
 
@@ -82,11 +108,17 @@ public:
         if (eglMakeCurrent(display_, bootstrapSurface_, bootstrapSurface_, context_) != EGL_TRUE) {
             return nullptr;
         }
+#if !defined(__ANDROID__)
         if (bluegl::bind() != 0) return nullptr;
         blueglBound_ = true;
+#endif
 
         const auto gl_str = [](unsigned int n) {
+#if defined(__ANDROID__)
+            const unsigned char* s = glGetString(n);
+#else
             const unsigned char* s = bluegl_glGetString(n);
+#endif
             return s != nullptr ? reinterpret_cast<const char*>(s) : "(null)";
         };
         std::fprintf(stderr, "[overlume] GL_VENDOR: %s\n", gl_str(kGlVendor));
@@ -130,10 +162,12 @@ public:
 
     void terminate() noexcept override {
         if (display_ == EGL_NO_DISPLAY) return;
+#if !defined(__ANDROID__)
         if (blueglBound_) {
             bluegl::unbind();
             blueglBound_ = false;
         }
+#endif
         eglMakeCurrent(display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         if (bootstrapSurface_ != EGL_NO_SURFACE) eglDestroySurface(display_, bootstrapSurface_);
         if (context_ != EGL_NO_CONTEXT) eglDestroyContext(display_, context_);

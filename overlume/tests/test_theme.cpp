@@ -463,14 +463,14 @@ TEST(Fog, ColorAffectsRenderedOutput) {
 
     overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
     overlume::testing::render_and_compare(rA, pose, "/nonexistent/no_such_golden.png",
-                                          "/tmp/fog_color_black_actual.png");
+                                          OVERLUME_TMP_DIR "/fog_color_black_actual.png");
     overlume::testing::render_and_compare(rB, pose, "/nonexistent/no_such_golden.png",
-                                          "/tmp/fog_color_white_actual.png");
+                                          OVERLUME_TMP_DIR "/fog_color_white_actual.png");
 
     overlume::testing::FrameStats statsA =
-        overlume::testing::analyze_png("/tmp/fog_color_black_actual.png");
+        overlume::testing::analyze_png(OVERLUME_TMP_DIR "/fog_color_black_actual.png");
     overlume::testing::FrameStats statsB =
-        overlume::testing::analyze_png("/tmp/fog_color_white_actual.png");
+        overlume::testing::analyze_png(OVERLUME_TMP_DIR "/fog_color_white_actual.png");
 
     EXPECT_GT(statsB.mean - statsA.mean, 15.0)
         << "black-fog vs white-fog fixtures (identical otherwise) rendered "
@@ -497,14 +497,14 @@ TEST(Fog, ColorAffectsRenderedOutput_DarkAdas) {
 
     overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
     overlume::testing::render_and_compare(rA, pose, "/nonexistent/no_such_golden.png",
-                                          "/tmp/fog_color_black_dark_actual.png");
+                                          OVERLUME_TMP_DIR "/fog_color_black_dark_actual.png");
     overlume::testing::render_and_compare(rB, pose, "/nonexistent/no_such_golden.png",
-                                          "/tmp/fog_color_white_dark_actual.png");
+                                          OVERLUME_TMP_DIR "/fog_color_white_dark_actual.png");
 
     overlume::testing::FrameStats statsA =
-        overlume::testing::analyze_png("/tmp/fog_color_black_dark_actual.png");
+        overlume::testing::analyze_png(OVERLUME_TMP_DIR "/fog_color_black_dark_actual.png");
     overlume::testing::FrameStats statsB =
-        overlume::testing::analyze_png("/tmp/fog_color_white_dark_actual.png");
+        overlume::testing::analyze_png(OVERLUME_TMP_DIR "/fog_color_white_dark_actual.png");
 
     EXPECT_GT(statsB.mean - statsA.mean, 15.0)
         << "black-fog vs white-fog dark_adas-derived fixtures (identical otherwise) "
@@ -555,11 +555,11 @@ TEST(ThemeGolden, EmptyWorld_DarkAdas) {
     overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
     double ssim = overlume::testing::render_and_compare(
         r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/empty_world_dark_adas.png",
-        "/tmp/empty_world_dark_adas_actual.png");
-    EXPECT_GT(ssim, 0.98);
+        OVERLUME_TMP_DIR "/empty_world_dark_adas_actual.png");
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
 
     overlume::testing::FrameStats stats =
-        overlume::testing::analyze_png("/tmp/empty_world_dark_adas_actual.png");
+        overlume::testing::analyze_png(OVERLUME_TMP_DIR "/empty_world_dark_adas_actual.png");
     EXPECT_GT(stats.mean, 20.0) << "frame reads as crushed black";
     EXPECT_LT(stats.mean, 200.0) << "frame reads as clipped white";
     EXPECT_GT(stats.distinct_levels, 15)
@@ -587,11 +587,11 @@ TEST(ThemeGolden, EmptyWorld_LightClay) {
     overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
     double ssim = overlume::testing::render_and_compare(
         r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/empty_world_light_clay.png",
-        "/tmp/empty_world_light_clay_actual.png");
-    EXPECT_GT(ssim, 0.98);
+        OVERLUME_TMP_DIR "/empty_world_light_clay_actual.png");
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
 
     overlume::testing::FrameStats stats =
-        overlume::testing::analyze_png("/tmp/empty_world_light_clay_actual.png");
+        overlume::testing::analyze_png(OVERLUME_TMP_DIR "/empty_world_light_clay_actual.png");
     EXPECT_GT(stats.mean, 60.0) << "frame reads as crushed black";
     EXPECT_LT(stats.mean, 235.0) << "frame reads as clipped white";
     EXPECT_GT(stats.distinct_levels, 12)
