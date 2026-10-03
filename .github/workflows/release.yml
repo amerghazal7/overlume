@@ -312,3 +312,206 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$GITHUB_REF_NAME" out/* --clobber
+
+  # Android: one build job per ABI in the Alma 8 release image (host LLVM for Filament's host tools
+  # and vcpkg's host triplet) with NDK r27c from tools/android/setup_sdk.sh, mounted at the same
+  # absolute path the host sees so ctest can run on the runner. x86_64 and x86 also run the tests on
+  # an API 30 emulator; arm64-v8a / armeabi-v7a are build + export checks only (no hosted ARM emulator).
+  package-android-build:
+    needs: create
+    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { abi: arm64-v8a,   emulator: "" }
+          - { abi: armeabi-v7a, emulator: "" }
+          - { abi: x86_64,      emulator: x86_64 }
+          - { abi: x86,         emulator: x86 }
+    runs-on: ubuntu-22.04
+    env:
+      IMAGE: overlume-release-linux:x86_64
+      OVERLUME_ANDROID_HOME: ${{ github.workspace }}/../overlume-android
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Cache release image
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/overlume-image.tar
+          key: overlume-image-x86_64-${{ hashFiles('tools/release/linux/Dockerfile') }}
+
+      - name: Build or load release image
+        run: |
+          if [ -f "$RUNNER_TEMP/overlume-image.tar" ]; then
+            docker load -i "$RUNNER_TEMP/overlume-image.tar"
+          else
+            docker build -t "$IMAGE" tools/release/linux
+            docker save -o "$RUNNER_TEMP/overlume-image.tar" "$IMAGE"
+          fi
+
+      - name: NDK r27c (pinned sha256)
+        run: tools/android/setup_sdk.sh ndk
+
+      - name: Cache Filament source build and vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            overlume/build-android-${{ matrix.abi }}/_deps
+            ${{ runner.temp }}/overlume-home
+          key: overlume-deps-android-${{ matrix.abi }}-${{ hashFiles('overlume/cmake/**', 'tools/release/linux/Dockerfile') }}
+
+      - name: Configure, build, package (container)
+        run: |
+          mkdir -p "$RUNNER_TEMP/overlume-home"
+          ndk="$OVERLUME_ANDROID_HOME/android-ndk-r27c"
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/home/h -e ANDROID_NDK_HOME="$ndk" \
+            -v "$RUNNER_TEMP/overlume-home":/home/h -v "$ndk":"$ndk":ro -v "$PWD":"$PWD" -w "$PWD" \
+            "$IMAGE" bash -euo pipefail -c '
+              tools/android/build_all_abis.sh ${{ matrix.abi }}
+              b=overlume/build-android-${{ matrix.abi }}
+              cpack --config "$b/CPackConfig.cmake" -B "$PWD/$b/pkg"
+            '
+
+      - name: Host-runnable checks (exports, POD header, triplet mapping)
+        run: ANDROID_NDK_HOME="$OVERLUME_ANDROID_HOME/android-ndk-r27c" tools/android/host_checks.sh overlume/build-android-${{ matrix.abi }}
+      - name: Emulator script self-test (fake adb/ctest)
+        run: tools/android/test_emulator_script.sh overlume/build-android-${{ matrix.abi }}
+
+      - name: Enable KVM
+        if: ${{ matrix.emulator != '' }}
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+
+      - name: Unpack this ABI's package for the consumer check
+        if: ${{ matrix.emulator != '' }}
+        run: |
+          mkdir -p consumer/${{ matrix.abi }}
+          unzip -q overlume/build-android-${{ matrix.abi }}/pkg/overlume-*-android-${{ matrix.abi }}.zip -d consumer/${{ matrix.abi }}
+
+      # swangle_indirect (ANGLE on SwiftShader Vulkan, ES 3.1) is required: the plain swiftshader_indirect
+      # ES 3.0 translator renders all-black frames once post-processing is on.
+      - name: Tests and consumer smoke on an API 30 emulator
+        if: ${{ matrix.emulator != '' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANDROID_NDK_HOME: ${{ env.OVERLUME_ANDROID_HOME }}/android-ndk-r27c
+        with:
+          api-level: 30
+          target: google_apis
+          arch: ${{ matrix.emulator }}
+          emulator-options: -no-window -gpu swangle_indirect -noaudio -no-boot-anim -no-snapshot
+          disable-animations: true
+          script: |
+            tools/android/run_tests_on_emulator.sh overlume/build-android-${{ matrix.abi }}
+            RUN_ON_DEVICE=1 tools/android/check_consumer.sh consumer ${{ matrix.abi }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-zip-${{ matrix.abi }}
+          path: overlume/build-android-${{ matrix.abi }}/pkg/overlume-*-android-${{ matrix.abi }}.zip
+          if-no-files-found: error
+
+  package-android:
+    needs: package-android-build
+    if: ${{ !cancelled() && needs.package-android-build.result == 'success' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+      OVERLUME_ANDROID_HOME: ${{ github.workspace }}/../overlume-android
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: android-zip-*
+          path: abi-zips
+          merge-multiple: true
+
+      - name: NDK r27c (pinned sha256)
+        run: tools/android/setup_sdk.sh ndk
+
+      - name: Merge ABIs, Prefab AAR
+        run: |
+          export ANDROID_NDK_HOME="$OVERLUME_ANDROID_HOME/android-ndk-r27c"
+          mkdir out
+          tools/android/build_aar.sh abi-zips out
+          mkdir unzipped && unzip -q out/overlume-*-android.zip -d unzipped
+          for a in arm64-v8a armeabi-v7a x86 x86_64; do
+            [ -d "unzipped/$a/lib" ] || { echo "::error::android zip lacks ABI $a"; exit 1; }
+          done
+          tools/android/check_consumer.sh unzipped
+          tools/android/check_prefab.sh out/overlume-*-android.aar
+
+      - name: Publish script against the local Central Portal stub
+        run: tools/release/test_maven_publish.sh "$(ls out/overlume-*-android.aar)"
+
+      - name: Maven Central bundle
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: tools/release/build_maven_bundle.sh out/overlume-*-android.aar maven/overlume-maven-bundle.zip
+
+      - name: Checksums and detached signature
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: tools/release/sign_sums.sh out android
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-android
+          path: out/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maven-bundle
+          path: maven/overlume-maven-bundle.zip
+          if-no-files-found: error
+
+      - name: Upload release assets
+        if: ${{ env.DRY_RUN != 'true' && github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" out/* --clobber
+
+  # Dry runs (and any non-tag run) validate the bundle with Central and drop it; only a tag
+  # push publishes. The portal checks the signature against public keyservers, so the release
+  # key must be on keyserver.ubuntu.com and keys.openpgp.org.
+  publish-maven:
+    needs: package-android
+    if: ${{ !cancelled() && needs.package-android.result == 'success' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: maven-bundle
+          path: maven
+
+      - name: Central Portal (validate-and-drop, or publish on a tag)
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+        run: |
+          mode=validate
+          if [ "$DRY_RUN" != true ] && [ "$GITHUB_REF_TYPE" = tag ]; then mode=publish; fi
+          tools/release/publish_maven_central.sh maven/overlume-maven-bundle.zip "$mode"
