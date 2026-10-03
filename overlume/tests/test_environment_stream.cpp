@@ -279,7 +279,8 @@ TEST(EnvironmentStream, NodeMatrixEncodingRendersIdenticallyToEcefEncoding) {
         << "session_ecef fixture must load from its own (shifted) anchor's block center";
     for (int i = 0; i < 60; ++i) overlume::render_frame(rA, pose, {bufA.data(), 320, 240});
     overlume::testing::render_and_compare(rA, pose, "/nonexistent_no_golden.png",
-                                          OVERLUME_TMP_DIR "/environment_stream_session_ecef_actual.png");
+                                          OVERLUME_TMP_DIR
+                                          "/environment_stream_session_ecef_actual.png");
     overlume::destroy_renderer(rA);
 
     auto* rB = overlume::create_renderer(cfg);
@@ -1122,7 +1123,8 @@ TEST(EnvironmentStreamPerf, GooglePresetLiveRenderMsDeltaVsOsmClay) {
         std::cerr << "[EnvironmentStreamPerf/live] source='" << source_uri << "' loaded=" << loaded
                   << " mean_render_ms=" << meanMs << " worst_single_frame_ms=" << worstMs << "\n";
         overlume::testing::render_and_compare(r, pose, "/nonexistent_no_golden.png",
-                                              OVERLUME_TMP_DIR "/environment_stream_live_actual.png");
+                                              OVERLUME_TMP_DIR
+                                              "/environment_stream_live_actual.png");
         overlume::destroy_renderer(r);
         return loaded;
     };

@@ -23,9 +23,13 @@ std::string resolve_default_theme_dir(const std::string& module_path,
         // /lib/liboverlume.so.0 for a library installed in /usr/lib.
         fs::path mod = fs::weakly_canonical(module_path, ec);
         if (ec) mod = module_path;
-        const fs::path dir =
-            (mod.parent_path() / ".." / "share" / "overlume" / "themes").lexically_normal();
-        if (fs::is_directory(dir, ec)) {
+        // Installed layout <prefix>/lib/liboverlume.* -> <prefix>/share/overlume/themes; an Apple
+        // framework keeps its resources beside the binary: Overlume.framework/Resources/themes.
+        const fs::path candidates[] = {
+            (mod.parent_path() / ".." / "share" / "overlume" / "themes").lexically_normal(),
+            (mod.parent_path() / "Resources" / "themes").lexically_normal()};
+        for (const fs::path& dir : candidates) {
+            if (!fs::is_directory(dir, ec)) continue;
             for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
                 if (it->path().extension() == ".yaml") return dir.string();
             }

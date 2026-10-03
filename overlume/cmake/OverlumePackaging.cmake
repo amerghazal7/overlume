@@ -71,5 +71,11 @@ if(ANDROID)
     set(CPACK_PACKAGE_FILE_NAME "overlume-${PROJECT_VERSION}-android-${ANDROID_ABI}")
     set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
 endif()
-# Tasks 7-8 append APPLE / WIN32 branches here.
+if(APPLE)
+    # The shipped macOS .pkg/.tar.gz and the iOS xcframeworks are assembled from the per-arch
+    # installs by tools/apple/ (lipo and xcodebuild -create-xcframework cannot run inside cpack);
+    # cpack here only gives a single-arch tar.gz for local checks.
+    set(CPACK_GENERATOR TGZ)
+endif()
+# Task 8 appends the WIN32 branch here.
 include(CPack)

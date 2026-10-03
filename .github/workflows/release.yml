@@ -526,3 +526,356 @@ jobs:
           mode=validate
           if [ "$DRY_RUN" != true ] && [ "$GITHUB_REF_TYPE" = tag ]; then mode=publish; fi
           tools/release/publish_maven_central.sh maven/overlume-maven-bundle.zip "$mode"
+
+  # Apple. macos-14 (Apple Silicon) builds both macOS arches (x86_64 runs under Rosetta) and the
+  # three iOS slices as separate jobs (one cesium-native vcpkg tree per slice), then merges them.
+  # Filament: the prebuilt mac SDK for macOS arm64; built from source (with the SDK's arm64 host
+  # tools) for macOS x86_64 and every iOS slice -- the prebuilt iOS SDK has no arm64 simulator slice.
+  # Apple signing runs only when the APPLE_* secrets exist (warning otherwise).
+  package-macos-build:
+    needs: create
+    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x86_64]
+    runs-on: macos-14
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Toolchain packages
+        run: |
+          brew install autoconf automake libtool pkg-config nasm yaml-cpp
+          echo "EZVCPKG_BASEDIR=$RUNNER_TEMP/ezvcpkg" >> "$GITHUB_ENV"
+
+      - name: Script self-tests
+        run: |
+          tools/release/test_apple_publish.sh
+          overlume/scripts/test_check_shared_exports.sh
+
+      - name: Restore Filament source build and vcpkg
+        id: deps
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            overlume/build-macos-${{ matrix.arch }}/_deps/filament-src-install
+            ${{ runner.temp }}/ezvcpkg
+          key: overlume-deps-macos-${{ matrix.arch }}-${{ hashFiles('overlume/cmake/**') }}
+
+      - name: Configure, build, install
+        run: tools/apple/build_macos_universal.sh build ${{ matrix.arch }}
+
+      - name: Save Filament source build and vcpkg
+        if: ${{ always() && steps.deps.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            overlume/build-macos-${{ matrix.arch }}/_deps/filament-src-install
+            ${{ runner.temp }}/ezvcpkg
+          key: overlume-deps-macos-${{ matrix.arch }}-${{ hashFiles('overlume/cmake/**') }}
+
+      # x86_64 test binaries run under Rosetta. FiftyObjectsSceneUpdateUnderTwoMilliseconds is a
+      # wall-clock budget a shared runner cannot promise (docs/status.md, known gap 11). The gpu-labelled
+      # orientation/projection tests skip themselves when the runner has no Metal device; the smoke job
+      # reports which happened.
+      - name: Tests (cpu everywhere, gpu on arm64)
+        run: |
+          b=overlume/build-macos-${{ matrix.arch }}
+          ctest --test-dir "$b" -L cpu --output-on-failure -E FiftyObjectsSceneUpdateUnderTwoMilliseconds
+          if [ "${{ matrix.arch }}" = arm64 ]; then ctest --test-dir "$b" -L gpu --output-on-failure; fi
+
+      - name: Stage tarball
+        run: tar -C overlume -cf stage-macos-${{ matrix.arch }}.tar stage-macos-${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-stage-${{ matrix.arch }}
+          path: stage-macos-${{ matrix.arch }}.tar
+          if-no-files-found: error
+
+  package-macos:
+    needs: package-macos-build
+    if: ${{ !cancelled() && needs.package-macos-build.result == 'success' }}
+    permissions:
+      contents: read
+    runs-on: macos-14
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: macos-stage-*
+          path: stages
+          merge-multiple: true
+
+      - name: Merge to universal2
+        run: |
+          for a in arm64 x86_64; do tar -C overlume -xf stages/stage-macos-$a.tar; done
+          tools/apple/build_macos_universal.sh merge overlume/stage-macos-universal
+
+      - name: Codesign (only with Apple secrets)
+        env:
+          APPLE_DEVELOPER_ID_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+        run: tools/apple/sign_and_notarize.sh code overlume/stage-macos-universal/lib
+
+      - name: Package (.pkg, .tar.gz)
+        run: tools/apple/build_macos_universal.sh package overlume/stage-macos-universal out
+
+      - name: Sign and notarise the pkg (only with Apple secrets)
+        env:
+          APPLE_DEVELOPER_ID_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_NOTARY_KEY_P8: ${{ secrets.APPLE_NOTARY_KEY_P8 }}
+        run: tools/apple/sign_and_notarize.sh pkg out/overlume-*-macos-universal.pkg
+
+      - name: Clean-room smoke on the relocated tar.gz (arm64, x86_64)
+        run: |
+          brew install pkg-config yaml-cpp
+          mkdir reloc && tar -xzf out/overlume-*-macos-universal.tar.gz -C reloc
+          tools/apple/smoke_macos.sh reloc arm64
+          tools/apple/smoke_macos.sh reloc x86_64
+
+      - name: Install the pkg and smoke the installed prefix
+        run: |
+          sudo installer -pkg out/overlume-*-macos-universal.pkg -target /
+          tools/apple/smoke_macos.sh /usr/local arm64
+          lipo -verify_arch /usr/local/lib/liboverlume.dylib arm64 x86_64
+
+      - name: Homebrew formula against the dry-run tarball (local tap)
+        run: |
+          v="$(tools/apple/build_macos_universal.sh version)"
+          tar="$PWD/out/overlume-$v-macos-universal.tar.gz"
+          export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
+          brew tap-new --no-git local/overlume
+          mkdir -p "$(brew --repository local/overlume)/Formula"
+          tools/release/publish_homebrew.sh render "$(brew --repository local/overlume)/Formula/overlume.rb" \
+              "$v" "$(shasum -a 256 "$tar" | cut -d' ' -f1)" "file://$tar"
+          brew install cmake
+          brew install --formula local/overlume/overlume
+          brew test local/overlume/overlume
+          echo "PASS: brew install + brew test"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-packages
+          path: out/*
+          if-no-files-found: error
+
+  package-ios-build:
+    needs: create
+    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: [device-arm64, sim-arm64, sim-x86_64]
+    runs-on: macos-14
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Toolchain packages
+        run: |
+          brew install autoconf automake libtool pkg-config nasm
+          echo "EZVCPKG_BASEDIR=$RUNNER_TEMP/ezvcpkg" >> "$GITHUB_ENV"
+
+      - name: Restore Filament source build and vcpkg
+        id: deps
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            overlume/build-ios-${{ matrix.slice }}/_deps/filament-src-install
+            ${{ runner.temp }}/ezvcpkg
+          key: overlume-deps-ios-${{ matrix.slice }}-${{ hashFiles('overlume/cmake/**') }}
+
+      - name: Configure, build, install
+        run: tools/apple/build_xcframework.sh slice ${{ matrix.slice }}
+
+      - name: Save Filament source build and vcpkg
+        if: ${{ always() && steps.deps.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            overlume/build-ios-${{ matrix.slice }}/_deps/filament-src-install
+            ${{ runner.temp }}/ezvcpkg
+          key: overlume-deps-ios-${{ matrix.slice }}-${{ hashFiles('overlume/cmake/**') }}
+
+      - name: Stage tarball
+        run: tar -C overlume -cf stage-ios-${{ matrix.slice }}.tar stage-ios-${{ matrix.slice }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-stage-${{ matrix.slice }}
+          path: stage-ios-${{ matrix.slice }}.tar
+          if-no-files-found: error
+
+  package-ios:
+    needs: package-ios-build
+    if: ${{ !cancelled() && needs.package-ios-build.result == 'success' }}
+    permissions:
+      contents: read
+    runs-on: macos-14
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ios-stage-*
+          path: stages
+          merge-multiple: true
+
+      - name: XCFrameworks
+        run: |
+          for s in device-arm64 sim-arm64 sim-x86_64; do tar -C overlume -xf stages/stage-ios-$s.tar; done
+          tools/apple/build_xcframework.sh assemble out
+
+      - name: Codesign the frameworks (only with Apple secrets)
+        env:
+          APPLE_DEVELOPER_ID_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+        run: tools/apple/sign_and_notarize.sh code out/Overlume.xcframework
+
+      - name: Zip
+        run: tools/apple/build_xcframework.sh zip out
+
+      # The same SwiftPM binaryTarget a consumer resolves, against the local xcframework: resolve,
+      # link and run in an iPhone simulator (the log line OVERLUME_SMOKE says whether a Metal device existed).
+      - name: iOS simulator XCTest through a SwiftPM consumer
+        run: tools/apple/build_xcframework.sh smoke out
+
+      - name: SwiftPM manifest for this build (parse + checksum)
+        run: |
+          v="$(tools/apple/build_macos_universal.sh version)"
+          tools/release/publish_swiftpm.sh check "out/Overlume-$v.xcframework.zip" "$v"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-packages
+          path: |
+            out/Overlume-*.xcframework.zip
+            out/OverlumeStatic-*.xcframework.zip
+          if-no-files-found: error
+
+  # Checksums + detached signature need GNU tools and gpg: done on Linux for both Apple sets.
+  sign-apple:
+    needs: [package-macos, package-ios]
+    if: ${{ !cancelled() && needs.package-macos.result == 'success' && needs.package-ios.result == 'success' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-packages
+          path: macos
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-packages
+          path: ios
+
+      - name: Checksums and detached signatures
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: |
+          tools/release/sign_sums.sh macos macos
+          tools/release/sign_sums.sh ios ios
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-macos
+          path: macos/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-ios
+          path: ios/*
+          if-no-files-found: error
+
+      - name: Upload release assets
+        if: ${{ env.DRY_RUN != 'true' && github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" macos/* ios/* --clobber
+
+  # Tag runs only: a dry run already installed the formula and resolved the manifest above.
+  publish-homebrew:
+    needs: sign-apple
+    if: ${{ !cancelled() && needs.sign-apple.result == 'success' && github.ref_type == 'tag' && (github.event_name == 'push' || !inputs.dry_run) }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pkg-macos
+          path: macos
+
+      - name: Push the formula to the tap
+        env:
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          f="macos/overlume-$v-macos-universal.tar.gz"
+          tools/release/publish_homebrew.sh push "$v" "$(sha256sum "$f" | cut -d' ' -f1)" \
+              "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/overlume-$v-macos-universal.tar.gz"
+
+  publish-swiftpm:
+    needs: sign-apple
+    if: ${{ !cancelled() && needs.sign-apple.result == 'success' && github.ref_type == 'tag' && (github.event_name == 'push' || !inputs.dry_run) }}
+    permissions:
+      contents: read
+    runs-on: macos-14
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pkg-ios
+          path: ios
+
+      - name: Push Package.swift and the version tag to overlume-swift
+        env:
+          SWIFTPM_REPO_DEPLOY_KEY: ${{ secrets.SWIFTPM_REPO_DEPLOY_KEY }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          tools/release/publish_swiftpm.sh push "ios/Overlume-$v.xcframework.zip" "$v"

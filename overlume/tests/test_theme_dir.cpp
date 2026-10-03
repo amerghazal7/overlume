@@ -18,6 +18,18 @@ TEST(ThemeDir, PrefersInstalledShareDirNextToModule) {
     fs::remove_all(root);
 }
 
+TEST(ThemeDir, FindsFrameworkResourcesNextToBinary) {
+    // Apple framework layout: Overlume.framework/{Overlume,Resources/themes}.
+    const fs::path root = fs::temp_directory_path() / "overlume_theme_dir_framework_test";
+    fs::remove_all(root);
+    fs::create_directories(root / "Overlume.framework/Resources/themes");
+    std::ofstream(root / "Overlume.framework/Resources/themes/dark_adas.yaml") << "x: 1\n";
+    EXPECT_EQ(
+        resolve_default_theme_dir((root / "Overlume.framework/Overlume").string(), "/nonexistent"),
+        (root / "Overlume.framework/Resources/themes").string());
+    fs::remove_all(root);
+}
+
 TEST(ThemeDir, FollowsSymlinkedLibDir) {
     // Merged-/usr: the loader reports /lib/liboverlume.so.0 for /usr/lib/liboverlume.so.0.
     const fs::path root = fs::temp_directory_path() / "overlume_theme_dir_symlink_test";

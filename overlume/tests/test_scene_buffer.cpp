@@ -85,8 +85,8 @@ static_assert(overlume::kSceneVersion == 8,
               "bump this alongside every additive scene.h change, and update the "
               "node-side test_scene_layout.cpp mirror");
 
-// The frozen layouts are the LP64 (ROS node) ABI; 32-bit Android ABIs (armeabi-v7a, x86) have 4-byte
-// pointers and 4-byte-aligned doubles (x86), so the offsets differ there by design.
+// The frozen layouts are the LP64 (ROS node) ABI; 32-bit Android ABIs (armeabi-v7a, x86) have
+// 4-byte pointers and 4-byte-aligned doubles (x86), so the offsets differ there by design.
 #if INTPTR_MAX == INT64_MAX
 static_assert(sizeof(overlume::Vec3) == 24, "Vec3 layout frozen");
 static_assert(offsetof(overlume::Vec3, x) == 0, "Vec3 layout frozen");

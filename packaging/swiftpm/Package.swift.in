@@ -1,0 +1,16 @@
+// swift-tools-version:5.9
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+//
+// Rendered by tools/release/publish_swiftpm.sh and pushed to amerghazal7/overlume-swift
+// (@URL@, @CHECKSUM@: the release's Overlume-<version>.xcframework.zip).
+import PackageDescription
+
+let package = Package(
+    name: "Overlume",
+    platforms: [.iOS(.v15), .macOS(.v13)],
+    products: [.library(name: "Overlume", targets: ["Overlume"])],
+    targets: [
+        .binaryTarget(name: "Overlume", url: "@URL@", checksum: "@CHECKSUM@")
+    ]
+)

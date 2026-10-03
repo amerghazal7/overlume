@@ -592,10 +592,12 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     const detail::Theme theme = loaded ? *loaded : detail::kFallbackTheme();
 
     detail::HeadlessPlatform platform = detail::make_headless_platform();
-    filament::Engine* engine = filament::Engine::Builder()
-                                   .backend(platform.backend)
-                                   .platform(platform.platform)
-                                   .build();
+    if (!platform.usable) {
+        detail::destroy_headless_platform(platform);
+        return nullptr;
+    }
+    filament::Engine* engine =
+        filament::Engine::Builder().backend(platform.backend).platform(platform.platform).build();
     if (engine == nullptr) {
         detail::destroy_headless_platform(platform);
         return nullptr;
@@ -1027,9 +1029,10 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
 
     const size_t pixelCount = static_cast<size_t>(out.width) * out.height;
     ReadbackState state;
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(__APPLE__)
     // GLES only guarantees glReadPixels(GL_RGBA, GL_UNSIGNED_BYTE); GL_RGB can fail with
-    // GL_INVALID_OPERATION (the emulator does), leaving the buffer untouched. Read RGBA, pack to RGB.
+    // GL_INVALID_OPERATION (the emulator does), leaving the buffer untouched; Metal reads back
+    // 4-channel textures only. Read RGBA, pack to RGB.
     std::vector<uint8_t> rgba(pixelCount * 4);
     filament::backend::PixelBufferDescriptor buffer(
         rgba.data(), rgba.size(), filament::backend::PixelBufferDescriptor::PixelDataFormat::RGBA,
@@ -1059,7 +1062,7 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     }
     if (!state.done.load(std::memory_order_acquire)) return false;
 
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(__APPLE__)
     for (size_t i = 0; i < pixelCount; ++i) {
         out.rgb[i * 3 + 0] = rgba[i * 4 + 0];
         out.rgb[i * 3 + 1] = rgba[i * 4 + 1];
