@@ -145,6 +145,12 @@ if(OVERLUME_FILAMENT_FROM_SOURCE)
             # Metal only. Filament's own iOS toolchain (-DIOS=1) takes the compilers and SDK from
             # xcrun; its cross build imports the host tools from <src>/out/, which here are the
             # arm64 tools of the prebuilt mac SDK (no second, native Filament build).
+            # Filament 1.56.5 builds -Werror; Xcode 15's SDK deprecates the Metal calls it uses.
+            list(FILTER _fil_args EXCLUDE REGEX "^-DCMAKE_CXX_FLAGS=")
+            list(APPEND _fil_args "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations"
+                 "-DCMAKE_C_FLAGS=-Wno-deprecated-declarations"
+                 "-DCMAKE_OBJCXX_FLAGS=-Wno-deprecated-declarations"
+                 "-DCMAKE_OBJC_FLAGS=-Wno-deprecated-declarations")
             list(APPEND _fil_args -DFILAMENT_SUPPORTS_OPENGL=OFF -DFILAMENT_SUPPORTS_METAL=ON
                  "-DCMAKE_OSX_ARCHITECTURES=${_overlume_apple_arch}"
                  "-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
