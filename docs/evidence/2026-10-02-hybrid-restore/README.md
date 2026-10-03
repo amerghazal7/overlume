@@ -63,10 +63,12 @@ Re-captured 2026-10-03 with the M02P ego (see below); sha256 prefix of the candi
 Correction: the first 1280x720 candidate showed a giant clay box because the proprietary,
 git-ignored M02P mesh (`ros/src/overlume_ros/assets/ego/ATTRIBUTION.md`) was not in this
 worktree. It is now symlinked from the main checkout (still untracked) and `colcon_build.sh
-overlume_ros` re-installed it; the node log carries no clay-box fallback line.
+overlume_ros` re-installed it. Evidence it is in use: `overlume_node.cpp:172` resolves an empty
+`ego_model_path` to `share/overlume_ros/assets/ego/M02P.glb`, that 75 MB mesh is present under
+`ros/install/`, the log has no clay-box fallback line, and the M02P silhouette is in the frame.
 
 Camera: no override needed. The golden-era node (362cb89,
-`micropilot_visualization_node/config/default_params.yaml`) and today's
+`cuda/src/ros_apps/src/micropilot_visualization_node/config/default_params.yaml`) and today's
 `default_params.yaml` ship the same `virtual_pose` [-4,0,3.5 | 2,0,-0.5] and vfov 80; the
 "lower, farther" look was the 4.5 m clay box vs. the small M02P. With the M02P the ego
 occupies the same pixels as in the golden (x 570-715, y 320-480).
@@ -74,7 +76,9 @@ occupies the same pixels as in the golden (x 570-715, y 320-480).
 Hybrid ON vs OFF (same bag offset, identical params except `hybrid_enabled`): mean-abs
 delta 12.975 (8-bit; OFF has no colorize log lines). Crosswalk stripes are single and
 aligned between ON and OFF, lane paint and manhole coincide; ON adds blocky splats on the
-sky edge, off-bowl structure and the passing car.
+sky edge, off-bowl structure and the passing car. The long smeared streak at the upper left is
+that car's camera projection on the bowl wall (the golden has the same kind of smear from its
+black car); it is not a registration defect.
 
 Residual differences from the golden: different scene (the golden is an earlier capture
 with a red car and a black police car at the intersection; this is the v3 bag at
