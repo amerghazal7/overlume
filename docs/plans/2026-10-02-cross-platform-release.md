@@ -782,6 +782,21 @@ modify `GetFilament.cmake` (mac + ios prebuilt tarballs, SHA256 pinned),
   `publish-homebrew`, `publish-swiftpm`; dry-run green; Linux gate green.
   **Commit** `feat(apple): Metal back end, macOS universal2 pkg + Homebrew, iOS XCFramework + SwiftPM`.
 
+**Task 7 results (2026-10-03/04, partial — dry-run budget of 5 exhausted).**
+Verified on CI (run 37146748777): all three iOS slices and both macOS arches build, link and pass the
+Mach-O export check; macOS cpu tests run (see below); Linux x86_64/aarch64 and the four Android ABIs stay
+green. NOT yet verified (needs the next dispatch of the last commit): macOS universal merge, pkg/tar.gz,
+smoke, brew local-tap install, iOS xcframework assembly + simulator XCTest, `sign-apple`.
+Deviations: (1) Filament's prebuilt mac SDK is arm64-only and the iOS SDK has no arm64 simulator slice, so
+macOS x86_64 and every iOS slice build Filament from source (host tools = the mac SDK's arm64 binaries);
+(2) Apple-only `-Werror` is removed from Filament's own targets (Xcode 15.4 SDK deprecations) and Filament's
+iOS toolchain is patched to `-mios-simulator-version-min` for simulator slices; (3) the .pkg/.tar.gz are
+assembled with pkgbuild/productbuild/tar from lipo'd installs, not CPack; (4) the hosted macOS runner's
+paravirtual GPU (`AppleParavirtDevice`) lacks `newArgumentEncoderWithLayout:`, so `create_renderer` returns
+nullptr there (probe in `platform_metal.cpp`) and GPU tests skip: no Metal frame has been rendered on CI;
+(5) the xcframework headers are flat (`<Overlume/api.h>`); (6) the runners' CMake 4 needs
+`CMAKE_POLICY_VERSION_MINIMUM=3.5` for yaml-cpp 0.8.0.
+
 ### Task 8: Windows x64 + arm64 (MSVC, WGL/OpenGL)
 
 **Files:** Create `overlume/src/platform_wgl.cpp`, `overlume/cmake/vcpkg-triplets/{x64,arm64}-windows-overlume.cmake`,
