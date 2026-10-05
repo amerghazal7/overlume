@@ -53,7 +53,7 @@ merge() {
     # CI 37340637284: the arm64 build links Filament's prebuilt libs (extra bluegl/bluevk, different
     # numbering), the x86_64 build links the source-built ones. Merge the archives by name, numbered
     # as in x86_64 (overlumeStaticTargets.cmake, copied from x86_64, lists them by that numbering);
-    # an arm64-only archive is dropped, and an x86_64-only one is an error.
+    # an x86_64-only one is an error.
     for d in "$x"/lib/overlume/deps/*.a; do
         base="$(basename "$d")"; base="${base#???_}"
         set -- "$a"/lib/overlume/deps/???_"$base"
@@ -61,10 +61,25 @@ merge() {
         lipo -create "$1" "$d" -output "$out/lib/overlume/deps/$(basename "$d")"
         lipo "$out/lib/overlume/deps/$(basename "$d")" -verify_arch arm64 x86_64 || die "$base is not universal"
     done
+    # An arm64-only archive (bluegl/bluevk) is still needed by the arm64 link (CI 37342151897:
+    # undefined _bluegl_*), so ship it as a fat archive with an empty x86_64 slice, numbered 9NN so
+    # it lands after x86_64's; ld64 does not care about archive order.
+    local n=0 extra="" empty="$out/.empty"
+    : >"$empty.c"; clang -arch x86_64 -c "$empty.c" -o "$empty.o"; libtool -static -arch_only x86_64 -o "$empty.a" "$empty.o" 2>/dev/null
     for d in "$a"/lib/overlume/deps/*.a; do
         base="$(basename "$d")"; base="${base#???_}"
-        ls "$x"/lib/overlume/deps/???_"$base" >/dev/null 2>&1 || echo "note: arm64-only static archive $base not shipped in the universal package"
+        ls "$x"/lib/overlume/deps/???_"$base" >/dev/null 2>&1 && continue
+        n=$((n + 1)); name="$(printf '9%02d' "$n")_$base"
+        lipo -create "$d" "$empty.a" -output "$out/lib/overlume/deps/$name"
+        lipo "$out/lib/overlume/deps/$name" -verify_arch arm64 x86_64 || die "$name is not universal"
+        extra="$extra;\${_overlume_prefix}/lib/overlume/deps/$name"
     done
+    rm -f "$empty".*
+    if [ -n "$extra" ]; then
+        EXTRA="$extra" perl -0pi -e 's/(.*deps\/\d{3}_[^;"]*\.a)/$1$ENV{EXTRA}/s' \
+            "$out/lib/cmake/overlume/overlumeStaticTargets.cmake"
+        grep -q '/deps/901_' "$out/lib/cmake/overlume/overlumeStaticTargets.cmake" || die "static targets not patched"
+    fi
     echo "PASS: universal2 stage $out"
 }
 
