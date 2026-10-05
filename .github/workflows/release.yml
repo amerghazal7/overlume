@@ -589,7 +589,13 @@ jobs:
         run: |
           b=overlume/build-macos-${{ matrix.arch }}
           ctest --test-dir "$b" -L cpu --output-on-failure -E FiftyObjectsSceneUpdateUnderTwoMilliseconds
-          if [ "${{ matrix.arch }}" = arm64 ]; then ctest --test-dir "$b" -L gpu --output-on-failure; fi
+          # The hosted runners' paravirtual Metal device cannot drive Filament (CI 37333934653: the
+          # gpu tests ASSERT a renderer), so gpu tests need a real Mac or a self-hosted runner.
+          if [ "${{ matrix.arch }}" = arm64 ] && ! system_profiler SPDisplaysDataType 2>/dev/null | grep -qi paravirtual; then
+            ctest --test-dir "$b" -L gpu --output-on-failure
+          else
+            echo "::warning::no usable Metal device: gpu-labelled tests (incl. row-0-is-top orientation) not run; needs a one-off run on a real Mac before the first tagged release"
+          fi
 
       - name: Stage tarball
         run: tar -C overlume -cf stage-macos-${{ matrix.arch }}.tar stage-macos-${{ matrix.arch }}
