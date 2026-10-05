@@ -9,6 +9,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
 elseif(APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     set(CMAKE_OSX_DEPLOYMENT_TARGET 13.0 CACHE STRING "")
 endif()
+# Windows: dynamic release CRT (/MD) everywhere, to match Filament's prebuilt md libraries and the
+# vcpkg-triplets/*-windows-overlume triplets (CMP0091 is NEW from 3.15 on).
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL" CACHE STRING "")
+endif()
 
 project(overlume VERSION 0.1.0 LANGUAGES CXX)
 
@@ -186,7 +191,7 @@ endforeach()
 
 file(GLOB_RECURSE OVERLUME_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
-# Headless back end, selected at compile time (EGL; Metal/WGL arrive with their ports).
+# Headless back end, selected at compile time (EGL on Linux/Android, Metal on Apple, WGL on Windows).
 if(APPLE)
     set(OVERLUME_PLATFORM metal)
 elseif(WIN32)
@@ -199,6 +204,8 @@ if(ANDROID)
     set(OVERLUME_PLATFORM_LIBS EGL GLESv3 log android)
 elseif(APPLE)
     set(OVERLUME_PLATFORM_LIBS "")  # frameworks ride on Filament::filament (GetFilament.cmake)
+elseif(OVERLUME_PLATFORM STREQUAL "wgl")
+    set(OVERLUME_PLATFORM_LIBS opengl32 gdi32 user32)
 elseif(OVERLUME_PLATFORM STREQUAL "egl")
     set(OVERLUME_PLATFORM_LIBS EGL)
 endif()
@@ -217,6 +224,12 @@ endif()
 
 # One OBJECT library feeds both link products: `overlume` (static, merged
 # archive; what the ROS node, tests and the gate link) and `overlume_shared`.
+if(MSVC)
+    # clang-cl (the MSVC v143 ABI; Filament's headers and prebuilt libraries need clang's front end).
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/utf-8>" "$<$<COMPILE_LANGUAGE:CXX>:/permissive->"
+                        "$<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>" "$<$<COMPILE_LANGUAGE:CXX>:/EHsc>")
+    add_compile_definitions(_USE_MATH_DEFINES NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
+endif()
 add_library(overlume_obj OBJECT ${OVERLUME_SOURCES})
 
 if(OVERLUME_ENABLE_CESIUM)
@@ -239,10 +252,16 @@ endif()
 
 add_library(overlume STATIC $<TARGET_OBJECTS:overlume_obj> ${_overlume_overlume_stream_objects})
 set_target_properties(overlume PROPERTIES LINKER_LANGUAGE CXX)
+if(WIN32)
+    # overlume.lib is the shared library's import library; the static archive cannot share the name.
+    set_target_properties(overlume PROPERTIES OUTPUT_NAME overlume_static)
+endif()
 add_library(overlume::overlume ALIAS overlume)
 
 if(OVERLUME_ENABLE_CESIUM)
-    target_compile_options(overlume_obj PRIVATE -std=gnu++${CMAKE_CXX_STANDARD})
+    if(NOT MSVC)
+        target_compile_options(overlume_obj PRIVATE -std=gnu++${CMAKE_CXX_STANDARD})
+    endif()
     target_compile_definitions(overlume_obj PRIVATE OVERLUME_ENABLE_CESIUM=1)
 endif()
 
@@ -406,6 +425,28 @@ if(OVERLUME_BUILD_SHARED)
         set_property(TARGET overlume_shared APPEND PROPERTY LINK_DEPENDS
             "${CMAKE_CURRENT_SOURCE_DIR}/cmake/overlume_exports_apple.txt")
     endif()
+    if(WIN32)
+        # ponytail: an export list generated from overlume's own objects (dumpbin /symbols, names in
+        # namespace overlume only) instead of WINDOWS_EXPORT_ALL_SYMBOLS, which would also export the
+        # YAML::/filament:: template instantiations the objects carry (and can hit the 65535 limit).
+        find_program(OVERLUME_DUMPBIN NAMES dumpbin REQUIRED)
+        set(_overlume_def "${CMAKE_BINARY_DIR}/overlume_exports.def")
+        set(_overlume_objlist "${CMAKE_BINARY_DIR}/overlume_objects.txt")
+        set(_overlume_objs $<TARGET_OBJECTS:overlume_obj>)
+        if(_overlume_overlume_stream_objects)
+            list(APPEND _overlume_objs ${_overlume_overlume_stream_objects})
+        endif()
+        # A response file: cmd.exe (Ninja's shell on Windows) caps a command line at 8191 characters.
+        file(GENERATE OUTPUT "${_overlume_objlist}" CONTENT "$<JOIN:${_overlume_objs},\n>\n")
+        add_custom_command(OUTPUT "${_overlume_def}"
+            COMMAND ${CMAKE_COMMAND} "-DDUMPBIN=${OVERLUME_DUMPBIN}" "-DOUT=${_overlume_def}"
+                    "-DOBJLIST=${_overlume_objlist}"
+                    -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/gen_overlume_def.cmake"
+            DEPENDS ${_overlume_objs} "${_overlume_objlist}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/gen_overlume_def.cmake"
+            COMMENT "overlume: generating the export list (overlume:: only)" VERBATIM)
+        target_sources(overlume_shared PRIVATE "${_overlume_def}")
+    endif()
     if(CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
         target_link_options(overlume_shared PRIVATE
             "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/cmake/overlume_exports.map"
@@ -417,9 +458,13 @@ endif()
 
 enable_testing()
 
-add_test(NAME check_pod_header
-         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_pod_header.sh)
-set_tests_properties(check_pod_header PROPERTIES LABELS "cpu")
+# The bash script checks (POD header, shared-exports selftest, nm hygiene) run on the POSIX legs;
+# the headers are identical everywhere, and Windows has its own check_shared_exports.ps1.
+if(NOT WIN32)
+    add_test(NAME check_pod_header
+             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_pod_header.sh)
+    set_tests_properties(check_pod_header PROPERTIES LABELS "cpu")
+endif()
 
 add_test(NAME static_link_flags
          COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/test_static_link_flags.cmake)
@@ -432,6 +477,19 @@ if(OVERLUME_BUILD_SHARED AND CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
     set_tests_properties(shared_exports PROPERTIES LABELS "cpu")
 endif()
 
+if(OVERLUME_BUILD_SHARED AND WIN32)
+    find_program(OVERLUME_POWERSHELL NAMES pwsh powershell REQUIRED)
+    add_test(NAME shared_exports
+             COMMAND ${OVERLUME_POWERSHELL} -NoProfile -ExecutionPolicy Bypass
+                     -File ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_shared_exports.ps1
+                     -Dll "$<TARGET_FILE:overlume_shared>" -Dumpbin "${OVERLUME_DUMPBIN}")
+    set_tests_properties(shared_exports PROPERTIES LABELS "cpu")
+    add_test(NAME shared_exports_selftest_ps1
+             COMMAND ${OVERLUME_POWERSHELL} -NoProfile -ExecutionPolicy Bypass
+                     -File ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_check_shared_exports.ps1)
+    set_tests_properties(shared_exports_selftest_ps1 PROPERTIES LABELS "cpu")
+endif()
+
 if(OVERLUME_BUILD_SHARED AND APPLE)
     # otool takes the readelf slot; the script picks its Mach-O branch from the file itself.
     find_program(OVERLUME_OTOOL otool REQUIRED)
@@ -441,9 +499,15 @@ if(OVERLUME_BUILD_SHARED AND APPLE)
     set_tests_properties(shared_exports PROPERTIES LABELS "cpu")
 endif()
 
-add_test(NAME shared_exports_selftest
-         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_check_shared_exports.sh)
-set_tests_properties(shared_exports_selftest PROPERTIES LABELS "cpu")
+if(NOT WIN32)
+    add_test(NAME shared_exports_selftest
+             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_check_shared_exports.sh)
+    set_tests_properties(shared_exports_selftest PROPERTIES LABELS "cpu")
+endif()
+
+add_test(NAME gen_overlume_def_selftest
+         COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/test_gen_overlume_def.cmake)
+set_tests_properties(gen_overlume_def_selftest PROPERTIES LABELS "cpu")
 
 add_test(NAME cesium_triplet_mapping
          COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_cesium_triplets.cmake)
@@ -465,10 +529,12 @@ if(OVERLUME_ENABLE_CESIUM)
     add_test(NAME cesium_link_probe COMMAND cesium_link_probe)
     set_tests_properties(cesium_link_probe PROPERTIES LABELS "cpu")
 
-    add_test(NAME cesium_link_probe_symbol_hygiene
-             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_cesium_link_probe_symbols.sh
-                     "${CMAKE_NM}" "$<TARGET_FILE:cesium_link_probe>")
-    set_tests_properties(cesium_link_probe_symbol_hygiene PROPERTIES LABELS "cpu")
+    if(NOT WIN32)
+        add_test(NAME cesium_link_probe_symbol_hygiene
+                 COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_cesium_link_probe_symbols.sh
+                         "${CMAKE_NM}" "$<TARGET_FILE:cesium_link_probe>")
+        set_tests_properties(cesium_link_probe_symbol_hygiene PROPERTIES LABELS "cpu")
+    endif()
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
@@ -495,9 +561,14 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     set(OVERLUME_TEST_DATA_DIR_RUNTIME "${CMAKE_CURRENT_SOURCE_DIR}" CACHE STRING
         "Run-time path of the overlume source tree's test data")
     # Where tests write their *_actual.png / scratch files (Android has no /tmp).
-    set(OVERLUME_TEST_TMP_DIR_RUNTIME "/tmp" CACHE STRING "Run-time scratch directory for tests")
-    if(APPLE)
-        # Probes EGL directly; Apple has no EGL.
+    set(_overlume_tmp_default "/tmp")
+    if(WIN32)
+        set(_overlume_tmp_default "${CMAKE_BINARY_DIR}/tmp")
+        file(MAKE_DIRECTORY "${_overlume_tmp_default}")
+    endif()
+    set(OVERLUME_TEST_TMP_DIR_RUNTIME "${_overlume_tmp_default}" CACHE STRING "Run-time scratch directory for tests")
+    if(APPLE OR WIN32)
+        # Probes EGL directly; Apple and Windows have no EGL.
         list(REMOVE_ITEM _overlume_test_srcs
              "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_bluegl_link_probe.cpp")
     endif()
@@ -518,7 +589,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
         target_compile_definitions(${_test_name} PRIVATE
             OVERLUME_TEST_DATA_DIR="${OVERLUME_TEST_DATA_DIR_RUNTIME}"
             OVERLUME_TMP_DIR="${OVERLUME_TEST_TMP_DIR_RUNTIME}"
-            $<$<BOOL:${ANDROID}>:OVERLUME_GOLDEN_SSIM_MIN=0.97>
+            $<$<OR:$<BOOL:${ANDROID}>,$<BOOL:${WIN32}>>:OVERLUME_GOLDEN_SSIM_MIN=0.97>
             OVERLUME_DEFAULT_THEME_DIR="${OVERLUME_TEST_DATA_DIR_RUNTIME}/assets/themes")
         include(GoogleTest)
         # Cross builds cannot run the binary at build time: list its tests when ctest loads.

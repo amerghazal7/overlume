@@ -49,8 +49,17 @@ configure_file(cmake/overlume.pc.in "${CMAKE_CURRENT_BINARY_DIR}/overlume.pc" @O
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/overlumeConfig.cmake"
               "${CMAKE_CURRENT_BINARY_DIR}/overlumeConfigVersion.cmake"
         DESTINATION ${_ovl_cmake_dir} COMPONENT overlume)
-install(FILES "${CMAKE_CURRENT_BINARY_DIR}/overlume.pc"
-        DESTINATION ${CMAKE_INSTALL_DATADIR}/pkgconfig COMPONENT overlume)
+if(NOT WIN32)  # Windows consumers use find_package(overlume); there is no pkg-config there
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/overlume.pc"
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/pkgconfig COMPONENT overlume)
+endif()
+if(WIN32 AND OVERLUME_BUILD_SHARED)
+    # App-local VC runtime (the shared library is /MD): vcruntime140*.dll / msvcp140*.dll beside overlume.dll.
+    set(CMAKE_INSTALL_UCRT_LIBRARIES FALSE)  # the Universal CRT is an OS component on Windows 10+
+    set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION ${CMAKE_INSTALL_BINDIR})
+    set(CMAKE_INSTALL_SYSTEM_RUNTIME_COMPONENT overlume)
+    include(InstallRequiredSystemRuntimeLibraries)
+endif()
 
 # ---- static component -------------------------------------------------------
 # Walk the static link line (same graph a consumer of in-tree `overlume` gets)
@@ -131,7 +140,7 @@ function(_overlume_collect_static_deps _out_files _out_libs)
                         set(_loc "${_l}")
                     endif()
                 endforeach()
-                if(_loc MATCHES "\\.a$")
+                if(_loc MATCHES "\\.(a|lib)$")
                     list(APPEND _files "$<TARGET_FILE:${_cur}>")
                 elseif(_loc MATCHES "/lib([A-Za-z0-9_+.-]+)\\.(tbd|dylib)$" AND _loc MATCHES "\\.sdk/|^/usr/lib/")
                     list(APPEND _libs "-l${CMAKE_MATCH_1}")  # Apple system library (libz.tbd, ...)
@@ -153,13 +162,17 @@ function(_overlume_collect_static_deps _out_files _out_libs)
             list(APPEND _libs "-framework ${CMAKE_MATCH_1}")
         elseif(_cur MATCHES "/lib([A-Za-z0-9_+.-]+)\\.(tbd|dylib)$" AND _cur MATCHES "\\.sdk/|^/usr/lib/")
             list(APPEND _libs "-l${CMAKE_MATCH_1}")
-        elseif(_cur MATCHES "\\.a$")
+        elseif(WIN32 AND _cur MATCHES "^[A-Za-z0-9_+.-]+\\.lib$")
+            list(APPEND _libs "${_cur}")  # an import library by bare name (advapi32.lib): resolved by link.exe
+        elseif(_cur MATCHES "\\.(a|lib)$")
             if(NOT _cur STREQUAL _libcxx_a AND NOT _cur STREQUAL _libcxxabi_a
                AND NOT _cur STREQUAL _libunwind_a)
                 list(APPEND _files "${_cur}")
             endif()
         elseif(_cur MATCHES "^\\$<")
             message(FATAL_ERROR "overlume: unhandled generator expression in link graph: [${_cur}]")
+        elseif(WIN32 AND _cur MATCHES "^[A-Za-z0-9_+.-]+$")
+            list(APPEND _libs "${_cur}")  # a system library by bare name (ws2_32): CMake appends .lib
         elseif(_cur MATCHES "^[A-Za-z0-9_+.-]+$")
             list(APPEND _libs "-l${_cur}")
         else()
@@ -178,10 +191,16 @@ list(REMOVE_ITEM _ovl_dep_files "$<TARGET_FILE:overlume>")
 install(FILES "$<TARGET_FILE:overlume>" DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT static)
 set(_ovl_dep_items "")
 set(_ovl_idx 0)
+set(_ovl_ar_ext a)
+set(_ovl_static_name liboverlume.a)
+if(WIN32)
+    set(_ovl_ar_ext lib)
+    set(_ovl_static_name overlume_static.lib)
+endif()
 foreach(_ovl_dep ${_ovl_dep_files})
     math(EXPR _ovl_idx "${_ovl_idx} + 1")
     if(_ovl_dep MATCHES "^\\$<TARGET_FILE:(.*)>$")
-        string(REGEX REPLACE "[^A-Za-z0-9_.+-]" "_" _ovl_base "lib${CMAKE_MATCH_1}.a")
+        string(REGEX REPLACE "[^A-Za-z0-9_.+-]" "_" _ovl_base "lib${CMAKE_MATCH_1}.${_ovl_ar_ext}")
     else()
         get_filename_component(_ovl_base "${_ovl_dep}" NAME)
     endif()

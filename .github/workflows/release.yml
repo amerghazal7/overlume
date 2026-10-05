@@ -896,3 +896,202 @@ jobs:
         run: |
           v="${GITHUB_REF_NAME#v}"
           tools/release/publish_swiftpm.sh push "ios/Overlume-$v.xcframework.zip" "$v"
+
+  # Windows x64 (windows-2022) and arm64 (windows-11-arm), built with clang-cl against the MSVC v143
+  # ABI and the dynamic CRT. x64 links Filament's prebuilt /MD libraries; arm64 builds Filament from
+  # source. The render tests use Mesa llvmpipe (x64 only: mesa-dist-win publishes no arm64 build).
+  package-windows-build:
+    needs: create
+    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64,   os: windows-2022 }
+          - { arch: arm64, os: windows-11-arm }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 340
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      # Short root: vcpkg's build trees overflow MAX_PATH under the default workspace path.
+      EZVCPKG_BASEDIR: C:\ez
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Toolchain (Visual Studio + clang-cl, ninja, NSIS, 7-Zip)
+        run: |
+          tools/windows/ensure_tools.ps1
+          if ($LASTEXITCODE) { exit 1 }
+          tools/windows/vsenv.ps1 -Arch ${{ matrix.arch }}
+          if ($LASTEXITCODE) { exit 1 }
+
+      - name: Script self-tests
+        run: |
+          cmake -P overlume/tests/cmake/test_gen_overlume_def.cmake
+          if ($LASTEXITCODE) { exit 1 }
+          overlume/scripts/test_check_shared_exports.ps1
+          if ($LASTEXITCODE) { exit 1 }
+          tools/windows/test_sign.ps1
+          if ($LASTEXITCODE) { exit 1 }
+
+      - name: Restore Filament source build and vcpkg
+        id: deps
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            overlume/build-windows-${{ matrix.arch }}/_deps/filament-src-install
+            C:\ez
+            !C:\ez\*\buildtrees
+            !C:\ez\*\packages
+            !C:\ez\*\downloads
+          key: overlume-deps-windows-${{ matrix.arch }}-${{ hashFiles('overlume/cmake/**') }}-${{ github.run_id }}
+          restore-keys: overlume-deps-windows-${{ matrix.arch }}-${{ hashFiles('overlume/cmake/**') }}-
+
+      - name: Configure and build
+        run: tools/windows/build_windows.ps1 build -Arch ${{ matrix.arch }}
+
+      - name: Save Filament source build and vcpkg
+        if: ${{ always() }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            overlume/build-windows-${{ matrix.arch }}/_deps/filament-src-install
+            C:\ez
+            !C:\ez\*\buildtrees
+            !C:\ez\*\packages
+            !C:\ez\*\downloads
+          key: overlume-deps-windows-${{ matrix.arch }}-${{ hashFiles('overlume/cmake/**') }}-${{ github.run_id }}
+
+      - name: Tests (cpu everywhere, gpu where OpenGL 4.1 exists)
+        run: tools/windows/build_windows.ps1 test -Arch ${{ matrix.arch }}
+
+      - name: Sign (only with Windows signing secrets) and package (NSIS, ZIP)
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: tools/windows/build_windows.ps1 package -Arch ${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-build-${{ matrix.arch }}
+          path: |
+            overlume/pkg-windows-${{ matrix.arch }}/overlume-*-windows-${{ matrix.arch }}.exe
+            overlume/pkg-windows-${{ matrix.arch }}/overlume-*-windows-${{ matrix.arch }}.zip
+          if-no-files-found: error
+
+  # Clean room: a fresh runner installs the NSIS installer silently, builds a consumer against it,
+  # uninstalls and checks the tree is gone, then repeats the consumer on the relocated zip.
+  package-windows:
+    needs: package-windows-build
+    if: ${{ !cancelled() && needs.package-windows-build.result == 'success' }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64,   os: windows-2022 }
+          - { arch: arm64, os: windows-11-arm }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-build-${{ matrix.arch }}
+          path: pkg
+
+      - name: Toolchain (Visual Studio, ninja)
+        run: |
+          tools/windows/ensure_tools.ps1
+          if ($LASTEXITCODE) { exit 1 }
+          tools/windows/vsenv.ps1 -Arch ${{ matrix.arch }}
+          if ($LASTEXITCODE) { exit 1 }
+
+      - name: Silent NSIS install, consumer build + run
+        run: |
+          $installer = (Get-ChildItem pkg\overlume-*-windows-${{ matrix.arch }}.exe).FullName
+          # /D must be the last argument and unquoted (NSIS).
+          $p = Start-Process -FilePath $installer -ArgumentList '/S', '/D=C:\overlume' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Output "FAIL: installer exit $($p.ExitCode)"; exit 1 }
+          foreach ($f in 'bin\overlume.dll', 'lib\overlume.lib', 'lib\overlume_static.lib', 'include\overlume\api.h',
+                         'lib\cmake\overlume\overlumeConfig.cmake', 'Uninstall.exe') {
+            if (-not (Test-Path "C:\overlume\$f")) { Write-Output "FAIL: C:\overlume\$f missing after install"; exit 1 }
+          }
+          if (-not (Get-ChildItem C:\overlume\share\overlume\themes -Filter *.yaml)) { Write-Output 'FAIL: themes not installed'; exit 1 }
+          tools/windows/smoke_windows.ps1 -Prefix C:\overlume -Arch ${{ matrix.arch }}
+          if ($LASTEXITCODE) { exit 1 }
+
+      - name: Uninstall and check the tree is gone
+        run: |
+          # The NSIS uninstaller copies itself to %TEMP% and returns at once: poll for the result.
+          Start-Process -FilePath C:\overlume\Uninstall.exe -ArgumentList '/S' -Wait | Out-Null
+          $deadline = (Get-Date).AddSeconds(180)
+          while ((Test-Path C:\overlume) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 3 }
+          if (Test-Path C:\overlume) {
+            Get-ChildItem C:\overlume -Recurse | Select-Object -First 20 FullName
+            Write-Output 'FAIL: C:\overlume still exists after Uninstall.exe /S'; exit 1
+          }
+          Write-Output 'PASS: uninstalled, C:\overlume is gone'
+
+      - name: Consumer against the relocated zip
+        run: |
+          $zip = (Get-ChildItem pkg\overlume-*-windows-${{ matrix.arch }}.zip).FullName
+          Expand-Archive -LiteralPath $zip -DestinationPath C:\reloc\overlume-zip
+          tools/windows/smoke_windows.ps1 -Prefix C:\reloc\overlume-zip -Arch ${{ matrix.arch }}
+          if ($LASTEXITCODE) { exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-packages-${{ matrix.arch }}
+          path: pkg/*
+          if-no-files-found: error
+
+  sign-windows:
+    needs: package-windows
+    if: ${{ !cancelled() && needs.package-windows.result == 'success' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: windows-packages-*
+          path: windows
+          merge-multiple: true
+
+      - name: Checksums and detached signatures
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: tools/release/sign_sums.sh windows windows
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-windows
+          path: windows/*
+          if-no-files-found: error
+
+      - name: Upload release assets
+        if: ${{ env.DRY_RUN != 'true' && github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" windows/* --clobber

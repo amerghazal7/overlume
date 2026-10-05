@@ -46,6 +46,12 @@ constexpr overlume::GeoAnchor kFixtureAnchor{25.0803, 55.3910, 0.0};
 
 overlume::CameraPose kStdPose{{0, -8, 3}, {0, 0, 0.5}, 60};
 
+#ifdef _WIN32
+// MSVC's CRT has no setenv/unsetenv; _putenv_s with "" removes the variable.
+int setenv(const char* name, const char* value, int) { return _putenv_s(name, value); }
+int unsetenv(const char* name) { return _putenv_s(name, ""); }
+#endif
+
 class ScopedUnsetEnv {
 public:
     explicit ScopedUnsetEnv(const char* name) : name_(name) {
