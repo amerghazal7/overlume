@@ -14,6 +14,11 @@ on:
 permissions:
   contents: read
 
+# A new manual dry run supersedes the previous one; tag pushes are never cancelled.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
+
 jobs:
   create:
     if: ${{ github.event_name == 'push' }}

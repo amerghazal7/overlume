@@ -25,8 +25,8 @@ HeadlessPlatform make_headless_platform() {
     void* device = MTLCreateSystemDefaultDevice();
     bool usable = false;
     if (device != nullptr) {
-        // The base class declares newArgumentEncoderWithLayout: (CI 37150239822: the probe passed and
-        // Filament still threw), so identify the paravirtual device by its name instead.
+        // The base class declares newArgumentEncoderWithLayout: (CI 37150239822: the probe passed
+        // and Filament still threw), so identify the paravirtual device by its name instead.
         auto msg = reinterpret_cast<id (*)(id, SEL)>(objc_msgSend);
         auto utf8 = reinterpret_cast<const char* (*)(id, SEL)>(objc_msgSend);
         const id name = msg(reinterpret_cast<id>(device), sel_registerName("name"));

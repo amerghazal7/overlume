@@ -21,7 +21,8 @@ mapfile -t SCRIPT_FILES < <(git ls-files \
 
 mapfile -t ROOT_TOOLS_FILES < <(git ls-files 'tools/*.py' 'tools/*.sh' 'ros/colcon_build.sh')
 
-mapfile -t CMAKE_FILES < <(git ls-files 'overlume/cmake' | grep -E '\.cmake$')
+# vcpkg-ports/ are vendored upstream (vcpkg, MIT) port overrides, not our files.
+mapfile -t CMAKE_FILES < <(git ls-files 'overlume/cmake' | grep -E '\.cmake$' | grep -v '/vcpkg-ports/')
 CMAKE_FILES+=("examples/CMakeLists.txt" "overlume/CMakeLists.txt" "ros/src/overlume_ros/CMakeLists.txt")
 mapfile -t MAT_FILES < <(git ls-files 'overlume/assets/materials' | grep -E '\.mat$')
 
