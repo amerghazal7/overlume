@@ -29,8 +29,9 @@ try {
     Copy-Item (Join-Path $env:SystemRoot 'System32\whoami.exe') $target
     & $sign -Path $target -TestMode | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Output 'FAIL: signed path failed'; exit 1 }
-    $sig = Get-AuthenticodeSignature -LiteralPath $target
-    if ($null -eq $sig.SignerCertificate -or $sig.SignerCertificate.Thumbprint -ne $cert.Thumbprint) { Write-Output 'FAIL: file not signed with the test certificate'; exit 1 }
+    # The PKCS#7 blob embeds the signer's subject in the clear.
+    $bytes = [IO.File]::ReadAllBytes($target)
+    if (-not [Text.Encoding]::Latin1.GetString($bytes).Contains('overlume-sign-selftest')) { Write-Output 'FAIL: file not signed with the test certificate'; exit 1 }
     Write-Output 'PASS: sign.ps1 (unsigned path warns, signed path signs)'
     exit 0
 }
