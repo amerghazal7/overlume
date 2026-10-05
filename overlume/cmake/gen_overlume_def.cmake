@@ -5,8 +5,9 @@
 #   -DOUT=<file.def> and either
 #   -DDUMPBIN=<dumpbin.exe> -DOBJLIST=<file, one object path per line>   (the build)
 #   -DSYMBOLS_TEXT=<file of "dumpbin /symbols" output>                   (tests/cmake/test_gen_overlume_def.cmake)
-# Exports the function symbols defined in namespace overlume and nothing else: the objects also carry
-# YAML::/filament::/std:: template instantiations, which must stay private to the DLL.
+# Exports the public API (functions in namespace overlume with POD-only signatures) and nothing else: the
+# objects also carry internal helpers and YAML::/filament::/std:: template instantiations, which must stay
+# private to the DLL (check_shared_exports.ps1 rejects any export naming them).
 if(NOT OUT)
     message(FATAL_ERROR "gen_overlume_def: -DOUT is required")
 endif()
@@ -36,7 +37,9 @@ foreach(_t IN LISTS _texts)
     string(REGEX MATCHALL "SECT[0-9A-Fa-f]+ +notype( +\\(\\))? +External +\\| +\\?[^ \r\n]+" _hits "${_t}")
     foreach(_h IN LISTS _hits)
         string(REGEX REPLACE "^.*\\| +" "" _n "${_h}")
-        if(_n MATCHES "^\\?[A-Za-z0-9_]+(@[A-Za-z0-9_]+)*@overlume@@")
+        # Public API = free functions directly in namespace overlume (one qualifier) whose signature names no
+        # std/filament/glm/YAML/Cesium/spdlog type: the POD-only headers cannot, internal helpers can.
+        if(_n MATCHES "^\\?[A-Za-z0-9_]+@overlume@@" AND NOT _n MATCHES "[@?]\\$|@std@@|@filament@@|@glm@@|@YAML@@|@Cesium|@spdlog@@|@fmt@@")
             list(APPEND _names "${_n}")
         endif()
     endforeach()

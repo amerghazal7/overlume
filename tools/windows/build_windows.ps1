@@ -37,16 +37,20 @@ switch ($Phase) {
         $env:GALLIUM_DRIVER = 'llvmpipe'
         # FiftyObjectsSceneUpdateUnderTwoMilliseconds is a wall-clock budget a shared runner cannot promise
         # (docs/status.md, known gap 11).
-        Native 'ctest -L cpu' { ctest --test-dir $b -L cpu --output-on-failure --timeout 900 -E FiftyObjectsSceneUpdateUnderTwoMilliseconds }
+        # Run every group before failing, so one CI run shows all of the failures.
+        $failed = @()
+        ctest --test-dir $b -L cpu --output-on-failure --timeout 900 -E FiftyObjectsSceneUpdateUnderTwoMilliseconds
+        if ($LASTEXITCODE -ne 0) { $failed += 'ctest -L cpu' }
         $probe = (ctest --test-dir $b -R '^HelloFrame\.RendersDistinctSkyAndGround$' -V | Out-String)
         if ($probe -match 'No GPU/EGL device') {
             $why = if ($mesa) { 'Mesa llvmpipe loaded but no OpenGL 4.1 context was created' } else { "no Mesa llvmpipe build exists for Windows $Arch" }
             Write-Output "::warning::no OpenGL 4.1 context on this runner ($Arch): $why. gpu-labelled tests (incl. row-0-is-top orientation) not run; smoke runs --expect-no-gpu"
         }
         else {
-            Native 'ctest -L gpu' { ctest --test-dir $b -L gpu --output-on-failure --timeout 900 }
-            Write-Output "PASS: gpu tests rendered on $Arch (Mesa llvmpipe)"
+            ctest --test-dir $b -L gpu --output-on-failure --timeout 900
+            if ($LASTEXITCODE -ne 0) { $failed += 'ctest -L gpu' } else { Write-Output "PASS: gpu tests rendered on $Arch (Mesa llvmpipe)" }
         }
+        if ($failed.Count -gt 0) { Fail ($failed -join ', ') }
     }
     'package' {
         $sign = Join-Path $PSScriptRoot 'sign.ps1'

@@ -482,6 +482,10 @@ std::shared_ptr<CesiumAsync::IAssetRequest> FileFixtureAssetAccessor::makeReques
     }
     std::string path = url;
     if (path.rfind(kFileScheme, 0) == 0) path = path.substr(sizeof(kFileScheme) - 1);
+#ifdef _WIN32
+    // Cesium resolves tile URIs against the tileset's to file:///D:/dir/x.b3dm: drop the slash before the drive.
+    if (path.size() > 2 && path[0] == '/' && path[2] == ':') path.erase(0, 1);
+#endif
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file) {
         return std::make_shared<FixtureAssetRequest>(

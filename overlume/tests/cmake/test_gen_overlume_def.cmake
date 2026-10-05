@@ -19,6 +19,10 @@ COFF SYMBOL TABLE
 00F 00000000 UNDEF  notype ()    External     | ?extern_fn@overlume@@YAXXZ
 010 00000000 SECT8  notype ()    External     | ??0Thing@overlume@@QEAA@XZ
 011 00000000 SECT9  notype ()    External     | ?make@filament@@YAXXZ
+012 00000000 SECT4  notype ()    External     | ?destroy_renderer@overlume@@YAXPEAVVisualRenderer@1@@Z
+013 00000000 SECT4  notype ()    External     | ?add_mesh@overlume@@YAXAEAVEngine@filament@@@Z
+014 00000000 SECT4  notype ()    External     | ?fill@overlume@@YAXAEAV?$vector@UVertex@overlume@@V?$allocator@UVertex@overlume@@@std@@@std@@@Z
+015 00000000 SECT4  notype ()    External     | ?run@Stream@overlume@@UEAAXXZ
 ]=])
 execute_process(COMMAND ${CMAKE_COMMAND} "-DOUT=${_work}/out.def" "-DSYMBOLS_TEXT=${_work}/sym.txt"
     -P "${_dir}/../../cmake/gen_overlume_def.cmake" RESULT_VARIABLE _rc OUTPUT_VARIABLE _o ERROR_VARIABLE _o)
@@ -26,13 +30,13 @@ if(NOT _rc EQUAL 0)
     message(FATAL_ERROR "FAIL: generator errored: ${_o}")
 endif()
 file(READ "${_work}/out.def" _def)
-foreach(_want "?create_renderer@overlume@@" "?make@detail@overlume@@YAHXZ")
+foreach(_want "?create_renderer@overlume@@" "?destroy_renderer@overlume@@")
     string(FIND "${_def}" "${_want}" _i)
     if(_i EQUAL -1)
         message(FATAL_ERROR "FAIL: ${_want} not exported:\n${_def}")
     endif()
 endforeach()
-foreach(_bad "YAML" "filament" "vector" "extern_fn" "Thing" "std@@")
+foreach(_bad "YAML" "filament" "vector" "extern_fn" "Thing" "std@@" "make@detail" "add_mesh" "fill@" "Stream@")
     string(FIND "${_def}" "${_bad}" _i)
     if(NOT _i EQUAL -1)
         message(FATAL_ERROR "FAIL: ${_bad} leaked into the export list:\n${_def}")
