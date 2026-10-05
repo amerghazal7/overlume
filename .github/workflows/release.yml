@@ -897,8 +897,8 @@ jobs:
           v="${GITHUB_REF_NAME#v}"
           tools/release/publish_swiftpm.sh push "ios/Overlume-$v.xcframework.zip" "$v"
 
-  # Windows x64 (windows-2022) and arm64 (windows-11-arm), built with clang-cl against the MSVC v143
-  # ABI and the dynamic CRT. x64 links Filament's prebuilt /MD libraries; arm64 builds Filament from
+  # Windows x64 (windows-2022) and arm64 (windows-11-arm), built with MSVC (cl, v143)
+  # and the dynamic CRT. x64 links Filament's prebuilt /MD libraries; arm64 builds Filament from
   # source. The render tests use Mesa llvmpipe (x64 only: mesa-dist-win publishes no arm64 build).
   package-windows-build:
     needs: create

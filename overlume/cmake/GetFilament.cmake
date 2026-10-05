@@ -167,7 +167,7 @@ if(OVERLUME_FILAMENT_FROM_SOURCE)
         # This project enables CXX only: with no C compiler of its own, let Filament find one.
         list(FILTER _fil_args EXCLUDE REGEX "^-DCMAKE_C_COMPILER=$")
         if(WIN32)
-            # clang-cl (MSVC ABI) for both languages, /MD like the rest of the build. This project's own
+            # MSVC cl for both languages (Filament rejects clang on Windows), /MD like the rest of the build. This project's own
             # CMAKE_CXX_FLAGS / linker flags are MSVC defaults Filament sets for itself.
             list(FILTER _fil_args EXCLUDE REGEX "^-DCMAKE_(CXX_FLAGS|EXE_LINKER_FLAGS|SHARED_LINKER_FLAGS)=")
             list(APPEND _fil_args "-DCMAKE_C_COMPILER=${CMAKE_CXX_COMPILER}" -DUSE_STATIC_CRT=OFF

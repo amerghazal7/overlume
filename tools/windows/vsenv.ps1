@@ -2,9 +2,7 @@
 # Copyright 2026 Amer Ghazal
 #
 # vsenv.ps1 -Arch x64|arm64 -- exports the Visual Studio (MSVC v143) build environment for the target
-# architecture into $GITHUB_ENV (what vcvarsall.bat sets), puts a clang-cl on PATH (the VS-bundled one
-# when none is installed), and prints the tool versions. The build uses clang-cl: Filament's headers
-# and its prebuilt Windows libraries are clang-cl products; the ABI and CRT (/MD) are MSVC's.
+# architecture into $GITHUB_ENV (what vcvarsall.bat sets), and prints the tool versions. The build uses MSVC cl (Filament 1.56.5 refuses clang on Windows).
 param([Parameter(Mandatory = $true)][ValidateSet('x64', 'arm64')][string]$Arch)
 $ErrorActionPreference = 'Stop'
 
@@ -25,18 +23,6 @@ foreach ($l in $lines) {
     }
 }
 
-if (-not (Get-Command clang-cl -ErrorAction SilentlyContinue)) {
-    $llvm = Get-ChildItem -Path (Join-Path $vs 'VC\Tools\Llvm') -Directory -ErrorAction SilentlyContinue |
-        Where-Object { Test-Path (Join-Path $_.FullName 'bin\clang-cl.exe') } | Select-Object -First 1
-    if ($llvm) {
-        $bin = Join-Path $llvm.FullName 'bin'
-        $env:PATH = "$bin;$env:PATH"
-        if ($env:GITHUB_PATH) { $bin | Out-File -Append -Encoding utf8 $env:GITHUB_PATH }
-    }
-}
-if (-not (Get-Command clang-cl -ErrorAction SilentlyContinue)) { Write-Output 'FAIL: no clang-cl (install the VS "C++ Clang tools for Windows" component)'; exit 1 }
-Write-Output "clang-cl: $((Get-Command clang-cl).Source)"
-clang-cl --version
 cl 2>&1 | Select-Object -First 1
 cmake --version | Select-Object -First 1
 exit 0
