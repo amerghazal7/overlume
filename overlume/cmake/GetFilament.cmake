@@ -143,6 +143,34 @@ if(OVERLUME_FILAMENT_FROM_SOURCE)
             endforeach()
         endif()
 
+        if(WIN32 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64)$")
+            # bluegl's Windows 64-bit GL trampolines are x64 MASM (ml.exe); there is no arm64 variant.
+            # Generate the same trampolines (load the pointer __blue_glCore_<fn>, tail-jump to it) in
+            # arm64 assembly from the x64 file's symbol list and assemble them with the runner's clang.
+            file(READ "${_fil_src}/libs/bluegl/src/BlueGLCoreWindowsImpl.S" _bg)
+            string(REGEX MATCHALL "extrn __blue_glCore_[A-Za-z0-9_]+" _bg_syms "${_bg}")
+            list(LENGTH _bg_syms _bg_n)
+            if(_bg_n LESS 1000)
+                message(FATAL_ERROR "overlume: bluegl trampoline list looks wrong (${_bg_n} symbols)")
+            endif()
+            set(_bg_out "    .text\n")
+            foreach(_s ${_bg_syms})
+                string(REPLACE "extrn __blue_glCore_" "" _n "${_s}")
+                string(APPEND _bg_out "    .p2align 2\n    .globl bluegl_${_n}\nbluegl_${_n}:\n"
+                       "    adrp x16, __blue_glCore_${_n}\n    ldr x16, [x16, :lo12:__blue_glCore_${_n}]\n    br x16\n")
+            endforeach()
+            file(WRITE "${_fil_src}/libs/bluegl/src/BlueGLCoreWindowsArm64Impl.S" "${_bg_out}")
+            file(READ "${_fil_src}/libs/bluegl/CMakeLists.txt" _bc)
+            string(REPLACE "if (WIN32 AND IS_64_BIT)\n    enable_language(ASM_MASM)\n    set_property(SOURCE src/BlueGLCoreWindowsImpl.S PROPERTY LANGUAGE ASM_MASM)\nendif()"
+                "if (WIN32 AND IS_64_BIT)\n    find_program(OVERLUME_BLUEGL_CLANG clang REQUIRED HINTS \"C:/Program Files/LLVM/bin\")\n    set(BLUEGL_ARM64_OBJ \"\${CMAKE_CURRENT_BINARY_DIR}/BlueGLCoreWindowsArm64Impl.obj\")\n    add_custom_command(OUTPUT \"\${BLUEGL_ARM64_OBJ}\" COMMAND \"\${OVERLUME_BLUEGL_CLANG}\" --target=aarch64-pc-windows-msvc -c \"\${CMAKE_CURRENT_SOURCE_DIR}/src/BlueGLCoreWindowsArm64Impl.S\" -o \"\${BLUEGL_ARM64_OBJ}\" DEPENDS \"\${CMAKE_CURRENT_SOURCE_DIR}/src/BlueGLCoreWindowsArm64Impl.S\" VERBATIM)\n    set_source_files_properties(\"\${BLUEGL_ARM64_OBJ}\" PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)\nendif()"
+                _bc_patched "${_bc}")
+            string(REPLACE "set(SRCS \${SRCS} src/BlueGLCoreWindowsImpl.S)" "set(SRCS \${SRCS} \${BLUEGL_ARM64_OBJ})" _bc_patched "${_bc_patched}")
+            if(_bc_patched STREQUAL _bc AND NOT _bc MATCHES "BLUEGL_ARM64_OBJ")
+                message(FATAL_ERROR "overlume: Filament's bluegl/CMakeLists.txt no longer has the lines this patch targets")
+            endif()
+            file(WRITE "${_fil_src}/libs/bluegl/CMakeLists.txt" "${_bc_patched}")
+        endif()
+
         set(_fil_args
             -G Ninja
             -DCMAKE_BUILD_TYPE=Release
@@ -277,7 +305,7 @@ if(OVERLUME_FILAMENT_FROM_SOURCE)
         endif()
         _overlume_fil_run(configure "${_fil_log}"
             ${CMAKE_COMMAND} -S ${_fil_src} -B ${_fil_bld} ${_fil_args})
-        if(APPLE)
+        if(APPLE OR WIN32)
             # Keep going past Filament's own test executables (backend_test_mac, test_filamat do not
             # link for every slice and are not needed); the install step below fails loudly if a
             # library we do need was not built.
