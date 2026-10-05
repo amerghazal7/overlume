@@ -11,11 +11,13 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <string>
 #include <vector>
 
 #if defined(__APPLE__)
+#include <objc/message.h>
 #include <objc/runtime.h>
 extern "C" void* MTLCreateSystemDefaultDevice(void);  // Metal.framework
 #else
@@ -29,9 +31,13 @@ bool HasGpuEglDevice() {
     // Same test as platform_metal.cpp: a device Filament can drive (the runners' paravirtual GPU
     // exists but has no argument encoders). The probe leaks one device reference.
     void* device = MTLCreateSystemDefaultDevice();
-    return device != nullptr &&
-           class_respondsToSelector(object_getClass(reinterpret_cast<id>(device)),
-                                    sel_registerName("newArgumentEncoderWithLayout:"));
+    if (device == nullptr) return false;
+    // Same test as platform_metal.cpp: the runners' paravirtual GPU exists but Filament cannot drive it.
+    auto msg = reinterpret_cast<id (*)(id, SEL)>(objc_msgSend);
+    auto utf8 = reinterpret_cast<const char* (*)(id, SEL)>(objc_msgSend);
+    const id name = msg(reinterpret_cast<id>(device), sel_registerName("name"));
+    const char* n = name != nullptr ? utf8(name, sel_registerName("UTF8String")) : nullptr;
+    return n == nullptr || std::strstr(n, "Paravirtual") == nullptr;
 #else
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (display == EGL_NO_DISPLAY) return false;
