@@ -77,8 +77,10 @@ PLIST
 
 # merged_static STAGE_PREFIX OUT.a -- liboverlume.a plus every dependency archive, one library.
 merged_static() {
-    local st="$1" out="$2"
-    libtool -static -o "$out" "$st/lib/liboverlume.a" "$st"/lib/overlume/deps/*.a
+    local st="$1" out="$2" arch="${3:-}" only=()
+    # CI 37150239822: the x86_64 simulator merge came out arm64 only; pin the architecture.
+    [ -z "$arch" ] || only=(-arch_only "$arch")
+    libtool -static "${only[@]}" -o "$out" "$st/lib/liboverlume.a" "$st"/lib/overlume/deps/*.a
 }
 
 assemble() {
@@ -108,9 +110,9 @@ assemble() {
         -framework "$w/sim/Overlume.framework" -output "$outdir/Overlume.xcframework"
 
     # ---- static ----
-    merged_static "$dev" "$w/device/liboverlume.a"
-    merged_static "$ar" "$w/sim/liboverlume-arm64.a"
-    merged_static "$x" "$w/sim/liboverlume-x86_64.a"
+    merged_static "$dev" "$w/device/liboverlume.a" arm64
+    merged_static "$ar" "$w/sim/liboverlume-arm64.a" arm64
+    merged_static "$x" "$w/sim/liboverlume-x86_64.a" x86_64
     lipo -create "$w/sim/liboverlume-arm64.a" "$w/sim/liboverlume-x86_64.a" -output "$w/sim/liboverlume.a"
     xcodebuild -create-xcframework -library "$w/device/liboverlume.a" -headers "$dev/include" \
         -library "$w/sim/liboverlume.a" -headers "$ar/include" -output "$outdir/OverlumeStatic.xcframework"
