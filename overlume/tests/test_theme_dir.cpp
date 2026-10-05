@@ -15,7 +15,7 @@ TEST(ThemeDir, PrefersInstalledShareDirNextToModule) {
     fs::create_directories(root / "share/overlume/themes");
     std::ofstream(root / "share/overlume/themes/dark_adas.yaml") << "x: 1\n";
     EXPECT_EQ(resolve_default_theme_dir((root / "lib/liboverlume.so.0").string(), "/nonexistent"),
-              (root / "share/overlume/themes").string());
+              (root / "share/overlume/themes").lexically_normal().string());
     fs::remove_all(root);
 }
 
@@ -28,7 +28,7 @@ TEST(ThemeDir, FindsFrameworkResourcesNextToBinary) {
     std::ofstream(root / "Overlume.framework/Resources/themes/dark_adas.yaml") << "x: 1\n";
     EXPECT_EQ(
         resolve_default_theme_dir((root / "Overlume.framework/Overlume").string(), "/nonexistent"),
-        (root / "Overlume.framework/Resources/themes").string());
+        (root / "Overlume.framework/Resources/themes").lexically_normal().string());
     fs::remove_all(root);
 }
 

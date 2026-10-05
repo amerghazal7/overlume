@@ -973,12 +973,14 @@ jobs:
         run: tools/windows/build_windows.ps1 test -Arch ${{ matrix.arch }}
 
       - name: Sign (only with Windows signing secrets) and package (NSIS, ZIP)
+        if: ${{ !cancelled() }}
         env:
           WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
           WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
         run: tools/windows/build_windows.ps1 package -Arch ${{ matrix.arch }}
 
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
           name: windows-build-${{ matrix.arch }}
           path: |
