@@ -17,7 +17,8 @@ namespace overlume::detail {
 namespace {
 
 bool opengl_41_available() {
-    HWND wnd = CreateWindowA("STATIC", "overlume-probe", 0, 0, 0, 1, 1, nullptr, nullptr, nullptr, nullptr);
+    HWND wnd = CreateWindowA("STATIC", "overlume-probe", 0, 0, 0, 1, 1, nullptr, nullptr, nullptr,
+                             nullptr);
     if (wnd == nullptr) return false;
     HDC dc = GetDC(wnd);
     bool ok = false;
