@@ -33,14 +33,16 @@ build() {
 is_macho() { file -b "$1" | grep -qE 'Mach-O|current ar archive'; }
 
 merge() {
-    local out="${1:?OUT_STAGE}" a="$repo/overlume/stage-macos-arm64" x="$repo/overlume/stage-macos-x86_64" f
+    local out="${1:?OUT_STAGE}" a="$repo/overlume/stage-macos-arm64" x="$repo/overlume/stage-macos-x86_64" f d base
     [ -d "$a" ] && [ -d "$x" ] || die "need $a and $x"
-    diff <(cd "$a" && find . \( -type f -o -type l \) | LC_ALL=C sort) \
-         <(cd "$x" && find . \( -type f -o -type l \) | LC_ALL=C sort) >/dev/null \
+    # Everything but the numbered static-link archives must list identically.
+    diff <(cd "$a" && find . \( -type f -o -type l \) | grep -v '/overlume/deps/' | LC_ALL=C sort) \
+         <(cd "$x" && find . \( -type f -o -type l \) | grep -v '/overlume/deps/' | LC_ALL=C sort) \
         || die "the arm64 and x86_64 installs list different files"
     rm -rf "$out"
-    cp -R "$a" "$out"   # symlinks stay symlinks
+    cp -R "$x" "$out"   # symlinks stay symlinks; x86_64 is authoritative for the deps numbering
     while IFS= read -r f; do
+        case "$f" in ./lib/overlume/deps/*|./lib/cmake/overlume/overlumeStaticTargets.cmake) continue ;; esac
         if is_macho "$a/$f"; then
             lipo -create "$a/$f" "$x/$f" -output "$out/$f"
             lipo "$out/$f" -verify_arch arm64 x86_64 || die "$f is not universal"
@@ -48,6 +50,21 @@ merge() {
             cmp -s "$a/$f" "$x/$f" || die "$f differs between arm64 and x86_64 installs"
         fi
     done < <(cd "$a" && find . -type f)
+    # CI 37340637284: the arm64 build links Filament's prebuilt libs (extra bluegl/bluevk, different
+    # numbering), the x86_64 build links the source-built ones. Merge the archives by name, numbered
+    # as in x86_64 (overlumeStaticTargets.cmake, copied from x86_64, lists them by that numbering);
+    # an arm64-only archive is dropped, and an x86_64-only one is an error.
+    for d in "$x"/lib/overlume/deps/*.a; do
+        base="$(basename "$d")"; base="${base#???_}"
+        set -- "$a"/lib/overlume/deps/???_"$base"
+        [ -f "$1" ] || die "x86_64 archive $base has no arm64 counterpart"
+        lipo -create "$1" "$d" -output "$out/lib/overlume/deps/$(basename "$d")"
+        lipo "$out/lib/overlume/deps/$(basename "$d")" -verify_arch arm64 x86_64 || die "$base is not universal"
+    done
+    for d in "$a"/lib/overlume/deps/*.a; do
+        base="$(basename "$d")"; base="${base#???_}"
+        ls "$x"/lib/overlume/deps/???_"$base" >/dev/null 2>&1 || echo "note: arm64-only static archive $base not shipped in the universal package"
+    done
     echo "PASS: universal2 stage $out"
 }
 
