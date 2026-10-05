@@ -4,7 +4,13 @@
 #include "overlume/api.h"
 
 #include <gtest/gtest.h>
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#include <sys/stat.h>
+#else
 #include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -20,6 +26,8 @@
 #include <objc/message.h>
 #include <objc/runtime.h>
 extern "C" void* MTLCreateSystemDefaultDevice(void);  // Metal.framework
+#elif defined(_WIN32)
+// Windows probes OpenGL itself (platform_wgl.cpp); the test only needs to tell "no GPU" from a bug.
 #else
 #include <EGL/egl.h>
 #endif
@@ -39,6 +47,9 @@ bool HasGpuEglDevice() {
     const id name = msg(reinterpret_cast<id>(device), sel_registerName("name"));
     const char* n = name != nullptr ? utf8(name, sel_registerName("UTF8String")) : nullptr;
     return n == nullptr || std::strstr(n, "Paravirtual") == nullptr;
+#elif defined(_WIN32)
+    return false;  // create_renderer() == nullptr on Windows means platform_wgl.cpp found no
+                   // OpenGL 4.1
 #else
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (display == EGL_NO_DISPLAY) return false;
@@ -52,16 +63,30 @@ class StderrCapture {
 public:
     StderrCapture() {
         std::snprintf(path_, sizeof(path_), OVERLUME_TMP_DIR "/test_hello_frame_stderr_XXXXXX");
+#ifdef _WIN32
+        _mktemp_s(path_, sizeof(path_));
+        fd_ = _open(path_, _O_CREAT | _O_RDWR | _O_BINARY, _S_IREAD | _S_IWRITE);
+        savedStderr_ = _dup(_fileno(stderr));
+        std::fflush(stderr);
+        _dup2(fd_, _fileno(stderr));
+#else
         fd_ = mkstemp(path_);
         savedStderr_ = dup(fileno(stderr));
         std::fflush(stderr);
         dup2(fd_, fileno(stderr));
+#endif
     }
     std::string Read() {
         std::fflush(stderr);
+#ifdef _WIN32
+        _dup2(savedStderr_, _fileno(stderr));
+        _close(savedStderr_);
+        _close(fd_);
+#else
         dup2(savedStderr_, fileno(stderr));
         close(savedStderr_);
         close(fd_);
+#endif
         std::ifstream in(path_);
         std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         std::remove(path_);
@@ -69,7 +94,7 @@ public:
     }
 
 private:
-    char path_[64];
+    char path_[512];
     int fd_ = -1;
     int savedStderr_ = -1;
 };
@@ -138,9 +163,9 @@ TEST(HelloFrame, RendersDistinctSkyAndGround) {
 }
 
 TEST(CreateRenderer, LogsGlVendorRendererVersionOnce) {
-#if defined(__APPLE__)
-    GTEST_SKIP()
-        << "GL_VENDOR/GL_RENDERER/GL_VERSION are logged by the EGL platform only (Metal on Apple).";
+#if defined(__APPLE__) || defined(_WIN32)
+    GTEST_SKIP() << "GL_VENDOR/GL_RENDERER/GL_VERSION are logged by the EGL platform only (Metal "
+                    "on Apple, WGL on Windows).";
 #endif
     overlume::RenderConfig config{};
     config.width = 64;

@@ -9,7 +9,7 @@ if(NOT TARGET overlume::overlume_static)
     endif()
     add_library(overlume::overlume_static STATIC IMPORTED)
     set_target_properties(overlume::overlume_static PROPERTIES
-        IMPORTED_LOCATION "${_overlume_prefix}/lib/liboverlume.a"
+        IMPORTED_LOCATION "${_overlume_prefix}/lib/@_ovl_static_name@"
         IMPORTED_LINK_INTERFACE_LANGUAGES CXX
         INTERFACE_INCLUDE_DIRECTORIES "${_overlume_prefix}/include"
         INTERFACE_LINK_OPTIONS "@_overlume_static_link_options@"

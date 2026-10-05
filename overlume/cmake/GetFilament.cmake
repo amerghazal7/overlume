@@ -23,15 +23,23 @@ set(FILAMENT_MAC_URL
 set(FILAMENT_MAC_SHA256
     "412f135d48683e80f1109e2a75ce56d4b8e94174a7396a2e79203e7c03597a5b")
 
+# The Windows SDK (note: not versioned in its file name, and no top-level directory) holds /MD
+# static libraries for x64 only (lib/x86_64/md/*.lib); Windows arm64 builds from source.
+set(FILAMENT_WIN_URL
+    "https://github.com/google/filament/releases/download/v${FILAMENT_VERSION}/filament-windows.tgz")
+set(FILAMENT_WIN_SHA256
+    "b58bb67e41fc1ca088d3bbdb66a2ae232c7355bba11e0825e27cd5732d2cef0a")
+
 set(_overlume_apple_arch "${CMAKE_SYSTEM_PROCESSOR}")
 if(APPLE AND CMAKE_OSX_ARCHITECTURES)
     list(GET CMAKE_OSX_ARCHITECTURES 0 _overlume_apple_arch)
 endif()
-# Prebuilt SDKs: Linux x86_64 and macOS arm64. The iOS SDK has no arm64 simulator slice and the mac
+# Prebuilt SDKs: Linux x86_64, macOS arm64 and Windows x64. The iOS SDK has no arm64 simulator slice and the mac
 # SDK no x86_64 one, so everything else (Linux aarch64, Android, iOS, macOS x86_64, Windows arm64)
 # builds from source.
 if((CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64") OR
-   (CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND _overlume_apple_arch STREQUAL "arm64"))
+   (CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND _overlume_apple_arch STREQUAL "arm64") OR
+   (WIN32 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|x86_64)$"))
     set(_overlume_filament_src_default OFF)
 else()
     set(_overlume_filament_src_default ON)
@@ -81,6 +89,11 @@ function(_overlume_fil_run step_name log)
                 "(rc=${_rc}); see ${log}. Last output:\n${_out_tail}")
     endif()
 endfunction()
+
+set(_overlume_exe_suffix "")
+if(CMAKE_HOST_WIN32)
+    set(_overlume_exe_suffix ".exe")
+endif()
 
 if(APPLE)
     if(NOT CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" OR NOT CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "arm64")
@@ -153,6 +166,13 @@ if(OVERLUME_FILAMENT_FROM_SOURCE)
         endif()
         # This project enables CXX only: with no C compiler of its own, let Filament find one.
         list(FILTER _fil_args EXCLUDE REGEX "^-DCMAKE_C_COMPILER=$")
+        if(WIN32)
+            # clang-cl (MSVC ABI) for both languages, /MD like the rest of the build. This project's own
+            # CMAKE_CXX_FLAGS / linker flags are MSVC defaults Filament sets for itself.
+            list(FILTER _fil_args EXCLUDE REGEX "^-DCMAKE_(CXX_FLAGS|EXE_LINKER_FLAGS|SHARED_LINKER_FLAGS)=")
+            list(APPEND _fil_args "-DCMAKE_C_COMPILER=${CMAKE_CXX_COMPILER}" -DUSE_STATIC_CRT=OFF
+                 "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL")
+        endif()
         set(_fil_host_tools OFF)
         if(APPLE)
             # Metal only. Filament's own iOS toolchain (-DIOS=1) takes the compilers and SDK from
@@ -276,11 +296,20 @@ if(OVERLUME_FILAMENT_FROM_SOURCE)
         if(CMAKE_CROSSCOMPILING)
             set(FILAMENT_HOST_MATC "${CMAKE_BINARY_DIR}/_deps/filament-host-build/tools/matc/matc")
         else()
-            set(FILAMENT_HOST_MATC "${FILAMENT_ROOT}/bin/matc")
+            set(FILAMENT_HOST_MATC "${FILAMENT_ROOT}/bin/matc${_overlume_exe_suffix}")
         endif()
     endif()
 else()
-    if(APPLE)
+    if(WIN32)
+        set(FILAMENT_ROOT "${CMAKE_BINARY_DIR}/_deps/filament-win-${FILAMENT_VERSION}")
+        if(NOT EXISTS "${FILAMENT_ROOT}/include/filament/Engine.h")
+            set(_fil_win_tarball "${CMAKE_BINARY_DIR}/_deps/filament-v${FILAMENT_VERSION}-windows.tgz")
+            file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/_deps")
+            _overlume_fetch("${FILAMENT_WIN_URL}" "${FILAMENT_WIN_SHA256}" "${_fil_win_tarball}")
+            file(ARCHIVE_EXTRACT INPUT "${_fil_win_tarball}" DESTINATION "${FILAMENT_ROOT}")
+        endif()
+        set(FILAMENT_HOST_MATC "${FILAMENT_ROOT}/bin/matc.exe")
+    elseif(APPLE)
         set(FILAMENT_ROOT "${FILAMENT_MAC_ROOT}")  # fetched above (arm64 libraries + tools)
     else()
         set(FILAMENT_FETCH_ROOT "${CMAKE_BINARY_DIR}/_deps/filament-${FILAMENT_VERSION}"
@@ -310,15 +339,24 @@ if(NOT EXISTS "${FILAMENT_ROOT}/include/filament/Engine.h")
     message(FATAL_ERROR "Filament SDK not found at ${FILAMENT_ROOT} after fetch/extract.")
 endif()
 
-# lib/<arch>/ holds every static archive (arch dir name differs per target).
-file(GLOB _filament_arch_dirs LIST_DIRECTORIES true "${FILAMENT_ROOT}/lib/*")
-foreach(_d ${_filament_arch_dirs})
-    if(IS_DIRECTORY "${_d}")
-        set(FILAMENT_LIB_DIR "${_d}")
-        break()
-    endif()
-endforeach()
-file(GLOB _filament_static_libs "${FILAMENT_LIB_DIR}/*.a")
+# lib/<arch>/ holds every static archive (arch dir name differs per target; on Windows the CRT
+# flavour is one level further down: lib/x86_64/md, or lib/arm64[/md] from a source build).
+if(WIN32)
+    file(GLOB_RECURSE _filament_probe "${FILAMENT_ROOT}/lib/filament.lib")
+    list(FILTER _filament_probe EXCLUDE REGEX "/mt/")
+    list(GET _filament_probe 0 _filament_probe)
+    get_filename_component(FILAMENT_LIB_DIR "${_filament_probe}" DIRECTORY)
+    file(GLOB _filament_static_libs "${FILAMENT_LIB_DIR}/*.lib")
+else()
+    file(GLOB _filament_arch_dirs LIST_DIRECTORIES true "${FILAMENT_ROOT}/lib/*")
+    foreach(_d ${_filament_arch_dirs})
+        if(IS_DIRECTORY "${_d}")
+            set(FILAMENT_LIB_DIR "${_d}")
+            break()
+        endif()
+    endforeach()
+    file(GLOB _filament_static_libs "${FILAMENT_LIB_DIR}/*.a")
+endif()
 
 add_library(Filament::filament INTERFACE IMPORTED)
 target_include_directories(Filament::filament INTERFACE "${FILAMENT_ROOT}/include")
@@ -334,6 +372,11 @@ if(APPLE)
         list(APPEND _filament_sys_libs "-framework Cocoa" "-framework OpenGL")
     endif()
     target_link_libraries(Filament::filament INTERFACE ${_filament_static_libs} ${_filament_sys_libs})
+elseif(WIN32)
+    # link.exe resolves archives without a group; opengl32/gdi32/user32 are the WGL platform's,
+    # ws2_32 the (unreferenced) matdbg server's.
+    target_link_libraries(Filament::filament INTERFACE ${_filament_static_libs}
+        opengl32 gdi32 user32 shell32 advapi32 ws2_32)
 else()
     if(ANDROID)
         # Bionic folds pthread into libc; Filament drives GLES through libGLESv3.
