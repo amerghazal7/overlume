@@ -6,4 +6,4 @@
 set(VCPKG_TARGET_ARCHITECTURE arm64)
 set(VCPKG_LIBRARY_LINKAGE static)
 set(VCPKG_CRT_LINKAGE dynamic)
-set(VCPKG_CMAKE_SYSTEM_NAME Windows)
+# No VCPKG_CMAKE_SYSTEM_NAME: for plain Windows vcpkg uses its own MSVC toolchain (setting it selects the generic path, which finds no compiler).

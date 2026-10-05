@@ -225,7 +225,7 @@ endif()
 # One OBJECT library feeds both link products: `overlume` (static, merged
 # archive; what the ROS node, tests and the gate link) and `overlume_shared`.
 if(MSVC)
-    # clang-cl (the MSVC v143 ABI; Filament's headers and prebuilt libraries need clang's front end).
+    # MSVC v143 (cl): Filament 1.56.5 supports no other Windows compiler.
     add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/utf-8>" "$<$<COMPILE_LANGUAGE:CXX>:/permissive->"
                         "$<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>" "$<$<COMPILE_LANGUAGE:CXX>:/EHsc>")
     add_compile_definitions(_USE_MATH_DEFINES NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)

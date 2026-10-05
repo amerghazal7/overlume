@@ -4,7 +4,7 @@
 # build_windows.ps1 build|test|package -Arch x64|arm64 -- the Windows legs of release.yml, so CI and a
 # developer shell run the same commands. Needs the Visual Studio environment (tools/windows/vsenv.ps1)
 # and ninja; `package` also needs NSIS (makensis) and prints PASS/FAIL only.
-#   build    configure + build overlume/build-windows-ARCH (clang-cl, Ninja, Release, /MD, Cesium ON)
+#   build    configure + build overlume/build-windows-ARCH (MSVC cl, Ninja, Release, /MD, Cesium ON)
 #   test     ctest -L cpu; ctest -L gpu when an OpenGL 4.1 context exists (Mesa llvmpipe on x64)
 #   package  sign overlume.dll, cpack NSIS+ZIP into overlume/pkg-windows-ARCH, sign the installer
 param(
@@ -24,7 +24,7 @@ switch ($Phase) {
         $env:CMAKE_POLICY_VERSION_MINIMUM = '3.5'
         Native 'configure' {
             cmake -S "$repo\overlume" -B $b -G Ninja -DCMAKE_BUILD_TYPE=Release `
-                -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl `
+                -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl `
                 -DOVERLUME_ENABLE_CESIUM=ON -DOVERLUME_BUILD_DOCS=OFF -DOVERLUME_BUILD_EXAMPLES=OFF
         }
         Native 'build' { cmake --build $b -- -k 0 }   # report every compile error, not just the first
