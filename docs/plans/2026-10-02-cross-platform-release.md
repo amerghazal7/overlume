@@ -782,20 +782,38 @@ modify `GetFilament.cmake` (mac + ios prebuilt tarballs, SHA256 pinned),
   `publish-homebrew`, `publish-swiftpm`; dry-run green; Linux gate green.
   **Commit** `feat(apple): Metal back end, macOS universal2 pkg + Homebrew, iOS XCFramework + SwiftPM`.
 
-**Task 7 results (2026-10-03/04, partial — dry-run budget of 5 exhausted).**
-Verified on CI (run 37146748777): all three iOS slices and both macOS arches build, link and pass the
-Mach-O export check; macOS cpu tests run (see below); Linux x86_64/aarch64 and the four Android ABIs stay
-green. NOT yet verified (needs the next dispatch of the last commit): macOS universal merge, pkg/tar.gz,
-smoke, brew local-tap install, iOS xcframework assembly + simulator XCTest, `sign-apple`.
+**Task 7 results (2026-10-05, dry-run budget of 11 exhausted; one stage still unverified).**
+Verified on CI (run 37343717118 on 44c3888 unless noted): all three iOS slices and both macOS arches
+build, link, install and pass the Mach-O export check; macOS cpu tests pass on both arches; the iOS
+`package-ios` job is green end to end (xcframework assembly with fat simulator slices, export check per
+slice, zip, SwiftPM consumer XCTest in an iPhone simulator, `publish_swiftpm.sh check`); in
+`package-macos` the universal merge, pkg/tar.gz, the unsigned warning path, the relocated-tar.gz smoke
+(arm64 + x86_64 under Rosetta), the pkg install + smoke, and `brew install` from a local tap all passed.
+The last two failures were fixed after the final dispatch and are NOT re-run: the Homebrew formula test
+compiled as C++98 (`set(CMAKE_CXX_STANDARD 17)` added in `packaging/homebrew/overlume.rb.in`), and the
+arm64 static smoke needed the arm64-only `bluegl`/`bluevk` archives (run 37342151897; fixed in 44c3888,
+and run 37343717118 then passed it). Still never executed: `brew test`, `sign-apple` (needs the above
+green), and the tag-only publish jobs' real push branches (dry runs skip them by design). Next step: one
+`gh workflow run release.yml --ref release-packaging -f dry_run=true`; if `package-macos` and `sign-apple`
+are green, close Task 7 with `feat(apple): Task 7 complete`.
 Deviations: (1) Filament's prebuilt mac SDK is arm64-only and the iOS SDK has no arm64 simulator slice, so
 macOS x86_64 and every iOS slice build Filament from source (host tools = the mac SDK's arm64 binaries);
-(2) Apple-only `-Werror` is removed from Filament's own targets (Xcode 15.4 SDK deprecations) and Filament's
-iOS toolchain is patched to `-mios-simulator-version-min` for simulator slices; (3) the .pkg/.tar.gz are
-assembled with pkgbuild/productbuild/tar from lipo'd installs, not CPack; (4) the hosted macOS runner's
-paravirtual GPU (`AppleParavirtDevice`) lacks `newArgumentEncoderWithLayout:`, so `create_renderer` returns
-nullptr there (probe in `platform_metal.cpp`) and GPU tests skip: no Metal frame has been rendered on CI;
-(5) the xcframework headers are flat (`<Overlume/api.h>`); (6) the runners' CMake 4 needs
-`CMAKE_POLICY_VERSION_MINIMUM=3.5` for yaml-cpp 0.8.0.
+the arm64 install therefore carries different static-archive numbering plus `bluegl`/`bluevk`, which the
+universal merge reconciles by name (x86_64 numbering; arm64-only archives ship fat with an empty x86_64
+slice, appended to `overlumeStaticTargets.cmake`); (2) Apple-only `-Werror` is removed from Filament's own
+targets (Xcode 15.4 SDK deprecations) and Filament's iOS toolchain is patched to
+`-mios-simulator-version-min` for simulator slices; (3) the .pkg/.tar.gz are assembled with
+pkgbuild/productbuild/tar from lipo'd installs, not CPack; (4) the xcframework headers are flat
+(`<Overlume/api.h>`); (5) the runners' CMake 4 needs `CMAKE_POLICY_VERSION_MINIMUM=3.5` for yaml-cpp
+0.8.0; (6) static xcframework archives are merged per arch with `libtool -static -arch_only`.
+**Known limitation (not fixed): no Metal frame renders on CI.** The hosted macOS runners' paravirtual GPU
+(`Apple Paravirtual device`, also behind the iOS simulator's GPU) cannot drive Filament's Metal driver
+(`newArgumentEncoderWithLayout:` is missing and aborts). `create_renderer` returns nullptr there (device
+name probe in `platform_metal.cpp`), the macOS gpu-labelled tests (incl. `ReadbackOrientation.Row0IsTopOfImage`)
+are not run (workflow `::warning::`), the macOS smoke runs `--expect-no-gpu` (`::warning::`) and the iOS
+simulator smoke skips its render (`::warning::`). Metal rendering, including row-0-is-top, needs a one-off
+run on a real Mac (or a self-hosted macOS runner; `OVERLUME_SMOKE_RENDER=1` re-enables the simulator render)
+before the first tagged release.
 
 ### Task 8: Windows x64 + arm64 (MSVC, WGL/OpenGL)
 

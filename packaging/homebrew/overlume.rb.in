@@ -24,6 +24,7 @@ class Overlume < Formula
     (testpath/"CMakeLists.txt").write <<~CMAKE
       cmake_minimum_required(VERSION 3.16)
       project(overlume_formula_test CXX)
+      set(CMAKE_CXX_STANDARD 17)
       find_package(overlume REQUIRED)
       add_executable(t main.cpp)
       target_link_libraries(t PRIVATE overlume::overlume)

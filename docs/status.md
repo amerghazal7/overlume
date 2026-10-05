@@ -151,6 +151,8 @@ accepts" list:
     sysroot tracks Alma 8's latest 8.x packages (versions are recorded in the
     image at `/opt/sysroot-aarch64.manifest`, not pinned).
 
+13. **OPEN 2026-10-05 — Metal rendering is unproven.** The hosted macOS runners' paravirtual GPU cannot drive Filament, so no Metal frame renders on CI (gpu tests, the macOS smoke render and the iOS simulator render are skipped with `::warning::`). Run the gpu ctest label and the smokes once on a real Mac (or a self-hosted macOS runner) before the first tagged release, including `ReadbackOrientation.Row0IsTopOfImage`. See `plans/2026-10-02-cross-platform-release.md` Task 7.
+
 ## How to update this file
 
 - **Shipped** grows by one line per epic/task closed, sourced from that
