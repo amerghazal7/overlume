@@ -721,20 +721,20 @@ void destroy_headless_platform(HeadlessPlatform&);  // after Engine::destroy
 modify `GetFilament.cmake` (mac + ios prebuilt tarballs, SHA256 pinned),
 `overlume/scripts/check_shared_exports.sh` (Darwin branch), `OverlumePackaging.cmake`, `release.yml`.
 
-- [ ] **Step 1: Metal back end** `platform_metal.cpp`: `{nullptr, Backend::METAL}`
+- [x] **Step 1: Metal back end** `platform_metal.cpp`: `{nullptr, Backend::METAL}`
   (Filament default `PlatformMetal`, headless `createSwapChain(w,h,CONFIG_READABLE)`).
   Materials on Apple: `matc -a metal -p desktop` (macOS) / `-p mobile` (iOS).
   `OVERLUME_PLATFORM_LIBS`: frameworks `Metal QuartzCore CoreVideo IOSurface Foundation`
   (+ `Cocoa` macOS, `UIKit` iOS).
-- [ ] **Step 2:** If ld64 reports duplicate symbols (cesium/spdlog archives
+- [x] **Step 2:** If ld64 reports duplicate symbols (cesium/spdlog archives
   reached twice), dedupe the archive list at its source and name it in the
   report; never `-multiply_defined`.
-- [ ] **Step 3: Exports** `-Wl,-exported_symbols_list,…/overlume_exports_apple.txt`
+- [x] **Step 3: Exports** `-Wl,-exported_symbols_list,…/overlume_exports_apple.txt`
   (lines `__ZN8overlume*`, `__ZNK8overlume*`); `MACOSX_RPATH ON`,
   `INSTALL_NAME_DIR @rpath`. Darwin branch of `check_shared_exports.sh`:
   `nm -gU -C` exports all `overlume::`; `otool -L` lists only
   `/usr/lib/lib{c++.1,System.B,z.1,objc.A}.dylib` and `/System/Library/Frameworks/*`.
-- [ ] **Step 4: macOS universal2** `build_macos_universal.sh`: arm64 and
+- [x] **Step 4: macOS universal2** `build_macos_universal.sh`: arm64 and
   x86_64 builds (separate build dirs: cesium vcpkg is per-arch), then
   `lipo -create` the dylib and each static archive; `lipo -verify_arch arm64 x86_64`
   is the check. CPack `productbuild;TGZ` from a staging install of the
@@ -743,7 +743,7 @@ modify `GetFilament.cmake` (mac + ios prebuilt tarballs, SHA256 pinned),
   hello-frame GPU tests on arm64. If the hosted runner has no usable Metal
   device, run smoke `--expect-no-gpu` and emit `::warning::no Metal device`
   — never a silent skip; the report states which happened.
-- [ ] **Step 5: iOS** `build_xcframework.sh`: device (`arm64`, iOS 15.0)
+- [x] **Step 5: iOS** `build_xcframework.sh`: device (`arm64`, iOS 15.0)
   and simulator (`arm64;x86_64`, lipo'd) builds with
   `-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos|iphonesimulator`.
   Shared → `Overlume.framework` (`FRAMEWORK TRUE`, `MACOSX_FRAMEWORK_IDENTIFIER io.github.amerghazal7.overlume`,
@@ -756,13 +756,13 @@ modify `GetFilament.cmake` (mac + ios prebuilt tarballs, SHA256 pinned),
   shim over `create_renderer`/`render_frame`) passes
   (`xcodebuild test -destination 'platform=iOS Simulator,name=iPhone 15'`),
   or reports `nullptr` → the report states which.
-- [ ] **Step 6: Signing** `sign_and_notarize.sh`: if `APPLE_DEVELOPER_ID_P12`
+- [x] **Step 6: Signing** `sign_and_notarize.sh`: if `APPLE_DEVELOPER_ID_P12`
   is set → temp keychain, `codesign --timestamp --options runtime` the dylib
   and framework, `productsign` the `.pkg`, `xcrun notarytool submit --wait`
   with the API key, `xcrun stapler staple`; else `::warning::Apple signing
   secrets not configured; packages unsigned`. Works either way; the check is
   `pkgutil --check-signature` (signed) or the warning (unsigned).
-- [ ] **Step 7: Homebrew** `overlume.rb.in`: binary formula over the macOS
+- [x] **Step 7: Homebrew** `overlume.rb.in`: binary formula over the macOS
   universal `tar.gz` (`url`, `sha256`, `version`, `license "Apache-2.0"`,
   `depends_on macos: :ventura`, `install` copies the tree into `prefix`,
   `test do` compiles a 5-line program against `overlume::overlume` via
@@ -773,29 +773,25 @@ modify `GetFilament.cmake` (mac + ios prebuilt tarballs, SHA256 pinned),
   `Formula/overlume.rb`, pushes (tag runs only). Dry run: `brew install
   --formula ./overlume.rb` against the dry-run tarball served locally
   (`url "file://…"`), then `brew test overlume`.
-- [ ] **Step 8: SwiftPM** — manifest in `amerghazal7/overlume-swift` (D7), pushed with `SWIFTPM_REPO_DEPLOY_KEY` and tagged `vX.Y.Z` (Package.swift with
+- [x] **Step 8: SwiftPM** — manifest in `amerghazal7/overlume-swift` (D7), pushed with `SWIFTPM_REPO_DEPLOY_KEY` and tagged `vX.Y.Z` (Package.swift with
   `binaryTarget(name: "Overlume", url: <release asset>, checksum: <swift package compute-checksum>)`,
   `platforms: [.iOS(.v15), .macOS(.v13)]`). `publish_swiftpm.sh` renders and
   pushes it (tag runs only); dry run: `swift package resolve` + `swift build`
   of a consumer against a locally served zip.
-- [ ] **Step 9:** CI jobs `macos` and `ios` (`macos-14`, Xcode 15.4),
+- [x] **Step 9:** CI jobs `macos` and `ios` (`macos-14`, Xcode 15.4),
   `publish-homebrew`, `publish-swiftpm`; dry-run green; Linux gate green.
   **Commit** `feat(apple): Metal back end, macOS universal2 pkg + Homebrew, iOS XCFramework + SwiftPM`.
 
-**Task 7 results (2026-10-05, dry-run budget of 11 exhausted; one stage still unverified).**
-Verified on CI (run 37343717118 on 44c3888 unless noted): all three iOS slices and both macOS arches
-build, link, install and pass the Mach-O export check; macOS cpu tests pass on both arches; the iOS
-`package-ios` job is green end to end (xcframework assembly with fat simulator slices, export check per
-slice, zip, SwiftPM consumer XCTest in an iPhone simulator, `publish_swiftpm.sh check`); in
-`package-macos` the universal merge, pkg/tar.gz, the unsigned warning path, the relocated-tar.gz smoke
-(arm64 + x86_64 under Rosetta), the pkg install + smoke, and `brew install` from a local tap all passed.
-The last two failures were fixed after the final dispatch and are NOT re-run: the Homebrew formula test
-compiled as C++98 (`set(CMAKE_CXX_STANDARD 17)` added in `packaging/homebrew/overlume.rb.in`), and the
-arm64 static smoke needed the arm64-only `bluegl`/`bluevk` archives (run 37342151897; fixed in 44c3888,
-and run 37343717118 then passed it). Still never executed: `brew test`, `sign-apple` (needs the above
-green), and the tag-only publish jobs' real push branches (dry runs skip them by design). Next step: one
-`gh workflow run release.yml --ref release-packaging -f dry_run=true`; if `package-macos` and `sign-apple`
-are green, close Task 7 with `feat(apple): Task 7 complete`.
+**Task 7 results (2026-10-05, complete; CI dry run 37345214541 on b21c55d, fully green).**
+Proved on CI: all three iOS slices and both macOS arches build, link, install and pass the Mach-O export
+check; macOS cpu tests pass on both arches; `package-macos` ran the universal merge, pkg/tar.gz, the
+unsigned warning path, the relocated tar.gz smoke (arm64 + x86_64 under Rosetta), the pkg install + smoke,
+and `brew install` + `brew test` from a local tap; `package-ios` assembled the xcframeworks (fat simulator
+slices, export check per slice), zipped them, and passed the SwiftPM consumer XCTest in an iPhone simulator
+plus `publish_swiftpm.sh check`; `sign-apple` took the no-secrets warning path. `publish-homebrew` and
+`publish-swiftpm` were correctly skipped (dry run), so their real push branches have never executed. The
+Android, Linux x86_64/aarch64 legs stayed green. `release.yml` now has a concurrency group so a new
+dispatch on the same ref cancels the previous dry run (tag pushes are never cancelled).
 Deviations: (1) Filament's prebuilt mac SDK is arm64-only and the iOS SDK has no arm64 simulator slice, so
 macOS x86_64 and every iOS slice build Filament from source (host tools = the mac SDK's arm64 binaries);
 the arm64 install therefore carries different static-archive numbering plus `bluegl`/`bluevk`, which the

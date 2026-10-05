@@ -32,7 +32,8 @@ bool HasGpuEglDevice() {
     // exists but has no argument encoders). The probe leaks one device reference.
     void* device = MTLCreateSystemDefaultDevice();
     if (device == nullptr) return false;
-    // Same test as platform_metal.cpp: the runners' paravirtual GPU exists but Filament cannot drive it.
+    // Same test as platform_metal.cpp: the runners' paravirtual GPU exists but Filament cannot
+    // drive it.
     auto msg = reinterpret_cast<id (*)(id, SEL)>(objc_msgSend);
     auto utf8 = reinterpret_cast<const char* (*)(id, SEL)>(objc_msgSend);
     const id name = msg(reinterpret_cast<id>(device), sel_registerName("name"));
