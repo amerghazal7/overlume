@@ -144,7 +144,7 @@ for rt in sorted(d, reverse=True):
 sys.exit(1)')" || die "no iPhone simulator available"
     xcrun simctl boot "$udid" 2>/dev/null || true
     log="$(mktemp)"
-    ( cd "$pkg" && xcodebuild test -scheme OverlumeSmoke-Package -destination "id=$udid" ) >"$log" 2>&1 \
+    ( cd "$pkg" && xcodebuild test -scheme OverlumeShim -destination "id=$udid" ) >"$log" 2>&1 \
         || { tail -n 60 "$log"; die "iOS simulator XCTest failed"; }
     grep -E 'OVERLUME_SMOKE|Test Suite .* (passed|failed)|Executed [0-9]+ tests' "$log" | tail -n 8
     echo "PASS: iOS simulator smoke"
