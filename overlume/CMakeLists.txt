@@ -46,6 +46,11 @@ if(NOT _overlume_version_h_major EQUAL PROJECT_VERSION_MAJOR OR
 endif()
 
 set(CMAKE_CXX_STANDARD 17)
+if(MSVC)
+    # cl rejects the designated initializers in Filament's headers below /std:c++20 (clang and gcc
+    # accept them as an extension); the public headers stay C++17-clean.
+    set(CMAKE_CXX_STANDARD 20)
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
@@ -297,6 +302,8 @@ target_link_libraries(overlume PRIVATE ${_overlume_private_link})
 
 if(OVERLUME_ENABLE_CESIUM AND CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
     target_link_options(overlume INTERFACE "-Wl,--allow-multiple-definition")
+elseif(OVERLUME_ENABLE_CESIUM AND WIN32)
+    target_link_options(overlume INTERFACE "/FORCE:MULTIPLE")  # see OverlumeStaticLinkFlags.cmake
 endif()
 
 function(_overlume_vendor_merge_target_p _tgt _out)
@@ -417,6 +424,8 @@ if(OVERLUME_BUILD_SHARED)
     target_link_libraries(overlume_shared PRIVATE ${_overlume_shared_link} overlume_cxx_runtime)
     if(OVERLUME_ENABLE_CESIUM AND CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
         target_link_options(overlume_shared PRIVATE "-Wl,--allow-multiple-definition")
+    elseif(OVERLUME_ENABLE_CESIUM AND WIN32)
+        target_link_options(overlume_shared PRIVATE "/FORCE:MULTIPLE")
     endif()
     if(APPLE)
         set_target_properties(overlume_shared PROPERTIES MACOSX_RPATH ON INSTALL_NAME_DIR "@rpath")
@@ -585,6 +594,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
         if(_test_name STREQUAL "test_gltf_normals")
             target_include_directories(${_test_name} PRIVATE
                 $<TARGET_PROPERTY:yaml-cpp::yaml-cpp,INTERFACE_INCLUDE_DIRECTORIES>)
+            # yaml-cpp's static-library define (else MSVC assumes dllimport).
+            target_compile_definitions(${_test_name} PRIVATE
+                $<TARGET_PROPERTY:yaml-cpp::yaml-cpp,INTERFACE_COMPILE_DEFINITIONS>)
         endif()
         target_compile_definitions(${_test_name} PRIVATE
             OVERLUME_TEST_DATA_DIR="${OVERLUME_TEST_DATA_DIR_RUNTIME}"
