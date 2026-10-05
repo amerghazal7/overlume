@@ -838,7 +838,13 @@ jobs:
         if: ${{ env.DRY_RUN != 'true' && github.ref_type == 'tag' }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" macos/* ios/* --clobber
+        run: |
+          # SwiftPM pins the xcframework zip by checksum in an immutable tag; the rebuilt zip is not byte-stable.
+          if tools/release/publish_swiftpm.sh published "${GITHUB_REF_NAME#v}"; then
+            echo "::error::$GITHUB_REF_NAME is already on SwiftPM; a rebuilt zip would break its checksum. Re-run only failed jobs or cut a new version."
+            exit 1
+          fi
+          gh release upload "$GITHUB_REF_NAME" macos/* ios/* --clobber
 
   # Tag runs only: a dry run already installed the formula and resolved the manifest above.
   publish-homebrew:
