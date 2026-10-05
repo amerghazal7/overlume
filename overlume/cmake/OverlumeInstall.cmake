@@ -58,7 +58,7 @@ if(WIN32 AND OVERLUME_BUILD_SHARED)
     set(CMAKE_INSTALL_UCRT_LIBRARIES FALSE)  # the Universal CRT is an OS component on Windows 10+
     set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION ${CMAKE_INSTALL_BINDIR})
     set(CMAKE_INSTALL_SYSTEM_RUNTIME_COMPONENT overlume)
-    include(InstallRequiredSystemRuntimeLibraries)
+    include(InstallRequiredSystemLibraries)
 endif()
 
 # ---- static component -------------------------------------------------------
