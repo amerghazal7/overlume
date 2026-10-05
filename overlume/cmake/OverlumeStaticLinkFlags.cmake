@@ -12,6 +12,15 @@ function(overlume_static_link_flags system cesium dep_items dep_libs out_libs ou
         if(cesium)
             set(_opts "-Wl,--allow-multiple-definition")
         endif()
+    elseif(system STREQUAL "Windows")
+        # link.exe has no group either; the equivalent of --allow-multiple-definition (first definition
+        # wins) is /FORCE:MULTIPLE: Filament's prebuilt dracodec.lib and cesium-native's draco objects
+        # both define draco::Options (CI 37378863343, LNK2005).
+        set(_libs "${dep_items};${dep_libs}")
+        set(_opts "")
+        if(cesium)
+            set(_opts "/FORCE:MULTIPLE")
+        endif()
     else()
         set(_libs "${dep_items};${dep_libs}")
         set(_opts "")
