@@ -23,6 +23,12 @@ grep -q '^  version "0.1.0"' "$w/overlume.rb" || fail "formula version not rende
 grep -q "url: \"$url\", checksum: \"$sha\"" "$w/Package.swift" || fail "manifest not rendered"
 ! "$here/publish_swiftpm.sh" render "$w/bad.swift" 0.1.0 nothex "$url" >/dev/null 2>&1 || fail "bad checksum accepted"
 
+# SwiftPM versions are write-once: `published` sees an existing tag, not a missing one.
+git init -q --bare "$w/swift.git"; git clone -q "$w/swift.git" "$w/sw" 2>/dev/null
+( cd "$w/sw" && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m x && git tag v0.1.0 && git push -q origin HEAD v0.1.0 )
+OVERLUME_SWIFTPM_REMOTE="file://$w/swift.git" "$here/publish_swiftpm.sh" published 0.1.0 || fail "existing tag not seen"
+! OVERLUME_SWIFTPM_REMOTE="file://$w/swift.git" "$here/publish_swiftpm.sh" published 0.2.0 || fail "missing tag reported published"
+
 # No secrets in the environment: both phases warn and exit 0.
 for args in "code $w" "pkg $w/x.pkg"; do
     # shellcheck disable=SC2086
