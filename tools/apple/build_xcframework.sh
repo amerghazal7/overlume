@@ -151,6 +151,10 @@ s = json.load(sys.stdin).get("workspace", {}).get("schemes", [])
 print("OverlumeSmoke-Package" if "OverlumeSmoke-Package" in s else (s[0] if s else ""))' )"
     ( cd "$pkg" && xcodebuild -list ) || true
     [ -n "$scheme" ] || die "xcodebuild lists no scheme for the smoke package"
+    if [ -n "${GITHUB_ACTIONS:-}" ] && [ "${OVERLUME_SMOKE_RENDER:-0}" != 1 ]; then
+        echo "::warning::hosted runner: simulator render skipped (paravirtual GPU); run once on a real Mac before the first tagged release"
+        export TEST_RUNNER_OVERLUME_SMOKE_SKIP_RENDER=1
+    fi
     ( cd "$pkg" && xcodebuild test -scheme "$scheme" -destination "id=$udid" ) >"$log" 2>&1 \
         || { tail -n 60 "$log"; die "iOS simulator XCTest failed"; }
     grep -E 'OVERLUME_SMOKE|Test Suite .* (passed|failed)|Executed [0-9]+ tests' "$log" | tail -n 8
