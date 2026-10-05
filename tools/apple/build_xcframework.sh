@@ -144,7 +144,14 @@ for rt in sorted(d, reverse=True):
 sys.exit(1)')" || die "no iPhone simulator available"
     xcrun simctl boot "$udid" 2>/dev/null || true
     log="$(mktemp)"
-    ( cd "$pkg" && xcodebuild test -scheme OverlumeShim -destination "id=$udid" ) >"$log" 2>&1 \
+    # CI 37333934653: neither OverlumeSmoke-Package nor OverlumeShim exists as a scheme; ask xcodebuild.
+    scheme="$( cd "$pkg" && xcodebuild -list -json 2>/dev/null | python3 -c '
+import json, sys
+s = json.load(sys.stdin).get("workspace", {}).get("schemes", [])
+print("OverlumeSmoke-Package" if "OverlumeSmoke-Package" in s else (s[0] if s else ""))' )"
+    ( cd "$pkg" && xcodebuild -list ) || true
+    [ -n "$scheme" ] || die "xcodebuild lists no scheme for the smoke package"
+    ( cd "$pkg" && xcodebuild test -scheme "$scheme" -destination "id=$udid" ) >"$log" 2>&1 \
         || { tail -n 60 "$log"; die "iOS simulator XCTest failed"; }
     grep -E 'OVERLUME_SMOKE|Test Suite .* (passed|failed)|Executed [0-9]+ tests' "$log" | tail -n 8
     echo "PASS: iOS simulator smoke"
