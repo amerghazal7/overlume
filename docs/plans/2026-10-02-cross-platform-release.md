@@ -791,7 +791,7 @@ slices, export check per slice), zipped them, and passed the SwiftPM consumer XC
 plus `publish_swiftpm.sh check`; `sign-apple` took the no-secrets warning path. `publish-homebrew` and
 `publish-swiftpm` were correctly skipped (dry run), so their real push branches have never executed. The
 Android, Linux x86_64/aarch64 legs stayed green. `release.yml` now has a concurrency group so a new
-dispatch on the same ref cancels the previous dry run (tag pushes are never cancelled).
+dispatch on the same ref cancels the previous dry run (a dispatch on a tag ref queues behind the tag run instead of cancelling it).
 Deviations: (1) Filament's prebuilt mac SDK is arm64-only and the iOS SDK has no arm64 simulator slice, so
 macOS x86_64 and every iOS slice build Filament from source (host tools = the mac SDK's arm64 binaries);
 the arm64 install therefore carries different static-archive numbering plus `bluegl`/`bluevk`, which the
