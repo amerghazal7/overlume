@@ -811,6 +811,8 @@ simulator smoke skips its render (`::warning::`). Metal rendering, including row
 run on a real Mac (or a self-hosted macOS runner; `OVERLUME_SMOKE_RENDER=1` re-enables the simulator render)
 before the first tagged release.
 
+Final verification 2026-10-06: dry run 37356177558 on b5feb4b (the Task 7 head) is fully green — iOS device/sim-arm64/sim-x86_64 slices each with 0 'was built for newer iOS' warnings (fe3def4 pins Filament's iOS objects to -mios[-simulator]-version-min=15.0 and the slice build fails on any such warning; b21c55d had 201 per slice), package-ios, package-macos (universal merge, pkg/tar.gz, smokes, pkg install, brew install + test), sign-apple (checksums signed; Apple signing on its no-secrets warning path), Linux x86_64/aarch64, Android 4 ABIs + emulator legs + Maven validate. The Android x86_64 emulator failed to boot once (hosted-runner flake, 600 s boot timeout) and passed on re-run. Deviation (7): the iOS min-version pin above. Release-safety rule from b5feb4b: SwiftPM versions are write-once — sign-apple refuses to clobber release assets once vX is tagged on overlume-swift; `publish_swiftpm.sh push` is idempotent for an identical manifest.
+
 ### Task 8: Windows x64 + arm64 (MSVC, WGL/OpenGL)
 
 **Files:** Create `overlume/src/platform_wgl.cpp`, `overlume/cmake/vcpkg-triplets/{x64,arm64}-windows-overlume.cmake`,
