@@ -66,7 +66,7 @@ jobs:
       - name: Install repo tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq reprepro createrepo-c
+          sudo apt-get install -y -qq apt-utils createrepo-c
 
       - name: Gather packages (newest N releases that fit the size budget)
         id: gather
@@ -79,7 +79,7 @@ jobs:
             # Only the verified artifacts: the aarch64 build job also uploads
             # pkg-linux-aarch64-unverified with the same file names, before the native test job ran.
             find dl -path '*-unverified*' -prune -o \( -name '*.deb' -o -name '*.rpm' \) -print0 \
-              | xargs -0 cp -n -t pkgs
+              | xargs -0 cp -t pkgs
           else
             docs_bytes="$(du -sb site | cut -f1)"
             budget=$((SITE_LIMIT_BYTES - docs_bytes))

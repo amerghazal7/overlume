@@ -1012,7 +1012,7 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   releases, where N is the largest count keeping the site < 900 MB (Pages
   limit 1 GB; the script computes N from asset sizes and prints it; ≥ 1
   enforced, else FAIL). Older versions stay on the Releases page.
-- [x] **Step 2:** `build_apt_repo.sh` with `reprepro` (`Codename: stable`,
+- [x] **Step 2:** `build_apt_repo.sh` with `apt-ftparchive` (reprepro keeps one version per arch, so it cannot serve N releases; `Codename: stable`,
   `Architectures: amd64 arm64`, `Components: main`, `SignWith: <fingerprint>`)
   → `InRelease` + `Release.gpg`. `build_yum_repo.sh` with `createrepo_c` per
   arch, `gpg --detach-sign --armor repodata/repomd.xml`, and an
@@ -1043,7 +1043,8 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   `dry_run`). Its `github-pages` artifact (171.8 MB) contains `index.html`, `apt/dists/stable/{InRelease,Release.gpg}`,
   `rpm/{x86_64,aarch64}/repodata/repomd.xml.asc`, `overlume-release.asc`, `overlume.repo`, 4 `.deb` + 4 `.rpm`.
   The earlier dry run 37485336439 FAILED: the `pkg-linux-*-unverified` artifacts duplicated file names of the
-  verified `pkg-linux-*` ones; fixed in 872831a (dry-run input takes only the verified `pkg-linux-*` artifacts).
+  verified `pkg-linux-*` ones (refused by plain `cp -t`, "will not overwrite just-created"; 872831a had added `cp -n`, which
+  silently skipped duplicates, removed again in the fix commit); fixed in 872831a (dry-run input takes only the verified `pkg-linux-*` artifacts).
 - Deploy guard verified: the two branch-push runs (37485300843, 37486230472) built the site and SKIPPED deploy.
   Deploy runs only when `inputs.dry_run` is false/null AND (ref is main, a `v*` tag, or a dispatch): a direct
   push deploys from main only, a non-dry dispatch deploys, a `workflow_call` caller must pass `dry_run: false`
@@ -1056,8 +1057,12 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   failing, but ONLY on a branch push and ONLY when `pick_releases.sh` exits 3 (no release carries packages);
   exit 1 (packages exist, none fit the budget), tag runs, dispatch and call all fail, because Pages is stateless
   and a docs-only deploy would delete the live apt/rpm repos (`tools/release/test_pick_releases.sh` pins the codes). (4) Dry runs before a packaged release exist take packages from
-  `run_id` (a release.yml run's `pkg-linux-*` artifacts). (5) Signing uses reprepro `SignWith` with loopback
-  passphrase from a temp GNUPGHOME (`lib_gpg.sh`).
+  `run_id` (a release.yml run's `pkg-linux-*` artifacts). (5) Signing is `gpg --clearsign` / `-abs` with loopback
+  passphrase from a temp GNUPGHOME (`lib_gpg.sh`); the apt index is built by `apt-ftparchive` (not reprepro) so every
+  packaged version of the newest N releases stays installable (`apt install overlume=<older>`); pinned by
+  `tools/release/test_apt_repo_versions.sh` (two versions x two arches; also asserts the `pages.yml` gather copy,
+  plain `cp -t`, refuses same-named packages). Re-checked after the switch: `build_apt_repo.sh` on the run 37468626796
+  debs, then apt install of `overlume` from it in ubuntu:22.04 and debian:12 (rpm side unchanged, not re-run).
 - The live-docs `curl` 200 check needs a real deploy (first push to main); the dry run does not deploy.
 - Linux gate deferred (a pgrep match for "carla" was a ROS node parameter, but the load rule requires an empty
   match); Task 10 touches no build code.
