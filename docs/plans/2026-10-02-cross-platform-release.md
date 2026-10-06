@@ -1045,22 +1045,42 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   The earlier dry run 37485336439 FAILED: the `pkg-linux-*-unverified` artifacts duplicated file names of the
   verified `pkg-linux-*` ones; fixed in 872831a (dry-run input takes only the verified `pkg-linux-*` artifacts).
 - Deploy guard verified: the two branch-push runs (37485300843, 37486230472) built the site and SKIPPED deploy.
-  Deploy runs only on push to main, tag refs via `workflow_call`, or a non-dry dispatch.
+  Deploy runs only when `inputs.dry_run` is false/null AND (ref is main, a `v*` tag, or a dispatch): a direct
+  push deploys from main only, a non-dry dispatch deploys, a `workflow_call` caller must pass `dry_run: false`
+  (default true). The tag/`workflow_call` path is NOT exercised by any hosted run and has three constraints for
+  Task 11 (see "Task 11 prerequisites").
 - Deviations: (1) `release.yml` untouched: no `pages` job exists yet, Task 11 owns the job graph and calls
-  `pages.yml` (`workflow_call` is ready). (2) Docs HTML stays at the site root (unchanged URLs); `docs.yml` is
+  `pages.yml` (`workflow_call` accepts `dry_run`/`run_id` inputs but the tag path has the prerequisites below). (2) Docs HTML stays at the site root (unchanged URLs); `docs.yml` is
   now `pull_request` + `workflow_call` and uploads `docs-html`, `pages.yml` reuses it. (3) On `push` with no
   packaged release yet (v0.1.0 has no deb/rpm assets) `pages.yml` deploys docs with a `::warning::` instead of
-  failing; dispatch/call still fail when N < 1. (4) Dry runs before a packaged release exist take packages from
+  failing, but ONLY on a branch push and ONLY when `pick_releases.sh` exits 3 (no release carries packages);
+  exit 1 (packages exist, none fit the budget), tag runs, dispatch and call all fail, because Pages is stateless
+  and a docs-only deploy would delete the live apt/rpm repos (`tools/release/test_pick_releases.sh` pins the codes). (4) Dry runs before a packaged release exist take packages from
   `run_id` (a release.yml run's `pkg-linux-*` artifacts). (5) Signing uses reprepro `SignWith` with loopback
   passphrase from a temp GNUPGHOME (`lib_gpg.sh`).
 - The live-docs `curl` 200 check needs a real deploy (first push to main); the dry run does not deploy.
 - Linux gate deferred (a pgrep match for "carla" was a ROS node parameter, but the load rule requires an empty
   match); Task 10 touches no build code.
 
+### Task 11 prerequisites (found in Task 10 review)
+
+- The `github-pages` environment only allows branch `main` to deploy (one deployment-branch policy), so a deploy on
+  `refs/tags/v*` is rejected.
+- In a called workflow `github.event_name` is the caller's event and `inputs` holds only `workflow_call` inputs, so
+  a caller must pass `dry_run: false` explicitly (pages.yml defaults it to true) and cannot supply a `run_id` run.
+- `pages` placed before `finalize` sees the release as a draft (invisible to the `contents: read` job token), so the
+  new version would be missing from apt/yum.
+- Recommended route (b): `finalize` publishes the release, then runs `gh workflow run pages.yml --ref main -f dry_run=false`
+  (needs `actions: write`); runs on main so the environment allows it and the release is no longer a draft. Drop
+  `workflow_call` from pages.yml then. Route (a): user adds a tag policy
+  (`gh api -X POST repos/amerghazal7/overlume/environments/github-pages/deployment-branch-policies -f name='v*' -f type=tag`,
+  a repo-settings change needing the user's approval), `pages` runs after `finalize` and is called with `dry_run: false`.
+
 ### Merge checklist (release-packaging -> main)
 
 - [ ] Remove the temporary `push: branches: [release-packaging]` trigger from `.github/workflows/pages.yml`
   (added only to register the workflow for dispatch; deploy is guarded to main).
+- [ ] Task 11 prerequisites above are resolved before wiring `pages` into release.yml.
 - [ ] After the first push to main deploys, `curl -s -o /dev/null -w '%{http_code}'` on the live docs index prints 200.
 
 ### Task 11: Release orchestration and integrity
@@ -1072,7 +1092,7 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   (x64, arm64) → `sums` (merges all `SHA256SUMS-*` into `SHA256SUMS`,
   signs `SHA256SUMS.asc`, uploads) → publish jobs `publish-maven`,
   `publish-homebrew`, `publish-swiftpm`, `channels` (vcpkg/Conan render +
-  checks), `pages` (`workflow_call`). Publish jobs run only when every
+  checks), `pages` (see Task 11 prerequisites: route b, dispatched on main after `finalize`). Publish jobs run only when every
   package job succeeded (no partial release); a failed tag run leaves the
   release as **draft**: `create` makes it `--draft`, a final `finalize` job
   flips it to published after all publish jobs pass.

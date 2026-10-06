@@ -10,6 +10,14 @@ on:
     # Remove release-packaging after the merge to main.
     branches: [main, release-packaging]
   workflow_call:
+    # A caller must pass dry_run: false explicitly to deploy (fail closed).
+    inputs:
+      dry_run:
+        type: boolean
+        default: true
+      run_id:
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       dry_run:
@@ -42,7 +50,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       EVENT: ${{ github.event_name }}
-      RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.run_id || '' }}
+      RUN_ID: ${{ inputs.run_id }}
       # Pages limit is 1 GB; keep 100 MB of headroom.
       SITE_LIMIT_BYTES: "900000000"
     steps:
@@ -82,13 +90,16 @@ jobs:
               gh release view "$tag" -R "$GITHUB_REPOSITORY" --json assets \
                 | jq -c --arg t "$tag" '{tag: $t, bytes: ([.assets[] | select(.name | test("\\.(deb|rpm)$")) | .size] | add // 0)}' >> rel.ndjson
             done < tags.txt
-            if picked="$(jq -s . rel.ndjson | tools/release/pick_releases.sh "$budget")"; then
+            rc=0
+            picked="$(jq -s . rel.ndjson | tools/release/pick_releases.sh "$budget")" || rc=$?
+            if [ "$rc" -eq 0 ]; then
               echo "$picked" | head -n1 | sed 's/^N=/Including N releases: /'
               for tag in $(echo "$picked" | tail -n +2); do
                 gh release download "$tag" -R "$GITHUB_REPOSITORY" -p '*.deb' -p '*.rpm' -D pkgs
               done
-            elif [ "$EVENT" = push ]; then
-              # No packaged release exists yet: still publish the docs, loudly.
+            elif [ "$rc" -eq 3 ] && [ "$EVENT" = push ] && [[ "$GITHUB_REF" == refs/heads/* ]]; then
+              # Branch push, and no release carries packages at all: publish the docs, loudly.
+              # Any other failure (too big, tag run, dispatch, call) must fail, or Pages would drop live repos.
               echo "::warning::no release with .deb/.rpm assets yet; deploying docs without apt/rpm repositories"
             else
               exit 1
@@ -128,9 +139,9 @@ jobs:
 
   deploy:
     needs: repos
-    # Deploy only from main, from a tag run (release.yml workflow_call keeps the caller's push event
-    # and refs/tags/v* ref), or from an explicit non-dry dispatch. Branch pushes and dry runs never deploy.
-    if: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && !inputs.dry_run) }}
+    # Dry runs never deploy: inputs.dry_run is null on a direct push (deploys from main only) and
+    # defaults to true for callers, who must pass false. Branch pushes never deploy.
+    if: ${{ !inputs.dry_run && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-22.04
     permissions:
       pages: write
