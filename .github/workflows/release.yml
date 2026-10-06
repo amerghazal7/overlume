@@ -1097,3 +1097,139 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$GITHUB_REF_NAME" windows/* --clobber
+
+  # vcpkg overlay port + Conan recipe, rendered from the release's own SHA256SUMS-* files.
+  # Tag runs attach the two zips (GitHub release URLs inside); every run also renders a copy whose
+  # archive URLs point at 127.0.0.1:8000 for the channels job below.
+  channels-render:
+    needs: [package, package-linux-aarch64, sign-apple, sign-windows]
+    if: >-
+      ${{ !cancelled() && needs.package.result == 'success' && needs.package-linux-aarch64.result == 'success'
+      && needs.sign-apple.result == 'success' && needs.sign-windows.result == 'success' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pkg-linux-x86_64
+          path: rel
+      - uses: actions/download-artifact@v4
+        with:
+          name: pkg-linux-aarch64
+          path: rel
+      - uses: actions/download-artifact@v4
+        with:
+          name: pkg-macos
+          path: rel
+      - uses: actions/download-artifact@v4
+        with:
+          name: pkg-windows
+          path: rel
+
+      - name: Render (and self-test the renderer)
+        run: |
+          set -euo pipefail
+          tools/release/test_render_vcpkg_conan.sh
+          ver="$(sed -n 's/^project(overlume VERSION \([0-9.]*\) .*/\1/p' overlume/CMakeLists.txt)"
+          tools/release/render_vcpkg_conan.sh rel "$ver" release-channels
+          tools/release/render_vcpkg_conan.sh rel "$ver" local-channels http://127.0.0.1:8000
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: channels-recipes
+          path: |
+            release-channels/*.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: channels-local
+          path: |
+            local-channels/vcpkg-port
+            local-channels/conan
+          if-no-files-found: error
+
+      - name: Upload release assets
+        if: ${{ env.DRY_RUN != 'true' && github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" release-channels/*.zip --clobber
+
+  # Installs the rendered port/recipe against this run's own artifacts (loopback http.server) and builds
+  # + runs the consumer: vcpkg overlay port and `conan create` (test_package), shared and static.
+  channels:
+    needs: channels-render
+    if: ${{ !cancelled() && needs.channels-render.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04, pkg: pkg-linux-x86_64, variants: "shared" }
+          - { os: macos-14,     pkg: pkg-macos,        variants: "shared static" }
+          - { os: windows-2022, pkg: pkg-windows,      variants: "shared static" }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      # vcpkg tag 2026.07.29, pinned by commit; conan pinned by version.
+      VCPKG_COMMIT: 9e593bb18ea69cc5095e012465dcd675a822ed0d
+      CONAN_VERSION: "2.31.2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: channels-local
+          path: local
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.pkg }}
+          path: pkgs
+
+      - name: vcpkg (pinned commit) and Conan (pinned version)
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP"; [ "$RUNNER_OS" = Windows ] && root="$(cygpath -m "$RUNNER_TEMP")"
+          mkdir "$root/vcpkg" && cd "$root/vcpkg"
+          git init -q
+          git remote add origin https://github.com/microsoft/vcpkg
+          git fetch -q --depth 1 origin "$VCPKG_COMMIT"
+          git checkout -q FETCH_HEAD
+          [ "$(git rev-parse HEAD)" = "$VCPKG_COMMIT" ]
+          if [ "$RUNNER_OS" = Windows ]; then cmd //c bootstrap-vcpkg.bat -disableMetrics; else ./bootstrap-vcpkg.sh -disableMetrics; fi
+          echo "VCPKG_ROOT=$root/vcpkg" >> "$GITHUB_ENV"
+          PY=python3; command -v python3 > /dev/null || PY=python
+          "$PY" -m venv "$root/conan-venv"
+          bin="$root/conan-venv/bin"; [ -d "$bin" ] || bin="$root/conan-venv/Scripts"
+          "$bin/python" -m pip install -q "conan==$CONAN_VERSION"
+          echo "$bin" >> "$GITHUB_PATH"
+
+      - name: Linux GL headers and Mesa runtime
+        if: ${{ runner.os == 'Linux' }}
+        run: sudo apt-get install -y --no-install-recommends libegl1 libegl-mesa0 libgl1-mesa-dri
+
+      - name: vcpkg overlay port and Conan recipe
+        shell: bash
+        env:
+          VARIANTS: ${{ matrix.variants }}
+        run: |
+          set -euo pipefail
+          read -ra variants <<< "$VARIANTS"
+          for v in "${variants[@]}"; do
+            tools/release/check_vcpkg_conan.sh local pkgs "$v"
+          done
+
+      - name: Linux static product (clang 18 + libc++ in ubuntu:24.04)
+        if: ${{ runner.os == 'Linux' }}
+        run: tools/release/check_vcpkg_conan_linux_static.sh local pkgs
