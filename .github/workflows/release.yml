@@ -899,7 +899,7 @@ jobs:
 
   # Windows x64 (windows-2022) and arm64 (windows-11-arm), built with MSVC (cl; v143 on x64, v145 on arm64)
   # and the dynamic CRT. x64 links Filament's prebuilt /MD libraries; arm64 builds Filament from
-  # source. The render tests use Mesa llvmpipe (x64 only: mesa-dist-win publishes no arm64 build).
+  # source. The render tests use Mesa llvmpipe (x64: pal1000/mesa-dist-win; arm64: mmozeiko/build-mesa).
   package-windows-build:
     needs: create
     if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
@@ -975,14 +975,12 @@ jobs:
         run: tools/windows/build_windows.ps1 test -Arch ${{ matrix.arch }}
 
       - name: Sign (only with Windows signing secrets) and package (NSIS, ZIP)
-        if: ${{ !cancelled() }}
         env:
           WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
           WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
         run: tools/windows/build_windows.ps1 package -Arch ${{ matrix.arch }}
 
       - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
         with:
           name: windows-build-${{ matrix.arch }}
           path: |
