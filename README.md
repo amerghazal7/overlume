@@ -239,7 +239,7 @@ To add a topic, add a row to a profile YAML file; see the [profile authoring gui
 
 **Virtual-camera presets:** config, reverse_follow, left_side, right_side and top_down. The camera eases between presets with a 0.5 s smoothstep tween.
 
-**Live parameters:** `layer_objects`, `layer_paths`, `layer_map_elements`, `layer_grids`, `layer_alerts`, `layer_markers`, `layer_point_clouds`, `layer_trajectory_carpet`, `layer_surround_stitching`, `render_mode`, `environment_enabled`, `environment_source_uri`.
+**Live parameters:** `layer_objects`, `layer_paths`, `layer_map_elements`, `layer_grids`, `layer_alerts`, `layer_markers`, `layer_point_clouds`, `layer_trajectory_carpet`, `layer_height_grids`, `layer_surround_stitching`, `render_mode`, `environment_enabled`, `environment_source_uri`.
 
 **Launch-only parameters:** `hud_enabled`, `callouts_enabled`, `quality`, `out_width` / `out_height`, the theme directory, `initial_theme`, the ego model, and the bowl and camera parameters.
 
