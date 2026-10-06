@@ -14,6 +14,7 @@
 #include "generic_markers_test_hooks.hpp"
 #include "ground_grid.hpp"
 #include "ground_grid_test_hooks.hpp"
+#include "height_grid.hpp"
 #include "map_elements.hpp"
 #include "map_elements_test_hooks.hpp"
 #include "objects.hpp"
@@ -71,6 +72,8 @@
 #include "ribbon_emissive_filamat.h"
 #include "ribbon_faded_filamat.h"
 #include "ground_grid_filamat.h"
+#include "height_grid_filamat.h"
+#include "height_grid_faded_filamat.h"
 #include "point_cloud_filamat.h"
 #include "trajectory_carpet_filamat.h"
 #include "trajectory_carpet_faded_filamat.h"
@@ -485,6 +488,31 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
                 texels));
     }
 
+    r.heightGridRamp = detail::bake_height_ramp(theme.height_grid.ramp);
+    {
+        constexpr size_t kRampEntries = detail::HeightRampTable::kEntries;
+        auto* texels = new std::vector<float>(kRampEntries * 4);
+        for (size_t k = 0; k < kRampEntries; ++k) {
+            (*texels)[k * 4 + 0] = r.heightGridRamp.color[k].r;
+            (*texels)[k * 4 + 1] = r.heightGridRamp.color[k].g;
+            (*texels)[k * 4 + 2] = r.heightGridRamp.color[k].b;
+            (*texels)[k * 4 + 3] = 1.0f;
+        }
+        r.heightGridRampTexture->setImage(
+            *r.engine, 0,
+            filament::Texture::PixelBufferDescriptor(
+                texels->data(), texels->size() * sizeof(float), filament::Texture::Format::RGBA,
+                filament::Texture::Type::FLOAT,
+                [](void*, size_t, void* user) { delete static_cast<std::vector<float>*>(user); },
+                texels));
+    }
+    apply_height_grid_params(*r.heightGridInstance, r, theme.height_grid);
+    for (auto& slot : r.heightGridSlots) {
+        if (slot.fadeInstance != nullptr) {
+            apply_height_grid_params(*slot.fadeInstance, r, theme.height_grid);
+        }
+    }
+
     const detail::Float3 alertTints[VisualRenderer::kAlertSeverityCount] = {
         theme.palette.alert.info,
         theme.palette.alert.warning,
@@ -844,6 +872,24 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
                                      filament::TextureSampler::MagFilter::NEAREST));
     }
 
+    r->heightGridMaterial = filament::Material::Builder()
+                                .package(overlume::materials::kheight_gridFilamat,
+                                         overlume::materials::kheight_gridFilamatSize)
+                                .build(*engine);
+    r->heightGridFadedMaterial = filament::Material::Builder()
+                                     .package(overlume::materials::kheight_grid_fadedFilamat,
+                                              overlume::materials::kheight_grid_fadedFilamatSize)
+                                     .build(*engine);
+    r->heightGridInstance = r->heightGridMaterial->createInstance();
+    r->heightGridRampTexture =
+        filament::Texture::Builder()
+            .width(static_cast<uint32_t>(detail::HeightRampTable::kEntries))
+            .height(1)
+            .levels(1)
+            .format(filament::Texture::InternalFormat::RGBA32F)
+            .sampler(filament::Texture::Sampler::SAMPLER_2D)
+            .build(*engine);
+
     r->pointCloudMaterial = filament::Material::Builder()
                                 .package(overlume::materials::kpoint_cloudFilamat,
                                          overlume::materials::kpoint_cloudFilamatSize)
@@ -897,6 +943,7 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     }
     r->genericMarkerMaterial->setCullingMode(filament::backend::CullingMode::NONE);
     r->buildingMaterial->setCullingMode(filament::backend::CullingMode::NONE);
+    r->heightGridInstance->setCullingMode(filament::backend::CullingMode::NONE);
 
     push_theme_to_scene(*r, theme);
 
@@ -1044,6 +1091,11 @@ void destroy_renderer(VisualRenderer* r) {
         if (tex) r->engine->destroy(tex);
     }
     if (r->groundGridMaterial) r->engine->destroy(r->groundGridMaterial);
+    destroy_height_grid_slots(*r);
+    if (r->heightGridInstance) r->engine->destroy(r->heightGridInstance);
+    if (r->heightGridRampTexture) r->engine->destroy(r->heightGridRampTexture);
+    if (r->heightGridMaterial) r->engine->destroy(r->heightGridMaterial);
+    if (r->heightGridFadedMaterial) r->engine->destroy(r->heightGridFadedMaterial);
 
     if (r->bowl) {
         destroy_mesh(*r->engine, *r->scene, r->bowl->mesh);
@@ -1141,6 +1193,7 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     update_objects(*r, r->scene_buffer.active());
     update_ribbons(*r, r->scene_buffer.active());
     update_ground_grids(*r, r->scene_buffer.active());
+    update_height_grids(*r, r->scene_buffer.active());
     update_alert_polygons(*r, r->scene_buffer.active());
     update_generic_markers(*r, r->scene_buffer.active());
     update_point_clouds(*r, r->scene_buffer.active());
