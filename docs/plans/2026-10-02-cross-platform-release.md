@@ -921,7 +921,7 @@ the `platform_wgl.cpp` no-OpenGL-4.1 path (create_renderer() returning nullptr i
 (`ports/overlume/…`) and `overlume-<ver>-conan-recipe.zip`, rendered with
 the SHA512/SHA256 of every platform archive of that release.
 
-- [ ] **Step 1: vcpkg port** — binary port: `portfile.cmake` picks the
+- [x] **Step 1: vcpkg port** — binary port: `portfile.cmake` picks the
   release archive by `VCPKG_TARGET_IS_WINDOWS/OSX/LINUX` + `VCPKG_TARGET_ARCHITECTURE`
   (`x64-windows`, `arm64-windows`, `x64-linux`, `arm64-linux`,
   `x64-osx`/`arm64-osx` → universal), `vcpkg_download_distfile` with SHA512,
@@ -931,21 +931,53 @@ the SHA512/SHA256 of every platform archive of that release.
   `set(VCPKG_POLICY_DLLS_WITHOUT_LIBS …)` only if the linter needs it; `usage`
   shows `find_package(overlume CONFIG REQUIRED)`. Unsupported triplets fail
   with a clear message.
-- [ ] **Step 2: Conan 2 recipe** `conanfile.py`: `package_type` from
+- [x] **Step 2: Conan 2 recipe** `conanfile.py`: `package_type` from
   `options.shared` (default `True`), `settings` os/arch, `source()` none,
   `build()` downloads + checks the archive from `conandata.yml`
   (`sources[version][os][arch]` url+sha256), `package()` copies the tree,
   `package_info()` sets `cmake_file_name "overlume"`, `cmake_target_name "overlume::overlume"`
   (static: `overlume::overlume_static` + `system_libs`/`frameworks`).
   `test_package` builds and links the 5-line consumer.
-- [ ] **Step 3:** `render_vcpkg_conan.sh RELEASE_DIR VERSION` fills both
+- [x] **Step 3:** `render_vcpkg_conan.sh RELEASE_DIR VERSION` fills both
   templates from the `SHA256SUMS-*` files (computing SHA512 for vcpkg).
-- [ ] **Step 4: Checks** in a `channels` job matrix (ubuntu-22.04,
+- [x] **Step 4: Checks** in a `channels` job matrix (ubuntu-22.04,
   macos-14, windows-2022), on dry runs pointed at the run's own artifacts
   via a local `http.server`: `vcpkg install overlume --overlay-ports=…` +
   build the consumer with the vcpkg toolchain; `conan create packaging/conan --version <ver>`
   (runs `test_package`) for `-o shared=True` and `False`.
-- [ ] **Step 5:** dry-run green. **Commit** `feat(release): vcpkg overlay port and Conan recipe generated per release`.
+- [x] **Step 5:** dry-run green. **Commit** `feat(release): vcpkg overlay port and Conan recipe generated per release`.
+
+**Task 9 results (2026-10-06, complete; CI dry run 37434661138 on `fix(release): channels check survives an empty cmake_args array on macOS bash 3.2`,
+fully green, 29 jobs incl. `channels-render` and the `channels` matrix).** Files: `packaging/vcpkg/ports/overlume/{vcpkg.json.in,portfile.cmake.in,usage}`,
+`packaging/conan/{conanfile.py,conandata.yml.in,test_package/*}`, `tools/release/render_vcpkg_conan.sh` (+ `test_render_vcpkg_conan.sh`),
+`tools/release/check_vcpkg_conan.sh` (+ `check_vcpkg_conan_linux_static.sh`), `release.yml` jobs `channels-render` and `channels`.
+`channels-render` (ubuntu) downloads the four package artifacts, self-tests the renderer, renders the real-URL zips
+(`overlume-<ver>-vcpkg-port.zip`, `overlume-<ver>-conan-recipe.zip`, artifact `channels-recipes`, attached to the release on tag runs) and a
+loopback-URL copy (artifact `channels-local`). `channels` (ubuntu-22.04 shared; macos-14 and windows-2022 shared + static) pins vcpkg to
+commit `9e593bb18ea69cc5095e012465dcd675a822ed0d` (tag 2026.07.29) and Conan to 2.31.2, serves the platform's own run artifacts from
+`python -m http.server` on 127.0.0.1:8000, then `vcpkg install overlume --overlay-ports` + consumer build/run with the vcpkg toolchain,
+and `conan create` (test_package) for `shared=True|False`. All of vcpkg/conan x shared/static PASS on `x64-linux`, `arm64-osx`
+(universal2 archive), `x64-windows` / `x64-windows-static-md`; Linux static ran in `ubuntu:24.04` (clang 18 + libc++), where the hosted
+runner has none. Local Linux runs (vcpkg and Conan installed in `~/.cache/overlume-channels`) against run 37409262766's x86_64 packages
+passed first, shared and static; the dev gate `tools/ci_visual_mode.sh` is green (OVERALL PASS, goldens untouched).
+Failing-first / revert checks: `test_render_vcpkg_conan.sh` rejects a tampered archive, a missing SUMS entry and a missing archive
+(removing the SHA256 verification from the renderer makes it FAIL with "tampered archive was accepted"); removing the
+`overlumeStaticTargets.cmake` prefix patch from the port makes the static vcpkg consumer fail at configure (the files it names are one
+level too high); Conan static on Linux with gcc fails `validate()` with "needs clang >= 18 with compiler.libcxx=libc++" (exit 6).
+Dry-run history: run 37417286990 failed all three legs (flat macOS/Windows archives need `NO_REMOVE_ONE_LEVEL`; the Linux consumer
+needs `libgles2` at run time); 37425914882 passed Linux and Windows, macOS shared vcpkg hit bash 3.2's empty-array `set -u` error.
+Deviations: (1) **static selection**: vcpkg's Linux/macOS triplets are static-linkage by default, but the Linux static product needs
+clang+libc++ 18, so on Linux/macOS the static product is the opt-in feature `overlume[static]`; Windows takes it from static-linkage
+triplets (`*-static-md`; `*-static` needs a /MT build, not shipped) as planned. (2) the port installs only `overlume.dll` from `bin/` (the
+archive's `bin/` also carries the VC++ redistributable DLLs) and sets `VCPKG_POLICY_SKIP_ARCHITECTURE_CHECK` (universal2) plus
+`SKIP_DUMPBIN_CHECKS`/`SKIP_CRT_LINKAGE_CHECK` on Windows; `vcpkg_cmake_config_fixup` already corrects `PACKAGE_PREFIX_DIR`, the port only
+patches the static targets file's custom `_overlume_prefix`. (3) the Conan recipe copies only the files of the requested product (CMakeDeps
+generates the config), adds the `compiler` setting (dropped from the package id for shared) so `validate()` can enforce the Linux static
+toolchain, and carries static link inputs through `system_libs` (Conan emits them after the library; `exelinkflags` would put the archives
+before `liboverlume.a`). (4) `render_vcpkg_conan.sh` also takes `OUT_DIR` and an optional `BASE_URL`, verifies every archive against its
+`SHA256SUMS-*` entry before computing the vcpkg SHA512, and zips with `python3 -m zipfile` (no `zip` on macOS/Windows runners). Not
+covered: real `vcpkg`/`conan` on Linux aarch64 and macOS x86_64 (same archives, other triplet names only), and consumers on a machine
+with a GPU (the consumer only proves link + load; `renderer=no` on the hosted runners).
 
 ### Task 10: Signed apt + yum repositories on GitHub Pages (merged with API docs)
 
