@@ -78,6 +78,7 @@ for bad in x64-windows-static x64-mingw-dynamic; do
       --x-install-root="$work/neg_installed" --x-buildtrees-root="$work/neg_buildtrees" \
       --x-packages-root="$work/neg_packages" --downloads-root="$work/downloads" --binarysource=clear \
       > "$work/neg.log" 2>&1 && fail "vcpkg accepted unsupported triplet $bad"
+  grep -q "is only supported on" "$work/neg.log" || { tail -n 20 "$work/neg.log"; fail "vcpkg refused $bad, but not by supports"; }
 done
 for vars in "VCPKG_TARGET_IS_MINGW=ON" "VCPKG_TARGET_IS_WINDOWS=ON;VCPKG_CRT_LINKAGE=static"; do
   { echo 'set(VCPKG_TARGET_ARCHITECTURE x64)'; echo 'set(TARGET_TRIPLET neg)'
@@ -97,6 +98,15 @@ run "vcpkg consumer configure" cmake -S "$rendered/conan/test_package" -B "$work
     -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET="$triplet" \
     -DVCPKG_MANIFEST_MODE=OFF -DVCPKG_INSTALLED_DIR="$work/vcpkg_installed" ${cmake_args[@]+"${cmake_args[@]}"}
 run "vcpkg consumer build" cmake --build "$work/vb" --config Release
+if [ "$triplet" = x64-windows ]; then  # Debug consumers load overlume.dll from vcpkg's debug/bin
+  run "vcpkg Debug consumer configure" cmake -S "$rendered/conan/test_package" -B "$work/vbd" -DCMAKE_BUILD_TYPE=Debug \
+      -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET="$triplet" \
+      -DVCPKG_MANIFEST_MODE=OFF -DVCPKG_INSTALLED_DIR="$work/vcpkg_installed"
+  run "vcpkg Debug consumer build" cmake --build "$work/vbd" --config Debug
+  dexe="$(find "$work/vbd" -type f -name consumer.exe | head -n 1)"
+  [ -n "$dexe" ] && "$dexe" > "$work/rund.log" 2>&1 || { cat "$work/rund.log" 2>/dev/null; fail "vcpkg Debug consumer run (debug/bin copy)"; }
+  echo "PASS: vcpkg Debug consumer runs"
+fi
 exe="$(find "$work/vb" -type f \( -name consumer -o -name consumer.exe \) | head -n 1)"
 [ -n "$exe" ] || fail "vcpkg consumer binary not built"
 "$exe" > "$work/run.log" 2>&1 || { cat "$work/run.log"; fail "vcpkg consumer run"; }
@@ -115,6 +125,7 @@ neg() { local what="$1"; shift; local rc2=0
   [ "$rc2" -eq 6 ] && grep -q 'Invalid' "$work/neg.log" || { tail -n 20 "$work/neg.log"; fail "conan did not refuse $what (exit $rc2)"; }; }
 win=(-s os=Windows -s arch=x86_64 -s compiler=msvc -s compiler.version=194 -s compiler.cppstd=17 -s compiler.runtime_type=Release)
 neg "Windows /MT" "${win[@]}" -s compiler.runtime=static -o "overlume/*:shared=False"
+neg "Windows static Debug" "${win[@]/compiler.runtime_type=Release/compiler.runtime_type=Debug}" -s build_type=Debug -s compiler.runtime=dynamic -o "overlume/*:shared=False"
 neg "Windows gcc" -s os=Windows -s arch=x86_64 -s compiler=gcc -s compiler.version=11 -s compiler.libcxx=libstdc++11 -s compiler.cppstd=17
 if [ "$(uname -s)" = Linux ] && [ "$variant" = shared ]; then
   neg "Linux gcc static" -s compiler=gcc -s compiler.version=11 -s compiler.libcxx=libstdc++11 -s compiler.cppstd=17 -o "overlume/*:shared=False"

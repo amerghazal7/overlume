@@ -991,6 +991,7 @@ leg mounts the verified Linux binary and pulls `ubuntu:24.04@sha256:534baea6...`
 verified (the SHA256 values were cross-checked against the downloaded files only); `CHANNELS_PORT` (default 8000) lets `check_vcpkg_conan.sh`
 run on a box where 8000 is taken (a local CARLA telemetry service holds it); the dev gate `tools/ci_visual_mode.sh` was deferred this round
 (CARLA running; no library code changed). Dry run after the fix: 37446914731, all jobs green including `channels` on ubuntu-22.04, macos-14, windows-2022.
+**Fix round 2 (review):** (a) Windows Debug consumers: the vcpkg shared port also copies `overlume.dll` to `debug/bin` (vcpkg app-local deps read it there; the API is POD so the release DLL serves /MDd); Conan `validate()` refuses Windows static with `compiler.runtime_type=Debug` (exit 6, LNK2038 otherwise); usage says the static product needs a Release/RelWithDebInfo consumer; `check_vcpkg_conan.sh` builds and runs the vcpkg consumer in Debug on Windows shared and adds the Conan static-Debug negative. (b) The real `vcpkg install` negative now also greps the log for `is only supported on`, so a revert of `supports` fails (verified locally: PASS on the current port, `FAIL: vcpkg refused x64-windows-static, but not by supports` with `supports` reverted). Not locally verifiable: the Windows Debug consumer (no Windows host); it is covered by the windows-2022 channels leg only.
 
 ### Task 10: Signed apt + yum repositories on GitHub Pages (merged with API docs)
 
