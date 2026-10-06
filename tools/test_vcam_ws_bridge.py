@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
 from vcam_ws_bridge import (
-    ENVIRONMENT_PRESET_URIS, ENVIRONMENT_PRESETS, parse_cmd, patch_yaml_text,
+    ENVIRONMENT_PRESET_URIS, ENVIRONMENT_PRESETS, LAYER_NAMES, parse_cmd, patch_yaml_text,
 )
 
 def test_set_look_valid():
@@ -90,6 +90,30 @@ def test_set_layers_valid():
     assert parse_cmd(json.dumps(
         {"cmd": "set_layers", "layers": {"objects": True, "grids": False}})) == \
         ("set_layers", {"objects": True, "grids": False})
+    assert parse_cmd(json.dumps(
+        {"cmd": "set_layers", "layers": {"height_grids": False}})) == \
+        ("set_layers", {"height_grids": False})
+
+
+def test_layer_names_cover_every_node_layer_param():
+    """Every layer_* the node declares in default_params.yaml has a GUI switch and is
+    accepted by the bridge -- a new layer flag listed in default_params.yaml cannot ship
+    without its GUI toggle (a flag declared only in the node's C++ is not covered)."""
+    import ast
+    import re
+    here = os.path.dirname(__file__)
+    params = os.path.join(here, "..", "ros", "src", "overlume_ros", "config", "default_params.yaml")
+    with open(params) as f:
+        node_layers = set(re.findall(r"^\s*layer_(\w+)\s*:", f.read(), re.MULTILINE))
+    assert "height_grids" in node_layers
+    with open(os.path.join(here, "vcam_gui.py")) as f:
+        tree = ast.parse(f.read())
+    gui_layers = next(
+        set(ast.literal_eval(n.value)) for n in tree.body
+        if isinstance(n, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "LAYER_NAMES" for t in n.targets))
+    assert node_layers == set(LAYER_NAMES)
+    assert node_layers == gui_layers
 
 @pytest.mark.parametrize("preset,expect", [
     ("low", 0), ("medium", 1), ("high", 2), (0, 0), (1, 1), (2, 2),
