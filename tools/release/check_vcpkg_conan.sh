@@ -73,7 +73,7 @@ inst="$work/vcpkg_installed/$triplet"
 [ -f "$inst/share/overlume/copyright" ] && [ -d "$inst/share/overlume/themes" ] || fail "vcpkg install is missing copyright/themes"
 run "vcpkg consumer configure" cmake -S "$rendered/conan/test_package" -B "$work/vb" -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET="$triplet" \
-    -DVCPKG_MANIFEST_MODE=OFF -DVCPKG_INSTALLED_DIR="$work/vcpkg_installed" "${cmake_args[@]}"
+    -DVCPKG_MANIFEST_MODE=OFF -DVCPKG_INSTALLED_DIR="$work/vcpkg_installed" ${cmake_args[@]+"${cmake_args[@]}"}
 run "vcpkg consumer build" cmake --build "$work/vb" --config Release
 exe="$(find "$work/vb" -type f \( -name consumer -o -name consumer.exe \) | head -n 1)"
 [ -n "$exe" ] || fail "vcpkg consumer binary not built"
