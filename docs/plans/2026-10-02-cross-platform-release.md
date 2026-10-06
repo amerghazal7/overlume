@@ -990,7 +990,7 @@ archives with SHA256 pinned in `release.yml` (`sha256sum`/`shasum -c` before ext
 leg mounts the verified Linux binary and pulls `ubuntu:24.04@sha256:534baea6...` by digest. Deviations: the archives' `.asc` signature was not
 verified (the SHA256 values were cross-checked against the downloaded files only); `CHANNELS_PORT` (default 8000) lets `check_vcpkg_conan.sh`
 run on a box where 8000 is taken (a local CARLA telemetry service holds it); the dev gate `tools/ci_visual_mode.sh` was deferred this round
-(CARLA running; no library code changed).
+(CARLA running; no library code changed). Dry run after the fix: 37446914731, all jobs green including `channels` on ubuntu-22.04, macos-14, windows-2022.
 
 ### Task 10: Signed apt + yum repositories on GitHub Pages (merged with API docs)
 
