@@ -1006,20 +1006,20 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
 `pool/`), `rpm/{x86_64,aarch64}/repodata/repomd.xml{,.asc}` + packages,
 `overlume-release.asc`, `overlume.repo`.
 
-- [ ] **Step 1:** Pages is stateless: `pages.yml` (on push to main, on
+- [x] **Step 1:** Pages is stateless: `pages.yml` (on push to main, on
   `workflow_call`, on `workflow_dispatch`) builds docs, then
   `gh release download` the `.deb`/`.rpm` assets of the newest **N**
   releases, where N is the largest count keeping the site < 900 MB (Pages
   limit 1 GB; the script computes N from asset sizes and prints it; ≥ 1
   enforced, else FAIL). Older versions stay on the Releases page.
-- [ ] **Step 2:** `build_apt_repo.sh` with `reprepro` (`Codename: stable`,
+- [x] **Step 2:** `build_apt_repo.sh` with `reprepro` (`Codename: stable`,
   `Architectures: amd64 arm64`, `Components: main`, `SignWith: <fingerprint>`)
   → `InRelease` + `Release.gpg`. `build_yum_repo.sh` with `createrepo_c` per
   arch, `gpg --detach-sign --armor repodata/repomd.xml`, and an
   `overlume.repo` (`gpgcheck=1`, `repo_gpgcheck=1`,
   `gpgkey=https://amerghazal7.github.io/overlume/overlume-release.asc`).
   GPG imported into a temp `GNUPGHOME` from secrets, removed on exit.
-- [ ] **Step 3: Check** — `tools/release/channel_smoke.sh repo SITE_DIR`
+- [x] **Step 3: Check** — `tools/release/channel_smoke.sh repo SITE_DIR`
   serves the built site with `python3 -m http.server` and, in
   `ubuntu:22.04`, `debian:12`, `almalinux:8`, `fedora:40` containers, adds
   the repo exactly as the README will say (apt: keyring to
@@ -1031,6 +1031,25 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   `curl -s -o /dev/null -w '%{http_code}'` on the live docs index after the
   first deploy prints 200). **Commit**
   `feat(release): signed apt/yum repos on GitHub Pages alongside API docs`.
+
+**Task 10 results (2026-10-06, PARTIAL: local checks green, hosted `pages.yml` dry run NOT yet run):**
+- Local (inputs = run 37468626796 `pkg-linux-*`, real key): `build_apt_repo.sh` + `build_yum_repo.sh` PASS
+  (InRelease/Release/Release.gpg verify; `repomd.xml.asc` verifies for x86_64 and aarch64; served key == committed
+  `packaging/keys/overlume-release.asc`); failing-first: no key env → exit 1. `pick_releases.sh` self-checked
+  (fits / budget-truncated / N=0 → exit 1). `channel_smoke.sh repo SITE` PASS on ubuntu:22.04, debian:12,
+  almalinux:8, fedora:40 (add repo, install `overlume`, build consumer, `--expect-render`); tamper (byte 200 of
+  InRelease flipped) → `apt-get update` refused; restored → installs again. `check_docs_links.py` clean.
+- Deviations: (1) `release.yml` untouched: no `pages` job exists yet, Task 11 owns the job graph and calls
+  `pages.yml` (`workflow_call` is ready). (2) Docs HTML stays at the site root (unchanged URLs); `docs.yml` is
+  now `pull_request` + `workflow_call` and uploads `docs-html`, `pages.yml` reuses it. (3) On `push` with no
+  packaged release yet (v0.1.0 has no deb/rpm assets) `pages.yml` deploys docs with a `::warning::` instead of
+  failing; dispatch/call still fail when N < 1. (4) Dry runs before a packaged release exist take packages from
+  `run_id` (a release.yml run's `pkg-linux-*` artifacts). (5) Signing uses reprepro `SignWith` with loopback
+  passphrase from a temp GNUPGHOME (`lib_gpg.sh`).
+- Open: `pages.yml` is unregistered (only on the branch; `gh workflow run` 404s). A temporary
+  `push: branches: [release-packaging]` trigger (deploy guarded to main) was needed to register it; that push was
+  blocked by the permission classifier and awaits the user's decision. Linux gate deferred (package temp 77 C,
+  CARLA running); Task 10 touches no build code.
 
 ### Task 11: Release orchestration and integrity
 
