@@ -211,6 +211,7 @@ add_library(overlume_node_lib SHARED
   src/adapters/path.cpp
   src/adapters/ogm.cpp
   src/adapters/grid_placement.cpp
+  src/adapters/height_grid.cpp
   src/adapters/collision.cpp
   src/adapters/generic_marker.cpp
   src/adapters/tf_axes.cpp
@@ -381,6 +382,21 @@ if(BUILD_TESTING)
     ${OVERLUME_DIR}/include)
   ament_target_dependencies(test_ogm_adapter ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_ogm_adapter ${yaml_cpp_vendor_TARGETS} overlume_node_test_paths)
+
+  ament_add_gtest(test_height_grid_adapter
+    test/test_height_grid_adapter.cpp
+    src/adapters/height_grid.cpp
+    src/adapters/grid_placement.cpp
+    src/profile.cpp
+    src/frame_transform.cpp
+    src/adapters/dynamic_objects.cpp
+    test/fixture_msgs.cpp)
+  target_include_directories(test_height_grid_adapter PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test
+    ${OVERLUME_DIR}/include)
+  ament_target_dependencies(test_height_grid_adapter ${THIS_PACKAGE_DEPS})
+  target_link_libraries(test_height_grid_adapter ${yaml_cpp_vendor_TARGETS} overlume_node_test_paths)
 
   ament_add_gtest(test_grid_placement
     test/test_grid_placement.cpp

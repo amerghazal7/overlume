@@ -16,6 +16,7 @@ void SceneAssembly::clear() {
     markers.clear();
     point_clouds.clear();
     trajectory_carpets.clear();
+    height_grids.clear();
     respined_carpet_points.clear();
 }
 
@@ -83,6 +84,8 @@ void SceneAssembly::point_at(overlume::SceneGraph& scene) const {
     scene.point_cloud_count = static_cast<uint32_t>(point_clouds.size());
     scene.trajectory_carpets = trajectory_carpets.data();
     scene.trajectory_carpet_count = static_cast<uint32_t>(trajectory_carpets.size());
+    scene.height_grids = height_grids.data();
+    scene.height_grid_count = static_cast<uint32_t>(height_grids.size());
 }
 
 void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags) {
