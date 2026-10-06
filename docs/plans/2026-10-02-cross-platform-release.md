@@ -889,7 +889,7 @@ installed beside `overlume.dll` (`InstallRequiredSystemLibraries`, component `ov
 x64 junk archive -> exit 1, arm64 -> exit 2); (b) **deviation: MSVC toolset pin broken on arm64** — `windows-11-arm`
 only carries VS 18 / MSVC v145 (cl 19.51, toolset 14.51), not the plan's v143; x64 is v143 (19.44). Consumer impact:
 arm64 static package needs a VS 2026 linker and VC runtime >= 14.51; x64 static needs VS 2022 >= 17.14 / runtime >= 14.44
-(status.md gap 14); (c) SSIM floor for Windows reverted to 0.98, verified on the dry run below.
+(status.md gap 14); (c) SSIM floor for Windows reverted to 0.98: x64 passed 287/287 cpu + 11/11 gpu on dry run 37398344489 (fully green, all platforms).
 **Known limitation (not fixed): no OpenGL frame renders on Windows arm64 CI.** mesa-dist-win publishes x64 and
 x86 builds only (checked across all of its releases), and the hosted arm64 runner has no OpenGL 4.1 driver, so
 `platform_wgl.cpp` returns `nullptr` from `create_renderer` there (probe), the arm64 `gpu` tests and the arm64
