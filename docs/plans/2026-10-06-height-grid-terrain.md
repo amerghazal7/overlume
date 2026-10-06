@@ -23,7 +23,8 @@
 | 7 Node wiring, layer flag, offroad profile | done | `d4f8fd3` |
 | 8 Perception encoder and live probe | done | `873bf8a` (probe; perception edits uncommitted in the perception repo) |
 | 9 Goldens | done (promoted by the user, v2 ramps) | `a293191` |
-| 10 Docs, status and live acceptance | done (see Live acceptance results) | this commit |
+| 10 Docs, status and live acceptance | done (see Live acceptance results) | `f49f362` |
+| Follow-up: GUI `height_grids` switch (closes the Task 7 gap: `LAYER_NAMES` in `tools/vcam_gui.py` / `tools/vcam_ws_bridge.py` lacked it, so the terrain toggled only via `ros2 param set`) | done | the `feat(gui)` commit after `f49f362` |
 
 ### Live acceptance results (2026-10-06, CARLA offroad stack, RTX 3090)
 
