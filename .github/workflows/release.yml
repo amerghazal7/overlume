@@ -1178,9 +1178,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     env:
-      # vcpkg tag 2026.07.29, pinned by commit; conan pinned by version.
+      # vcpkg tag 2026.07.29, pinned by commit; Conan from its self-contained release archives
+      # (conan-io/conan 2.31.2-SHA-256.txt), SHA256 pinned here and checked before extraction.
       VCPKG_COMMIT: 9e593bb18ea69cc5095e012465dcd675a822ed0d
       CONAN_VERSION: "2.31.2"
+      CONAN_SHA256_LINUX: 6998acad336a58711f79029fd4aca71434e6fb9613da0d79a007f0c2bcbcb314
+      CONAN_SHA256_MACOS: 30c9d93167ae7936c87d831561df27fbbdce83cbc89e9feb329fa85dc8d65ebe
+      CONAN_SHA256_WINDOWS: 6009028b38b9a4ad1c01ea8d7537ee03ec46cbe9cf4928b9c758bc0f96b469ac
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1196,7 +1200,7 @@ jobs:
           name: ${{ matrix.pkg }}
           path: pkgs
 
-      - name: vcpkg (pinned commit) and Conan (pinned version)
+      - name: vcpkg (pinned commit) and Conan (pinned archive checksum)
         shell: bash
         run: |
           set -euo pipefail
@@ -1209,11 +1213,24 @@ jobs:
           [ "$(git rev-parse HEAD)" = "$VCPKG_COMMIT" ]
           if [ "$RUNNER_OS" = Windows ]; then cmd //c bootstrap-vcpkg.bat -disableMetrics; else ./bootstrap-vcpkg.sh -disableMetrics; fi
           echo "VCPKG_ROOT=$root/vcpkg" >> "$GITHUB_ENV"
-          PY=python3; command -v python3 > /dev/null || PY=python
-          "$PY" -m venv "$root/conan-venv"
-          bin="$root/conan-venv/bin"; [ -d "$bin" ] || bin="$root/conan-venv/Scripts"
-          "$bin/python" -m pip install -q "conan==$CONAN_VERSION"
-          echo "$bin" >> "$GITHUB_PATH"
+          case "$RUNNER_OS" in
+            Linux)   cname=linux-x86_64.tgz;   csha="$CONAN_SHA256_LINUX";   cbin="$root/conan/bin";;
+            macOS)   cname=macos-arm64.tgz;    csha="$CONAN_SHA256_MACOS";   cbin="$root/conan/bin";;
+            Windows) cname=windows-x86_64.zip; csha="$CONAN_SHA256_WINDOWS"; cbin="$root/conan";;
+          esac
+          cfile="conan-$CONAN_VERSION-$cname"
+          curl -fsSL -o "$root/$cfile" "https://github.com/conan-io/conan/releases/download/$CONAN_VERSION/$cfile"
+          if command -v sha256sum > /dev/null; then sum=(sha256sum); else sum=(shasum -a 256); fi
+          (cd "$root" && echo "$csha  $cfile" | "${sum[@]}" -c -)
+          mkdir "$root/conan"
+          if [ "$RUNNER_OS" = Windows ]; then
+            PY=python3; command -v python3 > /dev/null || PY=python
+            "$PY" -m zipfile -e "$root/$cfile" "$root/conan"
+          else
+            tar -xzf "$root/$cfile" -C "$root/conan"
+          fi
+          echo "$cbin" >> "$GITHUB_PATH"
+          echo "CONAN_BIN_DIR=$cbin" >> "$GITHUB_ENV"
 
       - name: Linux EGL/GLES runtime of the shared library
         if: ${{ runner.os == 'Linux' }}
