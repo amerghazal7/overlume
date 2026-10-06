@@ -20,7 +20,7 @@
 | 4 Ground replacement (deviation: `DiscardReveals*` threshold 10 -> 5; measured ~9.5 with the hole, ~0.5 reverted, light_clay quality 1; a theme change pushing it toward 5 is a signal, not a flake) | done | |
 | 5 Grid placement helper | done | |
 | 6 Profile keys, adapter, SceneAssembly | done | |
-| 7 Node wiring, layer flag, offroad profile | pending | |
+| 7 Node wiring, layer flag, offroad profile | done | |
 | 8 Perception encoder and live probe | pending | (probe only; perception change uncommitted) |
 | 9 Goldens | pending (human promotion) | |
 | 10 Docs, status and live acceptance | pending | |
@@ -5787,13 +5787,14 @@ Expected: `PASS` on the rate, unknown-mask and correlation lines, exit code 0.
 Run: `cd $WORKTREE && LIVE_SIM_TIME=true tools/validate_visual_mode.sh --live --profile robot-offroad` (runs the worktree's `ros/install`; stop any live rig started from the main checkout first, since both use the same ROS domain and node name)
 Check in mode 3, and capture a frame of each for the user:
 1. Terrain is visible; berms and walls rise through the cost grids; ditches and downhill slopes are visible (not buried by the clay ground).
-2. `ros2 param set /overlume_node layer_height_grids false` hides the terrain and the clay ground comes back; `true` restores it.
+2. `ros2 param set /overlume_node layer_height_grids false` hides the terrain and the clay ground comes back (the `/debug_ogm_2` diagnostics row keeps counting msgs while hidden); `true` restores it. The node log shows `height_grid: 1 row(s) subscribed` at startup. (Task 7 review: the subscription, per-tick gate, diagnostics row and teardown clears are covered only by compilation; these checks are their acceptance.)
 3. Modes 1 and 2 show no terrain.
 4. `/overlume_node/diagnostics` has a `/debug_ogm_2` row with `message: ok`, `dropped_malformed: 0`, `dropped_no_tf: 0`. Its `render_ms` p50 is within 3 ms of a run with `layer_height_grids false` (acceptance 3).
 
 - [ ] **Step 6: Ledgers**
 
 - In this plan's Status ledger, mark each task done with its commit hash (from `git log --oneline main..feat/height-grid`).
+- In `docs/status.md`, record the known gap from the Task 7 review: `LAYER_NAMES` in `tools/vcam_ws_bridge.py` / `tools/vcam_gui.py` has no `height_grids` entry, so the terrain toggles only via `ros2 param set /overlume_node layer_height_grids`, not from the GUI.
 - In `docs/status.md`, add a Shipped row:
 
 ```markdown

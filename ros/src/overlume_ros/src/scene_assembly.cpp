@@ -97,18 +97,19 @@ void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags) {
     if (!flags.markers) asm_.markers.clear();
     if (!flags.point_clouds) asm_.point_clouds.clear();
     if (!flags.trajectory_carpet) asm_.trajectory_carpets.clear();
+    if (!flags.height_grids) asm_.height_grids.clear();
 }
 
-static_assert(sizeof(LayerFlags) == 8,
+static_assert(sizeof(LayerFlags) == 9,
               "LayerFlags gained a category -- extend "
               "mode_content_mask()'s BOWL/HYBRID masks below or it renders in modes 1/2");
 
 LayerFlags mode_content_mask(RenderMode mode) {
     switch (mode) {
         case RenderMode::BOWL:
-            return LayerFlags{false, false, false, false, false, false, false, false};
+            return LayerFlags{false, false, false, false, false, false, false, false, false};
         case RenderMode::HYBRID:
-            return LayerFlags{false, false, false, false, false, false, true, false};
+            return LayerFlags{false, false, false, false, false, false, true, false, false};
         case RenderMode::FREE_LOOK:
         default:
             return LayerFlags{};
@@ -136,6 +137,7 @@ LayerFlags compose_layer_gates(const LayerFlags& user, const LayerFlags& mask) {
         user.markers && mask.markers,
         user.point_clouds && mask.point_clouds,
         user.trajectory_carpet && mask.trajectory_carpet,
+        user.height_grids && mask.height_grids,
     };
 }
 

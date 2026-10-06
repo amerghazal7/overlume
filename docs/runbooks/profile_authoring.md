@@ -45,7 +45,7 @@ all keys `KnownRowKeys()` recognizes (profile.cpp:93–101):
 | `type` | yes, except `adapter: tf_axes` | — | ROS message type string, must be one `adapter` accepts (see below) |
 | `adapter` | **always** | — | one of `dynamic_objects\|path\|hd_map\|ogm\|collision\|generic\|tf_axes\|point_cloud\|trajectory_carpet\|height_grid` |
 | `role` | **always** | — | closed set **per adapter** (see table below) |
-| `update_topic` | no | `""` | **`adapter: ogm` only** |
+| `update_topic` | no | `""` | **`adapter: ogm` only** (`height_grid` rejects it) |
 | `timeout_sec` | no | `2.0` | must be `>= 1.0` |
 | `max_rate_hz` | no | `0.0` | must be `>= 0`; `0` = no limit |
 | `ns_default` | no | `polyline` | `drop\|polyline\|polygon` |
@@ -196,7 +196,7 @@ author needs to reason about placement/behavior.
 - **`trajectory_carpet`** — `MarkerArray` (`TRIANGLE_LIST`, quads of 6
   points) → a centerline-station ribbon, stacked with the `PathRole` ribbons.
   One row ships today; a second would need its own topic, same shape.
-- **`height_grid`** — `OccupancyGrid` carrying heights (not occupancy) → `HeightGridLayer` (terrain mesh). At most one `height_grid` row per profile (the renderer's ground hole follows a single terrain layer); `update_topic` is rejected. The layer-gate / mode-content table below is added by the layer-gate task, not here.
+- **`height_grid`** — `OccupancyGrid` carrying heights (not occupancy) → `HeightGridLayer` (terrain mesh). At most one `height_grid` row per profile (the renderer's ground hole follows a single terrain layer); `update_topic` is rejected. `layer_height_grids` (below) is its whole-layer disable; it renders only in `render_mode` 3 (hidden in modes 1/2 by the per-mode mask).
 - **`tf_axes`** — no topic/type (see above); generates 3 colored `LINE_LIST`
   axes from the live tf2 buffer every tick. Ships commented out by default
   (noisy on a stack with many frames).
@@ -213,6 +213,7 @@ a restart (`on_params()`, `overlume_node.cpp`):
 | `path` → `paths` | `layer_paths` |
 | `hd_map` → `map_elements` | `layer_map_elements` |
 | `ogm` → `grids` | `layer_grids` |
+| `height_grid` → `height_grids` | `layer_height_grids` (mode 3 only) |
 | `collision` → `alerts` | `layer_alerts` |
 | `generic` → `markers` | `layer_markers` |
 | `point_cloud` → `point_clouds` | `layer_point_clouds` |

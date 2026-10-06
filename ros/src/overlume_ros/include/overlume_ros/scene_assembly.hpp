@@ -37,6 +37,7 @@ struct LayerFlags {
     bool markers = true;
     bool point_clouds = true;
     bool trajectory_carpet = true;
+    bool height_grids = true;
 };
 
 void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags);

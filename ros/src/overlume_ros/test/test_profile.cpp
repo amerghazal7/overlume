@@ -704,6 +704,15 @@ TEST(Profile, ShippedRobotOffroadProfileTargetsTheRealRobotTopics) {
     EXPECT_EQ(lidar->frame_id, "seyond")
         << "the driver stamps base_link but publishes in the 180-degree-yawed lidar frame";
     EXPECT_EQ(find_row(*p, "/perception/dynamic_ogm"), nullptr);
+    const auto* terrain = find_row(*p, "/debug_ogm_2");
+    ASSERT_NE(terrain, nullptr);
+    EXPECT_EQ(terrain->adapter, "height_grid");
+    EXPECT_EQ(terrain->role, "terrain");
+    EXPECT_EQ(terrain->encoding, "height_linear");
+    EXPECT_DOUBLE_EQ(terrain->height_min_m, -2.0)
+        << "must match debug_height_encoding in the perception geometric_cost_map_config.yaml";
+    EXPECT_DOUBLE_EQ(terrain->height_max_m, 3.0);
+    EXPECT_TRUE(terrain->best_effort);
 }
 
 namespace {
