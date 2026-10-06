@@ -14,7 +14,7 @@
 
 | Task | State | Commit |
 |---|---|---|
-| 1 Public scene API and deep copy | pending | |
+| 1 Public scene API and deep copy | done | |
 | 2 Theme tokens | pending | |
 | 3 Heightfield renderer | pending | |
 | 4 Ground replacement | pending | |

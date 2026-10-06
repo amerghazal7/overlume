@@ -50,6 +50,22 @@ void OwnedScene::assign(const overlume::SceneGraph& src) {
     }
     view.grids = grids.data();
 
+    height_grids.assign(src.height_grids, src.height_grids + src.height_grid_count);
+    height_grid_cells.resize(src.height_grid_count);
+    for (uint32_t i = 0; i < src.height_grid_count; ++i) {
+        const HeightGridLayer& s = src.height_grids[i];
+        const size_t cell_count =
+            s.heights_m ? static_cast<size_t>(s.width_cells) * s.height_cells : 0;
+        if (cell_count > 0) {
+            height_grid_cells[i].assign(s.heights_m, s.heights_m + cell_count);
+            height_grids[i].heights_m = height_grid_cells[i].data();
+        } else {
+            height_grid_cells[i].clear();
+            height_grids[i].heights_m = nullptr;
+        }
+    }
+    view.height_grids = height_grids.data();
+
     alerts.assign(src.alerts, src.alerts + src.alert_count);
     alert_points.resize(src.alert_count);
     for (uint32_t i = 0; i < src.alert_count; ++i) {
