@@ -59,6 +59,7 @@
 #include <geometry/SurfaceOrientation.h>
 
 #include <math/mat4.h>
+#include <math/vec2.h>
 #include <math/vec3.h>
 #include <math/vec4.h>
 #include <math/quat.h>
@@ -68,6 +69,8 @@
 
 #include "clay_filamat.h"
 #include "clay_faded_filamat.h"
+#include "ground_clay_filamat.h"
+#include "ground_lines_filamat.h"
 #include "clay_translucent_filamat.h"
 #include "ribbon_emissive_filamat.h"
 #include "ribbon_faded_filamat.h"
@@ -821,8 +824,17 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
                                         overlume::materials::kclay_fadedFilamatSize)
                                .build(*engine);
 
-    r->groundMaterial = r->clayMaterial->createInstance();
-    r->gridMaterial = r->clayFadedMaterial->createInstance();
+    r->groundClayMaterial = filament::Material::Builder()
+                                .package(overlume::materials::kground_clayFilamat,
+                                         overlume::materials::kground_clayFilamatSize)
+                                .build(*engine);
+    r->groundLinesMaterial = filament::Material::Builder()
+                                 .package(overlume::materials::kground_linesFilamat,
+                                          overlume::materials::kground_linesFilamatSize)
+                                 .build(*engine);
+
+    r->groundMaterial = r->groundClayMaterial->createInstance();
+    r->gridMaterial = r->groundLinesMaterial->createInstance();
     r->laneMaterial = r->clayMaterial->createInstance();
     r->laneCenterlineMaterial = r->clayMaterial->createInstance();
     r->laneBoundaryMaterial = r->clayMaterial->createInstance();
@@ -1127,6 +1139,8 @@ void destroy_renderer(VisualRenderer* r) {
     if (r->trajectoryCarpetFadedMaterial) r->engine->destroy(r->trajectoryCarpetFadedMaterial);
     if (r->groundMaterial) r->engine->destroy(r->groundMaterial);
     if (r->gridMaterial) r->engine->destroy(r->gridMaterial);
+    if (r->groundClayMaterial) r->engine->destroy(r->groundClayMaterial);
+    if (r->groundLinesMaterial) r->engine->destroy(r->groundLinesMaterial);
     if (r->clayMaterial) r->engine->destroy(r->clayMaterial);
     if (r->clayFadedMaterial) r->engine->destroy(r->clayFadedMaterial);
     if (r->ambient) r->engine->destroy(r->ambient);
@@ -1179,6 +1193,39 @@ void update_ground_grid_transform(VisualRenderer& r, const EgoState& ego) {
     if (gridInst.isValid()) tm.setTransform(gridInst, xf);
 }
 
+void update_ground_hole(VisualRenderer& r, const SceneGraph& s) {
+    VisualRenderer::GroundHole hole{};
+    if (s.height_grids != nullptr && s.height_grid_count > 0) {
+        const HeightGridLayer& g = s.height_grids[0];
+        const float alpha = detail::SceneBuffer::staleness_alpha(
+            s.sim_time_sec, g.last_update_sec, kStaleFadeStartSec, kStaleFadeTimeoutSec);
+        // Same condition under which update_height_grids draws the terrain (spec section 6:
+        // the hole is open only while the terrain is). heights_m == nullptr draws nothing.
+        if (g.width_cells >= 2 && g.height_cells >= 2 && g.resolution_m > 0.0 &&
+            g.heights_m != nullptr && alpha > 0.0f) {
+            const double c = std::cos(g.yaw_rad);
+            const double sn = std::sin(g.yaw_rad);
+            const double lx = 0.5 * g.width_cells * g.resolution_m;
+            const double ly = 0.5 * g.height_cells * g.resolution_m;
+            hole.enabled = true;
+            hole.center[0] = static_cast<float>(g.origin.x + c * lx - sn * ly);
+            hole.center[1] = static_cast<float>(g.origin.y + sn * lx + c * ly);
+            hole.axis_x[0] = static_cast<float>(c);
+            hole.axis_x[1] = static_cast<float>(sn);
+            hole.half_extent[0] = static_cast<float>(0.5 * (g.width_cells - 1) * g.resolution_m);
+            hole.half_extent[1] = static_cast<float>(0.5 * (g.height_cells - 1) * g.resolution_m);
+        }
+    }
+    r.groundHole = hole;
+    for (filament::MaterialInstance* m : {r.groundMaterial, r.gridMaterial}) {
+        m->setParameter("holeCenter", filament::math::float2{hole.center[0], hole.center[1]});
+        m->setParameter("holeAxisX", filament::math::float2{hole.axis_x[0], hole.axis_x[1]});
+        m->setParameter("holeHalfExtent",
+                        filament::math::float2{hole.half_extent[0], hole.half_extent[1]});
+        m->setParameter("holeEnabled", hole.enabled ? 1.0f : 0.0f);
+    }
+}
+
 }
 
 bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
@@ -1194,6 +1241,7 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     update_ribbons(*r, r->scene_buffer.active());
     update_ground_grids(*r, r->scene_buffer.active());
     update_height_grids(*r, r->scene_buffer.active());
+    update_ground_hole(*r, r->scene_buffer.active());
     update_alert_polygons(*r, r->scene_buffer.active());
     update_generic_markers(*r, r->scene_buffer.active());
     update_point_clouds(*r, r->scene_buffer.active());

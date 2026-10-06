@@ -33,4 +33,9 @@ int height_grid_material_state(overlume::VisualRenderer* r, size_t slot);
 // no faded instance (opaque, removed, or out of range).
 float height_grid_fade_roughness(overlume::VisualRenderer* r, size_t slot);
 
+// Returns whether the ground hole is enabled; outputs (any may be null) are the hole centre,
+// the unit +x axis of the grid and the half extents, all in world xy metres.
+bool ground_hole_state(overlume::VisualRenderer* r, float out_center[2], float out_axis_x[2],
+                       float out_half_extent[2]);
+
 }

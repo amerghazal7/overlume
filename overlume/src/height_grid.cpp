@@ -376,4 +376,16 @@ float height_grid_fade_roughness(overlume::VisualRenderer* r, size_t slot) {
     return s.fadeInstance != nullptr ? s.fadeInstance->getParameter<float>("roughness") : -1.0f;
 }
 
+bool ground_hole_state(overlume::VisualRenderer* r, float out_center[2], float out_axis_x[2],
+                       float out_half_extent[2]) {
+    if (r == nullptr) return false;
+    const auto& h = r->groundHole;
+    for (size_t k = 0; k < 2; ++k) {
+        if (out_center) out_center[k] = h.center[k];
+        if (out_axis_x) out_axis_x[k] = h.axis_x[k];
+        if (out_half_extent) out_half_extent[k] = h.half_extent[k];
+    }
+    return h.enabled;
+}
+
 }

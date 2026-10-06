@@ -126,6 +126,15 @@ public:
     filament::Material* clayFadedMaterial = nullptr;
     filament::MaterialInstance* groundMaterial = nullptr;
     filament::MaterialInstance* gridMaterial = nullptr;
+    filament::Material* groundClayMaterial = nullptr;
+    filament::Material* groundLinesMaterial = nullptr;
+    // Footprint of height_grids[0] in world xy; the ground and grid instances discard inside it.
+    struct GroundHole {
+        bool enabled = false;
+        float center[2] = {0.0f, 0.0f};
+        float axis_x[2] = {1.0f, 0.0f};
+        float half_extent[2] = {0.0f, 0.0f};
+    } groundHole;
     filament::MaterialInstance* egoMaterial = nullptr;
     detail::Float3 egoMaterialBaseColor{};
     Mesh ground;

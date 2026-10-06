@@ -17,7 +17,7 @@
 | 1 Public scene API and deep copy | done | |
 | 2 Theme tokens | done | |
 | 3 Heightfield renderer | done | |
-| 4 Ground replacement | pending | |
+| 4 Ground replacement (deviation: `DiscardReveals*` threshold 10 -> 5; measured ~9.5 with the hole, ~0.5 reverted, light_clay quality 1; a theme change pushing it toward 5 is a signal, not a flake) | done | |
 | 5 Grid placement helper | pending | |
 | 6 Profile keys, adapter, SceneAssembly | pending | |
 | 7 Node wiring, layer flag, offroad profile | pending | |
@@ -56,6 +56,7 @@ Known limits accepted in this plan (not bugs):
 - `last_update_sec` comes from the node's sim clock, so on a paused `/clock` a new grid that arrives at the same sim time does not re-upload. The OGM path behaves the same way (Task 6).
 - The perception `debug_height_encoding` parse (block absent, or max <= min falling back to the defaults) has no automated check. Only `encode_height_cell` has one (Task 8).
 - The 3 ms per-update budget is measured only live, in Task 10.
+- The `ground_lines.mat` discard has no pixel check (Task 4). The ground grid lines are invisible in both shipped themes: `build_grid_lines` emits only line endpoints at +/-60 m (`kGroundHalfExtent`), past `grid.fade_end_m` 40, so every grid vertex has alpha 0 and nothing is drawn to discard. Reverting the discard leaves every `GroundHole` test green. That latent grid-fade defect predates this plan; a check becomes possible once lines are subdivided (or a fixture theme fades past 85 m).
 
 
 
