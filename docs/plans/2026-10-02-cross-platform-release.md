@@ -877,12 +877,19 @@ because the native build makes its own; (5) the cesium-native vcpkg triplets dro
 Windows` (it selects vcpkg's generic toolchain, which finds no compiler); (6) FileFixtureAssetAccessor strips
 the slash before a drive letter in `file:///D:/...` URIs, ThemeDir tests compare `lexically_normal()` paths,
 `test_gltf_normals` adds yaml-cpp's static define, `M_PI`/`NOMINMAX`/`_CRT_SECURE_NO_WARNINGS` are defined
-for MSVC, and Windows goldens use the Android SSIM floor 0.97 (never exercised below the default so far);
+for MSVC, and Windows goldens keep the default SSIM floor 0.98 (an unmeasured 0.97 floor was removed in fix round 1; Android alone keeps 0.97);
 (7) POSIX-script ctests (`check_pod_header`, `shared_exports_selftest`, nm hygiene) are not registered on
 Windows (headers are identical on every leg; Windows has the `.ps1` pair); (8) the VC runtime DLLs are
 installed beside `overlume.dll` (`InstallRequiredSystemLibraries`, component `overlume`); (9) the plan's
 "Azure Trusted Signing" variant of `sign.ps1` is not implemented, only the PFX path
 (`WINDOWS_SIGNING_PFX_BASE64`/`WINDOWS_SIGNING_PFX_PASSWORD`, absent = warning), since neither is provisioned.
+**Fix round 1:** (a) fail-closed GPU path: only `install_mesa.ps1` exit 2 (arm64, no build) may take the
+`--expect-no-gpu` warning path; on x64 a Mesa install failure (exit 1), a missing GL context with Mesa present, or
+`create_renderer` nullptr in the smoke fails the job (self-test `tools/windows/test_install_mesa.ps1` asserts
+x64 junk archive -> exit 1, arm64 -> exit 2); (b) **deviation: MSVC toolset pin broken on arm64** — `windows-11-arm`
+only carries VS 18 / MSVC v145 (cl 19.51, toolset 14.51), not the plan's v143; x64 is v143 (19.44). Consumer impact:
+arm64 static package needs a VS 2026 linker and VC runtime >= 14.51; x64 static needs VS 2022 >= 17.14 / runtime >= 14.44
+(status.md gap 14); (c) SSIM floor for Windows reverted to 0.98, verified on the dry run below.
 **Known limitation (not fixed): no OpenGL frame renders on Windows arm64 CI.** mesa-dist-win publishes x64 and
 x86 builds only (checked across all of its releases), and the hosted arm64 runner has no OpenGL 4.1 driver, so
 `platform_wgl.cpp` returns `nullptr` from `create_renderer` there (probe), the arm64 `gpu` tests and the arm64

@@ -33,7 +33,9 @@ switch ($Phase) {
     'test' {
         # Software OpenGL for the render tests: Mesa llvmpipe beside the test executables.
         & (Join-Path $PSScriptRoot 'install_mesa.ps1') -Arch $Arch -Dest $b
-        $mesa = ($LASTEXITCODE -eq 0)
+        $rc = $LASTEXITCODE   # 0 installed, 2 no build for this arch (documented no-GPU path), 1 checksum/extract failure
+        if ($rc -ne 0 -and $rc -ne 2) { Fail "Mesa llvmpipe install ($Arch): checksum/extract failed (exit $rc)" }
+        $mesa = ($rc -eq 0)
         $env:GALLIUM_DRIVER = 'llvmpipe'
         # FiftyObjectsSceneUpdateUnderTwoMilliseconds is a wall-clock budget a shared runner cannot promise
         # (docs/status.md, known gap 11).
@@ -43,7 +45,9 @@ switch ($Phase) {
         if ($LASTEXITCODE -ne 0) { $failed += 'ctest -L cpu' }
         $probe = (ctest --test-dir $b -R '^HelloFrame\.RendersDistinctSkyAndGround$' -V | Out-String)
         if ($probe -match 'No GPU/EGL device') {
-            $why = if ($mesa) { 'Mesa llvmpipe loaded but no OpenGL 4.1 context was created' } else { "no Mesa llvmpipe build exists for Windows $Arch" }
+            # Only a missing Mesa build (arm64) may skip rendering; with Mesa installed a missing context is a regression.
+            if ($mesa) { Fail "no OpenGL 4.1 context on $Arch despite Mesa llvmpipe (gpu tests incl. row-0-is-top would be skipped)" }
+            $why = "no Mesa llvmpipe build exists for Windows $Arch"
             Write-Output "::warning::no OpenGL 4.1 context on this runner ($Arch): $why. gpu-labelled tests (incl. row-0-is-top orientation) not run; smoke runs --expect-no-gpu"
         }
         else {

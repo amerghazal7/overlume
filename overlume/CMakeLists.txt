@@ -601,7 +601,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
         target_compile_definitions(${_test_name} PRIVATE
             OVERLUME_TEST_DATA_DIR="${OVERLUME_TEST_DATA_DIR_RUNTIME}"
             OVERLUME_TMP_DIR="${OVERLUME_TEST_TMP_DIR_RUNTIME}"
-            $<$<OR:$<BOOL:${ANDROID}>,$<BOOL:${WIN32}>>:OVERLUME_GOLDEN_SSIM_MIN=0.97>
+            $<$<BOOL:${ANDROID}>:OVERLUME_GOLDEN_SSIM_MIN=0.97>
             OVERLUME_DEFAULT_THEME_DIR="${OVERLUME_TEST_DATA_DIR_RUNTIME}/assets/themes")
         include(GoogleTest)
         # Cross builds cannot run the binary at build time: list its tests when ctest loads.
