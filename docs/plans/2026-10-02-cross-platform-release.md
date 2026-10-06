@@ -848,9 +848,9 @@ path with the MSVC arm64 toolset, host `matc` from the x64 tarball),
 **Task 8 results (2026-10-06, complete; CI dry run 37390515517 on `fix(windows): file:// tile URIs, ...`, fully green:
 Windows x64 + arm64 build/test/package, clean-room install, sign-windows, plus every earlier leg).**
 Proved on CI: both architectures build (Ninja, MSVC `cl`, Release, `/MD`, Cesium ON), link the shared
-`overlume.dll` and the static archive, pass all 287 `cpu` tests; x64 also passes the 11 `gpu` tests
+`overlume.dll` and the static archive, pass all 287 `cpu` tests; both also pass the 11 `gpu` tests (arm64 only after fix round 2)
 (including `ReadbackOrientation.Row0IsTopOfImage`, the Windows row-0-is-top proof) on Mesa llvmpipe
-26.2.4 (pal1000/mesa-dist-win, SHA256-pinned); `shared_exports` (`check_shared_exports.ps1`, dumpbin
+26.2.4 (x64 pal1000/mesa-dist-win, arm64 mmozeiko/build-mesa, SHA256-pinned); `shared_exports` (`check_shared_exports.ps1`, dumpbin
 /exports + /dependents) passes on both. `package-windows-build` makes `overlume-0.1.0-windows-<arch>.exe`
 (NSIS, 109 MB on x64) + `.zip`; `package-windows` on a fresh runner silently installs
 (`/S /D=C:\overlume`), builds the consumer (`find_package(overlume)`, own vcpkg yaml-cpp
@@ -890,11 +890,20 @@ x64 junk archive -> exit 1, arm64 -> exit 2); (b) **deviation: MSVC toolset pin 
 only carries VS 18 / MSVC v145 (cl 19.51, toolset 14.51), not the plan's v143; x64 is v143 (19.44). Consumer impact:
 arm64 static package needs a VS 2026 linker and VC runtime >= 14.51; x64 static needs VS 2022 >= 17.14 / runtime >= 14.44
 (status.md gap 14); (c) SSIM floor for Windows reverted to 0.98: x64 passed 287/287 cpu + 11/11 gpu on dry run 37398344489 (fully green, all platforms).
-**Known limitation (not fixed): no OpenGL frame renders on Windows arm64 CI.** mesa-dist-win publishes x64 and
-x86 builds only (checked across all of its releases), and the hosted arm64 runner has no OpenGL 4.1 driver, so
-`platform_wgl.cpp` returns `nullptr` from `create_renderer` there (probe), the arm64 `gpu` tests and the arm64
-render smoke are not run (workflow `::warning::`), and the arm64 smoke runs `--expect-no-gpu`. Row-0-is-top on
-arm64 Windows needs a real arm64 device or a Mesa arm64 build. Signing is unexercised end to end on
+**Fix round 2 (dry run 37403926539):** (a) **correction of round 1:** the claim "no Mesa llvmpipe build exists for
+Windows arm64" was false and the round-1 arm64 result was "112 cpu tests ran, 175 render tests skipped, 11 gpu tests
+not run, smoke `--expect-no-gpu`", not "287 cpu pass". mesa-dist-win's own release notes designate
+`mmozeiko/build-mesa` for ARM64; `install_mesa.ps1` now installs its statically linked `mesa-llvmpipe-arm64-26.2.4.7z`
+(SHA256-pinned, single `opengl32.dll`) beside the exes. **Deviation:** arm64 Mesa source is mmozeiko/build-mesa, not
+pal1000/mesa-dist-win. Result: arm64 now runs all 287 `cpu` tests (112 -> all pass, the render/golden tests included),
+11/11 `gpu` tests (incl. `ReadbackOrientation.Row0IsTopOfImage`) and the smoke in `render` mode (shared + static, NSIS
+install and ZIP), so the arm64 no-GPU limitation is gone; (b) `test_install_mesa.ps1` now also drives
+`build_windows.ps1 test`'s caller decision table through a stub `install_mesa.ps1` and a stub `ctest` (install exit 1 ->
+fail, no GL context with Mesa -> fail, exit 2 -> `::warning::` + pass; cases 1 and 2 pass on 46764ec, so it fails on
+revert); `smoke_windows.ps1`'s twin guards stay uncovered by a self-test (stubbing the vcpkg/consumer builds is
+heavy). The exit-2 warning path remains in the callers only for a future arch without a Mesa build; no current
+target takes it; (c) `sign` and `upload-artifact` steps of the Windows build job no longer carry `!cancelled()`, so a
+failed test step no longer signs or uploads. Signing is unexercised end to end on
 a real certificate (no secrets).
 
 ### Task 9: vcpkg overlay port + Conan recipe
