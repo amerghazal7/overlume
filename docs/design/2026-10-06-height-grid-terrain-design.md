@@ -141,7 +141,20 @@ Appended to the end of `SceneGraph`:
 - Vertex attributes: `POSITION` float3, `TANGENTS` float4, `CUSTOM0` float2 =
   `(height_m, known)` where `height_m` is the raw height (0 for unknown) and `known` is 1 or 0.
 - The vertex buffer is re-uploaded only when `last_update_sec`, the dimensions, the
-  resolution, the origin or the yaw change. A test hook counts uploads.
+  resolution, the yaw or `ground_bias_m` change. A test hook counts uploads.
+
+> Amendment (Task 3): the layer origin is not a re-upload trigger. Vertex positions are stored
+> relative to the origin and the renderable's transform carries it, so an origin-only change moves
+> the mesh without touching the vertex buffer. `ground_bias_m` is a trigger, as the "Theme push"
+> subsection already states. Pinned by HeightGrid.OriginMoveWithoutNewDataDoesNotReupload and
+> HeightGrid.ThemeSwitchChangingGroundBiasReuploads. The theme cross-fade lerps `ground_bias_m`,
+> so a switch between themes with different biases re-uploads every slot on every frame of the
+> transition (0.8 s by default); both shipped themes use -0.05, so only custom themes hit it.
+>
+> Known transient (Task 3): while a slot is in its stale fade (alpha in (0,1), at most 0.5 s) the
+> faded terrain renderable sits in the blended queue at default priority, so it overpaints the
+> ground-grid cost quads even though it lies below them (the documented Filament blended-queue
+> trap). Accepted; fix by lowering the faded renderable's priority if it is ever visible in review.
 
 ### Materials
 

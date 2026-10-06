@@ -228,6 +228,29 @@ public:
         uint32_t uploadCount = 0;
     };
     std::vector<GroundGridSlot> groundGridSlots;
+    filament::Material* heightGridMaterial = nullptr;
+    filament::Material* heightGridFadedMaterial = nullptr;
+    filament::MaterialInstance* heightGridInstance = nullptr;
+    filament::Texture* heightGridRampTexture = nullptr;
+    detail::HeightRampTable heightGridRamp;
+
+    struct HeightGridSlot {
+        Mesh mesh;
+        filament::MaterialInstance* fadeInstance = nullptr;
+        uint32_t width = 0, height = 0;
+        double resolution = 0.0;
+        double yaw = 0.0;
+        Vec3 origin{};              // bookkeeping only; tests read the TransformManager
+        double lastUpdateSec = -1.0;
+        uint32_t uploadCount = 0;
+        int materialState = 0;      // bookkeeping only; tests read the bound material instance
+        std::vector<float> cpuPositions;
+        std::vector<float> cpuCustom;
+        bool inScene = false;
+        float alpha = 0.0f;
+        float groundBias = 0.0f;
+    };
+    std::vector<HeightGridSlot> heightGridSlots;
 
     static constexpr size_t kAlertSeverityCount = 3;
     filament::MaterialInstance* alertMaterial[kAlertSeverityCount] = {};
