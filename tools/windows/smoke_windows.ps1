@@ -4,8 +4,9 @@
 # smoke_windows.ps1 -Prefix C:\overlume -Arch x64|arm64 -- clean-room consumer of an INSTALLED Windows
 # Overlume: builds tools/package_smoke against the prefix (find_package, the consumer's own vcpkg
 # yaml-cpp, theme_assets_dir = nullptr) with the shared component and with the static one, then runs
-# both. Renders a frame when an OpenGL 4.1 context exists (Mesa llvmpipe beside the exe on x64);
-# otherwise runs --expect-no-gpu and emits ::warning::no OpenGL -- which one happened is printed.
+# both. First runs --expect-no-gpu BEFORE Mesa is installed (System32 GDI GL 1.1: the platform_wgl
+# probe must return nullptr), then renders a frame with Mesa llvmpipe beside the exe (x64 and arm64).
+# The --expect-no-gpu/::warning:: render fallback is only for an arch without a Mesa build.
 # Needs the Visual Studio environment (tools/windows/vsenv.ps1), cmake, ninja and vcpkg.
 param(
     [Parameter(Mandatory = $true)][string]$Prefix,
