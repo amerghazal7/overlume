@@ -28,6 +28,7 @@ own per-task ledgers as the detailed record; this page is the roll-up.
 | Restructure Task 6 — LICENSE/NOTICE/SPDX, CONTRIBUTING, CoC, SECURITY, CHANGELOG, `.github` CI + release, one repo-wide clang-format | 2026-09-17 (2b96cc7, 790aa0a) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
 | Restructure Task 7 — graphify snapshot prune, vendored skill refresh, non-strict read hook, hooks documented in AGENTS.md, memory refresh | 2026-09-17 (adf901d) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
 | Restructure Task 8 — final cross-cutting review (50 findings fixed) + clean-worktree build; plan CLOSED | 2026-09-17 (see git log: `chore(restructure): Task 8`) | [`plans/2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md) |
+| Cross-platform release Task 8 — Windows x64 + arm64 (MSVC/WGL, NSIS+ZIP), `package-windows*` + `sign-windows` jobs | ☑ 2026-10-06 — dry run 37390515517 green | [`plans/2026-10-02-cross-platform-release.md`](plans/2026-10-02-cross-platform-release.md) |
 | Streamed environment tiles are culled to a configurable horizontal radius around the ego (`environment_tile_radius_m`, default 700 m; `radius=` on the `ion://` URI; 4/3 unload band) | 2026-09-24 | — |
 | Ribbon style tokens `ribbon.opacity` (colour alpha) and `ribbon.fade_start_m` / `fade_end_m` (metres ahead of the ego's clip point where a linear alpha ramp to zero runs; originally shipped as a fraction of ribbon length, re-specified 2026-09-24), applied to all three path roles via a new blended `ribbon_faded.mat`; shipped themes initially carried the tokens at their disabled values, so the ribbon golden is unchanged | 2026-09-24 | — |
 | Trajectory carpet honours the same `ribbon.opacity` / `ribbon.fade_*_m` tokens (alpha ramp baked into the carpet's UBYTE4 colour, material alpha multiplied), with a framebuffer-level check | 2026-09-24 | — |
@@ -152,6 +153,8 @@ accepts" list:
     image at `/opt/sysroot-aarch64.manifest`, not pinned).
 
 13. **OPEN 2026-10-05 — Metal rendering is unproven.** The hosted macOS runners' paravirtual GPU cannot drive Filament, so no Metal frame renders on CI (gpu tests, the macOS smoke render and the iOS simulator render are skipped with `::warning::`). Run the gpu ctest label and the smokes once on a real Mac (or a self-hosted macOS runner) before the first tagged release, including `ReadbackOrientation.Row0IsTopOfImage`. See `plans/2026-10-02-cross-platform-release.md` Task 7.
+
+14. **OPEN 2026-10-06 — Windows arm64 rendering is unproven and Windows signing is unexercised.** No Mesa llvmpipe build exists for Windows arm64 and the hosted `windows-11-arm` runner has no OpenGL 4.1 driver, so the arm64 gpu tests and render smoke are skipped with `::warning::` (the smoke runs `--expect-no-gpu`); run the gpu ctest label and the smoke once on a real arm64 Windows device (or with an arm64 Mesa build) before the first tagged release. `tools/windows/sign.ps1` has only run its no-secrets and self-signed-test paths; provision `WINDOWS_SIGNING_PFX_BASE64`/`WINDOWS_SIGNING_PFX_PASSWORD` (the Azure Trusted Signing variant is not implemented). See `plans/2026-10-02-cross-platform-release.md` Task 8.
 
 ## How to update this file
 

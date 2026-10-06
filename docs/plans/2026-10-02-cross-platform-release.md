@@ -821,29 +821,74 @@ Final verification 2026-10-06: dry run 37356177558 on b5feb4b (the Task 7 head) 
 path with the MSVC arm64 toolset, host `matc` from the x64 tarball),
 `overlume/CMakeLists.txt`, `OverlumePackaging.cmake`, `release.yml`.
 
-- [ ] **Step 1:** MSVC v143, `CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL`,
+- [x] **Step 1:** MSVC v143, `CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL`,
   `/utf-8 /permissive- /Zc:__cplusplus /EHsc`. Compile fixes in `src/` with
   portable code; `#ifdef _WIN32` only around OS API calls.
-- [ ] **Step 2:** `platform_wgl.cpp`: `{nullptr, Backend::OPENGL}` (Filament's
+- [x] **Step 2:** `platform_wgl.cpp`: `{nullptr, Backend::OPENGL}` (Filament's
   `PlatformWGL`, headless swap chain); libs `opengl32 gdi32 user32`.
-- [ ] **Step 3:** `WINDOWS_EXPORT_ALL_SYMBOLS ON` on `overlume_shared`
+- [x] **Step 3:** `WINDOWS_EXPORT_ALL_SYMBOLS ON` on `overlume_shared`
   (`# ponytail: exports overlume's own objects only, never Filament/cesium
   archives; an OVERLUME_API header macro is the upgrade if the export table
   ever matters`). `check_shared_exports.ps1` (`dumpbin /exports`, fail on
   `filament|YAML|spdlog|Cesium`) is the Windows `shared_exports` ctest.
-- [ ] **Step 4:** CPack `NSIS;ZIP` per arch (`CPACK_NSIS_MODIFY_PATH ON`,
+- [x] **Step 4:** CPack `NSIS;ZIP` per arch (`CPACK_NSIS_MODIFY_PATH ON`,
   components `overlume` (required) + `static` (optional checkbox)).
-- [ ] **Step 5: Signing** `tools/windows/sign.ps1`: if `WINDOWS_SIGNING_*`
+- [x] **Step 5: Signing** `tools/windows/sign.ps1`: if `WINDOWS_SIGNING_*`
   set → `signtool sign /fd sha256 /tr http://timestamp.digicert.com /td sha256`
   (or Azure Trusted Signing action) on `overlume.dll` and the installer;
   else `::warning::`; check `signtool verify /pa` when signed.
-- [ ] **Step 6:** CI matrix `windows-x64` (`windows-2022`) and
+- [x] **Step 6:** CI matrix `windows-x64` (`windows-2022`) and
   `windows-arm64` (`windows-11-arm`): build, `ctest -L cpu`, GPU tests with
   Mesa llvmpipe `opengl32.dll` (`pal1000/mesa-dist-win`, pinned + SHA256;
   x64 and arm64 builds), NSIS silent install `/S /D=C:\overlume`, smoke
   consumer via `-DCMAKE_PREFIX_PATH=C:\overlume` with `yaml-cpp` from vcpkg.
-- [ ] **Step 7:** dry-run green; Linux gate green. **Commit**
+- [x] **Step 7:** dry-run green; Linux gate green. **Commit**
   `feat(windows): MSVC/WGL build, x64+arm64 NSIS/zip packages`.
+
+**Task 8 results (2026-10-06, complete; CI dry run 37390515517 on `fix(windows): file:// tile URIs, ...`, fully green:
+Windows x64 + arm64 build/test/package, clean-room install, sign-windows, plus every earlier leg).**
+Proved on CI: both architectures build (Ninja, MSVC `cl`, Release, `/MD`, Cesium ON), link the shared
+`overlume.dll` and the static archive, pass all 287 `cpu` tests; x64 also passes the 11 `gpu` tests
+(including `ReadbackOrientation.Row0IsTopOfImage`, the Windows row-0-is-top proof) on Mesa llvmpipe
+26.2.4 (pal1000/mesa-dist-win, SHA256-pinned); `shared_exports` (`check_shared_exports.ps1`, dumpbin
+/exports + /dependents) passes on both. `package-windows-build` makes `overlume-0.1.0-windows-<arch>.exe`
+(NSIS, 109 MB on x64) + `.zip`; `package-windows` on a fresh runner silently installs
+(`/S /D=C:\overlume`), builds the consumer (`find_package(overlume)`, own vcpkg yaml-cpp
+`<arch>-windows-static-md`, `theme_assets_dir = nullptr`) against the shared and the static component,
+runs both, runs `Uninstall.exe /S` and asserts `C:\overlume` is gone, then repeats the consumer on the
+relocated zip. `sign-windows` checksummed and GPG-signed both architectures' assets. Linux dev gate
+(`tools/ci_visual_mode.sh`) green, no golden changes. `sign.ps1` selftest (`tools/windows/test_sign.ps1`):
+no secrets -> `::warning::`, unsigned; throw-away self-signed PFX -> signed (both run on both legs).
+Revert checks: `gen_overlume_def` selftest fails when the generator leaks a YAML symbol and passes when
+restored; `test_static_link_flags` was changed first (Windows must carry `/FORCE:MULTIPLE`), failed, then passed.
+Deviations: (1) **MSVC `cl`, not clang-cl** (Filament 1.56.5's CMake refuses clang on Windows); C++20 on
+MSVC because cl rejects the designated initializers in Filament's headers below `/std:c++20`;
+(2) **no `WINDOWS_EXPORT_ALL_SYMBOLS`**: `cmake/gen_overlume_def.cmake` writes the `.def` from
+`dumpbin /symbols` of overlume's own objects, exporting only free functions directly in namespace
+`overlume` with POD-only signatures (export-all also exports the YAML/filament/std instantiations the
+objects carry and failed `check_shared_exports.ps1` on the first full run); (3) the static archive is
+`overlume_static.lib` (`overlume.lib` is the import library) and the static config / link line carry
+`/FORCE:MULTIPLE`, the link.exe counterpart of `--allow-multiple-definition` (Filament's prebuilt
+`dracodec.lib` and cesium-native both define `draco::Options`); (4) x64 uses `filament-windows.tgz`
+(`lib/x86_64/md`), **arm64 builds Filament from source natively** on `windows-11-arm` (VS 18, MSVC arm64):
+bluegl's x64 MASM GL trampolines are regenerated in arm64 assembly from the x64 file's symbol list and
+assembled with the runner's clang (`GetFilament.cmake`), no host `matc` from the x64 tarball is needed
+because the native build makes its own; (5) the cesium-native vcpkg triplets drop `VCPKG_CMAKE_SYSTEM_NAME
+Windows` (it selects vcpkg's generic toolchain, which finds no compiler); (6) FileFixtureAssetAccessor strips
+the slash before a drive letter in `file:///D:/...` URIs, ThemeDir tests compare `lexically_normal()` paths,
+`test_gltf_normals` adds yaml-cpp's static define, `M_PI`/`NOMINMAX`/`_CRT_SECURE_NO_WARNINGS` are defined
+for MSVC, and Windows goldens use the Android SSIM floor 0.97 (never exercised below the default so far);
+(7) POSIX-script ctests (`check_pod_header`, `shared_exports_selftest`, nm hygiene) are not registered on
+Windows (headers are identical on every leg; Windows has the `.ps1` pair); (8) the VC runtime DLLs are
+installed beside `overlume.dll` (`InstallRequiredSystemLibraries`, component `overlume`); (9) the plan's
+"Azure Trusted Signing" variant of `sign.ps1` is not implemented, only the PFX path
+(`WINDOWS_SIGNING_PFX_BASE64`/`WINDOWS_SIGNING_PFX_PASSWORD`, absent = warning), since neither is provisioned.
+**Known limitation (not fixed): no OpenGL frame renders on Windows arm64 CI.** mesa-dist-win publishes x64 and
+x86 builds only (checked across all of its releases), and the hosted arm64 runner has no OpenGL 4.1 driver, so
+`platform_wgl.cpp` returns `nullptr` from `create_renderer` there (probe), the arm64 `gpu` tests and the arm64
+render smoke are not run (workflow `::warning::`), and the arm64 smoke runs `--expect-no-gpu`. Row-0-is-top on
+arm64 Windows needs a real arm64 device or a Mesa arm64 build. Signing is unexercised end to end on
+a real certificate (no secrets).
 
 ### Task 9: vcpkg overlay port + Conan recipe
 
