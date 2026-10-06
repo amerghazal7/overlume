@@ -277,15 +277,17 @@ height_grid:
 Fallback when the block or ramp is absent: two stops, `palette.ground` at 0.0 m and
 `palette.alert.warning` at 2.5 m.
 
-Starting values (tuned by eye later):
+Shipped values (linear; amended 2026-10-06 after the user's golden review: the first
+pale stops were indistinguishable once lit and sRGB-encoded, so each band is now a saturated
+hue step, same order in both themes):
 
 | stop (m) | dark_adas | light_clay |
 |---|---|---|
-| −1.0 | [0.08, 0.12, 0.24] | [0.55, 0.62, 0.72] |
+| −1.0 | [0.02, 0.10, 0.40] blue | [0.03, 0.16, 0.52] blue |
 | 0.0 | [0.055, 0.055, 0.078] (= palette.ground) | [0.762, 0.716, 0.672] (= palette.ground) |
-| 0.5 | [0.16, 0.26, 0.18] | [0.66, 0.70, 0.56] |
-| 1.5 | [0.55, 0.46, 0.26] | [0.80, 0.66, 0.46] |
-| 2.5 | [0.85, 0.84, 0.78] | [0.95, 0.93, 0.88] |
+| 0.5 | [0.06, 0.22, 0.05] green | [0.18, 0.42, 0.10] green |
+| 1.5 | [0.55, 0.20, 0.02] orange | [0.80, 0.33, 0.04] orange |
+| 2.5 | [0.35, 0.04, 0.02] red-brown | [0.42, 0.06, 0.03] red-brown |
 
 `unknown_color` = palette.ground in both, so unknown patches read as plain ground.
 

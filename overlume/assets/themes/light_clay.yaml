@@ -51,11 +51,13 @@ ogm:
       - { value: 100, color: [0.10, 0.04, 0.004], alpha: 1.0 }
 height_grid:
   ramp:
-    - { height_m: -1.0, color: [0.55, 0.62, 0.72] }
+    # Linear values: pale stops vanish against the near-white ground once
+    # lit and sRGB-encoded, so each band is a saturated hue step.
+    - { height_m: -1.0, color: [0.03, 0.16, 0.52] }
     - { height_m:  0.0, color: [0.762, 0.716, 0.672] }
-    - { height_m:  0.5, color: [0.66, 0.70, 0.56] }
-    - { height_m:  1.5, color: [0.80, 0.66, 0.46] }
-    - { height_m:  2.5, color: [0.95, 0.93, 0.88] }
+    - { height_m:  0.5, color: [0.18, 0.42, 0.10] }
+    - { height_m:  1.5, color: [0.80, 0.33, 0.04] }
+    - { height_m:  2.5, color: [0.42, 0.06, 0.03] }
   unknown_color: [0.762, 0.716, 0.672]
   roughness: 0.9
   ground_bias_m: -0.05
