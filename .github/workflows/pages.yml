@@ -68,7 +68,10 @@ jobs:
           if [ -n "$RUN_ID" ]; then
             echo "Dry-run input: packages from run $RUN_ID"
             gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" -p 'pkg-linux-*' -D dl
-            find dl \( -name '*.deb' -o -name '*.rpm' \) -exec cp -t pkgs {} +
+            # Only the verified artifacts: the aarch64 build job also uploads
+            # pkg-linux-aarch64-unverified with the same file names, before the native test job ran.
+            find dl -path '*-unverified*' -prune -o \( -name '*.deb' -o -name '*.rpm' \) -print0 \
+              | xargs -0 cp -n -t pkgs
           else
             docs_bytes="$(du -sb site | cut -f1)"
             budget=$((SITE_LIMIT_BYTES - docs_bytes))
