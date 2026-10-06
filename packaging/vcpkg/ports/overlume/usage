@@ -1,0 +1,11 @@
+overlume provides CMake targets:
+
+    find_package(overlume CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE overlume::overlume)
+
+For the static product (Windows *-static triplets, or overlume[static] elsewhere):
+
+    find_package(overlume CONFIG REQUIRED COMPONENTS static)
+    target_link_libraries(main PRIVATE overlume::overlume_static)
+
+Pass theme_assets_dir = nullptr to use the installed themes under share/overlume/themes.
