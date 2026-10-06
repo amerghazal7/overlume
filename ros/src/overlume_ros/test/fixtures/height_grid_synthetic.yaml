@@ -1,0 +1,17 @@
+# height_grid_synthetic.yaml. SYNTHETIC, hand-authored (no recorded
+# /debug_ogm_2 bag exists). 5x2 grid, resolution 0.2m, origin (1.0, 2.0, 0.5),
+# frame map. Encoded against the shipped window min -2.0 .. max 3.0.
+# Row 0 (y=0): -1 (unknown), 0, 50, 100, 127 (illegal: malformed + NaN).
+# Row 1 (y=1): 1, 99, 25, 75, -1 (unknown).
+header:
+  frame_id: map
+  stamp: {sec: 0, nanosec: 0}
+info:
+  resolution: 0.2
+  width: 5
+  height: 2
+  origin:
+    position: {x: 1.0, y: 2.0, z: 0.5}
+    orientation: {w: 1.0}
+data: [-1, 0, 50, 100, 127,
+        1, 99, 25,  75,  -1]

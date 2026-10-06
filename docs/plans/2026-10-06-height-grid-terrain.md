@@ -19,7 +19,7 @@
 | 3 Heightfield renderer | done | |
 | 4 Ground replacement (deviation: `DiscardReveals*` threshold 10 -> 5; measured ~9.5 with the hole, ~0.5 reverted, light_clay quality 1; a theme change pushing it toward 5 is a signal, not a flake) | done | |
 | 5 Grid placement helper | done | |
-| 6 Profile keys, adapter, SceneAssembly | pending | |
+| 6 Profile keys, adapter, SceneAssembly | done | |
 | 7 Node wiring, layer flag, offroad profile | pending | |
 | 8 Perception encoder and live probe | pending | (probe only; perception change uncommitted) |
 | 9 Goldens | pending (human promotion) | |
