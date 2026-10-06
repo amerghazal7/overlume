@@ -909,7 +909,7 @@ a real certificate (no secrets).
 the `platform_wgl.cpp` no-OpenGL-4.1 path (create_renderer() returning nullptr instead of crashing in
 `PlatformWGL::createDriver`). `smoke_windows.ps1` now runs both consumers with `--expect-no-gpu` BEFORE `install_mesa`
 (System32 GDI OpenGL 1.1 in use) and fails with "platform_wgl probe regressed"; it fails if the probe is reverted to
-`usable = true`. Applies to both arches (x64 not gated unless the CI result below says otherwise).
+`usable = true`. Both arches (x64 windows-2022 returns nullptr without Mesa too, so no gating). CI dry run 37409262766 (ee50712), fully green: pre-Mesa `--expect-no-gpu` PASS on x64 and arm64 in both package-windows smokes (installed prefix and relocated zip), then Mesa-backed `render` smoke PASS.
 
 ### Task 9: vcpkg overlay port + Conan recipe
 
