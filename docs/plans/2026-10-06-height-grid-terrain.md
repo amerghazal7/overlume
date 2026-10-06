@@ -15,7 +15,7 @@
 | Task | State | Commit |
 |---|---|---|
 | 1 Public scene API and deep copy | done | |
-| 2 Theme tokens | pending | |
+| 2 Theme tokens | done | |
 | 3 Heightfield renderer | pending | |
 | 4 Ground replacement | pending | |
 | 5 Grid placement helper | pending | |
