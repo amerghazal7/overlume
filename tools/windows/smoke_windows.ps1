@@ -44,6 +44,13 @@ Native 'build static consumer' { cmake --build "$w\static" | Out-Null }
 
 # overlume.dll is found through PATH (the installer's optional PATH entry, simulated).
 $env:PATH = "$Prefix\bin;$env:PATH"
+# No-GPU probe check (platform_wgl.cpp): dirs hold no opengl32.dll yet, so System32's GDI OpenGL 1.1 is in use and
+# create_renderer() must return nullptr (not crash). Fails if the probe regresses to usable = true.
+foreach ($exe in "$w\shared\package_smoke.exe", "$w\static\package_smoke_static.exe") {
+    $o = & $exe --expect-no-gpu 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) { Write-Output $o; Fail "$(Split-Path -Leaf $exe) --expect-no-gpu before Mesa ($Arch): platform_wgl probe regressed" }
+}
+Write-Output "PASS: pre-Mesa --expect-no-gpu ($Arch): platform_wgl probe returns nullptr without OpenGL 4.1"
 $mesa = $false
 foreach ($d in "$w\shared", "$w\static") {
     $mo = & (Join-Path $PSScriptRoot 'install_mesa.ps1') -Arch $Arch -Dest $d

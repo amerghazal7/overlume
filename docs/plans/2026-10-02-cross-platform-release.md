@@ -905,6 +905,11 @@ heavy). The exit-2 warning path remains in the callers only for a future arch wi
 target takes it; (c) `sign` and `upload-artifact` steps of the Windows build job no longer carry `!cancelled()`, so a
 failed test step no longer signs or uploads. Signing is unexercised end to end on
 a real certificate (no secrets).
+**Review blocker fix (2026-10-06): the no-GPU probe check.** Since Mesa sits beside every Windows exe, nothing exercised
+the `platform_wgl.cpp` no-OpenGL-4.1 path (create_renderer() returning nullptr instead of crashing in
+`PlatformWGL::createDriver`). `smoke_windows.ps1` now runs both consumers with `--expect-no-gpu` BEFORE `install_mesa`
+(System32 GDI OpenGL 1.1 in use) and fails with "platform_wgl probe regressed"; it fails if the probe is reverted to
+`usable = true`. Applies to both arches (x64 not gated unless the CI result below says otherwise).
 
 ### Task 9: vcpkg overlay port + Conan recipe
 
