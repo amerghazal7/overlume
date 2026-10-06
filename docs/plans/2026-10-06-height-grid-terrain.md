@@ -22,7 +22,7 @@
 | 6 Profile keys, adapter, SceneAssembly | done | |
 | 7 Node wiring, layer flag, offroad profile | done | |
 | 8 Perception encoder and live probe | done | |
-| 9 Goldens | pending (human promotion) | |
+| 9 Goldens | done (promoted by the user, v2 ramps) | |
 | 10 Docs, status and live acceptance | pending | |
 
 ## Global Constraints
