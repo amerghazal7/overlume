@@ -926,7 +926,7 @@ the SHA512/SHA256 of every platform archive of that release.
   (`x64-windows`, `arm64-windows`, `x64-linux`, `arm64-linux`,
   `x64-osx`/`arm64-osx` → universal), `vcpkg_download_distfile` with SHA512,
   extracts, installs `include`, `lib`/`bin`, `share/overlume`; static
-  triplets (`*-static`, `*-static-md`) install the `static` component
+  triplets (`*-static-md`; `*-static` is /MT and refused) install the `static` component
   instead; `vcpkg_cmake_config_fixup(PACKAGE_NAME overlume CONFIG_PATH lib/cmake/overlume)`;
   `set(VCPKG_POLICY_DLLS_WITHOUT_LIBS …)` only if the linter needs it; `usage`
   shows `find_package(overlume CONFIG REQUIRED)`. Unsupported triplets fail
@@ -954,7 +954,7 @@ fully green, 29 jobs incl. `channels-render` and the `channels` matrix).** Files
 `channels-render` (ubuntu) downloads the four package artifacts, self-tests the renderer, renders the real-URL zips
 (`overlume-<ver>-vcpkg-port.zip`, `overlume-<ver>-conan-recipe.zip`, artifact `channels-recipes`, attached to the release on tag runs) and a
 loopback-URL copy (artifact `channels-local`). `channels` (ubuntu-22.04 shared; macos-14 and windows-2022 shared + static) pins vcpkg to
-commit `9e593bb18ea69cc5095e012465dcd675a822ed0d` (tag 2026.07.29) and Conan to 2.31.2, serves the platform's own run artifacts from
+commit `9e593bb18ea69cc5095e012465dcd675a822ed0d` (tag 2026.07.29) and Conan to the 2.31.2 release archive (SHA256 pinned in the workflow, checked before extraction), serves the platform's own run artifacts from
 `python -m http.server` on 127.0.0.1:8000, then `vcpkg install overlume --overlay-ports` + consumer build/run with the vcpkg toolchain,
 and `conan create` (test_package) for `shared=True|False`. All of vcpkg/conan x shared/static PASS on `x64-linux`, `arm64-osx`
 (universal2 archive), `x64-windows` / `x64-windows-static-md`; Linux static ran in `ubuntu:24.04` (clang 18 + libc++), where the hosted
@@ -978,6 +978,19 @@ before `liboverlume.a`). (4) `render_vcpkg_conan.sh` also takes `OUT_DIR` and an
 `SHA256SUMS-*` entry before computing the vcpkg SHA512, and zips with `python3 -m zipfile` (no `zip` on macOS/Windows runners). Not
 covered: real `vcpkg`/`conan` on Linux aarch64 and macOS x86_64 (same archives, other triplet names only), and consumers on a machine
 with a GPU (the consumer only proves link + load; `renderer=no` on the hosted runners).
+**Fix round 1 (review):** (a) Windows `*-windows-static` (/MT) and MinGW triplets, and Conan `compiler.runtime=static` or a non-MSVC/clang
+compiler on Windows, are refused at configure time (vcpkg `supports` `!mingw & !(windows & staticcrt)` plus a portfile `FATAL_ERROR` guard;
+`validate()` exit 6) instead of failing at link with LNK2038, since the shipped Windows binaries are /MD; usage text says `*-windows-static-md`.
+(b) `check_vcpkg_conan.sh` derives the version from the rendered `conandata.yml` (no hard-coded 0.1.0) and also asserts the consumer line in the
+`conan create` log, so a skipped `test()` cannot pass. (c) Runnable refusal checks live in `check_vcpkg_conan.sh` (real `vcpkg install` of
+`x64-windows-static`/`x64-mingw-dynamic` must fail; the portfile guard run through `cmake -P`; `conan create` for Windows /MT, Windows gcc and
+Linux gcc static must exit 6); verified locally on Linux that the same script FAILS when the guard and `validate()` change are reverted
+and PASSES on the fixed recipe (vcpkg + Conan, shared, run 37409262766 x86_64 archives). (d) Conan is installed from its self-contained release
+archives with SHA256 pinned in `release.yml` (`sha256sum`/`shasum -c` before extraction) instead of unhashed `pip install`; the Linux static
+leg mounts the verified Linux binary and pulls `ubuntu:24.04@sha256:534baea6...` by digest. Deviations: the archives' `.asc` signature was not
+verified (the SHA256 values were cross-checked against the downloaded files only); `CHANNELS_PORT` (default 8000) lets `check_vcpkg_conan.sh`
+run on a box where 8000 is taken (a local CARLA telemetry service holds it); the dev gate `tools/ci_visual_mode.sh` was deferred this round
+(CARLA running; no library code changed).
 
 ### Task 10: Signed apt + yum repositories on GitHub Pages (merged with API docs)
 

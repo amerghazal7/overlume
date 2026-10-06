@@ -6,6 +6,13 @@
 
 set(VCPKG_BUILD_TYPE release) # prebuilt release binaries only: no debug/ tree
 
+# The Windows binaries are MSVC /MD: refuse MinGW and /MT (*-windows-static) here, at configure time,
+# rather than letting the consumer fail at link time (also covers --allow-unsupported).
+if(VCPKG_TARGET_IS_MINGW OR (VCPKG_TARGET_IS_WINDOWS AND VCPKG_CRT_LINKAGE STREQUAL "static"))
+    message(FATAL_ERROR "overlume ships MSVC /MD binaries only: use ${VCPKG_TARGET_ARCHITECTURE}-windows (shared) "
+        "or ${VCPKG_TARGET_ARCHITECTURE}-windows-static-md (static), not ${TARGET_TRIPLET}.")
+endif()
+
 if(VCPKG_TARGET_IS_WINDOWS AND VCPKG_TARGET_ARCHITECTURE STREQUAL "x64")
     set(archive "overlume-@VERSION@-windows-x64.zip")
     set(sha512 "@SHA512_WIN_X64@")
@@ -26,7 +33,7 @@ else()
         "(supported: x64/arm64 on windows, linux; x64/arm64 on osx).")
 endif()
 
-# Windows: the static-linkage triplets (x64-windows-static[-md]) take the static product.
+# Windows: the static-linkage triplets (x64-windows-static-md) take the static product.
 # Linux/macOS triplets are static-linkage by default in vcpkg, but the Linux static product
 # needs clang+libc++, so there it is opt-in through the "static" feature.
 set(want_static OFF)

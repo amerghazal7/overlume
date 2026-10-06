@@ -25,6 +25,11 @@ class OverlumeConan(ConanFile):
     def validate(self):
         if str(self.settings.os) not in SUPPORTED_OS or str(self.settings.arch) not in SUPPORTED_ARCH:
             raise ConanInvalidConfiguration(f"no overlume package for {self.settings.os}/{self.settings.arch}")
+        if self.settings.os == "Windows" and (
+                str(self.settings.compiler) not in ("msvc", "clang")
+                or self.settings.compiler.get_safe("runtime") == "static"):
+            raise ConanInvalidConfiguration(
+                "overlume on Windows ships MSVC /MD binaries; use compiler=msvc with compiler.runtime=dynamic")
         if self.settings.os == "Linux" and not self.options.shared:
             # The static archive embeds objects built against libc++ 18.
             ok = (self.settings.compiler == "clang" and self.settings.compiler.get_safe("libcxx") == "libc++"
