@@ -21,7 +21,7 @@
 | 5 Grid placement helper | done | |
 | 6 Profile keys, adapter, SceneAssembly | done | |
 | 7 Node wiring, layer flag, offroad profile | done | |
-| 8 Perception encoder and live probe | pending | (probe only; perception change uncommitted) |
+| 8 Perception encoder and live probe | done | |
 | 9 Goldens | pending (human promotion) | |
 | 10 Docs, status and live acceptance | pending | |
 
@@ -5777,10 +5777,12 @@ Expected: all six stages pass. Golden counts include the two `height_grid_terrai
 
 - [ ] **Step 4: Rebuild perception and restart the costmap nodes (user action)**
 
-The live stack runs from `$PERCEPTION_REPO/install`. The orchestrator asks the user to rebuild it with the command Task 8 established, then restart `geometric_cost_map_node` and `dynamic_cost_map_node` from their terminals. Then check:
+The live stack runs from `$PERCEPTION_REPO/install`. The orchestrator asks the user to rebuild it, then restart `geometric_cost_map_node` and `dynamic_cost_map_node` from their terminals. The rebuild must be FULL: first the whole perception libs superproject, then all of `ros_apps`. Task 8's new `CostMap` members change its size and layout, and every library or node that holds a `CostMap` by value (dynamic, semantic, objects, geometric) must be rebuilt together. A partial colcon rebuild, or a node built against the old installed `libperception_grid_map.so`, is an ODR/ABI mismatch. (Task 8 built only scratch compile checks; it established no live rebuild command.) Then check:
 
 Run: `cd $WORKTREE && source /opt/ros/humble/setup.bash && ROS_DOMAIN_ID=7 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp python3 tools/probe_height_grid.py --seconds 10`
 Expected: `PASS` on the rate, unknown-mask and correlation lines, exit code 0.
+
+The probe's checks do not depend on scale or offset (mask equality and Pearson r), so a wrong `origin_plane_z` subtraction or a wrong window in `update_cost_map` would still PASS. Nothing else checks that fill automatically (accepted under Known limits). So also check by eye: flat ground under the ego must decode to about 0 m on `/debug_ogm_2` (raw value about 40 with the −2.0 .. +3.0 m window).
 
 - [ ] **Step 5: Live visual acceptance (spec §11)**
 
