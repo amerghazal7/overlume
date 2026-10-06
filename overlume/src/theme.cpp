@@ -314,11 +314,11 @@ const Theme& kFallbackTheme() {
         t.ogm.dynamic = bake_ogm_ramp(
             {{0.0f, t.palette.ground, 1.0f}, {100.0f, t.palette.alert.warning, 1.0f}});
         t.ogm.geometric = t.ogm.dynamic;
-        t.height_grid.ramp = {{-1.0f, {0.08f, 0.12f, 0.24f}},
+        t.height_grid.ramp = {{-1.0f, {0.02f, 0.10f, 0.40f}},
                               {0.0f, {0.055f, 0.055f, 0.078f}},
-                              {0.5f, {0.16f, 0.26f, 0.18f}},
-                              {1.5f, {0.55f, 0.46f, 0.26f}},
-                              {2.5f, {0.85f, 0.84f, 0.78f}}};
+                              {0.5f, {0.06f, 0.22f, 0.05f}},
+                              {1.5f, {0.55f, 0.20f, 0.02f}},
+                              {2.5f, {0.35f, 0.04f, 0.02f}}};
         t.height_grid.unknown_color = t.palette.ground;
         t.height_grid.roughness = 0.9f;
         t.height_grid.ground_bias_m = -0.05f;

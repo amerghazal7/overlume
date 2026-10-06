@@ -772,10 +772,10 @@ TEST(ThemeHeightGrid, ShippedThemesAuthorTheSpecRampAndTokens) {
     const auto light = overlume::detail::load_theme(kThemeDir, "light_clay");
     ASSERT_TRUE(dark.has_value());
     ASSERT_TRUE(light.has_value());
-    EXPECT_NEAR(dark->height_grid.ramp[4].color.r, 0.85f, 1e-4f);
-    EXPECT_NEAR(dark->height_grid.ramp[0].color.b, 0.24f, 1e-4f);
-    EXPECT_NEAR(light->height_grid.ramp[4].color.r, 0.95f, 1e-4f);
-    EXPECT_NEAR(light->height_grid.ramp[0].color.b, 0.72f, 1e-4f);
+    EXPECT_NEAR(dark->height_grid.ramp[4].color.r, 0.35f, 1e-4f);
+    EXPECT_NEAR(dark->height_grid.ramp[0].color.b, 0.40f, 1e-4f);
+    EXPECT_NEAR(light->height_grid.ramp[4].color.r, 0.42f, 1e-4f);
+    EXPECT_NEAR(light->height_grid.ramp[0].color.b, 0.52f, 1e-4f);
 }
 
 TEST(ThemeHeightGrid, AbsentBlockFallsBackToGroundToWarningRamp) {
