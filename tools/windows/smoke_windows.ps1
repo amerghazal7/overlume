@@ -46,8 +46,9 @@ Native 'build static consumer' { cmake --build "$w\static" | Out-Null }
 $env:PATH = "$Prefix\bin;$env:PATH"
 $mesa = $false
 foreach ($d in "$w\shared", "$w\static") {
-    & (Join-Path $PSScriptRoot 'install_mesa.ps1') -Arch $Arch -Dest $d | Out-Null
+    $mo = & (Join-Path $PSScriptRoot 'install_mesa.ps1') -Arch $Arch -Dest $d
     if ($LASTEXITCODE -eq 0) { $mesa = $true }
+    elseif ($LASTEXITCODE -ne 2) { Write-Output $mo; Fail "Mesa llvmpipe install ($Arch) failed" }
 }
 $env:GALLIUM_DRIVER = 'llvmpipe'
 $exes = @("$w\shared\package_smoke.exe", "$w\static\package_smoke_static.exe")
@@ -56,6 +57,7 @@ $gpu = 'render'
 $out = & $exes[0] --expect-render 2>&1 | Out-String
 if ($LASTEXITCODE -ne 0) {
     if ($out -match 'create_renderer returned nullptr') {
+        if ($mesa) { Write-Output $out; Fail "create_renderer returned nullptr on $Arch with Mesa llvmpipe" }
         $gpu = 'nogpu'
         Write-Output "::warning::no OpenGL 4.1 context on this runner ($Arch$(if (-not $mesa) { ', no Mesa llvmpipe build for this architecture' })): smoke ran --expect-no-gpu, no frame was rendered"
     }

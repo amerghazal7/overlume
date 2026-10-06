@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Amer Ghazal
 #
-# vsenv.ps1 -Arch x64|arm64 -- exports the Visual Studio (MSVC v143) build environment for the target
+# vsenv.ps1 -Arch x64|arm64 -- exports the Visual Studio (whatever `vswhere -latest` finds: v143 on windows-2022, v145 on windows-11-arm) build environment for the target
 # architecture into $GITHUB_ENV (what vcvarsall.bat sets), and prints the tool versions. The build uses MSVC cl (Filament 1.56.5 refuses clang on Windows).
 param([Parameter(Mandatory = $true)][ValidateSet('x64', 'arm64')][string]$Arch)
 $ErrorActionPreference = 'Stop'
