@@ -14,16 +14,30 @@
 
 | Task | State | Commit |
 |---|---|---|
-| 1 Public scene API and deep copy | done | |
-| 2 Theme tokens | done | |
-| 3 Heightfield renderer | done | |
-| 4 Ground replacement (deviation: `DiscardReveals*` threshold 10 -> 5; measured ~9.5 with the hole, ~0.5 reverted, light_clay quality 1; a theme change pushing it toward 5 is a signal, not a flake) | done | |
-| 5 Grid placement helper | done | |
-| 6 Profile keys, adapter, SceneAssembly | done | |
-| 7 Node wiring, layer flag, offroad profile | done | |
-| 8 Perception encoder and live probe | done | |
-| 9 Goldens | done (promoted by the user, v2 ramps) | |
-| 10 Docs, status and live acceptance | pending | |
+| 1 Public scene API and deep copy | done | `c577173` |
+| 2 Theme tokens | done | `452e550`; ramps retuned in `c1f84ed` after the golden review |
+| 3 Heightfield renderer | done | `30a591f` |
+| 4 Ground replacement (deviation: `DiscardReveals*` threshold 10 -> 5; measured ~9.5 with the hole, ~0.5 reverted, light_clay quality 1; a theme change pushing it toward 5 is a signal, not a flake) | done | `951795d` |
+| 5 Grid placement helper | done | `d04bddd` |
+| 6 Profile keys, adapter, SceneAssembly | done | `50e474f` |
+| 7 Node wiring, layer flag, offroad profile | done | `d4f8fd3` |
+| 8 Perception encoder and live probe | done | `873bf8a` (probe; perception edits uncommitted in the perception repo) |
+| 9 Goldens | done (promoted by the user, v2 ramps) | `a293191` |
+| 10 Docs, status and live acceptance | done (see Live acceptance results) | this commit |
+
+### Live acceptance results (2026-10-06, CARLA offroad stack, RTX 3090)
+
+- Probe `tools/probe_height_grid.py --seconds 10`: PASS, with `/debug_ogm_2` at 9.1 Hz, unknown masks equal on 91/91 stamp-paired frames, worst Pearson r 0.9997 (median 28,811 cells/frame). Live heights −0.05 .. 2.80 m; none clamped at the −2/+3 m window.
+- Mode 3: the terrain is visible (walls, vegetation and berms green → orange; cost grids on top of flat ground). `/debug_ogm_2` diagnostics read `ok`, with 0 malformed / 0 no-TF / 0 stale.
+- `layer_height_grids:=false` hides the terrain and restores the clay ground and grid lines. Modes 1 and 2 show no terrain.
+- Frame time (`render_ms`, 25 s windows, layer off → on, interleaved twice):
+
+  | Library build | p50 | p95 |
+  |---|---|---|
+  | default (empty `CMAKE_BUILD_TYPE` = no `-O`) | 7.0 → 8.7 ms | 12.4 → 21.5 ms |
+  | Release (`-O3 -DNDEBUG`) | 6.0 → 7.0 ms | 11.0 → 12.4 ms |
+
+  Acceptance 3 (per-update cost under 3 ms) is met on the Release build: a frame that takes in a new grid costs +0.4 to +2.4 ms at p95. It is not met on the default unoptimised build (+9 ms at p95), because the documented library build never sets a build type; that is recorded as an open item in `docs/status.md`. One Release window had an isolated 41.8 ms max that did not repeat. The gate also passes on the Release build (23/23 goldens), so switching the default does not move any golden.
 
 ## Global Constraints
 
