@@ -90,6 +90,9 @@ index; `docs/status.md` is the one status ledger.
   — the flicker/new-stack-rendering follow-on to Epic 3.
 - [`2026-09-10-unified-engine-migration.md`](plans/2026-09-10-unified-engine-migration.md)
   — the CUDA-to-Filament unified-engine cutover.
+- [`2026-10-06-height-grid-terrain.md`](plans/2026-10-06-height-grid-terrain.md)
+  — the offroad height-map terrain layer (implements
+  `design/2026-10-06-height-grid-terrain-design.md`).
 - [`archive/`](plans/archive/README.md) — retired NumPy/GL/CUDA prototype
   plans and specs (2026-06/07), plus the superseded Azure DevOps project
   backlog export.
