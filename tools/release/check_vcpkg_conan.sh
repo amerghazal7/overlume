@@ -18,6 +18,7 @@ case "$variant" in shared|static) ;; *) echo "FAIL: variant must be shared|stati
 PY=python3; command -v python3 >/dev/null || PY=python
 work="$(mktemp -d)"
 server=""
+# shellcheck disable=SC2329  # invoked by the EXIT trap
 cleanup() { [ -n "$server" ] && kill "$server" 2>/dev/null || true; rm -rf "$work"; }
 trap cleanup EXIT
 fail() { echo "FAIL: $*"; exit 1; }
@@ -59,6 +60,8 @@ if [ "$variant" = static ]; then
   esac
 fi
 
+rc=0  # both channels run even if the first fails: one CI round reports both
+(
 # ---- vcpkg ------------------------------------------------------------------------------------
 export VCPKG_DISABLE_METRICS=1
 vcpkg="$VCPKG_ROOT/vcpkg"
@@ -78,6 +81,8 @@ exe="$(find "$work/vb" -type f \( -name consumer -o -name consumer.exe \) | head
 grep -q '^overlume 0\.1\.0 renderer=' "$work/run.log" || { cat "$work/run.log"; fail "vcpkg consumer output"; }
 echo "PASS: vcpkg $vcpkg_pkg:$triplet ($(tail -n 1 "$work/run.log"))"
 
+) || rc=1
+(
 # ---- Conan ------------------------------------------------------------------------------------
 export CONAN_HOME="$work/conan_home"
 run "conan profile detect" conan profile detect --force
@@ -85,3 +90,5 @@ ver="$(sed -n 's/^  "\([0-9.]*\)":$/\1/p' "$rendered/conan/conandata.yml")"
 cp -R "$rendered/conan" "$work/conan"  # test_package writes its build folder next to itself
 run "conan create ($variant)" conan create "$work/conan" --version "$ver" "${conan_args[@]}" --build=missing
 echo "PASS: conan create overlume/$ver ($variant, test_package ran)"
+) || rc=1
+exit "$rc"

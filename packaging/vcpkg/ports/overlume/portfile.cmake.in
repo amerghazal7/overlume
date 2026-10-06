@@ -38,7 +38,12 @@ vcpkg_download_distfile(ARCHIVE
     URLS "@BASE_URL@/${archive}"
     FILENAME "${archive}"
     SHA512 "${sha512}")
-vcpkg_extract_source_archive(SOURCE_PATH ARCHIVE "${ARCHIVE}")
+# The Linux tar.gz has one top-level directory; the macOS and Windows archives are flat.
+set(extract_options "")
+if(NOT VCPKG_TARGET_IS_LINUX)
+    set(extract_options NO_REMOVE_ONE_LEVEL)
+endif()
+vcpkg_extract_source_archive(SOURCE_PATH ARCHIVE "${ARCHIVE}" ${extract_options})
 
 file(COPY "${SOURCE_PATH}/include" DESTINATION "${CURRENT_PACKAGES_DIR}")
 file(COPY "${SOURCE_PATH}/share/overlume" DESTINATION "${CURRENT_PACKAGES_DIR}/share")
@@ -68,10 +73,11 @@ if(NOT want_static)
     file(REMOVE ${static_cmake})
 endif()
 
+# Prebuilt binaries: macOS ones are universal2 (vcpkg's per-triplet architecture check would reject
+# them) and the Windows DLL is not built against vcpkg's CRT settings.
+set(VCPKG_POLICY_SKIP_ARCHITECTURE_CHECK enabled)
 if(VCPKG_TARGET_IS_WINDOWS)
-    # Prebuilt DLL: no vcpkg-side CRT/arch/dumpbin verification.
     set(VCPKG_POLICY_SKIP_DUMPBIN_CHECKS enabled)
-    set(VCPKG_POLICY_SKIP_ARCHITECTURE_CHECK enabled)
     set(VCPKG_POLICY_SKIP_CRT_LINKAGE_CHECK enabled)
 endif()
 
