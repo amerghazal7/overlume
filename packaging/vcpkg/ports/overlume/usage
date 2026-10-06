@@ -9,3 +9,5 @@ For the static product (Windows *-static triplets, or overlume[static] elsewhere
     target_link_libraries(main PRIVATE overlume::overlume_static)
 
 Pass theme_assets_dir = nullptr to use the installed themes under share/overlume/themes.
+
+On Linux the shared library needs libEGL.so.1 and libGLESv2.so.2 at run time (Debian/Ubuntu: libegl1 libgles2).

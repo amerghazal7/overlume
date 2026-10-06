@@ -1215,9 +1215,9 @@ jobs:
           "$bin/python" -m pip install -q "conan==$CONAN_VERSION"
           echo "$bin" >> "$GITHUB_PATH"
 
-      - name: Linux GL headers and Mesa runtime
+      - name: Linux EGL/GLES runtime of the shared library
         if: ${{ runner.os == 'Linux' }}
-        run: sudo apt-get install -y --no-install-recommends libegl1 libegl-mesa0 libgl1-mesa-dri
+        run: sudo apt-get install -y --no-install-recommends libegl1 libgles2 libegl-mesa0 libgl1-mesa-dri
 
       - name: vcpkg overlay port and Conan recipe
         shell: bash
@@ -1226,9 +1226,11 @@ jobs:
         run: |
           set -euo pipefail
           read -ra variants <<< "$VARIANTS"
+          rc=0
           for v in "${variants[@]}"; do
-            tools/release/check_vcpkg_conan.sh local pkgs "$v"
+            tools/release/check_vcpkg_conan.sh local pkgs "$v" || rc=1
           done
+          exit "$rc"
 
       - name: Linux static product (clang 18 + libc++ in ubuntu:24.04)
         if: ${{ runner.os == 'Linux' }}
