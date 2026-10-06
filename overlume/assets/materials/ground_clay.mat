@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
+// clay.mat plus a footprint discard: fragments whose true world xy lies inside the rotated
+// rectangle (centre, axisX, half extents) are dropped while holeEnabled > 0.5, so the height-grid
+// terrain replaces the flat ground. getUserWorldPosition() is the API-level world position;
+// getWorldPosition() is camera-shifted in Filament 1.56 and would put the hole in the wrong place.
+// The empty vertex block keeps a custom depth/structure program (which carries the discard) even
+// if matc's discard detection changes; without vertex code Filament may share its default
+// depth/structure program, which has no discard, and SSAO would see the full ground plane.
+material {
+    name : ground_clay,
+    shadingModel : lit,
+    parameters : [
+        { type : float3, name : baseColor },
+        { type : float, name : roughness },
+        { type : float, name : metallic },
+        { type : float2, name : holeCenter },
+        { type : float2, name : holeAxisX },
+        { type : float2, name : holeHalfExtent },
+        { type : float, name : holeEnabled }
+    ]
+}
+vertex {
+    void materialVertex(inout MaterialVertexInputs material) {
+    }
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        if (materialParams.holeEnabled > 0.5) {
+            float2 d = getUserWorldPosition().xy - materialParams.holeCenter;
+            float u = dot(d, materialParams.holeAxisX);
+            float v = dot(d, float2(-materialParams.holeAxisX.y, materialParams.holeAxisX.x));
+            if (abs(u) <= materialParams.holeHalfExtent.x &&
+                abs(v) <= materialParams.holeHalfExtent.y) {
+                discard;
+            }
+        }
+        prepareMaterial(material);
+        material.baseColor.rgb = materialParams.baseColor;
+        material.roughness = materialParams.roughness;
+        material.metallic = materialParams.metallic;
+    }
+}
