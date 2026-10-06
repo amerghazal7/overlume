@@ -70,6 +70,8 @@ elseif(VCPKG_TARGET_IS_WINDOWS)
     file(COPY "${SOURCE_PATH}/lib/overlume.lib" DESTINATION "${CURRENT_PACKAGES_DIR}/lib")
     # Only overlume.dll: the archive's bin/ also carries the VC++ redistributable DLLs.
     file(COPY "${SOURCE_PATH}/bin/overlume.dll" DESTINATION "${CURRENT_PACKAGES_DIR}/bin")
+    # vcpkg's app-local copy reads debug/bin for Debug consumers; the API is POD, so the release DLL serves /MDd.
+    file(COPY "${SOURCE_PATH}/bin/overlume.dll" DESTINATION "${CURRENT_PACKAGES_DIR}/debug/bin")
 else()
     file(GLOB shared_libs "${SOURCE_PATH}/lib/liboverlume.so*" "${SOURCE_PATH}/lib/liboverlume*.dylib")
     file(COPY ${shared_libs} DESTINATION "${CURRENT_PACKAGES_DIR}/lib")
