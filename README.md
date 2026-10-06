@@ -31,7 +31,7 @@ Overlume has two parts. The first is a ROS-free C++ rendering library built on [
 - **Every element can be styled and switched off.** Each rendered element has style tokens and a disable knob.
 - **Drop-in for a new robot.** Adding a topic under an existing category takes one row in a profile YAML file, not code.
 
-Version 0.1.0. The scene ABI is `kSceneVersion = 8`. On an RTX 3090 the measured render time is about 10 ms p50 at roughly 30 Hz.
+Version 0.1.0. The scene ABI is `kSceneVersion = 9`. On an RTX 3090 the measured render time is about 10 ms p50 at roughly 30 Hz.
 
 ## Hello frame
 

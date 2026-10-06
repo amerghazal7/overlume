@@ -20,6 +20,8 @@ struct OwnedScene {
     std::vector<std::vector<Vec3>> map_element_points;
     std::vector<GroundGridLayer> grids;
     std::vector<std::vector<uint8_t>> grid_cells;
+    std::vector<HeightGridLayer> height_grids;
+    std::vector<std::vector<float>> height_grid_cells;
     std::vector<AlertPolygon> alerts;
     std::vector<std::vector<Vec3>> alert_points;
     std::vector<GenericMarker> markers;
