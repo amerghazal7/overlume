@@ -1217,7 +1217,8 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   provisioning steps; Maven namespace/keyserver prerequisites.
 - [x] **Step 4:** `channel_smoke.sh all RUN_ID` downloads one dry-run's
   artifacts and runs every README install path that can run on Linux
-  (apt, dnf, vcpkg, Conan, Android NDK consumer) exactly as documented;
+  (apt, dnf, manual archive, Android NDK consumer) from the README's own commands; vcpkg and Conan run from the rendered recipe, and
+  every asset name / `releases/download/v<ver>/` URL the README names is checked against the run's SHA256SUMS;
   macOS/Windows/iOS paths run in the Task 9/7 CI jobs. All PASS.
 - [x] **Step 5:** `python3 tools/check_docs_links.py` clean; gate green;
   status ledger updated with the first full dry run's URL. **Commit**
@@ -1230,6 +1231,10 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   the same manifest at the same baseline and are marked as inferred, `ms-gsl` as manifest-only), LLVM 18.1.8 libc++/libc++abi/libunwind
   (Apache-2.0 WITH LLVM-exception, against the 18.1.8 LICENSE.TXT), NDK libc++ and MSVC redistributable notes, and Filament's bundled
   third_party libraries (basisu, draco, meshoptimizer, mikktspace, smol-v, stb, zlib) from the pinned source tarball's license files.
+  Fix round 2: macOS arm64 and Windows x64 link Filament's prebuilt SDK (Vulkan ON; the source build used everywhere else has it OFF), so
+  NOTICE also lists Vulkan Memory Allocator (MIT, AMD), Vulkan headers/bluevk (Apache-2.0) and glslang inside those two binaries
+  (verified with nm/strings on run 37606567418's pkg-macos arm64 slice and windows-packages-x64 overlume.dll; Linux .so has none), and
+  names concrt140.dll among the app-local MSVC DLLs.
 - README "Install" (one block per channel) and `docs/runbooks/release.md` (version bump -> CHANGELOG -> tag -> watch -> verify; rehearsal;
   rerun; key rotation; Apple/Windows secrets; the real-Mac Metal check; Maven/keyserver prerequisites; merge checklist).
 - `tools/release/channel_smoke.sh all RUN_ID [PAGES_RUN_ID]` against release run 37589684342 + pages run 37616385042 (dispatched with `run_id=37589684342`; the smoke cmp's every .deb/.rpm against
