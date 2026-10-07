@@ -18,7 +18,7 @@ gpg_home() { GNUPGHOME="$(mktemp -d)"; export GNUPGHOME; chmod 700 "$GNUPGHOME"
              gpg --batch --quiet --import "$1"; }
 
 verify() { # DIR FILE (GNUPGHOME already set)
-  [ -f "$1/$2" ] && [ -f "$1/$2.asc" ] || { echo "FAIL: $1/$2(.asc) missing" >&2; return 1; }
+  if ! { [ -f "$1/$2" ] && [ -f "$1/$2.asc" ]; }; then echo "FAIL: $1/$2(.asc) missing" >&2; return 1; fi
   gpg --batch --quiet --verify "$1/$2.asc" "$1/$2" 2>/dev/null || { echo "FAIL: bad signature on $1/$2" >&2; return 1; }
   (cd "$1" && sha256sum --quiet -c "$2") || { echo "FAIL: $1/$2 does not match its files" >&2; return 1; }
 }
@@ -35,7 +35,7 @@ merge)
     d="${d%/}"
     if [[ "$unsigned" != *" $(basename "$d") "* ]]; then
       sums=("$d"/SHA256SUMS-*.txt)
-      [ "${#sums[@]}" -eq 1 ] && [ -e "${sums[0]}" ] || { echo "FAIL: $d must hold exactly one SHA256SUMS-*.txt" >&2; exit 1; }
+      if ! { [ "${#sums[@]}" -eq 1 ] && [ -e "${sums[0]}" ]; }; then echo "FAIL: $d must hold exactly one SHA256SUMS-*.txt" >&2; exit 1; fi
       verify "$d" "$(basename "${sums[0]}")"; n=$((n + 1))
       extra="$(comm -3 <(awk '{print $2}' "${sums[0]}" | LC_ALL=C sort) \
         <(find "$d" -maxdepth 1 -type f ! -name 'SHA256SUMS-*' -printf '%f\n' | LC_ALL=C sort))"
@@ -52,7 +52,7 @@ merge)
   (cd "$out" && find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%f\n' | LC_ALL=C sort | xargs -r sha256sum > SHA256SUMS)
   echo "PASS: merged $n verified checksum files, $(wc -l < "$out/SHA256SUMS") files in $out/SHA256SUMS" ;;
 verify)
-  [ $# -ge 3 ] && [ $# -le 4 ] || { echo "usage: $0 verify PUBKEY DIR [FILE]" >&2; exit 2; }
+  if ! { [ $# -ge 3 ] && [ $# -le 4 ]; }; then echo "usage: $0 verify PUBKEY DIR [FILE]" >&2; exit 2; fi
   gpg_home "$2"
   verify "$3" "${4:-SHA256SUMS}"
   echo "PASS: ${4:-SHA256SUMS} verifies against $2" ;;
