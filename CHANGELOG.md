@@ -20,7 +20,7 @@ Cross-platform release pipeline (`docs/plans/2026-10-02-cross-platform-release.m
   `SHA256SUMS`; `find_package(overlume)` and pkg-config work everywhere.
 - `release.yml` is a draft-until-green graph: nothing becomes public until
   every platform built, tested and signed; a failed run leaves a draft.
-- `tools/release/channel_smoke.sh all RUN_ID` runs every README install path that
+- `tools/release/channel_smoke.sh all RUN_ID PAGES_RUN_ID` runs every README install path that
   works on Linux against a dry run's artifacts; `docs/runbooks/release.md`
   documents cutting, repairing and rotating keys for a release.
 - NOTICE now lists everything linked into the binaries (cesium vcpkg closure,
