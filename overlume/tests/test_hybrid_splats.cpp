@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
-#include <cstdio>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -37,34 +36,6 @@ size_t Count(const std::vector<uint8_t>& img, F pred) {
     size_t n = 0;
     for (size_t i = 0; i < img.size(); i += 3) n += pred(&img[i]) ? 1 : 0;
     return n;
-}
-
-// DIAG-TEMP
-size_t Diff(const char* tag, const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, int tol) {
-    size_t n = 0;
-    int mx = 0;
-    for (size_t i = 0; i < a.size(); ++i) {
-        const int d = std::abs(int(a[i]) - int(b[i]));
-        mx = std::max(mx, d);
-        if (d > tol) {
-            ++n;
-            if (n <= 8)
-                std::fprintf(stderr, "DIAG %s px(%zu,%zu) ch%zu a=%d b=%d\n", tag, (i / 3) % kW,
-                             (i / 3) / kW, i % 3, a[i], b[i]);
-        }
-    }
-    std::fprintf(stderr, "DIAG %s n>%d=%zu max=%d\n", tag, tol, n, mx);
-    return n;
-}
-void Dump(const char* tag, const std::vector<uint8_t>& img, bool (*f)(const uint8_t*)) {
-    size_t n = 0;
-    for (size_t i = 0; i < img.size(); i += 3)
-        if (f(&img[i])) {
-            if (++n <= 12)
-                std::fprintf(stderr, "DIAG %s px(%zu,%zu) rgb=%d,%d,%d\n", tag, (i / 3) % kW,
-                             (i / 3) / kW, img[i], img[i + 1], img[i + 2]);
-        }
-    std::fprintf(stderr, "DIAG %s count=%zu\n", tag, n);
 }
 
 struct Rig {
@@ -192,14 +163,12 @@ TEST(HybridSplats, EgoStillOccludesSplatsBehindIt) {
     auto behind = Column(0.0, 1.0, kYellow);
     ASSERT_TRUE(overlume::set_hybrid_splats(rig.r, behind.data(),
                                             static_cast<uint32_t>(behind.size()), 7.0f));
-    for (int k = 0; k < 2; ++k) Dump("ego-yellow", rig.Render(), Yellow);
     const size_t hidden = Count(rig.Render(), Yellow);
 
     auto front = Column(0.0, -1.2, kCyan);
     ASSERT_TRUE(overlume::set_hybrid_splats(rig.r, front.data(),
                                             static_cast<uint32_t>(front.size()), 7.0f));
     const size_t cy = Count(rig.Render(), Cyan);
-    std::fprintf(stderr, "DIAG hidden=%zu cyan-front=%zu\n", hidden, cy);
     EXPECT_GT(cy, 50u);
     // The same column seen from the open side covers 100 px; behind the ego only the sliver above
     // the clay box shows (5 px on desktop GL, 6 under SwANGLE, where the 7 px point sprite rounds
@@ -276,24 +245,13 @@ TEST(HybridSplats, ClearingRestoresByteIdenticalFrames) {
     s.point_clouds = &pc;
     s.point_cloud_count = 1;
     overlume::set_scene(rig.r, s);
-    const auto a0 = rig.Render();
     const auto a = rig.Render();
-    const auto a2 = rig.Render();
-    Diff("clean0-vs-clean1", a0, a, kDitherTol);
-    Diff("clean1-vs-clean2", a, a2, kDitherTol);
 
     auto g = GroundGrid(kGreen);
     overlume::set_hybrid_splats(rig.r, g.data(), static_cast<uint32_t>(g.size()), 7.0f);
     rig.Render();
     overlume::set_hybrid_splats(rig.r, nullptr, 0, 0.0f);
     const auto b = rig.Render();
-    Diff("a-vs-b", a, b, kDitherTol);
-    Diff("a-vs-b-tol0", a, b, 0);
-    Diff("a2-vs-b", a2, b, kDitherTol);
-    {
-        const auto b2 = rig.Render();
-        Diff("b-vs-b2", b, b2, kDitherTol);
-    }
     // Frames carry temporal dither (+-5 measured), so "identical" means no pixel beyond that;
     // a leftover splat or parameter changes pixels by far more.
     size_t big = 0;
@@ -334,7 +292,6 @@ TEST(HybridSplats, SizeFromThemeTokenWhenZero) {
     };
     const size_t themed = footprint(0.0f);
     const size_t one = footprint(1.0f);
-    std::fprintf(stderr, "DIAG themed=%zu one=%zu\n", themed, one);
     ASSERT_GT(one, 0u);
     EXPECT_GT(static_cast<double>(themed) / static_cast<double>(one), 20.0);
 }
