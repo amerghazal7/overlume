@@ -10,6 +10,10 @@ on:
         description: "Build, test and sign everything but publish nothing"
         type: boolean
         default: true
+      fast:
+        description: "TEMP DIAG: skip non-Windows/Android legs"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -72,7 +76,7 @@ jobs:
 
   package:
     needs: create
-    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') && !inputs.fast }}
     permissions:
       contents: read
     strategy:
@@ -175,7 +179,7 @@ jobs:
   # signature the clean-room test checks) or published from this job.
   package-linux-aarch64-build:
     needs: create
-    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') && !inputs.fast }}
     permissions:
       contents: read
     runs-on: ubuntu-22.04
@@ -530,7 +534,7 @@ jobs:
   # Apple signing runs only when the APPLE_* secrets exist (warning otherwise).
   package-macos-build:
     needs: create
-    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') && !inputs.fast }}
     permissions:
       contents: read
     strategy:
@@ -681,7 +685,7 @@ jobs:
 
   package-ios-build:
     needs: create
-    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') && !inputs.fast }}
     permissions:
       contents: read
     strategy:
