@@ -1263,6 +1263,7 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   every `B=` base against the exact GitHub prefix; scratch README mutations (dropped v, `/release/download/`,
   `/overlume/download/`, `/dl/`, repo typo, other host, http gitlab, .sig, vcpkg-port.tgz, linux-x86-64.tgz, .tar.xz)
   all FAIL, the real README PASSes, `channel_smoke.sh all 37589684342 37616385042` ALL PASS.
+- Dry run 37637454829 on 778dd8c (merged tree, first CI of the hybrid splat layer on WGL/GLES): Windows x64/arm64 failed `HybridSplats.ClearingRestoresByteIdenticalFrames`, Android x86/x86_64 `SizeFromThemeTokenWhenZero` (+ x86_64 `EgoStillOccludesSplatsBehindIt` 6 vs 5). Diagnosed per backend (diagnostic dry run 37645646387, Windows + Android only): llvmpipe dither noise exceeds the +-8 oracle on its own (clean-vs-clean max 12), SwANGLE resolves 1 px points into AA blends (colour predicate 0 px) and adds an edge pixel to the occluded sliver. All three were test oracles, not library defects; fixed in the tests with the justification in their comments. Detail in `docs/status.md` known gaps item 17.
 
 ## Open items owned by the user (tracked in `docs/status.md`)
 
