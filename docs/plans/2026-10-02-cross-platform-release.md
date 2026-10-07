@@ -1060,8 +1060,10 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   `run_id` (a release.yml run's `pkg-linux-*` artifacts). (5) Signing is `gpg --clearsign` / `-abs` with loopback
   passphrase from a temp GNUPGHOME (`lib_gpg.sh`); the apt index is built by `apt-ftparchive` (not reprepro) so every
   packaged version of the newest N releases stays installable (`apt install overlume=<older>`); pinned by
-  `tools/release/test_apt_repo_versions.sh` (two versions x two arches; also asserts the `pages.yml` gather copy,
-  plain `cp -t`, refuses same-named packages). Re-checked after the switch: `build_apt_repo.sh` on the run 37468626796
+  `tools/release/test_apt_repo_versions.sh` (two versions x two arches; it also extracts `pages.yml`'s own
+  gather `find … | xargs cp` lines and runs them: the `*-unverified*` prune must win over a same-named
+  unverified package, and two same-named packages must be refused — verified to FAIL with the workflow
+  reverted to `cp -n` and with the prune removed). Re-checked after the switch: `build_apt_repo.sh` on the run 37468626796
   debs, then apt install of `overlume` from it in ubuntu:22.04 and debian:12 (rpm side unchanged, not re-run).
 - The live-docs `curl` 200 check needs a real deploy (first push to main); the dry run does not deploy.
 - Linux gate deferred (a pgrep match for "carla" was a ROS node parameter, but the load rule requires an empty
