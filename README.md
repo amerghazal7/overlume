@@ -87,7 +87,7 @@ Until Apple signing secrets are provisioned the `.pkg` is unsigned and not
 notarised (Gatekeeper warns on a double-click; `sudo installer -pkg <file> -target /`
 works regardless).
 
-**iOS 15+ / macOS (Swift Package Manager).** In Xcode use File > Add Package
+**iOS 15+ (Swift Package Manager).** In Xcode use File > Add Package
 Dependencies with `https://github.com/amerghazal7/overlume-swift`, or in a
 `Package.swift`:
 
@@ -99,7 +99,8 @@ Dependencies with `https://github.com/amerghazal7/overlume-swift`, or in a
 
 The package is a binary target over the release's `Overlume-<ver>.xcframework.zip`
 (device arm64, simulator arm64 + x86_64); its headers are C++ (POD structs), so
-use it from Objective-C++ or Swift's C++ interoperability.
+use it from Objective-C++ or Swift's C++ interoperability. The XCFramework has
+no macOS slice: on a Mac use Homebrew, the `.pkg` or the `.tar.gz` above.
 
 **Android (Gradle, Maven Central).** API 26+, arm64-v8a, armeabi-v7a, x86_64, x86:
 
