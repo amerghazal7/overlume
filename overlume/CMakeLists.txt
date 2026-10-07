@@ -15,7 +15,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL" CACHE STRING "")
 endif()
 
-project(overlume VERSION 0.1.0 LANGUAGES CXX)
+project(overlume VERSION 1.0.0 LANGUAGES CXX)
 
 # Single-config generators leave CMAKE_BUILD_TYPE empty unless told otherwise, and an empty build
 # type compiles with no -O at all: live rigs ran an -O0 library (height-grid update frames cost

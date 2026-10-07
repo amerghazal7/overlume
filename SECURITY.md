@@ -4,9 +4,9 @@
 
 | Version | Supported |
 |---|---|
-| 0.1.x | Yes |
+| 1.0.x | Yes |
 
-Overlume is pre-1.0; only the latest `0.1.x` release line receives fixes.
+Only the latest `1.x` release line receives fixes.
 There is no long-term-support branch yet.
 
 ## Reporting a vulnerability

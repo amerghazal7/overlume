@@ -12,7 +12,7 @@ option(SMOKE_CONSUMER_YAML "Also link the consumer's own yaml-cpp (symbol-clash 
 
 if(SMOKE_STATIC)
     # clang++ -stdlib=libc++ consumer of the static component only.
-    find_package(overlume 0.1 REQUIRED COMPONENTS static)
+    find_package(overlume 1.0 REQUIRED COMPONENTS static)
     add_executable(package_smoke_static main.cpp)
     target_compile_definitions(package_smoke_static PRIVATE SMOKE_STATIC_LINK
         SMOKE_THEMES_DIR="${overlume_THEMES_DIR}")
@@ -32,7 +32,7 @@ endif()
 if(NOT WIN32)
     find_package(PkgConfig REQUIRED)
 endif()
-find_package(overlume 0.1 REQUIRED)
+find_package(overlume 1.0 REQUIRED)
 add_executable(package_smoke main.cpp)
 target_compile_definitions(package_smoke PRIVATE SMOKE_THEMES_DIR="${overlume_THEMES_DIR}")
 target_link_libraries(package_smoke PRIVATE overlume::overlume ${SMOKE_YAML_TARGET})

@@ -4,7 +4,7 @@
 > (orchestrator on the session model, implementers on Sonnet, review gates on
 > Opus, ≤2 fix rounds per task). Steps use checkbox (`- [ ]`) syntax.
 
-**Status (2026-10-07):** all 12 tasks done on branch `release-packaging`; pending the merge to
+**Status (2026-10-07):** all 12 tasks done on branch `release-packaging`, which now contains `origin/main` and is versioned 1.0.0 (SONAME 1); v1.0.0 tag pending; pending the merge to
 `main` (checklist: remove the pages.yml release-packaging push trigger after merge; run the Linux
 gate on the final head; the first push to main deploys Pages), the user-owned items at the end of
 this file, and the first real tag run (see "Merge checklist" and `docs/runbooks/release.md`). (Steps of Tasks 1-6 below
@@ -429,10 +429,10 @@ deleted on exit). Workflow jobs `create`, `package` (matrix), later publish jobs
   and say which in the report). Includes `<yaml-cpp/yaml.h>` and requires
   `YAML::Load("a: 1")["a"].as<int>() == 1`. `--expect-no-gpu`: `create_renderer`
   returns `nullptr` without aborting. `CMakeLists.txt`: targets
-  `package_smoke` (shared, `find_package(overlume 0.1 REQUIRED)`),
+  `package_smoke` (shared, `find_package(overlume 1.0 REQUIRED)`),
   `package_smoke_pc` (`pkg_check_modules(OV REQUIRED IMPORTED_TARGET overlume)`),
   and, when `-DSMOKE_STATIC=ON`, `package_smoke_static`
-  (`find_package(overlume 0.1 REQUIRED COMPONENTS static)`).
+  (`find_package(overlume 1.0 REQUIRED COMPONENTS static)`).
 - [ ] **Step 2: Packaging config** `OverlumePackaging.cmake`:
 
 ```cmake

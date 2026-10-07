@@ -30,7 +30,7 @@ tar -xzf /tmp/cmake.tgz -C /usr/local --strip-components=1
 rm /tmp/cmake.tgz
 
 export EGL_PLATFORM=surfaceless LIBGL_ALWAYS_SOFTWARE=1
-/src/tools/release/check_glibc_floor.sh "$build/liboverlume.so.0"
+/src/tools/release/check_glibc_floor.sh "$build/liboverlume.so.1"
 /src/tools/release/check_package_elf.sh /src/out AArch64
 # FiftyObjectsSceneUpdateUnderTwoMilliseconds is a wall-clock budget that
 # llvmpipe cannot meet (docs/status.md, known gap 11).

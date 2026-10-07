@@ -22,7 +22,7 @@ stage="$(mktemp -d)"; trap 'rm -rf "$stage"' EXIT
 
 ver=""
 for z in "$zips"/overlume-*-android-*.zip; do
-    base="$(basename "$z" .zip)"                    # overlume-0.1.0-android-arm64-v8a
+    base="$(basename "$z" .zip)"                    # overlume-1.0.0-android-arm64-v8a
     ver="${base#overlume-}"; ver="${ver%%-android-*}"
     abi="${base#*-android-}"
     mkdir -p "$stage/abis/$abi"
