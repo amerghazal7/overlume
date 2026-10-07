@@ -8,12 +8,18 @@
 #   - the internal names listed, one extended regex per line, in the UNTRACKED file
 #     $(git rev-parse --git-common-dir)/info/publish-denylist (never commit that list:
 #     naming the internal repos here would publish them).
+# Public strings (e.g. the maintainer address) are listed, one fixed string per line, in the
+# UNTRACKED $(git rev-parse --git-common-dir)/info/publish-allowlist; each is removed from a
+# scanned line before the regex match.
 # Usage: tools/check_publish_leaks.sh [RANGE]   (default origin/main..HEAD)
 # Prints PASS, or FAIL with commit/file/line for each hit; exits 1 on any hit.
 set -euo pipefail
 
 range="${1:-origin/main..HEAD}"
 denylist="$(git rev-parse --git-common-dir)/info/publish-denylist"
+allowfile="$(git rev-parse --git-common-dir)/info/publish-allowlist"
+allow=""
+[[ -f "${allowfile}" ]] && allow="$(grep -v -e '^#' -e '^$' "${allowfile}" | paste -sd '\034' - || true)"
 
 patterns=(
     '/home/[A-Za-z0-9._-]+/'
@@ -32,14 +38,28 @@ fi
 regex="$(IFS='|'; echo "${patterns[*]}")"
 
 hits="$(git log -p --no-color --format='@@commit %h' "${range}" -- |
-    awk -v re="${regex}" '
+    awk -v re="${regex}" -v allow="${allow}" '
+    function strip(l,   n, a, i, k) {
+        n = split(allow, a, "\034")
+        for (i = 1; i <= n; i++)
+            while (a[i] != "" && (k = index(l, a[i])) > 0)
+                l = substr(l, 1, k - 1) substr(l, k + length(a[i]))
+        return l
+    }
         /^@@commit / { c = $2; next }
         /^\+\+\+ /   { f = substr($0, 7); next }
-        /^\+/ && $0 ~ re { printf "  %s %s: %s\n", c, f, substr($0, 2, 160) }')"
+        /^\+/ && strip($0) ~ re { printf "  %s %s: %s\n", c, f, substr($0, 2, 160) }')"
 msg_hits="$(git log --no-color --format='@@commit %h%n%B' "${range}" |
-    awk -v re="${regex}" '
+    awk -v re="${regex}" -v allow="${allow}" '
+    function strip(l,   n, a, i, k) {
+        n = split(allow, a, "\034")
+        for (i = 1; i <= n; i++)
+            while (a[i] != "" && (k = index(l, a[i])) > 0)
+                l = substr(l, 1, k - 1) substr(l, k + length(a[i]))
+        return l
+    }
         /^@@commit / { c = $2; next }
-        $0 ~ re { printf "  %s (commit message): %s\n", c, substr($0, 1, 160) }')"
+        strip($0) ~ re { printf "  %s (commit message): %s\n", c, substr($0, 1, 160) }')"
 
 n_commits="$(git rev-list --count "${range}")"
 if [[ -n "${hits}${msg_hits}" ]]; then
