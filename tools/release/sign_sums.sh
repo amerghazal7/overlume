@@ -2,20 +2,22 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Amer Ghazal
 #
-# sign_sums.sh DIR NAME -- write DIR/SHA256SUMS-NAME.txt (every other file in
-# DIR) plus a detached armored signature DIR/SHA256SUMS-NAME.txt.asc.
+# sign_sums.sh DIR [NAME] -- write DIR/SHA256SUMS-NAME.txt (every other file in
+# DIR) plus a detached armored signature DIR/SHA256SUMS-NAME.txt.asc. Without
+# NAME (the release-wide merge, see merge_sums.sh) the files are DIR/SHA256SUMS
+# and DIR/SHA256SUMS.asc.
 # GPG material comes from env OVERLUME_GPG_PRIVATE_KEY (armored) and
 # OVERLUME_GPG_PASSPHRASE; it is imported into a temporary GNUPGHOME that is
 # deleted on exit. Secret values are never printed.
 set -euo pipefail
 
-if [ $# -ne 2 ]; then echo "usage: $0 DIR NAME" >&2; exit 2; fi
-dir="$1"; name="$2"
+if [ $# -lt 1 ] || [ $# -gt 2 ]; then echo "usage: $0 DIR [NAME]" >&2; exit 2; fi
+dir="$1"; name="${2:-}"
 : "${OVERLUME_GPG_PRIVATE_KEY:?OVERLUME_GPG_PRIVATE_KEY is not set}"
 : "${OVERLUME_GPG_PASSPHRASE:?OVERLUME_GPG_PASSPHRASE is not set}"
 
-sums="SHA256SUMS-${name}.txt"
-(cd "$dir" && find . -maxdepth 1 -type f ! -name 'SHA256SUMS-*' -printf '%f\n' | LC_ALL=C sort \
+sums="SHA256SUMS${name:+-$name.txt}"
+(cd "$dir" && find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%f\n' | LC_ALL=C sort \
    | xargs -r sha256sum > "$sums")
 
 GNUPGHOME="$(mktemp -d)"; export GNUPGHOME

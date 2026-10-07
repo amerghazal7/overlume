@@ -25,8 +25,9 @@ jobs:
     permissions:
       contents: write
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
@@ -64,7 +65,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --verify-tag \
+          # Draft: invisible to users until `finalize` publishes it after every job and publish step passed.
+          gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
             --title "$GITHUB_REF_NAME" \
             --notes-file /tmp/release-notes.md
 
@@ -72,7 +74,7 @@ jobs:
     needs: create
     if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
     permissions:
-      contents: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -81,11 +83,11 @@ jobs:
           # linux-aarch64 is cross-built on x86_64 and tested natively on arm64:
           # package-linux-aarch64-build + package-linux-aarch64 below.
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
     env:
-      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
       IMAGE: overlume-release-linux:${{ matrix.container_arch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           lfs: true
           # The write token must not land in .git/config: this checkout is
@@ -93,7 +95,7 @@ jobs:
           persist-credentials: false
 
       - name: Cache release image
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ runner.temp }}/overlume-image.tar
           key: overlume-image-${{ matrix.container_arch }}-${{ hashFiles('tools/release/linux/Dockerfile') }}
@@ -108,7 +110,7 @@ jobs:
           fi
 
       - name: Cache Filament source build and vcpkg
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             overlume/build-release/_deps
@@ -161,17 +163,11 @@ jobs:
           OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
         run: tools/release/sign_sums.sh out "${{ matrix.name }}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pkg-${{ matrix.name }}
           path: out/*
           if-no-files-found: error
-
-      - name: Upload release assets
-        if: ${{ env.DRY_RUN != 'true' && github.ref_type == 'tag' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" out/* --clobber
 
   # aarch64 is cross-compiled here (x86_64 runner, Alma 8 aarch64 sysroot, see
   # tools/release/linux/Dockerfile.cross-aarch64) and tested natively by
@@ -183,16 +179,17 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-22.04
+    timeout-minutes: 180
     env:
       IMAGE: overlume-release-linux:cross-aarch64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           lfs: true
           persist-credentials: false
 
       - name: Cache cross release image
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ runner.temp }}/overlume-image.tar
           key: overlume-image-cross-aarch64-${{ hashFiles('tools/release/linux/Dockerfile', 'tools/release/linux/Dockerfile.cross-aarch64') }}
@@ -208,7 +205,7 @@ jobs:
           fi
 
       - name: Cache Filament source build and vcpkg
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             overlume/build-release-aarch64/_deps
@@ -252,13 +249,13 @@ jobs:
              overlume/build-release-aarch64/pkg/*.tar.gz out/
           ls -l out test-bundle
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pkg-linux-aarch64-unverified
           path: out/*
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: tests-linux-aarch64
           path: test-bundle/*
@@ -271,22 +268,21 @@ jobs:
     needs: package-linux-aarch64-build
     if: ${{ !cancelled() && needs.package-linux-aarch64-build.result == 'success' }}
     permissions:
-      contents: write
+      contents: read
     runs-on: ubuntu-22.04-arm
-    env:
-      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           lfs: true
           persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: pkg-linux-aarch64-unverified
           path: out
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: tests-linux-aarch64
           path: test-bundle
@@ -306,17 +302,11 @@ jobs:
           OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
         run: tools/release/sign_sums.sh out linux-aarch64
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pkg-linux-aarch64
           path: out/*
           if-no-files-found: error
-
-      - name: Upload release assets
-        if: ${{ env.DRY_RUN != 'true' && github.ref_type == 'tag' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" out/* --clobber
 
   # Android: one build job per ABI in the Alma 8 release image (host LLVM for Filament's host tools
   # and vcpkg's host triplet) with NDK r27c from tools/android/setup_sdk.sh, mounted at the same
@@ -336,17 +326,18 @@ jobs:
           - { abi: x86_64,      emulator: x86_64 }
           - { abi: x86,         emulator: x86 }
     runs-on: ubuntu-22.04
+    timeout-minutes: 240
     env:
       IMAGE: overlume-release-linux:x86_64
       OVERLUME_ANDROID_HOME: ${{ github.workspace }}/../overlume-android
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           lfs: true
           persist-credentials: false
 
       - name: Cache release image
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ runner.temp }}/overlume-image.tar
           key: overlume-image-x86_64-${{ hashFiles('tools/release/linux/Dockerfile') }}
@@ -364,7 +355,7 @@ jobs:
         run: tools/android/setup_sdk.sh ndk
 
       - name: Cache Filament source build and vcpkg
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             overlume/build-android-${{ matrix.abi }}/_deps
@@ -415,7 +406,7 @@ jobs:
       # ES 3.0 translator renders all-black frames once post-processing is on.
       - name: Tests and consumer smoke on an API 30 emulator
         if: ${{ matrix.emulator != '' }}
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         env:
           ANDROID_NDK_HOME: ${{ env.OVERLUME_ANDROID_HOME }}/android-ndk-r27c
         with:
@@ -428,7 +419,7 @@ jobs:
             tools/android/run_tests_on_emulator.sh overlume/build-android-${{ matrix.abi }}
             RUN_ON_DEVICE=1 tools/android/check_consumer.sh consumer ${{ matrix.abi }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-zip-${{ matrix.abi }}
           path: overlume/build-android-${{ matrix.abi }}/pkg/overlume-*-android-${{ matrix.abi }}.zip
@@ -438,17 +429,17 @@ jobs:
     needs: package-android-build
     if: ${{ !cancelled() && needs.package-android-build.result == 'success' }}
     permissions:
-      contents: write
+      contents: read
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     env:
-      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
       OVERLUME_ANDROID_HOME: ${{ github.workspace }}/../overlume-android
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: android-zip-*
           path: abi-zips
@@ -484,41 +475,41 @@ jobs:
           OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
         run: tools/release/sign_sums.sh out android
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pkg-android
           path: out/*
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: maven-bundle
           path: maven/overlume-maven-bundle.zip
           if-no-files-found: error
 
-      - name: Upload release assets
-        if: ${{ env.DRY_RUN != 'true' && github.ref_type == 'tag' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" out/* --clobber
-
   # Dry runs (and any non-tag run) validate the bundle with Central and drop it; only a tag
   # push publishes. The portal checks the signature against public keyservers, so the release
   # key must be on keyserver.ubuntu.com and keys.openpgp.org.
+  # Irreversible, so last: only after the release is complete (sums), every channel check passed, and the
+  # Homebrew/SwiftPM pushes succeeded (they are skipped on dry runs, which is why 'skipped' is accepted).
   publish-maven:
-    needs: package-android
-    if: ${{ !cancelled() && needs.package-android.result == 'success' }}
+    needs: [sums, channels, publish-homebrew, publish-swiftpm]
+    if: >-
+      ${{ !cancelled() && needs.sums.result == 'success' && needs.channels.result == 'success'
+      && (needs.publish-homebrew.result == 'success' || needs.publish-homebrew.result == 'skipped')
+      && (needs.publish-swiftpm.result == 'success' || needs.publish-swiftpm.result == 'skipped') }}
     permissions:
       contents: read
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     env:
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: maven-bundle
           path: maven
@@ -547,10 +538,11 @@ jobs:
       matrix:
         arch: [arm64, x86_64]
     runs-on: macos-14
+    timeout-minutes: 240
     env:
       DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           lfs: true
           persist-credentials: false
@@ -567,7 +559,7 @@ jobs:
 
       - name: Restore Filament source build and vcpkg
         id: deps
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             overlume/build-macos-${{ matrix.arch }}/_deps/filament-src-install
@@ -579,7 +571,7 @@ jobs:
 
       - name: Save Filament source build and vcpkg
         if: ${{ always() && steps.deps.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             overlume/build-macos-${{ matrix.arch }}/_deps/filament-src-install
@@ -605,7 +597,7 @@ jobs:
       - name: Stage tarball
         run: tar -C overlume -cf stage-macos-${{ matrix.arch }}.tar stage-macos-${{ matrix.arch }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: macos-stage-${{ matrix.arch }}
           path: stage-macos-${{ matrix.arch }}.tar
@@ -617,14 +609,15 @@ jobs:
     permissions:
       contents: read
     runs-on: macos-14
+    timeout-minutes: 60
     env:
       DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: macos-stage-*
           path: stages
@@ -680,7 +673,7 @@ jobs:
           brew test local/overlume/overlume
           echo "PASS: brew install + brew test"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: macos-packages
           path: out/*
@@ -696,10 +689,11 @@ jobs:
       matrix:
         slice: [device-arm64, sim-arm64, sim-x86_64]
     runs-on: macos-14
+    timeout-minutes: 240
     env:
       DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           lfs: true
           persist-credentials: false
@@ -711,7 +705,7 @@ jobs:
 
       - name: Restore Filament source build and vcpkg
         id: deps
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             overlume/build-ios-${{ matrix.slice }}/_deps/filament-src-install
@@ -723,7 +717,7 @@ jobs:
 
       - name: Save Filament source build and vcpkg
         if: ${{ always() && steps.deps.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             overlume/build-ios-${{ matrix.slice }}/_deps/filament-src-install
@@ -733,7 +727,7 @@ jobs:
       - name: Stage tarball
         run: tar -C overlume -cf stage-ios-${{ matrix.slice }}.tar stage-ios-${{ matrix.slice }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ios-stage-${{ matrix.slice }}
           path: stage-ios-${{ matrix.slice }}.tar
@@ -745,14 +739,15 @@ jobs:
     permissions:
       contents: read
     runs-on: macos-14
+    timeout-minutes: 60
     env:
       DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: ios-stage-*
           path: stages
@@ -782,7 +777,7 @@ jobs:
           v="$(tools/apple/build_macos_universal.sh version)"
           tools/release/publish_swiftpm.sh check "out/Overlume-$v.xcframework.zip" "$v"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ios-packages
           path: |
@@ -795,21 +790,20 @@ jobs:
     needs: [package-macos, package-ios]
     if: ${{ !cancelled() && needs.package-macos.result == 'success' && needs.package-ios.result == 'success' }}
     permissions:
-      contents: write
+      contents: read
     runs-on: ubuntu-22.04
-    env:
-      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: macos-packages
           path: macos
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: ios-packages
           path: ios
@@ -822,43 +816,41 @@ jobs:
           tools/release/sign_sums.sh macos macos
           tools/release/sign_sums.sh ios ios
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pkg-macos
           path: macos/*
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pkg-ios
           path: ios/*
           if-no-files-found: error
 
-      - name: Upload release assets
-        if: ${{ env.DRY_RUN != 'true' && github.ref_type == 'tag' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
+      # SwiftPM pins the xcframework zip by checksum in an immutable tag; the rebuilt zip is not byte-stable.
+      - name: Refuse to rebuild a version SwiftPM already pinned
+        if: ${{ github.ref_type == 'tag' && (github.event_name == 'push' || !inputs.dry_run) }}
         run: |
-          # SwiftPM pins the xcframework zip by checksum in an immutable tag; the rebuilt zip is not byte-stable.
           if tools/release/publish_swiftpm.sh published "${GITHUB_REF_NAME#v}"; then
-            echo "::error::$GITHUB_REF_NAME is already on SwiftPM; a rebuilt zip would break its checksum. Re-run only failed jobs or cut a new version."
+            echo "::error::$GITHUB_REF_NAME is already on SwiftPM; a rebuilt zip would break its checksum. Cut a new version."
             exit 1
           fi
-          gh release upload "$GITHUB_REF_NAME" macos/* ios/* --clobber
 
   # Tag runs only: a dry run already installed the formula and resolved the manifest above.
   publish-homebrew:
-    needs: sign-apple
-    if: ${{ !cancelled() && needs.sign-apple.result == 'success' && github.ref_type == 'tag' && (github.event_name == 'push' || !inputs.dry_run) }}
+    needs: [sums, channels]
+    if: ${{ !cancelled() && needs.sums.result == 'success' && needs.channels.result == 'success' && github.ref_type == 'tag' && (github.event_name == 'push' || !inputs.dry_run) }}
     permissions:
       contents: read
     runs-on: ubuntu-22.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: pkg-macos
           path: macos
@@ -873,19 +865,20 @@ jobs:
               "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/overlume-$v-macos-universal.tar.gz"
 
   publish-swiftpm:
-    needs: sign-apple
-    if: ${{ !cancelled() && needs.sign-apple.result == 'success' && github.ref_type == 'tag' && (github.event_name == 'push' || !inputs.dry_run) }}
+    needs: [sums, channels]
+    if: ${{ !cancelled() && needs.sums.result == 'success' && needs.channels.result == 'success' && github.ref_type == 'tag' && (github.event_name == 'push' || !inputs.dry_run) }}
     permissions:
       contents: read
     runs-on: macos-14
+    timeout-minutes: 30
     env:
       DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: pkg-ios
           path: ios
@@ -920,7 +913,7 @@ jobs:
       # Short root: vcpkg's build trees overflow MAX_PATH under the default workspace path.
       EZVCPKG_BASEDIR: C:\ez
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           lfs: true
           persist-credentials: false
@@ -945,7 +938,7 @@ jobs:
 
       - name: Restore Filament source build and vcpkg
         id: deps
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             overlume/build-windows-${{ matrix.arch }}/_deps/filament-src-install
@@ -961,7 +954,7 @@ jobs:
 
       - name: Save Filament source build and vcpkg
         if: ${{ always() }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             overlume/build-windows-${{ matrix.arch }}/_deps/filament-src-install
@@ -980,7 +973,7 @@ jobs:
           WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
         run: tools/windows/build_windows.ps1 package -Arch ${{ matrix.arch }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-build-${{ matrix.arch }}
           path: |
@@ -1002,15 +995,16 @@ jobs:
           - { arch: x64,   os: windows-2022 }
           - { arch: arm64, os: windows-11-arm }
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     defaults:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: windows-build-${{ matrix.arch }}
           path: pkg
@@ -1055,7 +1049,7 @@ jobs:
           tools/windows/smoke_windows.ps1 -Prefix C:\reloc\overlume-zip -Arch ${{ matrix.arch }}
           if ($LASTEXITCODE) { exit 1 }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-packages-${{ matrix.arch }}
           path: pkg/*
@@ -1065,16 +1059,15 @@ jobs:
     needs: package-windows
     if: ${{ !cancelled() && needs.package-windows.result == 'success' }}
     permissions:
-      contents: write
+      contents: read
     runs-on: ubuntu-22.04
-    env:
-      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: windows-packages-*
           path: windows
@@ -1086,20 +1079,14 @@ jobs:
           OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
         run: tools/release/sign_sums.sh windows windows
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pkg-windows
           path: windows/*
           if-no-files-found: error
 
-      - name: Upload release assets
-        if: ${{ env.DRY_RUN != 'true' && github.ref_type == 'tag' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" windows/* --clobber
-
   # vcpkg overlay port + Conan recipe, rendered from the release's own SHA256SUMS-* files.
-  # Tag runs attach the two zips (GitHub release URLs inside); every run also renders a copy whose
+  # `sums` attaches the two zips (GitHub release URLs inside); every run also renders a copy whose
   # archive URLs point at 127.0.0.1:8000 for the channels job below.
   channels-render:
     needs: [package, package-linux-aarch64, sign-apple, sign-windows]
@@ -1107,29 +1094,27 @@ jobs:
       ${{ !cancelled() && needs.package.result == 'success' && needs.package-linux-aarch64.result == 'success'
       && needs.sign-apple.result == 'success' && needs.sign-windows.result == 'success' }}
     permissions:
-      contents: write
+      contents: read
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    env:
-      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: pkg-linux-x86_64
           path: rel
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: pkg-linux-aarch64
           path: rel
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: pkg-macos
           path: rel
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: pkg-windows
           path: rel
@@ -1142,26 +1127,20 @@ jobs:
           tools/release/render_vcpkg_conan.sh rel "$ver" release-channels
           tools/release/render_vcpkg_conan.sh rel "$ver" local-channels http://127.0.0.1:8000
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: channels-recipes
           path: |
             release-channels/*.zip
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: channels-local
           path: |
             local-channels/vcpkg-port
             local-channels/conan
           if-no-files-found: error
-
-      - name: Upload release assets
-        if: ${{ env.DRY_RUN != 'true' && github.ref_type == 'tag' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" release-channels/*.zip --clobber
 
   # Installs the rendered port/recipe against this run's own artifacts (loopback http.server) and builds
   # + runs the consumer: vcpkg overlay port and `conan create` (test_package), shared and static.
@@ -1186,16 +1165,16 @@ jobs:
       CONAN_SHA256_MACOS: 30c9d93167ae7936c87d831561df27fbbdce83cbc89e9feb329fa85dc8d65ebe
       CONAN_SHA256_WINDOWS: 6009028b38b9a4ad1c01ea8d7537ee03ec46cbe9cf4928b9c758bc0f96b469ac
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: channels-local
           path: local
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: ${{ matrix.pkg }}
           path: pkgs
@@ -1252,3 +1231,123 @@ jobs:
       - name: Linux static product (clang 18 + libc++ in ubuntu:24.04)
         if: ${{ runner.os == 'Linux' }}
         run: tools/release/check_vcpkg_conan_linux_static.sh local pkgs
+
+  # The one place release assets are uploaded and the one place checksums are signed release-wide.
+  # Needs every package/test job (transitively every build), so a missing platform means no sums.
+  # Per-job SHA256SUMS-<name>.txt(.asc) stay workflow artifacts (merge_sums.sh verifies each one against
+  # the committed public key, so the artifact hop is covered) and are NOT release assets: users get one
+  # SHA256SUMS + SHA256SUMS.asc covering every file, with no duplicated or clobbering per-platform lists.
+  sums:
+    needs: [package, package-linux-aarch64, package-android, sign-apple, sign-windows, channels-render]
+    if: >-
+      ${{ !cancelled() && needs.package.result == 'success' && needs.package-linux-aarch64.result == 'success'
+      && needs.package-android.result == 'success' && needs.sign-apple.result == 'success'
+      && needs.sign-windows.result == 'success' && needs.channels-render.result == 'success' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      # pkg-linux-aarch64-unverified (pre-native-test) is removed below; it shares file names.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: pkg-*
+          path: parts
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: channels-recipes
+          path: parts/channels-recipes
+
+      - name: Every platform is present
+        run: |
+          set -euo pipefail
+          rm -rf parts/pkg-linux-aarch64-unverified
+          for n in pkg-linux-x86_64 pkg-linux-aarch64 pkg-android pkg-macos pkg-ios pkg-windows channels-recipes; do
+            [ -d "parts/$n" ] || { echo "::error::artifact $n missing"; exit 1; }
+          done
+          ls parts
+
+      - name: Merge (verifying every per-job signature) and sign SHA256SUMS
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          tools/release/test_merge_sums.sh
+          tools/release/merge_sums.sh merge packaging/keys/overlume-release.asc parts release
+          tools/release/sign_sums.sh release
+
+      # A fresh keyring holding only the committed public key: what a user does.
+      - name: Verify SHA256SUMS.asc and every file
+        run: |
+          set -euo pipefail
+          tools/release/merge_sums.sh verify packaging/keys/overlume-release.asc release
+          cat release/SHA256SUMS
+          du -sh release
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-sums
+          path: |
+            release/SHA256SUMS
+            release/SHA256SUMS.asc
+          if-no-files-found: error
+
+      # --clobber: the release is a draft until finalize, so a re-run of this job replaces its own assets.
+      - name: Upload release assets
+        if: ${{ env.DRY_RUN != 'true' && github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$GITHUB_REF_NAME" release/* --clobber
+
+  # Publishes the draft, only when everything before it (packages, tests, sums, channels, Homebrew,
+  # SwiftPM, Maven) succeeded. Skipped on dry runs and branch runs because publish-homebrew/-swiftpm are.
+  finalize:
+    needs: [create, sums, channels, publish-homebrew, publish-swiftpm, publish-maven]
+    if: >-
+      ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch')
+      && needs.sums.result == 'success' && needs.channels.result == 'success'
+      && needs.publish-homebrew.result == 'success' && needs.publish-swiftpm.result == 'success'
+      && needs.publish-maven.result == 'success' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # The draft must hold exactly the files SHA256SUMS lists (plus itself and its signature).
+      - name: Draft holds exactly the signed file set
+        run: |
+          set -euo pipefail
+          gh release download "$GITHUB_REF_NAME" -p SHA256SUMS -p SHA256SUMS.asc
+          gh release view "$GITHUB_REF_NAME" --json assets -q '.assets[].name' | LC_ALL=C sort > have.txt
+          { awk '{print $2}' SHA256SUMS; echo SHA256SUMS; echo SHA256SUMS.asc; } | LC_ALL=C sort > want.txt
+          diff want.txt have.txt || { echo "::error::release assets differ from SHA256SUMS (< wanted, > present)"; exit 1; }
+
+      - name: Publish the release
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false
+
+  # The github-pages environment only deploys from main, so pages.yml is dispatched on main after the release
+  # is public (it reads the newest releases' .deb/.rpm assets; a draft would be invisible to it).
+  pages:
+    needs: finalize
+    if: ${{ !cancelled() && needs.finalize.result == 'success' }}
+    permissions:
+      actions: write
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - run: gh workflow run pages.yml --ref main -f dry_run=false
