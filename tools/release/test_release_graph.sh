@@ -58,9 +58,12 @@ for n, j in J.items():
     w = (j.get("permissions") or {}).get("contents") == "write"
     ok(not w or n in allowed, f"{n} has contents: write")
 
-# (f) pinned actions, timeouts
-for n, j in J.items():
-    ok("timeout-minutes" in j or "uses" in j, f"{n} has no timeout-minutes")
+# (f) pinned actions, timeouts -- timeouts are checked in EVERY workflow file (the plan says "every job"),
+# not only release.yml; reusable-workflow calls (`uses:` jobs) inherit the callee's.
+import glob, os
+for wf in sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(sys.argv[1])), "*.yml"))):
+    for n, j in (yaml.safe_load(open(wf)).get("jobs") or {}).items():
+        ok("timeout-minutes" in j or "uses" in j, f"{os.path.basename(wf)}: job {n} has no timeout-minutes")
 txt = open(sys.argv[1]).read()
 for m in re.finditer(r"^\s*-?\s*uses:\s*(\S+)(.*)$", txt, re.M):
     ok(re.fullmatch(r".+@[0-9a-f]{40}", m.group(1)) and re.search(r"#\s*v\d", m.group(2)), f"unpinned action: {m.group(1)}")

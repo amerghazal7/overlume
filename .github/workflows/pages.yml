@@ -135,6 +135,7 @@ jobs:
     # public (the github-pages environment only accepts main, so there is no tag or workflow_call path).
     if: ${{ !inputs.dry_run && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     permissions:
       pages: write
       id-token: write
