@@ -66,8 +66,8 @@ TEST(RibbonGolden, ThreeRoles_DarkAdas) {
     overlume::CameraPose pose{{-4, -8, 6}, {4, 1, 0}, 60.0};
     double ssim = overlume::testing::render_and_compare(
         r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/ribbons_three_roles_dark_adas.png",
-        "/tmp/ribbons_three_roles_dark_adas_actual.png");
-    EXPECT_GT(ssim, 0.98);
+        OVERLUME_TMP_DIR "/ribbons_three_roles_dark_adas_actual.png");
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
     overlume::destroy_renderer(r);
 }
 

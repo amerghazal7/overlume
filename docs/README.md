@@ -12,7 +12,7 @@ index; `docs/status.md` is the one status ledger.
 - **`design/`** — the visual-mode design spec and its backlog, the design
   record Epics 0-6 were built against, and later feature specs.
 - **`adr/`** — architecture decision records (unchanged by this restructure).
-- **`plans/`** — the live restructure plan, the per-epic implementation
+- **`plans/`** — the restructure and release-pipeline plans, the per-epic implementation
   plans (history of *how* each epic was built), and `plans/archive/` for
   retired-prototype plans/specs and the superseded project backlog export.
 - **`evidence/`** — captured measurement artifacts (LFS) cited by the plans.
@@ -42,6 +42,10 @@ index; `docs/status.md` is the one status ledger.
   against a real-robot Micropilot logger session: `mp_play` config, the static
   transforms the recorder misses, the `replay` profile, `gps_topic`. One
   command: `tools/validate_logger_session.sh [SESSION_DIR] [--arm osm]`.
+- [`release.md`](runbooks/release.md) — cut, rehearse (dry run + `tools/release/channel_smoke.sh all`),
+  verify and repair a cross-platform release; key rotation, Apple/Windows
+  signing secrets, the real-Mac Metal check, Maven/keyserver prerequisites and
+  the merge checklist. Users' install commands are the README's "Install" section.
 - [`ci_gate.md`](runbooks/ci_gate.md) — what `tools/ci_visual_mode.sh`
   actually runs, what its green does and does not cover, and the
   `viz_benchmark` perf tool.
@@ -76,7 +80,13 @@ index; `docs/status.md` is the one status ledger.
 ## Plans (`docs/plans/`)
 
 - [`2026-09-17-overlume-restructure.md`](plans/2026-09-17-overlume-restructure.md)
-  — the live restructure plan (this reorganization).
+  — the restructure plan (this reorganization; closed 2026-09-17).
+- [`2026-10-02-cross-platform-release.md`](plans/2026-10-02-cross-platform-release.md)
+  — the release pipeline: packages, channels and signing for every platform
+  (closed 2026-10-07; first release v1.0.0).
+- [`2026-10-02-hybrid-composite-restore.md`](plans/2026-10-02-hybrid-composite-restore.md)
+  — restoring the hybrid lidar-over-bowl composite lost in the engine
+  migration (closed 2026-10-02).
 - [`2026-08-18-visual-mode.md`](plans/2026-08-18-visual-mode.md) — the
   master rolling-wave plan.
 - [`2026-08-18-visual-mode-epic1.md`](plans/2026-08-18-visual-mode-epic1.md)

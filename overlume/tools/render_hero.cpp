@@ -27,7 +27,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <unistd.h>
+#include <random>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -996,8 +996,8 @@ int main(int argc, char** argv) {
     // light_clay is copied verbatim so the light hold shows the shipped palette.
     // The shipped YAMLs under assets/themes are never modified.
     namespace fs = std::filesystem;
-    const fs::path heroThemes =
-        fs::temp_directory_path() / ("overlume_hero_themes_" + std::to_string(::getpid()));
+    const fs::path heroThemes = fs::temp_directory_path() /
+                                ("overlume_hero_themes_" + std::to_string(std::random_device{}()));
     fs::create_directories(heroThemes);
     for (const char* nm : {"dark_adas", "light_clay"}) {
         std::ifstream in(a.root + "/assets/themes/" + nm + ".yaml");

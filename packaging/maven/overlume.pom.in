@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>io.github.amerghazal7</groupId>
+  <artifactId>overlume</artifactId>
+  <version>@VERSION@</version>
+  <packaging>aar</packaging>
+  <name>Overlume</name>
+  <description>Real-time robot-scene rendering library (Filament) with a POD-only C API. Prefab package: native shared and static libraries for arm64-v8a, armeabi-v7a, x86_64 and x86.</description>
+  <url>https://github.com/amerghazal7/overlume</url>
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>amerghazal7</id>
+      <name>Amer Ghazal</name>
+      <url>https://github.com/amerghazal7</url>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:https://github.com/amerghazal7/overlume.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/amerghazal7/overlume.git</developerConnection>
+    <url>https://github.com/amerghazal7/overlume</url>
+  </scm>
+</project>

@@ -43,8 +43,8 @@ TEST(GroundGridGolden, TwoLayers_OffroadLightClay) {
     overlume::CameraPose pose{{-14, -14, 10}, {0, 0, 0}, 60.0};
     double ssim = overlume::testing::render_and_compare(
         r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/ogm_offroad_light_clay.png",
-        "/tmp/ogm_offroad_light_clay_actual.png");
-    EXPECT_GT(ssim, 0.98);
+        OVERLUME_TMP_DIR "/ogm_offroad_light_clay_actual.png");
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
     overlume::destroy_renderer(r);
 }
 

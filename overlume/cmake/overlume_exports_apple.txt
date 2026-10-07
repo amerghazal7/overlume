@@ -1,0 +1,4 @@
+# Exported symbols of liboverlume.dylib / Overlume.framework (ld64 -exported_symbols_list):
+# the overlume:: C++ API only; everything else (Filament, yaml-cpp, cesium-native) stays hidden.
+__ZN8overlume*
+__ZNK8overlume*

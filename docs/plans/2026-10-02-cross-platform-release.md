@@ -1,0 +1,1282 @@
+# Cross-Platform Release Packaging Implementation Plan
+
+> **For agentic workers:** executed as dynamic workflows per `AGENTS.md`
+> (orchestrator on the session model, implementers on Sonnet, review gates on
+> Opus, ≤2 fix rounds per task). Steps use checkbox (`- [ ]`) syntax.
+
+**Status (2026-10-07):** all 12 tasks done on branch `release-packaging`, which now contains `origin/main` and is versioned 1.0.0 (SONAME 1); v1.0.0 tag pending; pending the merge to
+`main` (checklist: remove the pages.yml release-packaging push trigger after merge; run the Linux
+gate on the final head; the first push to main deploys Pages), the user-owned items at the end of
+this file, and the first real tag run (see "Merge checklist" and `docs/runbooks/release.md`). (Steps of Tasks 1-6 below
+were never ticked as they landed; their completion is recorded in git history and `docs/status.md`.)
+
+**Goal:** Publishing a GitHub release (`v*` tag) builds, tests, signs and
+publishes Overlume for every supported platform, installable through each
+platform's native channel:
+
+| Platform | Artifacts (release assets) | Install channel |
+|---|---|---|
+| Linux x86_64 / aarch64 | `.deb`, `.rpm`, `.tar.gz` (shared + static) | signed apt + dnf/yum repos on GitHub Pages |
+| macOS universal2 (arm64+x86_64) | `.pkg`, `.tar.gz` (shared + static) | Homebrew tap `amerghazal7/homebrew-overlume` |
+| iOS (device arm64, simulator arm64+x86_64) | `Overlume.xcframework.zip` (dynamic) + static xcframework | Swift Package Manager (see Decision D7) |
+| Windows x64 / arm64 | NSIS `.exe`, `.zip` (shared + static) | vcpkg overlay port, Conan recipe |
+| Android arm64-v8a, armeabi-v7a, x86_64, x86 | Prefab `.aar`, `.zip` (shared + static) | Maven Central `io.github.amerghazal7:overlume` |
+
+Linux and macOS also get pkg-config; every platform gets `find_package(overlume)`.
+The vcpkg port and Conan recipe cover Linux and macOS too.
+
+**Architecture:** One CMake project, one `OBJECT` library feeding two link
+products: `overlume` (static, unchanged for the ROS node/tests/gate) and
+`overlume_shared` (shared, self-contained: Filament, yaml-cpp, cesium-native
+and the C++ runtime baked in, only `overlume::*` exported). Both are
+installed as separate components (`overlume` = shared runtime + headers +
+assets, `static` = static archives). The headless EGL platform becomes one
+of four compile-time back ends (EGL/desktop-GL on Linux, EGL/GLES on
+Android, Metal on macOS and iOS, WGL/OpenGL on Windows). Release Linux
+builds run in an AlmaLinux 8 container (glibc 2.28 floor) with the official
+LLVM 18.1.8 release toolchain and Filament from source. CPack produces native
+packages; `release.yml` runs a build matrix, then publish jobs per channel.
+
+**Tech Stack:** CMake ≥ 3.24 + CPack (DEB, RPM, TGZ, productbuild, NSIS,
+ZIP), Filament 1.56.5 (prebuilt mac/windows-x64/ios; source build for Linux
+release builds, Linux aarch64, Windows arm64, Android), cesium-native 0.64.0
+via its vcpkg, Android NDK r27c + Prefab, Xcode 15 `xcodebuild -create-xcframework`,
+`reprepro` + `createrepo_c`, Sonatype Central Portal publisher API, GitHub
+Actions hosted runners, Docker for clean-install smoke tests.
+
+**Spec:** user request 2026-10-02 + decisions below.
+
+## Decisions (2026-10-02, user)
+
+- D1 Scope: **full port**, all platforms in the table above packaged.
+- D2 Packaged artifact: **shared library** with deps baked in, POD API exported only;
+  **plus a static package** on every platform.
+- D3 **Cesium ON** in every release package.
+- D4 **No accepted gaps**: old-glibc Linux (RHEL/Alma 8+), package
+  repositories, signing, macOS x86_64, Windows arm64, all four Android ABIs,
+  iOS — all in scope.
+- D5 Channels: signed apt+yum on GitHub Pages, Homebrew tap (repo created
+  2026-10-02), Maven Central, vcpkg overlay port + Conan recipe.
+- D6 Signing: one GPG key (RSA-4096, fpr `89281DE03F68406F29C62CCF8A1D000F68FE6404`,
+  expires 2029-10-01) signs apt/yum repos, rpm packages, Maven artifacts and
+  `SHA256SUMS`. Apple Developer ID/notarisation and Windows Authenticode
+  steps are implemented but run only when their secrets exist
+  (`APPLE_*`, `WINDOWS_SIGNING_*`); absent secrets produce a `::warning::`,
+  never a silent skip.
+- D7 SwiftPM: manifest lives in **`amerghazal7/overlume-swift`** (created 2026-10-02);
+  the release job commits `Package.swift` there and tags it `vX.Y.Z`.
+- D8 CI iteration: pushing work branch `release-packaging` to origin and
+  `workflow_dispatch` dry runs are authorised (2026-10-02).
+
+## Credentials (names only; values never in repo, logs or transcripts)
+
+| Secret (repo `amerghazal7/overlume`) | Used by |
+|---|---|
+| `OVERLUME_GPG_PRIVATE_KEY`, `OVERLUME_GPG_PASSPHRASE`, `OVERLUME_GPG_FINGERPRINT` | rpm signing, apt/yum repo signing, Maven `.asc`, `SHA256SUMS.asc` |
+| `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD` | Central Portal publisher API (Bearer = base64 of `user:pass`) |
+| `HOMEBREW_TAP_DEPLOY_KEY` | push formula to `amerghazal7/homebrew-overlume` (write deploy key) |
+| `SWIFTPM_REPO_DEPLOY_KEY` | push `Package.swift` + tag to `amerghazal7/overlume-swift` (write deploy key) |
+| `APPLE_DEVELOPER_ID_P12`, `APPLE_DEVELOPER_ID_P12_PASSWORD`, `APPLE_NOTARY_KEY_ID`, `APPLE_NOTARY_ISSUER_ID`, `APPLE_NOTARY_KEY_P8` | not yet provisioned |
+| `WINDOWS_SIGNING_*` (Azure Trusted Signing or PFX) | not yet provisioned |
+
+Local key material: `~/.config/overlume-release/` (mode 700; private key,
+passphrase, revocation cert, tap deploy key). The public key is committed at
+`packaging/keys/overlume-release.asc` (Task 1) and served from Pages.
+
+## Global Constraints
+
+- Public headers stay POD-only and append-only (ADR-0003/0004);
+  `overlume/scripts/check_pod_header.sh` passes. No header changes in this plan.
+- The **dev** build on Linux x86_64 (prebuilt Filament, `overlume/build`) is
+  byte-identical: `tools/ci_visual_mode.sh` green with **no golden changes**
+  after every task. A golden diff is a finding.
+- `overlume/build/liboverlume.a`, its merge step and the ROS node's
+  consumption in `ros/src/overlume_ros/CMakeLists.txt` stay as they are.
+- `CESIUM_ION_TOKEN` / `MAPBOX_TOKEN` never enter any build, package, log or
+  test. Smoke tests need no network after the package is installed.
+- Secrets are referenced by name only; scripts print PASS/FAIL and HTTP codes,
+  never secret values; `set -x` is forbidden in any step that sees a secret.
+- Pins: Filament **1.56.5**, cesium-native **0.64.0**, LLVM **18.1.8**, NDK
+  **r27c**, Android API **26** (armeabi-v7a/x86 too), macOS **13.0**, iOS
+  **15.0**, Windows **10** / MSVC v143.
+- Linux release packages: built in `almalinux:8` → glibc ≥ 2.28 (RHEL/Alma/
+  Rocky 8+, Ubuntu 20.04+, Debian 11+, Fedora 36+).
+- Package name `overlume`; static package `overlume-static`; Maven
+  `io.github.amerghazal7:overlume`; version from `project(overlume VERSION …)`;
+  SOVERSION = major.
+- macOS/iOS/Windows/Android are exercised only on GitHub-hosted runners:
+  those tasks iterate by pushing a work branch and running `release.yml`
+  via `workflow_dispatch` with `dry_run=true` (builds + tests + signs with
+  the real key; publishes nothing; Maven bundle validated then dropped).
+- Every task ends with its runnable check + green gate, one commit per task.
+
+## Review Focus
+
+1. **gcc/libstdc++ consumer with its own yaml-cpp/spdlog** links and runs
+   the shared lib with no symbol clash → Task 1 export check + Task 3 smoke.
+2. **Installed package, `theme_assets_dir = nullptr`** finds installed
+   themes (not the CI path, not the fallback) → Task 1 unit test + Task 3 smoke
+   (incl. relocated `tar.gz` prefix).
+3. **Row 0 is the top row on every backend** (EGL/GLES/Metal/WGL readback)
+   → Task 4 orientation test, run in every platform job.
+4. **No GPU on the target box** → `create_renderer` returns `nullptr`
+   cleanly → smoke `--expect-no-gpu` on Linux, and on macOS/Windows when the
+   runner lacks a device.
+5. **A user following the README on a fresh machine** (`apt install overlume`
+   after adding the repo key, `brew install`, Gradle dependency, vcpkg/Conan
+   install) gets a working build → Task 12 end-to-end channel smoke, against
+   the dry-run outputs served from a local HTTP server (apt/yum) and the
+   validated-but-dropped Maven bundle's contents.
+6. **Static package with the wrong toolchain** (gcc/libstdc++ on Linux)
+   fails at CMake configure with a clear message, never at link/run time
+   → Task 1 config guard + Task 3 smoke negative case.
+
+---
+
+## File map
+
+| File | Task | Responsibility |
+|---|---|---|
+| `overlume/CMakeLists.txt` | 1,2,4–8 | `overlume_obj`, both products, install/export, per-platform switches |
+| `overlume/cmake/overlume_exports.map` / `overlume_exports_apple.txt` | 1 / 7 | export lists |
+| `overlume/cmake/overlumeConfig.cmake.in`, `overlume.pc.in` | 1 | `find_package` (components `shared`/`static`), pkg-config |
+| `overlume/cmake/OverlumePackaging.cmake` | 3,6–8 | CPack per platform |
+| `overlume/cmake/GetFilament.cmake` | 2,6–8 | prebuilt-or-source Filament |
+| `overlume/cmake/GetCesiumNative.cmake`, `vcpkg-triplets/*` | 2,6–8 | per-target triplet |
+| `overlume/cmake/toolchain-llvm-release.cmake`, `tools/release/linux/Dockerfile` | 2 | Alma 8 + LLVM 18.1.8 release toolchain |
+| `overlume/src/theme_dir.{hpp,cpp}` | 1 | default theme dir |
+| `overlume/src/platform.hpp`, `platform_{egl,metal,wgl}.cpp` | 4,6,7,8 | headless back ends |
+| `overlume/scripts/check_shared_exports.{sh,ps1}` | 1,7,8 | export hygiene |
+| `packaging/keys/overlume-release.asc` | 1 | public key |
+| `tools/package_smoke/…`, `tools/package_smoke_test.sh` | 3 | clean-room consumer |
+| `tools/android/*`, `packaging/maven/*` | 6 | AAR, POM, Central upload |
+| `tools/apple/*`, `packaging/homebrew/overlume.rb.in`, `packaging/swiftpm/Package.swift.in` | 7 | universal2, xcframework, formula, SPM |
+| `packaging/vcpkg/ports/overlume/*.in`, `packaging/conan/{conanfile.py,conandata.yml.in}` | 9 | overlay port, recipe |
+| `tools/release/{build_apt_repo.sh,build_yum_repo.sh,sign_sums.sh}`, `.github/workflows/pages.yml` | 10 | signed repos + docs on Pages |
+| `tools/release/channel_smoke.sh` | 12 | end-to-end channel smoke |
+| `.github/workflows/release.yml` | 3,5–12 | matrix + publish jobs |
+| `docs/runbooks/release.md`, `README.md`, `docs/status.md`, `CHANGELOG.md`, `NOTICE` | 12 | docs |
+
+---
+
+### Task 1: Shared + static products, install components, `find_package`/pkg-config
+
+**Files:** Modify `overlume/CMakeLists.txt`, `overlume/src/renderer.cpp:99-101,720-725`.
+Create `overlume/cmake/overlume_exports.map`, `overlume/cmake/overlumeConfig.cmake.in`,
+`overlume/cmake/overlume.pc.in`, `overlume/src/theme_dir.{hpp,cpp}`,
+`overlume/scripts/check_shared_exports.sh`, `overlume/tests/test_theme_dir.cpp`,
+`packaging/keys/overlume-release.asc` (copy of `~/.config/overlume-release/overlume-release-public.asc`).
+
+**Interfaces — Produces:**
+- Targets `overlume_obj` (OBJECT), `overlume` (STATIC, unchanged output),
+  `overlume_shared` (SHARED, `OUTPUT_NAME overlume`, `SOVERSION ${PROJECT_VERSION_MAJOR}`);
+  in-tree alias `overlume::overlume` → static (tests/examples unchanged).
+- Installed exports: `overlume::overlume` (shared, component `overlume`) and
+  `overlume::overlume_static` (component `static`); `find_package(overlume COMPONENTS static)`
+  loads the static targets; default loads shared. Variables `overlume_THEMES_DIR`, `overlume_MODELS_DIR`.
+- `std::string overlume::detail::resolve_default_theme_dir(const std::string& module_path, const char* compiled_default);`
+  `std::string overlume::detail::current_module_path();`
+- Install layout (component `overlume`): `lib/liboverlume.so*` (Windows: `bin/overlume.dll`
+  + `lib/overlume.lib`), `include/overlume/*.h`, `share/overlume/{themes,models}/`,
+  `lib/cmake/overlume/`, `share/pkgconfig/overlume.pc`, `share/doc/overlume/{LICENSE,NOTICE,ATTRIBUTION.md}`.
+  Component `static`: `lib/liboverlume.a` (the merged archive) + `lib/overlume/deps/*.a`
+  (Filament archives, plus libc++/abi/unwind? **no** — the consumer's own
+  libc++ provides them) + `lib/cmake/overlume/overlumeStaticTargets.cmake`.
+
+- [ ] **Step 1: Failing test** `overlume/tests/test_theme_dir.cpp`:
+
+```cpp
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+#include <gtest/gtest.h>
+#include <filesystem>
+#include <fstream>
+#include "theme_dir.hpp"
+namespace fs = std::filesystem;
+using overlume::detail::resolve_default_theme_dir;
+
+TEST(ThemeDir, PrefersInstalledShareDirNextToModule) {
+    const fs::path root = fs::temp_directory_path() / "overlume_theme_dir_test";
+    fs::remove_all(root);
+    fs::create_directories(root / "lib");
+    fs::create_directories(root / "share/overlume/themes");
+    std::ofstream(root / "share/overlume/themes/dark_adas.yaml") << "x: 1\n";
+    EXPECT_EQ(resolve_default_theme_dir((root / "lib/liboverlume.so.0").string(), "/nonexistent"),
+              (root / "share/overlume/themes").string());
+    fs::remove_all(root);
+}
+
+TEST(ThemeDir, FallsBackToCompiledDefaultWhenNoShareDir) {
+    EXPECT_EQ(resolve_default_theme_dir("/definitely/not/here/lib/x.so", "/compiled/themes"),
+              "/compiled/themes");
+}
+
+TEST(ThemeDir, EmptyModulePathUsesCompiledDefault) {
+    EXPECT_EQ(resolve_default_theme_dir("", "/compiled/themes"), "/compiled/themes");
+}
+```
+
+- [ ] **Step 2:** build + `ctest -R ThemeDir` → FAIL (header missing).
+- [ ] **Step 3: Implement** `theme_dir.cpp`: return
+  `<dirname(module)>/../share/overlume/themes` (lexically normalised) if it is
+  a directory with at least one `*.yaml`, else `compiled_default`. (Windows
+  DLL in `bin/`, same rule. Apple frameworks/Android: callers pass the dir;
+  the rule simply fails over.) `current_module_path()`: `dladdr` on POSIX,
+  `GetModuleHandleExW(FROM_ADDRESS|UNCHANGED_REFCOUNT)` + `GetModuleFileNameW`
+  on `_WIN32`, `""` on failure. `renderer.cpp:724` uses
+  `detail::resolve_default_theme_dir(detail::current_module_path(), DEFAULT_THEME_ASSETS_DIR)`.
+- [ ] **Step 4:** `ctest -R ThemeDir` → PASS.
+- [ ] **Step 5: Restructure.** Baseline first:
+  `nm --defined-only overlume/build/liboverlume.a | awk '{print $NF}' | sort > $SCRATCH/nm_before.txt`.
+  `overlume_obj` carries every compile option/definition/include now on
+  `overlume` (public include dir `PUBLIC` with build/install interfaces) and
+  `PRIVATE Filament::filament yaml-cpp::yaml-cpp` for usage requirements.
+  `overlume` = `add_library(overlume STATIC $<TARGET_OBJECTS:overlume_obj>)`
+  with today's link lines held in `_overlume_private_link`; merge
+  `POST_BUILD` passes `$<TARGET_OBJECTS:overlume_obj>`. After rebuild the
+  `nm` listing diffs empty against the baseline.
+- [ ] **Step 6: Shared target** (`option(OVERLUME_BUILD_SHARED … ON)`):
+
+```cmake
+add_library(overlume_shared SHARED $<TARGET_OBJECTS:overlume_obj> ${_overlume_overlume_stream_objects})
+set_target_properties(overlume_shared PROPERTIES
+    OUTPUT_NAME overlume VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR}
+    EXPORT_NAME overlume)
+target_include_directories(overlume_shared PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>)
+target_link_libraries(overlume_shared PRIVATE ${_overlume_private_link})
+if(CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
+    target_link_options(overlume_shared PRIVATE
+        "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/cmake/overlume_exports.map"
+        "-Wl,--exclude-libs,ALL" "-Wl,--no-undefined")
+endif()
+```
+
+  `overlume/cmake/overlume_exports.map`:
+
+```
+{
+  global: extern "C++" { overlume::*; };
+  local: *;
+};
+```
+
+- [ ] **Step 7: Export check** `overlume/scripts/check_shared_exports.sh NM READELF LIB`:
+
+```bash
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+set -euo pipefail
+nm_tool="$1"; readelf_tool="$2"; lib="$3"
+bad=$("$nm_tool" -D --defined-only -C "$lib" | awk '$2 ~ /^[TDBRVW]$/ {sub(/^[^ ]+ [^ ]+ /,""); print}' \
+      | grep -vE '^overlume::|^(_init|_fini|_edata|_end|__bss_start)$' || true)
+if [ -n "$bad" ]; then echo "FAIL: non-overlume exports:"; echo "$bad" | head -20; exit 1; fi
+needed=$("$readelf_tool" -d "$lib" | awk '/NEEDED/ {print $NF}' | tr -d '[]')
+echo "NEEDED: $(echo $needed)"
+if echo "$needed" | grep -qE 'libc\+\+|libc\+\+abi|libunwind|libyaml-cpp|libstdc\+\+'; then
+  echo "FAIL: runtime leaked into NEEDED"; exit 1; fi
+echo PASS
+```
+
+  ctest `shared_exports` (label `cpu`). Revert check: drop the version
+  script → FAIL (verify once, restore).
+- [ ] **Step 8: Install + config.** `set(CMAKE_INSTALL_LIBDIR lib)` before
+  `include(GNUInstallDirs)` (`# ponytail: no multiarch libdir; the .so is
+  self-contained`). Component `overlume`: shared target via
+  `install(TARGETS overlume_shared EXPORT overlumeTargets …)`, headers,
+  themes, `assets/models/*.glb` + `environment/`, docs files. Component
+  `static`: `install(FILES $<TARGET_FILE:overlume> …)` + Filament archives to
+  `lib/overlume/deps/` + a hand-written `overlumeStaticTargets.cmake`
+  (installed from `overlume/cmake/overlumeStaticTargets.cmake.in`) defining
+  `overlume::overlume_static` as `IMPORTED STATIC` with
+  `INTERFACE_LINK_LIBRARIES` = the deps archives in the same group order the
+  build uses + platform libs. `overlumeConfig.cmake.in`:
+
+```cmake
+@PACKAGE_INIT@
+set(overlume_THEMES_DIR "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_DATADIR@/overlume/themes")
+set(overlume_MODELS_DIR "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_DATADIR@/overlume/models")
+if("static" IN_LIST overlume_FIND_COMPONENTS)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+       (NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR NOT CMAKE_CXX_FLAGS MATCHES "-stdlib=libc\\+\\+"))
+        set(overlume_FOUND FALSE)
+        set(overlume_NOT_FOUND_MESSAGE
+            "overlume static on Linux requires clang++ with -stdlib=libc++ (it embeds "
+            "libc++-ABI objects). Use the shared library (default component) with gcc.")
+        return()
+    endif()
+    include("${CMAKE_CURRENT_LIST_DIR}/overlumeStaticTargets.cmake")
+    set(overlume_static_FOUND TRUE)
+endif()
+if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/overlumeTargets.cmake")
+    include("${CMAKE_CURRENT_LIST_DIR}/overlumeTargets.cmake")
+    set(overlume_shared_FOUND TRUE)
+endif()
+check_required_components(overlume)
+```
+
+  `write_basic_package_version_file(… COMPATIBILITY SameMinorVersion)`.
+  `overlume.pc.in`: `prefix=${pcfiledir}/../..`, `Libs: -L${libdir} -loverlume`,
+  `Cflags: -I${includedir}`. FetchContent deps' own `install()` rules must
+  not reach either component.
+- [ ] **Step 9:** `cmake --install overlume/build --component overlume --prefix $SCRATCH/inst`
+  and `--component static` into a second prefix; layouts match exactly;
+  `readelf -d` SONAME `liboverlume.so.0`, no RUNPATH. Gate green, no golden change.
+- [ ] **Step 10: Commit** `feat(build): installable shared + static liboverlume with find_package/pkg-config`.
+
+### Task 2: Portable Linux release toolchain (Alma 8, LLVM 18.1.8 tarball, Filament from source)
+
+**Files:** Create `tools/release/linux/Dockerfile`, `overlume/cmake/toolchain-llvm-release.cmake`,
+`overlume/cmake/vcpkg-triplets/arm64-linux-clang-libcxx.cmake`; modify
+`overlume/cmake/GetFilament.cmake`, `overlume/cmake/GetCesiumNative.cmake`, `overlume/CMakeLists.txt` (matc path).
+
+**Interfaces — Produces** (contract for Tasks 3, 6–8): `GetFilament.cmake`
+sets `FILAMENT_ROOT` (has `include/`), `FILAMENT_LIB_DIR`,
+`FILAMENT_HOST_MATC` (host-runnable `matc`; the material loop uses it instead
+of `${FILAMENT_ROOT}/bin/matc`), target `Filament::filament`.
+`OVERLUME_FILAMENT_FROM_SOURCE` (BOOL; default `ON` when no prebuilt exists for
+the target — Linux non-x86_64, Android, Windows arm64 — and forced `ON` by
+the release container). Docker image `overlume-release-linux:<arch>` built
+from the Dockerfile with `/opt/llvm` = LLVM 18.1.8.
+
+- [ ] **Step 1: Dockerfile** `FROM almalinux:8`; `dnf install` git, git-lfs,
+  cmake (≥ 3.24 from the official CMake release tarball, pinned + SHA256),
+  ninja, python3.11, perl, `mesa-libEGL-devel mesa-libGL-devel`, zip, unzip,
+  rpm-build, dpkg (EPEL) + `dpkg-dev`; LLVM from
+  `https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04.tar.xz`
+  (aarch64: `clang+llvm-18.1.8-aarch64-linux-gnu.tar.xz`), SHA256 pinned
+  (download once, record literal). Image must not contain tokens.
+- [ ] **Step 2: Toolchain** `toolchain-llvm-release.cmake`: compilers from
+  `/opt/llvm/bin`, same `-stdlib=libc++` flags as `toolchain-clang-libcxx.cmake`;
+  `-static-libgcc`; the `libc++.a` probe in `CMakeLists.txt` resolves inside
+  `/opt/llvm/lib/<triple>/` (adjust the probe to accept that layout; dev
+  layout must still resolve as today).
+- [ ] **Step 3: Filament source path** at **configure** time (the lib
+  `GLOB` needs files): download `https://github.com/google/filament/archive/refs/tags/v1.56.5.tar.gz`
+  (pin SHA256), `execute_process` configure/build/install into
+  `${CMAKE_BINARY_DIR}/_deps/filament-src-install` with the parent's compilers
+  and flags, `-DCMAKE_BUILD_TYPE=Release -DFILAMENT_SKIP_SAMPLES=ON
+  -DFILAMENT_SUPPORTS_VULKAN=OFF -DFILAMENT_ENABLE_JAVA=OFF`, stamp-file
+  guarded, `FATAL_ERROR` with the log path on failure. Cross targets
+  (Android, iOS, Windows arm64) forward `CMAKE_TOOLCHAIN_FILE`/ABI vars and
+  take `FILAMENT_HOST_MATC` from a host prebuilt (Linux x64 tarball or mac
+  tarball).
+- [ ] **Step 4:** triplet `arm64-linux-clang-libcxx`; `GetCesiumNative.cmake`
+  selects by `CMAKE_SYSTEM_PROCESSOR`.
+- [ ] **Step 5: Equivalence check** — in the container, build with
+  `OVERLUME_FILAMENT_FROM_SOURCE=ON`, run cpu+gpu ctest (llvmpipe via
+  `EGL_PLATFORM=surfaceless`) and the golden tests → green, **no golden
+  change**; `objdump -T liboverlume.so.0 | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1`
+  ≤ `GLIBC_2.28` (this is the runnable check that fails if the build ever
+  slips to a newer glibc). Record build times.
+  **Step 5 result (2026-10-02, fresh `HOME`, repo mounted read-only, x86_64
+  image, 32 cores):** Filament 1.56.5 source build ~76 s; cesium/vcpkg
+  ~4.5 min (configure total 365 s); overlume build 40 s; full `ctest` 210 s:
+  294/295 pass (cpu 285 + gpu 10 labels, goldens included, no golden change
+  possible on the read-only mount), 6 skipped (network/capture tests).
+  The one failure, `Objects.FiftyObjectsSceneUpdateUnderTwoMilliseconds`, is
+  deterministic (12.5 ms vs 2 ms budget, llvmpipe) and recorded as known gap
+  11 in `docs/status.md`. glibc floor: `GLIBC_2.28`.
+  **Task 2 amendment (2026-10-02, CI dry run 37022162508): Linux aarch64 is
+  cross-compiled, not built natively.** The official LLVM 18.1.8 aarch64 tarball's
+  `clang++` needs GLIBC_2.29/GLIBCXX_3.4.26, so it cannot even run in `almalinux:8`
+  on an arm64 runner (a from-source native LLVM was rejected). User decision
+  (option 2): build aarch64 on the x86_64 runner with the x86_64 `/opt/llvm`
+  (`--target=aarch64-linux-gnu`, lld) against an AlmaLinux 8 aarch64 sysroot.
+  `tools/release/linux/Dockerfile.cross-aarch64` (a layer on the unchanged x86_64
+  image, whose Dockerfile still contains the now-unused aarch64 download branch)
+  installs the sysroot with `dnf --installroot --forcearch=aarch64` (no emulation;
+  `filesystem` first, scriptlets off, absolute symlinks made relative, package
+  list recorded in `/opt/sysroot-aarch64.manifest`) and builds libc++/libc++abi/
+  libunwind 18.1.8 (pinned `llvm-project-18.1.8.src.tar.xz`, SHA256 in the
+  Dockerfile) into `/opt/llvm/lib/aarch64-unknown-linux-gnu/`, the tarball's own
+  per-target layout, so the `libc++.a` probe resolves unchanged apart from passing
+  `--target`. `toolchain-llvm-release-aarch64.cmake` only sets the triple and
+  sysroot; all flags stay in `toolchain-llvm-release.cmake`. `GetFilament.cmake`
+  cross mode first builds Filament's host tools (matc, resgen, ...; this writes the
+  `ImportExecutables-Release.cmake` Filament's cross build includes) with the x86_64
+  toolchain, then cross-builds the libraries; `FILAMENT_HOST_MATC` is that matc.
+  Cesium/vcpkg: the `arm64-linux-clang-libcxx` triplet chainloads the cross
+  toolchain (`vcpkg-llvm-release-aarch64-toolchain.cmake`, adds -fPIC and the vcpkg
+  prefix to the find roots); the vcpkg host triplet is `x64-linux-clang-libcxx`.
+- [ ] **Step 6:** dev gate green on the host. **Commit**
+  `feat(build): Alma 8 release toolchain, Filament source build, glibc 2.28 floor`.
+
+### Task 3: Linux packages, clean-room smoke matrix, release workflow skeleton
+
+**Files:** Create `overlume/cmake/OverlumePackaging.cmake`, `tools/package_smoke/{CMakeLists.txt,main.cpp}`,
+`tools/package_smoke_test.sh`, `tools/release/sign_sums.sh`; modify `overlume/CMakeLists.txt`
+(include packaging last), `.github/workflows/release.yml`.
+
+**Interfaces — Consumes:** Task 1 components + config, Task 2 image.
+**Produces:** `cpack` → `overlume_<ver>_<arch>.deb`, `overlume-static_<ver>_<arch>.deb`,
+`overlume-<ver>-1.<arch>.rpm`, `overlume-static-<ver>-1.<arch>.rpm`,
+`overlume-<ver>-linux-<arch>.tar.gz` (both components);
+`package_smoke --expect-render|--expect-no-gpu` prints `PASS`/`FAIL: <reason>`;
+`tools/package_smoke_test.sh PKG_DIR` exit 0/1; `tools/release/sign_sums.sh DIR NAME`
+writes `SHA256SUMS-<NAME>.txt` + detached `.asc` (GPG from env
+`OVERLUME_GPG_PRIVATE_KEY`/`_PASSPHRASE`, imported into a temp `GNUPGHOME`,
+deleted on exit). Workflow jobs `create`, `package` (matrix), later publish jobs `needs: package`.
+
+- [ ] **Step 1: Smoke consumer** — `tools/package_smoke/main.cpp` uses only
+  public headers (pattern `examples/01_hello_frame.cpp`), `theme_assets_dir = nullptr`,
+  renders one frame, asserts non-uniform image and that the installed theme
+  was used: background matches `dark_adas.yaml`'s clear colour
+  (`SMOKE_THEMES_DIR` from `${overlume_THEMES_DIR}`, short line scan, ±2) and
+  differs from `kFallbackTheme()`'s (constant copied with a pointer to its
+  definition in `overlume/src/`; if equal, pick another element that differs
+  and say which in the report). Includes `<yaml-cpp/yaml.h>` and requires
+  `YAML::Load("a: 1")["a"].as<int>() == 1`. `--expect-no-gpu`: `create_renderer`
+  returns `nullptr` without aborting. `CMakeLists.txt`: targets
+  `package_smoke` (shared, `find_package(overlume 1.0 REQUIRED)`),
+  `package_smoke_pc` (`pkg_check_modules(OV REQUIRED IMPORTED_TARGET overlume)`),
+  and, when `-DSMOKE_STATIC=ON`, `package_smoke_static`
+  (`find_package(overlume 1.0 REQUIRED COMPONENTS static)`).
+- [ ] **Step 2: Packaging config** `OverlumePackaging.cmake`:
+
+```cmake
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+set(CPACK_PACKAGE_NAME overlume)
+set(CPACK_PACKAGE_VENDOR "Amer Ghazal")
+set(CPACK_PACKAGE_CONTACT "Amer Ghazal <amer.ghazal@micropolis.ae>")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Overlume real-time robot-scene rendering library")
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/amerghazal7/overlume")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE")
+string(TOLOWER "${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}" _ov_plat)
+set(CPACK_PACKAGE_FILE_NAME "overlume-${PROJECT_VERSION}-${_ov_plat}")
+set(CPACK_STRIP_FILES ON)
+set(CPACK_COMPONENTS_ALL overlume static)
+set(CPACK_COMPONENT_STATIC_DEPENDS overlume)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(CPACK_GENERATOR "DEB;RPM;TGZ")
+    set(CPACK_PACKAGING_INSTALL_PREFIX /usr)
+    set(CPACK_DEB_COMPONENT_INSTALL ON)
+    set(CPACK_DEBIAN_OVERLUME_PACKAGE_NAME overlume)
+    set(CPACK_DEBIAN_STATIC_PACKAGE_NAME overlume-static)
+    set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+    set(CPACK_DEBIAN_ENABLE_COMPONENT_DEPENDS ON)
+    set(CPACK_DEBIAN_PACKAGE_SECTION libs)
+    set(CPACK_RPM_COMPONENT_INSTALL ON)
+    set(CPACK_RPM_OVERLUME_PACKAGE_NAME overlume)
+    set(CPACK_RPM_STATIC_PACKAGE_NAME overlume-static)
+    set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
+    set(CPACK_RPM_PACKAGE_LICENSE "Apache-2.0")
+    set(CPACK_RPM_PACKAGE_AUTOREQ ON)
+    set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
+        /usr/lib/cmake /usr/share/pkgconfig /usr/share/doc)
+    set(CPACK_ARCHIVE_COMPONENT_INSTALL OFF)  # one tar.gz with both components
+endif()
+# Tasks 6-8 append ANDROID / APPLE / WIN32 branches here.
+include(CPack)
+```
+
+  Verify `tar tzf` paths are prefix-relative (`overlume-…/lib/…`); if TGZ
+  inherits `/usr`, generate it with a second `cpack -G TGZ -D CPACK_PACKAGING_INSTALL_PREFIX=`
+  call. `dpkg -c` lists only Task 1 paths. rpm signing: after `cpack`,
+  `rpm --addsign` with the imported key (`%_gpg_name` = fingerprint), verified
+  with `rpm -K`.
+- [ ] **Step 3: Docker matrix** `tools/package_smoke_test.sh PKG_DIR`
+  (shellcheck-clean). Images: `ubuntu:20.04`, `ubuntu:22.04`, `ubuntu:24.04`,
+  `debian:11`, `debian:12`, `almalinux:8`, `almalinux:9`, `fedora:40`. Per image:
+  install the shared package + `g++ cmake pkg-config` + distro yaml-cpp dev +
+  Mesa EGL/DRI (deb: `./overlume_*.deb libyaml-cpp-dev libegl1 libegl-mesa0 libgl1-mesa-dri`;
+  rpm: `./overlume-[0-9]*.rpm gcc-c++ cmake pkgconf-pkg-config yaml-cpp-devel mesa-libEGL mesa-dri-drivers`,
+  EPEL/PowerTools enabled on Alma for yaml-cpp); rpm images run `rpm -K` on
+  the package with the public key imported (`rpm --import packaging/keys/overlume-release.asc`)
+  → must report `digests signatures OK`. Build both shared smoke targets with
+  `CXX=g++`, run `EGL_PLATFORM=surfaceless LIBGL_ALWAYS_SOFTWARE=1 … --expect-render`;
+  remove Mesa DRI and run `--expect-no-gpu`. On `ubuntu:22.04` and
+  `almalinux:9` also install `overlume-static` + distro `clang`/`libc++-dev`
+  (Alma: LLVM toolset) and build `package_smoke_static` with
+  `CXX=clang++ CXXFLAGS=-stdlib=libc++` → `--expect-render`; and configure the
+  static target with `g++` → configure must FAIL with the guard message
+  (grep for it). Reinstall (upgrade path), remove both packages, assert
+  `/usr/include/overlume`, `/usr/share/overlume`, `/usr/lib/cmake/overlume`,
+  `/usr/lib/liboverlume*` gone. On `ubuntu:22.04` extract the `tar.gz` to
+  `/opt/ov`, build with `-DCMAKE_PREFIX_PATH=/opt/ov`, run with
+  `LD_LIBRARY_PATH=/opt/ov/lib` → `--expect-render` (relocated prefix). One
+  `PASS <image>` / `FAIL <image>: <step>` line each; exit 1 on any FAIL.
+- [ ] **Step 4:** in the Task 2 container `cpack`, then on the host
+  `tools/package_smoke_test.sh <dir>` → all PASS. Revert check: drop
+  `--exclude-libs,ALL` and the version script → `shared_exports` FAILs
+  (record whether the yaml-cpp coexistence smoke also does); restore.
+- [ ] **Step 5: `release.yml` skeleton.** Rename job `release` → `create`
+  (body unchanged; tag push only). Add `workflow_dispatch` input `dry_run`
+  (boolean, default `true`). Top-level `permissions: contents: read`.
+  Job `package`:
+
+```yaml
+  package:
+    needs: create
+    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64,  os: ubuntu-22.04,     container_arch: x86_64 }
+          - { name: linux-aarch64, os: ubuntu-22.04-arm, container_arch: aarch64 }
+    runs-on: ${{ matrix.os }}
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    steps:
+      # checkout (lfs); build/cache the Task 2 image (actions/cache on a docker save
+      # tarball keyed by hashFiles('tools/release/linux/Dockerfile'));
+      # docker run: configure -DOVERLUME_ENABLE_CESIUM=ON -DOVERLUME_BUILD_DOCS=OFF
+      #   -DOVERLUME_BUILD_EXAMPLES=OFF -DCMAKE_BUILD_TYPE=Release
+      #   -DOVERLUME_FILAMENT_FROM_SOURCE=ON, build, ctest -L cpu, cpack, rpm --addsign;
+      # cache overlume/build/_deps (filament-src-install + vcpkg) keyed on
+      #   hashFiles('overlume/cmake/**', 'tools/release/linux/Dockerfile') + arch;
+      # tools/package_smoke_test.sh (host docker);
+      # tools/release/sign_sums.sh out ${{ matrix.name }};
+      # actions/upload-artifact name=pkg-${{ matrix.name }};
+      # if DRY_RUN != 'true': gh release upload "$GITHUB_REF_NAME" out/* --clobber
+```
+
+  Secrets are passed only to the signing steps via `env:`.
+- [ ] **Step 6:** `actionlint` (pinned binary in the scratchpad) clean; gate green.
+  **Task 3 result (2026-10-02, x86_64 only; aarch64 is exercised by CI):**
+  clean-room matrix 8/8 PASS (ubuntu 20.04/22.04/24.04, debian 11/12, alma 8/9,
+  fedora 40; `rpm -K` reports `digests signatures OK`; relocated tar.gz, upgrade,
+  clean removal, no-GPU and both static guards included); `cpu` ctest 285/285 in
+  the container (minus known gap 11); `shared_exports` and glibc floor 2.28 pass.
+  Revert check: dropping the version script and `--exclude-libs` fails
+  `shared_exports` (libcrypto/libssl symbols leak) and the yaml-cpp coexistence
+  smoke also fails (renderer run aborts on ubuntu:24.04 and debian:12).
+  Deviations from the text above, each found by the matrix: (1) smoke cannot tell
+  the installed theme from `kFallbackTheme()` by pixels (identical palette), so
+  it asserts `theme_assets_loaded()` plus default-dir frame == explicit-dir frame;
+  (2) `.pc` installs to `share/pkgconfig` (Fedora/Alma pkg-config does not search
+  `/usr/lib/pkgconfig`), the rpm registers `/usr/lib` via `ld.so.conf.d` (RHEL's
+  loader ignores it); (3) `shlibdeps` is replaced by explicit Depends/Requires
+  (no dpkg database in Alma) and adds `libgl1`/`libGL.so.1` (Filament dlopen()s
+  it); (4) theme lookup canonicalises the module path (`/lib` -> `/usr/lib`);
+  (5) static consumers: ubuntu:24.04 + fedora:40, not ubuntu:22.04 + alma:9
+  (alma 9 ships no libc++; ubuntu 22.04's libc++ 14 lacks `__cxa_init_primary_exception`)
+  and the config guard now requires LLVM >= 18, with a 22.04 negative case;
+  a statically linked executable has no `share/` beside it, so the static smoke
+  passes the installed theme dir explicitly; (6) no-GPU is `__EGL_VENDOR_LIBRARY_FILENAMES`
+  pointing nowhere (Mesa 25 keeps swrast inside libegl-mesa0, so removing
+  packages is not equivalent); (7) `sign_rpms.sh` and `OverlumeCPackOptions.cmake.in`
+  added (rpmsign wrapper; tar.gz prefix), `rpm-sign` added to the Dockerfile,
+  and debian:11 is pointed at archive.debian.org with libc6 pinned.
+  **Step 7 dry runs:** 37022162508 (x86 green); 37037401298 (x86 green; aarch64
+  cross build + native cpu tests green; the fedora:40 static rpm failure was fixed
+  by 62595c4); 37045928609 (pending).
+  **Task 3 amendment (cross-compiled aarch64, 2026-10-02).** The `package` matrix
+  keeps only `linux-x86_64`. aarch64 is two jobs: `package-linux-aarch64-build`
+  (ubuntu-22.04, cross image, read-only token: build, `check_glibc_floor.sh` and
+  `check_shared_exports.sh` with llvm-objdump/nm, cpack, `check_package_elf.sh`,
+  rpm signing, `make_test_bundle.sh`) and `package-linux-aarch64` (ubuntu-22.04-arm:
+  `tools/release/linux/test_aarch64.sh` in `almalinux:8`, the cpu ctest set from the
+  bundle with `gtest_discover_tests(DISCOVERY_MODE PRE_TEST)` plus the glibc and
+  machine checks, then `package_smoke_test.sh`, then `sign_sums.sh` and the tag
+  upload). Cross-only changes: CPack deb/rpm architecture are set explicitly
+  (arm64/aarch64), `CMAKE_STRIP/OBJDUMP/OBJCOPY` are llvm-*, `CMAKE_NM/READELF`
+  are bare names (resolved on the arm64 host), `<triple>-clang` symlinks give
+  bare-compiler probes (KTX's CPU check) the right target, and the vcpkg chainload
+  appends the vcpkg prefix to the find roots and links the static libc++ for port
+  executables. Local proof on x86_64: full cross build, 3 package kinds x2,
+  glibc floor `GLIBC_2.28`, `check_shared_exports` PASS, all shipped ELF AArch64,
+  `rpmsign` on the aarch64 rpms with a throwaway key; dev gate green. Native
+  execution is proven only by CI (see `docs/status.md`, known gap 12).
+- [ ] **Step 7:** push work branch, `gh workflow run release.yml --ref <branch> -f dry_run=true`,
+  both Linux jobs green. **Commit**
+  `feat(release): signed deb/rpm/tgz (shared+static) for x86_64/aarch64, smoke-tested`.
+
+### Task 4: Headless platform seam (no behaviour change on Linux)
+
+**Files:** Create `overlume/src/platform.hpp`, `overlume/src/platform_egl.cpp`,
+`overlume/tests/test_readback_orientation.cpp`; modify `overlume/src/renderer.cpp`
+(move `HeadlessEglPlatform`, now lines 117–240), `overlume/src/renderer_internal.hpp:47,114`,
+`overlume/CMakeLists.txt`.
+
+**Interfaces — Produces:**
+
+```cpp
+// overlume/src/platform.hpp
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+#pragma once
+#include <filament/Engine.h>
+namespace overlume::detail {
+struct HeadlessPlatform {
+    filament::backend::Platform* platform = nullptr;  // owned; nullptr = Filament default
+    filament::Engine::Backend backend = filament::Engine::Backend::OPENGL;
+};
+// Compile-time-selected headless back end. Never aborts; on failure
+// Engine::Builder::build() returns nullptr exactly as today.
+HeadlessPlatform make_headless_platform();
+void destroy_headless_platform(HeadlessPlatform&);  // after Engine::destroy
+}  // namespace overlume::detail
+```
+
+  CMake: `OVERLUME_PLATFORM` = `egl` (Linux, Android), `metal` (Darwin, iOS),
+  `wgl` (Windows); `list(FILTER OVERLUME_SOURCES EXCLUDE REGEX "/platform_[a-z]+\\.cpp$")`
+  then append `src/platform_${OVERLUME_PLATFORM}.cpp`. `OVERLUME_PLATFORM_LIBS`
+  (Linux: `EGL`) replaces the bare `EGL` in the test link line.
+
+- [ ] **Step 1: Orientation test** (label `gpu`): renderer as in
+  `test_hello_frame.cpp`, camera above ground looking at the horizon; row 1
+  mean ≠ row `height-2` mean and row 1 matches the theme sky/clear colour
+  (±8). Prove it bites: flip rows in `render_frame`'s readback copy → FAIL; restore → PASS.
+- [ ] **Step 2:** move the EGL class verbatim into `platform_egl.cpp`
+  (`overlume::detail`), `make_headless_platform()` → `{new HeadlessEglPlatform(), OPENGL}`;
+  `renderer_internal.hpp` holds `detail::HeadlessPlatform platform;`;
+  `create_renderer` uses `.backend(p.backend).platform(p.platform)`;
+  `destroy_renderer` calls `destroy_headless_platform`.
+- [ ] **Step 3:** gate green, goldens untouched; orientation PASS.
+- [ ] **Step 4: Commit** `refactor(renderer): headless platform seam ahead of per-OS back ends`.
+
+### Task 5: Portability switches shared by every non-Linux target
+
+**Files:** Modify `overlume/CMakeLists.txt`, `overlume/cmake/GetCesiumNative.cmake`.
+
+- [ ] **Step 1:** clang / `-stdlib=libc++` / `libc++.a` probes and the static
+  libc++ embedding run only `if(CMAKE_SYSTEM_NAME STREQUAL "Linux")`.
+  GNU-ld-only flags (`--start-group/--end-group`, `--allow-multiple-definition`,
+  `--exclude-libs`, `--no-undefined`) only `if(CMAKE_SYSTEM_NAME MATCHES "Linux|Android")`.
+  `merge_yamlcpp.sh` runs on Linux and Android (it uses `ar/ld -r/objcopy/nm`,
+  all present in the NDK as `llvm-*`); on Apple/Windows the static product
+  is produced without the rename step, and the static package documents that
+  consumers must not also link their own yaml-cpp/spdlog/cesium there — the
+  config file emits `message(WARNING …)` once when the static component is
+  loaded on those platforms.
+- [ ] **Step 2:** tests/tools/examples link `overlume::overlume` and
+  `${OVERLUME_PLATFORM_LIBS}`; test data dir from a cache var
+  `OVERLUME_TEST_DATA_DIR_RUNTIME` (default = source dir; Android sets the
+  device path).
+- [ ] **Step 3:** `GetCesiumNative.cmake` maps target → overlay triplet:
+  `x64|arm64-linux-clang-libcxx`, `arm64|arm|x64|x86-android-overlume`,
+  `arm64|x64-osx-overlume`, `arm64-ios-overlume`, `arm64|x64-ios-simulator-overlume`,
+  `x64|arm64-windows-overlume` (static libs, dynamic CRT on Windows,
+  `VCPKG_OSX_DEPLOYMENT_TARGET 13.0`, iOS 15.0, Android API 26).
+- [ ] **Step 4:** Linux dev gate green, no golden change (pure guard
+  changes). **Commit** `build: gate Linux-only toolchain/link logic; per-target cesium triplets`.
+
+### Task 6: Android (arm64-v8a, armeabi-v7a, x86_64, x86) + Maven Central
+
+**Files:** Create `overlume/cmake/vcpkg-triplets/{arm64,arm,x64,x86}-android-overlume.cmake`,
+`tools/android/{build_all_abis.sh,build_aar.sh,run_tests_on_emulator.sh}`,
+`tools/android/prefab/{prefab.json,module.json,abi.json.in,AndroidManifest.xml}`,
+`packaging/maven/overlume.pom.in`, `tools/release/publish_maven_central.sh`,
+`tools/package_smoke/android/{CMakeLists.txt,main.cpp}`; modify `overlume/src/platform_egl.cpp`,
+`overlume/cmake/OverlumePackaging.cmake`, `.github/workflows/release.yml`.
+
+**Produces:** `overlume-<ver>-android.aar` (Prefab: `prefab/modules/overlume/libs/android.<abi>/{liboverlume.so,abi.json}`,
+`prefab/modules/overlume/include/`; plus module `overlume_static` with
+`liboverlume.a` + deps, `"static": true`), `overlume-<ver>-android.zip`
+(`<abi>/{lib,include,share,lib/cmake}`, both components).
+
+- [ ] **Step 1:** `build_all_abis.sh` configures each ABI with
+  `-DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake -DANDROID_ABI=<abi> -DANDROID_PLATFORM=26 -DANDROID_STL=c++_static`.
+- [ ] **Step 2:** Filament per ABI via the Task 2 source path; host
+  `matc` from the Linux x64 prebuilt; materials `-p mobile -a opengl`.
+- [ ] **Step 3:** `platform_egl.cpp` `#if defined(__ANDROID__)`:
+  `eglBindAPI(EGL_OPENGL_ES_API)`, `EGL_RENDERABLE_TYPE EGL_OPENGL_ES3_BIT`,
+  context `EGL_CONTEXT_CLIENT_VERSION 3`, no `bluegl`. Non-Android
+  preprocessed output unchanged (diff empty). `OVERLUME_PLATFORM_LIBS`:
+  `EGL GLESv3 log android`.
+- [ ] **Step 4:** `run_tests_on_emulator.sh BUILD_DIR`: `adb push` test
+  binaries + assets + fixtures to `/data/local/tmp/ov/`, run every `cpu`
+  test + `ReadbackOrientation.*` + `HelloFrame.*`, exit 1 on any failure.
+  CI: `reactivecircus/android-emulator-runner@v2`, API 30, run twice —
+  `arch: x86_64` and `arch: x86` (`-no-window -gpu swiftshader_indirect`).
+  arm64-v8a/armeabi-v7a: build + `check_shared_exports.sh` with NDK
+  `llvm-nm`/`llvm-readelf` (no hosted ARM emulator); the task report says so.
+- [ ] **Step 5:** `build_aar.sh` zips the Prefab layout (schema v2,
+  `abi.json` `{"abi":"<abi>","api":26,"ndk":27,"stl":"c++_static","static":false}`),
+  `AndroidManifest.xml` `package="io.github.amerghazal7.overlume"`, no Gradle.
+  NDK consumer check: `tools/package_smoke/android` built with the NDK for
+  each ABI against the unpacked zip's `<abi>/lib/cmake` → links.
+- [ ] **Step 6: Maven Central.** `overlume.pom.in`: groupId
+  `io.github.amerghazal7`, artifactId `overlume`, packaging `aar`, name,
+  description, url, Apache-2.0 license, developer, scm — every field Central
+  requires. Bundle layout `io/github/amerghazal7/overlume/<ver>/` with
+  `overlume-<ver>.aar`, `.pom`, `-sources.jar` (headers + README) and
+  `-javadoc.jar` (README pointing at the Pages API docs) — each with `.asc`
+  (GPG detached, armored), `.md5`, `.sha1`. `publish_maven_central.sh BUNDLE_ZIP MODE`
+  (`MODE` = `validate` | `publish`): `POST https://central.sonatype.com/api/v1/publisher/upload?publishingType=USER_MANAGED|AUTOMATIC&name=overlume-<ver>`
+  with `Authorization: Bearer $(printf '%s:%s' "$MAVEN_CENTRAL_USERNAME" "$MAVEN_CENTRAL_PASSWORD" | base64 -w0)`,
+  poll `POST /api/v1/publisher/status?id=…` until `VALIDATED`/`PUBLISHED`
+  or `FAILED` (print the `errors` JSON — it contains no secrets), and in
+  `validate` mode `DELETE /api/v1/publisher/deployment/<id>` afterwards.
+  Prints HTTP codes and states only. Dry runs use `validate`; tag pushes `publish`.
+  **Prerequisite (user):** public key on `keyserver.ubuntu.com` and
+  `keys.openpgp.org`; validation fails with a signature error until it is.
+- [ ] **Step 7:** CI job `android` (ubuntu-22.04, `nttld/setup-ndk` r27c):
+  all four ABIs, emulator tests, `cpack -G ZIP` per ABI merged into
+  the final zip, AAR, Maven bundle, `sign_sums.sh`, upload artifact; job
+  `publish-maven` (`needs: [package-android]`, runs `validate` on dry runs,
+  `publish` on tags).
+- [ ] **Step 8:** dry-run green incl. Maven `VALIDATED`; Linux gate green.
+  **Commit** `feat(android): 4-ABI NDK build, GLES back end, Prefab AAR on Maven Central`.
+
+### Task 7: Apple — macOS universal2 + iOS XCFramework, Homebrew, SwiftPM
+
+**Files:** Create `overlume/src/platform_metal.cpp`, `overlume/cmake/overlume_exports_apple.txt`,
+`overlume/cmake/vcpkg-triplets/{arm64,x64}-osx-overlume.cmake`, `…/arm64-ios-overlume.cmake`,
+`…/{arm64,x64}-ios-simulator-overlume.cmake`, `tools/apple/{build_macos_universal.sh,build_xcframework.sh,sign_and_notarize.sh}`,
+`packaging/homebrew/overlume.rb.in`, `tools/release/publish_homebrew.sh`,
+`packaging/swiftpm/Package.swift.in`, `tools/release/publish_swiftpm.sh`;
+modify `GetFilament.cmake` (mac + ios prebuilt tarballs, SHA256 pinned),
+`overlume/scripts/check_shared_exports.sh` (Darwin branch), `OverlumePackaging.cmake`, `release.yml`.
+
+- [x] **Step 1: Metal back end** `platform_metal.cpp`: `{nullptr, Backend::METAL}`
+  (Filament default `PlatformMetal`, headless `createSwapChain(w,h,CONFIG_READABLE)`).
+  Materials on Apple: `matc -a metal -p desktop` (macOS) / `-p mobile` (iOS).
+  `OVERLUME_PLATFORM_LIBS`: frameworks `Metal QuartzCore CoreVideo IOSurface Foundation`
+  (+ `Cocoa` macOS, `UIKit` iOS).
+- [x] **Step 2:** If ld64 reports duplicate symbols (cesium/spdlog archives
+  reached twice), dedupe the archive list at its source and name it in the
+  report; never `-multiply_defined`.
+- [x] **Step 3: Exports** `-Wl,-exported_symbols_list,…/overlume_exports_apple.txt`
+  (lines `__ZN8overlume*`, `__ZNK8overlume*`); `MACOSX_RPATH ON`,
+  `INSTALL_NAME_DIR @rpath`. Darwin branch of `check_shared_exports.sh`:
+  `nm -gU -C` exports all `overlume::`; `otool -L` lists only
+  `/usr/lib/lib{c++.1,System.B,z.1,objc.A}.dylib` and `/System/Library/Frameworks/*`.
+- [x] **Step 4: macOS universal2** `build_macos_universal.sh`: arm64 and
+  x86_64 builds (separate build dirs: cesium vcpkg is per-arch), then
+  `lipo -create` the dylib and each static archive; `lipo -verify_arch arm64 x86_64`
+  is the check. CPack `productbuild;TGZ` from a staging install of the
+  merged tree, prefix `/usr/local`. Tests: `ctest -L cpu` on both arches
+  (`macos-14` arm64 natively, x86_64 under Rosetta), orientation +
+  hello-frame GPU tests on arm64. If the hosted runner has no usable Metal
+  device, run smoke `--expect-no-gpu` and emit `::warning::no Metal device`
+  — never a silent skip; the report states which happened.
+- [x] **Step 5: iOS** `build_xcframework.sh`: device (`arm64`, iOS 15.0)
+  and simulator (`arm64;x86_64`, lipo'd) builds with
+  `-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos|iphonesimulator`.
+  Shared → `Overlume.framework` (`FRAMEWORK TRUE`, `MACOSX_FRAMEWORK_IDENTIFIER io.github.amerghazal7.overlume`,
+  headers in `Headers/`, themes/models in `Resources/`), combined with
+  `xcodebuild -create-xcframework -framework … -framework … -output Overlume.xcframework`;
+  static → `OverlumeStatic.xcframework` from `-library liboverlume.a -headers include`
+  (Filament/cesium archives merged in with `libtool -static` so it is one
+  library per slice). Check: `xcrun simctl` boots an iPhone simulator and a
+  tiny XCTest host (`tools/apple/ios_smoke/`, Swift calling a 10-line C++
+  shim over `create_renderer`/`render_frame`) passes
+  (`xcodebuild test -destination 'platform=iOS Simulator,name=iPhone 15'`),
+  or reports `nullptr` → the report states which.
+- [x] **Step 6: Signing** `sign_and_notarize.sh`: if `APPLE_DEVELOPER_ID_P12`
+  is set → temp keychain, `codesign --timestamp --options runtime` the dylib
+  and framework, `productsign` the `.pkg`, `xcrun notarytool submit --wait`
+  with the API key, `xcrun stapler staple`; else `::warning::Apple signing
+  secrets not configured; packages unsigned`. Works either way; the check is
+  `pkgutil --check-signature` (signed) or the warning (unsigned).
+- [x] **Step 7: Homebrew** `overlume.rb.in`: binary formula over the macOS
+  universal `tar.gz` (`url`, `sha256`, `version`, `license "Apache-2.0"`,
+  `depends_on macos: :ventura`, `install` copies the tree into `prefix`,
+  `test do` compiles a 5-line program against `overlume::overlume` via
+  `find_package` and runs it with `--expect-no-gpu` semantics: just links
+  and calls `create_renderer` with a 0×0 config → `nullptr`).
+  `publish_homebrew.sh VERSION SHA256 URL`: renders the formula, clones the
+  tap with `HOMEBREW_TAP_DEPLOY_KEY` (ssh-agent, key never echoed), commits
+  `Formula/overlume.rb`, pushes (tag runs only). Dry run: `brew install
+  --formula ./overlume.rb` against the dry-run tarball served locally
+  (`url "file://…"`), then `brew test overlume`.
+- [x] **Step 8: SwiftPM** — manifest in `amerghazal7/overlume-swift` (D7), pushed with `SWIFTPM_REPO_DEPLOY_KEY` and tagged `vX.Y.Z` (Package.swift with
+  `binaryTarget(name: "Overlume", url: <release asset>, checksum: <swift package compute-checksum>)`,
+  `platforms: [.iOS(.v15), .macOS(.v13)]`). `publish_swiftpm.sh` renders and
+  pushes it (tag runs only); dry run: `swift package resolve` + `swift build`
+  of a consumer against a locally served zip.
+- [x] **Step 9:** CI jobs `macos` and `ios` (`macos-14`, Xcode 15.4),
+  `publish-homebrew`, `publish-swiftpm`; dry-run green; Linux gate green.
+  **Commit** `feat(apple): Metal back end, macOS universal2 pkg + Homebrew, iOS XCFramework + SwiftPM`.
+
+**Task 7 results (2026-10-05, complete; CI dry run 37345214541 on b21c55d, fully green).**
+Proved on CI: all three iOS slices and both macOS arches build, link, install and pass the Mach-O export
+check; macOS cpu tests pass on both arches; `package-macos` ran the universal merge, pkg/tar.gz, the
+unsigned warning path, the relocated tar.gz smoke (arm64 + x86_64 under Rosetta), the pkg install + smoke,
+and `brew install` + `brew test` from a local tap; `package-ios` assembled the xcframeworks (fat simulator
+slices, export check per slice), zipped them, and passed the SwiftPM consumer XCTest in an iPhone simulator
+plus `publish_swiftpm.sh check`; `sign-apple` took the no-secrets warning path. `publish-homebrew` and
+`publish-swiftpm` were correctly skipped (dry run), so their real push branches have never executed. The
+Android, Linux x86_64/aarch64 legs stayed green. `release.yml` now has a concurrency group so a new
+dispatch on the same ref cancels the previous dry run (a dispatch on a tag ref queues behind the tag run instead of cancelling it).
+Deviations: (1) Filament's prebuilt mac SDK is arm64-only and the iOS SDK has no arm64 simulator slice, so
+macOS x86_64 and every iOS slice build Filament from source (host tools = the mac SDK's arm64 binaries);
+the arm64 install therefore carries different static-archive numbering plus `bluegl`/`bluevk`, which the
+universal merge reconciles by name (x86_64 numbering; arm64-only archives ship fat with an empty x86_64
+slice, appended to `overlumeStaticTargets.cmake`); (2) Apple-only `-Werror` is removed from Filament's own
+targets (Xcode 15.4 SDK deprecations) and Filament's iOS toolchain is patched to
+`-mios-simulator-version-min` for simulator slices; (3) the .pkg/.tar.gz are assembled with
+pkgbuild/productbuild/tar from lipo'd installs, not CPack; (4) the xcframework headers are flat
+(`<Overlume/api.h>`); (5) the runners' CMake 4 needs `CMAKE_POLICY_VERSION_MINIMUM=3.5` for yaml-cpp
+0.8.0; (6) static xcframework archives are merged per arch with `libtool -static -arch_only`.
+**Known limitation (not fixed): no Metal frame renders on CI.** The hosted macOS runners' paravirtual GPU
+(`Apple Paravirtual device`, also behind the iOS simulator's GPU) cannot drive Filament's Metal driver
+(`newArgumentEncoderWithLayout:` is missing and aborts). `create_renderer` returns nullptr there (device
+name probe in `platform_metal.cpp`), the macOS gpu-labelled tests (incl. `ReadbackOrientation.Row0IsTopOfImage`)
+are not run (workflow `::warning::`), the macOS smoke runs `--expect-no-gpu` (`::warning::`) and the iOS
+simulator smoke skips its render (`::warning::`). Metal rendering, including row-0-is-top, needs a one-off
+run on a real Mac (or a self-hosted macOS runner; `OVERLUME_SMOKE_RENDER=1` re-enables the simulator render)
+before the first tagged release.
+
+Final verification 2026-10-06: dry run 37356177558 on b5feb4b (the Task 7 head) is fully green — iOS device/sim-arm64/sim-x86_64 slices each with 0 'was built for newer iOS' warnings (fe3def4 pins Filament's iOS objects to -mios[-simulator]-version-min=15.0 and the slice build fails on any such warning; b21c55d had 201 per slice), package-ios, package-macos (universal merge, pkg/tar.gz, smokes, pkg install, brew install + test), sign-apple (checksums signed; Apple signing on its no-secrets warning path), Linux x86_64/aarch64, Android 4 ABIs + emulator legs + Maven validate. The Android x86_64 emulator failed to boot once (hosted-runner flake, 600 s boot timeout) and passed on re-run. Deviation (7): the iOS min-version pin above. Release-safety rule from b5feb4b: SwiftPM versions are write-once — sign-apple refuses to clobber release assets once vX is tagged on overlume-swift; `publish_swiftpm.sh push` is idempotent for an identical manifest.
+
+### Task 8: Windows x64 + arm64 (MSVC, WGL/OpenGL)
+
+**Files:** Create `overlume/src/platform_wgl.cpp`, `overlume/cmake/vcpkg-triplets/{x64,arm64}-windows-overlume.cmake`,
+`overlume/scripts/check_shared_exports.ps1`, `tools/windows/sign.ps1`; modify `GetFilament.cmake`
+(`filament-windows.tgz` `/MD` release libs for x64; arm64 via the source
+path with the MSVC arm64 toolset, host `matc` from the x64 tarball),
+`overlume/CMakeLists.txt`, `OverlumePackaging.cmake`, `release.yml`.
+
+- [x] **Step 1:** MSVC v143, `CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL`,
+  `/utf-8 /permissive- /Zc:__cplusplus /EHsc`. Compile fixes in `src/` with
+  portable code; `#ifdef _WIN32` only around OS API calls.
+- [x] **Step 2:** `platform_wgl.cpp`: `{nullptr, Backend::OPENGL}` (Filament's
+  `PlatformWGL`, headless swap chain); libs `opengl32 gdi32 user32`.
+- [x] **Step 3:** `WINDOWS_EXPORT_ALL_SYMBOLS ON` on `overlume_shared`
+  (`# ponytail: exports overlume's own objects only, never Filament/cesium
+  archives; an OVERLUME_API header macro is the upgrade if the export table
+  ever matters`). `check_shared_exports.ps1` (`dumpbin /exports`, fail on
+  `filament|YAML|spdlog|Cesium`) is the Windows `shared_exports` ctest.
+- [x] **Step 4:** CPack `NSIS;ZIP` per arch (`CPACK_NSIS_MODIFY_PATH ON`,
+  components `overlume` (required) + `static` (optional checkbox)).
+- [x] **Step 5: Signing** `tools/windows/sign.ps1`: if `WINDOWS_SIGNING_*`
+  set → `signtool sign /fd sha256 /tr http://timestamp.digicert.com /td sha256`
+  (or Azure Trusted Signing action) on `overlume.dll` and the installer;
+  else `::warning::`; check `signtool verify /pa` when signed.
+- [x] **Step 6:** CI matrix `windows-x64` (`windows-2022`) and
+  `windows-arm64` (`windows-11-arm`): build, `ctest -L cpu`, GPU tests with
+  Mesa llvmpipe `opengl32.dll` (`pal1000/mesa-dist-win`, pinned + SHA256;
+  x64 and arm64 builds), NSIS silent install `/S /D=C:\overlume`, smoke
+  consumer via `-DCMAKE_PREFIX_PATH=C:\overlume` with `yaml-cpp` from vcpkg.
+- [x] **Step 7:** dry-run green; Linux gate green. **Commit**
+  `feat(windows): MSVC/WGL build, x64+arm64 NSIS/zip packages`.
+
+**Task 8 results (2026-10-06, complete; CI dry run 37390515517 on `fix(windows): file:// tile URIs, ...`, fully green:
+Windows x64 + arm64 build/test/package, clean-room install, sign-windows, plus every earlier leg).**
+Proved on CI: both architectures build (Ninja, MSVC `cl`, Release, `/MD`, Cesium ON), link the shared
+`overlume.dll` and the static archive, pass all 287 `cpu` tests; both also pass the 11 `gpu` tests (arm64 only after fix round 2)
+(including `ReadbackOrientation.Row0IsTopOfImage`, the Windows row-0-is-top proof) on Mesa llvmpipe
+26.2.4 (x64 pal1000/mesa-dist-win, arm64 mmozeiko/build-mesa, SHA256-pinned); `shared_exports` (`check_shared_exports.ps1`, dumpbin
+/exports + /dependents) passes on both. `package-windows-build` makes `overlume-0.1.0-windows-<arch>.exe`
+(NSIS, 109 MB on x64) + `.zip`; `package-windows` on a fresh runner silently installs
+(`/S /D=C:\overlume`), builds the consumer (`find_package(overlume)`, own vcpkg yaml-cpp
+`<arch>-windows-static-md`, `theme_assets_dir = nullptr`) against the shared and the static component,
+runs both, runs `Uninstall.exe /S` and asserts `C:\overlume` is gone, then repeats the consumer on the
+relocated zip. `sign-windows` checksummed and GPG-signed both architectures' assets. Linux dev gate
+(`tools/ci_visual_mode.sh`) green, no golden changes. `sign.ps1` selftest (`tools/windows/test_sign.ps1`):
+no secrets -> `::warning::`, unsigned; throw-away self-signed PFX -> signed (both run on both legs).
+Revert checks: `gen_overlume_def` selftest fails when the generator leaks a YAML symbol and passes when
+restored; `test_static_link_flags` was changed first (Windows must carry `/FORCE:MULTIPLE`), failed, then passed.
+Deviations: (1) **MSVC `cl`, not clang-cl** (Filament 1.56.5's CMake refuses clang on Windows); C++20 on
+MSVC because cl rejects the designated initializers in Filament's headers below `/std:c++20`;
+(2) **no `WINDOWS_EXPORT_ALL_SYMBOLS`**: `cmake/gen_overlume_def.cmake` writes the `.def` from
+`dumpbin /symbols` of overlume's own objects, exporting only free functions directly in namespace
+`overlume` with POD-only signatures (export-all also exports the YAML/filament/std instantiations the
+objects carry and failed `check_shared_exports.ps1` on the first full run); (3) the static archive is
+`overlume_static.lib` (`overlume.lib` is the import library) and the static config / link line carry
+`/FORCE:MULTIPLE`, the link.exe counterpart of `--allow-multiple-definition` (Filament's prebuilt
+`dracodec.lib` and cesium-native both define `draco::Options`); (4) x64 uses `filament-windows.tgz`
+(`lib/x86_64/md`), **arm64 builds Filament from source natively** on `windows-11-arm` (VS 18, MSVC arm64):
+bluegl's x64 MASM GL trampolines are regenerated in arm64 assembly from the x64 file's symbol list and
+assembled with the runner's clang (`GetFilament.cmake`), no host `matc` from the x64 tarball is needed
+because the native build makes its own; (5) the cesium-native vcpkg triplets drop `VCPKG_CMAKE_SYSTEM_NAME
+Windows` (it selects vcpkg's generic toolchain, which finds no compiler); (6) FileFixtureAssetAccessor strips
+the slash before a drive letter in `file:///D:/...` URIs, ThemeDir tests compare `lexically_normal()` paths,
+`test_gltf_normals` adds yaml-cpp's static define, `M_PI`/`NOMINMAX`/`_CRT_SECURE_NO_WARNINGS` are defined
+for MSVC, and Windows goldens keep the default SSIM floor 0.98 (an unmeasured 0.97 floor was removed in fix round 1; Android alone keeps 0.97);
+(7) POSIX-script ctests (`check_pod_header`, `shared_exports_selftest`, nm hygiene) are not registered on
+Windows (headers are identical on every leg; Windows has the `.ps1` pair); (8) the VC runtime DLLs are
+installed beside `overlume.dll` (`InstallRequiredSystemLibraries`, component `overlume`); (9) the plan's
+"Azure Trusted Signing" variant of `sign.ps1` is not implemented, only the PFX path
+(`WINDOWS_SIGNING_PFX_BASE64`/`WINDOWS_SIGNING_PFX_PASSWORD`, absent = warning), since neither is provisioned.
+**Fix round 1:** (a) fail-closed GPU path: only `install_mesa.ps1` exit 2 (arm64, no build) may take the
+`--expect-no-gpu` warning path; on x64 a Mesa install failure (exit 1), a missing GL context with Mesa present, or
+`create_renderer` nullptr in the smoke fails the job (self-test `tools/windows/test_install_mesa.ps1` asserts
+x64 junk archive -> exit 1, arm64 -> exit 2); (b) **deviation: MSVC toolset pin broken on arm64** — `windows-11-arm`
+only carries VS 18 / MSVC v145 (cl 19.51, toolset 14.51), not the plan's v143; x64 is v143 (19.44). Consumer impact:
+arm64 static package needs a VS 2026 linker and VC runtime >= 14.51; x64 static needs VS 2022 >= 17.14 / runtime >= 14.44
+(status.md gap 14); (c) SSIM floor for Windows reverted to 0.98: x64 passed 287/287 cpu + 11/11 gpu on dry run 37398344489 (fully green, all platforms).
+**Fix round 2 (dry run 37403926539):** (a) **correction of round 1:** the claim "no Mesa llvmpipe build exists for
+Windows arm64" was false and the round-1 arm64 result was "112 cpu tests ran, 175 render tests skipped, 11 gpu tests
+not run, smoke `--expect-no-gpu`", not "287 cpu pass". mesa-dist-win's own release notes designate
+`mmozeiko/build-mesa` for ARM64; `install_mesa.ps1` now installs its statically linked `mesa-llvmpipe-arm64-26.2.4.7z`
+(SHA256-pinned, single `opengl32.dll`) beside the exes. **Deviation:** arm64 Mesa source is mmozeiko/build-mesa, not
+pal1000/mesa-dist-win. Result: arm64 now runs all 287 `cpu` tests (112 -> all pass, the render/golden tests included),
+11/11 `gpu` tests (incl. `ReadbackOrientation.Row0IsTopOfImage`) and the smoke in `render` mode (shared + static, NSIS
+install and ZIP), so the arm64 no-GPU limitation is gone; (b) `test_install_mesa.ps1` now also drives
+`build_windows.ps1 test`'s caller decision table through a stub `install_mesa.ps1` and a stub `ctest` (install exit 1 ->
+fail, no GL context with Mesa -> fail, exit 2 -> `::warning::` + pass; cases 1 and 2 pass on 46764ec, so it fails on
+revert); `smoke_windows.ps1`'s twin guards stay uncovered by a self-test (stubbing the vcpkg/consumer builds is
+heavy). The exit-2 warning path remains in the callers only for a future arch without a Mesa build; no current
+target takes it; (c) `sign` and `upload-artifact` steps of the Windows build job no longer carry `!cancelled()`, so a
+failed test step no longer signs or uploads. Signing is unexercised end to end on
+a real certificate (no secrets).
+**Review blocker fix (2026-10-06): the no-GPU probe check.** Since Mesa sits beside every Windows exe, nothing exercised
+the `platform_wgl.cpp` no-OpenGL-4.1 path (create_renderer() returning nullptr instead of crashing in
+`PlatformWGL::createDriver`). `smoke_windows.ps1` now runs both consumers with `--expect-no-gpu` BEFORE `install_mesa`
+(System32 GDI OpenGL 1.1 in use) and fails with "platform_wgl probe regressed"; it fails if the probe is reverted to
+`usable = true`. Both arches (x64 windows-2022 returns nullptr without Mesa too, so no gating). CI dry run 37409262766 (ee50712), fully green: pre-Mesa `--expect-no-gpu` PASS on x64 and arm64 in both package-windows smokes (installed prefix and relocated zip), then Mesa-backed `render` smoke PASS. (The fail-on-revert property of this check is argued, not run: with the probe forced usable, Filament's PlatformWGL::createDriver calls an unchecked wglCreateContextAttribsARB pointer that is null on GDI GL 1.1, so the exe crashes and Fail() runs.)
+
+### Task 9: vcpkg overlay port + Conan recipe
+
+**Files:** Create `packaging/vcpkg/ports/overlume/{vcpkg.json.in,portfile.cmake.in,usage}`,
+`packaging/conan/{conanfile.py,conandata.yml.in,test_package/{conanfile.py,CMakeLists.txt,main.cpp}}`,
+`tools/release/render_vcpkg_conan.sh`; modify `release.yml`.
+
+**Produces:** release assets `overlume-<ver>-vcpkg-port.zip`
+(`ports/overlume/…`) and `overlume-<ver>-conan-recipe.zip`, rendered with
+the SHA512/SHA256 of every platform archive of that release.
+
+- [x] **Step 1: vcpkg port** — binary port: `portfile.cmake` picks the
+  release archive by `VCPKG_TARGET_IS_WINDOWS/OSX/LINUX` + `VCPKG_TARGET_ARCHITECTURE`
+  (`x64-windows`, `arm64-windows`, `x64-linux`, `arm64-linux`,
+  `x64-osx`/`arm64-osx` → universal), `vcpkg_download_distfile` with SHA512,
+  extracts, installs `include`, `lib`/`bin`, `share/overlume`; static
+  triplets (`*-static-md`; `*-static` is /MT and refused) install the `static` component
+  instead; `vcpkg_cmake_config_fixup(PACKAGE_NAME overlume CONFIG_PATH lib/cmake/overlume)`;
+  `set(VCPKG_POLICY_DLLS_WITHOUT_LIBS …)` only if the linter needs it; `usage`
+  shows `find_package(overlume CONFIG REQUIRED)`. Unsupported triplets fail
+  with a clear message.
+- [x] **Step 2: Conan 2 recipe** `conanfile.py`: `package_type` from
+  `options.shared` (default `True`), `settings` os/arch, `source()` none,
+  `build()` downloads + checks the archive from `conandata.yml`
+  (`sources[version][os][arch]` url+sha256), `package()` copies the tree,
+  `package_info()` sets `cmake_file_name "overlume"`, `cmake_target_name "overlume::overlume"`
+  (static: `overlume::overlume_static` + `system_libs`/`frameworks`).
+  `test_package` builds and links the 5-line consumer.
+- [x] **Step 3:** `render_vcpkg_conan.sh RELEASE_DIR VERSION` fills both
+  templates from the `SHA256SUMS-*` files (computing SHA512 for vcpkg).
+- [x] **Step 4: Checks** in a `channels` job matrix (ubuntu-22.04,
+  macos-14, windows-2022), on dry runs pointed at the run's own artifacts
+  via a local `http.server`: `vcpkg install overlume --overlay-ports=…` +
+  build the consumer with the vcpkg toolchain; `conan create packaging/conan --version <ver>`
+  (runs `test_package`) for `-o shared=True` and `False`.
+- [x] **Step 5:** dry-run green. **Commit** `feat(release): vcpkg overlay port and Conan recipe generated per release`.
+
+**Task 9 results (2026-10-06, complete; CI dry run 37434661138 on `fix(release): channels check survives an empty cmake_args array on macOS bash 3.2`,
+fully green, 29 jobs incl. `channels-render` and the `channels` matrix).** Files: `packaging/vcpkg/ports/overlume/{vcpkg.json.in,portfile.cmake.in,usage}`,
+`packaging/conan/{conanfile.py,conandata.yml.in,test_package/*}`, `tools/release/render_vcpkg_conan.sh` (+ `test_render_vcpkg_conan.sh`),
+`tools/release/check_vcpkg_conan.sh` (+ `check_vcpkg_conan_linux_static.sh`), `release.yml` jobs `channels-render` and `channels`.
+`channels-render` (ubuntu) downloads the four package artifacts, self-tests the renderer, renders the real-URL zips
+(`overlume-<ver>-vcpkg-port.zip`, `overlume-<ver>-conan-recipe.zip`, artifact `channels-recipes`, attached to the release on tag runs) and a
+loopback-URL copy (artifact `channels-local`). `channels` (ubuntu-22.04 shared; macos-14 and windows-2022 shared + static) pins vcpkg to
+commit `9e593bb18ea69cc5095e012465dcd675a822ed0d` (tag 2026.07.29) and Conan to the 2.31.2 release archive (SHA256 pinned in the workflow, checked before extraction), serves the platform's own run artifacts from
+`python -m http.server` on 127.0.0.1:8000, then `vcpkg install overlume --overlay-ports` + consumer build/run with the vcpkg toolchain,
+and `conan create` (test_package) for `shared=True|False`. All of vcpkg/conan x shared/static PASS on `x64-linux`, `arm64-osx`
+(universal2 archive), `x64-windows` / `x64-windows-static-md`; Linux static ran in `ubuntu:24.04` (clang 18 + libc++), where the hosted
+runner has none. Local Linux runs (vcpkg and Conan installed in `~/.cache/overlume-channels`) against run 37409262766's x86_64 packages
+passed first, shared and static; the dev gate `tools/ci_visual_mode.sh` is green (OVERALL PASS, goldens untouched).
+Failing-first / revert checks: `test_render_vcpkg_conan.sh` rejects a tampered archive, a missing SUMS entry and a missing archive
+(removing the SHA256 verification from the renderer makes it FAIL with "tampered archive was accepted"); removing the
+`overlumeStaticTargets.cmake` prefix patch from the port makes the static vcpkg consumer fail at configure (the files it names are one
+level too high); Conan static on Linux with gcc fails `validate()` with "needs clang >= 18 with compiler.libcxx=libc++" (exit 6).
+Dry-run history: run 37417286990 failed all three legs (flat macOS/Windows archives need `NO_REMOVE_ONE_LEVEL`; the Linux consumer
+needs `libgles2` at run time); 37425914882 passed Linux and Windows, macOS shared vcpkg hit bash 3.2's empty-array `set -u` error.
+Deviations: (1) **static selection**: vcpkg's Linux/macOS triplets are static-linkage by default, but the Linux static product needs
+clang+libc++ 18, so on Linux/macOS the static product is the opt-in feature `overlume[static]`; Windows takes it from static-linkage
+triplets (`*-static-md`; `*-static` needs a /MT build, not shipped) as planned. (2) the port installs only `overlume.dll` from `bin/` (the
+archive's `bin/` also carries the VC++ redistributable DLLs) and sets `VCPKG_POLICY_SKIP_ARCHITECTURE_CHECK` (universal2) plus
+`SKIP_DUMPBIN_CHECKS`/`SKIP_CRT_LINKAGE_CHECK` on Windows; `vcpkg_cmake_config_fixup` already corrects `PACKAGE_PREFIX_DIR`, the port only
+patches the static targets file's custom `_overlume_prefix`. (3) the Conan recipe copies only the files of the requested product (CMakeDeps
+generates the config), adds the `compiler` setting (dropped from the package id for shared) so `validate()` can enforce the Linux static
+toolchain, and carries static link inputs through `system_libs` (Conan emits them after the library; `exelinkflags` would put the archives
+before `liboverlume.a`). (4) `render_vcpkg_conan.sh` also takes `OUT_DIR` and an optional `BASE_URL`, verifies every archive against its
+`SHA256SUMS-*` entry before computing the vcpkg SHA512, and zips with `python3 -m zipfile` (no `zip` on macOS/Windows runners). Not
+covered: real `vcpkg`/`conan` on Linux aarch64 and macOS x86_64 (same archives, other triplet names only), and consumers on a machine
+with a GPU (the consumer only proves link + load; `renderer=no` on the hosted runners).
+**Fix round 1 (review):** (a) Windows `*-windows-static` (/MT) and MinGW triplets, and Conan `compiler.runtime=static` or a non-MSVC/clang
+compiler on Windows, are refused at configure time (vcpkg `supports` `!mingw & !(windows & staticcrt)` plus a portfile `FATAL_ERROR` guard;
+`validate()` exit 6) instead of failing at link with LNK2038, since the shipped Windows binaries are /MD; usage text says `*-windows-static-md`.
+(b) `check_vcpkg_conan.sh` derives the version from the rendered `conandata.yml` (no hard-coded 0.1.0) and also asserts the consumer line in the
+`conan create` log, so a skipped `test()` cannot pass. (c) Runnable refusal checks live in `check_vcpkg_conan.sh` (real `vcpkg install` of
+`x64-windows-static`/`x64-mingw-dynamic` must fail; the portfile guard run through `cmake -P`; `conan create` for Windows /MT, Windows gcc and
+Linux gcc static must exit 6); verified locally on Linux that the same script FAILS when the guard and `validate()` change are reverted
+and PASSES on the fixed recipe (vcpkg + Conan, shared, run 37409262766 x86_64 archives). (d) Conan is installed from its self-contained release
+archives with SHA256 pinned in `release.yml` (`sha256sum`/`shasum -c` before extraction) instead of unhashed `pip install`; the Linux static
+leg mounts the verified Linux binary and pulls `ubuntu:24.04@sha256:534baea6...` by digest. Deviations: the archives' `.asc` signature was not
+verified (the SHA256 values were cross-checked against the downloaded files only); `CHANNELS_PORT` (default 8000) lets `check_vcpkg_conan.sh`
+run on a box where 8000 is taken (a local CARLA telemetry service holds it); the dev gate `tools/ci_visual_mode.sh` was deferred this round
+(CARLA running; no library code changed). Dry run after the fix: 37446914731, all jobs green including `channels` on ubuntu-22.04, macos-14, windows-2022.
+**Fix round 2 (review):** (a) Windows Debug consumers: the vcpkg shared port also copies `overlume.dll` to `debug/bin` (vcpkg app-local deps read it there; the API is POD so the release DLL serves /MDd); Conan `validate()` refuses Windows static with `compiler.runtime_type=Debug` (exit 6, LNK2038 otherwise); usage says the static product needs a Release/RelWithDebInfo consumer; `check_vcpkg_conan.sh` builds and runs the vcpkg consumer in Debug on Windows shared and adds the Conan static-Debug negative. (b) The real `vcpkg install` negative now also greps the log for `is only supported on`, so a revert of `supports` fails (verified locally: PASS on the current port, `FAIL: vcpkg refused x64-windows-static, but not by supports` with `supports` reverted). Windows Debug consumer is covered by the windows-2022 channels leg only (no Windows host locally); dry run 37457627284 fully green, incl. "PASS: vcpkg Debug consumer runs" on windows-2022.
+**Fix round 3 (review blocker):** `test_package/CMakeLists.txt` no longer falls back between targets: it picks `overlume::overlume` or `overlume::overlume_static` from `OVERLUME_STATIC` (vcpkg consumers pass `-DOVERLUME_STATIC=ON`; the Conan `test_package` sets it via `CMakeToolchain` from `overlume/*:shared`), so a wrong `cmake_target_name` in `conanfile.py` fails the Conan leg. Verified locally on Linux (x86_64 run 37409262766 archives): `check_vcpkg_conan.sh` shared PASS (vcpkg + Conan), static PASS (ubuntu:24.04 via `check_vcpkg_conan_linux_static.sh`); with `cmake_target_name` swapped in a scratch copy of the rendered recipe the Conan leg FAILS: `CMake Error at CMakeLists.txt:15 (target_link_libraries): ... but the target was not found.` Linux gate not run (CPU 77 C, packaging-only change; deferred). CI dry run 37468626796 on d0e217d fully green incl. the channels matrix (ubuntu-22.04, macos-14, windows-2022).
+
+### Task 10: Signed apt + yum repositories on GitHub Pages (merged with API docs)
+
+**Files:** Create `tools/release/build_apt_repo.sh`, `tools/release/build_yum_repo.sh`,
+`.github/workflows/pages.yml`; delete the deploy job from `.github/workflows/docs.yml`
+(it keeps building docs on PRs as a check); modify `release.yml` (trigger `pages.yml`
+via `workflow_call` after publish).
+
+**Produces:** `https://amerghazal7.github.io/overlume/` serving docs (unchanged
+URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd64,arm64}/`,
+`pool/`), `rpm/{x86_64,aarch64}/repodata/repomd.xml{,.asc}` + packages,
+`overlume-release.asc`, `overlume.repo`.
+
+- [x] **Step 1:** Pages is stateless: `pages.yml` (on push to main, on
+  `workflow_call`, on `workflow_dispatch`) builds docs, then
+  `gh release download` the `.deb`/`.rpm` assets of the newest **N**
+  releases, where N is the largest count keeping the site < 900 MB (Pages
+  limit 1 GB; the script computes N from asset sizes and prints it; ≥ 1
+  enforced, else FAIL). Older versions stay on the Releases page.
+- [x] **Step 2:** `build_apt_repo.sh` with `apt-ftparchive` (reprepro keeps one version per arch, so it cannot serve N releases; `Codename: stable`,
+  `Architectures: amd64 arm64`, `Components: main`, `SignWith: <fingerprint>`)
+  → `InRelease` + `Release.gpg`. `build_yum_repo.sh` with `createrepo_c` per
+  arch, `gpg --detach-sign --armor repodata/repomd.xml`, and an
+  `overlume.repo` (`gpgcheck=1`, `repo_gpgcheck=1`,
+  `gpgkey=https://amerghazal7.github.io/overlume/overlume-release.asc`).
+  GPG imported into a temp `GNUPGHOME` from secrets, removed on exit.
+- [x] **Step 3: Check** — `tools/release/channel_smoke.sh repo SITE_DIR`
+  serves the built site with `python3 -m http.server` and, in
+  `ubuntu:22.04`, `debian:12`, `almalinux:8`, `fedora:40` containers, adds
+  the repo exactly as the README will say (apt: keyring to
+  `/etc/apt/keyrings/overlume.asc`, `signed-by=` source line; dnf:
+  `overlume.repo` with the URL rewritten to the local server), installs
+  `overlume`, runs the smoke `--expect-render`. Tamper check: flip a byte
+  in `InRelease` → `apt-get update` must fail; restore.
+- [x] **Step 4:** docs URLs unchanged (`tools/check_docs_links.py` clean;
+  `curl -s -o /dev/null -w '%{http_code}'` on the live docs index after the
+  first deploy prints 200). **Commit**
+  `feat(release): signed apt/yum repos on GitHub Pages alongside API docs`.
+
+**Task 10 results (2026-10-06, COMPLETE: local checks green, hosted `pages.yml` dry run green):**
+- Local (inputs = run 37468626796 `pkg-linux-*`, real key): `build_apt_repo.sh` + `build_yum_repo.sh` PASS
+  (InRelease/Release/Release.gpg verify; `repomd.xml.asc` verifies for x86_64 and aarch64; served key == committed
+  `packaging/keys/overlume-release.asc`); failing-first: no key env -> exit 1. `pick_releases.sh` self-checked
+  (fits / budget-truncated / N=0 -> exit 1). `channel_smoke.sh repo SITE` PASS on ubuntu:22.04, debian:12,
+  almalinux:8, fedora:40 (add repo, install `overlume`, build consumer, `--expect-render`); tamper (byte 200 of
+  InRelease flipped) -> `apt-get update` refused; restored -> installs again. `check_docs_links.py` clean.
+- Hosted: `pages.yml` dry run **37486279366** on 872831a is GREEN (docs/build, repos jobs; deploy skipped by
+  `dry_run`). Its `github-pages` artifact (171.8 MB) contains `index.html`, `apt/dists/stable/{InRelease,Release.gpg}`,
+  `rpm/{x86_64,aarch64}/repodata/repomd.xml.asc`, `overlume-release.asc`, `overlume.repo`, 4 `.deb` + 4 `.rpm`.
+  The earlier dry run 37485336439 FAILED: the `pkg-linux-*-unverified` artifacts duplicated file names of the
+  verified `pkg-linux-*` ones (refused by plain `cp -t`, "will not overwrite just-created"; 872831a had added `cp -n`, which
+  silently skipped duplicates, removed again in the fix commit); fixed in 872831a (dry-run input takes only the verified `pkg-linux-*` artifacts).
+- Deploy guard verified: the two branch-push runs (37485300843, 37486230472) built the site and SKIPPED deploy.
+  Deploy runs only when `inputs.dry_run` is false/null AND (ref is main, a `v*` tag, or a dispatch): a direct
+  push deploys from main only, a non-dry dispatch deploys, a `workflow_call` caller must pass `dry_run: false`
+  (default true). The tag/`workflow_call` path is NOT exercised by any hosted run and has three constraints for
+  Task 11 (see "Task 11 prerequisites").
+- Deviations: (1) `release.yml` untouched: no `pages` job exists yet, Task 11 owns the job graph and calls
+  `pages.yml` (`workflow_call` accepts `dry_run`/`run_id` inputs but the tag path has the prerequisites below). (2) Docs HTML stays at the site root (unchanged URLs); `docs.yml` is
+  now `pull_request` + `workflow_call` and uploads `docs-html`, `pages.yml` reuses it. (3) On `push` with no
+  packaged release yet (v0.1.0 has no deb/rpm assets) `pages.yml` deploys docs with a `::warning::` instead of
+  failing, but ONLY on a branch push and ONLY when `pick_releases.sh` exits 3 (no release carries packages);
+  exit 1 (packages exist, none fit the budget), tag runs, dispatch and call all fail, because Pages is stateless
+  and a docs-only deploy would delete the live apt/rpm repos (`tools/release/test_pick_releases.sh` pins the codes). (4) Dry runs before a packaged release exist take packages from
+  `run_id` (a release.yml run's `pkg-linux-*` artifacts). (5) Signing is `gpg --clearsign` / `-abs` with loopback
+  passphrase from a temp GNUPGHOME (`lib_gpg.sh`); the apt index is built by `apt-ftparchive` (not reprepro) so every
+  packaged version of the newest N releases stays installable (`apt install overlume=<older>`); pinned by
+  `tools/release/test_apt_repo_versions.sh` (two versions x two arches; it also extracts `pages.yml`'s own
+  gather `find … | xargs cp` lines and runs them: the `*-unverified*` prune must win over a same-named
+  unverified package, and two same-named packages must be refused — verified to FAIL with the workflow
+  reverted to `cp -n` and with the prune removed). Re-checked after the switch: `build_apt_repo.sh` on the run 37468626796
+  debs, then apt install of `overlume` from it in ubuntu:22.04 and debian:12 (rpm side unchanged, not re-run).
+- The live-docs `curl` 200 check needs a real deploy (first push to main); the dry run does not deploy.
+- Linux gate deferred (a pgrep match for "carla" was a ROS node parameter, but the load rule requires an empty
+  match); Task 10 touches no build code.
+
+### Task 11 results
+
+- Dry run **37580899333** on 7915f16: GREEN (27 jobs success; `create`, `publish-homebrew`, `publish-swiftpm`, `finalize`,
+  `pages` skipped, as designed). `sums` merged 6 verified per-job checksum files, 22 release files, signed
+  `SHA256SUMS.asc`, then verified it in a fresh keyring holding only `packaging/keys/overlume-release.asc` (fpr
+  `89281DE0...68FE6404`) plus `sha256sum -c` over every file; the `release-sums` artifact holds both files and
+  `SHA256SUMS.asc` verifies locally against the committed key. `publish-maven` ran in `validate` mode after `sums`+`channels`.
+  `tools/release/test_merge_sums.sh` (round trip; wrong key, tamper between jobs and after signing, missing
+  signature, forged part, duplicate name all FAIL) ran in `sums`. actionlint 1.7.12 (sha256-checked release binary): clean.
+- Tag-only paths cannot run on a dry run; reasoning from the expressions. Let `T` = `ref_type == 'tag' && (event == push || !dry_run)`.
+  (1) `create`: push only, now `--draft`; the release is invisible until `finalize`. (2) `sums` upload: `DRY_RUN != 'true' && ref_type == tag`,
+  to the draft (token `contents: write`, `GH_REPO` set), `--clobber` only replaces its own earlier assets. (3) Publishers
+  (`publish-homebrew`, `publish-swiftpm`) require `sums` and `channels` success and `T`; `publish-maven` requires `sums`,
+  `channels` and each of the two `success|skipped`; a failed package/test job fails `sums` (its `if` lists every
+  package/sign job plus `channels-render`), so `sums` is skipped, so every publisher is skipped, and `finalize` (needs
+  `sums`/`channels`/all three `success`) is skipped: the release stays a draft and nothing irreversible ran.
+  A failed Homebrew/SwiftPM push skips Maven and `finalize`. `skipped` is accepted for Homebrew/SwiftPM only because `sums` success
+  already excludes the upstream-failure skip; on a tag run they run, so `skipped` cannot occur there. (4) `finalize` checks the
+  draft's asset names equal `SHA256SUMS` + the two signature files, then `gh release edit --draft=false`. (5) `pages`
+  runs only after `finalize` success: `gh workflow run pages.yml --ref main -f dry_run=false` (GITHUB_TOKEN dispatches are
+  allowed to trigger `workflow_dispatch`). (6) A non-dry dispatch on a tag ref: `create` is skipped, so the draft must
+  already exist (as for the old upload steps); `finalize` accepts `create` skipped only for `workflow_dispatch`.
+  Re-running failed jobs of a tag run is safe: uploads are `--clobber` on a draft; the SwiftPM guard in `sign-apple` blocks a rebuilt zip for an already-pinned version.
+  Maven publish is made re-run-safe by fix round 2: `publish_maven_central.sh publish` first asks Central's
+  `GET /published?namespace=io.github.amerghazal7&name=overlume&version=` and exits 0 when already published (stub case 6 in
+  `test_maven_publish.sh` fails if that check is reverted). Remaining limit: while an earlier deployment is still PUBLISHING a
+  re-run fails until it lands.
+- **Fix round 1 (review findings), dry run 37589684342 on d19d2ad: GREEN** (`sums` success with the exact-set check
+  printing the 7 expected artifact names, `merge_sums.sh` PASS 6 verified files / 22 files, `release-sums` artifact =
+  `SHA256SUMS` + `SHA256SUMS.asc`, the latter verifying against `packaging/keys/overlume-release.asc`; `create`,
+  `publish-homebrew`, `publish-swiftpm`, `finalize`, `pages` skipped; `publish-maven` ran in validate mode).
+  1. Artifact hop: `merge_sums.sh merge PUBKEY PARTS OUT [UNSIGNED_DIR...]` now requires every directory except the named
+     unsigned one (`channels-recipes`) to hold exactly one `SHA256SUMS-*.txt` that verifies AND whose names equal the
+     directory's other files (`comm -3`), so a missing signature pair, an injected file or a stray artifact fails. `sums`
+     pins `ls parts` to the exact 7 names. `test_merge_sums.sh` gained unlisted-file, both-sums-files-removed and
+     extra-directory cases; run against the previous merge script (extra arg tolerated) it fails at the unlisted-file case.
+  2. Draft-only uploads: the `sums` upload step first asserts `isDraft == true` (a published release is never
+     `--clobber`ed, including after a hand-publish or on a non-dry tag dispatch); the `sign-apple` SwiftPM guard now
+     fails closed (`ls-remote` rc 0 = pinned -> fail, 2 = no tag -> continue, anything else, e.g. 128 network/auth -> fail).
+     Both are tag-only: reasoned from the expressions, not exercised by a dry run.
+  3. `tools/release/test_release_graph.sh` (python3 + PyYAML, run in `lint.yml`) asserts: `--draft` on create; every
+     build/package/sign job an ancestor of `sums` and `sums.if` requiring success of each need; publishers behind
+     `sums`+`channels`, Maven behind both other publishers; `finalize` needs/`if` for all of them, `pages` after
+     `finalize`; `gh release upload|create|edit` and `contents: write` only in create/sums/finalize; SHA-pinned `uses`
+     with a version comment, `timeout-minutes` on every job; isDraft check precedes the upload. Verified to FAIL with
+     `--draft` removed ("create: gh release create lacks --draft") and with `publish-maven` back on `needs: package-android`
+     ("publish-maven must need sums, channels and both other publishers").
+- Not exercised: first real tag run (draft -> published, pages dispatch on main). Pages deploy still needs the merge to main.
+
+### Task 11 prerequisites (found in Task 10 review)
+
+- The `github-pages` environment only allows branch `main` to deploy (one deployment-branch policy), so a deploy on
+  `refs/tags/v*` is rejected.
+- In a called workflow `github.event_name` is the caller's event and `inputs` holds only `workflow_call` inputs, so
+  a caller must pass `dry_run: false` explicitly (pages.yml defaults it to true) and cannot supply a `run_id` run.
+- `pages` placed before `finalize` sees the release as a draft (invisible to the `contents: read` job token), so the
+  new version would be missing from apt/yum.
+- Recommended route (b): `finalize` publishes the release, then runs `gh workflow run pages.yml --ref main -f dry_run=false`
+  (needs `actions: write`); runs on main so the environment allows it and the release is no longer a draft. Drop
+  `workflow_call` from pages.yml then. Route (a): user adds a tag policy
+  (`gh api -X POST repos/amerghazal7/overlume/environments/github-pages/deployment-branch-policies -f name='v*' -f type=tag`,
+  a repo-settings change needing the user's approval), `pages` runs after `finalize` and is called with `dry_run: false`.
+
+### Merge checklist (release-packaging -> main)
+
+- [ ] Remove the temporary `push: branches: [release-packaging]` trigger from `.github/workflows/pages.yml`
+  (added only to register the workflow for dispatch; deploy is guarded to main).
+- [x] Task 11 prerequisites above are resolved: route (b) taken, `workflow_call` removed from `pages.yml` (Task 11).
+- [ ] After the first push to main deploys, `curl -s -o /dev/null -w '%{http_code}'` on the live docs index prints 200.
+
+### Task 11: Release orchestration and integrity
+
+**Files:** Modify `.github/workflows/release.yml`, `tools/release/sign_sums.sh`.
+
+- [x] **Step 1:** Job graph (as built below; run 37580899333): `create` → `package-linux` (x86_64, aarch64),
+  `package-android`, `package-macos`, `package-ios`, `package-windows`
+  (x64, arm64) → `sums` (merges all `SHA256SUMS-*` into `SHA256SUMS`,
+  signs `SHA256SUMS.asc`, uploads) → publish jobs `publish-maven`,
+  `publish-homebrew`, `publish-swiftpm`, `channels` (vcpkg/Conan render +
+  checks), `pages` (see Task 11 prerequisites: route b, dispatched on main after `finalize`). Publish jobs run only when every
+  package job succeeded (no partial release); a failed tag run leaves the
+  release as **draft**: `create` makes it `--draft`, a final `finalize` job
+  flips it to published after all publish jobs pass.
+  **Graph as built (designed before implementing):**
+
+  ```
+  create (tag push; --draft) -> package-* builds -> package/sign jobs ---+-> channels-render -> sums --+-> publish-homebrew --+
+   (linux x86_64, aarch64 build+native test, android x4 + package-android, |    (verify + merge +      |   publish-swiftpm ---+-> publish-maven
+    macos x2 + package-macos, ios x3 + package-ios + sign-apple,           |     sign SHA256SUMS,      +-> channels (3 OS) --+      |
+    windows x2 + package-windows + sign-windows)                           |     upload, tag only)                               v
+                                                                                       finalize (draft -> published) -> pages (dispatch pages.yml on main)
+  ```
+
+  - `sums` needs every package/sign job and `channels-render`, so it exists only if no platform failed. Publish
+    jobs need `sums` and `channels` (the install checks), hence never run after a failed package or test job.
+  - `publish-maven` (irreversible) goes last among publishers: it also needs `publish-homebrew` and `publish-swiftpm`
+    (`success` or `skipped`; they skip on dry runs, and cannot be skipped on a tag run where `sums` succeeded).
+  - `finalize` needs `create`, `sums`, `channels` and all three publishers to be `success` and the tag condition
+    (`publish-*` only run on a tag with push or a non-dry dispatch), so it is skipped on every dry run. It first checks
+    the draft holds exactly the files `SHA256SUMS` lists plus `SHA256SUMS(.asc)`, then `gh release edit --draft=false`.
+    Pushes to the Homebrew tap / SwiftPM tag precede publication, so their release-asset URLs go live seconds
+    later (accepted: the alternative, publishing first, makes a failed Maven publish leave a public release).
+  - Upload: package jobs no longer upload (they are `contents: read`). `sums` uploads once, `--clobber` (the release
+    is a draft, so re-running `sums` replaces its own assets) -- no per-platform clobbering or duplicate lists.
+  - Checksum files: release assets are the packages + channel zips + one merged `SHA256SUMS` + `SHA256SUMS.asc`. The
+    per-job `SHA256SUMS-<name>.txt(.asc)` remain workflow artifacts only; `merge_sums.sh` verifies each (signature
+    against the committed public key, then `sha256sum -c`) before merging, so the artifact hop is covered, and
+    the final pair is verified in a fresh keyring holding only `packaging/keys/overlume-release.asc`.
+  - `pages`: route (b) from the Task 11 prerequisites. `workflow_call` was dropped from `pages.yml`; the `pages` job
+    runs `gh workflow run pages.yml --ref main -f dry_run=false` after `finalize` (needs `actions: write`; the
+    `github-pages` environment only accepts main, and the release is public by then). Dry runs never reach it.
+  - Every action pinned by commit SHA (`# vN` kept) in all workflows; `timeout-minutes` on every job.
+- [x] **Step 2:** (concurrency group was already in place; all actions across all workflows now SHA-pinned, `timeout-minutes` on every job) Concurrency group `release-${{ github.ref }}`; every
+  third-party action pinned by commit SHA; `timeout-minutes` per job.
+- [x] **Step 3: Check** (result below) — `gh workflow run release.yml -f dry_run=true` on
+  the work branch: every job green, Maven `VALIDATED` then dropped,
+  `gpg --verify SHA256SUMS.asc SHA256SUMS` OK with the public key, and
+  `sha256sum -c SHA256SUMS` OK over all downloaded artifacts.
+- [x] **Step 4: Commit** `ci(release): Task 11 complete — draft-until-green release graph with signed checksums`.
+
+### Task 12: Docs, notices, end-to-end channel smoke
+
+**Files:** Create `docs/runbooks/release.md`, `tools/release/channel_smoke.sh`
+(extend from Task 10); modify `README.md` (Install section per platform/channel),
+`docs/README.md`, `docs/status.md`, `CHANGELOG.md`, `NOTICE`.
+
+- [x] **Step 1: NOTICE** — every library now shipped inside the binaries,
+  verified against pinned sources: libc++/libc++abi/libunwind
+  (`Apache-2.0 WITH LLVM-exception`), spdlog, fmt, and the cesium vcpkg
+  closure (from `vcpkg_installed/<triplet>/share/*/copyright`, per platform).
+- [x] **Step 2: README Install** — apt (keyring + `signed-by` line), dnf
+  (`overlume.repo`), `brew install amerghazal7/overlume/overlume`, SwiftPM
+  snippet, Gradle `implementation("io.github.amerghazal7:overlume:<ver>")` +
+  `buildFeatures { prefab = true }` + `find_package(overlume REQUIRED CONFIG)`,
+  vcpkg overlay port and Conan commands, Windows installer, manual archives;
+  consumer CMake snippet; static-component note (Linux: clang+libc++).
+- [x] **Step 3: runbook** `release.md`: bump `version.h` + `project()` →
+  CHANGELOG → tag/push → watch → verify; dry-run rehearsal; rerun a failed
+  platform; key rotation (new key, update secrets, re-publish
+  `overlume-release.asc`, users re-import); Apple/Windows signing secret
+  provisioning steps; Maven namespace/keyserver prerequisites.
+- [x] **Step 4:** `channel_smoke.sh all RUN_ID` downloads one dry-run's
+  artifacts and runs every README install path that can run on Linux
+  (apt, dnf, manual archive, Android NDK consumer) from the README's own commands; vcpkg and Conan run from the rendered recipe, and
+  every `.../releases` URL the README names must be exactly `https://github.com/amerghazal7/overlume/releases`, `.../releases/download/v<ver>` or `.../v$V`, and every asset name after one (and every SHA256SUMS* reference: only SHA256SUMS / .asc) must be in the run's SHA256SUMS;
+  macOS/Windows/iOS paths run in the Task 9/7 CI jobs. All PASS.
+- [x] **Step 5:** `python3 tools/check_docs_links.py` clean; gate green;
+  status ledger updated with the first full dry run's URL. **Commit**
+  `docs(release): install guide per channel, release runbook, third-party notices`.
+
+### Task 12 results
+
+- NOTICE (03ad059): the cesium vcpkg closure of 32 ports with versions + SPDX licenses read from the Android install tree's
+  `share/<port>/vcpkg.spdx.json` and `copyright` files (plus the Linux x64 tree under ~/.ezvcpkg/.../x64-linux-clang-libcxx, same 32 ports; aarch64/Apple/Windows triplets are
+  the same manifest at the same baseline and are marked as inferred, `ms-gsl` as manifest-only), LLVM 18.1.8 libc++/libc++abi/libunwind
+  (Apache-2.0 WITH LLVM-exception, against the 18.1.8 LICENSE.TXT), NDK libc++ and MSVC redistributable notes, and Filament's bundled
+  third_party libraries (basisu, draco, meshoptimizer, mikktspace, smol-v, stb, zlib) from the pinned source tarball's license files.
+  Fix round 2: macOS arm64 and Windows x64 link Filament's prebuilt SDK (Vulkan ON; the source build used everywhere else has it OFF), so
+  NOTICE also lists Vulkan Memory Allocator (MIT, AMD), Vulkan headers/bluevk (Apache-2.0) and glslang inside those two binaries
+  (verified with nm/strings on run 37606567418's pkg-macos arm64 slice and windows-packages-x64 overlume.dll; Linux .so has none), and
+  names concrt140.dll among the app-local MSVC DLLs.
+  Fix round 3: Filament's own src tree compiles four more notices into every binary: AMD FSR1 (MIT, 2021 AMD, plus 2014 Michal Drobot in ffx_a.h), FXAA 3.11 (2010-2011 NVIDIA + G3D
+  BSD, Morgan McGuire), screen-space ray tracing (BSD-2-Clause, McGuire and Mara) and Oklab gamut clipping (MIT, Bjorn Ottosson), each verified
+  against the pinned file headers and listed in NOTICE; `tools/release/check_notice_strings.sh LIB [NOTICE]` asserts NOTICE names
+  AMD/NVIDIA/McGuire (reports whether LIB carries the text: absent from the Linux .so, whose comments are stripped, present in the Windows DLL); PASS on
+  the release tar.gz's liboverlume.so, and FAIL on a NOTICE copy with NVIDIA removed.
+- README "Install" (one block per channel) and `docs/runbooks/release.md` (version bump -> CHANGELOG -> tag -> watch -> verify; rehearsal;
+  rerun; key rotation; Apple/Windows secrets; the real-Mac Metal check; Maven/keyserver prerequisites; merge checklist).
+- `tools/release/channel_smoke.sh all RUN_ID [PAGES_RUN_ID]` against release run 37589684342 + pages run 37616385042 (dispatched with `run_id=37589684342`; the smoke cmp's every .deb/.rpm against
+  the site and runs the README's own apt/dnf blocks; the earlier 37492062671 had been built from run 37468626796's packages): **ALL PASS** in
+  3m57s warm (sums + signature against the committed key; tar.gz prefix consumer on ubuntu:22.04; apt+dnf on ubuntu 22.04, debian 12,
+  alma 8, fedora 40 plus the tamper check; vcpkg + Conan shared on the host and static in ubuntu:24.04 with clang 18; Android NDK
+  consumer for all four ABIs, Prefab CLI, Maven bundle contents and signatures). macOS/Windows/iOS install paths stay with the CI jobs.
+- Finding fixed on the way: the unpacked tar.gz needs `libgl1` at run time (Filament's bluegl dlopens libGL.so.1; the deb/rpm depend on it
+  but a manual archive does not), so `create_renderer` returned `nullptr` on a minimal Ubuntu with only `libegl1 libgles2`. The README
+  manual-archive block and the vcpkg `usage` text now name it, and the smoke installs exactly the documented set. Another stale-cache
+  finding: `gh run download` with several `-n` flags returned older artifacts than the run's, so the script downloads one name per call.
+- Strict README URL check (fix round 3): scratch README mutations (dropped v, wrong path, repo typo, other host, SHA256SUMS.sig) FAIL; real README PASS; `channel_smoke.sh all 37589684342 37616385042` ALL PASS.
+- Final full dry run **37606567418** on 890ec19 (all three Task 12 commits): GREEN; `create`, `publish-homebrew`, `publish-swiftpm`, `finalize`, `pages` skipped as designed.
+- Local Linux gate green (302 ctest, 312 node gtests, 75 WS, 20 goldens, 6 examples; no golden change).
+- Fix rounds 4-5 (2026-10-07): ffx_a.h line 27 also carries "Copyright (c) 2014 Michal Drobot" (MIT; 4x in the Windows
+  DLL) → NOTICE FSR1 entry, CHANGELOG, `check_notice_strings.sh` (needles now cover every Filament-internal notice incl.
+  Mara/Ottosson, and a missing library FAILs). The Khronos GL headers compiled into bluegl are named next to the Vulkan
+  headers. `channel_smoke readme_assets` requires every asset name after a release URL or `$B/` to be in the run's
+  SHA256SUMS, and compares EVERY release/download-looking URL (any host/scheme, mangled path segments included) and
+  every `B=` base against the exact GitHub prefix; scratch README mutations (dropped v, `/release/download/`,
+  `/overlume/download/`, `/dl/`, repo typo, other host, http gitlab, .sig, vcpkg-port.tgz, linux-x86-64.tgz, .tar.xz)
+  all FAIL, the real README PASSes, `channel_smoke.sh all 37589684342 37616385042` ALL PASS.
+- Dry run 37637454829 on 778dd8c (merged tree, first CI of the hybrid splat layer on WGL/GLES): Windows x64/arm64 failed `HybridSplats.ClearingRestoresByteIdenticalFrames`, Android x86/x86_64 `SizeFromThemeTokenWhenZero` (+ x86_64 `EgoStillOccludesSplatsBehindIt` 6 vs 5). Diagnosed per backend (diagnostic dry run 37645646387, Windows + Android only): llvmpipe dither noise exceeds the +-8 oracle on its own (clean-vs-clean max 12), SwANGLE resolves 1 px points into AA blends (colour predicate 0 px) and adds an edge pixel to the occluded sliver. All three were test oracles, not library defects; fixed in the tests with the justification in their comments. Detail in `docs/status.md` known gaps item 17.
+
+## Open items owned by the user (tracked in `docs/status.md`)
+
+- Public key sent to keyserver.ubuntu.com and keys.openpgp.org by the user
+  2026-10-02; keys.openpgp.org serves it (HTTP 200), keyserver.ubuntu.com
+  still 404 at last check (propagation) — re-check before Task 6's first
+  Maven validation. keys.openpgp.org UID shows only after the emailed link is clicked.
+- Apple Developer ID + notary API key secrets (until then: unsigned + warning).
+- Windows code-signing secrets (until then: unsigned + warning).
+
+- **Fix round 2 (static check + Maven idempotence).** `test_release_graph.sh` now asserts the `if` terms that actually stop
+  publishers: `needs.sums/channels.result == 'success'` in publish-homebrew/swiftpm/maven, the tag term in homebrew/swiftpm,
+  `needs.finalize.result == 'success'` in `pages.if`, and the DRY_RUN + tag guards on the sums upload step. Verified on scratch
+  copies: mutations M1 (homebrew terms dropped), M5 (maven terms dropped), M2 (`pages.if: always()`), M6 (upload `if` without the
+  DRY_RUN guard) each FAIL; the unmutated file PASSes. No CI-visible change, so no new dry run.
+

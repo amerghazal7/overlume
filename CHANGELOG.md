@@ -7,6 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-07
+
+The first stable release. Public headers (`<overlume/scene.h>`, `<overlume/api.h>`)
+are POD-only and append-only from here on; `kSceneVersion` is 9 and the shared
+library's SONAME is `liboverlume.so.1`.
+
+**What you can install.** Every release asset is covered by a GPG-signed
+`SHA256SUMS`. Nothing becomes public until every platform has built, tested and
+signed.
+
+| Platform | Release assets | Channel |
+|---|---|---|
+| Linux x86_64 / aarch64 | `.deb`, `.rpm`, `.tar.gz` (shared and static) | signed apt and dnf repositories on GitHub Pages |
+| macOS universal2 | `.pkg`, `.tar.gz` | Homebrew tap |
+| iOS | XCFramework (dynamic and static) | Swift Package Manager |
+| Windows x64 / arm64 | NSIS installer, `.zip` | vcpkg overlay port, Conan recipe |
+| Android (4 ABIs) | Prefab `.aar`, `.zip` | Maven Central `io.github.amerghazal7:overlume` |
+
+`find_package(overlume)` works on every platform and pkg-config on Linux and macOS.
+
+**What is new since 0.1.0.**
+
+- Cross-platform packaged releases and install channels (above).
+- Hybrid mode works again: lidar is drawn as opaque splats composited over the
+  bowl, with a default `/iv_points_fusion` topic and a `hybrid` diagnostic.
+- Terrain height-grid layer: a shaded heightfield for offroad terrain
+  (`HeightGridLayer`, `kSceneVersion` 9), with themed colour ramps.
+- New README with a hero animation and gallery.
+- Builds default to Release when no build type is given.
+
+**Known limitations.**
+
+- Metal rendering is unverified on hosted CI (the macOS runners' virtual GPU
+  cannot drive Filament); the macOS and iOS packages are tested without a
+  rendered frame.
+- Apple notarisation and Windows Authenticode signing run only once their signing
+  secrets are provisioned; until then the macOS and Windows installers are unsigned.
+- The m2o1 robot profile's lidar transform is unverified against the real robot.
+- The Linux static component needs clang and libc++ >= 18; Linux builds need glibc >= 2.28.
+
+The detailed change list follows.
+
+Cross-platform release pipeline (`docs/plans/2026-10-02-cross-platform-release.md`):
+
+- Packaged releases for Linux x86_64/aarch64 (`.deb`, `.rpm`, `.tar.gz`; shared
+  with the C++ runtime baked in, plus a static component; glibc >= 2.28),
+  macOS universal2 (`.pkg`, `.tar.gz`), iOS (XCFramework), Windows x64/arm64
+  (NSIS installer, `.zip`) and Android (Prefab AAR for four ABIs).
+- Install channels: signed apt and dnf repositories on GitHub Pages, a Homebrew
+  tap, Swift Package Manager (`amerghazal7/overlume-swift`), Maven Central
+  (`io.github.amerghazal7:overlume`), and a generated vcpkg overlay port and
+  Conan recipe per release. Every release asset is covered by a GPG-signed
+  `SHA256SUMS`; `find_package(overlume)` works everywhere and pkg-config on
+  Linux and macOS.
+- `release.yml` is a draft-until-green graph: nothing becomes public until
+  every platform built, tested and signed; a failed run leaves a draft.
+- `tools/release/channel_smoke.sh all RUN_ID PAGES_RUN_ID` runs every README install path that
+  works on Linux against a dry run's artifacts; `docs/runbooks/release.md`
+  documents cutting, repairing and rotating keys for a release.
+- NOTICE now lists everything linked into the binaries (cesium vcpkg closure,
+  LLVM libc++/libc++abi/libunwind, Filament's bundled libraries incl. cgltf,
+  robin-map and the libfilamat.a-resident glslang/SPIRV-Tools/SPIRV-Cross; the
+  Linux x64 vcpkg tree was checked, other triplets are inferred). The macOS
+  arm64 slice and Windows x64 link Filament's prebuilt Vulkan-enabled SDK, so
+  NOTICE also lists Vulkan Memory Allocator (MIT), the Vulkan headers/bluevk
+  (Apache-2.0) and glslang inside those two binaries; every other platform
+  builds Filament from source with Vulkan off. It also lists the code Filament compiles from
+  its own src tree into every binary: AMD FSR1 (MIT, with Michal Drobot's 2014 MIT line in ffx_a.h), FXAA 3.11 (NVIDIA / G3D
+  BSD), screen-space ray tracing (BSD-2-Clause) and Oklab gamut clipping (MIT);
+  `tools/release/check_notice_strings.sh LIB` checks a library against NOTICE.
+- Known limits: no Metal frame renders on hosted macOS runners, so the macOS and iOS
+  packages ship without a verified Metal render; Apple notarisation and Windows
+  Authenticode signing run only once their secrets are provisioned; the static
+  component on Linux needs clang and libc++ >= 18.
+
 Hybrid composite restore (`docs/plans/2026-10-02-hybrid-composite-restore.md`):
 
 - Fixed: hybrid mode rendered bowl-only. Lidar was a depth-tested 2 px fade
@@ -142,5 +217,6 @@ entries with a recorded historical-document discrepancy).
 - **Epic 6 — v1.1: Cesium 3D Tiles streaming** (VM-060…064) + post-close
   tail: closed 2026-09-16, final cross-cutting review 2026-09-17.
 
-[Unreleased]: https://github.com/amerghazal7/overlume/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/amerghazal7/overlume/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/amerghazal7/overlume/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/amerghazal7/overlume/releases/tag/v0.1.0

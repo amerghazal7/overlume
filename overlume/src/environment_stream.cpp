@@ -44,7 +44,11 @@
 #include <optional>
 #include <unordered_set>
 
+#ifdef _WIN32
+#include <process.h>
+#else
 #include <unistd.h>
+#endif
 
 namespace overlume {
 
@@ -173,7 +177,11 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
 
 std::string default_cache_dir() {
     const char* xdg = std::getenv("XDG_CACHE_HOME");
+#ifdef _WIN32
+    const char* home = std::getenv("USERPROFILE");
+#else
     const char* home = std::getenv("HOME");
+#endif
     const std::string base = (xdg && xdg[0]) ? xdg : (std::string(home ? home : ".") + "/.cache");
     return base + "/overlume-tile-cache";
 }
@@ -474,6 +482,11 @@ std::shared_ptr<CesiumAsync::IAssetRequest> FileFixtureAssetAccessor::makeReques
     }
     std::string path = url;
     if (path.rfind(kFileScheme, 0) == 0) path = path.substr(sizeof(kFileScheme) - 1);
+#ifdef _WIN32
+    // Cesium resolves tile URIs against the tileset's to file:///D:/dir/x.b3dm: drop the slash
+    // before the drive.
+    if (path.size() > 2 && path[0] == '/' && path[2] == ':') path.erase(0, 1);
+#endif
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file) {
         return std::make_shared<FixtureAssetRequest>(
@@ -1150,10 +1163,16 @@ struct FixtureStreamHandle {
 
 namespace {
 
+#ifdef _WIN32
+const int kProcessId = _getpid();
+#else
+const int kProcessId = ::getpid();
+#endif
+
 std::string test_cache_dir() {
     static const std::string dir = [] {
         const std::string d = (std::filesystem::temp_directory_path() /
-                               ("overlume-stream-test-cache-" + std::to_string(::getpid())))
+                               ("overlume-stream-test-cache-" + std::to_string(kProcessId)))
                                   .string();
         std::error_code ec;
         std::filesystem::remove_all(d, ec);

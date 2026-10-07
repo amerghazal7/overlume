@@ -1,0 +1,9 @@
+prefix=${pcfiledir}/../..
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: overlume
+Description: Real-time rendering library behind a POD-only C++ API
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -loverlume
+Cflags: -I${includedir}
