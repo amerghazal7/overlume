@@ -36,6 +36,7 @@
 #include "overlume_ros/adapters/dynamic_objects.hpp"
 #include "overlume_ros/adapters/generic_marker.hpp"
 #include "overlume_ros/adapters/hd_map.hpp"
+#include "overlume_ros/adapters/height_grid.hpp"
 #include "overlume_ros/adapters/ogm.hpp"
 #include "overlume_ros/adapters/path.hpp"
 #include "overlume_ros/adapters/point_cloud.hpp"
@@ -161,6 +162,16 @@ private:
     std::vector<rclcpp::Subscription<map_msgs::msg::OccupancyGridUpdate>::SharedPtr>
         ogm_update_subs_;
 
+    struct HeightGridRow {
+        std::unique_ptr<overlume::ros::HeightGridAdapter> adapter;
+        double timeout_sec;
+        std::string topic;
+        uint64_t warned_malformed = 0;
+        uint64_t warned_no_tf = 0;
+    };
+    std::vector<HeightGridRow> height_grid_rows_;
+    std::vector<rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr> height_grid_subs_;
+
     struct CollisionRow {
         std::unique_ptr<overlume::ros::CollisionAdapter> adapter;
         double timeout_sec;
@@ -254,6 +265,7 @@ private:
     bool layer_markers_{true};
     bool layer_point_clouds_{true};
     bool layer_trajectory_carpet_{true};
+    bool layer_height_grids_{true};
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr layer_param_cb_;
 
     bool bowl_enabled_{false};

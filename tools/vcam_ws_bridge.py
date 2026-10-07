@@ -79,8 +79,8 @@ PRESET_RANGE = (1, 5)
 RENDER_MODES = {"bowl": 1, "pointcloud": 2, "visual": 3, 1: 1, 2: 2, 3: 3}
 
 LAYER_NAMES = {
-    "objects", "paths", "map_elements", "grids", "alerts", "markers", "point_clouds",
-    "trajectory_carpet", "surround_stitching",
+    "objects", "paths", "map_elements", "grids", "height_grids", "alerts", "markers",
+    "point_clouds", "trajectory_carpet", "surround_stitching",
 }
 QUALITY_PRESETS = {"low": 0, "medium": 1, "high": 2, 0: 0, 1: 1, 2: 2}
 SURROUND_PROFILES = {"bowl", "hybrid"}
@@ -390,7 +390,7 @@ def main() -> int:
             return self._cli_setp.call_async(req)
 
         def get_layers_async(self):
-            """GetParameters for the nine layer_* bools from
+            """GetParameters for the layer_* bools (LAYER_NAMES) from
             overlume_node -- the read twin of set_layers_async below,
             so the GUI can show real values instead of asserted defaults."""
             if not self._cli_getp_viz.service_is_ready():

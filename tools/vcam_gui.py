@@ -98,8 +98,8 @@ RENDER_SPINS = [
 RENDER_BOOLS = ["fill_blind_zone", "exposure_match"]
 
 LAYER_NAMES = [
-    "objects", "paths", "map_elements", "grids", "alerts", "markers", "point_clouds",
-    "trajectory_carpet", "surround_stitching",
+    "objects", "paths", "map_elements", "grids", "height_grids", "alerts", "markers",
+    "point_clouds", "trajectory_carpet", "surround_stitching",
 ]
 QUALITY_PRESETS = ["low", "medium", "high"]
 SURROUND_PROFILES = ["bowl", "hybrid"]

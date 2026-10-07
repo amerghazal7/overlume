@@ -14,6 +14,7 @@
 #include "generic_markers_test_hooks.hpp"
 #include "ground_grid.hpp"
 #include "ground_grid_test_hooks.hpp"
+#include "height_grid.hpp"
 #include "map_elements.hpp"
 #include "map_elements_test_hooks.hpp"
 #include "objects.hpp"
@@ -58,6 +59,7 @@
 #include <geometry/SurfaceOrientation.h>
 
 #include <math/mat4.h>
+#include <math/vec2.h>
 #include <math/vec3.h>
 #include <math/vec4.h>
 #include <math/quat.h>
@@ -67,10 +69,14 @@
 
 #include "clay_filamat.h"
 #include "clay_faded_filamat.h"
+#include "ground_clay_filamat.h"
+#include "ground_lines_filamat.h"
 #include "clay_translucent_filamat.h"
 #include "ribbon_emissive_filamat.h"
 #include "ribbon_faded_filamat.h"
 #include "ground_grid_filamat.h"
+#include "height_grid_filamat.h"
+#include "height_grid_faded_filamat.h"
 #include "point_cloud_filamat.h"
 #include "trajectory_carpet_filamat.h"
 #include "trajectory_carpet_faded_filamat.h"
@@ -485,6 +491,31 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
                 texels));
     }
 
+    r.heightGridRamp = detail::bake_height_ramp(theme.height_grid.ramp);
+    {
+        constexpr size_t kRampEntries = detail::HeightRampTable::kEntries;
+        auto* texels = new std::vector<float>(kRampEntries * 4);
+        for (size_t k = 0; k < kRampEntries; ++k) {
+            (*texels)[k * 4 + 0] = r.heightGridRamp.color[k].r;
+            (*texels)[k * 4 + 1] = r.heightGridRamp.color[k].g;
+            (*texels)[k * 4 + 2] = r.heightGridRamp.color[k].b;
+            (*texels)[k * 4 + 3] = 1.0f;
+        }
+        r.heightGridRampTexture->setImage(
+            *r.engine, 0,
+            filament::Texture::PixelBufferDescriptor(
+                texels->data(), texels->size() * sizeof(float), filament::Texture::Format::RGBA,
+                filament::Texture::Type::FLOAT,
+                [](void*, size_t, void* user) { delete static_cast<std::vector<float>*>(user); },
+                texels));
+    }
+    apply_height_grid_params(*r.heightGridInstance, r, theme.height_grid);
+    for (auto& slot : r.heightGridSlots) {
+        if (slot.fadeInstance != nullptr) {
+            apply_height_grid_params(*slot.fadeInstance, r, theme.height_grid);
+        }
+    }
+
     const detail::Float3 alertTints[VisualRenderer::kAlertSeverityCount] = {
         theme.palette.alert.info,
         theme.palette.alert.warning,
@@ -793,8 +824,17 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
                                         overlume::materials::kclay_fadedFilamatSize)
                                .build(*engine);
 
-    r->groundMaterial = r->clayMaterial->createInstance();
-    r->gridMaterial = r->clayFadedMaterial->createInstance();
+    r->groundClayMaterial = filament::Material::Builder()
+                                .package(overlume::materials::kground_clayFilamat,
+                                         overlume::materials::kground_clayFilamatSize)
+                                .build(*engine);
+    r->groundLinesMaterial = filament::Material::Builder()
+                                 .package(overlume::materials::kground_linesFilamat,
+                                          overlume::materials::kground_linesFilamatSize)
+                                 .build(*engine);
+
+    r->groundMaterial = r->groundClayMaterial->createInstance();
+    r->gridMaterial = r->groundLinesMaterial->createInstance();
     r->laneMaterial = r->clayMaterial->createInstance();
     r->laneCenterlineMaterial = r->clayMaterial->createInstance();
     r->laneBoundaryMaterial = r->clayMaterial->createInstance();
@@ -843,6 +883,24 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
             filament::TextureSampler(filament::TextureSampler::MinFilter::NEAREST,
                                      filament::TextureSampler::MagFilter::NEAREST));
     }
+
+    r->heightGridMaterial = filament::Material::Builder()
+                                .package(overlume::materials::kheight_gridFilamat,
+                                         overlume::materials::kheight_gridFilamatSize)
+                                .build(*engine);
+    r->heightGridFadedMaterial = filament::Material::Builder()
+                                     .package(overlume::materials::kheight_grid_fadedFilamat,
+                                              overlume::materials::kheight_grid_fadedFilamatSize)
+                                     .build(*engine);
+    r->heightGridInstance = r->heightGridMaterial->createInstance();
+    r->heightGridRampTexture =
+        filament::Texture::Builder()
+            .width(static_cast<uint32_t>(detail::HeightRampTable::kEntries))
+            .height(1)
+            .levels(1)
+            .format(filament::Texture::InternalFormat::RGBA32F)
+            .sampler(filament::Texture::Sampler::SAMPLER_2D)
+            .build(*engine);
 
     r->pointCloudMaterial = filament::Material::Builder()
                                 .package(overlume::materials::kpoint_cloudFilamat,
@@ -897,6 +955,7 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
     }
     r->genericMarkerMaterial->setCullingMode(filament::backend::CullingMode::NONE);
     r->buildingMaterial->setCullingMode(filament::backend::CullingMode::NONE);
+    r->heightGridInstance->setCullingMode(filament::backend::CullingMode::NONE);
 
     push_theme_to_scene(*r, theme);
 
@@ -1044,6 +1103,11 @@ void destroy_renderer(VisualRenderer* r) {
         if (tex) r->engine->destroy(tex);
     }
     if (r->groundGridMaterial) r->engine->destroy(r->groundGridMaterial);
+    destroy_height_grid_slots(*r);
+    if (r->heightGridInstance) r->engine->destroy(r->heightGridInstance);
+    if (r->heightGridRampTexture) r->engine->destroy(r->heightGridRampTexture);
+    if (r->heightGridMaterial) r->engine->destroy(r->heightGridMaterial);
+    if (r->heightGridFadedMaterial) r->engine->destroy(r->heightGridFadedMaterial);
 
     if (r->bowl) {
         destroy_mesh(*r->engine, *r->scene, r->bowl->mesh);
@@ -1075,6 +1139,8 @@ void destroy_renderer(VisualRenderer* r) {
     if (r->trajectoryCarpetFadedMaterial) r->engine->destroy(r->trajectoryCarpetFadedMaterial);
     if (r->groundMaterial) r->engine->destroy(r->groundMaterial);
     if (r->gridMaterial) r->engine->destroy(r->gridMaterial);
+    if (r->groundClayMaterial) r->engine->destroy(r->groundClayMaterial);
+    if (r->groundLinesMaterial) r->engine->destroy(r->groundLinesMaterial);
     if (r->clayMaterial) r->engine->destroy(r->clayMaterial);
     if (r->clayFadedMaterial) r->engine->destroy(r->clayFadedMaterial);
     if (r->ambient) r->engine->destroy(r->ambient);
@@ -1127,6 +1193,39 @@ void update_ground_grid_transform(VisualRenderer& r, const EgoState& ego) {
     if (gridInst.isValid()) tm.setTransform(gridInst, xf);
 }
 
+void update_ground_hole(VisualRenderer& r, const SceneGraph& s) {
+    VisualRenderer::GroundHole hole{};
+    if (s.height_grids != nullptr && s.height_grid_count > 0) {
+        const HeightGridLayer& g = s.height_grids[0];
+        const float alpha = detail::SceneBuffer::staleness_alpha(
+            s.sim_time_sec, g.last_update_sec, kStaleFadeStartSec, kStaleFadeTimeoutSec);
+        // Same condition under which update_height_grids draws the terrain (spec section 6:
+        // the hole is open only while the terrain is). heights_m == nullptr draws nothing.
+        if (g.width_cells >= 2 && g.height_cells >= 2 && g.resolution_m > 0.0 &&
+            g.heights_m != nullptr && alpha > 0.0f) {
+            const double c = std::cos(g.yaw_rad);
+            const double sn = std::sin(g.yaw_rad);
+            const double lx = 0.5 * g.width_cells * g.resolution_m;
+            const double ly = 0.5 * g.height_cells * g.resolution_m;
+            hole.enabled = true;
+            hole.center[0] = static_cast<float>(g.origin.x + c * lx - sn * ly);
+            hole.center[1] = static_cast<float>(g.origin.y + sn * lx + c * ly);
+            hole.axis_x[0] = static_cast<float>(c);
+            hole.axis_x[1] = static_cast<float>(sn);
+            hole.half_extent[0] = static_cast<float>(0.5 * (g.width_cells - 1) * g.resolution_m);
+            hole.half_extent[1] = static_cast<float>(0.5 * (g.height_cells - 1) * g.resolution_m);
+        }
+    }
+    r.groundHole = hole;
+    for (filament::MaterialInstance* m : {r.groundMaterial, r.gridMaterial}) {
+        m->setParameter("holeCenter", filament::math::float2{hole.center[0], hole.center[1]});
+        m->setParameter("holeAxisX", filament::math::float2{hole.axis_x[0], hole.axis_x[1]});
+        m->setParameter("holeHalfExtent",
+                        filament::math::float2{hole.half_extent[0], hole.half_extent[1]});
+        m->setParameter("holeEnabled", hole.enabled ? 1.0f : 0.0f);
+    }
+}
+
 }
 
 bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
@@ -1141,6 +1240,8 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     update_objects(*r, r->scene_buffer.active());
     update_ribbons(*r, r->scene_buffer.active());
     update_ground_grids(*r, r->scene_buffer.active());
+    update_height_grids(*r, r->scene_buffer.active());
+    update_ground_hole(*r, r->scene_buffer.active());
     update_alert_polygons(*r, r->scene_buffer.active());
     update_generic_markers(*r, r->scene_buffer.active());
     update_point_clouds(*r, r->scene_buffer.active());

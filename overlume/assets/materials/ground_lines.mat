@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
+// clay_faded.mat plus the same footprint discard as ground_clay.mat, so the ground grid lines
+// also vanish under the height-grid terrain. Empty vertex block: see ground_clay.mat.
+material {
+    name : ground_lines,
+    shadingModel : lit,
+    parameters : [
+        { type : float3, name : baseColor },
+        { type : float, name : roughness },
+        { type : float, name : metallic },
+        { type : float2, name : holeCenter },
+        { type : float2, name : holeAxisX },
+        { type : float2, name : holeHalfExtent },
+        { type : float, name : holeEnabled }
+    ],
+    requires : [ color ],
+    blending : fade
+}
+vertex {
+    void materialVertex(inout MaterialVertexInputs material) {
+    }
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        if (materialParams.holeEnabled > 0.5) {
+            float2 d = getUserWorldPosition().xy - materialParams.holeCenter;
+            float u = dot(d, materialParams.holeAxisX);
+            float v = dot(d, float2(-materialParams.holeAxisX.y, materialParams.holeAxisX.x));
+            if (abs(u) <= materialParams.holeHalfExtent.x &&
+                abs(v) <= materialParams.holeHalfExtent.y) {
+                discard;
+            }
+        }
+        prepareMaterial(material);
+        material.baseColor.rgb = materialParams.baseColor * getColor().a;
+        material.roughness = materialParams.roughness;
+        material.metallic = materialParams.metallic;
+        material.baseColor.a = getColor().a;
+    }
+}
