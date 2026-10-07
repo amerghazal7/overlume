@@ -24,6 +24,14 @@ rows:
   - {topic: /perception/geometric_costmap, type: nav_msgs/msg/OccupancyGrid,
      adapter: ogm, role: gradient_ogm, encoding: costmap, best_effort: true}
 
+  # Terrain heightfield from the perception debug grid. height_min_m/height_max_m MUST
+  # match debug_height_encoding in the perception repo
+  # config/off_road/m2/geometric_cost_map_config.yaml (cell v = round((h-min)/(max-min)*100),
+  # -1 = unknown). A mismatch silently rescales every height on screen.
+  - {topic: /debug_ogm_2, type: nav_msgs/msg/OccupancyGrid,
+     adapter: height_grid, role: terrain, encoding: height_linear,
+     height_min_m: -2.0, height_max_m: 3.0, best_effort: true}
+
   - {topic: /behavior_path_planner/collision_markers,
      type: visualization_msgs/msg/MarkerArray, adapter: collision, role: collision}
   - {topic: /navigation_motion_obstacle_planner_node/collision_markers,

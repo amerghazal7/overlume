@@ -43,9 +43,9 @@ all keys `KnownRowKeys()` recognizes (profile.cpp:93–101):
 |---|---|---|---|
 | `topic` | yes, except `adapter: tf_axes` | — | ROS topic name |
 | `type` | yes, except `adapter: tf_axes` | — | ROS message type string, must be one `adapter` accepts (see below) |
-| `adapter` | **always** | — | one of `dynamic_objects\|path\|hd_map\|ogm\|collision\|generic\|tf_axes\|point_cloud\|trajectory_carpet` |
+| `adapter` | **always** | — | one of `dynamic_objects\|path\|hd_map\|ogm\|collision\|generic\|tf_axes\|point_cloud\|trajectory_carpet\|height_grid` |
 | `role` | **always** | — | closed set **per adapter** (see table below) |
-| `update_topic` | no | `""` | **`adapter: ogm` only** |
+| `update_topic` | no | `""` | **`adapter: ogm` only** (`height_grid` rejects it) |
 | `timeout_sec` | no | `2.0` | must be `>= 1.0` |
 | `max_rate_hz` | no | `0.0` | must be `>= 0`; `0` = no limit |
 | `ns_default` | no | `polyline` | `drop\|polyline\|polygon` |
@@ -57,8 +57,10 @@ all keys `KnownRowKeys()` recognizes (profile.cpp:93–101):
 | `max_points` | no | `0` | **`adapter: point_cloud` only** — rejected elsewhere (profile.cpp:164–172); `0` = no cap |
 | `stride` | no | `1` | **`adapter: point_cloud` only** — rejected elsewhere (profile.cpp:173–181); must be `>= 1` |
 | `min_z_m` | no | `NaN` (filter off) | **`adapter: point_cloud` only** — rejected elsewhere; finite = drop points whose map-frame z is `< min_z_m`. Road plane is z=0; `0.2` (shipped on `urban`/`replay`) removes ground returns and lane-marking z-fight while keeping curbs/poles/pedestrians |
-| `frame_id` | no | the message header's frame | **`adapter: point_cloud` / `ogm` only** — TF-lookup frame that replaces a mislabelled `header.frame_id`. The M02P lidar driver stamps `/iv_points_fusion` as `base_link` while its points are still in the 180°-yawed lidar mount, so `robot-offroad` sets `frame_id: seyond` (a `base_link→seyond` TF must exist) |
-| `encoding` | no | `occupancy` | **`adapter: ogm` only** — `occupancy` is `nav_msgs/OccupancyGrid` semantics (−1 unknown, 0–100; anything else counted malformed and hidden); `costmap` decodes Nav2 uint8 costs carried in the int8 array (0 free, 1–252 graded, 253/254 inscribed/lethal → occupied, 255 unknown) |
+| `frame_id` | no | the message header's frame | **`adapter: point_cloud` / `ogm` / `height_grid` only** — TF-lookup frame that replaces a mislabelled `header.frame_id`. The M02P lidar driver stamps `/iv_points_fusion` as `base_link` while its points are still in the 180°-yawed lidar mount, so `robot-offroad` sets `frame_id: seyond` (a `base_link→seyond` TF must exist) |
+| `encoding` | no | `occupancy` | **`adapter: ogm` / `height_grid` only** — on `ogm`, `occupancy` is `nav_msgs/OccupancyGrid` semantics (−1 unknown, 0–100; anything else counted malformed and hidden); `costmap` decodes Nav2 uint8 costs carried in the int8 array (0 free, 1–252 graded, 253/254 inscribed/lethal → occupied, 255 unknown). On `height_grid` the default is `height_linear` (0–100 maps linearly onto `height_min_m..height_max_m`, −1 unknown, anything else counted malformed and hidden); `height_normalized` maps 1–100 onto the window (0 clamps to the minimum) and is **not metric**, for A/B against `/debug_ogm_1` only. The `occupancy` / `costmap` values are rejected on `height_grid` rows and the height values are rejected on `ogm` rows |
+| `height_min_m` | **on `height_grid`** | — | **`adapter: height_grid` only** — metres above the grid origin plane that cell value 0 (`height_linear`) / 1 (`height_normalized`) decodes to. Required on `height_grid` rows, rejected elsewhere; must be finite |
+| `height_max_m` | **on `height_grid`** | — | **`adapter: height_grid` only** — metres for cell value 100. Required on `height_grid` rows, rejected elsewhere; must be finite and `> height_min_m` |
 
 Row defaults come straight from the `ProfileRow` struct
 (`profile.hpp:45–89`).
@@ -78,6 +80,7 @@ Row defaults come straight from the `ProfileRow` struct
 | `generic` | `neutral` | `visualization_msgs/msg/MarkerArray` |
 | `point_cloud` | `points` | `sensor_msgs/msg/PointCloud2` |
 | `trajectory_carpet` | `carpet` | `visualization_msgs/msg/MarkerArray` |
+| `height_grid` | `terrain` | `nav_msgs/msg/OccupancyGrid` |
 | `tf_axes` | `debug` | *(none — see below)* |
 
 **These sets are closed.** `role: <anything else>` fails validation
@@ -193,6 +196,7 @@ author needs to reason about placement/behavior.
 - **`trajectory_carpet`** — `MarkerArray` (`TRIANGLE_LIST`, quads of 6
   points) → a centerline-station ribbon, stacked with the `PathRole` ribbons.
   One row ships today; a second would need its own topic, same shape.
+- **`height_grid`** — `OccupancyGrid` carrying heights (not occupancy) → `HeightGridLayer` (terrain mesh). At most one `height_grid` row per profile (the renderer's ground hole follows a single terrain layer); `update_topic` is rejected. `layer_height_grids` (below) is its whole-layer disable; it renders only in `render_mode` 3 (hidden in modes 1/2 by the per-mode mask).
 - **`tf_axes`** — no topic/type (see above); generates 3 colored `LINE_LIST`
   axes from the live tf2 buffer every tick. Ships commented out by default
   (noisy on a stack with many frames).
@@ -209,6 +213,7 @@ a restart (`on_params()`, `overlume_node.cpp`):
 | `path` → `paths` | `layer_paths` |
 | `hd_map` → `map_elements` | `layer_map_elements` |
 | `ogm` → `grids` | `layer_grids` |
+| `height_grid` → `height_grids` | `layer_height_grids` (mode 3 only) |
 | `collision` → `alerts` | `layer_alerts` |
 | `generic` → `markers` | `layer_markers` |
 | `point_cloud` → `point_clouds` | `layer_point_clouds` |

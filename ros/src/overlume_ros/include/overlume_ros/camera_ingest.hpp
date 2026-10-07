@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <deque>
 #include <memory>
@@ -26,13 +27,26 @@ struct StampedTwist {
     double wz;
 };
 
+// A lidar/camera clock outside the odometry window is a clock problem, not motion to compensate.
+constexpr double kMaxCloudCompSpanS = 0.5;
+constexpr double kTwistHistoryS = 2.0;  // twists_ trim window; rig_delta refuses spans beyond it
+
 bool twist_at(const std::deque<StampedTwist>& twists, double t, StampedTwist& out);
 
 bool rig_delta(const std::deque<StampedTwist>& twists, double t_from, double t_ref, double& th,
                double& px, double& py);
 
+// cloud stamp -> image reference time. False (zeros) on a zero stamp, a span beyond
+// kMaxCloudCompSpanS, or when rig_delta fails (no odometry / degenerate span).
+bool cloud_comp_delta(const std::deque<StampedTwist>& twists, double t_cloud, double t_max,
+                      double& th, double& px, double& py);
+
 void compensation_delta_4x4(const std::deque<StampedTwist>& twists, double t_cam, double t_ref,
                             double out_delta_row_major[16]);
+
+// Camera extrinsics advanced by a row-major 4x4 rig delta; mirrors update_bowl (bowl.cpp).
+overlume::CameraExtrinsics ApplyMotionDelta(const overlume::CameraExtrinsics& in,
+                                            const double delta_row_major[16]);
 
 constexpr double kOrthonormalizeWarnThresholdRad = 0.05;
 overlume::CameraExtrinsics OrthonormalizeExtrinsics(const overlume::CameraExtrinsics& in,
@@ -99,6 +113,12 @@ public:
 
     void update_motion_deltas();
 
+    // Rig delta from the cloud stamp to the newest image stamp. False (zeros) when there is no
+    // odometry/stamp, the span is degenerate, or |span| > kMaxCloudCompSpanS (throttled warn).
+    bool cloud_motion_delta(double t_cloud, double& th, double& px, double& py);
+    // Static extrinsics advanced by the deltas update_motion_deltas() last pushed to the bowl.
+    void fill_compensated_extrinsics(std::vector<overlume::CameraExtrinsics>& out) const;
+
 private:
     rclcpp_lifecycle::LifecycleNode* node_;
     IngestState state_;
@@ -108,6 +128,8 @@ private:
     bool config_applied_ = false;
     bool info_dirty_ = false;
     double max_sync_latency_ = 0.12;
+
+    std::vector<std::array<double, 16>> last_deltas_;
 
     std::string odom_topic_;
     std::deque<StampedTwist> twists_;

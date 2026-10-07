@@ -210,6 +210,8 @@ add_library(overlume_node_lib SHARED
   src/adapters/dynamic_objects.cpp
   src/adapters/path.cpp
   src/adapters/ogm.cpp
+  src/adapters/grid_placement.cpp
+  src/adapters/height_grid.cpp
   src/adapters/collision.cpp
   src/adapters/generic_marker.cpp
   src/adapters/tf_axes.cpp
@@ -289,6 +291,12 @@ if(BUILD_TESTING)
     COMMAND bash "${OVERLUME_DIR}/scripts/check_pod_header.sh"
     GENERATE_RESULT_FOR_RETURN_CODE_ZERO)
 
+  ament_add_test(test_default_params_hybrid
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_default_params_hybrid.py"
+      "${CMAKE_CURRENT_SOURCE_DIR}/config/default_params.yaml"
+      "~/overlume-fixtures/stack_v3_full_sensors_2026-09-11"
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO)
+
   add_library(overlume_node_test_paths INTERFACE)
   target_compile_definitions(overlume_node_test_paths INTERFACE
     TEST_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config"
@@ -363,6 +371,7 @@ if(BUILD_TESTING)
   ament_add_gtest(test_ogm_adapter
     test/test_ogm_adapter.cpp
     src/adapters/ogm.cpp
+    src/adapters/grid_placement.cpp
     src/profile.cpp
     src/frame_transform.cpp
     src/adapters/dynamic_objects.cpp
@@ -373,6 +382,32 @@ if(BUILD_TESTING)
     ${OVERLUME_DIR}/include)
   ament_target_dependencies(test_ogm_adapter ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_ogm_adapter ${yaml_cpp_vendor_TARGETS} overlume_node_test_paths)
+
+  ament_add_gtest(test_height_grid_adapter
+    test/test_height_grid_adapter.cpp
+    src/adapters/height_grid.cpp
+    src/adapters/grid_placement.cpp
+    src/profile.cpp
+    src/frame_transform.cpp
+    src/adapters/dynamic_objects.cpp
+    test/fixture_msgs.cpp)
+  target_include_directories(test_height_grid_adapter PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test
+    ${OVERLUME_DIR}/include)
+  ament_target_dependencies(test_height_grid_adapter ${THIS_PACKAGE_DEPS})
+  target_link_libraries(test_height_grid_adapter ${yaml_cpp_vendor_TARGETS} overlume_node_test_paths)
+
+  ament_add_gtest(test_grid_placement
+    test/test_grid_placement.cpp
+    src/adapters/grid_placement.cpp
+    src/frame_transform.cpp)
+  target_include_directories(test_grid_placement PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test
+    ${OVERLUME_DIR}/include)
+  ament_target_dependencies(test_grid_placement ${THIS_PACKAGE_DEPS})
+  target_link_libraries(test_grid_placement ${yaml_cpp_vendor_TARGETS})
 
   ament_add_gtest(test_collision_adapter
     test/test_collision_adapter.cpp
@@ -470,6 +505,7 @@ if(BUILD_TESTING)
     ${OVERLUME_DIR}/include)
   ament_target_dependencies(test_camera_ingest ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_camera_ingest overlume_prebuilt)
+  set_tests_properties(test_camera_ingest PROPERTIES TIMEOUT 30)
 
   ament_add_gtest(test_lidar_colorize test/test_lidar_colorize.cpp src/lidar_colorize.cpp)
   target_include_directories(test_lidar_colorize PRIVATE

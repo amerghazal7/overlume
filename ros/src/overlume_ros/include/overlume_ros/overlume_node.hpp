@@ -36,6 +36,7 @@
 #include "overlume_ros/adapters/dynamic_objects.hpp"
 #include "overlume_ros/adapters/generic_marker.hpp"
 #include "overlume_ros/adapters/hd_map.hpp"
+#include "overlume_ros/adapters/height_grid.hpp"
 #include "overlume_ros/adapters/ogm.hpp"
 #include "overlume_ros/adapters/path.hpp"
 #include "overlume_ros/adapters/point_cloud.hpp"
@@ -161,6 +162,16 @@ private:
     std::vector<rclcpp::Subscription<map_msgs::msg::OccupancyGridUpdate>::SharedPtr>
         ogm_update_subs_;
 
+    struct HeightGridRow {
+        std::unique_ptr<overlume::ros::HeightGridAdapter> adapter;
+        double timeout_sec;
+        std::string topic;
+        uint64_t warned_malformed = 0;
+        uint64_t warned_no_tf = 0;
+    };
+    std::vector<HeightGridRow> height_grid_rows_;
+    std::vector<rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr> height_grid_subs_;
+
     struct CollisionRow {
         std::unique_ptr<overlume::ros::CollisionAdapter> adapter;
         double timeout_sec;
@@ -254,6 +265,7 @@ private:
     bool layer_markers_{true};
     bool layer_point_clouds_{true};
     bool layer_trajectory_carpet_{true};
+    bool layer_height_grids_{true};
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr layer_param_cb_;
 
     bool bowl_enabled_{false};
@@ -269,11 +281,17 @@ private:
     std::unique_ptr<CameraIngest> camera_ingest_;
 
     bool hybrid_enabled_{false};
+    int splat_radius_{3};
+    std::string hybrid_starved_reason_;
+    float hybrid_splat_px() const { return 2.0f * splat_radius_ + 1.0f; }
     std::string pointcloud_topic_;
     float pointcloud_tf_[12]{1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
     std::mutex cloud_mtx_;
     std::vector<overlume::Vec3> cloud_pts_rig_;
+    double cloud_stamp_{0.0};   // header stamp of cloud_pts_rig_ (cloud_mtx_)
+    double cloud_rx_sec_{0.0};  // sim_clock_sec_ at receipt (cloud_mtx_)
+    bool hybrid_row_suppressed_{false};
 
     rclcpp::TimerBase::SharedPtr timer_;
 };

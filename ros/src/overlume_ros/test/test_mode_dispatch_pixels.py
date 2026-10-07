@@ -35,7 +35,7 @@ Run (ROS + this repo's ros install sourced first, from a box with a GPU
     source /opt/ros/humble/setup.bash
     source ros/install/setup.bash
     python3 ros/src/overlume_ros/test/test_mode_dispatch_pixels.py \\
-        [--bag ~/TPSProjector-fixtures/stack_v3_full_sensors_2026-09-11]
+        [--bag ~/overlume-fixtures/stack_v3_full_sensors_2026-09-11]
 
 Skips cleanly (prints SKIP, exit 0) when this repo's ROS install or the
 fixture bag isn't present -- same convention as this directory's other
@@ -56,10 +56,22 @@ REPO_ROOT = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", ".."))
 INSTALL_DIR = os.path.join(REPO_ROOT, "ros", "install")
 NODE_NAME = "/overlume_node"
-DEFAULT_BAG = os.path.expanduser("~/TPSProjector-fixtures/stack_v3_full_sensors_2026-09-11")
+DEFAULT_BAG = os.path.expanduser("~/overlume-fixtures/stack_v3_full_sensors_2026-09-11")
 OUT_W, OUT_H = 320, 240
 
-MODE_BOWL, MODE_FREE_LOOK = 1, 3
+MODE_BOWL, MODE_HYBRID, MODE_FREE_LOOK = 1, 2, 3
+
+# Hybrid composite checks: mean-abs-diff (0..255) of mode 2 vs mode 1, and of the `hybrid` vs
+# `bowl` stitching profile. Before the fix hybrid was "visually indistinguishable" from bowl
+# (VM-094 runbook: 0.493). Calibration (this box, GPU, fixture bag; see the B2 commit body):
+#   pre-fix (B2 node feed reverted, 3 runs): (i) 5.28-5.49  (ii) 5.87-6.43  (== the noise)
+#   fixed (3 runs):                          (i) 13.17-13.75 (ii) 18.82-19.06 (noise 5.4 / 5.9)
+# HYBRID_DELTA_FLOOR = 8.0
+HYBRID_ATTEMPTS = 3  # best of N: the fixture bag is live video (one run in ~6 dipped to 9.5) (below the geometric means 8.4 / 10.8, above the pre-fix max 6.43):
+# it FAILS pre-fix and PASSES fixed. The `noise * 2` term in hybrid_delta() scales it with the
+# bag's own video motion (windows are diffed back to back via an in-process param set).
+HYBRID_DELTA_FLOOR = 8.0
+HYBRID_ATTEMPTS = 3  # best of N: the fixture bag is live video (one run in ~6 dipped to 9.5)
 
 PIXEL_DIFF_THRESH = 10.0
 MODE_CONTENT_COUNT = 2000
@@ -81,6 +93,10 @@ def _changed_px(a, b, roi=None):
         b = b[y0:y1, x0:x1]
     per_px = np.abs(a - b).mean(axis=2)
     return int(np.count_nonzero(per_px > PIXEL_DIFF_THRESH))
+
+def _mean_abs(a, b):
+    import numpy as np
+    return float(np.abs(a - b).mean())
 
 def _popen(cmd: str) -> subprocess.Popen:
     return subprocess.Popen(["bash", "-c", cmd], start_new_session=True)
@@ -203,6 +219,8 @@ def _publish_marker(pub, add: bool):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--bag", default=DEFAULT_BAG)
+    ap.add_argument("--dump-dir", default=None,
+                    help="write each averaged hybrid-check window as a PNG here")
     args = ap.parse_args()
 
     if not os.path.isdir(INSTALL_DIR):
@@ -227,6 +245,7 @@ def main() -> int:
         f"-p out_width:={OUT_W} -p out_height:={OUT_H} -p use_sim_time:=true "
         f"-p profile:=urban -p bowl_enabled:=true -p render_mode:={MODE_FREE_LOOK} "
         f"-p initial_mode:=3 "
+        f"-p pointcloud_topic:=/iv_points_fusion -p hybrid_enabled:=true "
         f"> {log_path} 2>&1")
     viz_proc = _popen(viz_cmd)
     bag_proc = None
@@ -245,6 +264,7 @@ def main() -> int:
             f"/{cam}_camera/{kind}"
             for cam in ("fl", "fm", "fr", "bl", "bm", "br")
             for kind in ("raw_images", "camera_info"))
+        camera_topics += " /iv_points_fusion"
         bag_cmd = (f"source /opt/ros/humble/setup.bash && "
                    f"ros2 bag play {args.bag} --clock --rate 1.0 "
                    f"--topics {camera_topics} < /dev/null")
@@ -361,6 +381,121 @@ def main() -> int:
                 return 1
             print("PASS (3/3, part b): FREE_LOOK+Surround Stitching (bowl profile) shows "
                   "the autonomy object ALONGSIDE bowl content -- neither hides the other.")
+
+            # ---- hybrid composite: lidar splats must visibly differ from the bare bowl ----
+            failed = False  # all hybrid checks run (calibration needs every number)
+            publish_for(add=False, seconds=1.0)
+
+            from rcl_interfaces.msg import Parameter as RclParam, ParameterType, ParameterValue
+            from rcl_interfaces.srv import SetParameters
+            set_cli = node.create_client(SetParameters, f"{NODE_NAME}/set_parameters")
+            if not set_cli.wait_for_service(timeout_sec=5.0):
+                print("FAIL: set_parameters service unavailable.", file=sys.stderr)
+                return 1
+
+            def fast_set(name, value):
+                """In-process parameter set (ms, vs ~1-2 s for `ros2 param set`): the bag keeps
+                moving, so the gap between the windows being diffed must stay tiny."""
+                pv = ParameterValue()
+                if isinstance(value, str):
+                    pv.type, pv.string_value = ParameterType.PARAMETER_STRING, value
+                elif isinstance(value, bool):
+                    pv.type, pv.bool_value = ParameterType.PARAMETER_BOOL, value
+                else:
+                    pv.type, pv.integer_value = ParameterType.PARAMETER_INTEGER, value
+                req = SetParameters.Request()
+                req.parameters = [RclParam(name=name, value=pv)]
+                fut = set_cli.call_async(req)
+                t0 = time.time()
+                while not fut.done() and time.time() - t0 < 5.0:
+                    executor.spin_once(timeout_sec=0.05)
+                return fut.done() and all(r.successful for r in fut.result().results)
+
+            def dump(name, img):
+                if args.dump_dir:
+                    from PIL import Image
+                    os.makedirs(args.dump_dir, exist_ok=True)
+                    Image.fromarray(np.clip(img, 0, 255).astype(np.uint8)).save(
+                        os.path.join(args.dump_dir, name + ".png"))
+
+            def hybrid_delta(label, base_a, base_b, hyb):
+                noise = _mean_abs(base_a, base_b)
+                delta = _mean_abs(hyb, base_b)
+                need = max(HYBRID_DELTA_FLOOR, noise * 2)
+                print(f"INFO: {label}: noise={noise:.3f} hybrid-vs-bowl={delta:.3f} "
+                      f"(need >= {need:.3f})")
+                return delta >= need
+
+            if not _param_set("render_mode", str(MODE_BOWL)):
+                print("FAIL: render_mode -> BOWL was rejected.", file=sys.stderr)
+                return 1
+            time.sleep(1.0)
+            # The bag keeps moving, so "noise" must span the same protocol as the signal:
+            # window, one param set, window. The second set is a no-op for the noise pair.
+            ok_i = False
+            for attempt in range(HYBRID_ATTEMPTS):  # live video: any attempt clearing the bar
+                fast_set("render_mode", MODE_BOWL)
+                b1 = avg.capture(executor)
+                fast_set("render_mode", MODE_BOWL)
+                b2 = avg.capture(executor)
+                if not fast_set("render_mode", MODE_HYBRID):
+                    print("FAIL: render_mode -> HYBRID was rejected.", file=sys.stderr)
+                    return 1
+                h = avg.capture(executor)
+                for n_, im in (("mode1_a", b1), ("mode1_b", b2), ("mode2_hybrid", h)):
+                    dump(n_, im)
+                if hybrid_delta("mode 2 vs mode 1", b1, b2, h):
+                    ok_i = True
+                    break
+            if not ok_i:
+                print("FAIL: mode 2 (hybrid) is not visibly different from mode 1 (bowl) -- "
+                      f"lidar splats are not composited over the bowl; see {log_path}",
+                      file=sys.stderr)
+                failed = True
+            else:
+                print("PASS (hybrid i): mode 2 lidar splats visibly differ from the bare bowl.")
+
+            if not _param_set("render_mode", str(MODE_FREE_LOOK)):
+                print("FAIL: render_mode -> FREE_LOOK was rejected.", file=sys.stderr)
+                return 1
+            if not _param_set("layer_surround_stitching", "true") or \
+               not _param_set("surround_stitching_profile", "bowl"):
+                print("FAIL: stitching bowl profile was rejected.", file=sys.stderr)
+                return 1
+            time.sleep(1.0)
+            ok_ii = False
+            for attempt in range(HYBRID_ATTEMPTS):
+                fast_set("surround_stitching_profile", "bowl")
+                s1 = avg.capture(executor)
+                fast_set("surround_stitching_profile", "bowl")  # no-op: matches the signal gap
+                s2 = avg.capture(executor)
+                if not fast_set("surround_stitching_profile", "hybrid"):
+                    print("FAIL: surround_stitching_profile -> hybrid was rejected.",
+                          file=sys.stderr)
+                    return 1
+                sh = avg.capture(executor)
+                for n_, im in (("stitch_bowl_a", s1), ("stitch_bowl_b", s2),
+                               ("stitch_hybrid", sh)):
+                    dump(n_, im)
+                if hybrid_delta("stitching hybrid vs bowl profile", s1, s2, sh):
+                    ok_ii = True
+                    break
+            if not ok_ii:
+                print("FAIL: FREE_LOOK + stitching profile 'hybrid' is not visibly different "
+                      "from the 'bowl' profile", file=sys.stderr)
+                failed = True
+            with open(log_path) as f:
+                node_log = f.read()
+            if "hybrid: profile row /iv_points_fusion suppressed" not in node_log:
+                hy = [l for l in node_log.splitlines() if "hybrid" in l or "point_cloud" in l]
+                print("FAIL: node never logged the profile-row de-dup "
+                      "('hybrid: profile row /iv_points_fusion suppressed'); hybrid log lines:\n"
+                      + "\n".join(hy[-15:]), file=sys.stderr)
+                failed = True
+            if failed:
+                return 1
+            print("PASS (hybrid ii): FREE_LOOK + stitching 'hybrid' profile differs from "
+                  "'bowl' and the duplicate profile row is suppressed.")
 
             print("PASS: node-level mode-dispatch live-pixel check passed "
                   "(signoff.md's deferred row, closed).")

@@ -7,7 +7,7 @@ scoping rule and same reason bowl-golden-vm091.md gives: first-match
 colorization is a genuinely different mechanism than the CUDA feather-blended
 sampler, Decision 5's own named fidelity exception):
 
-- `overlume/tests/goldens/hybrid_test_town_cuda_reference.png`
+- `overlume/tests/goldens/hybrid_test_town_cuda_reference.png` — RETIRED 2026-10-03 (CUDA pipeline removed; image in git history at 4790fdd^)
   — `micropilot_rendering_node`, `initial_mode:=2` (CUDA hybrid: bowl +
   every-camera feather-blended lidar colorization), default params
   (`pointcloud_transform` t=(0,0,1.15) is the shipped default — see review
@@ -28,9 +28,10 @@ while the CUDA node's own shipped `default_params.yaml` carries t=(0,0,1.15)
 calib-ego/top-lidar frame and needs the same +z ground offset the camera
 extrinsics bake in) — the two nodes placed the same cloud 1.15 m apart under
 their own defaults. `overlume_ros/config/default_params.yaml`
-now ships t=(0,0,1.15) too (not an `m2o1_params.yaml`-only override — the old
-node's OWN shipped default carries it), and both PNGs above were re-captured
-against that same transform.
+was then set to t=(0,0,1.15) too. **That was wrong for the fixture bag** (2026-10-02): its lidar sits at
+base_link+2.4 m with no yaw, so 1.15 put the splat ground 1.28 m below the bowl floor and doubled the
+crosswalk stripes. The default is now 2.444 (2.4 + the 0.044 rig offset); 1.15 stays the m2o1 value in
+`m2o1_params.yaml`. Any PNG captured at 1.15 is misregistered and needs re-capture and human re-promotion.
 
 ## Review round 1 finding 3: honest hybrid-on/hybrid-off A/B
 
@@ -40,6 +41,19 @@ same-offset, same-bag, same-params A/B (`render_mode:=2`, identical except
 `hybrid_enabled:=true` vs `hybrid_enabled:=false`) shows that speckle is
 present with hybrid OFF too — it is the camera-textured bowl's own per-camera
 photographic noise/JPEG-ish artifacting, not lidar splats.
+
+> **Correction (2026-10-02).** The 0.493 / "visually indistinguishable" result
+> below *was the defect*, not a pass: hybrid lidar was drawn as depth-tested
+> 2 px fade-blended points under/behind the opaque bowl (ground points sit under
+> the lifted bowl floor, points beyond the wall behind it), and the shipped
+> `pointcloud_topic` was empty so the node often had no cloud at all. Fixed by
+> `set_hybrid_splats()` (opaque stencil-winning splats) plus a loud no-cloud
+> failure; see `docs/plans/2026-10-02-hybrid-composite-restore.md`. The
+> original measurements are kept unedited below.
+> `hybrid_test_town_merged_node.png` was RE-PROMOTED by the maintainer on 2026-10-03 from
+> `docs/evidence/2026-10-02-hybrid-restore/hybrid_test_town_merged_node_1280x720_candidate.png`
+> (M02P ego, lidar height 2.444 m, hybrid ON/OFF delta 13.0; capture recipe in that directory's
+> README). The pre-fix image is in git history before this commit.
 
 Measured over two fixed road-surface ROI strips (excluding the ego proxy),
 same capture session as the two golden PNGs above:
@@ -145,7 +159,7 @@ camera textures.
 `hybrid_test_town_merged_node.png` above is RECAPTURED (same fixture bag,
 `bowl_enabled:=true render_mode:=2 hybrid_enabled:=true
 pointcloud_topic:=/iv_points_fusion`, `default_params.yaml`'s
-`pointcloud_transform` unchanged). `hybrid_test_town_cuda_reference.png` is
+`pointcloud_transform` unchanged). `hybrid_test_town_cuda_reference.png` (since retired) is
 UNCHANGED (untouched by this fix). One deviation from the original
 recipe: recaptured at `--start-offset 0` (single-pass from the start of the
 bag), not `--start-offset 40` — this session's rig also needed an explicit
@@ -214,7 +228,7 @@ bowl_enabled:=true hybrid_enabled:=true pointcloud_topic:=/iv_points_fusion`,
 all other params at shipped defaults. Frame grabbed at **~40.0 s of
 playback** (2026-09-11T17:00:36+04:00); colorization live at capture time
 (`hybrid: colorized 93711/162348 lidar points (57.7% coverage)`).
-`hybrid_test_town_cuda_reference.png` remains UNTOUCHED (still the original
+`hybrid_test_town_cuda_reference.png` (since retired) remains UNTOUCHED (still the original
 `--start-offset 40` CUDA capture — the review-round-1 "NOT scene-matched"
 caveat above still applies to the pair).
 

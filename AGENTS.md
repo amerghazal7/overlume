@@ -24,6 +24,19 @@ documents that still cite pre-restructure paths).
   use the per-pixel drift audit after any palette-wide change.
 - **Behaviour changes ship with a runnable check** that fails when the change
   is reverted.
+- **Nothing local or internal reaches the public `origin`** (GitHub, public).
+  Before merging into `main` and again before every push, run
+  `tools/check_publish_leaks.sh` (default range `origin/main..HEAD`; pass the
+  merge range otherwise). It scans added lines and commit messages for local
+  absolute paths (home directories, agent scratch dirs) and for the internal
+  names in the untracked `.git/info/publish-denylist`. Never commit that list,
+  and never name internal repositories in tracked files: use placeholders such
+  as `$WORKTREE` or `$PERCEPTION_REPO`. On a hit, rewrite the unpushed commits
+  before publishing. Pushed history cannot be recalled, so never push first
+  and fix after. In the same pre-push pass, run the lint job's checks, which
+  `tools/ci_visual_mode.sh` does not cover: `tools/check_format.sh`,
+  `tools/check_spdx.sh`, `shellcheck --severity=error tools/*.sh` and
+  `python3 tools/check_docs_links.py`.
 
 ## How work is done
 

@@ -117,6 +117,7 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.hud.scale = lerpf(a.hud.scale, b.hud.scale, w);
     out.point_cloud.point_size_px =
         lerpf(a.point_cloud.point_size_px, b.point_cloud.point_size_px, w);
+    out.hybrid_splat.size_px = lerpf(a.hybrid_splat.size_px, b.hybrid_splat.size_px, w);
 
     out.sun.direction = lerp_vec3(a.sun.direction, b.sun.direction, w);
     out.sun.color = blend_color(a.sun.color, b.sun.color, w);
@@ -159,6 +160,25 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.ogm.geometric = blend_ramp(a.ogm.geometric, b.ogm.geometric);
     out.environment.tile_radius_m =
         lerpf(a.environment.tile_radius_m, b.environment.tile_radius_m, w);
+
+    // Ramps with the same stop count cross-fade stop by stop (height lerped, colour in Oklab);
+    // with different counts there is no pairing, so the ramp snaps at the midpoint.
+    if (a.height_grid.ramp.size() == b.height_grid.ramp.size()) {
+        out.height_grid.ramp.reserve(a.height_grid.ramp.size());
+        for (size_t i = 0; i < a.height_grid.ramp.size(); ++i) {
+            const HeightRampStop& sa = a.height_grid.ramp[i];
+            const HeightRampStop& sb = b.height_grid.ramp[i];
+            out.height_grid.ramp.push_back(
+                {lerpf(sa.height_m, sb.height_m, w), blend_color(sa.color, sb.color, w)});
+        }
+    } else {
+        out.height_grid.ramp = w >= 0.5f ? b.height_grid.ramp : a.height_grid.ramp;
+    }
+    out.height_grid.unknown_color =
+        blend_color(a.height_grid.unknown_color, b.height_grid.unknown_color, w);
+    out.height_grid.roughness = lerpf(a.height_grid.roughness, b.height_grid.roughness, w);
+    out.height_grid.ground_bias_m =
+        lerpf(a.height_grid.ground_bias_m, b.height_grid.ground_bias_m, w);
 
     return out;
 }

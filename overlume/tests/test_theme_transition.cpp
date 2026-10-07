@@ -236,6 +236,7 @@ overlume::detail::Theme MakeSentinelTheme(float scalar, const std::string& name)
     t.hud.accent_color = c;
     t.hud.scale = scalar;
     t.point_cloud.point_size_px = scalar;
+    t.hybrid_splat.size_px = scalar;
     t.sun.direction = c;
     t.sun.color = c;
     t.sun.intensity = scalar;
@@ -258,6 +259,10 @@ overlume::detail::Theme MakeSentinelTheme(float scalar, const std::string& name)
     t.ogm.dynamic.alpha.fill(scalar);
     t.ogm.geometric.color.fill(c);
     t.ogm.geometric.alpha.fill(scalar);
+    t.height_grid.ramp = {{scalar, c}, {scalar + 1.0f, c}};
+    t.height_grid.unknown_color = c;
+    t.height_grid.roughness = scalar;
+    t.height_grid.ground_bias_m = scalar;
     return t;
 }
 
@@ -313,6 +318,7 @@ TEST(ThemeTransition, SentinelThemesDetectAnyUnblendedField) {
     ExpectBetweenSentinels(mid.hud.accent_color, "hud.accent_color");
     ExpectBetweenSentinels(mid.hud.scale, "hud.scale");
     ExpectBetweenSentinels(mid.point_cloud.point_size_px, "point_cloud.point_size_px");
+    ExpectBetweenSentinels(mid.hybrid_splat.size_px, "hybrid_splat.size_px");
     ExpectBetweenSentinels(mid.sun.direction, "sun.direction");
     ExpectBetweenSentinels(mid.sun.color, "sun.color");
     ExpectBetweenSentinels(mid.sun.intensity, "sun.intensity");
@@ -331,6 +337,13 @@ TEST(ThemeTransition, SentinelThemesDetectAnyUnblendedField) {
     ExpectBetweenSentinels(mid.ribbon.fade_end_m, "ribbon.fade_end_m");
     ExpectBetweenSentinels(mid.objects.opacity, "objects.opacity");
     ExpectBetweenSentinels(mid.environment.tile_radius_m, "environment.tile_radius_m");
+    ASSERT_EQ(mid.height_grid.ramp.size(), 2u);
+    ExpectBetweenSentinels(mid.height_grid.ramp[0].height_m, "height_grid.ramp[0].height_m");
+    ExpectBetweenSentinels(mid.height_grid.ramp[0].color, "height_grid.ramp[0].color");
+    ExpectBetweenSentinels(mid.height_grid.ramp[1].height_m, "height_grid.ramp[1].height_m");
+    ExpectBetweenSentinels(mid.height_grid.unknown_color, "height_grid.unknown_color");
+    ExpectBetweenSentinels(mid.height_grid.roughness, "height_grid.roughness");
+    ExpectBetweenSentinels(mid.height_grid.ground_bias_m, "height_grid.ground_bias_m");
     ExpectBetweenSentinels(mid.ogm.dynamic.color[50], "ogm.dynamic.color[50]");
     ExpectBetweenSentinels(mid.ogm.dynamic.alpha[50], "ogm.dynamic.alpha[50]");
     ExpectBetweenSentinels(mid.ogm.geometric.color[100], "ogm.geometric.color[100]");
@@ -355,4 +368,49 @@ TEST(ThemeTransition, UnknownThemeName_ReturnsFalseAndLeavesActiveThemeUnchanged
                   OVERLUME_TMP_DIR "/set_theme_unknown_actual.png"),
               overlume::testing::kSsimMin);
     overlume::destroy_renderer(r);
+}
+
+TEST(ThemeTransition, HeightGridMidpointBlendsRampColourHeightsAndGroundBias) {
+    overlume::detail::Theme a;
+    overlume::detail::Theme b;
+    a.height_grid.ramp = {{0.0f, {0.0f, 0.0f, 0.0f}}, {2.0f, {0.1f, 0.2f, 0.3f}}};
+    b.height_grid.ramp = {{0.0f, {1.0f, 1.0f, 1.0f}}, {4.0f, {0.9f, 0.5f, 0.1f}}};
+    a.height_grid.unknown_color = {0.0f, 0.0f, 0.0f};
+    b.height_grid.unknown_color = {1.0f, 1.0f, 1.0f};
+    a.height_grid.roughness = 0.2f;
+    b.height_grid.roughness = 0.8f;
+    a.height_grid.ground_bias_m = -0.1f;
+    b.height_grid.ground_bias_m = 0.3f;
+
+    const overlume::detail::Theme mid = overlume::detail::blend(a, b, 0.5f);
+
+    ASSERT_EQ(mid.height_grid.ramp.size(), 2u);
+    EXPECT_NEAR(mid.height_grid.ramp[1].height_m, 3.0f, 1e-5f);
+    const auto expect = overlume::detail::blend_color(a.height_grid.ramp[1].color,
+                                                      b.height_grid.ramp[1].color, 0.5f);
+    EXPECT_NEAR(mid.height_grid.ramp[1].color.r, expect.r, 1e-5f);
+    EXPECT_NEAR(mid.height_grid.ramp[1].color.g, expect.g, 1e-5f);
+    EXPECT_NEAR(mid.height_grid.ramp[1].color.b, expect.b, 1e-5f);
+    const auto unk = overlume::detail::blend_color(a.height_grid.unknown_color,
+                                                   b.height_grid.unknown_color, 0.5f);
+    EXPECT_NEAR(mid.height_grid.unknown_color.r, unk.r, 1e-5f);
+    EXPECT_NEAR(mid.height_grid.roughness, 0.5f, 1e-5f);
+    EXPECT_NEAR(mid.height_grid.ground_bias_m, 0.1f, 1e-5f);
+}
+
+TEST(ThemeTransition, HeightGridRampsWithDifferentStopCountsSnapAtTheMidpoint) {
+    overlume::detail::Theme a;
+    overlume::detail::Theme b;
+    a.height_grid.ramp = {{0.0f, {0.0f, 0.0f, 0.0f}}, {2.0f, {0.1f, 0.1f, 0.1f}}};
+    b.height_grid.ramp = {
+        {-1.0f, {1.0f, 0.0f, 0.0f}}, {0.0f, {0.0f, 1.0f, 0.0f}}, {1.0f, {0.0f, 0.0f, 1.0f}}};
+
+    const overlume::detail::Theme early = overlume::detail::blend(a, b, 0.25f);
+    ASSERT_EQ(early.height_grid.ramp.size(), 2u) << "before the midpoint a's ramp is kept";
+    EXPECT_FLOAT_EQ(early.height_grid.ramp[1].height_m, 2.0f);
+
+    const overlume::detail::Theme late = overlume::detail::blend(a, b, 0.75f);
+    ASSERT_EQ(late.height_grid.ramp.size(), 3u) << "after the midpoint b's ramp is taken";
+    EXPECT_FLOAT_EQ(late.height_grid.ramp[0].height_m, -1.0f);
+    EXPECT_FLOAT_EQ(late.height_grid.ramp[2].color.b, 1.0f);
 }

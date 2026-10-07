@@ -100,6 +100,24 @@ struct GridScene {
 
 GridScene make_two_layer_grids(double now);
 
+struct HeightGridScene {
+    std::vector<float> heights;
+    std::vector<uint8_t> cost_cells;
+    std::vector<overlume::HeightGridLayer> height_grids;
+    std::vector<overlume::GroundGridLayer> grids;
+
+    HeightGridScene() = default;
+    HeightGridScene(const HeightGridScene&) = delete;
+    HeightGridScene& operator=(const HeightGridScene&) = delete;
+    HeightGridScene(HeightGridScene&&) = default;
+    HeightGridScene& operator=(HeightGridScene&&) = default;
+};
+
+// 120x120 grid at 0.2 m centred ahead of an ego at the origin: a +1.2 m berm, a -0.8 m ditch,
+// a 0 -> +1.5 m ramp half, a NaN (unknown) patch, and a cost grid with a few high-cost cells.
+// yaw_rad rotates both grids about their shared origin corner.
+HeightGridScene make_height_grid_terrain_scene(double now, double yaw_rad = 0.0);
+
 double render_and_compare(overlume::VisualRenderer* r, const overlume::CameraPose& pose,
                           const char* golden_png_path, const char* out_png_path);
 

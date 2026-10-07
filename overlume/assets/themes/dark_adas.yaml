@@ -30,6 +30,7 @@ material: { roughness: 0.85, metallic: 0.0 }
 emissive: { ribbon_strength: 0.0 }
 grid: { line_color: [0.130, 0.130, 0.180], fade_start_m: 15.0, fade_end_m: 40.0 }
 hud: { text_color: [0.90, 0.92, 0.95], accent_color: [0.12, 0.60, 0.45], scale: 1.0 }
+hybrid_splat: { size_px: 7.0 }
 sun: { direction: [-0.6, -0.2, -0.5], color: [0.85, 0.65, 0.55], intensity: 350000.0 }
 ibl:
   sky_color:    [0.028, 0.036, 0.085]
@@ -48,3 +49,15 @@ ogm:
     ramp:
       - { value: 1, color: [0.80, 0.70, 0.50], alpha: 0.35 }
       - { value: 100, color: [1.00, 0.85, 0.40], alpha: 1.0 }
+height_grid:
+  ramp:
+    # Linear values: light stops wash out once lit and sRGB-encoded, so each
+    # band is a saturated hue step (same hue order as light_clay).
+    - { height_m: -1.0, color: [0.02, 0.10, 0.40] }
+    - { height_m:  0.0, color: [0.055, 0.055, 0.078] }
+    - { height_m:  0.5, color: [0.06, 0.22, 0.05] }
+    - { height_m:  1.5, color: [0.55, 0.20, 0.02] }
+    - { height_m:  2.5, color: [0.35, 0.04, 0.02] }
+  unknown_color: [0.055, 0.055, 0.078]
+  roughness: 0.9
+  ground_bias_m: -0.05
