@@ -73,8 +73,9 @@ const std::map<std::string, std::set<std::string>>& TypeSets() {
 
 const std::set<std::string>& KnownAdapters() {
     static const std::set<std::string> kAdapters = {
-        "dynamic_objects", "path",        "hd_map",            "ogm", "collision", "generic",
-        "tf_axes",         "point_cloud", "trajectory_carpet", "height_grid"};
+        "dynamic_objects",   "path",       "hd_map",  "ogm",
+        "collision",         "generic",    "tf_axes", "point_cloud",
+        "trajectory_carpet", "height_grid"};
     return kAdapters;
 }
 
@@ -168,8 +169,7 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
     }
 
     if (node["frame_id"]) {
-        if (out.adapter != "point_cloud" && out.adapter != "ogm" &&
-            out.adapter != "height_grid") {
+        if (out.adapter != "point_cloud" && out.adapter != "ogm" && out.adapter != "height_grid") {
             errors.push_back(RowTag(file, idx, out.topic) +
                              "frame_id is only valid on adapter: point_cloud, ogm or "
                              "height_grid rows");

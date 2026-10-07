@@ -28,7 +28,7 @@ struct GridPlacement {
 // kOk.
 PlacementResult place_grid(const std_msgs::msg::Header& header,
                            const geometry_msgs::msg::Pose& grid_origin,
-                           const std::string& frame_override,
-                           const FrameTransformer& tf, GridPlacement& out);
+                           const std::string& frame_override, const FrameTransformer& tf,
+                           GridPlacement& out);
 
 }

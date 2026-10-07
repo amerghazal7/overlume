@@ -53,8 +53,8 @@ void HeightGridAdapter::ingest(const nav_msgs::msg::OccupancyGrid& msg, double s
     std::vector<float> next(msg.data.size());
     bool malformed = false;
     for (size_t i = 0; i < msg.data.size(); ++i) {
-        next[i] = decode_height_cell(msg.data[i], normalized_, row_.height_min_m,
-                                     row_.height_max_m, malformed);
+        next[i] = decode_height_cell(msg.data[i], normalized_, row_.height_min_m, row_.height_max_m,
+                                     malformed);
     }
     if (malformed) ++stats_.dropped_malformed;
 

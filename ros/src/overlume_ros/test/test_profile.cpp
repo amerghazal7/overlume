@@ -757,28 +757,26 @@ TEST(Profile, HeightGridAcceptsHeightNormalizedAndFrameId) {
 TEST(Profile, HeightGridRequiresBothWindowKeys) {
     std::vector<std::string> errs;
     EXPECT_FALSE(
-        load_profile_string(
-            "name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
-            " adapter: height_grid, role: terrain, height_max_m: 3.0}\n",
-            errs)
+        load_profile_string("name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
+                            " adapter: height_grid, role: terrain, height_max_m: 3.0}\n",
+                            errs)
             .has_value());
     ASSERT_FALSE(errs.empty());
     EXPECT_NE(errs[0].find("height_min_m"), std::string::npos) << errs[0];
 
     errs.clear();
     EXPECT_FALSE(
-        load_profile_string(
-            "name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
-            " adapter: height_grid, role: terrain, height_min_m: -2.0}\n",
-            errs)
+        load_profile_string("name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
+                            " adapter: height_grid, role: terrain, height_min_m: -2.0}\n",
+                            errs)
             .has_value());
     ASSERT_FALSE(errs.empty());
     EXPECT_NE(errs[0].find("height_max_m"), std::string::npos) << errs[0];
 }
 
 TEST(Profile, HeightGridWindowMustHaveMaxAboveMin) {
-    for (const char* window : {"height_min_m: 3.0, height_max_m: 3.0",
-                               "height_min_m: 3.0, height_max_m: -2.0"}) {
+    for (const char* window :
+         {"height_min_m: 3.0, height_max_m: 3.0", "height_min_m: 3.0, height_max_m: -2.0"}) {
         std::vector<std::string> errs;
         EXPECT_FALSE(load_profile_string(std::string("name: t\nrows:\n  - {topic: /g,"
                                                      " type: nav_msgs/msg/OccupancyGrid,"
@@ -814,13 +812,12 @@ TEST(Profile, HeightWindowKeysAreRejectedOnOtherAdapters) {
 
 TEST(Profile, HeightGridEncodingRejectsOgmValuesAndOgmRejectsHeightValues) {
     std::vector<std::string> errs;
-    EXPECT_FALSE(
-        load_profile_string(
-            "name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
-            " adapter: height_grid, role: terrain, height_min_m: -2.0, height_max_m: 3.0,"
-            " encoding: occupancy}\n",
-            errs)
-            .has_value());
+    EXPECT_FALSE(load_profile_string(
+                     "name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
+                     " adapter: height_grid, role: terrain, height_min_m: -2.0, height_max_m: 3.0,"
+                     " encoding: occupancy}\n",
+                     errs)
+                     .has_value());
     ASSERT_FALSE(errs.empty());
     EXPECT_NE(errs[0].find("height_linear|height_normalized"), std::string::npos) << errs[0];
 
@@ -836,13 +833,12 @@ TEST(Profile, HeightGridEncodingRejectsOgmValuesAndOgmRejectsHeightValues) {
 
 TEST(Profile, HeightGridRejectsUpdateTopic) {
     std::vector<std::string> errs;
-    EXPECT_FALSE(
-        load_profile_string(
-            "name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
-            " adapter: height_grid, role: terrain, height_min_m: -2.0, height_max_m: 3.0,"
-            " update_topic: /g_updates}\n",
-            errs)
-            .has_value());
+    EXPECT_FALSE(load_profile_string(
+                     "name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
+                     " adapter: height_grid, role: terrain, height_min_m: -2.0, height_max_m: 3.0,"
+                     " update_topic: /g_updates}\n",
+                     errs)
+                     .has_value());
     ASSERT_FALSE(errs.empty());
     EXPECT_NE(errs[0].find("update_topic"), std::string::npos) << errs[0];
 }

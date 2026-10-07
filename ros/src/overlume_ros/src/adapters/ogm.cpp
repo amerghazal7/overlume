@@ -50,9 +50,14 @@ void OgmAdapter::ingest(const nav_msgs::msg::OccupancyGrid& msg, double sim_time
 
     GridPlacement placement{};
     switch (place_grid(msg.header, msg.info.origin, row_.frame_id, tf_, placement)) {
-        case PlacementResult::kOk: break;
-        case PlacementResult::kNoTf: ++stats_.dropped_no_tf; return;
-        case PlacementResult::kNonFinite: ++stats_.dropped_malformed; return;
+        case PlacementResult::kOk:
+            break;
+        case PlacementResult::kNoTf:
+            ++stats_.dropped_no_tf;
+            return;
+        case PlacementResult::kNonFinite:
+            ++stats_.dropped_malformed;
+            return;
     }
 
     std::vector<uint8_t> next(msg.data.size());

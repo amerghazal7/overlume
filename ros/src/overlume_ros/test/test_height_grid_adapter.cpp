@@ -78,8 +78,8 @@ TEST(DecodeHeightCell, OutOfRangeValuesAreNanAndFlagMalformed) {
     for (const bool normalized : {false, true}) {
         for (const int v : {101, 127, -2, -128}) {
             bool malformed = false;
-            EXPECT_TRUE(std::isnan(decode_height_cell(static_cast<int8_t>(v), normalized, -2.0,
-                                                      3.0, malformed)))
+            EXPECT_TRUE(std::isnan(
+                decode_height_cell(static_cast<int8_t>(v), normalized, -2.0, 3.0, malformed)))
                 << v;
             EXPECT_TRUE(malformed) << v;
         }

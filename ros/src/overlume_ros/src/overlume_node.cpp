@@ -1163,8 +1163,8 @@ void OverlumeNode::timer_callback() {
     overlume::ros::respine_velocity_ribbon_onto_local_path(scene_asm_);
 
     const LayerFlags user_layer_flags{
-        layer_objects_, layer_paths_,   layer_map_elements_, layer_grids_,
-        layer_alerts_,  layer_markers_, layer_point_clouds_, layer_trajectory_carpet_,
+        layer_objects_,     layer_paths_,   layer_map_elements_, layer_grids_,
+        layer_alerts_,      layer_markers_, layer_point_clouds_, layer_trajectory_carpet_,
         layer_height_grids_};
     apply_layer_gates(scene_asm_,
                       compose_layer_gates(user_layer_flags, mode_content_mask(render_mode)));
