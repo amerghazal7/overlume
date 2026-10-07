@@ -893,14 +893,13 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
                                               overlume::materials::kheight_grid_fadedFilamatSize)
                                      .build(*engine);
     r->heightGridInstance = r->heightGridMaterial->createInstance();
-    r->heightGridRampTexture =
-        filament::Texture::Builder()
-            .width(static_cast<uint32_t>(detail::HeightRampTable::kEntries))
-            .height(1)
-            .levels(1)
-            .format(filament::Texture::InternalFormat::RGBA32F)
-            .sampler(filament::Texture::Sampler::SAMPLER_2D)
-            .build(*engine);
+    r->heightGridRampTexture = filament::Texture::Builder()
+                                   .width(static_cast<uint32_t>(detail::HeightRampTable::kEntries))
+                                   .height(1)
+                                   .levels(1)
+                                   .format(filament::Texture::InternalFormat::RGBA32F)
+                                   .sampler(filament::Texture::Sampler::SAMPLER_2D)
+                                   .build(*engine);
 
     r->pointCloudMaterial = filament::Material::Builder()
                                 .package(overlume::materials::kpoint_cloudFilamat,

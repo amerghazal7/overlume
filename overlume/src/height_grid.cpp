@@ -136,8 +136,10 @@ std::vector<HeightGridVertex> build_height_vertices(VisualRenderer::HeightGridSl
         for (size_t i = 0; i < w; ++i) {
             const size_t i0 = i > 0 ? i - 1 : i;
             const size_t i1 = i + 1 < w ? i + 1 : i;
-            const float dzdx = (z[j * w + i1] - z[j * w + i0]) / (static_cast<float>(i1 - i0) * res);
-            const float dzdy = (z[j1 * w + i] - z[j0 * w + i]) / (static_cast<float>(j1 - j0) * res);
+            const float dzdx =
+                (z[j * w + i1] - z[j * w + i0]) / (static_cast<float>(i1 - i0) * res);
+            const float dzdy =
+                (z[j1 * w + i] - z[j0 * w + i]) / (static_cast<float>(j1 - j0) * res);
             const float3 nl = normalize(float3{-dzdx, -dzdy, 1.0f});
             normals[j * w + i] = float3{c * nl.x - s * nl.y, s * nl.x + c * nl.y, nl.z};
         }
@@ -239,8 +241,8 @@ void update_height_grids(VisualRenderer& r, const SceneGraph& s) {
             continue;
         }
 
-        const bool dimsChanged = slot.mesh.vb == nullptr || slot.width != g.width_cells ||
-                                 slot.height != g.height_cells;
+        const bool dimsChanged =
+            slot.mesh.vb == nullptr || slot.width != g.width_cells || slot.height != g.height_cells;
         if (dimsChanged) {
             const uint32_t uploads = slot.uploadCount;
             clear_slot(r, slot);
@@ -266,10 +268,9 @@ void update_height_grids(VisualRenderer& r, const SceneGraph& s) {
         slot.origin = g.origin;
         const auto ti = tm.getInstance(slot.mesh.entity);
         if (ti.isValid()) {
-            tm.setTransform(ti, filament::math::mat4f::translation(
-                                    float3{static_cast<float>(g.origin.x),
-                                           static_cast<float>(g.origin.y),
-                                           static_cast<float>(g.origin.z)}));
+            tm.setTransform(ti, filament::math::mat4f::translation(float3{
+                                    static_cast<float>(g.origin.x), static_cast<float>(g.origin.y),
+                                    static_cast<float>(g.origin.z)}));
         }
 
         const float alpha = detail::SceneBuffer::staleness_alpha(

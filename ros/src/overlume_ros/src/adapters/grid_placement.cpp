@@ -20,8 +20,8 @@ bool HasNan(const tf2::Vector3& v) {
 
 PlacementResult place_grid(const std_msgs::msg::Header& header_in,
                            const geometry_msgs::msg::Pose& grid_origin,
-                           const std::string& frame_override,
-                           const FrameTransformer& tf, GridPlacement& out) {
+                           const std::string& frame_override, const FrameTransformer& tf,
+                           GridPlacement& out) {
     tf2::Transform xform;
     std_msgs::msg::Header header = header_in;
     if (!frame_override.empty()) header.frame_id = frame_override;

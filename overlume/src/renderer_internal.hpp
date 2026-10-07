@@ -249,10 +249,10 @@ public:
         uint32_t width = 0, height = 0;
         double resolution = 0.0;
         double yaw = 0.0;
-        Vec3 origin{};              // bookkeeping only; tests read the TransformManager
+        Vec3 origin{};  // bookkeeping only; tests read the TransformManager
         double lastUpdateSec = -1.0;
         uint32_t uploadCount = 0;
-        int materialState = 0;      // bookkeeping only; tests read the bound material instance
+        int materialState = 0;  // bookkeeping only; tests read the bound material instance
         std::vector<float> cpuPositions;
         std::vector<float> cpuCustom;
         bool inScene = false;
