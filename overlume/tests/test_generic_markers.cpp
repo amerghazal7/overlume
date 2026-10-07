@@ -43,8 +43,8 @@ TEST(GenericMarkersGolden, EveryPrimitiveType_DarkAdas) {
     overlume::CameraPose pose{{12, -14, 10}, {12, 3, 0}, 70.0};
     double ssim = overlume::testing::render_and_compare(
         r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/markers_parity_dark_adas.png",
-        "/tmp/markers_parity_dark_adas_actual.png");
-    EXPECT_GT(ssim, 0.98);
+        OVERLUME_TMP_DIR "/markers_parity_dark_adas_actual.png");
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
     overlume::destroy_renderer(r);
 }
 

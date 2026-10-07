@@ -55,8 +55,8 @@ TEST(ObjectsGolden, MixedClassScene_DarkAdas) {
 
     double ssim = overlume::testing::render_and_compare(
         r, kPose, OVERLUME_TEST_DATA_DIR "/tests/goldens/objects_mixed_dark_adas.png",
-        "/tmp/objects_mixed_dark_adas_actual.png");
-    EXPECT_GT(ssim, 0.98);
+        OVERLUME_TMP_DIR "/objects_mixed_dark_adas_actual.png");
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
     overlume::destroy_renderer(r);
 }
 

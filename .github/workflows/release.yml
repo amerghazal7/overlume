@@ -4,15 +4,32 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build, test and sign everything but publish nothing"
+        type: boolean
+        default: true
 
 permissions:
-  contents: write
+  contents: read
+
+# A new manual branch run supersedes the previous one; anything on a tag ref queues behind the tag run, never cancels it.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' && github.ref_type != 'tag' }}
 
 jobs:
-  release:
+  create:
+    if: ${{ github.event_name == 'push' }}
+    permissions:
+      contents: write
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Verify tag matches version.h
         run: |
@@ -48,6 +65,1298 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" --verify-tag \
-            --title "${{ github.ref_name }}" \
+          # Draft: invisible to users until `finalize` publishes it after every job and publish step passed.
+          gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
+            --title "$GITHUB_REF_NAME" \
             --notes-file /tmp/release-notes.md
+
+  package:
+    needs: create
+    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64,  os: ubuntu-22.04,     container_arch: x86_64 }
+          # linux-aarch64 is cross-built on x86_64 and tested natively on arm64:
+          # package-linux-aarch64-build + package-linux-aarch64 below.
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    env:
+      IMAGE: overlume-release-linux:${{ matrix.container_arch }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          lfs: true
+          # The write token must not land in .git/config: this checkout is
+          # mounted into the build and signing containers.
+          persist-credentials: false
+
+      - name: Cache release image
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/overlume-image.tar
+          key: overlume-image-${{ matrix.container_arch }}-${{ hashFiles('tools/release/linux/Dockerfile') }}
+
+      - name: Build or load release image
+        run: |
+          if [ -f "$RUNNER_TEMP/overlume-image.tar" ]; then
+            docker load -i "$RUNNER_TEMP/overlume-image.tar"
+          else
+            docker build -t "$IMAGE" tools/release/linux
+            docker save -o "$RUNNER_TEMP/overlume-image.tar" "$IMAGE"
+          fi
+
+      - name: Cache Filament source build and vcpkg
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            overlume/build-release/_deps
+            ${{ runner.temp }}/overlume-home
+          key: overlume-deps-${{ matrix.container_arch }}-${{ hashFiles('overlume/cmake/**', 'tools/release/linux/Dockerfile') }}
+
+      - name: Configure, build, test, package (container)
+        run: |
+          mkdir -p "$RUNNER_TEMP/overlume-home"
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/home/h \
+            -v "$RUNNER_TEMP/overlume-home":/home/h -v "$PWD":/src -w /src "$IMAGE" bash -euo pipefail -c '
+              cmake --toolchain /src/overlume/cmake/toolchain-llvm-release.cmake \
+                    -S overlume -B overlume/build-release -G Ninja \
+                    -DCMAKE_BUILD_TYPE=Release -DOVERLUME_ENABLE_CESIUM=ON \
+                    -DOVERLUME_BUILD_DOCS=OFF -DOVERLUME_BUILD_EXAMPLES=OFF \
+                    -DOVERLUME_FILAMENT_FROM_SOURCE=ON
+              cmake --build overlume/build-release
+              # glibc floor: liboverlume.so must not need anything newer than 2.28.
+              tools/release/check_glibc_floor.sh overlume/build-release/liboverlume.so.1
+              # FiftyObjectsSceneUpdateUnderTwoMilliseconds is a wall-clock budget that
+              # llvmpipe cannot meet (docs/status.md, known gap 11).
+              ctest --test-dir overlume/build-release -L cpu --output-on-failure \
+                    -E FiftyObjectsSceneUpdateUnderTwoMilliseconds
+              cpack --config overlume/build-release/CPackConfig.cmake -B /src/overlume/build-release/pkg
+              tools/release/check_package_elf.sh overlume/build-release/pkg X86-64
+            '
+
+      - name: Sign rpm packages
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: |
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp \
+            -e OVERLUME_GPG_PRIVATE_KEY -e OVERLUME_GPG_PASSPHRASE \
+            -v "$PWD":/src -w /src "$IMAGE" tools/release/sign_rpms.sh overlume/build-release/pkg
+
+      - name: Collect packages
+        run: |
+          mkdir out
+          cp overlume/build-release/pkg/*.deb overlume/build-release/pkg/*.rpm \
+             overlume/build-release/pkg/*.tar.gz out/
+          ls -l out
+
+      - name: Clean-room install matrix
+        run: tools/package_smoke_test.sh out
+
+      - name: Checksums and detached signature
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: tools/release/sign_sums.sh out "${{ matrix.name }}"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pkg-${{ matrix.name }}
+          path: out/*
+          if-no-files-found: error
+
+  # aarch64 is cross-compiled here (x86_64 runner, Alma 8 aarch64 sysroot, see
+  # tools/release/linux/Dockerfile.cross-aarch64) and tested natively by
+  # package-linux-aarch64 on an arm64 runner. Nothing is signed (beyond the rpm
+  # signature the clean-room test checks) or published from this job.
+  package-linux-aarch64-build:
+    needs: create
+    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    env:
+      IMAGE: overlume-release-linux:cross-aarch64
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Cache cross release image
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/overlume-image.tar
+          key: overlume-image-cross-aarch64-${{ hashFiles('tools/release/linux/Dockerfile', 'tools/release/linux/Dockerfile.cross-aarch64') }}
+
+      - name: Build or load cross release image
+        run: |
+          if [ -f "$RUNNER_TEMP/overlume-image.tar" ]; then
+            docker load -i "$RUNNER_TEMP/overlume-image.tar"
+          else
+            docker build -t overlume-release-linux:x86_64 tools/release/linux
+            docker build -f tools/release/linux/Dockerfile.cross-aarch64 -t "$IMAGE" tools/release/linux
+            docker save -o "$RUNNER_TEMP/overlume-image.tar" "$IMAGE"
+          fi
+
+      - name: Cache Filament source build and vcpkg
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            overlume/build-release-aarch64/_deps
+            ${{ runner.temp }}/overlume-home
+          key: overlume-deps-aarch64-cross-${{ hashFiles('overlume/cmake/**', 'tools/release/linux/Dockerfile', 'tools/release/linux/Dockerfile.cross-aarch64') }}
+
+      - name: Cross-configure, build, package (container)
+        run: |
+          mkdir -p "$RUNNER_TEMP/overlume-home" test-bundle
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/home/h \
+            -v "$RUNNER_TEMP/overlume-home":/home/h -v "$PWD":/src -w /src "$IMAGE" bash -euo pipefail -c '
+              b=overlume/build-release-aarch64
+              cmake --toolchain /src/overlume/cmake/toolchain-llvm-release-aarch64.cmake \
+                    -S overlume -B "$b" -G Ninja \
+                    -DCMAKE_BUILD_TYPE=Release -DOVERLUME_ENABLE_CESIUM=ON \
+                    -DOVERLUME_BUILD_DOCS=OFF -DOVERLUME_BUILD_EXAMPLES=OFF \
+                    -DOVERLUME_FILAMENT_FROM_SOURCE=ON
+              cmake --build "$b"
+              # Foreign-arch ELF: LLVM binutils. The native floor/export checks repeat on arm64.
+              export OBJDUMP=/opt/llvm/bin/llvm-objdump READELF=/opt/llvm/bin/llvm-readelf
+              tools/release/check_glibc_floor.sh "$b/liboverlume.so.1"
+              overlume/scripts/check_shared_exports.sh /opt/llvm/bin/llvm-nm "$READELF" "$b/liboverlume.so.1"
+              cpack --config "$b/CPackConfig.cmake" -B "/src/$b/pkg"
+              tools/release/check_package_elf.sh "$b"/pkg AArch64
+              tools/release/make_test_bundle.sh "$b" test-bundle/overlume-aarch64-tests.tar.gz
+            '
+
+      - name: Sign rpm packages
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: |
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp \
+            -e OVERLUME_GPG_PRIVATE_KEY -e OVERLUME_GPG_PASSPHRASE \
+            -v "$PWD":/src -w /src "$IMAGE" tools/release/sign_rpms.sh overlume/build-release-aarch64/pkg
+
+      - name: Collect packages
+        run: |
+          mkdir out
+          cp overlume/build-release-aarch64/pkg/*.deb overlume/build-release-aarch64/pkg/*.rpm \
+             overlume/build-release-aarch64/pkg/*.tar.gz out/
+          ls -l out test-bundle
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pkg-linux-aarch64-unverified
+          path: out/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tests-linux-aarch64
+          path: test-bundle/*
+          if-no-files-found: error
+
+  # Native arm64: the cross-built tests in an almalinux:8 container (glibc 2.28
+  # for real), then the clean-room install matrix. Checksums, their signature
+  # and the release upload exist only after both pass.
+  package-linux-aarch64:
+    needs: package-linux-aarch64-build
+    if: ${{ !cancelled() && needs.package-linux-aarch64-build.result == 'success' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pkg-linux-aarch64-unverified
+          path: out
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: tests-linux-aarch64
+          path: test-bundle
+
+      - name: Unpack the test bundle
+        run: tar -xzf test-bundle/overlume-aarch64-tests.tar.gz
+
+      - name: Native cpu tests (almalinux:8 arm64)
+        run: docker run --rm -v "$PWD":/src -w /src almalinux:8 bash tools/release/linux/test_aarch64.sh
+
+      - name: Clean-room install matrix
+        run: tools/package_smoke_test.sh out
+
+      - name: Checksums and detached signature
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: tools/release/sign_sums.sh out linux-aarch64
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pkg-linux-aarch64
+          path: out/*
+          if-no-files-found: error
+
+  # Android: one build job per ABI in the Alma 8 release image (host LLVM for Filament's host tools
+  # and vcpkg's host triplet) with NDK r27c from tools/android/setup_sdk.sh, mounted at the same
+  # absolute path the host sees so ctest can run on the runner. x86_64 and x86 also run the tests on
+  # an API 30 emulator; arm64-v8a / armeabi-v7a are build + export checks only (no hosted ARM emulator).
+  package-android-build:
+    needs: create
+    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { abi: arm64-v8a,   emulator: "" }
+          - { abi: armeabi-v7a, emulator: "" }
+          - { abi: x86_64,      emulator: x86_64 }
+          - { abi: x86,         emulator: x86 }
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    env:
+      IMAGE: overlume-release-linux:x86_64
+      OVERLUME_ANDROID_HOME: ${{ github.workspace }}/../overlume-android
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Cache release image
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/overlume-image.tar
+          key: overlume-image-x86_64-${{ hashFiles('tools/release/linux/Dockerfile') }}
+
+      - name: Build or load release image
+        run: |
+          if [ -f "$RUNNER_TEMP/overlume-image.tar" ]; then
+            docker load -i "$RUNNER_TEMP/overlume-image.tar"
+          else
+            docker build -t "$IMAGE" tools/release/linux
+            docker save -o "$RUNNER_TEMP/overlume-image.tar" "$IMAGE"
+          fi
+
+      - name: NDK r27c (pinned sha256)
+        run: tools/android/setup_sdk.sh ndk
+
+      - name: Cache Filament source build and vcpkg
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            overlume/build-android-${{ matrix.abi }}/_deps
+            ${{ runner.temp }}/overlume-home
+          key: overlume-deps-android-${{ matrix.abi }}-${{ hashFiles('overlume/cmake/**', 'tools/release/linux/Dockerfile') }}
+
+      - name: Configure, build, package (container)
+        run: |
+          mkdir -p "$RUNNER_TEMP/overlume-home"
+          ndk="$OVERLUME_ANDROID_HOME/android-ndk-r27c"
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/home/h -e ANDROID_NDK_HOME="$ndk" \
+            -v "$RUNNER_TEMP/overlume-home":/home/h -v "$ndk":"$ndk":ro -v "$PWD":"$PWD" -w "$PWD" \
+            "$IMAGE" bash -euo pipefail -c '
+              tools/android/build_all_abis.sh ${{ matrix.abi }}
+              b=overlume/build-android-${{ matrix.abi }}
+              cpack --config "$b/CPackConfig.cmake" -B "$PWD/$b/pkg"
+            '
+
+      - name: Host-runnable checks (exports, POD header, triplet mapping)
+        run: ANDROID_NDK_HOME="$OVERLUME_ANDROID_HOME/android-ndk-r27c" tools/android/host_checks.sh overlume/build-android-${{ matrix.abi }}
+
+      # gtest_discover_tests (PRE_TEST) bakes the container CMake's module path into the build dir,
+      # so the runner's ctest must be the container's, at the same prefix.
+      - name: Install the container's CMake/ctest on the runner
+        run: |
+          mkdir -p "$RUNNER_TEMP/cm"
+          docker run --rm -v "$RUNNER_TEMP/cm":/out "$IMAGE" bash -c 'cp -r /usr/local/bin/cmake /usr/local/bin/ctest /usr/local/share/cmake-* /out/'
+          sudo cp -rf "$RUNNER_TEMP"/cm/cmake-* /usr/local/share/
+          sudo install -m755 "$RUNNER_TEMP/cm/cmake" "$RUNNER_TEMP/cm/ctest" /usr/local/bin/
+          ctest --version | head -1
+
+      - name: Emulator script self-test (fake adb/ctest)
+        run: tools/android/test_emulator_script.sh overlume/build-android-${{ matrix.abi }}
+
+      - name: Enable KVM
+        if: ${{ matrix.emulator != '' }}
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+
+      - name: Unpack this ABI's package for the consumer check
+        if: ${{ matrix.emulator != '' }}
+        run: |
+          mkdir -p consumer/${{ matrix.abi }}
+          unzip -q overlume/build-android-${{ matrix.abi }}/pkg/overlume-*-android-${{ matrix.abi }}.zip -d consumer/${{ matrix.abi }}
+
+      # swangle_indirect (ANGLE on SwiftShader Vulkan, ES 3.1) is required: the plain swiftshader_indirect
+      # ES 3.0 translator renders all-black frames once post-processing is on.
+      - name: Tests and consumer smoke on an API 30 emulator
+        if: ${{ matrix.emulator != '' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        env:
+          ANDROID_NDK_HOME: ${{ env.OVERLUME_ANDROID_HOME }}/android-ndk-r27c
+        with:
+          api-level: 30
+          target: google_apis
+          arch: ${{ matrix.emulator }}
+          emulator-options: -no-window -gpu swangle_indirect -noaudio -no-boot-anim -no-snapshot
+          disable-animations: true
+          script: |
+            tools/android/run_tests_on_emulator.sh overlume/build-android-${{ matrix.abi }}
+            RUN_ON_DEVICE=1 tools/android/check_consumer.sh consumer ${{ matrix.abi }}
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-zip-${{ matrix.abi }}
+          path: overlume/build-android-${{ matrix.abi }}/pkg/overlume-*-android-${{ matrix.abi }}.zip
+          if-no-files-found: error
+
+  package-android:
+    needs: package-android-build
+    if: ${{ !cancelled() && needs.package-android-build.result == 'success' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      OVERLUME_ANDROID_HOME: ${{ github.workspace }}/../overlume-android
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: android-zip-*
+          path: abi-zips
+          merge-multiple: true
+
+      - name: NDK r27c (pinned sha256)
+        run: tools/android/setup_sdk.sh ndk
+
+      - name: Merge ABIs, Prefab AAR
+        run: |
+          export ANDROID_NDK_HOME="$OVERLUME_ANDROID_HOME/android-ndk-r27c"
+          mkdir out
+          tools/android/build_aar.sh abi-zips out
+          mkdir unzipped && unzip -q out/overlume-*-android.zip -d unzipped
+          for a in arm64-v8a armeabi-v7a x86 x86_64; do
+            [ -d "unzipped/$a/lib" ] || { echo "::error::android zip lacks ABI $a"; exit 1; }
+          done
+          tools/android/check_consumer.sh unzipped
+          tools/android/check_prefab.sh out/overlume-*-android.aar
+
+      - name: Publish script against the local Central Portal stub
+        run: tools/release/test_maven_publish.sh "$(ls out/overlume-*-android.aar)"
+
+      - name: Maven Central bundle
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: tools/release/build_maven_bundle.sh out/overlume-*-android.aar maven/overlume-maven-bundle.zip
+
+      - name: Checksums and detached signature
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: tools/release/sign_sums.sh out android
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pkg-android
+          path: out/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: maven-bundle
+          path: maven/overlume-maven-bundle.zip
+          if-no-files-found: error
+
+  # Dry runs (and any non-tag run) validate the bundle with Central and drop it; only a tag
+  # push publishes. The portal checks the signature against public keyservers, so the release
+  # key must be on keyserver.ubuntu.com and keys.openpgp.org.
+  # Irreversible, so last: only after the release is complete (sums), every channel check passed, and the
+  # Homebrew/SwiftPM pushes succeeded (they are skipped on dry runs, which is why 'skipped' is accepted).
+  publish-maven:
+    needs: [sums, channels, publish-homebrew, publish-swiftpm]
+    if: >-
+      ${{ !cancelled() && needs.sums.result == 'success' && needs.channels.result == 'success'
+      && (needs.publish-homebrew.result == 'success' || needs.publish-homebrew.result == 'skipped')
+      && (needs.publish-swiftpm.result == 'success' || needs.publish-swiftpm.result == 'skipped') }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: maven-bundle
+          path: maven
+
+      - name: Central Portal (validate-and-drop, or publish on a tag)
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+        run: |
+          mode=validate
+          if [ "$DRY_RUN" != true ] && [ "$GITHUB_REF_TYPE" = tag ]; then mode=publish; fi
+          tools/release/publish_maven_central.sh maven/overlume-maven-bundle.zip "$mode"
+
+  # Apple. macos-14 (Apple Silicon) builds both macOS arches (x86_64 runs under Rosetta) and the
+  # three iOS slices as separate jobs (one cesium-native vcpkg tree per slice), then merges them.
+  # Filament: the prebuilt mac SDK for macOS arm64; built from source (with the SDK's arm64 host
+  # tools) for macOS x86_64 and every iOS slice -- the prebuilt iOS SDK has no arm64 simulator slice.
+  # Apple signing runs only when the APPLE_* secrets exist (warning otherwise).
+  package-macos-build:
+    needs: create
+    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x86_64]
+    runs-on: macos-14
+    timeout-minutes: 240
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Toolchain packages
+        run: |
+          brew install autoconf automake libtool pkg-config nasm yaml-cpp
+          echo "EZVCPKG_BASEDIR=$RUNNER_TEMP/ezvcpkg" >> "$GITHUB_ENV"
+
+      - name: Script self-tests
+        run: |
+          tools/release/test_apple_publish.sh
+          overlume/scripts/test_check_shared_exports.sh
+
+      - name: Restore Filament source build and vcpkg
+        id: deps
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            overlume/build-macos-${{ matrix.arch }}/_deps/filament-src-install
+            ${{ runner.temp }}/ezvcpkg
+          key: overlume-deps-macos-${{ matrix.arch }}-${{ hashFiles('overlume/cmake/**') }}
+
+      - name: Configure, build, install
+        run: tools/apple/build_macos_universal.sh build ${{ matrix.arch }}
+
+      - name: Save Filament source build and vcpkg
+        if: ${{ always() && steps.deps.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            overlume/build-macos-${{ matrix.arch }}/_deps/filament-src-install
+            ${{ runner.temp }}/ezvcpkg
+          key: overlume-deps-macos-${{ matrix.arch }}-${{ hashFiles('overlume/cmake/**') }}
+
+      # x86_64 test binaries run under Rosetta. FiftyObjectsSceneUpdateUnderTwoMilliseconds is a
+      # wall-clock budget a shared runner cannot promise (docs/status.md, known gap 11). The gpu-labelled
+      # orientation/projection tests skip themselves when the runner has no Metal device; the smoke job
+      # reports which happened.
+      - name: Tests (cpu everywhere, gpu on arm64)
+        run: |
+          b=overlume/build-macos-${{ matrix.arch }}
+          ctest --test-dir "$b" -L cpu --output-on-failure -E FiftyObjectsSceneUpdateUnderTwoMilliseconds
+          # The hosted runners' paravirtual Metal device cannot drive Filament (CI 37337587866: the
+          # gpu tests ASSERT a renderer; system_profiler does not name the device, the HelloFrame skip does), so gpu tests need a real Mac or a self-hosted runner.
+          if [ "${{ matrix.arch }}" = arm64 ] && ! ctest --test-dir "$b" -R '^HelloFrame\.RendersDistinctSkyAndGround$' -V | grep -q 'No GPU/EGL device'; then
+            ctest --test-dir "$b" -L gpu --output-on-failure
+          else
+            echo "::warning::no usable Metal device: gpu-labelled tests (incl. row-0-is-top orientation) not run; needs a one-off run on a real Mac before the first tagged release"
+          fi
+
+      - name: Stage tarball
+        run: tar -C overlume -cf stage-macos-${{ matrix.arch }}.tar stage-macos-${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: macos-stage-${{ matrix.arch }}
+          path: stage-macos-${{ matrix.arch }}.tar
+          if-no-files-found: error
+
+  package-macos:
+    needs: package-macos-build
+    if: ${{ !cancelled() && needs.package-macos-build.result == 'success' }}
+    permissions:
+      contents: read
+    runs-on: macos-14
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: macos-stage-*
+          path: stages
+          merge-multiple: true
+
+      - name: Merge to universal2
+        run: |
+          for a in arm64 x86_64; do tar -C overlume -xf stages/stage-macos-$a.tar; done
+          tools/apple/build_macos_universal.sh merge overlume/stage-macos-universal
+
+      - name: Codesign (only with Apple secrets)
+        env:
+          APPLE_DEVELOPER_ID_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+        run: tools/apple/sign_and_notarize.sh code overlume/stage-macos-universal/lib
+
+      - name: Package (.pkg, .tar.gz)
+        run: tools/apple/build_macos_universal.sh package overlume/stage-macos-universal out
+
+      - name: Sign and notarise the pkg (only with Apple secrets)
+        env:
+          APPLE_DEVELOPER_ID_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_NOTARY_KEY_P8: ${{ secrets.APPLE_NOTARY_KEY_P8 }}
+        run: tools/apple/sign_and_notarize.sh pkg out/overlume-*-macos-universal.pkg
+
+      - name: Clean-room smoke on the relocated tar.gz (arm64, x86_64)
+        run: |
+          brew install pkg-config yaml-cpp
+          mkdir reloc && tar -xzf out/overlume-*-macos-universal.tar.gz -C reloc
+          tools/apple/smoke_macos.sh reloc arm64
+          tools/apple/smoke_macos.sh reloc x86_64
+
+      - name: Install the pkg and smoke the installed prefix
+        run: |
+          sudo installer -pkg out/overlume-*-macos-universal.pkg -target /
+          tools/apple/smoke_macos.sh /usr/local arm64
+          lipo /usr/local/lib/liboverlume.dylib -verify_arch arm64 x86_64
+
+      - name: Homebrew formula against the dry-run tarball (local tap)
+        run: |
+          v="$(tools/apple/build_macos_universal.sh version)"
+          tar="$PWD/out/overlume-$v-macos-universal.tar.gz"
+          export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
+          brew tap-new --no-git local/overlume
+          mkdir -p "$(brew --repository local/overlume)/Formula"
+          tools/release/publish_homebrew.sh render "$(brew --repository local/overlume)/Formula/overlume.rb" \
+              "$v" "$(shasum -a 256 "$tar" | cut -d' ' -f1)" "file://$tar"
+          brew install cmake
+          brew install --formula local/overlume/overlume
+          brew test local/overlume/overlume
+          echo "PASS: brew install + brew test"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: macos-packages
+          path: out/*
+          if-no-files-found: error
+
+  package-ios-build:
+    needs: create
+    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: [device-arm64, sim-arm64, sim-x86_64]
+    runs-on: macos-14
+    timeout-minutes: 240
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Toolchain packages
+        run: |
+          brew install autoconf automake libtool pkg-config nasm
+          echo "EZVCPKG_BASEDIR=$RUNNER_TEMP/ezvcpkg" >> "$GITHUB_ENV"
+
+      - name: Restore Filament source build and vcpkg
+        id: deps
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            overlume/build-ios-${{ matrix.slice }}/_deps/filament-src-install
+            ${{ runner.temp }}/ezvcpkg
+          key: overlume-deps-ios-${{ matrix.slice }}-${{ hashFiles('overlume/cmake/**') }}
+
+      - name: Configure, build, install
+        run: tools/apple/build_xcframework.sh slice ${{ matrix.slice }}
+
+      - name: Save Filament source build and vcpkg
+        if: ${{ always() && steps.deps.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            overlume/build-ios-${{ matrix.slice }}/_deps/filament-src-install
+            ${{ runner.temp }}/ezvcpkg
+          key: overlume-deps-ios-${{ matrix.slice }}-${{ hashFiles('overlume/cmake/**') }}
+
+      - name: Stage tarball
+        run: tar -C overlume -cf stage-ios-${{ matrix.slice }}.tar stage-ios-${{ matrix.slice }}
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ios-stage-${{ matrix.slice }}
+          path: stage-ios-${{ matrix.slice }}.tar
+          if-no-files-found: error
+
+  package-ios:
+    needs: package-ios-build
+    if: ${{ !cancelled() && needs.package-ios-build.result == 'success' }}
+    permissions:
+      contents: read
+    runs-on: macos-14
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: ios-stage-*
+          path: stages
+          merge-multiple: true
+
+      - name: XCFrameworks
+        run: |
+          for s in device-arm64 sim-arm64 sim-x86_64; do tar -C overlume -xf stages/stage-ios-$s.tar; done
+          tools/apple/build_xcframework.sh assemble out
+
+      - name: Codesign the frameworks (only with Apple secrets)
+        env:
+          APPLE_DEVELOPER_ID_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+        run: tools/apple/sign_and_notarize.sh code out/Overlume.xcframework
+
+      - name: Zip
+        run: tools/apple/build_xcframework.sh zip out
+
+      # The same SwiftPM binaryTarget a consumer resolves, against the local xcframework: resolve,
+      # link and run in an iPhone simulator (the log line OVERLUME_SMOKE says whether a Metal device existed).
+      - name: iOS simulator XCTest through a SwiftPM consumer
+        run: tools/apple/build_xcframework.sh smoke out
+
+      - name: SwiftPM manifest for this build (parse + checksum)
+        run: |
+          v="$(tools/apple/build_macos_universal.sh version)"
+          tools/release/publish_swiftpm.sh check "out/Overlume-$v.xcframework.zip" "$v"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ios-packages
+          path: |
+            out/Overlume-*.xcframework.zip
+            out/OverlumeStatic-*.xcframework.zip
+          if-no-files-found: error
+
+  # Checksums + detached signature need GNU tools and gpg: done on Linux for both Apple sets.
+  sign-apple:
+    needs: [package-macos, package-ios]
+    if: ${{ !cancelled() && needs.package-macos.result == 'success' && needs.package-ios.result == 'success' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: macos-packages
+          path: macos
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ios-packages
+          path: ios
+
+      - name: Checksums and detached signatures
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: |
+          tools/release/sign_sums.sh macos macos
+          tools/release/sign_sums.sh ios ios
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pkg-macos
+          path: macos/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pkg-ios
+          path: ios/*
+          if-no-files-found: error
+
+      # SwiftPM pins the xcframework zip by checksum in an immutable tag; the rebuilt zip is not byte-stable.
+      - name: Refuse to rebuild a version SwiftPM already pinned
+        if: ${{ github.ref_type == 'tag' && (github.event_name == 'push' || !inputs.dry_run) }}
+        run: |
+          # ls-remote: 0 tag exists, 2 no such tag, anything else (128: network/auth) is unknown -> fail closed.
+          rc=0; tools/release/publish_swiftpm.sh published "${GITHUB_REF_NAME#v}" || rc=$?
+          case $rc in
+            0) echo "::error::$GITHUB_REF_NAME is already on SwiftPM; a rebuilt zip would break its checksum. Cut a new version."; exit 1;;
+            2) ;;
+            *) echo "::error::cannot query overlume-swift tags (rc $rc)"; exit 1;;
+          esac
+
+  # Tag runs only: a dry run already installed the formula and resolved the manifest above.
+  publish-homebrew:
+    needs: [sums, channels]
+    if: ${{ !cancelled() && needs.sums.result == 'success' && needs.channels.result == 'success' && github.ref_type == 'tag' && (github.event_name == 'push' || !inputs.dry_run) }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pkg-macos
+          path: macos
+
+      - name: Push the formula to the tap
+        env:
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          f="macos/overlume-$v-macos-universal.tar.gz"
+          tools/release/publish_homebrew.sh push "$v" "$(sha256sum "$f" | cut -d' ' -f1)" \
+              "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/overlume-$v-macos-universal.tar.gz"
+
+  publish-swiftpm:
+    needs: [sums, channels]
+    if: ${{ !cancelled() && needs.sums.result == 'success' && needs.channels.result == 'success' && github.ref_type == 'tag' && (github.event_name == 'push' || !inputs.dry_run) }}
+    permissions:
+      contents: read
+    runs-on: macos-14
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pkg-ios
+          path: ios
+
+      - name: Push Package.swift and the version tag to overlume-swift
+        env:
+          SWIFTPM_REPO_DEPLOY_KEY: ${{ secrets.SWIFTPM_REPO_DEPLOY_KEY }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          tools/release/publish_swiftpm.sh push "ios/Overlume-$v.xcframework.zip" "$v"
+
+  # Windows x64 (windows-2022) and arm64 (windows-11-arm), built with MSVC (cl; v143 on x64, v145 on arm64)
+  # and the dynamic CRT. x64 links Filament's prebuilt /MD libraries; arm64 builds Filament from
+  # source. The render tests use Mesa llvmpipe (x64: pal1000/mesa-dist-win; arm64: mmozeiko/build-mesa).
+  package-windows-build:
+    needs: create
+    if: ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64,   os: windows-2022 }
+          - { arch: arm64, os: windows-11-arm }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 340
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      # Short root: vcpkg's build trees overflow MAX_PATH under the default workspace path.
+      EZVCPKG_BASEDIR: C:\ez
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Toolchain (Visual Studio + clang-cl, ninja, NSIS, 7-Zip)
+        run: |
+          tools/windows/ensure_tools.ps1
+          if ($LASTEXITCODE) { exit 1 }
+          tools/windows/vsenv.ps1 -Arch ${{ matrix.arch }}
+          if ($LASTEXITCODE) { exit 1 }
+
+      - name: Script self-tests
+        run: |
+          cmake -P overlume/tests/cmake/test_gen_overlume_def.cmake
+          if ($LASTEXITCODE) { exit 1 }
+          overlume/scripts/test_check_shared_exports.ps1
+          if ($LASTEXITCODE) { exit 1 }
+          tools/windows/test_sign.ps1
+          if ($LASTEXITCODE) { exit 1 }
+          tools/windows/test_install_mesa.ps1
+          if ($LASTEXITCODE) { exit 1 }
+
+      - name: Restore Filament source build and vcpkg
+        id: deps
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            overlume/build-windows-${{ matrix.arch }}/_deps/filament-src-install
+            C:\ez
+            !C:\ez\*\buildtrees
+            !C:\ez\*\packages
+            !C:\ez\*\downloads
+          key: overlume-deps-windows-${{ matrix.arch }}-${{ hashFiles('overlume/cmake/**') }}-${{ github.run_id }}
+          restore-keys: overlume-deps-windows-${{ matrix.arch }}-${{ hashFiles('overlume/cmake/**') }}-
+
+      - name: Configure and build
+        run: tools/windows/build_windows.ps1 build -Arch ${{ matrix.arch }}
+
+      - name: Save Filament source build and vcpkg
+        if: ${{ always() }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            overlume/build-windows-${{ matrix.arch }}/_deps/filament-src-install
+            C:\ez
+            !C:\ez\*\buildtrees
+            !C:\ez\*\packages
+            !C:\ez\*\downloads
+          key: overlume-deps-windows-${{ matrix.arch }}-${{ hashFiles('overlume/cmake/**') }}-${{ github.run_id }}
+
+      - name: Tests (cpu everywhere, gpu where OpenGL 4.1 exists)
+        run: tools/windows/build_windows.ps1 test -Arch ${{ matrix.arch }}
+
+      - name: Sign (only with Windows signing secrets) and package (NSIS, ZIP)
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: tools/windows/build_windows.ps1 package -Arch ${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-build-${{ matrix.arch }}
+          path: |
+            overlume/pkg-windows-${{ matrix.arch }}/overlume-*-windows-${{ matrix.arch }}.exe
+            overlume/pkg-windows-${{ matrix.arch }}/overlume-*-windows-${{ matrix.arch }}.zip
+          if-no-files-found: error
+
+  # Clean room: a fresh runner installs the NSIS installer silently, builds a consumer against it,
+  # uninstalls and checks the tree is gone, then repeats the consumer on the relocated zip.
+  package-windows:
+    needs: package-windows-build
+    if: ${{ !cancelled() && needs.package-windows-build.result == 'success' }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64,   os: windows-2022 }
+          - { arch: arm64, os: windows-11-arm }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-build-${{ matrix.arch }}
+          path: pkg
+
+      - name: Toolchain (Visual Studio, ninja)
+        run: |
+          tools/windows/ensure_tools.ps1
+          if ($LASTEXITCODE) { exit 1 }
+          tools/windows/vsenv.ps1 -Arch ${{ matrix.arch }}
+          if ($LASTEXITCODE) { exit 1 }
+
+      - name: Silent NSIS install, consumer build + run
+        run: |
+          $installer = (Get-ChildItem pkg\overlume-*-windows-${{ matrix.arch }}.exe).FullName
+          # /D must be the last argument and unquoted (NSIS).
+          $p = Start-Process -FilePath $installer -ArgumentList '/S', '/D=C:\overlume' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Output "FAIL: installer exit $($p.ExitCode)"; exit 1 }
+          foreach ($f in 'bin\overlume.dll', 'lib\overlume.lib', 'lib\overlume_static.lib', 'include\overlume\api.h',
+                         'lib\cmake\overlume\overlumeConfig.cmake', 'Uninstall.exe') {
+            if (-not (Test-Path "C:\overlume\$f")) { Write-Output "FAIL: C:\overlume\$f missing after install"; exit 1 }
+          }
+          if (-not (Get-ChildItem C:\overlume\share\overlume\themes -Filter *.yaml)) { Write-Output 'FAIL: themes not installed'; exit 1 }
+          tools/windows/smoke_windows.ps1 -Prefix C:\overlume -Arch ${{ matrix.arch }}
+          if ($LASTEXITCODE) { exit 1 }
+
+      - name: Uninstall and check the tree is gone
+        run: |
+          # The NSIS uninstaller copies itself to %TEMP% and returns at once: poll for the result.
+          Start-Process -FilePath C:\overlume\Uninstall.exe -ArgumentList '/S' -Wait | Out-Null
+          $deadline = (Get-Date).AddSeconds(180)
+          while ((Test-Path C:\overlume) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 3 }
+          if (Test-Path C:\overlume) {
+            Get-ChildItem C:\overlume -Recurse | Select-Object -First 20 FullName
+            Write-Output 'FAIL: C:\overlume still exists after Uninstall.exe /S'; exit 1
+          }
+          Write-Output 'PASS: uninstalled, C:\overlume is gone'
+
+      - name: Consumer against the relocated zip
+        run: |
+          $zip = (Get-ChildItem pkg\overlume-*-windows-${{ matrix.arch }}.zip).FullName
+          Expand-Archive -LiteralPath $zip -DestinationPath C:\reloc\overlume-zip
+          tools/windows/smoke_windows.ps1 -Prefix C:\reloc\overlume-zip -Arch ${{ matrix.arch }}
+          if ($LASTEXITCODE) { exit 1 }
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-packages-${{ matrix.arch }}
+          path: pkg/*
+          if-no-files-found: error
+
+  sign-windows:
+    needs: package-windows
+    if: ${{ !cancelled() && needs.package-windows.result == 'success' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: windows-packages-*
+          path: windows
+          merge-multiple: true
+
+      - name: Checksums and detached signatures
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: tools/release/sign_sums.sh windows windows
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pkg-windows
+          path: windows/*
+          if-no-files-found: error
+
+  # vcpkg overlay port + Conan recipe, rendered from the release's own SHA256SUMS-* files.
+  # `sums` attaches the two zips (GitHub release URLs inside); every run also renders a copy whose
+  # archive URLs point at 127.0.0.1:8000 for the channels job below.
+  channels-render:
+    needs: [package, package-linux-aarch64, sign-apple, sign-windows]
+    if: >-
+      ${{ !cancelled() && needs.package.result == 'success' && needs.package-linux-aarch64.result == 'success'
+      && needs.sign-apple.result == 'success' && needs.sign-windows.result == 'success' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pkg-linux-x86_64
+          path: rel
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pkg-linux-aarch64
+          path: rel
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pkg-macos
+          path: rel
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pkg-windows
+          path: rel
+
+      - name: Render (and self-test the renderer)
+        run: |
+          set -euo pipefail
+          tools/release/test_render_vcpkg_conan.sh
+          ver="$(sed -n 's/^project(overlume VERSION \([0-9.]*\) .*/\1/p' overlume/CMakeLists.txt)"
+          tools/release/render_vcpkg_conan.sh rel "$ver" release-channels
+          tools/release/render_vcpkg_conan.sh rel "$ver" local-channels http://127.0.0.1:8000
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: channels-recipes
+          path: |
+            release-channels/*.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: channels-local
+          path: |
+            local-channels/vcpkg-port
+            local-channels/conan
+          if-no-files-found: error
+
+  # Installs the rendered port/recipe against this run's own artifacts (loopback http.server) and builds
+  # + runs the consumer: vcpkg overlay port and `conan create` (test_package), shared and static.
+  channels:
+    needs: channels-render
+    if: ${{ !cancelled() && needs.channels-render.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04, pkg: pkg-linux-x86_64, variants: "shared" }
+          - { os: macos-14,     pkg: pkg-macos,        variants: "shared static" }
+          - { os: windows-2022, pkg: pkg-windows,      variants: "shared static" }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      # vcpkg tag 2026.07.29, pinned by commit; Conan from its self-contained release archives
+      # (conan-io/conan 2.31.2-SHA-256.txt), SHA256 pinned here and checked before extraction.
+      VCPKG_COMMIT: 9e593bb18ea69cc5095e012465dcd675a822ed0d
+      CONAN_VERSION: "2.31.2"
+      CONAN_SHA256_LINUX: 6998acad336a58711f79029fd4aca71434e6fb9613da0d79a007f0c2bcbcb314
+      CONAN_SHA256_MACOS: 30c9d93167ae7936c87d831561df27fbbdce83cbc89e9feb329fa85dc8d65ebe
+      CONAN_SHA256_WINDOWS: 6009028b38b9a4ad1c01ea8d7537ee03ec46cbe9cf4928b9c758bc0f96b469ac
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: channels-local
+          path: local
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ matrix.pkg }}
+          path: pkgs
+
+      - name: vcpkg (pinned commit) and Conan (pinned archive checksum)
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP"; [ "$RUNNER_OS" = Windows ] && root="$(cygpath -m "$RUNNER_TEMP")"
+          mkdir "$root/vcpkg" && cd "$root/vcpkg"
+          git init -q
+          git remote add origin https://github.com/microsoft/vcpkg
+          git fetch -q --depth 1 origin "$VCPKG_COMMIT"
+          git checkout -q FETCH_HEAD
+          [ "$(git rev-parse HEAD)" = "$VCPKG_COMMIT" ]
+          if [ "$RUNNER_OS" = Windows ]; then cmd //c bootstrap-vcpkg.bat -disableMetrics; else ./bootstrap-vcpkg.sh -disableMetrics; fi
+          echo "VCPKG_ROOT=$root/vcpkg" >> "$GITHUB_ENV"
+          case "$RUNNER_OS" in
+            Linux)   cname=linux-x86_64.tgz;   csha="$CONAN_SHA256_LINUX";   cbin="$root/conan/bin";;
+            macOS)   cname=macos-arm64.tgz;    csha="$CONAN_SHA256_MACOS";   cbin="$root/conan/bin";;
+            Windows) cname=windows-x86_64.zip; csha="$CONAN_SHA256_WINDOWS"; cbin="$root/conan";;
+          esac
+          cfile="conan-$CONAN_VERSION-$cname"
+          curl -fsSL -o "$root/$cfile" "https://github.com/conan-io/conan/releases/download/$CONAN_VERSION/$cfile"
+          if command -v sha256sum > /dev/null; then sum=(sha256sum); else sum=(shasum -a 256); fi
+          (cd "$root" && echo "$csha  $cfile" | "${sum[@]}" -c -)
+          mkdir "$root/conan"
+          if [ "$RUNNER_OS" = Windows ]; then
+            PY=python3; command -v python3 > /dev/null || PY=python
+            "$PY" -m zipfile -e "$root/$cfile" "$root/conan"
+          else
+            tar -xzf "$root/$cfile" -C "$root/conan"
+          fi
+          echo "$cbin" >> "$GITHUB_PATH"
+          echo "CONAN_BIN_DIR=$cbin" >> "$GITHUB_ENV"
+
+      - name: Linux EGL/GLES runtime of the shared library
+        if: ${{ runner.os == 'Linux' }}
+        run: sudo apt-get install -y --no-install-recommends libegl1 libgles2 libegl-mesa0 libgl1-mesa-dri
+
+      - name: vcpkg overlay port and Conan recipe
+        shell: bash
+        env:
+          VARIANTS: ${{ matrix.variants }}
+        run: |
+          set -euo pipefail
+          read -ra variants <<< "$VARIANTS"
+          rc=0
+          for v in "${variants[@]}"; do
+            tools/release/check_vcpkg_conan.sh local pkgs "$v" || rc=1
+          done
+          exit "$rc"
+
+      - name: Linux static product (clang 18 + libc++ in ubuntu:24.04)
+        if: ${{ runner.os == 'Linux' }}
+        run: tools/release/check_vcpkg_conan_linux_static.sh local pkgs
+
+  # The one place release assets are uploaded and the one place checksums are signed release-wide.
+  # Needs every package/test job (transitively every build), so a missing platform means no sums.
+  # Per-job SHA256SUMS-<name>.txt(.asc) stay workflow artifacts (merge_sums.sh requires every directory but
+  # channels-recipes to hold exactly one, verifies it against the committed public key and requires its
+  # listed names to equal the directory's files; the step before pins the exact artifact set, so the
+  # artifact hop is covered) and are NOT release assets: users get one
+  # SHA256SUMS + SHA256SUMS.asc covering every file, with no duplicated or clobbering per-platform lists.
+  sums:
+    needs: [package, package-linux-aarch64, package-android, sign-apple, sign-windows, channels-render]
+    if: >-
+      ${{ !cancelled() && needs.package.result == 'success' && needs.package-linux-aarch64.result == 'success'
+      && needs.package-android.result == 'success' && needs.sign-apple.result == 'success'
+      && needs.sign-windows.result == 'success' && needs.channels-render.result == 'success' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      # pkg-linux-aarch64-unverified (pre-native-test) is removed below; it shares file names.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: pkg-*
+          path: parts
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: channels-recipes
+          path: parts/channels-recipes
+
+      - name: Exactly the expected artifacts are present
+        run: |
+          set -euo pipefail
+          rm -rf parts/pkg-linux-aarch64-unverified
+          want="channels-recipes pkg-android pkg-ios pkg-linux-aarch64 pkg-linux-x86_64 pkg-macos pkg-windows"
+          have="$(find parts -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+          [ "$have" = "$want" ] || { echo "::error::artifacts differ (want: $want / have: $have)"; exit 1; }
+          echo "$have"
+
+      - name: Merge (verifying every per-job signature) and sign SHA256SUMS
+        env:
+          OVERLUME_GPG_PRIVATE_KEY: ${{ secrets.OVERLUME_GPG_PRIVATE_KEY }}
+          OVERLUME_GPG_PASSPHRASE: ${{ secrets.OVERLUME_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          tools/release/test_merge_sums.sh
+          tools/release/merge_sums.sh merge packaging/keys/overlume-release.asc parts release channels-recipes
+          tools/release/sign_sums.sh release
+
+      # A fresh keyring holding only the committed public key: what a user does.
+      - name: Verify SHA256SUMS.asc and every file
+        run: |
+          set -euo pipefail
+          tools/release/merge_sums.sh verify packaging/keys/overlume-release.asc release
+          cat release/SHA256SUMS
+          du -sh release
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-sums
+          path: |
+            release/SHA256SUMS
+            release/SHA256SUMS.asc
+          if-no-files-found: error
+
+      # --clobber: the release is a draft until finalize, so a re-run of this job replaces its own assets.
+      - name: Upload release assets
+        if: ${{ env.DRY_RUN != 'true' && github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [ "$(gh release view "$GITHUB_REF_NAME" --json isDraft -q .isDraft)" = true ] \
+            || { echo "::error::$GITHUB_REF_NAME is not a draft; refusing to replace assets of a published release"; exit 1; }
+          gh release upload "$GITHUB_REF_NAME" release/* --clobber
+
+  # Publishes the draft, only when everything before it (packages, tests, sums, channels, Homebrew,
+  # SwiftPM, Maven) succeeded. Skipped on dry runs and branch runs because publish-homebrew/-swiftpm are.
+  finalize:
+    needs: [create, sums, channels, publish-homebrew, publish-swiftpm, publish-maven]
+    if: >-
+      ${{ !cancelled() && (needs.create.result == 'success' || github.event_name == 'workflow_dispatch')
+      && needs.sums.result == 'success' && needs.channels.result == 'success'
+      && needs.publish-homebrew.result == 'success' && needs.publish-swiftpm.result == 'success'
+      && needs.publish-maven.result == 'success' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # The draft must hold exactly the files SHA256SUMS lists (plus itself and its signature).
+      - name: Draft holds exactly the signed file set
+        run: |
+          set -euo pipefail
+          gh release download "$GITHUB_REF_NAME" -p SHA256SUMS -p SHA256SUMS.asc
+          gh release view "$GITHUB_REF_NAME" --json assets -q '.assets[].name' | LC_ALL=C sort > have.txt
+          { awk '{print $2}' SHA256SUMS; echo SHA256SUMS; echo SHA256SUMS.asc; } | LC_ALL=C sort > want.txt
+          diff want.txt have.txt || { echo "::error::release assets differ from SHA256SUMS (< wanted, > present)"; exit 1; }
+
+      - name: Publish the release
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false
+
+  # The github-pages environment only deploys from main, so pages.yml is dispatched on main after the release
+  # is public (it reads the newest releases' .deb/.rpm assets; a draft would be invisible to it).
+  pages:
+    needs: finalize
+    if: ${{ !cancelled() && needs.finalize.result == 'success' }}
+    permissions:
+      actions: write
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - run: gh workflow run pages.yml --ref main -f dry_run=false

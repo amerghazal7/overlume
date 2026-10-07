@@ -83,8 +83,8 @@ TEST(Ground, EpicOneEmptyWorldGoldenStillMatches) {
     overlume::CameraPose pose{{0.0, -8.0, 4.0}, {0.0, 0.0, 0.0}, 60.0};
     double ssim = overlume::testing::render_and_compare(
         r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/empty_world_dark_adas.png",
-        "/tmp/map_elements_empty_world_regression_actual.png");
-    EXPECT_GT(ssim, 0.98);
+        OVERLUME_TMP_DIR "/map_elements_empty_world_regression_actual.png");
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
     overlume::destroy_renderer(r);
 }
 
@@ -423,7 +423,7 @@ TEST(MapElements, SyntheticLaneAndCrosswalkChangePixelsVsBaseline) {
     overlume::set_scene(r, s);
     const std::vector<uint8_t> withMap = render_once(r, pose);
     overlume::testing::render_and_compare(r, pose, "/nonexistent-golden.png",
-                                          "/tmp/map_elements_synthetic_actual.png");
+                                          OVERLUME_TMP_DIR "/map_elements_synthetic_actual.png");
     overlume::destroy_renderer(r);
 
     ASSERT_EQ(baseline.size(), withMap.size());
@@ -494,10 +494,10 @@ bool RunMapGolden(const char* theme_name, const char* golden_name, const char* o
     overlume::CameraPose pose{{c.x - 8, c.y - 8, 6}, {c.x, c.y, c.z}, 60.0};
     const std::string goldenPath =
         std::string(OVERLUME_TEST_DATA_DIR) + "/tests/goldens/" + golden_name;
-    const std::string outPath = std::string("/tmp/") + out_name;
+    const std::string outPath = std::string(OVERLUME_TMP_DIR "/") + out_name;
     double ssim =
         overlume::testing::render_and_compare(r, pose, goldenPath.c_str(), outPath.c_str());
-    EXPECT_GT(ssim, 0.98);
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
     overlume::destroy_renderer(r);
     return false;
 }
@@ -553,8 +553,8 @@ TEST(MapGolden, CenterlineDotsOnState_DarkAdas) {
 
     const double dotSsim = overlume::testing::render_and_compare(
         r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/centerline_dots_dark_adas.png",
-        "/tmp/centerline_dots_dark_adas_actual.png");
-    EXPECT_GT(dotSsim, 0.98);
+        OVERLUME_TMP_DIR "/centerline_dots_dark_adas_actual.png");
+    EXPECT_GT(dotSsim, overlume::testing::kSsimMin);
     overlume::destroy_renderer(r);
 
     ASSERT_EQ(baseline.size(), withDots.size());
@@ -633,8 +633,8 @@ TEST(MapGolden, JunctionCleanupOnState_DarkAdas) {
 
     const double ssim = overlume::testing::render_and_compare(
         r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/junction_cleanup_dark_adas.png",
-        "/tmp/junction_cleanup_dark_adas_actual.png");
-    EXPECT_GT(ssim, 0.98);
+        OVERLUME_TMP_DIR "/junction_cleanup_dark_adas_actual.png");
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
     overlume::destroy_renderer(r);
 }
 

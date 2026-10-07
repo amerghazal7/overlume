@@ -10,6 +10,15 @@
 
 namespace overlume::testing {
 
+// Whole-frame SSIM floor for golden comparisons. The goldens come from desktop GL (llvmpipe);
+// the GLES back end (ANGLE/SwiftShader on the Android emulator) lands at 0.974-0.979 on the
+// same scenes, so Android builds set OVERLUME_GOLDEN_SSIM_MIN lower. Goldens are never rewritten.
+#ifdef OVERLUME_GOLDEN_SSIM_MIN
+inline constexpr double kSsimMin = OVERLUME_GOLDEN_SSIM_MIN;
+#else
+inline constexpr double kSsimMin = 0.98;
+#endif
+
 struct MapGeom {
     std::vector<overlume::Vec3> points;
     std::vector<overlume::MapElement> elements;

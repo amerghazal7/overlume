@@ -1,0 +1,16 @@
+overlume provides CMake targets:
+
+    find_package(overlume CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE overlume::overlume)
+
+For the static product (x64-windows-static-md / arm64-windows-static-md, or overlume[static] elsewhere):
+
+    find_package(overlume CONFIG REQUIRED COMPONENTS static)
+    target_link_libraries(main PRIVATE overlume::overlume_static)
+
+The Windows static product is an /MD release archive: build consumers as Release or RelWithDebInfo (a Debug /MDd
+consumer fails to link with LNK2038). The Windows shared product works in every configuration.
+
+Pass theme_assets_dir = nullptr to use the installed themes under share/overlume/themes.
+
+On Linux the shared library needs libEGL.so.1, libGLESv2.so.2 and libGL.so.1 at run time (Debian/Ubuntu: libegl1 libgles2 libgl1).

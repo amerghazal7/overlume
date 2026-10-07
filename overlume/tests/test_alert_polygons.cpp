@@ -40,8 +40,8 @@ TEST(AlertGolden, SweepPlusPredicted_DarkAdas) {
     overlume::CameraPose pose{{0, -12, 12}, {2, 2, 0}, 60.0};
     double ssim = overlume::testing::render_and_compare(
         r, pose, OVERLUME_TEST_DATA_DIR "/tests/goldens/alerts_warning_dark_adas.png",
-        "/tmp/alerts_warning_dark_adas_actual.png");
-    EXPECT_GT(ssim, 0.98);
+        OVERLUME_TMP_DIR "/alerts_warning_dark_adas_actual.png");
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
     overlume::destroy_renderer(r);
 }
 

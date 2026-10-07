@@ -1,0 +1,19 @@
+{
+  "name": "overlume",
+  "version": "@VERSION@",
+  "description": "Real-time rendering library (Filament) behind a POD-only C++ API. Prebuilt release binaries.",
+  "homepage": "https://github.com/amerghazal7/overlume",
+  "license": "Apache-2.0",
+  "supports": "!uwp & !mingw & !(windows & staticcrt) & (windows | linux | osx) & (x64 | arm64)",
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ],
+  "features": {
+    "static": {
+      "description": "Install the static product (find_package(overlume COMPONENTS static)). Always on for *-windows-static-md triplets; on Linux it needs clang++ with libc++ 18 or newer."
+    }
+  }
+}

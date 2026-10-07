@@ -29,6 +29,7 @@
 #include "renderer_internal.hpp"
 #include "renderer_quality_test_hooks.hpp"
 #include "theme.hpp"
+#include "theme_dir.hpp"
 #include "theme_transition.hpp"
 
 #include <cmath>
@@ -54,7 +55,6 @@
 
 #include <backend/DriverEnums.h>
 #include <backend/PixelBufferDescriptor.h>
-#include <backend/platforms/OpenGLPlatform.h>
 
 #include <geometry/SurfaceOrientation.h>
 
@@ -81,9 +81,6 @@
 #include "trajectory_carpet_filamat.h"
 #include "trajectory_carpet_faded_filamat.h"
 
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
-
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -92,16 +89,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-
-namespace bluegl {
-int bind();
-void unbind();
-}
-
-extern "C" const unsigned char* bluegl_glGetString(unsigned int name);
-constexpr unsigned int kGlVendor = 0x1F00;
-constexpr unsigned int kGlRenderer = 0x1F01;
-constexpr unsigned int kGlVersion = 0x1F02;
 
 #ifndef DEFAULT_THEME_ASSETS_DIR
 #error "DEFAULT_THEME_ASSETS_DIR must be defined by CMakeLists.txt"
@@ -120,131 +107,6 @@ constexpr float kFogScaleExponent = 1.159f;
 constexpr float kFogScaleReferenceIntensity = 8750.0f;
 constexpr float kFogScaleReferenceValue = 50.0f;
 }
-
-class HeadlessEglPlatform : public filament::backend::OpenGLPlatform {
-public:
-    struct EglSwapChain : public filament::backend::Platform::SwapChain {
-        EGLSurface surface = EGL_NO_SURFACE;
-    };
-
-    int getOSVersion() const noexcept override { return 0; }
-
-    filament::backend::Driver* createDriver(void*,
-                                            const DriverConfig& driverConfig) noexcept override {
-        display_ = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-        if (display_ == EGL_NO_DISPLAY) return nullptr;
-        if (eglInitialize(display_, nullptr, nullptr) != EGL_TRUE) return nullptr;
-        if (eglBindAPI(EGL_OPENGL_API) != EGL_TRUE) return nullptr;
-
-        const EGLint configAttribs[] = {
-            EGL_SURFACE_TYPE,
-            EGL_PBUFFER_BIT,
-            EGL_RENDERABLE_TYPE,
-            EGL_OPENGL_BIT,
-            EGL_RED_SIZE,
-            8,
-            EGL_GREEN_SIZE,
-            8,
-            EGL_BLUE_SIZE,
-            8,
-            EGL_ALPHA_SIZE,
-            8,
-            EGL_DEPTH_SIZE,
-            24,
-            EGL_STENCIL_SIZE,
-            8,
-            EGL_NONE,
-        };
-        EGLint numConfigs = 0;
-        if (eglChooseConfig(display_, configAttribs, &config_, 1, &numConfigs) != EGL_TRUE ||
-            numConfigs == 0) {
-            return nullptr;
-        }
-
-        const EGLint ctxAttribs[] = {
-            EGL_CONTEXT_MAJOR_VERSION,
-            4,
-            EGL_CONTEXT_MINOR_VERSION,
-            5,
-            EGL_CONTEXT_OPENGL_PROFILE_MASK,
-            EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
-            EGL_NONE,
-        };
-        context_ = eglCreateContext(display_, config_, EGL_NO_CONTEXT, ctxAttribs);
-        if (context_ == EGL_NO_CONTEXT) return nullptr;
-
-        const EGLint bootstrapAttribs[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
-        bootstrapSurface_ = eglCreatePbufferSurface(display_, config_, bootstrapAttribs);
-        if (bootstrapSurface_ == EGL_NO_SURFACE) return nullptr;
-        if (eglMakeCurrent(display_, bootstrapSurface_, bootstrapSurface_, context_) != EGL_TRUE) {
-            return nullptr;
-        }
-        if (bluegl::bind() != 0) return nullptr;
-        blueglBound_ = true;
-
-        const auto gl_str = [](unsigned int n) {
-            const unsigned char* s = bluegl_glGetString(n);
-            return s != nullptr ? reinterpret_cast<const char*>(s) : "(null)";
-        };
-        std::fprintf(stderr, "[overlume] GL_VENDOR: %s\n", gl_str(kGlVendor));
-        std::fprintf(stderr, "[overlume] GL_RENDERER: %s\n", gl_str(kGlRenderer));
-        std::fprintf(stderr, "[overlume] GL_VERSION: %s\n", gl_str(kGlVersion));
-
-        return createDefaultDriver(this, nullptr, driverConfig);
-    }
-
-    filament::backend::Platform::SwapChain* createSwapChain(void*, uint64_t) noexcept override {
-        return nullptr;
-    }
-
-    filament::backend::Platform::SwapChain* createSwapChain(uint32_t width, uint32_t height,
-                                                            uint64_t) noexcept override {
-        const EGLint pbufferAttribs[] = {
-            EGL_WIDTH, static_cast<EGLint>(width), EGL_HEIGHT, static_cast<EGLint>(height),
-            EGL_NONE,
-        };
-        EGLSurface surface = eglCreatePbufferSurface(display_, config_, pbufferAttribs);
-        if (surface == EGL_NO_SURFACE) return nullptr;
-        auto* swapChain = new EglSwapChain();
-        swapChain->surface = surface;
-        return swapChain;
-    }
-
-    void destroySwapChain(filament::backend::Platform::SwapChain* swapChain) noexcept override {
-        auto* sc = static_cast<EglSwapChain*>(swapChain);
-        if (sc->surface != EGL_NO_SURFACE) eglDestroySurface(display_, sc->surface);
-        delete sc;
-    }
-
-    bool makeCurrent(ContextType, filament::backend::Platform::SwapChain* drawSwapChain,
-                     filament::backend::Platform::SwapChain* readSwapChain) noexcept override {
-        auto* draw = static_cast<EglSwapChain*>(drawSwapChain);
-        auto* read = static_cast<EglSwapChain*>(readSwapChain);
-        return eglMakeCurrent(display_, draw->surface, read->surface, context_) == EGL_TRUE;
-    }
-
-    void commit(filament::backend::Platform::SwapChain*) noexcept override {}
-
-    void terminate() noexcept override {
-        if (display_ == EGL_NO_DISPLAY) return;
-        if (blueglBound_) {
-            bluegl::unbind();
-            blueglBound_ = false;
-        }
-        eglMakeCurrent(display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-        if (bootstrapSurface_ != EGL_NO_SURFACE) eglDestroySurface(display_, bootstrapSurface_);
-        if (context_ != EGL_NO_CONTEXT) eglDestroyContext(display_, context_);
-        eglTerminate(display_);
-        display_ = EGL_NO_DISPLAY;
-    }
-
-private:
-    EGLDisplay display_ = EGL_NO_DISPLAY;
-    EGLConfig config_ = nullptr;
-    EGLContext context_ = EGL_NO_CONTEXT;
-    EGLSurface bootstrapSurface_ = EGL_NO_SURFACE;
-    bool blueglBound_ = false;
-};
 
 namespace {
 
@@ -752,20 +614,24 @@ filament::LightManager::ShadowOptions ShadowOptionsForQuality(uint32_t quality) 
 VisualRenderer* create_renderer(const RenderConfig& config) {
     if (config.width == 0 || config.height == 0) return nullptr;
 
-    const std::string themeDir = config.theme_assets_dir ? std::string(config.theme_assets_dir)
-                                                         : std::string(DEFAULT_THEME_ASSETS_DIR);
+    const std::string themeDir = config.theme_assets_dir
+                                     ? std::string(config.theme_assets_dir)
+                                     : detail::resolve_default_theme_dir(
+                                           detail::current_module_path(), DEFAULT_THEME_ASSETS_DIR);
     const std::string themeName =
         config.initial_theme ? std::string(config.initial_theme) : std::string("dark_adas");
     std::optional<detail::Theme> loaded = detail::load_theme(themeDir, themeName);
     const detail::Theme theme = loaded ? *loaded : detail::kFallbackTheme();
 
-    auto* platform = new HeadlessEglPlatform();
-    filament::Engine* engine = filament::Engine::Builder()
-                                   .backend(filament::Engine::Backend::OPENGL)
-                                   .platform(platform)
-                                   .build();
+    detail::HeadlessPlatform platform = detail::make_headless_platform();
+    if (!platform.usable) {
+        detail::destroy_headless_platform(platform);
+        return nullptr;
+    }
+    filament::Engine* engine =
+        filament::Engine::Builder().backend(platform.backend).platform(platform.platform).build();
     if (engine == nullptr) {
-        delete platform;
+        detail::destroy_headless_platform(platform);
         return nullptr;
     }
 
@@ -1158,7 +1024,7 @@ void destroy_renderer(VisualRenderer* r) {
     if (r->renderer) r->engine->destroy(r->renderer);
     if (r->swapChain) r->engine->destroy(r->swapChain);
     filament::Engine::destroy(&r->engine);
-    delete r->platform;
+    detail::destroy_headless_platform(r->platform);
     delete r;
 }
 
@@ -1265,12 +1131,23 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
 
     if (out.width != r->width || out.height != r->height) return false;
 
-    const size_t byteCount = static_cast<size_t>(out.width) * out.height * 3;
+    const size_t pixelCount = static_cast<size_t>(out.width) * out.height;
     ReadbackState state;
+#if defined(__ANDROID__) || defined(__APPLE__)
+    // GLES only guarantees glReadPixels(GL_RGBA, GL_UNSIGNED_BYTE); GL_RGB can fail with
+    // GL_INVALID_OPERATION (the emulator does), leaving the buffer untouched; Metal reads back
+    // 4-channel textures only. Read RGBA, pack to RGB.
+    std::vector<uint8_t> rgba(pixelCount * 4);
     filament::backend::PixelBufferDescriptor buffer(
-        out.rgb, byteCount, filament::backend::PixelBufferDescriptor::PixelDataFormat::RGB,
+        rgba.data(), rgba.size(), filament::backend::PixelBufferDescriptor::PixelDataFormat::RGBA,
         filament::backend::PixelBufferDescriptor::PixelDataType::UBYTE, on_readback_complete,
         &state);
+#else
+    filament::backend::PixelBufferDescriptor buffer(
+        out.rgb, pixelCount * 3, filament::backend::PixelBufferDescriptor::PixelDataFormat::RGB,
+        filament::backend::PixelBufferDescriptor::PixelDataType::UBYTE, on_readback_complete,
+        &state);
+#endif
 
     if (r->renderer->beginFrame(r->swapChain)) {
         r->renderer->render(r->view);
@@ -1289,6 +1166,13 @@ bool render_frame(VisualRenderer* r, const CameraPose& pose, FrameView out) {
     }
     if (!state.done.load(std::memory_order_acquire)) return false;
 
+#if defined(__ANDROID__) || defined(__APPLE__)
+    for (size_t i = 0; i < pixelCount; ++i) {
+        out.rgb[i * 3 + 0] = rgba[i * 4 + 0];
+        out.rgb[i * 3 + 1] = rgba[i * 4 + 1];
+        out.rgb[i * 3 + 2] = rgba[i * 4 + 2];
+    }
+#endif
     return true;
 }
 

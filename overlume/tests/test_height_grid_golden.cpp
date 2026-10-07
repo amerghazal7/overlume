@@ -15,8 +15,8 @@
 namespace {
 
 // Renders the synthetic terrain scene under `theme` and compares to `golden_name`. The actual frame
-// lands in /tmp/<golden_name>_actual.png (the candidate a human promotes). Returns -1 without a
-// renderer (no GPU/EGL), 0.0 when the golden is missing or the frame fails.
+// lands in OVERLUME_TMP_DIR/<golden_name>_actual.png (the candidate a human promotes). Returns -1
+// without a renderer (no GPU/EGL), 0.0 when the golden is missing or the frame fails.
 double render_terrain(const char* theme, const std::string& golden_name, double yaw_rad) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, theme};
     auto* r = overlume::create_renderer(cfg);
@@ -35,7 +35,7 @@ double render_terrain(const char* theme, const std::string& golden_name, double 
 
     const std::string golden =
         std::string(OVERLUME_TEST_DATA_DIR) + "/tests/goldens/" + golden_name + ".png";
-    const std::string actual = std::string("/tmp/") + golden_name + "_actual.png";
+    const std::string actual = std::string(OVERLUME_TMP_DIR "/") + golden_name + "_actual.png";
     const overlume::CameraPose pose{{-4, -16, 10}, {16, 0, 0}, 60.0};
     const double ssim =
         overlume::testing::render_and_compare(r, pose, golden.c_str(), actual.c_str());
@@ -82,13 +82,13 @@ TEST(HeightGridTerrainScene, YawRotatesBothGridsAndKeepsHeights) {
 TEST(HeightGridGolden, TerrainDarkAdas) {
     const double ssim = render_terrain("dark_adas", "height_grid_terrain_dark_adas", 0.0);
     if (ssim < 0.0) GTEST_SKIP() << "no GPU/EGL";
-    EXPECT_GT(ssim, 0.98);
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
 }
 
 TEST(HeightGridGolden, TerrainLightClay) {
     const double ssim = render_terrain("light_clay", "height_grid_terrain_light_clay", 0.0);
     if (ssim < 0.0) GTEST_SKIP() << "no GPU/EGL";
-    EXPECT_GT(ssim, 0.98);
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
 }
 
 // Pixel coverage for yaw != 0: the grid and the ground-plane hole under it are both rotated, so a
@@ -96,5 +96,5 @@ TEST(HeightGridGolden, TerrainLightClay) {
 TEST(HeightGridGolden, TerrainYawedDarkAdas) {
     const double ssim = render_terrain("dark_adas", "height_grid_terrain_yawed_dark_adas", 0.35);
     if (ssim < 0.0) GTEST_SKIP() << "no GPU/EGL";
-    EXPECT_GT(ssim, 0.98);
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
 }

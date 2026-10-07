@@ -1,0 +1,15 @@
+cmake_minimum_required(VERSION 3.16)
+project(overlume_consumer LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+# Static product: vcpkg consumers pass -DOVERLUME_STATIC=ON, the Conan test_package sets it from the shared option.
+# No target fallback: a wrong cmake_target_name in the recipe must fail at target_link_libraries.
+option(OVERLUME_STATIC "consume the static product" OFF)
+if(OVERLUME_STATIC)
+  find_package(overlume CONFIG REQUIRED COMPONENTS static)
+  set(overlume_target overlume::overlume_static)
+else()
+  find_package(overlume CONFIG REQUIRED)
+  set(overlume_target overlume::overlume)
+endif()
+add_executable(consumer main.cpp)
+target_link_libraries(consumer PRIVATE ${overlume_target})

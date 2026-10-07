@@ -163,12 +163,18 @@ TEST(HybridSplats, EgoStillOccludesSplatsBehindIt) {
     auto behind = Column(0.0, 1.0, kYellow);
     ASSERT_TRUE(overlume::set_hybrid_splats(rig.r, behind.data(),
                                             static_cast<uint32_t>(behind.size()), 7.0f));
-    EXPECT_LE(Count(rig.Render(), Yellow), 5u);
+    const size_t hidden = Count(rig.Render(), Yellow);
 
     auto front = Column(0.0, -1.2, kCyan);
     ASSERT_TRUE(overlume::set_hybrid_splats(rig.r, front.data(),
                                             static_cast<uint32_t>(front.size()), 7.0f));
-    EXPECT_GT(Count(rig.Render(), Cyan), 50u);
+    const size_t cy = Count(rig.Render(), Cyan);
+    EXPECT_GT(cy, 50u);
+    // The same column seen from the open side covers 100 px; behind the ego only the sliver above
+    // the clay box shows (5 px on desktop GL and Android x86 SwANGLE, 6 on x86_64 SwANGLE; the
+    // extra pixel's position was not captured, point-sprite edge rasterisation is the inferred
+    // cause). The invariant is "mostly occluded", not an exact edge count.
+    EXPECT_LE(hidden * 10, cy);
 }
 
 TEST(HybridSplats, NearestSplatWins) {
@@ -247,11 +253,20 @@ TEST(HybridSplats, ClearingRestoresByteIdenticalFrames) {
     rig.Render();
     overlume::set_hybrid_splats(rig.r, nullptr, 0, 0.0f);
     const auto b = rig.Render();
-    // Frames carry temporal dither (+-5 measured), so "identical" means no pixel beyond that;
-    // a leftover splat or parameter changes pixels by far more.
+    const auto st = overlume::testing::hybrid_stencil_state_for_test(rig.r);
+    EXPECT_FALSE(st.view_stencil);
+    EXPECT_FALSE(st.bowl_ne);
+    EXPECT_FALSE(st.ground_ne);
+    EXPECT_FALSE(st.grid_ne);
+    // Frames carry temporal noise (Filament's dither, amplified through the post pass). On Mesa
+    // llvmpipe (Windows WGL) two back-to-back clean renders with no splat already differ by up to
+    // 12 on 1-3 isolated pixels (CI run 37645646387); desktop GL stays within 5. So the oracle is
+    // "no more than that noise", not "zero channel bytes beyond kDitherTol": a leftover splat or
+    // stale parameter moves thousands of pixels (the 7 px ground grid covers > 8000), so a budget
+    // of 50 channel bytes still fails on any real regression and passes the llvmpipe noise.
     size_t big = 0;
     for (size_t i = 0; i < a.size(); ++i) big += std::abs(int(a[i]) - int(b[i])) > kDitherTol;
-    EXPECT_EQ(big, 0u);
+    EXPECT_LT(big, 50u);
 }
 
 TEST(HybridSplats, HiddenWhenBowlHidden) {
@@ -269,10 +284,24 @@ TEST(HybridSplats, SizeFromThemeTokenWhenZero) {
     std::vector<PointCloudPoint> v;
     for (double x = -1.5; x <= 1.5; x += 0.75) Add(v, x, 1.5, 0.0, kGreen);
     const uint32_t n = static_cast<uint32_t>(v.size());
-    overlume::set_hybrid_splats(rig.r, v.data(), n, 0.0f);
-    const size_t themed = Count(rig.Render(), Green);
-    overlume::set_hybrid_splats(rig.r, v.data(), n, 1.0f);
-    const size_t one = Count(rig.Render(), Green);
+    const auto none = rig.Render();
+    // Splat footprint = pixels that moved off the splat-less frame. A 1 px point is resolved by the
+    // post-process AA into a blend with the bowl, so a colour predicate (Green) sees it only on
+    // some back ends (1 px on desktop GL, 0 under SwANGLE); the footprint is what scales with size.
+    auto footprint = [&](float size_px) {
+        overlume::set_hybrid_splats(rig.r, v.data(), n, size_px);
+        const auto img = rig.Render();
+        size_t px = 0;
+        for (size_t i = 0; i < img.size(); i += 3)
+            for (size_t c = 0; c < 3; ++c)
+                if (std::abs(int(img[i + c]) - int(none[i + c])) > kDitherTol) {
+                    ++px;
+                    break;
+                }
+        return px;
+    };
+    const size_t themed = footprint(0.0f);
+    const size_t one = footprint(1.0f);
     ASSERT_GT(one, 0u);
     EXPECT_GT(static_cast<double>(themed) / static_cast<double>(one), 20.0);
 }

@@ -29,7 +29,9 @@ documents that still cite pre-restructure paths).
   `tools/check_publish_leaks.sh` (default range `origin/main..HEAD`; pass the
   merge range otherwise). It scans added lines and commit messages for local
   absolute paths (home directories, agent scratch dirs) and for the internal
-  names in the untracked `.git/info/publish-denylist`. Never commit that list,
+  names in the untracked `.git/info/publish-denylist` (fixed strings in the
+  untracked `.git/info/publish-allowlist` are exempt, e.g. the public
+  maintainer address). Never commit either list,
   and never name internal repositories in tracked files: use placeholders such
   as `$WORKTREE` or `$PERCEPTION_REPO`. On a hit, rewrite the unpushed commits
   before publishing. Pushed history cannot be recalled, so never push first

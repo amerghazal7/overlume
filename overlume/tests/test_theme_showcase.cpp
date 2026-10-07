@@ -76,7 +76,7 @@ TEST(ThemeShowcase, Capture) {
     const std::string themeName = env_or("OVERLUME_SHOWCASE_THEME", "dark_adas");
     const std::string themeDir = env_or("OVERLUME_SHOWCASE_THEME_DIR", kThemeDir);
     const std::string outPath =
-        env_or("OVERLUME_SHOWCASE_OUT", "/tmp/theme_showcase_" + themeName + ".png");
+        env_or("OVERLUME_SHOWCASE_OUT", OVERLUME_TMP_DIR "/theme_showcase_" + themeName + ".png");
 
     overlume::RenderConfig cfg{kWidth, kHeight, 2, themeDir.c_str(), themeName.c_str()};
     auto* r = overlume::create_renderer(cfg);
