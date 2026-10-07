@@ -171,8 +171,9 @@ TEST(HybridSplats, EgoStillOccludesSplatsBehindIt) {
     const size_t cy = Count(rig.Render(), Cyan);
     EXPECT_GT(cy, 50u);
     // The same column seen from the open side covers 100 px; behind the ego only the sliver above
-    // the clay box shows (5 px on desktop GL, 6 under SwANGLE, where the 7 px point sprite rounds
-    // one pixel further at the box edge). The invariant is "mostly occluded", not an exact edge.
+    // the clay box shows (5 px on desktop GL and Android x86 SwANGLE, 6 on x86_64 SwANGLE; the extra
+    // pixel's position was not captured, point-sprite edge rasterisation is the inferred cause).
+    // The invariant is "mostly occluded", not an exact edge count.
     EXPECT_LE(hidden * 10, cy);
 }
 
@@ -257,12 +258,12 @@ TEST(HybridSplats, ClearingRestoresByteIdenticalFrames) {
     EXPECT_FALSE(st.bowl_ne);
     EXPECT_FALSE(st.ground_ne);
     EXPECT_FALSE(st.grid_ne);
-    // Frames carry temporal dither. Mesa llvmpipe (Windows WGL) dithers harder than desktop GL:
-    // two back-to-back clean renders already differ by up to 12 on 1-2 isolated pixels. So the
-    // oracle is "no more than dither noise", not "zero pixels beyond kDitherTol": a leftover splat
-    // or stale parameter moves thousands of pixels (the 7 px ground grid covers > 8000), so a
-    // budget of 50 isolated pixels still fails on any real regression and passes the llvmpipe
-    // noise.
+    // Frames carry temporal noise (Filament's dither, amplified through the post pass). On Mesa
+    // llvmpipe (Windows WGL) two back-to-back clean renders with no splat already differ by up to
+    // 12 on 1-3 isolated pixels (CI run 37645646387); desktop GL stays within 5. So the oracle is
+    // "no more than that noise", not "zero channel bytes beyond kDitherTol": a leftover splat or
+    // stale parameter moves thousands of pixels (the 7 px ground grid covers > 8000), so a budget
+    // of 50 channel bytes still fails on any real regression and passes the llvmpipe noise.
     size_t big = 0;
     for (size_t i = 0; i < a.size(); ++i) big += std::abs(int(a[i]) - int(b[i])) > kDitherTol;
     EXPECT_LT(big, 50u);
