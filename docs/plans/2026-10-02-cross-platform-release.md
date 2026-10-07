@@ -1103,6 +1103,35 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   package job succeeded (no partial release); a failed tag run leaves the
   release as **draft**: `create` makes it `--draft`, a final `finalize` job
   flips it to published after all publish jobs pass.
+  **Graph as built (designed before implementing):**
+
+  ```
+  create (tag push; --draft) -> package-* builds -> package/sign jobs ---+-> channels-render -> sums --+-> publish-homebrew --+
+   (linux x86_64, aarch64 build+native test, android x4 + package-android, |    (verify + merge +      |   publish-swiftpm ---+-> publish-maven
+    macos x2 + package-macos, ios x3 + package-ios + sign-apple,           |     sign SHA256SUMS,      +-> channels (3 OS) --+      |
+    windows x2 + package-windows + sign-windows)                           |     upload, tag only)                               v
+                                                                                       finalize (draft -> published) -> pages (dispatch pages.yml on main)
+  ```
+
+  - `sums` needs every package/sign job and `channels-render`, so it exists only if no platform failed. Publish
+    jobs need `sums` and `channels` (the install checks), hence never run after a failed package or test job.
+  - `publish-maven` (irreversible) goes last among publishers: it also needs `publish-homebrew` and `publish-swiftpm`
+    (`success` or `skipped`; they skip on dry runs, and cannot be skipped on a tag run where `sums` succeeded).
+  - `finalize` needs `create`, `sums`, `channels` and all three publishers to be `success` and the tag condition
+    (`publish-*` only run on a tag with push or a non-dry dispatch), so it is skipped on every dry run. It first checks
+    the draft holds exactly the files `SHA256SUMS` lists plus `SHA256SUMS(.asc)`, then `gh release edit --draft=false`.
+    Pushes to the Homebrew tap / SwiftPM tag precede publication, so their release-asset URLs go live seconds
+    later (accepted: the alternative, publishing first, makes a failed Maven publish leave a public release).
+  - Upload: package jobs no longer upload (they are `contents: read`). `sums` uploads once, `--clobber` (the release
+    is a draft, so re-running `sums` replaces its own assets) -- no per-platform clobbering or duplicate lists.
+  - Checksum files: release assets are the packages + channel zips + one merged `SHA256SUMS` + `SHA256SUMS.asc`. The
+    per-job `SHA256SUMS-<name>.txt(.asc)` remain workflow artifacts only; `merge_sums.sh` verifies each (signature
+    against the committed public key, then `sha256sum -c`) before merging, so the artifact hop is covered, and
+    the final pair is verified in a fresh keyring holding only `packaging/keys/overlume-release.asc`.
+  - `pages`: route (b) from the Task 11 prerequisites. `workflow_call` was dropped from `pages.yml`; the `pages` job
+    runs `gh workflow run pages.yml --ref main -f dry_run=false` after `finalize` (needs `actions: write`; the
+    `github-pages` environment only accepts main, and the release is public by then). Dry runs never reach it.
+  - Every action pinned by commit SHA (`# vN` kept) in all workflows; `timeout-minutes` on every job.
 - [ ] **Step 2:** Concurrency group `release-${{ github.ref }}`; every
   third-party action pinned by commit SHA; `timeout-minutes` per job.
 - [ ] **Step 3: Check** — `gh workflow run release.yml -f dry_run=true` on
