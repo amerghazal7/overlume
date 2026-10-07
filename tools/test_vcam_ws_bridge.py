@@ -632,3 +632,98 @@ def test_node_subscribes_ogm_row_without_update_topic(tmp_path):
         assert count == "1", f"expected one subscriber on the grid-only OGM topic, got {count!r}"
     finally:
         _kill(node)
+
+
+# --- rig pre-flight (tools/rig_preflight.sh) -------------------------------------------------
+# These source the helper directly on ephemeral ports: running the real launcher here would hit
+# its kill_prior_rig teardown and take down a live rig on this machine.
+
+def _preflight(snippet):
+    import subprocess
+    helper = os.path.join(os.path.dirname(__file__), "rig_preflight.sh")
+    return subprocess.run(["bash", "-c", f'source "{helper}"; {snippet}'],
+                          capture_output=True, text=True, timeout=30)
+
+
+def _free_port():
+    import socket
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def test_preflight_free_port_passes():
+    r = _preflight(f"require_port_free {_free_port()} bridge")
+    assert r.returncode == 0, r.stderr
+
+
+def test_preflight_taken_port_fails_and_names_holder():
+    import socket
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        s.listen()
+        port = s.getsockname()[1]
+        r = _preflight(f"require_port_free {port} vcam_ws_bridge.py")
+    assert r.returncode == 1
+    assert f"port {port} is already in use" in r.stderr
+    assert f":{port}" in r.stderr.split("cannot start:", 1)[1]  # the holder's socket line
+
+
+def test_preflight_wait_listening_fails_when_process_exits(tmp_path):
+    import subprocess
+    log = tmp_path / "bridge.log"
+    log.write_text("OSError: [Errno 98] address already in use\n")
+    p = subprocess.Popen(["bash", "-c", "exit 3"])
+    p.wait()
+    r = _preflight(f"wait_listening {p.pid} {_free_port()} 2 {log}")
+    assert r.returncode == 1
+    assert "exited before listening" in r.stderr
+    assert "address already in use" in r.stderr  # the log tail is surfaced
+
+
+def _listener():
+    """A child listening on an OS-chosen port (no free-port race); returns (proc, port)."""
+    import subprocess
+    import sys
+    srv = subprocess.Popen([sys.executable, "-c",
+                            "import socket, sys, time; s = socket.socket(); "
+                            "s.bind(('127.0.0.1', 0)); s.listen(); "
+                            "print(s.getsockname()[1], flush=True); time.sleep(30)"],
+                           stdout=subprocess.PIPE, text=True)
+    return srv, int(srv.stdout.readline())
+
+
+def test_preflight_wait_listening_passes_once_listening(tmp_path):
+    srv, port = _listener()
+    try:
+        r = _preflight(f"wait_listening {srv.pid} {port} 10 {tmp_path / 'x.log'}")
+        assert r.returncode == 0, r.stderr
+    finally:
+        srv.kill()
+        srv.wait()
+
+
+def test_preflight_wait_listening_ignores_a_foreign_listener(tmp_path):
+    """The port is taken by someone else while our process is alive but not listening: fail on
+    timeout instead of mistaking the foreign socket for the bridge."""
+    import subprocess
+    foreign, port = _listener()
+    ours = subprocess.Popen(["sleep", "30"])
+    try:
+        r = _preflight(f"wait_listening {ours.pid} {port} 1 {tmp_path / 'x.log'}")
+        assert r.returncode == 1
+        assert f"process {ours.pid} is not listening on :{port}" in r.stderr
+    finally:
+        for p in (foreign, ours):
+            p.kill()
+            p.wait()
+
+
+def test_launcher_runs_preflight_after_teardown_and_checks_the_bridge():
+    with open(os.path.join(os.path.dirname(__file__), "validate_visual_mode.sh")) as f:
+        script = f.read()
+    teardown = script.index("\nkill_prior_rig\n")
+    port_check = script.index('require_port_free 8765 "vcam_ws_bridge.py" || exit 1')
+    bridge = script.index('tools/vcam_ws_bridge.py" --local-mode')
+    alive = script.index('wait_listening "${BRIDGE_PID}" 8765')
+    assert teardown < port_check < bridge < alive
