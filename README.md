@@ -14,6 +14,7 @@
 [Gallery](#gallery) ·
 [Features](#features) ·
 [Quick start](#quick-start) ·
+[Install](#install) ·
 [ROS 2 node](#ros-2-node) ·
 [Architecture](#architecture) ·
 [Docs](#documentation) ·
@@ -493,7 +494,6 @@ Golden images are promoted by a human. A failing golden is a finding to investig
 
 ## Roadmap
 
-- **Installable packages.** `find_package` support, pkg-config and release assets are being built on a separate branch and are not on `main` yet. Releases currently carry notes only.
 - **Bus and cyclist models.** These classes fall back to a clay box until models ship.
 
 ## Contributing
