@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
 # Usage: check_notice_strings.sh LIB [NOTICE] — each Filament-internal third-party string must be named in NOTICE.
 set -u
 lib="${1:?usage: $0 LIB [NOTICE]}"; notice="${2:-$(dirname "$0")/../../NOTICE}"; rc=0
