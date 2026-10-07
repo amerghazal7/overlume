@@ -3,8 +3,9 @@
 # Copyright 2026 Amer Ghazal
 #
 # test_apt_repo_versions.sh -- (1) build_apt_repo.sh must index BOTH versions of a package for
-# both arches (fails if the index goes back to one version per arch); (2) the pages.yml gather
-# copy (plain `cp -t`) must refuse same-named packages from two artifact dirs (fails with `cp -n`).
+# both arches (fails if the index goes back to one version per arch); (2) pages.yml's OWN gather
+# lines (extracted from the workflow) must skip *-unverified* artifacts and refuse same-named
+# packages from two artifact dirs (fails if the workflow drifts to `cp -n` or loses the prune).
 # Uses a throwaway key; needs gpg, dpkg-deb, apt-ftparchive.
 set -euo pipefail
 bad() { echo "FAIL: $*"; exit 1; }
@@ -27,8 +28,13 @@ for a in amd64 arm64; do
   for v in 0.9.0 0.10.0; do grep -qx "Version: $v" "$p" || bad "$a index lacks overlume $v"; done
 done
 
-# gather copy: duplicates across artifact dirs must fail, not be silently skipped
-mkdir -p "$t/dl/a" "$t/dl/a-unverified" "$t/pkgs"
-echo ok > "$t/dl/a/x.deb"; echo UNVERIFIED > "$t/dl/a-unverified/x.deb"
-if (cd "$t" && find dl -name '*.deb' -print0 | xargs -0 cp -t pkgs) 2>/dev/null; then bad "duplicate names were not refused"; fi
-echo "PASS: apt index holds both versions; gather copy refuses duplicate names"
+# gather copy: run pages.yml's own find|xargs lines (fails if they drift to cp -n or lose the prune)
+gather="$(sed -n '/find dl -path/,/xargs -0 cp/p' "$here/../../.github/workflows/pages.yml")"
+[ -n "$gather" ] || bad "gather copy not found in pages.yml"
+mkdir -p "$t/g1/dl/a" "$t/g1/dl/a-unverified" "$t/g1/pkgs" "$t/g2/dl/a" "$t/g2/dl/b" "$t/g2/pkgs"
+echo ok > "$t/g1/dl/a/x.deb"; echo UNVERIFIED > "$t/g1/dl/a-unverified/x.deb"
+(cd "$t/g1" && bash -euo pipefail -c "$gather") || bad "gather copy failed on verified + unverified"
+grep -qx ok "$t/g1/pkgs/x.deb" || bad "gather copy took the unverified package"
+echo a > "$t/g2/dl/a/x.deb"; echo b > "$t/g2/dl/b/x.deb"
+if (cd "$t/g2" && bash -euo pipefail -c "$gather") 2>/dev/null; then bad "duplicate names were not refused"; fi
+echo "PASS: apt index holds both versions; pages.yml gather skips unverified and refuses duplicate names"
