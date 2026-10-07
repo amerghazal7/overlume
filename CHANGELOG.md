@@ -59,7 +59,8 @@ Cross-platform release pipeline (`docs/plans/2026-10-02-cross-platform-release.m
   tap, Swift Package Manager (`amerghazal7/overlume-swift`), Maven Central
   (`io.github.amerghazal7:overlume`), and a generated vcpkg overlay port and
   Conan recipe per release. Every release asset is covered by a GPG-signed
-  `SHA256SUMS`; `find_package(overlume)` and pkg-config work everywhere.
+  `SHA256SUMS`; `find_package(overlume)` works everywhere and pkg-config on
+  Linux and macOS.
 - `release.yml` is a draft-until-green graph: nothing becomes public until
   every platform built, tested and signed; a failed run leaves a draft.
 - `tools/release/channel_smoke.sh all RUN_ID PAGES_RUN_ID` runs every README install path that
