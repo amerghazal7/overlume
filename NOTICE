@@ -166,7 +166,7 @@ The Linux static package leaves them out (the consumer's own libc++ is used).
 Android binaries statically link the NDK r27c libc++ (c++_static, same
 license; NDK distribution, https://developer.android.com/ndk). macOS and iOS
 link the system libc++ dynamically (not redistributed). Windows ships the
-MSVC redistributable (vcruntime140*.dll, msvcp140*.dll) app-local beside
+MSVC redistributable (vcruntime140*.dll, msvcp140*.dll, concrt140.dll) app-local beside
 overlume.dll under the Microsoft Visual C++ redistributable terms.
 
 --------------------------------------------------------------------------------
@@ -191,14 +191,28 @@ in the pinned source (filament-v1.56.5-src.tar.gz, third_party/):
     libcivetweb.a in the static component's lib/overlume/deps/ (the shared
     library contains no civetweb code)
 Object code inside libfilamat.a (shipped in the static component's
-lib/overlume/deps/, not in the shared library):
+lib/overlume/deps/; in the shared library only on the macOS arm64 slice,
+see the Vulkan note below):
   glslang — BSD-3-Clause / BSD-2-Clause / MIT / Apache-2.0, plus GPL-3.0
     with the Bison exception for generated parser files
     (third_party/glslang/LICENSE.txt)
   SPIRV-Tools — Apache-2.0 (third_party/spirv-tools/LICENSE)
   SPIRV-Cross — Apache-2.0 (third_party/spirv-cross/LICENSE)
-The Windows and Apple builds use the same Filament tree (or its prebuilt
-SDK, which contains the same archives).
+Which Filament build each binary links differs (overlume/cmake/GetFilament.cmake):
+  - Linux x86_64/aarch64, Android, iOS, macOS x86_64 and Windows arm64 build
+    Filament from the pinned source with -DFILAMENT_SUPPORTS_VULKAN=OFF: no
+    Vulkan back end, no Vulkan Memory Allocator, no glslang in the shared
+    libraries (checked with nm/strings on the Linux x86_64 liboverlume.so).
+  - macOS arm64 (the arm64 slice of liboverlume.dylib) and Windows x64
+    (overlume.dll) link Filament's prebuilt SDK, which is built with the
+    Vulkan back end. Those two binaries, and the static-component deps of the
+    same platforms (bluevk, vkshaders), additionally contain:
+      Vulkan Memory Allocator (VMA) — MIT, Copyright (c) 2017-2022 Advanced
+        Micro Devices, Inc. (third_party/vkmemalloc/LICENSE.txt)
+      Vulkan headers / bluevk loader — Apache-2.0, Khronos Group
+        (libs/bluevk; SPDX header in vulkan_core.h)
+      glslang (with its Bison-exception parser), as listed above: object code
+        is inside the macOS arm64 dylib slice, not only in libfilamat.a.
 
 --------------------------------------------------------------------------------
 Noto Sans (NotoSans-Regular.ttf)

@@ -79,6 +79,19 @@ if [ "${1:-}" = all ]; then
   }
   step "README drift: strings the smoke depends on are still documented" readme_drift
 
+  # ---- README assets: every release asset / download URL the README names exists in RUN_ID's SHA256SUMS -----
+  readme_assets() {
+    local v a rc=0 sums="$rel/release-sums/SHA256SUMS"
+    v="$(sed -n 's/.*[ *]overlume-\(.*\)-linux-x86_64\.tar\.gz$/\1/p' "$sums")"
+    [ -n "$v" ] || { echo "cannot derive the version from $sums"; return 1; }
+    while read -r a; do
+      grep -qE "^[0-9a-f]{64} [ *]$a\$" "$sums" || { echo "README names $a, not an asset of run $run_id"; rc=1; }
+    done < <(grep -oE '[Oo]verlume[A-Za-z-]*-(<ver>|\$V)[A-Za-z0-9_.-]*\.(zip|exe|tar\.gz|pkg|aar|deb|rpm)' "$repo/README.md" | sed "s/<ver>/$v/; s/\\\$V/$v/" | sort -u)
+    if grep -oE 'releases/download/[^/ ]+/' "$repo/README.md" | grep -vqE '/download/v(<ver>|\$V)/$'; then echo "README download URL is not .../releases/download/v<ver>/"; rc=1; fi
+    return "$rc"
+  }
+  step "README: every named release asset and download URL matches run $run_id" readme_assets
+
   # ---- sums: SHA256SUMS.asc against the committed key, fresh keyring; then the checksums ------------------
   verify_sums() {
     export GNUPGHOME="$work/gnupg"; mkdir -m 700 "$GNUPGHOME"

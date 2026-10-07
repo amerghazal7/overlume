@@ -26,7 +26,11 @@ Cross-platform release pipeline (`docs/plans/2026-10-02-cross-platform-release.m
 - NOTICE now lists everything linked into the binaries (cesium vcpkg closure,
   LLVM libc++/libc++abi/libunwind, Filament's bundled libraries incl. cgltf,
   robin-map and the libfilamat.a-resident glslang/SPIRV-Tools/SPIRV-Cross; the
-  Linux x64 vcpkg tree was checked, other triplets are inferred).
+  Linux x64 vcpkg tree was checked, other triplets are inferred). The macOS
+  arm64 slice and Windows x64 link Filament's prebuilt Vulkan-enabled SDK, so
+  NOTICE also lists Vulkan Memory Allocator (MIT), the Vulkan headers/bluevk
+  (Apache-2.0) and glslang inside those two binaries; every other platform
+  builds Filament from source with Vulkan off.
 - Known limits: no Metal frame renders on hosted macOS runners (a one-off
   real-Mac check precedes the first tag); Apple notarisation and Windows
   Authenticode signing run only once their secrets are provisioned; the static
