@@ -171,9 +171,9 @@ TEST(HybridSplats, EgoStillOccludesSplatsBehindIt) {
     const size_t cy = Count(rig.Render(), Cyan);
     EXPECT_GT(cy, 50u);
     // The same column seen from the open side covers 100 px; behind the ego only the sliver above
-    // the clay box shows (5 px on desktop GL and Android x86 SwANGLE, 6 on x86_64 SwANGLE; the extra
-    // pixel's position was not captured, point-sprite edge rasterisation is the inferred cause).
-    // The invariant is "mostly occluded", not an exact edge count.
+    // the clay box shows (5 px on desktop GL and Android x86 SwANGLE, 6 on x86_64 SwANGLE; the
+    // extra pixel's position was not captured, point-sprite edge rasterisation is the inferred
+    // cause). The invariant is "mostly occluded", not an exact edge count.
     EXPECT_LE(hidden * 10, cy);
 }
 
