@@ -51,7 +51,7 @@ jobs:
       - name: Release workflow graph and checksum-merge self-tests
         run: |
           python -m pip install --user pyyaml
-          shellcheck tools/release/merge_sums.sh tools/release/test_merge_sums.sh tools/release/test_release_graph.sh
+          shellcheck --severity=error tools/release/merge_sums.sh tools/release/test_merge_sums.sh tools/release/test_release_graph.sh
           tools/release/test_merge_sums.sh
           tools/test_check_publish_leaks.sh
           tools/release/test_release_graph.sh
