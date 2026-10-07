@@ -39,6 +39,18 @@ Cross-platform release pipeline (`docs/plans/2026-10-02-cross-platform-release.m
   Authenticode signing run only once their secrets are provisioned; the static
   component on Linux needs clang and libc++ >= 18.
 
+Hybrid composite restore (`docs/plans/2026-10-02-hybrid-composite-restore.md`):
+
+- Fixed: hybrid mode rendered bowl-only. Lidar was a depth-tested 2 px fade
+  point row hidden by the opaque bowl, and `pointcloud_topic` defaulted empty
+  so no cloud was subscribed. Lidar is now drawn as opaque splats composited
+  over the bowl (nearest splat wins, ego-motion compensated), the default
+  topic is `/iv_points_fusion`, `splat_radius` takes effect (size 2r+1 px),
+  FREE_LOOK + stitching profile `hybrid` no longer draws the cloud twice, and
+  a missing cloud subscription raises an ERROR diagnostic.
+- Added: `set_hybrid_splats()` (free function, `kSceneVersion` unchanged),
+  theme token `hybrid_splat.size_px`, and the `hybrid` diagnostic.
+
 The Overlume open-source restructure (`docs/plans/2026-09-17-overlume-restructure.md`):
 
 - Renamed the project to **Overlume**: `mpviz`/`MPVIZ_*` identifiers,
@@ -105,16 +117,20 @@ The Overlume open-source restructure (`docs/plans/2026-09-17-overlume-restructur
 - Profile rows gain `frame_id:` (point_cloud / ogm: override a mislabelled header frame for the TF lookup) and `encoding: costmap` (ogm: decode Nav2 uint8 costs instead of treating them as malformed). New shipped profile `robot-offroad` for the real robot's topics. `validate_visual_mode.sh` gains `--static-tf` and `--rate`, and by default runs every rig process on `tools/cyclonedds_udp_large_msgs.xml` (120 MB socket buffers; `--no-dds-tuning` opts out, an existing `CYCLONEDDS_URI` wins) — with CycloneDDS defaults the six 4 MB raw cameras reached the node at 0.9 Hz instead of 3.8.
 
 - Themes gain an `ogm:` block with a colour ramp per OGM layer (`dynamic` = role `dynamic_ogm`, `geometric` = role `gradient_ogm`): a list of `{value, color, alpha}` stops over the decoded cell value 1–100. The renderer interpolates colour and alpha per cell from the stops; free (0), unknown, and values outside the ramp's range are transparent. Themes without the block keep the old ground→`alert.warning` mix. Shipped themes use light ramps on `dark_adas` and dark ramps on `light_clay`; dynamic is green in both (mid green / deep green), geometric beige / dark brown; `ogm_offroad_light_clay` golden promoted.
+- Visual mode draws the offroad terrain height map as a shaded heightfield: profile adapter `height_grid` (`encoding: height_linear` over `height_min_m`..`height_max_m`, fed by the geometric costmap node's metric `/debug_ogm_2`), coloured by the theme's `height_grid` ramp; inside its footprint it replaces the clay ground so dips stay visible. Disable with `layer_height_grids:=false`; mode 3 only. `tools/probe_height_grid.py` checks the producer live.
 
 ### Changed
 
+- `overlume/CMakeLists.txt` defaults `CMAKE_BUILD_TYPE` to Release when it is empty (top-level, single-config generators only). An empty build type had compiled the library with no `-O`, so live rigs ran `-O0` code. Existing build directories switch to Release on their next configure, which means one full rebuild. Pass `-DCMAKE_BUILD_TYPE=Debug` for an unoptimised build; ctest `build_type_is_set` guards the default. The vcpkg dependencies merged into `liboverlume.a` (spdlog, fmt, absl via cesium-native) now come from their release archives instead of falling back to DEBUG ones.
 - Streamed 3D Tiles selection now uses the real render camera as a second selection frustum next to the synthetic top-down coverage view (`StreamingEnvironmentSource::synthesize_view_and_pump()`). The synthetic view alone (256 px, 300 m up, 1.3 rad) stopped refining at ~85 m geometric error, so Google Photorealistic ground rendered as a coarse mesh metres above the detailed surface the terrain follower samples — which then lifted that coarse mesh through the road (2026-09-21 live finding). With the camera frustum (same `kStreamMaxSseErr` 48) tiles near the vehicle refine to ~1–2 m. One frustum while the camera is still at Filament's default pose, two once positioned; guarded by `EnvironmentStream.TileSelectionUsesRenderCameraAsSecondFrustum`. The terrain follower logs each sample (`terrain sample under ego: …`) through the redacting logger. `tools/validate_logger_session.sh --anchor-height-offset M` forwards `geo_anchor_height_offset_m` (this robot's receiver reads ~1.8 m above the map plane).
 - `GeoAnchor` (`overlume/include/overlume/scene.h`) gains `origin_height_m` — `kSceneVersion` 6 → 7, additive per ADR-0004 (`docs/adr/0004-scene-interface-versioning.md`). The anchor's WGS84 ellipsoid height is now a real, sampled field instead of an implicit 0.0: `GeoAnchorSolver` (`ros/src/overlume_ros`) sets it to the mean of the accepted (non-NaN) `NavSatFix::altitude` samples, and two new node params, `geo_datum_height_m` (override) and `geo_anchor_height_offset_m` (trim), tune it further (docs/status.md item 4, docs/runbooks/cesium.md section 5b).
 - `GroundGridLayer` (`overlume/include/overlume/scene.h`) gains `yaw_rad` — `kSceneVersion` 7 → 8, additive per ADR-0004. A grid published in a vehicle frame (e.g. `base_link` costmaps) now rotates with the vehicle instead of being drawn map-axis-aligned; the OGM adapter composes TF rotation with `info.origin.orientation`.
+- New `HeightGridLayer` (`overlume/include/overlume/scene.h`): a metric terrain heightfield (origin, yaw, resolution, `width_cells` x `height_cells` float heights in metres above `origin.z`, NaN = unknown). `SceneGraph` gains `height_grids` / `height_grid_count` appended at its end — `kSceneVersion` 8 → 9, additive per ADR-0004; `sizeof(SceneGraph)` 216 → 232 on LP64. `set_scene` deep-copies the height arrays like every other layer. Callers that value-initialise `SceneGraph{}` need no change; no renderer behaviour changes in this entry.
 - Ground-grid free (0) cells are now transparent and the material premultiplies alpha; previously an all-free upper layer painted an opaque ground-coloured sheet over every obstacle of the layer beneath it. `ogm_offroad_light_clay` golden promoted (0.23% drift).
 
 ### Fixed
 
+- `tools/validate_visual_mode.sh` no longer runs a rig whose vcam WS bridge could not start. A foreign process on port 8765 (e.g. a leftover `python3 -m http.server 8765`) made the bridge die with EADDRINUSE while the node and stream kept running, which looked like broken vcam orbiting. The launcher now refuses to start when 8765 is taken after its own teardown, naming the holder, and tears the rig down if the bridge process is not listening within 15 s (`tools/rig_preflight.sh`).
 - Where the dynamic and geometric OGM layers overlap, the geometric layer could paint over the dynamic one (same Filament priority, identical bounding boxes, so blended-queue order was arbitrary). OGM layers now carry explicit render priorities — geometric 0, dynamic 1 — below the ribbons, which move up to GLOBAL 2, LOCAL 3, carpet 4, BEHAVIOR 5 (same relative order). `ogm_offroad_light_clay` golden promoted.
 - OGM grids were mirrored left↔right: matc's default `flipUV : true` flipped the occupancy texture's rows, so cells at +y drew at −y (read as "rotated 180°" on the real-robot costmaps). `ground_grid.mat` now sets `flipUV : false`.
 - OGM profile rows without `update_topic` were silently never subscribed (real costmaps publish no updates topic).

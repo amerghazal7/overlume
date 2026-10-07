@@ -5,6 +5,7 @@
 
 #include "bowl_mesh.hpp"
 #include "bowl_projection.hpp"
+#include "hybrid_splats.hpp"
 #include "renderer_internal.hpp"
 #include "overlume/scene.h"
 
@@ -106,6 +107,14 @@ bowl::EgoBox ego_rig_frame_box(const VisualRenderer& r) {
 
 }
 
+mat4f ego_anchor_transform(const EgoState& ego) {
+    if (!ego.valid) return mat4f();
+    const float3 pos{static_cast<float>(ego.position.x), static_cast<float>(ego.position.y),
+                     static_cast<float>(ego.position.z)};
+    const quatf rot = quatf::fromAxisAngle(float3{0, 0, 1}, static_cast<float>(ego.heading_rad));
+    return mat4f::translation(pos) * mat4f(rot);
+}
+
 bool build_bowl(VisualRenderer& r, const BowlConfig& cfg) {
     if (r.bowl) {
         destroy_mesh(*r.engine, *r.scene, r.bowl->mesh);
@@ -202,6 +211,8 @@ bool build_bowl(VisualRenderer& r, const BowlConfig& cfg) {
     owned->instance->setParameter("exposureCompensation", cfg.exposure_compensation);
 
     r.bowl = std::move(owned);
+    r.bowlExposure = cfg.exposure_compensation;
+    apply_backdrop_stencil(r, r.hybridStencilOn);  // the fresh instance must follow the layer
     return true;
 }
 
@@ -236,14 +247,7 @@ void update_bowl(VisualRenderer& r, const EgoState& ego) {
     filament::TransformManager& tm = r.engine->getTransformManager();
     const auto inst = tm.getInstance(r.bowl->mesh.entity);
     if (!inst.isValid()) return;
-    if (!ego.valid) {
-        tm.setTransform(inst, mat4f());
-        return;
-    }
-    const float3 pos{static_cast<float>(ego.position.x), static_cast<float>(ego.position.y),
-                     static_cast<float>(ego.position.z)};
-    const quatf rot = quatf::fromAxisAngle(float3{0, 0, 1}, static_cast<float>(ego.heading_rad));
-    tm.setTransform(inst, mat4f::translation(pos) * mat4f(rot));
+    tm.setTransform(inst, ego_anchor_transform(ego));
 }
 
 }

@@ -56,6 +56,7 @@ TEST(SceneAssembly, ClearEmptiesEveryCategoryNotJustMapElements) {
     asm_.markers.push_back(overlume::GenericMarker{});
     asm_.point_clouds.push_back(overlume::PointCloud{});
     asm_.trajectory_carpets.push_back(overlume::TrajectoryCarpet{});
+    asm_.height_grids.push_back(overlume::HeightGridLayer{});
 
     asm_.clear();
 
@@ -69,6 +70,7 @@ TEST(SceneAssembly, ClearEmptiesEveryCategoryNotJustMapElements) {
     EXPECT_EQ(scene.marker_count, 0u);
     EXPECT_EQ(scene.point_cloud_count, 0u);
     EXPECT_EQ(scene.trajectory_carpet_count, 0u);
+    EXPECT_EQ(scene.height_grid_count, 0u);
 }
 
 TEST(SceneAssembly, PointCloudRowAppendsIntoScenePointClouds) {
@@ -179,6 +181,7 @@ TEST(SceneAssembly, ModeContentMaskBowlIsAllFalse) {
     EXPECT_FALSE(mask.markers);
     EXPECT_FALSE(mask.point_clouds);
     EXPECT_FALSE(mask.trajectory_carpet);
+    EXPECT_FALSE(mask.height_grids);
 }
 
 TEST(SceneAssembly, ModeContentMaskHybridAllowsOnlyPointClouds) {
@@ -191,6 +194,7 @@ TEST(SceneAssembly, ModeContentMaskHybridAllowsOnlyPointClouds) {
     EXPECT_FALSE(mask.markers);
     EXPECT_TRUE(mask.point_clouds);
     EXPECT_FALSE(mask.trajectory_carpet);
+    EXPECT_FALSE(mask.height_grids);
 }
 
 TEST(SceneAssembly, ModeContentMaskFreeLookIsAllTrue) {
@@ -203,6 +207,45 @@ TEST(SceneAssembly, ModeContentMaskFreeLookIsAllTrue) {
     EXPECT_TRUE(mask.markers);
     EXPECT_TRUE(mask.point_clouds);
     EXPECT_TRUE(mask.trajectory_carpet);
+    EXPECT_TRUE(mask.height_grids);
+}
+
+TEST(SceneAssembly, ApplyLayerGatesHeightGridsOffZeroesOnlyHeightGrids) {
+    SceneAssembly asm_;
+    asm_.height_grids.push_back(overlume::HeightGridLayer{});
+    asm_.objects.push_back(overlume::TrackedObject{});
+
+    LayerFlags flags;
+    flags.height_grids = false;
+    apply_layer_gates(asm_, flags);
+
+    overlume::SceneGraph scene{};
+    asm_.point_at(scene);
+    EXPECT_EQ(scene.height_grid_count, 0u);
+    EXPECT_EQ(scene.object_count, 1u);
+}
+
+TEST(SceneAssembly, ApplyLayerGatesHeightGridsOnLeavesItIntact) {
+    SceneAssembly asm_;
+    asm_.height_grids.push_back(overlume::HeightGridLayer{});
+
+    LayerFlags flags;
+    apply_layer_gates(asm_, flags);
+
+    overlume::SceneGraph scene{};
+    asm_.point_at(scene);
+    EXPECT_EQ(scene.height_grid_count, 1u);
+    EXPECT_EQ(scene.height_grids, asm_.height_grids.data());
+}
+
+TEST(SceneAssembly, ComposeLayerGatesHeightGridsFollowsModeAndUser) {
+    LayerFlags user;
+    EXPECT_FALSE(compose_layer_gates(user, mode_content_mask(RenderMode::BOWL)).height_grids);
+    EXPECT_FALSE(compose_layer_gates(user, mode_content_mask(RenderMode::HYBRID)).height_grids);
+    EXPECT_TRUE(compose_layer_gates(user, mode_content_mask(RenderMode::FREE_LOOK)).height_grids);
+
+    user.height_grids = false;
+    EXPECT_FALSE(compose_layer_gates(user, mode_content_mask(RenderMode::FREE_LOOK)).height_grids);
 }
 
 TEST(SceneAssembly, ComposeLayerGatesBowlMasksEverythingEvenWhenUserWantsItOn) {
@@ -328,4 +371,26 @@ TEST(SceneAssembly, RespineWithoutLocalRibbonLeavesCarpetOnItsOwnSpine) {
     EXPECT_EQ(a.trajectory_carpets[0].points, cp);
     EXPECT_EQ(a.trajectory_carpets[0].point_count, 2u);
     EXPECT_TRUE(a.respined_carpet_points.empty());
+}
+
+TEST(SceneAssembly, HeightGridsReachTheSceneGraphAndAreClearedBetweenTicks) {
+    SceneAssembly asm_;
+    const float heights[4] = {0.0f, 1.0f, 2.0f, 3.0f};
+    overlume::HeightGridLayer g{};
+    g.width_cells = 2;
+    g.height_cells = 2;
+    g.resolution_m = 0.2;
+    g.heights_m = heights;
+    asm_.height_grids.push_back(g);
+
+    overlume::SceneGraph scene{};
+    asm_.point_at(scene);
+    ASSERT_EQ(scene.height_grid_count, 1u);
+    EXPECT_EQ(scene.height_grids, asm_.height_grids.data());
+    EXPECT_EQ(scene.height_grids[0].heights_m, heights);
+
+    asm_.clear();
+    overlume::SceneGraph next{};
+    asm_.point_at(next);
+    EXPECT_EQ(next.height_grid_count, 0u);
 }

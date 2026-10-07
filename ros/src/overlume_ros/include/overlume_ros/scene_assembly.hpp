@@ -18,6 +18,7 @@ struct SceneAssembly {
     std::vector<overlume::GenericMarker> markers;
     std::vector<overlume::PointCloud> point_clouds;
     std::vector<overlume::TrajectoryCarpet> trajectory_carpets;
+    std::vector<overlume::HeightGridLayer> height_grids;
     std::vector<std::vector<overlume::PointCloudPoint>> respined_carpet_points;
 
     void clear();
@@ -36,6 +37,7 @@ struct LayerFlags {
     bool markers = true;
     bool point_clouds = true;
     bool trajectory_carpet = true;
+    bool height_grids = true;
 };
 
 void apply_layer_gates(SceneAssembly& asm_, const LayerFlags& flags);

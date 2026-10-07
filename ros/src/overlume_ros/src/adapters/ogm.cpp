@@ -2,11 +2,9 @@
 // Copyright 2026 Amer Ghazal
 
 #include "overlume_ros/adapters/ogm.hpp"
+#include "overlume_ros/adapters/grid_placement.hpp"
 
 #include <cmath>
-
-#include <tf2/LinearMath/Transform.h>
-#include <tf2/LinearMath/Vector3.h>
 
 namespace overlume::ros {
 namespace {
@@ -14,10 +12,6 @@ namespace {
 uint8_t KindFromRole(const std::string& role) {
     if (role == "gradient_ogm") return 1;
     return 0;
-}
-
-bool HasNan(const tf2::Vector3& v) {
-    return std::isnan(v.x()) || std::isnan(v.y()) || std::isnan(v.z());
 }
 
 uint8_t ConvertCell(int8_t v, bool& malformed) {
@@ -54,18 +48,16 @@ void OgmAdapter::ingest(const nav_msgs::msg::OccupancyGrid& msg, double sim_time
         return;
     }
 
-    tf2::Transform xform;
-    std_msgs::msg::Header header = msg.header;
-    if (!row_.frame_id.empty()) header.frame_id = row_.frame_id;
-    if (!tf_.lookup(header, xform)) {
-        ++stats_.dropped_no_tf;
-        return;
-    }
-    const auto& p = msg.info.origin.position;
-    const tf2::Vector3 originTf = xform * tf2::Vector3(p.x, p.y, p.z);
-    if (HasNan(originTf)) {
-        ++stats_.dropped_malformed;
-        return;
+    GridPlacement placement{};
+    switch (place_grid(msg.header, msg.info.origin, row_.frame_id, tf_, placement)) {
+        case PlacementResult::kOk:
+            break;
+        case PlacementResult::kNoTf:
+            ++stats_.dropped_no_tf;
+            return;
+        case PlacementResult::kNonFinite:
+            ++stats_.dropped_malformed;
+            return;
     }
 
     std::vector<uint8_t> next(msg.data.size());
@@ -76,12 +68,8 @@ void OgmAdapter::ingest(const nav_msgs::msg::OccupancyGrid& msg, double sim_time
     if (malformed) ++stats_.dropped_malformed;
 
     cells_ = std::move(next);
-    origin_ = {originTf.x(), originTf.y(), tf_.flatten_z() ? 0.0 : originTf.z()};
-    const auto& q = msg.info.origin.orientation;
-    const tf2::Quaternion gridInMap =
-        xform.getRotation() * tf2::Quaternion(q.x, q.y, q.z, q.w).normalized();
-    const tf2::Vector3 xAxis = tf2::Transform(gridInMap) * tf2::Vector3(1.0, 0.0, 0.0);
-    yaw_rad_ = std::atan2(xAxis.y(), xAxis.x());
+    origin_ = placement.origin;
+    yaw_rad_ = placement.yaw_rad;
     resolution_m_ = msg.info.resolution;
     width_cells_ = msg.info.width;
     height_cells_ = msg.info.height;

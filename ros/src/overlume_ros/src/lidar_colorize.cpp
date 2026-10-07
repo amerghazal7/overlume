@@ -5,30 +5,25 @@
 
 #include "bowl_projection.hpp"
 
-#include <array>
 #include <cmath>
 
 namespace overlume::ros {
 
 namespace {
-const std::array<uint8_t, 256>& srgb_to_linear_lut() {
-    static const std::array<uint8_t, 256> lut = [] {
-        std::array<uint8_t, 256> t{};
-        for (int i = 0; i < 256; ++i) {
-            const double c = i / 255.0;
-            const double lin = c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
-            t[static_cast<size_t>(i)] = static_cast<uint8_t>(std::lround(lin * 255.0));
-        }
-        return t;
-    }();
-    return lut;
+// Raw camera sRGB bytes: the hybrid splat material decodes them (set_hybrid_splats).
+uint32_t pack_rgba(uint8_t r, uint8_t g, uint8_t b) {
+    return static_cast<uint32_t>(r) | (static_cast<uint32_t>(g) << 8) |
+           (static_cast<uint32_t>(b) << 16) | (static_cast<uint32_t>(255) << 24);
+}
 }
 
-uint32_t pack_rgba(uint8_t r, uint8_t g, uint8_t b) {
-    const auto& lut = srgb_to_linear_lut();
-    return static_cast<uint32_t>(lut[r]) | (static_cast<uint32_t>(lut[g]) << 8) |
-           (static_cast<uint32_t>(lut[b]) << 16) | (static_cast<uint32_t>(255) << 24);
-}
+void CompensateCloud(std::vector<overlume::Vec3>& pts, double th, double px, double py) {
+    const double c = std::cos(th), s = std::sin(th);
+    for (auto& p : pts) {
+        const double x = p.x - px, y = p.y - py;
+        p.x = c * x + s * y;
+        p.y = -s * x + c * y;
+    }
 }
 
 std::vector<overlume::PointCloudPoint> ColorizeFromCameras(

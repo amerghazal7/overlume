@@ -84,6 +84,9 @@ Theme parse(const YAML::Node& root) {
     t.point_cloud.point_size_px =
         (pc && pc["point_size_px"]) ? pc["point_size_px"].as<float>() : 2.0f;
 
+    const YAML::Node hs = root["hybrid_splat"];
+    t.hybrid_splat.size_px = (hs && hs["size_px"]) ? hs["size_px"].as<float>() : 7.0f;
+
     const YAML::Node sun = root["sun"];
     t.sun.direction = to_float3(sun["direction"]);
     t.sun.color = to_float3(sun["color"]);
@@ -147,6 +150,29 @@ Theme parse(const YAML::Node& root) {
     t.ogm.dynamic = parse_ramp("dynamic");
     t.ogm.geometric = parse_ramp("geometric");
 
+    const YAML::Node heightGrid = root["height_grid"];
+    if (heightGrid && heightGrid["ramp"]) {
+        for (const auto& s : heightGrid["ramp"]) {
+            const float h = s["height_m"].as<float>();
+            if (!std::isfinite(h)) continue;  // .nan/.inf would break the sort in bake_height_ramp
+            t.height_grid.ramp.push_back({h, to_float3(s["color"])});
+        }
+    }
+    if (t.height_grid.ramp.empty()) {
+        t.height_grid.ramp = {{0.0f, t.palette.ground}, {2.5f, t.palette.alert.warning}};
+    }
+    t.height_grid.unknown_color = (heightGrid && heightGrid["unknown_color"])
+                                      ? to_float3(heightGrid["unknown_color"])
+                                      : t.palette.ground;
+    const float roughness =
+        (heightGrid && heightGrid["roughness"]) ? heightGrid["roughness"].as<float>() : 0.9f;
+    // std::clamp passes NaN through (every comparison is false), so guard it like ground_bias_m.
+    t.height_grid.roughness = std::isfinite(roughness) ? std::clamp(roughness, 0.0f, 1.0f) : 0.9f;
+    const float groundBias = (heightGrid && heightGrid["ground_bias_m"])
+                                 ? heightGrid["ground_bias_m"].as<float>()
+                                 : -0.05f;
+    t.height_grid.ground_bias_m = std::isfinite(groundBias) ? groundBias : -0.05f;
+
     const YAML::Node environment = root["environment"];
     const float tileRadius = (environment && environment["tile_radius_m"])
                                  ? environment["tile_radius_m"].as<float>()
@@ -184,6 +210,37 @@ Theme::OgmRamp bake_ogm_ramp(std::vector<OgmRampStop> stops) {
         ramp.alpha[v] = a.alpha + (b.alpha - a.alpha) * w;
     }
     return ramp;
+}
+
+HeightRampTable bake_height_ramp(std::vector<HeightRampStop> stops) {
+    HeightRampTable table;
+    if (stops.empty()) return table;
+    std::sort(stops.begin(), stops.end(), [](const HeightRampStop& a, const HeightRampStop& b) {
+        return a.height_m < b.height_m;
+    });
+    table.min_m = stops.front().height_m;
+    table.max_m = std::max(stops.back().height_m, table.min_m + 1e-3f);
+    const float span = table.max_m - table.min_m;
+    for (size_t k = 0; k < HeightRampTable::kEntries; ++k) {
+        const float h = table.min_m + static_cast<float>(k) /
+                                          static_cast<float>(HeightRampTable::kEntries - 1) * span;
+        size_t hi = 0;
+        while (hi < stops.size() && stops[hi].height_m < h) ++hi;
+        if (hi == 0) {
+            table.color[k] = stops.front().color;
+        } else if (hi == stops.size()) {
+            table.color[k] = stops.back().color;
+        } else {
+            // stops[hi - 1].height_m < h <= stops[hi].height_m, so the divisor is positive.
+            const HeightRampStop& a = stops[hi - 1];
+            const HeightRampStop& b = stops[hi];
+            const float w = (h - a.height_m) / (b.height_m - a.height_m);
+            table.color[k] = {a.color.r + (b.color.r - a.color.r) * w,
+                              a.color.g + (b.color.g - a.color.g) * w,
+                              a.color.b + (b.color.b - a.color.b) * w};
+        }
+    }
+    return table;
 }
 
 std::optional<Theme> load_theme(const std::string& dir, const std::string& name) {
@@ -235,6 +292,7 @@ const Theme& kFallbackTheme() {
         t.hud.accent_color = {0.12f, 0.60f, 0.45f};
         t.hud.scale = 1.0f;
         t.point_cloud.point_size_px = 2.0f;
+        t.hybrid_splat.size_px = 7.0f;
         t.sun.direction = {-0.6f, -0.2f, -0.5f};
         t.sun.color = {0.85f, 0.65f, 0.55f};
         t.sun.intensity = 350000.0f;
@@ -256,6 +314,14 @@ const Theme& kFallbackTheme() {
         t.ogm.dynamic = bake_ogm_ramp(
             {{0.0f, t.palette.ground, 1.0f}, {100.0f, t.palette.alert.warning, 1.0f}});
         t.ogm.geometric = t.ogm.dynamic;
+        t.height_grid.ramp = {{-1.0f, {0.02f, 0.10f, 0.40f}},
+                              {0.0f, {0.055f, 0.055f, 0.078f}},
+                              {0.5f, {0.06f, 0.22f, 0.05f}},
+                              {1.5f, {0.55f, 0.20f, 0.02f}},
+                              {2.5f, {0.35f, 0.04f, 0.02f}}};
+        t.height_grid.unknown_color = t.palette.ground;
+        t.height_grid.roughness = 0.9f;
+        t.height_grid.ground_bias_m = -0.05f;
         return t;
     }();
     return theme;

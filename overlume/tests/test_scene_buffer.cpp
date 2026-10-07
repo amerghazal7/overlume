@@ -4,6 +4,7 @@
 #include "scene_buffer.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -68,6 +69,108 @@ TEST(SceneBuffer, NoNewPublish_KeepsPreviousActiveScene) {
     EXPECT_DOUBLE_EQ(buf.active().sim_time_sec, 5.0);
 }
 
+TEST(SceneBuffer, HeightGrid_DeepCopySurvivesSourceMutation) {
+    overlume::detail::SceneBuffer buf;
+    std::vector<float> heights = {0.0f, 1.0f, std::nanf(""), 3.5f, -2.0f, 0.25f};
+    overlume::HeightGridLayer layer{};
+    layer.origin = {1.0, 2.0, 3.0};
+    layer.yaw_rad = 0.5;
+    layer.resolution_m = 0.25;
+    layer.width_cells = 3;
+    layer.height_cells = 2;
+    layer.heights_m = heights.data();
+    layer.last_update_sec = 7.0;
+    std::vector<overlume::HeightGridLayer> layers = {layer};
+
+    overlume::SceneGraph g{};
+    g.height_grids = layers.data();
+    g.height_grid_count = 1;
+    buf.publish(g);
+
+    // Mutate and free-reuse the caller's buffers: the published copy must not move.
+    std::fill(heights.begin(), heights.end(), 99.0f);
+    layers[0].width_cells = 1;
+    layers[0].yaw_rad = 9.0;
+
+    const overlume::SceneGraph& active = buf.active();
+    ASSERT_EQ(active.height_grid_count, 1u);
+    const overlume::HeightGridLayer& a = active.height_grids[0];
+    ASSERT_NE(a.heights_m, nullptr);
+    EXPECT_NE(a.heights_m, heights.data());
+    EXPECT_EQ(a.width_cells, 3u);
+    EXPECT_EQ(a.height_cells, 2u);
+    EXPECT_DOUBLE_EQ(a.yaw_rad, 0.5);
+    EXPECT_DOUBLE_EQ(a.resolution_m, 0.25);
+    EXPECT_DOUBLE_EQ(a.origin.z, 3.0);
+    EXPECT_DOUBLE_EQ(a.last_update_sec, 7.0);
+    EXPECT_FLOAT_EQ(a.heights_m[0], 0.0f);
+    EXPECT_FLOAT_EQ(a.heights_m[1], 1.0f);
+    EXPECT_TRUE(std::isnan(a.heights_m[2]));  // unknown cells survive the copy
+    EXPECT_FLOAT_EQ(a.heights_m[3], 3.5f);
+    EXPECT_FLOAT_EQ(a.heights_m[4], -2.0f);
+    EXPECT_FLOAT_EQ(a.heights_m[5], 0.25f);
+}
+
+TEST(SceneBuffer, HeightGrid_NullHeightsOrZeroDimsGiveEmptyCopy) {
+    overlume::detail::SceneBuffer buf;
+    float one = 1.0f;
+    overlume::HeightGridLayer null_heights{};
+    null_heights.width_cells = 4;
+    null_heights.height_cells = 4;  // heights_m == nullptr
+    overlume::HeightGridLayer zero_width{};
+    zero_width.width_cells = 0;
+    zero_width.height_cells = 4;
+    zero_width.heights_m = &one;
+    overlume::HeightGridLayer zero_height{};
+    zero_height.width_cells = 4;
+    zero_height.height_cells = 0;
+    zero_height.heights_m = &one;
+    std::vector<overlume::HeightGridLayer> layers = {null_heights, zero_width, zero_height};
+
+    overlume::SceneGraph g{};
+    g.height_grids = layers.data();
+    g.height_grid_count = static_cast<uint32_t>(layers.size());
+    buf.publish(g);
+
+    const overlume::SceneGraph& active = buf.active();
+    ASSERT_EQ(active.height_grid_count, 3u);
+    for (uint32_t i = 0; i < 3; ++i) EXPECT_EQ(active.height_grids[i].heights_m, nullptr) << i;
+}
+
+TEST(SceneBuffer, HeightGrid_RepublishReplacesAndClears) {
+    overlume::detail::SceneBuffer buf;
+    std::vector<float> heights(4, 1.0f);
+    overlume::HeightGridLayer layer{};
+    layer.width_cells = 2;
+    layer.height_cells = 2;
+    layer.heights_m = heights.data();
+    overlume::SceneGraph g{};
+    g.height_grids = &layer;
+    g.height_grid_count = 1;
+    buf.publish(g);  // first buffer
+    heights.assign(4, 2.0f);
+    buf.publish(g);  // second buffer
+    ASSERT_NE(buf.active().height_grids[0].heights_m, nullptr);
+    EXPECT_FLOAT_EQ(buf.active().height_grids[0].heights_m[0], 2.0f);
+
+    // Third publish reuses the first buffer with a null-heights layer: the view must
+    // report a null pointer and count 1 (slot reuse must not resurrect the earlier copy).
+    overlume::HeightGridLayer bare{};
+    bare.width_cells = 2;
+    bare.height_cells = 2;  // heights_m == nullptr
+    overlume::SceneGraph g3{};
+    g3.height_grids = &bare;
+    g3.height_grid_count = 1;
+    buf.publish(g3);
+    ASSERT_EQ(buf.active().height_grid_count, 1u);
+    EXPECT_EQ(buf.active().height_grids[0].heights_m, nullptr);
+
+    // And an empty scene reuses the second buffer: the count must read zero.
+    overlume::SceneGraph empty{};
+    buf.publish(empty);
+    EXPECT_EQ(buf.active().height_grid_count, 0u);
+}
+
 TEST(StalenessAlpha, FreshIsFullyOpaque) {
     EXPECT_FLOAT_EQ(overlume::detail::SceneBuffer::staleness_alpha(10.0, 10.0, 0.5, 2.0), 1.0f);
 }
@@ -81,7 +184,7 @@ TEST(StalenessAlpha, PastTimeoutIsFullyFaded) {
     EXPECT_FLOAT_EQ(overlume::detail::SceneBuffer::staleness_alpha(13.0, 10.0, 0.5, 2.0), 0.0f);
 }
 
-static_assert(overlume::kSceneVersion == 8,
+static_assert(overlume::kSceneVersion == 9,
               "bump this alongside every additive scene.h change, and update the "
               "node-side test_scene_layout.cpp mirror");
 
@@ -198,7 +301,23 @@ static_assert(offsetof(overlume::TrajectoryCarpet, point_count) == 8,
 static_assert(offsetof(overlume::TrajectoryCarpet, last_update_sec) == 16,
               "TrajectoryCarpet layout, ADR-0004 additive");
 
-static_assert(sizeof(overlume::SceneGraph) == 216, "SceneGraph layout, ADR-0004 additive");
+static_assert(sizeof(overlume::HeightGridLayer) == 64, "HeightGridLayer layout, ADR-0004 additive");
+static_assert(offsetof(overlume::HeightGridLayer, origin) == 0,
+              "HeightGridLayer layout, ADR-0004 additive");
+static_assert(offsetof(overlume::HeightGridLayer, yaw_rad) == 24,
+              "HeightGridLayer layout, ADR-0004 additive");
+static_assert(offsetof(overlume::HeightGridLayer, resolution_m) == 32,
+              "HeightGridLayer layout, ADR-0004 additive");
+static_assert(offsetof(overlume::HeightGridLayer, width_cells) == 40,
+              "HeightGridLayer layout, ADR-0004 additive");
+static_assert(offsetof(overlume::HeightGridLayer, height_cells) == 44,
+              "HeightGridLayer layout, ADR-0004 additive");
+static_assert(offsetof(overlume::HeightGridLayer, heights_m) == 48,
+              "HeightGridLayer layout, ADR-0004 additive");
+static_assert(offsetof(overlume::HeightGridLayer, last_update_sec) == 56,
+              "HeightGridLayer layout, ADR-0004 additive");
+
+static_assert(sizeof(overlume::SceneGraph) == 232, "SceneGraph layout, ADR-0004 additive");
 static_assert(offsetof(overlume::SceneGraph, sim_time_sec) == 0,
               "SceneGraph layout, ADR-0004 additive");
 static_assert(offsetof(overlume::SceneGraph, ego) == 8, "SceneGraph layout, ADR-0004 additive");
@@ -232,6 +351,10 @@ static_assert(offsetof(overlume::SceneGraph, point_cloud_count) == 192,
 static_assert(offsetof(overlume::SceneGraph, trajectory_carpets) == 200,
               "SceneGraph layout, ADR-0004 additive");
 static_assert(offsetof(overlume::SceneGraph, trajectory_carpet_count) == 208,
+              "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(overlume::SceneGraph, height_grids) == 216,
+              "SceneGraph layout, ADR-0004 additive");
+static_assert(offsetof(overlume::SceneGraph, height_grid_count) == 224,
               "SceneGraph layout, ADR-0004 additive");
 
 static_assert(sizeof(overlume::GeoAnchor) == 32, "GeoAnchor layout, ADR-0004 additive");

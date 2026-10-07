@@ -121,6 +121,7 @@ def main() -> int:
         f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
         f"ros2 run overlume_ros overlume_node --ros-args "
         f"-p out_width:=160 -p out_height:=120 -p initial_mode:=3 "
+        f"-p hybrid_enabled:=true "
         f"> {log_path} 2>&1")
     viz_proc = _popen(viz_cmd)
 
@@ -195,6 +196,20 @@ def main() -> int:
                 return 1
         print("PASS (5/5): layer_objects/layer_paths survive a BOWL->FREE_LOOK round trip "
               "unchanged.")
+
+        # 6: hybrid consumed + no cloud subscription must be LOUD (Task A). Fails if
+        # the timer_callback warning is removed.
+        if not _param_set("render_mode", "2"):
+            print("FAIL: render_mode 2 rejected for the starved-hybrid check.", file=sys.stderr)
+            return 1
+        time.sleep(1.0)
+        with open(log_path) as f:
+            log_text = f.read()
+        if "splats will not render" not in log_text or "pointcloud_topic" not in log_text:
+            print(f"FAIL: no 'hybrid: ... pointcloud_topic' starvation WARN in the log:\n"
+                  f"{log_text[-3000:]}", file=sys.stderr)
+            return 1
+        print("PASS (6/6): mode 2 without a cloud subscription warns naming pointcloud_topic.")
 
         print("PASS: overlume_node local render-mode/Surround Stitching param test passed.")
         return 0

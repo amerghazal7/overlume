@@ -209,6 +209,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     layer_markers_ = declare_parameter<bool>("layer_markers", true);
     layer_point_clouds_ = declare_parameter<bool>("layer_point_clouds", true);
     layer_trajectory_carpet_ = declare_parameter<bool>("layer_trajectory_carpet", true);
+    layer_height_grids_ = declare_parameter<bool>("layer_height_grids", true);
 
     render_mode_ = declare_parameter<int>("render_mode", initial_mode_);
     if (render_mode_ < kRenderModeBowl || render_mode_ > kRenderModeFreeLook) {
@@ -391,7 +392,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
         }
         for (int i = 0; i < 12; ++i) pointcloud_tf_[i] = static_cast<float>(pc_tf[i]);
     }
-    declare_parameter<int>("splat_radius", 2);
+    splat_radius_ = static_cast<int>(declare_parameter<int>("splat_radius", 3));
     if (hybrid_enabled_ && !pointcloud_topic_.empty()) {
         cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
             pointcloud_topic_, rclcpp::SensorDataQoS(),
@@ -429,8 +430,11 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
                                                  T[3] * x + T[4] * y + T[5] * z + T[10],
                                                  T[6] * x + T[7] * y + T[8] * z + T[11]});
                 }
+                const double stamp = rclcpp::Time(msg->header.stamp).seconds();
                 std::lock_guard<std::mutex> lk(cloud_mtx_);
                 cloud_pts_rig_.swap(pts);
+                cloud_stamp_ = stamp;
+                cloud_rx_sec_ = sim_clock_sec_;
             });
         RCLCPP_INFO(get_logger(), "hybrid rendering enabled (point cloud: %s)",
                     pointcloud_topic_.c_str());
@@ -560,6 +564,27 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     RCLCPP_INFO(get_logger(), "ogm: %zu row(s) subscribed", ogm_rows_.size());
 
     for (const auto& row : profile->rows) {
+        if (row.adapter != "height_grid") continue;
+        const auto specs = overlume::ros::subscriptions_for(row);
+        if (specs.empty()) continue;
+        const auto& gridSpec = specs[0];
+
+        auto adapter = std::make_unique<overlume::ros::HeightGridAdapter>(row, *frame_transformer_);
+        overlume::ros::HeightGridAdapter* adapter_ptr = adapter.get();
+
+        rclcpp::QoS gridQos(10);
+        if (gridSpec.best_effort) gridQos.best_effort();
+        if (gridSpec.transient_local) gridQos.transient_local();
+        height_grid_subs_.push_back(create_subscription<nav_msgs::msg::OccupancyGrid>(
+            gridSpec.topic, gridQos,
+            [this, adapter_ptr](const nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
+                adapter_ptr->ingest(*msg, sim_clock_sec_);
+            }));
+        height_grid_rows_.push_back(HeightGridRow{std::move(adapter), row.timeout_sec, row.topic});
+    }
+    RCLCPP_INFO(get_logger(), "height_grid: %zu row(s) subscribed", height_grid_rows_.size());
+
+    for (const auto& row : profile->rows) {
         if (row.adapter != "collision") continue;
         const auto specs = overlume::ros::subscriptions_for(row);
         if (specs.empty()) continue;
@@ -626,7 +651,8 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
                 RCLCPP_WARN(get_logger(),
                             "pointcloud_topic '%s' matches a profile point_cloud row -- this "
                             "node holds TWO subscriptions to it (hybrid's own cloud_sub_ plus "
-                            "this profile row's PointCloudAdapter)",
+                            "this profile row's PointCloudAdapter); the profile row is suppressed "
+                            "while hybrid consumes the cloud",
                             pointcloud_topic_.c_str());
             }
         }
@@ -784,6 +810,8 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                 layer_point_clouds_ = p.as_bool();
             else if (n == "layer_trajectory_carpet")
                 layer_trajectory_carpet_ = p.as_bool();
+            else if (n == "layer_height_grids")
+                layer_height_grids_ = p.as_bool();
             else if (n == "render_mode") {
                 const int v = static_cast<int>(p.as_int());
                 if (v < kRenderModeBowl || v > kRenderModeFreeLook) {
@@ -872,6 +900,14 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                                      "' -- previous environment source left intact";
                         RCLCPP_WARN(get_logger(), "%s", res.reason.c_str());
                     }
+                }
+            } else if (n == "splat_radius") {
+                const int v = static_cast<int>(p.as_int());
+                if (v < 0 || v > 30) {
+                    res.successful = false;
+                    res.reason = "splat_radius must be in [0, 30]";
+                } else {
+                    splat_radius_ = v;
                 }
             } else if (n == "bowl_R0") {
                 bowl_R0_ = p.as_double();
@@ -1047,6 +1083,17 @@ void OverlumeNode::timer_callback() {
         gr.adapter->fill(scene_asm_);
     }
 
+    for (auto& hgr : height_grid_rows_) {
+        if (hgr.adapter->stats().msgs == 0) continue;
+        warn_on_drop_growth(get_logger(), *get_clock(), hgr.topic, hgr.adapter->stats(),
+                            hgr.warned_malformed, hgr.warned_no_tf);
+        if (sim_clock_sec_ - hgr.adapter->stats().last_msg_sec > hgr.timeout_sec) {
+            hgr.adapter->mark_stale_tick();
+            continue;
+        }
+        hgr.adapter->fill(scene_asm_);
+    }
+
     for (auto& cr : collision_rows_) {
         if (cr.adapter->stats().msgs == 0) continue;
         warn_on_drop_growth(get_logger(), *get_clock(), cr.topic, cr.adapter->stats(),
@@ -1069,7 +1116,13 @@ void OverlumeNode::timer_callback() {
         gmr.adapter->fill(scene_asm_);
     }
 
+    bool suppressed = false;
     for (auto& pcr : point_cloud_rows_) {
+        if (hybrid_cloud_consumed() && hybrid_enabled_ && cloud_sub_ &&
+            pcr.topic == pointcloud_topic_) {
+            suppressed = true;  // hybrid draws this cloud as splats; the row would duplicate it
+            continue;
+        }
         if (pcr.adapter->stats().msgs == 0) continue;
         warn_on_drop_growth(get_logger(), *get_clock(), pcr.topic, pcr.adapter->stats(),
                             pcr.warned_malformed, pcr.warned_no_tf);
@@ -1078,6 +1131,13 @@ void OverlumeNode::timer_callback() {
             continue;
         }
         pcr.adapter->fill(scene_asm_);
+    }
+
+    if (suppressed != hybrid_row_suppressed_) {
+        hybrid_row_suppressed_ = suppressed;
+        if (suppressed)
+            RCLCPP_INFO(get_logger(), "hybrid: profile row %s suppressed",
+                        pointcloud_topic_.c_str());
     }
 
     for (auto& cr : carpet_rows_) {
@@ -1103,22 +1163,50 @@ void OverlumeNode::timer_callback() {
     overlume::ros::respine_velocity_ribbon_onto_local_path(scene_asm_);
 
     const LayerFlags user_layer_flags{
-        layer_objects_, layer_paths_,   layer_map_elements_, layer_grids_,
-        layer_alerts_,  layer_markers_, layer_point_clouds_, layer_trajectory_carpet_};
+        layer_objects_,     layer_paths_,   layer_map_elements_, layer_grids_,
+        layer_alerts_,      layer_markers_, layer_point_clouds_, layer_trajectory_carpet_,
+        layer_height_grids_};
     apply_layer_gates(scene_asm_,
                       compose_layer_gates(user_layer_flags, mode_content_mask(render_mode)));
 
     if (camera_ingest_)
         camera_ingest_->set_hybrid_enabled(hybrid_enabled_ && hybrid_cloud_consumed());
 
+    // Re-evaluated every tick, so one site covers configure and every live switch.
+    hybrid_starved_reason_ = overlume::ros::HybridStarvedReason(
+        hybrid_cloud_consumed(), hybrid_enabled_, cloud_sub_ != nullptr);
+    if (!hybrid_starved_reason_.empty()) {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                             "hybrid: render_mode=%d/profile=%s consumes a lidar cloud but %s -- "
+                             "splats will not render",
+                             render_mode_, surround_stitching_profile_.c_str(),
+                             hybrid_starved_reason_.c_str());
+    }
+
     if (render_mode == RenderMode::HYBRID) scene_asm_.point_clouds.clear();
 
-    std::vector<overlume::PointCloudPoint> hybrid_points;
     if (hybrid_cloud_consumed() && hybrid_enabled_ && camera_ingest_) {
+        std::vector<overlume::Vec3> pts;
+        double stamp = 0.0, rx = 0.0;
+        {
+            std::lock_guard<std::mutex> lk(cloud_mtx_);
+            pts = cloud_pts_rig_;
+            stamp = cloud_stamp_;
+            rx = cloud_rx_sec_;
+        }
+        // A frozen lidar must not leave stale splats (profile row timeout_sec parity).
+        if (sim_clock_sec_ - rx > 2.0) pts.clear();
+
+        double th, px, py;
+        if (camera_ingest_->cloud_motion_delta(stamp, th, px, py)) CompensateCloud(pts, th, px, py);
+
+        // Colourise through the same per-camera motion deltas the bowl shader applies.
         std::vector<overlume::CameraExtrinsics> ext;
+        camera_ingest_->fill_compensated_extrinsics(ext);
+        std::vector<overlume::CameraExtrinsics> ext_unused;
         std::vector<overlume::CameraIntrinsics> in;
         std::vector<uint32_t> cw, ch;
-        camera_ingest_->fill_bowl_intrinsics(ext, in, cw, ch);
+        camera_ingest_->fill_bowl_intrinsics(ext_unused, in, cw, ch);
         std::vector<const uint8_t*> rgb_bufs;
         camera_ingest_->fill_camera_rgb_buffers(rgb_bufs);
 
@@ -1129,42 +1217,19 @@ void OverlumeNode::timer_callback() {
         cams.cam_width = cw.data();
         cams.cam_height = ch.data();
 
-        std::vector<overlume::PointCloudPoint> colorized;
-        size_t cloud_input_count = 0;
-        {
-            std::lock_guard<std::mutex> lk(cloud_mtx_);
-            cloud_input_count = cloud_pts_rig_.size();
-            colorized = ColorizeFromCameras(cloud_pts_rig_, cams, rgb_bufs);
+        const auto colorized = ColorizeFromCameras(pts, cams, rgb_bufs);
+        if (!pts.empty()) {
+            RCLCPP_INFO_THROTTLE(
+                get_logger(), *get_clock(), 5000,
+                "hybrid: colorized %zu/%zu lidar points (%.1f%% coverage)", colorized.size(),
+                pts.size(),
+                100.0 * static_cast<double>(colorized.size()) / static_cast<double>(pts.size()));
         }
-        hybrid_points = std::move(colorized);
-        if (cloud_input_count > 0) {
-            RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 5000,
-                                 "hybrid: colorized %zu/%zu lidar points (%.1f%% coverage)",
-                                 hybrid_points.size(), cloud_input_count,
-                                 100.0 * static_cast<double>(hybrid_points.size()) /
-                                     static_cast<double>(cloud_input_count));
-        }
-
-        if (scene.ego.valid) {
-            const double c = std::cos(scene.ego.heading_rad);
-            const double s = std::sin(scene.ego.heading_rad);
-            for (auto& p : hybrid_points) {
-                const double x = p.position.x, y = p.position.y, z = p.position.z;
-                p.position.x = x * c - y * s + scene.ego.position.x;
-                p.position.y = x * s + y * c + scene.ego.position.y;
-                p.position.z = z + scene.ego.position.z;
-            }
-        } else {
-            hybrid_points.clear();
-        }
-
-        if (!hybrid_points.empty()) {
-            overlume::PointCloud row{};
-            row.points = hybrid_points.data();
-            row.point_count = static_cast<uint32_t>(hybrid_points.size());
-            row.last_update_sec = sim_clock_sec_;
-            scene_asm_.point_clouds.push_back(row);
-        }
+        // Rig-frame points: the library anchors them with the bowl's ego transform.
+        overlume::set_hybrid_splats(renderer_, colorized.data(),
+                                    static_cast<uint32_t>(colorized.size()), hybrid_splat_px());
+    } else {
+        overlume::set_hybrid_splats(renderer_, nullptr, 0, 0.0f);
     }
 
     scene_asm_.point_at(scene);
@@ -1321,8 +1386,8 @@ void OverlumeNode::timer_callback() {
 void OverlumeNode::publish_diagnostics() {
     std::vector<overlume::ros::RowStats> rows;
     rows.reserve(hd_map_rows_.size() + dynamic_objects_rows_.size() + path_rows_.size() +
-                 ogm_rows_.size() + collision_rows_.size() + generic_marker_rows_.size() +
-                 point_cloud_rows_.size() + carpet_rows_.size());
+                 ogm_rows_.size() + height_grid_rows_.size() + collision_rows_.size() +
+                 generic_marker_rows_.size() + point_cloud_rows_.size() + carpet_rows_.size());
 
     auto append_row = [&](const std::string& topic, const overlume::ros::AdapterStats& stats,
                           double timeout_sec) {
@@ -1339,6 +1404,8 @@ void OverlumeNode::publish_diagnostics() {
         append_row(dr.topic, dr.adapter->stats(), dr.timeout_sec);
     for (const auto& pr : path_rows_) append_row(pr.topic, pr.adapter->stats(), pr.timeout_sec);
     for (const auto& gr : ogm_rows_) append_row(gr.topic, gr.adapter->stats(), gr.timeout_sec);
+    for (const auto& hgr : height_grid_rows_)
+        append_row(hgr.topic, hgr.adapter->stats(), hgr.timeout_sec);
     for (const auto& cr : collision_rows_)
         append_row(cr.topic, cr.adapter->stats(), cr.timeout_sec);
     for (const auto& gmr : generic_marker_rows_)
@@ -1348,6 +1415,7 @@ void OverlumeNode::publish_diagnostics() {
     for (const auto& cr : carpet_rows_) append_row(cr.topic, cr.adapter->stats(), cr.timeout_sec);
 
     auto msg = overlume::ros::BuildDiagnostics(rows, render_ms_);
+    msg.status.push_back(overlume::ros::BuildHybridStatus(hybrid_starved_reason_));
     msg.header.stamp = now();
     pub_diagnostics_->publish(msg);
 }
@@ -1395,6 +1463,8 @@ OverlumeNode::CallbackReturn OverlumeNode::on_cleanup(const rclcpp_lifecycle::St
     ogm_grid_subs_.clear();
     ogm_update_subs_.clear();
     ogm_rows_.clear();
+    height_grid_subs_.clear();
+    height_grid_rows_.clear();
     collision_subs_.clear();
     collision_rows_.clear();
     generic_marker_subs_.clear();
@@ -1435,6 +1505,8 @@ OverlumeNode::CallbackReturn OverlumeNode::on_shutdown(const rclcpp_lifecycle::S
     ogm_grid_subs_.clear();
     ogm_update_subs_.clear();
     ogm_rows_.clear();
+    height_grid_subs_.clear();
+    height_grid_rows_.clear();
     collision_subs_.clear();
     collision_rows_.clear();
     generic_marker_subs_.clear();

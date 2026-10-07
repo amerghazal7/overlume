@@ -17,6 +17,17 @@ endif()
 
 project(overlume VERSION 0.1.0 LANGUAGES CXX)
 
+# Single-config generators leave CMAKE_BUILD_TYPE empty unless told otherwise, and an empty build
+# type compiles with no -O at all: live rigs ran an -O0 library (height-grid update frames cost
+# +9 ms p95 at -O0 vs +0.4-2.4 ms at -O3). Default to Release when this is the top-level project,
+# so a consumer embedding overlume keeps control of its own build type.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
+   AND NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type (overlume defaults an empty one to Release)"
+        FORCE)
+    message(STATUS "overlume: CMAKE_BUILD_TYPE was empty, defaulting to Release")
+endif()
+
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/include/overlume/version.h"
      _overlume_version_h_defines
      REGEX "^#define OVERLUME_VERSION_(MAJOR|MINOR|PATCH) [0-9]+$")
@@ -522,6 +533,13 @@ add_test(NAME cesium_triplet_mapping
          COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_cesium_triplets.cmake)
 set_tests_properties(cesium_triplet_mapping PROPERTIES LABELS "cpu")
 
+if(NOT CMAKE_CONFIGURATION_TYPES)
+    add_test(NAME build_type_is_set
+             COMMAND ${CMAKE_COMMAND} "-DBUILD_TYPE=${CMAKE_BUILD_TYPE}"
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/AssertBuildTypeSet.cmake)
+    set_tests_properties(build_type_is_set PROPERTIES LABELS "cpu")
+endif()
+
 add_executable(filament_link_probe smoke/filament_link_probe.cpp)
 target_include_directories(filament_link_probe PRIVATE "${FILAMENT_ROOT}/include")
 target_link_libraries(filament_link_probe PRIVATE overlume)
@@ -626,6 +644,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools")
         get_filename_component(_tool_name "${_tool_src}" NAME_WE)
         add_executable(${_tool_name} "${_tool_src}")
         target_link_libraries(${_tool_name} PRIVATE overlume ${OVERLUME_PLATFORM_LIBS})
+        if(_tool_name STREQUAL "render_hero")
+            target_include_directories(${_tool_name} PRIVATE "${STB_DIR}")
+        endif()
     endforeach()
 endif()
 

@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdint>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -490,6 +491,60 @@ GridScene make_two_layer_grids(double now) {
         s.grids.push_back(layer);
     }
 
+    return s;
+}
+
+HeightGridScene make_height_grid_terrain_scene(double now, double yaw_rad) {
+    constexpr uint32_t kW = 120, kH = 120;
+    constexpr double kRes = 0.2;
+    constexpr overlume::Vec3 kOrigin{4.0, -12.0, 0.0};
+
+    HeightGridScene s;
+    s.heights.assign(static_cast<size_t>(kW) * kH, 0.0f);
+    auto tent = [](uint32_t row, double centre, double half) {
+        return std::max(0.0, 1.0 - std::abs(static_cast<double>(row) - centre) / half);
+    };
+    for (uint32_t j = 0; j < kH; ++j) {
+        for (uint32_t i = 0; i < kW; ++i) {
+            double h = 0.0;
+            if (i >= 8 && i < 52) h = 1.2 * tent(j, 30.0, 12.0) - 0.8 * tent(j, 90.0, 12.0);
+            if (i >= 64) h = 1.5 * static_cast<double>(i - 64) / static_cast<double>(kW - 1 - 64);
+            if (i >= 24 && i < 40 && j >= 62 && j < 74) {
+                s.heights[static_cast<size_t>(j) * kW + i] =
+                    std::numeric_limits<float>::quiet_NaN();
+                continue;
+            }
+            s.heights[static_cast<size_t>(j) * kW + i] = static_cast<float>(h);
+        }
+    }
+
+    s.cost_cells.assign(static_cast<size_t>(kW) * kH, 0);
+    for (uint32_t j = 48; j < 58; ++j)
+        for (uint32_t i = 12; i < 22; ++i) s.cost_cells[static_cast<size_t>(j) * kW + i] = 100;
+    for (uint32_t j = 50; j < 54; ++j)
+        for (uint32_t i = 40; i < 48; ++i) s.cost_cells[static_cast<size_t>(j) * kW + i] = 70;
+    s.cost_cells[static_cast<size_t>(45) * kW + 30] = 90;
+
+    overlume::HeightGridLayer hg{};
+    hg.origin = kOrigin;
+    hg.yaw_rad = yaw_rad;
+    hg.resolution_m = kRes;
+    hg.width_cells = kW;
+    hg.height_cells = kH;
+    hg.heights_m = s.heights.data();
+    hg.last_update_sec = now;
+    s.height_grids.push_back(hg);
+
+    overlume::GroundGridLayer cost{};
+    cost.kind = 1;
+    cost.origin = kOrigin;
+    cost.resolution_m = kRes;
+    cost.width_cells = kW;
+    cost.height_cells = kH;
+    cost.cells = s.cost_cells.data();
+    cost.last_update_sec = now;
+    cost.yaw_rad = yaw_rad;
+    s.grids.push_back(cost);
     return s;
 }
 

@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-static_assert(overlume::kSceneVersion == 8, "node/library scene.h version drifted");
+static_assert(overlume::kSceneVersion == 9, "node/library scene.h version drifted");
 static_assert(sizeof(overlume::GroundGridLayer) == 72, "node/library scene.h version drifted");
 static_assert(offsetof(overlume::GroundGridLayer, yaw_rad) == 64,
               "node/library scene.h version drifted");
@@ -37,7 +37,7 @@ static_assert(offsetof(overlume::PointCloud, point_count) == 8,
 static_assert(offsetof(overlume::PointCloud, last_update_sec) == 16,
               "node/library scene.h version drifted");
 
-static_assert(sizeof(overlume::SceneGraph) == 216, "node/library scene.h version drifted");
+static_assert(sizeof(overlume::SceneGraph) == 232, "node/library scene.h version drifted");
 static_assert(offsetof(overlume::SceneGraph, point_clouds) == 184,
               "node/library scene.h version drifted");
 static_assert(offsetof(overlume::SceneGraph, point_cloud_count) == 192,
@@ -53,6 +53,25 @@ static_assert(offsetof(overlume::TrajectoryCarpet, last_update_sec) == 16,
 static_assert(offsetof(overlume::SceneGraph, trajectory_carpets) == 200,
               "node/library scene.h version drifted");
 static_assert(offsetof(overlume::SceneGraph, trajectory_carpet_count) == 208,
+              "node/library scene.h version drifted");
+static_assert(sizeof(overlume::HeightGridLayer) == 64, "node/library scene.h version drifted");
+static_assert(offsetof(overlume::HeightGridLayer, origin) == 0,
+              "node/library scene.h version drifted");
+static_assert(offsetof(overlume::HeightGridLayer, yaw_rad) == 24,
+              "node/library scene.h version drifted");
+static_assert(offsetof(overlume::HeightGridLayer, resolution_m) == 32,
+              "node/library scene.h version drifted");
+static_assert(offsetof(overlume::HeightGridLayer, width_cells) == 40,
+              "node/library scene.h version drifted");
+static_assert(offsetof(overlume::HeightGridLayer, height_cells) == 44,
+              "node/library scene.h version drifted");
+static_assert(offsetof(overlume::HeightGridLayer, heights_m) == 48,
+              "node/library scene.h version drifted");
+static_assert(offsetof(overlume::HeightGridLayer, last_update_sec) == 56,
+              "node/library scene.h version drifted");
+static_assert(offsetof(overlume::SceneGraph, height_grids) == 216,
+              "node/library scene.h version drifted");
+static_assert(offsetof(overlume::SceneGraph, height_grid_count) == 224,
               "node/library scene.h version drifted");
 
 static_assert(sizeof(overlume::GeoAnchor) == 32, "node/library scene.h version drifted");

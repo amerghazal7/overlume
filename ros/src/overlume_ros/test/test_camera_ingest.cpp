@@ -3,6 +3,7 @@
 
 #include "overlume_ros/camera_ingest.hpp"
 
+#include <chrono>
 #include <cmath>
 
 #include <gtest/gtest.h>
@@ -200,4 +201,58 @@ TEST(IngestState, NewestStampIsTheFrameSyncGatesTMax) {
     state.record_image_stamp(1, 10.08);
     ASSERT_TRUE(state.newest_stamp(t_max));
     EXPECT_NEAR(t_max, 10.08, 1e-9);
+}
+
+TEST(ApplyMotionDelta, IdentityIsNoOp) {
+    overlume::CameraExtrinsics e{{0, -1, 0, 1, 0, 0, 0, 0, 1}, {1.0, 2.0, 3.0}};
+    const double I[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    const auto o = overlume_test::ApplyMotionDelta(e, I);
+    for (int i = 0; i < 9; ++i) EXPECT_DOUBLE_EQ(o.R[i], e.R[i]);
+    for (int i = 0; i < 3; ++i) EXPECT_DOUBLE_EQ(o.t[i], e.t[i]);
+}
+
+TEST(ApplyMotionDelta, MatchesUpdateBowlFormula) {
+    // bowl.cpp: right/fwd' = Rd^T v ; t' = Rd^T (t - pd)
+    overlume::CameraExtrinsics e{{1, 0, 0, 0, 1, 0, 0, 0, 1}, {2.0, 0.5, 1.0}};
+    const double th = 0.3, px = 0.4, py = -0.1;
+    const double c = std::cos(th), s = std::sin(th);
+    const double d[16] = {c, -s, 0, px, s, c, 0, py, 0, 0, 1, 0, 0, 0, 0, 1};
+    const auto o = overlume_test::ApplyMotionDelta(e, d);
+    // right = (1,0,0): Rd^T right = (c, -s, 0)
+    EXPECT_NEAR(o.R[0], c, 1e-12);
+    EXPECT_NEAR(o.R[3], -s, 1e-12);
+    // t - pd = (1.6, 0.6, 1): Rd^T = (c*1.6 + s*0.6, -s*1.6 + c*0.6, 1)
+    EXPECT_NEAR(o.t[0], c * 1.6 + s * 0.6, 1e-12);
+    EXPECT_NEAR(o.t[1], -s * 1.6 + c * 0.6, 1e-12);
+    EXPECT_NEAR(o.t[2], 1.0, 1e-12);
+    const double dx[16] = {1, 0, 0, 0.5, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    EXPECT_NEAR(overlume_test::ApplyMotionDelta(e, dx).t[0], 1.5, 1e-12);
+}
+
+TEST(CloudCompDelta, MatchesRigDeltaOverTheSpan) {
+    std::deque<overlume_test::StampedTwist> tw{{9.0, 1.0, 0.2, 0.3}, {11.0, 1.0, 0.2, 0.3}};
+    double th, px, py, th2, px2, py2;
+    ASSERT_TRUE(overlume_test::cloud_comp_delta(tw, 10.0, 10.1, th, px, py));
+    ASSERT_TRUE(overlume_test::rig_delta(tw, 10.0, 10.1, th2, px2, py2));
+    EXPECT_DOUBLE_EQ(th, th2);
+    EXPECT_DOUBLE_EQ(px, px2);
+    EXPECT_DOUBLE_EQ(py, py2);
+}
+
+TEST(CloudCompDelta, SpanBoundedAndFast) {
+    std::deque<overlume_test::StampedTwist> tw{{9.0, 1.0, 0.0, 0.1}, {11.0, 1.0, 0.0, 0.1}};
+    double th, px, py;
+    const auto t0 = std::chrono::steady_clock::now();
+    EXPECT_FALSE(overlume_test::rig_delta(tw, 0.0, 1e6, th, px, py));
+    EXPECT_EQ(th, 0.0);
+    EXPECT_EQ(px, 0.0);
+    EXPECT_EQ(py, 0.0);
+    EXPECT_FALSE(overlume_test::cloud_comp_delta(tw, 10.0 - 1e6, 10.0, th, px, py));
+    EXPECT_EQ(px, 0.0);
+    const auto ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0);
+    EXPECT_LT(ms.count(), 10.0) << "unbounded rig_delta loop";
+    EXPECT_FALSE(overlume_test::cloud_comp_delta(tw, 10.0 - 0.6, 10.0, th, px, py));
+    EXPECT_TRUE(overlume_test::cloud_comp_delta(tw, 10.0 - 0.4, 10.0, th, px, py));
+    EXPECT_FALSE(overlume_test::cloud_comp_delta(tw, 0.0, 10.0, th, px, py));  // zero stamp
 }

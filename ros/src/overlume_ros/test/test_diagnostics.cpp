@@ -119,3 +119,33 @@ TEST(Diagnostics, RenderMsNodeLevelStatusCarriesTheValueVerbatim) {
     EXPECT_EQ(msg.status[0].values[0].key, "render_ms");
     EXPECT_EQ(msg.status[0].values[0].value, "7.75");
 }
+
+TEST(Diagnostics, HybridStarvedReasonTruthTable) {
+    using overlume::ros::HybridStarvedReason;
+    // (consumed, enabled, has_sub)
+    EXPECT_EQ(HybridStarvedReason(false, false, false), "");
+    EXPECT_EQ(HybridStarvedReason(false, true, false), "");
+    EXPECT_EQ(HybridStarvedReason(true, true, true), "");
+    EXPECT_NE(HybridStarvedReason(true, false, true), "");
+    EXPECT_NE(HybridStarvedReason(true, true, false), "");
+    EXPECT_NE(HybridStarvedReason(true, false, false), "");
+}
+
+TEST(Diagnostics, HybridStarvedReasonNamesTheParamToSet) {
+    using overlume::ros::HybridStarvedReason;
+    EXPECT_NE(HybridStarvedReason(true, true, false).find("pointcloud_topic"), std::string::npos);
+    EXPECT_NE(HybridStarvedReason(true, false, true).find("hybrid_enabled"), std::string::npos);
+    // disabled wins over missing subscription: the operator's first fix is the flag
+    EXPECT_NE(HybridStarvedReason(true, false, false).find("hybrid_enabled"), std::string::npos);
+}
+
+TEST(Diagnostics, BuildHybridStatusErrorAndOk) {
+    const auto bad = overlume::ros::BuildHybridStatus("pointcloud_topic is empty");
+    EXPECT_EQ(bad.name, "hybrid");
+    EXPECT_EQ(bad.level, diagnostic_msgs::msg::DiagnosticStatus::ERROR);
+    EXPECT_EQ(bad.message, "pointcloud_topic is empty");
+    const auto ok = overlume::ros::BuildHybridStatus("");
+    EXPECT_EQ(ok.name, "hybrid");
+    EXPECT_EQ(ok.level, diagnostic_msgs::msg::DiagnosticStatus::OK);
+    EXPECT_EQ(ok.message, "ok");
+}

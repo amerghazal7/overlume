@@ -109,6 +109,12 @@ kill_prior_rig() {
 }
 kill_prior_rig
 
+# After the teardown above, anything still on the bridge port is a foreign process (e.g. another
+# tool's http server): fail now instead of running a rig whose bridge cannot bind.
+# shellcheck source=tools/rig_preflight.sh
+source "${REPO_ROOT}/tools/rig_preflight.sh"
+require_port_free 8765 "vcam_ws_bridge.py" || exit 1
+
 if [[ "${LIVE}" == "1" ]]; then
     for _pass in 1 2; do
         while read -r _pid; do
@@ -296,7 +302,9 @@ echo "[launch] vcam_ws_bridge.py (log: ${LOG_DIR}/vcam_ws_bridge.log)"
 
 python3 "${REPO_ROOT}/tools/vcam_ws_bridge.py" --local-mode \
     > "${LOG_DIR}/vcam_ws_bridge.log" 2>&1 &
-track_child "$!"
+BRIDGE_PID=$!
+track_child "${BRIDGE_PID}"
+wait_listening "${BRIDGE_PID}" 8765 15 "${LOG_DIR}/vcam_ws_bridge.log" || exit 1
 
 if [[ "${NO_GUI}" != "1" && -n "${DISPLAY:-}" ]]; then
     echo "[launch] vcam_gui.py (log: ${LOG_DIR}/vcam_gui.log)"

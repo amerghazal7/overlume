@@ -8,7 +8,7 @@
 
 namespace overlume {
 
-constexpr uint32_t kSceneVersion = 8;
+constexpr uint32_t kSceneVersion = 9;
 
 struct Vec3 {
     double x, y, z;
@@ -94,6 +94,24 @@ struct GroundGridLayer {
     double yaw_rad;
 };
 
+/// A metric terrain heightfield: one height per cell, drawn as a lit 3D surface.
+/// Cell (i, j) is the cell i along the grid's +x axis and j along its +y axis; its centre
+/// sits at origin + R(yaw_rad) * ((i + 0.5) * resolution_m, (j + 0.5) * resolution_m).
+struct HeightGridLayer {
+    /// World position of the corner of cell (0, 0). origin.z is the height-zero plane.
+    Vec3 origin;
+    /// Rotation of the grid's +x axis about world +z, radians.
+    double yaw_rad;
+    /// Cell edge length, metres.
+    double resolution_m;
+    uint32_t width_cells, height_cells;
+    /// width_cells * height_cells values, row-major (row j runs along +y), metres above
+    /// origin.z. NaN marks an unknown cell. The renderer copies this array during set_scene,
+    /// so the caller keeps ownership. Null (or a zero dimension) draws nothing.
+    const float* heights_m;
+    double last_update_sec;
+};
+
 struct AlertPolygon {
     const Vec3* points;
     uint32_t point_count;
@@ -164,6 +182,8 @@ struct SceneGraph {
     uint32_t point_cloud_count;
     const TrajectoryCarpet* trajectory_carpets;
     uint32_t trajectory_carpet_count;
+    const HeightGridLayer* height_grids;
+    uint32_t height_grid_count;
 };
 
 void set_scene(VisualRenderer*, const SceneGraph& scene);
@@ -233,6 +253,15 @@ bool set_camera_motion_delta(VisualRenderer*, uint32_t cam_idx,
 bool set_camera_frame(VisualRenderer*, uint32_t cam_idx, const uint8_t* rgb, uint32_t width,
                       uint32_t height, uint64_t frame_id,
                       void (*release)(void*, size_t, void*) = nullptr, void* user = nullptr);
+
+/// Hybrid (CUDA-parity) lidar splat layer: opaque square splats composited over the bowl.
+/// Points are in RIG frame (same as BowlConfig); the library anchors them with the bowl's ego
+/// transform. Colour comes from rgba (alpha ignored). size_px <= 0 selects the theme token
+/// hybrid_splat.size_px. count == 0 or rig_points == nullptr clears the layer. Drawn only while
+/// the bowl is visible. The points are copied. Call on the render_frame thread. Returns false
+/// for a null renderer.
+bool set_hybrid_splats(VisualRenderer*, const PointCloudPoint* rig_points, uint32_t count,
+                       float size_px);
 
 bool set_environment_source(VisualRenderer*, const char* source_uri, GeoAnchor anchor);
 

@@ -704,4 +704,172 @@ TEST(Profile, ShippedRobotOffroadProfileTargetsTheRealRobotTopics) {
     EXPECT_EQ(lidar->frame_id, "seyond")
         << "the driver stamps base_link but publishes in the 180-degree-yawed lidar frame";
     EXPECT_EQ(find_row(*p, "/perception/dynamic_ogm"), nullptr);
+    const auto* terrain = find_row(*p, "/debug_ogm_2");
+    ASSERT_NE(terrain, nullptr);
+    EXPECT_EQ(terrain->adapter, "height_grid");
+    EXPECT_EQ(terrain->role, "terrain");
+    EXPECT_EQ(terrain->encoding, "height_linear");
+    EXPECT_DOUBLE_EQ(terrain->height_min_m, -2.0)
+        << "must match debug_height_encoding in the perception geometric_cost_map_config.yaml";
+    EXPECT_DOUBLE_EQ(terrain->height_max_m, 3.0);
+    EXPECT_TRUE(terrain->best_effort);
+}
+
+namespace {
+
+constexpr const char* kHeightRowYaml =
+    "  - {topic: /debug_ogm_2, type: nav_msgs/msg/OccupancyGrid, adapter: height_grid,"
+    " role: terrain, height_min_m: -2.0, height_max_m: 3.0, best_effort: true}\n";
+
+}
+
+TEST(Profile, HeightGridRowParsesWithEncodingDefaultingToHeightLinear) {
+    std::vector<std::string> errs;
+    auto p = load_profile_string(std::string("name: t\nrows:\n") + kHeightRowYaml, errs);
+    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
+    EXPECT_TRUE(errs.empty());
+    const auto& r = p->rows[0];
+    EXPECT_EQ(r.adapter, "height_grid");
+    EXPECT_EQ(r.role, "terrain");
+    EXPECT_EQ(r.encoding, "height_linear");
+    EXPECT_DOUBLE_EQ(r.height_min_m, -2.0);
+    EXPECT_DOUBLE_EQ(r.height_max_m, 3.0);
+    EXPECT_TRUE(r.best_effort);
+    const auto specs = subscriptions_for(r);
+    ASSERT_EQ(specs.size(), 1u);
+    EXPECT_EQ(specs[0].topic, "/debug_ogm_2");
+    EXPECT_EQ(specs[0].type, "nav_msgs/msg/OccupancyGrid");
+    EXPECT_TRUE(specs[0].best_effort);
+}
+
+TEST(Profile, HeightGridAcceptsHeightNormalizedAndFrameId) {
+    std::vector<std::string> errs;
+    auto p = load_profile_string(
+        "name: t\nrows:\n"
+        "  - {topic: /g, type: nav_msgs/msg/OccupancyGrid, adapter: height_grid, role: terrain,"
+        " height_min_m: -1.0, height_max_m: 4.0, encoding: height_normalized, frame_id: seyond}\n",
+        errs);
+    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
+    EXPECT_EQ(p->rows[0].encoding, "height_normalized");
+    EXPECT_EQ(p->rows[0].frame_id, "seyond");
+}
+
+TEST(Profile, HeightGridRequiresBothWindowKeys) {
+    std::vector<std::string> errs;
+    EXPECT_FALSE(
+        load_profile_string("name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
+                            " adapter: height_grid, role: terrain, height_max_m: 3.0}\n",
+                            errs)
+            .has_value());
+    ASSERT_FALSE(errs.empty());
+    EXPECT_NE(errs[0].find("height_min_m"), std::string::npos) << errs[0];
+
+    errs.clear();
+    EXPECT_FALSE(
+        load_profile_string("name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
+                            " adapter: height_grid, role: terrain, height_min_m: -2.0}\n",
+                            errs)
+            .has_value());
+    ASSERT_FALSE(errs.empty());
+    EXPECT_NE(errs[0].find("height_max_m"), std::string::npos) << errs[0];
+}
+
+TEST(Profile, HeightGridWindowMustHaveMaxAboveMin) {
+    for (const char* window :
+         {"height_min_m: 3.0, height_max_m: 3.0", "height_min_m: 3.0, height_max_m: -2.0"}) {
+        std::vector<std::string> errs;
+        EXPECT_FALSE(load_profile_string(std::string("name: t\nrows:\n  - {topic: /g,"
+                                                     " type: nav_msgs/msg/OccupancyGrid,"
+                                                     " adapter: height_grid, role: terrain, ") +
+                                             window + "}\n",
+                                         errs)
+                         .has_value())
+            << window;
+        ASSERT_FALSE(errs.empty()) << window;
+        EXPECT_NE(errs[0].find("height_max_m"), std::string::npos) << errs[0];
+    }
+}
+
+TEST(Profile, HeightWindowKeysAreRejectedOnOtherAdapters) {
+    std::vector<std::string> errs;
+    EXPECT_FALSE(
+        load_profile_string("name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
+                            " adapter: ogm, role: dynamic_ogm, height_min_m: -2.0}\n",
+                            errs)
+            .has_value());
+    ASSERT_FALSE(errs.empty());
+    EXPECT_NE(errs[0].find("height_min_m"), std::string::npos) << errs[0];
+
+    errs.clear();
+    EXPECT_FALSE(
+        load_profile_string("name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
+                            " adapter: ogm, role: dynamic_ogm, height_max_m: 3.0}\n",
+                            errs)
+            .has_value());
+    ASSERT_FALSE(errs.empty());
+    EXPECT_NE(errs[0].find("height_max_m"), std::string::npos) << errs[0];
+}
+
+TEST(Profile, HeightGridEncodingRejectsOgmValuesAndOgmRejectsHeightValues) {
+    std::vector<std::string> errs;
+    EXPECT_FALSE(load_profile_string(
+                     "name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
+                     " adapter: height_grid, role: terrain, height_min_m: -2.0, height_max_m: 3.0,"
+                     " encoding: occupancy}\n",
+                     errs)
+                     .has_value());
+    ASSERT_FALSE(errs.empty());
+    EXPECT_NE(errs[0].find("height_linear|height_normalized"), std::string::npos) << errs[0];
+
+    errs.clear();
+    EXPECT_FALSE(
+        load_profile_string("name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
+                            " adapter: ogm, role: dynamic_ogm, encoding: height_linear}\n",
+                            errs)
+            .has_value());
+    ASSERT_FALSE(errs.empty());
+    EXPECT_NE(errs[0].find("occupancy|costmap"), std::string::npos) << errs[0];
+}
+
+TEST(Profile, HeightGridRejectsUpdateTopic) {
+    std::vector<std::string> errs;
+    EXPECT_FALSE(load_profile_string(
+                     "name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
+                     " adapter: height_grid, role: terrain, height_min_m: -2.0, height_max_m: 3.0,"
+                     " update_topic: /g_updates}\n",
+                     errs)
+                     .has_value());
+    ASSERT_FALSE(errs.empty());
+    EXPECT_NE(errs[0].find("update_topic"), std::string::npos) << errs[0];
+}
+
+TEST(Profile, HeightGridRejectsWrongRoleAndWrongType) {
+    std::vector<std::string> errs;
+    EXPECT_FALSE(
+        load_profile_string(
+            "name: t\nrows:\n  - {topic: /g, type: nav_msgs/msg/OccupancyGrid,"
+            " adapter: height_grid, role: dynamic_ogm, height_min_m: -2.0, height_max_m: 3.0}\n",
+            errs)
+            .has_value());
+    errs.clear();
+    EXPECT_FALSE(
+        load_profile_string(
+            "name: t\nrows:\n  - {topic: /g, type: sensor_msgs/msg/PointCloud2,"
+            " adapter: height_grid, role: terrain, height_min_m: -2.0, height_max_m: 3.0}\n",
+            errs)
+            .has_value());
+}
+
+TEST(Profile, AtMostOneHeightGridRowPerProfile) {
+    std::vector<std::string> errs;
+    EXPECT_FALSE(
+        load_profile_string(
+            std::string("name: t\nrows:\n") + kHeightRowYaml +
+                "  - {topic: /debug_ogm_3, type: nav_msgs/msg/OccupancyGrid,"
+                " adapter: height_grid, role: terrain, height_min_m: -2.0, height_max_m: 3.0}\n",
+            errs)
+            .has_value());
+    ASSERT_FALSE(errs.empty());
+    EXPECT_NE(errs[0].find("height_grid"), std::string::npos) << errs[0];
+    EXPECT_NE(errs[0].find("at most one"), std::string::npos) << errs[0];
 }
