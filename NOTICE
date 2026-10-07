@@ -199,7 +199,9 @@ rests on the code being compiled in, not on the text being present:
   AMD FidelityFX Super Resolution 1 — MIT, "Copyright (c) 2021 Advanced
     Micro Devices, Inc. All rights reserved."
     (filament/src/materials/fsr/ffx_a.h, ffx_fsr1.h; the full MIT text is in
-    each header)
+    each header). ffx_a.h (line 27) carries a second MIT notice,
+    "Copyright (c) 2014 Michal Drobot (for concepts used in \"FLOAT
+    APPROXIMATIONS\")."
   FXAA 3.11 — "COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS
     RESERVED." with the as-is/no-warranty notice, modified in the G3D
     version, "Copyright 2000-2018, Morgan McGuire ... Available under the BSD
