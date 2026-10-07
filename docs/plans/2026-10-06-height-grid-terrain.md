@@ -14,17 +14,17 @@
 
 | Task | State | Commit |
 |---|---|---|
-| 1 Public scene API and deep copy | done | `c577173` |
-| 2 Theme tokens | done | `452e550`; ramps retuned in `c1f84ed` after the golden review |
-| 3 Heightfield renderer | done | `30a591f` |
-| 4 Ground replacement (deviation: `DiscardReveals*` threshold 10 -> 5; measured ~9.5 with the hole, ~0.5 reverted, light_clay quality 1; a theme change pushing it toward 5 is a signal, not a flake) | done | `951795d` |
-| 5 Grid placement helper | done | `d04bddd` |
-| 6 Profile keys, adapter, SceneAssembly | done | `50e474f` |
-| 7 Node wiring, layer flag, offroad profile | done | `d4f8fd3` |
-| 8 Perception encoder and live probe | done | `873bf8a` (probe; perception edits uncommitted in the perception repo) |
-| 9 Goldens | done (promoted by the user, v2 ramps) | `a293191` |
-| 10 Docs, status and live acceptance | done (see Live acceptance results) | `f49f362` |
-| Follow-up: GUI `height_grids` switch (closes the Task 7 gap: `LAYER_NAMES` in `tools/vcam_gui.py` / `tools/vcam_ws_bridge.py` lacked it, so the terrain toggled only via `ros2 param set`) | done | the `feat(gui)` commit after `f49f362` |
+| 1 Public scene API and deep copy | done | `5647382` |
+| 2 Theme tokens | done | `2973c5e`; ramps retuned in `02ab068` after the golden review |
+| 3 Heightfield renderer | done | `5a07aa5` |
+| 4 Ground replacement (deviation: `DiscardReveals*` threshold 10 -> 5; measured ~9.5 with the hole, ~0.5 reverted, light_clay quality 1; a theme change pushing it toward 5 is a signal, not a flake) | done | `6b8bef6` |
+| 5 Grid placement helper | done | `c26677b` |
+| 6 Profile keys, adapter, SceneAssembly | done | `440240c` |
+| 7 Node wiring, layer flag, offroad profile | done | `f2d357f` |
+| 8 Perception encoder and live probe | done | `dda7d10` (probe; perception edits uncommitted in the perception repo) |
+| 9 Goldens | done (promoted by the user, v2 ramps) | `d625323` |
+| 10 Docs, status and live acceptance | done (see Live acceptance results) | `1f49b35` |
+| Follow-up: GUI `height_grids` switch (closes the Task 7 gap: `LAYER_NAMES` in `tools/vcam_gui.py` / `tools/vcam_ws_bridge.py` lacked it, so the terrain toggled only via `ros2 param set`) | done | the `feat(gui)` commit after `1f49b35` |
 
 ### Live acceptance results (2026-10-06, CARLA offroad stack, RTX 3090)
 
