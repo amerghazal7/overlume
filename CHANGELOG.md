@@ -24,7 +24,9 @@ Cross-platform release pipeline (`docs/plans/2026-10-02-cross-platform-release.m
   works on Linux against a dry run's artifacts; `docs/runbooks/release.md`
   documents cutting, repairing and rotating keys for a release.
 - NOTICE now lists everything linked into the binaries (cesium vcpkg closure,
-  LLVM libc++/libc++abi/libunwind, Filament's bundled libraries).
+  LLVM libc++/libc++abi/libunwind, Filament's bundled libraries incl. cgltf,
+  robin-map and the libfilamat.a-resident glslang/SPIRV-Tools/SPIRV-Cross; the
+  Linux x64 vcpkg tree was checked, other triplets are inferred).
 - Known limits: no Metal frame renders on hosted macOS runners (a one-off
   real-Mac check precedes the first tag); Apple notarisation and Windows
   Authenticode signing run only once their secrets are provisioned; the static

@@ -12,8 +12,12 @@ every platform has built, tested and signed: the release is created as a
 **draft**, the publishers (Homebrew tap, SwiftPM repo, Maven Central) run only
 after the merged, signed `SHA256SUMS` exists, and a final `finalize` job flips
 the draft to published and dispatches `pages.yml` on `main` (apt/yum repos and
-API docs). Any failure before `finalize` leaves a draft and the Linux/Windows/
-Android/Apple channels untouched.
+API docs). A failure up to and including `sums`/`channels` leaves everything
+untouched (a draft only). Later the order matters: `publish-homebrew` and
+`publish-swiftpm` run in parallel after `sums`, `publish-maven` after both, and
+`finalize` after all three, so a failure in `publish-maven` or in `finalize`'s
+asset check leaves the tap formula and the SwiftPM tag already pushed while their
+asset URLs still 404 (the release is a draft); see "Repairing a failed run".
 
 ## Prerequisites (one-off)
 
@@ -28,15 +32,24 @@ Android/Apple channels untouched.
 
 ## Cutting a release
 
-1. **Rehearse.** On the work branch (or `main`), run a full dry run and, once,
-   the pages dry run, then smoke the channels locally against them:
+1. **Rehearse.** On the work branch (or `main`), run a full dry run and wait for
+   it to succeed; then run the pages dry run *on that run's packages* (without
+   `run_id` pages.yml reads published releases, which fails before the first
+   packaged release and later builds the repos from the previous release), and
+   smoke the channels locally:
 
    ```bash
    gh workflow run release.yml -R amerghazal7/overlume --ref <branch> -f dry_run=true
-   gh workflow run pages.yml   -R amerghazal7/overlume --ref <branch> -f dry_run=true
-   gh run list -R amerghazal7/overlume --limit 4            # note both run ids, wait for success
+   gh run list -R amerghazal7/overlume --workflow release.yml --limit 1   # note RELEASE_RUN_ID, wait for success
+   gh workflow run pages.yml -R amerghazal7/overlume --ref <branch> -f dry_run=true -f run_id=<RELEASE_RUN_ID>
+   gh run list -R amerghazal7/overlume --workflow pages.yml --limit 1     # PAGES_RUN_ID, wait for success
    tools/release/channel_smoke.sh all <RELEASE_RUN_ID> <PAGES_RUN_ID>
    ```
+
+   `channel_smoke.sh all` fails if the pages site's packages are not byte-identical
+   to `<RELEASE_RUN_ID>`'s, and runs the README's apt and dnf blocks themselves
+   (a wrong documented command fails the smoke). Without `PAGES_RUN_ID` it uses
+   the newest successful `workflow_dispatch` pages run on the current branch.
 
    A dry run builds, tests and signs everything with the real key, validates
    and drops the Maven bundle, publishes nothing and skips `create`,
@@ -109,6 +122,11 @@ Android/Apple channels untouched.
 - **A published release that is wrong:** do not edit assets. Delete the tag and
   release only if nothing has consumed them (Maven Central versions can never
   be removed), otherwise ship `X.Y.Z+1`.
+- **`publish-maven` or `finalize` failed after the Homebrew/SwiftPM pushes:**
+  re-run the failed jobs (`gh run rerun <run-id> --failed`) until `finalize`
+  publishes; the publishers are idempotent. If the cause needs a code change,
+  the version is burned (the SwiftPM tag is write-once and `sign-apple` refuses
+  to rebuild a pinned version): ship `X.Y.Z+1` and revert the tap formula.
 - **Draft stuck, publishers skipped:** that is the design after a package
   failure; fix, rerun failed jobs, `finalize` then runs.
 
@@ -127,7 +145,7 @@ One GPG key signs rpm packages, the apt/yum repositories, Maven artifacts and
    and `merge_sums.sh` read the committed key, not a hard-coded fingerprint.)
 4. Upload the public key to `keyserver.ubuntu.com` and `keys.openpgp.org`
    (confirm the emailed link), re-check Prerequisites above.
-5. Dry-run release + pages, then `channel_smoke.sh all`. `pages.yml` fails
+5. Dry-run release, then pages with `-f run_id=<that run>` (step 1 of "Cutting a release"), then `channel_smoke.sh all`. `pages.yml` fails
    unless the served key equals `OVERLUME_GPG_FINGERPRINT`.
 6. Publish the new release; `pages` re-signs the apt/yum repos with the new key
    and serves the new `overlume-release.asc`. Existing users re-import it:
@@ -179,10 +197,16 @@ render and the iOS simulator render are skipped with `::warning::`; open item
 x86_64 or Rosetta), from a checkout of the release commit:
 
 ```bash
-# download the dry run's pkg-macos artifact (overlume-X.Y.Z-macos-universal.tar.gz) and unpack it to <prefix>, or build per README
-ctest --test-dir overlume/build -L gpu --output-on-failure   # includes ReadbackOrientation.Row0IsTopOfImage (build natively on the Mac)
-tools/apple/smoke_macos.sh <prefix> arm64           # renders a frame, expects PASS
+tools/apple/build_macos_universal.sh build arm64              # what release.yml runs; writes overlume/build-macos-arm64 and overlume/stage-macos-arm64
+ctest --test-dir overlume/build-macos-arm64 -L gpu --output-on-failure   # includes ReadbackOrientation.Row0IsTopOfImage
+ctest --test-dir overlume/build-macos-arm64 -R '^HelloFrame\.RendersDistinctSkyAndGround$' -V
+tools/apple/smoke_macos.sh overlume/stage-macos-arm64 arm64   # or the unpacked pkg-macos tarball
 ```
+
+Pass rule: the smoke must print `PASS: macOS smoke (arm64, render)`. These all
+exit 0 on a Mac where Metal cannot render, so any of these means the check
+FAILED: a `nogpu` result, a `::warning::no Metal device` line, a gpu test
+reported "Not Run (Skipped)", or the HelloFrame run printing "No GPU/EGL device".
 
 Record the result (date, hardware, macOS version) in `docs/status.md` item 13
 and close it. Do not tag before this is done.

@@ -1226,14 +1226,15 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
 ### Task 12 results
 
 - NOTICE (03ad059): the cesium vcpkg closure of 32 ports with versions + SPDX licenses read from the Android install tree's
-  `share/<port>/vcpkg.spdx.json` and `copyright` files (the only vcpkg install trees present locally; Linux/Apple/Windows triplets are
+  `share/<port>/vcpkg.spdx.json` and `copyright` files (plus the Linux x64 tree under ~/.ezvcpkg/.../x64-linux-clang-libcxx, same 32 ports; aarch64/Apple/Windows triplets are
   the same manifest at the same baseline and are marked as inferred, `ms-gsl` as manifest-only), LLVM 18.1.8 libc++/libc++abi/libunwind
   (Apache-2.0 WITH LLVM-exception, against the 18.1.8 LICENSE.TXT), NDK libc++ and MSVC redistributable notes, and Filament's bundled
   third_party libraries (basisu, draco, meshoptimizer, mikktspace, smol-v, stb, zlib) from the pinned source tarball's license files.
 - README "Install" (one block per channel) and `docs/runbooks/release.md` (version bump -> CHANGELOG -> tag -> watch -> verify; rehearsal;
   rerun; key rotation; Apple/Windows secrets; the real-Mac Metal check; Maven/keyserver prerequisites; merge checklist).
-- `tools/release/channel_smoke.sh all RUN_ID [PAGES_RUN_ID]` against release run 37589684342 + pages run 37492062671: **ALL PASS** in
-  3m34s warm (sums + signature against the committed key; tar.gz prefix consumer on ubuntu:22.04; apt+dnf on ubuntu 22.04, debian 12,
+- `tools/release/channel_smoke.sh all RUN_ID [PAGES_RUN_ID]` against release run 37589684342 + pages run 37616385042 (dispatched with `run_id=37589684342`; the smoke cmp's every .deb/.rpm against
+  the site and runs the README's own apt/dnf blocks; the earlier 37492062671 had been built from run 37468626796's packages): **ALL PASS** in
+  3m57s warm (sums + signature against the committed key; tar.gz prefix consumer on ubuntu:22.04; apt+dnf on ubuntu 22.04, debian 12,
   alma 8, fedora 40 plus the tamper check; vcpkg + Conan shared on the host and static in ubuntu:24.04 with clang 18; Android NDK
   consumer for all four ABIs, Prefab CLI, Maven bundle contents and signatures). macOS/Windows/iOS install paths stay with the CI jobs.
 - Finding fixed on the way: the unpacked tar.gz needs `libgl1` at run time (Filament's bluegl dlopens libGL.so.1; the deb/rpm depend on it

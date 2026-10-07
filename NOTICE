@@ -79,13 +79,15 @@ overlume/share, 32 ports):
 
 ms-gsl is also named in cesium-native's manifest (header-only, MIT) but was
 not present in any local vcpkg install tree, so it is listed here from the
-manifest only and not verified against a copyright file. The Linux
-(x64/arm64-linux-clang-libcxx), macOS, iOS and Windows trees were not
-available locally: for those triplets the closure is taken to be the same
-manifest at the same baseline (same versions), with asmjit/blend2d JIT
-excluded on iOS as the manifest states; this is inference, not a per-
-platform copyright-file check. The release job logs of each platform
-(release.yml) show the ports actually built. The android x86 tree adds
+manifest only and not verified against a copyright file. The Linux x64 tree
+(~/.ezvcpkg/<hash>/installed/x64-linux-clang-libcxx/share) was checked
+against this list: the same 32 ports, with versions matching. The Linux
+aarch64, macOS, iOS and Windows trees were not available locally: for those
+triplets the closure is taken to be the same manifest at the same baseline
+(same versions), with asmjit/blend2d JIT excluded on iOS as the manifest
+states; this is inference, not a per-platform copyright-file check. The
+release job logs of each platform (release.yml) show the ports actually built.
+The android x86 tree adds
 opengl-registry (Khronos, MIT/Apache-2.0, headers only) as a ktx build dependency.
 
 --------------------------------------------------------------------------------
@@ -181,8 +183,20 @@ in the pinned source (filament-v1.56.5-src.tar.gz, third_party/):
   smol-v — MIT or public domain (third_party/smol-v/LICENSE)
   stb — MIT or public domain (third_party/stb/LICENSE)
   zlib 1.2.x fork — zlib license (third_party/libz/LICENSE)
-  civetweb (matdbg/viewer debug server archive in the link set) — MIT
-    (listed from the Filament lib set; license file not re-read)
+  cgltf — MIT (third_party/cgltf/LICENSE; compiled into gltfio), with its
+    embedded jsmn JSON parser — MIT (third_party/jsmn/LICENSE)
+  robin-map (tsl::robin_map) — MIT (third_party/robin-map/LICENSE;
+    header-only, used by Filament's backend and utils)
+  civetweb (matdbg/viewer debug server) — MIT; shipped only as
+    libcivetweb.a in the static component's lib/overlume/deps/ (the shared
+    library contains no civetweb code)
+Object code inside libfilamat.a (shipped in the static component's
+lib/overlume/deps/, not in the shared library):
+  glslang — BSD-3-Clause / BSD-2-Clause / MIT / Apache-2.0, plus GPL-3.0
+    with the Bison exception for generated parser files
+    (third_party/glslang/LICENSE.txt)
+  SPIRV-Tools — Apache-2.0 (third_party/spirv-tools/LICENSE)
+  SPIRV-Cross — Apache-2.0 (third_party/spirv-cross/LICENSE)
 The Windows and Apple builds use the same Filament tree (or its prebuilt
 SDK, which contains the same archives).
 

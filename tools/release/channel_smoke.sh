@@ -5,7 +5,11 @@
 # channel_smoke.sh all RUN_ID [PAGES_RUN_ID]
 #   End-to-end check of every README "Install" path that can run on Linux, against the artifacts of one
 #   release.yml dry run (RUN_ID) and one pages.yml dry run (PAGES_RUN_ID; default: the newest successful
-#   pages.yml run on the current branch). Downloads (gh, cached under ${OVERLUME_SMOKE_CACHE:-~/.cache/
+#   workflow_dispatch pages.yml run on the current branch; it must have been dispatched with run_id=RUN_ID,
+#   the packages inside its site are compared byte for byte with RUN_ID's, a mismatch FAILs).
+#   The README is the source of truth: the apt and dnf blocks are extracted from README.md and run verbatim
+#   (minus sudo, URL pointed at the local server, -y added); for the other legs, the commands the smoke
+#   depends on are grepped out of README.md and a drift FAILs. Downloads (gh, cached under ${OVERLUME_SMOKE_CACHE:-~/.cache/
 #   overlume-channel-smoke}) and runs, as the README documents them:
 #     sums     SHA256SUMS.asc verified against packaging/keys/overlume-release.asc in a fresh keyring,
 #              then sha256sum -c --ignore-missing over the downloaded packages
@@ -39,7 +43,7 @@ if [ "${1:-}" = all ]; then
   cache="${OVERLUME_SMOKE_CACHE:-$HOME/.cache/overlume-channel-smoke}"
   if [ -z "$pages_id" ]; then
     pages_id="$(gh run list -R "$gh_repo" --workflow pages.yml --branch "$(git -C "$repo" rev-parse --abbrev-ref HEAD)" \
-        --status success --limit 1 --json databaseId -q '.[0].databaseId')"
+        --event workflow_dispatch --status success --limit 1 --json databaseId -q '.[0].databaseId')"
     [ -n "$pages_id" ] || { echo "FAIL: no successful pages.yml run; pass PAGES_RUN_ID" >&2; exit 1; }
   fi
   rel="$cache/run-$run_id"; pg="$cache/run-$pages_id"
@@ -61,6 +65,19 @@ if [ "${1:-}" = all ]; then
   echo "release run $run_id, pages run $pages_id, cache $cache"
   fetch "$run_id" "$rel" pkg-linux-x86_64 pkg-linux-aarch64 pkg-android maven-bundle release-sums channels-local
   fetch "$pages_id" "$pg" github-pages
+
+  # ---- README drift: every command string the legs below hard-code must still be in README.md -------------
+  readme_drift() {
+    local s rc=0
+    for s in '--overlay-ports=overlume-vcpkg-port/ports' \
+             'conan create overlume-conan --version' '-o "overlume/*:shared=True"' '--build=missing' \
+             'apt-get install libegl1 libgles2 libgl1' 'overlume::overlume_static' \
+             'io.github.amerghazal7:overlume:' 'sha256sum -c --ignore-missing SHA256SUMS' 'find_package(overlume REQUIRED CONFIG)'; do
+      grep -qF -- "$s" "$repo/README.md" || { echo "README.md no longer contains: $s"; rc=1; }
+    done
+    return "$rc"
+  }
+  step "README drift: strings the smoke depends on are still documented" readme_drift
 
   # ---- sums: SHA256SUMS.asc against the committed key, fresh keyring; then the checksums ------------------
   verify_sums() {
@@ -95,6 +112,17 @@ if [ "${1:-}" = all ]; then
 
   # ---- repo: apt + dnf from the pages dry-run site ----------------------------------------------------------
   site="$work/site"; mkdir "$site"; tar -xf "$pg/github-pages/artifact.tar" -C "$site"
+  pages_from_run() { # the site's packages must be the ones of RUN_ID
+    local f n=0 other
+    for f in "$rel"/pkg-linux-*/*.deb "$rel"/pkg-linux-*/*.rpm; do
+      [ -e "$f" ] || continue
+      case "$f" in *.deb) other="$site/apt/pool/main/$(basename "$f")";; *) other="$(find "$site/rpm" -name "$(basename "$f")" | head -n1)";; esac
+      cmp -s "$f" "$other" || { echo "pages run not built from RUN_ID: $(basename "$f") differs or is missing"; return 1; }
+      n=$((n + 1))
+    done
+    [ "$n" -ge 8 ]
+  }
+  step "pages run $pages_id was built from release run $run_id (every .deb/.rpm identical)" pages_from_run
   "$0" repo "$site" > "$work/repo.log" 2>&1; rrc=$?
   grep -E '^(PASS|FAIL|restore)' "$work/repo.log" | sed 's/^/repo: /'
   [ "$rrc" -eq 0 ] || { tail -n 30 "$work/repo.log" | sed 's/^/    | /'; rc=1; }
@@ -170,6 +198,20 @@ python3 -m http.server "$port" --bind 127.0.0.1 --directory "$site" > "$work/htt
 srv=$!
 trap 'kill $srv 2>/dev/null; [ -f "$work/InRelease.orig" ] && cp "$work/InRelease.orig" "$site/apt/dists/stable/InRelease"; rm -rf "$work"' EXIT
 base="http://127.0.0.1:$port"
+readme="$repo/README.md"
+# The README's own apt and dnf blocks, run as-is except: no sudo (containers run as root), the public URL points at
+# the local server, -y for the installs. Optional lines ("overlume-static") are dropped.
+block() { # MARKER-REGEX
+  awk -v m="$1" '$0 ~ m {f=1} f && /^```bash/ {c=1; next} c && /^```/ {exit} c' "$readme" \
+    | sed -e 's/  *#.*//' -e 's/sudo //' -e "s#https://amerghazal7.github.io/overlume#$base#g" \
+          -e 's/apt-get install /apt-get install -y /' -e 's/dnf install /dnf -y install /' | grep -v 'overlume-static'
+}
+block '^\*\*Linux, apt' > "$work/readme_apt.sh"
+block '^\*\*Linux, dnf' > "$work/readme_dnf.sh"
+for f in apt dnf; do
+  { grep -q "$base" "$work/readme_$f.sh" && grep -q install "$work/readme_$f.sh"; } \
+    || { echo "FAIL README.md: the $f install block is missing or no longer points at amerghazal7.github.io/overlume"; exit 1; }
+done
 
 cat > "$work/inner.sh" <<'INNER'
 #!/usr/bin/env bash
@@ -184,17 +226,15 @@ if [ "$fam" = deb ]; then
   export DEBIAN_FRONTEND=noninteractive
   run "apt-get update (distro)" apt-get update
   run "install curl" apt-get install -y --no-install-recommends ca-certificates curl
-  # --- as the README instructs (URL = the local server) ---
-  run "fetch key" bash -c "mkdir -p /etc/apt/keyrings && curl -fsSL $base/overlume-release.asc -o /etc/apt/keyrings/overlume.asc"
-  echo "deb [signed-by=/etc/apt/keyrings/overlume.asc] $base/apt stable main" > /etc/apt/sources.list.d/overlume.list
   if [ "$mode" = tamper ]; then
     step="tampered InRelease must be refused"
-    if apt-get update > /tmp/step.log 2>&1; then cat /tmp/step.log >&2; die; fi
+    # README block up to (excluding) the installs: its own `apt-get update` must refuse the tampered InRelease
+    if bash -e <(grep -v 'apt-get install' /w/readme_apt.sh) > /tmp/step.log 2>&1; then cat /tmp/step.log >&2; die; fi
     grep -Eq "not signed|BADSIG|NO_PUBKEY|invalid|signature" /tmp/step.log || { cat /tmp/step.log >&2; die; }
     echo "PASS $image: tampered InRelease refused"; exit 0
   fi
-  run "apt-get update (overlume)" apt-get update
-  run "install overlume + toolchain" apt-get install -y --no-install-recommends overlume g++ cmake make \
+  run "README apt block (key, source line, update, install overlume)" bash -e /w/readme_apt.sh
+  run "install toolchain" apt-get install -y --no-install-recommends g++ cmake make \
       pkg-config libyaml-cpp-dev libegl1 libegl-mesa0 libgl1-mesa-dri
 else
   printf 'timeout=30\nminrate=100000\nretries=5\n' >> /etc/dnf/dnf.conf
@@ -202,10 +242,12 @@ else
     almalinux:8) run "enable powertools" bash -c 'dnf -y install dnf-plugins-core epel-release && dnf config-manager --set-enabled powertools';;
   esac
   run "install curl" dnf -y install curl
-  # --- as the README instructs (URL rewritten to the local server) ---
-  run "fetch overlume.repo" bash -c "curl -fsSL $base/overlume.repo -o /etc/yum.repos.d/overlume.repo \
-      && sed -i 's#https://amerghazal7.github.io/overlume#$base#g' /etc/yum.repos.d/overlume.repo"
-  run "install overlume + toolchain" dnf -y install overlume gcc-c++ cmake make pkgconf-pkg-config \
+  # README dnf block in two halves: the repo file download, then (after pointing the file's own baseurl/gpgkey at the
+  # local server, which the published file cannot know) the install.
+  run "README dnf block: fetch overlume.repo" bash -e <(grep -v 'dnf -y install' /w/readme_dnf.sh)
+  run "point overlume.repo at the local server" sed -i "s#https://amerghazal7.github.io/overlume#$base#g" /etc/yum.repos.d/overlume.repo
+  run "README dnf block: install overlume" bash -e <(grep 'dnf -y install' /w/readme_dnf.sh)
+  run "install toolchain" dnf -y install gcc-c++ cmake make pkgconf-pkg-config \
       yaml-cpp-devel mesa-libEGL mesa-dri-drivers
   step="repo key imported by dnf (gpgcheck + repo_gpgcheck active)"
   grep -q '^repo_gpgcheck=1' /etc/yum.repos.d/overlume.repo || die
@@ -222,7 +264,7 @@ INNER
 
 dock() { # IMAGE MODE
   nice -n 15 ionice -c3 docker run --rm --network host -v "$repo/tools/package_smoke":/smoke:ro \
-      -v "$work/inner.sh":/inner.sh:ro "$1" bash /inner.sh "$1" "$2" "$base" 2>&1
+      -v "$work/inner.sh":/inner.sh:ro -v "$work":/w:ro "$1" bash /inner.sh "$1" "$2" "$base" 2>&1
 }
 
 rc=0
