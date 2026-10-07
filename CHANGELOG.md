@@ -31,7 +31,7 @@ Cross-platform release pipeline (`docs/plans/2026-10-02-cross-platform-release.m
   NOTICE also lists Vulkan Memory Allocator (MIT), the Vulkan headers/bluevk
   (Apache-2.0) and glslang inside those two binaries; every other platform
   builds Filament from source with Vulkan off. It also lists the code Filament compiles from
-  its own src tree into every binary: AMD FSR1 (MIT), FXAA 3.11 (NVIDIA / G3D
+  its own src tree into every binary: AMD FSR1 (MIT, with Michal Drobot's 2014 MIT line in ffx_a.h), FXAA 3.11 (NVIDIA / G3D
   BSD), screen-space ray tracing (BSD-2-Clause) and Oklab gamut clipping (MIT);
   `tools/release/check_notice_strings.sh LIB` checks a library against NOTICE.
 - Known limits: no Metal frame renders on hosted macOS runners (a one-off

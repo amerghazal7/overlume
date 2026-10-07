@@ -1236,7 +1236,7 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   NOTICE also lists Vulkan Memory Allocator (MIT, AMD), Vulkan headers/bluevk (Apache-2.0) and glslang inside those two binaries
   (verified with nm/strings on run 37606567418's pkg-macos arm64 slice and windows-packages-x64 overlume.dll; Linux .so has none), and
   names concrt140.dll among the app-local MSVC DLLs.
-  Fix round 3: Filament's own src tree compiles four more notices into every binary: AMD FSR1 (MIT, 2021 AMD), FXAA 3.11 (2010-2011 NVIDIA + G3D
+  Fix round 3: Filament's own src tree compiles four more notices into every binary: AMD FSR1 (MIT, 2021 AMD, plus 2014 Michal Drobot in ffx_a.h), FXAA 3.11 (2010-2011 NVIDIA + G3D
   BSD, Morgan McGuire), screen-space ray tracing (BSD-2-Clause, McGuire and Mara) and Oklab gamut clipping (MIT, Bjorn Ottosson), each verified
   against the pinned file headers and listed in NOTICE; `tools/release/check_notice_strings.sh LIB [NOTICE]` asserts NOTICE names
   AMD/NVIDIA/McGuire (reports whether LIB carries the text: absent from the Linux .so, whose comments are stripped, present in the Windows DLL); PASS on
@@ -1270,3 +1270,8 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   `needs.finalize.result == 'success'` in `pages.if`, and the DRY_RUN + tag guards on the sums upload step. Verified on scratch
   copies: mutations M1 (homebrew terms dropped), M5 (maven terms dropped), M2 (`pages.if: always()`), M6 (upload `if` without the
   DRY_RUN guard) each FAIL; the unmutated file PASSes. No CI-visible change, so no new dry run.
+
+  Fix round 4 (2026-10-07): ffx_a.h line 27 also carries "Copyright (c) 2014 Michal Drobot" (MIT; shipped, 4x in the Windows DLL) -> added to the NOTICE FSR1 entry,
+  the CHANGELOG and tools/release/check_notice_strings.sh ('Drobot'; PASS on overlume/build/liboverlume.so). channel_smoke readme_assets now also requires every asset name
+  after a release URL or $B/ to be in the run's SHA256SUMS; scratch README mutations (dropped v, wrong path, repo typo, other host, .sig, vcpkg-port.tgz, linux-x86-64.tgz,
+  .tar.xz) all FAIL, real README PASS, channel_smoke.sh all 37589684342 37616385042 ALL PASS.
