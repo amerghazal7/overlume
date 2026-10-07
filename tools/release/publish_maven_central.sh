@@ -4,7 +4,7 @@
 #
 # publish_maven_central.sh BUNDLE_ZIP MODE -- Sonatype Central Portal publisher API.
 #   MODE validate  upload (USER_MANAGED), wait for VALIDATED, then DELETE the deployment (drop).
-#   MODE publish   upload (AUTOMATIC), wait for PUBLISHING/PUBLISHED.
+#   MODE publish   upload (AUTOMATIC), wait for PUBLISHING/PUBLISHED; exit 0 early if already published.
 # Credentials come from env MAVEN_CENTRAL_USERNAME / MAVEN_CENTRAL_PASSWORD; the Bearer token
 # (base64 of user:password) is built in-process and handed to curl through a config file
 # descriptor, never argv, never echoed. Output is HTTP codes, states and Central's `errors` JSON
@@ -32,6 +32,15 @@ call() {
             -w '\n%{http_code}' "$@" "$url")" || { echo "FAIL: curl error on $method ${url%%\?*}"; exit 1; }
     code="${resp##*$'\n'}"; body="${resp%$'\n'*}"
 }
+
+# Idempotent re-run: a failed earlier attempt may have been accepted and published by Central anyway.
+# (A deployment still PUBLISHING is not "published" yet; a re-run then fails until it lands.)
+if [ "$mode" = publish ] && [ -n "$ver" ]; then
+    call GET "$base/published?namespace=io.github.amerghazal7&name=overlume&version=$ver"
+    if [ "$code" = 200 ] && printf '%s' "$body" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if (d.get("published") if isinstance(d,dict) else d) is True else 1)'; then
+        echo "PASS: overlume $ver already on Central (idempotent re-run)"; exit 0
+    fi
+fi
 
 call POST "$base/upload?publishingType=$ptype&name=$name" -F "bundle=@$bundle;type=application/zip"
 echo "upload: HTTP $code"

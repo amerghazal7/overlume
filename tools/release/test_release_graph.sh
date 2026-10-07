@@ -36,12 +36,20 @@ for p in ("publish-homebrew", "publish-swiftpm"):
     ok({"sums", "channels"} <= anc(p), f"{p} must (transitively) need sums and channels")
 ok({"sums", "channels", "publish-homebrew", "publish-swiftpm"} <= set(need("publish-maven")), "publish-maven must need sums, channels and both other publishers")
 
+# The `needs` edge alone does not stop a publisher (every gate uses !cancelled()): the if-terms do.
+for p in ("publish-homebrew", "publish-swiftpm", "publish-maven"):
+    for t in ("needs.sums.result == 'success'", "needs.channels.result == 'success'"):
+        ok(t in J[p]["if"], f"{p}.if lacks {t}")
+for p in ("publish-homebrew", "publish-swiftpm"):
+    ok("github.ref_type == 'tag'" in J[p]["if"], f"{p}.if lacks the tag-only term")
+
 # (d) finalize needs everything and requires success of each; pages follows finalize
 pubs = ["publish-homebrew", "publish-swiftpm", "publish-maven"]
 for m in ["sums", "channels"] + pubs:
     ok(m in need("finalize"), f"finalize does not need {m}")
     ok(f"needs.{m}.result == 'success'" in J["finalize"]["if"], f"finalize.if does not require {m} success")
 ok("finalize" in need("pages"), "pages must need finalize")
+ok("needs.finalize.result == 'success'" in J["pages"]["if"], "pages.if does not require finalize success")
 
 # (e) release mutation and contents: write confined to create, sums, finalize
 allowed = {"create", "sums", "finalize"}
@@ -59,6 +67,8 @@ for m in re.finditer(r"^\s*-?\s*uses:\s*(\S+)(.*)$", txt, re.M):
 
 # (g) the sums upload checks isDraft first
 up = next((s.get("run", "") for s in J["sums"]["steps"] if "gh release upload" in s.get("run", "")), "")
+upif = next((s.get("if", "") for s in J["sums"]["steps"] if "gh release upload" in s.get("run", "")), "")
+ok("env.DRY_RUN != 'true'" in upif and "github.ref_type == 'tag'" in upif, "sums upload step if lacks the dry-run/tag guards")
 ok("isDraft" in up and up.index("isDraft") < up.index("gh release upload"), "sums upload is not preceded by the isDraft check")
 
 if errs: print("\n".join("FAIL: " + e for e in errs)); sys.exit(1)
