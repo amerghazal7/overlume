@@ -87,7 +87,13 @@ if [ "${1:-}" = all ]; then
     while read -r a; do
       grep -qE "^[0-9a-f]{64} [ *]$a\$" "$sums" || { echo "README names $a, not an asset of run $run_id"; rc=1; }
     done < <(grep -oE '[Oo]verlume[A-Za-z-]*-(<ver>|\$V)[A-Za-z0-9_.-]*\.(zip|exe|tar\.gz|pkg|aar|deb|rpm)' "$repo/README.md" | sed "s/<ver>/$v/; s/\\\$V/$v/" | sort -u)
-    if grep -oE 'releases/download/[^/ ]+/' "$repo/README.md" | grep -vqE '/download/v(<ver>|\$V)/$'; then echo "README download URL is not .../releases/download/v<ver>/"; rc=1; fi
+    # every releases URL (host, org, repo, tag prefix) must be exact; every SHA256SUMS* name must be SHA256SUMS or SHA256SUMS.asc
+    while read -r a; do
+      [[ "$a" =~ ^https://github\.com/amerghazal7/overlume/releases(/download/v(<ver>|\$V))?$ ]] || { echo "README release URL is not .../releases or .../releases/download/v<ver>: $a"; rc=1; }
+    done < <(grep -oE 'https://[^ )`"]*/releases[^ )`"]*' "$repo/README.md" | sed -E 's#/(overlume-|SHA256SUMS)[^/]*$##' | sort -u)
+    while read -r a; do
+      [[ "$a" == SHA256SUMS || "$a" == SHA256SUMS.asc ]] || { echo "README names $a, expected SHA256SUMS or SHA256SUMS.asc"; rc=1; }
+    done < <(grep -oE 'SHA256SUMS[A-Za-z0-9_.-]*' "$repo/README.md" | sed -E 's/[.]+$//' | sort -u)
     return "$rc"
   }
   step "README: every named release asset and download URL matches run $run_id" readme_assets
