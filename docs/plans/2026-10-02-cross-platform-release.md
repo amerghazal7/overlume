@@ -4,8 +4,9 @@
 > (orchestrator on the session model, implementers on Sonnet, review gates on
 > Opus, ≤2 fix rounds per task). Steps use checkbox (`- [ ]`) syntax.
 
-**Status (2026-10-07):** all 12 tasks done on branch `release-packaging`; pending
-the merge to `main`, the user-owned items at the end of this file, and the first
+**Status (2026-10-07):** all 12 tasks done 2026-10-07; pending merge (checklist: remove the
+pages.yml release-packaging push trigger after merge; run the Linux gate on the final head; first
+push to main deploys Pages). On branch `release-packaging`; pending the merge to `main`, the user-owned items at the end of this file, and the first
 real tag run (see "Merge checklist" and `docs/runbooks/release.md`). (Steps of Tasks 1-6 below
 were never ticked as they landed; their completion is recorded in git history and `docs/status.md`.)
 
@@ -1218,7 +1219,7 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
 - [x] **Step 4:** `channel_smoke.sh all RUN_ID` downloads one dry-run's
   artifacts and runs every README install path that can run on Linux
   (apt, dnf, manual archive, Android NDK consumer) from the README's own commands; vcpkg and Conan run from the rendered recipe, and
-  every asset name / `releases/download/v<ver>/` URL the README names is checked against the run's SHA256SUMS;
+  every `.../releases` URL the README names must be exactly `https://github.com/amerghazal7/overlume/releases`, `.../releases/download/v<ver>` or `.../v$V`, and every asset name after one (and every SHA256SUMS* reference: only SHA256SUMS / .asc) must be in the run's SHA256SUMS;
   macOS/Windows/iOS paths run in the Task 9/7 CI jobs. All PASS.
 - [x] **Step 5:** `python3 tools/check_docs_links.py` clean; gate green;
   status ledger updated with the first full dry run's URL. **Commit**
@@ -1251,6 +1252,7 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   but a manual archive does not), so `create_renderer` returned `nullptr` on a minimal Ubuntu with only `libegl1 libgles2`. The README
   manual-archive block and the vcpkg `usage` text now name it, and the smoke installs exactly the documented set. Another stale-cache
   finding: `gh run download` with several `-n` flags returned older artifacts than the run's, so the script downloads one name per call.
+- Strict README URL check (fix round 3): scratch README mutations (dropped v, wrong path, repo typo, other host, SHA256SUMS.sig) FAIL; real README PASS; `channel_smoke.sh all 37589684342 37616385042` ALL PASS.
 - Final full dry run **37606567418** on 890ec19 (all three Task 12 commits): GREEN; `create`, `publish-homebrew`, `publish-swiftpm`, `finalize`, `pages` skipped as designed.
 - Local Linux gate green (302 ctest, 312 node gtests, 75 WS, 20 goldens, 6 examples; no golden change).
 
