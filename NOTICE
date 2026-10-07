@@ -33,19 +33,60 @@ overlume/cmake/GetCesiumNative.cmake). cesium-native's own third-party
 dependency list is at its ThirdParty.json.
 
 cesium-native's build pulls a further set of dependencies through vcpkg in
-manifest mode (see overlume/build/_deps/cesium-native-src/vcpkg.json), built
-under this project's clang/libc++ overlay triplet
-(overlume/cmake/vcpkg-triplets/x64-linux-clang-libcxx.cmake) rather than as
-individually-vendored copies in this repository:
-asyncplusplus, curl, doctest, expected-lite, glm, ms-gsl, rapidjson, spdlog,
-stb, ada-url, draco, ktx, modp-base64, meshoptimizer, openssl, s2geometry,
-libjpeg-turbo, sqlite3, tinyxml2, libwebp, zlib-ng, picosha2, earcut-hpp,
-cpp-httplib, libmorton, zstd, blend2d, asmjit, spz, zlib. Each is licensed
-per its own upstream terms (predominantly MIT/BSD/Apache-2.0/zlib-style
-licenses); consult the vcpkg registry's per-port metadata
-(https://github.com/microsoft/vcpkg/tree/master/ports) for the license of
-any individual port. spdlog and fmt (below) are called out individually
-because this project also references their versions directly.
+manifest mode (see overlume/build*/_deps/cesium-native-src/vcpkg.json),
+built under this project's overlay triplets (overlume/cmake/vcpkg-triplets/:
+x64/arm64-linux-clang-libcxx, {arm64,arm,x64,x86}-android-overlume,
+{x64,arm64}-osx-overlume, arm64/x64 iOS, {x64,arm64}-windows-overlume) as
+static libraries linked INTO every shipped overlume binary (shared and
+static packages, AAR, XCFramework, Windows DLL), rather than as
+individually-vendored copies in this repository. Registry versions come from
+the vcpkg baseline pinned by cesium-native v0.64.0 and are identical across
+triplets. Name, version, license (SPDX id from the port's vcpkg.spdx.json,
+cross-checked against its share/<port>/copyright) as installed by the
+Android build (~/.cache/overlume-android/ezvcpkg/.../installed/x64-android-
+overlume/share, 32 ports):
+
+  abseil 20260107.1 (Apache-2.0; s2geometry dependency)
+  ada-url 3.4.4 (MIT OR Apache-2.0)
+  asmjit 2025-10-13 (Zlib; not built for iOS)
+  asyncplusplus 1.2 (MIT)
+  blend2d 2025-03-08 (Zlib)
+  cpp-httplib 0.43.1 (MIT)
+  curl 8.19.0 (curl license, MIT-style; plus BSD-3-Clause and ISC parts)
+  doctest 2.5.2 (MIT; test-only, header-only, not in the binaries)
+  draco 1.5.7 (Apache-2.0)
+  earcut-hpp 2.2.4 (ISC)
+  expected-lite 0.10.0 (BSL-1.0)
+  glm 1.0.3 (Happy Bunny License or MIT; header-only)
+  ktx 4.4.2 (Apache-2.0; its copyright file lists further per-file terms)
+  libjpeg-turbo 3.1.4.1 (BSD-3-Clause, IJG, zlib)
+  libmorton 0.2.12 (MIT; header-only)
+  libwebp 1.6.0 (BSD-3-Clause)
+  meshoptimizer 1.1 (MIT)
+  modp-base64 2020-09-26 (MIT per vcpkg metadata; copyright file defers to
+    the upstream LICENSE)
+  openssl 3.6.2 (Apache-2.0)
+  picosha2 1.0.1 (MIT)
+  rapidjson 2025-02-26 (MIT)
+  s2geometry 0.13.1 (Apache-2.0)
+  spz 2.1.0 (MIT)
+  sqlite3 3.53.0 (public domain)
+  stb 2024-07-29 (MIT OR public domain)
+  tinyxml2 11.0.0 (Zlib)
+  zlib 1.3.2 and zlib-ng 2.3.3 (Zlib)
+  zstd 1.5.7 (BSD-3-Clause OR GPL-2.0-only; BSD-3-Clause is used)
+  spdlog 1.17.0 and fmt 12.1.0 (MIT; their own entries follow)
+
+ms-gsl is also named in cesium-native's manifest (header-only, MIT) but was
+not present in any local vcpkg install tree, so it is listed here from the
+manifest only and not verified against a copyright file. The Linux
+(x64/arm64-linux-clang-libcxx), macOS, iOS and Windows trees were not
+available locally: for those triplets the closure is taken to be the same
+manifest at the same baseline (same versions), with asmjit/blend2d JIT
+excluded on iOS as the manifest states; this is inference, not a per-
+platform copyright-file check. The release job logs of each platform
+(release.yml) show the ports actually built. The android x86 tree adds
+opengl-registry (Khronos, MIT/Apache-2.0, headers only) as a ktx build dependency.
 
 --------------------------------------------------------------------------------
 spdlog — version 1.17.0 (pulled in via cesium-native's vcpkg manifest)
@@ -105,6 +146,45 @@ Verified against the LICENSE file at git tag v2.5.0 (see
 overlume/cmake/GetDoxygenAwesome.cmake). Used only to theme the generated
 API documentation (the `docs` CMake target); not linked into any built
 binary.
+
+--------------------------------------------------------------------------------
+LLVM C++ runtime — libc++, libc++abi, libunwind — version 18.1.8
+--------------------------------------------------------------------------------
+License:  Apache License v2.0 with LLVM Exceptions
+          (SPDX: Apache-2.0 WITH LLVM-exception)
+Upstream: https://github.com/llvm/llvm-project (libcxx, libcxxabi, libunwind)
+Verified against the LLVM Project LICENSE.TXT of release 18.1.8 (the
+"Apache License v2.0 with LLVM Exceptions" header and "LLVM Exceptions to the
+Apache 2.0 License" section; read from the conda libllvm 18.1.8 package's
+copy on the build box). Baked into the Linux shared library
+(liboverlume.so, which statically links libc++.a, libc++abi.a and
+libunwind.a from the official LLVM 18.1.8 release tarball, see
+overlume/cmake/toolchain-llvm-release.cmake) so consumers need no libc++.
+The Linux static package leaves them out (the consumer's own libc++ is used).
+Android binaries statically link the NDK r27c libc++ (c++_static, same
+license; NDK distribution, https://developer.android.com/ndk). macOS and iOS
+link the system libc++ dynamically (not redistributed). Windows ships the
+MSVC redistributable (vcruntime140*.dll, msvcp140*.dll) app-local beside
+overlume.dll under the Microsoft Visual C++ redistributable terms.
+
+--------------------------------------------------------------------------------
+Libraries bundled inside Filament 1.56.5 (statically linked, all platforms)
+--------------------------------------------------------------------------------
+Filament's own license is above. Its third_party directory ships and the
+build links the following, verified against the license files / file headers
+in the pinned source (filament-v1.56.5-src.tar.gz, third_party/):
+  basis_universal transcoder — Apache-2.0 (third_party/basisu/LICENSE)
+  zstd bundled with basisu — BSD-3-Clause OR GPL-2.0 (BSD-3-Clause used)
+  draco decoder — Apache-2.0 (third_party/draco/LICENSE)
+  meshoptimizer — MIT (third_party/meshoptimizer/LICENSE)
+  mikktspace — zlib license (header of third_party/mikktspace/src/mikktspace.c)
+  smol-v — MIT or public domain (third_party/smol-v/LICENSE)
+  stb — MIT or public domain (third_party/stb/LICENSE)
+  zlib 1.2.x fork — zlib license (third_party/libz/LICENSE)
+  civetweb (matdbg/viewer debug server archive in the link set) — MIT
+    (listed from the Filament lib set; license file not re-read)
+The Windows and Apple builds use the same Filament tree (or its prebuilt
+SDK, which contains the same archives).
 
 --------------------------------------------------------------------------------
 Noto Sans (NotoSans-Regular.ttf)
