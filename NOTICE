@@ -190,6 +190,26 @@ in the pinned source (filament-v1.56.5-src.tar.gz, third_party/):
   civetweb (matdbg/viewer debug server) — MIT; shipped only as
     libcivetweb.a in the static component's lib/overlume/deps/ (the shared
     library contains no civetweb code)
+Code with its own notice inside Filament's src tree (compiled into libfilament
+and its built-in materials, all platforms; not under third_party/). Verified
+against the file headers in the pinned source. The notice text itself is
+visible with strings(1) in the Windows overlume.dll; the Linux liboverlume.so
+carries the compiled code without the comments (checked), so the obligation
+rests on the code being compiled in, not on the text being present:
+  AMD FidelityFX Super Resolution 1 — MIT, "Copyright (c) 2021 Advanced
+    Micro Devices, Inc. All rights reserved."
+    (filament/src/materials/fsr/ffx_a.h, ffx_fsr1.h; the full MIT text is in
+    each header)
+  FXAA 3.11 — "COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS
+    RESERVED." with the as-is/no-warranty notice, modified in the G3D
+    version, "Copyright 2000-2018, Morgan McGuire ... Available under the BSD
+    License" (filament/src/materials/antiAliasing/fxaa.fs, lines 28-52)
+  Screen-space ray tracing (McGuire and Mara, Efficient GPU Screen-Space Ray
+    Tracing, 2014) — BSD-2-Clause, "Copyright (c) 2014, Morgan McGuire and
+    Michael Mara" (shaders/src/light_reflections.fs)
+  Oklab gamut clipping — MIT, "Copyright (c) 2021 Björn Ottosson"
+    (filament/src/ColorSpaceUtils.cpp; source
+    https://bottosson.github.io/posts/gamutclipping/)
 Object code inside libfilamat.a (shipped in the static component's
 lib/overlume/deps/; in the shared library only on the macOS arm64 slice,
 see the Vulkan note below):

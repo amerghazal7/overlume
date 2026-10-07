@@ -30,7 +30,10 @@ Cross-platform release pipeline (`docs/plans/2026-10-02-cross-platform-release.m
   arm64 slice and Windows x64 link Filament's prebuilt Vulkan-enabled SDK, so
   NOTICE also lists Vulkan Memory Allocator (MIT), the Vulkan headers/bluevk
   (Apache-2.0) and glslang inside those two binaries; every other platform
-  builds Filament from source with Vulkan off.
+  builds Filament from source with Vulkan off. It also lists the code Filament compiles from
+  its own src tree into every binary: AMD FSR1 (MIT), FXAA 3.11 (NVIDIA / G3D
+  BSD), screen-space ray tracing (BSD-2-Clause) and Oklab gamut clipping (MIT);
+  `tools/release/check_notice_strings.sh LIB` checks a library against NOTICE.
 - Known limits: no Metal frame renders on hosted macOS runners (a one-off
   real-Mac check precedes the first tag); Apple notarisation and Windows
   Authenticode signing run only once their secrets are provisioned; the static
