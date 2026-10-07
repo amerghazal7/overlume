@@ -4,10 +4,10 @@
 > (orchestrator on the session model, implementers on Sonnet, review gates on
 > Opus, ≤2 fix rounds per task). Steps use checkbox (`- [ ]`) syntax.
 
-**Status (2026-10-07):** all 12 tasks done 2026-10-07; pending merge (checklist: remove the
-pages.yml release-packaging push trigger after merge; run the Linux gate on the final head; first
-push to main deploys Pages). On branch `release-packaging`; pending the merge to `main`, the user-owned items at the end of this file, and the first
-real tag run (see "Merge checklist" and `docs/runbooks/release.md`). (Steps of Tasks 1-6 below
+**Status (2026-10-07):** all 12 tasks done on branch `release-packaging`; pending the merge to
+`main` (checklist: remove the pages.yml release-packaging push trigger after merge; run the Linux
+gate on the final head; the first push to main deploys Pages), the user-owned items at the end of
+this file, and the first real tag run (see "Merge checklist" and `docs/runbooks/release.md`). (Steps of Tasks 1-6 below
 were never ticked as they landed; their completion is recorded in git history and `docs/status.md`.)
 
 **Goal:** Publishing a GitHub release (`v*` tag) builds, tests, signs and
@@ -1255,6 +1255,14 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
 - Strict README URL check (fix round 3): scratch README mutations (dropped v, wrong path, repo typo, other host, SHA256SUMS.sig) FAIL; real README PASS; `channel_smoke.sh all 37589684342 37616385042` ALL PASS.
 - Final full dry run **37606567418** on 890ec19 (all three Task 12 commits): GREEN; `create`, `publish-homebrew`, `publish-swiftpm`, `finalize`, `pages` skipped as designed.
 - Local Linux gate green (302 ctest, 312 node gtests, 75 WS, 20 goldens, 6 examples; no golden change).
+- Fix rounds 4-5 (2026-10-07): ffx_a.h line 27 also carries "Copyright (c) 2014 Michal Drobot" (MIT; 4x in the Windows
+  DLL) → NOTICE FSR1 entry, CHANGELOG, `check_notice_strings.sh` (needles now cover every Filament-internal notice incl.
+  Mara/Ottosson, and a missing library FAILs). The Khronos GL headers compiled into bluegl are named next to the Vulkan
+  headers. `channel_smoke readme_assets` requires every asset name after a release URL or `$B/` to be in the run's
+  SHA256SUMS, and compares EVERY release/download-looking URL (any host/scheme, mangled path segments included) and
+  every `B=` base against the exact GitHub prefix; scratch README mutations (dropped v, `/release/download/`,
+  `/overlume/download/`, `/dl/`, repo typo, other host, http gitlab, .sig, vcpkg-port.tgz, linux-x86-64.tgz, .tar.xz)
+  all FAIL, the real README PASSes, `channel_smoke.sh all 37589684342 37616385042` ALL PASS.
 
 ## Open items owned by the user (tracked in `docs/status.md`)
 
@@ -1271,7 +1279,3 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   copies: mutations M1 (homebrew terms dropped), M5 (maven terms dropped), M2 (`pages.if: always()`), M6 (upload `if` without the
   DRY_RUN guard) each FAIL; the unmutated file PASSes. No CI-visible change, so no new dry run.
 
-  Fix round 4 (2026-10-07): ffx_a.h line 27 also carries "Copyright (c) 2014 Michal Drobot" (MIT; shipped, 4x in the Windows DLL) -> added to the NOTICE FSR1 entry,
-  the CHANGELOG and tools/release/check_notice_strings.sh ('Drobot'; PASS on overlume/build/liboverlume.so). channel_smoke readme_assets now also requires every asset name
-  after a release URL or $B/ to be in the run's SHA256SUMS; scratch README mutations (dropped v, wrong path, repo typo, other host, .sig, vcpkg-port.tgz, linux-x86-64.tgz,
-  .tar.xz) all FAIL, real README PASS, channel_smoke.sh all 37589684342 37616385042 ALL PASS.
