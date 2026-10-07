@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-07
+
+The first stable release. Public headers (`<overlume/scene.h>`, `<overlume/api.h>`)
+are POD-only and append-only from here on; `kSceneVersion` is 9 and the shared
+library's SONAME is `liboverlume.so.1`.
+
+**What you can install.** Every release asset is covered by a GPG-signed
+`SHA256SUMS`. Nothing becomes public until every platform has built, tested and
+signed.
+
+| Platform | Release assets | Channel |
+|---|---|---|
+| Linux x86_64 / aarch64 | `.deb`, `.rpm`, `.tar.gz` (shared and static) | signed apt and dnf repositories on GitHub Pages |
+| macOS universal2 | `.pkg`, `.tar.gz` | Homebrew tap |
+| iOS | XCFramework (dynamic and static) | Swift Package Manager |
+| Windows x64 / arm64 | NSIS installer, `.zip` | vcpkg overlay port, Conan recipe |
+| Android (4 ABIs) | Prefab `.aar`, `.zip` | Maven Central `io.github.amerghazal7:overlume` |
+
+`find_package(overlume)` works on every platform and pkg-config on Linux and macOS.
+
+**What is new since 0.1.0.**
+
+- Cross-platform packaged releases and install channels (above).
+- Hybrid mode works again: lidar is drawn as opaque splats composited over the
+  bowl, with a default `/iv_points_fusion` topic and a `hybrid` diagnostic.
+- Terrain height-grid layer: a shaded heightfield for offroad terrain
+  (`HeightGridLayer`, `kSceneVersion` 9), with themed colour ramps.
+- New README with a hero animation and gallery.
+- Builds default to Release when no build type is given.
+
+**Known limitations.**
+
+- Metal rendering is unverified on hosted CI (the macOS runners' virtual GPU
+  cannot drive Filament); the macOS and iOS packages are tested without a
+  rendered frame.
+- Apple notarisation and Windows Authenticode signing run only once their signing
+  secrets are provisioned; until then the macOS and Windows installers are unsigned.
+- The m2o1 robot profile's lidar transform is unverified against the real robot.
+- The Linux static component needs clang and libc++ >= 18; Linux builds need glibc >= 2.28.
+
+The detailed change list follows.
+
 Cross-platform release pipeline (`docs/plans/2026-10-02-cross-platform-release.md`):
 
 - Packaged releases for Linux x86_64/aarch64 (`.deb`, `.rpm`, `.tar.gz`; shared
@@ -174,5 +216,6 @@ entries with a recorded historical-document discrepancy).
 - **Epic 6 — v1.1: Cesium 3D Tiles streaming** (VM-060…064) + post-close
   tail: closed 2026-09-16, final cross-cutting review 2026-09-17.
 
-[Unreleased]: https://github.com/amerghazal7/overlume/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/amerghazal7/overlume/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/amerghazal7/overlume/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/amerghazal7/overlume/releases/tag/v0.1.0

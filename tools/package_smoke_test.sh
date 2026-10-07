@@ -121,7 +121,8 @@ done
 # The shared .deb must register its soname (shlibs) and run ldconfig on install.
 if [ "$fam" = deb ]; then
   step="deb ships shlibs"
-  grep -q '^liboverlume 0 overlume (= ' /var/lib/dpkg/info/overlume.shlibs 2>/dev/null || die
+  soname_major=$(sed -n 's/^#define OVERLUME_VERSION_MAJOR \([0-9]*\)$/\1/p' /usr/include/overlume/version.h)
+  grep -q "^liboverlume ${soname_major} overlume (= " /var/lib/dpkg/info/overlume.shlibs 2>/dev/null || die
   step="deb postinst runs ldconfig"
   grep -q ldconfig /var/lib/dpkg/info/overlume.postinst 2>/dev/null || die
 fi

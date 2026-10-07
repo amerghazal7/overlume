@@ -129,7 +129,7 @@ jobs:
                     -DOVERLUME_FILAMENT_FROM_SOURCE=ON
               cmake --build overlume/build-release
               # glibc floor: liboverlume.so must not need anything newer than 2.28.
-              tools/release/check_glibc_floor.sh overlume/build-release/liboverlume.so.0
+              tools/release/check_glibc_floor.sh overlume/build-release/liboverlume.so.1
               # FiftyObjectsSceneUpdateUnderTwoMilliseconds is a wall-clock budget that
               # llvmpipe cannot meet (docs/status.md, known gap 11).
               ctest --test-dir overlume/build-release -L cpu --output-on-failure \
@@ -226,8 +226,8 @@ jobs:
               cmake --build "$b"
               # Foreign-arch ELF: LLVM binutils. The native floor/export checks repeat on arm64.
               export OBJDUMP=/opt/llvm/bin/llvm-objdump READELF=/opt/llvm/bin/llvm-readelf
-              tools/release/check_glibc_floor.sh "$b/liboverlume.so.0"
-              overlume/scripts/check_shared_exports.sh /opt/llvm/bin/llvm-nm "$READELF" "$b/liboverlume.so.0"
+              tools/release/check_glibc_floor.sh "$b/liboverlume.so.1"
+              overlume/scripts/check_shared_exports.sh /opt/llvm/bin/llvm-nm "$READELF" "$b/liboverlume.so.1"
               cpack --config "$b/CPackConfig.cmake" -B "/src/$b/pkg"
               tools/release/check_package_elf.sh "$b"/pkg AArch64
               tools/release/make_test_bundle.sh "$b" test-bundle/overlume-aarch64-tests.tar.gz

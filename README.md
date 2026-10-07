@@ -31,7 +31,7 @@ Overlume has two parts. The first is a ROS-free C++ rendering library built on [
 - **Every element can be styled and switched off.** Each rendered element has style tokens and a disable knob.
 - **Drop-in for a new robot.** Adding a topic under an existing category takes one row in a profile YAML file, not code.
 
-Version 0.1.0. The scene ABI is `kSceneVersion = 9`. On an RTX 3090 the measured render time is about 10 ms p50 at roughly 30 Hz.
+Version 1.0.0. The scene ABI is `kSceneVersion = 9`. On an RTX 3090 the measured render time is about 10 ms p50 at roughly 30 Hz.
 
 ## Hello frame
 
@@ -302,7 +302,7 @@ tar -xzf overlume-$V-linux-x86_64.tar.gz -C /opt   # relocatable: any prefix wor
 `-DCMAKE_PREFIX_PATH=/opt/overlume-<ver>-linux-x86_64`):
 
 ```cmake
-find_package(overlume 0.1 REQUIRED)                       # shared
+find_package(overlume 1.0 REQUIRED)                       # shared
 target_link_libraries(app PRIVATE overlume::overlume)
 ```
 
@@ -316,7 +316,7 @@ the `static` CMake component and the Windows installer's "Static libraries"
 checkbox give `liboverlume.a` plus its dependency archives:
 
 ```cmake
-find_package(overlume 0.1 REQUIRED COMPONENTS static)
+find_package(overlume 1.0 REQUIRED COMPONENTS static)
 target_link_libraries(app PRIVATE overlume::overlume_static)
 ```
 

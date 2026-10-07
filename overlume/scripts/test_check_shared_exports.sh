@@ -15,7 +15,7 @@ printf '0000 T __ZN8overlume15create_rendererEi\n'
 N
 cat > "$w/otool" <<'N'
 #!/usr/bin/env bash
-printf '%s:\n\t@rpath/liboverlume.0.dylib (compatibility version 0.0.0)\n\t/usr/lib/libc++.1.dylib (c)\n\t/System/Library/Frameworks/Metal.framework/Metal (c)\n' "$2"
+printf '%s:\n\t@rpath/liboverlume.1.dylib (compatibility version 1.0.0)\n\t/usr/lib/libc++.1.dylib (c)\n\t/System/Library/Frameworks/Metal.framework/Metal (c)\n' "$2"
 [ -z "${LEAK_DEP:-}" ] || printf '\t/opt/homebrew/lib/libyaml-cpp.0.8.dylib (c)\n'
 N
 chmod +x "$w/nm" "$w/otool"

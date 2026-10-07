@@ -12,7 +12,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(OVERLUME_PREFIX "" CACHE PATH "Unpacked ABI directory (has lib/cmake/overlume)")
 list(APPEND CMAKE_FIND_ROOT_PATH "${OVERLUME_PREFIX}")   # the NDK toolchain restricts find_package to the sysroot
 list(APPEND CMAKE_PREFIX_PATH "${OVERLUME_PREFIX}")
-find_package(overlume 0.1 REQUIRED COMPONENTS static)
+find_package(overlume 1.0 REQUIRED COMPONENTS static)
 # On a device the themes live elsewhere than in the unpacked prefix on the build host.
 set(OVERLUME_SMOKE_THEMES_DIR "${overlume_THEMES_DIR}" CACHE STRING "Themes dir baked into the static consumer")
 
