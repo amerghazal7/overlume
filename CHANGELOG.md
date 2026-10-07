@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Cross-platform release pipeline (`docs/plans/2026-10-02-cross-platform-release.md`):
+
+- Packaged releases for Linux x86_64/aarch64 (`.deb`, `.rpm`, `.tar.gz`; shared
+  with the C++ runtime baked in, plus a static component; glibc >= 2.28),
+  macOS universal2 (`.pkg`, `.tar.gz`), iOS (XCFramework), Windows x64/arm64
+  (NSIS installer, `.zip`) and Android (Prefab AAR for four ABIs).
+- Install channels: signed apt and dnf repositories on GitHub Pages, a Homebrew
+  tap, Swift Package Manager (`amerghazal7/overlume-swift`), Maven Central
+  (`io.github.amerghazal7:overlume`), and a generated vcpkg overlay port and
+  Conan recipe per release. Every release asset is covered by a GPG-signed
+  `SHA256SUMS`; `find_package(overlume)` and pkg-config work everywhere.
+- `release.yml` is a draft-until-green graph: nothing becomes public until
+  every platform built, tested and signed; a failed run leaves a draft.
+- `tools/release/channel_smoke.sh all RUN_ID` runs every README install path that
+  works on Linux against a dry run's artifacts; `docs/runbooks/release.md`
+  documents cutting, repairing and rotating keys for a release.
+- NOTICE now lists everything linked into the binaries (cesium vcpkg closure,
+  LLVM libc++/libc++abi/libunwind, Filament's bundled libraries).
+- Known limits: no Metal frame renders on hosted macOS runners (a one-off
+  real-Mac check precedes the first tag); Apple notarisation and Windows
+  Authenticode signing run only once their secrets are provisioned; the static
+  component on Linux needs clang and libc++ >= 18.
+
 The Overlume open-source restructure (`docs/plans/2026-09-17-overlume-restructure.md`):
 
 - Renamed the project to **Overlume**: `mpviz`/`MPVIZ_*` identifiers,
