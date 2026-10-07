@@ -42,6 +42,10 @@ index; `docs/status.md` is the one status ledger.
   against a real-robot Micropilot logger session: `mp_play` config, the static
   transforms the recorder misses, the `replay` profile, `gps_topic`. One
   command: `tools/validate_logger_session.sh [SESSION_DIR] [--arm osm]`.
+- [`release.md`](runbooks/release.md) — cut, rehearse (dry run + `tools/release/channel_smoke.sh all`),
+  verify and repair a cross-platform release; key rotation, Apple/Windows
+  signing secrets, the real-Mac Metal check, Maven/keyserver prerequisites and
+  the merge checklist. Users' install commands are the README's "Install" section.
 - [`ci_gate.md`](runbooks/ci_gate.md) — what `tools/ci_visual_mode.sh`
   actually runs, what its green does and does not cover, and the
   `viz_benchmark` perf tool.
