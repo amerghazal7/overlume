@@ -1092,6 +1092,26 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   allowed to trigger `workflow_dispatch`). (6) A non-dry dispatch on a tag ref: `create` is skipped, so the draft must
   already exist (as for the old upload steps); `finalize` accepts `create` skipped only for `workflow_dispatch`.
   Re-running failed jobs of a tag run is safe: uploads are `--clobber` on a draft; the SwiftPM guard in `sign-apple` blocks a rebuilt zip for an already-pinned version.
+- **Fix round 1 (review findings), dry run 37589684342 on d19d2ad: GREEN** (`sums` success with the exact-set check
+  printing the 7 expected artifact names, `merge_sums.sh` PASS 6 verified files / 22 files, `release-sums` artifact =
+  `SHA256SUMS` + `SHA256SUMS.asc`, the latter verifying against `packaging/keys/overlume-release.asc`; `create`,
+  `publish-homebrew`, `publish-swiftpm`, `finalize`, `pages` skipped; `publish-maven` ran in validate mode).
+  1. Artifact hop: `merge_sums.sh merge PUBKEY PARTS OUT [UNSIGNED_DIR...]` now requires every directory except the named
+     unsigned one (`channels-recipes`) to hold exactly one `SHA256SUMS-*.txt` that verifies AND whose names equal the
+     directory's other files (`comm -3`), so a missing signature pair, an injected file or a stray artifact fails. `sums`
+     pins `ls parts` to the exact 7 names. `test_merge_sums.sh` gained unlisted-file, both-sums-files-removed and
+     extra-directory cases; run against the previous merge script (extra arg tolerated) it fails at the unlisted-file case.
+  2. Draft-only uploads: the `sums` upload step first asserts `isDraft == true` (a published release is never
+     `--clobber`ed, including after a hand-publish or on a non-dry tag dispatch); the `sign-apple` SwiftPM guard now
+     fails closed (`ls-remote` rc 0 = pinned -> fail, 2 = no tag -> continue, anything else, e.g. 128 network/auth -> fail).
+     Both are tag-only: reasoned from the expressions, not exercised by a dry run.
+  3. `tools/release/test_release_graph.sh` (python3 + PyYAML, run in `lint.yml`) asserts: `--draft` on create; every
+     build/package/sign job an ancestor of `sums` and `sums.if` requiring success of each need; publishers behind
+     `sums`+`channels`, Maven behind both other publishers; `finalize` needs/`if` for all of them, `pages` after
+     `finalize`; `gh release upload|create|edit` and `contents: write` only in create/sums/finalize; SHA-pinned `uses`
+     with a version comment, `timeout-minutes` on every job; isDraft check precedes the upload. Verified to FAIL with
+     `--draft` removed ("create: gh release create lacks --draft") and with `publish-maven` back on `needs: package-android`
+     ("publish-maven must need sums, channels and both other publishers").
 - Not exercised: first real tag run (draft -> published, pages dispatch on main). Pages deploy still needs the merge to main.
 
 ### Task 11 prerequisites (found in Task 10 review)
