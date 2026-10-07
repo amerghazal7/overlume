@@ -1235,6 +1235,11 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   NOTICE also lists Vulkan Memory Allocator (MIT, AMD), Vulkan headers/bluevk (Apache-2.0) and glslang inside those two binaries
   (verified with nm/strings on run 37606567418's pkg-macos arm64 slice and windows-packages-x64 overlume.dll; Linux .so has none), and
   names concrt140.dll among the app-local MSVC DLLs.
+  Fix round 3: Filament's own src tree compiles four more notices into every binary: AMD FSR1 (MIT, 2021 AMD), FXAA 3.11 (2010-2011 NVIDIA + G3D
+  BSD, Morgan McGuire), screen-space ray tracing (BSD-2-Clause, McGuire and Mara) and Oklab gamut clipping (MIT, Bjorn Ottosson), each verified
+  against the pinned file headers and listed in NOTICE; `tools/release/check_notice_strings.sh LIB [NOTICE]` asserts NOTICE names
+  AMD/NVIDIA/McGuire (reports whether LIB carries the text: absent from the Linux .so, whose comments are stripped, present in the Windows DLL); PASS on
+  the release tar.gz's liboverlume.so, and FAIL on a NOTICE copy with NVIDIA removed.
 - README "Install" (one block per channel) and `docs/runbooks/release.md` (version bump -> CHANGELOG -> tag -> watch -> verify; rehearsal;
   rerun; key rotation; Apple/Windows secrets; the real-Mac Metal check; Maven/keyserver prerequisites; merge checklist).
 - `tools/release/channel_smoke.sh all RUN_ID [PAGES_RUN_ID]` against release run 37589684342 + pages run 37616385042 (dispatched with `run_id=37589684342`; the smoke cmp's every .deb/.rpm against
