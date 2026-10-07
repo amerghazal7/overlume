@@ -98,6 +98,7 @@ The Overlume open-source restructure (`docs/plans/2026-09-17-overlume-restructur
 
 ### Fixed
 
+- `tools/validate_visual_mode.sh` no longer runs a rig whose vcam WS bridge could not start. A foreign process on port 8765 (e.g. a leftover `python3 -m http.server 8765`) made the bridge die with EADDRINUSE while the node and stream kept running, which looked like broken vcam orbiting. The launcher now refuses to start when 8765 is taken after its own teardown, naming the holder, and tears the rig down if the bridge process is not listening within 15 s (`tools/rig_preflight.sh`).
 - Where the dynamic and geometric OGM layers overlap, the geometric layer could paint over the dynamic one (same Filament priority, identical bounding boxes, so blended-queue order was arbitrary). OGM layers now carry explicit render priorities — geometric 0, dynamic 1 — below the ribbons, which move up to GLOBAL 2, LOCAL 3, carpet 4, BEHAVIOR 5 (same relative order). `ogm_offroad_light_clay` golden promoted.
 - OGM grids were mirrored left↔right: matc's default `flipUV : true` flipped the occupancy texture's rows, so cells at +y drew at −y (read as "rotated 180°" on the real-robot costmaps). `ground_grid.mat` now sets `flipUV : false`.
 - OGM profile rows without `update_topic` were silently never subscribed (real costmaps publish no updates topic).
