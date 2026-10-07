@@ -90,7 +90,9 @@ if [ "${1:-}" = all ]; then
     # every releases URL (host, org, repo, tag prefix) must be exact; every SHA256SUMS* name must be SHA256SUMS or SHA256SUMS.asc
     while read -r a; do
       [[ "$a" =~ ^https://github\.com/amerghazal7/overlume/releases(/download/v(<ver>|\$V))?$ ]] || { echo "README release URL is not .../releases or .../releases/download/v<ver>: $a"; rc=1; }
-    done < <(grep -oE 'https://[^ )`"]*/releases[^ )`"]*' "$repo/README.md" | sed -E 's#/(overlume-|SHA256SUMS)[^/]*$##' | sort -u)
+    # Every URL that looks like a release/download link (any host, any scheme, including a mangled
+    # path segment) and every `B=` base must equal the exact GitHub releases prefix.
+    done < <({ grep -oE 'https?://[^ )`"]+' "$repo/README.md" | grep -E '/(releases?|download)(/|$)'; grep -oE '(^|[ ;])B=[^ ;]+' "$repo/README.md" | sed 's/.*B=//'; } | sed -E 's#/(overlume-|SHA256SUMS)[^/]*$##' | sort -u)
     while read -r a; do
       [[ "$a" == SHA256SUMS || "$a" == SHA256SUMS.asc ]] || { echo "README names $a, expected SHA256SUMS or SHA256SUMS.asc"; rc=1; }
     done < <(grep -oE 'SHA256SUMS[A-Za-z0-9_.-]*' "$repo/README.md" | sed -E 's/[.]+$//' | sort -u)

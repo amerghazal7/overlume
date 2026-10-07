@@ -193,7 +193,7 @@ in the pinned source (filament-v1.56.5-src.tar.gz, third_party/):
 Code with its own notice inside Filament's src tree (compiled into libfilament
 and its built-in materials, all platforms; not under third_party/). Verified
 against the file headers in the pinned source. The notice text itself is
-visible with strings(1) in the Windows overlume.dll; the Linux liboverlume.so
+visible (for FSR1 and FXAA) with strings(1) in the Windows overlume.dll; the Linux liboverlume.so
 carries the compiled code without the comments (checked), so the obligation
 rests on the code being compiled in, not on the text being present:
   AMD FidelityFX Super Resolution 1 — MIT, "Copyright (c) 2021 Advanced
@@ -205,7 +205,7 @@ rests on the code being compiled in, not on the text being present:
   FXAA 3.11 — "COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS
     RESERVED." with the as-is/no-warranty notice, modified in the G3D
     version, "Copyright 2000-2018, Morgan McGuire ... Available under the BSD
-    License" (filament/src/materials/antiAliasing/fxaa.fs, lines 28-52)
+    License" (filament/src/materials/antiAliasing/fxaa.fs, lines 28-54)
   Screen-space ray tracing (McGuire and Mara, Efficient GPU Screen-Space Ray
     Tracing, 2014) — BSD-2-Clause, "Copyright (c) 2014, Morgan McGuire and
     Michael Mara" (shaders/src/light_reflections.fs)
@@ -233,6 +233,9 @@ Which Filament build each binary links differs (overlume/cmake/GetFilament.cmake
         Micro Devices, Inc. (third_party/vkmemalloc/LICENSE.txt)
       Vulkan headers / bluevk loader — Apache-2.0, Khronos Group
         (libs/bluevk; SPDX header in vulkan_core.h)
+      Khronos OpenGL headers in the bluegl loader (declarations only) — MIT-style
+        "Materials" licence, Copyright (c) 2013-2016 The Khronos Group Inc.
+        (libs/bluegl/include/GL/glcorearb.h; GL platforms)
       glslang (with its Bison-exception parser), as listed above: object code
         is inside the macOS arm64 dylib slice, not only in libfilamat.a.
 
