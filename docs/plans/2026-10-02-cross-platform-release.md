@@ -4,6 +4,11 @@
 > (orchestrator on the session model, implementers on Sonnet, review gates on
 > Opus, ≤2 fix rounds per task). Steps use checkbox (`- [ ]`) syntax.
 
+**Status (2026-10-07):** all 12 tasks done on branch `release-packaging`; pending
+the merge to `main`, the user-owned items at the end of this file, and the first
+real tag run (see "Merge checklist" and `docs/runbooks/release.md`). (Steps of Tasks 1-6 below
+were never ticked as they landed; their completion is recorded in git history and `docs/status.md`.)
+
 **Goal:** Publishing a GitHub release (`v*` tag) builds, tests, signs and
 publishes Overlume for every supported platform, installable through each
 platform's native channel:
@@ -1195,28 +1200,47 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
 (extend from Task 10); modify `README.md` (Install section per platform/channel),
 `docs/README.md`, `docs/status.md`, `CHANGELOG.md`, `NOTICE`.
 
-- [ ] **Step 1: NOTICE** — every library now shipped inside the binaries,
+- [x] **Step 1: NOTICE** — every library now shipped inside the binaries,
   verified against pinned sources: libc++/libc++abi/libunwind
   (`Apache-2.0 WITH LLVM-exception`), spdlog, fmt, and the cesium vcpkg
   closure (from `vcpkg_installed/<triplet>/share/*/copyright`, per platform).
-- [ ] **Step 2: README Install** — apt (keyring + `signed-by` line), dnf
+- [x] **Step 2: README Install** — apt (keyring + `signed-by` line), dnf
   (`overlume.repo`), `brew install amerghazal7/overlume/overlume`, SwiftPM
   snippet, Gradle `implementation("io.github.amerghazal7:overlume:<ver>")` +
   `buildFeatures { prefab = true }` + `find_package(overlume REQUIRED CONFIG)`,
   vcpkg overlay port and Conan commands, Windows installer, manual archives;
   consumer CMake snippet; static-component note (Linux: clang+libc++).
-- [ ] **Step 3: runbook** `release.md`: bump `version.h` + `project()` →
+- [x] **Step 3: runbook** `release.md`: bump `version.h` + `project()` →
   CHANGELOG → tag/push → watch → verify; dry-run rehearsal; rerun a failed
   platform; key rotation (new key, update secrets, re-publish
   `overlume-release.asc`, users re-import); Apple/Windows signing secret
   provisioning steps; Maven namespace/keyserver prerequisites.
-- [ ] **Step 4:** `channel_smoke.sh all RUN_ID` downloads one dry-run's
+- [x] **Step 4:** `channel_smoke.sh all RUN_ID` downloads one dry-run's
   artifacts and runs every README install path that can run on Linux
   (apt, dnf, vcpkg, Conan, Android NDK consumer) exactly as documented;
   macOS/Windows/iOS paths run in the Task 9/7 CI jobs. All PASS.
-- [ ] **Step 5:** `python3 tools/check_docs_links.py` clean; gate green;
+- [x] **Step 5:** `python3 tools/check_docs_links.py` clean; gate green;
   status ledger updated with the first full dry run's URL. **Commit**
   `docs(release): install guide per channel, release runbook, third-party notices`.
+
+### Task 12 results
+
+- NOTICE (03ad059): the cesium vcpkg closure of 32 ports with versions + SPDX licenses read from the Android install tree's
+  `share/<port>/vcpkg.spdx.json` and `copyright` files (the only vcpkg install trees present locally; Linux/Apple/Windows triplets are
+  the same manifest at the same baseline and are marked as inferred, `ms-gsl` as manifest-only), LLVM 18.1.8 libc++/libc++abi/libunwind
+  (Apache-2.0 WITH LLVM-exception, against the 18.1.8 LICENSE.TXT), NDK libc++ and MSVC redistributable notes, and Filament's bundled
+  third_party libraries (basisu, draco, meshoptimizer, mikktspace, smol-v, stb, zlib) from the pinned source tarball's license files.
+- README "Install" (one block per channel) and `docs/runbooks/release.md` (version bump -> CHANGELOG -> tag -> watch -> verify; rehearsal;
+  rerun; key rotation; Apple/Windows secrets; the real-Mac Metal check; Maven/keyserver prerequisites; merge checklist).
+- `tools/release/channel_smoke.sh all RUN_ID [PAGES_RUN_ID]` against release run 37589684342 + pages run 37492062671: **ALL PASS** in
+  3m34s warm (sums + signature against the committed key; tar.gz prefix consumer on ubuntu:22.04; apt+dnf on ubuntu 22.04, debian 12,
+  alma 8, fedora 40 plus the tamper check; vcpkg + Conan shared on the host and static in ubuntu:24.04 with clang 18; Android NDK
+  consumer for all four ABIs, Prefab CLI, Maven bundle contents and signatures). macOS/Windows/iOS install paths stay with the CI jobs.
+- Finding fixed on the way: the unpacked tar.gz needs `libgl1` at run time (Filament's bluegl dlopens libGL.so.1; the deb/rpm depend on it
+  but a manual archive does not), so `create_renderer` returned `nullptr` on a minimal Ubuntu with only `libegl1 libgles2`. The README
+  manual-archive block and the vcpkg `usage` text now name it, and the smoke installs exactly the documented set. Another stale-cache
+  finding: `gh run download` with several `-n` flags returned older artifacts than the run's, so the script downloads one name per call.
+- Local Linux gate green (302 ctest, 312 node gtests, 75 WS, 20 goldens, 6 examples; no golden change).
 
 ## Open items owned by the user (tracked in `docs/status.md`)
 
