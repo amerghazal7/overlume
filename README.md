@@ -330,8 +330,9 @@ RelWithDebInfo consumer, with a VS 2022 >= 17.14 linker for x64 and VS 2026
 (VC runtime >= 14.51) for arm64.
 
 Known limits of the current releases: no Metal frame has been rendered on a
-hosted macOS runner (a one-off check on a real Mac is required before the
-first tag, see [`docs/runbooks/release.md`](docs/runbooks/release.md)), and
+hosted macOS runner (the macOS and iOS packages ship without a verified Metal render; see
+open item 13 in [`docs/status.md`](docs/status.md) and
+[`docs/runbooks/release.md`](docs/runbooks/release.md)), and
 Apple notarisation and Windows Authenticode signing run only once their
 secrets exist. Third-party licenses of everything shipped inside the
 binaries are in [`NOTICE`](NOTICE).

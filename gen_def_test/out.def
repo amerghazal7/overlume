@@ -1,4 +1,0 @@
-LIBRARY overlume
-EXPORTS
-    ?create_renderer@overlume@@YAPEAVVisualRenderer@1@AEBURenderConfig@1@@Z
-    ?destroy_renderer@overlume@@YAXPEAVVisualRenderer@1@@Z

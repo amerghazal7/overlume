@@ -19,7 +19,7 @@ range="${1:-origin/main..HEAD}"
 denylist="$(git rev-parse --git-common-dir)/info/publish-denylist"
 allowfile="$(git rev-parse --git-common-dir)/info/publish-allowlist"
 allow=""
-[[ -f "${allowfile}" ]] && allow="$(grep -v -e '^#' -e '^$' "${allowfile}" | paste -sd '\034' - || true)"
+[[ -f "${allowfile}" ]] && allow="$(grep -v -e '^#' -e '^$' "${allowfile}" | tr '\n' '\034' || true)"
 
 patterns=(
     '/home/[A-Za-z0-9._-]+/'

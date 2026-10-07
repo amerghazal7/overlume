@@ -76,8 +76,8 @@ Cross-platform release pipeline (`docs/plans/2026-10-02-cross-platform-release.m
   its own src tree into every binary: AMD FSR1 (MIT, with Michal Drobot's 2014 MIT line in ffx_a.h), FXAA 3.11 (NVIDIA / G3D
   BSD), screen-space ray tracing (BSD-2-Clause) and Oklab gamut clipping (MIT);
   `tools/release/check_notice_strings.sh LIB` checks a library against NOTICE.
-- Known limits: no Metal frame renders on hosted macOS runners (a one-off
-  real-Mac check precedes the first tag); Apple notarisation and Windows
+- Known limits: no Metal frame renders on hosted macOS runners, so the macOS and iOS
+  packages ship without a verified Metal render; Apple notarisation and Windows
   Authenticode signing run only once their secrets are provisioned; the static
   component on Linux needs clang and libc++ >= 18.
 
