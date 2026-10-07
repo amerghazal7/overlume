@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
+material {
+    name : height_grid,
+    shadingModel : lit,
+    parameters : [
+        { type : sampler2d, name : rampTexture },
+        { type : float, name : rampMinM },
+        { type : float, name : rampMaxM },
+        { type : float3, name : unknownColor },
+        { type : float, name : roughness }
+    ],
+    requires : [ custom0 ],
+    variables : [ heightKnown ]
+}
+vertex {
+    void materialVertex(inout MaterialVertexInputs material) {
+        material.heightKnown = vec4(getCustom0().xy, 0.0, 0.0);
+    }
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        float h = variable_heightKnown.x;
+        float known = clamp(variable_heightKnown.y, 0.0, 1.0);
+        float span = max(materialParams.rampMaxM - materialParams.rampMinM, 1e-4);
+        float t = clamp((h - materialParams.rampMinM) / span, 0.0, 1.0);
+        vec3 ramp = texture(materialParams_rampTexture, vec2((t * 255.0 + 0.5) / 256.0, 0.5)).rgb;
+        material.baseColor.rgb = mix(materialParams.unknownColor, ramp, known);
+        material.roughness = materialParams.roughness;
+        material.metallic = 0.0;
+    }
+}

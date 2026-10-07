@@ -209,6 +209,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     layer_markers_ = declare_parameter<bool>("layer_markers", true);
     layer_point_clouds_ = declare_parameter<bool>("layer_point_clouds", true);
     layer_trajectory_carpet_ = declare_parameter<bool>("layer_trajectory_carpet", true);
+    layer_height_grids_ = declare_parameter<bool>("layer_height_grids", true);
 
     render_mode_ = declare_parameter<int>("render_mode", initial_mode_);
     if (render_mode_ < kRenderModeBowl || render_mode_ > kRenderModeFreeLook) {
@@ -563,6 +564,27 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     RCLCPP_INFO(get_logger(), "ogm: %zu row(s) subscribed", ogm_rows_.size());
 
     for (const auto& row : profile->rows) {
+        if (row.adapter != "height_grid") continue;
+        const auto specs = overlume::ros::subscriptions_for(row);
+        if (specs.empty()) continue;
+        const auto& gridSpec = specs[0];
+
+        auto adapter = std::make_unique<overlume::ros::HeightGridAdapter>(row, *frame_transformer_);
+        overlume::ros::HeightGridAdapter* adapter_ptr = adapter.get();
+
+        rclcpp::QoS gridQos(10);
+        if (gridSpec.best_effort) gridQos.best_effort();
+        if (gridSpec.transient_local) gridQos.transient_local();
+        height_grid_subs_.push_back(create_subscription<nav_msgs::msg::OccupancyGrid>(
+            gridSpec.topic, gridQos,
+            [this, adapter_ptr](const nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
+                adapter_ptr->ingest(*msg, sim_clock_sec_);
+            }));
+        height_grid_rows_.push_back(HeightGridRow{std::move(adapter), row.timeout_sec, row.topic});
+    }
+    RCLCPP_INFO(get_logger(), "height_grid: %zu row(s) subscribed", height_grid_rows_.size());
+
+    for (const auto& row : profile->rows) {
         if (row.adapter != "collision") continue;
         const auto specs = overlume::ros::subscriptions_for(row);
         if (specs.empty()) continue;
@@ -788,6 +810,8 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                 layer_point_clouds_ = p.as_bool();
             else if (n == "layer_trajectory_carpet")
                 layer_trajectory_carpet_ = p.as_bool();
+            else if (n == "layer_height_grids")
+                layer_height_grids_ = p.as_bool();
             else if (n == "render_mode") {
                 const int v = static_cast<int>(p.as_int());
                 if (v < kRenderModeBowl || v > kRenderModeFreeLook) {
@@ -1059,6 +1083,17 @@ void OverlumeNode::timer_callback() {
         gr.adapter->fill(scene_asm_);
     }
 
+    for (auto& hgr : height_grid_rows_) {
+        if (hgr.adapter->stats().msgs == 0) continue;
+        warn_on_drop_growth(get_logger(), *get_clock(), hgr.topic, hgr.adapter->stats(),
+                            hgr.warned_malformed, hgr.warned_no_tf);
+        if (sim_clock_sec_ - hgr.adapter->stats().last_msg_sec > hgr.timeout_sec) {
+            hgr.adapter->mark_stale_tick();
+            continue;
+        }
+        hgr.adapter->fill(scene_asm_);
+    }
+
     for (auto& cr : collision_rows_) {
         if (cr.adapter->stats().msgs == 0) continue;
         warn_on_drop_growth(get_logger(), *get_clock(), cr.topic, cr.adapter->stats(),
@@ -1129,7 +1164,8 @@ void OverlumeNode::timer_callback() {
 
     const LayerFlags user_layer_flags{
         layer_objects_, layer_paths_,   layer_map_elements_, layer_grids_,
-        layer_alerts_,  layer_markers_, layer_point_clouds_, layer_trajectory_carpet_};
+        layer_alerts_,  layer_markers_, layer_point_clouds_, layer_trajectory_carpet_,
+        layer_height_grids_};
     apply_layer_gates(scene_asm_,
                       compose_layer_gates(user_layer_flags, mode_content_mask(render_mode)));
 
@@ -1350,8 +1386,8 @@ void OverlumeNode::timer_callback() {
 void OverlumeNode::publish_diagnostics() {
     std::vector<overlume::ros::RowStats> rows;
     rows.reserve(hd_map_rows_.size() + dynamic_objects_rows_.size() + path_rows_.size() +
-                 ogm_rows_.size() + collision_rows_.size() + generic_marker_rows_.size() +
-                 point_cloud_rows_.size() + carpet_rows_.size());
+                 ogm_rows_.size() + height_grid_rows_.size() + collision_rows_.size() +
+                 generic_marker_rows_.size() + point_cloud_rows_.size() + carpet_rows_.size());
 
     auto append_row = [&](const std::string& topic, const overlume::ros::AdapterStats& stats,
                           double timeout_sec) {
@@ -1368,6 +1404,8 @@ void OverlumeNode::publish_diagnostics() {
         append_row(dr.topic, dr.adapter->stats(), dr.timeout_sec);
     for (const auto& pr : path_rows_) append_row(pr.topic, pr.adapter->stats(), pr.timeout_sec);
     for (const auto& gr : ogm_rows_) append_row(gr.topic, gr.adapter->stats(), gr.timeout_sec);
+    for (const auto& hgr : height_grid_rows_)
+        append_row(hgr.topic, hgr.adapter->stats(), hgr.timeout_sec);
     for (const auto& cr : collision_rows_)
         append_row(cr.topic, cr.adapter->stats(), cr.timeout_sec);
     for (const auto& gmr : generic_marker_rows_)
@@ -1425,6 +1463,8 @@ OverlumeNode::CallbackReturn OverlumeNode::on_cleanup(const rclcpp_lifecycle::St
     ogm_grid_subs_.clear();
     ogm_update_subs_.clear();
     ogm_rows_.clear();
+    height_grid_subs_.clear();
+    height_grid_rows_.clear();
     collision_subs_.clear();
     collision_rows_.clear();
     generic_marker_subs_.clear();
@@ -1465,6 +1505,8 @@ OverlumeNode::CallbackReturn OverlumeNode::on_shutdown(const rclcpp_lifecycle::S
     ogm_grid_subs_.clear();
     ogm_update_subs_.clear();
     ogm_rows_.clear();
+    height_grid_subs_.clear();
+    height_grid_rows_.clear();
     collision_subs_.clear();
     collision_rows_.clear();
     generic_marker_subs_.clear();

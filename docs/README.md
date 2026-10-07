@@ -10,7 +10,7 @@ index; `docs/status.md` is the one status ledger.
   the node: profile authoring, environment baking, Cesium ion setup, the
   CI gate, the parity goldens, and the sign-off ledger.
 - **`design/`** — the visual-mode design spec and its backlog, the design
-  record Epics 0-6 were built against.
+  record Epics 0-6 were built against, and later feature specs.
 - **`adr/`** — architecture decision records (unchanged by this restructure).
 - **`plans/`** — the live restructure plan, the per-epic implementation
   plans (history of *how* each epic was built), and `plans/archive/` for
@@ -59,6 +59,10 @@ index; `docs/status.md` is the one status ledger.
   review).
 - [`2026-08-18-visual-mode-backlog.md`](design/2026-08-18-visual-mode-backlog.md)
   — the epic/task backlog spec the design was broken down into.
+- [`2026-10-06-height-grid-terrain-design.md`](design/2026-10-06-height-grid-terrain-design.md)
+  — the offroad height-map terrain layer: the `/debug_ogm_2` metric contract,
+  `HeightGridLayer` (`kSceneVersion` 9), the heightfield renderer and the
+  ground replacement inside its footprint.
 
 ## ADRs (`docs/adr/`)
 
@@ -86,6 +90,9 @@ index; `docs/status.md` is the one status ledger.
   — the flicker/new-stack-rendering follow-on to Epic 3.
 - [`2026-09-10-unified-engine-migration.md`](plans/2026-09-10-unified-engine-migration.md)
   — the CUDA-to-Filament unified-engine cutover.
+- [`2026-10-06-height-grid-terrain.md`](plans/2026-10-06-height-grid-terrain.md)
+  — the offroad height-map terrain layer (implements
+  `design/2026-10-06-height-grid-terrain-design.md`).
 - [`archive/`](plans/archive/README.md) — retired NumPy/GL/CUDA prototype
   plans and specs (2026-06/07), plus the superseded Azure DevOps project
   backlog export.

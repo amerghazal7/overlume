@@ -48,6 +48,9 @@ struct ProfileRow {
 
     std::string frame_id;
     std::string encoding{"occupancy"};
+
+    double height_min_m{0.0};
+    double height_max_m{0.0};
 };
 
 struct Profile {

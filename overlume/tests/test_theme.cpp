@@ -13,6 +13,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -415,6 +417,14 @@ TEST(ThemeLoad, BuiltinFallbackMatchesDarkAdasYaml) {
     EXPECT_NEAR(fb.ribbon.margin_behavior_m, dark->ribbon.margin_behavior_m, 1e-4f);
     EXPECT_NEAR(fb.ribbon.margin_global_m, dark->ribbon.margin_global_m, 1e-4f);
     EXPECT_NEAR(fb.ribbon.margin_local_m, dark->ribbon.margin_local_m, 1e-4f);
+    ASSERT_EQ(fb.height_grid.ramp.size(), dark->height_grid.ramp.size());
+    for (size_t i = 0; i < fb.height_grid.ramp.size(); ++i) {
+        EXPECT_NEAR(fb.height_grid.ramp[i].height_m, dark->height_grid.ramp[i].height_m, 1e-4f);
+        near3(fb.height_grid.ramp[i].color, dark->height_grid.ramp[i].color);
+    }
+    near3(fb.height_grid.unknown_color, dark->height_grid.unknown_color);
+    EXPECT_NEAR(fb.height_grid.roughness, dark->height_grid.roughness, 1e-4f);
+    EXPECT_NEAR(fb.height_grid.ground_bias_m, dark->height_grid.ground_bias_m, 1e-4f);
 }
 
 TEST(ClayMaterial, RespondsToLightDirection) {
@@ -735,4 +745,134 @@ TEST(ThemePalette, HybridSplatSizeParsesFromBothThemesAndDefaultsWhenMissing) {
         overlume::detail::load_theme(fixtureDir, "sun_dir_a");
     ASSERT_TRUE(bare.has_value());
     EXPECT_FLOAT_EQ(bare->hybrid_splat.size_px, 7.0f);
+}
+
+TEST(ThemeHeightGrid, ShippedThemesAuthorTheSpecRampAndTokens) {
+    for (const char* name : {"dark_adas", "light_clay"}) {
+        const std::optional<overlume::detail::Theme> t =
+            overlume::detail::load_theme(kThemeDir, name);
+        ASSERT_TRUE(t.has_value()) << name;
+        const auto& hg = t->height_grid;
+        ASSERT_EQ(hg.ramp.size(), 5u) << name;
+        const float heights[] = {-1.0f, 0.0f, 0.5f, 1.5f, 2.5f};
+        for (size_t i = 0; i < 5; ++i) {
+            EXPECT_FLOAT_EQ(hg.ramp[i].height_m, heights[i]) << name << " stop " << i;
+        }
+        EXPECT_NEAR(hg.ramp[1].color.r, t->palette.ground.r, 1e-4f)
+            << name << ": the 0 m stop is the theme's own ground colour";
+        EXPECT_NEAR(hg.ramp[1].color.g, t->palette.ground.g, 1e-4f) << name;
+        EXPECT_NEAR(hg.ramp[1].color.b, t->palette.ground.b, 1e-4f) << name;
+        EXPECT_NEAR(hg.unknown_color.r, t->palette.ground.r, 1e-4f) << name;
+        EXPECT_NEAR(hg.unknown_color.g, t->palette.ground.g, 1e-4f) << name;
+        EXPECT_NEAR(hg.unknown_color.b, t->palette.ground.b, 1e-4f) << name;
+        EXPECT_NEAR(hg.roughness, 0.9f, 1e-6f) << name;
+        EXPECT_NEAR(hg.ground_bias_m, -0.05f, 1e-6f) << name;
+    }
+    const auto dark = overlume::detail::load_theme(kThemeDir, "dark_adas");
+    const auto light = overlume::detail::load_theme(kThemeDir, "light_clay");
+    ASSERT_TRUE(dark.has_value());
+    ASSERT_TRUE(light.has_value());
+    EXPECT_NEAR(dark->height_grid.ramp[4].color.r, 0.35f, 1e-4f);
+    EXPECT_NEAR(dark->height_grid.ramp[0].color.b, 0.40f, 1e-4f);
+    EXPECT_NEAR(light->height_grid.ramp[4].color.r, 0.42f, 1e-4f);
+    EXPECT_NEAR(light->height_grid.ramp[0].color.b, 0.52f, 1e-4f);
+}
+
+TEST(ThemeHeightGrid, AbsentBlockFallsBackToGroundToWarningRamp) {
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<overlume::detail::Theme> t =
+        overlume::detail::load_theme(fixtureDir, "sun_dir_a");
+    ASSERT_TRUE(t.has_value());
+    const auto& hg = t->height_grid;
+    ASSERT_EQ(hg.ramp.size(), 2u);
+    EXPECT_FLOAT_EQ(hg.ramp[0].height_m, 0.0f);
+    EXPECT_FLOAT_EQ(hg.ramp[1].height_m, 2.5f);
+    EXPECT_FLOAT_EQ(hg.ramp[0].color.r, t->palette.ground.r);
+    EXPECT_FLOAT_EQ(hg.ramp[0].color.g, t->palette.ground.g);
+    EXPECT_FLOAT_EQ(hg.ramp[0].color.b, t->palette.ground.b);
+    EXPECT_FLOAT_EQ(hg.ramp[1].color.r, t->palette.alert.warning.r);
+    EXPECT_FLOAT_EQ(hg.ramp[1].color.g, t->palette.alert.warning.g);
+    EXPECT_FLOAT_EQ(hg.ramp[1].color.b, t->palette.alert.warning.b);
+    EXPECT_FLOAT_EQ(hg.unknown_color.r, t->palette.ground.r);
+    EXPECT_FLOAT_EQ(hg.unknown_color.g, t->palette.ground.g);
+    EXPECT_FLOAT_EQ(hg.unknown_color.b, t->palette.ground.b);
+    EXPECT_FLOAT_EQ(hg.roughness, 0.9f);
+    EXPECT_FLOAT_EQ(hg.ground_bias_m, -0.05f);
+}
+
+TEST(ThemeHeightGrid, PartialBlockKeepsExplicitTokensAndFallsBackForTheRest) {
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<overlume::detail::Theme> t =
+        overlume::detail::load_theme(fixtureDir, "height_grid_partial");
+    ASSERT_TRUE(t.has_value());
+    const auto& hg = t->height_grid;
+    EXPECT_FLOAT_EQ(hg.roughness, 0.4f);
+    EXPECT_FLOAT_EQ(hg.ground_bias_m, 0.2f);
+    ASSERT_EQ(hg.ramp.size(), 2u) << "a block without a ramp gets the ground-to-warning pair";
+    EXPECT_FLOAT_EQ(hg.ramp[1].color.r, t->palette.alert.warning.r);
+    EXPECT_FLOAT_EQ(hg.unknown_color.g, t->palette.ground.g);
+}
+
+TEST(ThemeHeightGrid, BakeInterpolatesLinearlyBetweenStops) {
+    const auto t = overlume::detail::bake_height_ramp(
+        {{0.0f, {0.0f, 0.0f, 0.0f}}, {1.0f, {1.0f, 0.5f, 0.0f}}});
+    EXPECT_FLOAT_EQ(t.min_m, 0.0f);
+    EXPECT_FLOAT_EQ(t.max_m, 1.0f);
+    EXPECT_FLOAT_EQ(t.color[0].r, 0.0f);
+    EXPECT_NEAR(t.color[51].r, 51.0f / 255.0f, 1e-5f);
+    EXPECT_NEAR(t.color[51].g, 0.5f * 51.0f / 255.0f, 1e-5f);
+    EXPECT_NEAR(t.color[255].r, 1.0f, 1e-6f);
+    EXPECT_NEAR(t.color[255].g, 0.5f, 1e-6f);
+}
+
+TEST(ThemeHeightGrid, BakeSortsStopsAndMapsTheStopRangeToTheTable) {
+    const auto t = overlume::detail::bake_height_ramp(
+        {{3.0f, {1.0f, 0.0f, 0.0f}}, {-1.0f, {0.0f, 0.0f, 1.0f}}, {1.0f, {0.0f, 1.0f, 0.0f}}});
+    EXPECT_FLOAT_EQ(t.min_m, -1.0f);
+    EXPECT_FLOAT_EQ(t.max_m, 3.0f);
+    EXPECT_FLOAT_EQ(t.color[0].b, 1.0f) << "first entry is the lowest stop";
+    EXPECT_NEAR(t.color[255].r, 1.0f, 1e-6f) << "last entry is the highest stop";
+    // The middle stop (1 m) sits at k = (1 - -1) / 4 * 255 = 127.5: both neighbours are
+    // within half a step of pure green.
+    EXPECT_GT(t.color[127].g, 0.99f);
+    EXPECT_GT(t.color[128].g, 0.99f);
+}
+
+TEST(ThemeHeightGrid, BakeClampsBeyondTheLastStopAndHandlesASingleStop) {
+    const auto one = overlume::detail::bake_height_ramp({{2.0f, {0.2f, 0.4f, 0.6f}}});
+    EXPECT_FLOAT_EQ(one.min_m, 2.0f);
+    EXPECT_NEAR(one.max_m, 2.001f, 1e-6f) << "a lone stop still gets a non-degenerate range";
+    for (size_t k : {0u, 1u, 128u, 255u}) {
+        EXPECT_FLOAT_EQ(one.color[k].r, 0.2f) << k;
+        EXPECT_FLOAT_EQ(one.color[k].g, 0.4f) << k;
+        EXPECT_FLOAT_EQ(one.color[k].b, 0.6f) << k;
+    }
+}
+
+TEST(ThemeHeightGrid, BakeOfNoStopsIsAllBlackWithUnitRange) {
+    const auto t = overlume::detail::bake_height_ramp({});
+    EXPECT_FLOAT_EQ(t.min_m, 0.0f);
+    EXPECT_FLOAT_EQ(t.max_m, 1.0f);
+    for (const auto& c : t.color) {
+        EXPECT_FLOAT_EQ(c.r, 0.0f);
+        EXPECT_FLOAT_EQ(c.g, 0.0f);
+        EXPECT_FLOAT_EQ(c.b, 0.0f);
+    }
+}
+
+TEST(ThemeHeightGrid, NanRoughnessFallsBackToTheDefault) {
+    // std::clamp passes NaN through, so the parse must guard it explicitly.
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    std::ifstream in(fixtureDir + "/height_grid_partial.yaml");
+    ASSERT_TRUE(in.good());
+    std::string yaml((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const std::string from = "roughness: 0.4";
+    const size_t at = yaml.rfind(from);
+    ASSERT_NE(at, std::string::npos);
+    yaml.replace(at, from.size(), "roughness: .nan");
+    const std::string dir = ::testing::TempDir();
+    std::ofstream(dir + "/height_grid_nan_roughness.yaml") << yaml;
+    const auto t = overlume::detail::load_theme(dir, "height_grid_nan_roughness");
+    ASSERT_TRUE(t.has_value());
+    EXPECT_FLOAT_EQ(t->height_grid.roughness, 0.9f);
 }

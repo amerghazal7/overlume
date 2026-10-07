@@ -4,6 +4,7 @@
 #include "overlume_ros/profile.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <map>
 #include <set>
@@ -50,6 +51,7 @@ const std::map<std::string, std::set<std::string>>& RoleSets() {
         {"tf_axes", {"debug"}},
         {"point_cloud", {"points"}},
         {"trajectory_carpet", {"carpet"}},
+        {"height_grid", {"terrain"}},
     };
     return kRoles;
 }
@@ -64,14 +66,15 @@ const std::map<std::string, std::set<std::string>>& TypeSets() {
         {"generic", {"visualization_msgs/msg/MarkerArray"}},
         {"point_cloud", {"sensor_msgs/msg/PointCloud2"}},
         {"trajectory_carpet", {"visualization_msgs/msg/MarkerArray"}},
+        {"height_grid", {"nav_msgs/msg/OccupancyGrid"}},
     };
     return kTypes;
 }
 
 const std::set<std::string>& KnownAdapters() {
     static const std::set<std::string> kAdapters = {
-        "dynamic_objects", "path",        "hd_map",           "ogm", "collision", "generic",
-        "tf_axes",         "point_cloud", "trajectory_carpet"};
+        "dynamic_objects", "path",        "hd_map",            "ogm", "collision", "generic",
+        "tf_axes",         "point_cloud", "trajectory_carpet", "height_grid"};
     return kAdapters;
 }
 
@@ -84,7 +87,8 @@ const std::set<std::string>& KnownRowKeys() {
                                                 "best_effort",  "junction_interior_boundaries",
                                                 "color_mode",   "max_points",
                                                 "stride",       "min_z_m",
-                                                "frame_id",     "encoding"};
+                                                "frame_id",     "encoding",
+                                                "height_min_m", "height_max_m"};
     return kKeys;
 }
 
@@ -164,27 +168,58 @@ bool ParseRow(const YAML::Node& node, const std::string& file, size_t idx, Profi
     }
 
     if (node["frame_id"]) {
-        if (out.adapter != "point_cloud" && out.adapter != "ogm") {
+        if (out.adapter != "point_cloud" && out.adapter != "ogm" &&
+            out.adapter != "height_grid") {
             errors.push_back(RowTag(file, idx, out.topic) +
-                             "frame_id is only valid on adapter: point_cloud or ogm rows");
+                             "frame_id is only valid on adapter: point_cloud, ogm or "
+                             "height_grid rows");
             ok = false;
         } else {
             out.frame_id = node["frame_id"].as<std::string>();
         }
     }
+    if (out.adapter == "height_grid") out.encoding = "height_linear";
     if (node["encoding"]) {
         const std::string enc = node["encoding"].as<std::string>();
-        if (out.adapter != "ogm") {
-            errors.push_back(RowTag(file, idx, out.topic) +
-                             "encoding is only valid on adapter: ogm rows");
-            ok = false;
-        } else if (enc != "occupancy" && enc != "costmap") {
-            errors.push_back(RowTag(file, idx, out.topic) + "encoding '" + enc +
-                             "' must be one of occupancy|costmap");
-            ok = false;
+        if (out.adapter == "ogm") {
+            if (enc != "occupancy" && enc != "costmap") {
+                errors.push_back(RowTag(file, idx, out.topic) + "encoding '" + enc +
+                                 "' must be one of occupancy|costmap");
+                ok = false;
+            } else {
+                out.encoding = enc;
+            }
+        } else if (out.adapter == "height_grid") {
+            if (enc != "height_linear" && enc != "height_normalized") {
+                errors.push_back(RowTag(file, idx, out.topic) + "encoding '" + enc +
+                                 "' must be one of height_linear|height_normalized");
+                ok = false;
+            } else {
+                out.encoding = enc;
+            }
         } else {
-            out.encoding = enc;
+            errors.push_back(RowTag(file, idx, out.topic) +
+                             "encoding is only valid on adapter: ogm or height_grid rows");
+            ok = false;
         }
+    }
+
+    for (const char* key : {"height_min_m", "height_max_m"}) {
+        if (node[key]) {
+            if (out.adapter != "height_grid") {
+                errors.push_back(RowTag(file, idx, out.topic) + key +
+                                 " is only valid on adapter: height_grid rows");
+                ok = false;
+            }
+        } else if (out.adapter == "height_grid") {
+            errors.push_back(RowTag(file, idx, out.topic) + key +
+                             " is required on adapter: height_grid rows");
+            ok = false;
+        }
+    }
+    if (out.adapter == "height_grid") {
+        if (node["height_min_m"]) out.height_min_m = node["height_min_m"].as<double>();
+        if (node["height_max_m"]) out.height_max_m = node["height_max_m"].as<double>();
     }
 
     const std::string ns_default_str = get_str("ns_default", "polyline");
@@ -285,6 +320,12 @@ bool ValidateRow(const ProfileRow& row, const std::string& file, size_t idx,
     if (!row.update_topic.empty() && row.adapter != "ogm")
         return fail("update_topic is only valid on adapter: ogm rows");
 
+    if (row.adapter == "height_grid") {
+        if (!std::isfinite(row.height_min_m) || !std::isfinite(row.height_max_m) ||
+            !(row.height_max_m > row.height_min_m))
+            return fail("height_max_m must be finite and greater than height_min_m");
+    }
+
     if (row.timeout_sec < 1.0)
         return fail(
             "timeout_sec must be >= 1.0 (the renderer's staleness fade runs 0.5..1.0s "
@@ -345,9 +386,19 @@ std::optional<Profile> BuildProfile(const YAML::Node& root, const std::string& f
     }
 
     std::set<std::pair<std::string, std::string>> seen_topic_adapter;
+    bool seen_height_grid = false;
     for (size_t i = 0; i < profile.rows.size(); ++i) {
         const auto& row = profile.rows[i];
         if (row.adapter == "tf_axes") continue;
+        if (row.adapter == "height_grid") {
+            if (seen_height_grid) {
+                errors.push_back(RowTag(file, row_file_idx[i], row.topic) +
+                                 "at most one adapter: height_grid row per profile -- the "
+                                 "renderer's ground hole follows a single terrain layer");
+                hard_fail = true;
+            }
+            seen_height_grid = true;
+        }
         auto key = std::make_pair(row.topic, row.adapter);
         if (!seen_topic_adapter.insert(key).second) {
             errors.push_back(RowTag(file, row_file_idx[i], row.topic) +

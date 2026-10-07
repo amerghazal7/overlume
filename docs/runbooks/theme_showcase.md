@@ -171,3 +171,40 @@ ogm:
   `dark_adas`, a deep green on `light_clay` — because one identical dark green
   cannot contrast with both grounds.
 
+## Terrain heightfield (`height_grid:` block)
+
+Colours the `height_grid` terrain (profile adapter `height_grid`, e.g. the
+offroad stack's `/debug_ogm_2`) by height above the nominal ground under the
+ego. All keys are optional; a theme without the block gets a two-stop ramp,
+`palette.ground` at 0.0 m to `alert.warning` at 2.5 m.
+
+```yaml
+height_grid:
+  ramp:
+    - { height_m: -1.0, color: [0.02, 0.10, 0.40] }    # dips
+    - { height_m:  0.0, color: [0.055, 0.055, 0.078] } # = palette.ground
+    - { height_m:  0.5, color: [0.06, 0.22, 0.05] }
+    - { height_m:  1.5, color: [0.55, 0.20, 0.02] }
+    - { height_m:  2.5, color: [0.35, 0.04, 0.02] }
+  unknown_color: [0.055, 0.055, 0.078]  # default palette.ground
+  roughness: 0.9
+  ground_bias_m: -0.05
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `ramp` | ground at 0.0 m → `alert.warning` at 2.5 m | Colour by height (m); linear between stops, clamped outside them, stops sorted by height. |
+| `unknown_color` | `palette.ground` | Cells the producer has no height for, drawn flat at ground level. |
+| `roughness` | 0.9 | Lit-material roughness of the terrain. |
+| `ground_bias_m` | −0.05 | Added to every vertex; keeps flat terrain just under the cost grids (+0.010 / +0.015 m) so height noise does not speckle through them. |
+
+- Colours are linear RGB. Pale stops wash out once lit and sRGB-encoded:
+  the first shipped ramps (0.55–0.95) were indistinguishable on
+  `light_clay`, so both shipped themes now step through saturated hues
+  (blue → ground → green → orange → red-brown) at the heights above.
+- Keep the 0.0 m stop equal to `palette.ground`: inside its footprint the
+  terrain replaces the clay ground, and a matching colour keeps the seam
+  invisible.
+- Cross-fades blend the stops pairwise when both themes have the same number
+  of stops; otherwise the ramp switches at the midpoint.
+

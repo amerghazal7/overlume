@@ -38,6 +38,7 @@
     layer_markers: true
     layer_point_clouds: true
     layer_trajectory_carpet: true
+    layer_height_grids: true
     render_mode: 3
     layer_surround_stitching: false
     surround_stitching_profile: bowl

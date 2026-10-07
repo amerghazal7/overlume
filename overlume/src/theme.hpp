@@ -20,6 +20,18 @@ struct Float3 {
     float r = 0.0f, g = 0.0f, b = 0.0f;
 };
 
+struct HeightRampStop {
+    float height_m = 0.0f;
+    Float3 color;
+};
+
+struct HeightRampTable {
+    static constexpr size_t kEntries = 256;
+    std::array<Float3, kEntries> color{};
+    float min_m = 0.0f;
+    float max_m = 1.0f;
+};
+
 struct Theme {
     std::string name;
 
@@ -121,6 +133,13 @@ struct Theme {
     struct Environment {
         float tile_radius_m = kThemeDefaultTileRadiusM;
     } environment;
+
+    struct HeightGrid {
+        std::vector<HeightRampStop> ramp;
+        Float3 unknown_color;
+        float roughness = 0.9f;
+        float ground_bias_m = -0.05f;
+    } height_grid;
 };
 
 struct OgmRampStop {
@@ -130,6 +149,10 @@ struct OgmRampStop {
 };
 
 Theme::OgmRamp bake_ogm_ramp(std::vector<OgmRampStop> stops);
+
+// Sorts the stops ascending, maps [first stop height, last stop height] onto kEntries
+// entries (linear between stops), and records that range. No stops -> all-black, [0, 1].
+HeightRampTable bake_height_ramp(std::vector<HeightRampStop> stops);
 
 std::optional<Theme> load_theme(const std::string& dir, const std::string& name);
 
