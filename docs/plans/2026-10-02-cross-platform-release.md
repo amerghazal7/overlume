@@ -1069,6 +1069,31 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
 - Linux gate deferred (a pgrep match for "carla" was a ROS node parameter, but the load rule requires an empty
   match); Task 10 touches no build code.
 
+### Task 11 results
+
+- Dry run **37580899333** on 7915f16: GREEN (27 jobs success; `create`, `publish-homebrew`, `publish-swiftpm`, `finalize`,
+  `pages` skipped, as designed). `sums` merged 6 verified per-job checksum files, 22 release files, signed
+  `SHA256SUMS.asc`, then verified it in a fresh keyring holding only `packaging/keys/overlume-release.asc` (fpr
+  `89281DE0...68FE6404`) plus `sha256sum -c` over every file; the `release-sums` artifact holds both files and
+  `SHA256SUMS.asc` verifies locally against the committed key. `publish-maven` ran in `validate` mode after `sums`+`channels`.
+  `tools/release/test_merge_sums.sh` (round trip; wrong key, tamper between jobs and after signing, missing
+  signature, forged part, duplicate name all FAIL) ran in `sums`. actionlint 1.7.12 (sha256-checked release binary): clean.
+- Tag-only paths cannot run on a dry run; reasoning from the expressions. Let `T` = `ref_type == 'tag' && (event == push || !dry_run)`.
+  (1) `create`: push only, now `--draft`; the release is invisible until `finalize`. (2) `sums` upload: `DRY_RUN != 'true' && ref_type == tag`,
+  to the draft (token `contents: write`, `GH_REPO` set), `--clobber` only replaces its own earlier assets. (3) Publishers
+  (`publish-homebrew`, `publish-swiftpm`) require `sums` and `channels` success and `T`; `publish-maven` requires `sums`,
+  `channels` and each of the two `success|skipped`; a failed package/test job fails `sums` (its `if` lists every
+  package/sign job plus `channels-render`), so `sums` is skipped, so every publisher is skipped, and `finalize` (needs
+  `sums`/`channels`/all three `success`) is skipped: the release stays a draft and nothing irreversible ran.
+  A failed Homebrew/SwiftPM push skips Maven and `finalize`. `skipped` is accepted for Homebrew/SwiftPM only because `sums` success
+  already excludes the upstream-failure skip; on a tag run they run, so `skipped` cannot occur there. (4) `finalize` checks the
+  draft's asset names equal `SHA256SUMS` + the two signature files, then `gh release edit --draft=false`. (5) `pages`
+  runs only after `finalize` success: `gh workflow run pages.yml --ref main -f dry_run=false` (GITHUB_TOKEN dispatches are
+  allowed to trigger `workflow_dispatch`). (6) A non-dry dispatch on a tag ref: `create` is skipped, so the draft must
+  already exist (as for the old upload steps); `finalize` accepts `create` skipped only for `workflow_dispatch`.
+  Re-running failed jobs of a tag run is safe: uploads are `--clobber` on a draft; the SwiftPM guard in `sign-apple` blocks a rebuilt zip for an already-pinned version.
+- Not exercised: first real tag run (draft -> published, pages dispatch on main). Pages deploy still needs the merge to main.
+
 ### Task 11 prerequisites (found in Task 10 review)
 
 - The `github-pages` environment only allows branch `main` to deploy (one deployment-branch policy), so a deploy on
@@ -1087,14 +1112,14 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
 
 - [ ] Remove the temporary `push: branches: [release-packaging]` trigger from `.github/workflows/pages.yml`
   (added only to register the workflow for dispatch; deploy is guarded to main).
-- [ ] Task 11 prerequisites above are resolved before wiring `pages` into release.yml.
+- [x] Task 11 prerequisites above are resolved: route (b) taken, `workflow_call` removed from `pages.yml` (Task 11).
 - [ ] After the first push to main deploys, `curl -s -o /dev/null -w '%{http_code}'` on the live docs index prints 200.
 
 ### Task 11: Release orchestration and integrity
 
 **Files:** Modify `.github/workflows/release.yml`, `tools/release/sign_sums.sh`.
 
-- [ ] **Step 1:** Job graph: `create` → `package-linux` (x86_64, aarch64),
+- [x] **Step 1:** Job graph (as built below; run 37580899333): `create` → `package-linux` (x86_64, aarch64),
   `package-android`, `package-macos`, `package-ios`, `package-windows`
   (x64, arm64) → `sums` (merges all `SHA256SUMS-*` into `SHA256SUMS`,
   signs `SHA256SUMS.asc`, uploads) → publish jobs `publish-maven`,
@@ -1132,13 +1157,13 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
     runs `gh workflow run pages.yml --ref main -f dry_run=false` after `finalize` (needs `actions: write`; the
     `github-pages` environment only accepts main, and the release is public by then). Dry runs never reach it.
   - Every action pinned by commit SHA (`# vN` kept) in all workflows; `timeout-minutes` on every job.
-- [ ] **Step 2:** Concurrency group `release-${{ github.ref }}`; every
+- [x] **Step 2:** (concurrency group was already in place; all actions across all workflows now SHA-pinned, `timeout-minutes` on every job) Concurrency group `release-${{ github.ref }}`; every
   third-party action pinned by commit SHA; `timeout-minutes` per job.
-- [ ] **Step 3: Check** — `gh workflow run release.yml -f dry_run=true` on
+- [x] **Step 3: Check** (result below) — `gh workflow run release.yml -f dry_run=true` on
   the work branch: every job green, Maven `VALIDATED` then dropped,
   `gpg --verify SHA256SUMS.asc SHA256SUMS` OK with the public key, and
   `sha256sum -c SHA256SUMS` OK over all downloaded artifacts.
-- [ ] **Step 4: Commit** `ci(release): draft-until-green release graph with signed checksums`.
+- [x] **Step 4: Commit** `ci(release): Task 11 complete — draft-until-green release graph with signed checksums`.
 
 ### Task 12: Docs, notices, end-to-end channel smoke
 
