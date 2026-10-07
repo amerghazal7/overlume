@@ -1240,6 +1240,7 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   but a manual archive does not), so `create_renderer` returned `nullptr` on a minimal Ubuntu with only `libegl1 libgles2`. The README
   manual-archive block and the vcpkg `usage` text now name it, and the smoke installs exactly the documented set. Another stale-cache
   finding: `gh run download` with several `-n` flags returned older artifacts than the run's, so the script downloads one name per call.
+- Final full dry run **37606567418** on 890ec19 (all three Task 12 commits): GREEN; `create`, `publish-homebrew`, `publish-swiftpm`, `finalize`, `pages` skipped as designed.
 - Local Linux gate green (302 ctest, 312 node gtests, 75 WS, 20 goldens, 6 examples; no golden change).
 
 ## Open items owned by the user (tracked in `docs/status.md`)
