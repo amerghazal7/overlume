@@ -188,7 +188,7 @@ gh secret set WINDOWS_SIGNING_PFX_PASSWORD -R amerghazal7/overlume
 SmartScreen and Gatekeeper warn on the installers; the GPG-signed `SHA256SUMS.asc`
 still covers integrity.
 
-## The real-Mac Metal check (before the first tag)
+## The real-Mac Metal check (carried past v1.0.0)
 
 Hosted macOS runners have a paravirtual GPU that cannot drive Filament, so no
 Metal frame has ever rendered in CI (the gpu ctest label, the macOS smoke
@@ -209,7 +209,7 @@ FAILED: a `nogpu` result, a `::warning::no Metal device` line, a gpu test
 reported "Not Run (Skipped)", or the HelloFrame run printing "No GPU/EGL device".
 
 Record the result (date, hardware, macOS version) in `docs/status.md` item 13
-and close it. Do not tag before this is done.
+and close it. v1.0.0 is tagged without this check (explicit carry, item 13 stays OPEN); do it before any release that claims Metal support.
 
 ## Merge checklist (release-packaging -> main)
 
@@ -218,7 +218,7 @@ and close it. Do not tag before this is done.
   deploy is guarded to `main`).
 - [x] `finalize` dispatches `pages.yml` on `main` (route b); `workflow_call` is gone from `pages.yml`.
 - [ ] After the first push to `main` deploys, `curl -s -o /dev/null -w '%{http_code}'` on the live docs index prints 200.
-- [ ] Real-Mac Metal check done (above), `docs/status.md` item 13 closed.
+- [ ] Real-Mac Metal check (above): carried past v1.0.0 by decision; `docs/status.md` item 13 stays OPEN until done.
 - [ ] Open items owned by the user closed or consciously carried: keyserver
   propagation, Apple and Windows signing secrets, the m2o1 real-robot lidar
   calibration (still unverified; unrelated to packaging).
