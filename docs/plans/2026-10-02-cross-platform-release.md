@@ -1092,6 +1092,10 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   allowed to trigger `workflow_dispatch`). (6) A non-dry dispatch on a tag ref: `create` is skipped, so the draft must
   already exist (as for the old upload steps); `finalize` accepts `create` skipped only for `workflow_dispatch`.
   Re-running failed jobs of a tag run is safe: uploads are `--clobber` on a draft; the SwiftPM guard in `sign-apple` blocks a rebuilt zip for an already-pinned version.
+  Maven publish is made re-run-safe by fix round 2: `publish_maven_central.sh publish` first asks Central's
+  `GET /published?namespace=io.github.amerghazal7&name=overlume&version=` and exits 0 when already published (stub case 6 in
+  `test_maven_publish.sh` fails if that check is reverted). Remaining limit: while an earlier deployment is still PUBLISHING a
+  re-run fails until it lands.
 - **Fix round 1 (review findings), dry run 37589684342 on d19d2ad: GREEN** (`sums` success with the exact-set check
   printing the 7 expected artifact names, `merge_sums.sh` PASS 6 verified files / 22 files, `release-sums` artifact =
   `SHA256SUMS` + `SHA256SUMS.asc`, the latter verifying against `packaging/keys/overlume-release.asc`; `create`,
@@ -1222,3 +1226,9 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   Maven validation. keys.openpgp.org UID shows only after the emailed link is clicked.
 - Apple Developer ID + notary API key secrets (until then: unsigned + warning).
 - Windows code-signing secrets (until then: unsigned + warning).
+
+- **Fix round 2 (static check + Maven idempotence).** `test_release_graph.sh` now asserts the `if` terms that actually stop
+  publishers: `needs.sums/channels.result == 'success'` in publish-homebrew/swiftpm/maven, the tag term in homebrew/swiftpm,
+  `needs.finalize.result == 'success'` in `pages.if`, and the DRY_RUN + tag guards on the sums upload step. Verified on scratch
+  copies: mutations M1 (homebrew terms dropped), M5 (maven terms dropped), M2 (`pages.if: always()`), M6 (upload `if` without the
+  DRY_RUN guard) each FAIL; the unmutated file PASSes. No CI-visible change, so no new dry run.

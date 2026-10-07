@@ -79,4 +79,11 @@ run_stub ok
 if "$here/publish_maven_central.sh" "$work/unsigned.zip" validate > "$work/o5" 2>&1; then fail "unsigned bundle must fail"; fi
 grep -q 'missing .asc' "$work/o5" || fail "missing-signature error not shown"
 stop_stub
-echo "PASS: maven publish script (validate+drop, publish, FAILED, 401, unsigned bundle)"
+
+# 6. already published on Central: publish exits 0 and never POSTs /upload (idempotent re-run)
+run_stub published
+"$here/publish_maven_central.sh" "$bundle" publish > "$work/o6" 2>&1 || { cat "$work/o6"; fail "already-published publish must exit 0"; }
+grep -q 'already on Central' "$work/o6" || fail "idempotent message missing"
+! grep -q '^POST /api/v1/publisher/upload' "$work/requests.log" || fail "already-published re-run uploaded again"
+no_leak "$work/o6"; stop_stub
+echo "PASS: maven publish script (validate+drop, publish, FAILED, 401, unsigned bundle, already-published)"

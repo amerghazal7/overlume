@@ -8,6 +8,7 @@
 POST /api/v1/publisher/upload?publishingType=..&name=..   multipart `bundle` -> 201, deployment id
 POST /api/v1/publisher/status?id=..                        PENDING, VALIDATING, then VALIDATED or FAILED
                                                            (AUTOMATIC: ... PUBLISHING, PUBLISHED)
+GET /api/v1/publisher/published?namespace&name&version     {"published": true} only in STUB_SCENARIO=published
 DELETE /api/v1/publisher/deployment/<id>                   204 in VALIDATED/FAILED, else 400
 The bundle is checked like Central does it: every artifact needs .asc/.md5/.sha1 and a .pom must
 exist; STUB_SCENARIO=reject forces FAILED. The log holds `METHOD path HTTP code` lines only.
@@ -91,6 +92,13 @@ class H(http.server.BaseHTTPRequestHandler):
             body = {"deploymentId": q["id"][0], "deploymentName": d["name"], "deploymentState": d["state"],
                     "purls": [], "errors": d["errors"] if d["state"] == "FAILED" else {}}
             return self.reply(200, json.dumps(body).encode(), "application/json")
+        self.reply(404)
+
+    def do_GET(self):
+        if not self.authed():
+            return
+        if urlparse(self.path).path == "/api/v1/publisher/published":
+            return self.reply(200, json.dumps({"published": SCENARIO == "published"}).encode(), "application/json")
         self.reply(404)
 
     def do_DELETE(self):
