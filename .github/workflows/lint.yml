@@ -47,6 +47,13 @@ jobs:
           shellcheck --severity=error tools/*.sh overlume/scripts/*.sh overlume/tools/*.sh \
             ros/colcon_build.sh ros/src/overlume_ros/scripts/*.sh
 
+      - name: Release workflow graph and checksum-merge self-tests
+        run: |
+          python -m pip install --user pyyaml
+          shellcheck tools/release/merge_sums.sh tools/release/test_merge_sums.sh tools/release/test_release_graph.sh
+          tools/release/test_merge_sums.sh
+          tools/release/test_release_graph.sh
+
       - name: Python syntax check (py_compile)
         run: |
           python3 -m py_compile tools/*.py ros/src/overlume_ros/test/*.py

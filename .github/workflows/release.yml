@@ -832,10 +832,13 @@ jobs:
       - name: Refuse to rebuild a version SwiftPM already pinned
         if: ${{ github.ref_type == 'tag' && (github.event_name == 'push' || !inputs.dry_run) }}
         run: |
-          if tools/release/publish_swiftpm.sh published "${GITHUB_REF_NAME#v}"; then
-            echo "::error::$GITHUB_REF_NAME is already on SwiftPM; a rebuilt zip would break its checksum. Cut a new version."
-            exit 1
-          fi
+          # ls-remote: 0 tag exists, 2 no such tag, anything else (128: network/auth) is unknown -> fail closed.
+          rc=0; tools/release/publish_swiftpm.sh published "${GITHUB_REF_NAME#v}" || rc=$?
+          case $rc in
+            0) echo "::error::$GITHUB_REF_NAME is already on SwiftPM; a rebuilt zip would break its checksum. Cut a new version."; exit 1;;
+            2) ;;
+            *) echo "::error::cannot query overlume-swift tags (rc $rc)"; exit 1;;
+          esac
 
   # Tag runs only: a dry run already installed the formula and resolved the manifest above.
   publish-homebrew:
@@ -1234,8 +1237,10 @@ jobs:
 
   # The one place release assets are uploaded and the one place checksums are signed release-wide.
   # Needs every package/test job (transitively every build), so a missing platform means no sums.
-  # Per-job SHA256SUMS-<name>.txt(.asc) stay workflow artifacts (merge_sums.sh verifies each one against
-  # the committed public key, so the artifact hop is covered) and are NOT release assets: users get one
+  # Per-job SHA256SUMS-<name>.txt(.asc) stay workflow artifacts (merge_sums.sh requires every directory but
+  # channels-recipes to hold exactly one, verifies it against the committed public key and requires its
+  # listed names to equal the directory's files; the step before pins the exact artifact set, so the
+  # artifact hop is covered) and are NOT release assets: users get one
   # SHA256SUMS + SHA256SUMS.asc covering every file, with no duplicated or clobbering per-platform lists.
   sums:
     needs: [package, package-linux-aarch64, package-android, sign-apple, sign-windows, channels-render]
@@ -1265,14 +1270,14 @@ jobs:
           name: channels-recipes
           path: parts/channels-recipes
 
-      - name: Every platform is present
+      - name: Exactly the expected artifacts are present
         run: |
           set -euo pipefail
           rm -rf parts/pkg-linux-aarch64-unverified
-          for n in pkg-linux-x86_64 pkg-linux-aarch64 pkg-android pkg-macos pkg-ios pkg-windows channels-recipes; do
-            [ -d "parts/$n" ] || { echo "::error::artifact $n missing"; exit 1; }
-          done
-          ls parts
+          want="channels-recipes pkg-android pkg-ios pkg-linux-aarch64 pkg-linux-x86_64 pkg-macos pkg-windows"
+          have="$(find parts -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+          [ "$have" = "$want" ] || { echo "::error::artifacts differ (want: $want / have: $have)"; exit 1; }
+          echo "$have"
 
       - name: Merge (verifying every per-job signature) and sign SHA256SUMS
         env:
@@ -1281,7 +1286,7 @@ jobs:
         run: |
           set -euo pipefail
           tools/release/test_merge_sums.sh
-          tools/release/merge_sums.sh merge packaging/keys/overlume-release.asc parts release
+          tools/release/merge_sums.sh merge packaging/keys/overlume-release.asc parts release channels-recipes
           tools/release/sign_sums.sh release
 
       # A fresh keyring holding only the committed public key: what a user does.
@@ -1306,7 +1311,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release upload "$GITHUB_REF_NAME" release/* --clobber
+        run: |
+          set -euo pipefail
+          [ "$(gh release view "$GITHUB_REF_NAME" --json isDraft -q .isDraft)" = true ] \
+            || { echo "::error::$GITHUB_REF_NAME is not a draft; refusing to replace assets of a published release"; exit 1; }
+          gh release upload "$GITHUB_REF_NAME" release/* --clobber
 
   # Publishes the draft, only when everything before it (packages, tests, sums, channels, Homebrew,
   # SwiftPM, Maven) succeeded. Skipped on dry runs and branch runs because publish-homebrew/-swiftpm are.
