@@ -1,8 +1,8 @@
 # Mapbox Buildings Environment Source (Design)
 
 **Date:** 2026-10-14
-**Status:** Design approved in conversation (user, 2026-10-14); written spec under user review;
-implementation plan pending.
+**Status:** Approved by the user (2026-10-14) with one change: Mapbox appears in the GUI as two more
+selectable environment sources, not as presets (§4). Implementation plan pending.
 **Branch:** `mapbox-environment` (off `main` at f2d0d5b). Local only: nothing from this branch is
 pushed to `origin` until the user confirms Mapbox's sign-off.
 **Scope:** sub-project 1 of 2 (buildings). Sub-project 2, provider-agnostic imagery on terrain,
@@ -147,14 +147,19 @@ URI, a parameter, a log line, a model or a file.
 The six `rfind("ion://", 0)` gates become two scheme predicates. Live switching needs no node
 change: the `environment_source_uri` parameter branch already passes any scheme to the library.
 
-### GUI presets
+### GUI source list
 
-Two presets, kept in lockstep between `tools/vcam_gui.py` and `tools/vcam_ws_bridge.py`:
+There are no presets. The vcam GUI's Environment Tiles selector lists the supported environment
+sources (`baked`, `osm`, `clipped`, `google`), and it gains two more, kept in lockstep between
+`tools/vcam_gui.py` and `tools/vcam_ws_bridge.py`:
 
 - `mapbox` → `mapbox://buildings` (clay, the theme's look, like `osm`);
 - `mapbox-original` → `mapbox://buildings?materials=original` (Mapbox's look, like `google`).
 
-The bridge handler is generic, so `tools/validate_logger_session.sh --arm mapbox` works unchanged.
+No new control is added. The bridge's `set_environment_source` handler is generic, so
+`tools/validate_logger_session.sh --arm mapbox` works unchanged. The code's existing names for
+this list (`ENVIRONMENT_PRESETS`, and the `preset` field of the GUI-to-bridge message) are not
+renamed.
 
 ## 5. Library design
 
@@ -289,8 +294,8 @@ The work runs on cesium worker threads, after copying what it needs out of `Tile
 
 ### Look
 
-- `materials=clay` (default): the theme's building material on everything, as with the OSM
-  preset. Landmark textures are dropped before upload.
+- `materials=clay` (default): the theme's building material on everything, as with the `osm`
+  source. Landmark textures are dropped before upload.
 - `materials=original`:
   - Landmarks keep Mapbox's materials (occlusion-textured, double-sided).
   - Extrusions get Mapbox Standard's default building colour, hsl(40°, 43%, 93%), as a linear
@@ -378,15 +383,15 @@ named in the terms are rendered as text.
 
 ## 7. Tools and docs
 
-- **Presets:** `tools/vcam_gui.py` and `tools/vcam_ws_bridge.py` get the two presets (§4), the
-  bridge's docstring and its error string.
+- **GUI source list:** `tools/vcam_gui.py` and `tools/vcam_ws_bridge.py` gain the two entries
+  (§4), plus the bridge's docstring and its error string.
 - **`tools/check_mapbox_token.sh`:** modelled on `check_cesium_token.sh`. It requests the
   Downtown landmark tile and one z16 MVT with `$MAPBOX_TOKEN` and prints PASS/FAIL and the HTTP
   codes only. It is the demo preflight and is never in the gate.
 - **`tools/validate_visual_mode.sh`:** refreshes `MAPBOX_TOKEN` from a login shell exactly as it
   refreshes `CESIUM_ION_TOKEN`, so the node never runs with a stale value.
 - **Docs:**
-  - a new runbook, `docs/runbooks/mapbox.md`: token, URI and presets, attribution, the terms
+  - a new runbook, `docs/runbooks/mapbox.md`: token, URI and the GUI entries, attribution, the terms
     constraints as engineering rules, the demo at both sites, troubleshooting;
   - `README.md`, "Environment sources";
   - `docs/README.md`, index entries for this spec, the plan and the runbook;
@@ -488,8 +493,8 @@ In `overlume/tests/test_mapbox_buildings.cpp` (cesium builds only):
 
 ### Python
 
-`tools/test_vcam_ws_bridge.py`: the bridge accepts both presets, the GUI resolves them, and the
-two tables stay in lockstep.
+`tools/test_vcam_ws_bridge.py`: the bridge accepts `mapbox` and `mapbox-original`, the GUI maps a
+node's `mapbox://` URI back to the right entry, and the two tables stay in lockstep.
 
 ### Opt-in live
 
@@ -536,7 +541,7 @@ camera. The runbook holds the exact commands.
   4. Streaming-source seam: custom tileset and area selection, map fixture accessor, counting
      fix, `mapbox://` dispatch and parser.
   5. Node: composition, attribution gate, HUD primitives, logo asset.
-  6. Tools and docs: presets, token check, rig token refresh, runbook,
+  6. Tools and docs: the two GUI entries, token check, rig token refresh, runbook,
      README/NOTICE/status/CHANGELOG.
 
   Then, in order:
@@ -562,9 +567,9 @@ camera. The runbook holds the exact commands.
      extrusion under them, among streets of extruded buildings.
    - **Operating area:** extruded buildings on the map plane.
    - **Attribution:** logo and text visible in mode 3 while streaming; gone in fallback.
-   - **Presets:** `mapbox-original` shows Mapbox's look and `mapbox` shows the theme's.
+   - **GUI:** selecting `mapbox-original` shows Mapbox's look, and `mapbox` the theme's.
    - **Render cost:** steady-state `render_ms` on the diagnostics topic, in clay mode, within
-     1.5× the `osm` preset at the same pose.
+     1.5× the `osm` source at the same pose.
    - **Secrets:** no `MAPBOX_TOKEN` value in the node log or the rig logs.
 4. Cutting the network mid-run switches to the baked fallback within eight failed requests.
 
