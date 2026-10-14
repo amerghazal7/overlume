@@ -67,6 +67,10 @@ index; `docs/status.md` is the one status ledger.
   — the offroad height-map terrain layer: the `/debug_ogm_2` metric contract,
   `HeightGridLayer` (`kSceneVersion` 9), the heightfield renderer and the
   ground replacement inside its footprint.
+- [`2026-10-14-mapbox-buildings-design.md`](design/2026-10-14-mapbox-buildings-design.md)
+  — the `mapbox://buildings` environment source: Mapbox landmark models plus
+  extruded streets-v8 footprints through a custom cesium-native loader, the
+  on-screen attribution, and the demo at Downtown Dubai and the test site.
 
 ## ADRs (`docs/adr/`)
 
