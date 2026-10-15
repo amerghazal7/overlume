@@ -680,6 +680,42 @@ TEST(EnvironmentStream, NetworkLossWithNoFallbackDirStillTransitionsAndStaysEmpt
     overlume::destroy_renderer(r);
 }
 
+TEST(EnvironmentStream, TransportErrorsCountAsNetworkLossAndFallBack) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    auto* handle = overlume::testing::install_fixture_streaming_source_with_fallback(
+        r, kTilesFixtureFallbackDir.c_str(), kTestTownDir.c_str(), kFixtureAnchor);
+    ASSERT_NE(handle, nullptr);
+
+    overlume::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kFixtureBlockCenterMap;
+    overlume::set_scene(r, s);
+
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    overlume::testing::break_fixture_network_transport(handle);
+    pump_until_state(r, kStdPose, buf, overlume::EnvironmentSourceState::STREAMING_FALLBACK);
+
+    EXPECT_EQ(overlume::environment_source_state(r),
+              overlume::EnvironmentSourceState::STREAMING_FALLBACK)
+        << "rejected requests (curl's DNS failure, refusal or timeout) never reached the "
+           "consecutive-failure counter, so a real loss of connectivity never falls back";
+    EXPECT_GT(overlume::testing::environment_loaded_chunk_count(r), 0u)
+        << "the baked fallback chunks must load";
+    const std::string logText = overlume::testing::captured_cesium_log_text();
+    EXPECT_NE(
+        logText.find("An unexpected error occurred when loading tile: fixture transport error: "),
+        std::string::npos)
+        << "the counter must rethrow the transport error with its original text";
+    EXPECT_NE(logText.find("access_token=<redacted>"), std::string::npos)
+        << "the transport error's text, URL and token included, must reach the redacting logger";
+    EXPECT_EQ(logText.find("fixture-transport-token"), std::string::npos)
+        << "a token in a transport error's text must never reach the log";
+    overlume::destroy_renderer(r);
+}
+
 TEST(EnvironmentStream, MaterialsOriginalDefaultsFalse) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     auto* r = overlume::create_renderer(cfg);

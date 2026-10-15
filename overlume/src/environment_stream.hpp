@@ -16,6 +16,7 @@ static_assert(__cplusplus >= 202002L,
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -114,27 +115,34 @@ public:
     CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> get(
         const CesiumAsync::AsyncSystem& asyncSystem, const std::string& url,
         const std::vector<THeader>& headers) override {
-        return inner_->get(asyncSystem, url, headers)
-            .thenImmediately([this](std::shared_ptr<CesiumAsync::IAssetRequest>&& req) {
-                note(req.get());
-                return req;
-            });
+        return counted(inner_->get(asyncSystem, url, headers));
     }
     CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> request(
         const CesiumAsync::AsyncSystem& asyncSystem, const std::string& verb,
         const std::string& url, const std::vector<THeader>& headers,
         const std::span<const std::byte>& payload) override {
-        return inner_->request(asyncSystem, verb, url, headers, payload)
-            .thenImmediately([this](std::shared_ptr<CesiumAsync::IAssetRequest>&& req) {
-                note(req.get());
-                return req;
-            });
+        return counted(inner_->request(asyncSystem, verb, url, headers, payload));
     }
     void tick() noexcept override { inner_->tick(); }
 
     int consecutive_failures() const { return consecutiveFailures_.load(); }
 
 private:
+    // A transport error (curl: DNS failure, refused connection, timeout) rejects the future with
+    // no response at all. Count it like a failed reply, then rethrow so the caller still sees it.
+    CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> counted(
+        CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>>&& reply) {
+        return std::move(reply)
+            .thenImmediately([this](std::shared_ptr<CesiumAsync::IAssetRequest>&& req) {
+                note(req.get());
+                return req;
+            })
+            .catchImmediately(
+                [this](std::exception&& e) -> std::shared_ptr<CesiumAsync::IAssetRequest> {
+                    note(nullptr);
+                    throw std::runtime_error(e.what());
+                });
+    }
     void note(const CesiumAsync::IAssetRequest* req) {
         const CesiumAsync::IAssetResponse* resp = req ? req->response() : nullptr;
         const bool ok = resp != nullptr && resp->statusCode() >= 200 && resp->statusCode() < 300;
@@ -150,26 +158,33 @@ private:
 
 class FileFixtureAssetAccessor : public CesiumAsync::IAssetAccessor {
 public:
-    explicit FileFixtureAssetAccessor(std::shared_ptr<std::atomic<bool>> killed = nullptr)
-        : killed_(std::move(killed)) {}
+    // transport_down rejects every request but tileset.json with no response, as curl's accessor
+    // does on a DNS failure, refused connection or timeout.
+    explicit FileFixtureAssetAccessor(std::shared_ptr<std::atomic<bool>> killed = nullptr,
+                                      std::shared_ptr<std::atomic<bool>> transport_down = nullptr)
+        : killed_(std::move(killed)), transportDown_(std::move(transport_down)) {}
 
     CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> get(
         const CesiumAsync::AsyncSystem& asyncSystem, const std::string& url,
         const std::vector<THeader>&) override {
-        return asyncSystem.createResolvedFuture(makeRequest("GET", url));
+        return respond(asyncSystem, "GET", url);
     }
     CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> request(
         const CesiumAsync::AsyncSystem& asyncSystem, const std::string& verb,
         const std::string& url, const std::vector<THeader>&,
         const std::span<const std::byte>&) override {
-        return asyncSystem.createResolvedFuture(makeRequest(verb, url));
+        return respond(asyncSystem, verb, url);
     }
     void tick() noexcept override {}
 
 private:
+    CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> respond(
+        const CesiumAsync::AsyncSystem& asyncSystem, const std::string& verb,
+        const std::string& url);
     std::shared_ptr<CesiumAsync::IAssetRequest> makeRequest(const std::string& verb,
                                                             const std::string& url);
     std::shared_ptr<std::atomic<bool>> killed_;
+    std::shared_ptr<std::atomic<bool>> transportDown_;
 };
 
 class StreamRendererResources final : public Cesium3DTilesSelection::IPrepareRendererResources {

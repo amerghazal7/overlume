@@ -33,6 +33,10 @@ void kill_fixture_network(FixtureStreamHandle* handle);
 
 void revive_fixture_network(FixtureStreamHandle* handle);
 
+// Make the fixture network reject every tile request with a transport error (no response);
+// tileset.json is still served, as with kill_fixture_network.
+void break_fixture_network_transport(FixtureStreamHandle* handle);
+
 bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double heading_rad,
                        double origin_height_m, double lat_deg, double lon_deg, double alt_m,
                        double* out_x, double* out_y, double* out_z);
