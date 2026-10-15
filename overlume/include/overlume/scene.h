@@ -282,4 +282,11 @@ void set_quality(VisualRenderer*, uint32_t preset);
 
 uint32_t get_quality(VisualRenderer*);
 
+/// Plain-text credits of the open streaming source's raster overlays ("; " separated, HTML
+/// stripped), written to `out` (NUL-terminated, truncated to `cap`); returns the length needed.
+/// 0 and an empty string when no source or no overlay is open.
+/// The length leaves the NUL out, as snprintf's does: a result >= cap means `out` was cut.
+/// Call on the render_frame thread.
+uint32_t environment_source_credits(VisualRenderer*, char* out, uint32_t cap);
+
 }

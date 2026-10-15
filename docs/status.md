@@ -128,6 +128,8 @@ separate opens.)
 
 22. **OPEN 2026-10-14 — Mapbox logo and trademark check before release.** The node draws the Mapbox logo from `ros/src/overlume_ros/assets/attribution/mapbox-logo.png` (provenance in the `ATTRIBUTION.md` beside it). Before a public release, confirm with Mapbox that the logo file may ship in the repository and in packages, and that the on-screen wording and placement meet their attribution terms. If it may not ship, remove it from the tree and let deployments supply it through `environment_attribution_logo_path`.
 
+23. **OPEN 2026-10-15 — imagery on terrain (sub-project 2) in progress.** Terrain under the streamed buildings with imagery draped on it, provider-agnostic: `mapbox://buildings,terrain?imagery=satellite` (Mapbox Satellite on Mapbox terrain-DEM, the buildings re-based onto the DEM) and `ion://96188?terrain=1&imagery=2` (Cesium World Terrain with Bing Maps Aerial through ion), selectable as `mapbox-satellite`, `mapbox-original-satellite` and `osm-terrain` ([runbook](runbooks/terrain_imagery.md), [Mapbox runbook](runbooks/mapbox.md)). Built on `mapbox-environment` under [`plans/2026-10-15-imagery-terrain.md`](plans/2026-10-15-imagery-terrain.md), tracked by the branch's open pull request. Closes when that plan's last task records the rig rehearsal at both sites and the Shipped row.
+
 ## Known gaps / accepted exceptions
 
 From `docs/runbooks/signoff.md`'s "Named exceptions the sign-off explicitly

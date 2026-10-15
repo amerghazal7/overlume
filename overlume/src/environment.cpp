@@ -231,6 +231,14 @@ EnvironmentSourceState environment_source_state(VisualRenderer* r) {
     return r->environmentSource->state();
 }
 
+#ifndef OVERLUME_ENABLE_CESIUM
+// Without cesium no source has raster overlays; environment_stream.cpp defines it otherwise.
+uint32_t environment_source_credits(VisualRenderer*, char* out, uint32_t cap) {
+    if (out != nullptr && cap > 0) out[0] = '\0';
+    return 0;
+}
+#endif
+
 }
 
 namespace overlume::testing {
