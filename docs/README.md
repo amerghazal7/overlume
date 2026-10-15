@@ -131,10 +131,6 @@ index; `docs/status.md` is the one status ledger.
   — the `mapbox://buildings` environment source in 18 tasks over eight
   parallel lanes (implements `design/2026-10-14-mapbox-buildings-design.md`; closed 2026-10-15).
 - [`2026-10-15-imagery-terrain.md`](plans/2026-10-15-imagery-terrain.md)
-  — imagery on terrain (sub-project 2): terrain tilesets with raster
-  overlays for `mapbox://` and `ion://` in 16 tasks over eight lanes
-  (implements `design/2026-10-15-imagery-terrain-design.md`).
-- [`2026-10-15-imagery-terrain.md`](plans/2026-10-15-imagery-terrain.md)
   — imagery on real terrain, provider-agnostic: Mapbox terrain-DEM and Satellite for the
   demo, Cesium World Terrain and ion imagery as the proof, in 16 tasks over eight parallel
   lanes (implements `design/2026-10-15-imagery-terrain-design.md`).
