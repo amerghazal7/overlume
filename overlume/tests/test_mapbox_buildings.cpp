@@ -1074,7 +1074,9 @@ void golden_synthetic_tile(const char* theme, const char* golden_png, const char
     EXPECT_EQ(stats.extruded_features, 6u)
         << "courtyard, both halves of the split block, two pillars and the span";
     EXPECT_EQ(stats.conflated_features, 1u) << "the block under the tower's footprint";
-    EXPECT_EQ(stats.wall_quads, 26u) << "every ring walls four edges; the courtyard hole adds four";
+    EXPECT_EQ(stats.wall_quads, 26u)
+        << "four walls per ring, three for each clipped half of the split block (its shared edge "
+           "is not walled); the courtyard hole adds four";
     EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING);
     for (const std::string& url : overlume::testing::mapbox_fixture_requested_urls(net)) {
         const std::string bare = url.substr(0, url.find('?'));
@@ -1096,6 +1098,8 @@ void golden_synthetic_tile(const char* theme, const char* golden_png, const char
     ASSERT_TRUE(golden_luma(r, frame, {-40.0, 130.0, 0.0}, &courtyard));
     EXPECT_LT(std::abs(underSpan - ground), std::abs(underSpan - clay))
         << "clay under the gate's span: its min_height was not applied";
+    // Bites in dark_adas; in light_clay the margin is 0.2, so a dropped hole ring is pinned by
+    // wall_quads above and only the dark twin pins a roof that lost its cut-out.
     EXPECT_LT(std::abs(courtyard - ground), std::abs(courtyard - clay))
         << "clay in the courtyard: its hole was not cut";
     overlume::destroy_renderer(r);
