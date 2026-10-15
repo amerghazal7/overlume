@@ -80,4 +80,9 @@ std::unique_ptr<BakedEnvironmentSource> open_baked_environment_source(const std:
 std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::string& ion_spec,
                                                                      GeoAnchor anchor);
 
+// The text after "mapbox://". Reads MAPBOX_TOKEN; nullptr when the URI is refused or the token
+// is unset or empty (one log line on the redacting logger either way).
+std::unique_ptr<EnvironmentSource> open_mapbox_environment_source(const std::string& mapbox_spec,
+                                                                  GeoAnchor anchor);
+
 }

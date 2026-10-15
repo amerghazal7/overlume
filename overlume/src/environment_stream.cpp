@@ -5,6 +5,7 @@
 
 #include "environment_test_hooks.hpp"
 #include "gltf_normals.hpp"
+#include "mapbox_test_hooks.hpp"
 #include "renderer_internal.hpp"
 
 #include <Cesium3DTilesContent/registerAllTileContentTypes.h>
@@ -524,6 +525,73 @@ std::shared_ptr<CesiumAsync::IAssetRequest> FileFixtureAssetAccessor::makeReques
         verb, url, std::make_unique<FixtureAssetResponse>(200, std::move(bytes)));
 }
 
+void MapFixtureAssetAccessor::serve(const std::string& url_without_query, uint16_t status,
+                                    std::vector<std::byte> body) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    canned_[url_without_query] = Canned{status, std::move(body), false};
+}
+
+void MapFixtureAssetAccessor::fail_transport(const std::string& url_without_query) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    canned_[url_without_query] = Canned{0, {}, true};
+}
+
+std::vector<std::string> MapFixtureAssetAccessor::requested_urls() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return requested_;
+}
+
+void MapFixtureAssetAccessor::hold(const std::string& url_without_query) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    held_.push_back(url_without_query);
+}
+
+void MapFixtureAssetAccessor::release_held() {
+    std::vector<Held> pending;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        held_.clear();
+        pending.swap(pending_);
+    }
+    // Outside the lock: continuations run inline on this thread when a promise resolves.
+    for (const Held& h : pending) answer(h.promise, h.verb, h.url);
+}
+
+CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> MapFixtureAssetAccessor::respond(
+    const CesiumAsync::AsyncSystem& asyncSystem, const std::string& verb, const std::string& url) {
+    const std::string key = url.substr(0, url.find('?'));
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        requested_.push_back(url);
+        if (std::find(held_.begin(), held_.end(), key) != held_.end()) {
+            pending_.push_back(
+                Held{asyncSystem.createPromise<std::shared_ptr<CesiumAsync::IAssetRequest>>(), verb,
+                     url});
+            return pending_.back().promise.getFuture();
+        }
+    }
+    return asyncSystem.createFuture<std::shared_ptr<CesiumAsync::IAssetRequest>>(
+        [&](const RequestPromise& promise) { answer(promise, verb, url); });
+}
+
+void MapFixtureAssetAccessor::answer(const RequestPromise& promise, const std::string& verb,
+                                     const std::string& url) const {
+    Canned canned{unmatchedStatus_, {}, false};
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const auto it = canned_.find(url.substr(0, url.find('?')));
+        if (it != canned_.end()) canned = it->second;
+    }
+    if (canned.transport_error) {
+        // Like curl's, the message carries the URL: only a redacting logger may print it.
+        promise.reject(std::runtime_error("fixture transport error for " + url));
+        return;
+    }
+    std::shared_ptr<CesiumAsync::IAssetRequest> request = std::make_shared<FixtureAssetRequest>(
+        verb, url, std::make_unique<FixtureAssetResponse>(canned.status, std::move(canned.body)));
+    promise.resolve(std::move(request));
+}
+
 struct TerrainFollowState {
     std::atomic<bool> in_flight{false};
     std::optional<double> fit_slope;
@@ -622,6 +690,15 @@ void StreamRendererResources::destroy_terrain_root() {
     terrainRoot_ = {};
 }
 
+namespace {
+
+// Test-only (capture_stream_glbs): the GLBs prepareInLoadThread writes while the flag is on.
+std::atomic<bool> g_captureStreamGlbs{false};
+std::mutex g_capturedGlbsMutex;
+std::vector<std::vector<uint8_t>> g_capturedGlbs;
+
+}
+
 CesiumAsync::Future<Cesium3DTilesSelection::TileLoadResultAndRenderResources>
 StreamRendererResources::prepareInLoadThread(
     const CesiumAsync::AsyncSystem& asyncSystem,
@@ -643,6 +720,10 @@ StreamRendererResources::prepareInLoadThread(
                     reinterpret_cast<const uint8_t*>(res.gltfBytes.data()),
                     reinterpret_cast<const uint8_t*>(res.gltfBytes.data() + res.gltfBytes.size()));
                 bytes = ensure_flat_normals(std::move(bytes));
+                if (g_captureStreamGlbs.load()) {
+                    std::lock_guard<std::mutex> lock(g_capturedGlbsMutex);
+                    g_capturedGlbs.push_back(bytes);
+                }
                 pGlb->glbBytes.assign(
                     reinterpret_cast<const std::byte*>(bytes.data()),
                     reinterpret_cast<const std::byte*>(bytes.data() + bytes.size()));
@@ -1614,6 +1695,17 @@ bool ecef_height_correction_probe(double origin_lat_deg, double origin_lon_deg, 
         *out_z_corrected = overlume::correct_ecef_point_height(ecef, ecefToMap, origin_height_m).z;
     }
     return true;
+}
+
+void capture_stream_glbs(bool on) {
+    std::lock_guard<std::mutex> lock(g_capturedGlbsMutex);
+    if (on) g_capturedGlbs.clear();
+    g_captureStreamGlbs.store(on);
+}
+
+std::vector<std::vector<uint8_t>> captured_stream_glbs() {
+    std::lock_guard<std::mutex> lock(g_capturedGlbsMutex);
+    return g_capturedGlbs;
 }
 
 std::string captured_cesium_log_text() {
