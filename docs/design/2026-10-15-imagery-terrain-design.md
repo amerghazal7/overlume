@@ -41,7 +41,9 @@ behaviour change ships a check that fails when reverted; goldens promoted by a h
   512 px JPEG, z 0–22; in the UAE the detail stops near z18, so the overlay is capped at 18.
 - Terrain-DEM: `https://api.mapbox.com/v4/mapbox.mapbox-terrain-dem-v1/{z}/{x}/{y}@2x.pngraw?access_token=…`,
   512 px RGB PNG, z ≤ 14; height in metres above sea level = −10000 + (R·65536 + G·256 + B)·0.1.
-  The exact URL form is confirmed by the plan's first task with one request (PASS/FAIL only).
+  The plan's first task confirms both URL forms with two requests, DEM and satellite, behind a consent
+  step (codes and PASS/FAIL only). The satellite form above writes Mapbox's XYZ row; the template
+  handed to cesium writes it as `{reverseY}` (section 5).
 - Empty or missing tiles answer 204 or 404; 401/403 mean a rejected token; the terms forbid a disk
   cache and require attribution ("© Mapbox © OpenStreetMap", "Improve this map", and "© Maxar" for
   satellite imagery) plus the logo.
@@ -159,8 +161,9 @@ ECEF-to-map transform, selection views and the terrain transform. Per frame the 
 tilesets; `provides_ground()` is true when the terrain tileset exists, `replaces_ground` holds and the
 height sample under the ego succeeded (otherwise today's rule for the content tileset). The terrain
 tileset has its own `StreamRendererResources` instance flagged *terrain*, so its tiles get the terrain
-material and the overlay callbacks act only on terrain tiles. Teardown detaches overlays, then destroys
-both tilesets in the order the existing code uses for one.
+material and the overlay callbacks act only on terrain tiles. Teardown destroys the terrain tileset first, then the content tileset, in the order the existing code
+uses for one; cesium detaches each tile's rasters before freeing the tile inside the tileset's
+destructor.
 
 ### `mapbox_dem` (C++17-clean)
 
@@ -179,7 +182,7 @@ indices).
 
 ### `mapbox_tiling` (extracted, no behaviour change)
 
-The buildings loader's z14 quadtree, bounding volumes, area selection within `radius`, attempt
+The buildings loader's z14 quadtree, bounding volumes, attempt
 counter with backoff (3 attempts, `kRetryWaitS` doubling), transient/permanent status rules and the
 `first_time(key)` log dedup move to `mapbox_tiling.{hpp,cpp}` and both Mapbox loaders use them. The
 buildings tests, unchanged, pin the extraction.
@@ -193,10 +196,11 @@ below that for imagery. Stats: `terrain_tiles_built`, `dem_requests` appended to
 
 ### `DemCache`
 
-Shared by both Mapbox loaders of one source: `std::shared_future<std::shared_ptr<const DemTile>>`
-per z14 tile, created by whichever loader asks first (one request per tile), LRU of 32 tiles (about
-1 MB each). The source's first request, before any tile builds, fetches the anchor's z14 tile and
-sets `z_ref_m` = the DEM height at the anchor; both loaders subtract it, so the terrain passes through
+Shared by both Mapbox loaders of one source: `CesiumAsync::SharedFuture<std::shared_ptr<const DemTile>>`
+per z14 tile, created by whichever loader asks first (one in-flight request per tile; a transient
+failure is re-asked by the next caller after half the retry wait), LRU of 32 tiles (about 1 MB each).
+The DEM height at the anchor, `z_ref_m`, is memoised once it has a value and shares the anchor
+tile's entry (the buildings loader asks for it right after its own requests); both loaders subtract it, so the terrain passes through
 z = 0 at the anchor and each building's base equals the terrain at its centroid. The buildings loader
 lifts every extruded footprint by the DEM height at its unclipped centroid and every landmark node by
 the height at its anchor, minus `z_ref_m`; with `terrain` absent from the layer list, buildings keep
@@ -217,10 +221,12 @@ buildings and terrain already agree, so nothing is re-based.
   the north, so the request that leaves the process carries Mapbox's row. Ion: `IonRasterOverlay`
   with the asset id and `CESIUM_ION_TOKEN`; its credits come from ion.
 - `prepareRasterInLoadThread`: cesium's decoded `ImageAsset` pixels become an RGBA8 buffer
-  (`RasterLoadThreadResult`). `prepareRasterInMainThread`: one `filament::Texture` (RGBA8, mipmaps
-  generated) per raster tile (`RasterTexture`). `attachRasterInMainThread`: the terrain tile's
-  material instance gets the texture, cesium's `translation`/`scale` as `uvTransform`, and
-  `hasImagery = 1`. `detachRasterInMainThread`: `hasImagery = 0`. `freeRaster`: the texture goes through
+  (`RasterLoadThreadResult`). `prepareRasterInMainThread`: one `filament::Texture` (8-bit RGBA in the sRGB
+  format, mipmapped) per raster tile; the main-thread result is that texture. `attachRasterInMainThread`:
+  the terrain tile's material instance gets the texture, cesium's `translation`/`scale` as
+  `uvTransform` (translation in .xy, scale in .zw; the material samples at (u, 1 − v) because the
+  raster's row 0 is its north edge), and `hasImagery = 1`. `detachRasterInMainThread`: `hasImagery = 0`
+  and the renderer's 1×1 white placeholder bound back. `freeRaster`: the texture goes through
   the existing deferred-free path, never while a frame may sample it.
 - `terrain.mat` (`overlume/assets/materials/`), lit, parameters: `terrainColor` (float3),
   `hasImagery` (int), `imagery` (sampler2d, trilinear, clamp), `uvTransform` (float4: translation,
@@ -291,13 +297,13 @@ cesium's in-memory caches apply; ion keeps `cache=`.
   UVs in 0..1, malformed inputs rejected with reasons.
 - `test_environment_stream.cpp`: overlay callbacks over a fixture tileset through new hooks
   (`environment_stream_overlay_probe`: rasters attached, textures alive, detaches, frees), the
-  terrain material's colour and fade.
+  terrain material's colour, the raster's orientation and brightness.
 - `test_mapbox_terrain.cpp` (end to end over the fixture network): terrain tiles built and
   `dem_requests` equal to the tiles (one DEM per tile with two consumers), imagery requests present
   and the token only in query strings, a building on the hill with its base lifted (stats and a pixel
   probe), `provides_ground` true after the ego's sample and the clay plane gone (pixel probe), the
-  fixture tile's colour visible at a known point, imagery 401 → `terrainColor` and the counter,
-  network loss → fallback with both tilesets torn down, the URI refusals; `ion://…?terrain=…&imagery=…`
+  fixture tile's colour visible at a known point, imagery 401 → cesium's parent retries exhaust the
+  failure counter and the source falls back, network loss → fallback with both tilesets torn down, the URI refusals; `ion://…?terrain=…&imagery=…`
   over the fixture ion endpoints: terrain tiles and an attached raster.
 - Goldens `mapbox_terrain_synthetic_{dark_adas,light_clay}.png`: the hill with quadrant imagery and
   buildings standing on it, compared at a fixed frame index since renderer creation (Filament's
@@ -347,8 +353,9 @@ a Shipped row, and the plan its live acceptance results.
 
 ## 12. Risks and known limits
 
-- Tile seams between neighbouring DEM tiles show as the skirt where heights differ by a pixel; a
-  shared-edge resample is the upgrade if it is visible.
+- Neighbouring DEM tiles share their edge vertex positions, but each samples its own edge pixels, so
+  a one-pixel height step can remain under the skirt; sampling both tiles at shared edges is the
+  upgrade if it is visible.
 - Imagery resolution is capped at z18 (0.6 m/px); the DEM at z14 (about 10 m) smooths small relief.
 - The ion overlay's credits are Bing's long line; the HUD cuts it at the frame edge as any long line.
 - Request volume rises with the radius and the imagery level; the defaults keep a z14 tile near the
