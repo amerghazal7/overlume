@@ -78,6 +78,11 @@ index; `docs/status.md` is the one status ledger.
   — the `mapbox://buildings` environment source: Mapbox landmark models plus
   extruded streets-v8 footprints through a custom cesium-native loader, the
   on-screen attribution, and the demo at Downtown Dubai and the operating area.
+- [`2026-10-15-imagery-terrain-design.md`](design/2026-10-15-imagery-terrain-design.md)
+  — sub-project 2: terrain as a second cesium tileset per source (Mapbox
+  terrain-DEM through a loader of ours, Cesium World Terrain through ion),
+  imagery as cesium raster overlays on it, and Mapbox buildings re-based
+  onto the DEM; provider-agnostic by construction.
 
 ## ADRs (`docs/adr/`)
 
