@@ -19,7 +19,7 @@
 | 2. Fixtures: DEM PNG, flat imagery, quantized-mesh | 1 | done | `04908a2..98bb981` |
 | 3. Tiling helper extracted from the buildings loader | 2 | done | `db7e359..5c20d6c` |
 | 4. URI keys: layer list, `imagery`, ion `terrain`/`imagery` | 2 | done | `5c20d6c..23f6bd9` |
-| 5. Terrain material and the renderer's overlay callbacks | 3 | pending | |
+| 5. Terrain material and the renderer's overlay callbacks | 3 | done | `db7e359..277d644` |
 | 6. Node parameters, composer, attribution text | 4 | pending | |
 | 7. GUI sources, bridge, token check | 4 | pending | |
 | 8. Docs | 4 | pending | |
