@@ -57,6 +57,8 @@ bool ecef_height_correction_probe(double origin_lat_deg, double origin_lon_deg, 
                                   double alt_m, double* out_z_uncorrected, double* out_z_corrected);
 
 bool environment_stream_materials_original(overlume::VisualRenderer* r);
+// NaN when the source is not a StreamingEnvironmentSource.
+double environment_stream_brightness(overlume::VisualRenderer* r);
 
 bool environment_stream_parse_materials_original(const char* ion_spec);
 

@@ -767,6 +767,21 @@ TEST(MapboxBuildings, ClayReplacesAndOriginalKeepsTheExtrusionMaterial) {
     }
 }
 
+TEST(MapboxBuildings, BrightnessReachesTheStreamingSource) {
+    auto* r = make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const TileId t = op_tile();
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    serve_anchor_tile(n, t);
+    ASSERT_TRUE(install(r, "mapbox://buildings?materials=original&brightness=1.8",
+                        anchor_at(t, 0.5, 0.5), n));
+    set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> buf(kFrameBytes);
+    ASSERT_TRUE(pump(r, buf, 400, [&] { return loaded(r) >= 1; }));
+    EXPECT_DOUBLE_EQ(overlume::testing::environment_stream_brightness(r), 1.8);
+    overlume::destroy_renderer(r);
+}
+
 TEST(MapboxBuildings, LandmarkReplacesTheExtrusionBeneathIt) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";

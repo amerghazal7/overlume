@@ -1559,6 +1559,12 @@ bool environment_stream_materials_original(overlume::VisualRenderer* r) {
     return stream != nullptr && stream->materials_original();
 }
 
+double environment_stream_brightness(overlume::VisualRenderer* r) {
+    if (r == nullptr || !r->environmentSource) return std::nan("");
+    auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
+    return stream != nullptr ? stream->brightness() : std::nan("");
+}
+
 double environment_terrain_offset_z(overlume::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return std::nan("");
     auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
