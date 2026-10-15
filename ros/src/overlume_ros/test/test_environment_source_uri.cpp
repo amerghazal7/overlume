@@ -153,3 +153,37 @@ TEST(ComposeEnvironmentSourceUri, RadiusAppendedOnlyWhenNotDefault) {
                                                             1.0, 250.0),
               "/baked");
 }
+
+TEST(ComposeEnvironmentSourceUri, MapboxGetsFallbackButNeverCache) {
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("/baked/chunks", "mapbox://buildings",
+                                                            "/mnt/data/tiles"),
+              "mapbox://buildings?fallback=/baked/chunks");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri(
+                  "/baked/chunks", "mapbox://buildings?materials=original", "/mnt/data/tiles"),
+              "mapbox://buildings?materials=original&fallback=/baked/chunks");
+}
+
+TEST(ComposeEnvironmentSourceUri, MapboxNeverGetsTheIonOnlyKeys) {
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "mapbox://buildings", "", true, 0.5,
+                                                            false, 5.0),
+              "mapbox://buildings");
+}
+
+TEST(ComposeEnvironmentSourceUri, MapboxGetsBrightnessAndRadiusWhenNotDefault) {
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "mapbox://buildings", "", true, 0.3,
+                                                            true, 2.0, 1.0, 700.0),
+              "mapbox://buildings");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri(
+                  "/baked", "mapbox://buildings", "/tiles", true, 0.5, false, 5.0, 1.8, 250.0),
+              "mapbox://buildings?fallback=/baked&brightness=1.8&radius=250");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "mapbox://buildings?radius=300", "",
+                                                            true, 0.3, true, 2.0, 1.8, 250.0),
+              "mapbox://buildings?radius=300&brightness=1.8");
+}
+
+TEST(ComposeEnvironmentSourceUri, IonUriWithEveryKnobSetIsUnchanged) {
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("/baked", "ion://96188", "/tiles", true,
+                                                            0.5, false, 5.0, 1.8, 250.0),
+              "ion://96188?cache=/tiles&fallback=/baked&follow_terrain=on&ground_bias=0.5&"
+              "replaces_ground=off&max_tilt_deg=5&brightness=1.8&radius=250");
+}
