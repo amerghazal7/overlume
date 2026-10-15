@@ -535,7 +535,6 @@ TEST(MapboxBuildings, TokenWhitespaceIsTrimmed) {
     const TileId t = op_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_anchor_tile(n, t);
-    const size_t logFrom = log_size();
     ASSERT_TRUE(
         install(r, "mapbox://buildings", anchor_at(t, 0.5, 0.5), n, " pk.test-token-not-real\n"));
     set_ego(r, 0.0, 0.0);
@@ -548,7 +547,7 @@ TEST(MapboxBuildings, TokenWhitespaceIsTrimmed) {
             << url.substr(0, url.find('?'));
         EXPECT_EQ(url.find_first_of(" \t\r\n"), std::string::npos);
     }
-    EXPECT_EQ(log_since(logFrom).find(kToken), std::string::npos);
+    // The log check lives in RejectedTokenFallsBackAndLogsOnce and the ion transport-error test.
     overlume::destroy_renderer(r);
 }
 
