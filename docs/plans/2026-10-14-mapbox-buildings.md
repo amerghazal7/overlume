@@ -49,7 +49,7 @@ where the plan uses it.
 | 13. Mapbox loader: tiling, extrusions, failures, dispatch | 7 | done | `e714a26..169c033` |
 | 14. Landmarks and conflation in the loader | 7 | done | `169c033..ad8b9da` |
 | 15. Golden candidate and promotion | 8 | done; two goldens (dark_adas and light_clay, both clay) promoted by the user 2026-10-15 | `be29f4d..1028db2` |
-| 16. Opt-in live smoke | 8 | pending | |
+| 16. Opt-in live smoke | 8 | done; live run 2026-10-15 with the user's consent: Downtown tiles 1, landmarks 7, extruded 1222, conflated 62, slowest build 14 ms; operating area tiles 2, landmarks 0, extruded 564, conflated 0, slowest build 1 ms; `tools/check_mapbox_token.sh` PASS | `6f515f6` |
 | 17. Rig rehearsal at both sites and close-out | 8 | pending | |
 
 ## Global Constraints
