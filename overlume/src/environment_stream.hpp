@@ -4,8 +4,8 @@
 #pragma once
 
 static_assert(__cplusplus >= 202002L,
-              "environment_stream.hpp is C++20-only -- include it from "
-              "environment_stream.cpp, nowhere else");
+              "environment_stream.hpp is C++20-only -- include it only from overlume_stream "
+              "sources (environment_stream.cpp, mapbox_*.cpp)");
 
 #include <atomic>
 #include <chrono>
