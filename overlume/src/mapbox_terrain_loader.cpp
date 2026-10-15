@@ -43,8 +43,10 @@ using Cesium3DTilesSelection::TileLoadResultState;
 
 // The area view refines a tile whose geometric error is 1 or more (TilesetSelection.cpp:335) and
 // cesium halves it for each level of upsampled children (TilesetContentManager.cpp:280): z14 (2)
-// and z15 (1) refine, z16 (0.5) is the leaf near the ego, and a z16 tile maps z18 imagery, the
-// overlay's cap (at most 2048 px a tile, QuadtreeRasterOverlayTileProvider.cpp:312-325).
+// and z15 (1) refine, z16 (0.5) is the leaf near the ego. The imagery the overlay maps onto those
+// tiles is z17 at most (measured by SatelliteDrapesXyzTilesOnTheTerrain; the overlay's z18 cap,
+// at most 2048 px a tile, QuadtreeRasterOverlayTileProvider.cpp:312-325, is not reached), so
+// without the refinement it tops out at z16.
 constexpr double kTerrainGeometricErrorM = 2.0;
 
 static_assert(sizeof(std::array<float, 3>) == 3 * sizeof(float) &&
