@@ -2239,8 +2239,15 @@ TEST(EnvironmentStreamTerrain, CreditsAreThePlainTextOfTheImageryAttributions) {
         "ion-fixture-token-credits"));
     itf::set_ego(r);
     std::vector<uint8_t> buf(itf::kFrameBytes);
-    const auto credited = [&] { return overlume::environment_source_credits(r, nullptr, 0) > 0; };
-    ASSERT_TRUE(itf::pump(r, buf, 600, credited)) << "the imagery overlay's credits never appeared";
+    // tiles loaded: the view groups now reference the tilesets' own credits, which the filter must
+    // keep out
+    const auto credited = [&] {
+        return overlume::environment_source_credits(r, nullptr, 0) > 0 &&
+               overlume::testing::environment_loaded_chunk_count(r) > 0 &&
+               overlume::testing::environment_terrain_tiles_loaded(r) > 0;
+    };
+    ASSERT_TRUE(itf::pump(r, buf, 600, credited))
+        << "the imagery credits or the tiles never appeared";
 
     EXPECT_EQ(itf::credits(r), "Fixture Imagery & Co.")
         << "tags stripped, &amp; decoded, and the content and terrain tilesets' own credits "
