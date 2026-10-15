@@ -218,9 +218,9 @@ A full geo-datum override moves the map to Downtown:
 
 | Parameter | Value |
 |-----------|-------|
-| `geo_datum_lat_deg` | filled in by Task 17's rehearsal |
-| `geo_datum_lon_deg` | filled in by Task 17's rehearsal |
-| `geo_datum_heading_deg` | filled in by Task 17's rehearsal |
+| `geo_datum_lat_deg` | `25.1952210` |
+| `geo_datum_lon_deg` | `55.2709401` |
+| `geo_datum_heading_deg` | `90.1350` |
 
 Set `DATUM_LAT`, `DATUM_LON` and `DATUM_HEADING` to the table's values, then:
 
