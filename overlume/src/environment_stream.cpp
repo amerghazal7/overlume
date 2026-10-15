@@ -470,13 +470,30 @@ private:
 
 constexpr char kFileScheme[] = "file://";
 
+// Both fixture switches spare the root manifest: behind the cache its request runs on the cache
+// thread, possibly after a test has already flipped a switch.
+bool is_root_manifest(const std::string& url) {
+    return url.size() >= 12 && url.compare(url.size() - 12, 12, "tileset.json") == 0;
+}
+
+}
+
+CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> FileFixtureAssetAccessor::respond(
+    const CesiumAsync::AsyncSystem& asyncSystem, const std::string& verb, const std::string& url) {
+    if (transportDown_ && transportDown_->load() && !is_root_manifest(url)) {
+        const auto promise =
+            asyncSystem.createPromise<std::shared_ptr<CesiumAsync::IAssetRequest>>();
+        // curl's text carries the request URL, token included; this one carries a bogus token.
+        promise.reject(std::runtime_error("fixture transport error: " + url +
+                                          "?access_token=fixture-transport-token"));
+        return promise.getFuture();
+    }
+    return asyncSystem.createResolvedFuture(makeRequest(verb, url));
 }
 
 std::shared_ptr<CesiumAsync::IAssetRequest> FileFixtureAssetAccessor::makeRequest(
     const std::string& verb, const std::string& url) {
-    const bool isRootManifest =
-        url.size() >= 12 && url.compare(url.size() - 12, 12, "tileset.json") == 0;
-    if (killed_ && killed_->load() && !isRootManifest) {
+    if (killed_ && killed_->load() && !is_root_manifest(url)) {
         return std::make_shared<FixtureAssetRequest>(
             verb, url, std::make_unique<FixtureAssetResponse>(503, std::vector<std::byte>{}));
     }
@@ -1159,6 +1176,7 @@ namespace overlume::testing {
 
 struct FixtureStreamHandle {
     std::shared_ptr<std::atomic<bool>> killed;
+    std::shared_ptr<std::atomic<bool>> transport_down;
 };
 
 namespace {
@@ -1184,9 +1202,11 @@ std::string test_cache_dir() {
 std::unique_ptr<overlume::EnvironmentSource> make_fixture_source(
     const char* fixture_dir, const char* fallback_baked_dir, overlume::GeoAnchor anchor,
     std::shared_ptr<std::atomic<bool>> killed, bool materials_original, bool follow_terrain = false,
-    std::optional<double> radius_override_m = std::nullopt) {
+    std::optional<double> radius_override_m = std::nullopt,
+    std::shared_ptr<std::atomic<bool>> transport_down = nullptr) {
     if (fixture_dir == nullptr) return nullptr;
-    auto fileAccessor = std::make_shared<overlume::FileFixtureAssetAccessor>(std::move(killed));
+    auto fileAccessor = std::make_shared<overlume::FileFixtureAssetAccessor>(
+        std::move(killed), std::move(transport_down));
     CesiumAsync::AsyncSystem asyncSystem(std::make_shared<overlume::SimpleTaskProcessor>());
     const std::string cacheDir = test_cache_dir();
     std::shared_ptr<overlume::CountingAssetAccessor> counting;
@@ -1226,14 +1246,15 @@ FixtureStreamHandle* install_fixture_streaming_source_with_fallback(overlume::Vi
     if (r == nullptr) return nullptr;
     if (r->environmentSource) r->environmentSource->teardown(*r);
     auto killed = std::make_shared<std::atomic<bool>>(false);
-    auto source =
-        make_fixture_source(fixture_dir, fallback_baked_dir, anchor, killed, false, follow_terrain);
+    auto transportDown = std::make_shared<std::atomic<bool>>(false);
+    auto source = make_fixture_source(fixture_dir, fallback_baked_dir, anchor, killed, false,
+                                      follow_terrain, std::nullopt, transportDown);
     if (!source) {
         r->environmentSource.reset();
         return nullptr;
     }
     r->environmentSource = std::move(source);
-    return new FixtureStreamHandle{std::move(killed)};
+    return new FixtureStreamHandle{std::move(killed), std::move(transportDown)};
 }
 
 void kill_fixture_network(FixtureStreamHandle* handle) {
@@ -1242,6 +1263,10 @@ void kill_fixture_network(FixtureStreamHandle* handle) {
 
 void revive_fixture_network(FixtureStreamHandle* handle) {
     if (handle && handle->killed) handle->killed->store(false);
+}
+
+void break_fixture_network_transport(FixtureStreamHandle* handle) {
+    if (handle && handle->transport_down) handle->transport_down->store(true);
 }
 
 bool environment_stream_materials_original(overlume::VisualRenderer* r) {
