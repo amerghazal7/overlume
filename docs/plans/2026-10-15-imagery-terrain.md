@@ -15,8 +15,8 @@
 | Task | Lane | State | Commit |
 |------|------|-------|--------|
 | 0. Build glue and lane worktrees | 0 | done; globs proven with probes, gate green at the fork db7e359 (442/424/8, 381, 94, 25, 6), lanes l1-l4 built; URL forms with consent: PASS (DEM tile HTTP 200, satellite tile HTTP 200) | none (no tracked change) |
-| 1. DEM decode, sample and mesh | 1 | pending | |
-| 2. Fixtures: DEM PNG, flat imagery, quantized-mesh | 1 | pending | |
+| 1. DEM decode, sample and mesh | 1 | done | `db7e359..04908a2` |
+| 2. Fixtures: DEM PNG, flat imagery, quantized-mesh | 1 | done | `04908a2..98bb981` |
 | 3. Tiling helper extracted from the buildings loader | 2 | done | `db7e359..5c20d6c` |
 | 4. URI keys: layer list, `imagery`, ion `terrain`/`imagery` | 2 | done | `5c20d6c..23f6bd9` |
 | 5. Terrain material and the renderer's overlay callbacks | 3 | pending | |
