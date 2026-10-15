@@ -326,9 +326,11 @@ TEST(MapboxTerrain, SatelliteDrapesXyzTilesOnTheTerrain) {
     // From z0 to the overlay's z18 cap, every XYZ tile over t and the ring of tiles around it
     // answers one flat 512 px image: what t's terrain may ask for when the rows are Mapbox's (row 0
     // at the north edge), the ring because cesium may map a neighbour row a rounding error away
-    // (QuadtreeRasterOverlayTileProvider.cpp:256-287). `inside` keeps the z15-z18 tiles over t.
+    // (QuadtreeRasterOverlayTileProvider.cpp:256-287). `inside` keeps the z15-z18 tiles over t,
+    // `inside17` the z17-z18 ones.
     std::set<std::string> served;
     std::set<std::string> inside;
+    std::set<std::string> inside17;
     for (uint32_t z = 0; z <= 18; ++z) {
         const int64_t k = z <= 14 ? 1 : int64_t{1} << (z - 14);
         const int64_t x0 = z <= 14 ? t.x >> (14 - z) : t.x * k;
@@ -340,7 +342,10 @@ TEST(MapboxTerrain, SatelliteDrapesXyzTilesOnTheTerrain) {
                 const std::string url = overlume::testing::mapbox_satellite_url(
                     z, static_cast<uint32_t>(x), static_cast<uint32_t>(y));
                 served.insert(url);
-                if (z >= 15 && x >= x0 && x < x0 + k && y >= y0 && y < y0 + k) inside.insert(url);
+                if (z >= 15 && x >= x0 && x < x0 + k && y >= y0 && y < y0 + k) {
+                    inside.insert(url);
+                    if (z >= 17) inside17.insert(url);
+                }
             }
         }
     }
@@ -353,15 +358,21 @@ TEST(MapboxTerrain, SatelliteDrapesXyzTilesOnTheTerrain) {
         return overlume::testing::environment_stream_overlay_probe(r).rasters_attached >= 1;
     })) << "no satellite raster attached to the terrain";
     size_t overT = 0;
+    size_t over17 = 0;
     for (const std::string& url : overlume::testing::mapbox_fixture_requested_urls(n)) {
         const std::string bare = url.substr(0, url.find('?'));
         if (bare.find("mapbox.satellite") == std::string::npos) continue;
         EXPECT_EQ(served.count(bare), 1u)
             << "not an XYZ tile over the terrain tile or its ring: " << bare;
         overT += inside.count(bare);
+        over17 += inside17.count(bare);
         EXPECT_TRUE(ends_with(url, std::string("?access_token=") + kToken)) << bare;
     }
     EXPECT_GT(overT, 0u) << "no z15-z18 imagery over the terrain tile itself";
+    // Only the z14 leaves' geometric error 2 makes cesium refine to z16, whose imagery is z17; a
+    // z14 leaf at error 0 stops at z16 imagery.
+    EXPECT_GT(over17, 0u)
+        << "no z17+ imagery over the terrain tile: the z14 leaves are not refined";
     char credits[256] = {};
     overlume::environment_source_credits(r, credits, static_cast<uint32_t>(sizeof credits));
     EXPECT_NE(std::string(credits).find("\xC2\xA9 Maxar"), std::string::npos)
