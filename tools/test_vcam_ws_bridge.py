@@ -8,6 +8,7 @@ Run: pytest tools/test_vcam_ws_bridge.py
 
 import json
 import os
+import re
 import sys
 
 import pytest
@@ -82,6 +83,13 @@ def test_set_theme_valid(theme):
 def test_rejects_malformed(text):
     with pytest.raises(ValueError):
         parse_cmd(text)
+
+def test_environment_source_refusal_lists_exactly_the_sources():
+    """The refusal text is the only place a client sees the source names: it lists every
+    entry of ENVIRONMENT_PRESETS, osm-terrain included, and nothing the table lacks."""
+    with pytest.raises(ValueError, match="osm-terrain") as refusal:
+        parse_cmd('{"cmd": "set_environment_source", "preset": "satellite"}')
+    assert set(re.findall(r'"([^"]+)"', str(refusal.value))) == ENVIRONMENT_PRESETS
 
 def test_set_layers_valid():
     assert parse_cmd(json.dumps(

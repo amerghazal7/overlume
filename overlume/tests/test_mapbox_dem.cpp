@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Amer Ghazal
 
+#include "imagery_fixture.hpp"
 #include "mapbox_dem.hpp"
 #include "mapbox_tile_frame.hpp"
 
@@ -29,18 +30,7 @@ constexpr uint32_t kSkirtVertices = 4 * mb::kDemGridCells;  // 256: each border 
 const mb::TileId kTile{14, 10707, 7006};
 constexpr double kOriginHeightM = 12.0;
 
-// PNG bytes from raw 8-bit pixels (stb_image_write; golden.cpp holds its implementation).
-std::vector<uint8_t> png(int w, int h, int channels, const std::vector<uint8_t>& pixels) {
-    std::vector<uint8_t> out;
-    stbi_write_png_to_func(
-        [](void* context, void* data, int size) {
-            auto* bytes = static_cast<std::vector<uint8_t>*>(context);
-            bytes->insert(bytes->end(), static_cast<uint8_t*>(data),
-                          static_cast<uint8_t*>(data) + size);
-        },
-        &out, w, h, channels, pixels.data(), w * channels);
-    return out;
-}
+using overlume::testing::imagery::png;
 
 mb::DemTile decode(const std::vector<uint8_t>& bytes) {
     return mb::decode_dem_png(bytes.data(), bytes.size());
@@ -342,10 +332,16 @@ TEST(MapboxDem, UvsSpanTheTileEastAndSouth) {
 }
 
 TEST(MapboxDem, AnUndecodedTileMeshesToNothing) {
-    const mb::DemMesh m = mb::mesh_dem(mb::DemTile{}, mb::make_tile_frame(kTile, 0.0), kTile, 0.0);
-    EXPECT_EQ(m.grid_vertex_count, 0u);
-    EXPECT_TRUE(m.positions.empty());
-    EXPECT_TRUE(m.normals.empty());
-    EXPECT_TRUE(m.uvs.empty());
-    EXPECT_TRUE(m.indices.empty());
+    // The guard has two halves: an empty DemTile{} fails the height count, and this tile, with
+    // every height present but ok = false, fails only the flag.
+    mb::DemTile flagged_off = tile_of([](uint32_t, uint32_t) { return 5.0f; });
+    flagged_off.ok = false;
+    for (const mb::DemTile& dem : {mb::DemTile{}, flagged_off}) {
+        const mb::DemMesh m = mb::mesh_dem(dem, mb::make_tile_frame(kTile, 0.0), kTile, 0.0);
+        EXPECT_EQ(m.grid_vertex_count, 0u) << dem.height_m.size() << " heights";
+        EXPECT_TRUE(m.positions.empty());
+        EXPECT_TRUE(m.normals.empty());
+        EXPECT_TRUE(m.uvs.empty());
+        EXPECT_TRUE(m.indices.empty());
+    }
 }

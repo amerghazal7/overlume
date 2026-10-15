@@ -22,6 +22,7 @@
 #include <cstring>
 #include <functional>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -182,10 +183,17 @@ struct Qmesh {
     size_t bytes_read = 0;
 };
 
-Qmesh parse(const std::vector<uint8_t>& b) {
+// An encoder that wrote fewer bytes than its own counts claim must fail the test, not read past the
+// buffer: a read that does not fit throws, and parse reports it and returns an empty Qmesh.
+Qmesh parse(const std::vector<uint8_t>& b) try {
     Qmesh q{};
     size_t at = 0;
     const auto read = [&b, &at](auto& value) {
+        if (at + sizeof value > b.size()) {
+            throw std::out_of_range(
+                "quantized-mesh tile truncated: " + std::to_string(sizeof value) +
+                " bytes wanted at byte " + std::to_string(at) + " of " + std::to_string(b.size()));
+        }
         std::memcpy(&value, b.data() + at, sizeof value);
         at += sizeof value;
     };
@@ -217,11 +225,17 @@ Qmesh parse(const std::vector<uint8_t>& b) {
     for (std::vector<uint16_t>& edge : q.edges) {
         uint32_t count = 0;
         read(count);
-        edge.resize(count);
-        for (uint16_t& index : edge) read(index);
+        for (uint32_t k = 0; k < count; ++k) {  // not resize(count): a bad count must not allocate
+            uint16_t index = 0;
+            read(index);
+            edge.push_back(index);
+        }
     }
     q.bytes_read = at;
     return q;
+} catch (const std::out_of_range& truncated) {
+    ADD_FAILURE() << truncated.what();
+    return {};
 }
 
 }

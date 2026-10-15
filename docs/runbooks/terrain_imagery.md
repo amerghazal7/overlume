@@ -6,7 +6,7 @@ as cesium raster overlays. Two providers use the same path:
 
 | Source | Terrain | Imagery | Credit on screen |
 |--------|---------|---------|------------------|
-| `mapbox://buildings,terrain?imagery=satellite` | Mapbox terrain-DEM, z14 tiles meshed by Overlume's loader | Mapbox Satellite, up to z18 | "© Maxar", inside the Mapbox line ([`mapbox.md`](mapbox.md) §5) |
+| `mapbox://buildings,terrain?imagery=satellite` | Mapbox terrain-DEM, z14 tiles meshed by Overlume's loader | Mapbox Satellite, capped at z18, z17 at the default radius (§6) | "© Maxar", inside the Mapbox line ([`mapbox.md`](mapbox.md) §5) |
 | `ion://96188?terrain=1&imagery=2` | Cesium World Terrain (ion asset 1), quantized-mesh through cesium-native's own loader | Bing Maps Aerial (ion asset 2) through ion | ion's credits for the imagery asset (§5) |
 
 The design is
@@ -151,8 +151,13 @@ For whoever debugs a missing or wrong texture:
   black flash shows; `detachRasterInMainThread` sets `hasImagery = 0` and binds the 1×1
   placeholder back, so the tile shows `terrain_color` again; `freeRaster` frees the texture
   through the stream's deferred-free path, never while a frame may sample it.
-- Where the imagery is finer than the terrain (z18 imagery on z14 DEM tiles), cesium-native
-  creates upsampled child tiles, so the imagery near the ego keeps its own level.
+- Where the imagery is finer than the terrain (satellite imagery on z14 DEM tiles), cesium-native
+  creates upsampled child tiles, so the imagery near the ego keeps its own level. The Mapbox
+  overlay is capped at z18 (`maximumLevel`). The loader gives each z14 tile a geometric error of
+  2 m, so the area view refines it to z16 children near the ego, and their imagery is z17
+  (measured at the default radius): cesium lowers a tile's imagery level until its texture fits
+  `maximumTextureSize`, 2048 px by default, so z18 is not reached. Without that error a z14
+  tile stays one tile and its imagery tops out at z16.
 - On a source switch or teardown, overlays detach before either tileset is destroyed.
 - `environment_stream_overlay_probe()` (`overlume/src/environment_test_hooks.hpp`) counts the
   rasters attached and detached and the textures alive and freed.

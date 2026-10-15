@@ -14,6 +14,8 @@
 #define STBI_ONLY_PNG
 #define STBI_NO_STDIO
 #define STB_IMAGE_IMPLEMENTATION
+// Resolves only through usage requirements: the overlume_stream block in overlume/CMakeLists.txt
+// links Cesium3DTilesSelection, whose target puts the vcpkg prefix on the include path.
 #include <stb_image.h>
 
 namespace overlume::mapbox {
