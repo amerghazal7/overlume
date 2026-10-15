@@ -71,11 +71,17 @@ struct MapboxSourceStats {
     uint64_t wall_quads = 0;          // wall quads of the extruded features, summed
     // Highest region top over built tiles, metres above the anchor ground.
     double max_tile_top_m = 0.0;
+    // Lowest region floor over built tiles, metres above the anchor ground (negative: below).
+    double min_tile_floor_m = 0.0;
     // DEM tiles the source's DemCache requested (terrain layer); 0 once the source is torn down.
     uint64_t dem_requests = 0;
 };
 // The counters of the most recently opened Mapbox source in this process.
 MapboxSourceStats mapbox_last_source_stats();
+// A fresh DemCache over n: get() each z14 (x, y) in order, waiting for each; requests() after each
+// get.
+std::vector<uint64_t> mapbox_dem_cache_requests(MapboxFixtureNetwork* n,
+                                                const std::vector<std::array<uint32_t, 2>>& tiles);
 // Test-only: while on, every GLB the stream writes in prepareInLoadThread is kept; turning it on
 // drops what was kept before.
 void capture_stream_glbs(bool on);
