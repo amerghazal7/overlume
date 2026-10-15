@@ -13,9 +13,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -634,6 +636,48 @@ TEST(ThemeEnvironment, TileRadiusParsesDefaultsAndRejectsNonPositive) {
     ASSERT_TRUE(absent.has_value());
     EXPECT_NEAR(absent->environment.tile_radius_m, 700.0f, 1e-3f)
         << "a theme without an environment: map keeps the 700 m default";
+}
+
+TEST(ThemeEnvironment, TerrainColorParsesAndDefaultsToTheGround) {
+    using overlume::detail::Float3;
+    const auto expect_eq = [](const Float3& got, const Float3& want, const std::string& what) {
+        EXPECT_FLOAT_EQ(got.r, want.r) << what;
+        EXPECT_FLOAT_EQ(got.g, want.g) << what;
+        EXPECT_FLOAT_EQ(got.b, want.b) << what;
+    };
+    for (const char* name : {"dark_adas", "light_clay"}) {
+        const std::optional<overlume::detail::Theme> shipped =
+            overlume::detail::load_theme(kThemeDir, name);
+        ASSERT_TRUE(shipped.has_value()) << name;
+        expect_eq(shipped->environment.terrain_color, shipped->palette.ground,
+                  std::string(name) + ": the shipped terrain_color is the theme's ground");
+    }
+    const std::string fixtureDir = std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/themes";
+    const std::optional<overlume::detail::Theme> absent =
+        overlume::detail::load_theme(fixtureDir, "tile_radius_tiny");
+    ASSERT_TRUE(absent.has_value());
+    expect_eq(absent->environment.terrain_color, absent->palette.ground,
+              "an environment map without terrain_color defaults to the ground");
+    const overlume::detail::Theme& fallback = overlume::detail::kFallbackTheme();
+    expect_eq(fallback.environment.terrain_color, fallback.palette.ground, "the fallback theme");
+
+    // An explicit value wins: dark_adas with its environment line rewritten.
+    std::ifstream in(std::string(kThemeDir) + "/dark_adas.yaml");
+    std::stringstream text;
+    text << in.rdbuf();
+    std::string yaml = text.str();
+    const size_t at = yaml.find("environment:");
+    ASSERT_NE(at, std::string::npos);
+    yaml.replace(at, yaml.find('\n', at) - at,
+                 "environment: { tile_radius_m: 100.0, terrain_color: [0.25, 0.5, 0.75] }");
+    const std::string dir = std::string(OVERLUME_TMP_DIR) + "/overlume_theme_terrain_color";
+    std::filesystem::create_directories(dir);
+    std::ofstream(dir + "/explicit.yaml") << yaml;
+    const std::optional<overlume::detail::Theme> explicitColor =
+        overlume::detail::load_theme(dir, "explicit");
+    ASSERT_TRUE(explicitColor.has_value());
+    expect_eq(explicitColor->environment.terrain_color, Float3{0.25f, 0.5f, 0.75f},
+              "environment.terrain_color: [0.25, 0.5, 0.75]");
 }
 
 TEST(ThemeRibbonFade, TransitionToAFadeDisabledThemeHoldsTheMetresInsteadOfShrinkingThem) {
