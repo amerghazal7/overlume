@@ -132,13 +132,20 @@ def test_set_environment_enabled_valid(enabled):
     assert parse_cmd(json.dumps({"cmd": "set_environment_enabled", "enabled": enabled})) == \
         ("set_environment_enabled", enabled)
 
-@pytest.mark.parametrize("preset", ["baked", "osm", "clipped", "google"])
+@pytest.mark.parametrize("preset", [
+    "baked", "osm", "clipped", "google", "mapbox", "mapbox-original",
+])
 def test_set_environment_source_valid(preset):
     assert parse_cmd(json.dumps({"cmd": "set_environment_source", "preset": preset})) == \
         ("set_environment_source", preset)
 
 def test_google_preset_ships_cache_off():
     assert ENVIRONMENT_PRESET_URIS["google"].endswith("cache=off")
+
+def test_mapbox_entries_map_to_the_buildings_uris():
+    # No cache=off: the mapbox:// source never writes a cache.
+    assert ENVIRONMENT_PRESET_URIS["mapbox"] == "mapbox://buildings"
+    assert ENVIRONMENT_PRESET_URIS["mapbox-original"] == "mapbox://buildings?materials=original"
 
 def test_param_cmds_valid():
     assert parse_cmd('{"cmd": "get_params"}') == ("get_params", None)
@@ -552,6 +559,9 @@ def test_resolve_environment_preset():
     assert resolve_environment_preset("ion://96188", "") == "osm"
     assert resolve_environment_preset(
         "ion://2275207?materials=original&cache=off", "") == "google"
+    assert resolve_environment_preset("mapbox://buildings", "") == "mapbox"
+    assert resolve_environment_preset(
+        "mapbox://buildings?materials=original", "") == "mapbox-original"
     assert resolve_environment_preset("ion://12345", "ion://12345") == "clipped"
     assert resolve_environment_preset("ion://12345", "") is None
     assert resolve_environment_preset("ion://99999?foo=bar", "ion://12345") is None
@@ -581,7 +591,9 @@ def test_gui_and_bridge_environment_preset_tables_agree():
     from vcam_gui import ENVIRONMENT_PRESETS as GUI_PRESETS
     from vcam_gui import ENVIRONMENT_PRESET_URIS_FIXED
 
+    assert GUI_PRESETS == ["baked", "osm", "clipped", "google", "mapbox", "mapbox-original"]
     assert set(GUI_PRESETS) == ENVIRONMENT_PRESETS
+    assert set(ENVIRONMENT_PRESET_URIS) == ENVIRONMENT_PRESETS - {"clipped"}
     assert "clipped" not in ENVIRONMENT_PRESET_URIS_FIXED
     assert "clipped" not in ENVIRONMENT_PRESET_URIS
     assert ENVIRONMENT_PRESET_URIS_FIXED == ENVIRONMENT_PRESET_URIS
@@ -727,3 +739,33 @@ def test_launcher_runs_preflight_after_teardown_and_checks_the_bridge():
     bridge = script.index('tools/vcam_ws_bridge.py" --local-mode')
     alive = script.index('wait_listening "${BRIDGE_PID}" 8765')
     assert teardown < port_check < bridge < alive
+
+
+
+# --- token refresh (tools/validate_visual_mode.sh) ---------------------------------------------
+# Runs the launcher's refresh block on its own. HOME is a temp dir, so the login shell it starts
+# reads only the fake profile below, never a real token.
+
+def test_launcher_refreshes_both_tokens_from_the_login_shell(tmp_path):
+    import subprocess
+    with open(os.path.join(os.path.dirname(__file__), "validate_visual_mode.sh")) as f:
+        script = f.read()
+    start = script.index("for _token_name in ")
+    marker = "unset _fresh_token _token_name\n"
+    end = script.index(marker, start) + len(marker)
+    (tmp_path / ".bash_profile").write_text(
+        "echo 'startup files may print'\n"
+        "export CESIUM_ION_TOKEN=ion-test-token-not-real\n"
+        "export MAPBOX_TOKEN=pk.test-token-not-real\n")
+    env = {k: v for k, v in os.environ.items() if k not in ("CESIUM_ION_TOKEN", "MAPBOX_TOKEN")}
+    env.update(HOME=str(tmp_path), MAPBOX_TOKEN="pk.stale-token-not-real")
+    r = subprocess.run(
+        ["bash", "-c", "set -euo pipefail\n" + script[start:end] +
+         'printenv CESIUM_ION_TOKEN MAPBOX_TOKEN > "$HOME/tokens"\n'],
+        env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert (tmp_path / "tokens").read_text().split() == [
+        "ion-test-token-not-real", "pk.test-token-not-real"]
+    assert ("[token] MAPBOX_TOKEN in this shell differs from the login shell's -- "
+            "using the login shell's") in r.stdout
+    assert "token-not-real" not in r.stdout + r.stderr

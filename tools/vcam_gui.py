@@ -103,11 +103,13 @@ LAYER_NAMES = [
 ]
 QUALITY_PRESETS = ["low", "medium", "high"]
 SURROUND_PROFILES = ["bowl", "hybrid"]
-ENVIRONMENT_PRESETS = ["baked", "osm", "clipped", "google"]
+ENVIRONMENT_PRESETS = ["baked", "osm", "clipped", "google", "mapbox", "mapbox-original"]
 ENVIRONMENT_PRESET_URIS_FIXED = {
     "baked": "",
     "osm": "ion://96188",
     "google": "ion://2275207?materials=original&cache=off",
+    "mapbox": "mapbox://buildings",
+    "mapbox-original": "mapbox://buildings?materials=original",
 }
 
 def initial_environment_sensitivity(preset: str) -> bool:
