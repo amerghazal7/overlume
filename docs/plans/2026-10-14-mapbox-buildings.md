@@ -50,7 +50,16 @@ where the plan uses it.
 | 14. Landmarks and conflation in the loader | 7 | done | `169c033..ad8b9da` |
 | 15. Golden candidate and promotion | 8 | done; two goldens (dark_adas and light_clay, both clay) promoted by the user 2026-10-15 | `be29f4d..1028db2` |
 | 16. Opt-in live smoke | 8 | done; live run 2026-10-15 with the user's consent: Downtown tiles 1, landmarks 7, extruded 1222, conflated 62, slowest build 14 ms; operating area tiles 2, landmarks 0, extruded 564, conflated 0, slowest build 1 ms; `tools/check_mapbox_token.sh` PASS | `6f515f6` |
-| 17. Rig rehearsal at both sites and close-out | 8 | pending | |
+| 17. Rig rehearsal at both sites and close-out | 8 | done (see Live acceptance results) | the close-out commit after `ec0a136` |
+
+### Live acceptance results (2026-10-15, replay rig, `session_2026-09-01_13-57-00`)
+
+- Preflight: tools/check_mapbox_token.sh PASS, overlume/scripts/check_cesium_token.sh PASS. Live smoke (Task 16): ledger row 16.
+- Operating area, the session's own anchor (--anchor-lat 25.08001317 --anchor-lon 55.38847784 --anchor-heading-deg 90.1350 --anchor-height 0.35), armed with `--arm mapbox`. Extruded buildings on the map plane and no landmark models: confirmed -- "Confirmed" (clay buildings on the plane along the route, no landmark model). The z14 seam east of the route: confirmed -- no building crosses the z14 line in view; seams pinned by Task 13's CornerLoadsFourTilesWithoutDoubledSeamWalls. Attribution while streaming: confirmed -- "Confirmed" (logo bottom-left, text bottom-right, HUD colour). GUI `mapbox-original`, then `mapbox`: confirmed -- "Both as expected" (mapbox-original warm off-white with the attribution on; mapbox back to the theme clay).
+- Network cut (kill-switch proxy killed), then a live switch to `mapbox-original` so that new requests fail: the `network loss detected` WARN came 0.08 s after the switch. Attribution after the fallback: confirmed -- "Gone" (no logo, no text while the fallback chunks show).
+- Downtown Dubai: route extent x 111.6..385.8 m, y -210.5..53.6 m, centre (248.7, -78.5), 20418 poses; route centre placed at 25.19451 N, 55.27341 E; datum `geo_datum_lat_deg:=25.1952210`, `geo_datum_lon_deg:=55.2709401`, `geo_datum_heading_deg:=90.1350` (the session's heading), launched with `environment_source_uri:=mapbox://buildings?materials=original`. Landmarks as models with no doubled extrusion: confirmed -- "Confirmed" (textured landmark models, no doubled extrusion in or around them, extruded streets around). Route on open ground: confirmed -- "Confirmed" (one full loop on open ground near the tower, no building crossed). Attribution: confirmed -- "Confirmed" (logo bottom-left, text bottom-right). GUI `mapbox` against `mapbox-original`: confirmed -- "Both as expected" (mapbox: clay on landmarks and extrusions with the attribution on; mapbox-original: Mapbox look back).
+- Render cost at Downtown, `render_ms` from `/overlume_node/diagnostics` over one full replay loop per source, after 30 s of settling, same free-look camera: `mapbox` (clay) p50 5.8 ms, p99 13.3 ms; `osm` p50 6.8 ms, p99 17.4 ms; p50 ratio 0.85 against the 1.5 bar: PASS. Mapbox attribution with `osm` selected: confirmed -- "Gone" (no Mapbox logo or text with osm selected).
+- Secrets: the `MAPBOX_TOKEN` value appears in none of the 63 node, rig and ROS log files written during the rehearsal.
 
 ## Global Constraints
 
