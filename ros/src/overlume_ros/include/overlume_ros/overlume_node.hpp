@@ -231,6 +231,8 @@ private:
     double environment_max_tilt_deg_{2.0};
     double environment_brightness_{1.0};
     double environment_tile_radius_m_{700.0};
+    std::string environment_terrain_;  // "" leaves the URI alone (compose_environment_source_uri)
+    std::string environment_imagery_;
     bool environment_fallback_warned_{false};
     bool environment_attribution_{true};
     bool environment_attribution_warned_{false};
