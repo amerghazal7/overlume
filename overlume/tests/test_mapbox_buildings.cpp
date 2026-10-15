@@ -5,6 +5,7 @@
 #include "overlume/scene.h"
 
 #include "environment_test_hooks.hpp"
+#include "golden.hpp"
 #include "mapbox_glb_fixture.hpp"
 #include "mapbox_mvt_fixture.hpp"
 #include "mapbox_test_hooks.hpp"
@@ -16,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <optional>
@@ -909,4 +911,208 @@ TEST(MapboxBuildings, LandmarksAloneStillBuildTheTile) {
     ASSERT_EQ(glbs.size(), 1u);
     EXPECT_EQ(count_of(glb_json(glbs[0]), "\"mesh\":"), 1u) << "the landmark node alone";
     overlume::destroy_renderer(r);
+}
+
+namespace {
+
+constexpr double kGoldenPi = 3.14159265358979323846;
+
+// The golden's synthetic z14 tile is the test site's (55.2744 E, 25.1972 N). Its anchor is
+// the tile centre with heading pi/2: map +x is east, +y north, and map (0, 0) is the corner the
+// four central z16 squares share.
+const overlume::mapbox::TileId kGoldenZ14{14, 10707, 7006};
+
+struct GoldenFrame {
+    overlume::GeoAnchor anchor{};
+    double z14_per_m = 0.0;  // z14 tile units per ground metre at the tile centre
+};
+
+GoldenFrame golden_frame() {
+    const overlume::mapbox::LonLatDeg c = overlume::mapbox::tile_point_to_lonlat(
+        kGoldenZ14, 4096.0, 4096.0, overlume::mapbox::kLandmarkExtent);
+    GoldenFrame g;
+    g.anchor = overlume::GeoAnchor{c.lat, c.lon, kGoldenPi / 2.0, 0.0};
+    // 8192 units per tile, 2^14 tiles around the equator (spherical Web Mercator).
+    g.z14_per_m = overlume::mapbox::kLandmarkExtent * 16384.0 /
+                  (2.0 * kGoldenPi * 6378137.0 * std::cos(c.lat * kGoldenPi / 180.0));
+    return g;
+}
+
+// z14 units -> units of the z16 square `index` (its column or row inside the z14 tile), clamped
+// to the 33-unit buffer Mapbox clips its tiles to.
+int32_t golden_z16(double z14_units, int index) {
+    return static_cast<int32_t>(
+        std::lround(std::clamp(2.0 * z14_units - 4096.0 * index, -33.0, 4129.0)));
+}
+
+using GoldenRing = std::vector<std::array<int32_t, 2>>;
+
+// The rectangle east e0..e1, north n0..n1 (metres from the tile centre) in z16 square (col, row),
+// clockwise in tile space (y down): an MVT exterior ring.
+GoldenRing golden_rect(const GoldenFrame& g, int col, int row, double e0, double n0, double e1,
+                       double n1) {
+    const int32_t x0 = golden_z16(4096.0 + e0 * g.z14_per_m, col);
+    const int32_t x1 = golden_z16(4096.0 + e1 * g.z14_per_m, col);
+    const int32_t y0 = golden_z16(4096.0 - n1 * g.z14_per_m, row);
+    const int32_t y1 = golden_z16(4096.0 - n0 * g.z14_per_m, row);
+    return {{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
+}
+
+// The same rectangle wound the other way: an MVT interior ring.
+GoldenRing golden_hole(const GoldenFrame& g, int col, int row, double e0, double n0, double e1,
+                       double n1) {
+    GoldenRing ring = golden_rect(g, col, row, e0, n0, e1, n1);
+    std::reverse(ring.begin(), ring.end());
+    return ring;
+}
+
+// The mean luminance (Rec. 709, as golden.cpp) of the 3x3 pixels around where the map point `p`
+// lands in `frame`, a 320x240 render through the renderer's current camera. False off-screen.
+bool golden_luma(overlume::VisualRenderer* r, const std::vector<uint8_t>& frame,
+                 const overlume::Vec3& p, double* out) {
+    float u = 0.0f, v = 0.0f;
+    if (!overlume::project_to_screen(r, p, &u, &v)) return false;
+    const int cx = std::clamp(static_cast<int>(u * 320.0f), 1, 318);
+    const int cy = std::clamp(static_cast<int>(v * 240.0f), 1, 238);
+    double sum = 0.0;
+    for (int y = cy - 1; y <= cy + 1; ++y) {
+        for (int x = cx - 1; x <= cx + 1; ++x) {
+            const size_t i = (static_cast<size_t>(y) * 320u + static_cast<size_t>(x)) * 3u;
+            sum += 0.2126 * frame[i] + 0.7152 * frame[i + 1] + 0.0722 * frame[i + 2];
+        }
+    }
+    *out = sum / 9.0;
+    return true;
+}
+
+// Present: a landmark tower, a courtyard block, a gate whose span floats 10 m up, and a block split
+// across the z16 squares (1, 1) and (2, 1). Absent: the block under the tower's footprint
+// (conflated) and an extrude=false outline. Everything stands on the ego's 120 m ground plane.
+void golden_synthetic_tile(const char* theme, const char* golden_png, const char* actual_png) {
+    namespace mvt = overlume::testing::mvt;
+    namespace glb = overlume::testing::glb;
+
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, theme};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    const GoldenFrame g = golden_frame();
+    glb::LandmarkSpec tower;
+    tower.id = 1;
+    tower.tx = 4096.0 - 30.0 * g.z14_per_m;
+    tower.ty = 4096.0 - 185.0 * g.z14_per_m;
+    tower.lat_deg = overlume::mapbox::tile_point_to_lonlat(kGoldenZ14, tower.tx, tower.ty,
+                                                           overlume::mapbox::kLandmarkExtent)
+                        .lat;
+    tower.half_x_m = 8.0;
+    tower.half_y_m = 8.0;
+    tower.height_m = 64.0;
+    tower.footprint_half_m = 10.0;
+
+    // Features by z16 square, indexed row * 4 + col as footprint_tiles_of orders them.
+    std::array<std::vector<mvt::Feature>, 16> squares{};
+    squares[5].push_back(mvt::building(101,
+                                       {golden_rect(g, 1, 1, -55.0, 110.0, -25.0, 140.0),
+                                        golden_hole(g, 1, 1, -47.0, 118.0, -33.0, 132.0)},
+                                       9.0));
+    squares[5].push_back(
+        mvt::building(102, {golden_rect(g, 1, 1, -12.0, 170.0, 12.0, 195.0)}, 20.0));
+    squares[6].push_back(
+        mvt::building(102, {golden_rect(g, 2, 1, -12.0, 170.0, 12.0, 195.0)}, 20.0));
+    squares[5].push_back(
+        mvt::building(103, {golden_rect(g, 1, 1, -45.0, 170.0, -15.0, 200.0)}, 30.0));
+    squares[6].push_back(mvt::building(104, {golden_rect(g, 2, 1, 18.0, 120.0, 24.0, 126.0)}, 18.0,
+                                       0.0, true, false, "building:part"));
+    squares[6].push_back(mvt::building(105, {golden_rect(g, 2, 1, 46.0, 120.0, 52.0, 126.0)}, 18.0,
+                                       0.0, true, false, "building:part"));
+    squares[6].push_back(mvt::building(106, {golden_rect(g, 2, 1, 24.0, 120.0, 46.0, 126.0)}, 18.0,
+                                       10.0, true, false, "building:part"));
+    squares[6].push_back(
+        mvt::building(107, {golden_rect(g, 2, 1, 25.0, 160.0, 50.0, 185.0)}, 15.0, 0.0, false));
+
+    auto* net = overlume::testing::make_mapbox_fixture_network();
+    std::set<std::string> served;
+    auto serve = [&](const std::string& url, std::vector<uint8_t> body) {
+        overlume::testing::mapbox_fixture_serve(net, url, 200, std::move(body));
+        served.insert(url);
+    };
+    serve(overlume::testing::mapbox_landmark_url(kGoldenZ14.x, kGoldenZ14.y),
+          glb::build_landmark_glb({tower}, glb::GlbOptions{}));
+    const auto z16 = overlume::mapbox::footprint_tiles_of(kGoldenZ14);
+    for (size_t i = 0; i < z16.size(); ++i) {
+        serve(overlume::testing::mapbox_footprint_url(z16[i].x, z16[i].y),
+              mvt::gzip_stored(mvt::encode_tile({mvt::Layer{"building", 4096, 2, squares[i]}})));
+    }
+    ASSERT_TRUE(overlume::testing::install_fixture_mapbox_source(r, "mapbox://buildings", g.anchor,
+                                                                 net, "pk.test-token-not-real"));
+
+    // 150 m north of the centre: more than 500 m from every edge of the z14 tile, so the area
+    // view selects this tile alone.
+    overlume::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = overlume::Vec3{0.0, 150.0, 0.0};
+    overlume::set_scene(r, s);
+
+    const overlume::CameraPose pose{{0.0, 45.0, 80.0}, {0.0, 165.0, 5.0}, 60.0};
+    std::vector<uint8_t> frame(320u * 240u * 3u);
+    // Filament's temporal dither changes every frame's noise with the frame's index since
+    // create_renderer, and the tile lands in frame 4 or 5 (the loader's worker threads race this
+    // loop). So the compared frame is frame 65 however early the tile landed, not landing + 61.
+    // ponytail: a tile landing after frame 64 shifts the dither phase again (SSIM still passes).
+    int frames = 0;
+    for (; frames < 1000 && overlume::testing::environment_loaded_chunk_count(r) == 0; ++frames) {
+        ASSERT_TRUE(overlume::render_frame(r, pose, {frame.data(), 320, 240}));
+    }
+    ASSERT_EQ(overlume::testing::environment_loaded_chunk_count(r), 1u)
+        << "the golden z14 tile never reached the scene";
+    for (; frames < 64; ++frames) overlume::render_frame(r, pose, {frame.data(), 320, 240});
+
+    const overlume::testing::MapboxSourceStats stats =
+        overlume::testing::mapbox_last_source_stats();
+    EXPECT_EQ(stats.tiles_built, 1u);
+    EXPECT_EQ(stats.landmark_nodes, 1u) << "the tower";
+    EXPECT_EQ(stats.extruded_features, 6u)
+        << "courtyard, both halves of the split block, two pillars and the span";
+    EXPECT_EQ(stats.conflated_features, 1u) << "the block under the tower's footprint";
+    EXPECT_EQ(stats.wall_quads, 26u) << "every ring walls four edges; the courtyard hole adds four";
+    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING);
+    for (const std::string& url : overlume::testing::mapbox_fixture_requested_urls(net)) {
+        const std::string bare = url.substr(0, url.find('?'));
+        EXPECT_EQ(served.count(bare), 1u) << "unexpected request " << bare;
+    }
+
+    const double ssim = overlume::testing::render_and_compare(r, pose, golden_png, actual_png);
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
+
+    // The SSIM misses a span that stands on the ground and a courtyard without its hole (each
+    // moves under 1 % of the pixels), so probes pin them: what shows under the span and through the
+    // hole must read as ground, not clay. The references are open ground and the left pillar's
+    // south face, which is what a span standing on the ground would show.
+    ASSERT_TRUE(overlume::render_frame(r, pose, {frame.data(), 320, 240}));
+    double ground = 0.0, clay = 0.0, underSpan = 0.0, courtyard = 0.0;
+    ASSERT_TRUE(golden_luma(r, frame, {0.0, 100.0, 0.0}, &ground));
+    ASSERT_TRUE(golden_luma(r, frame, {21.0, 120.0, 9.0}, &clay));
+    ASSERT_TRUE(golden_luma(r, frame, {35.0, 123.0, 5.0}, &underSpan));
+    ASSERT_TRUE(golden_luma(r, frame, {-40.0, 130.0, 0.0}, &courtyard));
+    EXPECT_LT(std::abs(underSpan - ground), std::abs(underSpan - clay))
+        << "clay under the gate's span: its min_height was not applied";
+    EXPECT_LT(std::abs(courtyard - ground), std::abs(courtyard - clay))
+        << "clay in the courtyard: its hole was not cut";
+    overlume::destroy_renderer(r);
+}
+
+}
+
+TEST(MapboxBuildingsGolden, SyntheticTileDarkAdas) {
+    golden_synthetic_tile("dark_adas",
+                          OVERLUME_TEST_DATA_DIR
+                          "/tests/goldens/mapbox_buildings_synthetic_dark_adas.png",
+                          OVERLUME_TMP_DIR "/mapbox_buildings_synthetic_dark_adas_actual.png");
+}
+
+TEST(MapboxBuildingsGolden, SyntheticTileLightClay) {
+    golden_synthetic_tile("light_clay",
+                          OVERLUME_TEST_DATA_DIR
+                          "/tests/goldens/mapbox_buildings_synthetic_light_clay.png",
+                          OVERLUME_TMP_DIR "/mapbox_buildings_synthetic_light_clay_actual.png");
 }
