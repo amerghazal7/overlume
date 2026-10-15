@@ -57,8 +57,9 @@ behaviour change ships a check that fails when reverted; goldens promoted by a h
   `IonRasterOverlay` (an ion imagery asset), Bing, Google Map Tiles, TMS, WMS, WMTS.
 - `TilesetContentManager` generates the overlay texture coordinates (`_CESIUMOVERLAY_n`) for every
   loader's glTF after it loads, and creates upsampled child tiles (`RasterOverlayUpsampler`) where the
-  mapped imagery is finer than the geometry, so a z14-only terrain tileset still carries z18 imagery
-  near the ego.
+  mapped imagery is finer than the geometry, so a z14-only terrain tileset still carries fine imagery near
+  the ego: the overlay is capped at z18, and with the default geometric error and cesium's 2048-px
+  texture budget the refinement reaches z17 at the default radius (Task 10's measurement).
 - `IPrepareRendererResources` has five overlay callbacks: `prepareRasterInLoadThread`,
   `prepareRasterInMainThread`, `freeRaster`, `attachRasterInMainThread(tile, overlayTextureCoordinateID,
   rasterTile, mainThreadResources, translation, scale)`, `detachRasterInMainThread`. Overlume's
