@@ -107,14 +107,20 @@ name does today. Keys:
 
 With a terrain tileset, `follow_terrain`, `ground_bias` and `max_tilt_deg` steer the shared transform
 from samples on the terrain tileset, and `replaces_ground` means the terrain owns the ground; without
-one, every key means what it means today.
+one, every key means what it means today. A `mapbox://` source whose layer list has `terrain` runs
+with the ion defaults fixed (follow-terrain on, `ground_bias` 0.3, `replaces_ground` on,
+`max_tilt_deg` 2.0); the Mapbox URI carries no such keys.
 
 ### Node
 
 Two configure-time string parameters, default `""` (leave the URI alone), appended by the composer
-only when the URI lacks the key: `environment_terrain` (`off`, or `on` for `mapbox://` which adds
-`terrain` to the layer list, or an ion asset id for `ion://`) and `environment_imagery` (`off`,
-`satellite` for `mapbox://`, an ion asset id for `ion://`). Both are the element's disable knobs.
+only when the URI lacks the key. Their values are strings YAML never reads as a bool or an int:
+`environment_terrain` is `disable`, `enable` (for `mapbox://`, adds `terrain` to the layer list) or
+`ion:<asset id>` (for `ion://`, appends `terrain=<id>`; `disable` appends `terrain=off`);
+`environment_imagery` is `disable`, `satellite` (for `mapbox://`) or `ion:<asset id>` (for `ion://`).
+A value meant for the other scheme is ignored with one WARN line at configure. The URI always
+wins: `disable` cannot remove a key a URI carries, so the GUI entries stay explicit. Both are the
+element's disable knobs for URIs that do not say.
 
 ### Theme
 
@@ -134,10 +140,12 @@ identifier; the entries are environment sources):
 
 ### Attribution
 
-`environment_source_credits()` (section 5) returns the open source's overlay credits as plain text.
-The node's line becomes the kind's base text, then each credit prefixed by a space, then (Mapbox)
-"Improve this map": with `imagery=satellite`, "© Mapbox © OpenStreetMap © Maxar Improve this map";
-with ion imagery, the Google line as today followed by Bing's credit. The logo rule and
+`environment_source_credits()` (section 5) returns the open source's overlay credits as plain text;
+the node reads it once per second. The node's line becomes the kind's base text, then each credit
+prefixed by a space, then (Mapbox) "Improve this map": with `imagery=satellite`, "© Mapbox ©
+OpenStreetMap © Maxar Improve this map"; with ion imagery on a Google source, the Google line as
+today followed by Bing's credit; an ion source that is not Google but has credits (`osm-terrain`)
+draws the credits alone, with no logo (a new attribution kind, CREDITS). The logo rule and
 `environment_attribution_logo` are unchanged.
 
 ## 5. Library design
@@ -156,15 +164,18 @@ both tilesets in the order the existing code uses for one.
 
 ### `mapbox_dem` (C++17-clean)
 
-`DemTile decode_dem_png(bytes)`: cesium's image reader decodes the PNG; the result must be 512×512
-with at least three channels, else `ok = false` with a reason. Heights are stored as `float` metres.
-`double sample(const DemTile&, double u, double v)` is bilinear in tile pixel units (0..512).
-`DemMesh mesh_dem(const DemTile&, const TileFrame&, double z_ref_m, double skirt_m)`: a 65×65 vertex
-grid (one vertex every 8 pixels, pixel centres), z = height − `z_ref_m`, positions in the tile frame
+`DemTile decode_dem_png(bytes)`: stb_image decodes the PNG (PNG only, a static copy inside the unit, so
+the tests' and cesium's copies do not clash); the result must be 512×512 with at least three
+channels, else `ok = false` with a reason. Heights are stored as `float` metres.
+`double dem_sample(const DemTile&, double u, double v)` is bilinear in tile pixel units (0..512).
+`DemMesh mesh_dem(const DemTile&, const TileFrame&, const TileId& t14, double z_ref_m, double skirt_m)`: a 65×65 vertex
+grid at pixel coordinates 0, 8, …, 512 (so neighbouring tiles share their edge vertices; heights
+are bilinear samples at those points), z = height − `z_ref_m`, positions in the tile frame
 through the existing `project_to_frame`, normals from the central differences of the heights, UVs
 0..1 across the tile (cesium rewrites them per overlay), and a skirt ring of the edge vertices moved
-`skirt_m` (20 m) down, triangulated to the edge, so tiles never show cracks. `write_dem_gltf` builds the
-glTF (one mesh, one material, `POSITION`, `NORMAL`, `TEXCOORD_0`, `uint32` indices).
+`skirt_m` (20 m) down, triangulated to the edge, so tiles never show cracks. `write_dem_gltf`, in the
+terrain loader, builds the glTF (one mesh, one material, `POSITION`, `NORMAL`, `TEXCOORD_0`, `uint32`
+indices).
 
 ### `mapbox_tiling` (extracted, no behaviour change)
 
@@ -201,7 +212,9 @@ buildings and terrain already agree, so nothing is re-based.
 ### Raster overlays and the renderer
 
 - Mapbox: `UrlTemplateRasterOverlay("mapbox-satellite", template with the token in the query,
-  {maximumLevel = 18, tileWidth = tileHeight = 512, credit = "© Maxar"})`. Ion: `IonRasterOverlay`
+  {maximumLevel = 18, tileWidth = tileHeight = 512, credit = "© Maxar"})`. The template given to
+  cesium writes the row as `{reverseY}`: cesium's `{y}` counts from the south, Mapbox's XYZ row from
+  the north, so the request that leaves the process carries Mapbox's row. Ion: `IonRasterOverlay`
   with the asset id and `CESIUM_ION_TOKEN`; its credits come from ion.
 - `prepareRasterInLoadThread`: cesium's decoded `ImageAsset` pixels become an RGBA8 buffer
   (`RasterLoadThreadResult`). `prepareRasterInMainThread`: one `filament::Texture` (RGBA8, mipmaps
@@ -211,7 +224,8 @@ buildings and terrain already agree, so nothing is re-based.
   the existing deferred-free path, never while a frame may sample it.
 - `terrain.mat` (`overlume/assets/materials/`), lit, parameters: `terrainColor` (float3),
   `hasImagery` (int), `imagery` (sampler2d, trilinear, clamp), `uvTransform` (float4: translation,
-  scale), `brightness` (float), and the fade the stream applies to new tiles. The terrain renderer
+  scale), `brightness` (float). No fade: the stream applies none to new tiles today, and terrain
+  tiles behave the same. The terrain renderer
   resources swap each terrain tile's material instances for a `terrain.mat` instance in
   `prepareInMainThread`, as the clay swap does for buildings.
 - The GLB step copies `_CESIUMOVERLAY_0` into `TEXCOORD_0` for terrain tiles, so gltfio loads a UV set
@@ -231,8 +245,8 @@ bump (ADR-0004); `check_pod_header.sh` still passes. Empty when no overlay is op
 | `imagery` without `terrain`; unknown layer, key value or asset id shape | The parse fails, one log line, opening returns false. |
 | DEM 204 or 404 | No terrain for that tile (the sky shows through; Mapbox's DEM is global, so rare). |
 | Malformed DEM (size, channels, decode) | Tile skipped, one line per kind. |
-| DEM or imagery 401/403 | That tile or raster tile empty; "Mapbox rejected MAPBOX_TOKEN (HTTP 401)" once per endpoint; counts as a failure. |
-| Imagery 429/5xx/transport | Cesium's raster tile fails; the terrain tile keeps `terrainColor`; counts toward network loss. |
+| DEM 401/403 | That tile empty; "Mapbox rejected MAPBOX_TOKEN (HTTP 401)" once; counts as a failure. |
+| Imagery 401/403/429/5xx/transport | Cesium's raster tile fails and cesium logs it (`Received response code … for image …`, through the redacting logger: token masked); the terrain tile keeps `terrainColor`; every request counts toward network loss, and because cesium retries a failed raster tile through its parents level by level, a rejected imagery token reaches eight failures within one tile and the source falls back. |
 | Terrain tileset cannot open (asset missing, 401) | The source opens without terrain, one line; buildings as today. |
 | Network loss (eight consecutive failures) | Whole source to `STREAMING_FALLBACK`: both tilesets torn down, clay plane back, attribution gone. |
 | Source switched mid-build | Shared ownership for both tilesets and the cache; overlays detach first. |
