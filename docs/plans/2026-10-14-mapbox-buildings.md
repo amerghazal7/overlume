@@ -34,8 +34,8 @@ where the plan uses it.
 | Task | Lane | State | Commit |
 |------|------|-------|--------|
 | 0. CMake wiring for the Mapbox units | 0 | pending | |
-| 1. MVT building-layer decoder | 1 | pending | |
-| 2. `mapbox://` URI parser | 1 | pending | |
+| 1. MVT building-layer decoder | 1 | done | `9619ee2..9eb2e2a` |
+| 2. `mapbox://` URI parser | 1 | done | `9eb2e2a..f1a87ad` |
 | 3. Extrusion builder | 2 | done | `9619ee2..9de908e` |
 | 4. Tile math and the tile frame | 3 | done | `9619ee2..58aa6fa` |
 | 5. Landmark reader | 3 | done | `58aa6fa..3d6966e` |
