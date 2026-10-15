@@ -1129,14 +1129,18 @@ constexpr double kLivePi = 3.14159265358979323846;
 bool mapbox_live_enabled() {
     const char* token = std::getenv("MAPBOX_TOKEN");
     const char* live = std::getenv("OVERLUME_LIVE_MAPBOX");
-    return token != nullptr && *token != '\0' && live != nullptr && std::string(live) == "1";
+    // Trimmed as the library trims it: a whitespace-only token skips too.
+    const bool have_token =
+        token != nullptr && std::string(token).find_first_not_of(" \t\r\n") != std::string::npos;
+    return have_token && live != nullptr && std::string(live) == "1";
 }
 
-// Renders until the ego's tiles are in the scene and no tile has landed for 3 s, or 30 s pass,
-// then writes the frame to OVERLUME_TMP_DIR and prints counts. Never a URL: every request URL
-// carries the token.
+// Renders until `expected_tiles` have been built, the scene holds a chunk and no tile has landed
+// for 3 s, or 30 s pass, then writes the frame to OVERLUME_TMP_DIR and prints counts. Never a
+// URL: every request URL carries the token.
 overlume::testing::MapboxSourceStats pump_mapbox_live(overlume::VisualRenderer* r, const char* site,
-                                                      const overlume::CameraPose& pose) {
+                                                      const overlume::CameraPose& pose,
+                                                      uint64_t expected_tiles) {
     std::vector<uint8_t> buf(320u * 240u * 3u);
     const auto start = std::chrono::steady_clock::now();
     auto last_change = start;
@@ -1148,7 +1152,7 @@ overlume::testing::MapboxSourceStats pump_mapbox_live(overlume::VisualRenderer* 
             built = now_built;
             last_change = std::chrono::steady_clock::now();
         }
-        if (built > 0 && overlume::testing::environment_loaded_chunk_count(r) > 0 &&
+        if (built >= expected_tiles && overlume::testing::environment_loaded_chunk_count(r) > 0 &&
             std::chrono::steady_clock::now() - last_change > std::chrono::seconds(3)) {
             break;
         }
@@ -1187,9 +1191,10 @@ TEST(MapboxLive, DowntownDubai) {
     overlume::set_scene(r, s);
 
     const overlume::CameraPose pose{{0.0, -380.0, 220.0}, {0.0, 0.0, 120.0}, 60.0};
-    const overlume::testing::MapboxSourceStats stats = pump_mapbox_live(r, "downtown", pose);
+    const overlume::testing::MapboxSourceStats stats = pump_mapbox_live(r, "downtown", pose, 1);
     EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING)
         << "fell back to baked chunks: run tools/check_mapbox_token.sh";
+    EXPECT_EQ(stats.tiles_built, 1u) << "one z14 tile holds the Burj Khalifa, 868 m from its edge";
     EXPECT_GE(stats.landmark_nodes, 1u)
         << "no landmark kept at Downtown: a codec change or a rejected node matrix";
     overlume::destroy_renderer(r);
@@ -1210,9 +1215,11 @@ TEST(MapboxLive, TestSite) {
     overlume::set_scene(r, s);
 
     const overlume::CameraPose pose{{0.0, -300.0, 200.0}, {0.0, 0.0, 0.0}, 60.0};
-    const overlume::testing::MapboxSourceStats stats = pump_mapbox_live(r, "operating_area", pose);
+    const overlume::testing::MapboxSourceStats stats =
+        pump_mapbox_live(r, "operating_area", pose, 2);
     EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING)
         << "fell back to baked chunks: run tools/check_mapbox_token.sh";
+    EXPECT_EQ(stats.tiles_built, 2u) << "the anchor tile and its east neighbour, 208 m away";
     EXPECT_GT(stats.extruded_features, 0u) << "no footprint extruded at the test site";
     overlume::destroy_renderer(r);
 }
