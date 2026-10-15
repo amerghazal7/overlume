@@ -15,6 +15,10 @@ inline constexpr double kMaxTiltDegDefault = 2.0;
 inline constexpr double kBrightnessDefault = 1.0;
 inline constexpr double kTileRadiusDefaultM = 700.0;
 
+inline bool is_ion_source_uri(const std::string& uri) { return uri.rfind("ion://", 0) == 0; }
+
+inline bool is_mapbox_source_uri(const std::string& uri) { return uri.rfind("mapbox://", 0) == 0; }
+
 inline std::string compose_environment_source_uri(
     const std::string& environment_chunks_dir, const std::string& environment_source_uri,
     const std::string& environment_tile_cache_dir, bool follow_terrain = false,
@@ -23,8 +27,12 @@ inline std::string compose_environment_source_uri(
     double tile_radius_m = kTileRadiusDefaultM) {
     std::string source_uri = environment_chunks_dir;
     if (!environment_source_uri.empty()) {
+        const bool ion = is_ion_source_uri(environment_source_uri);
+        // Mapbox tiles never reach disk (Product Terms), so never cache=; the Mapbox source holds
+        // buildings only, so the terrain and ground keys stay ion-only.
+        const bool mapbox = is_mapbox_source_uri(environment_source_uri);
         source_uri = environment_source_uri;
-        if (!environment_tile_cache_dir.empty() &&
+        if (!mapbox && !environment_tile_cache_dir.empty() &&
             environment_source_uri.find("cache=") == std::string::npos) {
             source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
             source_uri += "cache=" + environment_tile_cache_dir;
@@ -34,13 +42,11 @@ inline std::string compose_environment_source_uri(
             source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
             source_uri += "fallback=" + environment_chunks_dir;
         }
-        if (environment_source_uri.rfind("ion://", 0) == 0 &&
-            environment_source_uri.find("follow_terrain=") == std::string::npos) {
+        if (ion && environment_source_uri.find("follow_terrain=") == std::string::npos) {
             source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
             source_uri += follow_terrain ? "follow_terrain=on" : "follow_terrain=off";
         }
-        if (environment_source_uri.rfind("ion://", 0) == 0 &&
-            environment_source_uri.find("ground_bias=") == std::string::npos &&
+        if (ion && environment_source_uri.find("ground_bias=") == std::string::npos &&
             ground_bias_m != kGroundBiasDefaultM) {
             std::ostringstream v;
             v.imbue(std::locale::classic());
@@ -48,14 +54,12 @@ inline std::string compose_environment_source_uri(
             source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
             source_uri += "ground_bias=" + v.str();
         }
-        if (environment_source_uri.rfind("ion://", 0) == 0 &&
-            environment_source_uri.find("replaces_ground=") == std::string::npos &&
+        if (ion && environment_source_uri.find("replaces_ground=") == std::string::npos &&
             !replaces_ground) {
             source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
             source_uri += "replaces_ground=off";
         }
-        if (environment_source_uri.rfind("ion://", 0) == 0 &&
-            environment_source_uri.find("max_tilt_deg=") == std::string::npos &&
+        if (ion && environment_source_uri.find("max_tilt_deg=") == std::string::npos &&
             max_tilt_deg != kMaxTiltDegDefault) {
             std::ostringstream v;
             v.imbue(std::locale::classic());
@@ -63,8 +67,7 @@ inline std::string compose_environment_source_uri(
             source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
             source_uri += "max_tilt_deg=" + v.str();
         }
-        if (environment_source_uri.rfind("ion://", 0) == 0 &&
-            environment_source_uri.find("brightness=") == std::string::npos &&
+        if ((ion || mapbox) && environment_source_uri.find("brightness=") == std::string::npos &&
             brightness != kBrightnessDefault) {
             std::ostringstream v;
             v.imbue(std::locale::classic());
@@ -72,8 +75,7 @@ inline std::string compose_environment_source_uri(
             source_uri += (source_uri.find('?') == std::string::npos ? "?" : "&");
             source_uri += "brightness=" + v.str();
         }
-        if (environment_source_uri.rfind("ion://", 0) == 0 &&
-            environment_source_uri.find("radius=") == std::string::npos &&
+        if ((ion || mapbox) && environment_source_uri.find("radius=") == std::string::npos &&
             tile_radius_m != kTileRadiusDefaultM) {
             std::ostringstream v;
             v.imbue(std::locale::classic());
