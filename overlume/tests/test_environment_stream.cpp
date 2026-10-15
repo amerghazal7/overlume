@@ -6,7 +6,9 @@
 
 #include "environment_test_hooks.hpp"
 #include "golden.hpp"
+#include "imagery_fixture.hpp"
 #include "mapbox_test_hooks.hpp"
+#include "quantized_mesh_fixture.hpp"
 #include "test_paths.hpp"
 
 #include "stb_image_write.h"
@@ -14,13 +16,16 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
+#include <iterator>
 #include <sstream>
 #include <optional>
 #include <string>
@@ -1953,5 +1958,444 @@ TEST(EnvironmentStreamOverlay, ImageryKeepsNorthUp) {
     EXPECT_EQ(hue_at(r, frame, southBuilding), 'b')
         << "the building south of the colour line must show the imagery's south (blue); 'r' means "
            "the raster is mirrored or sampled at one corner (translation and scale swapped)";
+    overlume::destroy_renderer(r);
+}
+
+// Task 11: an ion:// source with a second tileset (layer.json terrain with an ion imagery overlay)
+// over a fixture network. Asset 96188 is a 3D Tiles endpoint whose tileset is a file fixture; asset
+// 1 is terrain, the two level-0 tiles of the geographic scheme flat at 0 m (Task 2's encoder);
+// asset 2 is TMS imagery whose every tile is one flat 512-px PNG. Each test uses its own token:
+// cesium-native caches ion endpoints per URL, token included, for the life of the process.
+namespace ion_terrain_fixture {
+
+namespace qmesh = overlume::testing::qmesh;
+using overlume::testing::IonFixtureNetwork;
+
+const std::string kContentBase = "https://assets.ion.fixture/96188/";
+const std::string kTerrainBase = "https://assets.ion.fixture/1/";
+const std::string kImageryBase = "https://assets.ion.fixture/2/";
+const std::string kAttributedImageryEndpoint =
+    R"({"type":"IMAGERY","url":")" + kImageryBase +
+    R"(","accessToken":"fixture-asset-token","attributions":[{"html":"<span><a href=\"https://fixture.example/terms\">Fixture Imagery</a> &amp; Co.</span>","collapsible":false}]})";
+constexpr char kTerrainDidNotOpen401[] =
+    "environment source: terrain tileset did not open (HTTP 401) -- continuing without terrain";
+constexpr size_t kFrameBytes = 320u * 240u * 3u;
+
+std::string endpoint_url(int64_t asset_id) {
+    return "https://api.cesium.com/v1/assets/" + std::to_string(asset_id) + "/endpoint";
+}
+
+std::vector<uint8_t> bytes_of(const std::string& s) {
+    return std::vector<uint8_t>(s.begin(), s.end());
+}
+
+std::vector<uint8_t> file_bytes(const std::filesystem::path& path) {
+    std::ifstream f(path, std::ios::binary);
+    return std::vector<uint8_t>(std::istreambuf_iterator<char>(f),
+                                std::istreambuf_iterator<char>());
+}
+
+// Its attribution is the content tileset's own credit, which environment_source_credits omits.
+void serve_content_endpoint(IonFixtureNetwork* n) {
+    overlume::testing::ion_fixture_serve(
+        n, endpoint_url(96188), 200,
+        bytes_of(
+            R"({"type":"3DTILES","url":")" + kContentBase +
+            R"(tileset.json","accessToken":"fixture-asset-token","attributions":[{"html":"Fixture Buildings","collapsible":false}]})"));
+}
+
+// Asset 96188: the endpoint, then the fixture's tileset.json and every tile at its own URL.
+void serve_content(IonFixtureNetwork* n, const std::string& fixture_dir) {
+    serve_content_endpoint(n);
+    for (const auto& entry : std::filesystem::directory_iterator(fixture_dir)) {
+        const std::string name = entry.path().filename().string();
+        if (name == "PROVENANCE.md") continue;
+        overlume::testing::ion_fixture_serve(n, kContentBase + name, 200, file_bytes(entry.path()));
+    }
+}
+
+// Asset 1: Task 2's terrain endpoint, a layer.json listing the two level-0 tiles and those tiles at
+// layer.json's "{z}/{x}/{y}.terrain". A layer.json refused with `layer_json_status` serves no tile.
+void serve_terrain(IonFixtureNetwork* n, uint16_t layer_json_status = 200) {
+    overlume::testing::ion_fixture_serve(n, endpoint_url(1), 200,
+                                         bytes_of(qmesh::ion_terrain_endpoint_json(kTerrainBase)));
+    if (layer_json_status != 200) {
+        overlume::testing::ion_fixture_serve(n, kTerrainBase + "layer.json", layer_json_status, {});
+        return;
+    }
+    overlume::testing::ion_fixture_serve(n, kTerrainBase + "layer.json", 200,
+                                         bytes_of(qmesh::layer_json({{0, 0, 0}, {0, 1, 0}})));
+    for (const uint32_t x : {0u, 1u}) {
+        overlume::testing::ion_fixture_serve(
+            n, kTerrainBase + "0/" + std::to_string(x) + "/0.terrain", 200,
+            qmesh::encode_quantized_mesh(0, x, 0, qmesh::QuantizedMeshOptions{}));
+    }
+}
+
+// Asset 2: `endpoint_json`, Task 2's tilemapresource.xml at the TMS base and beside it, and one
+// flat PNG for every other URL under the base.
+void serve_imagery(IonFixtureNetwork* n, const std::string& endpoint_json) {
+    overlume::testing::ion_fixture_serve(n, endpoint_url(2), 200, bytes_of(endpoint_json));
+    const std::vector<uint8_t> xml = bytes_of(qmesh::tilemapresource_xml(512));
+    overlume::testing::ion_fixture_serve(n, kImageryBase, 200, xml);
+    overlume::testing::ion_fixture_serve(n, kImageryBase + "tilemapresource.xml", 200, xml);
+    overlume::testing::ion_fixture_serve_prefix(
+        n, kImageryBase, 200, overlume::testing::imagery::flat_png(512, 40, 160, 220));
+}
+
+bool is_imagery_tile_url(const std::string& url) {
+    const std::string key = url.substr(0, url.find('?'));
+    return key.rfind(kImageryBase, 0) == 0 && key != kImageryBase &&
+           key != kImageryBase + "tilemapresource.xml";
+}
+
+size_t count_requested(IonFixtureNetwork* n, const std::function<bool(const std::string&)>& match) {
+    const std::vector<std::string> urls = overlume::testing::ion_fixture_requested_urls(n);
+    return static_cast<size_t>(std::count_if(urls.begin(), urls.end(), match));
+}
+
+size_t count_of(const std::string& text, const std::string& needle) {
+    size_t count = 0;
+    for (size_t pos = text.find(needle); pos != std::string::npos;
+         pos = text.find(needle, pos + 1)) {
+        ++count;
+    }
+    return count;
+}
+
+overlume::VisualRenderer* make_renderer() {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    return overlume::create_renderer(cfg);
+}
+
+void set_ego(overlume::VisualRenderer* r) {
+    overlume::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kFixtureBlockCenterMap;
+    overlume::set_scene(r, s);
+}
+
+// Renders kStdPose frames 5 ms apart until `done` holds; false if it never did.
+bool pump(overlume::VisualRenderer* r, std::vector<uint8_t>& buf, int max_frames,
+          const std::function<bool()>& done) {
+    for (int i = 0; i < max_frames; ++i) {
+        if (!overlume::render_frame(r, kStdPose, {buf.data(), 320, 240})) return false;
+        if (done()) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return done();
+}
+
+std::string credits(overlume::VisualRenderer* r) {
+    std::vector<char> buf(overlume::environment_source_credits(r, nullptr, 0) + 1);
+    overlume::environment_source_credits(r, buf.data(), static_cast<uint32_t>(buf.size()));
+    return buf.data();
+}
+
+}
+
+namespace itf = ion_terrain_fixture;
+
+TEST(EnvironmentStreamTerrain, IonTerrainAndImageryLoadOverTheFixtureNetwork) {
+    auto* r = itf::make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    auto* n = overlume::testing::make_ion_fixture_network();
+    itf::serve_content(n, kTilesFixtureDir);
+    itf::serve_terrain(n);
+    itf::serve_imagery(n, itf::qmesh::ion_imagery_endpoint_json(itf::kImageryBase));
+    ASSERT_TRUE(overlume::testing::install_fixture_ion_source(
+        r, "ion://96188?terrain=1&imagery=2&cache=off", kFixtureAnchor, n,
+        "ion-fixture-token-load"));
+    itf::set_ego(r);
+    EXPECT_TRUE(overlume::testing::environment_stream_has_terrain_tileset(r));
+
+    std::vector<uint8_t> buf(itf::kFrameBytes);
+    const auto terrainWithImagery = [&] {
+        return overlume::testing::environment_terrain_tiles_loaded(r) > 0 &&
+               overlume::testing::environment_stream_overlay_probe(r).rasters_attached > 0;
+    };
+    ASSERT_TRUE(itf::pump(r, buf, 600, terrainWithImagery))
+        << "terrain tiles in the scene: " << overlume::testing::environment_terrain_tiles_loaded(r)
+        << ", rasters attached: "
+        << overlume::testing::environment_stream_overlay_probe(r).rasters_attached;
+    EXPECT_GT(overlume::testing::environment_stream_overlay_probe(r).textures_alive, 0u);
+    const auto buildings = [&] { return overlume::testing::environment_loaded_chunk_count(r) > 0; };
+    EXPECT_TRUE(itf::pump(r, buf, 300, buildings))
+        << "the content tileset must still stream its buildings";
+    const auto easternTile = [](const std::string& url) {
+        return url.rfind(itf::kTerrainBase + "0/1/0.terrain", 0) == 0;
+    };
+    EXPECT_GT(itf::count_requested(n, easternTile), 0u)
+        << "the level-0 tile under the ego, the eastern hemisphere's";
+    EXPECT_GT(itf::count_requested(n, itf::is_imagery_tile_url), 0u);
+
+    overlume::set_environment_visible(r, false);
+    EXPECT_EQ(overlume::testing::environment_terrain_tiles_loaded(r), 0u)
+        << "hiding the environment must take the terrain out of the scene too";
+    overlume::set_environment_visible(r, true);
+    EXPECT_GT(overlume::testing::environment_terrain_tiles_loaded(r), 0u);
+    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING);
+    overlume::destroy_renderer(r);
+}
+
+TEST(EnvironmentStreamTerrain, TheTerrainSampleProvidesTheGroundWithoutFollowTerrain) {
+    auto* r = itf::make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    auto* n = overlume::testing::make_ion_fixture_network();
+    itf::serve_content(n, kTilesFixtureDir);
+    itf::serve_terrain(n);
+    ASSERT_TRUE(overlume::testing::install_fixture_ion_source(
+        r, "ion://96188?terrain=1&cache=off", kFixtureAnchor, n, "ion-fixture-token-ground"));
+    itf::set_ego(r);
+
+    std::vector<uint8_t> buf(itf::kFrameBytes);
+    bool hit = false;
+    for (int i = 0; i < 600 && !hit; ++i) {
+        overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        hit = overlume::testing::environment_stream_provides_ground(r);
+    }
+    ASSERT_TRUE(hit) << "the sample under the ego must hit the terrain tileset: this content "
+                        "fixture is buildings only (GroundPlaneKeptWhenTilesetIsBuildingsOnly)";
+    overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+    EXPECT_FALSE(overlume::testing::renderer_ground_plane_in_scene(r))
+        << "the terrain must take the clay plane's place";
+    EXPECT_EQ(overlume::testing::environment_terrain_offset_z(r), 0.0)
+        << "without follow_terrain the sample must not move the environment";
+    overlume::destroy_renderer(r);
+}
+
+TEST(EnvironmentStreamTerrain, TheFollowTerrainLiftMovesTheTerrainTiles) {
+    auto* r = itf::make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    auto* n = overlume::testing::make_ion_fixture_network();
+    itf::serve_content(n, kTilesFixtureDir);
+    itf::serve_terrain(n);
+    ASSERT_TRUE(overlume::testing::install_fixture_ion_source(
+        r, "ion://96188?terrain=1&cache=off&follow_terrain=on&max_tilt_deg=0&ground_bias=0",
+        kFixtureAnchor, n, "ion-fixture-token-lift"));
+    itf::set_ego(r);
+
+    // One flat tile per hemisphere: its chords run tens of kilometres below the ellipsoid under
+    // the ego, so the sample lands far below the anchor and the offset settles at its 30 m clamp.
+    std::vector<uint8_t> buf(itf::kFrameBytes);
+    const auto lifted = [&] {
+        return overlume::testing::environment_terrain_tiles_loaded(r) > 0 &&
+               std::abs(overlume::testing::environment_terrain_offset_z(r)) > 1.0;
+    };
+    ASSERT_TRUE(itf::pump(r, buf, 600, lifted))
+        << "offset " << overlume::testing::environment_terrain_offset_z(r);
+    for (int i = 0; i < 10; ++i) overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+    EXPECT_NEAR(overlume::testing::environment_terrain_tile_lift_z(r),
+                overlume::testing::environment_terrain_offset_z(r), 1.0)
+        << "the terrain tiles must ride the buildings' lift (1 m: float32 transforms whose "
+           "translation is the anchor's ECEF distance, about 6.4e6 m)";
+    overlume::destroy_renderer(r);
+}
+
+TEST(EnvironmentStreamTerrain, TheTerrainResourcesFollowAThemeSwitch) {
+    auto* r = itf::make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    auto* n = overlume::testing::make_ion_fixture_network();
+    itf::serve_content(n, kTilesFixtureDir);
+    itf::serve_terrain(n);
+    ASSERT_TRUE(overlume::testing::install_fixture_ion_source(
+        r, "ion://96188?terrain=1&cache=off", kFixtureAnchor, n, "ion-fixture-token-theme"));
+    itf::set_ego(r);
+
+    std::vector<uint8_t> buf(itf::kFrameBytes);
+    const auto terrainInScene = [&] {
+        return overlume::testing::environment_terrain_tiles_loaded(r) > 0;
+    };
+    ASSERT_TRUE(itf::pump(r, buf, 600, terrainInScene)) << "no terrain tile reached the scene";
+    float dark[3] = {-1.0f, -1.0f, -1.0f};
+    ASSERT_TRUE(overlume::testing::ion_fixture_terrain_color(n, dark));
+    EXPECT_GE(dark[0], 0.0f) << "update() must push dark_adas's terrain_color to the terrain tiles";
+
+    // A transition that ended 9.9 s before the scene's sim time 0: the next frame is light_clay.
+    ASSERT_TRUE(overlume::set_theme(r, "light_clay", -10.0, 0.1));
+    for (int i = 0; i < 3; ++i) overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+    float light[3] = {-1.0f, -1.0f, -1.0f};
+    ASSERT_TRUE(overlume::testing::ion_fixture_terrain_color(n, light));
+    EXPECT_FALSE(dark[0] == light[0] && dark[1] == light[1] && dark[2] == light[2])
+        << "live terrain tiles must take light_clay's terrain_color";
+    overlume::destroy_renderer(r);
+}
+
+TEST(EnvironmentStreamTerrain, CreditsAreThePlainTextOfTheImageryAttributions) {
+    auto* r = itf::make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    char untouched[16];
+    std::memset(untouched, 'x', sizeof untouched);
+    EXPECT_EQ(overlume::environment_source_credits(r, untouched, sizeof untouched), 0u);
+    EXPECT_STREQ(untouched, "") << "no source is open";
+
+    auto* n = overlume::testing::make_ion_fixture_network();
+    itf::serve_content(n, kTilesFixtureDir);
+    itf::serve_terrain(n);
+    itf::serve_imagery(n, itf::kAttributedImageryEndpoint);
+    ASSERT_TRUE(overlume::testing::install_fixture_ion_source(
+        r, "ion://96188?terrain=1&imagery=2&cache=off", kFixtureAnchor, n,
+        "ion-fixture-token-credits"));
+    itf::set_ego(r);
+    std::vector<uint8_t> buf(itf::kFrameBytes);
+    // tiles loaded: the view groups now reference the tilesets' own credits, which the filter must
+    // keep out
+    const auto credited = [&] {
+        return overlume::environment_source_credits(r, nullptr, 0) > 0 &&
+               overlume::testing::environment_loaded_chunk_count(r) > 0 &&
+               overlume::testing::environment_terrain_tiles_loaded(r) > 0;
+    };
+    ASSERT_TRUE(itf::pump(r, buf, 600, credited))
+        << "the imagery credits or the tiles never appeared";
+
+    EXPECT_EQ(itf::credits(r), "Fixture Imagery & Co.")
+        << "tags stripped, &amp; decoded, and the content and terrain tilesets' own credits "
+           "(\"Fixture Buildings\", the terrain endpoint's) left out";
+    char shortBuf[8];
+    EXPECT_EQ(overlume::environment_source_credits(r, shortBuf, sizeof shortBuf), 21u)
+        << "the length needed, as snprintf returns it";
+    EXPECT_STREQ(shortBuf, "Fixture");
+
+    ASSERT_TRUE(overlume::testing::environment_stream_force_fall_back(r));
+    EXPECT_EQ(overlume::environment_source_credits(r, nullptr, 0), 0u)
+        << "the credits go with the streamed source";
+    overlume::destroy_renderer(r);
+}
+
+TEST(EnvironmentStreamTerrain, ATerrainLayerJsonAnswering401OpensWithoutTerrainAndDoesNotFallBack) {
+    auto* r = itf::make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    auto* n = overlume::testing::make_ion_fixture_network();
+    itf::serve_content(n, kTilesFixtureDir);
+    itf::serve_terrain(n, 401);
+    const size_t linesBefore =
+        itf::count_of(overlume::testing::captured_cesium_log_text(), itf::kTerrainDidNotOpen401);
+    ASSERT_TRUE(overlume::testing::install_fixture_ion_source(
+        r, "ion://96188?terrain=1&cache=off", kFixtureAnchor, n, "ion-fixture-token-401"));
+    itf::set_ego(r);
+
+    std::vector<uint8_t> buf(itf::kFrameBytes);
+    const auto buildingsWithoutTerrain = [&] {
+        return !overlume::testing::environment_stream_has_terrain_tileset(r) &&
+               overlume::testing::environment_loaded_chunk_count(r) > 0;
+    };
+    ASSERT_TRUE(itf::pump(r, buf, 600, buildingsWithoutTerrain))
+        << "the source must drop the terrain whose root never came and keep its buildings";
+    for (int i = 0; i < 60; ++i) overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+
+    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING)
+        << "a refused terrain is not network loss";
+    EXPECT_FALSE(overlume::testing::environment_stream_has_terrain_tileset(r));
+    EXPECT_EQ(overlume::testing::environment_terrain_tiles_loaded(r), 0u);
+    EXPECT_GT(overlume::testing::environment_loaded_chunk_count(r), 0u);
+    EXPECT_EQ(
+        itf::count_of(overlume::testing::captured_cesium_log_text(), itf::kTerrainDidNotOpen401),
+        linesBefore + 1)
+        << "the source must say so, once";
+    const auto terrainTile = [](const std::string& url) {
+        return url.find(".terrain") != std::string::npos;
+    };
+    EXPECT_EQ(itf::count_requested(n, terrainTile), 0u) << "no terrain tile without a layer.json";
+    overlume::destroy_renderer(r);
+}
+
+// Review Focus 4. The first rasters attach unheld; then every new imagery tile request is held
+// (the upsampled terrain children keep asking for finer imagery: the TMS fixture lists levels
+// 0-18) and the source is switched with one in flight. Once the old source is gone nothing
+// dispatches its main-thread queue, so the late raster runs only its worker half
+// (prepareRasterInLoadThread) and makes no texture. The teardown must free every texture the old
+// terrain made, and the late raster must attach nowhere.
+TEST(EnvironmentStreamTerrain, SwitchingAwayWithARasterRequestInFlightLeavesNoTexture) {
+    auto* r = itf::make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    auto* n = overlume::testing::make_ion_fixture_network();
+    itf::serve_content(n, kTilesFixtureDir);
+    itf::serve_terrain(n);
+    itf::serve_imagery(n, itf::qmesh::ion_imagery_endpoint_json(itf::kImageryBase));
+    ASSERT_TRUE(overlume::testing::install_fixture_ion_source(
+        r, "ion://96188?terrain=1&imagery=2&cache=off", kFixtureAnchor, n,
+        "ion-fixture-token-switch"));
+    itf::set_ego(r);
+
+    std::vector<uint8_t> buf(itf::kFrameBytes);
+    const auto textured = [&] {
+        return overlume::testing::ion_fixture_terrain_probe(n).textures_alive > 0;
+    };
+    ASSERT_TRUE(itf::pump(r, buf, 600, textured)) << "the first rasters must attach unheld";
+
+    overlume::testing::ion_fixture_hold_prefix(n, itf::kImageryBase);
+    const size_t imageryRequests = itf::count_requested(n, itf::is_imagery_tile_url);
+    const auto rasterInFlight = [&] {
+        return itf::count_requested(n, itf::is_imagery_tile_url) > imageryRequests;
+    };
+    ASSERT_TRUE(itf::pump(r, buf, 600, rasterInFlight))
+        << "no imagery tile was requested after the first rasters attached";
+    const overlume::testing::OverlayProbe atSwitch =
+        overlume::testing::ion_fixture_terrain_probe(n);
+    ASSERT_GT(atSwitch.textures_alive, 0u);
+
+    ASSERT_TRUE(overlume::set_environment_source(r, kTestTownDir.c_str(), kFixtureAnchor));
+    overlume::testing::ion_fixture_release_held(n);
+    const auto baked = [&] { return overlume::testing::environment_loaded_chunk_count(r) > 0; };
+    EXPECT_TRUE(itf::pump(r, buf, 120, baked)) << "the baked source must load after the switch";
+    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::BAKED);
+    const overlume::testing::OverlayProbe after = overlume::testing::ion_fixture_terrain_probe(n);
+    EXPECT_EQ(after.textures_alive, 0u)
+        << "the teardown must free the old terrain's textures, and the late raster make none";
+    EXPECT_GE(after.textures_freed, atSwitch.textures_alive + atSwitch.textures_freed);
+    EXPECT_EQ(after.rasters_attached, atSwitch.rasters_attached)
+        << "the late raster must not attach to a torn-down tile";
+    overlume::destroy_renderer(r);
+}
+
+TEST(EnvironmentStreamTerrain, NetworkLossFallsBackAndTearsDownBothTilesets) {
+    auto* r = itf::make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    auto* n = overlume::testing::make_ion_fixture_network();
+    itf::serve_content_endpoint(n);
+    overlume::testing::ion_fixture_serve(
+        n, itf::kContentBase + "tileset.json", 200,
+        itf::file_bytes(kTilesFixtureFallbackDir + "/tileset.json"));
+    // Its 16 tiles are byte-identical copies of tile_root.b3dm (the fixture's PROVENANCE.md), so
+    // one prefix serves them all; held, they answer only when the network is already gone.
+    overlume::testing::ion_fixture_serve_prefix(
+        n, itf::kContentBase + "tile_", 200,
+        itf::file_bytes(kTilesFixtureFallbackDir + "/tile_root.b3dm"));
+    overlume::testing::ion_fixture_hold_prefix(n, itf::kContentBase + "tile_");
+    itf::serve_terrain(n);
+    itf::serve_imagery(n, itf::qmesh::ion_imagery_endpoint_json(itf::kImageryBase));
+    ASSERT_TRUE(overlume::testing::install_fixture_ion_source(
+        r, "ion://96188?terrain=1&imagery=2&cache=off", kFixtureAnchor, n,
+        "ion-fixture-token-loss"));
+    itf::set_ego(r);
+
+    std::vector<uint8_t> buf(itf::kFrameBytes);
+    const auto terrainWithImagery = [&] {
+        return overlume::testing::environment_terrain_tiles_loaded(r) > 0 &&
+               overlume::testing::environment_stream_overlay_probe(r).rasters_attached > 0;
+    };
+    ASSERT_TRUE(itf::pump(r, buf, 600, terrainWithImagery))
+        << "terrain and imagery must load while the building tiles wait";
+    ASSERT_GT(overlume::testing::environment_stream_overlay_probe(r).textures_alive, 0u);
+
+    overlume::testing::ion_fixture_fail_all_transport(n);
+    overlume::testing::ion_fixture_release_held(n);
+    const auto fellBack = [&] {
+        return overlume::environment_source_state(r) ==
+               overlume::EnvironmentSourceState::STREAMING_FALLBACK;
+    };
+    ASSERT_TRUE(itf::pump(r, buf, 200, fellBack))
+        << "eight consecutive transport errors must fall back";
+
+    EXPECT_FALSE(overlume::testing::environment_stream_has_terrain_tileset(r));
+    EXPECT_EQ(overlume::testing::environment_terrain_tiles_loaded(r), 0u);
+    const overlume::testing::OverlayProbe probe = overlume::testing::ion_fixture_terrain_probe(n);
+    EXPECT_EQ(probe.textures_alive, 0u) << "the fallback must free every raster texture";
+    EXPECT_GT(probe.textures_freed, 0u);
+    EXPECT_EQ(overlume::environment_source_credits(r, nullptr, 0), 0u);
+    overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+    EXPECT_TRUE(overlume::testing::renderer_ground_plane_in_scene(r))
+        << "the clay plane must come back with the terrain gone";
     overlume::destroy_renderer(r);
 }

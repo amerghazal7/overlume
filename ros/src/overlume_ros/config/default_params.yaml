@@ -61,6 +61,8 @@
     environment_max_tilt_deg: 2.0
     environment_brightness: 1.0
     environment_tile_radius_m: 700.0
+    environment_terrain: ""
+    environment_imagery: ""
     environment_attribution: true
     environment_attribution_logo: true
     environment_attribution_logo_path: ""

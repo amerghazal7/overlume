@@ -20,12 +20,12 @@
 | 3. Tiling helper extracted from the buildings loader | 2 | done | `db7e359..5c20d6c` |
 | 4. URI keys: layer list, `imagery`, ion `terrain`/`imagery` | 2 | done | `5c20d6c..23f6bd9` |
 | 5. Terrain material and the renderer's overlay callbacks | 3 | done | `db7e359..277d644` |
-| 6. Node parameters, composer, attribution text | 4 | pending | |
-| 7. GUI sources, bridge, token check | 4 | pending | |
-| 8. Docs | 4 | pending | |
+| 6. Node parameters, composer, attribution text | 4 | done | `db7e359..11eaa40` |
+| 7. GUI sources, bridge, token check | 4 | done | `11eaa40..fe09029` |
+| 8. Docs | 4 | done | `fe09029..992c883` |
 | 9. DEM cache and buildings re-based onto the DEM | 5 | pending | |
 | 10. Mapbox terrain loader and source wiring | 5 | pending | |
-| 11. Second tileset, ion terrain and imagery, credits API | 6 | pending | |
+| 11. Second tileset, ion terrain and imagery, credits API | 6 | done | `199442c..3004004` |
 | 12. End-to-end over the fixture network | 7 | pending | |
 | 13. Golden candidates and promotion | 7 | pending | |
 | 14. Opt-in live smoke | 7 | pending | |
