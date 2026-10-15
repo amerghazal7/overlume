@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `mapbox://buildings`, a streamed environment source selected like `ion://`: Mapbox's landmark models plus building footprints from Mapbox Streets v8, extruded to their heights around the vehicle. URI keys: `materials` (`clay` or `original`), `radius` (default 500 m), `brightness`, `fallback` and `cache=off`. The library reads `MAPBOX_TOKEN` when the source opens; Mapbox tiles are never cached. While the source streams, the node draws the Mapbox logo and "© Mapbox © OpenStreetMap Improve this map" (`environment_attribution`; the logo file is `environment_attribution_logo_path`). The vcam GUI lists two more environment sources, `mapbox` and `mapbox-original`, and `tools/check_mapbox_token.sh` checks the token. See `docs/runbooks/mapbox.md`.
+- `mapbox://buildings`, a streamed environment source selected like `ion://`: Mapbox's landmark models plus building footprints from Mapbox Streets v8, extruded to their heights around the vehicle. URI keys: `materials` (`clay` or `original`), `radius` (default 500 m), `brightness`, `fallback` and `cache=off`. The library reads `MAPBOX_TOKEN` when the source opens; Mapbox tiles are never cached. While the source streams, the node draws the Mapbox logo and "© Mapbox © OpenStreetMap Improve this map" (`environment_attribution`; the logo file is `environment_attribution_logo_path`; `environment_attribution_logo` turns the logo off, leaving the text). The vcam GUI lists two more environment sources, `mapbox` and `mapbox-original`, and `tools/check_mapbox_token.sh` checks the token. See `docs/runbooks/mapbox.md`.
 
 ### Fixed
 
