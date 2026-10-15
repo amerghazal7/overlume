@@ -44,8 +44,8 @@ where the plan uses it.
 | 8. Node URI composition for `mapbox://` | 5 | pending | |
 | 9. HUD primitives: Latin-1 text, `MeasureText`, `DrawImageRgba` | 5 | pending | |
 | 10. Mapbox attribution on screen | 5 | pending | |
-| 11. GUI sources, token check, rig token refresh | 6 | pending | |
-| 12. Docs | 6 | pending | |
+| 11. GUI sources, token check, rig token refresh | 6 | done | `9619ee2..8123319` |
+| 12. Docs | 6 | done | `8123319..e40ad03` |
 | 13. Mapbox loader: tiling, extrusions, failures, dispatch | 7 | pending | |
 | 14. Landmarks and conflation in the loader | 7 | pending | |
 | 15. Golden candidate and promotion | 8 | pending | |
