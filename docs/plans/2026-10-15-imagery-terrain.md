@@ -25,7 +25,7 @@
 | 8. Docs | 4 | done | `fe09029..992c883` |
 | 9. DEM cache and buildings re-based onto the DEM | 5 | pending | |
 | 10. Mapbox terrain loader and source wiring | 5 | pending | |
-| 11. Second tileset, ion terrain and imagery, credits API | 6 | pending | |
+| 11. Second tileset, ion terrain and imagery, credits API | 6 | done | `199442c..3004004` |
 | 12. End-to-end over the fixture network | 7 | pending | |
 | 13. Golden candidates and promotion | 7 | pending | |
 | 14. Opt-in live smoke | 7 | pending | |
