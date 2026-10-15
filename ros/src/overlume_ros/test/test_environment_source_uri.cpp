@@ -5,6 +5,8 @@
 
 #include "overlume_ros/environment_source_uri.hpp"
 
+#include "overlume/scene.h"
+
 namespace overlume::ros {
 namespace {
 
@@ -152,4 +154,75 @@ TEST(ComposeEnvironmentSourceUri, RadiusAppendedOnlyWhenNotDefault) {
     EXPECT_EQ(overlume::ros::compose_environment_source_uri("/baked", "", "", true, 0.3, true, 2.0,
                                                             1.0, 250.0),
               "/baked");
+}
+
+TEST(ComposeEnvironmentSourceUri, MapboxGetsFallbackButNeverCache) {
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("/baked/chunks", "mapbox://buildings",
+                                                            "/mnt/data/tiles"),
+              "mapbox://buildings?fallback=/baked/chunks");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri(
+                  "/baked/chunks", "mapbox://buildings?materials=original", "/mnt/data/tiles"),
+              "mapbox://buildings?materials=original&fallback=/baked/chunks");
+}
+
+TEST(ComposeEnvironmentSourceUri, MapboxNeverGetsTheIonOnlyKeys) {
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "mapbox://buildings", "", true, 0.5,
+                                                            false, 5.0),
+              "mapbox://buildings");
+}
+
+TEST(ComposeEnvironmentSourceUri, MapboxGetsBrightnessAndRadiusWhenNotDefault) {
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "mapbox://buildings", "", true, 0.3,
+                                                            true, 2.0, 1.0, 700.0),
+              "mapbox://buildings");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri(
+                  "/baked", "mapbox://buildings", "/tiles", true, 0.5, false, 5.0, 1.8, 250.0),
+              "mapbox://buildings?fallback=/baked&brightness=1.8&radius=250");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "mapbox://buildings?radius=300", "",
+                                                            true, 0.3, true, 2.0, 1.8, 250.0),
+              "mapbox://buildings?radius=300&brightness=1.8");
+}
+
+TEST(ComposeEnvironmentSourceUri, IonUriWithEveryKnobSetIsUnchanged) {
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("/baked", "ion://96188", "/tiles", true,
+                                                            0.5, false, 5.0, 1.8, 250.0),
+              "ion://96188?cache=/tiles&fallback=/baked&follow_terrain=on&ground_bias=0.5&"
+              "replaces_ground=off&max_tilt_deg=5&brightness=1.8&radius=250");
+}
+
+TEST(MapboxAttributionKind, TruthTableOverStateVisibilityParameterAndScheme) {
+    using overlume::EnvironmentSourceState;
+    using overlume::ros::AttributionKind;
+    struct Case {
+        const char* uri;
+        AttributionKind when_streaming;
+    };
+    const Case cases[] = {
+        {"", AttributionKind::NONE},
+        {"/baked/chunks", AttributionKind::NONE},
+        {"ion://96188", AttributionKind::NONE},
+        {"ion://2275207?materials=original&cache=off", AttributionKind::GOOGLE},
+        {"mapbox://buildings", AttributionKind::MAPBOX},
+        {"mapbox://buildings?materials=original", AttributionKind::MAPBOX},
+    };
+    const EnvironmentSourceState states[] = {
+        EnvironmentSourceState::NONE, EnvironmentSourceState::BAKED,
+        EnvironmentSourceState::STREAMING, EnvironmentSourceState::STREAMING_FALLBACK};
+    for (const Case& c : cases) {
+        for (const EnvironmentSourceState state : states) {
+            for (const bool visible : {false, true}) {
+                for (const bool enabled : {false, true}) {
+                    const AttributionKind expected =
+                        visible && enabled && state == EnvironmentSourceState::STREAMING
+                            ? c.when_streaming
+                            : AttributionKind::NONE;
+                    EXPECT_EQ(
+                        overlume::ros::environment_attribution_kind(visible, enabled, c.uri, state),
+                        expected)
+                        << "uri '" << c.uri << "' state " << static_cast<int>(state) << " visible "
+                        << visible << " enabled " << enabled;
+                }
+            }
+        }
+    }
 }
