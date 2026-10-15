@@ -192,6 +192,62 @@ private:
     std::shared_ptr<std::atomic<bool>> transportDown_;
 };
 
+// Test accessor beside FileFixtureAssetAccessor, reusing its response classes: canned answers keyed
+// by URL without its query string, or a rejected future (a transport error); every requested URL
+// is recorded in full. Thread-safe.
+class MapFixtureAssetAccessor final : public CesiumAsync::IAssetAccessor {
+public:
+    explicit MapFixtureAssetAccessor(uint16_t unmatched_status = 404)
+        : unmatchedStatus_(unmatched_status) {}
+
+    void serve(const std::string& url_without_query, uint16_t status, std::vector<std::byte> body);
+    void fail_transport(const std::string& url_without_query);
+    std::vector<std::string> requested_urls() const;
+    // A held URL's requests stay pending until release_held() answers them, so a test can switch
+    // sources while a tile load is in flight.
+    void hold(const std::string& url_without_query);
+    void release_held();
+
+    CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> get(
+        const CesiumAsync::AsyncSystem& asyncSystem, const std::string& url,
+        const std::vector<THeader>&) override {
+        return respond(asyncSystem, "GET", url);
+    }
+    CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> request(
+        const CesiumAsync::AsyncSystem& asyncSystem, const std::string& verb,
+        const std::string& url, const std::vector<THeader>&,
+        const std::span<const std::byte>&) override {
+        return respond(asyncSystem, verb, url);
+    }
+    void tick() noexcept override {}
+
+private:
+    using RequestPromise = CesiumAsync::Promise<std::shared_ptr<CesiumAsync::IAssetRequest>>;
+    struct Canned {
+        uint16_t status = 0;
+        std::vector<std::byte> body;
+        bool transport_error = false;
+    };
+    struct Held {
+        RequestPromise promise;
+        std::string verb;
+        std::string url;
+    };
+
+    CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> respond(
+        const CesiumAsync::AsyncSystem& asyncSystem, const std::string& verb,
+        const std::string& url);
+    void answer(const RequestPromise& promise, const std::string& verb,
+                const std::string& url) const;
+
+    uint16_t unmatchedStatus_;
+    mutable std::mutex mutex_;
+    std::unordered_map<std::string, Canned> canned_;
+    std::vector<std::string> held_;
+    std::vector<Held> pending_;
+    std::vector<std::string> requested_;
+};
+
 class StreamRendererResources final : public Cesium3DTilesSelection::IPrepareRendererResources {
 public:
     explicit StreamRendererResources(const glm::dmat4& ecefToMap, double anchorHeightM,
