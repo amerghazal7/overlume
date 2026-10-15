@@ -1571,6 +1571,8 @@ void StreamingEnvironmentSource::teardown(VisualRenderer& r) {
     if (pumps >= kTeardownPumpBound && !allDestroyed()) {
         ++leakedOnTeardownBound_;
     }
+    // A height sample in flight when a tileset died leaves a cancelled continuation queued; run it
+    // before asyncSystem_ is destroyed.
     asyncSystem_.dispatchMainThreadTasks();
 
     for (StreamRendererResources* res : resources) {
