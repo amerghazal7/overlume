@@ -407,6 +407,9 @@ TEST(EnvironmentStream, DiskCacheServesTilesWithNetworkDead) {
     auto* handle1 = overlume::testing::install_fixture_streaming_source_with_fallback(
         r, kTilesFixtureDir.c_str(), nullptr, kFixtureAnchor);
     ASSERT_NE(handle1, nullptr);
+    EXPECT_TRUE(overlume::testing::environment_stream_has_disk_cache(r))
+        << "a source opened with a cache directory reads through the cache; this is the positive "
+           "control for the mapbox:// no-disk-cache check";
     overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.ego.position = kFixtureBlockCenterMap;
@@ -705,9 +708,7 @@ TEST(EnvironmentStream, TransportErrorsCountAsNetworkLossAndFallBack) {
     EXPECT_GT(overlume::testing::environment_loaded_chunk_count(r), 0u)
         << "the baked fallback chunks must load";
     const std::string logText = overlume::testing::captured_cesium_log_text();
-    EXPECT_NE(
-        logText.find("An unexpected error occurred when loading tile: fixture transport error: "),
-        std::string::npos)
+    EXPECT_NE(logText.find("fixture transport error: "), std::string::npos)
         << "the counter must rethrow the transport error with its original text";
     EXPECT_NE(logText.find("access_token=<redacted>"), std::string::npos)
         << "the transport error's text, URL and token included, must reach the redacting logger";

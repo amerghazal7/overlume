@@ -438,6 +438,8 @@ TEST(MapboxBuildings, AnchorTileLoadsWithStandardFilterApplied) {
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_anchor_tile(n, t);
     ASSERT_TRUE(install(r, "mapbox://buildings", anchor_at(t, 0.5, 0.5), n));
+    EXPECT_FALSE(overlume::testing::environment_stream_has_disk_cache(r))
+        << "a mapbox:// source opens no cache database, so no Mapbox byte reaches the disk";
     set_ego(r, 0.0, 0.0);
     std::vector<uint8_t> buf(kFrameBytes);
     ASSERT_TRUE(pump(r, buf, 400, [&] { return loaded(r) >= 1; }));
@@ -505,7 +507,6 @@ TEST(MapboxBuildings, TokenRidesOnlyInRequestUrls) {
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_anchor_tile(n, t);
     overlume::testing::capture_stream_glbs(true);
-    const size_t logFrom = log_size();
     ASSERT_TRUE(install(r, "mapbox://buildings", anchor_at(t, 0.5, 0.5), n));
     set_ego(r, 0.0, 0.0);
     std::vector<uint8_t> buf(kFrameBytes);
@@ -524,7 +525,7 @@ TEST(MapboxBuildings, TokenRidesOnlyInRequestUrls) {
         EXPECT_FALSE(contains(glb, kToken)) << "a request URL reached the model";
         EXPECT_FALSE(contains(glb, "access_token"));
     }
-    EXPECT_EQ(log_since(logFrom).find(kToken), std::string::npos);
+    // The log check lives in RejectedTokenFallsBackAndLogsOnce and the ion transport-error test.
     overlume::destroy_renderer(r);
 }
 

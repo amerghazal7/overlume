@@ -136,7 +136,8 @@ fi
 banner 4/6 "WS bridge pytest suite"
 WS_LOG="${LOG_DIR}/ws_bridge_pytest.log"
 if ROS_DOMAIN_ID="${CI_VISUAL_MODE_DOMAIN_ID:-77}" \
-        python3 -m pytest "${REPO_ROOT}/tools/test_vcam_ws_bridge.py" -q -p no:anyio \
+        python3 -m pytest "${REPO_ROOT}/tools/test_vcam_ws_bridge.py" \
+            "${REPO_ROOT}/tools/test_check_mapbox_token.py" -q -p no:anyio \
         > "${WS_LOG}" 2>&1; then
     WS_SUMMARY="$(tail -1 "${WS_LOG}")"
     echo "PASS  WS bridge pytest suite  (${WS_SUMMARY})"
