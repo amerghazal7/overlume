@@ -107,6 +107,9 @@ index; `docs/status.md` is the one status ledger.
 - [`2026-10-06-height-grid-terrain.md`](plans/2026-10-06-height-grid-terrain.md)
   — the offroad height-map terrain layer (implements
   `design/2026-10-06-height-grid-terrain-design.md`).
+- [`2026-10-14-mapbox-buildings.md`](plans/2026-10-14-mapbox-buildings.md)
+  — the `mapbox://buildings` environment source in 18 tasks over eight
+  parallel lanes (implements `design/2026-10-14-mapbox-buildings-design.md`).
 - [`archive/`](plans/archive/README.md) — retired NumPy/GL/CUDA prototype
   plans and specs (2026-06/07), plus the superseded Azure DevOps project
   backlog export.

@@ -2,7 +2,8 @@
 
 **Date:** 2026-10-14
 **Status:** Approved by the user (2026-10-14) with one change: Mapbox appears in the GUI as two more
-selectable environment sources, not as presets (§4). Implementation plan pending.
+selectable environment sources, not as presets (§4). Implementation plan:
+`docs/plans/2026-10-14-mapbox-buildings.md`.
 **Branch:** `mapbox-environment` (off `main` at f2d0d5b). Local only: nothing from this branch is
 pushed to `origin` until the user confirms Mapbox's sign-off.
 **Scope:** sub-project 1 of 2 (buildings). Sub-project 2, provider-agnostic imagery on terrain,
@@ -51,16 +52,17 @@ repo.
 
 ### Landmark models
 
-- `https://api.mapbox.com/3dtiles/v1/mapbox.mapbox-3dbuildings-v1-meshopt-v2-lod/14/{x}/{y}.glb?access_token=…`
-  is the variant current Mapbox GL JS requests for the Standard style. The TileJSON of
-  `mapbox.mapbox-3dbuildings-v1` lists it with `-meshopt`; scene 0 is identical in both. The
-  base (draco) tiles are empty in Dubai. Content exists at z14 only: every other zoom answers 204.
+- `https://api.mapbox.com/3dtiles/v1/mapbox.mapbox-3dbuildings-v1-meshopt/14/{x}/{y}.glb?access_token=…`
+  is the variant the TileJSON of `mapbox.mapbox-3dbuildings-v1` lists for clients that decode
+  meshopt. Current Mapbox GL JS prefers the other listed variant, `-meshopt-v2-lod`, whose scene 0
+  is identical but whose vertex streams use meshopt codec v1, which the meshoptimizer Overlume
+  links first cannot decode (§12); this source requests `-meshopt`, codec v0. The base (draco)
+  tiles are empty in Dubai. Content exists at z14 only: every other zoom answers 204.
 - Required extensions: `EXT_meshopt_compression` and `KHR_mesh_quantization` (POSITION float,
-  NORMAL normalized byte, TEXCOORD_0 normalized ushort). Also used: `KHR_texture_transform`, and
-  `mbx_bvh` on LOD nodes only.
-- Scene "Default Scene" (index 0; the file has no `scene` key) holds, per landmark, one building
-  node and one footprint node. Scene "LOD" holds low-detail duplicates in separate nodes and
-  meshes.
+  NORMAL normalized byte, TEXCOORD_0 normalized ushort). Also used: `KHR_texture_transform`.
+- Scene "Default Scene" (the only scene; the file has no `scene` key) holds, per landmark, one
+  building node and one footprint node. The `-meshopt-v2-lod` variant adds a scene "LOD" of
+  low-detail duplicates, with `mbx_bvh` on its nodes.
 - Building node: mesh plus `matrix` = diag(s, −s, 1) with translation (tx, ty, 0). tx/ty are z14
   tile units 0..8192, y pointing south. s = 8192·2^14 / (2π · 6 371 008.8 · cos φ_node), the Web
   Mercator scale on the mean-radius sphere at the node's latitude. Local geometry is metres, x
@@ -70,7 +72,7 @@ repo.
   extras `mapbox:footprint:id` equal to the building's `id`.
 - Materials: double-sided, metallic 0, a JPEG in `occlusionTexture` only (with
   `KHR_texture_transform`, REPEAT wrap), `baseColorFactor` on some. No base colour texture.
-- The Downtown tile holds 7 landmarks in 1.18 MB.
+- The Downtown tile holds 7 landmarks in 1.14 MB.
 
 ### Footprints
 
@@ -212,7 +214,8 @@ Changes to existing code:
 - Selection uses cesium's area view: `ViewState(BoundingSphere{ego ECEF, radius}, 1.0)`. Every
   z14 tile whose region intersects the sphere loads and shows; nothing else is requested.
 - The Mapbox tileset's options turn off `preloadSiblings` (otherwise the 3 siblings of each z14
-  tile would load at preload priority) and fog culling.
+  tile would load at preload priority). Fog culling needs no switch: cesium 0.64 never fog-culls
+  an area view.
 - The existing per-tile radius gate on scene membership still runs and admits every tile the
   area view loads.
 - With the 500 m default: one tile while the ego is more than 500 m from every edge of its z14
@@ -277,9 +280,10 @@ The work runs on cesium worker threads, after copying what it needs out of `Tile
   frame.
 - **Landmark nodes.** The node matrix maps local metres into z14 tile units, as Mapbox defines
   them. Tile units to tile frame use the same chain as the extrusions, linearised at the node's
-  anchor. Over 250 m the Mercator scale changes by 1.8·10⁻⁵, so the error stays under 1 cm across
-  a 500 m building. Vertices are untouched; only the node matrix changes, so accessor bounds stay
-  valid.
+  anchor. Over 250 m the Mercator scale changes by 1.8·10⁻⁵, so at ground level the node's map
+  stays within 1.1 cm of the per-vertex chain across a 500 m building. At 300 m up the two differ by
+  up to 2.5 cm: the per-vertex chain bends with the ellipsoid, which a rigid building does not.
+  Vertices are untouched; only the node matrix changes, so accessor bounds stay valid.
 - **Why both go through tile space.** Landmark footprints and streets-v8 footprints then land on
   the same ground. Mapbox's scale uses the 6,371,008.8 m mean radius; re-deriving it from
   6,378,137 m would make the models 0.11% too large.
@@ -449,8 +453,10 @@ In `overlume/tests/test_mapbox_buildings.cpp` (cesium builds only):
 - **Tile math:**
   - XYZ ↔ longitude/latitude round trip, and the z16 squares inside a z14 tile;
   - a known longitude/latitude lands within 2 cm of where `ecef_to_map_probe` puts it, after the
-    full transform chain (tile frame, node matrix, `ecefToMap_`, height correction);
-  - a landmark node's affine map is within 1 cm of the exact chain across ±250 m.
+    full transform chain (tile frame, `ecefToMap_`, height correction); the node matrix is
+    covered by the next item;
+  - a landmark node's affine map is within 2.5 cm of the exact chain across ±250 m and 300 m of
+    height (§5 Placement explains the bound).
 - **Landmarks:**
   - only "Default Scene" building nodes reach the model, and no footprint or LOD node, mesh or
     buffer survives;
@@ -587,13 +593,15 @@ camera. The runbook holds the exact commands.
     second on a good link: 17 requests plus the build.
   - New gltfio assets are created on the render thread, so a frame stalls briefly when a large
     tile lands, as with ion.
-- **Two meshoptimizer copies on the link line:** Filament's older copy resolves first. That is
-  fine for codec-v0 data, which is what Mapbox serves. A future switch to codec v1 or
-  `KHR_meshopt_compression` would fail to decode, and the live smoke would show it as zero
+- **Two meshoptimizer copies on the link line:** Filament's older copy resolves first. It decodes
+  codec v0 only, which is why the source requests the `-meshopt` variant and not GL JS's
+  `-meshopt-v2-lod` (codec v1; §3). If Mapbox moved `-meshopt` to codec v1 or
+  `KHR_meshopt_compression`, decoding would fail, and the live smoke would show it as zero
   landmarks.
 - **Cost:**
-  - Vector tiles are billed per request: the 200k-per-month free tier covers about 11,700 z14
-    tiles.
+  - Vector tiles are billed per request: the 200k-per-month free tier covers about 12,500 z14
+    tiles if only the 16 footprint requests are billed, about 11,700 if the landmark request is
+    billed too.
   - 3D tiles have no published price.
   - There is no disk cache, by design.
 - **Radius semantics differ from ion:** `radius` defaults to 500 m for `mapbox://`, while ion
