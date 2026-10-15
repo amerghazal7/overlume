@@ -82,14 +82,113 @@ TEST(MapboxUri, CacheAcceptsOnlyOff) {
     }
 }
 
-TEST(MapboxUri, LayerListMustBeExactlyBuildings) {
-    for (const char* spec : {"", "terrain", "buildings,terrain", "building", "Buildings",
-                             "buildings/", "?radius=5", "terrain?radius=5"}) {
+TEST(MapboxUri, LayerListInAnyOrderSetsTheLayers) {
+    struct Case {
+        const char* spec;
+        bool buildings, terrain;
+        double radius_m;
+    };
+    for (const Case& c :
+         {Case{"buildings", true, false, 500.0}, Case{"terrain", false, true, 500.0},
+          Case{"buildings,terrain", true, true, 500.0},
+          Case{"terrain,buildings", true, true, 500.0},
+          Case{"terrain,buildings?radius=250", true, true, 250.0},
+          Case{"terrain?", false, true, 500.0}}) {
+        const MapboxSpecResult r = parse_mapbox_spec(c.spec);
+        ASSERT_TRUE(r.spec) << c.spec << ": " << r.error;
+        EXPECT_EQ(r.spec->buildings, c.buildings) << c.spec;
+        EXPECT_EQ(r.spec->terrain, c.terrain) << c.spec;
+        EXPECT_FALSE(r.spec->imagery_satellite) << c.spec << ": imagery defaults to off";
+        EXPECT_EQ(r.spec->radius_m, c.radius_m) << c.spec << ": the list ends at the first '?'";
+        EXPECT_EQ(r.error, "") << c.spec;
+    }
+    const MapboxSpecResult key = parse_mapbox_spec("buildings?terrain=on");
+    ASSERT_TRUE(key.spec) << key.error;
+    EXPECT_FALSE(key.spec->terrain) << "layers come from the list; terrain= is an ion:// key";
+}
+
+TEST(MapboxUri, EmptyOrUnknownLayerNamesRefuseQuotingTheName) {
+    const char* const cases[][2] = {
+        {"", "''"},
+        {"?radius=5", "''"},
+        {"buildings,", "''"},
+        {",terrain", "''"},
+        {"buildings,,terrain", "''"},
+        {"building", "'building'"},
+        {"Buildings", "'Buildings'"},
+        {"buildings/", "'buildings/'"},
+        {"buildings, terrain", "' terrain'"},
+        {"terrain,roads", "'roads'"},
+        {"buildings;terrain", "'buildings;terrain'"},
+    };
+    for (const auto& [spec, name] : cases) {
         const MapboxSpecResult r = parse_mapbox_spec(spec);
         EXPECT_FALSE(r.spec) << "'" << spec << "'";
         EXPECT_EQ(r.error.rfind("mapbox://", 0), 0u) << "'" << spec << "': " << r.error;
-        // Quoted, so an echo of "buildings,terrain" or "buildings/" does not count.
-        EXPECT_TRUE(mentions(r.error, "'buildings'")) << "'" << spec << "': " << r.error;
+        EXPECT_TRUE(mentions(r.error, "'buildings' and 'terrain'"))
+            << "'" << spec << "': " << r.error;
+        EXPECT_TRUE(mentions(r.error, std::string("not ") + name))
+            << "'" << spec << "': " << r.error;
+        EXPECT_FALSE(mentions(r.error, "refused")) << "the loader's log line says refused";
+    }
+}
+
+TEST(MapboxUri, RepeatedLayerNamesRefuse) {
+    const char* const cases[][2] = {
+        {"buildings,buildings", "'buildings'"},
+        {"terrain,terrain", "'terrain'"},
+        {"buildings,terrain,buildings", "'buildings'"},
+        {"terrain,buildings,terrain?imagery=satellite", "'terrain'"},
+    };
+    for (const auto& [spec, name] : cases) {
+        const MapboxSpecResult r = parse_mapbox_spec(spec);
+        EXPECT_FALSE(r.spec) << spec;
+        EXPECT_EQ(r.error.rfind("mapbox://", 0), 0u) << spec << ": " << r.error;
+        // The contract's one text for empty, repeated and unknown names.
+        EXPECT_TRUE(mentions(r.error, "'buildings' and 'terrain'")) << spec << ": " << r.error;
+        EXPECT_TRUE(mentions(r.error, std::string("not ") + name)) << spec << ": " << r.error;
+        EXPECT_FALSE(mentions(r.error, "refused")) << spec << ": " << r.error;
+    }
+}
+
+TEST(MapboxUri, ImagerySatelliteNeedsTheTerrainLayer) {
+    for (const char* spec : {"terrain?imagery=satellite", "buildings,terrain?imagery=satellite",
+                             "terrain,buildings?materials=original&imagery=satellite"}) {
+        const MapboxSpecResult r = parse_mapbox_spec(spec);
+        ASSERT_TRUE(r.spec) << spec << ": " << r.error;
+        EXPECT_TRUE(r.spec->imagery_satellite) << spec;
+    }
+    for (const char* spec :
+         {"buildings?imagery=satellite", "buildings?imagery=off&imagery=satellite"}) {
+        const MapboxSpecResult r = parse_mapbox_spec(spec);
+        EXPECT_FALSE(r.spec) << spec;
+        EXPECT_EQ(r.error.rfind("mapbox://", 0), 0u) << spec << ": " << r.error;
+        EXPECT_TRUE(mentions(r.error, "imagery")) << spec << ": " << r.error;
+        EXPECT_TRUE(mentions(r.error, "'terrain'")) << spec << ": " << r.error;
+        EXPECT_FALSE(mentions(r.error, "refused")) << spec << ": " << r.error;
+    }
+}
+
+TEST(MapboxUri, ImageryOffNeedsNoTerrainAndTheLastValueWins) {
+    for (const char* spec :
+         {"buildings?imagery=off", "buildings,terrain?imagery=off",
+          "terrain?imagery=satellite&imagery=off", "buildings?imagery=satellite&imagery=off"}) {
+        const MapboxSpecResult r = parse_mapbox_spec(spec);
+        ASSERT_TRUE(r.spec) << spec << ": " << r.error;
+        EXPECT_FALSE(r.spec->imagery_satellite) << spec;
+        EXPECT_EQ(r.warning, "") << spec;
+    }
+}
+
+TEST(MapboxUri, UnknownImageryValuesRefuseNamingTheKey) {
+    for (const char* spec :
+         {"terrain?imagery=", "terrain?imagery=bogus", "terrain?imagery=Satellite",
+          "terrain?imagery=on", "terrain?imagery=2", "terrain?imagery=bogus&imagery=satellite"}) {
+        const MapboxSpecResult r = parse_mapbox_spec(spec);
+        EXPECT_FALSE(r.spec) << spec;
+        EXPECT_EQ(r.error.rfind("mapbox://", 0), 0u) << spec << ": " << r.error;
+        EXPECT_TRUE(mentions(r.error, "imagery")) << spec << ": " << r.error;
+        EXPECT_FALSE(mentions(r.error, "refused")) << spec << ": " << r.error;
     }
 }
 

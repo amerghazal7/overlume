@@ -72,6 +72,8 @@ struct IonSpec {
     double max_tilt_deg = 2.0;
     double brightness = 1.0;
     std::optional<double> radius_m;
+    std::optional<int64_t> terrain_asset;  // terrain=<id>|off (default off)
+    std::optional<int64_t> imagery_asset;  // imagery=<id>|off (default off); needs terrain_asset
 };
 
 std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
@@ -173,11 +175,29 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                 } catch (const std::exception&) {
                     return std::nullopt;
                 }
+            } else if (key == "terrain" || key == "imagery") {
+                std::optional<int64_t>& asset =
+                    key == "terrain" ? out.terrain_asset : out.imagery_asset;
+                if (val == "off") {
+                    asset.reset();
+                } else {
+                    // An ion asset id: digits only (std::stoll alone takes "+1" and " 1"), > 0.
+                    if (val.empty() || val.find_first_not_of("0123456789") != std::string::npos)
+                        return std::nullopt;
+                    try {
+                        asset = std::stoll(val);
+                    } catch (const std::exception&) {
+                        return std::nullopt;  // out of range
+                    }
+                    if (*asset <= 0) return std::nullopt;
+                }
             }
         }
         if (amp == std::string::npos) break;
         pos = amp + 1;
     }
+    // The imagery drapes on the terrain tileset: without one it has nothing to drape on.
+    if (out.imagery_asset && !out.terrain_asset) return std::nullopt;
     return out;
 }
 
@@ -1265,7 +1285,14 @@ namespace overlume {
 std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::string& ion_spec,
                                                                      GeoAnchor anchor) {
     const std::optional<IonSpec> spec = parse_ion_spec(ion_spec);
-    if (!spec) return nullptr;
+    if (!spec) {
+        // One line (spec section 5). The spec holds no token: CESIUM_ION_TOKEN is read below.
+        make_redacting_logger()->error(
+            "ion://{} refused: the asset id or a key has a bad value (terrain= and imagery= take a "
+            "positive asset id or off; imagery= needs terrain=)",
+            ion_spec);
+        return nullptr;
+    }
 
     const char* token = std::getenv("CESIUM_ION_TOKEN");
     if (token == nullptr || token[0] == '\0') return nullptr;
@@ -1644,6 +1671,15 @@ double environment_stream_parse_radius(const char* ion_spec, bool* out_parse_ok)
     const std::optional<IonSpec> spec = parse_ion_spec(ion_spec ? ion_spec : "");
     if (out_parse_ok) *out_parse_ok = spec.has_value();
     return spec.has_value() ? spec->radius_m.value_or(kDefaultTileRadiusM) : kDefaultTileRadiusM;
+}
+
+bool environment_stream_parse_terrain_assets(const char* ion_spec, int64_t* terrain,
+                                             int64_t* imagery, bool* ok) {
+    const std::optional<IonSpec> spec = parse_ion_spec(ion_spec ? ion_spec : "");
+    if (ok) *ok = spec.has_value();
+    if (terrain) *terrain = spec.has_value() ? spec->terrain_asset.value_or(0) : 0;
+    if (imagery) *imagery = spec.has_value() ? spec->imagery_asset.value_or(0) : 0;
+    return spec.has_value() && spec->terrain_asset.has_value();
 }
 
 double terrain_ground_offset_probe(double sampled_height_m, double anchor_height_m,

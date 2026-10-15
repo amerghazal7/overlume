@@ -69,6 +69,11 @@ bool environment_stream_parse_follow_terrain(const char* ion_spec, bool* out_par
 
 bool environment_stream_parse_replaces_ground(const char* ion_spec, bool* out_parse_ok);
 
+// ion:// terrain=<id>|off and imagery=<id>|off: each asset id, 0 when off or absent or when the
+// spec does not parse (*ok false); returns whether the spec parses with a terrain asset.
+bool environment_stream_parse_terrain_assets(const char* ion_spec, int64_t* terrain,
+                                             int64_t* imagery, bool* ok);
+
 double environment_stream_parse_max_tilt_deg(const char* ion_spec, bool* out_parse_ok);
 
 double environment_stream_parse_brightness(const char* ion_spec, bool* out_parse_ok);
