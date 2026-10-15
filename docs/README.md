@@ -28,6 +28,10 @@ index; `docs/status.md` is the one status ledger.
 - [`cesium.md`](runbooks/cesium.md) — Cesium ion account/token/asset
   contract + the `CESIUM_ION_TOKEN` smoke check; the Google Photorealistic
   3D Tiles preset.
+- [`mapbox.md`](runbooks/mapbox.md) — the `mapbox://buildings` source: the
+  `MAPBOX_TOKEN` contract and `tools/check_mapbox_token.sh`, the URI and the
+  two GUI entries, attribution, Mapbox's terms as engineering rules, the demo
+  at the test site and Downtown Dubai, and troubleshooting.
 - [`env_source_captures.md`](runbooks/env_source_captures.md) — one
   committed render per Environment Tiles preset (baked / osm / google) for
   judging the streamed sources side by side.
