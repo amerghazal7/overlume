@@ -357,6 +357,10 @@ public:
     bool selfViewMasksEnabled = false;
     std::unique_ptr<BowlState> bowl;
     filament::MaterialInstance* buildingMaterial = nullptr;
+    // terrain.mat. Each streamed terrain tile gets an instance (environment_stream.cpp), copied
+    // from the default instance: the theme's terrain_color, no imagery, the placeholder bound.
+    filament::Material* terrainMaterial = nullptr;
+    filament::Texture* terrainPlaceholderTexture = nullptr;  // 1x1 white, while no raster attaches
     std::unique_ptr<EnvironmentSource> environmentSource;
     bool environmentVisible = true;
 };

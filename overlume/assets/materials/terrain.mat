@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Amer Ghazal
+
+// Streamed terrain tiles: terrainColor until a raster overlay attaches (hasImagery 0), then the
+// raster texture times brightness. uv0 is cesium's _CESIUMOVERLAY_0, which the stream's GLB step
+// copies to TEXCOORD_0: v = 0 on the tile's south edge. uvTransform is cesium's translation (xy)
+// and scale (zw), uv' = uv * scale + translation. flipUV is off so the transform runs in cesium's
+// space; the lookup flips v once, because raster images keep row 0 at their north edge. No fade
+// parameter: the stream fades no tile in (tiles pop in, as the clay buildings do).
+material {
+    name : terrain,
+    shadingModel : lit,
+    requires : [ uv0 ],
+    flipUV : false,
+    parameters : [
+        { type : float3, name : terrainColor },
+        { type : int, name : hasImagery },
+        { type : sampler2d, name : imagery },
+        { type : float4, name : uvTransform },
+        { type : float, name : brightness }
+    ]
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        if (materialParams.hasImagery != 0) {
+            vec2 uv = getUV0() * materialParams.uvTransform.zw + materialParams.uvTransform.xy;
+            material.baseColor.rgb = texture(materialParams_imagery, vec2(uv.x, 1.0 - uv.y)).rgb *
+                                     materialParams.brightness;
+        } else {
+            material.baseColor.rgb = materialParams.terrainColor;
+        }
+    }
+}
