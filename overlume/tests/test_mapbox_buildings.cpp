@@ -6,6 +6,7 @@
 
 #include "environment_test_hooks.hpp"
 #include "golden.hpp"
+#include "mapbox_dem_fixture.hpp"
 #include "mapbox_glb_fixture.hpp"
 #include "mapbox_mvt_fixture.hpp"
 #include "mapbox_test_hooks.hpp"
@@ -20,6 +21,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <optional>
 #include <set>
@@ -456,6 +458,7 @@ TEST(MapboxBuildings, AnchorTileLoadsWithStandardFilterApplied) {
            "buffer builds nothing, so it must not count";
     EXPECT_EQ(s.retries, 0u);
     EXPECT_GT(s.max_build_ms, 0.0);
+    EXPECT_EQ(s.dem_requests, 0u) << "no DEM without the terrain layer";
     overlume::destroy_renderer(r);
 }
 
@@ -912,6 +915,338 @@ TEST(MapboxBuildings, LandmarksAloneStillBuildTheTile) {
     ASSERT_EQ(glbs.size(), 1u);
     EXPECT_EQ(count_of(glb_json(glbs[0]), "\"mesh\":"), 1u) << "the landmark node alone";
     overlume::destroy_renderer(r);
+}
+
+namespace {
+
+namespace dem = overlume::testing::dem;
+
+constexpr double kDemPi = 3.14159265358979323846;
+
+std::string dem_url_of(const TileId& t) { return overlume::testing::mapbox_dem_url(t.x, t.y); }
+
+std::string tile_name(const TileId& t) {
+    return "14/" + std::to_string(t.x) + "/" + std::to_string(t.y);
+}
+
+void serve_dem(MapboxFixtureNetwork* n, const TileId& t,
+               const std::function<double(double, double)>& height_m) {
+    overlume::testing::mapbox_fixture_serve(n, dem_url_of(t), 200, dem::encode_dem_png(height_m));
+}
+
+// Ground metres per DEM pixel (512 per z14 tile) at tile t's centre, spherical Web Mercator.
+double metres_per_dem_px(const TileId& t) {
+    const double lat = overlume::mapbox::tile_point_to_lonlat(t, 0.5, 0.5, 1.0).lat;
+    return 2.0 * kDemPi * 6378137.0 * std::cos(lat * kDemPi / 180.0) / 16384.0 / 512.0;
+}
+
+// The DEM pixel (u east, v south) under (x, y) in units of z16 square `index` of its z14 tile:
+// 4096 units and 128 DEM pixels a square, squares row-major from the north-west.
+std::array<double, 2> square_dem_px(size_t index, double x, double y) {
+    return {(static_cast<double>(index % 4) + x / 4096.0) * 128.0,
+            (static_cast<double>(index / 4) + y / 4096.0) * 128.0};
+}
+
+// The N numbers after the first `"key":[` in a GLB's JSON chunk, read as numbers so the
+// writer's float format does not matter; nullopt when the key is absent.
+template <size_t N>
+std::optional<std::array<double, N>> json_numbers(const std::vector<uint8_t>& glb,
+                                                  const std::string& key) {
+    const std::string json = glb_json(glb);
+    const std::string prefix = "\"" + key + "\":[";
+    const size_t at = json.find(prefix);
+    if (at == std::string::npos) return std::nullopt;
+    std::array<double, N> out{};
+    const char* p = json.c_str() + at + prefix.size();
+    for (double& v : out) {
+        char* end = nullptr;
+        v = std::strtod(p, &end);
+        if (end == p) return std::nullopt;
+        p = end + 1;  // past ',' or ']'
+    }
+    return out;
+}
+
+// The z bounds (min, max) of the extrusions' POSITION accessor in the captured buildings GLB,
+// in tile-frame metres: the only GLB without UVs (terrain tiles carry TEXCOORD_0) and the only
+// accessor with bounds in it.
+std::optional<std::array<double, 2>> extrusion_z_bounds(
+    const std::vector<std::vector<uint8_t>>& glbs) {
+    for (const std::vector<uint8_t>& glb : glbs) {
+        if (glb_json(glb).find("TEXCOORD_0") != std::string::npos) continue;
+        const std::optional<std::array<double, 3>> lo = json_numbers<3>(glb, "min");
+        const std::optional<std::array<double, 3>> hi = json_numbers<3>(glb, "max");
+        if (lo && hi) return std::array<double, 2>{(*lo)[2], (*hi)[2]};
+    }
+    return std::nullopt;
+}
+
+// The tile's DEM answers `status` with `body` on each of `attempts` attempts (more than one for a
+// failure for now, which sends the tile back): the anchor tile's buildings then build at z = 0,
+// the DEM was asked once per attempt, and the log holds `line` `lines` times and never a URL.
+void expect_buildings_at_ground(uint16_t status, std::vector<uint8_t> body, const std::string& line,
+                                size_t lines, uint64_t attempts = 1) {
+    auto* r = make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    FrozenRetryClock clock;  // the test moves the retry clock itself
+    const TileId t = op_tile();
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    serve_anchor_tile(n, t);
+    overlume::testing::mapbox_fixture_serve(n, dem_url_of(t), status, std::move(body));
+    const size_t logFrom = log_size();
+    ASSERT_TRUE(install(r, "mapbox://buildings,terrain", anchor_at(t, 0.5, 0.5), n));
+    set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> buf(kFrameBytes);
+    for (uint64_t k = 1; k < attempts; ++k) {
+        ASSERT_TRUE(pump(r, buf, 100, [k] { return stats().retries >= k; }))
+            << "attempt " << k << " must send the tile back";
+        // The cache shares a failure for 1 s of steady time; the retry clock is frozen.
+        std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+        clock.set(k == 1 ? kAttempt2AtS : kAttempt3AtS);
+    }
+    ASSERT_TRUE(pump(r, buf, 400, [&] { return loaded(r) >= 1; }));
+    const overlume::testing::MapboxSourceStats s = stats();
+    EXPECT_EQ(s.extruded_features, kAnchorTileExtruded);
+    EXPECT_DOUBLE_EQ(s.max_tile_top_m, 25.0)
+        << "square 15's 25 m box, not lifted: without a DEM buildings keep z = 0";
+    EXPECT_EQ(s.retries, attempts - 1);
+    EXPECT_EQ(s.dem_requests, attempts)
+        << "one request per attempt, shared by the anchor's reference and the tile";
+    EXPECT_EQ(times_requested(n, dem_url_of(t)), attempts);
+    EXPECT_EQ(state(r), EnvironmentSourceState::STREAMING);
+    const std::string log = log_since(logFrom);
+    EXPECT_EQ(count_of(log, line), lines) << log;
+    EXPECT_EQ(log.find("api.mapbox.com"), std::string::npos) << "log lines name tiles, not URLs";
+    overlume::destroy_renderer(r);
+}
+
+}
+
+TEST(MapboxBuildings, TerrainLiftsABlockOnTheHill) {
+    auto* r = make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const TileId t = op_tile();
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    serve_dem(n, t, dem::hill_height_m);
+    // Square 10's north-west corner is the tile centre, where the hill peaks.
+    serve_square(n, overlume::mapbox::footprint_tiles_of(t)[10],
+                 {mvt::building(1, {box(0, 0, 400, 400)}, 30.0)});
+    overlume::testing::capture_stream_glbs(true);
+    // 554 m from the tile's west and north edges: the 500 m radius reaches this tile alone.
+    ASSERT_TRUE(install(r, "mapbox://buildings,terrain", anchor_at(t, 0.25, 0.25), n));
+    set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> buf(kFrameBytes);
+    ASSERT_TRUE(pump(r, buf, 400, [&] { return loaded(r) >= 1; }));
+    const std::vector<std::vector<uint8_t>> glbs = overlume::testing::captured_stream_glbs();
+    overlume::testing::capture_stream_glbs(false);
+    const std::array<double, 2> block = square_dem_px(10, 200.0, 200.0);
+    const double lift = dem::hill_height_m(block[0], block[1]) - dem::hill_height_m(128.0, 128.0);
+    ASSERT_GT(lift, 1.0) << "the fixture hill must rise from the anchor to the block";
+    const overlume::testing::MapboxSourceStats s = stats();
+    EXPECT_EQ(s.tiles_built, 1u);
+    EXPECT_EQ(s.extruded_features, 1u);
+    EXPECT_NEAR(s.max_tile_top_m, 30.0 + lift, 0.2) << "the region's top follows the block";
+    const std::optional<std::array<double, 2>> z = extrusion_z_bounds(glbs);
+    ASSERT_TRUE(z.has_value()) << "no buildings GLB was written";
+    EXPECT_NEAR((*z)[0], lift, 0.2)
+        << "the base stands on the DEM at the block's centroid, minus the anchor's DEM height";
+    EXPECT_NEAR((*z)[1], 30.0 + lift, 0.2) << "and the roof 30 m above it";
+    EXPECT_EQ(s.dem_requests, 1u) << "the anchor's reference and the tile share one request";
+    EXPECT_EQ(times_requested(n, dem_url_of(t)), 1u);
+    overlume::destroy_renderer(r);
+}
+
+TEST(MapboxBuildings, TerrainAsksOneDemPerTile) {
+    auto* r = make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const TileId d = op_tile();
+    const TileId a{14, d.x - 1, d.y - 1}, b{14, d.x, d.y - 1}, c{14, d.x - 1, d.y};
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    serve_dem(n, d, dem::hill_height_m);  // a, b and c answer 204: no DEM there
+    // 44 m into d from the corner the four tiles share: 500 m reaches all four.
+    ASSERT_TRUE(install(r, "mapbox://buildings,terrain", anchor_at(d, 0.02, 0.02), n));
+    set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> buf(kFrameBytes);
+    const auto asked = [&] {
+        size_t k = 0;
+        for (const TileId& t : {a, b, c, d}) k += requested(n).count(dem_url_of(t));
+        return k;
+    };
+    ASSERT_TRUE(pump(r, buf, 400, [&] { return asked() == 4; }))
+        << "each of the four tiles asks for its DEM; asked " << asked();
+    frames(r, buf, 20);
+    for (const TileId& t : {a, b, c, d}) {
+        EXPECT_EQ(times_requested(n, dem_url_of(t)), 1u) << tile_name(t);
+    }
+    EXPECT_EQ(stats().dem_requests, 4u)
+        << "d's DEM serves the anchor's reference and d's buildings alike";
+    overlume::destroy_renderer(r);
+}
+
+TEST(MapboxBuildings, TerrainKeepsABlockOnASlopeWithinAMetre) {
+    auto* r = make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const TileId t = op_tile();
+    const double metresPerPx = metres_per_dem_px(t);
+    const double rise = 0.05 * metresPerPx;  // a 5 % slope up to the east, per DEM pixel
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    serve_dem(n, t, [rise](double u, double) { return rise * u; });
+    // A block 20 m east-west and 10 m north-south, 12 m tall, centred 100 m east and 30 m south of
+    // the tile centre, which is square 10's north-west corner.
+    const double perM = 4096.0 / (128.0 * metresPerPx);  // square units per ground metre
+    const auto at = [perM](double m) { return static_cast<int32_t>(std::lround(m * perM)); };
+    const int32_t x0 = at(90.0), x1 = at(110.0), y0 = at(25.0), y1 = at(35.0);
+    serve_square(n, overlume::mapbox::footprint_tiles_of(t)[10],
+                 {mvt::building(1, {box(x0, y0, x1, y1)}, 12.0)});
+    overlume::testing::capture_stream_glbs(true);
+    ASSERT_TRUE(install(r, "mapbox://buildings,terrain", anchor_at(t, 0.5, 0.5), n));
+    set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> buf(kFrameBytes);
+    ASSERT_TRUE(pump(r, buf, 400, [&] { return loaded(r) >= 1; }));
+    const std::vector<std::vector<uint8_t>> glbs = overlume::testing::captured_stream_glbs();
+    overlume::testing::capture_stream_glbs(false);
+    // Terrain heights relative to the anchor's, at DEM pixel 256 (the tile centre).
+    const auto terrain = [rise](double u) { return rise * (u - 256.0); };
+    const double centroid = terrain(square_dem_px(10, 0.5 * (x0 + x1), 0.0)[0]);
+    const double west = terrain(square_dem_px(10, x0, 0.0)[0]);
+    const double east = terrain(square_dem_px(10, x1, 0.0)[0]);
+    const std::optional<std::array<double, 2>> z = extrusion_z_bounds(glbs);
+    ASSERT_TRUE(z.has_value()) << "no buildings GLB was written";
+    const double base = (*z)[0];
+    EXPECT_NEAR(base, centroid, 0.25) << "the base is the DEM at the footprint's centroid";
+    EXPECT_NEAR(stats().max_tile_top_m, base + 12.0, 0.25);
+    EXPECT_GT(base - west, 0.0) << "the downhill end floats";
+    EXPECT_LT(base - west, 1.0) << "Review Focus 3: a 20 m block on a 5 % slope floats under 1 m";
+    EXPECT_LT(east - base, 1.0) << "and its uphill end sinks under 1 m";
+    overlume::destroy_renderer(r);
+}
+
+TEST(MapboxBuildings, TerrainFloorFollowsABlockBelowTheAnchor) {
+    auto* r = make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const TileId t = op_tile();
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    serve_dem(n, t, dem::hill_height_m);
+    // The anchor stands on the 40 m peak; square 0's block is far down the hill.
+    serve_square(n, overlume::mapbox::footprint_tiles_of(t)[0],
+                 {mvt::building(1, {box(0, 0, 400, 400)}, 30.0)});
+    const std::array<double, 2> block = square_dem_px(0, 200.0, 200.0);
+    const double lift = dem::hill_height_m(block[0], block[1]) - dem::hill_height_m(256.0, 256.0);
+    ASSERT_LT(lift, -11.0) << "the block must sit more than kRegionBelowM below the anchor";
+    overlume::testing::capture_stream_glbs(true);
+    ASSERT_TRUE(install(r, "mapbox://buildings,terrain", anchor_at(t, 0.5, 0.5), n));
+    set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> buf(kFrameBytes);
+    ASSERT_TRUE(pump(r, buf, 400, [&] { return loaded(r) >= 1; }));
+    const std::vector<std::vector<uint8_t>> glbs = overlume::testing::captured_stream_glbs();
+    overlume::testing::capture_stream_glbs(false);
+    EXPECT_NEAR(stats().min_tile_floor_m, lift - 10.0, 0.2)
+        << "the region's floor is kRegionBelowM (10 m) under the lowest lifted base";
+    const std::optional<std::array<double, 2>> z = extrusion_z_bounds(glbs);
+    ASSERT_TRUE(z.has_value()) << "no buildings GLB was written";
+    EXPECT_NEAR((*z)[0], lift, 0.2);
+    overlume::destroy_renderer(r);
+}
+
+TEST(MapboxBuildings, TerrainLiftsLandmarkNodes) {
+    auto* r = make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const TileId t = downtown_tile();
+    const double rise = 0.05 * metres_per_dem_px(t);  // 5 % up to the east
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    serve_downtown(n, t,
+                   glb::build_landmark_glb({landmark_at(t, 7, kOverSquare10, kOverSquare10)},
+                                           glb::GlbOptions{}));
+    serve_dem(n, t, [rise](double u, double) { return rise * u; });
+    overlume::testing::capture_stream_glbs(true);
+    ASSERT_TRUE(install(r, "mapbox://buildings,terrain", anchor_at(t, 0.5, 0.5), n));
+    set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> buf(kFrameBytes);
+    ASSERT_TRUE(pump(r, buf, 400, [&] { return loaded(r) >= 1; }));
+    const std::vector<std::vector<uint8_t>> glbs = overlume::testing::captured_stream_glbs();
+    overlume::testing::capture_stream_glbs(false);
+    // The node's anchor lies 37.5 DEM pixels east of the tile centre, the anchor's pixel.
+    const double lift = rise * (kOverSquare10 / 8192.0 * 512.0 - 256.0);
+    const overlume::testing::MapboxSourceStats s = stats();
+    EXPECT_EQ(s.landmark_nodes, 1u);
+    EXPECT_NEAR(s.max_tile_top_m, 100.0 + lift, 0.2)
+        << "the region reaches the landmark's 100 m roof on the DEM at its node's anchor";
+    std::optional<std::array<double, 16>> m;
+    for (const std::vector<uint8_t>& glb : glbs) {
+        if ((m = json_numbers<16>(glb, "matrix"))) break;
+    }
+    ASSERT_TRUE(m.has_value()) << "no GLB carries the landmark node's matrix";
+    EXPECT_NEAR((*m)[14], lift, 0.2) << "the node itself is lifted, not only the region";
+    overlume::destroy_renderer(r);
+}
+
+TEST(MapboxBuildings, TerrainRetriesAFailingDem) {
+    auto* r = make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    FrozenRetryClock clock;
+    const TileId t = op_tile();
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    overlume::testing::mapbox_fixture_serve(n, dem_url_of(t), 503, {});
+    serve_square(n, overlume::mapbox::footprint_tiles_of(t)[10],
+                 {mvt::building(1, {box(0, 0, 400, 400)}, 30.0)});
+    overlume::testing::capture_stream_glbs(true);
+    ASSERT_TRUE(install(r, "mapbox://buildings,terrain", anchor_at(t, 0.25, 0.25), n));
+    set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> buf(kFrameBytes);
+    ASSERT_TRUE(pump(r, buf, 100, [] { return stats().retries >= 1; }))
+        << "a DEM failing for now must send the tile back, not build it at z = 0";
+    EXPECT_EQ(loaded(r), 0u);
+    serve_dem(n, t, dem::hill_height_m);
+    // The cache shares a failure for 1 s of steady time; the retry clock is frozen.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    clock.set(kAttempt2AtS);
+    ASSERT_TRUE(pump(r, buf, 400, [&] { return loaded(r) >= 1; }));
+    const std::vector<std::vector<uint8_t>> glbs = overlume::testing::captured_stream_glbs();
+    overlume::testing::capture_stream_glbs(false);
+    const std::array<double, 2> block = square_dem_px(10, 200.0, 200.0);
+    const double lift = dem::hill_height_m(block[0], block[1]) - dem::hill_height_m(128.0, 128.0);
+    const std::optional<std::array<double, 2>> z = extrusion_z_bounds(glbs);
+    ASSERT_TRUE(z.has_value()) << "no buildings GLB was written";
+    EXPECT_NEAR((*z)[0], lift, 0.2) << "attempt 2 builds the block on the DEM that answered";
+    const overlume::testing::MapboxSourceStats s = stats();
+    EXPECT_EQ(s.retries, 1u);
+    EXPECT_EQ(s.dem_requests, 2u) << "one request per attempt";
+    EXPECT_EQ(times_requested(n, dem_url_of(t)), 2u);
+    overlume::destroy_renderer(r);
+}
+
+TEST(MapboxBuildings, MissingDemLeavesBuildingsAtGround) {
+    expect_buildings_at_ground(404, {}, "terrain-DEM", 0u);
+}
+
+TEST(MapboxBuildings, MalformedDemLeavesBuildingsAtGroundAndLogsOnce) {
+    const std::string html = "<!DOCTYPE html><html><body>Service Unavailable</body></html>";
+    expect_buildings_at_ground(200, std::vector<uint8_t>(html.begin(), html.end()),
+                               "mapbox:// terrain tile " + tile_name(op_tile()) + " skipped: ", 1u);
+}
+
+TEST(MapboxBuildings, FailingDemLeavesBuildingsAtGroundAndLogsOnce) {
+    expect_buildings_at_ground(
+        503, {}, "mapbox: terrain-DEM failing (HTTP 503) at tile " + tile_name(op_tile()), 1u, 3u);
+}
+
+TEST(MapboxBuildings, RejectedDemLeavesBuildingsAtGroundAndLogsOnce) {
+    expect_buildings_at_ground(401, {}, "Mapbox rejected MAPBOX_TOKEN (HTTP 401) for terrain-DEM",
+                               1u);
+}
+
+TEST(MapboxBuildings, DemCacheKeepsTheThirtyTwoMostRecentTiles) {
+    auto* n = overlume::testing::make_mapbox_fixture_network(404);  // empty answers are cached
+    const TileId t = op_tile();
+    std::vector<std::array<uint32_t, 2>> order;
+    for (uint32_t i = 0; i < 32; ++i) order.push_back({t.x + i, t.y});
+    for (uint32_t i : {0u, 32u, 0u, 1u}) order.push_back({t.x + i, t.y});
+    std::vector<uint64_t> want;
+    for (uint64_t i = 1; i <= 32; ++i) want.push_back(i);
+    // The touch of 0 is a hit; 32 evicts 1, the least recent; 0 survives through the splice; 1 is
+    // asked again.
+    want.insert(want.end(), {32, 33, 33, 34});
+    EXPECT_EQ(overlume::testing::mapbox_dem_cache_requests(n, order), want);
 }
 
 namespace {

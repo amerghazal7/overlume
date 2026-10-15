@@ -4,6 +4,7 @@
 #include "mapbox_loader.hpp"
 
 #include "environment_stream.hpp"
+#include "mapbox_dem_cache.hpp"
 #include "mapbox_extrude.hpp"
 #include "mapbox_landmarks.hpp"
 #include "mapbox_mvt.hpp"
@@ -18,9 +19,14 @@
 #include <Cesium3DTilesSelection/TilesetContentLoader.h>
 #include <CesiumCurl/CurlAssetAccessor.h>
 #include <CesiumGeometry/QuadtreeTileID.h>
+#include <CesiumGeospatial/Cartographic.h>
 #include <CesiumGeospatial/Ellipsoid.h>
 #include <CesiumGltf/Model.h>
+#include <CesiumRasterOverlays/UrlTemplateRasterOverlay.h>
 #include <CesiumUtility/Gzip.h>
+#include <CesiumUtility/IntrusivePointer.h>
+
+#include <glm/gtc/type_ptr.hpp>
 
 #include <spdlog/spdlog.h>
 
@@ -33,8 +39,20 @@
 #include <exception>
 #include <limits>
 #include <mutex>
+#include <numbers>
+#include <optional>
 #include <span>
 #include <variant>
+
+namespace overlume::mapbox {
+
+// mapbox_terrain_loader.cpp: the terrain-DEM quadtree (loader and root) over `dem`, counting its
+// built tiles into `tiles_built`.
+CustomTileset make_mapbox_terrain_tileset(std::shared_ptr<DemCache> dem, const GeoAnchor& anchor,
+                                          std::shared_ptr<std::atomic<uint64_t>> tiles_built,
+                                          std::shared_ptr<std::atomic<uint64_t>> retries);
+
+}
 
 namespace overlume::mapbox {
 
@@ -149,6 +167,20 @@ std::string landmark_url(uint32_t x14, uint32_t y14) {
            std::to_string(x14) + "/" + std::to_string(y14) + ".glb";
 }
 
+// Mapbox Satellite, 512 px JPEG tiles; in the UAE the detail stops near z18.
+constexpr char kSatelliteTemplate[] =
+    "https://api.mapbox.com/v4/mapbox.satellite/{z}/{x}/{y}@2x.jpg90";
+constexpr uint32_t kSatelliteMaxLevel = 18;
+constexpr uint32_t kSatelliteTilePx = 512;
+constexpr char kSatelliteCredit[] = "\xC2\xA9 Maxar";
+
+// The overlay's template: cesium's {y} counts rows from the south (QuadtreeTilingScheme.cpp:74)
+// and Mapbox's XYZ y from the north, which is cesium's {reverseY}.
+std::string satellite_overlay_template() {
+    std::string url = kSatelliteTemplate;
+    return url.replace(url.find("{y}"), 3, "{reverseY}");
+}
+
 // A shell export can leave spaces or a newline around the token; a request URL must not carry them.
 std::string trim_ascii_whitespace(const std::string& s) {
     constexpr char kWhitespace[] = " \t\n\v\f\r";
@@ -167,6 +199,15 @@ struct LoaderState : SourceLog {
     std::atomic<uint64_t> wall_quads{0};
     std::atomic<double> max_build_ms{0.0};
     std::atomic<double> max_tile_top_m{0.0};
+    std::atomic<double> min_tile_floor_m{0.0};
+    // The source's DEM cache when the layer list carries `terrain`, for dem_requests; the loaders
+    // own it.
+    std::weak_ptr<const DemCache> dem;
+    // Terrain z14 tiles built, counted by the terrain loader (mapbox_terrain_loader.cpp).
+    std::shared_ptr<std::atomic<uint64_t>> terrain_tiles_built =
+        std::make_shared<std::atomic<uint64_t>>(0);
+    std::shared_ptr<std::atomic<uint64_t>> terrain_retries =
+        std::make_shared<std::atomic<uint64_t>>(0);
 
     void note_build_ms(double ms) {
         double seen = max_build_ms.load();
@@ -177,6 +218,12 @@ struct LoaderState : SourceLog {
     void note_top_m(double top) {
         double seen = max_tile_top_m.load();
         while (top > seen && !max_tile_top_m.compare_exchange_weak(seen, top)) {
+        }
+    }
+
+    void note_floor_m(double floor) {
+        double seen = min_tile_floor_m.load();
+        while (floor < seen && !min_tile_floor_m.compare_exchange_weak(seen, floor)) {
         }
     }
 };
@@ -320,17 +367,38 @@ double landmark_top_m(const CesiumGltf::Model& model) {
     return top;
 }
 
+// (u, v) in units of z16 square `square` (`extent` per edge) → DEM pixels of its z14 tile t14.
+std::array<double, 2> square_to_dem_px(const TileId& square, const TileId& t14, double u, double v,
+                                       double extent) {
+    constexpr double kPxPerSquare = kDemSize / 4.0;
+    return {(static_cast<double>(square.x - 4 * t14.x) + u / extent) * kPxPerSquare,
+            (static_cast<double>(square.y - 4 * t14.y) + v / extent) * kPxPerSquare};
+}
+
+// The DEM pixel under tile-frame point (x, y, z) of frame f's z14 tile: frame → ECEF → longitude
+// and latitude, project_to_frame inverted.
+std::array<double, 2> frame_to_dem_px(const TileFrame& f, double x, double y, double z) {
+    const glm::dvec4 ecef = glm::make_mat4(f.frame_to_ecef.data()) * glm::dvec4(x, y, z, 1.0);
+    const std::optional<CesiumGeospatial::Cartographic> c =
+        CesiumGeospatial::Ellipsoid::WGS84.cartesianToCartographic(glm::dvec3(ecef));
+    if (!c) return {kDemSize / 2.0, kDemSize / 2.0};
+    constexpr double kDegPerRad = 180.0 / std::numbers::pi;
+    return dem_pixel_of(LonLatDeg{c->longitude * kDegPerRad, c->latitude * kDegPerRad}, f.tile);
+}
+
 // Worker thread: one z14 tile from its answers, in request order.
 TileLoadResult build_tile(const LoaderConfig& cfg, LoaderState& st, const TileId& t14,
                           uint32_t attempt, std::atomic<bool>& settled,
-                          const std::vector<Fetched>& fetched,
+                          const std::vector<Fetched>& fetched, const Rebase& rebase,
                           const std::shared_ptr<CesiumAsync::IAssetAccessor>& accessor,
                           spdlog::logger& log, const CesiumGeospatial::Ellipsoid& ellipsoid) {
     const auto started = std::chrono::steady_clock::now();
     const bool transient = std::any_of(fetched.begin(), fetched.end(), [](const Fetched& f) {
         return classify(f) == Outcome::Transient;
     });
-    if (transient && attempt < kMaxAttempts) {
+    // On the terrain layer a DEM failing for now sends the tile back too: built at z = 0, its
+    // buildings would stay buried or floating once the DEM answers.
+    if ((transient || rebase.retry) && attempt < kMaxAttempts) {
         ++st.retries;
         return TileLoadResult::createRetryLaterResult(accessor, nullptr);
     }
@@ -355,11 +423,28 @@ TileLoadResult build_tile(const LoaderConfig& cfg, LoaderState& st, const TileId
     } else {
         note_status(st, log, kLandmarks, glb, t14);
     }
+    // On the terrain layer each landmark node stands on the DEM at its anchor, the node's origin:
+    // its matrix's third column is the local up per metre (landmark_node_to_frame).
+    double low = 0.0;           // the lowest lift, for the region's floor
+    double landmarkLift = 0.0;  // the highest node lift, for the region's top
+    if (landmarks.ok && rebase.active()) {
+        bool first = true;
+        for (CesiumGltf::Node& node : landmarks.model.nodes) {
+            if (node.matrix.size() != 16) continue;
+            const std::array<double, 2> px =
+                frame_to_dem_px(frame, node.matrix[12], node.matrix[13], node.matrix[14]);
+            const double lift = rebase.lift(px[0], px[1]);
+            for (size_t i = 0; i < 3; ++i) node.matrix[12 + i] += lift * node.matrix[8 + i];
+            landmarkLift = first ? lift : std::max(landmarkLift, lift);
+            low = std::min(low, lift);
+            first = false;
+        }
+    }
     TriangleMesh mesh;
     uint64_t extruded = 0;
     uint64_t conflated = 0;
     uint64_t walls = 0;
-    double top = landmarks.ok ? landmark_top_m(landmarks.model) : 0.0;
+    double top = landmarks.ok ? landmark_top_m(landmarks.model) + landmarkLift : 0.0;
     for (size_t i = 0; i < squares.size(); ++i) {
         const TileId& square = squares[i];
         const MvtBuildingLayer layer = read_square(st, log, fetched[i], square, t14);
@@ -375,26 +460,36 @@ TileLoadResult build_tile(const LoaderConfig& cfg, LoaderState& st, const TileId
                 continue;
             }
             const std::vector<TilePolygon> polygons = to_tile_polygons(b.polygons);
+            const std::optional<std::array<double, 2>> c = footprint_centroid(polygons);
             // A landmark model replaces the extrusion whose unclipped footprint centroid it
             // covers, as GL JS does. read_landmark_tile returns an empty tile on every failure,
             // which is what the tests pin; this ok check and the merge's are belt and braces.
-            if (landmarks.ok) {
-                if (const std::optional<std::array<double, 2>> c = footprint_centroid(polygons)) {
-                    const std::array<double, 3> p = project((*c)[0], (*c)[1], 0.0);
-                    if (inside_any_footprint(landmarks.footprint_triangles, p[0], p[1])) {
-                        ++conflated;
-                        continue;
-                    }
+            if (landmarks.ok && c) {
+                const std::array<double, 3> p = project((*c)[0], (*c)[1], 0.0);
+                if (inside_any_footprint(landmarks.footprint_triangles, p[0], p[1])) {
+                    ++conflated;
+                    continue;
                 }
+            }
+            // On the terrain layer the footprint stands on the DEM at its unclipped centroid,
+            // flat-bottomed (spec section 12). ponytail: one base per square's copy, so a building
+            // cut by a z16 square edge on a slope steps at the cut; key the lift by feature id
+            // across the tile's squares if that shows.
+            double lift = 0.0;
+            if (rebase.active() && c) {
+                const std::array<double, 2> px =
+                    square_to_dem_px(square, t14, (*c)[0], (*c)[1], extent);
+                lift = rebase.lift(px[0], px[1]);
             }
             // Clipping to the square's own extent drops the tile buffer, so the copies of a
             // building in neighbouring squares meet without doubled walls.
             const ExtrudeStats es =
-                extrude_polygons(polygons, extent, base, *b.height, project, mesh);
+                extrude_polygons(polygons, extent, base + lift, *b.height + lift, project, mesh);
             if (es.polygons_built == 0) continue;
             ++extruded;
             walls += es.wall_quads;
-            top = std::max(top, *b.height);
+            top = std::max(top, *b.height + lift);
+            low = std::min(low, lift);
         }
     }
     st.extruded_features += extruded;
@@ -413,10 +508,13 @@ TileLoadResult build_tile(const LoaderConfig& cfg, LoaderState& st, const TileId
     if (!mesh.indices.empty()) append_extrusions(model, mesh);
     if (haveLandmarks) st.landmark_nodes += landmarks.buildings_kept;
     ++st.tiles_built;
+    // From the lowest lifted base (kRegionBelowM under it, as before) to the highest top.
+    const double floor = low - kRegionBelowM;
     st.note_top_m(top);
+    st.note_floor_m(floor);
     return success(
         std::move(model),
-        tile_region(t14, cfg.origin_height_m - kRegionBelowM, cfg.origin_height_m + top, ellipsoid),
+        tile_region(t14, cfg.origin_height_m + floor, cfg.origin_height_m + top, ellipsoid),
         accessor, ellipsoid);
 }
 
@@ -424,14 +522,22 @@ TileLoadResult build_tile(const LoaderConfig& cfg, LoaderState& st, const TileId
 // footprints and landmarks.
 class MapboxBuildingsLoader final : public Cesium3DTilesSelection::TilesetContentLoader {
 public:
+    // `dem` is the source's DemCache when the layer list carries `terrain`, else null; without
+    // `buildings` in the list the tileset stays empty and requests nothing.
     MapboxBuildingsLoader(std::shared_ptr<const LoaderConfig> config,
-                          std::shared_ptr<LoaderState> state)
-        : config_(std::move(config)), state_(std::move(state)) {}
+                          std::shared_ptr<LoaderState> state, std::shared_ptr<DemCache> dem,
+                          LonLatDeg anchor, bool buildings)
+        : config_(std::move(config)),
+          state_(std::move(state)),
+          dem_(std::move(dem)),
+          anchor_(anchor),
+          buildings_(buildings) {}
 
     CesiumAsync::Future<TileLoadResult> loadTileContent(const TileLoadInput& input) override {
         const auto* id = std::get_if<CesiumGeometry::QuadtreeTileID>(&input.tile.getTileID());
-        if (id == nullptr || id->level != kLandmarkZoom) {
-            // Levels 0-13 hold nothing; cesium may unload an empty tile and ask for it again.
+        if (id == nullptr || id->level != kLandmarkZoom || !buildings_) {
+            // Levels 0-13 hold nothing, and no level does when the layer list lacks `buildings`;
+            // cesium may unload an empty tile and ask for it again.
             return input.asyncSystem.createResolvedFuture(
                 success(TileEmptyContent{}, std::nullopt, input.pAssetAccessor, input.ellipsoid));
         }
@@ -453,14 +559,24 @@ public:
         }
         requests.push_back(fetch(input.asyncSystem, input.pAssetAccessor,
                                  landmark_url(t14.x, t14.y) + query));  // kLandmarkIndex
-        return input.asyncSystem.all(std::move(requests))
-            .thenInWorkerThread([config = config_, state = state_, t14, attempt,
-                                 settled = a.settled, accessor = input.pAssetAccessor,
-                                 logger = input.pLogger,
-                                 ellipsoid = input.ellipsoid](std::vector<Fetched>&& fetched) {
-                return build_tile(*config, *state, t14, attempt, *settled, fetched, accessor,
+        // With the terrain layer the build also waits for the tile's DEM and the anchor's
+        // height; without it, for nothing.
+        CesiumAsync::SharedFuture<Rebase> rebase =
+            dem_ ? rebase_of(dem_, t14, anchor_)
+                 : input.asyncSystem.createResolvedFuture(Rebase{}).share();
+        CesiumAsync::SharedFuture<std::vector<Fetched>> answers =
+            input.asyncSystem.all(std::move(requests)).share();
+        return rebase.thenImmediately([answers, config = config_, state = state_, t14, attempt,
+                                       settled = a.settled, accessor = input.pAssetAccessor,
+                                       logger = input.pLogger,
+                                       ellipsoid = input.ellipsoid](const Rebase& r) mutable {
+            return answers.thenInWorkerThread([r, config, state, t14, attempt, settled, accessor,
+                                               logger,
+                                               ellipsoid](const std::vector<Fetched>& fetched) {
+                return build_tile(*config, *state, t14, attempt, *settled, fetched, r, accessor,
                                   *logger, ellipsoid);
             });
+        });
     }
 
     TileChildrenResult createTileChildren(const Tile& tile,
@@ -471,6 +587,12 @@ public:
 private:
     std::shared_ptr<const LoaderConfig> config_;
     std::shared_ptr<LoaderState> state_;
+    // Null without the terrain layer.
+    std::shared_ptr<DemCache> dem_;
+    // The map origin, whose DEM height is z = 0.
+    LonLatDeg anchor_;
+    // The layer list carries `buildings`.
+    bool buildings_ = true;
     AttemptBook attempts_;  // main thread only: cesium calls loadTileContent there
 };
 
@@ -507,16 +629,60 @@ std::unique_ptr<EnvironmentSource> open_mapbox_source(
         std::lock_guard<std::mutex> lock(g_lastStateMutex);
         g_lastState = state;
     }
+    // The terrain layer: one DEM per z14 tile, shared by the source's loaders and never on disk
+    // (the accessor is the cache-off counting one).
+    const std::string query = "?access_token=" + token;
+    std::shared_ptr<DemCache> dem;
+    if (spec.terrain) {
+        dem = std::make_shared<DemCache>(externals.pAssetAccessor, asyncSystem,
+                                         std::string(kDemUrlTemplate) + query, log);
+        state->dem = dem;
+    }
     auto loader = std::make_unique<MapboxBuildingsLoader>(
         std::make_shared<const LoaderConfig>(
             LoaderConfig{std::move(token), spec.materials_original, anchor.origin_height_m}),
-        std::move(state));
+        state, dem, LonLatDeg{anchor.origin_lon_deg, anchor.origin_lat_deg}, spec.buildings);
     std::unique_ptr<Tile> root = quadtree_root(*loader, anchor.origin_height_m);
-    // Buildings only: never follows terrain, never replaces the ground plane.
-    return std::make_unique<StreamingEnvironmentSource>(
+    // With the terrain layer the shared transform follows the terrain under the ego and the
+    // terrain owns the ground; buildings alone do neither.
+    const bool followTerrain = spec.terrain;
+    const bool replacesGround = spec.terrain;
+    auto source = std::make_unique<StreamingEnvironmentSource>(
         externals, 0, std::string(), std::string(), spec.fallback_dir, anchor, std::move(counting),
-        spec.materials_original, false, 0.3, false, 2.0, spec.brightness, spec.radius_m,
-        CustomTileset{std::move(loader), std::move(root), true});
+        spec.materials_original, followTerrain, 0.3, replacesGround, 2.0, spec.brightness,
+        spec.radius_m, CustomTileset{std::move(loader), std::move(root), true});
+    if (!spec.terrain) return source;
+
+    // The terrain tileset: the source's externals (the counting accessor, so imagery failures
+    // count toward network loss; the redacting logger, which masks the token in cesium's failure
+    // lines; the task processor and the credit system), renderer resources of its own
+    // (terrain.mat and the overlay callbacks), area-selected as the buildings are.
+    auto resources = std::make_shared<StreamRendererResources>(
+        compute_ecef_to_map(anchor), anchor.origin_height_m, false, spec.brightness,
+        StreamRendererResources::Kind::Terrain);
+    Cesium3DTilesSelection::TilesetExternals terrainExternals = externals;
+    terrainExternals.pPrepareRendererResources = resources;
+    Cesium3DTilesSelection::TilesetOptions options;
+    options.maximumScreenSpaceError = kStreamMaxSseErr;
+    options.preloadSiblings = false;
+    CustomTileset terrainTiles = make_mapbox_terrain_tileset(
+        dem, anchor, state->terrain_tiles_built, state->terrain_retries);
+    auto terrain = std::make_unique<Cesium3DTilesSelection::Tileset>(
+        terrainExternals, std::move(terrainTiles.loader), std::move(terrainTiles.root), options);
+    if (spec.imagery_satellite) {
+        // The token rides in the query string, which cesium's template substitution leaves alone.
+        CesiumRasterOverlays::UrlTemplateRasterOverlayOptions imagery;
+        imagery.maximumLevel = kSatelliteMaxLevel;
+        imagery.tileWidth = kSatelliteTilePx;
+        imagery.tileHeight = kSatelliteTilePx;
+        imagery.credit = kSatelliteCredit;
+        terrain->getOverlays().add(
+            CesiumUtility::IntrusivePointer<const CesiumRasterOverlays::RasterOverlay>(
+                new CesiumRasterOverlays::UrlTemplateRasterOverlay(
+                    "mapbox-satellite", satellite_overlay_template() + query, {}, imagery)));
+    }
+    source->attach_terrain(std::move(terrain), std::move(resources));
+    return source;
 }
 
 }
@@ -573,6 +739,10 @@ std::string mapbox_footprint_url(uint32_t x16, uint32_t y16) {
     return overlume::mapbox::footprint_url(x16, y16);
 }
 
+std::string mapbox_satellite_url(uint32_t z, uint32_t x, uint32_t y) {
+    return overlume::mapbox::fill_tile_template(overlume::mapbox::kSatelliteTemplate, {z, x, y});
+}
+
 bool install_fixture_mapbox_source(overlume::VisualRenderer* r, const char* mapbox_uri,
                                    overlume::GeoAnchor anchor, MapboxFixtureNetwork* n,
                                    const char* token) {
@@ -605,6 +775,25 @@ MapboxSourceStats mapbox_last_source_stats() {
     out.max_build_ms = state->max_build_ms.load();
     out.wall_quads = state->wall_quads.load();
     out.max_tile_top_m = state->max_tile_top_m.load();
+    out.min_tile_floor_m = state->min_tile_floor_m.load();
+    if (const std::shared_ptr<const overlume::mapbox::DemCache> dem = state->dem.lock()) {
+        out.dem_requests = dem->requests();
+    }
+    out.terrain_tiles_built = state->terrain_tiles_built->load();
+    out.terrain_retries = state->terrain_retries->load();
+    return out;
+}
+
+std::vector<uint64_t> mapbox_dem_cache_requests(MapboxFixtureNetwork* n,
+                                                const std::vector<std::array<uint32_t, 2>>& tiles) {
+    using namespace overlume::mapbox;
+    DemCache cache(n->accessor, CesiumAsync::AsyncSystem(std::make_shared<SimpleTaskProcessor>()),
+                   std::string(kDemUrlTemplate) + "?access_token=t", make_redacting_logger());
+    std::vector<uint64_t> out;
+    for (const std::array<uint32_t, 2>& t : tiles) {
+        cache.get({kLandmarkZoom, t[0], t[1]}).wait();
+        out.push_back(cache.requests());
+    }
     return out;
 }
 
