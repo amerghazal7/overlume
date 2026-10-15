@@ -106,6 +106,10 @@ history or environment:
 MAPBOX_TOKEN=<your token> python3 bake_environment.py --anchor-lat ... --anchor-lon ... --out DIR
 ```
 
+This bake fallback is not the runtime `mapbox://` environment source, which
+streams Mapbox buildings while the node runs and never stores them; see
+[`mapbox.md`](mapbox.md).
+
 ## Output contract
 
 ```
@@ -161,9 +165,11 @@ Five node parameters, all declared at `on_configure()`:
   ion asset id, read back by the vcam GUI/WS bridge to resolve its "clipped"
   preset — the node itself never dereferences it.
 
-(`environment_attribution`, a sixth `environment_*` param controlling the
-Google 3D Tiles attribution line, is unrelated to source selection — see
-`cesium.md`.)
+(`environment_attribution`, a sixth `environment_*` param, gates the Google 3D
+Tiles attribution line and, for `mapbox://` sources, the Mapbox logo and text;
+it is unrelated to source selection — see `cesium.md` and `mapbox.md`.
+`environment_attribution_logo_path` names the Mapbox logo file; empty means
+the installed logo.)
 
 At `on_activate()` the node applies a three-way gate before calling
 `overlume::set_environment_source()`:
