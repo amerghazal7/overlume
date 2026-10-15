@@ -170,6 +170,7 @@ def main() -> int:
         theme_dir = _param_get("theme_assets_dir")
         hud_font = _param_get("hud_font_path")
         ego_path = _param_get("ego_model_path")
+        logo_path = _param_get("environment_attribution_logo_path")
 
         if not theme_dir.startswith(SHARE_DIR):
             print(f"FAIL: theme_assets_dir '{theme_dir}' does not start with "
@@ -178,6 +179,10 @@ def main() -> int:
         if not hud_font.startswith(SHARE_DIR):
             print(f"FAIL: hud_font_path '{hud_font}' does not start with "
                   f"installed share dir '{SHARE_DIR}'.", file=sys.stderr)
+            return 1
+        if not logo_path.startswith(SHARE_DIR):
+            print(f"FAIL: environment_attribution_logo_path '{logo_path}' does not start "
+                  f"with installed share dir '{SHARE_DIR}'.", file=sys.stderr)
             return 1
         ego_resolved = ego_path.startswith(SHARE_DIR)
         ego_empty = ego_path == ""
@@ -191,12 +196,17 @@ def main() -> int:
             print(f"FAIL: unexpected theme-fallback WARN in log:\n{log_text[-3000:]}",
                   file=sys.stderr)
             return 1
+        if "Mapbox logo" in log_text:
+            print(f"FAIL: the installed Mapbox logo did not load:\n{log_text[-3000:]}",
+                  file=sys.stderr)
+            return 1
         if ego_resolved and "set_ego_model: failed to load" in log_text:
             print(f"FAIL: ego path resolved but the model fell back to the "
                   f"clay box:\n{log_text[-3000:]}", file=sys.stderr)
             return 1
         print(f"PASS (1/3): theme_assets_dir='{theme_dir}', hud_font_path='{hud_font}', "
-              f"ego_model_path='{ego_path}' (resolved={ego_resolved}), no fallback WARN.")
+              f"ego_model_path='{ego_path}' (resolved={ego_resolved}), "
+              f"environment_attribution_logo_path='{logo_path}', no fallback WARN.")
     finally:
         _kill(proc)
         os.remove(log1)

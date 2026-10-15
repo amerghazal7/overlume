@@ -62,6 +62,7 @@
     environment_brightness: 1.0
     environment_tile_radius_m: 700.0
     environment_attribution: true
+    environment_attribution_logo_path: ""
     bowl_enabled: true
     n_cameras: 6
     image_topics:

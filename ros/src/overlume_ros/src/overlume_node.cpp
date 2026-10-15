@@ -451,6 +451,22 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     environment_brightness_ = declare_parameter<double>("environment_brightness", 1.0);
     environment_tile_radius_m_ = declare_parameter<double>("environment_tile_radius_m", 700.0);
     environment_attribution_ = declare_parameter<bool>("environment_attribution", true);
+    auto logo_path = declare_parameter<std::string>("environment_attribution_logo_path", "");
+    if (logo_path.empty()) {
+        const std::string installed_logo =
+            ament_index_cpp::get_package_share_directory("overlume_ros") +
+            "/assets/attribution/mapbox-logo.png";
+        if (std::ifstream(installed_logo).good()) {
+            logo_path = installed_logo;
+        }
+    }
+    set_parameter(rclcpp::Parameter("environment_attribution_logo_path", logo_path));
+    if (!LoadPngRgba(logo_path.c_str(), mapbox_logo_)) {
+        RCLCPP_WARN(get_logger(),
+                    "environment attribution: Mapbox logo '%s' is missing or not a PNG -- "
+                    "mapbox:// sources show the attribution text without the logo",
+                    logo_path.c_str());
+    }
     environment_own_asset_uri_ = declare_parameter<std::string>("environment_own_asset_uri", "");
 
     frame_transformer_ = std::make_unique<FrameTransformer>(*tf_buffer_, "map", flatten_z);
@@ -1314,24 +1330,30 @@ void OverlumeNode::timer_callback() {
         }
     }
 
-    if (environment_effectively_visible(render_mode, environment_enabled_) &&
-        environment_attribution_ &&
-        environment_source_uri_.find("materials=original") != std::string::npos &&
-        overlume::environment_source_state(renderer_) ==
-            overlume::EnvironmentSourceState::STREAMING) {
+    const AttributionKind attribution = environment_attribution_kind(
+        environment_effectively_visible(render_mode, environment_enabled_),
+        environment_attribution_, environment_source_uri_,
+        overlume::environment_source_state(renderer_));
+    if (attribution != AttributionKind::NONE) {
         const overlume::HudColors hud_colors = overlume::get_hud_colors(renderer_);
-        if (!overlume::ros::DrawText(
-                frame_buf_.data(), static_cast<uint32_t>(out_width_),
-                static_cast<uint32_t>(out_height_), "3D Tiles data (c) Google", 8.0f,
-                static_cast<float>(out_height_) - 8.0f,
-                overlume::ros::HudRgb{hud_colors.text_color[0], hud_colors.text_color[1],
-                                      hud_colors.text_color[2]},
-                hud_colors.scale, hud_font_path_.c_str()) &&
-            !environment_attribution_warned_) {
+        const overlume::ros::HudRgb text_rgb{hud_colors.text_color[0], hud_colors.text_color[1],
+                                             hud_colors.text_color[2]};
+        const uint32_t w = static_cast<uint32_t>(out_width_);
+        const uint32_t h = static_cast<uint32_t>(out_height_);
+        const bool drawn =
+            attribution == AttributionKind::MAPBOX
+                ? overlume::ros::CompositeAttribution(frame_buf_.data(), w, h, mapbox_logo_,
+                                                      kMapboxAttributionText, text_rgb,
+                                                      hud_colors.scale, hud_font_path_.c_str())
+                : overlume::ros::DrawText(frame_buf_.data(), w, h, "3D Tiles data (c) Google", 8.0f,
+                                          static_cast<float>(out_height_) - 8.0f, text_rgb,
+                                          hud_colors.scale, hud_font_path_.c_str());
+        if (!drawn && !environment_attribution_warned_) {
             RCLCPP_WARN(get_logger(),
                         "environment attribution: failed to load/use font '%s' -- "
-                        "Google attribution not drawn this run",
-                        hud_font_path_.c_str());
+                        "%s attribution text not drawn this run",
+                        hud_font_path_.c_str(),
+                        attribution == AttributionKind::MAPBOX ? "Mapbox" : "Google");
             environment_attribution_warned_ = true;
         }
     }
