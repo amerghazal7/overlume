@@ -50,6 +50,7 @@ void mapbox_fixture_release_held(MapboxFixtureNetwork* n);
 std::vector<std::string> mapbox_fixture_requested_urls(MapboxFixtureNetwork* n);
 std::string mapbox_landmark_url(uint32_t x14, uint32_t y14);   // no query string
 std::string mapbox_footprint_url(uint32_t x16, uint32_t y16);  // no query string
+std::string mapbox_dem_url(uint32_t x14, uint32_t y14);        // no query string
 // Opens a mapbox:// URI exactly as set_environment_source does (parse, source, set_visible,
 // teardown of the old source, swap), but over `n` and with `token` in place of MAPBOX_TOKEN.
 bool install_fixture_mapbox_source(overlume::VisualRenderer* r, const char* mapbox_uri,
@@ -70,6 +71,8 @@ struct MapboxSourceStats {
     uint64_t wall_quads = 0;          // wall quads of the extruded features, summed
     // Highest region top over built tiles, metres above the anchor ground.
     double max_tile_top_m = 0.0;
+    // DEM tiles the source's DemCache requested (terrain layer); 0 once the source is torn down.
+    uint64_t dem_requests = 0;
 };
 // The counters of the most recently opened Mapbox source in this process.
 MapboxSourceStats mapbox_last_source_stats();
