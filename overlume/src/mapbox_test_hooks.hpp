@@ -71,6 +71,8 @@ struct MapboxSourceStats {
     uint64_t retries = 0;             // attempts that ended in RetryLater (waits not counted)
     double max_build_ms = 0.0;        // slowest tile build, worker time
     uint64_t wall_quads = 0;          // wall quads of the extruded features, summed
+    // Highest region top over built tiles, metres above the anchor ground (Task 14).
+    double max_tile_top_m = 0.0;
 };
 // The counters of the most recently opened Mapbox source in this process.
 MapboxSourceStats mapbox_last_source_stats();

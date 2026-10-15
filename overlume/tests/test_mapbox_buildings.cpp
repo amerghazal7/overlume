@@ -784,6 +784,8 @@ TEST(MapboxBuildings, LandmarkReplacesTheExtrusionBeneathIt) {
     EXPECT_EQ(s.landmark_nodes, 1u);
     EXPECT_EQ(s.conflated_features, 1u) << "square 5's box stands under the landmark footprint";
     EXPECT_EQ(s.extruded_features, kDowntownFeatures - 1) << "its neighbour 81 m east stays";
+    EXPECT_DOUBLE_EQ(s.max_tile_top_m, 100.0)
+        << "the region reaches the landmark's 100 m roof, not the 15 m extrusions";
     ASSERT_EQ(glbs.size(), 1u);
     const std::string json = glb_json(glbs[0]);
     EXPECT_EQ(count_of(json, "\"mesh\":"), 2u)
@@ -862,5 +864,31 @@ TEST(MapboxBuildings, UnexpectedNodeMatrixSkipsOnlyThatLandmark) {
         << "square 5's box under landmark 7, square 10's under landmark 6's surviving footprint";
     EXPECT_EQ(s.extruded_features, kDowntownFeatures - 2);
     EXPECT_EQ(count_of(log_since(logFrom), "with an unexpected matrix skipped"), 1u);
+    overlume::destroy_renderer(r);
+}
+
+TEST(MapboxBuildings, LandmarksAloneStillBuildTheTile) {
+    auto* r = make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const TileId t = downtown_tile();
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    overlume::testing::mapbox_fixture_serve(
+        n, overlume::testing::mapbox_landmark_url(t.x, t.y), 200,
+        glb::build_landmark_glb({landmark_at(t, 7, kOverSquare5, kOverSquare5)},
+                                glb::GlbOptions{}));
+    overlume::testing::capture_stream_glbs(true);
+    ASSERT_TRUE(install(r, "mapbox://buildings", anchor_at(t, 0.5, 0.5), n));
+    set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> buf(kFrameBytes);
+    ASSERT_TRUE(pump(r, buf, 400, [&] { return loaded(r) >= 1; }));
+    const std::vector<std::vector<uint8_t>> glbs = overlume::testing::captured_stream_glbs();
+    overlume::testing::capture_stream_glbs(false);
+    const overlume::testing::MapboxSourceStats s = stats();
+    EXPECT_EQ(s.tiles_built, 1u);
+    EXPECT_EQ(s.landmark_nodes, 1u);
+    EXPECT_EQ(s.extruded_features, 0u);
+    EXPECT_EQ(s.conflated_features, 0u);
+    ASSERT_EQ(glbs.size(), 1u);
+    EXPECT_EQ(count_of(glb_json(glbs[0]), "\"mesh\":"), 1u) << "the landmark node alone";
     overlume::destroy_renderer(r);
 }

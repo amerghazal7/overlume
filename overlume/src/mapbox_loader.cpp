@@ -163,6 +163,7 @@ struct LoaderState {
     std::atomic<uint64_t> retries{0};
     std::atomic<uint64_t> wall_quads{0};
     std::atomic<double> max_build_ms{0.0};
+    std::atomic<double> max_tile_top_m{0.0};
     std::mutex logged_mutex;
     std::set<std::string> logged;
 
@@ -175,6 +176,12 @@ struct LoaderState {
     void note_build_ms(double ms) {
         double seen = max_build_ms.load();
         while (ms > seen && !max_build_ms.compare_exchange_weak(seen, ms)) {
+        }
+    }
+
+    void note_top_m(double top) {
+        double seen = max_tile_top_m.load();
+        while (top > seen && !max_tile_top_m.compare_exchange_weak(seen, top)) {
         }
     }
 };
@@ -513,6 +520,7 @@ TileLoadResult build_tile(const LoaderConfig& cfg, LoaderState& st, const TileId
     if (!mesh.indices.empty()) append_extrusions(model, mesh);
     if (haveLandmarks) st.landmark_nodes += landmarks.buildings_kept;
     ++st.tiles_built;
+    st.note_top_m(top);
     return success(std::move(model), region_of(t14, cfg.origin_height_m, top, ellipsoid), accessor,
                    ellipsoid);
 }
@@ -759,6 +767,7 @@ MapboxSourceStats mapbox_last_source_stats() {
     out.retries = state->retries.load();
     out.max_build_ms = state->max_build_ms.load();
     out.wall_quads = state->wall_quads.load();
+    out.max_tile_top_m = state->max_tile_top_m.load();
     return out;
 }
 
