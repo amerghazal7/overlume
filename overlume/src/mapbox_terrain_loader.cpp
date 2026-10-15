@@ -46,9 +46,11 @@ using Cesium3DTilesSelection::TileLoadResultState;
 // (TilesetContentManager.cpp:280): z14 (2) and z15 (1) refine, z16 (0.5) is the leaf near the ego.
 // The imagery on those z16 tiles is z17, not the overlay's z18 cap (maximumLevel): cesium lowers a
 // tile's imagery level until its texture fits maximumTextureSize, 2048 px by default
-// (QuadtreeRasterOverlayTileProvider.cpp:312-325). SatelliteDrapesXyzTilesOnTheTerrain measures z16
-// and z17 requests, none at z18; a limit of 8192 px makes the same tiles ask for z18. A z14 leaf
-// left at error 0 would not refine, and its imagery would top out at z16.
+// (QuadtreeRasterOverlayTileProvider.cpp:312-325). SatelliteDrapesXyzTilesOnTheTerrain asserts
+// z17 requests, none above z18 and at most 64 requests in all; at the defaults the texture budget
+// stops at z17 before the cap binds, so the cap itself is not pinned by a test (a limit of 8192 px
+// makes the same tiles ask for z18). A z14 leaf left at error 0 would not refine, and its imagery
+// would top out at z16.
 constexpr double kTerrainGeometricErrorM = 2.0;
 
 static_assert(sizeof(std::array<float, 3>) == 3 * sizeof(float) &&

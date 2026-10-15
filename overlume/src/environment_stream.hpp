@@ -286,6 +286,7 @@ public:
           kind_(kind) {}
 
     void set_renderer(VisualRenderer* r) { r_ = r; }
+    double brightness() const { return brightness_; }
 
     CesiumAsync::Future<Cesium3DTilesSelection::TileLoadResultAndRenderResources>
     prepareInLoadThread(const CesiumAsync::AsyncSystem& asyncSystem,
@@ -443,9 +444,10 @@ public:
     StreamRendererResources::OverlayCounters overlay_counters() const {
         return (terrainResources_ ? terrainResources_ : renderResources_)->overlay_counters();
     }
-    // Test hooks add raster overlays here before the first update().
+    // Test hooks add and remove raster overlays here: the terrain tileset's once attach_terrain has
+    // run (where real sources keep their overlay), else the content tileset's (Task 5's fixture).
     Cesium3DTilesSelection::RasterOverlayCollection& overlays_for_testing() {
-        return tileset_->getOverlays();
+        return (terrainTileset_ ? *terrainTileset_ : *tileset_).getOverlays();
     }
 
 private:

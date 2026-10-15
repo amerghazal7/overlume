@@ -71,9 +71,9 @@ Run (ROS + this repo's ros install sourced first):
 Skips cleanly (prints SKIP, exit 0) when this repo's ROS install isn't
 present, same convention as test_mode_dispatch.py/test_bowl_node_params.py.
 
-NOT CMake-registered -- same as test_mode_dispatch.py/test_bowl_node_params.py/
-test_theme_ws.py/test_vcam_contract.py/test_ego_anchored_vcam.py/
-test_extra_topic_parity.py/test_tf_adapter.py in this same directory.
+CMake-registered (ament_add_test in CMakeLists.txt, so `colcon test` and the gate run it), unlike
+test_mode_dispatch.py/test_bowl_node_params.py/test_theme_ws.py/test_vcam_contract.py/
+test_ego_anchored_vcam.py/test_extra_topic_parity.py/test_tf_adapter.py in this same directory.
 """
 
 import os
@@ -95,6 +95,15 @@ FIXTURE_HEADING_DEG = 0.0
 
 def _popen(cmd: str) -> subprocess.Popen:
     return subprocess.Popen(["bash", "-c", cmd], start_new_session=True)
+
+def _wait_until(predicate, timeout: float = 3.0) -> bool:
+    """Polls `predicate` every 50 ms for up to `timeout` s; the node logs asynchronously."""
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.05)
+    return True
 
 def _kill(proc: subprocess.Popen):
     try:
@@ -323,9 +332,9 @@ def _run_layer_parameter_check() -> int:
         if not _lifecycle("configure") or not _lifecycle("activate"):
             print("FAIL: configure/activate failed (layer-parameter run).", file=sys.stderr)
             return 1
-        time.sleep(0.3)
         expected = ("set_environment_source: failed to open "
                     "'mapbox://buildings,terrain?imagery=satellite'")
+        _wait_until(lambda: expected in _read_log())
         if expected not in _read_log():
             print(f"FAIL (6a): on_activate() did not compose environment_terrain:=enable and "
                   f"environment_imagery:=satellite into the URI -- expected {expected!r}. "
@@ -338,10 +347,10 @@ def _run_layer_parameter_check() -> int:
             print("FAIL (6b): the live mapbox:// switch was accepted with MAPBOX_TOKEN unset -- "
                   "expected rejected.", file=sys.stderr)
             return 1
-        time.sleep(0.3)
-        log_text = _read_log()[before:]
         expected = ("set_environment_source: failed to open "
                     "'mapbox://buildings,terrain?materials=original&imagery=satellite'")
+        _wait_until(lambda: expected in _read_log()[before:])
+        log_text = _read_log()[before:]
         if expected not in log_text:
             print(f"FAIL (6b): the live environment_source_uri switch did not compose the two "
                   f"layer parameters -- expected {expected!r}. New log:\n{log_text[-3000:]}",

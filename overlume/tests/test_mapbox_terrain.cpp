@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <set>
 #include <string>
@@ -359,15 +360,25 @@ TEST(MapboxTerrain, SatelliteDrapesXyzTilesOnTheTerrain) {
     })) << "no satellite raster attached to the terrain";
     size_t overT = 0;
     size_t over17 = 0;
+    size_t satelliteRequests = 0;
+    size_t aboveCap = 0;
     for (const std::string& url : overlume::testing::mapbox_fixture_requested_urls(n)) {
         const std::string bare = url.substr(0, url.find('?'));
-        if (bare.find("mapbox.satellite") == std::string::npos) continue;
+        const size_t at = bare.find("mapbox.satellite/");
+        if (at == std::string::npos) continue;
+        ++satelliteRequests;
+        if (std::stoi(bare.substr(at + std::strlen("mapbox.satellite/"))) > 18) ++aboveCap;
         EXPECT_EQ(served.count(bare), 1u)
             << "not an XYZ tile over the terrain tile or its ring: " << bare;
         overT += inside.count(bare);
         over17 += inside17.count(bare);
         EXPECT_TRUE(ends_with(url, std::string("?access_token=") + kToken)) << bare;
     }
+    EXPECT_EQ(aboveCap, 0u) << "imagery past the z18 cap";
+    // 53 requests measured at 512 px tiles; 225 once the tile size is dropped. Spec section 12
+    // promises a few dozen per z14 tile.
+    EXPECT_LE(satelliteRequests, 64u) << "satellite requests per z14 tile: the 512 px tile size "
+                                         "(billing) has regressed";
     EXPECT_GT(overT, 0u) << "no z15-z18 imagery over the terrain tile itself";
     // Only the z14 leaves' geometric error 2 makes cesium refine to z16, whose imagery is z17; a
     // z14 leaf at error 0 stops at z16 imagery.
@@ -439,9 +450,10 @@ TEST(MapboxTerrain, TerrainLayerReplacesTheGroundPlane) {
             const double rise = dem::ramp_height_m(256.0 + kEgoEastM / metres_per_dem_px(t), 0.0) -
                                 dem::ramp_height_m(256.0, 0.0);
             const double expected = -(rise + 0.3);
+            // 0.1 m: the 0.3 m bias must show (without it the offset lands within 0.01 m of -rise).
             const auto onTerrain = [&] {
                 return std::abs(overlume::testing::environment_terrain_offset_z(r) - expected) <
-                       0.5;
+                       0.1;
             };
             EXPECT_TRUE(pump(r, buf, 200, onTerrain))
                 << "the source follows the terrain: offset "
@@ -454,4 +466,22 @@ TEST(MapboxTerrain, TerrainLayerReplacesTheGroundPlane) {
         }
         overlume::destroy_renderer(r);
     }
+}
+
+TEST(MapboxTerrain, BrightnessReachesTheTerrainRendererResources) {
+    auto* r = make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const TileId t = op_tile();
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    serve_dem(n, t, dem::hill_height_m);
+    ASSERT_TRUE(
+        install(r, "mapbox://terrain?imagery=satellite&brightness=1.8", anchor_at(t, 0.5, 0.5), n));
+    // Pumped to a loaded tile first: destroy_renderer right after install crashes in cesium's
+    // unloadTileContent (the other tests here pump before they destroy).
+    set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> buf(kFrameBytes);
+    ASSERT_TRUE(pump(r, buf, 400, [&] { return terrain_loaded(r) >= 1; }));
+    EXPECT_DOUBLE_EQ(overlume::testing::environment_stream_terrain_brightness(r), 1.8)
+        << "the imagery texture's brightness comes from the terrain tileset's resources";
+    overlume::destroy_renderer(r);
 }

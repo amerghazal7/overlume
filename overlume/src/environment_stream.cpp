@@ -10,6 +10,7 @@
 
 #include <Cesium3DTilesContent/registerAllTileContentTypes.h>
 #include <Cesium3DTilesSelection/BoundingVolume.h>
+#include <Cesium3DTilesSelection/RasterMappedTo3DTile.h>
 #include <CesiumAsync/CachingAssetAccessor.h>
 #include <CesiumAsync/SqliteCache.h>
 #include <CesiumCurl/CurlAssetAccessor.h>
@@ -21,11 +22,17 @@
 #include <CesiumGeospatial/Ellipsoid.h>
 #include <CesiumGeospatial/GlobeRectangle.h>
 #include <CesiumGeospatial/GlobeTransforms.h>
+#include <CesiumGeospatial/Projection.h>
+#include <CesiumGeospatial/WebMercatorProjection.h>
 #include <CesiumGltf/AccessorWriter.h>
 #include <CesiumGltf/Model.h>
 #include <CesiumGltfWriter/GltfWriter.h>
 #include <CesiumImage/ImageAsset.h>
 #include <CesiumRasterOverlays/IonRasterOverlay.h>
+#include <CesiumRasterOverlays/CreateRasterOverlayTileProviderParameters.h>
+#include <CesiumRasterOverlays/QuadtreeRasterOverlayTileProvider.h>
+#include <CesiumRasterOverlays/RasterOverlay.h>
+#include <CesiumRasterOverlays/RasterOverlayTile.h>
 #include <CesiumRasterOverlays/RasterOverlayTileProvider.h>
 #include <CesiumRasterOverlays/UrlTemplateRasterOverlay.h>
 #include <CesiumUtility/CreditReferencer.h>
@@ -827,6 +834,19 @@ std::string StreamingEnvironmentSource::credits() const {
         for (const auto& activated : tileset->getOverlays().getActivatedOverlays()) {
             if (activated->getTileProvider() != nullptr) {
                 activated->getTileProvider()->addCredits(overlayCredits);
+            }
+        }
+        // Bing's data-provider credits (Microsoft, Earthstar, Maxar) belong to individual raster
+        // tiles, not to the provider: add those of the rasters mapped onto the tileset's tiles.
+        // The snapshot filter below keeps the ones the view group referenced this frame.
+        for (const Cesium3DTilesSelection::Tile& tile : tileset->loadedTiles()) {
+            for (const Cesium3DTilesSelection::RasterMappedTo3DTile& mapped :
+                 tile.getMappedRasterTiles()) {
+                if (const CesiumRasterOverlays::RasterOverlayTile* raster = mapped.getReadyTile()) {
+                    for (const CesiumUtility::Credit& credit : raster->getCredits()) {
+                        overlayCredits.addCreditReference(credit);
+                    }
+                }
             }
         }
         for (const CesiumUtility::Credit& credit :
@@ -2011,9 +2031,71 @@ std::vector<std::pair<int, int>> fixture_grid_requested_leaves(FixtureGridHandle
     return handle->log->leaves;
 }
 
+namespace {
+// Like UrlTemplateRasterOverlay on `<base>/{z}/{x}/{y}.png`, but every tile carries `credit_html`
+// as a per-tile credit (LoadTileImageFromUrlOptions::credits), as Bing's coverage credits do.
+class PerTileCreditOverlay final : public CesiumRasterOverlays::RasterOverlay {
+public:
+    PerTileCreditOverlay(std::string base, std::string credit_html, uint32_t maximum_level)
+        : RasterOverlay("fixture-per-tile-credit"),
+          base_(std::move(base)),
+          creditHtml_(std::move(credit_html)),
+          maximumLevel_(maximum_level) {}
+
+    CesiumAsync::Future<CreateTileProviderResult> createTileProvider(
+        const CesiumRasterOverlays::CreateRasterOverlayTileProviderParameters& parameters)
+        const override {
+        const CesiumGeospatial::Projection projection = CesiumGeospatial::WebMercatorProjection();
+        const CesiumGeometry::Rectangle rectangle = CesiumGeospatial::projectRectangleSimple(
+            projection, CesiumGeospatial::WebMercatorProjection::MAXIMUM_GLOBE_RECTANGLE);
+        return parameters.externals.asyncSystem.createResolvedFuture<CreateTileProviderResult>(
+            new Provider(this, parameters, projection, rectangle, base_, creditHtml_,
+                         maximumLevel_));
+    }
+
+private:
+    class Provider final : public CesiumRasterOverlays::QuadtreeRasterOverlayTileProvider {
+    public:
+        Provider(const CesiumUtility::IntrusivePointer<const RasterOverlay>& creator,
+                 const CesiumRasterOverlays::CreateRasterOverlayTileProviderParameters& parameters,
+                 const CesiumGeospatial::Projection& projection,
+                 const CesiumGeometry::Rectangle& rectangle, std::string base,
+                 const std::string& credit_html, uint32_t maximum_level)
+            : QuadtreeRasterOverlayTileProvider(
+                  creator, parameters, projection,
+                  CesiumGeometry::QuadtreeTilingScheme(rectangle, 1, 1), rectangle, 0,
+                  maximum_level, 256, 256),
+              base_(std::move(base)),
+              credit_(parameters.externals.pCreditSystem->createCredit(getCreditSource(),
+                                                                       credit_html)) {}
+
+    protected:
+        CesiumAsync::Future<CesiumRasterOverlays::LoadedRasterOverlayImage> loadQuadtreeTileImage(
+            const CesiumGeometry::QuadtreeTileID& id) const override {
+            CesiumRasterOverlays::LoadTileImageFromUrlOptions options;
+            options.rectangle = getTilingScheme().tileToRectangle(id);
+            options.moreDetailAvailable = id.level < getMaximumLevel();
+            options.credits.push_back(credit_);
+            return loadTileImageFromUrl(base_ + "/" + std::to_string(id.level) + "/" +
+                                            std::to_string(id.x) + "/" + std::to_string(id.y) +
+                                            ".png",
+                                        {}, std::move(options));
+        }
+
+    private:
+        std::string base_;
+        CesiumUtility::Credit credit_;
+    };
+
+    std::string base_;
+    std::string creditHtml_;
+    uint32_t maximumLevel_;
+};
+}
+
 bool install_fixture_terrain_with_file_imagery(overlume::VisualRenderer* r, const char* fixture_dir,
                                                const char* imagery_dir, double brightness,
-                                               uint32_t maximum_level) {
+                                               uint32_t maximum_level, const char* tile_credit) {
     if (r == nullptr || fixture_dir == nullptr || imagery_dir == nullptr) return false;
     // The anchor every fixture test uses (kFixtureAnchor in test_environment_stream.cpp).
     constexpr overlume::GeoAnchor kAnchor{25.0803, 55.3910, 0.0, 0.0};
@@ -2030,8 +2112,14 @@ bool install_fixture_terrain_with_file_imagery(overlume::VisualRenderer* r, cons
     // files. cesium fills {y} counting rows from the south (QuadtreeTilingScheme::tileToRectangle).
     CesiumRasterOverlays::UrlTemplateRasterOverlayOptions options;
     options.maximumLevel = maximum_level;
-    source->overlays_for_testing().add(new CesiumRasterOverlays::UrlTemplateRasterOverlay(
-        "fixture-imagery", std::string("file://") + imagery_dir + "/{z}/{x}/{y}.png", {}, options));
+    if (tile_credit != nullptr) {
+        source->overlays_for_testing().add(new PerTileCreditOverlay(
+            std::string("file://") + imagery_dir, tile_credit, maximum_level));
+    } else {
+        source->overlays_for_testing().add(new CesiumRasterOverlays::UrlTemplateRasterOverlay(
+            "fixture-imagery", std::string("file://") + imagery_dir + "/{z}/{x}/{y}.png", {},
+            options));
+    }
     source->set_visible(*r, r->environmentVisible);
     if (r->environmentSource) r->environmentSource->teardown(*r);
     r->environmentSource = std::move(source);
@@ -2158,6 +2246,13 @@ double environment_stream_brightness(overlume::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return std::nan("");
     auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
     return stream != nullptr ? stream->brightness() : std::nan("");
+}
+
+double environment_stream_terrain_brightness(overlume::VisualRenderer* r) {
+    if (r == nullptr || !r->environmentSource) return std::nan("");
+    auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
+    if (stream == nullptr || !stream->terrain_resources()) return std::nan("");
+    return stream->terrain_resources()->brightness();
 }
 
 bool environment_stream_has_disk_cache(overlume::VisualRenderer* r) {

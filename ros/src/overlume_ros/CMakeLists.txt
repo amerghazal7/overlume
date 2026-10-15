@@ -301,6 +301,20 @@ if(BUILD_TESTING)
       "~/overlume-fixtures/stack_v3_full_sensors_2026-09-11"
     GENERATE_RESULT_FOR_RETURN_CODE_ZERO)
 
+  # Each launches overlume_node from ros/install, which the gate's colcon build refreshes first;
+  # they skip (exit 0) when that install is absent. Distinct ROS domains keep them apart.
+  ament_add_test(test_asset_paths
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_asset_paths.py"
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    TIMEOUT 300
+    ENV ROS_DOMAIN_ID=78)
+
+  ament_add_test(test_environment_live_switch
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_environment_live_switch.py"
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    TIMEOUT 300
+    ENV ROS_DOMAIN_ID=79)
+
   add_library(overlume_node_test_paths INTERFACE)
   target_compile_definitions(overlume_node_test_paths INTERFACE
     TEST_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config"
