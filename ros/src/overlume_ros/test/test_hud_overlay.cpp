@@ -542,6 +542,23 @@ TEST(MapboxAttribution, NarrowFrameLiftsTheTextAboveTheLogoAndKeepsBothInside) {
     EXPECT_NEAR(text.x1, static_cast<int>(frame_w) - 8, 2.0);
 }
 
+TEST(MapboxAttribution, TextWiderThanTheFrameKeepsItsStartOnTheLeftMargin) {
+    const float text_width = overlume::ros::MeasureText(overlume::ros::kMapboxAttributionText, 1.0f,
+                                                        OVERLUME_NODE_FONT_PATH);
+    ASSERT_GT(text_width, 0.0f);
+    // 4 px short of the two margins: the line cannot fit, so its start, "(c) Mapbox", must stay.
+    const uint32_t frame_w = static_cast<uint32_t>(std::ceil(text_width)) + 4;
+    const uint32_t frame_h = 120;
+    std::vector<uint8_t> rgb(static_cast<size_t>(frame_w) * frame_h * 3, kBackground);
+    ASSERT_TRUE(overlume::ros::CompositeAttribution(
+        rgb.data(), frame_w, frame_h, magenta_logo(40, 12), overlume::ros::kMapboxAttributionText,
+        kWhite, 1.0f, OVERLUME_NODE_FONT_PATH));
+    PixelBox logo, text;
+    classify(rgb, frame_w, frame_h, logo, text);
+    EXPECT_EQ(logo.count, 40u * 12u) << "the cut line still lifts clear of the logo";
+    EXPECT_GE(text.x0, 6) << "the start of the line, (c) Mapbox, left the left margin";
+}
+
 TEST(MapboxAttribution, MissingLogoOrFontDegradesPieceByPiece) {
     std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, kBackground);
     EXPECT_TRUE(overlume::ros::CompositeAttribution(
