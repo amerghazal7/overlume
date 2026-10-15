@@ -28,14 +28,22 @@ index; `docs/status.md` is the one status ledger.
 - [`cesium.md`](runbooks/cesium.md) — Cesium ion account/token/asset
   contract + the `CESIUM_ION_TOKEN` smoke check; the Google Photorealistic
   3D Tiles preset.
-- [`mapbox.md`](runbooks/mapbox.md) — the `mapbox://buildings` source: the
-  `MAPBOX_TOKEN` contract and `tools/check_mapbox_token.sh`, the URI and the
-  two GUI entries, attribution, Mapbox's terms as engineering rules, the demo
-  at the test site and Downtown Dubai, and troubleshooting.
+- [`mapbox.md`](runbooks/mapbox.md) — the `mapbox://` source: the
+  `MAPBOX_TOKEN` contract and `tools/check_mapbox_token.sh`, the URI (the
+  `buildings` and `terrain` layers, `imagery=satellite`) and the four GUI
+  entries, attribution with the Maxar credit, request volume, Mapbox's terms
+  as engineering rules, the demo at the test site and Downtown Dubai,
+  and troubleshooting.
+- [`terrain_imagery.md`](runbooks/terrain_imagery.md) — terrain with imagery
+  draped on it, for any streamed source: ion's `terrain=` and `imagery=`
+  keys and the `osm-terrain` entry, the `environment_terrain` and
+  `environment_imagery` node parameters, the `environment.terrain_color`
+  theme token, overlay credits on screen and the renderer's overlay path.
 - [`env_source_captures.md`](runbooks/env_source_captures.md) — one
-  committed render per Environment Tiles preset (baked / osm / google) for
-  judging the streamed sources side by side. The `mapbox` and
-  `mapbox-original` sources have no committed capture: a render of live
+  committed render per environment source (baked / osm / google) for
+  judging the streamed sources side by side. The four Mapbox sources
+  (`mapbox`, `mapbox-original`, `mapbox-satellite`,
+  `mapbox-original-satellite`) have no committed capture: a render of live
   Mapbox tiles is Mapbox-derived data, which the terms forbid storing (see
   [`mapbox.md`](runbooks/mapbox.md), section 6).
 - [`theme_showcase.md`](runbooks/theme_showcase.md) — opt-in whole-palette
@@ -122,6 +130,10 @@ index; `docs/status.md` is the one status ledger.
 - [`2026-10-14-mapbox-buildings.md`](plans/2026-10-14-mapbox-buildings.md)
   — the `mapbox://buildings` environment source in 18 tasks over eight
   parallel lanes (implements `design/2026-10-14-mapbox-buildings-design.md`; closed 2026-10-15).
+- [`2026-10-15-imagery-terrain.md`](plans/2026-10-15-imagery-terrain.md)
+  — imagery on terrain (sub-project 2): terrain tilesets with raster
+  overlays for `mapbox://` and `ion://` in 16 tasks over eight lanes
+  (implements `design/2026-10-15-imagery-terrain-design.md`).
 - [`2026-10-15-imagery-terrain.md`](plans/2026-10-15-imagery-terrain.md)
   — imagery on real terrain, provider-agnostic: Mapbox terrain-DEM and Satellite for the
   demo, Cesium World Terrain and ion imagery as the proof, in 16 tasks over eight parallel
