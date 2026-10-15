@@ -331,6 +331,8 @@ TEST(HudOverlay, MeasureTextDecodesUtf8AndSkipsInvalidBytes) {
     EXPECT_FLOAT_EQ(width(truncated_pair), width("A"));
     EXPECT_FLOAT_EQ(width(three_byte_euro), width("AB"));
     EXPECT_NEAR(width(c1_control), width("AB") + 16.0f, 1e-3f);
+    EXPECT_FLOAT_EQ(width(std::string("A\xC2") + "B"), width("AB"));
+    EXPECT_FLOAT_EQ(width(std::string("A\xC1\x81") + "B"), width("AB"));
 }
 
 TEST(HudOverlay, MeasureTextMatchesTheDrawnExtent) {
