@@ -113,6 +113,10 @@ struct OverlayProbe {
 };
 OverlayProbe environment_stream_overlay_probe(overlume::VisualRenderer* r);
 
+// Removes every raster overlay from the live streaming source's tileset, which detaches the
+// mapped rasters of live tiles; false when no streaming source is live.
+bool environment_stream_remove_overlays(overlume::VisualRenderer* r);
+
 // Opens `fixture_dir`'s tileset.json (the file-based fixture tileset, as
 // install_fixture_streaming_source) as a terrain tileset at the fixture tests' anchor
 // (25.1972 N, 55.2744 E, heading 0, height 0), without a disk cache, under a

@@ -937,6 +937,10 @@ void StreamRendererResources::detachRasterInMainThread(
         return;
     }
     // The placeholder goes back in, so no instance still holds a texture freeRaster may destroy.
+    // Filament keeps a mipmapped texture in the instance's mutable-texture map, and binding the
+    // 1-level placeholder over it does not erase that entry (MaterialInstance::commit would then
+    // panic on the destroyed texture), so the nullptr bind erases it first.
+    mi->setParameter("imagery", static_cast<const filament::Texture*>(nullptr), kImagerySampler);
     mi->setParameter("imagery", r_->terrainPlaceholderTexture, kImagerySampler);
     mi->setParameter("hasImagery", int32_t{0});
     ++counters_.rasters_detached;
@@ -1736,6 +1740,21 @@ bool install_fixture_terrain_with_file_imagery(overlume::VisualRenderer* r, cons
     if (r->environmentSource) r->environmentSource->teardown(*r);
     r->environmentSource = std::move(source);
     return true;
+}
+
+bool environment_stream_remove_overlays(overlume::VisualRenderer* r) {
+    if (r == nullptr || !r->environmentSource ||
+        r->environmentSource->state() != overlume::EnvironmentSourceState::STREAMING) {
+        return false;
+    }
+    auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
+    if (stream == nullptr) return false;
+    auto& overlays = stream->overlays_for_testing();
+    // A copy: remove() erases from the collection's own vector. cesium's remove() detaches the
+    // overlay's mapped raster on every live tile before erasing it.
+    const auto activated = overlays.getActivatedOverlays();
+    for (const auto& o : activated) overlays.remove(o);
+    return !activated.empty();
 }
 
 OverlayProbe environment_stream_overlay_probe(overlume::VisualRenderer* r) {

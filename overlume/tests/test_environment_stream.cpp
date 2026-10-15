@@ -1763,6 +1763,33 @@ TEST(EnvironmentStreamOverlay, TeardownDetachesEveryRasterAndFreesEveryTexture) 
     overlume::destroy_renderer(r);
 }
 
+TEST(EnvironmentStreamOverlay, RemovingTheOverlayDetachesLiveTilesBackToTerrainColor) {
+    const std::string imagery = std::string(OVERLUME_TMP_DIR) + "/overlume_imagery_red";
+    write_fixture_imagery(imagery, 255, 0, 0, true);
+    auto* r = terrain_renderer(write_terrain_themes(), "terrain_green", imagery);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    std::vector<uint8_t> frame(320u * 240u * 3u);
+    render_block_until(r, frame, [&] { return raster_attached(r); });
+    ASSERT_TRUE(raster_attached(r)) << "no raster attached within 600 frames";
+    ASSERT_GT(count_hues(frame).red, 800u) << "test setup: the red imagery on the tile";
+
+    ASSERT_TRUE(overlume::testing::environment_stream_remove_overlays(r));
+    render_block_until(r, frame, [&] {
+        return overlume::testing::environment_stream_overlay_probe(r).textures_alive == 0;
+    });
+    ASSERT_TRUE(tile_in_scene(r)) << "the terrain tile must survive the overlay's removal";
+    const overlume::testing::OverlayProbe probe =
+        overlume::testing::environment_stream_overlay_probe(r);
+    EXPECT_EQ(probe.rasters_detached, probe.rasters_attached)
+        << "every attached raster of a live tile must be detached when its overlay is removed";
+    EXPECT_EQ(probe.textures_alive, 0u) << "a detached raster's texture must be freed by the drain";
+    const Hues hues = count_hues(frame);
+    EXPECT_GT(hues.green, 800u)
+        << "a live tile whose raster detached must show terrain_color again (hasImagery 0)";
+    EXPECT_LT(hues.red, 20u);
+    overlume::destroy_renderer(r);
+}
+
 TEST(EnvironmentStreamOverlay, BrightnessScalesTheImagery) {
     const std::string imagery = std::string(OVERLUME_TMP_DIR) + "/overlume_imagery_dim_red";
     write_fixture_imagery(imagery, 100, 0, 0, true);
