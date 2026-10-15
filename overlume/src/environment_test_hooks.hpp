@@ -132,4 +132,40 @@ bool install_fixture_terrain_with_file_imagery(overlume::VisualRenderer* r, cons
                                                const char* imagery_dir, double brightness = 1.0,
                                                uint32_t maximum_level = 10);
 
+// Task 11.
+bool environment_stream_has_terrain_tileset(overlume::VisualRenderer* r);
+// Terrain tiles in the Filament scene (0 while the environment is hidden).
+uint64_t environment_terrain_tiles_loaded(overlume::VisualRenderer* r);
+// World z minus local z of a terrain tile's root: the follow-terrain lift when max_tilt_deg is 0.
+// NaN without a terrain tile in the scene.
+double environment_terrain_tile_lift_z(overlume::VisualRenderer* r);
+// A fixture network for ion:// sources (a MapFixtureAssetAccessor; never freed). Canned answers
+// are keyed by URL without its query string; unmatched URLs answer 404.
+struct IonFixtureNetwork;
+IonFixtureNetwork* make_ion_fixture_network();
+void ion_fixture_serve(IonFixtureNetwork* n, const std::string& url_without_query, uint16_t status,
+                       std::vector<uint8_t> body);
+// Every URL starting with `prefix` that no exact rule names; the longest prefix wins.
+void ion_fixture_serve_prefix(IonFixtureNetwork* n, const std::string& prefix, uint16_t status,
+                              std::vector<uint8_t> body);
+// Requests for a URL starting with `prefix` that no exact rule names stay pending until
+// ion_fixture_release_held answers them.
+void ion_fixture_hold_prefix(IonFixtureNetwork* n, const std::string& prefix);
+void ion_fixture_release_held(IonFixtureNetwork* n);
+// The network is gone: every later request, and every held one released, is a transport error.
+void ion_fixture_fail_all_transport(IonFixtureNetwork* n);
+std::vector<std::string> ion_fixture_requested_urls(IonFixtureNetwork* n);
+// Opens an ion:// URI exactly as set_environment_source does (parse, source, terrain tileset and
+// imagery overlay, set_visible, teardown of the old source, swap), but over `n` and with `token`
+// in place of CESIUM_ION_TOKEN.
+bool install_fixture_ion_source(overlume::VisualRenderer* r, const char* ion_uri,
+                                overlume::GeoAnchor anchor, IonFixtureNetwork* n,
+                                const char* token);
+// The overlay counters of the terrain resources of the last source installed over `n`, read even
+// after that source was switched away or fell back. Zeros without one.
+OverlayProbe ion_fixture_terrain_probe(IonFixtureNetwork* n);
+// The environment.terrain_color last pushed to those terrain resources (-1 each before the first
+// push), into `rgb`. False without terrain resources.
+bool ion_fixture_terrain_color(IonFixtureNetwork* n, float rgb[3]);
+
 }
