@@ -133,12 +133,14 @@ CesiumGltf::Model write_dem_gltf(const DemMesh& mesh) {
 TileLoadResult build_terrain_tile(const TileId& t14, uint32_t attempt, std::atomic<bool>& settled,
                                   const Rebase& rebase, double origin_height_m,
                                   std::atomic<uint64_t>& tiles_built,
+                                  std::atomic<uint64_t>& retries,
                                   const std::shared_ptr<CesiumAsync::IAssetAccessor>& accessor,
                                   const CesiumGeospatial::Ellipsoid& ellipsoid) {
     if (!rebase.active()) {
         // A DEM failing for now goes back for another attempt; an empty or unreadable one, or the
         // last attempt, leaves no terrain there.
         if (rebase.retry && attempt < kMaxAttempts) {
+            ++retries;
             return TileLoadResult::createRetryLaterResult(accessor, nullptr);
         }
         settled = true;
@@ -163,10 +165,12 @@ TileLoadResult build_terrain_tile(const TileId& t14, uint32_t attempt, std::atom
 class MapboxTerrainLoader final : public Cesium3DTilesSelection::TilesetContentLoader {
 public:
     MapboxTerrainLoader(std::shared_ptr<DemCache> dem, const GeoAnchor& anchor,
-                        std::shared_ptr<std::atomic<uint64_t>> tiles_built)
+                        std::shared_ptr<std::atomic<uint64_t>> tiles_built,
+                        std::shared_ptr<std::atomic<uint64_t>> retries)
         : dem_(std::move(dem)),
           anchor_{anchor.origin_lon_deg, anchor.origin_lat_deg},
           tilesBuilt_(std::move(tiles_built)),
+          terrainRetries_(std::move(retries)),
           config_{std::string(), false, anchor.origin_height_m} {}
 
     CesiumAsync::Future<TileLoadResult> loadTileContent(const TileLoadInput& input) override {
@@ -187,10 +191,10 @@ public:
         return rebase_of(dem_, t14, anchor_)
             .thenInWorkerThread([t14, attempt, settled = a.settled,
                                  origin = config_.origin_height_m, built = tilesBuilt_,
-                                 accessor = input.pAssetAccessor,
+                                 retries = terrainRetries_, accessor = input.pAssetAccessor,
                                  ellipsoid = input.ellipsoid](const Rebase& rebase) {
-                return build_terrain_tile(t14, attempt, *settled, rebase, origin, *built, accessor,
-                                          ellipsoid);
+                return build_terrain_tile(t14, attempt, *settled, rebase, origin, *built, *retries,
+                                          accessor, ellipsoid);
             });
     }
 
@@ -210,6 +214,7 @@ private:
     std::shared_ptr<DemCache> dem_;
     LonLatDeg anchor_;
     std::shared_ptr<std::atomic<uint64_t>> tilesBuilt_;
+    std::shared_ptr<std::atomic<uint64_t>> terrainRetries_;
     LoaderConfig config_;   // the anchor height for quadtree_children; no token
     AttemptBook attempts_;  // main thread only: cesium calls loadTileContent there
 };
@@ -217,9 +222,10 @@ private:
 }
 
 CustomTileset make_mapbox_terrain_tileset(std::shared_ptr<DemCache> dem, const GeoAnchor& anchor,
-                                          std::shared_ptr<std::atomic<uint64_t>> tiles_built) {
-    auto loader =
-        std::make_unique<MapboxTerrainLoader>(std::move(dem), anchor, std::move(tiles_built));
+                                          std::shared_ptr<std::atomic<uint64_t>> tiles_built,
+                                          std::shared_ptr<std::atomic<uint64_t>> retries) {
+    auto loader = std::make_unique<MapboxTerrainLoader>(std::move(dem), anchor,
+                                                        std::move(tiles_built), std::move(retries));
     std::unique_ptr<Tile> root = quadtree_root(*loader, anchor.origin_height_m);
     return CustomTileset{std::move(loader), std::move(root), true};
 }

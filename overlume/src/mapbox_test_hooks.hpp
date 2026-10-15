@@ -79,6 +79,8 @@ struct MapboxSourceStats {
     uint64_t dem_requests = 0;
     // Terrain z14 tiles that reached Success with content.
     uint64_t terrain_tiles_built = 0;
+    // Terrain z14 attempts that ended in RetryLater (waits not counted).
+    uint64_t terrain_retries = 0;
 };
 // The counters of the most recently opened Mapbox source in this process.
 MapboxSourceStats mapbox_last_source_stats();
