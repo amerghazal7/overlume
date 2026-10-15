@@ -3,11 +3,11 @@
 # Copyright 2026 Amer Ghazal
 
 # Demo preflight for the mapbox:// environment source (docs/runbooks/mapbox.md), shaped like
-# overlume/scripts/check_cesium_token.sh: requests the Downtown Dubai landmark tile and one
-# footprint tile inside it with $MAPBOX_TOKEN and prints one line. PASS (exit 0) when both answer
-# 200, FAIL (exit 1) otherwise, SKIP (exit 2) with no request when the token is unset. It prints
-# HTTP codes and curl exit statuses only, never a URL, the token or a body. Not part of the gate:
-# it needs the network and a real token.
+# overlume/scripts/check_cesium_token.sh: requests one Downtown Dubai tile from each endpoint the
+# source uses (landmark, footprint, terrain-DEM, satellite) with $MAPBOX_TOKEN and prints one line.
+# PASS (exit 0) when all four answer 200, FAIL (exit 1) otherwise, SKIP (exit 2) with no request
+# when the token is unset. It prints HTTP codes and curl exit statuses only, never a URL, the
+# token or a body. Not part of the gate: it needs the network and a real token.
 
 set -u
 # Trim surrounding whitespace as the library does, so this checks the token the node will send.
@@ -35,16 +35,22 @@ check() {
     [ "${code}" = "200" ]
 }
 
-# Downtown Dubai: z14 10707/7006 holds landmark models; z16 42830/28025 is one of its footprint
-# tiles. The endpoints are the ones the library requests.
+# Downtown Dubai: z14 10707/7006 holds landmark models and is its own terrain-DEM tile (the DEM
+# stops at z14); z16 42830/28025 is one of its footprint tiles, and z18 171320/112100 a satellite
+# tile inside that (z18 is the imagery cap). The endpoints are the ones the library requests.
 landmarks="https://api.mapbox.com/3dtiles/v1/mapbox.mapbox-3dbuildings-v1-meshopt"
 footprints="https://api.mapbox.com/v4/mapbox.mapbox-streets-v8"
+dem="https://api.mapbox.com/v4/mapbox.mapbox-terrain-dem-v1"
+satellite="https://api.mapbox.com/v4/mapbox.satellite"
 status=0
 landmark=$(check "landmark tile" "${landmarks}/14/10707/7006.glb") || status=1
 footprint=$(check "footprint tile" "${footprints}/16/42830/28025.vector.pbf") || status=1
+dem_tile=$(check "DEM tile" "${dem}/14/10707/7006@2x.pngraw") || status=1
+satellite_tile=$(check "satellite tile" "${satellite}/18/171320/112100@2x.jpg90") || status=1
+codes="${landmark}, ${footprint}, ${dem_tile}, ${satellite_tile}"
 if [ "${status}" -eq 0 ]; then
-    echo "PASS: token retrieves the Downtown Dubai tiles (${landmark}, ${footprint})"
+    echo "PASS: token retrieves the Downtown Dubai tiles (${codes})"
     exit 0
 fi
-echo "FAIL: ${landmark}, ${footprint} (see docs/runbooks/mapbox.md)"
+echo "FAIL: ${codes} (see docs/runbooks/mapbox.md)"
 exit 1

@@ -133,7 +133,8 @@ def test_set_environment_enabled_valid(enabled):
         ("set_environment_enabled", enabled)
 
 @pytest.mark.parametrize("preset", [
-    "baked", "osm", "clipped", "google", "mapbox", "mapbox-original",
+    "baked", "osm", "clipped", "google", "mapbox", "mapbox-original", "mapbox-satellite",
+    "mapbox-original-satellite", "osm-terrain",
 ])
 def test_set_environment_source_valid(preset):
     assert parse_cmd(json.dumps({"cmd": "set_environment_source", "preset": preset})) == \
@@ -146,6 +147,15 @@ def test_mapbox_entries_map_to_the_buildings_uris():
     # No cache=off: the mapbox:// source never writes a cache.
     assert ENVIRONMENT_PRESET_URIS["mapbox"] == "mapbox://buildings"
     assert ENVIRONMENT_PRESET_URIS["mapbox-original"] == "mapbox://buildings?materials=original"
+
+def test_environment_imagery_entries_map_to_their_uris():
+    # Terrain with imagery draped on it: Mapbox Satellite on terrain-DEM, and Cesium World Terrain
+    # (ion asset 1) with Bing Maps Aerial (ion asset 2) under Cesium OSM Buildings.
+    assert ENVIRONMENT_PRESET_URIS["mapbox-satellite"] == \
+        "mapbox://buildings,terrain?imagery=satellite"
+    assert ENVIRONMENT_PRESET_URIS["mapbox-original-satellite"] == \
+        "mapbox://buildings,terrain?materials=original&imagery=satellite"
+    assert ENVIRONMENT_PRESET_URIS["osm-terrain"] == "ion://96188?terrain=1&imagery=2"
 
 def test_param_cmds_valid():
     assert parse_cmd('{"cmd": "get_params"}') == ("get_params", None)
@@ -562,6 +572,12 @@ def test_resolve_environment_preset():
     assert resolve_environment_preset("mapbox://buildings", "") == "mapbox"
     assert resolve_environment_preset(
         "mapbox://buildings?materials=original", "") == "mapbox-original"
+    assert resolve_environment_preset(
+        "mapbox://buildings,terrain?imagery=satellite", "") == "mapbox-satellite"
+    assert resolve_environment_preset(
+        "mapbox://buildings,terrain?materials=original&imagery=satellite", "") == \
+        "mapbox-original-satellite"
+    assert resolve_environment_preset("ion://96188?terrain=1&imagery=2", "") == "osm-terrain"
     assert resolve_environment_preset("ion://12345", "ion://12345") == "clipped"
     assert resolve_environment_preset("ion://12345", "") is None
     assert resolve_environment_preset("ion://99999?foo=bar", "ion://12345") is None
@@ -591,7 +607,8 @@ def test_gui_and_bridge_environment_preset_tables_agree():
     from vcam_gui import ENVIRONMENT_PRESETS as GUI_PRESETS
     from vcam_gui import ENVIRONMENT_PRESET_URIS_FIXED
 
-    assert GUI_PRESETS == ["baked", "osm", "clipped", "google", "mapbox", "mapbox-original"]
+    assert GUI_PRESETS == ["baked", "osm", "clipped", "google", "mapbox", "mapbox-original",
+                           "mapbox-satellite", "mapbox-original-satellite", "osm-terrain"]
     assert set(GUI_PRESETS) == ENVIRONMENT_PRESETS
     assert set(ENVIRONMENT_PRESET_URIS) == ENVIRONMENT_PRESETS - {"clipped"}
     assert "clipped" not in ENVIRONMENT_PRESET_URIS_FIXED
