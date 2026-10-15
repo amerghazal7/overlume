@@ -825,6 +825,92 @@ TEST(EnvironmentStream, ParseIonSpecRadius) {
     EXPECT_FALSE(ok) << "non-numeric -- the WHOLE spec fails to parse";
 }
 
+TEST(EnvironmentStream, ParseIonSpecTerrainAndImageryAssets) {
+    struct Case {
+        const char* spec;
+        int64_t terrain, imagery;
+    };
+    for (const Case& c :
+         {Case{"96188", 0, 0}, Case{"96188?terrain=off&imagery=off", 0, 0},
+          Case{"96188?terrain=1", 1, 0}, Case{"96188?terrain=1&imagery=2", 1, 2},
+          Case{"96188?imagery=2&terrain=1", 1, 2}, Case{"96188?terrain=1&imagery=off", 1, 0},
+          Case{"96188?terrain=1&terrain=off", 0, 0}, Case{"96188?terrain=off&terrain=3", 3, 0},
+          Case{"96188?terrain=1&imagery=2&imagery=3", 1, 3},
+          Case{"96188?follow_terrain=on", 0, 0}}) {
+        int64_t terrain = -1;
+        int64_t imagery = -1;
+        bool ok = false;
+        const bool on = overlume::testing::environment_stream_parse_terrain_assets(c.spec, &terrain,
+                                                                                   &imagery, &ok);
+        EXPECT_TRUE(ok) << c.spec;
+        EXPECT_EQ(on, c.terrain != 0) << c.spec;
+        EXPECT_EQ(terrain, c.terrain) << c.spec;
+        EXPECT_EQ(imagery, c.imagery) << c.spec;
+    }
+    bool ok = false;
+    EXPECT_DOUBLE_EQ(overlume::testing::environment_stream_parse_radius(
+                         "96188?terrain=1&imagery=2&radius=250", &ok),
+                     250.0)
+        << "the other keys still parse beside terrain and imagery";
+    EXPECT_TRUE(ok);
+}
+
+TEST(EnvironmentStream, ParseIonSpecImageryNeedsTerrain) {
+    for (const char* spec : {"96188?imagery=2", "96188?imagery=2&terrain=off",
+                             "96188?terrain=1&imagery=2&terrain=off"}) {
+        int64_t terrain = -1;
+        int64_t imagery = -1;
+        bool ok = true;
+        EXPECT_FALSE(overlume::testing::environment_stream_parse_terrain_assets(spec, &terrain,
+                                                                                &imagery, &ok))
+            << spec;
+        EXPECT_FALSE(ok) << spec << ": imagery without terrain fails the whole parse";
+        EXPECT_EQ(terrain, 0) << spec;
+        EXPECT_EQ(imagery, 0) << spec;
+    }
+    bool ok = false;
+    overlume::testing::environment_stream_parse_terrain_assets("96188?imagery=off", nullptr,
+                                                               nullptr, &ok);
+    EXPECT_TRUE(ok) << "imagery=off needs no terrain";
+}
+
+TEST(EnvironmentStream, ParseIonSpecBadAssetIdFailsTheWholeParse) {
+    for (const char* value :
+         {"", "0", "-1", "+1", " 1", "1.5", "1x", "abc", "on", "OFF", "99999999999999999999"}) {
+        for (const std::string& spec : {std::string("96188?terrain=") + value,
+                                        std::string("96188?terrain=1&imagery=") + value}) {
+            bool ok = true;
+            overlume::testing::environment_stream_parse_terrain_assets(spec.c_str(), nullptr,
+                                                                       nullptr, &ok);
+            EXPECT_FALSE(ok) << "'" << spec << "'";
+        }
+    }
+}
+
+TEST(EnvironmentStream, ParseIonSpecRefusalLogsOneLine) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    ScopedUnsetEnv no_token("CESIUM_ION_TOKEN");  // a spec that parses stops at the token
+    const overlume::GeoAnchor a{25.0803, 55.3910, 0.0};
+    for (const char* uri : {"ion://96188?imagery=2", "ion://96188?terrain=1x",
+                            "ion://96188?terrain=1&imagery=0", "ion://96188?radius=abc"}) {
+        const size_t from = overlume::testing::captured_cesium_log_text().size();
+        EXPECT_FALSE(overlume::set_environment_source(r, uri, a)) << uri;
+        const std::string text = overlume::testing::captured_cesium_log_text();
+        const std::string logged = text.size() > from ? text.substr(from) : std::string();
+        EXPECT_NE(logged.find(std::string(uri) + " refused: "), std::string::npos)
+            << uri << ": '" << logged << "'";
+        EXPECT_EQ(logged.find("refused"), logged.rfind("refused")) << "one line: " << logged;
+    }
+    const size_t from = overlume::testing::captured_cesium_log_text().size();
+    EXPECT_FALSE(overlume::set_environment_source(r, "ion://96188?terrain=1&imagery=2", a));
+    EXPECT_EQ(overlume::testing::captured_cesium_log_text().find("refused", from),
+              std::string::npos)
+        << "a spec that parses is not refused (with no token it opens nothing, silently)";
+    overlume::destroy_renderer(r);
+}
+
 TEST(EnvironmentStream, TerrainPlaneFitProbe) {
     {
         const double s[5] = {-20.0, -10.0, 0.0, 10.0, 20.0};
