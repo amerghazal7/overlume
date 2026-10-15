@@ -173,6 +173,7 @@ struct LoaderState : SourceLog {
     std::atomic<uint64_t> wall_quads{0};
     std::atomic<double> max_build_ms{0.0};
     std::atomic<double> max_tile_top_m{0.0};
+    std::atomic<double> min_tile_floor_m{0.0};
     // The source's DEM cache when the layer list carries `terrain`, for dem_requests; the loaders
     // own it.
     std::weak_ptr<const DemCache> dem;
@@ -186,6 +187,12 @@ struct LoaderState : SourceLog {
     void note_top_m(double top) {
         double seen = max_tile_top_m.load();
         while (top > seen && !max_tile_top_m.compare_exchange_weak(seen, top)) {
+        }
+    }
+
+    void note_floor_m(double floor) {
+        double seen = min_tile_floor_m.load();
+        while (floor < seen && !min_tile_floor_m.compare_exchange_weak(seen, floor)) {
         }
     }
 };
@@ -470,12 +477,14 @@ TileLoadResult build_tile(const LoaderConfig& cfg, LoaderState& st, const TileId
     if (!mesh.indices.empty()) append_extrusions(model, mesh);
     if (haveLandmarks) st.landmark_nodes += landmarks.buildings_kept;
     ++st.tiles_built;
-    st.note_top_m(top);
     // From the lowest lifted base (kRegionBelowM under it, as before) to the highest top.
-    return success(std::move(model),
-                   tile_region(t14, cfg.origin_height_m + low - kRegionBelowM,
-                               cfg.origin_height_m + top, ellipsoid),
-                   accessor, ellipsoid);
+    const double floor = low - kRegionBelowM;
+    st.note_top_m(top);
+    st.note_floor_m(floor);
+    return success(
+        std::move(model),
+        tile_region(t14, cfg.origin_height_m + floor, cfg.origin_height_m + top, ellipsoid),
+        accessor, ellipsoid);
 }
 
 // The buildings on mapbox_tiling's z14 quadtree: each level-14 tile carries one tile's
@@ -691,8 +700,22 @@ MapboxSourceStats mapbox_last_source_stats() {
     out.max_build_ms = state->max_build_ms.load();
     out.wall_quads = state->wall_quads.load();
     out.max_tile_top_m = state->max_tile_top_m.load();
+    out.min_tile_floor_m = state->min_tile_floor_m.load();
     if (const std::shared_ptr<const overlume::mapbox::DemCache> dem = state->dem.lock()) {
         out.dem_requests = dem->requests();
+    }
+    return out;
+}
+
+std::vector<uint64_t> mapbox_dem_cache_requests(MapboxFixtureNetwork* n,
+                                                const std::vector<std::array<uint32_t, 2>>& tiles) {
+    using namespace overlume::mapbox;
+    DemCache cache(n->accessor, CesiumAsync::AsyncSystem(std::make_shared<SimpleTaskProcessor>()),
+                   std::string(kDemUrlTemplate) + "?access_token=t", make_redacting_logger());
+    std::vector<uint64_t> out;
+    for (const std::array<uint32_t, 2>& t : tiles) {
+        cache.get({kLandmarkZoom, t[0], t[1]}).wait();
+        out.push_back(cache.requests());
     }
     return out;
 }
