@@ -240,7 +240,7 @@ suite, golden suite, examples) and exit 0. Lanes 0 and 8 use domain 77 and no pr
 **Baseline** (`mapbox-environment` at the spec commit, measured 2026-10-14 on the 32-core
 development machine): configure 40 s with the vcpkg prefix already installed, full library build
 94 s at `-j16`, `ros/colcon_build.sh` 43 s, gate 143 s. Gate counts: 347 library ctest entries
-(331 ok, 6 skipped), 363 node tests, 82 WS bridge tests, 23 goldens, 6 examples. A task's gate
+(331 ok, 6 skipped), 363 node tests, 94 WS bridge tests, 23 goldens, 6 examples. A task's gate
 must show every one of these counts unchanged or higher, and the goldens all `ok`.
 
 ### Per-task loop

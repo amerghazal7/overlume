@@ -1239,6 +1239,12 @@ EnvironmentSourceState StreamingEnvironmentSource::state() const {
                        : EnvironmentSourceState::STREAMING;
 }
 
+bool StreamingEnvironmentSource::has_disk_cache() const {
+    // build_externals hands the tileset TokenBypassAssetAccessor exactly when it opened a cache.
+    return tileset_ != nullptr && dynamic_cast<const TokenBypassAssetAccessor*>(
+                                      tileset_->getExternals().pAssetAccessor.get()) != nullptr;
+}
+
 bool StreamingEnvironmentSource::first_primitive_is_building_material(VisualRenderer& r) const {
     if (inScene_.empty()) return false;
     auto* asset =
@@ -1563,6 +1569,12 @@ double environment_stream_brightness(overlume::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return std::nan("");
     auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
     return stream != nullptr ? stream->brightness() : std::nan("");
+}
+
+bool environment_stream_has_disk_cache(overlume::VisualRenderer* r) {
+    if (r == nullptr || !r->environmentSource) return false;
+    auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
+    return stream != nullptr && stream->has_disk_cache();
 }
 
 double environment_terrain_offset_z(overlume::VisualRenderer* r) {

@@ -607,7 +607,7 @@ camera. The runbook holds the exact commands.
 - **Radius semantics differ from ion:** `radius` defaults to 500 m for `mapbox://`, while ion
   uses the theme's `tile_radius_m` (100 m in the shipped themes). For both, the node does not
   append its 700 m default.
-- **Partial geo-datum overrides** are silently ignored by the node. This is existing behaviour;
+- **Partial geo-datum overrides** are ignored with an ERROR log line. This is existing behaviour;
   the runbook documents it.
 
 ## 13. Next: sub-project 2

@@ -34,7 +34,10 @@ index; `docs/status.md` is the one status ledger.
   at the test site and Downtown Dubai, and troubleshooting.
 - [`env_source_captures.md`](runbooks/env_source_captures.md) — one
   committed render per Environment Tiles preset (baked / osm / google) for
-  judging the streamed sources side by side.
+  judging the streamed sources side by side. The `mapbox` and
+  `mapbox-original` sources have no committed capture: a render of live
+  Mapbox tiles is Mapbox-derived data, which the terms forbid storing (see
+  [`mapbox.md`](runbooks/mapbox.md), section 6).
 - [`theme_showcase.md`](runbooks/theme_showcase.md) — opt-in whole-palette
   single-frame capture harness used to judge theme candidates.
 - [`signoff.md`](runbooks/signoff.md) — the open/closed sign-off items

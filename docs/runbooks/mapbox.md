@@ -168,7 +168,9 @@ older path and is unchanged.
 ## 7. The demo
 
 Both sites use the replay rig and the vcam GUI's free look. The rig owns the machine: starting it
-stops any rig already running on the box (same process names, port 8765).
+stops any rig already running on the box (same process names, port 8765), but not a leftover
+replay player (a `/clock` publisher), which must be stopped by hand;
+`tools/validate_logger_session.sh` refuses to start and says so.
 
 Before either site:
 
@@ -278,15 +280,16 @@ among streets of extruded buildings.
 - **The buildings, the logo and the text disappear, and the node warns
   `environment source: network loss detected -- switched to fallback dir '…'`** (or
   `... but none configured -- environment now empty`). Eight requests in a row failed: network
-  loss, a Mapbox-side 429/5xx burst, or 401 on everything. The state is `STREAMING_FALLBACK`, and the baked chunks from
-  `fallback=` (the node's `environment_chunks_dir`) show instead. The fallback lasts for the
-  source's life. Fix the cause, then select the source again: pick another GUI entry and then the
-  Mapbox one, rerun `--arm`, or run
+  loss, a Mapbox-side 429/5xx burst, or 401 on everything. The state is `STREAMING_FALLBACK`, and
+  the baked chunks from `fallback=` (the node's `environment_chunks_dir`) show instead. The
+  fallback lasts for the source's life. Fix the cause, then select the source again: pick another
+  GUI entry and then the Mapbox one, rerun `--arm`, or run
   `ros2 param set /overlume_node environment_source_uri mapbox://buildings`.
-- **A tile answers 429 or 5xx, or a request fails in transport.** A partial failure is retried, at
-  most 3 attempts. After that the tile shows what loaded, and one line is logged. A whole tile
-  answering 429 or 5xx (17 requests) trips the network-loss fallback before any retry; see the
-  "buildings disappear" entry above, and select the source again.
+- **A tile answers 429 or 5xx, or a request fails in transport.** A failure of fewer than eight
+  requests in a row is retried, at most 3 attempts. After that the tile shows what loaded, and one
+  line is logged. Eight in a row, as when a whole tile answers 429 or 5xx (17 requests), trips the
+  network-loss fallback before any retry; see the "buildings disappear" entry above, and select
+  the source again.
 - **A landmark doubled by an extrusion, or a missing neighbour, at a landmark's edge.**
   Extrusions under a landmark are removed by their footprint's centroid, so a part whose centroid
   lies outside the landmark's footprint stays. Known limit.

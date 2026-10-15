@@ -764,8 +764,10 @@ def test_launcher_refreshes_both_tokens_from_the_login_shell(tmp_path):
          'printenv CESIUM_ION_TOKEN MAPBOX_TOKEN > "$HOME/tokens"\n'],
         env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
-    assert (tmp_path / "tokens").read_text().split() == [
-        "ion-test-token-not-real", "pk.test-token-not-real"]
+    tokens = (tmp_path / "tokens").read_text().split()
+    # A bare boolean: pytest must not print token values if this ever fails.
+    ok = tokens == ["ion-test-token-not-real", "pk.test-token-not-real"]
+    assert ok, "login-shell tokens differ from the fake profile's"
     assert ("[token] MAPBOX_TOKEN in this shell differs from the login shell's -- "
             "using the login shell's") in r.stdout
     assert "token-not-real" not in r.stdout + r.stderr
