@@ -5,6 +5,8 @@
 
 #include "overlume_ros/environment_source_uri.hpp"
 
+#include "overlume/scene.h"
+
 namespace overlume::ros {
 namespace {
 
@@ -186,4 +188,41 @@ TEST(ComposeEnvironmentSourceUri, IonUriWithEveryKnobSetIsUnchanged) {
                                                             0.5, false, 5.0, 1.8, 250.0),
               "ion://96188?cache=/tiles&fallback=/baked&follow_terrain=on&ground_bias=0.5&"
               "replaces_ground=off&max_tilt_deg=5&brightness=1.8&radius=250");
+}
+
+TEST(MapboxAttributionKind, TruthTableOverStateVisibilityParameterAndScheme) {
+    using overlume::EnvironmentSourceState;
+    using overlume::ros::AttributionKind;
+    struct Case {
+        const char* uri;
+        AttributionKind when_streaming;
+    };
+    const Case cases[] = {
+        {"", AttributionKind::NONE},
+        {"/baked/chunks", AttributionKind::NONE},
+        {"ion://96188", AttributionKind::NONE},
+        {"ion://2275207?materials=original&cache=off", AttributionKind::GOOGLE},
+        {"mapbox://buildings", AttributionKind::MAPBOX},
+        {"mapbox://buildings?materials=original", AttributionKind::MAPBOX},
+    };
+    const EnvironmentSourceState states[] = {
+        EnvironmentSourceState::NONE, EnvironmentSourceState::BAKED,
+        EnvironmentSourceState::STREAMING, EnvironmentSourceState::STREAMING_FALLBACK};
+    for (const Case& c : cases) {
+        for (const EnvironmentSourceState state : states) {
+            for (const bool visible : {false, true}) {
+                for (const bool enabled : {false, true}) {
+                    const AttributionKind expected =
+                        visible && enabled && state == EnvironmentSourceState::STREAMING
+                            ? c.when_streaming
+                            : AttributionKind::NONE;
+                    EXPECT_EQ(
+                        overlume::ros::environment_attribution_kind(visible, enabled, c.uri, state),
+                        expected)
+                        << "uri '" << c.uri << "' state " << static_cast<int>(state) << " visible "
+                        << visible << " enabled " << enabled;
+                }
+            }
+        }
+    }
 }

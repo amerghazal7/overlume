@@ -234,6 +234,7 @@ private:
     bool environment_fallback_warned_{false};
     bool environment_attribution_{true};
     bool environment_attribution_warned_{false};
+    RgbaImage mapbox_logo_;  // decoded once at configure; empty when the file is unusable
     std::string environment_own_asset_uri_;
 
     SceneAssembly scene_asm_;

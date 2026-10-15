@@ -6,6 +6,14 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 
+// The node's only stb_image implementation: static, so test executables that compile this file
+// beside their own STB_IMAGE_IMPLEMENTATION still link; PNG only, for the attribution logo.
+#define STB_IMAGE_STATIC
+#define STBI_ONLY_PNG
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -102,9 +110,11 @@ int next_code_point(const std::string& text, size_t& i) {
 bool has_glyph(int cp) { return (cp >= 0x20 && cp <= 0x7E) || (cp >= 0xA0 && cp <= 0xFF); }
 
 // Lays `text` out from the pen at (x, y) and returns the pen x after it. Draws only when `rgb` is
-// not null, so measuring and drawing advance the pen identically.
+// not null, so measuring and drawing advance the pen identically. `ink_bottom`, when given, is
+// raised to the lowest glyph edge below y.
 float draw_line(uint8_t* rgb, uint32_t width, uint32_t height, const FontAtlas& atlas,
-                const std::string& text, float x, float y, float r, float g, float b) {
+                const std::string& text, float x, float y, float r, float g, float b,
+                float* ink_bottom = nullptr) {
     for (size_t i = 0; i < text.size();) {
         const int cp = next_code_point(text, i);
         if (cp < 0) continue;
@@ -115,6 +125,7 @@ float draw_line(uint8_t* rgb, uint32_t width, uint32_t height, const FontAtlas& 
         stbtt_aligned_quad q;
         stbtt_GetBakedQuad(atlas.chars.data(), atlas.dim, atlas.dim, cp - kFirstChar, &x, &y, &q,
                            1);
+        if (ink_bottom != nullptr) *ink_bottom = std::max(*ink_bottom, q.y1 - y);
         if (rgb == nullptr) continue;
         const int gx0 = static_cast<int>(std::floor(q.x0));
         const int gx1 = static_cast<int>(std::ceil(q.x1));
@@ -218,6 +229,50 @@ void DrawImageRgba(uint8_t* rgb, uint32_t width, uint32_t height, const uint8_t*
             }
         }
     }
+}
+
+bool LoadPngRgba(const char* path, RgbaImage& out) {
+    out = RgbaImage{};
+    if (path == nullptr || path[0] == '\0') return false;
+    int w = 0, h = 0, channels = 0;
+    stbi_uc* pixels = stbi_load(path, &w, &h, &channels, 4);
+    if (pixels == nullptr) return false;
+    out.rgba.assign(pixels, pixels + static_cast<size_t>(w) * static_cast<size_t>(h) * 4);
+    out.width = static_cast<uint32_t>(w);
+    out.height = static_cast<uint32_t>(h);
+    stbi_image_free(pixels);
+    return true;
+}
+
+bool CompositeAttribution(uint8_t* rgb, uint32_t width, uint32_t height, const RgbaImage& logo,
+                          const char* text, HudRgb text_rgb, float scale, const char* font_path) {
+    if (rgb == nullptr || width == 0 || height == 0) return false;
+    constexpr int kMargin = 8;
+    const int logo_top = static_cast<int>(height) - kMargin - static_cast<int>(logo.height);
+    if (!logo.rgba.empty()) {
+        DrawImageRgba(rgb, width, height, logo.rgba.data(), logo.width, logo.height, kMargin,
+                      logo_top);
+    }
+    if (text == nullptr || font_path == nullptr || font_path[0] == '\0') return false;
+    const FontAtlas* atlas = get_atlas(font_path, scale > 0.0f ? scale : 1.0f);
+    if (atlas == nullptr) return false;
+    const std::string line(text);
+    float ink_bottom = 0.0f;
+    const float text_width =
+        draw_line(nullptr, 0, 0, *atlas, line, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &ink_bottom);
+    const float x = static_cast<float>(width) - kMargin - text_width;
+    float y = static_cast<float>(height) - kMargin - ink_bottom;
+    if (!logo.rgba.empty() && x < static_cast<float>(kMargin + logo.width + kMargin)) {
+        y = static_cast<float>(logo_top - kMargin) - ink_bottom;
+    }
+    // ponytail: two narrow-frame limits. Text wider than the frame between the margins (output
+    // narrower than 16 px plus the text's advance: 541 px at HUD scale 1.0) keeps its start and
+    // loses its end, "Improve this map"; and the lifted line leaves through the top of a frame
+    // shorter than 86 px at HUD scale 1.0 (8 + 46 + 8 + 24 with the shipped logo). Stack two
+    // right-aligned lines above the logo if outputs that small ship.
+    draw_line(rgb, width, height, *atlas, line, std::max(x, static_cast<float>(kMargin)), y,
+              text_rgb.r, text_rgb.g, text_rgb.b);
+    return true;
 }
 
 void DrawLine(uint8_t* rgb, uint32_t width, uint32_t height, float x0, float y0, float x1, float y1,

@@ -262,6 +262,9 @@ install(DIRECTORY "${OVERLUME_DIR}/assets/themes"
 install(DIRECTORY assets/fonts
   DESTINATION share/${PROJECT_NAME}/assets)
 
+install(DIRECTORY assets/attribution
+  DESTINATION share/${PROJECT_NAME}/assets)
+
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/ego/ego.glb"
   DESTINATION share/${PROJECT_NAME}/assets/ego OPTIONAL)
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets/ego/ego.glb")
@@ -280,7 +283,8 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_environment_source_uri test/test_environment_source_uri.cpp)
   target_include_directories(test_environment_source_uri PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${OVERLUME_DIR}/include)
 
   ament_add_gtest(test_scene_layout test/test_scene_layout.cpp)
   target_include_directories(test_scene_layout PRIVATE
@@ -302,7 +306,8 @@ if(BUILD_TESTING)
     TEST_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config"
     OVERLUME_THEME_DIR="${OVERLUME_DIR}/assets/themes"
     OVERLUME_NODE_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures"
-    OVERLUME_NODE_FONT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/NotoSans-Regular.ttf")
+    OVERLUME_NODE_FONT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/NotoSans-Regular.ttf"
+    OVERLUME_NODE_MAPBOX_LOGO_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/attribution/mapbox-logo.png")
 
   ament_add_gtest(test_profile test/test_profile.cpp src/profile.cpp
     src/adapters/dynamic_objects.cpp src/frame_transform.cpp test/fixture_msgs.cpp)

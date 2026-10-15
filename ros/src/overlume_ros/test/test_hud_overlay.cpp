@@ -4,6 +4,7 @@
 #include "overlume_ros/hud_overlay.hpp"
 
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <array>
@@ -13,11 +14,13 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <vector>
 
 #include "overlume/api.h"
 #include "overlume/scene.h"
+#include "overlume_ros/environment_source_uri.hpp"
 
 TEST(HudOverlay, PopulateHudCopiesEgoSpeedAndActiveMode) {
     overlume::SceneGraph scene{};
@@ -415,4 +418,163 @@ TEST(HudOverlay, DrawImageRgbaClipsWithoutWrappingOrOverrun) {
         paint(x, kH - 1);
     }
     EXPECT_TRUE(buf == expected);
+}
+
+TEST(HudOverlay, LoadPngRgbaDecodesAWrittenPngAndAMissingPathIsNonFatal) {
+    const std::string path =
+        testing::TempDir() + "overlume_logo_" + std::to_string(getpid()) + ".png";
+    // 3 x 2, straight alpha; distinct bytes catch a channel or row swap.
+    const uint8_t pixels[] = {255, 0,  0,  255, 0,  255, 0,  128, 0,  0,   255, 0,
+                              10,  20, 30, 40,  50, 60,  70, 80,  90, 100, 110, 120};
+    ASSERT_NE(stbi_write_png(path.c_str(), 3, 2, 4, pixels, 3 * 4), 0);
+    overlume::ros::RgbaImage image;
+    const bool loaded = overlume::ros::LoadPngRgba(path.c_str(), image);
+    std::remove(path.c_str());
+    ASSERT_TRUE(loaded);
+    EXPECT_EQ(image.width, 3u);
+    EXPECT_EQ(image.height, 2u);
+    EXPECT_EQ(image.rgba, std::vector<uint8_t>(std::begin(pixels), std::end(pixels)));
+
+    EXPECT_FALSE(overlume::ros::LoadPngRgba("/nonexistent/mapbox-logo.png", image));
+    EXPECT_TRUE(image.rgba.empty());
+    EXPECT_EQ(image.width, 0u);
+    EXPECT_FALSE(overlume::ros::LoadPngRgba(OVERLUME_NODE_FONT_PATH, image)) << "a TTF is no PNG";
+}
+
+TEST(MapboxAttribution, ShippedLogoIsTwiceGlJsSize) {
+    overlume::ros::RgbaImage logo;
+    ASSERT_TRUE(overlume::ros::LoadPngRgba(OVERLUME_NODE_MAPBOX_LOGO_PATH, logo))
+        << "is the Git LFS object fetched? (git lfs pull)";
+    EXPECT_EQ(logo.width, 176u);
+    EXPECT_EQ(logo.height, 46u);
+    size_t clear = 0, solid = 0;
+    for (size_t i = 3; i < logo.rgba.size(); i += 4) {
+        clear += logo.rgba[i] == 0;
+        solid += logo.rgba[i] >= 200;
+    }
+    EXPECT_GT(clear, 0u) << "the logo keeps its transparent background";
+    EXPECT_GT(solid, 0u);
+}
+
+namespace {
+
+// An opaque magenta stand-in for the logo, easy to tell from white text.
+overlume::ros::RgbaImage magenta_logo(uint32_t w, uint32_t h) {
+    overlume::ros::RgbaImage logo;
+    logo.width = w;
+    logo.height = h;
+    for (uint32_t i = 0; i < w * h; ++i) logo.rgba.insert(logo.rgba.end(), {255, 0, 255, 255});
+    return logo;
+}
+
+struct PixelBox {
+    int x0 = std::numeric_limits<int>::max(), y0 = std::numeric_limits<int>::max();
+    int x1 = -1, y1 = -1;  // exclusive
+    size_t count = 0;
+};
+
+// Sorts every pixel that left the background into the logo (exact magenta) or the text.
+void classify(const std::vector<uint8_t>& rgb, uint32_t w, uint32_t h, PixelBox& logo,
+              PixelBox& text) {
+    for (uint32_t y = 0; y < h; ++y) {
+        for (uint32_t x = 0; x < w; ++x) {
+            const uint8_t* p = &rgb[(static_cast<size_t>(y) * w + x) * 3];
+            PixelBox* box = nullptr;
+            if (p[0] == 255 && p[1] == 0 && p[2] == 255) {
+                box = &logo;
+            } else if (p[0] != kBackground || p[1] != kBackground || p[2] != kBackground) {
+                box = &text;
+            }
+            if (box == nullptr) continue;
+            box->x0 = std::min(box->x0, static_cast<int>(x));
+            box->y0 = std::min(box->y0, static_cast<int>(y));
+            box->x1 = std::max(box->x1, static_cast<int>(x) + 1);
+            box->y1 = std::max(box->y1, static_cast<int>(y) + 1);
+            ++box->count;
+        }
+    }
+}
+
+constexpr overlume::ros::HudRgb kWhite{1.0f, 1.0f, 1.0f};
+
+}
+
+TEST(MapboxAttribution, LogoBottomLeftAndTextBottomRightOnTheMargins) {
+    std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, kBackground);
+    ASSERT_TRUE(overlume::ros::CompositeAttribution(
+        rgb.data(), kWidth, kHeight, magenta_logo(40, 12), overlume::ros::kMapboxAttributionText,
+        kWhite, 1.0f, OVERLUME_NODE_FONT_PATH));
+    PixelBox logo, text;
+    classify(rgb, kWidth, kHeight, logo, text);
+    const int w = static_cast<int>(kWidth), h = static_cast<int>(kHeight);
+    EXPECT_EQ(logo.count, 40u * 12u);
+    EXPECT_EQ(logo.x0, 8);
+    EXPECT_EQ(logo.x1, 8 + 40);
+    EXPECT_EQ(logo.y0, h - 8 - 12);
+    EXPECT_EQ(logo.y1, h - 8);
+    const float text_width = overlume::ros::MeasureText(overlume::ros::kMapboxAttributionText, 1.0f,
+                                                        OVERLUME_NODE_FONT_PATH);
+    EXPECT_NEAR(text.x1, w - 8, 2.0) << "right-aligned on the 8 px margin";
+    EXPECT_NEAR(text.x0, w - 8 - text_width, 3.0);
+    EXPECT_LE(text.y1, h - 8) << "descenders end on the bottom margin";
+    EXPECT_GE(text.y1, h - 8 - 2);
+}
+
+TEST(MapboxAttribution, NarrowFrameLiftsTheTextAboveTheLogoAndKeepsBothInside) {
+    const float text_width = overlume::ros::MeasureText(overlume::ros::kMapboxAttributionText, 1.0f,
+                                                        OVERLUME_NODE_FONT_PATH);
+    ASSERT_GT(text_width, 0.0f);
+    // Room for the text on a line of its own, not for text and logo side by side.
+    const uint32_t frame_w = static_cast<uint32_t>(std::ceil(text_width)) + 16 + 20;
+    const uint32_t frame_h = 120;
+    std::vector<uint8_t> rgb(static_cast<size_t>(frame_w) * frame_h * 3, kBackground);
+    ASSERT_TRUE(overlume::ros::CompositeAttribution(
+        rgb.data(), frame_w, frame_h, magenta_logo(40, 12), overlume::ros::kMapboxAttributionText,
+        kWhite, 1.0f, OVERLUME_NODE_FONT_PATH));
+    PixelBox logo, text;
+    classify(rgb, frame_w, frame_h, logo, text);
+    EXPECT_EQ(logo.count, 40u * 12u) << "the text must not cover the logo";
+    EXPECT_EQ(logo.x0, 8);
+    EXPECT_EQ(logo.y1, static_cast<int>(frame_h) - 8);
+    EXPECT_LE(text.y1, logo.y0 - 8) << "the text moves up a line, a margin above the logo";
+    EXPECT_GT(text.y0, 0) << "the text left the top of the frame";
+    EXPECT_GE(text.x0, 8 - 2) << "the text left the left edge";
+    EXPECT_NEAR(text.x1, static_cast<int>(frame_w) - 8, 2.0);
+}
+
+TEST(MapboxAttribution, MissingLogoOrFontDegradesPieceByPiece) {
+    std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, kBackground);
+    EXPECT_TRUE(overlume::ros::CompositeAttribution(
+        rgb.data(), kWidth, kHeight, overlume::ros::RgbaImage{},
+        overlume::ros::kMapboxAttributionText, kWhite, 1.0f, OVERLUME_NODE_FONT_PATH));
+    PixelBox no_logo, text;
+    classify(rgb, kWidth, kHeight, no_logo, text);
+    EXPECT_EQ(no_logo.count, 0u);
+    EXPECT_GT(text.count, 0u) << "a missing logo must not suppress the text";
+
+    std::fill(rgb.begin(), rgb.end(), kBackground);
+    EXPECT_FALSE(overlume::ros::CompositeAttribution(
+        rgb.data(), kWidth, kHeight, magenta_logo(40, 12), overlume::ros::kMapboxAttributionText,
+        kWhite, 1.0f, "/nonexistent/does_not_exist.ttf"));
+    PixelBox logo, no_text;
+    classify(rgb, kWidth, kHeight, logo, no_text);
+    EXPECT_EQ(logo.count, 40u * 12u) << "a missing font must not suppress the logo";
+    EXPECT_EQ(no_text.count, 0u);
+}
+
+TEST(MapboxAttribution, TextUsesTheGivenHudColourAndScale) {
+    std::vector<uint8_t> rgb(static_cast<size_t>(kWidth) * kHeight * 3, kBackground);
+    ASSERT_TRUE(overlume::ros::CompositeAttribution(
+        rgb.data(), kWidth, kHeight, overlume::ros::RgbaImage{},
+        overlume::ros::kMapboxAttributionText, overlume::ros::HudRgb{0.0f, 1.0f, 0.0f}, 2.0f,
+        OVERLUME_NODE_FONT_PATH));
+    PixelBox no_logo, text;
+    classify(rgb, kWidth, kHeight, no_logo, text);
+    size_t green = 0;
+    for (size_t i = 0; i < rgb.size(); i += 3) green += rgb[i + 1] > rgb[i] + 60;
+    EXPECT_GT(green, 100u) << "the text is not in the given HUD colour";
+    const float width_at_2 = overlume::ros::MeasureText(overlume::ros::kMapboxAttributionText, 2.0f,
+                                                        OVERLUME_NODE_FONT_PATH);
+    EXPECT_NEAR(text.x0, static_cast<int>(kWidth) - 8 - width_at_2, 4.0)
+        << "the text is not laid out at the given HUD scale";
 }
