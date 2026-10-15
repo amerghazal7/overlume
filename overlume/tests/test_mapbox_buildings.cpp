@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <iostream>
 #include <optional>
 #include <set>
 #include <string>
@@ -1119,4 +1120,99 @@ TEST(MapboxBuildingsGolden, SyntheticTileLightClay) {
                           OVERLUME_TEST_DATA_DIR
                           "/tests/goldens/mapbox_buildings_synthetic_light_clay.png",
                           OVERLUME_TMP_DIR "/mapbox_buildings_synthetic_light_clay_actual.png");
+}
+
+namespace {
+
+constexpr double kLivePi = 3.14159265358979323846;
+
+bool mapbox_live_enabled() {
+    const char* token = std::getenv("MAPBOX_TOKEN");
+    const char* live = std::getenv("OVERLUME_LIVE_MAPBOX");
+    return token != nullptr && *token != '\0' && live != nullptr && std::string(live) == "1";
+}
+
+// Renders until the ego's tiles are in the scene and no tile has landed for 3 s, or 30 s pass,
+// then writes the frame to OVERLUME_TMP_DIR and prints counts. Never a URL: every request URL
+// carries the token.
+overlume::testing::MapboxSourceStats pump_mapbox_live(overlume::VisualRenderer* r, const char* site,
+                                                      const overlume::CameraPose& pose) {
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    const auto start = std::chrono::steady_clock::now();
+    auto last_change = start;
+    uint64_t built = 0;
+    while (std::chrono::steady_clock::now() - start < std::chrono::seconds(30)) {
+        if (!overlume::render_frame(r, pose, {buf.data(), 320, 240})) break;
+        const uint64_t now_built = overlume::testing::mapbox_last_source_stats().tiles_built;
+        if (now_built != built) {
+            built = now_built;
+            last_change = std::chrono::steady_clock::now();
+        }
+        if (built > 0 && overlume::testing::environment_loaded_chunk_count(r) > 0 &&
+            std::chrono::steady_clock::now() - last_change > std::chrono::seconds(3)) {
+            break;
+        }
+    }
+    const double wait_s =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    const overlume::testing::MapboxSourceStats stats =
+        overlume::testing::mapbox_last_source_stats();
+    const std::string png = std::string(OVERLUME_TMP_DIR) + "/mapbox_live_" + site + ".png";
+    overlume::testing::render_and_compare(r, pose, "/nonexistent_no_golden.png", png.c_str());
+    std::cerr << "[MapboxLive] " << site << " tiles_built=" << stats.tiles_built
+              << " landmark_nodes=" << stats.landmark_nodes
+              << " extruded_features=" << stats.extruded_features
+              << " conflated_features=" << stats.conflated_features << " retries=" << stats.retries
+              << " max_build_ms=" << stats.max_build_ms
+              << " in_scene=" << overlume::testing::environment_loaded_chunk_count(r)
+              << " wait_s=" << wait_s << " png=" << png << "\n";
+    return stats;
+}
+
+}
+
+TEST(MapboxLive, DowntownDubai) {
+    if (!mapbox_live_enabled()) {
+        GTEST_SKIP() << "opt-in live-network check -- set MAPBOX_TOKEN and "
+                        "OVERLUME_LIVE_MAPBOX=1 to run (never required by ctest)";
+    }
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    // The Burj Khalifa; heading pi/2 puts map +x east, so the camera looks north at the tower.
+    const overlume::GeoAnchor anchor{25.197139, 55.274111, kLivePi / 2.0, 0.0};
+    ASSERT_TRUE(overlume::set_environment_source(r, "mapbox://buildings", anchor));
+    overlume::SceneGraph s{};
+    s.ego.valid = 1;
+    overlume::set_scene(r, s);
+
+    const overlume::CameraPose pose{{0.0, -380.0, 220.0}, {0.0, 0.0, 120.0}, 60.0};
+    const overlume::testing::MapboxSourceStats stats = pump_mapbox_live(r, "downtown", pose);
+    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING)
+        << "fell back to baked chunks: run tools/check_mapbox_token.sh";
+    EXPECT_GE(stats.landmark_nodes, 1u)
+        << "no landmark kept at Downtown: a codec change or a rejected node matrix";
+    overlume::destroy_renderer(r);
+}
+
+TEST(MapboxLive, OperatingArea) {
+    if (!mapbox_live_enabled()) {
+        GTEST_SKIP() << "opt-in live-network check -- set MAPBOX_TOKEN and "
+                        "OVERLUME_LIVE_MAPBOX=1 to run (never required by ctest)";
+    }
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const overlume::GeoAnchor anchor{25.0803, 55.3910, kLivePi / 2.0, 0.0};
+    ASSERT_TRUE(overlume::set_environment_source(r, "mapbox://buildings", anchor));
+    overlume::SceneGraph s{};
+    s.ego.valid = 1;
+    overlume::set_scene(r, s);
+
+    const overlume::CameraPose pose{{0.0, -300.0, 200.0}, {0.0, 0.0, 0.0}, 60.0};
+    const overlume::testing::MapboxSourceStats stats = pump_mapbox_live(r, "operating_area", pose);
+    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING)
+        << "fell back to baked chunks: run tools/check_mapbox_token.sh";
+    EXPECT_GT(stats.extruded_features, 0u) << "no footprint extruded at the operating area";
+    overlume::destroy_renderer(r);
 }
