@@ -58,11 +58,27 @@ bool parse_positive(const std::string& val, double& out) {
 MapboxSpecResult parse_mapbox_spec(const std::string& spec) {
     const size_t q = spec.find('?');
     const std::string layers = spec.substr(0, q);
-    if (layers != "buildings") {
-        return {std::nullopt,
-                "mapbox:// supports only the layer list 'buildings', not '" + layers + "'", ""};
-    }
     MapboxSpec out;
+    out.buildings = false;
+    size_t from = 0;
+    while (true) {
+        const size_t comma = layers.find(',', from);
+        const std::string name =
+            layers.substr(from, comma == std::string::npos ? comma : comma - from);
+        bool* layer = nullptr;
+        if (name == "buildings") layer = &out.buildings;
+        if (name == "terrain") layer = &out.terrain;
+        // Empty, unknown and repeated names share one text: the second mention is the one refused.
+        if (layer == nullptr || *layer) {
+            return {
+                std::nullopt,
+                "mapbox:// supports only the layers 'buildings' and 'terrain', not '" + name + "'",
+                ""};
+        }
+        *layer = true;
+        if (comma == std::string::npos) break;
+        from = comma + 1;
+    }
     std::string warning;
     const std::string rest = q == std::string::npos ? std::string() : spec.substr(q + 1);
     size_t pos = 0;
@@ -91,11 +107,18 @@ MapboxSpecResult parse_mapbox_spec(const std::string& spec) {
                         "mapbox:// cache='" + val +
                             "' is not 'off': Mapbox tiles are never written to disk",
                         ""};
+            } else if (key == "imagery") {
+                if (val != "satellite" && val != "off")
+                    return {std::nullopt,
+                            "mapbox:// imagery='" + val + "' is not 'satellite' or 'off'", ""};
+                out.imagery_satellite = val == "satellite";
             }
         }
         if (amp == std::string::npos) break;
         pos = amp + 1;
     }
+    if (out.imagery_satellite && !out.terrain)
+        return {std::nullopt, "mapbox:// imagery=satellite needs the 'terrain' layer", ""};
     return {out, "", warning};
 }
 
