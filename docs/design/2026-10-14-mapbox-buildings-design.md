@@ -317,7 +317,7 @@ The work runs on cesium worker threads, after copying what it needs out of `Tile
 | Landmark GLB 204 | No landmarks in this tile (normal). |
 | 401 or 403 on either endpoint | That part of the tile is empty. Logs "Mapbox rejected MAPBOX_TOKEN (HTTP 401)" once per endpoint. The responses count as failures, so eight in a row switch to the fallback. |
 | MVT 404 | That z16 square is empty. |
-| 429, 5xx, transport error | The tile is retried later (cesium RetryLater), at most 3 attempts per tile. After that it shows what loaded and logs once. The attempt count lives in the loader and is touched only in `loadTileContent` (main thread). |
+| 429, 5xx, transport error | The tile is retried later (cesium RetryLater), at most 3 attempts per tile. After that it shows what loaded and logs once. The attempt count lives in the loader and is touched only in `loadTileContent` (main thread). The responses count as failures, as in the 401 row. If eight in a row fail (for example a whole tile answering 429 or 5xx), the network-loss row fires before any retry. |
 | Malformed GLB, or a node with an unexpected matrix | Landmarks (or that node) skipped for the tile; extrusions still shown; one log line. |
 | Malformed MVT or feature | That z16 square or feature is skipped. The decoder never reads out of bounds. |
 | Network loss (8 consecutive failed requests) | Existing fallback: streamed content torn down, baked chunks from `fallback=`, state `STREAMING_FALLBACK`. |

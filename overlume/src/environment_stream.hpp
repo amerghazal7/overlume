@@ -355,6 +355,7 @@ public:
     int leaked_on_teardown_bound() const { return leakedOnTeardownBound_; }
 
     bool materials_original() const { return materialsOriginal_; }
+    double brightness() const { return brightness_; }
     bool first_primitive_is_building_material(VisualRenderer& r) const;
 
     double ground_offset_z() const { return groundOffsetZ_; }
