@@ -6,6 +6,7 @@
 
 #include "environment_test_hooks.hpp"
 #include "golden.hpp"
+#include "mapbox_test_hooks.hpp"
 #include "test_paths.hpp"
 
 #include "stb_image_write.h"
@@ -1567,5 +1568,390 @@ TEST(EnvironmentStream, WithoutAreaSelectionACustomTilesetKeepsTheScreenSpaceVie
     EXPECT_GT(overlume::testing::fixture_grid_requested_leaves(grid).size(), 4u)
         << "without area selection cesium keeps today's two views and preloads culled siblings";
     EXPECT_EQ(overlume::testing::environment_stream_last_view_frustum_count(r), 2);
+    overlume::destroy_renderer(r);
+}
+
+namespace {
+
+// The golden pose of EnvironmentStreamGolden.FixtureBlock_DarkAdas: the fixture block covers about
+// 2,600 of the frame's 76,800 pixels (counted in environment_stream_dark_adas.png).
+const overlume::CameraPose kBlockPose{{149, 352, 90}, {69, 472, 0}, 60.0};
+
+// Two copies of light_clay (thin fog at the pose's 150 m, so hues reach the frame) that differ
+// only in environment.terrain_color: terrain_green and terrain_red. Returns their directory.
+std::string write_terrain_themes() {
+    const std::string dir = std::string(OVERLUME_TMP_DIR) + "/overlume_terrain_themes";
+    std::ifstream in(std::string(kThemeDir) + "/light_clay.yaml");
+    std::stringstream text;
+    text << in.rdbuf();
+    const std::string yaml = text.str();
+    const size_t at = yaml.find("environment:");
+    if (at == std::string::npos) {
+        // The renderer then fails to load the theme; the test already carries this failure.
+        ADD_FAILURE() << "light_clay.yaml has no environment: line";
+        return dir;
+    }
+    std::filesystem::create_directories(dir);
+    for (const auto& [name, rgb] :
+         {std::pair<std::string, std::string>{"terrain_green", "[0.05, 0.6, 0.05]"},
+          std::pair<std::string, std::string>{"terrain_red", "[0.6, 0.05, 0.05]"}}) {
+        std::string variant = yaml;
+        variant.replace(at, yaml.find('\n', at) - at,
+                        "environment: { tile_radius_m: 100.0, terrain_color: " + rgb + " }");
+        std::ofstream(dir + "/" + name + ".yaml") << variant;
+    }
+    return dir;
+}
+
+struct Rgb {
+    uint8_t r, g, b;
+};
+
+// 256-px imagery tiles at <dir>/{z}/{x}/{y}.png for every web-mercator tile of levels
+// 0..max_level within one tile of the fixture tileset's region (lon 55.2543..55.3319,
+// lat 25.1668..25.2537), rows counted from the south as cesium fills {y}. Each pixel row takes
+// colour(latitude of the row's centre, degrees); row 0 is the tile's north edge. With decodable
+// false each file holds bytes no image decoder reads: every request answers 200, no raster lands.
+template <typename Colour>
+void write_fixture_imagery(const std::string& dir, bool decodable, int max_level, Colour colour) {
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    std::vector<uint8_t> rgb(256u * 256u * 3u);
+    for (int z = 0; z <= max_level; ++z) {
+        const int n = 1 << z;
+        const auto column = [n](double lon) { return static_cast<int>((lon + 180.0) / 360.0 * n); };
+        const auto row = [n](double lat) {
+            const double fromNorth =
+                (1.0 - std::asinh(std::tan(lat * M_PI / 180.0)) / M_PI) / 2.0 * n;
+            return n - 1 - static_cast<int>(fromNorth);
+        };
+        for (int x = std::max(0, column(55.2543) - 1); x <= std::min(n - 1, column(55.3319) + 1);
+             ++x) {
+            const std::string folder = dir + "/" + std::to_string(z) + "/" + std::to_string(x);
+            std::filesystem::create_directories(folder);
+            for (int y = std::max(0, row(25.1668) - 1); y <= std::min(n - 1, row(25.2537) + 1);
+                 ++y) {
+                const std::string path = folder + "/" + std::to_string(y) + ".png";
+                if (!decodable) {
+                    std::ofstream(path, std::ios::binary) << "not an image";
+                    continue;
+                }
+                for (size_t j = 0; j < 256; ++j) {
+                    // Row j's centre as a fraction of the mercator square from its north edge.
+                    const double t = (n - 1 - y + (static_cast<double>(j) + 0.5) / 256.0) / n;
+                    const Rgb c =
+                        colour(std::atan(std::sinh(M_PI * (1.0 - 2.0 * t))) * 180.0 / M_PI);
+                    for (size_t i = 0; i < 256; ++i) {
+                        uint8_t* p = &rgb[(j * 256u + i) * 3u];
+                        p[0] = c.r;
+                        p[1] = c.g;
+                        p[2] = c.b;
+                    }
+                }
+                ASSERT_NE(stbi_write_png(path.c_str(), 256, 256, 3, rgb.data(), 256 * 3), 0)
+                    << path;
+            }
+        }
+    }
+}
+
+// One colour everywhere, levels 0..10 (the hook's default cap).
+void write_fixture_imagery(const std::string& dir, uint8_t red, uint8_t green, uint8_t blue,
+                           bool decodable) {
+    write_fixture_imagery(dir, decodable, 10, [&](double) { return Rgb{red, green, blue}; });
+}
+
+// Pixels whose red (green) channel leads both others by more than 40, and the frame's red sum.
+struct Hues {
+    size_t red = 0;
+    size_t green = 0;
+    uint64_t red_sum = 0;
+};
+
+Hues count_hues(const std::vector<uint8_t>& rgb) {
+    Hues h;
+    for (size_t i = 0; i + 2 < rgb.size(); i += 3) {
+        const int r = rgb[i], g = rgb[i + 1], b = rgb[i + 2];
+        if (r > g + 40 && r > b + 40) ++h.red;
+        if (g > r + 40 && g > b + 40) ++h.green;
+        h.red_sum += static_cast<uint64_t>(r);
+    }
+    return h;
+}
+
+// The JSON chunk of a GLB: a 12-byte header, the chunk's length and type, then the text.
+std::string glb_json(const std::vector<uint8_t>& glb) {
+    if (glb.size() < 20) return {};
+    uint32_t length = 0;
+    std::memcpy(&length, glb.data() + 12, sizeof(length));
+    if (20 + static_cast<size_t>(length) > glb.size()) return {};
+    return std::string(reinterpret_cast<const char*>(glb.data() + 20), length);
+}
+
+// Which channel leads the other two by more than 40 (on average) in the 3x3 pixels around where
+// the map point `p` lands in `frame`, a 320x240 render through the renderer's current camera:
+// 'r', 'g' or 'b'; '-' for none, and off-screen. The window is golden_luma's
+// (test_mapbox_buildings.cpp), copied because the two tests build separate binaries.
+char hue_at(overlume::VisualRenderer* r, const std::vector<uint8_t>& frame,
+            const overlume::Vec3& p) {
+    float u = 0.0f, v = 0.0f;
+    if (!overlume::project_to_screen(r, p, &u, &v)) return '-';
+    const int cx = std::clamp(static_cast<int>(u * 320.0f), 1, 318);
+    const int cy = std::clamp(static_cast<int>(v * 240.0f), 1, 238);
+    int sum[3] = {0, 0, 0};
+    for (int y = cy - 1; y <= cy + 1; ++y) {
+        for (int x = cx - 1; x <= cx + 1; ++x) {
+            const size_t i = (static_cast<size_t>(y) * 320u + static_cast<size_t>(x)) * 3u;
+            for (int c = 0; c < 3; ++c) sum[c] += frame[i + static_cast<size_t>(c)];
+        }
+    }
+    for (int c = 0; c < 3; ++c) {
+        if (sum[c] > sum[(c + 1) % 3] + 9 * 40 && sum[c] > sum[(c + 2) % 3] + 9 * 40) {
+            return "rgb"[c];
+        }
+    }
+    return '-';
+}
+
+// The fixture tileset without RTC_CENTER, copied to the tmp dir. make_tile_fixture.py writes
+// absolute ECEF positions and an RTC_CENTER the stream ignores, but cesium folds RTC_CENTER into
+// the positions it generates overlay UVs from (RasterOverlayUtilities.cpp:98): every vertex then
+// sits at about twice its ECEF vector, 0.07 degrees south of tile_root, and v clamps to 0. The
+// feature table JSON keeps its length (padded with spaces), so the b3dm header stays valid.
+std::string tiles_fixture_without_rtc() {
+    const std::string dir = std::string(OVERLUME_TMP_DIR) + "/overlume_tiles_fixture_no_rtc";
+    std::filesystem::create_directories(dir);
+    std::filesystem::copy_file(kTilesFixtureDir + "/tileset.json", dir + "/tileset.json",
+                               std::filesystem::copy_options::overwrite_existing);
+    for (const char* name : {"tile_root.b3dm", "tile_a.b3dm", "tile_b.b3dm"}) {
+        std::ifstream in(kTilesFixtureDir + "/" + name, std::ios::binary);
+        std::string b3dm((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        uint32_t jsonLength = 0;
+        if (b3dm.size() >= 28) std::memcpy(&jsonLength, b3dm.data() + 12, sizeof(jsonLength));
+        if (jsonLength < 18 || b3dm.size() < 28 + static_cast<size_t>(jsonLength)) {
+            ADD_FAILURE() << name << " is not a b3dm with a feature table";
+            continue;
+        }
+        std::string json = "{\"BATCH_LENGTH\":1}";
+        json.resize(jsonLength, ' ');
+        b3dm.replace(28, jsonLength, json);
+        std::ofstream(dir + "/" + name, std::ios::binary) << b3dm;
+    }
+    return dir;
+}
+
+// A renderer on `theme` with the fixture tileset in `tiles_dir` open as terrain under the imagery
+// in `imagery_dir` and the ego at the fixture block; nullptr without a GPU.
+overlume::VisualRenderer* terrain_renderer(const std::string& theme_dir, const char* theme,
+                                           const std::string& imagery_dir, double brightness = 1.0,
+                                           uint32_t maximum_level = 10,
+                                           const std::string& tiles_dir = kTilesFixtureDir) {
+    overlume::RenderConfig cfg{320, 240, 1, theme_dir.c_str(), theme};
+    auto* r = overlume::create_renderer(cfg);
+    if (r == nullptr) return nullptr;
+    EXPECT_TRUE(overlume::testing::install_fixture_terrain_with_file_imagery(
+        r, tiles_dir.c_str(), imagery_dir.c_str(), brightness, maximum_level));
+    overlume::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kFixtureBlockCenterMap;
+    overlume::set_scene(r, s);
+    return r;
+}
+
+// Renders kBlockPose until `done()` or 600 frames, then 30 more so the frame settles.
+template <typename Done>
+void render_block_until(overlume::VisualRenderer* r, std::vector<uint8_t>& frame, Done done) {
+    for (int i = 0; i < 600 && !done(); ++i) {
+        overlume::render_frame(r, kBlockPose, {frame.data(), 320, 240});
+    }
+    for (int i = 0; i < 30; ++i) overlume::render_frame(r, kBlockPose, {frame.data(), 320, 240});
+}
+
+bool tile_in_scene(overlume::VisualRenderer* r) {
+    return overlume::testing::environment_loaded_chunk_count(r) >= 1;
+}
+
+bool raster_attached(overlume::VisualRenderer* r) {
+    return overlume::testing::environment_stream_overlay_probe(r).rasters_attached >= 1;
+}
+
+}
+
+TEST(EnvironmentStreamOverlay, TerrainColorShowsWhileNoRasterHasAttached) {
+    const std::string imagery = std::string(OVERLUME_TMP_DIR) + "/overlume_imagery_undecodable";
+    write_fixture_imagery(imagery, 0, 0, 0, false);
+    auto* r = terrain_renderer(write_terrain_themes(), "terrain_green", imagery);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    std::vector<uint8_t> frame(320u * 240u * 3u);
+    render_block_until(r, frame, [&] { return tile_in_scene(r); });
+    ASSERT_TRUE(tile_in_scene(r)) << "the fixture tile never reached the scene";
+
+    const overlume::testing::OverlayProbe probe =
+        overlume::testing::environment_stream_overlay_probe(r);
+    EXPECT_EQ(probe.rasters_attached, 0u) << "every imagery tile is undecodable";
+    EXPECT_EQ(probe.textures_alive, 0u);
+    const Hues hues = count_hues(frame);
+    EXPECT_GT(hues.green, 800u) << "the terrain tile must show the theme's terrain_color (green) "
+                                   "while no raster is attached";
+    EXPECT_LT(hues.red, 20u);
+    overlume::destroy_renderer(r);
+}
+
+TEST(EnvironmentStreamOverlay, RasterAttachesAndItsColourCoversTheTile) {
+    const std::string imagery = std::string(OVERLUME_TMP_DIR) + "/overlume_imagery_red";
+    write_fixture_imagery(imagery, 255, 0, 0, true);
+    overlume::testing::capture_stream_glbs(true);
+    auto* r = terrain_renderer(write_terrain_themes(), "terrain_green", imagery);
+    if (!r) {
+        overlume::testing::capture_stream_glbs(false);
+        GTEST_SKIP() << "no GPU/EGL";
+    }
+    std::vector<uint8_t> frame(320u * 240u * 3u);
+    render_block_until(r, frame, [&] { return raster_attached(r); });
+    const std::vector<std::vector<uint8_t>> glbs = overlume::testing::captured_stream_glbs();
+    overlume::testing::capture_stream_glbs(false);
+
+    const overlume::testing::OverlayProbe probe =
+        overlume::testing::environment_stream_overlay_probe(r);
+    ASSERT_GE(probe.rasters_attached, 1u) << "no raster attached within 600 frames";
+    EXPECT_GE(probe.textures_alive, 1u);
+    const auto glbs_with = [&](const char* text) {
+        return std::count_if(glbs.begin(), glbs.end(), [&](const std::vector<uint8_t>& glb) {
+            return glb_json(glb).find(text) != std::string::npos;
+        });
+    };
+    EXPECT_GE(glbs_with("\"TEXCOORD_0\""), 1)
+        << "the GLB step must copy _CESIUMOVERLAY_0 into TEXCOORD_0 for terrain tiles";
+    EXPECT_EQ(glbs_with("_CESIUMOVERLAY_"), 0) << "gltfio refuses attributes outside the core set";
+    const Hues hues = count_hues(frame);
+    EXPECT_GT(hues.red, 800u) << "the fixture tile must show the imagery's red";
+    EXPECT_LT(hues.green, 20u) << "terrain_color must be gone once the raster attaches";
+    overlume::destroy_renderer(r);
+}
+
+TEST(EnvironmentStreamOverlay, TeardownDetachesEveryRasterAndFreesEveryTexture) {
+    const std::string imagery = std::string(OVERLUME_TMP_DIR) + "/overlume_imagery_red";
+    write_fixture_imagery(imagery, 255, 0, 0, true);
+    auto* r = terrain_renderer(write_terrain_themes(), "terrain_green", imagery);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    std::vector<uint8_t> frame(320u * 240u * 3u);
+    render_block_until(r, frame, [&] { return raster_attached(r); });
+    ASSERT_TRUE(raster_attached(r)) << "no raster attached within 600 frames";
+
+    // Tears the tileset down and keeps the source, so its counters stay readable.
+    ASSERT_TRUE(overlume::testing::environment_stream_force_fall_back(r));
+    const overlume::testing::OverlayProbe probe =
+        overlume::testing::environment_stream_overlay_probe(r);
+    EXPECT_EQ(probe.rasters_detached, probe.rasters_attached)
+        << "every attached raster must be detached before its tile is freed";
+    EXPECT_EQ(probe.textures_alive, 0u) << "a raster texture outlived its tileset";
+    EXPECT_GE(probe.textures_freed, 1u);
+    overlume::destroy_renderer(r);
+}
+
+TEST(EnvironmentStreamOverlay, RemovingTheOverlayDetachesLiveTilesBackToTerrainColor) {
+    const std::string imagery = std::string(OVERLUME_TMP_DIR) + "/overlume_imagery_red";
+    write_fixture_imagery(imagery, 255, 0, 0, true);
+    auto* r = terrain_renderer(write_terrain_themes(), "terrain_green", imagery);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    std::vector<uint8_t> frame(320u * 240u * 3u);
+    render_block_until(r, frame, [&] { return raster_attached(r); });
+    ASSERT_TRUE(raster_attached(r)) << "no raster attached within 600 frames";
+    ASSERT_GT(count_hues(frame).red, 800u) << "test setup: the red imagery on the tile";
+
+    ASSERT_TRUE(overlume::testing::environment_stream_remove_overlays(r));
+    render_block_until(r, frame, [&] {
+        return overlume::testing::environment_stream_overlay_probe(r).textures_alive == 0;
+    });
+    ASSERT_TRUE(tile_in_scene(r)) << "the terrain tile must survive the overlay's removal";
+    const overlume::testing::OverlayProbe probe =
+        overlume::testing::environment_stream_overlay_probe(r);
+    EXPECT_EQ(probe.rasters_detached, probe.rasters_attached)
+        << "every attached raster of a live tile must be detached when its overlay is removed";
+    EXPECT_EQ(probe.textures_alive, 0u) << "a detached raster's texture must be freed by the drain";
+    const Hues hues = count_hues(frame);
+    EXPECT_GT(hues.green, 800u)
+        << "a live tile whose raster detached must show terrain_color again (hasImagery 0)";
+    EXPECT_LT(hues.red, 20u);
+    overlume::destroy_renderer(r);
+}
+
+TEST(EnvironmentStreamOverlay, BrightnessScalesTheImagery) {
+    const std::string imagery = std::string(OVERLUME_TMP_DIR) + "/overlume_imagery_dim_red";
+    write_fixture_imagery(imagery, 100, 0, 0, true);
+    const std::string themes = write_terrain_themes();
+    const auto red_sum_at = [&](double brightness) -> std::optional<uint64_t> {
+        auto* r = terrain_renderer(themes, "terrain_green", imagery, brightness);
+        if (!r) return std::nullopt;
+        std::vector<uint8_t> frame(320u * 240u * 3u);
+        render_block_until(r, frame, [&] { return raster_attached(r); });
+        EXPECT_TRUE(raster_attached(r)) << "brightness " << brightness;
+        const uint64_t sum = count_hues(frame).red_sum;
+        overlume::destroy_renderer(r);
+        return sum;
+    };
+    const std::optional<uint64_t> dim = red_sum_at(1.0);
+    if (!dim) GTEST_SKIP() << "no GPU/EGL";
+    const std::optional<uint64_t> bright = red_sum_at(3.0);
+    ASSERT_TRUE(bright.has_value());
+    EXPECT_GT(*bright, *dim + 40000u)
+        << "brightness 3 must lift the imagery's red on the tile's ~2,600 pixels (frame red sum "
+        << *dim << " at 1, " << *bright << " at 3)";
+}
+
+TEST(EnvironmentStreamOverlay, TerrainColorFollowsAThemeSwitchOnLiveTiles) {
+    const std::string imagery = std::string(OVERLUME_TMP_DIR) + "/overlume_imagery_undecodable";
+    write_fixture_imagery(imagery, 0, 0, 0, false);
+    auto* r = terrain_renderer(write_terrain_themes(), "terrain_green", imagery);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    std::vector<uint8_t> frame(320u * 240u * 3u);
+    render_block_until(r, frame, [&] { return tile_in_scene(r); });
+    ASSERT_GT(count_hues(frame).green, 800u) << "test setup: the green terrain tile";
+
+    // A transition that ended 9.9 s before the scene's sim time 0: the next frame is terrain_red.
+    ASSERT_TRUE(overlume::set_theme(r, "terrain_red", -10.0, 0.1));
+    for (int i = 0; i < 3; ++i) overlume::render_frame(r, kBlockPose, {frame.data(), 320, 240});
+    const Hues hues = count_hues(frame);
+    EXPECT_GT(hues.red, 800u) << "a live terrain tile must take the new theme's terrain_color";
+    EXPECT_LT(hues.green, 20u);
+    overlume::destroy_renderer(r);
+}
+
+TEST(EnvironmentStreamOverlay, ImageryKeepsNorthUp) {
+    // tile_root's region centre, where make_tile_fixture.py stands its five buildings (at the
+    // region's mid height); the imagery is red north of this latitude and blue south of it.
+    constexpr double kCentreLatDeg = 25.197824750000005;
+    constexpr double kCentreLonDeg = 55.269725500000005;
+    constexpr double kBaseHeightM = -2.7436;
+    double x0 = 0, y0 = 0, z0 = 0;
+    ASSERT_TRUE(overlume::testing::ecef_to_map_probe(
+        kFixtureAnchor.origin_lat_deg, kFixtureAnchor.origin_lon_deg, 0.0, 0.0, kCentreLatDeg,
+        kCentreLonDeg, kBaseHeightM, &x0, &y0, &z0));
+    // Map x is north and y west. Each point is a building's centre at half its height, on that
+    // building's own faces from any side. North: E 30.4, N 29.5, 11.8 x 16.0 m, 26.1 m tall.
+    // South: E -13.1, N -25.4, 14.4 x 8.2 m, 11.2 m tall.
+    const overlume::Vec3 northBuilding{x0 + 29.5, y0 - 30.4, z0 + 13.0};
+    const overlume::Vec3 southBuilding{x0 - 25.4, y0 + 13.1, z0 + 5.6};
+
+    // Level 14: 8.7 m texels, so both buildings lie more than two texels from the colour line.
+    const std::string imagery = std::string(OVERLUME_TMP_DIR) + "/overlume_imagery_north_red";
+    write_fixture_imagery(imagery, true, 14, [](double lat_deg) {
+        return lat_deg > kCentreLatDeg ? Rgb{255, 0, 0} : Rgb{0, 0, 255};
+    });
+    // On the shipped fixture, cesium folds RTC_CENTER into the overlay UVs and both probes read
+    // the raster's south edge (API notes); this copy drops it.
+    auto* r = terrain_renderer(write_terrain_themes(), "terrain_green", imagery, 1.0, 14,
+                               tiles_fixture_without_rtc());
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    std::vector<uint8_t> frame(320u * 240u * 3u);
+    render_block_until(r, frame, [&] { return raster_attached(r); });
+    ASSERT_TRUE(raster_attached(r)) << "no raster attached within 600 frames";
+
+    EXPECT_EQ(hue_at(r, frame, northBuilding), 'r')
+        << "the building north of the colour line must show the imagery's north (red); 'b' means "
+           "the raster is mirrored north-south, 'g' that terrain_color still shows";
+    EXPECT_EQ(hue_at(r, frame, southBuilding), 'b')
+        << "the building south of the colour line must show the imagery's south (blue); 'r' means "
+           "the raster is mirrored or sampled at one corner (translation and scale swapped)";
     overlume::destroy_renderer(r);
 }
