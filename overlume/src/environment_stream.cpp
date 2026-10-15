@@ -12,9 +12,14 @@
 #include <CesiumAsync/CachingAssetAccessor.h>
 #include <CesiumAsync/SqliteCache.h>
 #include <CesiumCurl/CurlAssetAccessor.h>
+#include <CesiumGeometry/BoundingSphere.h>
+#include <CesiumGeometry/QuadtreeTileID.h>
 #include <CesiumGeometry/Transforms.h>
+#include <CesiumGeospatial/BoundingRegion.h>
 #include <CesiumGeospatial/Cartographic.h>
 #include <CesiumGeospatial/Ellipsoid.h>
+#include <CesiumGeospatial/GlobeRectangle.h>
+#include <CesiumGeospatial/GlobeTransforms.h>
 #include <CesiumGltf/AccessorWriter.h>
 #include <CesiumGltf/Model.h>
 #include <CesiumGltfWriter/GltfWriter.h>
@@ -226,8 +231,6 @@ bool consolidate_buffers(CesiumGltf::Model& model) {
     return true;
 }
 
-std::shared_ptr<spdlog::logger> make_redacting_logger();
-
 void strip_attributes_and_correct_heights(CesiumGltf::Model& model, const glm::dmat4& modelToEcef,
                                           const glm::dmat4& ecefToMap, double anchorHeightM) {
     for (CesiumGltf::Mesh& mesh : model.meshes) {
@@ -326,6 +329,8 @@ private:
 
 std::shared_ptr<RedactingSink> g_redactingSinkForTest;
 
+}
+
 std::shared_ptr<spdlog::logger> make_redacting_logger() {
     static const std::shared_ptr<spdlog::logger> logger = [] {
         auto inner = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
@@ -337,6 +342,8 @@ std::shared_ptr<spdlog::logger> make_redacting_logger() {
     }();
     return logger;
 }
+
+namespace {
 
 class TokenBypassAssetAccessor final : public CesiumAsync::IAssetAccessor {
 public:
@@ -365,10 +372,12 @@ private:
     std::shared_ptr<CesiumAsync::IAssetAccessor> direct_;
 };
 
+}
+
 Cesium3DTilesSelection::TilesetExternals build_externals(
     std::shared_ptr<CesiumAsync::IAssetAccessor> base, const CesiumAsync::AsyncSystem& asyncSystem,
     const std::string& cache_dir, uint64_t max_cache_items,
-    std::shared_ptr<CountingAssetAccessor>* out_counting = nullptr) {
+    std::shared_ptr<CountingAssetAccessor>* out_counting) {
     auto counting = std::make_shared<CountingAssetAccessor>(std::move(base));
     if (out_counting != nullptr) *out_counting = counting;
     auto logger = make_redacting_logger();
@@ -391,8 +400,6 @@ Cesium3DTilesSelection::TilesetExternals build_externals(
     externals.pAssetAccessor = tokenSafe;
     externals.pLogger = logger;
     return externals;
-}
-
 }
 
 glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor) {
@@ -742,7 +749,8 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
     std::string ion_access_token, std::string root_tileset_uri, std::string fallback_baked_dir,
     GeoAnchor anchor, std::shared_ptr<CountingAssetAccessor> counting_accessor,
     bool materials_original, bool follow_terrain, double ground_bias_m, bool replaces_ground,
-    double max_tilt_deg, double brightness, std::optional<double> radius_override_m)
+    double max_tilt_deg, double brightness, std::optional<double> radius_override_m,
+    CustomTileset custom_tileset)
     : asyncSystem_(externals.asyncSystem),
       anchor_(anchor),
       ecefToMap_(compute_ecef_to_map(anchor)),
@@ -755,6 +763,7 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
       maxTiltRad_(max_tilt_deg * M_PI / 180.0),
       brightness_(brightness),
       tileRadiusOverrideM_(radius_override_m),
+      areaSelection_(custom_tileset.area_selection),
       countingAccessor_(std::move(counting_accessor)) {
     static std::once_flag registerContentTypesOnce;
     std::call_once(registerContentTypesOnce,
@@ -766,7 +775,14 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
 
     Cesium3DTilesSelection::TilesetOptions options;
     options.maximumScreenSpaceError = kStreamMaxSseErr;
-    if (asset_id > 0 && !ion_access_token.empty()) {
+    if (areaSelection_) {
+        // Otherwise every culled sibling still loads, at preload priority.
+        options.preloadSiblings = false;
+    }
+    if (custom_tileset.loader) {
+        tileset_ = std::make_unique<Cesium3DTilesSelection::Tileset>(
+            externals, std::move(custom_tileset.loader), std::move(custom_tileset.root), options);
+    } else if (asset_id > 0 && !ion_access_token.empty()) {
         tileset_ = std::make_unique<Cesium3DTilesSelection::Tileset>(externals, asset_id,
                                                                      ion_access_token, options);
     } else {
@@ -1003,21 +1019,32 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
         update_terrain_transform(deltaSeconds);
     }
 
-    const std::optional<ViewState> cameraView = camera_view_state(r, mapToEcef_);
-    const std::vector<ViewState> views = cameraView.has_value()
-                                             ? std::vector<ViewState>{view, *cameraView}
-                                             : std::vector<ViewState>{view};
+    const double radiusM = tileRadiusOverrideM_.value_or(
+        static_cast<double>(r.active_theme.environment.tile_radius_m));
+    std::vector<ViewState> views;
+    if (areaSelection_) {
+        // The only view: next to a screen-space view, cesium would select by screen-space error.
+        const glm::dvec3 egoEcef(mapToEcef_ *
+                                 glm::dvec4(ego_map_pos.x, ego_map_pos.y, ego_map_pos.z, 1.0));
+        views.emplace_back(Cesium3DTilesSelection::BoundingVolume(
+                               CesiumGeometry::BoundingSphere(egoEcef, radiusM)),
+                           1.0);
+    } else {
+        const std::optional<ViewState> cameraView = camera_view_state(r, mapToEcef_);
+        views = cameraView.has_value() ? std::vector<ViewState>{view, *cameraView}
+                                       : std::vector<ViewState>{view};
+    }
     lastViewFrustumCount_ = views.size();
     const ViewUpdateResult& result = tileset_->updateViewGroup(*viewGroup_, views, deltaSeconds);
     tileset_->loadTiles();
     asyncSystem_.dispatchMainThreadTasks();
 
-    const double radiusM = tileRadiusOverrideM_.value_or(
-        static_cast<double>(r.active_theme.environment.tile_radius_m));
     std::unordered_map<const void*, bool> stillPresent;
     for (const auto& tilePtr : result.tilesToRenderThisFrame) {
         const Cesium3DTilesSelection::Tile* tile = tilePtr.get();
         if (tile == nullptr || !tile->isRenderContent()) continue;
+        // Until Done, the render resources are still the worker's LoadThreadGlb, not an asset.
+        if (tile->getState() != Cesium3DTilesSelection::TileLoadState::Done) continue;
         const auto* renderContent = tile->getContent().getRenderContent();
         if (renderContent == nullptr) continue;
         void* res = renderContent->getRenderResources();
@@ -1267,6 +1294,182 @@ void revive_fixture_network(FixtureStreamHandle* handle) {
 
 void break_fixture_network_transport(FixtureStreamHandle* handle) {
     if (handle && handle->transport_down) handle->transport_down->store(true);
+}
+
+namespace {
+
+constexpr uint32_t kGridCellsPerSide = 4;
+constexpr double kGridCellM = 1000.0;
+
+struct GridRequestLog {
+    std::mutex mutex;
+    std::vector<std::pair<int, int>> leaves;
+};
+
+// One triangle in the tile frame, so every leaf becomes a real asset in the scene.
+CesiumGltf::Model one_triangle_model() {
+    static constexpr float kPositions[9] = {-5, -5, 0, 5, -5, 0, 0, 5, 10};
+    static constexpr uint16_t kIndices[3] = {0, 1, 2};
+
+    CesiumGltf::Model model;
+    model.asset.version = "2.0";
+    model.buffers.resize(1);
+    model.bufferViews.resize(2);
+    model.accessors.resize(2);
+    model.meshes.resize(1);
+    model.nodes.resize(1);
+    model.scenes.resize(1);
+
+    std::vector<std::byte>& bytes = model.buffers[0].cesium.data;
+    bytes.resize(sizeof(kPositions) + sizeof(kIndices));
+    std::memcpy(bytes.data(), kPositions, sizeof(kPositions));
+    std::memcpy(bytes.data() + sizeof(kPositions), kIndices, sizeof(kIndices));
+    model.buffers[0].byteLength = static_cast<int64_t>(bytes.size());
+
+    model.bufferViews[0].buffer = 0;
+    model.bufferViews[0].byteLength = sizeof(kPositions);
+    model.bufferViews[1].buffer = 0;
+    model.bufferViews[1].byteOffset = sizeof(kPositions);
+    model.bufferViews[1].byteLength = sizeof(kIndices);
+
+    CesiumGltf::Accessor& position = model.accessors[0];
+    position.bufferView = 0;
+    position.count = 3;
+    position.componentType = CesiumGltf::Accessor::ComponentType::FLOAT;
+    position.type = CesiumGltf::Accessor::Type::VEC3;
+    position.min = {-5.0, -5.0, 0.0};
+    position.max = {5.0, 5.0, 10.0};
+    CesiumGltf::Accessor& index = model.accessors[1];
+    index.bufferView = 1;
+    index.count = 3;
+    index.componentType = CesiumGltf::Accessor::ComponentType::UNSIGNED_SHORT;
+    index.type = CesiumGltf::Accessor::Type::SCALAR;
+
+    CesiumGltf::MeshPrimitive& primitive = model.meshes[0].primitives.emplace_back();
+    primitive.attributes["POSITION"] = 0;
+    primitive.indices = 1;
+    model.nodes[0].mesh = 0;
+    model.scenes[0].nodes.push_back(0);
+    model.scene = 0;
+    return model;
+}
+
+class GridTestLoader final : public Cesium3DTilesSelection::TilesetContentLoader {
+public:
+    explicit GridTestLoader(std::shared_ptr<GridRequestLog> log) : log_(std::move(log)) {}
+
+    // Only leaves get here: the root holds empty content under a non-loadable ID.
+    CesiumAsync::Future<Cesium3DTilesSelection::TileLoadResult> loadTileContent(
+        const Cesium3DTilesSelection::TileLoadInput& input) override {
+        const auto& id = std::get<CesiumGeometry::QuadtreeTileID>(input.tile.getTileID());
+        {
+            std::lock_guard<std::mutex> lock(log_->mutex);
+            log_->leaves.emplace_back(static_cast<int>(id.x), static_cast<int>(id.y));
+        }
+        return input.asyncSystem.createResolvedFuture(Cesium3DTilesSelection::TileLoadResult{
+            one_triangle_model(),
+            CesiumGeometry::Axis::Z,
+            std::nullopt,
+            std::nullopt,
+            std::nullopt,
+            input.pAssetAccessor,
+            nullptr,
+            {},
+            Cesium3DTilesSelection::TileLoadResultState::Success,
+            input.ellipsoid});
+    }
+
+    Cesium3DTilesSelection::TileChildrenResult createTileChildren(
+        const Cesium3DTilesSelection::Tile&, const CesiumGeospatial::Ellipsoid&) override {
+        return {{}, Cesium3DTilesSelection::TileLoadResultState::Failed};
+    }
+
+private:
+    std::shared_ptr<GridRequestLog> log_;
+};
+
+// The root covers the whole square and refines unconditionally into the 16 leaves. They are built
+// here, as EllipsoidTilesetLoader builds its root's children, so the tree is complete before
+// cesium's first selection. Leaf (c, r) is QuadtreeTileID(2, c, r): column c west to east, row r
+// north to south, each with its own east-north-up frame at its centre.
+std::unique_ptr<Cesium3DTilesSelection::Tile> make_grid_root(GridTestLoader* loader,
+                                                             const overlume::GeoAnchor& anchor) {
+    using CesiumGeospatial::Cartographic;
+    using CesiumGeospatial::Ellipsoid;
+    using CesiumGeospatial::GlobeTransforms;
+    const glm::dmat4 anchorEnu = GlobeTransforms::eastNorthUpToFixedFrame(
+        Ellipsoid::WGS84.cartographicToCartesian(Cartographic::fromDegrees(
+            anchor.origin_lon_deg, anchor.origin_lat_deg, anchor.origin_height_m)));
+    // The point east_m, north_m of the anchor on its tangent plane, as longitude and latitude.
+    const auto lonLat = [&](double east_m, double north_m) {
+        return *Ellipsoid::WGS84.cartesianToCartographic(
+            glm::dvec3(anchorEnu * glm::dvec4(east_m, north_m, 0.0, 1.0)));
+    };
+    const auto region = [&](double west_m, double south_m, double east_m, double north_m) {
+        const Cartographic sw = lonLat(west_m, south_m);
+        const Cartographic ne = lonLat(east_m, north_m);
+        return CesiumGeospatial::BoundingRegion(
+            CesiumGeospatial::GlobeRectangle(sw.longitude, sw.latitude, ne.longitude, ne.latitude),
+            anchor.origin_height_m - 10.0, anchor.origin_height_m + 100.0);
+    };
+
+    const double half = 0.5 * kGridCellsPerSide * kGridCellM;
+    auto root = std::make_unique<Cesium3DTilesSelection::Tile>(
+        loader, Cesium3DTilesSelection::TileID(), Cesium3DTilesSelection::TileEmptyContent{});
+    root->setUnconditionallyRefine();
+    root->setBoundingVolume(region(-half, -half, half, half));
+
+    std::vector<Cesium3DTilesSelection::Tile> leaves;
+    leaves.reserve(kGridCellsPerSide * kGridCellsPerSide);
+    for (uint32_t c = 0; c < kGridCellsPerSide; ++c) {
+        for (uint32_t r = 0; r < kGridCellsPerSide; ++r) {
+            const double west = -half + c * kGridCellM;
+            const double north = half - r * kGridCellM;
+            Cesium3DTilesSelection::Tile& leaf =
+                leaves.emplace_back(loader, CesiumGeometry::QuadtreeTileID(2, c, r));
+            leaf.setBoundingVolume(region(west, north - kGridCellM, west + kGridCellM, north));
+            const Cartographic centre = lonLat(west + 0.5 * kGridCellM, north - 0.5 * kGridCellM);
+            leaf.setTransform(
+                GlobeTransforms::eastNorthUpToFixedFrame(Ellipsoid::WGS84.cartographicToCartesian(
+                    Cartographic(centre.longitude, centre.latitude, anchor.origin_height_m))));
+        }
+    }
+    root->createChildTiles(std::move(leaves));
+    return root;
+}
+
+}
+
+struct FixtureGridHandle {
+    std::shared_ptr<GridRequestLog> log;
+};
+
+FixtureGridHandle* install_fixture_grid_source(overlume::VisualRenderer* r,
+                                               overlume::GeoAnchor anchor, double radius_m,
+                                               bool area_selection) {
+    if (r == nullptr) return nullptr;
+    auto log = std::make_shared<GridRequestLog>();
+    auto loader = std::make_unique<GridTestLoader>(log);
+    std::unique_ptr<Cesium3DTilesSelection::Tile> root = make_grid_root(loader.get(), anchor);
+    CesiumAsync::AsyncSystem asyncSystem(std::make_shared<overlume::SimpleTaskProcessor>());
+    std::shared_ptr<overlume::CountingAssetAccessor> counting;
+    Cesium3DTilesSelection::TilesetExternals externals =
+        overlume::build_externals(std::make_shared<overlume::FileFixtureAssetAccessor>(),
+                                  asyncSystem, "off", overlume::kDefaultMaxCacheItems, &counting);
+    auto source = std::make_unique<overlume::StreamingEnvironmentSource>(
+        externals, 0, std::string(), std::string(), std::string(), anchor, std::move(counting),
+        false, false, 0.0, true, 2.0, 1.0, radius_m,
+        overlume::CustomTileset{std::move(loader), std::move(root), area_selection});
+    source->set_visible(*r, r->environmentVisible);
+    if (r->environmentSource) r->environmentSource->teardown(*r);
+    r->environmentSource = std::move(source);
+    return new FixtureGridHandle{std::move(log)};
+}
+
+std::vector<std::pair<int, int>> fixture_grid_requested_leaves(FixtureGridHandle* handle) {
+    if (handle == nullptr) return {};
+    std::lock_guard<std::mutex> lock(handle->log->mutex);
+    return handle->log->leaves;
 }
 
 bool environment_stream_materials_original(overlume::VisualRenderer* r) {

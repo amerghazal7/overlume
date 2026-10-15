@@ -27,6 +27,7 @@ static_assert(__cplusplus >= 202002L,
 #include <Cesium3DTilesSelection/IPrepareRendererResources.h>
 #include <Cesium3DTilesSelection/Tile.h>
 #include <Cesium3DTilesSelection/Tileset.h>
+#include <Cesium3DTilesSelection/TilesetContentLoader.h>
 #include <Cesium3DTilesSelection/TilesetExternals.h>
 #include <Cesium3DTilesSelection/TilesetViewGroup.h>
 #include <CesiumAsync/AsyncSystem.h>
@@ -39,6 +40,10 @@ static_assert(__cplusplus >= 202002L,
 
 #include "environment.hpp"
 #include "overlume/scene.h"
+
+namespace spdlog {
+class logger;
+}
 
 namespace overlume {
 
@@ -253,6 +258,23 @@ glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor);
 glm::dvec3 correct_ecef_point_height(const glm::dvec3& ecef_pos, const glm::dmat4& ecef_to_map,
                                      double anchor_height_m);
 
+std::shared_ptr<spdlog::logger> make_redacting_logger();
+
+// Wraps `base` in a CountingAssetAccessor, behind the SQLite cache unless cache_dir is "off".
+Cesium3DTilesSelection::TilesetExternals build_externals(
+    std::shared_ptr<CesiumAsync::IAssetAccessor> base, const CesiumAsync::AsyncSystem& asyncSystem,
+    const std::string& cache_dir, uint64_t max_cache_items,
+    std::shared_ptr<CountingAssetAccessor>* out_counting = nullptr);
+
+struct CustomTileset {
+    std::unique_ptr<Cesium3DTilesSelection::TilesetContentLoader> loader;
+    std::unique_ptr<Cesium3DTilesSelection::Tile> root;
+    // Select with cesium's area view, a sphere of the source's radius around the ego, as the only
+    // view (geometric-error threshold 1.0); also turns preloadSiblings off. (Fog culling needs no
+    // switch: cesium 0.64 never fog-culls an area view, TilesetSelection.cpp:471.)
+    bool area_selection = false;
+};
+
 class StreamingEnvironmentSource : public EnvironmentSource {
 public:
     StreamingEnvironmentSource(Cesium3DTilesSelection::TilesetExternals externals, int64_t asset_id,
@@ -262,7 +284,8 @@ public:
                                bool materials_original = false, bool follow_terrain = false,
                                double ground_bias_m = 0.3, bool replaces_ground = true,
                                double max_tilt_deg = 2.0, double brightness = 1.0,
-                               std::optional<double> radius_override_m = std::nullopt);
+                               std::optional<double> radius_override_m = std::nullopt,
+                               CustomTileset custom_tileset = {});
     ~StreamingEnvironmentSource() override;
 
     void update(VisualRenderer& r, Vec3 ego_map_pos) override;
@@ -320,6 +343,7 @@ private:
     double brightness_ = 1.0;
     bool groundOffsetSnapped_ = false;
     std::optional<double> tileRadiusOverrideM_;
+    bool areaSelection_ = false;
 
     std::shared_ptr<CountingAssetAccessor> countingAccessor_;
     bool fallenBack_ = false;
