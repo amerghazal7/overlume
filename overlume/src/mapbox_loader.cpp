@@ -9,23 +9,18 @@
 #include "mapbox_mvt.hpp"
 #include "mapbox_test_hooks.hpp"
 #include "mapbox_tile_frame.hpp"
+#include "mapbox_tiling.hpp"
 #include "renderer_internal.hpp"
 
 #include <Cesium3DTilesSelection/BoundingVolume.h>
 #include <Cesium3DTilesSelection/Tile.h>
 #include <Cesium3DTilesSelection/TileLoadResult.h>
 #include <Cesium3DTilesSelection/TilesetContentLoader.h>
-#include <CesiumAsync/IAssetRequest.h>
-#include <CesiumAsync/IAssetResponse.h>
 #include <CesiumCurl/CurlAssetAccessor.h>
 #include <CesiumGeometry/QuadtreeTileID.h>
-#include <CesiumGeospatial/BoundingRegion.h>
 #include <CesiumGeospatial/Ellipsoid.h>
-#include <CesiumGeospatial/GlobeRectangle.h>
 #include <CesiumGltf/Model.h>
 #include <CesiumUtility/Gzip.h>
-
-#include <glm/gtc/type_ptr.hpp>
 
 #include <spdlog/spdlog.h>
 
@@ -38,9 +33,7 @@
 #include <exception>
 #include <limits>
 #include <mutex>
-#include <set>
 #include <span>
-#include <unordered_map>
 #include <variant>
 
 namespace overlume::mapbox {
@@ -119,12 +112,6 @@ using Cesium3DTilesSelection::TileLoadInput;
 using Cesium3DTilesSelection::TileLoadResult;
 using Cesium3DTilesSelection::TileLoadResultState;
 
-constexpr uint32_t kMaxAttempts = 3;
-// The wait before attempt 2, from attempt 1's start; doubled before attempt 3.
-constexpr double kRetryWaitS = 2.0;
-// Tile bounds span the anchor height -10 m to +1000 m until a built tile reports its real top.
-constexpr double kRegionBelowM = 10.0;
-constexpr double kRegionAboveM = 1000.0;
 constexpr char kStreets[] = "streets-v8 footprints";
 constexpr char kLandmarks[] = "3D landmarks";
 constexpr size_t kLandmarkIndex = 16;  // after the 16 squares in a tile's requests
@@ -147,15 +134,8 @@ std::string trim_ascii_whitespace(const std::string& s) {
     return s.substr(first, s.find_last_not_of(kWhitespace) - first + 1);
 }
 
-// Fixed when the source opens. Async work holds this and LoaderState by shared_ptr, never the
-// loader itself, so switching the source away mid-build stays safe.
-struct LoaderConfig {
-    std::string token;  // goes into request URLs and nowhere else
-    bool materials_original = false;
-    double origin_height_m = 0.0;
-};
-
-struct LoaderState {
+// first_time (SourceLog): at most one log line per endpoint and status, or failure kind.
+struct LoaderState : SourceLog {
     std::atomic<uint64_t> tiles_built{0};
     std::atomic<uint64_t> landmark_nodes{0};
     std::atomic<uint64_t> extruded_features{0};
@@ -164,14 +144,6 @@ struct LoaderState {
     std::atomic<uint64_t> wall_quads{0};
     std::atomic<double> max_build_ms{0.0};
     std::atomic<double> max_tile_top_m{0.0};
-    std::mutex logged_mutex;
-    std::set<std::string> logged;
-
-    // At most one log line per endpoint and status, or failure kind, per source.
-    bool first_time(const std::string& key) {
-        std::lock_guard<std::mutex> lock(logged_mutex);
-        return logged.insert(key).second;
-    }
 
     void note_build_ms(double ms) {
         double seen = max_build_ms.load();
@@ -188,86 +160,6 @@ struct LoaderState {
 
 std::mutex g_lastStateMutex;
 std::shared_ptr<LoaderState> g_lastState;  // the latest source's, for mapbox_last_source_stats()
-
-// The retry wait's clock in seconds: the steady clock, or where a test froze it
-// (mapbox_set_test_clock).
-std::atomic<double> g_testClockS{-1.0};
-
-double clock_s() {
-    const double frozen = g_testClockS.load();
-    if (frozen >= 0.0) return frozen;
-    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
-        .count();
-}
-
-struct Fetched {
-    uint16_t status = 0;
-    std::vector<std::byte> body;  // kept for 200 only
-    bool transport_error = false;
-};
-
-enum class Outcome { Body, Empty, Auth, Transient, Other };
-
-Outcome classify(const Fetched& f) {
-    if (f.transport_error) return Outcome::Transient;
-    if (f.status == 200) return Outcome::Body;
-    if (f.status == 204 || f.status == 404) return Outcome::Empty;
-    if (f.status == 401 || f.status == 403) return Outcome::Auth;
-    if (f.status == 429 || f.status >= 500) return Outcome::Transient;
-    return Outcome::Other;
-}
-
-// Never rejects: AsyncSystem::all would reject too, and cesium fails a tile whose load rejects
-// for good. The transport error's text names the URL, token included, so it is dropped here.
-CesiumAsync::Future<Fetched> fetch(const CesiumAsync::AsyncSystem& asyncSystem,
-                                   const std::shared_ptr<CesiumAsync::IAssetAccessor>& accessor,
-                                   const std::string& url) {
-    return accessor->get(asyncSystem, url, {})
-        .thenImmediately([](std::shared_ptr<CesiumAsync::IAssetRequest>&& request) {
-            Fetched f;
-            const CesiumAsync::IAssetResponse* response = request ? request->response() : nullptr;
-            if (response == nullptr) {
-                f.transport_error = true;
-                return f;
-            }
-            f.status = response->statusCode();
-            if (f.status == 200) {
-                const std::span<const std::byte> data = response->data();
-                f.body.assign(data.begin(), data.end());
-            }
-            return f;
-        })
-        .catchImmediately([](std::exception&&) {
-            Fetched f;
-            f.transport_error = true;
-            return f;
-        });
-}
-
-Cesium3DTilesSelection::BoundingVolume region_of(const TileId& t, double origin_height_m,
-                                                 double top_m,
-                                                 const CesiumGeospatial::Ellipsoid& ellipsoid) {
-    const LonLatRect b = tile_bounds(t);
-    return CesiumGeospatial::BoundingRegion(
-        CesiumGeospatial::GlobeRectangle::fromDegrees(b.west, b.south, b.east, b.north),
-        origin_height_m - kRegionBelowM, origin_height_m + top_m, ellipsoid);
-}
-
-// A Success result for content in the tile's Z-up frame. pCompletedRequest stays null: cesium
-// would copy that request's URL, token included, into the model.
-TileLoadResult success(Cesium3DTilesSelection::TileContentKind content,
-                       std::optional<Cesium3DTilesSelection::BoundingVolume> bounds,
-                       const std::shared_ptr<CesiumAsync::IAssetAccessor>& accessor,
-                       const CesiumGeospatial::Ellipsoid& ellipsoid) {
-    TileLoadResult result{};
-    result.contentKind = std::move(content);
-    result.glTFUpAxis = CesiumGeometry::Axis::Z;
-    result.updatedBoundingVolume = std::move(bounds);
-    result.pAssetAccessor = accessor;
-    result.state = TileLoadResultState::Success;
-    result.ellipsoid = ellipsoid;
-    return result;
-}
 
 std::vector<TilePolygon> to_tile_polygons(const std::vector<MvtPolygon>& polygons) {
     const auto ring = [](const std::vector<MvtPoint>& points) {
@@ -358,29 +250,6 @@ void append_extrusions(CesiumGltf::Model& model, const TriangleMesh& mesh) {
     model.scenes[static_cast<size_t>(model.scene)].nodes.push_back(
         static_cast<int32_t>(model.nodes.size() - 1));
     if (model.asset.version.empty()) model.asset.version = "2.0";
-}
-
-// One line per endpoint and status per source; empty answers (204, 404) are normal and silent.
-// Log lines name tiles, never URLs.
-void note_status(LoaderState& st, spdlog::logger& log, const char* endpoint, const Fetched& f,
-                 const TileId& t14) {
-    const Outcome outcome = classify(f);
-    if (outcome == Outcome::Body || outcome == Outcome::Empty) return;
-    if (!st.first_time(std::string(endpoint) + " " + std::to_string(f.status))) return;
-    if (outcome == Outcome::Auth) {
-        log.error("Mapbox rejected MAPBOX_TOKEN (HTTP {}) for {}; those parts of tiles stay empty",
-                  f.status, endpoint);
-    } else if (outcome == Outcome::Transient) {
-        const std::string what =
-            f.transport_error ? std::string("transport error") : "HTTP " + std::to_string(f.status);
-        log.warn(
-            "mapbox: {} still failing ({}) after {} attempts at tile 14/{}/{}; showing what "
-            "loaded",
-            endpoint, what, kMaxAttempts, t14.x, t14.y);
-    } else {
-        log.warn("mapbox: {} answered HTTP {} at tile 14/{}/{}; that part stays empty", endpoint,
-                 f.status, t14.x, t14.y);
-    }
 }
 
 // The building layer of one z16 square; ok = false when the answer holds none (an empty answer, a
@@ -522,13 +391,14 @@ TileLoadResult build_tile(const LoaderConfig& cfg, LoaderState& st, const TileId
     if (haveLandmarks) st.landmark_nodes += landmarks.buildings_kept;
     ++st.tiles_built;
     st.note_top_m(top);
-    return success(std::move(model), region_of(t14, cfg.origin_height_m, top, ellipsoid), accessor,
-                   ellipsoid);
+    return success(
+        std::move(model),
+        tile_region(t14, cfg.origin_height_m - kRegionBelowM, cfg.origin_height_m + top, ellipsoid),
+        accessor, ellipsoid);
 }
 
-// Web Mercator XYZ as a cesium quadtree: levels 0-13 are empty and always refined, and each
-// level-14 tile carries the buildings. Ids carry Mapbox's XYZ y (north-down); only this loader
-// reads them.
+// The buildings on mapbox_tiling's z14 quadtree: each level-14 tile carries one tile's
+// footprints and landmarks.
 class MapboxBuildingsLoader final : public Cesium3DTilesSelection::TilesetContentLoader {
 public:
     MapboxBuildingsLoader(std::shared_ptr<const LoaderConfig> config,
@@ -543,23 +413,13 @@ public:
                 success(TileEmptyContent{}, std::nullopt, input.pAssetAccessor, input.ellipsoid));
         }
         const TileId t14{kLandmarkZoom, id->x, id->y};
-        Attempt& a = attempts_[(uint64_t{id->x} << 32) | id->y];
-        if (!a.settled || a.settled->load()) {
-            a = Attempt{0, 0.0, std::make_shared<std::atomic<bool>>(false)};
-        }
-        // Cesium asks again for a RetryLater tile on its very next selection. Until the wait is
-        // over the answer is RetryLater again: no request, no attempt, no retries count.
         const double now = clock_s();
-        if (a.count > 0 && now < a.not_before_s) {
+        if (attempts_.waiting(t14, now)) {
             return input.asyncSystem.createResolvedFuture(
                 TileLoadResult::createRetryLaterResult(input.pAssetAccessor, nullptr));
         }
-        const uint32_t attempt = ++a.count;
-        // ponytail: the wait runs from this attempt's start, so the tile's attempt state stays
-        // main-thread only; an attempt slower than its wait retries at once, and a tile that
-        // leaves the radius mid-wait resumes its old count when it is back (fewer attempts,
-        // never more).
-        a.not_before_s = now + kRetryWaitS * static_cast<double>(1u << (attempt - 1));
+        const Attempt& a = attempts_.begin(t14, now);
+        const uint32_t attempt = a.count;
 
         // TileLoadInput is a stack object of references: the continuation copies what it needs.
         const std::string query = "?access_token=" + config_->token;
@@ -582,63 +442,14 @@ public:
 
     TileChildrenResult createTileChildren(const Tile& tile,
                                           const CesiumGeospatial::Ellipsoid& ellipsoid) override {
-        const auto* id = std::get_if<CesiumGeometry::QuadtreeTileID>(&tile.getTileID());
-        if (id == nullptr || id->level >= kLandmarkZoom) return {{}, TileLoadResultState::Success};
-        std::vector<Tile> children;
-        children.reserve(4);
-        for (uint32_t row = 0; row < 2; ++row) {
-            for (uint32_t col = 0; col < 2; ++col) {
-                const TileId t{id->level + 1, 2 * id->x + col, 2 * id->y + row};
-                const CesiumGeometry::QuadtreeTileID childId(t.z, t.x, t.y);
-                const Cesium3DTilesSelection::BoundingVolume region =
-                    region_of(t, config_->origin_height_m, kRegionAboveM, ellipsoid);
-                if (t.z < kLandmarkZoom) {
-                    Tile& child = children.emplace_back(this, childId, TileEmptyContent{});
-                    child.setUnconditionallyRefine();
-                    child.setBoundingVolume(region);
-                    continue;
-                }
-                // The transform is absolute: the z14 tile's east-north-up frame, in double.
-                Tile& child = children.emplace_back(this, childId);
-                child.setTransform(glm::make_mat4(
-                    make_tile_frame(t, config_->origin_height_m).frame_to_ecef.data()));
-                child.setGeometricError(0.0);
-                child.setBoundingVolume(region);
-            }
-        }
-        return {std::move(children), TileLoadResultState::Success};
+        return {quadtree_children(tile, *config_, ellipsoid), TileLoadResultState::Success};
     }
 
 private:
-    struct Attempt {
-        uint32_t count = 0;
-        double not_before_s = 0.0;  // clock_s() before which the next attempt may not start
-        std::shared_ptr<std::atomic<bool>> settled;  // set by the build that stops retrying
-    };
-
     std::shared_ptr<const LoaderConfig> config_;
     std::shared_ptr<LoaderState> state_;
-    // Main thread only: cesium calls loadTileContent there. ponytail: one entry per z14 tile ever
-    // loaded; prune settled entries if drives ever span thousands of tiles.
-    std::unordered_map<uint64_t, Attempt> attempts_;
+    AttemptBook attempts_;  // main thread only: cesium calls loadTileContent there
 };
-
-// The root and its single z0 child cover the Mercator world (tile_bounds of 0/0/0 is
-// WebMercatorProjection::MAXIMUM_GLOBE_RECTANGLE), as LayerJsonTerrainLoader sets up EPSG:3857.
-std::unique_ptr<Tile> make_root(MapboxBuildingsLoader& loader, double origin_height_m) {
-    auto root =
-        std::make_unique<Tile>(&loader, Cesium3DTilesSelection::TileID(), TileEmptyContent{});
-    root->setUnconditionallyRefine();
-    root->setBoundingVolume(region_of(TileId{0, 0, 0}, origin_height_m, kRegionAboveM,
-                                      CesiumGeospatial::Ellipsoid::WGS84));
-    std::vector<Tile> children;
-    Tile& world =
-        children.emplace_back(&loader, CesiumGeometry::QuadtreeTileID(0, 0, 0), TileEmptyContent{});
-    world.setUnconditionallyRefine();
-    world.setBoundingVolume(root->getBoundingVolume());
-    root->createChildTiles(std::move(children));
-    return root;
-}
 
 // Serves open_mapbox_environment_source (curl, MAPBOX_TOKEN) and install_fixture_mapbox_source
 // (a fixture network, a given token) alike. A null `base` means curl.
@@ -677,7 +488,7 @@ std::unique_ptr<EnvironmentSource> open_mapbox_source(
         std::make_shared<const LoaderConfig>(
             LoaderConfig{std::move(token), spec.materials_original, anchor.origin_height_m}),
         std::move(state));
-    std::unique_ptr<Tile> root = make_root(*loader, anchor.origin_height_m);
+    std::unique_ptr<Tile> root = quadtree_root(*loader, anchor.origin_height_m);
     // Buildings only: never follows terrain, never replaces the ground plane.
     return std::make_unique<StreamingEnvironmentSource>(
         externals, 0, std::string(), std::string(), spec.fallback_dir, anchor, std::move(counting),
@@ -773,7 +584,5 @@ MapboxSourceStats mapbox_last_source_stats() {
     out.max_tile_top_m = state->max_tile_top_m.load();
     return out;
 }
-
-void mapbox_set_test_clock(double seconds) { overlume::mapbox::g_testClockS.store(seconds); }
 
 }
