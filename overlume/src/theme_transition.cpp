@@ -160,6 +160,8 @@ Theme blend(const Theme& a, const Theme& b, float t) {
     out.ogm.geometric = blend_ramp(a.ogm.geometric, b.ogm.geometric);
     out.environment.tile_radius_m =
         lerpf(a.environment.tile_radius_m, b.environment.tile_radius_m, w);
+    out.environment.terrain_color =
+        blend_color(a.environment.terrain_color, b.environment.terrain_color, w);
 
     // Ramps with the same stop count cross-fade stop by stop (height lerped, colour in Oklab);
     // with different counts there is no pairing, so the ramp snaps at the midpoint.

@@ -24,6 +24,8 @@
 #include <CesiumGltf/AccessorWriter.h>
 #include <CesiumGltf/Model.h>
 #include <CesiumGltfWriter/GltfWriter.h>
+#include <CesiumImage/ImageAsset.h>
+#include <CesiumRasterOverlays/UrlTemplateRasterOverlay.h>
 
 #include <mutex>
 
@@ -34,7 +36,11 @@
 #include <filament/Material.h>
 #include <filament/MaterialInstance.h>
 #include <filament/RenderableManager.h>
+#include <filament/Texture.h>
+#include <filament/TextureSampler.h>
 #include <filament/TransformManager.h>
+
+#include <backend/PixelBufferDescriptor.h>
 
 #include <gltfio/FilamentInstance.h>
 
@@ -230,6 +236,21 @@ bool consolidate_buffers(CesiumGltf::Model& model) {
     model.buffers[0].cesium.data = std::move(merged);
     model.buffers[0].uri.reset();
     return true;
+}
+
+// Terrain tiles: cesium writes overlay n's texture coordinates as _CESIUMOVERLAY_<n>, which the
+// strip below drops (gltfio refuses non-core attributes). TEXCOORD_0 keeps overlay 0's: gltfio
+// loads it as UV0 when the tile's own material samples no texture (AssetLoader.cpp, the UNUSED
+// slot), and terrain.mat reads UV0.
+void copy_overlay_uvs_to_texcoord0(CesiumGltf::Model& model) {
+    for (CesiumGltf::Mesh& mesh : model.meshes) {
+        for (CesiumGltf::MeshPrimitive& prim : mesh.primitives) {
+            const auto it = prim.attributes.find("_CESIUMOVERLAY_0");
+            if (it == prim.attributes.end()) continue;
+            const int32_t accessor = it->second;
+            prim.attributes["TEXCOORD_0"] = accessor;
+        }
+    }
 }
 
 void strip_attributes_and_correct_heights(CesiumGltf::Model& model, const glm::dmat4& modelToEcef,
@@ -709,6 +730,7 @@ StreamRendererResources::prepareInLoadThread(
                                       tileLoadResult.glTFUpAxis, CesiumGeometry::Axis::Z);
     if (auto* model = std::get_if<CesiumGltf::Model>(&tileLoadResult.contentKind)) {
         if (consolidate_buffers(*model)) {
+            if (kind_ == Kind::Terrain) copy_overlay_uvs_to_texcoord0(*model);
             strip_attributes_and_correct_heights(*model, pGlb->transform, ecefToMap_,
                                                  anchorHeightM_);
             const auto& bufData = model->buffers[0].cesium.data;
@@ -751,6 +773,14 @@ void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile&
     }
     asset->releaseSourceData();
 
+    // Terrain: one instance per tile, so each tile can carry its own raster. Content: the shared
+    // clay instance unless materials=original.
+    filament::MaterialInstance* swap = materialsOriginal_ ? nullptr : r_->buildingMaterial;
+    if (kind_ == Kind::Terrain) {
+        swap = r_->terrainMaterial->createInstance();
+        swap->setParameter("brightness", static_cast<float>(brightness_));
+        terrainInstances_[asset] = swap;
+    }
     filament::RenderableManager& rm = r_->engine->getRenderableManager();
     const utils::Entity* renderables = asset->getRenderableEntities();
     const size_t renderableCount = asset->getRenderableEntityCount();
@@ -758,10 +788,8 @@ void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile&
         const auto inst = rm.getInstance(renderables[i]);
         if (!inst.isValid()) continue;
         const size_t primCount = rm.getPrimitiveCount(inst);
-        if (!materialsOriginal_) {
-            for (size_t p = 0; p < primCount; ++p) {
-                rm.setMaterialInstanceAt(inst, p, r_->buildingMaterial);
-            }
+        if (swap != nullptr) {
+            for (size_t p = 0; p < primCount; ++p) rm.setMaterialInstanceAt(inst, p, swap);
         }
         rm.setCastShadows(inst, true);
         rm.setReceiveShadows(inst, true);
@@ -811,16 +839,139 @@ void StreamRendererResources::free(Cesium3DTilesSelection::Tile&, void* pLoadThr
     pendingFrees_.push_back(asset);
 }
 
+namespace {
+// Trilinear, clamped: raster tiles meet at tile edges, so no wrap.
+const filament::TextureSampler kImagerySampler(
+    filament::TextureSampler::MinFilter::LINEAR_MIPMAP_LINEAR,
+    filament::TextureSampler::MagFilter::LINEAR, filament::TextureSampler::WrapMode::CLAMP_TO_EDGE);
+}
+
+void* StreamRendererResources::prepareRasterInLoadThread(CesiumImage::ImageAsset& image,
+                                                         const std::any&) {
+    // ponytail: 8-bit RGB or RGBA, what cesium decodes PNG and JPEG to; any other layout attaches
+    // nothing. KTX2 or 16-bit imagery needs a conversion here.
+    const size_t pixels = static_cast<size_t>(std::max(image.width, 0)) *
+                          static_cast<size_t>(std::max(image.height, 0));
+    const size_t channels = static_cast<size_t>(image.channels);
+    if (pixels == 0 || image.bytesPerChannel != 1 || (channels != 3 && channels != 4) ||
+        image.compressedPixelFormat != CesiumImage::GpuCompressedPixelFormat::NONE ||
+        image.pixelData.size() < pixels * channels) {
+        return nullptr;
+    }
+    auto* out = new RasterLoadThreadResult{static_cast<uint32_t>(image.width),
+                                           static_cast<uint32_t>(image.height),
+                                           std::vector<uint8_t>(pixels * 4, 255)};
+    const auto* src = reinterpret_cast<const uint8_t*>(image.pixelData.data());
+    for (size_t i = 0; i < pixels; ++i) std::memcpy(&out->rgba[i * 4], &src[i * channels], 3);
+    return out;
+}
+
+void* StreamRendererResources::prepareRasterInMainThread(CesiumRasterOverlays::RasterOverlayTile&,
+                                                         void* pLoadThreadResult) {
+    std::unique_ptr<RasterLoadThreadResult> pixels(
+        static_cast<RasterLoadThreadResult*>(pLoadThreadResult));
+    if (!pixels || tornDown_.load() || r_ == nullptr) return nullptr;
+    filament::Engine& engine = *r_->engine;
+    filament::Texture* texture = filament::Texture::Builder()
+                                     .width(pixels->width)
+                                     .height(pixels->height)
+                                     .levels(0xff)  // clamped to the full chain
+                                     .format(filament::Texture::InternalFormat::SRGB8_A8)
+                                     .sampler(filament::Texture::Sampler::SAMPLER_2D)
+                                     .build(engine);
+    auto* heap = new std::vector<uint8_t>(std::move(pixels->rgba));
+    texture->setImage(
+        engine, 0,
+        filament::backend::PixelBufferDescriptor(
+            heap->data(), heap->size(),
+            filament::backend::PixelBufferDescriptor::PixelDataFormat::RGBA,
+            filament::backend::PixelBufferDescriptor::PixelDataType::UBYTE,
+            [](void*, size_t, void* user) { delete static_cast<std::vector<uint8_t>*>(user); },
+            heap));
+    texture->generateMipmaps(engine);
+    ++counters_.textures_alive;
+    return texture;
+}
+
+void StreamRendererResources::freeRaster(const CesiumRasterOverlays::RasterOverlayTile&,
+                                         void* pLoadThreadResult,
+                                         void* pMainThreadResult) noexcept {
+    delete static_cast<RasterLoadThreadResult*>(pLoadThreadResult);
+    if (pMainThreadResult == nullptr || tornDown_.load()) return;
+    std::lock_guard<std::mutex> lock(freeMutex_);
+    pendingTextureFrees_.push_back(static_cast<filament::Texture*>(pMainThreadResult));
+}
+
+filament::MaterialInstance* StreamRendererResources::terrain_instance(
+    const Cesium3DTilesSelection::Tile& tile) const {
+    const Cesium3DTilesSelection::TileRenderContent* content = tile.getContent().getRenderContent();
+    if (content == nullptr) return nullptr;
+    const auto it = terrainInstances_.find(content->getRenderResources());
+    return it != terrainInstances_.end() ? it->second : nullptr;
+}
+
+void StreamRendererResources::attachRasterInMainThread(
+    const Cesium3DTilesSelection::Tile& tile, int32_t overlayTextureCoordinateID,
+    const CesiumRasterOverlays::RasterOverlayTile&, void* pMainThreadRendererResources,
+    const glm::dvec2& translation, const glm::dvec2& scale) {
+    filament::MaterialInstance* mi = terrain_instance(tile);
+    auto* texture = static_cast<filament::Texture*>(pMainThreadRendererResources);
+    // ponytail: one overlay per terrain tileset, read from TEXCOORD_0; a second overlay's rasters
+    // are ignored. A second sampler and UV set are the upgrade.
+    if (mi == nullptr || texture == nullptr || overlayTextureCoordinateID != 0) return;
+    mi->setParameter("imagery", texture, kImagerySampler);
+    mi->setParameter(
+        "uvTransform",
+        filament::math::float4{static_cast<float>(translation.x), static_cast<float>(translation.y),
+                               static_cast<float>(scale.x), static_cast<float>(scale.y)});
+    mi->setParameter("hasImagery", int32_t{1});
+    ++counters_.rasters_attached;
+}
+
+void StreamRendererResources::detachRasterInMainThread(
+    const Cesium3DTilesSelection::Tile& tile, int32_t overlayTextureCoordinateID,
+    const CesiumRasterOverlays::RasterOverlayTile&, void* pMainThreadRendererResources) noexcept {
+    filament::MaterialInstance* mi = terrain_instance(tile);
+    if (mi == nullptr || pMainThreadRendererResources == nullptr ||
+        overlayTextureCoordinateID != 0 || r_ == nullptr) {
+        return;
+    }
+    // The placeholder goes back in, so no instance still holds a texture freeRaster may destroy.
+    mi->setParameter("imagery", r_->terrainPlaceholderTexture, kImagerySampler);
+    mi->setParameter("hasImagery", int32_t{0});
+    ++counters_.rasters_detached;
+}
+
+void StreamRendererResources::sync_terrain_color() {
+    if (r_ == nullptr) return;
+    const detail::Float3& c = r_->active_theme.environment.terrain_color;
+    if (terrainColor_ == std::array<float, 3>{c.r, c.g, c.b}) return;
+    terrainColor_ = {c.r, c.g, c.b};
+    for (const auto& [asset, mi] : terrainInstances_) {
+        mi->setParameter("terrainColor", filament::math::float3{c.r, c.g, c.b});
+    }
+}
+
 std::vector<filament::gltfio::FilamentAsset*> StreamRendererResources::drain_pending_frees() {
     std::vector<filament::gltfio::FilamentAsset*> toFree;
+    std::vector<filament::Texture*> textures;
     {
         std::lock_guard<std::mutex> lock(freeMutex_);
         toFree.swap(pendingFrees_);
+        textures.swap(pendingTextureFrees_);
     }
     if (r_ == nullptr) return {};
     for (filament::gltfio::FilamentAsset* asset : toFree) {
         r_->scene->removeEntities(asset->getEntities(), asset->getEntityCount());
+        auto terrain = terrainInstances_.extract(asset);
         r_->sharedAssetLoader->destroyAsset(asset);
+        // After the asset: its renderables held the instance.
+        if (!terrain.empty()) r_->engine->destroy(terrain.mapped());
+    }
+    for (filament::Texture* texture : textures) {
+        r_->engine->destroy(texture);
+        --counters_.textures_alive;
+        ++counters_.textures_freed;
     }
     return toFree;
 }
@@ -831,7 +982,7 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
     GeoAnchor anchor, std::shared_ptr<CountingAssetAccessor> counting_accessor,
     bool materials_original, bool follow_terrain, double ground_bias_m, bool replaces_ground,
     double max_tilt_deg, double brightness, std::optional<double> radius_override_m,
-    CustomTileset custom_tileset)
+    CustomTileset custom_tileset, StreamRendererResources::Kind resources_kind)
     : asyncSystem_(externals.asyncSystem),
       anchor_(anchor),
       ecefToMap_(compute_ecef_to_map(anchor)),
@@ -851,7 +1002,7 @@ StreamingEnvironmentSource::StreamingEnvironmentSource(
                    [] { Cesium3DTilesContent::registerAllTileContentTypes(); });
 
     renderResources_ = std::make_shared<StreamRendererResources>(
-        ecefToMap_, anchor_.origin_height_m, materialsOriginal_, brightness_);
+        ecefToMap_, anchor_.origin_height_m, materialsOriginal_, brightness_, resources_kind);
     externals.pPrepareRendererResources = renderResources_;
 
     Cesium3DTilesSelection::TilesetOptions options;
@@ -887,6 +1038,7 @@ void StreamingEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
         return;
     }
     renderResources_->set_renderer(&r);
+    renderResources_->sync_terrain_color();
     for (filament::gltfio::FilamentAsset* freed : renderResources_->drain_pending_frees()) {
         inScene_.erase(freed);
     }
@@ -1557,6 +1709,41 @@ std::vector<std::pair<int, int>> fixture_grid_requested_leaves(FixtureGridHandle
     if (handle == nullptr) return {};
     std::lock_guard<std::mutex> lock(handle->log->mutex);
     return handle->log->leaves;
+}
+
+bool install_fixture_terrain_with_file_imagery(overlume::VisualRenderer* r, const char* fixture_dir,
+                                               const char* imagery_dir, double brightness,
+                                               uint32_t maximum_level) {
+    if (r == nullptr || fixture_dir == nullptr || imagery_dir == nullptr) return false;
+    // The anchor every fixture test uses (kFixtureAnchor in test_environment_stream.cpp).
+    constexpr overlume::GeoAnchor kAnchor{25.0803, 55.3910, 0.0, 0.0};
+    CesiumAsync::AsyncSystem asyncSystem(std::make_shared<overlume::SimpleTaskProcessor>());
+    std::shared_ptr<overlume::CountingAssetAccessor> counting;
+    Cesium3DTilesSelection::TilesetExternals externals =
+        overlume::build_externals(std::make_shared<overlume::FileFixtureAssetAccessor>(),
+                                  asyncSystem, "off", overlume::kDefaultMaxCacheItems, &counting);
+    auto source = std::make_unique<overlume::StreamingEnvironmentSource>(
+        externals, 0, std::string(), std::string("file://") + fixture_dir + "/tileset.json",
+        std::string(), kAnchor, std::move(counting), false, false, 0.0, true, 2.0, brightness,
+        std::nullopt, overlume::CustomTileset{}, overlume::StreamRendererResources::Kind::Terrain);
+    // At the default level 10 one tile holds the fixture's whole region, so a test writes a few
+    // files. cesium fills {y} counting rows from the south (QuadtreeTilingScheme::tileToRectangle).
+    CesiumRasterOverlays::UrlTemplateRasterOverlayOptions options;
+    options.maximumLevel = maximum_level;
+    source->overlays_for_testing().add(new CesiumRasterOverlays::UrlTemplateRasterOverlay(
+        "fixture-imagery", std::string("file://") + imagery_dir + "/{z}/{x}/{y}.png", {}, options));
+    source->set_visible(*r, r->environmentVisible);
+    if (r->environmentSource) r->environmentSource->teardown(*r);
+    r->environmentSource = std::move(source);
+    return true;
+}
+
+OverlayProbe environment_stream_overlay_probe(overlume::VisualRenderer* r) {
+    if (r == nullptr || !r->environmentSource) return {};
+    auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
+    if (stream == nullptr) return {};
+    const overlume::StreamRendererResources::OverlayCounters c = stream->overlay_counters();
+    return {c.rasters_attached, c.rasters_detached, c.textures_alive, c.textures_freed};
 }
 
 bool environment_stream_materials_original(overlume::VisualRenderer* r) {

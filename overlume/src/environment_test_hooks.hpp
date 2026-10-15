@@ -106,4 +106,21 @@ bool environment_stream_provides_ground(overlume::VisualRenderer* r);
 
 bool renderer_ground_plane_in_scene(overlume::VisualRenderer* r);
 
+// The raster-overlay callbacks' counters of the open streaming source's renderer resources;
+// zeros when no streaming source is open (and always for content resources, which never attach).
+struct OverlayProbe {
+    uint32_t rasters_attached, rasters_detached, textures_alive, textures_freed;
+};
+OverlayProbe environment_stream_overlay_probe(overlume::VisualRenderer* r);
+
+// Opens `fixture_dir`'s tileset.json (the file-based fixture tileset, as
+// install_fixture_streaming_source) as a terrain tileset at the fixture tests' anchor
+// (25.0803 N, 55.3910 E, heading 0, height 0), without a disk cache, under a
+// UrlTemplateRasterOverlay on `file://<imagery_dir>/{z}/{x}/{y}.png` capped at `maximum_level`
+// (the fixture's leaves ask for level 17). cesium counts {y} from the south edge of the
+// web-mercator square.
+bool install_fixture_terrain_with_file_imagery(overlume::VisualRenderer* r, const char* fixture_dir,
+                                               const char* imagery_dir, double brightness = 1.0,
+                                               uint32_t maximum_level = 10);
+
 }

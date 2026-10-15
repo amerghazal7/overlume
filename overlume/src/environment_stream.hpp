@@ -7,6 +7,7 @@ static_assert(__cplusplus >= 202002L,
               "environment_stream.hpp is C++20-only -- include it only from overlume_stream "
               "sources (environment_stream.cpp, mapbox_*.cpp)");
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -43,6 +44,11 @@ static_assert(__cplusplus >= 202002L,
 
 namespace spdlog {
 class logger;
+}
+
+namespace filament {
+class MaterialInstance;
+class Texture;
 }
 
 namespace overlume {
@@ -250,12 +256,22 @@ private:
 
 class StreamRendererResources final : public Cesium3DTilesSelection::IPrepareRendererResources {
 public:
+    // Content tiles get the clay building material (or keep their own with materials=original).
+    // Terrain tiles get a terrain.mat instance each and take raster overlays through the five
+    // overlay callbacks; Content resources never see a raster.
+    enum class Kind : uint8_t { Content, Terrain };
+    struct OverlayCounters {
+        uint32_t rasters_attached = 0, rasters_detached = 0, textures_alive = 0, textures_freed = 0;
+    };
+
     explicit StreamRendererResources(const glm::dmat4& ecefToMap, double anchorHeightM,
-                                     bool materialsOriginal = false, double brightness = 1.0)
+                                     bool materialsOriginal = false, double brightness = 1.0,
+                                     Kind kind = Kind::Content)
         : ecefToMap_(ecefToMap),
           anchorHeightM_(anchorHeightM),
           materialsOriginal_(materialsOriginal),
-          brightness_(brightness) {}
+          brightness_(brightness),
+          kind_(kind) {}
 
     void set_renderer(VisualRenderer* r) { r_ = r; }
 
@@ -267,22 +283,31 @@ public:
     void free(Cesium3DTilesSelection::Tile& tile, void* pLoadThreadResult,
               void* pMainThreadResult) noexcept override;
 
-    void* prepareRasterInLoadThread(CesiumImage::ImageAsset&, const std::any&) override {
-        return nullptr;
-    }
-    void* prepareRasterInMainThread(CesiumRasterOverlays::RasterOverlayTile&, void*) override {
-        return nullptr;
-    }
-    void freeRaster(const CesiumRasterOverlays::RasterOverlayTile&, void*,
-                    void*) noexcept override {}
-    void attachRasterInMainThread(const Cesium3DTilesSelection::Tile&, int32_t,
-                                  const CesiumRasterOverlays::RasterOverlayTile&, void*,
-                                  const glm::dvec2&, const glm::dvec2&) override {}
-    void detachRasterInMainThread(const Cesium3DTilesSelection::Tile&, int32_t,
-                                  const CesiumRasterOverlays::RasterOverlayTile&,
-                                  void*) noexcept override {}
+    // Load thread: the decoded image as RGBA8 (RasterLoadThreadResult). Main thread: one
+    // mipmapped sRGB texture per raster tile. Attach: the tile's instance samples it through
+    // cesium's translation and scale. Detach: back to terrainColor. Free: the texture joins the
+    // deferred frees that drain_pending_frees destroys.
+    void* prepareRasterInLoadThread(CesiumImage::ImageAsset& image,
+                                    const std::any& rendererOptions) override;
+    void* prepareRasterInMainThread(CesiumRasterOverlays::RasterOverlayTile& rasterTile,
+                                    void* pLoadThreadResult) override;
+    void freeRaster(const CesiumRasterOverlays::RasterOverlayTile& rasterTile,
+                    void* pLoadThreadResult, void* pMainThreadResult) noexcept override;
+    void attachRasterInMainThread(const Cesium3DTilesSelection::Tile& tile,
+                                  int32_t overlayTextureCoordinateID,
+                                  const CesiumRasterOverlays::RasterOverlayTile& rasterTile,
+                                  void* pMainThreadRendererResources, const glm::dvec2& translation,
+                                  const glm::dvec2& scale) override;
+    void detachRasterInMainThread(const Cesium3DTilesSelection::Tile& tile,
+                                  int32_t overlayTextureCoordinateID,
+                                  const CesiumRasterOverlays::RasterOverlayTile& rasterTile,
+                                  void* pMainThreadRendererResources) noexcept override;
 
     std::vector<filament::gltfio::FilamentAsset*> drain_pending_frees();
+    // Main thread: pushes the active theme's environment.terrain_color to every live terrain tile
+    // when it changed (new tiles copy it from terrain.mat's default instance).
+    void sync_terrain_color();
+    OverlayCounters overlay_counters() const { return counters_; }
     void note_torn_down() { tornDown_.store(true); }
 
     void set_terrain_transform(double z, double tilt_rad, double pivot_x, double pivot_y,
@@ -291,22 +316,36 @@ public:
 
 private:
     void ensure_terrain_root();
+    filament::MaterialInstance* terrain_instance(const Cesium3DTilesSelection::Tile& tile) const;
 
     VisualRenderer* r_ = nullptr;
     glm::dmat4 ecefToMap_;
     double anchorHeightM_ = 0.0;
     bool materialsOriginal_ = false;
     double brightness_ = 1.0;
+    Kind kind_ = Kind::Content;
     std::mutex freeMutex_;
     std::vector<filament::gltfio::FilamentAsset*> pendingFrees_;
+    std::vector<filament::Texture*> pendingTextureFrees_;  // under freeMutex_
     std::atomic<bool> tornDown_{false};
     utils::Entity terrainRoot_;
+    // Main thread only: each terrain tile's instance, keyed by its FilamentAsset.
+    std::unordered_map<const void*, filament::MaterialInstance*> terrainInstances_;
+    std::array<float, 3> terrainColor_{-1.0f, -1.0f, -1.0f};  // last pushed by sync_terrain_color
+    OverlayCounters counters_;                                // main thread only
 };
 
 struct LoadThreadGlb {
     std::vector<std::byte> glbBytes;
     glm::dmat4 transform{1.0};
     bool ok = false;
+};
+
+// One raster overlay tile's pixels, RGBA8, row 0 at the north edge, load thread to main thread.
+struct RasterLoadThreadResult {
+    uint32_t width = 0;
+    uint32_t height = 0;
+    std::vector<uint8_t> rgba;
 };
 
 glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor);
@@ -341,7 +380,8 @@ public:
                                double ground_bias_m = 0.3, bool replaces_ground = true,
                                double max_tilt_deg = 2.0, double brightness = 1.0,
                                std::optional<double> radius_override_m = std::nullopt,
-                               CustomTileset custom_tileset = {});
+                               CustomTileset custom_tileset = {},
+                               StreamRendererResources::Kind resources_kind = {});
     ~StreamingEnvironmentSource() override;
 
     void update(VisualRenderer& r, Vec3 ego_map_pos) override;
@@ -367,6 +407,14 @@ public:
     size_t last_view_frustum_count() const { return lastViewFrustumCount_; }
 
     void force_fall_back_for_testing(VisualRenderer& r) { fall_back(r); }
+
+    StreamRendererResources::OverlayCounters overlay_counters() const {
+        return renderResources_->overlay_counters();
+    }
+    // Test hooks add raster overlays here before the first update().
+    Cesium3DTilesSelection::RasterOverlayCollection& overlays_for_testing() {
+        return tileset_->getOverlays();
+    }
 
 private:
     void synthesize_view_and_pump(VisualRenderer& r, Vec3 ego_map_pos);
