@@ -38,7 +38,7 @@ where the plan uses it.
 | 2. `mapbox://` URI parser | 1 | pending | |
 | 3. Extrusion builder | 2 | done | `9619ee2..9de908e` |
 | 4. Tile math and the tile frame | 3 | done | `9619ee2..58aa6fa` |
-| 5. Landmark reader | 3 | pending | |
+| 5. Landmark reader | 3 | done | `58aa6fa..3d6966e` |
 | 6. Count transport errors as network failures | 4 | done | `9619ee2..c116871` |
 | 7. Custom tilesets with area selection | 4 | done | `c116871..ac89dee` |
 | 8. Node URI composition for `mapbox://` | 5 | pending | |
