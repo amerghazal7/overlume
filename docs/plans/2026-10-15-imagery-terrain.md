@@ -14607,6 +14607,14 @@ Expected: no output.
 
 - [ ] **Step 2: Append the end-to-end block to the end of `overlume/tests/test_mapbox_terrain.cpp`**
 
+**Orchestrator amendment (whole-branch review F16):** run this scene twice in the same test: once as
+written (terrain only), and once with `mapbox://buildings,terrain?imagery=satellite` and the fixture
+network serving one flat-colour imagery tile for every level z14..z17 covering both tiles (the
+`imagery::flat_png` fixture; see `SatelliteDrapesXyzTilesOnTheTerrain` for the URL shapes), because with
+imagery the edges near the ego are drawn by cesium's upsampled children, whose skirts come from
+clipping our skirt triangles. Both passes probe the same shared-edge row and must show no sky
+pixel. Name the second pass's expectations "with imagery" in their messages.
+
 ```cpp
 namespace {
 
@@ -16446,7 +16454,8 @@ TEST(IonLive, WorldTerrainBing) {
         << "Cesium World Terrain did not open: run overlume/scripts/check_cesium_token.sh";
     EXPECT_GT(terrainTiles, 0u) << "no terrain tile reached the scene";
     EXPECT_GT(o.rasters_attached, 0u) << "no Bing imagery attached";
-    EXPECT_FALSE(credited.empty()) << "ion's imagery credits are missing";
+    EXPECT_NE(credited.find("Microsoft"), std::string::npos)
+        << "ion's imagery credits lack Bing's line (whole-branch review F1): " << credited;
     EXPECT_EQ(e2e::log_since(logFrom).find(live::trimmed_env("CESIUM_ION_TOKEN")),
               std::string::npos)
         << "the token reached the log";
