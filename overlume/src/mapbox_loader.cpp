@@ -5,6 +5,7 @@
 
 #include "environment_stream.hpp"
 #include "mapbox_extrude.hpp"
+#include "mapbox_landmarks.hpp"
 #include "mapbox_mvt.hpp"
 #include "mapbox_test_hooks.hpp"
 #include "mapbox_tile_frame.hpp"
@@ -125,6 +126,8 @@ constexpr double kRetryWaitS = 2.0;
 constexpr double kRegionBelowM = 10.0;
 constexpr double kRegionAboveM = 1000.0;
 constexpr char kStreets[] = "streets-v8 footprints";
+constexpr char kLandmarks[] = "3D landmarks";
+constexpr size_t kLandmarkIndex = 16;  // after the 16 squares in a tile's requests
 
 std::string footprint_url(uint32_t x16, uint32_t y16) {
     return "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/16/" + std::to_string(x16) + "/" +
@@ -401,6 +404,23 @@ MvtBuildingLayer read_square(LoaderState& st, spdlog::logger& log, const Fetched
     return layer;
 }
 
+// Highest POSITION z over a landmark model's meshes: local metres above the ground.
+double landmark_top_m(const CesiumGltf::Model& model) {
+    double top = 0.0;
+    for (const CesiumGltf::Mesh& mesh : model.meshes) {
+        for (const CesiumGltf::MeshPrimitive& primitive : mesh.primitives) {
+            const auto it = primitive.attributes.find("POSITION");
+            if (it == primitive.attributes.end()) continue;
+            const CesiumGltf::Accessor* position =
+                CesiumGltf::Model::getSafe(&model.accessors, it->second);
+            if (position != nullptr && position->max.size() == 3) {
+                top = std::max(top, position->max[2]);
+            }
+        }
+    }
+    return top;
+}
+
 // Worker thread: one z14 tile from its answers, in request order.
 TileLoadResult build_tile(const LoaderConfig& cfg, LoaderState& st, const TileId& t14,
                           uint32_t attempt, std::atomic<bool>& settled,
@@ -419,10 +439,28 @@ TileLoadResult build_tile(const LoaderConfig& cfg, LoaderState& st, const TileId
 
     const TileFrame frame = make_tile_frame(t14, cfg.origin_height_m);
     const std::array<TileId, 16> squares = footprint_tiles_of(t14);
+    // Landmarks first: their footprints decide which extrusions to drop. An unreadable GLB costs
+    // the landmarks of this tile, never its extrusions.
+    LandmarkTile landmarks;
+    const Fetched& glb = fetched[kLandmarkIndex];
+    if (classify(glb) == Outcome::Body) {
+        landmarks = read_landmark_tile(glb.body, frame, cfg.materials_original);
+        if (!landmarks.ok && st.first_time("glb")) {
+            log.warn("mapbox: landmarks of tile 14/{}/{} skipped: {}", t14.x, t14.y,
+                     landmarks.error);
+        }
+        if (landmarks.ok && landmarks.nodes_skipped > 0 && st.first_time("glb-node")) {
+            log.warn("mapbox: tile 14/{}/{}: {} landmark node(s) with an unexpected matrix skipped",
+                     t14.x, t14.y, landmarks.nodes_skipped);
+        }
+    } else {
+        note_status(st, log, kLandmarks, glb, t14);
+    }
     TriangleMesh mesh;
     uint64_t extruded = 0;
+    uint64_t conflated = 0;
     uint64_t walls = 0;
-    double top = 0.0;
+    double top = landmarks.ok ? landmark_top_m(landmarks.model) : 0.0;
     for (size_t i = 0; i < squares.size(); ++i) {
         const TileId& square = squares[i];
         const MvtBuildingLayer layer = read_square(st, log, fetched[i], square, t14);
@@ -437,10 +475,22 @@ TileLoadResult build_tile(const LoaderConfig& cfg, LoaderState& st, const TileId
                 !std::isfinite(base) || *b.height <= base) {
                 continue;
             }
+            const std::vector<TilePolygon> polygons = to_tile_polygons(b.polygons);
+            // A landmark model replaces the extrusion whose unclipped footprint centroid it
+            // covers, as GL JS does.
+            if (landmarks.ok) {
+                if (const std::optional<std::array<double, 2>> c = footprint_centroid(polygons)) {
+                    const std::array<double, 3> p = project((*c)[0], (*c)[1], 0.0);
+                    if (inside_any_footprint(landmarks.footprint_triangles, p[0], p[1])) {
+                        ++conflated;
+                        continue;
+                    }
+                }
+            }
             // Clipping to the square's own extent drops the tile buffer, so the copies of a
             // building in neighbouring squares meet without doubled walls.
-            const ExtrudeStats es = extrude_polygons(to_tile_polygons(b.polygons), extent, base,
-                                                     *b.height, project, mesh);
+            const ExtrudeStats es =
+                extrude_polygons(polygons, extent, base, *b.height, project, mesh);
             if (es.polygons_built == 0) continue;
             ++extruded;
             walls += es.wall_quads;
@@ -448,14 +498,20 @@ TileLoadResult build_tile(const LoaderConfig& cfg, LoaderState& st, const TileId
         }
     }
     st.extruded_features += extruded;
+    st.conflated_features += conflated;
     st.wall_quads += walls;
     st.note_build_ms(
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started)
             .count());
 
-    if (mesh.indices.empty()) return success(TileEmptyContent{}, std::nullopt, accessor, ellipsoid);
-    CesiumGltf::Model model;
-    append_extrusions(model, mesh);
+    const bool haveLandmarks = landmarks.ok && landmarks.buildings_kept > 0;
+    if (mesh.indices.empty() && !haveLandmarks) {
+        return success(TileEmptyContent{}, std::nullopt, accessor, ellipsoid);
+    }
+    // The landmark model already holds its nodes in scene 0; the extrusions join it there.
+    CesiumGltf::Model model = haveLandmarks ? std::move(landmarks.model) : CesiumGltf::Model();
+    if (!mesh.indices.empty()) append_extrusions(model, mesh);
+    if (haveLandmarks) st.landmark_nodes += landmarks.buildings_kept;
     ++st.tiles_built;
     return success(std::move(model), region_of(t14, cfg.origin_height_m, top, ellipsoid), accessor,
                    ellipsoid);
@@ -501,6 +557,8 @@ public:
             requests.push_back(fetch(input.asyncSystem, input.pAssetAccessor,
                                      footprint_url(square.x, square.y) + query));
         }
+        requests.push_back(fetch(input.asyncSystem, input.pAssetAccessor,
+                                 landmark_url(t14.x, t14.y) + query));  // kLandmarkIndex
         return input.asyncSystem.all(std::move(requests))
             .thenInWorkerThread([config = config_, state = state_, t14, attempt,
                                  settled = a.settled, accessor = input.pAssetAccessor,

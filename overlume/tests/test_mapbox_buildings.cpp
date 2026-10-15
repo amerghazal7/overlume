@@ -5,6 +5,7 @@
 #include "overlume/scene.h"
 
 #include "environment_test_hooks.hpp"
+#include "mapbox_glb_fixture.hpp"
 #include "mapbox_mvt_fixture.hpp"
 #include "mapbox_test_hooks.hpp"
 #include "mapbox_tile_frame.hpp"
@@ -25,6 +26,7 @@
 
 namespace {
 
+namespace glb = overlume::testing::glb;
 namespace mvt = overlume::testing::mvt;
 using overlume::EnvironmentSourceState;
 using overlume::mapbox::TileId;
@@ -311,6 +313,79 @@ void expect_retry_then_load(bool transport) {
 
 }
 
+namespace {
+
+// Downtown Dubai's z14 tile, 10707/7006, where Mapbox serves landmark models.
+TileId downtown_tile() { return overlume::mapbox::tile_containing(55.2744, 25.1972, 14); }
+
+// A landmark node at (tx, ty) z14 units, with Mapbox's node scale for its own latitude.
+glb::LandmarkSpec landmark_at(const TileId& t, uint64_t id, double tx, double ty) {
+    glb::LandmarkSpec spec;
+    spec.id = id;
+    spec.tx = tx;
+    spec.ty = ty;
+    spec.lat_deg = overlume::mapbox::tile_point_to_lonlat(t, tx, ty, 8192.0).lat;
+    return spec;
+}
+
+// Square 5 (row 1, column 1) holds its box at z16 units 1000-1400; the box centre is z14 unit
+// 2048 + 1200 / 2 on both axes. Square 10 (row 2, column 2): 4096 + 1200 / 2.
+constexpr double kOverSquare5 = 2648.0;
+constexpr double kOverSquare10 = 4696.0;
+// anchor_square_body's 16 boxes plus the neighbour serve_downtown adds to square 5.
+constexpr uint64_t kDowntownFeatures = kAnchorTileExtruded + 1;
+
+// A GLB's JSON chunk: the first chunk, after the 12-byte file header and its own 8-byte header.
+std::string glb_json(const std::vector<uint8_t>& glb) {
+    if (glb.size() < 20) return {};
+    const size_t length = size_t{glb[12]} | (size_t{glb[13]} << 8) | (size_t{glb[14]} << 16) |
+                          (size_t{glb[15]} << 24);
+    if (glb.size() - 20 < length) return {};
+    return std::string(glb.begin() + 20, glb.begin() + 20 + static_cast<std::ptrdiff_t>(length));
+}
+
+// The tile's squares as anchor_square_body, square 5 with a 27 m box added 81 m east of the
+// landmark spot (its centroid outside the 12 m footprint), and `glb_bytes` as its landmark tile.
+void serve_downtown(MapboxFixtureNetwork* n, const TileId& t,
+                    const std::vector<uint8_t>& glb_bytes) {
+    serve_anchor_tile(n, t);
+    serve_square(n, overlume::mapbox::footprint_tiles_of(t)[5],
+                 {mvt::building(105, {box(1000, 1000, 1400, 1400)}, 15.0),
+                  mvt::building(205, {box(1700, 1100, 1900, 1300)}, 12.0)});
+    overlume::testing::mapbox_fixture_serve(n, overlume::testing::mapbox_landmark_url(t.x, t.y),
+                                            200, glb_bytes);
+}
+
+// An unusable landmark tile costs its landmarks only: every extrusion shows, no half-decoded mesh
+// reaches the GLB, and one log line names the tile.
+void expect_extrusions_only(const TileId& t, const std::vector<uint8_t>& glb_bytes) {
+    auto* r = make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    serve_downtown(n, t, glb_bytes);
+    overlume::testing::capture_stream_glbs(true);
+    const size_t logFrom = log_size();
+    ASSERT_TRUE(install(r, "mapbox://buildings", anchor_at(t, 0.5, 0.5), n));
+    set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> buf(kFrameBytes);
+    ASSERT_TRUE(pump(r, buf, 400, [&] { return loaded(r) >= 1; }));
+    const std::vector<std::vector<uint8_t>> glbs = overlume::testing::captured_stream_glbs();
+    overlume::testing::capture_stream_glbs(false);
+    const overlume::testing::MapboxSourceStats s = stats();
+    EXPECT_EQ(s.landmark_nodes, 0u);
+    EXPECT_EQ(s.conflated_features, 0u) << "no footprints come from an unusable tile";
+    EXPECT_EQ(s.extruded_features, kDowntownFeatures);
+    ASSERT_EQ(glbs.size(), 1u);
+    EXPECT_FALSE(contains(glbs[0], "EXT_meshopt_compression")) << "a half-decoded mesh got through";
+    const std::string tile = "14/" + std::to_string(t.x) + "/" + std::to_string(t.y);
+    const std::string log = log_since(logFrom);
+    EXPECT_EQ(count_of(log, "landmarks of tile " + tile + " skipped"), 1u);
+    EXPECT_EQ(log.find("api.mapbox.com"), std::string::npos);
+    overlume::destroy_renderer(r);
+}
+
+}
+
 TEST(MapboxBuildings, UnsetTokenRefusesAndNamesTheVariable) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
@@ -390,7 +465,8 @@ TEST(MapboxBuildings, RequestsOnlyTheTileInsideTheRadius) {
     set_ego(r, 0.0, 0.0);
     std::vector<uint8_t> buf(kFrameBytes);
     ASSERT_TRUE(pump(r, buf, 400, [&] { return loaded(r) >= 1; }));
-    const std::set<std::string> expected = squares_of({t});
+    std::set<std::string> expected = squares_of({t});
+    expected.insert(overlume::testing::mapbox_landmark_url(t.x, t.y));
     EXPECT_EQ(requested(n), expected)
         << "mid-tile with the 500 m default radius, only the ego's z14 tile may be requested";
     EXPECT_EQ(overlume::testing::mapbox_fixture_requested_urls(n).size(), expected.size())
@@ -492,6 +568,8 @@ TEST(MapboxBuildings, RejectedTokenFallsBackAndLogsOnce) {
     EXPECT_EQ(count_of(log, "Mapbox rejected MAPBOX_TOKEN (HTTP 401) for streets-v8 footprints"),
               1u)
         << "16 rejected squares, one line";
+    EXPECT_EQ(count_of(log, "Mapbox rejected MAPBOX_TOKEN (HTTP 401) for 3D landmarks"), 1u)
+        << "one line per endpoint";
     EXPECT_EQ(log.find("api.mapbox.com"), std::string::npos) << "log lines name tiles, not URLs";
     overlume::destroy_renderer(r);
 }
@@ -684,4 +762,105 @@ TEST(MapboxBuildings, ClayReplacesAndOriginalKeepsTheExtrusionMaterial) {
         EXPECT_EQ((*color)[3], 1.0);
         overlume::destroy_renderer(r);
     }
+}
+
+TEST(MapboxBuildings, LandmarkReplacesTheExtrusionBeneathIt) {
+    auto* r = make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const TileId t = downtown_tile();
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    serve_downtown(n, t,
+                   glb::build_landmark_glb({landmark_at(t, 7, kOverSquare5, kOverSquare5)},
+                                           glb::GlbOptions{}));
+    overlume::testing::capture_stream_glbs(true);
+    ASSERT_TRUE(install(r, "mapbox://buildings", anchor_at(t, 0.5, 0.5), n));
+    set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> buf(kFrameBytes);
+    ASSERT_TRUE(pump(r, buf, 400, [&] { return loaded(r) >= 1; }));
+    const std::vector<std::vector<uint8_t>> glbs = overlume::testing::captured_stream_glbs();
+    overlume::testing::capture_stream_glbs(false);
+    EXPECT_EQ(loaded(r), 1u) << "landmark and extrusions share the tile's one model";
+    const overlume::testing::MapboxSourceStats s = stats();
+    EXPECT_EQ(s.landmark_nodes, 1u);
+    EXPECT_EQ(s.conflated_features, 1u) << "square 5's box stands under the landmark footprint";
+    EXPECT_EQ(s.extruded_features, kDowntownFeatures - 1) << "its neighbour 81 m east stays";
+    ASSERT_EQ(glbs.size(), 1u);
+    const std::string json = glb_json(glbs[0]);
+    EXPECT_EQ(count_of(json, "\"mesh\":"), 2u)
+        << "one landmark node and one extrusion node (only nodes have a \"mesh\" key)";
+    EXPECT_NE(json.find("\"nodes\":[0,1]"), std::string::npos) << "both in the tile's one scene";
+    overlume::destroy_renderer(r);
+}
+
+TEST(MapboxBuildings, ClayDropsLandmarkImagesOriginalKeepsOcclusion) {
+    for (const bool original : {false, true}) {
+        auto* r = make_renderer();
+        if (!r) GTEST_SKIP() << "no GPU/EGL";
+        const TileId t = downtown_tile();
+        auto* n = overlume::testing::make_mapbox_fixture_network(204);
+        serve_downtown(n, t,
+                       glb::build_landmark_glb({landmark_at(t, 7, kOverSquare5, kOverSquare5)},
+                                               glb::GlbOptions{}));
+        overlume::testing::capture_stream_glbs(true);
+        ASSERT_TRUE(
+            install(r, original ? "mapbox://buildings?materials=original" : "mapbox://buildings",
+                    anchor_at(t, 0.5, 0.5), n));
+        set_ego(r, 0.0, 0.0);
+        std::vector<uint8_t> buf(kFrameBytes);
+        ASSERT_TRUE(pump(r, buf, 400, [&] { return loaded(r) >= 1; }));
+        const std::vector<std::vector<uint8_t>> glbs = overlume::testing::captured_stream_glbs();
+        overlume::testing::capture_stream_glbs(false);
+        EXPECT_EQ(stats().landmark_nodes, 1u);
+        ASSERT_EQ(glbs.size(), 1u);
+        EXPECT_EQ(contains(glbs[0], "\"images\""), original)
+            << (original ? "original keeps the landmark's JPEG" : "clay drops every image");
+        EXPECT_EQ(contains(glbs[0], "\"occlusionTexture\""), original);
+        overlume::destroy_renderer(r);
+    }
+}
+
+TEST(MapboxBuildings, CorruptMeshoptKeepsExtrusionsAndLogsTheTileOnce) {
+    const TileId t = downtown_tile();
+    glb::GlbOptions opts;
+    opts.corrupt_meshopt = true;
+    expect_extrusions_only(
+        t, glb::build_landmark_glb({landmark_at(t, 7, kOverSquare5, kOverSquare5)}, opts));
+}
+
+TEST(MapboxBuildings, BadGlbHeaderKeepsExtrusionsAndLogsTheTileOnce) {
+    const TileId t = downtown_tile();
+    std::vector<uint8_t> bytes =
+        glb::build_landmark_glb({landmark_at(t, 7, kOverSquare5, kOverSquare5)}, glb::GlbOptions{});
+    bytes[0] = 'x';  // the "glTF" magic, broken
+    expect_extrusions_only(t, bytes);
+}
+
+TEST(MapboxBuildings, UnexpectedNodeMatrixSkipsOnlyThatLandmark) {
+    auto* r = make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const TileId t = downtown_tile();
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    glb::GlbOptions opts;
+    opts.bad_matrix_on_first = true;
+    // Landmark 6, whose building node the fixture rotates, stands over square 10's box; landmark 7
+    // over square 5's. Conflation uses every footprint the reader returns. In Mapbox's layout a
+    // footprint node carries its building's matrix, so a matrix that skips a building skips its
+    // footprint too and the extrusion beneath stays. The fixture rotates only the building node:
+    // landmark 6's footprint survives, square 10's box goes, and nothing stands at that spot.
+    serve_downtown(n, t,
+                   glb::build_landmark_glb({landmark_at(t, 6, kOverSquare10, kOverSquare10),
+                                            landmark_at(t, 7, kOverSquare5, kOverSquare5)},
+                                           opts));
+    const size_t logFrom = log_size();
+    ASSERT_TRUE(install(r, "mapbox://buildings", anchor_at(t, 0.5, 0.5), n));
+    set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> buf(kFrameBytes);
+    ASSERT_TRUE(pump(r, buf, 400, [&] { return loaded(r) >= 1; }));
+    const overlume::testing::MapboxSourceStats s = stats();
+    EXPECT_EQ(s.landmark_nodes, 1u) << "landmark 7 is kept";
+    EXPECT_EQ(s.conflated_features, 2u)
+        << "square 5's box under landmark 7, square 10's under landmark 6's surviving footprint";
+    EXPECT_EQ(s.extruded_features, kDowntownFeatures - 2);
+    EXPECT_EQ(count_of(log_since(logFrom), "with an unexpected matrix skipped"), 1u);
+    overlume::destroy_renderer(r);
 }
