@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `mapbox://buildings`, a streamed environment source selected like `ion://`: Mapbox's landmark models plus building footprints from Mapbox Streets v8, extruded to their heights around the vehicle. URI keys: `materials` (`clay` or `original`), `radius` (default 500 m), `brightness`, `fallback` and `cache=off`. The library reads `MAPBOX_TOKEN` when the source opens; Mapbox tiles are never cached. While the source streams, the node draws the Mapbox logo and "© Mapbox © OpenStreetMap Improve this map" (`environment_attribution`; the logo file is `environment_attribution_logo_path`). The vcam GUI lists two more environment sources, `mapbox` and `mapbox-original`, and `tools/check_mapbox_token.sh` checks the token. See `docs/runbooks/mapbox.md`.
+
+### Fixed
+
+- Network loss now switches a streamed source to its fallback when requests fail in transport. A transport error (DNS failure, refused connection, timeout) rejected the request without reaching the consecutive-failure counter, so a real loss of connectivity never triggered the fallback, for `ion://` as well.
+- `tools/validate_visual_mode.sh` reads the refreshed tokens back on a separate file descriptor, so output from the login shell's startup files (Ubuntu's sudo hint, for one) can no longer end up in `CESIUM_ION_TOKEN`. It now refreshes `MAPBOX_TOKEN` the same way.
+
 ## [1.0.0] - 2026-10-07
 
 The first stable release. Public headers (`<overlume/scene.h>`, `<overlume/api.h>`)
