@@ -23,8 +23,8 @@
 | 6. Node parameters, composer, attribution text | 4 | done | `db7e359..11eaa40` |
 | 7. GUI sources, bridge, token check | 4 | done | `11eaa40..fe09029` |
 | 8. Docs | 4 | done | `fe09029..992c883` |
-| 9. DEM cache and buildings re-based onto the DEM | 5 | pending | |
-| 10. Mapbox terrain loader and source wiring | 5 | pending | |
+| 9. DEM cache and buildings re-based onto the DEM | 5 | done | `199442c..0506187` |
+| 10. Mapbox terrain loader and source wiring | 5 | done | `bf81642..9e22d9a` |
 | 11. Second tileset, ion terrain and imagery, credits API | 6 | done | `199442c..3004004` |
 | 12. End-to-end over the fixture network | 7 | pending | |
 | 13. Golden candidates and promotion | 7 | pending | |
