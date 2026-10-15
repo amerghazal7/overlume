@@ -41,9 +41,9 @@ where the plan uses it.
 | 5. Landmark reader | 3 | done | `58aa6fa..3d6966e` |
 | 6. Count transport errors as network failures | 4 | done | `9619ee2..c116871` |
 | 7. Custom tilesets with area selection | 4 | done | `c116871..ac89dee` |
-| 8. Node URI composition for `mapbox://` | 5 | pending | |
-| 9. HUD primitives: Latin-1 text, `MeasureText`, `DrawImageRgba` | 5 | pending | |
-| 10. Mapbox attribution on screen | 5 | pending | |
+| 8. Node URI composition for `mapbox://` | 5 | done | `9619ee2..891db19` |
+| 9. HUD primitives: Latin-1 text, `MeasureText`, `DrawImageRgba` | 5 | done | `891db19..9d3ff95` |
+| 10. Mapbox attribution on screen | 5 | done | `9d3ff95..458e311` |
 | 11. GUI sources, token check, rig token refresh | 6 | done | `9619ee2..8123319` |
 | 12. Docs | 6 | done | `8123319..e40ad03` |
 | 13. Mapbox loader: tiling, extrusions, failures, dispatch | 7 | done | `e714a26..169c033` |
