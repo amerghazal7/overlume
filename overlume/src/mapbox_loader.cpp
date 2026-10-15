@@ -22,7 +22,9 @@
 #include <CesiumGeospatial/Cartographic.h>
 #include <CesiumGeospatial/Ellipsoid.h>
 #include <CesiumGltf/Model.h>
+#include <CesiumRasterOverlays/UrlTemplateRasterOverlay.h>
 #include <CesiumUtility/Gzip.h>
+#include <CesiumUtility/IntrusivePointer.h>
 
 #include <glm/gtc/type_ptr.hpp>
 
@@ -41,6 +43,15 @@
 #include <optional>
 #include <span>
 #include <variant>
+
+namespace overlume::mapbox {
+
+// mapbox_terrain_loader.cpp: the terrain-DEM quadtree (loader and root) over `dem`, counting its
+// built tiles into `tiles_built`.
+CustomTileset make_mapbox_terrain_tileset(std::shared_ptr<DemCache> dem, const GeoAnchor& anchor,
+                                          std::shared_ptr<std::atomic<uint64_t>> tiles_built);
+
+}
 
 namespace overlume::mapbox {
 
@@ -155,6 +166,20 @@ std::string landmark_url(uint32_t x14, uint32_t y14) {
            std::to_string(x14) + "/" + std::to_string(y14) + ".glb";
 }
 
+// Mapbox Satellite, 512 px JPEG tiles; in the UAE the detail stops near z18.
+constexpr char kSatelliteTemplate[] =
+    "https://api.mapbox.com/v4/mapbox.satellite/{z}/{x}/{y}@2x.jpg90";
+constexpr uint32_t kSatelliteMaxLevel = 18;
+constexpr uint32_t kSatelliteTilePx = 512;
+constexpr char kSatelliteCredit[] = "\xC2\xA9 Maxar";
+
+// The overlay's template: cesium's {y} counts rows from the south (QuadtreeTilingScheme.cpp:74)
+// and Mapbox's XYZ y from the north, which is cesium's {reverseY}.
+std::string satellite_overlay_template() {
+    std::string url = kSatelliteTemplate;
+    return url.replace(url.find("{y}"), 3, "{reverseY}");
+}
+
 // A shell export can leave spaces or a newline around the token; a request URL must not carry them.
 std::string trim_ascii_whitespace(const std::string& s) {
     constexpr char kWhitespace[] = " \t\n\v\f\r";
@@ -177,6 +202,9 @@ struct LoaderState : SourceLog {
     // The source's DEM cache when the layer list carries `terrain`, for dem_requests; the loaders
     // own it.
     std::weak_ptr<const DemCache> dem;
+    // Terrain z14 tiles built, counted by the terrain loader (mapbox_terrain_loader.cpp).
+    std::shared_ptr<std::atomic<uint64_t>> terrain_tiles_built =
+        std::make_shared<std::atomic<uint64_t>>(0);
 
     void note_build_ms(double ms) {
         double seen = max_build_ms.load();
@@ -491,19 +519,22 @@ TileLoadResult build_tile(const LoaderConfig& cfg, LoaderState& st, const TileId
 // footprints and landmarks.
 class MapboxBuildingsLoader final : public Cesium3DTilesSelection::TilesetContentLoader {
 public:
-    // `dem` is the source's DemCache when the layer list carries `terrain`, else null.
+    // `dem` is the source's DemCache when the layer list carries `terrain`, else null; without
+    // `buildings` in the list the tileset stays empty and requests nothing.
     MapboxBuildingsLoader(std::shared_ptr<const LoaderConfig> config,
                           std::shared_ptr<LoaderState> state, std::shared_ptr<DemCache> dem,
-                          LonLatDeg anchor)
+                          LonLatDeg anchor, bool buildings)
         : config_(std::move(config)),
           state_(std::move(state)),
           dem_(std::move(dem)),
-          anchor_(anchor) {}
+          anchor_(anchor),
+          buildings_(buildings) {}
 
     CesiumAsync::Future<TileLoadResult> loadTileContent(const TileLoadInput& input) override {
         const auto* id = std::get_if<CesiumGeometry::QuadtreeTileID>(&input.tile.getTileID());
-        if (id == nullptr || id->level != kLandmarkZoom) {
-            // Levels 0-13 hold nothing; cesium may unload an empty tile and ask for it again.
+        if (id == nullptr || id->level != kLandmarkZoom || !buildings_) {
+            // Levels 0-13 hold nothing, and no level does when the layer list lacks `buildings`;
+            // cesium may unload an empty tile and ask for it again.
             return input.asyncSystem.createResolvedFuture(
                 success(TileEmptyContent{}, std::nullopt, input.pAssetAccessor, input.ellipsoid));
         }
@@ -557,6 +588,8 @@ private:
     std::shared_ptr<DemCache> dem_;
     // The map origin, whose DEM height is z = 0.
     LonLatDeg anchor_;
+    // The layer list carries `buildings`.
+    bool buildings_ = true;
     AttemptBook attempts_;  // main thread only: cesium calls loadTileContent there
 };
 
@@ -605,13 +638,48 @@ std::unique_ptr<EnvironmentSource> open_mapbox_source(
     auto loader = std::make_unique<MapboxBuildingsLoader>(
         std::make_shared<const LoaderConfig>(
             LoaderConfig{std::move(token), spec.materials_original, anchor.origin_height_m}),
-        std::move(state), dem, LonLatDeg{anchor.origin_lon_deg, anchor.origin_lat_deg});
+        state, dem, LonLatDeg{anchor.origin_lon_deg, anchor.origin_lat_deg}, spec.buildings);
     std::unique_ptr<Tile> root = quadtree_root(*loader, anchor.origin_height_m);
-    // Buildings only: never follows terrain, never replaces the ground plane.
-    return std::make_unique<StreamingEnvironmentSource>(
+    // With the terrain layer the shared transform follows the terrain under the ego and the
+    // terrain owns the ground; buildings alone do neither.
+    const bool followTerrain = spec.terrain;
+    const bool replacesGround = spec.terrain;
+    auto source = std::make_unique<StreamingEnvironmentSource>(
         externals, 0, std::string(), std::string(), spec.fallback_dir, anchor, std::move(counting),
-        spec.materials_original, false, 0.3, false, 2.0, spec.brightness, spec.radius_m,
-        CustomTileset{std::move(loader), std::move(root), true});
+        spec.materials_original, followTerrain, 0.3, replacesGround, 2.0, spec.brightness,
+        spec.radius_m, CustomTileset{std::move(loader), std::move(root), true});
+    if (!spec.terrain) return source;
+
+    // The terrain tileset: the source's externals (the counting accessor, so imagery failures
+    // count toward network loss; the redacting logger, which masks the token in cesium's failure
+    // lines; the task processor and the credit system), renderer resources of its own
+    // (terrain.mat and the overlay callbacks), area-selected as the buildings are.
+    auto resources = std::make_shared<StreamRendererResources>(
+        compute_ecef_to_map(anchor), anchor.origin_height_m, false, spec.brightness,
+        StreamRendererResources::Kind::Terrain);
+    Cesium3DTilesSelection::TilesetExternals terrainExternals = externals;
+    terrainExternals.pPrepareRendererResources = resources;
+    Cesium3DTilesSelection::TilesetOptions options;
+    options.maximumScreenSpaceError = kStreamMaxSseErr;
+    options.preloadSiblings = false;
+    CustomTileset terrainTiles =
+        make_mapbox_terrain_tileset(dem, anchor, state->terrain_tiles_built);
+    auto terrain = std::make_unique<Cesium3DTilesSelection::Tileset>(
+        terrainExternals, std::move(terrainTiles.loader), std::move(terrainTiles.root), options);
+    if (spec.imagery_satellite) {
+        // The token rides in the query string, which cesium's template substitution leaves alone.
+        CesiumRasterOverlays::UrlTemplateRasterOverlayOptions imagery;
+        imagery.maximumLevel = kSatelliteMaxLevel;
+        imagery.tileWidth = kSatelliteTilePx;
+        imagery.tileHeight = kSatelliteTilePx;
+        imagery.credit = kSatelliteCredit;
+        terrain->getOverlays().add(
+            CesiumUtility::IntrusivePointer<const CesiumRasterOverlays::RasterOverlay>(
+                new CesiumRasterOverlays::UrlTemplateRasterOverlay(
+                    "mapbox-satellite", satellite_overlay_template() + query, {}, imagery)));
+    }
+    source->attach_terrain(std::move(terrain), std::move(resources));
+    return source;
 }
 
 }
@@ -668,6 +736,10 @@ std::string mapbox_footprint_url(uint32_t x16, uint32_t y16) {
     return overlume::mapbox::footprint_url(x16, y16);
 }
 
+std::string mapbox_satellite_url(uint32_t z, uint32_t x, uint32_t y) {
+    return overlume::mapbox::fill_tile_template(overlume::mapbox::kSatelliteTemplate, {z, x, y});
+}
+
 bool install_fixture_mapbox_source(overlume::VisualRenderer* r, const char* mapbox_uri,
                                    overlume::GeoAnchor anchor, MapboxFixtureNetwork* n,
                                    const char* token) {
@@ -704,6 +776,7 @@ MapboxSourceStats mapbox_last_source_stats() {
     if (const std::shared_ptr<const overlume::mapbox::DemCache> dem = state->dem.lock()) {
         out.dem_requests = dem->requests();
     }
+    out.terrain_tiles_built = state->terrain_tiles_built->load();
     return out;
 }
 
