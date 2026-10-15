@@ -49,7 +49,8 @@ namespace overlume::mapbox {
 // mapbox_terrain_loader.cpp: the terrain-DEM quadtree (loader and root) over `dem`, counting its
 // built tiles into `tiles_built`.
 CustomTileset make_mapbox_terrain_tileset(std::shared_ptr<DemCache> dem, const GeoAnchor& anchor,
-                                          std::shared_ptr<std::atomic<uint64_t>> tiles_built);
+                                          std::shared_ptr<std::atomic<uint64_t>> tiles_built,
+                                          std::shared_ptr<std::atomic<uint64_t>> retries);
 
 }
 
@@ -204,6 +205,8 @@ struct LoaderState : SourceLog {
     std::weak_ptr<const DemCache> dem;
     // Terrain z14 tiles built, counted by the terrain loader (mapbox_terrain_loader.cpp).
     std::shared_ptr<std::atomic<uint64_t>> terrain_tiles_built =
+        std::make_shared<std::atomic<uint64_t>>(0);
+    std::shared_ptr<std::atomic<uint64_t>> terrain_retries =
         std::make_shared<std::atomic<uint64_t>>(0);
 
     void note_build_ms(double ms) {
@@ -662,8 +665,8 @@ std::unique_ptr<EnvironmentSource> open_mapbox_source(
     Cesium3DTilesSelection::TilesetOptions options;
     options.maximumScreenSpaceError = kStreamMaxSseErr;
     options.preloadSiblings = false;
-    CustomTileset terrainTiles =
-        make_mapbox_terrain_tileset(dem, anchor, state->terrain_tiles_built);
+    CustomTileset terrainTiles = make_mapbox_terrain_tileset(
+        dem, anchor, state->terrain_tiles_built, state->terrain_retries);
     auto terrain = std::make_unique<Cesium3DTilesSelection::Tileset>(
         terrainExternals, std::move(terrainTiles.loader), std::move(terrainTiles.root), options);
     if (spec.imagery_satellite) {
@@ -777,6 +780,7 @@ MapboxSourceStats mapbox_last_source_stats() {
         out.dem_requests = dem->requests();
     }
     out.terrain_tiles_built = state->terrain_tiles_built->load();
+    out.terrain_retries = state->terrain_retries->load();
     return out;
 }
 

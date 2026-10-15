@@ -22,6 +22,7 @@
 #include <set>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -40,6 +41,10 @@ const overlume::CameraPose kPose{{0, -8, 3}, {0, 0, 0.5}, 60};
 // attempt 3 no sooner than 4 s after attempt 2.
 constexpr double kAttempt2AtS = 2.0;
 constexpr double kAttempt3AtS = 6.0;
+// When attempts 4 and 5 would start if nothing capped them (6 + 2*4 and 14 + 2*8, from
+// mapbox_tiling.cpp:61).
+constexpr double kAttempt4AtS = 14.0;
+constexpr double kAttempt5AtS = 30.0;
 constexpr double kPi = 3.14159265358979323846;
 
 // Tile math runs on use, not during static initialisation: it may lean on statics of other
@@ -239,6 +244,7 @@ TEST(MapboxTerrain, MissingDemLeavesNoTerrainTile) {
     clock.set(kAttempt3AtS);
     frames(r, buf, 20);
     EXPECT_EQ(stats().terrain_tiles_built, 0u);
+    EXPECT_EQ(stats().terrain_retries, 0u) << "a 404 is no retry";
     EXPECT_EQ(terrain_loaded(r), 0u) << "no terrain there: the sky shows through";
     EXPECT_EQ(times_requested(n, dem_url_of(t)), 1u)
         << "a 404 is no failure for now: the tile settles empty and nothing asks again";
@@ -272,6 +278,42 @@ TEST(MapboxTerrain, FailingDemIsAskedAgainOnTheNextAttempt) {
     EXPECT_EQ(times_requested(n, dem_url_of(t)), 2u);
     EXPECT_EQ(stats().dem_requests, 2u);
     EXPECT_EQ(count_of(log_since(logFrom), "mapbox: terrain-DEM failing (HTTP 503)"), 1u);
+    EXPECT_EQ(stats().terrain_retries, 1u);
+    overlume::destroy_renderer(r);
+}
+
+TEST(MapboxTerrain, FailingDemSettlesEmptyAfterTheThirdAttempt) {
+    auto* r = make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    FrozenRetryClock clock;
+    const TileId t = op_tile();
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    overlume::testing::mapbox_fixture_serve(n, dem_url_of(t), 503, {});
+    ASSERT_TRUE(install(r, "mapbox://terrain", anchor_at(t, 0.5, 0.5), n));
+    set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> buf(kFrameBytes);
+    ASSERT_TRUE(pump(r, buf, 100, [&] { return times_requested(n, dem_url_of(t)) == 1; }));
+    frames(r, buf, 20);
+    // The cache shares a failure for 1 s of steady time and the retry clock is frozen: wait it
+    // out before each step.
+    const std::pair<double, size_t> asks[] = {{kAttempt2AtS, 2}, {kAttempt3AtS, 3}};
+    for (const auto& [at, count] : asks) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+        clock.set(at);
+        ASSERT_TRUE(pump(r, buf, 400, [&] { return times_requested(n, dem_url_of(t)) == count; }))
+            << "attempt " << count << " must ask again";
+        frames(r, buf, 20);
+    }
+    for (const double at : {kAttempt4AtS, kAttempt5AtS}) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+        clock.set(at);
+        frames(r, buf, 40);
+    }
+    EXPECT_EQ(times_requested(n, dem_url_of(t)), 3u) << "the third attempt is the last";
+    EXPECT_EQ(stats().dem_requests, 3u);
+    EXPECT_EQ(stats().terrain_tiles_built, 0u);
+    EXPECT_EQ(terrain_loaded(r), 0u);
+    EXPECT_EQ(stats().terrain_retries, 2u) << "attempts 1 and 2 retry, attempt 3 settles empty";
     overlume::destroy_renderer(r);
 }
 
