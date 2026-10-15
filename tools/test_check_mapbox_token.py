@@ -59,6 +59,7 @@ def test_both_tiles_200_pass(tmp_path):
     assert r.returncode == 0, r.stdout
     assert r.stdout == ("PASS: token retrieves the Downtown Dubai tiles "
                         "(landmark tile HTTP 200, footprint tile HTTP 200)\n")
+    assert r.stderr == ""
     assert TOKEN not in r.stdout + r.stderr
 
 
@@ -71,6 +72,7 @@ def test_anything_but_two_200s_fails(tmp_path, landmark, footprint, codes):
     r = run_check(tmp_path, TOKEN, landmark, footprint)
     assert r.returncode == 1
     assert r.stdout == f"FAIL: {codes} (see docs/runbooks/mapbox.md)\n"
+    assert r.stderr == ""
 
 
 def test_token_reaches_curl_only_on_stdin_and_trimmed(tmp_path):

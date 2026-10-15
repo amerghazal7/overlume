@@ -367,26 +367,28 @@ TEST(HudOverlay, DrawImageRgbaBlendsAndIgnoresANullImage) {
     constexpr uint32_t kW = 8, kH = 6;
     std::vector<uint8_t> background(static_cast<size_t>(kW) * kH * 3, 0);
     for (size_t i = 2; i < background.size(); i += 3) background[i] = 255;
-    // 3 x 2: an opaque red top row; below it red at alpha 128, 128 and 0.
-    const uint8_t image[] = {255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
-                             255, 0, 0, 128, 255, 0, 0, 128, 255, 0, 0, 0};
+    // 4 x 2: an opaque red top row; below it red at alpha 128, 128 and 0, then red 128 at alpha 1,
+    // which only a rounded blend lifts to 1 (truncation gives 0).
+    const uint8_t image[] = {255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
+                             255, 0, 0, 128, 255, 0, 0, 128, 255, 0, 0, 0,   128, 0, 0, 1};
     const auto pixel = [](const std::vector<uint8_t>& f, uint32_t x, uint32_t y) {
         const uint8_t* p = &f[(static_cast<size_t>(y) * kW + x) * 3];
         return std::array<int, 3>{p[0], p[1], p[2]};
     };
-    const std::array<int, 3> red{255, 0, 0}, blue{0, 0, 255}, half{128, 0, 127};
+    const std::array<int, 3> red{255, 0, 0}, blue{0, 0, 255}, half{128, 0, 127}, faint{1, 0, 254};
 
     std::vector<uint8_t> frame = background;
-    overlume::ros::DrawImageRgba(frame.data(), kW, kH, nullptr, 3, 2, 1, 1);
+    overlume::ros::DrawImageRgba(frame.data(), kW, kH, nullptr, 4, 2, 1, 1);
     EXPECT_TRUE(frame == background);
 
-    overlume::ros::DrawImageRgba(frame.data(), kW, kH, image, 3, 2, 1, 1);
+    overlume::ros::DrawImageRgba(frame.data(), kW, kH, image, 4, 2, 1, 1);
     EXPECT_EQ(pixel(frame, 1, 1), red);
     EXPECT_EQ(pixel(frame, 3, 1), red);
     EXPECT_EQ(pixel(frame, 1, 2), half);
     EXPECT_EQ(pixel(frame, 3, 2), blue);
+    EXPECT_EQ(pixel(frame, 4, 2), faint);
     EXPECT_EQ(pixel(frame, 0, 0), blue);
-    EXPECT_EQ(pixel(frame, 4, 1), blue);
+    EXPECT_EQ(pixel(frame, 5, 1), blue);
 }
 
 TEST(HudOverlay, DrawImageRgbaClipsWithoutWrappingOrOverrun) {

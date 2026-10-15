@@ -417,7 +417,10 @@ TEST(MapboxBuildings, RefusedUrisOpenNothing) {
                             "mapbox://buildings?radius=-5", "mapbox://buildings?brightness=0"}) {
         const size_t logFrom = log_size();
         EXPECT_FALSE(install(r, uri, anchor, n)) << uri;
-        EXPECT_NE(log_since(logFrom).find("refused"), std::string::npos) << uri;
+        const std::string logged = log_since(logFrom);
+        EXPECT_NE(logged.find("refused"), std::string::npos) << uri;
+        // Said once: the parser's reason must not repeat the loader's "refused:" prefix.
+        EXPECT_EQ(logged.find("refused"), logged.rfind("refused")) << logged;
         EXPECT_FALSE(overlume::set_environment_source(r, uri, anchor)) << uri;
     }
     set_ego(r, 0.0, 0.0);  // a source opened by mistake would now request its tile
@@ -785,7 +788,7 @@ TEST(MapboxBuildings, LandmarkReplacesTheExtrusionBeneathIt) {
     EXPECT_EQ(s.conflated_features, 1u) << "square 5's box stands under the landmark footprint";
     EXPECT_EQ(s.extruded_features, kDowntownFeatures - 1) << "its neighbour 81 m east stays";
     EXPECT_DOUBLE_EQ(s.max_tile_top_m, 100.0)
-        << "the region reaches the landmark's 100 m roof, not the 15 m extrusions";
+        << "the region reaches the landmark's 100 m roof, not the 25 m extrusions";
     ASSERT_EQ(glbs.size(), 1u);
     const std::string json = glb_json(glbs[0]);
     EXPECT_EQ(count_of(json, "\"mesh\":"), 2u)

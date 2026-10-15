@@ -83,6 +83,9 @@ TEST(MapboxTileFrame, TileContainingClampsToTheMercatorSquare) {
     EXPECT_EQ(mb::tile_containing(0.0, -89.9, mb::kLandmarkZoom).y, last);
     EXPECT_EQ(mb::tile_containing(180.0, 0.0, mb::kLandmarkZoom).x, last);
     EXPECT_EQ(mb::tile_containing(-180.0, 0.0, mb::kLandmarkZoom).x, 0u);
+    // Beyond the square (and NaN) the clamp must not cast a negative double to unsigned.
+    EXPECT_EQ(mb::tile_containing(-190.0, 0.0, mb::kLandmarkZoom).x, 0u) << "west of the square";
+    EXPECT_EQ(mb::tile_containing(std::nan(""), 0.0, mb::kLandmarkZoom).x, 0u) << "NaN";
 
     const mb::LonLatRect world = mb::tile_bounds({0, 0, 0});
     EXPECT_NEAR(world.west, -180.0, 1e-9);
@@ -232,8 +235,23 @@ TEST(MapboxTileFrame, LandmarkNodeRejectsUnexpectedMatrices) {
     lifted[14] = 5.0;
     EXPECT_FALSE(mb::landmark_node_to_frame(f, lifted).has_value()) << "z translation";
 
+    mb::Mat4d infinite = good;
+    infinite[12] = INFINITY;
+    EXPECT_FALSE(mb::landmark_node_to_frame(f, infinite).has_value()) << "non-finite translation";
+
     // The Web Mercator scale on Mapbox's 6,371,008.8 m mean-radius sphere, not WGS84's 6,378,137 m
     // equatorial radius (0.11% apart).
     const double want = 8192.0 * 16384.0 / (2.0 * kPi * 6371008.8 * std::cos(25.0 * kDegToRad));
     EXPECT_NEAR(mb::mapbox_node_scale(25.0), want, want * 1e-12);
+}
+
+TEST(MapboxTileFrame, PlacementProbeTakesZ14ToZ30Only) {
+    const mb::TileId t = anchor_tile();
+    double got[3] = {};
+    EXPECT_FALSE(overlume::testing::mapbox_tile_point_to_map_probe(
+        kAnchor, 13, t.x >> 1, t.y >> 1, 0.0, 0.0, mb::kLandmarkExtent, 0.0, got));
+    EXPECT_FALSE(overlume::testing::mapbox_tile_point_to_map_probe(kAnchor, 31, 0, 0, 0.0, 0.0,
+                                                                   mb::kLandmarkExtent, 0.0, got));
+    EXPECT_TRUE(overlume::testing::mapbox_tile_point_to_map_probe(kAnchor, 14, t.x, t.y, 0.0, 0.0,
+                                                                  mb::kLandmarkExtent, 0.0, got));
 }

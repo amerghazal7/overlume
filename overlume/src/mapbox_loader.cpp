@@ -84,7 +84,7 @@ MapboxSpecResult parse_mapbox_spec(const std::string& spec) {
             if (key == "materials") {
                 out.materials_original = val == "original";
                 if (val != "original" && val != "clay")
-                    warning = "mapbox:// materials='" + val + "' is unknown, using clay";
+                    warning = "mapbox:// materials='" + val + "' is unknown, treated as clay";
             } else if (key == "radius" || key == "brightness") {
                 if (!parse_positive(val, key == "radius" ? out.radius_m : out.brightness))
                     return {std::nullopt,
@@ -96,7 +96,7 @@ MapboxSpecResult parse_mapbox_spec(const std::string& spec) {
             } else if (key == "cache" && val != "off") {
                 return {std::nullopt,
                         "mapbox:// cache='" + val +
-                            "' refused: Mapbox tiles are never written to disk (only cache=off)",
+                            "' is not 'off': Mapbox tiles are never written to disk",
                         ""};
             }
         }
@@ -484,7 +484,8 @@ TileLoadResult build_tile(const LoaderConfig& cfg, LoaderState& st, const TileId
             }
             const std::vector<TilePolygon> polygons = to_tile_polygons(b.polygons);
             // A landmark model replaces the extrusion whose unclipped footprint centroid it
-            // covers, as GL JS does.
+            // covers, as GL JS does. read_landmark_tile returns an empty tile on every failure,
+            // which is what the tests pin; this ok check and the merge's are belt and braces.
             if (landmarks.ok) {
                 if (const std::optional<std::array<double, 2>> c = footprint_centroid(polygons)) {
                     const std::array<double, 3> p = project((*c)[0], (*c)[1], 0.0);
@@ -555,7 +556,9 @@ public:
         }
         const uint32_t attempt = ++a.count;
         // ponytail: the wait runs from this attempt's start, so the tile's attempt state stays
-        // main-thread only; an attempt slower than its wait retries at once.
+        // main-thread only; an attempt slower than its wait retries at once, and a tile that
+        // leaves the radius mid-wait resumes its old count when it is back (fewer attempts,
+        // never more).
         a.not_before_s = now + kRetryWaitS * static_cast<double>(1u << (attempt - 1));
 
         // TileLoadInput is a stack object of references: the continuation copies what it needs.

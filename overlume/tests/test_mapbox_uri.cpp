@@ -65,6 +65,7 @@ TEST(MapboxUri, BadNumbersRefuseTheUriNamingTheKey) {
     for (const auto& [spec, key] : cases) {
         const MapboxSpecResult r = parse_mapbox_spec(spec);
         EXPECT_FALSE(r.spec) << spec;
+        EXPECT_EQ(r.error.rfind("mapbox://", 0), 0u) << spec << ": " << r.error;
         EXPECT_TRUE(mentions(r.error, key)) << spec << ": " << r.error;
     }
 }
@@ -76,6 +77,7 @@ TEST(MapboxUri, CacheAcceptsOnlyOff) {
                              "buildings?cache=", "buildings?cache=on", "buildings?cache=OFF"}) {
         const MapboxSpecResult r = parse_mapbox_spec(spec);
         EXPECT_FALSE(r.spec) << spec;
+        EXPECT_EQ(r.error.rfind("mapbox://", 0), 0u) << spec << ": " << r.error;
         EXPECT_TRUE(mentions(r.error, "cache")) << spec << ": " << r.error;
     }
 }
@@ -85,6 +87,7 @@ TEST(MapboxUri, LayerListMustBeExactlyBuildings) {
                              "buildings/", "?radius=5", "terrain?radius=5"}) {
         const MapboxSpecResult r = parse_mapbox_spec(spec);
         EXPECT_FALSE(r.spec) << "'" << spec << "'";
+        EXPECT_EQ(r.error.rfind("mapbox://", 0), 0u) << "'" << spec << "': " << r.error;
         // Quoted, so an echo of "buildings,terrain" or "buildings/" does not count.
         EXPECT_TRUE(mentions(r.error, "'buildings'")) << "'" << spec << "': " << r.error;
     }
