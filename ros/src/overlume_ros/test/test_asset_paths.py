@@ -35,11 +35,14 @@ Three cases:
      without checking. No "theme assets failed to load" WARN in the log,
      and (when the ego path resolved) no "set_ego_model: failed to load"
      clay-box fallback WARN either.
-  2. Relaunch with -p initial_theme:=light_clay and
-     -p environment_attribution_logo:=false -- configure succeeds,
+  2. Relaunch with -p initial_theme:=light_clay,
+     -p environment_attribution_logo:=false, -p environment_terrain:=ion:1
+     and -p environment_imagery:=sat -- configure succeeds,
      `ros2 param get initial_theme` reads back light_clay, the logo switch
-     reads back false and the log says the Mapbox logo is off, still no
-     fallback WARN.
+     reads back false and the log says the Mapbox logo is off, the two
+     layer parameters read back as the strings ion:1 and sat, the log warns
+     once that environment_imagery 'sat' is ignored (it fits no source),
+     still no fallback WARN.
   3. Relaunch with -p initial_theme:=definitely_not_a_theme -- the
      configure transition must FAIL (on_configure()'s own validation against
      what this install actually shipped), the process must stay alive (a
@@ -214,14 +217,15 @@ def main() -> int:
         os.remove(log1)
 
     log2 = _fresh_log()
-    proc = _launch("-p initial_theme:=light_clay -p environment_attribution_logo:=false", log2)
+    proc = _launch("-p initial_theme:=light_clay -p environment_attribution_logo:=false "
+                   "-p environment_terrain:=ion:1 -p environment_imagery:=sat", log2)
     try:
         if not _wait_running(proc):
             print(f"FAIL: node exited early (case 2):\n{_read(log2)[-2000:]}", file=sys.stderr)
             return 1
         if not _lifecycle("configure"):
-            print(f"FAIL: configure failed with initial_theme:=light_clay:\n"
-                  f"{_read(log2)[-2000:]}", file=sys.stderr)
+            print(f"FAIL: configure failed with initial_theme:=light_clay and the layer "
+                  f"parameters:\n{_read(log2)[-2000:]}", file=sys.stderr)
             return 1
         theme = _param_get("initial_theme")
         if theme != "light_clay":
@@ -232,6 +236,16 @@ def main() -> int:
         if logo_on.lower() != "false":
             print(f"FAIL: `ros2 param get environment_attribution_logo` returned '{logo_on}', "
                   "expected 'false'.", file=sys.stderr)
+            return 1
+        layers = (_param_get("environment_terrain"), _param_get("environment_imagery"))
+        if layers != ("ion:1", "sat"):
+            print(f"FAIL: `ros2 param get` for environment_terrain and environment_imagery "
+                  f"returned {layers}, expected ('ion:1', 'sat').", file=sys.stderr)
+            return 1
+        ignored = "environment_imagery 'sat' is ignored for environment source ''"
+        if _read(log2).count(ignored) != 1:
+            print(f"FAIL: expected one WARN containing {ignored!r}:\n{_read(log2)[-3000:]}",
+                  file=sys.stderr)
             return 1
         log_text = _read(log2)
         if "theme assets failed to load" in log_text:
@@ -244,7 +258,8 @@ def main() -> int:
             return 1
         print("PASS (2/3): initial_theme:=light_clay configured cleanly, param reads back "
               "light_clay, environment_attribution_logo:=false reads back and logs the logo "
-              "off, no fallback WARN.")
+              "off, environment_terrain:=ion:1 and environment_imagery:=sat read back as "
+              "strings and 'sat' is warned once as ignored, no fallback WARN.")
     finally:
         _kill(proc)
         os.remove(log2)
