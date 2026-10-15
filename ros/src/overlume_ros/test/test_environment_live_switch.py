@@ -43,6 +43,14 @@ guarded honestly:
      covers FOLLOW-UP 9 (per-render_mode gating): `render_mode:=1` (BOWL)
      hides the now-visible source again even though environment_enabled
      stayed true, and `render_mode:=3` (FREE_LOOK) restores it.
+  6. (separate run, _run_layer_parameter_check()) **environment_terrain and
+     environment_imagery reach both compose calls**: launched with
+     environment_source_uri:=mapbox://buildings, environment_terrain:=enable,
+     environment_imagery:=satellite, a geo_datum_* override and MAPBOX_TOKEN
+     removed from the node's environment, so no source opens and no request
+     is sent; the node's "failed to open '<uri>'" WARN names the composed URI,
+     once from on_activate() and once from a live environment_source_uri
+     switch.
 
 Honest scope: checks 1-4 do NOT exercise the on_params() SUCCESS path for
 environment_source_uri (that needs a solved geo-anchor, i.e. real
@@ -278,6 +286,76 @@ def _run_hidden_arm_check() -> int:
     finally:
         _kill(viz_proc)
 
+def _run_layer_parameter_check() -> int:
+    """Check 6 (imagery on terrain): both compose calls, on_activate() and the live
+    environment_source_uri switch, pass environment_terrain and environment_imagery.
+
+    MAPBOX_TOKEN is unset in the node's shell (never printed), so no mapbox:// source can open
+    and nothing reaches the network: each attempt logs "set_environment_source: failed to open
+    '<composed uri>'", and that URI is the proof.
+    """
+    log_fd, log_path = tempfile.mkstemp(prefix="viz_environment_layers_", suffix=".log")
+    os.close(log_fd)
+
+    viz_cmd = (
+        f"unset MAPBOX_TOKEN && "
+        f"source /opt/ros/humble/setup.bash && source {INSTALL_DIR}/setup.bash && "
+        f"ros2 run overlume_ros overlume_node --ros-args "
+        f"-p out_width:=160 -p out_height:=120 -p initial_mode:=3 "
+        f"-p geo_datum_lat_deg:={FIXTURE_LAT_DEG} "
+        f"-p geo_datum_lon_deg:={FIXTURE_LON_DEG} "
+        f"-p geo_datum_heading_deg:={FIXTURE_HEADING_DEG} "
+        f"-p environment_source_uri:=mapbox://buildings "
+        f"-p environment_terrain:=enable -p environment_imagery:=satellite "
+        f"> {log_path} 2>&1")
+    viz_proc = _popen(viz_cmd)
+
+    def _read_log() -> str:
+        with open(log_path) as f:
+            return f.read()
+
+    try:
+        if not _wait_running(viz_proc):
+            print(f"FAIL: overlume_node (layer-parameter run) exited early:\n"
+                  f"{_read_log()[-2000:]}", file=sys.stderr)
+            return 1
+
+        if not _lifecycle("configure") or not _lifecycle("activate"):
+            print("FAIL: configure/activate failed (layer-parameter run).", file=sys.stderr)
+            return 1
+        time.sleep(0.3)
+        expected = ("set_environment_source: failed to open "
+                    "'mapbox://buildings,terrain?imagery=satellite'")
+        if expected not in _read_log():
+            print(f"FAIL (6a): on_activate() did not compose environment_terrain:=enable and "
+                  f"environment_imagery:=satellite into the URI -- expected {expected!r}. "
+                  f"Log tail:\n{_read_log()[-3000:]}", file=sys.stderr)
+            return 1
+        print("PASS (6a): on_activate() composes mapbox://buildings,terrain?imagery=satellite.")
+
+        before = len(_read_log())
+        if _param_set_ok("environment_source_uri", "'mapbox://buildings?materials=original'"):
+            print("FAIL (6b): the live mapbox:// switch was accepted with MAPBOX_TOKEN unset -- "
+                  "expected rejected.", file=sys.stderr)
+            return 1
+        time.sleep(0.3)
+        log_text = _read_log()[before:]
+        expected = ("set_environment_source: failed to open "
+                    "'mapbox://buildings,terrain?materials=original&imagery=satellite'")
+        if expected not in log_text:
+            print(f"FAIL (6b): the live environment_source_uri switch did not compose the two "
+                  f"layer parameters -- expected {expected!r}. New log:\n{log_text[-3000:]}",
+                  file=sys.stderr)
+            return 1
+        print("PASS (6b): the live switch composes "
+              "mapbox://buildings,terrain?materials=original&imagery=satellite.")
+
+        print("PASS (check 6, separate run): environment_terrain and environment_imagery reach "
+              "both compose calls.")
+        return 0
+    finally:
+        _kill(viz_proc)
+
 def main() -> int:
     if not os.path.isdir(INSTALL_DIR):
         print("SKIP: ros/install not built -- run colcon_build.sh first.")
@@ -358,7 +436,8 @@ def main() -> int:
     finally:
         _kill(viz_proc)
 
-    return _run_hidden_arm_check()
+    status = _run_hidden_arm_check()
+    return status if status else _run_layer_parameter_check()
 
 if __name__ == "__main__":
     sys.exit(main())
