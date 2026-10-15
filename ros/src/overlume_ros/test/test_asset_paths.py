@@ -57,12 +57,9 @@ Run (ROS + this repo's ros install sourced first, node built Release):
 Skips cleanly (prints SKIP, exit 0) when this repo's ROS install isn't
 present, same convention as test_theme_ws.py/test_bowl_node_params.py.
 
-NOT CMake-registered (`ament_add_gtest`/`ament_add_pytest_test` etc.) -- same
-undocumented-elsewhere convention as test_theme_ws.py/test_bowl_node_params.py/
-test_vcam_contract.py/test_ego_anchored_vcam.py/test_extra_topic_parity.py/
-test_tf_adapter.py in this same directory (grepped: none of them appear in
-this package's CMakeLists.txt as an ament_add_test/ament_add_pytest_test/
-add_test entry).
+CMake-registered (ament_add_test in this package's CMakeLists.txt), so `colcon test` and the gate
+run it; the other node-launching scripts in this directory (test_theme_ws.py, test_bowl_node_params.py,
+test_vcam_contract.py, ...) are not.
 """
 
 import os

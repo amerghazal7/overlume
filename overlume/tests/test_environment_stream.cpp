@@ -1762,12 +1762,13 @@ std::string tiles_fixture_without_rtc() {
 overlume::VisualRenderer* terrain_renderer(const std::string& theme_dir, const char* theme,
                                            const std::string& imagery_dir, double brightness = 1.0,
                                            uint32_t maximum_level = 10,
-                                           const std::string& tiles_dir = kTilesFixtureDir) {
+                                           const std::string& tiles_dir = kTilesFixtureDir,
+                                           const char* tile_credit = nullptr) {
     overlume::RenderConfig cfg{320, 240, 1, theme_dir.c_str(), theme};
     auto* r = overlume::create_renderer(cfg);
     if (r == nullptr) return nullptr;
     EXPECT_TRUE(overlume::testing::install_fixture_terrain_with_file_imagery(
-        r, tiles_dir.c_str(), imagery_dir.c_str(), brightness, maximum_level));
+        r, tiles_dir.c_str(), imagery_dir.c_str(), brightness, maximum_level, tile_credit));
     overlume::SceneGraph s{};
     s.ego.valid = 1;
     s.ego.position = kFixtureBlockCenterMap;
@@ -1890,6 +1891,30 @@ TEST(EnvironmentStreamOverlay, RemovingTheOverlayDetachesLiveTilesBackToTerrainC
     EXPECT_GT(hues.green, 800u)
         << "a live tile whose raster detached must show terrain_color again (hasImagery 0)";
     EXPECT_LT(hues.red, 20u);
+    overlume::destroy_renderer(r);
+}
+
+// Bing's data-provider credits (Microsoft, Earthstar Geographics, Maxar) are per-raster-tile
+// credits, not the provider's: the credits line must carry them, once however many tiles repeat
+// them.
+TEST(EnvironmentStreamOverlay, PerTileRasterCreditsReachTheCreditsLine) {
+    const std::string imagery = std::string(OVERLUME_TMP_DIR) + "/overlume_imagery_red";
+    write_fixture_imagery(imagery, 255, 0, 0, true);
+    auto* r = terrain_renderer(write_terrain_themes(), "terrain_green", imagery, 1.0, 10,
+                               kTilesFixtureDir, "Earthstar <b>Geographics</b> &amp; Co.");
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const auto credits = [&] {
+        std::vector<char> buf(overlume::environment_source_credits(r, nullptr, 0) + 1);
+        overlume::environment_source_credits(r, buf.data(), static_cast<uint32_t>(buf.size()));
+        return std::string(buf.data());
+    };
+    std::vector<uint8_t> frame(320u * 240u * 3u);
+    render_block_until(r, frame, [&] { return raster_attached(r) && !credits().empty(); });
+    ASSERT_TRUE(raster_attached(r)) << "no raster attached within 600 frames";
+
+    const std::string text = credits();
+    EXPECT_EQ(text, "Earthstar Geographics & Co.")
+        << "tags stripped, &amp; decoded, and shown once for every tile that carries it";
     overlume::destroy_renderer(r);
 }
 
@@ -2417,5 +2442,95 @@ TEST(EnvironmentStreamTerrain, NetworkLossFallsBackAndTearsDownBothTilesets) {
     overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
     EXPECT_TRUE(overlume::testing::renderer_ground_plane_in_scene(r))
         << "the clay plane must come back with the terrain gone";
+    overlume::destroy_renderer(r);
+}
+
+// Only terrain and imagery requests can supply the eight failures here: the content tiles are all
+// loaded before the network goes, so a terrain or imagery accessor that bypassed the failure count
+// leaves this test below eight.
+TEST(EnvironmentStreamTerrain, IonTerrainAndImageryFailuresAloneReachTheFallback) {
+    auto* r = itf::make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    auto* n = overlume::testing::make_ion_fixture_network();
+    itf::serve_content(n, kTilesFixtureDir);
+    itf::serve_terrain(n);
+    itf::serve_imagery(n, itf::qmesh::ion_imagery_endpoint_json(itf::kImageryBase));
+    ASSERT_TRUE(overlume::testing::install_fixture_ion_source(
+        r, "ion://96188?terrain=1&imagery=2&cache=off", kFixtureAnchor, n,
+        "ion-fixture-token-loss-alone"));
+    itf::set_ego(r);
+
+    std::vector<uint8_t> buf(itf::kFrameBytes);
+    const auto loaded = [&] {
+        return overlume::testing::environment_loaded_chunk_count(r) > 0 &&
+               overlume::testing::ion_fixture_terrain_probe(n).textures_alive > 0;
+    };
+    ASSERT_TRUE(itf::pump(r, buf, 600, loaded)) << "buildings, terrain and imagery must load";
+
+    overlume::testing::ion_fixture_hold_prefix(n, itf::kImageryBase);
+    const size_t imageryRequests = itf::count_requested(n, itf::is_imagery_tile_url);
+    const auto rasterInFlight = [&] {
+        return itf::count_requested(n, itf::is_imagery_tile_url) > imageryRequests;
+    };
+    ASSERT_TRUE(itf::pump(r, buf, 600, rasterInFlight)) << "no imagery tile request in flight";
+
+    overlume::testing::ion_fixture_fail_all_transport(n);
+    overlume::testing::ion_fixture_release_held(n);
+    const auto fellBack = [&] {
+        return overlume::environment_source_state(r) ==
+               overlume::EnvironmentSourceState::STREAMING_FALLBACK;
+    };
+    EXPECT_TRUE(itf::pump(r, buf, 400, fellBack))
+        << "terrain and imagery failures must count toward network loss";
+    overlume::destroy_renderer(r);
+}
+
+// The drain in update() is the only place the terrain resources' freed textures are destroyed
+// while the source lives: removing the overlay mid-session frees every raster texture, and
+// nothing but that drain does it.
+TEST(EnvironmentStreamTerrain, RemovingTheImageryOverlayMidSessionFreesItsTextures) {
+    auto* r = itf::make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    auto* n = overlume::testing::make_ion_fixture_network();
+    itf::serve_content(n, kTilesFixtureDir);
+    itf::serve_terrain(n);
+    itf::serve_imagery(n, itf::qmesh::ion_imagery_endpoint_json(itf::kImageryBase));
+    ASSERT_TRUE(overlume::testing::install_fixture_ion_source(
+        r, "ion://96188?terrain=1&imagery=2&cache=off", kFixtureAnchor, n,
+        "ion-fixture-token-remove"));
+    itf::set_ego(r);
+
+    std::vector<uint8_t> buf(itf::kFrameBytes);
+    const auto textured = [&] {
+        return overlume::testing::ion_fixture_terrain_probe(n).textures_alive > 0;
+    };
+    ASSERT_TRUE(itf::pump(r, buf, 600, textured)) << "the first rasters must attach";
+
+    ASSERT_TRUE(overlume::testing::environment_stream_remove_overlays(r))
+        << "the hook must reach the terrain tileset's overlay";
+    const auto freed = [&] {
+        return overlume::testing::ion_fixture_terrain_probe(n).textures_alive == 0;
+    };
+    EXPECT_TRUE(itf::pump(r, buf, 200, freed))
+        << "the update() drain must destroy the textures cesium freed";
+    const overlume::testing::OverlayProbe probe = overlume::testing::ion_fixture_terrain_probe(n);
+    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING);
+    EXPECT_GT(probe.textures_freed, 0u);
+    EXPECT_EQ(probe.rasters_detached, probe.rasters_attached);
+    overlume::destroy_renderer(r);
+}
+
+TEST(EnvironmentStreamTerrain, BrightnessReachesTheTerrainRendererResources) {
+    auto* r = itf::make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    auto* n = overlume::testing::make_ion_fixture_network();
+    itf::serve_content(n, kTilesFixtureDir);
+    itf::serve_terrain(n);
+    itf::serve_imagery(n, itf::qmesh::ion_imagery_endpoint_json(itf::kImageryBase));
+    ASSERT_TRUE(overlume::testing::install_fixture_ion_source(
+        r, "ion://96188?terrain=1&imagery=2&brightness=1.8&cache=off", kFixtureAnchor, n,
+        "ion-fixture-token-brightness"));
+    EXPECT_DOUBLE_EQ(overlume::testing::environment_stream_terrain_brightness(r), 1.8)
+        << "the imagery texture's brightness comes from the terrain tileset's resources";
     overlume::destroy_renderer(r);
 }

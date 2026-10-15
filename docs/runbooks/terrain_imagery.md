@@ -175,7 +175,7 @@ Offline, in the gate (`tools/ci_visual_mode.sh`):
 - `test_environment_source_uri` (node): the two parameters and the attribution text.
 - The goldens `mapbox_terrain_synthetic_dark_adas` and `mapbox_terrain_synthetic_light_clay`.
 
-Offline, outside the gate (each launches the node; run them after a node change):
+Offline, in the gate (`colcon test` registers both; each launches the node from `ros/install`):
 `ros/src/overlume_ros/test/test_asset_paths.py` reads both parameters back and checks the
 configure WARN, and
 `ros/src/overlume_ros/test/test_environment_live_switch.py` check 6 proves that activation and a

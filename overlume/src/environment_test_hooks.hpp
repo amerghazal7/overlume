@@ -59,6 +59,9 @@ bool ecef_height_correction_probe(double origin_lat_deg, double origin_lon_deg, 
 bool environment_stream_materials_original(overlume::VisualRenderer* r);
 // NaN when the source is not a StreamingEnvironmentSource.
 double environment_stream_brightness(overlume::VisualRenderer* r);
+// The brightness the open streaming source gave its terrain renderer resources (what scales the
+// imagery texture); NaN without a streaming source or a terrain tileset.
+double environment_stream_terrain_brightness(overlume::VisualRenderer* r);
 // Whether the open streaming source's tileset reads through the caching asset accessor (a SQLite
 // cache database). False when no streaming source is open.
 bool environment_stream_has_disk_cache(overlume::VisualRenderer* r);
@@ -127,10 +130,12 @@ bool environment_stream_remove_overlays(overlume::VisualRenderer* r);
 // (25.1972 N, 55.2744 E, heading 0, height 0), without a disk cache, under a
 // UrlTemplateRasterOverlay on `file://<imagery_dir>/{z}/{x}/{y}.png` capped at `maximum_level`
 // (the fixture's leaves ask for level 17). cesium counts {y} from the south edge of the
-// web-mercator square.
+// web-mercator square. A non-null `tile_credit` (HTML) swaps the overlay for one that attaches that
+// credit to every raster tile, as Bing's coverage credits are.
 bool install_fixture_terrain_with_file_imagery(overlume::VisualRenderer* r, const char* fixture_dir,
                                                const char* imagery_dir, double brightness = 1.0,
-                                               uint32_t maximum_level = 10);
+                                               uint32_t maximum_level = 10,
+                                               const char* tile_credit = nullptr);
 
 // Task 11.
 bool environment_stream_has_terrain_tileset(overlume::VisualRenderer* r);
