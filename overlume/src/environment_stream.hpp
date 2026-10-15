@@ -21,6 +21,7 @@ static_assert(__cplusplus >= 202002L,
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <glm/mat4x4.hpp>
@@ -213,6 +214,14 @@ public:
     // sources while a tile load is in flight.
     void hold(const std::string& url_without_query);
     void release_held();
+    // Every URL starting with `prefix` that no exact rule names gets this answer; the longest
+    // matching prefix wins, and a later rule for the same prefix replaces an earlier one.
+    void serve_prefix(const std::string& prefix, uint16_t status, std::vector<std::byte> body);
+    // Requests for a URL starting with `prefix` that no exact rule names stay pending, as hold()'s.
+    void hold_prefix(const std::string& prefix);
+    // From now on every request, and every held request release_held() answers, is a transport
+    // error: the network is gone.
+    void fail_all_transport();
 
     CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> get(
         const CesiumAsync::AsyncSystem& asyncSystem, const std::string& url,
@@ -252,6 +261,9 @@ private:
     std::vector<std::string> held_;
     std::vector<Held> pending_;
     std::vector<std::string> requested_;
+    std::vector<std::pair<std::string, Canned>> prefixes_;
+    std::vector<std::string> heldPrefixes_;
+    bool allTransportDown_ = false;
 };
 
 class StreamRendererResources final : public Cesium3DTilesSelection::IPrepareRendererResources {
@@ -308,6 +320,8 @@ public:
     // when it changed (new tiles copy it from terrain.mat's default instance).
     void sync_terrain_color();
     OverlayCounters overlay_counters() const { return counters_; }
+    // The terrain_color sync_terrain_color last pushed (-1 each before the first push).
+    std::array<float, 3> terrain_color_for_testing() const { return terrainColor_; }
     void note_torn_down() { tornDown_.store(true); }
 
     void set_terrain_transform(double z, double tilt_rad, double pivot_x, double pivot_y,
@@ -408,8 +422,26 @@ public:
 
     void force_fall_back_for_testing(VisualRenderer& r) { fall_back(r); }
 
+    // Task 11: a second tileset. Called once before the first update(); overlays are already added
+    // to `terrain->getOverlays()` by the caller. provides_ground(), height sampling and the
+    // terrain transform target the terrain tileset when present.
+    void attach_terrain(std::unique_ptr<Cesium3DTilesSelection::Tileset> terrain,
+                        std::shared_ptr<StreamRendererResources> terrain_resources);
+    bool has_terrain() const;
+    // Task 11: the overlay credits of both tilesets, plain text, "; " separated, HTML stripped.
+    std::string credits() const;
+
+    // The terrain tileset's renderer resources, null without one. Kept after teardown.
+    std::shared_ptr<StreamRendererResources> terrain_resources() const { return terrainResources_; }
+    // Terrain tiles in the Filament scene.
+    size_t terrain_scene_count(VisualRenderer& r) const;
+    // World z minus local z of a terrain tile's root: the follow-terrain lift (NaN without one).
+    double terrain_tile_lift_z(VisualRenderer& r) const;
+
+    // The terrain resources' counters once attach_terrain has run, else these (Task 5's fixture
+    // opens its terrain as the content tileset).
     StreamRendererResources::OverlayCounters overlay_counters() const {
-        return renderResources_->overlay_counters();
+        return (terrainResources_ ? terrainResources_ : renderResources_)->overlay_counters();
     }
     // Test hooks add raster overlays here before the first update().
     Cesium3DTilesSelection::RasterOverlayCollection& overlays_for_testing() {
@@ -421,6 +453,10 @@ private:
     void maybe_trigger_terrain_sample(Vec3 ego_map_pos, double heading_rad);
     void update_terrain_transform(float deltaSeconds);
     void fall_back(VisualRenderer& r);
+    // Adds the tiles of `result` within the radius to the scene, removes those that left it.
+    void sync_scene(VisualRenderer& r, const Cesium3DTilesSelection::ViewUpdateResult& result,
+                    Vec3 ego_map_pos, double radius_m,
+                    std::unordered_map<const void*, bool>& in_scene);
 
     CesiumAsync::AsyncSystem asyncSystem_;
     std::shared_ptr<StreamRendererResources> renderResources_;
@@ -455,6 +491,10 @@ private:
     std::shared_ptr<CountingAssetAccessor> countingAccessor_;
     bool fallenBack_ = false;
     std::unique_ptr<EnvironmentSource> fallbackSource_;
+
+    std::shared_ptr<StreamRendererResources> terrainResources_;
+    std::unique_ptr<Cesium3DTilesSelection::Tileset> terrainTileset_;
+    std::unordered_map<const void*, bool> terrainInScene_;
 };
 
 }

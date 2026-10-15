@@ -25,7 +25,11 @@
 #include <CesiumGltf/Model.h>
 #include <CesiumGltfWriter/GltfWriter.h>
 #include <CesiumImage/ImageAsset.h>
+#include <CesiumRasterOverlays/IonRasterOverlay.h>
+#include <CesiumRasterOverlays/RasterOverlayTileProvider.h>
 #include <CesiumRasterOverlays/UrlTemplateRasterOverlay.h>
+#include <CesiumUtility/CreditReferencer.h>
+#include <CesiumUtility/CreditSystem.h>
 
 #include <mutex>
 
@@ -424,10 +428,15 @@ Cesium3DTilesSelection::TilesetExternals build_externals(
     if (out_counting != nullptr) *out_counting = counting;
     auto logger = make_redacting_logger();
 
+    // Every source gets a credit system: overlays create their credits only through one, and a
+    // layer.json terrain tileset dereferences it unchecked (TilesetContentManager.cpp:2244-2250).
+    auto credits = std::make_shared<CesiumUtility::CreditSystem>();
+
     if (cache_dir == "off") {
         Cesium3DTilesSelection::TilesetExternals externals{nullptr, nullptr, asyncSystem};
         externals.pAssetAccessor = counting;
         externals.pLogger = logger;
+        externals.pCreditSystem = credits;
         return externals;
     }
 
@@ -441,6 +450,7 @@ Cesium3DTilesSelection::TilesetExternals build_externals(
     Cesium3DTilesSelection::TilesetExternals externals{nullptr, nullptr, asyncSystem};
     externals.pAssetAccessor = tokenSafe;
     externals.pLogger = logger;
+    externals.pCreditSystem = credits;
     return externals;
 }
 
@@ -587,11 +597,28 @@ void MapFixtureAssetAccessor::hold(const std::string& url_without_query) {
     held_.push_back(url_without_query);
 }
 
+void MapFixtureAssetAccessor::serve_prefix(const std::string& prefix, uint16_t status,
+                                           std::vector<std::byte> body) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    prefixes_.emplace_back(prefix, Canned{status, std::move(body), false});
+}
+
+void MapFixtureAssetAccessor::hold_prefix(const std::string& prefix) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    heldPrefixes_.push_back(prefix);
+}
+
+void MapFixtureAssetAccessor::fail_all_transport() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    allTransportDown_ = true;
+}
+
 void MapFixtureAssetAccessor::release_held() {
     std::vector<Held> pending;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         held_.clear();
+        heldPrefixes_.clear();
         pending.swap(pending_);
     }
     // Outside the lock: continuations run inline on this thread when a promise resolves.
@@ -604,7 +631,10 @@ CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> MapFixtureAsset
     {
         std::lock_guard<std::mutex> lock(mutex_);
         requested_.push_back(url);
-        if (std::find(held_.begin(), held_.end(), key) != held_.end()) {
+        const auto startsKey = [&key](const std::string& p) { return key.rfind(p, 0) == 0; };
+        if (std::find(held_.begin(), held_.end(), key) != held_.end() ||
+            (canned_.find(key) == canned_.end() &&
+             std::any_of(heldPrefixes_.begin(), heldPrefixes_.end(), startsKey))) {
             pending_.push_back(
                 Held{asyncSystem.createPromise<std::shared_ptr<CesiumAsync::IAssetRequest>>(), verb,
                      url});
@@ -620,8 +650,20 @@ void MapFixtureAssetAccessor::answer(const RequestPromise& promise, const std::s
     Canned canned{unmatchedStatus_, {}, false};
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        const auto it = canned_.find(url.substr(0, url.find('?')));
-        if (it != canned_.end()) canned = it->second;
+        const std::string key = url.substr(0, url.find('?'));
+        if (allTransportDown_) {
+            canned.transport_error = true;
+        } else if (const auto it = canned_.find(key); it != canned_.end()) {
+            canned = it->second;
+        } else {
+            size_t longest = 0;
+            for (const auto& [prefix, rule] : prefixes_) {
+                if (key.rfind(prefix, 0) == 0 && prefix.size() >= longest) {
+                    canned = rule;
+                    longest = prefix.size();
+                }
+            }
+        }
     }
     if (canned.transport_error) {
         // Like curl's, the message carries the URL: only a redacting logger may print it.
@@ -708,6 +750,112 @@ bool StreamingEnvironmentSource::provides_ground() const {
     return !fallenBack_ && replacesGround_ && terrainState_ && terrainState_->ground_hit.load();
 }
 
+void StreamingEnvironmentSource::attach_terrain(
+    std::unique_ptr<Cesium3DTilesSelection::Tileset> terrain,
+    std::shared_ptr<StreamRendererResources> terrain_resources) {
+    terrainTileset_ = std::move(terrain);
+    terrainResources_ = std::move(terrain_resources);
+}
+
+bool StreamingEnvironmentSource::has_terrain() const {
+    // A terrain tileset whose root never came (layer.json refused, asset missing) has no root once
+    // its root-available event is ready: the source then runs on its content tileset alone.
+    return terrainTileset_ != nullptr && !(terrainTileset_->getRootTileAvailableEvent().isReady() &&
+                                           terrainTileset_->getRootTile() == nullptr);
+}
+
+namespace {
+
+// The plain text of an attribution's HTML: tags dropped, a few entities decoded, whitespace runs
+// collapsed. ponytail: a tag scanner, not an HTML parser (a '>' inside an attribute value ends
+// the tag early); use a real parser if an attribution ever shows markup on the line.
+std::string credit_plain_text(const std::string& html) {
+    static constexpr std::pair<const char*, const char*> kEntities[] = {
+        {"&amp;", "&"}, {"&lt;", "<"},   {"&gt;", ">"},         {"&quot;", "\""},
+        {"&#39;", "'"}, {"&nbsp;", " "}, {"&copy;", "\xC2\xA9"}};
+    std::string out;
+    bool inTag = false;
+    for (size_t i = 0; i < html.size(); ++i) {
+        const char c = html[i];
+        if (inTag || c == '<') {
+            inTag = c != '>';
+            continue;
+        }
+        if (std::isspace(static_cast<unsigned char>(c)) != 0) {
+            if (!out.empty() && out.back() != ' ') out += ' ';
+            continue;
+        }
+        const auto entity = std::find_if(
+            std::begin(kEntities), std::end(kEntities),
+            [&](const auto& e) { return html.compare(i, std::strlen(e.first), e.first) == 0; });
+        if (entity != std::end(kEntities)) {
+            out += entity->second;
+            i += std::strlen(entity->first) - 1;
+            continue;
+        }
+        out += c;
+    }
+    while (!out.empty() && out.back() == ' ') out.pop_back();
+    return out;
+}
+
+}
+
+std::string StreamingEnvironmentSource::credits() const {
+    if (fallenBack_ || tornDown_) return {};
+    std::vector<std::string> texts;
+    for (const Cesium3DTilesSelection::Tileset* tileset : {tileset_.get(), terrainTileset_.get()}) {
+        if (tileset == nullptr || !tileset->getExternals().pCreditSystem) continue;
+        CesiumUtility::CreditSystem& creditSystem = *tileset->getExternals().pCreditSystem;
+        // CreditReferencer cannot list its credits: reference the overlays' credits, then keep the
+        // system's referenced credits that this referencer holds.
+        CesiumUtility::CreditReferencer overlayCredits(tileset->getExternals().pCreditSystem);
+        for (const auto& activated : tileset->getOverlays().getActivatedOverlays()) {
+            if (activated->getTileProvider() != nullptr) {
+                activated->getTileProvider()->addCredits(overlayCredits);
+            }
+        }
+        for (const CesiumUtility::Credit& credit :
+             creditSystem.getSnapshot(CesiumUtility::CreditFilteringMode::None).currentCredits) {
+            if (!overlayCredits.isCreditReferenced(credit)) continue;
+            std::string text = credit_plain_text(creditSystem.getHtml(credit));
+            if (!text.empty() && std::find(texts.begin(), texts.end(), text) == texts.end()) {
+                texts.push_back(std::move(text));
+            }
+        }
+    }
+    std::string out;
+    for (const std::string& text : texts) out += (out.empty() ? "" : "; ") + text;
+    return out;
+}
+
+namespace {
+size_t count_in_scene(VisualRenderer& r, const std::unordered_map<const void*, bool>& tracked) {
+    size_t count = 0;
+    for (const auto& [res, _] : tracked) {
+        auto* asset = static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(res));
+        if (asset->getEntityCount() > 0 && r.scene->hasEntity(asset->getEntities()[0])) {
+            ++count;
+        }
+    }
+    return count;
+}
+}
+
+size_t StreamingEnvironmentSource::terrain_scene_count(VisualRenderer& r) const {
+    return fallenBack_ ? 0 : count_in_scene(r, terrainInScene_);
+}
+
+double StreamingEnvironmentSource::terrain_tile_lift_z(VisualRenderer& r) const {
+    if (terrainInScene_.empty() || r.engine == nullptr) return std::nan("");
+    auto* asset = static_cast<filament::gltfio::FilamentAsset*>(
+        const_cast<void*>(terrainInScene_.begin()->first));
+    filament::TransformManager& tm = r.engine->getTransformManager();
+    const auto inst = tm.getInstance(asset->getRoot());
+    if (!inst.isValid()) return std::nan("");
+    return static_cast<double>(tm.getWorldTransform(inst)[3].z - tm.getTransform(inst)[3].z);
+}
+
 void StreamRendererResources::ensure_terrain_root() {
     if (terrainRoot_ || r_ == nullptr) return;
     terrainRoot_ = utils::EntityManager::get().create();
@@ -748,7 +896,16 @@ StreamRendererResources::prepareInLoadThread(
     auto* pGlb = new LoadThreadGlb();
     pGlb->transform = transform * CesiumGeometry::Transforms::getUpAxisTransform(
                                       tileLoadResult.glTFUpAxis, CesiumGeometry::Axis::Z);
-    if (auto* model = std::get_if<CesiumGltf::Model>(&tileLoadResult.contentKind)) {
+    if (auto* keptModel = std::get_if<CesiumGltf::Model>(&tileLoadResult.contentKind)) {
+        // cesium keeps this model for height queries and for upsampling a terrain tile's children
+        // (which needs its _CESIUMOVERLAY_ attributes and its own positions), so a terrain tile
+        // is rewritten on a copy; a content tile's model is rewritten in place, as ever.
+        CesiumGltf::Model terrainCopy;
+        CesiumGltf::Model* model = keptModel;
+        if (kind_ == Kind::Terrain) {
+            terrainCopy = *keptModel;
+            model = &terrainCopy;
+        }
         if (consolidate_buffers(*model)) {
             if (kind_ == Kind::Terrain) copy_overlay_uvs_to_texcoord0(*model);
             strip_attributes_and_correct_heights(*model, pGlb->transform, ecefToMap_,
@@ -1066,6 +1223,13 @@ void StreamingEnvironmentSource::update(VisualRenderer& r, Vec3 ego_map_pos) {
     for (filament::gltfio::FilamentAsset* freed : renderResources_->drain_pending_frees()) {
         inScene_.erase(freed);
     }
+    if (terrainResources_) {
+        terrainResources_->set_renderer(&r);
+        terrainResources_->sync_terrain_color();
+        for (filament::gltfio::FilamentAsset* freed : terrainResources_->drain_pending_frees()) {
+            terrainInScene_.erase(freed);
+        }
+    }
     synthesize_view_and_pump(r, ego_map_pos);
 }
 
@@ -1124,7 +1288,9 @@ void StreamingEnvironmentSource::maybe_trigger_terrain_sample(Vec3 ego_map_pos,
     const double pivotX = ego_map_pos.x;
     const double pivotY = ego_map_pos.y;
     const double pivotHeadingRad = heading_rad;
-    tileset_->sampleHeightMostDetailed(cartos)
+    // With a terrain tileset, the ground under the ego is the terrain's.
+    Cesium3DTilesSelection::Tileset& sampled = has_terrain() ? *terrainTileset_ : *tileset_;
+    sampled.sampleHeightMostDetailed(cartos)
         .thenInMainThread([state, validS, pivotX, pivotY,
                            pivotHeadingRad](Cesium3DTilesSelection::SampleHeightResult&& res) {
             std::vector<double> hitS, hitH;
@@ -1198,9 +1364,12 @@ void StreamingEnvironmentSource::update_terrain_transform(float deltaSeconds) {
 
     if (std::abs(groundOffsetZ_ - lastAppliedGroundOffsetZ_) > 1e-3 ||
         std::abs(terrainTiltRad_ - lastAppliedTiltRad_) > 1e-3) {
-        renderResources_->set_terrain_transform(
-            groundOffsetZ_, terrainTiltRad_, terrainState_->fit_pivot_x, terrainState_->fit_pivot_y,
-            terrainState_->fit_pivot_heading_rad);
+        for (StreamRendererResources* res : {renderResources_.get(), terrainResources_.get()}) {
+            if (res == nullptr) continue;
+            res->set_terrain_transform(groundOffsetZ_, terrainTiltRad_, terrainState_->fit_pivot_x,
+                                       terrainState_->fit_pivot_y,
+                                       terrainState_->fit_pivot_heading_rad);
+        }
         lastAppliedGroundOffsetZ_ = groundOffsetZ_;
         lastAppliedTiltRad_ = terrainTiltRad_;
     }
@@ -1271,10 +1440,12 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
     }
     lastUpdate_ = now;
 
-    if (followTerrain_) {
+    // A terrain tileset that replaces the ground is sampled even without follow_terrain: the sample
+    // under the ego is what lets it take the clay plane's place.
+    if (followTerrain_ || (has_terrain() && replacesGround_)) {
         maybe_trigger_terrain_sample(ego_map_pos, r.scene_buffer.active().ego.heading_rad);
-        update_terrain_transform(deltaSeconds);
     }
+    if (followTerrain_) update_terrain_transform(deltaSeconds);
 
     const double radiusM = tileRadiusOverrideM_.value_or(
         static_cast<double>(r.active_theme.environment.tile_radius_m));
@@ -1294,8 +1465,25 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
     lastViewFrustumCount_ = views.size();
     const ViewUpdateResult& result = tileset_->updateViewGroup(*viewGroup_, views, deltaSeconds);
     tileset_->loadTiles();
+    // The terrain tileset selects from the same views; one dispatch serves both (one AsyncSystem).
+    const ViewUpdateResult* terrainResult = nullptr;
+    if (terrainTileset_) {
+        terrainResult = &terrainTileset_->updateViewGroup(terrainTileset_->getDefaultViewGroup(),
+                                                          views, deltaSeconds);
+        terrainTileset_->loadTiles();
+    }
     asyncSystem_.dispatchMainThreadTasks();
 
+    sync_scene(r, result, ego_map_pos, radiusM, inScene_);
+    if (terrainResult != nullptr) {
+        sync_scene(r, *terrainResult, ego_map_pos, radiusM, terrainInScene_);
+    }
+}
+
+void StreamingEnvironmentSource::sync_scene(VisualRenderer& r,
+                                            const Cesium3DTilesSelection::ViewUpdateResult& result,
+                                            Vec3 ego_map_pos, double radius_m,
+                                            std::unordered_map<const void*, bool>& in_scene) {
     std::unordered_map<const void*, bool> stillPresent;
     for (const auto& tilePtr : result.tilesToRenderThisFrame) {
         const Cesium3DTilesSelection::Tile* tile = tilePtr.get();
@@ -1315,28 +1503,28 @@ void StreamingEnvironmentSource::synthesize_view_and_pump(VisualRenderer& r, Vec
             glm::length(halfAxes[0]) + glm::length(halfAxes[1]) + glm::length(halfAxes[2]);
         const double dx = centerMap4.x - ego_map_pos.x;
         const double dy = centerMap4.y - ego_map_pos.y;
-        const bool wasInScene = inScene_.find(res) != inScene_.end();
-        const double limitM = wasInScene ? radiusM * kTileRadiusUnloadRatio : radiusM;
+        const bool wasInScene = in_scene.find(res) != in_scene.end();
+        const double limitM = wasInScene ? radius_m * kTileRadiusUnloadRatio : radius_m;
         if (std::hypot(dx, dy) - extentM > limitM) continue;
         auto* asset = static_cast<filament::gltfio::FilamentAsset*>(res);
         stillPresent[res] = true;
-        if (visible_ && inScene_.find(res) == inScene_.end()) {
+        if (visible_ && in_scene.find(res) == in_scene.end()) {
             r.scene->addEntities(asset->getEntities(), asset->getEntityCount());
         }
     }
-    for (auto it = inScene_.begin(); it != inScene_.end();) {
+    for (auto it = in_scene.begin(); it != in_scene.end();) {
         if (stillPresent.find(it->first) == stillPresent.end()) {
             auto* asset =
                 static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(it->first));
             if (visible_) {
                 r.scene->removeEntities(asset->getEntities(), asset->getEntityCount());
             }
-            it = inScene_.erase(it);
+            it = in_scene.erase(it);
         } else {
             ++it;
         }
     }
-    inScene_ = std::move(stillPresent);
+    in_scene = std::move(stillPresent);
 }
 
 void StreamingEnvironmentSource::teardown(VisualRenderer& r) {
@@ -1345,33 +1533,53 @@ void StreamingEnvironmentSource::teardown(VisualRenderer& r) {
         fallbackSource_.reset();
     }
     if (tornDown_) return;
-    renderResources_->set_renderer(&r);
+    // The terrain goes first. Destroying a tileset unloads every tile, and cesium detaches a tile's
+    // raster overlay tiles before it frees the tile (TilesetContentManager.cpp:1416-1420), so the
+    // overlays are detached before either tileset's tiles are freed.
+    std::vector<StreamRendererResources*> resources{renderResources_.get()};
+    if (terrainResources_) resources.insert(resources.begin(), terrainResources_.get());
+    for (StreamRendererResources* res : resources) res->set_renderer(&r);
 
-    for (auto& [res, _] : inScene_) {
-        auto* asset = static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(res));
-        if (visible_) {
-            r.scene->removeEntities(asset->getEntities(), asset->getEntityCount());
+    for (std::unordered_map<const void*, bool>* tracked : {&terrainInScene_, &inScene_}) {
+        for (auto& [res, _] : *tracked) {
+            auto* asset = static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(res));
+            if (visible_) {
+                r.scene->removeEntities(asset->getEntities(), asset->getEntityCount());
+            }
         }
+        tracked->clear();
     }
-    inScene_.clear();
-    renderResources_->drain_pending_frees();
+    for (StreamRendererResources* res : resources) res->drain_pending_frees();
 
-    CesiumAsync::SharedFuture<void> destructionComplete =
-        tileset_->getAsyncDestructionCompleteEvent();
+    std::vector<CesiumAsync::SharedFuture<void>> destructionComplete;
+    if (terrainTileset_) {
+        destructionComplete.push_back(terrainTileset_->getAsyncDestructionCompleteEvent());
+        terrainTileset_.reset();
+    }
+    destructionComplete.push_back(tileset_->getAsyncDestructionCompleteEvent());
     tileset_.reset();
-    renderResources_->drain_pending_frees();
+    for (StreamRendererResources* res : resources) res->drain_pending_frees();
 
+    const auto allDestroyed = [&destructionComplete] {
+        return std::all_of(destructionComplete.begin(), destructionComplete.end(),
+                           [](const CesiumAsync::SharedFuture<void>& f) { return f.isReady(); });
+    };
     int pumps = 0;
-    for (; pumps < kTeardownPumpBound && !destructionComplete.isReady(); ++pumps) {
+    for (; pumps < kTeardownPumpBound && !allDestroyed(); ++pumps) {
         asyncSystem_.dispatchMainThreadTasks();
     }
-    if (pumps >= kTeardownPumpBound && !destructionComplete.isReady()) {
+    if (pumps >= kTeardownPumpBound && !allDestroyed()) {
         ++leakedOnTeardownBound_;
     }
+    // A height sample in flight when a tileset died leaves a cancelled continuation queued; run it
+    // before asyncSystem_ is destroyed.
+    asyncSystem_.dispatchMainThreadTasks();
 
-    renderResources_->drain_pending_frees();
-    renderResources_->destroy_terrain_root();
-    renderResources_->note_torn_down();
+    for (StreamRendererResources* res : resources) {
+        res->drain_pending_frees();
+        res->destroy_terrain_root();
+        res->note_torn_down();
+    }
     tornDown_ = true;
 }
 
@@ -1383,12 +1591,14 @@ void StreamingEnvironmentSource::set_visible(VisualRenderer& r, bool visible) {
     }
     if (visible == visible_) return;
     visible_ = visible;
-    for (auto& [res, _] : inScene_) {
-        auto* asset = static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(res));
-        if (visible_) {
-            r.scene->addEntities(asset->getEntities(), asset->getEntityCount());
-        } else {
-            r.scene->removeEntities(asset->getEntities(), asset->getEntityCount());
+    for (std::unordered_map<const void*, bool>* tracked : {&inScene_, &terrainInScene_}) {
+        for (auto& [res, _] : *tracked) {
+            auto* asset = static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(res));
+            if (visible_) {
+                r.scene->addEntities(asset->getEntities(), asset->getEntityCount());
+            } else {
+                r.scene->removeEntities(asset->getEntities(), asset->getEntityCount());
+            }
         }
     }
 }
@@ -1400,14 +1610,7 @@ size_t StreamingEnvironmentSource::loaded_count() const {
 
 size_t StreamingEnvironmentSource::scene_membership_count(VisualRenderer& r) const {
     if (fallenBack_) return fallbackSource_ ? fallbackSource_->scene_membership_count(r) : 0;
-    size_t count = 0;
-    for (const auto& [res, _] : inScene_) {
-        auto* asset = static_cast<filament::gltfio::FilamentAsset*>(const_cast<void*>(res));
-        if (asset->getEntityCount() > 0 && r.scene->hasEntity(asset->getEntities()[0])) {
-            ++count;
-        }
-    }
-    return count;
+    return count_in_scene(r, inScene_);
 }
 
 EnvironmentSourceState StreamingEnvironmentSource::state() const {
@@ -1438,33 +1641,85 @@ bool StreamingEnvironmentSource::first_primitive_is_building_material(VisualRend
 
 namespace overlume {
 
-std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::string& ion_spec,
-                                                                     GeoAnchor anchor) {
+namespace {
+
+// Serves open_streaming_environment_source (curl, CESIUM_ION_TOKEN) and install_fixture_ion_source
+// (a fixture network, a given token). A null `base` means curl. The spec is parsed, and a refusal
+// logged, before the token is looked at: Task 4's ParseIonSpecRefusalLogsOneLine runs without one.
+std::unique_ptr<StreamingEnvironmentSource> open_ion_source(
+    const std::string& ion_spec, GeoAnchor anchor,
+    std::shared_ptr<CesiumAsync::IAssetAccessor> base, const std::string& token) {
     const std::optional<IonSpec> spec = parse_ion_spec(ion_spec);
     if (!spec) {
-        // One line (spec section 5). The spec holds no token: CESIUM_ION_TOKEN is read below.
+        // One line (spec section 5). The spec holds no token: the caller passes it.
         make_redacting_logger()->error(
             "ion://{} refused: the asset id or a key has a bad value (terrain= and imagery= take a "
             "positive asset id or off; imagery= needs terrain=)",
             ion_spec);
         return nullptr;
     }
-
-    const char* token = std::getenv("CESIUM_ION_TOKEN");
-    if (token == nullptr || token[0] == '\0') return nullptr;
+    // A spec that parses opens nothing without a token, silently.
+    if (token.empty()) return nullptr;
 
     const std::string cacheDir = spec->cache_dir.empty() ? default_cache_dir() : spec->cache_dir;
 
-    auto curl = std::make_shared<CesiumCurl::CurlAssetAccessor>();
+    if (!base) base = std::make_shared<CesiumCurl::CurlAssetAccessor>();
     CesiumAsync::AsyncSystem asyncSystem(std::make_shared<SimpleTaskProcessor>());
     std::shared_ptr<CountingAssetAccessor> counting;
     Cesium3DTilesSelection::TilesetExternals externals =
-        build_externals(curl, asyncSystem, cacheDir, spec->max_cache_items, &counting);
+        build_externals(std::move(base), asyncSystem, cacheDir, spec->max_cache_items, &counting);
 
-    return std::make_unique<StreamingEnvironmentSource>(
-        externals, spec->asset_id, std::string(token), std::string(), spec->fallback_dir, anchor,
+    auto source = std::make_unique<StreamingEnvironmentSource>(
+        externals, spec->asset_id, token, std::string(), spec->fallback_dir, anchor,
         std::move(counting), spec->materials_original, spec->follow_terrain, spec->ground_bias_m,
         spec->replaces_ground, spec->max_tilt_deg, spec->brightness, spec->radius_m);
+    if (!spec->terrain_asset) return source;
+
+    // The terrain shares the content tileset's accessor (so its failures count toward network
+    // loss), task processor, logger and credit system; only its renderer resources differ.
+    auto terrainResources = std::make_shared<StreamRendererResources>(
+        compute_ecef_to_map(anchor), anchor.origin_height_m, false, spec->brightness,
+        StreamRendererResources::Kind::Terrain);
+    Cesium3DTilesSelection::TilesetExternals terrainExternals = externals;
+    terrainExternals.pPrepareRendererResources = terrainResources;
+    Cesium3DTilesSelection::TilesetOptions options;
+    options.maximumScreenSpaceError = kStreamMaxSseErr;
+    options.loadErrorCallback = [](const Cesium3DTilesSelection::TilesetLoadFailureDetails& d) {
+        make_redacting_logger()->warn(
+            "environment source: terrain tileset did not open (HTTP {}) -- continuing without "
+            "terrain",
+            d.statusCode);
+    };
+    auto terrain = std::make_unique<Cesium3DTilesSelection::Tileset>(
+        terrainExternals, *spec->terrain_asset, token, options);
+    if (spec->imagery_asset) {
+        const CesiumUtility::IntrusivePointer<const CesiumRasterOverlays::RasterOverlay> imagery =
+            new CesiumRasterOverlays::IonRasterOverlay("ion-imagery", *spec->imagery_asset, token);
+        terrain->getOverlays().add(imagery);
+    }
+    source->attach_terrain(std::move(terrain), std::move(terrainResources));
+    return source;
+}
+
+}
+
+std::unique_ptr<EnvironmentSource> open_streaming_environment_source(const std::string& ion_spec,
+                                                                     GeoAnchor anchor) {
+    const char* token = std::getenv("CESIUM_ION_TOKEN");
+    return open_ion_source(ion_spec, anchor, nullptr, token != nullptr ? token : "");
+}
+
+uint32_t environment_source_credits(VisualRenderer* r, char* out, uint32_t cap) {
+    auto* stream = r != nullptr
+                       ? dynamic_cast<StreamingEnvironmentSource*>(r->environmentSource.get())
+                       : nullptr;
+    const std::string text = stream != nullptr ? stream->credits() : std::string();
+    if (out != nullptr && cap > 0) {
+        const size_t n = std::min<size_t>(text.size(), cap - 1);
+        std::memcpy(out, text.data(), n);
+        out[n] = '\0';
+    }
+    return static_cast<uint32_t>(text.size());
 }
 
 }
@@ -1790,6 +2045,93 @@ OverlayProbe environment_stream_overlay_probe(overlume::VisualRenderer* r) {
     if (stream == nullptr) return {};
     const overlume::StreamRendererResources::OverlayCounters c = stream->overlay_counters();
     return {c.rasters_attached, c.rasters_detached, c.textures_alive, c.textures_freed};
+}
+
+bool environment_stream_has_terrain_tileset(overlume::VisualRenderer* r) {
+    if (r == nullptr || !r->environmentSource) return false;
+    auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
+    return stream != nullptr && stream->has_terrain();
+}
+
+uint64_t environment_terrain_tiles_loaded(overlume::VisualRenderer* r) {
+    if (r == nullptr || !r->environmentSource) return 0;
+    auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
+    return stream != nullptr ? static_cast<uint64_t>(stream->terrain_scene_count(*r)) : 0;
+}
+
+double environment_terrain_tile_lift_z(overlume::VisualRenderer* r) {
+    if (r == nullptr || !r->environmentSource) return std::nan("");
+    auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
+    return stream != nullptr ? stream->terrain_tile_lift_z(*r) : std::nan("");
+}
+
+struct IonFixtureNetwork {
+    std::shared_ptr<overlume::MapFixtureAssetAccessor> accessor;
+    std::shared_ptr<overlume::StreamRendererResources> last_terrain;
+};
+
+namespace {
+std::vector<std::byte> as_bytes(const std::vector<uint8_t>& body) {
+    const auto* b = reinterpret_cast<const std::byte*>(body.data());
+    return std::vector<std::byte>(b, b + body.size());
+}
+}
+
+IonFixtureNetwork* make_ion_fixture_network() {
+    return new IonFixtureNetwork{std::make_shared<overlume::MapFixtureAssetAccessor>(404), nullptr};
+}
+
+void ion_fixture_serve(IonFixtureNetwork* n, const std::string& url_without_query, uint16_t status,
+                       std::vector<uint8_t> body) {
+    n->accessor->serve(url_without_query, status, as_bytes(body));
+}
+
+void ion_fixture_serve_prefix(IonFixtureNetwork* n, const std::string& prefix, uint16_t status,
+                              std::vector<uint8_t> body) {
+    n->accessor->serve_prefix(prefix, status, as_bytes(body));
+}
+
+void ion_fixture_hold_prefix(IonFixtureNetwork* n, const std::string& prefix) {
+    n->accessor->hold_prefix(prefix);
+}
+
+void ion_fixture_release_held(IonFixtureNetwork* n) { n->accessor->release_held(); }
+
+void ion_fixture_fail_all_transport(IonFixtureNetwork* n) { n->accessor->fail_all_transport(); }
+
+std::vector<std::string> ion_fixture_requested_urls(IonFixtureNetwork* n) {
+    return n->accessor->requested_urls();
+}
+
+bool install_fixture_ion_source(overlume::VisualRenderer* r, const char* ion_uri,
+                                overlume::GeoAnchor anchor, IonFixtureNetwork* n,
+                                const char* token) {
+    constexpr char kScheme[] = "ion://";
+    if (r == nullptr || ion_uri == nullptr || n == nullptr) return false;
+    const std::string uri(ion_uri);
+    if (uri.rfind(kScheme, 0) != 0) return false;
+    std::unique_ptr<overlume::StreamingEnvironmentSource> source = overlume::open_ion_source(
+        uri.substr(sizeof(kScheme) - 1), anchor, n->accessor, token != nullptr ? token : "");
+    if (!source) return false;
+    n->last_terrain = source->terrain_resources();
+    source->set_visible(*r, r->environmentVisible);
+    if (r->environmentSource) r->environmentSource->teardown(*r);
+    r->environmentSource = std::move(source);
+    return true;
+}
+
+OverlayProbe ion_fixture_terrain_probe(IonFixtureNetwork* n) {
+    if (n == nullptr || !n->last_terrain) return {};
+    const overlume::StreamRendererResources::OverlayCounters c =
+        n->last_terrain->overlay_counters();
+    return {c.rasters_attached, c.rasters_detached, c.textures_alive, c.textures_freed};
+}
+
+bool ion_fixture_terrain_color(IonFixtureNetwork* n, float rgb[3]) {
+    if (n == nullptr || !n->last_terrain) return false;
+    const std::array<float, 3> c = n->last_terrain->terrain_color_for_testing();
+    std::copy(c.begin(), c.end(), rgb);
+    return true;
 }
 
 bool environment_stream_materials_original(overlume::VisualRenderer* r) {
