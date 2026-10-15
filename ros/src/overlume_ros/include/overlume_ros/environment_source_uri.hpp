@@ -7,6 +7,8 @@
 #include <sstream>
 #include <string>
 
+#include "overlume/scene.h"
+
 namespace overlume::ros {
 
 inline constexpr double kGroundBiasDefaultM = 0.3;
@@ -95,6 +97,25 @@ inline std::string fallback_dir_from_source_uri(const std::string& composed_sour
     const auto value_end = composed_source_uri.find('&', value_start);
     return composed_source_uri.substr(
         value_start, value_end == std::string::npos ? std::string::npos : value_end - value_start);
+}
+
+enum class AttributionKind { NONE, GOOGLE, MAPBOX };
+
+// Mapbox Product Terms 1.4 wording; the links become plain text on a video frame.
+inline constexpr char kMapboxAttributionText[] =
+    "\xC2\xA9 Mapbox \xC2\xA9 OpenStreetMap Improve this map";
+
+// The attribution the frame owes. The scheme is checked first: the Google test is a substring
+// match that mapbox://buildings?materials=original would pass too.
+inline AttributionKind environment_attribution_kind(bool visible, bool enabled,
+                                                    const std::string& source_uri,
+                                                    overlume::EnvironmentSourceState state) {
+    if (!visible || !enabled || state != overlume::EnvironmentSourceState::STREAMING) {
+        return AttributionKind::NONE;
+    }
+    if (is_mapbox_source_uri(source_uri)) return AttributionKind::MAPBOX;
+    if (source_uri.find("materials=original") != std::string::npos) return AttributionKind::GOOGLE;
+    return AttributionKind::NONE;
 }
 
 }
