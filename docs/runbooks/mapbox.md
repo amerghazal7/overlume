@@ -5,9 +5,9 @@ footprints from Mapbox Streets v8, extruded to their heights, streamed around th
 visual mode (mode 3). The design is
 [`2026-10-14-mapbox-buildings-design.md`](../design/2026-10-14-mapbox-buildings-design.md).
 
-Until the maintainer confirms Mapbox's sign-off, the source stays on the local
-`mapbox-environment` branch and nothing from it reaches `origin` ([`status.md`](../status.md),
-open items).
+The source was built on the local `mapbox-environment` branch and pushed to `origin` on
+2026-10-15, after the maintainer confirmed Mapbox's sign-off ([`status.md`](../status.md), item
+21). The logo and trademark check (item 22) is still part of the release.
 
 ## 1. The token
 
@@ -160,9 +160,9 @@ drawn as text.
   below covers it.
 - **Attribution visible** whenever Mapbox content is (§5).
 - **The token by name only** (§1).
-- **Local until sign-off.** The `mapbox-environment` branch and its lane branches are not pushed to
-  `origin` until the maintainer confirms Mapbox's sign-off. Before that push, run
-  `tools/check_publish_leaks.sh` and the lint checks listed in `AGENTS.md`.
+- **Pushed after sign-off.** The `mapbox-environment` branch stayed local until the maintainer
+  confirmed Mapbox's sign-off (2026-10-15); `tools/check_publish_leaks.sh` and the lint checks
+  listed in `AGENTS.md` ran on the pushed head, as they do before every push.
 - **Logo and trademark.** Whether the logo file may stay in the tree is part of the release check
   ([`status.md`](../status.md), open items).
 
