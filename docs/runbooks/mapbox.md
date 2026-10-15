@@ -141,6 +141,10 @@ drawn as text.
   means the installed `assets/attribution/mapbox-logo.png`; its provenance is in the
   `ATTRIBUTION.md` beside it. A missing or unreadable logo warns once, and the text is still
   drawn.
+- **Logo switch:** `environment_attribution_logo` (true by default), read at configure. False
+  skips the logo: a `mapbox://` source shows the attribution text alone, on the bottom line, and
+  the node logs one INFO line saying so. Mapbox's terms (1.4) ask for the logo, so leave it on
+  wherever a person sees Mapbox content; turning it off is the operator's call.
 - Keep `environment_attribution` on wherever a person sees Mapbox content, at an output width
   and HUD scale that show the whole text. A screenshot or a recording that shows Mapbox content
   keeps the attribution in the frame.

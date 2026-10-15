@@ -451,6 +451,7 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     environment_brightness_ = declare_parameter<double>("environment_brightness", 1.0);
     environment_tile_radius_m_ = declare_parameter<double>("environment_tile_radius_m", 700.0);
     environment_attribution_ = declare_parameter<bool>("environment_attribution", true);
+    const bool logo_on = declare_parameter<bool>("environment_attribution_logo", true);
     auto logo_path = declare_parameter<std::string>("environment_attribution_logo_path", "");
     if (logo_path.empty()) {
         const std::string installed_logo =
@@ -461,7 +462,12 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
         }
     }
     set_parameter(rclcpp::Parameter("environment_attribution_logo_path", logo_path));
-    if (!LoadPngRgba(logo_path.c_str(), mapbox_logo_)) {
+    if (!logo_on) {
+        // An empty logo leaves CompositeAttribution drawing the text alone.
+        RCLCPP_INFO(get_logger(),
+                    "environment attribution: Mapbox logo off (environment_attribution_logo=false) "
+                    "-- mapbox:// sources show the attribution text alone");
+    } else if (!LoadPngRgba(logo_path.c_str(), mapbox_logo_)) {
         RCLCPP_WARN(get_logger(),
                     "environment attribution: Mapbox logo '%s' is missing or not a PNG -- "
                     "mapbox:// sources show the attribution text without the logo",

@@ -35,8 +35,10 @@ Three cases:
      without checking. No "theme assets failed to load" WARN in the log,
      and (when the ego path resolved) no "set_ego_model: failed to load"
      clay-box fallback WARN either.
-  2. Relaunch with -p initial_theme:=light_clay -- configure succeeds,
-     `ros2 param get initial_theme` reads back light_clay, still no
+  2. Relaunch with -p initial_theme:=light_clay and
+     -p environment_attribution_logo:=false -- configure succeeds,
+     `ros2 param get initial_theme` reads back light_clay, the logo switch
+     reads back false and the log says the Mapbox logo is off, still no
      fallback WARN.
   3. Relaunch with -p initial_theme:=definitely_not_a_theme -- the
      configure transition must FAIL (on_configure()'s own validation against
@@ -212,7 +214,7 @@ def main() -> int:
         os.remove(log1)
 
     log2 = _fresh_log()
-    proc = _launch("-p initial_theme:=light_clay", log2)
+    proc = _launch("-p initial_theme:=light_clay -p environment_attribution_logo:=false", log2)
     try:
         if not _wait_running(proc):
             print(f"FAIL: node exited early (case 2):\n{_read(log2)[-2000:]}", file=sys.stderr)
@@ -226,13 +228,23 @@ def main() -> int:
             print(f"FAIL: `ros2 param get initial_theme` returned '{theme}', expected "
                   "'light_clay'.", file=sys.stderr)
             return 1
+        logo_on = _param_get("environment_attribution_logo")
+        if logo_on.lower() != "false":
+            print(f"FAIL: `ros2 param get environment_attribution_logo` returned '{logo_on}', "
+                  "expected 'false'.", file=sys.stderr)
+            return 1
         log_text = _read(log2)
         if "theme assets failed to load" in log_text:
             print(f"FAIL: unexpected theme-fallback WARN with light_clay:\n"
                   f"{log_text[-3000:]}", file=sys.stderr)
             return 1
+        if "Mapbox logo off" not in log_text:
+            print(f"FAIL: environment_attribution_logo:=false did not switch the logo off:\n"
+                  f"{log_text[-3000:]}", file=sys.stderr)
+            return 1
         print("PASS (2/3): initial_theme:=light_clay configured cleanly, param reads back "
-              "light_clay, no fallback WARN.")
+              "light_clay, environment_attribution_logo:=false reads back and logs the logo "
+              "off, no fallback WARN.")
     finally:
         _kill(proc)
         os.remove(log2)
