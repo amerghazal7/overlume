@@ -16,6 +16,7 @@ static_assert(__cplusplus >= 202002L,
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -26,6 +27,7 @@ static_assert(__cplusplus >= 202002L,
 #include <Cesium3DTilesSelection/IPrepareRendererResources.h>
 #include <Cesium3DTilesSelection/Tile.h>
 #include <Cesium3DTilesSelection/Tileset.h>
+#include <Cesium3DTilesSelection/TilesetContentLoader.h>
 #include <Cesium3DTilesSelection/TilesetExternals.h>
 #include <Cesium3DTilesSelection/TilesetViewGroup.h>
 #include <CesiumAsync/AsyncSystem.h>
@@ -38,6 +40,10 @@ static_assert(__cplusplus >= 202002L,
 
 #include "environment.hpp"
 #include "overlume/scene.h"
+
+namespace spdlog {
+class logger;
+}
 
 namespace overlume {
 
@@ -114,27 +120,34 @@ public:
     CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> get(
         const CesiumAsync::AsyncSystem& asyncSystem, const std::string& url,
         const std::vector<THeader>& headers) override {
-        return inner_->get(asyncSystem, url, headers)
-            .thenImmediately([this](std::shared_ptr<CesiumAsync::IAssetRequest>&& req) {
-                note(req.get());
-                return req;
-            });
+        return counted(inner_->get(asyncSystem, url, headers));
     }
     CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> request(
         const CesiumAsync::AsyncSystem& asyncSystem, const std::string& verb,
         const std::string& url, const std::vector<THeader>& headers,
         const std::span<const std::byte>& payload) override {
-        return inner_->request(asyncSystem, verb, url, headers, payload)
-            .thenImmediately([this](std::shared_ptr<CesiumAsync::IAssetRequest>&& req) {
-                note(req.get());
-                return req;
-            });
+        return counted(inner_->request(asyncSystem, verb, url, headers, payload));
     }
     void tick() noexcept override { inner_->tick(); }
 
     int consecutive_failures() const { return consecutiveFailures_.load(); }
 
 private:
+    // A transport error (curl: DNS failure, refused connection, timeout) rejects the future with
+    // no response at all. Count it like a failed reply, then rethrow so the caller still sees it.
+    CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> counted(
+        CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>>&& reply) {
+        return std::move(reply)
+            .thenImmediately([this](std::shared_ptr<CesiumAsync::IAssetRequest>&& req) {
+                note(req.get());
+                return req;
+            })
+            .catchImmediately(
+                [this](std::exception&& e) -> std::shared_ptr<CesiumAsync::IAssetRequest> {
+                    note(nullptr);
+                    throw std::runtime_error(e.what());
+                });
+    }
     void note(const CesiumAsync::IAssetRequest* req) {
         const CesiumAsync::IAssetResponse* resp = req ? req->response() : nullptr;
         const bool ok = resp != nullptr && resp->statusCode() >= 200 && resp->statusCode() < 300;
@@ -150,26 +163,33 @@ private:
 
 class FileFixtureAssetAccessor : public CesiumAsync::IAssetAccessor {
 public:
-    explicit FileFixtureAssetAccessor(std::shared_ptr<std::atomic<bool>> killed = nullptr)
-        : killed_(std::move(killed)) {}
+    // transport_down rejects every request but tileset.json with no response, as curl's accessor
+    // does on a DNS failure, refused connection or timeout.
+    explicit FileFixtureAssetAccessor(std::shared_ptr<std::atomic<bool>> killed = nullptr,
+                                      std::shared_ptr<std::atomic<bool>> transport_down = nullptr)
+        : killed_(std::move(killed)), transportDown_(std::move(transport_down)) {}
 
     CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> get(
         const CesiumAsync::AsyncSystem& asyncSystem, const std::string& url,
         const std::vector<THeader>&) override {
-        return asyncSystem.createResolvedFuture(makeRequest("GET", url));
+        return respond(asyncSystem, "GET", url);
     }
     CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> request(
         const CesiumAsync::AsyncSystem& asyncSystem, const std::string& verb,
         const std::string& url, const std::vector<THeader>&,
         const std::span<const std::byte>&) override {
-        return asyncSystem.createResolvedFuture(makeRequest(verb, url));
+        return respond(asyncSystem, verb, url);
     }
     void tick() noexcept override {}
 
 private:
+    CesiumAsync::Future<std::shared_ptr<CesiumAsync::IAssetRequest>> respond(
+        const CesiumAsync::AsyncSystem& asyncSystem, const std::string& verb,
+        const std::string& url);
     std::shared_ptr<CesiumAsync::IAssetRequest> makeRequest(const std::string& verb,
                                                             const std::string& url);
     std::shared_ptr<std::atomic<bool>> killed_;
+    std::shared_ptr<std::atomic<bool>> transportDown_;
 };
 
 class StreamRendererResources final : public Cesium3DTilesSelection::IPrepareRendererResources {
@@ -238,6 +258,23 @@ glm::dmat4 compute_ecef_to_map(const GeoAnchor& anchor);
 glm::dvec3 correct_ecef_point_height(const glm::dvec3& ecef_pos, const glm::dmat4& ecef_to_map,
                                      double anchor_height_m);
 
+std::shared_ptr<spdlog::logger> make_redacting_logger();
+
+// Wraps `base` in a CountingAssetAccessor, behind the SQLite cache unless cache_dir is "off".
+Cesium3DTilesSelection::TilesetExternals build_externals(
+    std::shared_ptr<CesiumAsync::IAssetAccessor> base, const CesiumAsync::AsyncSystem& asyncSystem,
+    const std::string& cache_dir, uint64_t max_cache_items,
+    std::shared_ptr<CountingAssetAccessor>* out_counting = nullptr);
+
+struct CustomTileset {
+    std::unique_ptr<Cesium3DTilesSelection::TilesetContentLoader> loader;
+    std::unique_ptr<Cesium3DTilesSelection::Tile> root;
+    // Select with cesium's area view, a sphere of the source's radius around the ego, as the only
+    // view (geometric-error threshold 1.0); also turns preloadSiblings off. (Fog culling needs no
+    // switch: cesium 0.64 never fog-culls an area view, TilesetSelection.cpp:471.)
+    bool area_selection = false;
+};
+
 class StreamingEnvironmentSource : public EnvironmentSource {
 public:
     StreamingEnvironmentSource(Cesium3DTilesSelection::TilesetExternals externals, int64_t asset_id,
@@ -247,7 +284,8 @@ public:
                                bool materials_original = false, bool follow_terrain = false,
                                double ground_bias_m = 0.3, bool replaces_ground = true,
                                double max_tilt_deg = 2.0, double brightness = 1.0,
-                               std::optional<double> radius_override_m = std::nullopt);
+                               std::optional<double> radius_override_m = std::nullopt,
+                               CustomTileset custom_tileset = {});
     ~StreamingEnvironmentSource() override;
 
     void update(VisualRenderer& r, Vec3 ego_map_pos) override;
@@ -305,6 +343,7 @@ private:
     double brightness_ = 1.0;
     bool groundOffsetSnapped_ = false;
     std::optional<double> tileRadiusOverrideM_;
+    bool areaSelection_ = false;
 
     std::shared_ptr<CountingAssetAccessor> countingAccessor_;
     bool fallenBack_ = false;

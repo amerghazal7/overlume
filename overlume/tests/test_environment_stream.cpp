@@ -78,12 +78,12 @@ private:
 };
 
 uint64_t pump_until_loaded(overlume::VisualRenderer* r, const overlume::CameraPose& pose,
-                           std::vector<uint8_t>& buf, int max_frames = 200) {
+                           std::vector<uint8_t>& buf, int max_frames = 200, uint64_t want = 1) {
     uint64_t count = 0;
     for (int i = 0; i < max_frames; ++i) {
         if (!overlume::render_frame(r, pose, {buf.data(), 320, 240})) return count;
         count = overlume::testing::environment_loaded_chunk_count(r);
-        if (count > 0) return count;
+        if (count >= want) return count;
     }
     return count;
 }
@@ -677,6 +677,42 @@ TEST(EnvironmentStream, NetworkLossWithNoFallbackDirStillTransitionsAndStaysEmpt
               overlume::EnvironmentSourceState::STREAMING_FALLBACK);
     EXPECT_EQ(overlume::testing::environment_loaded_chunk_count(r), 0u);
     EXPECT_TRUE(overlume::render_frame(r, kStdPose, {buf.data(), 320, 240}));
+    overlume::destroy_renderer(r);
+}
+
+TEST(EnvironmentStream, TransportErrorsCountAsNetworkLossAndFallBack) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+
+    auto* handle = overlume::testing::install_fixture_streaming_source_with_fallback(
+        r, kTilesFixtureFallbackDir.c_str(), kTestTownDir.c_str(), kFixtureAnchor);
+    ASSERT_NE(handle, nullptr);
+
+    overlume::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = kFixtureBlockCenterMap;
+    overlume::set_scene(r, s);
+
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    overlume::testing::break_fixture_network_transport(handle);
+    pump_until_state(r, kStdPose, buf, overlume::EnvironmentSourceState::STREAMING_FALLBACK);
+
+    EXPECT_EQ(overlume::environment_source_state(r),
+              overlume::EnvironmentSourceState::STREAMING_FALLBACK)
+        << "rejected requests (curl's DNS failure, refusal or timeout) never reached the "
+           "consecutive-failure counter, so a real loss of connectivity never falls back";
+    EXPECT_GT(overlume::testing::environment_loaded_chunk_count(r), 0u)
+        << "the baked fallback chunks must load";
+    const std::string logText = overlume::testing::captured_cesium_log_text();
+    EXPECT_NE(
+        logText.find("An unexpected error occurred when loading tile: fixture transport error: "),
+        std::string::npos)
+        << "the counter must rethrow the transport error with its original text";
+    EXPECT_NE(logText.find("access_token=<redacted>"), std::string::npos)
+        << "the transport error's text, URL and token included, must reach the redacting logger";
+    EXPECT_EQ(logText.find("fixture-transport-token"), std::string::npos)
+        << "a token in a transport error's text must never reach the log";
     overlume::destroy_renderer(r);
 }
 
@@ -1317,4 +1353,132 @@ TEST(EnvSourceCapture, Clipped) {
         << "'clipped' preset resolves to the node's environment_own_asset_uri, which is NOT "
            "configured on this box (empty default) -- no real ion asset id exists to render, "
            "so this case is reported as not-renderable rather than faked with a made-up id";
+}
+
+namespace {
+
+using GridCells = std::vector<std::pair<int, int>>;
+
+// The grid fixture in metres east and north of the anchor: cell (c, r) spans east
+// [(c - 2) km, (c - 1) km] and north [(1 - r) km, (2 - r) km]. Returns the cells whose rectangle
+// lies within radius_m of (east_m, north_m), in (c, r) order.
+GridCells grid_cells_within(double east_m, double north_m, double radius_m) {
+    GridCells cells;
+    for (int c = 0; c < 4; ++c) {
+        for (int r = 0; r < 4; ++r) {
+            const double west = (c - 2) * 1000.0, south = (1 - r) * 1000.0;
+            const double dx = std::max({west - east_m, 0.0, east_m - (west + 1000.0)});
+            const double dy = std::max({south - north_m, 0.0, north_m - (south + 1000.0)});
+            if (std::hypot(dx, dy) < radius_m) cells.emplace_back(c, r);
+        }
+    }
+    return cells;
+}
+
+GridCells sorted(GridCells cells) {
+    std::sort(cells.begin(), cells.end());
+    return cells;
+}
+
+// kFixtureAnchor has heading 0: map +x is north and +y is west. Map metres differ from ground
+// metres by under 0.4% here, and every test point keeps 100 m or more from a cell decision.
+void set_ego_east_north(overlume::VisualRenderer* r, double east_m, double north_m) {
+    overlume::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = overlume::Vec3{north_m, -east_m, 0.0};
+    overlume::set_scene(r, s);
+}
+
+}
+
+TEST(EnvironmentStream, AreaSelectionLoadsOnlyTheCellsInsideTheRadius) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    auto* grid = overlume::testing::install_fixture_grid_source(r, kFixtureAnchor, 500.0, true);
+    ASSERT_NE(grid, nullptr);
+    set_ego_east_north(r, 0.0, 0.0);
+
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    ASSERT_GE(pump_until_loaded(r, kStdPose, buf, 300, 4), 4u)
+        << "the four cells around the ego never loaded";
+    for (int i = 0; i < 30; ++i) overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+
+    const GridCells central = {{1, 1}, {1, 2}, {2, 1}, {2, 2}};
+    EXPECT_EQ(sorted(overlume::testing::fixture_grid_requested_leaves(grid)), central)
+        << "a 500 m sphere at the shared corner touches only the four central cells; any other "
+           "request came from a screen-space view or a preloaded sibling";
+    EXPECT_EQ(overlume::testing::environment_loaded_chunk_count(r), 4u);
+    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING);
+    EXPECT_EQ(overlume::testing::environment_stream_last_view_frustum_count(r), 1)
+        << "the area view must be the only view";
+    overlume::destroy_renderer(r);
+}
+
+TEST(EnvironmentStream, AreaSelectionRequestsEveryCellTheSphereTouches) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    auto* grid = overlume::testing::install_fixture_grid_source(r, kFixtureAnchor, 1200.0, true);
+    ASSERT_NE(grid, nullptr);
+    set_ego_east_north(r, 0.0, 0.0);
+    const GridCells expected = grid_cells_within(0.0, 0.0, 1200.0);
+    ASSERT_EQ(expected.size(), 12u)
+        << "test setup: 1200 m reaches the edge cells (1000 m away), not the corners (1414 m)";
+
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    ASSERT_GE(pump_until_loaded(r, kStdPose, buf, 300, 12), 12u);
+    for (int i = 0; i < 30; ++i) overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+
+    EXPECT_EQ(sorted(overlume::testing::fixture_grid_requested_leaves(grid)), expected);
+    EXPECT_EQ(overlume::testing::environment_loaded_chunk_count(r), 12u);
+    overlume::destroy_renderer(r);
+}
+
+TEST(EnvironmentStream, AreaSelectionFollowsTheEgo) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    auto* grid = overlume::testing::install_fixture_grid_source(r, kFixtureAnchor, 500.0, true);
+    ASSERT_NE(grid, nullptr);
+    set_ego_east_north(r, 0.0, 0.0);
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    ASSERT_GE(pump_until_loaded(r, kStdPose, buf, 300, 4), 4u);
+    const size_t before = overlume::testing::fixture_grid_requested_leaves(grid).size();
+
+    set_ego_east_north(r, 1600.0, 0.0);
+    const GridCells expected = grid_cells_within(1600.0, 0.0, 500.0);
+    ASSERT_EQ(expected, (GridCells{{3, 1}, {3, 2}})) << "test setup";
+    uint64_t loaded = 0;
+    for (int i = 0; i < 300 && loaded != 2; ++i) {
+        overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+        loaded = overlume::testing::environment_loaded_chunk_count(r);
+    }
+    for (int i = 0; i < 30; ++i) overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+
+    const GridCells all = overlume::testing::fixture_grid_requested_leaves(grid);
+    ASSERT_GE(all.size(), before);
+    EXPECT_EQ(sorted(GridCells(all.begin() + before, all.end())), expected)
+        << "1600 m east of the anchor the sphere touches only the two eastern cells either side "
+           "of the ego's row boundary";
+    EXPECT_EQ(overlume::testing::environment_loaded_chunk_count(r), 2u)
+        << "the central cells must leave the scene once the sphere leaves them";
+    overlume::destroy_renderer(r);
+}
+
+TEST(EnvironmentStream, WithoutAreaSelectionACustomTilesetKeepsTheScreenSpaceViews) {
+    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
+    auto* r = overlume::create_renderer(cfg);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    auto* grid = overlume::testing::install_fixture_grid_source(r, kFixtureAnchor, 500.0, false);
+    ASSERT_NE(grid, nullptr);
+    set_ego_east_north(r, 0.0, 0.0);
+    std::vector<uint8_t> buf(320u * 240u * 3u);
+    ASSERT_GE(pump_until_loaded(r, kStdPose, buf, 300, 4), 4u);
+    for (int i = 0; i < 30; ++i) overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+
+    EXPECT_GT(overlume::testing::fixture_grid_requested_leaves(grid).size(), 4u)
+        << "without area selection cesium keeps today's two views and preloads culled siblings";
+    EXPECT_EQ(overlume::testing::environment_stream_last_view_frustum_count(r), 2);
+    overlume::destroy_renderer(r);
 }

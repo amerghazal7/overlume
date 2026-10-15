@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "overlume/api.h"
 #include "overlume/scene.h"
@@ -32,6 +34,19 @@ FixtureStreamHandle* install_fixture_streaming_source_with_fallback(overlume::Vi
 void kill_fixture_network(FixtureStreamHandle* handle);
 
 void revive_fixture_network(FixtureStreamHandle* handle);
+
+// Make the fixture network reject every tile request with a transport error (no response);
+// tileset.json is still served, as with kill_fixture_network.
+void break_fixture_network_transport(FixtureStreamHandle* handle);
+
+// A custom-loader source over a 4 x 4 grid of 1 km cells centred on the anchor: column c runs west
+// to east, row r north to south, and the anchor is the corner the four central cells share.
+struct FixtureGridHandle;
+FixtureGridHandle* install_fixture_grid_source(overlume::VisualRenderer* r,
+                                               overlume::GeoAnchor anchor, double radius_m,
+                                               bool area_selection);
+// Leaf tiles cesium asked the grid loader to load, as (column, row), in request order.
+std::vector<std::pair<int, int>> fixture_grid_requested_leaves(FixtureGridHandle* handle);
 
 bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double heading_rad,
                        double origin_height_m, double lat_deg, double lon_deg, double alt_m,
