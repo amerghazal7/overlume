@@ -86,17 +86,26 @@ struct IonSpec {
     std::optional<int64_t> imagery_asset;  // imagery=<id>|off (default off); needs terrain_asset
 };
 
-std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
+// A refusal names what failed in `error` (when given), as the mapbox:// refusals do: the key and
+// the value, or the asset id.
+std::optional<IonSpec> parse_ion_spec(const std::string& spec, std::string* error = nullptr) {
+    const auto refuse = [error](const std::string& why) {
+        if (error) *error = why;
+        return std::optional<IonSpec>();
+    };
     const size_t q = spec.find('?');
     const std::string idPart = spec.substr(0, q);
-    if (idPart.empty()) return std::nullopt;
+    const auto badId = [&] {
+        return refuse("the asset id '" + idPart + "' is not a positive integer");
+    };
+    if (idPart.empty()) return badId();
     IonSpec out;
     try {
         size_t consumed = 0;
         out.asset_id = std::stoll(idPart, &consumed);
-        if (consumed != idPart.size() || out.asset_id <= 0) return std::nullopt;
+        if (consumed != idPart.size() || out.asset_id <= 0) return badId();
     } catch (const std::exception&) {
-        return std::nullopt;
+        return badId();
     }
     if (q == std::string::npos) return out;
     std::string rest = spec.substr(q + 1);
@@ -108,6 +117,9 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
         if (eq != std::string::npos) {
             const std::string key = kv.substr(0, eq);
             const std::string val = kv.substr(eq + 1);
+            const auto bad = [&](const char* want) {
+                return refuse(key + "='" + val + "' is not " + want);
+            };
             if (key == "cache") {
                 out.cache_dir = val;
             } else if (key == "fallback") {
@@ -135,9 +147,9 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                     size_t used = 0;
                     out.ground_bias_m = std::stod(val, &used);
                     if (used != val.size() || !std::isfinite(out.ground_bias_m))
-                        return std::nullopt;
+                        return bad("a finite number");
                 } catch (const std::exception&) {
-                    return std::nullopt;
+                    return bad("a finite number");
                 }
             } else if (key == "follow_terrain") {
                 if (val == "on" || val == "true" || val == "1") {
@@ -145,7 +157,7 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                 } else if (val == "off" || val == "false" || val == "0") {
                     out.follow_terrain = false;
                 } else {
-                    return std::nullopt;
+                    return bad("on or off");
                 }
             } else if (key == "max_tilt_deg") {
                 try {
@@ -153,9 +165,9 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                     out.max_tilt_deg = std::stod(val, &used);
                     if (used != val.size() || !std::isfinite(out.max_tilt_deg) ||
                         out.max_tilt_deg < 0.0)
-                        return std::nullopt;
+                        return bad("a finite number >= 0");
                 } catch (const std::exception&) {
-                    return std::nullopt;
+                    return bad("a finite number >= 0");
                 }
             } else if (key == "brightness") {
                 try {
@@ -163,9 +175,9 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                     out.brightness = std::stod(val, &used);
                     if (used != val.size() || !std::isfinite(out.brightness) ||
                         out.brightness <= 0.0)
-                        return std::nullopt;
+                        return bad("a finite number > 0");
                 } catch (const std::exception&) {
-                    return std::nullopt;
+                    return bad("a finite number > 0");
                 }
             } else if (key == "replaces_ground") {
                 if (val == "on" || val == "true" || val == "1") {
@@ -173,17 +185,17 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                 } else if (val == "off" || val == "false" || val == "0") {
                     out.replaces_ground = false;
                 } else {
-                    return std::nullopt;
+                    return bad("on or off");
                 }
             } else if (key == "radius") {
                 try {
                     size_t used = 0;
                     const double radius = std::stod(val, &used);
                     if (used != val.size() || !std::isfinite(radius) || radius <= 0.0)
-                        return std::nullopt;
+                        return bad("a finite number > 0");
                     out.radius_m = radius;
                 } catch (const std::exception&) {
-                    return std::nullopt;
+                    return bad("a finite number > 0");
                 }
             } else if (key == "terrain" || key == "imagery") {
                 std::optional<int64_t>& asset =
@@ -193,13 +205,13 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
                 } else {
                     // An ion asset id: digits only (std::stoll alone takes "+1" and " 1"), > 0.
                     if (val.empty() || val.find_first_not_of("0123456789") != std::string::npos)
-                        return std::nullopt;
+                        return bad("a positive asset id or 'off'");
                     try {
                         asset = std::stoll(val);
                     } catch (const std::exception&) {
-                        return std::nullopt;  // out of range
+                        return bad("a positive asset id or 'off'");  // out of range
                     }
-                    if (*asset <= 0) return std::nullopt;
+                    if (*asset <= 0) return bad("a positive asset id or 'off'");
                 }
             }
         }
@@ -207,7 +219,9 @@ std::optional<IonSpec> parse_ion_spec(const std::string& spec) {
         pos = amp + 1;
     }
     // The imagery drapes on the terrain tileset: without one it has nothing to drape on.
-    if (out.imagery_asset && !out.terrain_asset) return std::nullopt;
+    if (out.imagery_asset && !out.terrain_asset)
+        return refuse("imagery=" + std::to_string(*out.imagery_asset) +
+                      " needs terrain=<asset id>");
     return out;
 }
 
@@ -972,7 +986,8 @@ void* StreamRendererResources::prepareInMainThread(Cesium3DTilesSelection::Tile&
         rm.setReceiveShadows(inst, true);
     }
 
-    if (materialsOriginal_ && brightness_ != 1.0) {
+    // Content only: a terrain tile's own glTF materials are unbound, terrain.mat replaced them.
+    if (kind_ == Kind::Content && materialsOriginal_ && brightness_ != 1.0) {
         if (filament::gltfio::FilamentInstance* finst = asset->getInstance(); finst != nullptr) {
             filament::MaterialInstance* const* insts = finst->getMaterialInstances();
             const size_t instCount = finst->getMaterialInstanceCount();
@@ -1571,8 +1586,9 @@ void StreamingEnvironmentSource::teardown(VisualRenderer& r) {
     if (pumps >= kTeardownPumpBound && !allDestroyed()) {
         ++leakedOnTeardownBound_;
     }
-    // A height sample in flight when a tileset died leaves a cancelled continuation queued; run it
-    // before asyncSystem_ is destroyed.
+    // Drains the cancelled continuation a height sample in flight at teardown leaves queued: left
+    // to ~AsyncSystem it segfaults in QueuedScheduler::schedule (the ion fixture-network terrain
+    // test and the MapboxBuildings failing-DEM tests crash without this line).
     asyncSystem_.dispatchMainThreadTasks();
 
     for (StreamRendererResources* res : resources) {
@@ -1649,13 +1665,11 @@ namespace {
 std::unique_ptr<StreamingEnvironmentSource> open_ion_source(
     const std::string& ion_spec, GeoAnchor anchor,
     std::shared_ptr<CesiumAsync::IAssetAccessor> base, const std::string& token) {
-    const std::optional<IonSpec> spec = parse_ion_spec(ion_spec);
+    std::string why;
+    const std::optional<IonSpec> spec = parse_ion_spec(ion_spec, &why);
     if (!spec) {
         // One line (spec section 5). The spec holds no token: the caller passes it.
-        make_redacting_logger()->error(
-            "ion://{} refused: the asset id or a key has a bad value (terrain= and imagery= take a "
-            "positive asset id or off; imagery= needs terrain=)",
-            ion_spec);
+        make_redacting_logger()->error("ion://{} refused: {}", ion_spec, why);
         return nullptr;
     }
     // A spec that parses opens nothing without a token, silently.

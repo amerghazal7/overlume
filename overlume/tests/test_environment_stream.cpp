@@ -899,14 +899,26 @@ TEST(EnvironmentStream, ParseIonSpecRefusalLogsOneLine) {
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     ScopedUnsetEnv no_token("CESIUM_ION_TOKEN");  // a spec that parses stops at the token
     const overlume::GeoAnchor a{25.0803, 55.3910, 0.0};
-    for (const char* uri : {"ion://96188?imagery=2", "ion://96188?terrain=1x",
-                            "ion://96188?terrain=1&imagery=0", "ion://96188?radius=abc"}) {
+    struct Case {
+        const char* uri;
+        const char* names;  // what the reason after "refused: " names: the bad key and value
+    };
+    for (const Case& c : {Case{"ion://96188?imagery=2", "imagery=2 needs terrain="},
+                          Case{"ion://96188?terrain=1x", "terrain='1x'"},
+                          Case{"ion://96188?terrain=1&imagery=0", "imagery='0'"},
+                          Case{"ion://96188?radius=abc", "radius='abc'"}}) {
         const size_t from = overlume::testing::captured_cesium_log_text().size();
-        EXPECT_FALSE(overlume::set_environment_source(r, uri, a)) << uri;
+        EXPECT_FALSE(overlume::set_environment_source(r, c.uri, a)) << c.uri;
         const std::string text = overlume::testing::captured_cesium_log_text();
         const std::string logged = text.size() > from ? text.substr(from) : std::string();
-        EXPECT_NE(logged.find(std::string(uri) + " refused: "), std::string::npos)
-            << uri << ": '" << logged << "'";
+        const std::string prefix = std::string(c.uri) + " refused: ";
+        const size_t at = logged.find(prefix);
+        EXPECT_NE(at, std::string::npos) << c.uri << ": '" << logged << "'";
+        // Only the text after the prefix counts: the uri echoed before it holds every key already.
+        const std::string reason =
+            at == std::string::npos ? std::string() : logged.substr(at + prefix.size());
+        EXPECT_NE(reason.find(c.names), std::string::npos)
+            << c.uri << ": the reason must name '" << c.names << "', got '" << reason << "'";
         EXPECT_EQ(logged.find("refused"), logged.rfind("refused")) << "one line: " << logged;
     }
     const size_t from = overlume::testing::captured_cesium_log_text().size();
@@ -1902,6 +1914,14 @@ TEST(EnvironmentStreamOverlay, BrightnessScalesTheImagery) {
     EXPECT_GT(*bright, *dim + 40000u)
         << "brightness 3 must lift the imagery's red on the tile's ~2,600 pixels (frame red sum "
         << *dim << " at 1, " << *bright << " at 3)";
+    // The imagery texture is sRGB (SRGB8_A8): red 100 is the albedo 0.127. As RGBA8 it would be
+    // 0.39, three times brighter, which lifts the tile's ~2,600 pixels by about 150,000 in the
+    // frame's red sum. Measured at 1x: 11,151,722 with SRGB8_A8 (llvmpipe: 11,158,234), 11,302,078
+    // with RGBA8. The ceiling is their midpoint, 11,230,000: 78,000 above the sRGB sum, 72,000
+    // below the RGBA8 one, and ten times the 6,500 the two GPUs differ by.
+    EXPECT_LT(*dim, 11230000u) << "the imagery must be sampled as sRGB (SRGB8_A8): RGBA8 reads "
+                                  "three times brighter (frame red sum "
+                               << *dim << " at 1)";
 }
 
 TEST(EnvironmentStreamOverlay, TerrainColorFollowsAThemeSwitchOnLiveTiles) {

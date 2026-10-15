@@ -83,7 +83,7 @@ PASS: token retrieves the Downtown Dubai tiles (landmark tile HTTP 200, footprin
 | `brightness` | finite > 0 | 1.0 | Scales base colours under `materials=original`, and the satellite imagery. |
 | `fallback` | a baked chunk directory | none | Shown after network loss (§8). |
 | `cache` | `off` | `off` | `off` changes nothing. Any other value refuses the URI: Mapbox tiles are never written to disk. |
-| `imagery` | `satellite`, `off` | `off` | `satellite`: Mapbox Satellite draped on the terrain, up to z18, credited "© Maxar" on screen (§5). Needs `terrain` in the layer list: without it the URI is refused (`mapbox:// imagery=satellite needs the 'terrain' layer`). |
+| `imagery` | `satellite`, `off` | `off` | `satellite`: Mapbox Satellite draped on the terrain, capped at z18 and z17 at the default radius ([`terrain_imagery.md`](terrain_imagery.md) §6), credited "© Maxar" on screen (§5). Needs `terrain` in the layer list: without it the URI is refused (`mapbox:// imagery=satellite needs the 'terrain' layer`). |
 
 - Apart from `materials`, a bad value for a known key refuses the whole URI. Unknown keys are
   ignored, and so are the ion-only keys `follow_terrain`, `ground_bias`, `replaces_ground`,
@@ -123,10 +123,10 @@ tiles, or about 11,700 if Mapbox also bills the landmark requests. The landmark 
 published price.
 
 The `terrain` layer adds one DEM request per z14 tile. `imagery=satellite` adds the satellite
-tiles cesium selects for each terrain tile on screen: at z18, the cap, 16 × 16 = 256 tiles of
-about 140 m cover one z14 tile, and terrain away from the ego takes coarser, fewer ones (a few
-dozen near the ego, design §12). DEM and satellite tiles are Raster Tiles API requests, billed
-per request.
+tiles cesium selects for each terrain tile on screen: at z17, the level the default refinement
+reaches (the cap is z18), 8 × 8 = 64 tiles of about 280 m cover one z14 tile, and terrain away
+from the ego takes coarser, fewer ones (a few dozen near the ego, design §12). DEM and satellite
+tiles are Raster Tiles API requests, billed per request.
 
 ## 4. The GUI entries
 
