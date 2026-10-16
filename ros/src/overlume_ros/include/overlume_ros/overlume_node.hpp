@@ -236,6 +236,9 @@ private:
     bool environment_fallback_warned_{false};
     bool environment_attribution_{true};
     bool environment_attribution_warned_{false};
+    // environment_source_credits, read once a second; sim_clock_sec_ of the last read (-1: never).
+    std::string environment_credits_;
+    double environment_credits_read_sec_{-1.0};
     RgbaImage mapbox_logo_;  // decoded once at configure; empty when the file is unusable
     std::string environment_own_asset_uri_;
 

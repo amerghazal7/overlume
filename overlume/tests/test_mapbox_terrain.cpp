@@ -5,6 +5,7 @@
 #include "overlume/scene.h"
 
 #include "environment_test_hooks.hpp"
+#include "golden.hpp"
 #include "imagery_fixture.hpp"
 #include "mapbox_dem_fixture.hpp"
 #include "mapbox_mvt_fixture.hpp"
@@ -14,12 +15,14 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <map>
 #include <set>
 #include <string>
 #include <thread>
@@ -529,4 +532,760 @@ TEST(MapboxTerrain, SwitchingAwayBeforeTheFirstUpdateDoesNotCrash) {
     EXPECT_TRUE(overlume::render_frame(r, kPose, {buf.data(), 320, 240}));
     EXPECT_EQ(state(r), EnvironmentSourceState::STREAMING);
     overlume::destroy_renderer(r);
+}
+
+namespace {
+
+// Task 12's end-to-end helpers. A namespace of their own keeps them clear of the helpers Task 10
+// wrote above; Tasks 13 and 14 reuse them.
+namespace e2e {
+
+namespace dem = overlume::testing::dem;
+namespace imagery = overlume::testing::imagery;
+namespace mvt = overlume::testing::mvt;
+using overlume::mapbox::TileId;
+using overlume::testing::MapboxFixtureNetwork;
+
+constexpr const char* kToken = "pk.test-token-not-real";
+constexpr double kPi = 3.14159265358979323846;
+constexpr uint32_t kWidth = 320;
+constexpr uint32_t kHeight = 240;
+constexpr size_t kFrameBytes = size_t{kWidth} * kHeight * 3u;
+// Where the ground under the ego is level, the follow-terrain transform lowers the environment by
+// the ground bias (environment_stream.cpp:974-977).
+constexpr double kGroundBiasM = 0.3;
+// A Mapbox source selects tiles with its area view, not the camera, so any pose loads them.
+const overlume::CameraPose kAnyPose{{0.0, -8.0, 3.0}, {0.0, 0.0, 0.5}, 60.0};
+const std::string kTownDir =
+    std::string(OVERLUME_TEST_DATA_DIR) + "/tests/fixtures/environment_test_town_0";
+const std::string kSatellitePrefix = "https://api.mapbox.com/v4/mapbox.satellite/";
+
+struct Rgb {
+    uint8_t r, g, b;
+};
+// The imagery fixture paints each quadrant of the z14 tile in one colour, far apart in hue from the
+// others, from light_clay's blue sky and from the clay.
+constexpr Rgb kNorthWest{220, 50, 40};   // red
+constexpr Rgb kNorthEast{40, 180, 50};   // green
+constexpr Rgb kSouthWest{230, 200, 30};  // yellow
+constexpr Rgb kSouthEast{200, 40, 210};  // magenta
+constexpr Rgb kAncestor{128, 128, 128};  // levels 0-14 cover all four quadrants
+
+using Colour = std::array<double, 3>;
+
+// The test site's z14 tile, 14/10707/7006.
+TileId op_tile() { return overlume::mapbox::tile_containing(55.2744, 25.1972, 14); }
+
+// The anchor at (u, v) of tile t, in fractions of its edge, heading pi/2: map +x east, +y north.
+overlume::GeoAnchor anchor_in(const TileId& t, double u, double v) {
+    const overlume::mapbox::LonLatDeg p = overlume::mapbox::tile_point_to_lonlat(t, u, v, 1.0);
+    return overlume::GeoAnchor{p.lat, p.lon, kPi / 2.0, 0.0};
+}
+
+// Map metres of DEM pixel coordinates (u east, v south, 512 per edge) of z14 tile t, z_m metres
+// above the anchor's ground, through the stream's placement chain.
+overlume::Vec3 px_to_map(const overlume::GeoAnchor& a, const TileId& t, double u, double v,
+                         double z_m) {
+    double xyz[3] = {0.0, 0.0, 0.0};
+    EXPECT_TRUE(
+        overlume::testing::mapbox_tile_point_to_map_probe(a, 14, t.x, t.y, u, v, 512.0, z_m, xyz));
+    return overlume::Vec3{xyz[0], xyz[1], xyz[2]};
+}
+
+overlume::Vec3 lowered(const overlume::Vec3& p) {
+    return overlume::Vec3{p.x, p.y, p.z - kGroundBiasM};
+}
+
+overlume::VisualRenderer* make_renderer(const char* theme) {
+    return overlume::create_renderer(overlume::RenderConfig{kWidth, kHeight, 1, kThemeDir, theme});
+}
+
+bool install(overlume::VisualRenderer* r, const std::string& uri, const overlume::GeoAnchor& a,
+             MapboxFixtureNetwork* n) {
+    return overlume::testing::install_fixture_mapbox_source(r, uri.c_str(), a, n, kToken);
+}
+
+void set_ego(overlume::VisualRenderer* r, double x, double y) {
+    overlume::SceneGraph s{};
+    s.ego.valid = 1;
+    s.ego.position = overlume::Vec3{x, y, 0.0};
+    overlume::set_scene(r, s);
+}
+
+// Renders until done() or max_frames; the sleep lets worker-thread work land between frames.
+template <typename Done>
+bool pump(overlume::VisualRenderer* r, const overlume::CameraPose& pose,
+          std::vector<uint8_t>& frame, int max_frames, Done done) {
+    for (int i = 0; i < max_frames && !done(); ++i) {
+        if (!overlume::render_frame(r, pose, {frame.data(), kWidth, kHeight})) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return done();
+}
+
+overlume::testing::MapboxSourceStats stats() {
+    return overlume::testing::mapbox_last_source_stats();
+}
+
+overlume::testing::OverlayProbe overlay(overlume::VisualRenderer* r) {
+    return overlume::testing::environment_stream_overlay_probe(r);
+}
+
+// Both Mapbox loaders built `tiles` z14 tiles and a satellite raster is attached.
+bool streamed_with_imagery(overlume::VisualRenderer* r, uint64_t tiles) {
+    const overlume::testing::MapboxSourceStats s = stats();
+    return s.tiles_built >= tiles && s.terrain_tiles_built >= tiles &&
+           overlay(r).rasters_attached >= 1;
+}
+
+std::string credits(overlume::VisualRenderer* r) {
+    std::array<char, 512> text{};
+    overlume::environment_source_credits(r, text.data(), static_cast<uint32_t>(text.size()));
+    return std::string(text.data());
+}
+
+size_t log_size() { return overlume::testing::captured_cesium_log_text().size(); }
+
+std::string log_since(size_t from) {
+    const std::string text = overlume::testing::captured_cesium_log_text();
+    return text.size() > from ? text.substr(from) : std::string();
+}
+
+size_t count_of(const std::string& text, const std::string& needle) {
+    size_t n = 0;
+    for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + 1)) {
+        ++n;
+    }
+    return n;
+}
+
+bool contains(const std::vector<uint8_t>& bytes, const std::string& needle) {
+    return std::search(bytes.begin(), bytes.end(), needle.begin(), needle.end()) != bytes.end();
+}
+
+std::string bare(const std::string& url) { return url.substr(0, url.find('?')); }
+
+size_t times_requested(MapboxFixtureNetwork* n, const std::string& url) {
+    size_t count = 0;
+    for (const std::string& u : overlume::testing::mapbox_fixture_requested_urls(n)) {
+        if (bare(u) == url) ++count;
+    }
+    return count;
+}
+
+// Every satellite request, without its query string.
+std::vector<std::string> requested_satellite(MapboxFixtureNetwork* n) {
+    std::vector<std::string> out;
+    for (const std::string& u : overlume::testing::mapbox_fixture_requested_urls(n)) {
+        if (u.rfind(kSatellitePrefix, 0) == 0) out.push_back(bare(u));
+    }
+    return out;
+}
+
+void serve_dem(MapboxFixtureNetwork* n, const TileId& t,
+               const std::function<double(double, double)>& height_m) {
+    overlume::testing::mapbox_fixture_serve(n, overlume::testing::mapbox_dem_url(t.x, t.y), 200,
+                                            dem::encode_dem_png(height_m));
+}
+
+// An MVT exterior ring: positive surveyor's area in tile units (y down).
+std::vector<std::array<int32_t, 2>> box(int32_t x0, int32_t y0, int32_t x1, int32_t y1) {
+    return {{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
+}
+
+// A box u0..u1 east, v0..v1 south, in DEM pixels of its z14 tile (128 per z16 square), as an MVT
+// ring in the 4096 units of the z16 square it lies in; `square` indexes footprint_tiles_of
+// (row * 4 + column).
+struct PxBox {
+    size_t square = 0;
+    std::vector<std::array<int32_t, 2>> ring;
+};
+
+PxBox px_box(double u0, double v0, double u1, double v1) {
+    const int col = static_cast<int>(u0 / 128.0);
+    const int row = static_cast<int>(v0 / 128.0);
+    const auto unit = [](double px, int index) {
+        return static_cast<int32_t>(std::lround((px - 128.0 * index) * 32.0));
+    };
+    return {static_cast<size_t>(row * 4 + col),
+            box(unit(u0, col), unit(v0, row), unit(u1, col), unit(v1, row))};
+}
+
+// Serves z16 square `index` of z14 tile t: a building layer of `features`, gzip as Mapbox sends it.
+void serve_square(MapboxFixtureNetwork* n, const TileId& t, size_t index,
+                  std::vector<mvt::Feature> features) {
+    const TileId square = overlume::mapbox::footprint_tiles_of(t)[index];
+    mvt::Layer layer;
+    layer.name = "building";
+    layer.features = std::move(features);
+    overlume::testing::mapbox_fixture_serve(
+        n, overlume::testing::mapbox_footprint_url(square.x, square.y), 200,
+        mvt::gzip_stored(mvt::encode_tile({layer})));
+}
+
+struct ImageryTile {
+    std::string url;  // no query string
+    Rgb colour;
+};
+
+// The satellite tiles over z14 tile t at levels 0-18: its 15 ancestors (levels 0-14) and its 340
+// descendants (levels 15-18), each descendant in the colour of the quadrant of t it lies in.
+// ponytail: the whole pyramid (355 URLs, five PNGs) instead of predicting the levels cesium picks;
+// cesium also falls back to a failed tile's parent (QuadtreeRasterOverlayTileProvider.cpp:120-135).
+// A scene whose radius reaches a neighbouring z14 tile serves that tile's pyramid too.
+std::vector<ImageryTile> imagery_tiles(const TileId& t) {
+    std::vector<ImageryTile> out;
+    for (uint32_t z = 0; z <= 14; ++z) {
+        const uint32_t shift = 14 - z;
+        out.push_back(
+            {overlume::testing::mapbox_satellite_url(z, t.x >> shift, t.y >> shift), kAncestor});
+    }
+    for (uint32_t z = 15; z <= 18; ++z) {
+        const uint32_t side = 1u << (z - 14);
+        const uint32_t half = side / 2;
+        for (uint32_t row = 0; row < side; ++row) {
+            for (uint32_t col = 0; col < side; ++col) {
+                const bool north = row < half;  // XYZ rows count from the north
+                const bool west = col < half;
+                const Rgb colour =
+                    north ? (west ? kNorthWest : kNorthEast) : (west ? kSouthWest : kSouthEast);
+                out.push_back(
+                    {overlume::testing::mapbox_satellite_url(z, t.x * side + col, t.y * side + row),
+                     colour});
+            }
+        }
+    }
+    return out;
+}
+
+// Serves imagery_tiles(t) as 512-px PNGs and returns their URLs.
+std::set<std::string> serve_imagery(MapboxFixtureNetwork* n, const TileId& t) {
+    std::map<uint32_t, std::vector<uint8_t>> pngs;  // one encoding per colour
+    std::set<std::string> served;
+    for (const ImageryTile& tile : imagery_tiles(t)) {
+        const uint32_t key = (uint32_t{tile.colour.r} << 16) | (uint32_t{tile.colour.g} << 8) |
+                             uint32_t{tile.colour.b};
+        auto it = pngs.find(key);
+        if (it == pngs.end()) {
+            it = pngs.emplace(key,
+                              imagery::flat_png(512, tile.colour.r, tile.colour.g, tile.colour.b))
+                     .first;
+        }
+        overlume::testing::mapbox_fixture_serve(n, tile.url, 200, it->second);
+        served.insert(tile.url);
+    }
+    return served;
+}
+
+// Every satellite URL cesium may ask for over z14 tile t: levels 0-18, the tiles over t and the
+// ring of tiles around them (cesium maps a neighbouring row a rounding error away,
+// QuadtreeRasterOverlayTileProvider.cpp:256-287; SatelliteDrapesXyzTilesOnTheTerrain measures it).
+// A mirrored row lies far outside it.
+std::set<std::string> imagery_urls_with_ring(const TileId& t) {
+    std::set<std::string> out;
+    for (uint32_t z = 0; z <= 18; ++z) {
+        const int64_t k = z <= 14 ? 1 : int64_t{1} << (z - 14);
+        const int64_t x0 = z <= 14 ? t.x >> (14 - z) : int64_t{t.x} * k;
+        const int64_t y0 = z <= 14 ? t.y >> (14 - z) : int64_t{t.y} * k;
+        const int64_t side = int64_t{1} << z;
+        for (int64_t y = y0 - 1; y <= y0 + k; ++y) {
+            for (int64_t x = x0 - 1; x <= x0 + k; ++x) {
+                if (x < 0 || y < 0 || x >= side || y >= side) continue;
+                out.insert(overlume::testing::mapbox_satellite_url(z, static_cast<uint32_t>(x),
+                                                                   static_cast<uint32_t>(y)));
+            }
+        }
+    }
+    return out;
+}
+
+// The plateau scene on z14 tile t: 0 m west of DEM column 280, a ramp to 30 m at column 300 and a
+// 30 m plateau east of it; one 15 m block about 22 m square on the plateau (DEM pixels 337.5-342.5
+// east, 239.5-244.5 south: about 350 m east and 60 m north of the tile centre); quadrant imagery.
+// Returns the imagery URLs served.
+std::set<std::string> serve_plateau_scene(MapboxFixtureNetwork* n, const TileId& t) {
+    serve_dem(n, t, [](double u, double) {
+        return u < 280.0 ? 0.0 : (u < 300.0 ? (u - 280.0) * 1.5 : 30.0);
+    });
+    const PxBox block = px_box(337.5, 239.5, 342.5, 244.5);
+    serve_square(n, t, block.square, {mvt::building(301, {block.ring}, 15.0)});
+    return serve_imagery(n, t);
+}
+
+// The 3x3 mean colour around pixel (x, y) of a 320x240 RGB frame, row 0 at the top.
+Colour colour_at_px(const std::vector<uint8_t>& frame, int x, int y) {
+    const int cx = std::clamp(x, 1, static_cast<int>(kWidth) - 2);
+    const int cy = std::clamp(y, 1, static_cast<int>(kHeight) - 2);
+    Colour sum{0.0, 0.0, 0.0};
+    for (int j = cy - 1; j <= cy + 1; ++j) {
+        for (int i = cx - 1; i <= cx + 1; ++i) {
+            const size_t at = (static_cast<size_t>(j) * kWidth + static_cast<size_t>(i)) * 3u;
+            for (size_t c = 0; c < 3; ++c) sum[c] += frame[at + c];
+        }
+    }
+    for (double& c : sum) c /= 9.0;
+    return sum;
+}
+
+// The colour where map point p lands in `frame`, rendered through the renderer's current camera
+// (the last render_frame's). False off-screen.
+bool colour_at(overlume::VisualRenderer* r, const std::vector<uint8_t>& frame,
+               const overlume::Vec3& p, Colour* out) {
+    float u = 0.0f, v = 0.0f;
+    if (!overlume::project_to_screen(r, p, &u, &v)) return false;
+    *out = colour_at_px(frame, static_cast<int>(u * static_cast<float>(kWidth)),
+                        static_cast<int>(v * static_cast<float>(kHeight)));
+    return true;
+}
+
+// ponytail: a hue test, not colour science. Every channel the fixture colour sets 100 or more
+// above another must stay 40 above it after lighting, fog and tone mapping. If a theme change
+// narrows that margin, compare against a rendered reference instead, as
+// RejectedImageryKeepsTerrainColourAndCountsTowardFallback does.
+bool looks_like(const Colour& c, const Rgb& want) {
+    const std::array<int, 3> w{want.r, want.g, want.b};
+    for (size_t i = 0; i < 3; ++i) {
+        for (size_t j = 0; j < 3; ++j) {
+            if (w[i] - w[j] >= 100 && c[i] - c[j] < 40.0) return false;
+        }
+    }
+    return true;
+}
+
+bool near(const Colour& a, const Colour& b, double tolerance) {
+    for (size_t c = 0; c < 3; ++c) {
+        if (std::abs(a[c] - b[c]) > tolerance) return false;
+    }
+    return true;
+}
+
+std::string str(const Colour& c) {
+    return "(" + std::to_string(std::lround(c[0])) + ", " + std::to_string(std::lround(c[1])) +
+           ", " + std::to_string(std::lround(c[2])) + ")";
+}
+
+}
+
+}
+
+// Spec §8: one DEM per tile with two consumers. Around a z14 corner four tiles load; each DEM is
+// fetched once though the terrain loader, the buildings loader and the anchor's z_ref read it.
+TEST(MapboxTerrainEndToEnd, CornerTilesFetchEachDemOnceForBothLoaders) {
+    namespace mvt = overlume::testing::mvt;
+    auto* r = e2e::make_renderer("dark_adas");
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    // The ego stands just inside D's north-west corner, where A (north-west), B (north), C (west)
+    // and D meet: 500 m reaches all four tiles.
+    const e2e::TileId d = e2e::op_tile();
+    struct Ground {
+        e2e::TileId tile;
+        double height_m;
+        uint64_t id;
+    };
+    // Level DEMs: D, the anchor's tile, at 0 m, so z_ref = 0; the other three higher.
+    const std::array<Ground, 4> ground{{{{14, d.x - 1, d.y - 1}, 18.0, 401},
+                                        {{14, d.x, d.y - 1}, 6.0, 402},
+                                        {{14, d.x - 1, d.y}, 12.0, 403},
+                                        {d, 0.0, 404}}};
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    for (const Ground& g : ground) {
+        const double h = g.height_m;
+        e2e::serve_dem(n, g.tile, [h](double, double) { return h; });
+        // One 10 m box per tile, in z16 square 5 (row 1, column 1).
+        e2e::serve_square(n, g.tile, 5,
+                          {mvt::building(g.id, {e2e::box(1000, 1000, 1400, 1400)}, 10.0)});
+    }
+    ASSERT_TRUE(e2e::install(r, "mapbox://buildings,terrain", e2e::anchor_in(d, 0.002, 0.002), n));
+    e2e::set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> frame(e2e::kFrameBytes);
+    // Built is not yet in the scene: the main thread prepares a tile and the stream admits it in
+    // later frames, so the pump waits for both.
+    const bool built = e2e::pump(r, e2e::kAnyPose, frame, 600, [&] {
+        const overlume::testing::MapboxSourceStats s = e2e::stats();
+        return s.tiles_built == 4 && s.terrain_tiles_built == 4 &&
+               overlume::testing::environment_terrain_tiles_loaded(r) == 4;
+    });
+    ASSERT_TRUE(built) << "tiles_built " << e2e::stats().tiles_built << ", terrain_tiles_built "
+                       << e2e::stats().terrain_tiles_built << ", terrain tiles in the scene "
+                       << overlume::testing::environment_terrain_tiles_loaded(r);
+    const overlume::testing::MapboxSourceStats s = e2e::stats();
+    EXPECT_EQ(s.dem_requests, 4u)
+        << "one DEM request per tile, though the terrain loader, the buildings loader and the "
+           "anchor's z_ref all read them";
+    for (const Ground& g : ground) {
+        EXPECT_EQ(e2e::times_requested(n, overlume::testing::mapbox_dem_url(g.tile.x, g.tile.y)),
+                  1u)
+            << "DEM 14/" << g.tile.x << "/" << g.tile.y;
+    }
+    EXPECT_NEAR(s.max_tile_top_m, 28.0, 0.2)
+        << "A's 10 m box stands on A's DEM, 18 m above the anchor's ground (z_ref is D's 0 m)";
+    EXPECT_EQ(overlume::testing::environment_terrain_tiles_loaded(r), 4u);
+    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING);
+    overlume::destroy_renderer(r);
+}
+
+// Spec §8: imagery requests present, the token only in query strings.
+TEST(MapboxTerrainEndToEnd, ImageryRequestedWithTheTokenOnlyInQueryStrings) {
+    auto* r = e2e::make_renderer("dark_adas");
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const e2e::TileId t = e2e::op_tile();
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    const std::set<std::string> served = e2e::serve_plateau_scene(n, t);
+    overlume::testing::capture_stream_glbs(true);
+    const size_t logFrom = e2e::log_size();
+    ASSERT_TRUE(e2e::install(r, "mapbox://buildings,terrain?imagery=satellite",
+                             e2e::anchor_in(t, 0.5, 0.5), n));
+    EXPECT_FALSE(overlume::testing::environment_stream_has_disk_cache(r))
+        << "no cache database: no Mapbox byte reaches the disk";
+    e2e::set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> frame(e2e::kFrameBytes);
+    ASSERT_TRUE(
+        e2e::pump(r, e2e::kAnyPose, frame, 600, [&] { return e2e::streamed_with_imagery(r, 1); }));
+    const std::vector<std::vector<uint8_t>> glbs = overlume::testing::captured_stream_glbs();
+    overlume::testing::capture_stream_glbs(false);
+
+    for (const std::string& url : overlume::testing::mapbox_fixture_requested_urls(n)) {
+        const std::string query = std::string("?access_token=") + e2e::kToken;
+        EXPECT_TRUE(url.size() > query.size() &&
+                    url.compare(url.size() - query.size(), query.size(), query) == 0)
+            << e2e::bare(url);
+    }
+    const std::vector<std::string> satellite = e2e::requested_satellite(n);
+    const std::set<std::string> allowed = e2e::imagery_urls_with_ring(t);
+    EXPECT_FALSE(satellite.empty()) << "the overlay requested no imagery";
+    size_t inPyramid = 0;
+    for (const std::string& url : satellite) {
+        inPyramid += served.count(url);
+        EXPECT_EQ(allowed.count(url), 1u)
+            << "outside the z14 tile's level 0-18 pyramid and its ring (a level over 18 or a "
+               "mirrored row): "
+            << url;
+    }
+    EXPECT_GT(inPyramid, 0u) << "no request landed in the pyramid itself";
+    EXPECT_EQ(e2e::times_requested(n, overlume::testing::mapbox_dem_url(t.x, t.y)), 1u);
+    ASSERT_FALSE(glbs.empty());
+    for (const std::vector<uint8_t>& glb : glbs) {
+        EXPECT_FALSE(e2e::contains(glb, e2e::kToken)) << "a request URL reached a model";
+        EXPECT_FALSE(e2e::contains(glb, "access_token"));
+    }
+    const std::string log = e2e::log_since(logFrom);
+    EXPECT_EQ(log.find(e2e::kToken), std::string::npos);
+    const std::string credited = e2e::credits(r);
+    EXPECT_NE(credited.find("\xC2\xA9 Maxar"), std::string::npos)
+        << "credits: '" << credited << "'";
+    overlume::destroy_renderer(r);
+}
+
+// Spec §8: a building on the hill with its base lifted, by stats and a pixel probe.
+TEST(MapboxTerrainEndToEnd, BuildingOnThePlateauStandsOnTheDem) {
+    auto* r = e2e::make_renderer("light_clay");
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const e2e::TileId t = e2e::op_tile();
+    const overlume::GeoAnchor a = e2e::anchor_in(t, 0.5, 0.5);
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    e2e::serve_plateau_scene(n, t);
+    ASSERT_TRUE(e2e::install(r, "mapbox://buildings,terrain?imagery=satellite", a, n));
+    e2e::set_ego(r, 0.0, 0.0);
+    // The block's west wall at mid-height: its base is the DEM at its centroid (30 m) less z_ref
+    // (the 0 m under the anchor), so 30 + 15 / 2 m above the anchor's ground.
+    const overlume::Vec3 wall = e2e::lowered(e2e::px_to_map(a, t, 337.5, 242.0, 37.5));
+    // Open plateau north-west of the block, in the tile's north-east quadrant: green imagery.
+    const overlume::Vec3 plateau = e2e::lowered(e2e::px_to_map(a, t, 330.0, 236.0, 30.0));
+    // From 150 m east of the ego, 45 m up, over the ramp's top edge. A block left at z = 0 is
+    // buried in the plateau, and the ray through the wall's spot lands on green plateau.
+    const overlume::CameraPose pose{{150.0, wall.y, 45.0}, {wall.x, wall.y, wall.z}, 60.0};
+    std::vector<uint8_t> frame(e2e::kFrameBytes);
+    ASSERT_TRUE(e2e::pump(r, pose, frame, 600, [&] {
+        return e2e::streamed_with_imagery(r, 1) &&
+               overlume::testing::environment_stream_provides_ground(r);
+    }));
+    e2e::pump(r, pose, frame, 30, [] { return false; });
+    EXPECT_NEAR(e2e::stats().max_tile_top_m, 45.0, 0.3)
+        << "the block's top must sit 30 m (the plateau) plus 15 m above the anchor's ground";
+
+    ASSERT_TRUE(overlume::render_frame(r, pose, {frame.data(), e2e::kWidth, e2e::kHeight}));
+    const e2e::Colour sky = e2e::colour_at_px(frame, 160, 2);
+    e2e::Colour atWall{}, atPlateau{};
+    ASSERT_TRUE(e2e::colour_at(r, frame, wall, &atWall));
+    ASSERT_TRUE(e2e::colour_at(r, frame, plateau, &atPlateau));
+    ASSERT_TRUE(e2e::looks_like(atPlateau, e2e::kNorthEast))
+        << "the plateau must show the fixture's north-east green: " << e2e::str(atPlateau);
+    EXPECT_FALSE(e2e::looks_like(atWall, e2e::kNorthEast))
+        << "green imagery where the block's west wall belongs: the block was not lifted onto the "
+           "DEM "
+        << e2e::str(atWall);
+    EXPECT_FALSE(e2e::near(atWall, sky, 10.0))
+        << "sky where the block's west wall belongs " << e2e::str(atWall);
+    overlume::destroy_renderer(r);
+}
+
+// Spec §8: provides_ground after the ego's sample, the clay plane gone (pixel probe) and the
+// fixture tile's colour at known points, one per quadrant.
+TEST(MapboxTerrainEndToEnd, TerrainReplacesTheClayPlaneAndShowsEachQuadrant) {
+    auto* r = e2e::make_renderer("light_clay");
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const e2e::TileId t = e2e::op_tile();
+    const overlume::GeoAnchor a = e2e::anchor_in(t, 0.5, 0.5);
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    e2e::serve_dem(n, t, overlume::testing::dem::sea_height_m);
+    e2e::serve_imagery(n, t);
+    ASSERT_TRUE(e2e::install(r, "mapbox://terrain?imagery=satellite", a, n));
+    e2e::set_ego(r, 0.0, 0.0);
+    const overlume::CameraPose pose{{0.0, -45.0, 40.0}, {0.0, 15.0, 0.0}, 60.0};
+    std::vector<uint8_t> frame(e2e::kFrameBytes);
+    const bool drawn = e2e::pump(r, pose, frame, 600, [&] {
+        return e2e::stats().terrain_tiles_built == 1 && e2e::overlay(r).rasters_attached >= 1 &&
+               overlume::testing::environment_stream_provides_ground(r);
+    });
+    ASSERT_TRUE(drawn) << "provides_ground "
+                       << overlume::testing::environment_stream_provides_ground(r);
+    e2e::pump(r, pose, frame, 30, [] { return false; });
+    EXPECT_FALSE(overlume::testing::renderer_ground_plane_in_scene(r))
+        << "the terrain owns the ground: the clay plane must leave the scene";
+
+    // Six DEM pixels (about 26 m) from the tile centre into the northern quadrants, three (13 m)
+    // into the southern ones: all inside the clay plane's 120 m square, which would cover them.
+    struct Probe {
+        const char* name;
+        double u, v;
+        e2e::Rgb colour;
+    };
+    const std::array<Probe, 4> probes{{{"north-east", 262.0, 250.0, e2e::kNorthEast},
+                                       {"north-west", 250.0, 250.0, e2e::kNorthWest},
+                                       {"south-west", 250.0, 259.0, e2e::kSouthWest},
+                                       {"south-east", 262.0, 259.0, e2e::kSouthEast}}};
+    ASSERT_TRUE(overlume::render_frame(r, pose, {frame.data(), e2e::kWidth, e2e::kHeight}));
+    for (const Probe& p : probes) {
+        e2e::Colour c{};
+        ASSERT_TRUE(e2e::colour_at(r, frame, e2e::lowered(e2e::px_to_map(a, t, p.u, p.v, 0.0)), &c))
+            << p.name;
+        EXPECT_TRUE(e2e::looks_like(c, p.colour))
+            << p.name << " ground reads " << e2e::str(c)
+            << ": the clay plane covers the terrain, or the imagery is mirrored or missing";
+    }
+    overlume::destroy_renderer(r);
+}
+
+// Spec §8: imagery 401 -> terrainColor and the counter. Held requests keep the terrain tile drawn
+// without a raster, so the probe must match a run with imagery off. Released as 401, every
+// satellite request fails; cesium walks each failed tile up to level 0
+// (QuadtreeRasterOverlayTileProvider.cpp:120-135), so the run of failures passes eight and the
+// source falls back.
+TEST(MapboxTerrainEndToEnd, RejectedImageryKeepsTerrainColourAndCountsTowardFallback) {
+    // Both runs read frame kProbeFrame (counted from create_renderer): Filament's temporal dither
+    // makes a frame's bytes depend on its index.
+    constexpr int kProbeFrame = 120;
+    const e2e::TileId t = e2e::op_tile();
+    const overlume::GeoAnchor a = e2e::anchor_in(t, 0.5, 0.5);
+    const overlume::CameraPose pose{{0.0, -45.0, 40.0}, {0.0, 15.0, 0.0}, 60.0};
+    const auto terrain_drawn = [](overlume::VisualRenderer* r) {
+        return e2e::stats().terrain_tiles_built == 1 &&
+               overlume::testing::environment_terrain_tiles_loaded(r) >= 1 &&
+               overlume::testing::environment_stream_provides_ground(r);
+    };
+    // Renders up to frame kProbeFrame, reaching terrain_drawn first; the probe's colour then.
+    const auto probe_at_frame = [&](overlume::VisualRenderer* r, e2e::Colour* out) {
+        std::vector<uint8_t> frame(e2e::kFrameBytes);
+        int frames = 0;
+        for (; frames < kProbeFrame - 1 && !terrain_drawn(r); ++frames) {
+            if (!overlume::render_frame(r, pose, {frame.data(), e2e::kWidth, e2e::kHeight})) {
+                return false;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        if (!terrain_drawn(r)) return false;
+        for (; frames < kProbeFrame; ++frames) {
+            if (!overlume::render_frame(r, pose, {frame.data(), e2e::kWidth, e2e::kHeight})) {
+                return false;
+            }
+        }
+        return e2e::colour_at(r, frame, e2e::lowered(e2e::px_to_map(a, t, 262.0, 250.0, 0.0)), out);
+    };
+
+    e2e::Colour reference{};
+    {
+        auto* r = e2e::make_renderer("light_clay");
+        if (!r) GTEST_SKIP() << "no GPU/EGL";
+        auto* n = overlume::testing::make_mapbox_fixture_network(204);
+        e2e::serve_dem(n, t, overlume::testing::dem::sea_height_m);
+        ASSERT_TRUE(e2e::install(r, "mapbox://terrain", a, n));
+        e2e::set_ego(r, 0.0, 0.0);
+        ASSERT_TRUE(probe_at_frame(r, &reference)) << "imagery off: the terrain never drew";
+        overlume::destroy_renderer(r);
+    }
+
+    auto* r = e2e::make_renderer("light_clay");
+    ASSERT_NE(r, nullptr);
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    e2e::serve_dem(n, t, overlume::testing::dem::sea_height_m);
+    for (const e2e::ImageryTile& tile : e2e::imagery_tiles(t)) {
+        overlume::testing::mapbox_fixture_serve(n, tile.url, 401, {});
+        overlume::testing::mapbox_fixture_hold(n, tile.url);
+    }
+    const size_t logFrom = e2e::log_size();
+    ASSERT_TRUE(
+        e2e::install(r, "mapbox://terrain?imagery=satellite&fallback=" + e2e::kTownDir, a, n));
+    e2e::set_ego(r, 0.0, 0.0);
+    e2e::Colour held{};
+    ASSERT_TRUE(probe_at_frame(r, &held)) << "imagery held: the terrain never drew";
+    ASSERT_FALSE(e2e::requested_satellite(n).empty()) << "no imagery request is in flight";
+    EXPECT_EQ(e2e::overlay(r).rasters_attached, 0u);
+    EXPECT_TRUE(e2e::near(held, reference, 6.0))
+        << "before its imagery the terrain must show terrainColor: " << e2e::str(held) << " vs "
+        << e2e::str(reference) << " with imagery off";
+
+    overlume::testing::mapbox_fixture_release_held(n);
+    std::vector<uint8_t> frame(e2e::kFrameBytes);
+    EXPECT_TRUE(e2e::pump(r, pose, frame, 120, [&] {
+        return overlume::environment_source_state(r) ==
+               overlume::EnvironmentSourceState::STREAMING_FALLBACK;
+    })) << "rejected imagery requests must count toward the network-loss fallback";
+    EXPECT_EQ(e2e::overlay(r).rasters_attached, 0u) << "a rejected raster must never attach";
+    // Cesium logs each failed raster tile with its URL; the redacting sink must strip the token.
+    EXPECT_EQ(e2e::log_since(logFrom).find(e2e::kToken), std::string::npos);
+    overlume::destroy_renderer(r);
+}
+
+// Spec §8: network loss -> fallback with both tilesets torn down. Everything streams; then the
+// ego drives into the east neighbour, whose every request fails in transport.
+TEST(MapboxTerrainEndToEnd, NetworkLossTearsDownTerrainAndImagery) {
+    auto* r = e2e::make_renderer("dark_adas");
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const e2e::TileId t = e2e::op_tile();
+    const e2e::TileId east{14, t.x + 1, t.y};
+    const overlume::GeoAnchor a = e2e::anchor_in(t, 0.5, 0.5);
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    e2e::serve_plateau_scene(n, t);
+    overlume::testing::mapbox_fixture_fail_transport(
+        n, overlume::testing::mapbox_dem_url(east.x, east.y));
+    overlume::testing::mapbox_fixture_fail_transport(
+        n, overlume::testing::mapbox_landmark_url(east.x, east.y));
+    for (const e2e::TileId& square : overlume::mapbox::footprint_tiles_of(east)) {
+        overlume::testing::mapbox_fixture_fail_transport(
+            n, overlume::testing::mapbox_footprint_url(square.x, square.y));
+    }
+    ASSERT_TRUE(e2e::install(
+        r, "mapbox://buildings,terrain?imagery=satellite&fallback=" + e2e::kTownDir, a, n));
+    e2e::set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> frame(e2e::kFrameBytes);
+    ASSERT_TRUE(e2e::pump(r, e2e::kAnyPose, frame, 600, [&] {
+        return e2e::streamed_with_imagery(r, 1) && e2e::overlay(r).textures_alive >= 1;
+    }));
+    ASSERT_TRUE(overlume::testing::environment_stream_has_terrain_tileset(r));
+    ASSERT_FALSE(e2e::credits(r).empty());
+    // The east tile's imagery is down too. An unmatched URL answers 204, a success that would
+    // reset the consecutive-failure count between two frames while the tile's imagery loads
+    // beside its failing DEM, so every satellite URL over the east tile fails in transport.
+    for (const std::string& url : e2e::imagery_urls_with_ring(east)) {
+        overlume::testing::mapbox_fixture_fail_transport(n, url);
+    }
+
+    // The east tile's centre: more than 1100 m from the old tile, so it alone is selected, and its
+    // 18 requests (16 squares, the landmark tile, the DEM) fail in a row.
+    const overlume::Vec3 eastCentre = e2e::px_to_map(a, east, 256.0, 256.0, 0.0);
+    e2e::set_ego(r, eastCentre.x, eastCentre.y);
+    ASSERT_TRUE(e2e::pump(r, e2e::kAnyPose, frame, 300, [&] {
+        return overlume::environment_source_state(r) ==
+               overlume::EnvironmentSourceState::STREAMING_FALLBACK;
+    })) << "transport errors on a new tile must reach the fallback";
+    e2e::pump(r, e2e::kAnyPose, frame, 2, [] { return false; });
+    EXPECT_FALSE(overlume::testing::environment_stream_has_terrain_tileset(r))
+        << "the fallback must tear the terrain tileset down too";
+    EXPECT_EQ(e2e::overlay(r).textures_alive, 0u) << "imagery textures outlived the teardown";
+    EXPECT_TRUE(overlume::testing::renderer_ground_plane_in_scene(r)) << "the clay plane is back";
+    EXPECT_EQ(e2e::credits(r), "") << "no overlay is open, so no credit (and no attribution)";
+    overlume::destroy_renderer(r);
+}
+
+// Spec §8: the URI refusals (layer list, imagery). Each opens nothing, logs one line and requests
+// nothing.
+TEST(MapboxTerrainEndToEnd, RefusedLayerListsAndImageryOpenNothing) {
+    auto* r = e2e::make_renderer("dark_adas");
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const overlume::GeoAnchor a = e2e::anchor_in(e2e::op_tile(), 0.5, 0.5);
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    struct Refusal {
+        const char* uri;
+        const char* reason;  // a part of the logged reason; "" when the contract pins none
+    };
+    const std::array<Refusal, 7> refusals{
+        {{"mapbox://buildings,buildings", ""},
+         {"mapbox://terrain,roads",
+          "supports only the layers 'buildings' and 'terrain', not 'roads'"},
+         {"mapbox://buildings,,terrain", ""},
+         {"mapbox://", ""},
+         {"mapbox://buildings?imagery=satellite", "imagery=satellite needs the 'terrain' layer"},
+         {"mapbox://terrain?imagery=streets", ""},
+         {"mapbox://terrain?cache=tiles", ""}}};
+    for (const Refusal& f : refusals) {
+        const size_t logFrom = e2e::log_size();
+        EXPECT_FALSE(e2e::install(r, f.uri, a, n)) << f.uri;
+        const std::string logged = e2e::log_since(logFrom);
+        EXPECT_EQ(e2e::count_of(logged, "refused"), 1u) << f.uri << ": " << logged;
+        EXPECT_NE(logged.find(f.reason), std::string::npos) << f.uri << ": " << logged;
+    }
+    e2e::set_ego(r, 0.0, 0.0);  // a source opened by mistake would now request its tiles
+    std::vector<uint8_t> frame(e2e::kFrameBytes);
+    e2e::pump(r, e2e::kAnyPose, frame, 3, [] { return false; });
+    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::NONE);
+    EXPECT_TRUE(overlume::testing::mapbox_fixture_requested_urls(n).empty());
+    overlume::destroy_renderer(r);
+}
+
+// Review Focus 1: neighbouring DEM tiles 5 m apart in height along their shared edge. Seen from
+// the low side 60 m away, the high tile's skirt must fill the step: no sky along the edge. Run
+// twice: terrain alone, and with satellite imagery, where the edges near the ego are drawn by
+// cesium's upsampled children, whose skirts come from clipping our skirt triangles.
+TEST(MapboxTerrainEndToEnd, FiveMetreStepBetweenTilesShowsNoSkyAlongTheEdge) {
+    for (const bool withImagery : {false, true}) {
+        const std::string pass = withImagery ? " with imagery" : "";
+        auto* r = e2e::make_renderer("light_clay");
+        if (!r) GTEST_SKIP() << "no GPU/EGL";
+        const e2e::TileId west = e2e::op_tile();
+        const e2e::TileId east{14, west.x + 1, west.y};
+        // The ego about 50 m west of the shared edge (the tile is about 2217 m wide there).
+        const overlume::GeoAnchor a = e2e::anchor_in(west, 1.0 - 50.0 / 2217.0, 0.5);
+        auto* n = overlume::testing::make_mapbox_fixture_network(204);
+        e2e::serve_dem(n, west, overlume::testing::dem::sea_height_m);
+        e2e::serve_dem(n, east, [](double, double) { return 5.0; });
+        if (withImagery) {
+            e2e::serve_imagery(n, west);
+            e2e::serve_imagery(n, east);
+        }
+        ASSERT_TRUE(e2e::install(
+            r, withImagery ? "mapbox://buildings,terrain?imagery=satellite" : "mapbox://terrain", a,
+            n))
+            << pass;
+        e2e::set_ego(r, 0.0, 0.0);
+        const overlume::Vec3 edge = e2e::px_to_map(a, west, 512.0, 256.0, 0.0);
+        const overlume::CameraPose pose{{edge.x - 60.0, edge.y, 3.0}, {edge.x, edge.y, 2.0}, 60.0};
+        std::vector<uint8_t> frame(e2e::kFrameBytes);
+        ASSERT_TRUE(e2e::pump(r, pose, frame, 600, [&] {
+            return e2e::stats().terrain_tiles_built == 2 &&
+                   overlume::testing::environment_terrain_tiles_loaded(r) >= 2 &&
+                   overlume::testing::environment_stream_provides_ground(r) &&
+                   (!withImagery || e2e::overlay(r).rasters_attached >= 1);
+        })) << pass;
+        e2e::pump(r, pose, frame, 10, [] { return false; });
+        ASSERT_TRUE(overlume::render_frame(r, pose, {frame.data(), e2e::kWidth, e2e::kHeight}));
+        const e2e::Colour sky = e2e::colour_at_px(frame, 160, 2);
+        // The sky reference is the top row (about 29 degrees up); the control is the low tile's
+        // ground 30 m before the edge, which must not read as sky.
+        e2e::Colour ground{};
+        ASSERT_TRUE(e2e::colour_at(
+            r, frame, e2e::lowered(e2e::px_to_map(a, west, 505.0, 256.0, 0.0)), &ground))
+            << pass;
+        ASSERT_FALSE(e2e::near(ground, sky, 10.0)) << "the low tile's ground reads as sky" << pass;
+        // The probe row: 1.7 m above the low tile's ground, inside the 5 m step, every 1.2 DEM
+        // pixels (about 5 m) along 60 m of the edge.
+        for (int k = -6; k <= 6; ++k) {
+            e2e::Colour c{};
+            const overlume::Vec3 p = e2e::px_to_map(a, west, 512.0, 256.0 + 1.2 * k, 1.7);
+            ASSERT_TRUE(e2e::colour_at(r, frame, p, &c)) << "probe " << k << " off-screen" << pass;
+            EXPECT_FALSE(e2e::near(c, sky, 10.0)) << "sky through the step at probe " << k << " (y "
+                                                  << p.y << " m): no skirt, or one "
+                                                  << "too short or facing inwards" << pass;
+        }
+        overlume::destroy_renderer(r);
+    }
 }

@@ -1347,13 +1347,19 @@ void OverlumeNode::timer_callback() {
         }
     }
 
+    // Overlay credits change only when an overlay opens or the source switches (spec section 6),
+    // so they are read once a second of node time, not per frame.
+    const auto read_credits = [this](char* out, uint32_t cap) {
+        return overlume::environment_source_credits(renderer_, out, cap);
+    };
+    refresh_environment_credits(sim_clock_sec_, environment_credits_read_sec_, environment_credits_,
+                                read_credits);
     const AttributionKind attribution = environment_attribution_kind(
         environment_effectively_visible(render_mode, environment_enabled_),
         environment_attribution_, environment_source_uri_,
-        overlume::environment_source_state(renderer_));
-    // ponytail: no overlay credits yet; the once-a-second read of environment_source_credits()
-    // will pass them here and to the kind above.
-    const std::string attribution_text = environment_attribution_text(attribution, "");
+        overlume::environment_source_state(renderer_), !environment_credits_.empty());
+    const std::string attribution_text =
+        environment_attribution_text(attribution, environment_credits_);
     if (!attribution_text.empty()) {
         const overlume::HudColors hud_colors = overlume::get_hud_colors(renderer_);
         const overlume::ros::HudRgb text_rgb{hud_colors.text_color[0], hud_colors.text_color[1],

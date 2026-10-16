@@ -4,6 +4,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdint>
 #include <locale>
 #include <sstream>
 #include <string>
@@ -201,6 +202,22 @@ inline std::string environment_attribution_text(AttributionKind kind, const std:
             break;
     }
     return "";
+}
+
+// The overlay credits for the attribution line, re-read when at least a second of node time has
+// passed since `read_sec` (spec section 6: they change only when an overlay opens or the source
+// switches, so a per-frame read buys nothing). `read` has environment_source_credits' contract:
+// it writes at most `cap` bytes, NUL-terminated, and returns the length the credits need. Returns
+// true when it read. Start `read_sec` at -1.0 so the first call reads.
+template <typename ReadCredits>
+inline bool refresh_environment_credits(double now_sec, double& read_sec, std::string& credits,
+                                        ReadCredits&& read) {
+    if (now_sec - read_sec < 1.0) return false;
+    read_sec = now_sec;
+    std::string buf(static_cast<size_t>(read(nullptr, 0u)) + 1, '\0');
+    read(&buf[0], static_cast<uint32_t>(buf.size()));
+    credits.assign(buf.c_str());
+    return true;
 }
 
 }
