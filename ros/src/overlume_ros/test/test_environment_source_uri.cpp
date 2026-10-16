@@ -7,6 +7,9 @@
 
 #include "overlume/scene.h"
 
+#include <cstdio>
+#include <string>
+
 namespace overlume::ros {
 namespace {
 
@@ -399,4 +402,38 @@ TEST(EnvironmentAttributionText, EmptyCreditsBetweenSeparatorsAreSkipped) {
     EXPECT_EQ(overlume::ros::environment_attribution_text(overlume::ros::AttributionKind::CREDITS,
                                                           "A; ; B; "),
               "A B");
+}
+
+// Task 12: the node's once-a-second read of environment_source_credits into the attribution line.
+// The fake reader keeps the library's contract (snprintf-like, returns the length needed).
+struct FakeCredits {
+    std::string text;
+    uint32_t operator()(char* out, uint32_t cap) const {
+        if (cap > 0) std::snprintf(out, cap, "%s", text.c_str());
+        return static_cast<uint32_t>(text.size());
+    }
+};
+
+TEST(EnvironmentCredits, FirstTickReadsThenOncePerSecondOfNodeTime) {
+    FakeCredits library{"\xC2\xA9 Maxar"};
+    std::string credits;
+    double read_sec = -1.0;  // as the node's member starts
+    EXPECT_TRUE(overlume::ros::refresh_environment_credits(0.25, read_sec, credits, library));
+    EXPECT_EQ(credits, "\xC2\xA9 Maxar");
+    library.text = "\xC2\xA9 Microsoft";
+    EXPECT_FALSE(overlume::ros::refresh_environment_credits(1.0, read_sec, credits, library));
+    EXPECT_EQ(credits, "\xC2\xA9 Maxar") << "read again within the second";
+    EXPECT_TRUE(overlume::ros::refresh_environment_credits(1.25, read_sec, credits, library));
+    EXPECT_EQ(credits, "\xC2\xA9 Microsoft");
+    library.text.clear();
+    EXPECT_TRUE(overlume::ros::refresh_environment_credits(2.25, read_sec, credits, library));
+    EXPECT_EQ(credits, "") << "a source without overlays clears the line's credits";
+}
+
+TEST(EnvironmentCredits, LongCreditsAreReadWhole) {
+    const FakeCredits library{std::string(3000, 'c')};
+    std::string credits;
+    double read_sec = -1.0;
+    ASSERT_TRUE(overlume::ros::refresh_environment_credits(0.0, read_sec, credits, library));
+    EXPECT_EQ(credits, library.text) << "cut to " << credits.size() << " bytes";
 }
