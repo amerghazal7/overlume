@@ -28,9 +28,24 @@ index; `docs/status.md` is the one status ledger.
 - [`cesium.md`](runbooks/cesium.md) — Cesium ion account/token/asset
   contract + the `CESIUM_ION_TOKEN` smoke check; the Google Photorealistic
   3D Tiles preset.
+- [`mapbox.md`](runbooks/mapbox.md) — the `mapbox://` source: the
+  `MAPBOX_TOKEN` contract and `tools/check_mapbox_token.sh`, the URI (the
+  `buildings` and `terrain` layers, `imagery=satellite`) and the four GUI
+  entries, attribution with the Maxar credit, request volume, Mapbox's terms
+  as engineering rules, the demo at the operating area and Downtown Dubai,
+  and troubleshooting.
+- [`terrain_imagery.md`](runbooks/terrain_imagery.md) — terrain with imagery
+  draped on it, for any streamed source: ion's `terrain=` and `imagery=`
+  keys and the `osm-terrain` entry, the `environment_terrain` and
+  `environment_imagery` node parameters, the `environment.terrain_color`
+  theme token, overlay credits on screen and the renderer's overlay path.
 - [`env_source_captures.md`](runbooks/env_source_captures.md) — one
-  committed render per Environment Tiles preset (baked / osm / google) for
-  judging the streamed sources side by side.
+  committed render per environment source (baked / osm / google) for
+  judging the streamed sources side by side. The four Mapbox sources
+  (`mapbox`, `mapbox-original`, `mapbox-satellite`,
+  `mapbox-original-satellite`) have no committed capture: a render of live
+  Mapbox tiles is Mapbox-derived data, which the terms forbid storing (see
+  [`mapbox.md`](runbooks/mapbox.md), section 6).
 - [`theme_showcase.md`](runbooks/theme_showcase.md) — opt-in whole-palette
   single-frame capture harness used to judge theme candidates.
 - [`signoff.md`](runbooks/signoff.md) — the open/closed sign-off items
@@ -67,6 +82,15 @@ index; `docs/status.md` is the one status ledger.
   — the offroad height-map terrain layer: the `/debug_ogm_2` metric contract,
   `HeightGridLayer` (`kSceneVersion` 9), the heightfield renderer and the
   ground replacement inside its footprint.
+- [`2026-10-14-mapbox-buildings-design.md`](design/2026-10-14-mapbox-buildings-design.md)
+  — the `mapbox://buildings` environment source: Mapbox landmark models plus
+  extruded streets-v8 footprints through a custom cesium-native loader, the
+  on-screen attribution, and the demo at Downtown Dubai and the operating area.
+- [`2026-10-15-imagery-terrain-design.md`](design/2026-10-15-imagery-terrain-design.md)
+  — sub-project 2: terrain as a second cesium tileset per source (Mapbox
+  terrain-DEM through a loader of ours, Cesium World Terrain through ion),
+  imagery as cesium raster overlays on it, and Mapbox buildings re-based
+  onto the DEM; provider-agnostic by construction.
 
 ## ADRs (`docs/adr/`)
 
@@ -103,6 +127,13 @@ index; `docs/status.md` is the one status ledger.
 - [`2026-10-06-height-grid-terrain.md`](plans/2026-10-06-height-grid-terrain.md)
   — the offroad height-map terrain layer (implements
   `design/2026-10-06-height-grid-terrain-design.md`).
+- [`2026-10-14-mapbox-buildings.md`](plans/2026-10-14-mapbox-buildings.md)
+  — the `mapbox://buildings` environment source in 18 tasks over eight
+  parallel lanes (implements `design/2026-10-14-mapbox-buildings-design.md`; closed 2026-10-15).
+- [`2026-10-15-imagery-terrain.md`](plans/2026-10-15-imagery-terrain.md)
+  — imagery on real terrain, provider-agnostic: Mapbox terrain-DEM and Satellite for the
+  demo, Cesium World Terrain and ion imagery as the proof, in 16 tasks over eight parallel
+  lanes (implements `design/2026-10-15-imagery-terrain-design.md`; closed 2026-10-16).
 - [`archive/`](plans/archive/README.md) — retired NumPy/GL/CUDA prototype
   plans and specs (2026-06/07), plus the superseded Azure DevOps project
   backlog export.

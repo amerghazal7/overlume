@@ -132,6 +132,9 @@ struct Theme {
 
     struct Environment {
         float tile_radius_m = kThemeDefaultTileRadiusM;
+        // Streamed terrain tiles until their imagery attaches, and with imagery off. The parser
+        // defaults it to palette.ground.
+        Float3 terrain_color;
     } environment;
 
     struct HeightGrid {

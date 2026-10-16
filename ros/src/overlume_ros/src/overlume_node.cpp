@@ -450,7 +450,38 @@ OverlumeNode::CallbackReturn OverlumeNode::on_configure(const rclcpp_lifecycle::
     environment_max_tilt_deg_ = declare_parameter<double>("environment_max_tilt_deg", 2.0);
     environment_brightness_ = declare_parameter<double>("environment_brightness", 1.0);
     environment_tile_radius_m_ = declare_parameter<double>("environment_tile_radius_m", 700.0);
+    environment_terrain_ = declare_parameter<std::string>("environment_terrain", "");
+    environment_imagery_ = declare_parameter<std::string>("environment_imagery", "");
+    for (const std::string& warning :
+         {environment_layer_warning("environment_terrain", environment_terrain_, "enable",
+                                    environment_source_uri_),
+          environment_layer_warning("environment_imagery", environment_imagery_, "satellite",
+                                    environment_source_uri_)}) {
+        if (!warning.empty()) RCLCPP_WARN(get_logger(), "%s", warning.c_str());
+    }
     environment_attribution_ = declare_parameter<bool>("environment_attribution", true);
+    const bool logo_on = declare_parameter<bool>("environment_attribution_logo", true);
+    auto logo_path = declare_parameter<std::string>("environment_attribution_logo_path", "");
+    if (logo_path.empty()) {
+        const std::string installed_logo =
+            ament_index_cpp::get_package_share_directory("overlume_ros") +
+            "/assets/attribution/mapbox-logo.png";
+        if (std::ifstream(installed_logo).good()) {
+            logo_path = installed_logo;
+        }
+    }
+    set_parameter(rclcpp::Parameter("environment_attribution_logo_path", logo_path));
+    if (!logo_on) {
+        // An empty logo leaves CompositeAttribution drawing the text alone.
+        RCLCPP_INFO(get_logger(),
+                    "environment attribution: Mapbox logo off (environment_attribution_logo=false) "
+                    "-- mapbox:// sources show the attribution text alone");
+    } else if (!LoadPngRgba(logo_path.c_str(), mapbox_logo_)) {
+        RCLCPP_WARN(get_logger(),
+                    "environment attribution: Mapbox logo '%s' is missing or not a PNG -- "
+                    "mapbox:// sources show the attribution text without the logo",
+                    logo_path.c_str());
+    }
     environment_own_asset_uri_ = declare_parameter<std::string>("environment_own_asset_uri", "");
 
     frame_transformer_ = std::make_unique<FrameTransformer>(*tf_buffer_, "map", flatten_z);
@@ -763,7 +794,8 @@ OverlumeNode::CallbackReturn OverlumeNode::on_activate(const rclcpp_lifecycle::S
         const std::string source_uri = compose_environment_source_uri(
             environment_chunks_dir_, environment_source_uri_, environment_tile_cache_dir_,
             environment_follow_terrain_, environment_ground_bias_m_, environment_replaces_ground_,
-            environment_max_tilt_deg_, environment_brightness_, environment_tile_radius_m_);
+            environment_max_tilt_deg_, environment_brightness_, environment_tile_radius_m_,
+            environment_terrain_, environment_imagery_);
         if (!overlume::set_environment_source(renderer_, source_uri.c_str(),
                                               geo_anchor_solver_->anchor())) {
             RCLCPP_WARN(get_logger(),
@@ -879,7 +911,8 @@ rcl_interfaces::msg::SetParametersResult OverlumeNode::on_params(
                         environment_chunks_dir_, requested, environment_tile_cache_dir_,
                         environment_follow_terrain_, environment_ground_bias_m_,
                         environment_replaces_ground_, environment_max_tilt_deg_,
-                        environment_brightness_, environment_tile_radius_m_);
+                        environment_brightness_, environment_tile_radius_m_, environment_terrain_,
+                        environment_imagery_);
                     if (source_uri.empty()) {
                         res.successful = false;
                         res.reason = "environment_source_uri: '" + requested +
@@ -1314,24 +1347,41 @@ void OverlumeNode::timer_callback() {
         }
     }
 
-    if (environment_effectively_visible(render_mode, environment_enabled_) &&
-        environment_attribution_ &&
-        environment_source_uri_.find("materials=original") != std::string::npos &&
-        overlume::environment_source_state(renderer_) ==
-            overlume::EnvironmentSourceState::STREAMING) {
+    // Overlay credits change only when an overlay opens or the source switches (spec section 6),
+    // so they are read once a second of node time, not per frame.
+    const auto read_credits = [this](char* out, uint32_t cap) {
+        return overlume::environment_source_credits(renderer_, out, cap);
+    };
+    refresh_environment_credits(sim_clock_sec_, environment_credits_read_sec_, environment_credits_,
+                                read_credits);
+    const AttributionKind attribution = environment_attribution_kind(
+        environment_effectively_visible(render_mode, environment_enabled_),
+        environment_attribution_, environment_source_uri_,
+        overlume::environment_source_state(renderer_), !environment_credits_.empty());
+    const std::string attribution_text =
+        environment_attribution_text(attribution, environment_credits_);
+    if (!attribution_text.empty()) {
         const overlume::HudColors hud_colors = overlume::get_hud_colors(renderer_);
-        if (!overlume::ros::DrawText(
-                frame_buf_.data(), static_cast<uint32_t>(out_width_),
-                static_cast<uint32_t>(out_height_), "3D Tiles data (c) Google", 8.0f,
-                static_cast<float>(out_height_) - 8.0f,
-                overlume::ros::HudRgb{hud_colors.text_color[0], hud_colors.text_color[1],
-                                      hud_colors.text_color[2]},
-                hud_colors.scale, hud_font_path_.c_str()) &&
-            !environment_attribution_warned_) {
+        const overlume::ros::HudRgb text_rgb{hud_colors.text_color[0], hud_colors.text_color[1],
+                                             hud_colors.text_color[2]};
+        const uint32_t w = static_cast<uint32_t>(out_width_);
+        const uint32_t h = static_cast<uint32_t>(out_height_);
+        const bool drawn =
+            attribution == AttributionKind::MAPBOX
+                ? overlume::ros::CompositeAttribution(frame_buf_.data(), w, h, mapbox_logo_,
+                                                      attribution_text.c_str(), text_rgb,
+                                                      hud_colors.scale, hud_font_path_.c_str())
+                : overlume::ros::DrawText(frame_buf_.data(), w, h, attribution_text.c_str(), 8.0f,
+                                          static_cast<float>(out_height_) - 8.0f, text_rgb,
+                                          hud_colors.scale, hud_font_path_.c_str());
+        if (!drawn && !environment_attribution_warned_) {
             RCLCPP_WARN(get_logger(),
                         "environment attribution: failed to load/use font '%s' -- "
-                        "Google attribution not drawn this run",
-                        hud_font_path_.c_str());
+                        "%s attribution text not drawn this run",
+                        hud_font_path_.c_str(),
+                        attribution == AttributionKind::MAPBOX   ? "Mapbox"
+                        : attribution == AttributionKind::GOOGLE ? "Google"
+                                                                 : "overlay credits");
             environment_attribution_warned_ = true;
         }
     }

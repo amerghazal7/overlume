@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "overlume/api.h"
 #include "overlume/scene.h"
@@ -33,6 +35,19 @@ void kill_fixture_network(FixtureStreamHandle* handle);
 
 void revive_fixture_network(FixtureStreamHandle* handle);
 
+// Make the fixture network reject every tile request with a transport error (no response);
+// tileset.json is still served, as with kill_fixture_network.
+void break_fixture_network_transport(FixtureStreamHandle* handle);
+
+// A custom-loader source over a 4 x 4 grid of 1 km cells centred on the anchor: column c runs west
+// to east, row r north to south, and the anchor is the corner the four central cells share.
+struct FixtureGridHandle;
+FixtureGridHandle* install_fixture_grid_source(overlume::VisualRenderer* r,
+                                               overlume::GeoAnchor anchor, double radius_m,
+                                               bool area_selection);
+// Leaf tiles cesium asked the grid loader to load, as (column, row), in request order.
+std::vector<std::pair<int, int>> fixture_grid_requested_leaves(FixtureGridHandle* handle);
+
 bool ecef_to_map_probe(double origin_lat_deg, double origin_lon_deg, double heading_rad,
                        double origin_height_m, double lat_deg, double lon_deg, double alt_m,
                        double* out_x, double* out_y, double* out_z);
@@ -42,12 +57,25 @@ bool ecef_height_correction_probe(double origin_lat_deg, double origin_lon_deg, 
                                   double alt_m, double* out_z_uncorrected, double* out_z_corrected);
 
 bool environment_stream_materials_original(overlume::VisualRenderer* r);
+// NaN when the source is not a StreamingEnvironmentSource.
+double environment_stream_brightness(overlume::VisualRenderer* r);
+// The brightness the open streaming source gave its terrain renderer resources (what scales the
+// imagery texture); NaN without a streaming source or a terrain tileset.
+double environment_stream_terrain_brightness(overlume::VisualRenderer* r);
+// Whether the open streaming source's content tileset or its terrain tileset reads through the
+// caching asset accessor (a SQLite cache database). False when no streaming source is open.
+bool environment_stream_has_disk_cache(overlume::VisualRenderer* r);
 
 bool environment_stream_parse_materials_original(const char* ion_spec);
 
 bool environment_stream_parse_follow_terrain(const char* ion_spec, bool* out_parse_ok);
 
 bool environment_stream_parse_replaces_ground(const char* ion_spec, bool* out_parse_ok);
+
+// ion:// terrain=<id>|off and imagery=<id>|off: each asset id, 0 when off or absent or when the
+// spec does not parse (*ok false); returns whether the spec parses with a terrain asset.
+bool environment_stream_parse_terrain_assets(const char* ion_spec, int64_t* terrain,
+                                             int64_t* imagery, bool* ok);
 
 double environment_stream_parse_max_tilt_deg(const char* ion_spec, bool* out_parse_ok);
 
@@ -85,5 +113,77 @@ bool drive_ion_token_redaction_probe(const char* bogus_token, int64_t asset_id, 
 bool environment_stream_provides_ground(overlume::VisualRenderer* r);
 
 bool renderer_ground_plane_in_scene(overlume::VisualRenderer* r);
+
+// The raster-overlay callbacks' counters of the open streaming source's renderer resources;
+// zeros when no streaming source is open (and always for content resources, which never attach).
+struct OverlayProbe {
+    uint32_t rasters_attached, rasters_detached, textures_alive, textures_freed;
+};
+OverlayProbe environment_stream_overlay_probe(overlume::VisualRenderer* r);
+
+// Removes every raster overlay from the live streaming source's tileset, which detaches the
+// mapped rasters of live tiles; false when no streaming source is live.
+bool environment_stream_remove_overlays(overlume::VisualRenderer* r);
+
+// Opens `fixture_dir`'s tileset.json (the file-based fixture tileset, as
+// install_fixture_streaming_source) as a terrain tileset at the fixture tests' anchor
+// (25.0803 N, 55.3910 E, heading 0, height 0), without a disk cache, under a
+// UrlTemplateRasterOverlay on `file://<imagery_dir>/{z}/{x}/{y}.png` capped at `maximum_level`
+// (the fixture's leaves ask for level 17). cesium counts {y} from the south edge of the
+// web-mercator square. A non-null `tile_credit` (HTML) swaps the overlay for one that attaches that
+// credit to every raster tile, as Bing's coverage credits are.
+bool install_fixture_terrain_with_file_imagery(overlume::VisualRenderer* r, const char* fixture_dir,
+                                               const char* imagery_dir, double brightness = 1.0,
+                                               uint32_t maximum_level = 10,
+                                               const char* tile_credit = nullptr);
+
+// Task 11.
+bool environment_stream_has_terrain_tileset(overlume::VisualRenderer* r);
+// Terrain tiles in the Filament scene (0 while the environment is hidden).
+uint64_t environment_terrain_tiles_loaded(overlume::VisualRenderer* r);
+// World z minus local z of a terrain tile's root: the follow-terrain lift when max_tilt_deg is 0.
+// NaN without a terrain tile in the scene.
+double environment_terrain_tile_lift_z(overlume::VisualRenderer* r);
+// A fixture network for ion:// sources (a MapFixtureAssetAccessor; never freed). Canned answers
+// are keyed by URL without its query string; unmatched URLs answer 404.
+struct IonFixtureNetwork;
+IonFixtureNetwork* make_ion_fixture_network();
+void ion_fixture_serve(IonFixtureNetwork* n, const std::string& url_without_query, uint16_t status,
+                       std::vector<uint8_t> body);
+// Every URL starting with `prefix` that no exact rule names; the longest prefix wins.
+void ion_fixture_serve_prefix(IonFixtureNetwork* n, const std::string& prefix, uint16_t status,
+                              std::vector<uint8_t> body);
+// Requests for a URL starting with `prefix` that no exact rule names stay pending until
+// ion_fixture_release_held answers them.
+void ion_fixture_hold_prefix(IonFixtureNetwork* n, const std::string& prefix);
+void ion_fixture_release_held(IonFixtureNetwork* n);
+// The network is gone: every later request, and every held one released, is a transport error.
+void ion_fixture_fail_all_transport(IonFixtureNetwork* n);
+std::vector<std::string> ion_fixture_requested_urls(IonFixtureNetwork* n);
+// Opens an ion:// URI exactly as set_environment_source does (parse, source, terrain tileset and
+// imagery overlay, set_visible, teardown of the old source, swap), but over `n` and with `token`
+// in place of CESIUM_ION_TOKEN.
+bool install_fixture_ion_source(overlume::VisualRenderer* r, const char* ion_uri,
+                                overlume::GeoAnchor anchor, IonFixtureNetwork* n,
+                                const char* token);
+// The overlay counters of the terrain resources of the last source installed over `n`, read even
+// after that source was switched away or fell back. Zeros without one.
+OverlayProbe ion_fixture_terrain_probe(IonFixtureNetwork* n);
+// The environment.terrain_color last pushed to those terrain resources (-1 each before the first
+// push), into `rgb`. False without terrain resources.
+bool ion_fixture_terrain_color(IonFixtureNetwork* n, float rgb[3]);
+
+// The level cap, the tile size and the credit of the first raster overlay of the open streaming
+// source's terrain tileset (its content tileset without one), as cesium's quadtree tile provider
+// holds them. found is false until that provider exists, without an overlay, and for a provider
+// that is not a quadtree one (ion's own).
+struct OverlayOptionsProbe {
+    uint32_t maximum_level;
+    uint32_t tile_width;
+    uint32_t tile_height;
+    std::string credit;
+    bool found;
+};
+OverlayOptionsProbe environment_stream_overlay_options_probe(overlume::VisualRenderer* r);
 
 }

@@ -48,6 +48,7 @@
 #include <filament/Renderer.h>
 #include <filament/Scene.h>
 #include <filament/SwapChain.h>
+#include <filament/TextureSampler.h>
 #include <filament/TransformManager.h>
 #include <filament/VertexBuffer.h>
 #include <filament/View.h>
@@ -80,6 +81,7 @@
 #include "point_cloud_filamat.h"
 #include "trajectory_carpet_filamat.h"
 #include "trajectory_carpet_faded_filamat.h"
+#include "terrain_filamat.h"
 
 #include <algorithm>
 #include <atomic>
@@ -451,6 +453,10 @@ void push_theme_to_scene(VisualRenderer& r, const detail::Theme& theme) {
     r.buildingMaterial->setParameter("baseColor", to_filament(theme.palette.building));
     r.buildingMaterial->setParameter("roughness", theme.material.roughness);
     r.buildingMaterial->setParameter("metallic", theme.material.metallic);
+
+    // New terrain tiles copy it; StreamRendererResources::sync_terrain_color recolours live ones.
+    r.terrainMaterial->getDefaultInstance()->setParameter(
+        "terrainColor", to_filament(theme.environment.terrain_color));
 }
 
 struct ReadbackState {
@@ -797,6 +803,32 @@ VisualRenderer* create_renderer(const RenderConfig& config) {
 
     r->buildingMaterial = r->clayMaterial->createInstance();
 
+    r->terrainMaterial =
+        filament::Material::Builder()
+            .package(overlume::materials::kterrainFilamat, overlume::materials::kterrainFilamatSize)
+            .build(*engine);
+    r->terrainPlaceholderTexture = filament::Texture::Builder()
+                                       .width(1)
+                                       .height(1)
+                                       .levels(1)
+                                       .format(filament::Texture::InternalFormat::RGBA8)
+                                       .sampler(filament::Texture::Sampler::SAMPLER_2D)
+                                       .build(*engine);
+    static const uint8_t kPlaceholderTexel[4] = {255, 255, 255, 255};
+    r->terrainPlaceholderTexture->setImage(
+        *engine, 0,
+        filament::backend::PixelBufferDescriptor(
+            kPlaceholderTexel, sizeof(kPlaceholderTexel),
+            filament::backend::PixelBufferDescriptor::PixelDataFormat::RGBA,
+            filament::backend::PixelBufferDescriptor::PixelDataType::UBYTE));
+    // Filament's createInstance() copies the default instance: every terrain tile starts here.
+    filament::MaterialInstance* terrainDefaults = r->terrainMaterial->getDefaultInstance();
+    terrainDefaults->setParameter("imagery", r->terrainPlaceholderTexture,
+                                  filament::TextureSampler());
+    terrainDefaults->setParameter("hasImagery", int32_t{0});
+    terrainDefaults->setParameter("uvTransform", float4{0.0f, 0.0f, 1.0f, 1.0f});
+    terrainDefaults->setParameter("brightness", 1.0f);
+
     r->groundMaterial->setCullingMode(filament::backend::CullingMode::NONE);
     r->gridMaterial->setCullingMode(filament::backend::CullingMode::NONE);
     r->laneMaterial->setCullingMode(filament::backend::CullingMode::NONE);
@@ -951,6 +983,10 @@ void destroy_renderer(VisualRenderer* r) {
     if (r->roadEdgeMaterial) r->engine->destroy(r->roadEdgeMaterial);
     if (r->egoMaterial) r->engine->destroy(r->egoMaterial);
     if (r->buildingMaterial) r->engine->destroy(r->buildingMaterial);
+    // After the environment teardown above (it destroys the tiles' instances); the material's
+    // default instance holds the placeholder, so the texture goes last.
+    if (r->terrainMaterial) r->engine->destroy(r->terrainMaterial);
+    if (r->terrainPlaceholderTexture) r->engine->destroy(r->terrainPlaceholderTexture);
     for (auto* m : r->ribbonMaterial) {
         if (m) r->engine->destroy(m);
     }

@@ -231,6 +231,11 @@ continuation lands on the main thread via
 runs every tick) and captures only a shared `TerrainFollowState`, never the
 source itself — the source can be destroyed with a sample batch in flight.
 
+**With a terrain tileset:** when the source carries one (`ion://…?terrain=<id>`, or
+`mapbox://` with the `terrain` layer), the five samples go to the terrain tileset, not the
+content tileset, and the transform moves both; see
+[`terrain_imagery.md`](terrain_imagery.md) §1.
+
 **Along-track only, deliberately:** lateral (across-track) samples are never
 taken. The verge/kerb either side of the carriageway is genuinely higher
 than the road surface, so a lateral sample would pull the fit toward the

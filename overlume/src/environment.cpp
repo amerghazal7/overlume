@@ -179,6 +179,8 @@ namespace overlume {
 namespace {
 constexpr char kIonPrefix[] = "ion://";
 constexpr size_t kIonPrefixLen = sizeof(kIonPrefix) - 1;
+constexpr char kMapboxPrefix[] = "mapbox://";
+constexpr size_t kMapboxPrefixLen = sizeof(kMapboxPrefix) - 1;
 }
 
 bool set_environment_source(VisualRenderer* r, const char* source_uri, GeoAnchor anchor) {
@@ -189,6 +191,12 @@ bool set_environment_source(VisualRenderer* r, const char* source_uri, GeoAnchor
     if (uri.compare(0, kIonPrefixLen, kIonPrefix) == 0) {
 #ifdef OVERLUME_ENABLE_CESIUM
         source = open_streaming_environment_source(uri.substr(kIonPrefixLen), anchor);
+#else
+        return false;
+#endif
+    } else if (uri.compare(0, kMapboxPrefixLen, kMapboxPrefix) == 0) {
+#ifdef OVERLUME_ENABLE_CESIUM
+        source = open_mapbox_environment_source(uri.substr(kMapboxPrefixLen), anchor);
 #else
         return false;
 #endif
@@ -222,6 +230,14 @@ EnvironmentSourceState environment_source_state(VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return EnvironmentSourceState::NONE;
     return r->environmentSource->state();
 }
+
+#ifndef OVERLUME_ENABLE_CESIUM
+// Without cesium no source has raster overlays; environment_stream.cpp defines it otherwise.
+uint32_t environment_source_credits(VisualRenderer*, char* out, uint32_t cap) {
+    if (out != nullptr && cap > 0) out[0] = '\0';
+    return 0;
+}
+#endif
 
 }
 

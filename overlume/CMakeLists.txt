@@ -234,8 +234,12 @@ if(ANDROID)
         PROPERTIES COMPILE_OPTIONS "-fno-rtti")
 endif()
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
-    list(REMOVE_ITEM OVERLUME_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
+# Cesium-only translation units: C++20, compiled in overlume_stream, never in overlume_obj.
+file(GLOB _overlume_stream_srcs CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp"
+     "${CMAKE_CURRENT_SOURCE_DIR}/src/mapbox_*.cpp")
+if(_overlume_stream_srcs)
+    list(REMOVE_ITEM OVERLUME_SOURCES ${_overlume_stream_srcs})
 endif()
 
 # One OBJECT library feeds both link products: `overlume` (static, merged
@@ -255,7 +259,7 @@ endif()
 
 set(_overlume_overlume_stream_objects "")
 if(OVERLUME_ENABLE_CESIUM AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/environment_stream.cpp")
-    add_library(overlume_stream OBJECT src/environment_stream.cpp)
+    add_library(overlume_stream OBJECT ${_overlume_stream_srcs})
     target_compile_features(overlume_stream PRIVATE cxx_std_20)
     target_link_libraries(overlume_stream PRIVATE
         Cesium3DTilesSelection CesiumGltfWriter CesiumGltfReader CesiumAsync
@@ -583,6 +587,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     if(NOT OVERLUME_ENABLE_CESIUM)
         list(REMOVE_ITEM _overlume_test_srcs
              "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_environment_stream.cpp")
+        list(FILTER _overlume_test_srcs EXCLUDE REGEX "/test_mapbox_[^/]*\\.cpp$")
+    else()
+        # tests/test_mapbox_*.cpp get meshoptimizer.h alone: vcpkg's include root also holds glm.
+        get_target_property(_meshopt_inc meshoptimizer::meshoptimizer INTERFACE_INCLUDE_DIRECTORIES)
+        configure_file("${_meshopt_inc}/meshoptimizer.h"
+                       "${CMAKE_CURRENT_BINARY_DIR}/meshopt_include/meshoptimizer.h" COPYONLY)
     endif()
     # Where tests find fixtures at run time (Android sets the on-device path).
     set(OVERLUME_TEST_DATA_DIR_RUNTIME "${CMAKE_CURRENT_SOURCE_DIR}" CACHE STRING
@@ -615,6 +625,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
             # yaml-cpp's static-library define (else MSVC assumes dllimport).
             target_compile_definitions(${_test_name} PRIVATE
                 $<TARGET_PROPERTY:yaml-cpp::yaml-cpp,INTERFACE_COMPILE_DEFINITIONS>)
+        endif()
+        if(_test_name MATCHES "^test_mapbox_")
+            # The landmark fixtures use meshoptimizer's EXT_meshopt_compression encoder. Its
+            # symbols already link: Filament's older libmeshoptimizer.a comes first on the
+            # link line, vcpkg's 1.1 follows through CesiumGltfReader.
+            target_include_directories(${_test_name} PRIVATE
+                "${CMAKE_CURRENT_BINARY_DIR}/meshopt_include")
         endif()
         target_compile_definitions(${_test_name} PRIVATE
             OVERLUME_TEST_DATA_DIR="${OVERLUME_TEST_DATA_DIR_RUNTIME}"

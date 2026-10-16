@@ -8,6 +8,7 @@ Run: pytest tools/test_vcam_ws_bridge.py
 
 import json
 import os
+import re
 import sys
 
 import pytest
@@ -83,6 +84,13 @@ def test_rejects_malformed(text):
     with pytest.raises(ValueError):
         parse_cmd(text)
 
+def test_environment_source_refusal_lists_exactly_the_sources():
+    """The refusal text is the only place a client sees the source names: it lists every
+    entry of ENVIRONMENT_PRESETS, osm-terrain included, and nothing the table lacks."""
+    with pytest.raises(ValueError, match="osm-terrain") as refusal:
+        parse_cmd('{"cmd": "set_environment_source", "preset": "satellite"}')
+    assert set(re.findall(r'"([^"]+)"', str(refusal.value))) == ENVIRONMENT_PRESETS
+
 def test_set_layers_valid():
     assert parse_cmd(json.dumps(
         {"cmd": "set_layers", "layers": {"objects": False}})) == \
@@ -132,13 +140,30 @@ def test_set_environment_enabled_valid(enabled):
     assert parse_cmd(json.dumps({"cmd": "set_environment_enabled", "enabled": enabled})) == \
         ("set_environment_enabled", enabled)
 
-@pytest.mark.parametrize("preset", ["baked", "osm", "clipped", "google"])
+@pytest.mark.parametrize("preset", [
+    "baked", "osm", "clipped", "google", "mapbox", "mapbox-original", "mapbox-satellite",
+    "mapbox-original-satellite", "osm-terrain",
+])
 def test_set_environment_source_valid(preset):
     assert parse_cmd(json.dumps({"cmd": "set_environment_source", "preset": preset})) == \
         ("set_environment_source", preset)
 
 def test_google_preset_ships_cache_off():
     assert ENVIRONMENT_PRESET_URIS["google"].endswith("cache=off")
+
+def test_mapbox_entries_map_to_the_buildings_uris():
+    # No cache=off: the mapbox:// source never writes a cache.
+    assert ENVIRONMENT_PRESET_URIS["mapbox"] == "mapbox://buildings"
+    assert ENVIRONMENT_PRESET_URIS["mapbox-original"] == "mapbox://buildings?materials=original"
+
+def test_environment_imagery_entries_map_to_their_uris():
+    # Terrain with imagery draped on it: Mapbox Satellite on terrain-DEM, and Cesium World Terrain
+    # (ion asset 1) with Bing Maps Aerial (ion asset 2) under Cesium OSM Buildings.
+    assert ENVIRONMENT_PRESET_URIS["mapbox-satellite"] == \
+        "mapbox://buildings,terrain?imagery=satellite"
+    assert ENVIRONMENT_PRESET_URIS["mapbox-original-satellite"] == \
+        "mapbox://buildings,terrain?materials=original&imagery=satellite"
+    assert ENVIRONMENT_PRESET_URIS["osm-terrain"] == "ion://96188?terrain=1&imagery=2"
 
 def test_param_cmds_valid():
     assert parse_cmd('{"cmd": "get_params"}') == ("get_params", None)
@@ -552,6 +577,15 @@ def test_resolve_environment_preset():
     assert resolve_environment_preset("ion://96188", "") == "osm"
     assert resolve_environment_preset(
         "ion://2275207?materials=original&cache=off", "") == "google"
+    assert resolve_environment_preset("mapbox://buildings", "") == "mapbox"
+    assert resolve_environment_preset(
+        "mapbox://buildings?materials=original", "") == "mapbox-original"
+    assert resolve_environment_preset(
+        "mapbox://buildings,terrain?imagery=satellite", "") == "mapbox-satellite"
+    assert resolve_environment_preset(
+        "mapbox://buildings,terrain?materials=original&imagery=satellite", "") == \
+        "mapbox-original-satellite"
+    assert resolve_environment_preset("ion://96188?terrain=1&imagery=2", "") == "osm-terrain"
     assert resolve_environment_preset("ion://12345", "ion://12345") == "clipped"
     assert resolve_environment_preset("ion://12345", "") is None
     assert resolve_environment_preset("ion://99999?foo=bar", "ion://12345") is None
@@ -581,7 +615,10 @@ def test_gui_and_bridge_environment_preset_tables_agree():
     from vcam_gui import ENVIRONMENT_PRESETS as GUI_PRESETS
     from vcam_gui import ENVIRONMENT_PRESET_URIS_FIXED
 
+    assert GUI_PRESETS == ["baked", "osm", "clipped", "google", "mapbox", "mapbox-original",
+                           "mapbox-satellite", "mapbox-original-satellite", "osm-terrain"]
     assert set(GUI_PRESETS) == ENVIRONMENT_PRESETS
+    assert set(ENVIRONMENT_PRESET_URIS) == ENVIRONMENT_PRESETS - {"clipped"}
     assert "clipped" not in ENVIRONMENT_PRESET_URIS_FIXED
     assert "clipped" not in ENVIRONMENT_PRESET_URIS
     assert ENVIRONMENT_PRESET_URIS_FIXED == ENVIRONMENT_PRESET_URIS
@@ -727,3 +764,35 @@ def test_launcher_runs_preflight_after_teardown_and_checks_the_bridge():
     bridge = script.index('tools/vcam_ws_bridge.py" --local-mode')
     alive = script.index('wait_listening "${BRIDGE_PID}" 8765')
     assert teardown < port_check < bridge < alive
+
+
+
+# --- token refresh (tools/validate_visual_mode.sh) ---------------------------------------------
+# Runs the launcher's refresh block on its own. HOME is a temp dir, so the login shell it starts
+# reads only the fake profile below, never a real token.
+
+def test_launcher_refreshes_both_tokens_from_the_login_shell(tmp_path):
+    import subprocess
+    with open(os.path.join(os.path.dirname(__file__), "validate_visual_mode.sh")) as f:
+        script = f.read()
+    start = script.index("for _token_name in ")
+    marker = "unset _fresh_token _token_name\n"
+    end = script.index(marker, start) + len(marker)
+    (tmp_path / ".bash_profile").write_text(
+        "echo 'startup files may print'\n"
+        "export CESIUM_ION_TOKEN=ion-test-token-not-real\n"
+        "export MAPBOX_TOKEN=pk.test-token-not-real\n")
+    env = {k: v for k, v in os.environ.items() if k not in ("CESIUM_ION_TOKEN", "MAPBOX_TOKEN")}
+    env.update(HOME=str(tmp_path), MAPBOX_TOKEN="pk.stale-token-not-real")
+    r = subprocess.run(
+        ["bash", "-c", "set -euo pipefail\n" + script[start:end] +
+         'printenv CESIUM_ION_TOKEN MAPBOX_TOKEN > "$HOME/tokens"\n'],
+        env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    tokens = (tmp_path / "tokens").read_text().split()
+    # A bare boolean: pytest must not print token values if this ever fails.
+    ok = tokens == ["ion-test-token-not-real", "pk.test-token-not-real"]
+    assert ok, "login-shell tokens differ from the fake profile's"
+    assert ("[token] MAPBOX_TOKEN in this shell differs from the login shell's -- "
+            "using the login shell's") in r.stdout
+    assert "token-not-real" not in r.stdout + r.stderr

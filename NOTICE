@@ -300,6 +300,25 @@ that runbook's citation — the runbook itself flags the exact attribution
 wording and cache-lifetime policy as due for a pre-go-live manual recheck.
 
 --------------------------------------------------------------------------------
+Mapbox 3D buildings and Mapbox Streets v8 (optional live streaming source)
+--------------------------------------------------------------------------------
+Terms:    Mapbox Terms of Service and Product Terms; see
+          docs/runbooks/mapbox.md for the token, the on-screen attribution
+          this deployment must show (the Mapbox logo, "© Mapbox",
+          "© OpenStreetMap", "Improve this map") and the no-cache,
+          no-stored-data rules.
+License per upstream (Mapbox terms); not re-verified beyond that runbook's
+citation. The mapbox:// source streams at run time with the deployment's
+own MAPBOX_TOKEN (by name only): no Mapbox data is stored, cached or
+committed in this repository, and the tests use synthetic fixtures built in
+Mapbox's formats. Mapbox Streets v8 carries OpenStreetMap data (ODbL),
+credited on screen by "© OpenStreetMap". The Mapbox logo
+(ros/src/overlume_ros/assets/attribution/mapbox-logo.png, provenance in the
+ATTRIBUTION.md beside it) is a Mapbox trademark, shipped only to meet that
+attribution requirement; whether it may stay in this repository is an open
+release check (docs/status.md).
+
+--------------------------------------------------------------------------------
 Committed test fixtures (synthesized, no third-party data)
 --------------------------------------------------------------------------------
 overlume/tests/fixtures/environment_tiles_fixture_0/ and

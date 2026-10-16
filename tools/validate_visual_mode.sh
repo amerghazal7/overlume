@@ -174,14 +174,20 @@ source /opt/ros/humble/setup.bash
 source "${REPO_ROOT}/ros/install/setup.bash"
 set -u
 
-_fresh_token="$(env -u CESIUM_ION_TOKEN bash -lic 'printf %s "${CESIUM_ION_TOKEN:-}"' 2>/dev/null || true)"
-if [[ -n "${_fresh_token}" ]]; then
-    if [[ -n "${CESIUM_ION_TOKEN:-}" && "${CESIUM_ION_TOKEN}" != "${_fresh_token}" ]]; then
-        echo "[token] CESIUM_ION_TOKEN in this shell differs from the login shell's -- using the login shell's"
+# A long-lived terminal can hold a pre-rotation token, so read each one from a fresh login shell.
+# The value comes back on fd 3: the startup files' own output must not end up in the token.
+for _token_name in CESIUM_ION_TOKEN MAPBOX_TOKEN; do
+    _fresh_token="$(env -u "${_token_name}" bash -lic "printf %s \"\${${_token_name}:-}\" >&3" \
+        3>&1 >/dev/null 2>&1 || true)"
+    if [[ -n "${_fresh_token}" ]]; then
+        if [[ -n "${!_token_name:-}" && "${!_token_name}" != "${_fresh_token}" ]]; then
+            echo "[token] ${_token_name} in this shell differs from the login shell's --" \
+                "using the login shell's"
+        fi
+        export "${_token_name}=${_fresh_token}"
     fi
-    export CESIUM_ION_TOKEN="${_fresh_token}"
-fi
-unset _fresh_token
+done
+unset _fresh_token _token_name
 
 declare -a CHILD_PIDS=()
 declare -a CHILD_PGIDS=()
