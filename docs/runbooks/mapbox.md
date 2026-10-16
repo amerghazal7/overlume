@@ -333,7 +333,9 @@ among streets of extruded buildings.
   `terrain` to the layer list (`mapbox://buildings,terrain?imagery=satellite`), or set
   `environment_terrain: enable` ([`terrain_imagery.md`](terrain_imagery.md) §3).
 - **The source does not open: `mapbox:// supports only the layers 'buildings' and 'terrain', not
-  '…'`.** A misspelt, repeated or empty layer name.
+  '…'`.** A misspelt or empty layer name.
+- **The source does not open: `mapbox:// duplicate layer '…'`.** The layer list names `buildings`
+  or `terrain` twice. Name each once (`mapbox://buildings,terrain`).
 - **Terrain, but no imagery, or blurry patches: the ground shows `environment.terrain_color`.**
   Satellite tiles fail (429, 5xx or a transport error). The source logs no line of its own for
   them. cesium-native replaces a failed tile by its parent's coarser imagery, level by level, so
