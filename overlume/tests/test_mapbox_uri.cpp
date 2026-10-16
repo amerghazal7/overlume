@@ -144,9 +144,11 @@ TEST(MapboxUri, RepeatedLayerNamesRefuse) {
         const MapboxSpecResult r = parse_mapbox_spec(spec);
         EXPECT_FALSE(r.spec) << spec;
         EXPECT_EQ(r.error.rfind("mapbox://", 0), 0u) << spec << ": " << r.error;
-        // The contract's one text for empty, repeated and unknown names.
-        EXPECT_TRUE(mentions(r.error, "'buildings' and 'terrain'")) << spec << ": " << r.error;
-        EXPECT_TRUE(mentions(r.error, std::string("not ") + name)) << spec << ": " << r.error;
+        // A repeated name is a supported layer, so the text calls it a duplicate; "not 'buildings'"
+        // (the text for empty and unknown names) would read as if it were unsupported.
+        EXPECT_TRUE(mentions(r.error, std::string("duplicate layer ") + name))
+            << spec << ": " << r.error;
+        EXPECT_FALSE(mentions(r.error, std::string("not ") + name)) << spec << ": " << r.error;
         EXPECT_FALSE(mentions(r.error, "refused")) << spec << ": " << r.error;
     }
 }

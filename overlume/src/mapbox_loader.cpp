@@ -86,8 +86,13 @@ MapboxSpecResult parse_mapbox_spec(const std::string& spec) {
         bool* layer = nullptr;
         if (name == "buildings") layer = &out.buildings;
         if (name == "terrain") layer = &out.terrain;
-        // Empty, unknown and repeated names share one text: the second mention is the one refused.
-        if (layer == nullptr || *layer) {
+        // The second mention of a layer is the one refused. It is a supported name, so it is called
+        // a duplicate: "not 'buildings'" would read as if 'buildings' were unsupported.
+        if (layer != nullptr && *layer) {
+            return {std::nullopt, "mapbox:// duplicate layer '" + name + "'", ""};
+        }
+        // Empty and unknown names share one text.
+        if (layer == nullptr) {
             return {
                 std::nullopt,
                 "mapbox:// supports only the layers 'buildings' and 'terrain', not '" + name + "'",
