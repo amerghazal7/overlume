@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <iostream>
 #include <map>
 #include <set>
 #include <string>
@@ -1297,4 +1298,166 @@ TEST(MapboxTerrainEndToEnd, FiveMetreStepBetweenTilesShowsNoSkyAlongTheEdge) {
         }
         overlume::destroy_renderer(r);
     }
+}
+
+namespace {
+
+namespace terrain_golden {
+
+// The golden's hill: 15 m high, a gaussian of 32 DEM pixels (about 138 m: four cells of the
+// terrain mesh's 8-pixel grid, which follows it to within 0.28 m) centred 75 pixels (about 323 m)
+// north of the tile centre, on 0 m ground. Under the anchor (the tile centre) it is 0.95 m, so
+// its top stands 14.05 m above the anchor's ground.
+double hill_m(double u, double v) {
+    const double du = u - 256.0;
+    const double dv = v - 181.0;
+    return 15.0 * std::exp(-(du * du + dv * dv) / 2048.0);
+}
+
+// Filament's temporal dither changes every frame's noise with the frame's index since
+// create_renderer, so the compared frame is this one however early the scene settles. Settling
+// takes the frames to readiness (about 40 here) plus a second of stillness, at most 200 frames
+// with the 5 ms sleep, twice over if a late raster stage restarts the window: 500 holds on a
+// machine of any speed, and each frame after settling costs about 1.5 ms.
+constexpr int kComparedFrame = 500;
+
+// Present: the hill, red west and green east of the north-south line through the ego, and three 8 m
+// blocks standing on the DEM: on the summit (just east of that line), on the east slope, and on
+// level ground near the ego. Absent: the clay ground plane, and sky anywhere below the crest.
+void synthetic_hill(const char* theme, const char* golden_png, const char* actual_png,
+                    bool probe_colours) {
+    namespace mvt = overlume::testing::mvt;
+    auto* r = e2e::make_renderer(theme);
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const e2e::TileId t = e2e::op_tile();
+    const overlume::GeoAnchor a = e2e::anchor_in(t, 0.5, 0.5);
+    // Unmatched URLs answer 404, so every request the scene needs is served below.
+    auto* n = overlume::testing::make_mapbox_fixture_network();
+    std::set<std::string> served = e2e::serve_imagery(n, t);
+    // Cesium also asks for the ring of tiles one row off the pyramid (a rounding error away,
+    // imagery_urls_with_ring); those answer 404 and are allowed, a mirrored row is not.
+    const std::set<std::string> ring = e2e::imagery_urls_with_ring(t);
+    served.insert(ring.begin(), ring.end());
+    e2e::serve_dem(n, t, hill_m);
+    served.insert(overlume::testing::mapbox_dem_url(t.x, t.y));
+    const e2e::PxBox summit = e2e::px_box(256.5, 179.8, 259.0, 182.2);
+    const e2e::PxBox slope = e2e::px_box(270.7, 189.0, 275.3, 191.0);
+    const e2e::PxBox level = e2e::px_box(258.2, 250.1, 260.0, 251.9);
+    ASSERT_EQ(slope.square, summit.square);  // all three blocks lie in z16 square 6
+    ASSERT_EQ(level.square, summit.square);
+    e2e::serve_square(
+        n, t, summit.square,
+        {mvt::building(501, {summit.ring}, 8.0), mvt::building(502, {slope.ring}, 8.0),
+         mvt::building(503, {level.ring}, 8.0)});
+    const std::array<e2e::TileId, 16> squares = overlume::mapbox::footprint_tiles_of(t);
+    for (size_t i = 0; i < squares.size(); ++i) {
+        const std::string url = overlume::testing::mapbox_footprint_url(squares[i].x, squares[i].y);
+        if (i != summit.square) overlume::testing::mapbox_fixture_serve(n, url, 204, {});
+        served.insert(url);
+    }
+    const std::string landmark = overlume::testing::mapbox_landmark_url(t.x, t.y);
+    overlume::testing::mapbox_fixture_serve(n, landmark, 204, {});
+    served.insert(landmark);
+    // radius=150 keeps the upsampled terrain to the tiles around the ego.
+    ASSERT_TRUE(e2e::install(r, "mapbox://buildings,terrain?imagery=satellite&radius=150", a, n));
+    e2e::set_ego(r, 0.0, 0.0);
+
+    const overlume::CameraPose pose{{0.0, -100.0, 35.0}, {0.0, 100.0, 7.0}, 20.0};
+    std::vector<uint8_t> frame(e2e::kFrameBytes);
+    // Settled: both loaders built the tile, the ego's ground sample landed, a raster is attached,
+    // and neither the terrain tiles in the scene nor the attached rasters changed for 10 frames
+    // and for a second of wall clock. Upsampling and imagery decoding run on worker threads, so a
+    // pause between raster stages can outlast 10 fast frames.
+    int frames = 0;
+    int still = 0;
+    auto stillSince = std::chrono::steady_clock::now();
+    bool settled = false;
+    uint64_t lastTiles = 0;
+    uint32_t lastRasters = 0;
+    for (; frames < 1000 && !settled; ++frames) {
+        ASSERT_TRUE(overlume::render_frame(r, pose, {frame.data(), e2e::kWidth, e2e::kHeight}));
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        const overlume::testing::MapboxSourceStats s = e2e::stats();
+        const uint64_t tiles = overlume::testing::environment_terrain_tiles_loaded(r);
+        const uint32_t rasters = e2e::overlay(r).rasters_attached;
+        const bool ready = s.tiles_built == 1 && s.terrain_tiles_built == 1 && rasters >= 1 &&
+                           overlume::testing::environment_stream_provides_ground(r);
+        if (ready && tiles == lastTiles && rasters == lastRasters) {
+            ++still;
+        } else {
+            still = 0;
+            stillSince = std::chrono::steady_clock::now();
+        }
+        settled =
+            still >= 10 && std::chrono::steady_clock::now() - stillSince >= std::chrono::seconds(1);
+        lastTiles = tiles;
+        lastRasters = rasters;
+    }
+    ASSERT_TRUE(settled) << "the golden scene never settled";
+    std::cout << "[terrain_golden] " << theme << " settled at frame " << frames << "\n";
+    // ponytail: a machine that settles at frame 500 or later fails here instead of comparing a
+    // frame of another dither phase; raise kComparedFrame (and re-promote) if the gate machine
+    // ever does.
+    ASSERT_LT(frames, kComparedFrame) << "settled at frame " << frames;
+    for (; frames < kComparedFrame - 1; ++frames) {
+        overlume::render_frame(r, pose, {frame.data(), e2e::kWidth, e2e::kHeight});
+    }
+
+    const overlume::testing::MapboxSourceStats stats = e2e::stats();
+    EXPECT_EQ(stats.tiles_built, 1u);
+    EXPECT_EQ(stats.terrain_tiles_built, 1u);
+    EXPECT_EQ(stats.dem_requests, 1u) << "one DEM for both loaders";
+    EXPECT_EQ(stats.extruded_features, 3u);
+    EXPECT_EQ(stats.wall_quads, 12u);
+    EXPECT_NEAR(stats.max_tile_top_m, 22.05, 0.5)
+        << "the summit block's top: the DEM at its centroid (15.0 m) less z_ref (0.95 m) plus 8 m";
+    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING);
+    for (const std::string& url : overlume::testing::mapbox_fixture_requested_urls(n)) {
+        EXPECT_EQ(served.count(e2e::bare(url)), 1u) << "unexpected request " << e2e::bare(url);
+    }
+
+    const double ssim = overlume::testing::render_and_compare(r, pose, golden_png, actual_png);
+    EXPECT_GT(ssim, overlume::testing::kSsimMin);
+
+    // light_clay only (its fog is 40 times thinner than dark_adas's): the SSIM need not notice
+    // mirrored imagery on a dim hill or a block buried in it, so three probes pin them.
+    if (probe_colours) {
+        ASSERT_TRUE(overlume::render_frame(r, pose, {frame.data(), e2e::kWidth, e2e::kHeight}));
+        const e2e::Colour sky = e2e::colour_at_px(frame, 160, 2);
+        e2e::Colour ne{}, nw{}, atSummit{};
+        ASSERT_TRUE(
+            e2e::colour_at(r, frame, e2e::lowered(e2e::px_to_map(a, t, 264.0, 215.0, 7.33)), &ne));
+        ASSERT_TRUE(
+            e2e::colour_at(r, frame, e2e::lowered(e2e::px_to_map(a, t, 248.0, 215.0, 7.33)), &nw));
+        // The summit block's south wall, 4 m up from its base (14.05 m above the anchor's ground).
+        ASSERT_TRUE(e2e::colour_at(
+            r, frame, e2e::lowered(e2e::px_to_map(a, t, 257.75, 182.2, 18.05)), &atSummit));
+        EXPECT_TRUE(e2e::looks_like(ne, e2e::kNorthEast))
+            << "the hill's north-east flank must be green " << e2e::str(ne);
+        EXPECT_TRUE(e2e::looks_like(nw, e2e::kNorthWest))
+            << "the hill's north-west flank must be red " << e2e::str(nw);
+        EXPECT_FALSE(e2e::looks_like(atSummit, e2e::kNorthEast))
+            << "green where the summit block stands: it is buried in the hill "
+            << e2e::str(atSummit);
+        EXPECT_FALSE(e2e::near(atSummit, sky, 10.0))
+            << "sky where the summit block stands " << e2e::str(atSummit);
+    }
+    overlume::destroy_renderer(r);
+}
+
+}
+
+}
+
+TEST(MapboxTerrainGolden, SyntheticHillDarkAdas) {
+    terrain_golden::synthetic_hill(
+        "dark_adas", OVERLUME_TEST_DATA_DIR "/tests/goldens/mapbox_terrain_synthetic_dark_adas.png",
+        OVERLUME_TMP_DIR "/mapbox_terrain_synthetic_dark_adas_actual.png", false);
+}
+
+TEST(MapboxTerrainGolden, SyntheticHillLightClay) {
+    terrain_golden::synthetic_hill(
+        "light_clay",
+        OVERLUME_TEST_DATA_DIR "/tests/goldens/mapbox_terrain_synthetic_light_clay.png",
+        OVERLUME_TMP_DIR "/mapbox_terrain_synthetic_light_clay_actual.png", true);
 }
