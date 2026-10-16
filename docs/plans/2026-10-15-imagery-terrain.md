@@ -27,7 +27,7 @@
 | 10. Mapbox terrain loader and source wiring | 5 | done | `bf81642..9e22d9a` |
 | 11. Second tileset, ion terrain and imagery, credits API | 6 | done | `199442c..3004004` |
 | 12. End-to-end over the fixture network | 7 | done | `aa48d04..a3bd818` |
-| 13. Golden candidates and promotion | 7 | pending | |
+| 13. Golden candidates and promotion | 7 | done | `717415a..29b26f8` |
 | 14. Opt-in live smoke | 7 | pending | |
 | 15. Rig rehearsal and close-out | 7 | pending | |
 
