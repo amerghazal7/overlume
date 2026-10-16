@@ -20,6 +20,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <iostream>
@@ -1468,4 +1469,151 @@ TEST(MapboxTerrainGolden, SyntheticHillLightClay) {
         "light_clay",
         OVERLUME_TEST_DATA_DIR "/tests/goldens/mapbox_terrain_synthetic_light_clay.png",
         OVERLUME_TMP_DIR "/mapbox_terrain_synthetic_light_clay_actual.png", true);
+}
+
+namespace {
+
+namespace live {
+
+// The variable's value without surrounding ASCII whitespace, as the library trims a token. Never
+// printed.
+std::string trimmed_env(const char* name) {
+    const char* value = std::getenv(name);
+    const std::string s = value != nullptr ? value : "";
+    const size_t first = s.find_first_not_of(" \t\n\v\f\r");
+    if (first == std::string::npos) return {};
+    return s.substr(first, s.find_last_not_of(" \t\n\v\f\r") - first + 1);
+}
+
+bool enabled(const char* token_name, const char* opt_in_name) {
+    const char* opt_in = std::getenv(opt_in_name);
+    return !trimmed_env(token_name).empty() && opt_in != nullptr && std::string(opt_in) == "1";
+}
+
+// Renders until done() holds and progress() has not changed for 3 s, or 30 s pass, then writes the
+// frame to `png`. Returns the seconds waited.
+template <typename Done, typename Progress>
+double pump(overlume::VisualRenderer* r, const overlume::CameraPose& pose, const std::string& png,
+            Done done, Progress progress) {
+    std::vector<uint8_t> frame(e2e::kFrameBytes);
+    const auto start = std::chrono::steady_clock::now();
+    auto lastChange = start;
+    uint64_t last = progress();
+    while (std::chrono::steady_clock::now() - start < std::chrono::seconds(30)) {
+        if (!overlume::render_frame(r, pose, {frame.data(), e2e::kWidth, e2e::kHeight})) break;
+        const uint64_t now = progress();
+        if (now != last) {
+            last = now;
+            lastChange = std::chrono::steady_clock::now();
+        }
+        if (done() && std::chrono::steady_clock::now() - lastChange > std::chrono::seconds(3)) {
+            break;
+        }
+    }
+    const double waitS =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    overlume::testing::render_and_compare(r, pose, "/nonexistent_no_golden.png", png.c_str());
+    return waitS;
+}
+
+// The operating area (spec §9), heading pi/2: map +x east.
+const overlume::GeoAnchor kOperatingArea{25.0803, 55.3910, e2e::kPi / 2.0, 0.0};
+const overlume::CameraPose kLivePose{{0.0, -300.0, 200.0}, {0.0, 0.0, 0.0}, 60.0};
+
+}
+
+}
+
+TEST(MapboxLive, OperatingAreaTerrain) {
+    if (!live::enabled("MAPBOX_TOKEN", "OVERLUME_LIVE_MAPBOX")) {
+        GTEST_SKIP() << "opt-in live-network check -- set MAPBOX_TOKEN and "
+                        "OVERLUME_LIVE_MAPBOX=1 to run (never required by ctest)";
+    }
+    auto* r = e2e::make_renderer("dark_adas");
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const size_t logFrom = e2e::log_size();
+    ASSERT_TRUE(overlume::set_environment_source(r, "mapbox://buildings,terrain?imagery=satellite",
+                                                 live::kOperatingArea));
+    e2e::set_ego(r, 0.0, 0.0);
+    const std::string png =
+        std::string(OVERLUME_TMP_DIR) + "/mapbox_live_operating_area_terrain.png";
+    const double waitS = live::pump(
+        r, live::kLivePose, png,
+        [&] {
+            return e2e::stats().terrain_tiles_built >= 2 && e2e::overlay(r).rasters_attached >= 1;
+        },
+        [&] {
+            const overlume::testing::MapboxSourceStats s = e2e::stats();
+            return s.tiles_built + s.terrain_tiles_built + e2e::overlay(r).rasters_attached +
+                   overlume::testing::environment_terrain_tiles_loaded(r);
+        });
+    const overlume::testing::MapboxSourceStats s = e2e::stats();
+    const overlume::testing::OverlayProbe o = e2e::overlay(r);
+    const bool maxar = e2e::credits(r).find("\xC2\xA9 Maxar") != std::string::npos;
+    // Counts only, never a URL: every request URL carries the token.
+    std::cerr << "[MapboxLive] operating_area_terrain terrain_tiles_built=" << s.terrain_tiles_built
+              << " dem_requests=" << s.dem_requests << " tiles_built=" << s.tiles_built
+              << " extruded_features=" << s.extruded_features
+              << " rasters_attached=" << o.rasters_attached
+              << " textures_alive=" << o.textures_alive
+              << " terrain_in_scene=" << overlume::testing::environment_terrain_tiles_loaded(r)
+              << " maxar_credit=" << (maxar ? 1 : 0) << " wait_s=" << waitS << " png=" << png
+              << "\n";
+    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING)
+        << "fell back to baked chunks: run tools/check_mapbox_token.sh";
+    EXPECT_EQ(s.terrain_tiles_built, 2u) << "the anchor's tile and its east neighbour, 208 m away";
+    // At least: a transient failure on a live network retries the DEM; the count is printed above.
+    EXPECT_GE(s.dem_requests, 2u) << "one DEM per tile for both loaders";
+    EXPECT_GT(o.rasters_attached, 0u) << "no satellite imagery attached";
+    EXPECT_TRUE(maxar) << "the credits lack the Maxar line";
+    // Compares positions, so a failure prints numbers, never the token.
+    EXPECT_EQ(e2e::log_since(logFrom).find(live::trimmed_env("MAPBOX_TOKEN")), std::string::npos)
+        << "the token reached the log";
+    overlume::destroy_renderer(r);
+}
+
+TEST(IonLive, WorldTerrainBing) {
+    if (!live::enabled("CESIUM_ION_TOKEN", "OVERLUME_LIVE_ION")) {
+        GTEST_SKIP() << "opt-in live-network check -- set CESIUM_ION_TOKEN and "
+                        "OVERLUME_LIVE_ION=1 to run (never required by ctest)";
+    }
+    auto* r = e2e::make_renderer("dark_adas");
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const size_t logFrom = e2e::log_size();
+    // The vcam GUI's osm-terrain source: OSM Buildings on Cesium World Terrain (asset 1) with
+    // Bing Maps Aerial (asset 2).
+    ASSERT_TRUE(overlume::set_environment_source(r, "ion://96188?terrain=1&imagery=2",
+                                                 live::kOperatingArea));
+    e2e::set_ego(r, 0.0, 0.0);
+    const std::string png = std::string(OVERLUME_TMP_DIR) + "/ion_live_world_terrain_bing.png";
+    const double waitS = live::pump(
+        r, live::kLivePose, png,
+        [&] {
+            return overlume::testing::environment_terrain_tiles_loaded(r) >= 1 &&
+                   e2e::overlay(r).rasters_attached >= 1;
+        },
+        [&] {
+            return overlume::testing::environment_terrain_tiles_loaded(r) +
+                   e2e::overlay(r).rasters_attached;
+        });
+    const bool hasTerrain = overlume::testing::environment_stream_has_terrain_tileset(r);
+    const uint64_t terrainTiles = overlume::testing::environment_terrain_tiles_loaded(r);
+    const overlume::testing::OverlayProbe o = e2e::overlay(r);
+    const std::string credited = e2e::credits(r);
+    std::cerr << "[IonLive] world_terrain_bing has_terrain=" << (hasTerrain ? 1 : 0)
+              << " terrain_tiles=" << terrainTiles << " rasters_attached=" << o.rasters_attached
+              << " textures_alive=" << o.textures_alive << " credit_chars=" << credited.size()
+              << " in_scene=" << overlume::testing::environment_loaded_chunk_count(r)
+              << " wait_s=" << waitS << " png=" << png << "\n";
+    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING);
+    EXPECT_TRUE(hasTerrain)
+        << "Cesium World Terrain did not open: run overlume/scripts/check_cesium_token.sh";
+    EXPECT_GT(terrainTiles, 0u) << "no terrain tile reached the scene";
+    EXPECT_GT(o.rasters_attached, 0u) << "no Bing imagery attached";
+    EXPECT_NE(credited.find("Microsoft"), std::string::npos)
+        << "ion's imagery credits lack Bing's line (whole-branch review F1): " << credited;
+    EXPECT_EQ(e2e::log_since(logFrom).find(live::trimmed_env("CESIUM_ION_TOKEN")),
+              std::string::npos)
+        << "the token reached the log";
+    overlume::destroy_renderer(r);
 }
