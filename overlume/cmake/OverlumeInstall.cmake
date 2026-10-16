@@ -43,8 +43,10 @@ endforeach()
 configure_package_config_file(cmake/overlumeConfig.cmake.in
     "${CMAKE_CURRENT_BINARY_DIR}/overlumeConfig.cmake"
     INSTALL_DESTINATION ${_ovl_cmake_dir})
+# The ABI follows the major (liboverlume.so.1; kSceneVersion by ADR-0004), so a consumer asking
+# for 1.0 takes every 1.x. SameMinorVersion made 1.1.0 refuse the README's find_package(overlume 1.0).
 write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/overlumeConfigVersion.cmake"
-    VERSION ${PROJECT_VERSION} COMPATIBILITY SameMinorVersion)
+    VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion)
 configure_file(cmake/overlume.pc.in "${CMAKE_CURRENT_BINARY_DIR}/overlume.pc" @ONLY)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/overlumeConfig.cmake"
               "${CMAKE_CURRENT_BINARY_DIR}/overlumeConfigVersion.cmake"
