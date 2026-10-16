@@ -28,7 +28,7 @@
 | 11. Second tileset, ion terrain and imagery, credits API | 6 | done | `199442c..3004004` |
 | 12. End-to-end over the fixture network | 7 | done | `aa48d04..a3bd818` |
 | 13. Golden candidates and promotion | 7 | done | `717415a..29b26f8` |
-| 14. Opt-in live smoke | 7 | pending | |
+| 14. Opt-in live smoke | 7 | done; live run 2026-10-16 with the user's consent: operating area terrain tiles 2, DEM requests 2, building tiles 2, extruded 564, rasters attached 18, Maxar credit yes; `osm-terrain` terrain tiles 10, rasters attached 208; `tools/check_mapbox_token.sh` and `overlume/scripts/check_cesium_token.sh` PASS | `053b7b4` |
 | 15. Rig rehearsal and close-out | 7 | pending | |
 
 ## Global Constraints
