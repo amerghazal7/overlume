@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The CMake package's version file accepts any later 1.x for a `find_package(overlume 1.0)` request (`SameMajorVersion`); 1.0.0's `SameMinorVersion` file would have refused 1.1.0, as the release rehearsal's consumers did.
 - Network loss now switches a streamed source to its fallback when requests fail in transport. A transport error (DNS failure, refused connection, timeout) rejected the request without reaching the consecutive-failure counter, so a real loss of connectivity never triggered the fallback, for `ion://` as well.
 - `tools/validate_visual_mode.sh` reads the refreshed tokens back on a separate file descriptor, so output from the login shell's startup files (Ubuntu's sudo hint, for one) can no longer end up in `CESIUM_ION_TOKEN`. It now refreshes `MAPBOX_TOKEN` the same way.
 
