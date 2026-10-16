@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-16
+
 ### Added
 
 - `mapbox://buildings`, a streamed environment source selected like `ion://`: Mapbox's landmark models plus building footprints from Mapbox Streets v8, extruded to their heights around the vehicle. URI keys: `materials` (`clay` or `original`), `radius` (default 500 m), `brightness`, `fallback` and `cache=off`. The library reads `MAPBOX_TOKEN` when the source opens; Mapbox tiles are never cached. While the source streams, the node draws the Mapbox logo and "© Mapbox © OpenStreetMap Improve this map" (`environment_attribution`; the logo file is `environment_attribution_logo_path`; `environment_attribution_logo` turns the logo off, leaving the text). The vcam GUI lists two more environment sources, `mapbox` and `mapbox-original`, and `tools/check_mapbox_token.sh` checks the token. See `docs/runbooks/mapbox.md`.
@@ -227,6 +229,7 @@ entries with a recorded historical-document discrepancy).
 - **Epic 6 — v1.1: Cesium 3D Tiles streaming** (VM-060…064) + post-close
   tail: closed 2026-09-16, final cross-cutting review 2026-09-17.
 
-[Unreleased]: https://github.com/amerghazal7/overlume/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/amerghazal7/overlume/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/amerghazal7/overlume/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/amerghazal7/overlume/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/amerghazal7/overlume/releases/tag/v0.1.0
