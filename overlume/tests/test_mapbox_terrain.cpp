@@ -992,7 +992,8 @@ TEST(MapboxTerrainEndToEnd, BuildingOnThePlateauStandsOnTheDem) {
     // Open plateau north-west of the block, in the tile's north-east quadrant: green imagery.
     const overlume::Vec3 plateau = e2e::lowered(e2e::px_to_map(a, t, 330.0, 236.0, 30.0));
     // From 150 m east of the ego, 45 m up, over the ramp's top edge. A block left at z = 0 is
-    // buried in the plateau, and the ray through the wall's spot lands on green plateau.
+    // buried in the plateau, and the ray through the wall's spot lands on the far, fogged
+    // plateau, which is strongly tinted.
     const overlume::CameraPose pose{{150.0, wall.y, 45.0}, {wall.x, wall.y, wall.z}, 60.0};
     std::vector<uint8_t> frame(e2e::kFrameBytes);
     ASSERT_TRUE(e2e::pump(r, pose, frame, 600, [&] {
@@ -1010,9 +1011,10 @@ TEST(MapboxTerrainEndToEnd, BuildingOnThePlateauStandsOnTheDem) {
     ASSERT_TRUE(e2e::colour_at(r, frame, plateau, &atPlateau));
     ASSERT_TRUE(e2e::looks_like(atPlateau, e2e::kNorthEast))
         << "the plateau must show the fixture's north-east green: " << e2e::str(atPlateau);
-    EXPECT_FALSE(e2e::looks_like(atWall, e2e::kNorthEast))
-        << "green imagery where the block's west wall belongs: the block was not lifted onto the "
-           "DEM "
+    const auto [lo, hi] = std::minmax_element(atWall.begin(), atWall.end());
+    EXPECT_LT(*hi - *lo, 40.0)
+        << "the block's west wall must read as near-neutral clay; an unlifted block shows the "
+           "fogged plateau behind it "
         << e2e::str(atWall);
     EXPECT_FALSE(e2e::near(atWall, sky, 10.0))
         << "sky where the block's west wall belongs " << e2e::str(atWall);
@@ -1141,7 +1143,9 @@ TEST(MapboxTerrainEndToEnd, RejectedImageryKeepsTerrainColourAndCountsTowardFall
                overlume::EnvironmentSourceState::STREAMING_FALLBACK;
     })) << "rejected imagery requests must count toward the network-loss fallback";
     EXPECT_EQ(e2e::overlay(r).rasters_attached, 0u) << "a rejected raster must never attach";
-    // Cesium logs each failed raster tile with its URL; the redacting sink must strip the token.
+    // Cesium logs a failed raster's URL only when the root tile fails too (spec §5 table), and
+    // this run falls back first, so nothing is logged here; NetworkLossTearsDownTerrainAndImagery
+    // proves the redaction.
     EXPECT_EQ(e2e::log_since(logFrom).find(e2e::kToken), std::string::npos);
     overlume::destroy_renderer(r);
 }
@@ -1183,12 +1187,17 @@ TEST(MapboxTerrainEndToEnd, NetworkLossTearsDownTerrainAndImagery) {
     // The east tile's centre: more than 1100 m from the old tile, so it alone is selected, and its
     // 18 requests (16 squares, the landmark tile, the DEM) fail in a row.
     const overlume::Vec3 eastCentre = e2e::px_to_map(a, east, 256.0, 256.0, 0.0);
+    const size_t logFrom = e2e::log_size();
     e2e::set_ego(r, eastCentre.x, eastCentre.y);
     ASSERT_TRUE(e2e::pump(r, e2e::kAnyPose, frame, 300, [&] {
         return overlume::environment_source_state(r) ==
                overlume::EnvironmentSourceState::STREAMING_FALLBACK;
     })) << "transport errors on a new tile must reach the fallback";
     e2e::pump(r, e2e::kAnyPose, frame, 2, [] { return false; });
+    const std::string log = e2e::log_since(logFrom);
+    EXPECT_NE(log.find("access_token=<redacted>"), std::string::npos)
+        << "precondition: the failed requests' URLs reach the log";
+    EXPECT_EQ(log.find(e2e::kToken), std::string::npos) << "the token never reaches the log";
     EXPECT_FALSE(overlume::testing::environment_stream_has_terrain_tileset(r))
         << "the fallback must tear the terrain tileset down too";
     EXPECT_EQ(e2e::overlay(r).textures_alive, 0u) << "imagery textures outlived the teardown";
