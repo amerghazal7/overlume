@@ -189,8 +189,8 @@ TEST(MapboxTerrain, TerrainTileBuildsFromItsDem) {
     ASSERT_TRUE(install(r, "mapbox://terrain", anchor_at(t, 0.5, 0.5), n));
     EXPECT_TRUE(overlume::testing::environment_stream_has_terrain_tileset(r));
     EXPECT_FALSE(overlume::testing::environment_stream_has_disk_cache(r))
-        << "no Mapbox byte reaches the disk (the hook reads the content tileset, whose counting "
-           "accessor the terrain tileset's wraps)";
+        << "no Mapbox byte reaches the disk (the hook reads both tilesets' accessors; the terrain "
+           "tileset shares the content tileset's counting accessor)";
     set_ego(r, 0.0, 0.0);
     std::vector<uint8_t> buf(kFrameBytes);
     ASSERT_TRUE(pump(r, buf, 400, [&] { return terrain_loaded(r) >= 1; }))
@@ -252,6 +252,11 @@ TEST(MapboxTerrain, MissingDemLeavesNoTerrainTile) {
     EXPECT_EQ(stats().dem_requests, 1u);
     EXPECT_EQ(state(r), EnvironmentSourceState::STREAMING) << "one 404 is not network loss";
     EXPECT_EQ(count_of(log_since(logFrom), "HTTP 404"), 0u) << "404 is an empty tile, not an error";
+    // The anchor's own DEM is the missing one, so no tile has a zero to stand on: the source says
+    // which tile, once.
+    const std::string anchorLine = "mapbox: terrain-DEM has no height at the anchor (tile 14/" +
+                                   std::to_string(t.x) + "/" + std::to_string(t.y) + ")";
+    EXPECT_EQ(count_of(log_since(logFrom), anchorLine), 1u) << log_since(logFrom);
     overlume::destroy_renderer(r);
 }
 
@@ -388,6 +393,16 @@ TEST(MapboxTerrain, SatelliteDrapesXyzTilesOnTheTerrain) {
     overlume::environment_source_credits(r, credits, static_cast<uint32_t>(sizeof credits));
     EXPECT_NE(std::string(credits).find("\xC2\xA9 Maxar"), std::string::npos)
         << "the overlay's credit, for the attribution line: " << credits;
+    // The overlay's own limits, as cesium's tile provider holds them. The requests above cannot
+    // see the z18 cap (the texture budget stops refinement at z17 first), and a missing 512 px
+    // size only shows as 225 requests instead of 53: the billing guards are read directly.
+    const overlume::testing::OverlayOptionsProbe options =
+        overlume::testing::environment_stream_overlay_options_probe(r);
+    ASSERT_TRUE(options.found) << "the satellite overlay's tile provider never came up";
+    EXPECT_EQ(options.maximum_level, 18u) << "the imagery cap (billing)";
+    EXPECT_EQ(options.tile_width, 512u);
+    EXPECT_EQ(options.tile_height, 512u);
+    EXPECT_EQ(options.credit, "\xC2\xA9 Maxar");
     overlume::destroy_renderer(r);
 }
 

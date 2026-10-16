@@ -50,6 +50,16 @@ TEST(Environment, NullSourceUriIsANoOpNotAConfigError) {
     overlume::destroy_renderer(r);
 }
 
+// A public function both builds define: environment_stream.cpp with cesium, a stub in
+// environment.cpp without (hosted CI builds that one), so a deleted stub fails to link. Neither
+// needs a source or a GPU for this answer, hence the null renderer.
+TEST(Environment, SourceCreditsAreEmptyWithoutAStreamingSource) {
+    char text[] = "stale";
+    EXPECT_EQ(overlume::environment_source_credits(nullptr, text, sizeof text), 0u);
+    EXPECT_STREQ(text, "");
+    EXPECT_EQ(overlume::environment_source_credits(nullptr, nullptr, 0), 0u);
+}
+
 TEST(Environment, ChunksWithinLoadRadiusOfEgoAreRenderedAsThemedClay) {
     overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
     overlume::CameraPose pose{{0, -8, 3}, {0, 0, 0.5}, 60};

@@ -1215,8 +1215,12 @@ TEST(MapboxBuildings, TerrainRetriesAFailingDem) {
     overlume::destroy_renderer(r);
 }
 
+// A 404 is no error line of its own, but the anchor's missing height is said once, whichever of
+// the two loaders (buildings, terrain) asks for it first.
 TEST(MapboxBuildings, MissingDemLeavesBuildingsAtGround) {
-    expect_buildings_at_ground(404, {}, "terrain-DEM", 0u);
+    expect_buildings_at_ground(
+        404, {},
+        "mapbox: terrain-DEM has no height at the anchor (tile " + tile_name(op_tile()) + ")", 1u);
 }
 
 TEST(MapboxBuildings, MalformedDemLeavesBuildingsAtGroundAndLogsOnce) {

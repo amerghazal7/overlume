@@ -250,10 +250,10 @@ bump (ADR-0004); `check_pod_header.sh` still passes. Empty when no overlay is op
 | Case | Behaviour |
 |------|-----------|
 | `imagery` without `terrain`; unknown layer, key value or asset id shape | The parse fails, one log line, opening returns false. |
-| DEM 204 or 404 | No terrain for that tile (the sky shows through; Mapbox's DEM is global, so rare). |
+| DEM 204 or 404 | No terrain for that tile (the sky shows through; Mapbox's DEM is global, so rare). For the anchor's tile no tile has a zero: all terrain stays empty, buildings stay at z = 0, and one line names the tile. |
 | Malformed DEM (size, channels, decode) | Tile skipped, one line per kind. |
 | DEM 401/403 | That tile empty; "Mapbox rejected MAPBOX_TOKEN (HTTP 401)" once; counts as a failure. |
-| Imagery 401/403/429/5xx/transport | Cesium's raster tile fails and cesium logs it (`Received response code … for image …`, through the redacting logger: token masked); the terrain tile keeps `terrainColor`; every request counts toward network loss, and because cesium retries a failed raster tile through its parents level by level, a rejected imagery token reaches eight failures within one tile and the source falls back. |
+| Imagery 401/403/429/5xx/transport | A failed raster tile falls back to its parent's coarser imagery, level by level, so one failed tile shows its parent's imagery, not `terrainColor`; cesium logs `Received response code … for image …` (through the redacting logger: token masked) only when the root tile fails too. Every request counts toward network loss, and a rejected Mapbox imagery token fails every tile, so the parents' retries reach eight failures within one tile and the source falls back. An ion imagery token refusal happens at the asset endpoint instead: one `Could not access Cesium ion asset` line, an empty tile provider, one failure, no fallback, and bare terrain (`terrainColor`, no attribution). |
 | Terrain tileset cannot open (asset missing, 401) | The source opens without terrain, one line; buildings as today. |
 | Network loss (eight consecutive failures) | Whole source to `STREAMING_FALLBACK`: both tilesets torn down, clay plane back, attribution gone. |
 | Source switched mid-build | Shared ownership for both tilesets and the cache; overlays detach first. |
@@ -363,3 +363,7 @@ a Shipped row, and the plan its live acceptance results.
   ego at a few dozen imagery requests.
 - Buildings re-based per centroid stay flat-bottomed: a long building on a slope floats at one end;
   Mapbox GL does the same.
+- Building bases are lifted by the full-resolution bilinear DEM, while the drawn terrain is planar
+  over an 8-pixel lattice (a vertex about every 35 m), so on fine relief a base can sit a little
+  off the surface; interpolating the lift from the lattice, with the mesh's triangle split, is the
+  upgrade.

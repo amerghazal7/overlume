@@ -62,8 +62,8 @@ double environment_stream_brightness(overlume::VisualRenderer* r);
 // The brightness the open streaming source gave its terrain renderer resources (what scales the
 // imagery texture); NaN without a streaming source or a terrain tileset.
 double environment_stream_terrain_brightness(overlume::VisualRenderer* r);
-// Whether the open streaming source's tileset reads through the caching asset accessor (a SQLite
-// cache database). False when no streaming source is open.
+// Whether the open streaming source's content tileset or its terrain tileset reads through the
+// caching asset accessor (a SQLite cache database). False when no streaming source is open.
 bool environment_stream_has_disk_cache(overlume::VisualRenderer* r);
 
 bool environment_stream_parse_materials_original(const char* ion_spec);
@@ -172,5 +172,18 @@ OverlayProbe ion_fixture_terrain_probe(IonFixtureNetwork* n);
 // The environment.terrain_color last pushed to those terrain resources (-1 each before the first
 // push), into `rgb`. False without terrain resources.
 bool ion_fixture_terrain_color(IonFixtureNetwork* n, float rgb[3]);
+
+// The level cap, the tile size and the credit of the first raster overlay of the open streaming
+// source's terrain tileset (its content tileset without one), as cesium's quadtree tile provider
+// holds them. found is false until that provider exists, without an overlay, and for a provider
+// that is not a quadtree one (ion's own).
+struct OverlayOptionsProbe {
+    uint32_t maximum_level;
+    uint32_t tile_width;
+    uint32_t tile_height;
+    std::string credit;
+    bool found;
+};
+OverlayOptionsProbe environment_stream_overlay_options_probe(overlume::VisualRenderer* r);
 
 }

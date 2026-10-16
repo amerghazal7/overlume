@@ -122,11 +122,13 @@ Footprint tiles are billed per request, so the 200,000-a-month free tier covers 
 tiles, or about 11,700 if Mapbox also bills the landmark requests. The landmark endpoint has no
 published price.
 
-The `terrain` layer adds one DEM request per z14 tile. `imagery=satellite` adds the satellite
-tiles cesium selects for each terrain tile on screen: at z17, the level the default refinement
-reaches (the cap is z18), 8 × 8 = 64 tiles of about 280 m cover one z14 tile, and terrain away
-from the ego takes coarser, fewer ones (a few dozen near the ego, design §12). DEM and satellite
-tiles are Raster Tiles API requests, billed per request.
+The `terrain` layer adds one DEM request per z14 tile. A DEM-only failure (429, 5xx or a
+transport error) sends the buildings tile back, and each retry issues its 16 footprint and 1
+landmark requests again: up to 51 per tile within the three attempts, not 17. `imagery=satellite`
+adds the satellite tiles cesium selects for each terrain tile on screen: at z17, the level the
+default refinement reaches (the cap is z18), 8 × 8 = 64 tiles of about 280 m cover one z14 tile,
+and terrain away from the ego takes coarser, fewer ones (a few dozen near the ego, design §12). DEM
+and satellite tiles are Raster Tiles API requests, billed per request.
 
 ## 4. The GUI entries
 
@@ -332,17 +334,36 @@ among streets of extruded buildings.
   `environment_terrain: enable` ([`terrain_imagery.md`](terrain_imagery.md) §3).
 - **The source does not open: `mapbox:// supports only the layers 'buildings' and 'terrain', not
   '…'`.** A misspelt, repeated or empty layer name.
-- **Terrain, but no imagery: the ground shows `environment.terrain_color`.** Satellite tiles
-  fail (429, 5xx or a transport error). The source logs no line of its own for them:
-  cesium-native logs each failed tile, `Received response code <code> for image <url>`, through
-  the source's redacting logger, so the URL shows `access_token=<redacted>`. Failed tiles count
-  toward the network-loss fallback. A refused token (401 or 403 on the satellite tiles) cascades
-  through cesium's parent tiles to more than eight failures, so the whole source falls back
-  (below). Run `tools/check_mapbox_token.sh` (§2).
+- **Terrain, but no imagery, or blurry patches: the ground shows `environment.terrain_color`.**
+  Satellite tiles fail (429, 5xx or a transport error). The source logs no line of its own for
+  them. cesium-native replaces a failed tile by its parent's coarser imagery, level by level, so
+  one failed tile shows blurrier ground and no line, not `terrain_color`; it logs
+  `Received response code <code> for image <url>`, through the source's redacting logger (the URL
+  shows `access_token=<redacted>`), only when the root tile fails too. Failed tiles count toward
+  the network-loss fallback. A refused token (401 or 403 on the satellite tiles) fails every
+  tile, so the parents' retries pass eight failures and the whole source falls back (below). Run
+  `tools/check_mapbox_token.sh` (§2).
 - **Sky through the ground, and one log line `mapbox:// terrain tile 14/…/… skipped: …`.**
   That DEM tile could not be decoded (wrong size or channels): it has no terrain, and each kind
-  of failure is logged once. A DEM tile that answers 204 or 404 leaves a hole too, without a line;
-  the DEM is global, so that is rare.
+  of failure is logged once. Another DEM tile that answers 204 or 404 leaves a hole too, without
+  a line; the DEM is global, so that is rare. The anchor's own tile has a line (next entry).
+- **No terrain at all, buildings at z = 0, and one log line `mapbox: terrain-DEM has no height at
+  the anchor (tile 14/…/…); terrain tiles stay empty and buildings stay at z = 0 until it
+  loads`.** The z14 tile that holds the anchor has no usable DEM: it answered 204 or 404 (an
+  anchor on open sea or past Mapbox's coverage), or could not be decoded, or was rejected, or kept
+  failing. The DEM height at the anchor is the map's z = 0, so no terrain tile can be placed
+  without it. The line comes once per source and names no cause: look for the line before it
+  (`skipped`, `failing`, `answered HTTP`, `rejected MAPBOX_TOKEN`); a 204 or 404 has none. A DEM
+  that failed for now (429, 5xx, transport) is asked again on the next attempt, and the tiles
+  still retrying build once it loads; tiles whose attempts ran out stay empty. A 204 or 404 never
+  loads: move the anchor onto covered land.
+- **The log has `mapbox: terrain-DEM failing (HTTP <code>) at tile 14/…/…; asked again on the
+  tile's next attempt`, or `mapbox: terrain-DEM answered HTTP <code> at tile 14/…/…; that part
+  stays empty`.** The first: a DEM tile answered 429 or 5xx, or failed in transport. It is asked
+  again on the tile's next attempt (at most three, 2 s and 4 s apart), and with each one the
+  tile's buildings requests go out again (§3). The second: any other status (400, 410 and so on):
+  that DEM tile stays empty. Each line comes once per status per source; a 401 or 403 has its own
+  `rejected MAPBOX_TOKEN` line instead (above).
 - **A small step in the ground along a straight north-south or east-west line.** Neighbouring DEM
   tiles disagree by a quantisation step at their shared edge; the 20 m skirt hides the crack, not
   the step. Known limit (design §12).

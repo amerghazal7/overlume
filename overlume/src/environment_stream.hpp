@@ -411,7 +411,8 @@ public:
 
     bool materials_original() const { return materialsOriginal_; }
     double brightness() const { return brightness_; }
-    // True while the tileset reads through the SQLite cache, i.e. a cache database is open.
+    // True while the content tileset or the terrain tileset reads through the SQLite cache, i.e. a
+    // cache database is open.
     bool has_disk_cache() const;
     bool first_primitive_is_building_material(VisualRenderer& r) const;
 
