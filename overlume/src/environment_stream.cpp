@@ -1586,6 +1586,13 @@ void StreamingEnvironmentSource::teardown(VisualRenderer& r) {
     }
     for (StreamRendererResources* res : resources) res->drain_pending_frees();
 
+    // Lets a custom-loader tileset (the mapbox:// quadtree) hand its root to cesium's content
+    // manager (TilesetContentManager::createFromLoader, a main-thread continuation) while its
+    // Tileset still holds the manager. Run after ~Tileset (no update() yet), the continuation's
+    // release makes the manager unload every tile, and the root's reference it drops there is the
+    // manager's last: the manager deletes itself, root included, mid-walk (a use after free).
+    asyncSystem_.dispatchMainThreadTasks();
+
     std::vector<CesiumAsync::SharedFuture<void>> destructionComplete;
     if (terrainTileset_) {
         destructionComplete.push_back(terrainTileset_->getAsyncDestructionCompleteEvent());

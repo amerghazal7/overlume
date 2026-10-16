@@ -476,12 +476,42 @@ TEST(MapboxTerrain, BrightnessReachesTheTerrainRendererResources) {
     serve_dem(n, t, dem::hill_height_m);
     ASSERT_TRUE(
         install(r, "mapbox://terrain?imagery=satellite&brightness=1.8", anchor_at(t, 0.5, 0.5), n));
-    // Pumped to a loaded tile first: destroy_renderer right after install crashes in cesium's
-    // unloadTileContent (the other tests here pump before they destroy).
-    set_ego(r, 0.0, 0.0);
-    std::vector<uint8_t> buf(kFrameBytes);
-    ASSERT_TRUE(pump(r, buf, 400, [&] { return terrain_loaded(r) >= 1; }));
     EXPECT_DOUBLE_EQ(overlume::testing::environment_stream_terrain_brightness(r), 1.8)
         << "the imagery texture's brightness comes from the terrain tileset's resources";
+    overlume::destroy_renderer(r);
+}
+
+// A teardown before the source's first update() used to free the quadtree root in cesium
+// (StreamingEnvironmentSource::teardown says how). The root is every mapbox:// source's, so
+// buildings alone crashed as well.
+TEST(MapboxTerrain, InstallThenDestroyWithoutPumpingDoesNotCrash) {
+    for (const char* uri : {"mapbox://buildings,terrain", "mapbox://terrain",
+                            "mapbox://buildings,terrain?imagery=satellite", "mapbox://buildings"}) {
+        SCOPED_TRACE(uri);
+        auto* r = make_renderer();
+        if (!r) GTEST_SKIP() << "no GPU/EGL";
+        const TileId t = op_tile();
+        auto* n = overlume::testing::make_mapbox_fixture_network(204);
+        serve_dem(n, t, dem::hill_height_m);
+        serve_block(n, t);
+        ASSERT_TRUE(install(r, uri, anchor_at(t, 0.5, 0.5), n));
+        overlume::destroy_renderer(r);
+    }
+}
+
+// The node's live switch: set_environment_source (and the install hook) tears the old source
+// down, here before its first update(); the renderer then goes on with the new source.
+TEST(MapboxTerrain, SwitchingAwayBeforeTheFirstUpdateDoesNotCrash) {
+    auto* r = make_renderer();
+    if (!r) GTEST_SKIP() << "no GPU/EGL";
+    const TileId t = op_tile();
+    auto* n = overlume::testing::make_mapbox_fixture_network(204);
+    serve_dem(n, t, dem::hill_height_m);
+    ASSERT_TRUE(install(r, "mapbox://buildings,terrain", anchor_at(t, 0.5, 0.5), n));
+    ASSERT_TRUE(install(r, "mapbox://terrain", anchor_at(t, 0.5, 0.5), n));
+    set_ego(r, 0.0, 0.0);
+    std::vector<uint8_t> buf(kFrameBytes);
+    EXPECT_TRUE(overlume::render_frame(r, kPose, {buf.data(), 320, 240}));
+    EXPECT_EQ(state(r), EnvironmentSourceState::STREAMING);
     overlume::destroy_renderer(r);
 }
