@@ -51,8 +51,10 @@ DemTile decode_dem_png(const uint8_t* bytes, size_t size) {
     out.height_m.resize(kDemPixels);
     for (size_t i = 0; i < kDemPixels; ++i) {
         const stbi_uc* p = rgb + 3 * i;
-        out.height_m[i] =
-            static_cast<float>(-10000.0 + (p[0] * 65536.0 + p[1] * 256.0 + p[2]) * 0.1);
+        // From the exact integer code in one multiply: -10000.0 + code * 0.1 became a fused
+        // multiply-add on aarch64, which keeps 0.1's rounding error (sea level read 5.6e-13 m).
+        const int32_t code = p[0] * 65536 + p[1] * 256 + p[2];
+        out.height_m[i] = static_cast<float>((code - 100000) * 0.1);
     }
     stbi_image_free(rgb);
     out.ok = true;

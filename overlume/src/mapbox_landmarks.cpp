@@ -220,15 +220,30 @@ LandmarkTile read_landmark_tile(std::span<const std::byte> glb, const TileFrame&
     return out;
 }
 
+namespace {
+
+// The edge function of (ax, ay) -> (bx, by) at (px, py): zero on the edge. A compiler that fuses
+// a * b - c * d into one multiply-add keeps the rounding of one product only, so a point exactly
+// on an edge came out as +-1 ulp instead of 0 on aarch64, and the diagonal of a footprint split
+// in two counted as outside both halves; anything within 1e-12 of the products' size is zero.
+double edge_function(double ax, double ay, double bx, double by, double px, double py) {
+    const double lhs = (bx - ax) * (py - ay);
+    const double rhs = (by - ay) * (px - ax);
+    const double e = lhs - rhs;
+    return std::abs(e) <= 1e-12 * (std::abs(lhs) + std::abs(rhs)) ? 0.0 : e;
+}
+
+}  // namespace
+
 bool inside_any_footprint(const std::vector<std::array<double, 6>>& triangles, double x, double y) {
     for (const std::array<double, 6>& t : triangles) {
-        const double area2 = (t[2] - t[0]) * (t[5] - t[1]) - (t[3] - t[1]) * (t[4] - t[0]);
+        const double area2 = edge_function(t[0], t[1], t[2], t[3], t[4], t[5]);
         if (!(std::abs(area2) > 0.0)) continue;  // a degenerate triangle covers nothing
         // Edge functions of either winding; zero on an edge, so a point on the diagonal of a
         // footprint split in two counts as inside.
-        const double e0 = (t[2] - t[0]) * (y - t[1]) - (t[3] - t[1]) * (x - t[0]);
-        const double e1 = (t[4] - t[2]) * (y - t[3]) - (t[5] - t[3]) * (x - t[2]);
-        const double e2 = (t[0] - t[4]) * (y - t[5]) - (t[1] - t[5]) * (x - t[4]);
+        const double e0 = edge_function(t[0], t[1], t[2], t[3], x, y);
+        const double e1 = edge_function(t[2], t[3], t[4], t[5], x, y);
+        const double e2 = edge_function(t[4], t[5], t[0], t[1], x, y);
         if ((e0 >= 0.0 && e1 >= 0.0 && e2 >= 0.0) || (e0 <= 0.0 && e1 <= 0.0 && e2 <= 0.0)) {
             return true;
         }

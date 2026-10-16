@@ -2203,6 +2203,14 @@ uint64_t environment_terrain_tiles_loaded(overlume::VisualRenderer* r) {
     return stream != nullptr ? static_cast<uint64_t>(stream->terrain_scene_count(*r)) : 0;
 }
 
+void environment_stream_pump(overlume::VisualRenderer* r) {
+    if (r == nullptr) return;
+    if (r->environmentSource && r->scene_buffer.active().ego.valid) {
+        r->environmentSource->update(*r, r->scene_buffer.active().ego.position);
+    }
+    r->engine->flush();  // the uploads the update queued reach the driver thread without a frame
+}
+
 double environment_terrain_tile_lift_z(overlume::VisualRenderer* r) {
     if (r == nullptr || !r->environmentSource) return std::nan("");
     auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
