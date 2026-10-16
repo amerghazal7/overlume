@@ -133,7 +133,7 @@ index; `docs/status.md` is the one status ledger.
 - [`2026-10-15-imagery-terrain.md`](plans/2026-10-15-imagery-terrain.md)
   — imagery on real terrain, provider-agnostic: Mapbox terrain-DEM and Satellite for the
   demo, Cesium World Terrain and ion imagery as the proof, in 16 tasks over eight parallel
-  lanes (implements `design/2026-10-15-imagery-terrain-design.md`).
+  lanes (implements `design/2026-10-15-imagery-terrain-design.md`; closed 2026-10-16).
 - [`archive/`](plans/archive/README.md) — retired NumPy/GL/CUDA prototype
   plans and specs (2026-06/07), plus the superseded Azure DevOps project
   backlog export.
