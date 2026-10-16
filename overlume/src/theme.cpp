@@ -179,6 +179,9 @@ Theme parse(const YAML::Node& root) {
                                  : kThemeDefaultTileRadiusM;
     t.environment.tile_radius_m =
         (std::isfinite(tileRadius) && tileRadius > 0.0f) ? tileRadius : kThemeDefaultTileRadiusM;
+    t.environment.terrain_color = (environment && environment["terrain_color"])
+                                      ? to_float3(environment["terrain_color"])
+                                      : t.palette.ground;
 
     return t;
 }
@@ -311,6 +314,7 @@ const Theme& kFallbackTheme() {
         t.ribbon.fade_end_m = 0.0f;
         t.objects.opacity = 1.0f;
         t.environment.tile_radius_m = kThemeDefaultTileRadiusM;
+        t.environment.terrain_color = t.palette.ground;
         t.ogm.dynamic = bake_ogm_ramp(
             {{0.0f, t.palette.ground, 1.0f}, {100.0f, t.palette.alert.warning, 1.0f}});
         t.ogm.geometric = t.ogm.dynamic;

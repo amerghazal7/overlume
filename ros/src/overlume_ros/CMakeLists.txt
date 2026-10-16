@@ -262,6 +262,9 @@ install(DIRECTORY "${OVERLUME_DIR}/assets/themes"
 install(DIRECTORY assets/fonts
   DESTINATION share/${PROJECT_NAME}/assets)
 
+install(DIRECTORY assets/attribution
+  DESTINATION share/${PROJECT_NAME}/assets)
+
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/ego/ego.glb"
   DESTINATION share/${PROJECT_NAME}/assets/ego OPTIONAL)
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets/ego/ego.glb")
@@ -280,7 +283,8 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_environment_source_uri test/test_environment_source_uri.cpp)
   target_include_directories(test_environment_source_uri PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${OVERLUME_DIR}/include)
 
   ament_add_gtest(test_scene_layout test/test_scene_layout.cpp)
   target_include_directories(test_scene_layout PRIVATE
@@ -297,12 +301,27 @@ if(BUILD_TESTING)
       "~/overlume-fixtures/stack_v3_full_sensors_2026-09-11"
     GENERATE_RESULT_FOR_RETURN_CODE_ZERO)
 
+  # Each launches overlume_node from ros/install, which the gate's colcon build refreshes first;
+  # they skip (exit 0) when that install is absent. Distinct ROS domains keep them apart.
+  ament_add_test(test_asset_paths
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_asset_paths.py"
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    TIMEOUT 300
+    ENV ROS_DOMAIN_ID=78)
+
+  ament_add_test(test_environment_live_switch
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_environment_live_switch.py"
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    TIMEOUT 300
+    ENV ROS_DOMAIN_ID=79)
+
   add_library(overlume_node_test_paths INTERFACE)
   target_compile_definitions(overlume_node_test_paths INTERFACE
     TEST_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config"
     OVERLUME_THEME_DIR="${OVERLUME_DIR}/assets/themes"
     OVERLUME_NODE_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures"
-    OVERLUME_NODE_FONT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/NotoSans-Regular.ttf")
+    OVERLUME_NODE_FONT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/NotoSans-Regular.ttf"
+    OVERLUME_NODE_MAPBOX_LOGO_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/attribution/mapbox-logo.png")
 
   ament_add_gtest(test_profile test/test_profile.cpp src/profile.cpp
     src/adapters/dynamic_objects.cpp src/frame_transform.cpp test/fixture_msgs.cpp)

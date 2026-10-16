@@ -30,12 +30,22 @@ third-party client — can drive the virtual camera:
         GUI Environment Tiles toggle -- writes overlume_node's
         `environment_enabled` param, the SAME disable knob VM-052 already
         declared; live, same on_params() contract as layer_*)
-    {"cmd": "set_environment_source", "preset": "baked"|"osm"|"clipped"|"google"}
+    {"cmd": "set_environment_source", "preset": "baked"|"osm"|"clipped"|"google"|
+     "mapbox"|"mapbox-original"|"mapbox-satellite"|"mapbox-original-satellite"|
+     "osm-terrain"}
         (VM-096 -- resolves `preset` to overlume_node's
         `environment_source_uri` string server-side: "baked"->"",
         "osm"->"ion://96188",
         "google"->"ion://2275207?materials=original&cache=off" (cache=off
         is the shipped compliance lever, see default_params.yaml/cesium.md),
+        "mapbox"->"mapbox://buildings",
+        "mapbox-original"->"mapbox://buildings?materials=original" (no
+        cache=off: that source never caches, see docs/runbooks/mapbox.md),
+        "mapbox-satellite"->"mapbox://buildings,terrain?imagery=satellite",
+        "mapbox-original-satellite"->
+        "mapbox://buildings,terrain?materials=original&imagery=satellite",
+        "osm-terrain"->"ion://96188?terrain=1&imagery=2" (Cesium World
+        Terrain with Bing Maps Aerial, see docs/runbooks/terrain_imagery.md),
         "clipped"->that node's OWN `environment_own_asset_uri` param
         (fetched live, never fabricated -- an error if it is empty); live,
         rejected while the geo-anchor hasn't solved, same as any other
@@ -84,11 +94,19 @@ LAYER_NAMES = {
 }
 QUALITY_PRESETS = {"low": 0, "medium": 1, "high": 2, 0: 0, 1: 1, 2: 2}
 SURROUND_PROFILES = {"bowl", "hybrid"}
-ENVIRONMENT_PRESETS = {"baked", "osm", "clipped", "google"}
+ENVIRONMENT_PRESETS = {
+    "baked", "osm", "clipped", "google", "mapbox", "mapbox-original", "mapbox-satellite",
+    "mapbox-original-satellite", "osm-terrain",
+}
 ENVIRONMENT_PRESET_URIS = {
     "baked": "",
     "osm": "ion://96188",
     "google": "ion://2275207?materials=original&cache=off",
+    "mapbox": "mapbox://buildings",
+    "mapbox-original": "mapbox://buildings?materials=original",
+    "mapbox-satellite": "mapbox://buildings,terrain?imagery=satellite",
+    "mapbox-original-satellite": "mapbox://buildings,terrain?materials=original&imagery=satellite",
+    "osm-terrain": "ion://96188?terrain=1&imagery=2",
 }
 
 TUNABLE_PARAMS = {
@@ -248,7 +266,9 @@ def parse_cmd(text: str):
         preset = msg.get("preset")
         if isinstance(preset, bool) or preset not in ENVIRONMENT_PRESETS:
             raise ValueError(
-                'set_environment_source: preset must be "baked", "osm", "clipped" or "google"')
+                'set_environment_source: preset must be "baked", "osm", "clipped", "google", '
+                '"mapbox", "mapbox-original", "mapbox-satellite", "mapbox-original-satellite" '
+                'or "osm-terrain"')
         return "set_environment_source", preset
     raise ValueError(f"unknown cmd {cmd!r}")
 

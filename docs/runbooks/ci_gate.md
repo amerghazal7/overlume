@@ -29,7 +29,8 @@ It runs, in order, and labels each stage PASS/FAIL:
    another checkout's install space, e.g. from a worktree). Missing ROS/colcon
    infra **fails this stage loudly** — a pre-merge gate never silently skips
    the node.
-4. **WS bridge pytest suite** — `tools/test_vcam_ws_bridge.py`.
+4. **WS bridge pytest suite** — `tools/test_vcam_ws_bridge.py` and
+   `tools/test_check_mapbox_token.py`.
    Some of them (`test_bridge_e2e_mode3_orbit_and_frames`,
    `test_bridge_e2e_set_layers_hides_and_shows`) start real
    `overlume_node` / `vcam_ws_bridge.py` processes

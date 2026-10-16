@@ -231,9 +231,15 @@ private:
     double environment_max_tilt_deg_{2.0};
     double environment_brightness_{1.0};
     double environment_tile_radius_m_{700.0};
+    std::string environment_terrain_;  // "" leaves the URI alone (compose_environment_source_uri)
+    std::string environment_imagery_;
     bool environment_fallback_warned_{false};
     bool environment_attribution_{true};
     bool environment_attribution_warned_{false};
+    // environment_source_credits, read once a second; sim_clock_sec_ of the last read (-1: never).
+    std::string environment_credits_;
+    double environment_credits_read_sec_{-1.0};
+    RgbaImage mapbox_logo_;  // decoded once at configure; empty when the file is unusable
     std::string environment_own_asset_uri_;
 
     SceneAssembly scene_asm_;

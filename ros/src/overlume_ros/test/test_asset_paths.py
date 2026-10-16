@@ -35,9 +35,14 @@ Three cases:
      without checking. No "theme assets failed to load" WARN in the log,
      and (when the ego path resolved) no "set_ego_model: failed to load"
      clay-box fallback WARN either.
-  2. Relaunch with -p initial_theme:=light_clay -- configure succeeds,
-     `ros2 param get initial_theme` reads back light_clay, still no
-     fallback WARN.
+  2. Relaunch with -p initial_theme:=light_clay,
+     -p environment_attribution_logo:=false, -p environment_terrain:=ion:1
+     and -p environment_imagery:=sat -- configure succeeds,
+     `ros2 param get initial_theme` reads back light_clay, the logo switch
+     reads back false and the log says the Mapbox logo is off, the two
+     layer parameters read back as the strings ion:1 and sat, the log warns
+     once that environment_imagery 'sat' is ignored (it fits no source),
+     still no fallback WARN.
   3. Relaunch with -p initial_theme:=definitely_not_a_theme -- the
      configure transition must FAIL (on_configure()'s own validation against
      what this install actually shipped), the process must stay alive (a
@@ -52,12 +57,9 @@ Run (ROS + this repo's ros install sourced first, node built Release):
 Skips cleanly (prints SKIP, exit 0) when this repo's ROS install isn't
 present, same convention as test_theme_ws.py/test_bowl_node_params.py.
 
-NOT CMake-registered (`ament_add_gtest`/`ament_add_pytest_test` etc.) -- same
-undocumented-elsewhere convention as test_theme_ws.py/test_bowl_node_params.py/
-test_vcam_contract.py/test_ego_anchored_vcam.py/test_extra_topic_parity.py/
-test_tf_adapter.py in this same directory (grepped: none of them appear in
-this package's CMakeLists.txt as an ament_add_test/ament_add_pytest_test/
-add_test entry).
+CMake-registered (ament_add_test in this package's CMakeLists.txt), so `colcon test` and the gate
+run it; the other node-launching scripts in this directory (test_theme_ws.py, test_bowl_node_params.py,
+test_vcam_contract.py, ...) are not.
 """
 
 import os
@@ -170,6 +172,7 @@ def main() -> int:
         theme_dir = _param_get("theme_assets_dir")
         hud_font = _param_get("hud_font_path")
         ego_path = _param_get("ego_model_path")
+        logo_path = _param_get("environment_attribution_logo_path")
 
         if not theme_dir.startswith(SHARE_DIR):
             print(f"FAIL: theme_assets_dir '{theme_dir}' does not start with "
@@ -178,6 +181,10 @@ def main() -> int:
         if not hud_font.startswith(SHARE_DIR):
             print(f"FAIL: hud_font_path '{hud_font}' does not start with "
                   f"installed share dir '{SHARE_DIR}'.", file=sys.stderr)
+            return 1
+        if not logo_path.startswith(SHARE_DIR):
+            print(f"FAIL: environment_attribution_logo_path '{logo_path}' does not start "
+                  f"with installed share dir '{SHARE_DIR}'.", file=sys.stderr)
             return 1
         ego_resolved = ego_path.startswith(SHARE_DIR)
         ego_empty = ego_path == ""
@@ -191,38 +198,65 @@ def main() -> int:
             print(f"FAIL: unexpected theme-fallback WARN in log:\n{log_text[-3000:]}",
                   file=sys.stderr)
             return 1
+        if "Mapbox logo" in log_text:
+            print(f"FAIL: the installed Mapbox logo did not load:\n{log_text[-3000:]}",
+                  file=sys.stderr)
+            return 1
         if ego_resolved and "set_ego_model: failed to load" in log_text:
             print(f"FAIL: ego path resolved but the model fell back to the "
                   f"clay box:\n{log_text[-3000:]}", file=sys.stderr)
             return 1
         print(f"PASS (1/3): theme_assets_dir='{theme_dir}', hud_font_path='{hud_font}', "
-              f"ego_model_path='{ego_path}' (resolved={ego_resolved}), no fallback WARN.")
+              f"ego_model_path='{ego_path}' (resolved={ego_resolved}), "
+              f"environment_attribution_logo_path='{logo_path}', no fallback WARN.")
     finally:
         _kill(proc)
         os.remove(log1)
 
     log2 = _fresh_log()
-    proc = _launch("-p initial_theme:=light_clay", log2)
+    proc = _launch("-p initial_theme:=light_clay -p environment_attribution_logo:=false "
+                   "-p environment_terrain:=ion:1 -p environment_imagery:=sat", log2)
     try:
         if not _wait_running(proc):
             print(f"FAIL: node exited early (case 2):\n{_read(log2)[-2000:]}", file=sys.stderr)
             return 1
         if not _lifecycle("configure"):
-            print(f"FAIL: configure failed with initial_theme:=light_clay:\n"
-                  f"{_read(log2)[-2000:]}", file=sys.stderr)
+            print(f"FAIL: configure failed with initial_theme:=light_clay and the layer "
+                  f"parameters:\n{_read(log2)[-2000:]}", file=sys.stderr)
             return 1
         theme = _param_get("initial_theme")
         if theme != "light_clay":
             print(f"FAIL: `ros2 param get initial_theme` returned '{theme}', expected "
                   "'light_clay'.", file=sys.stderr)
             return 1
+        logo_on = _param_get("environment_attribution_logo")
+        if logo_on.lower() != "false":
+            print(f"FAIL: `ros2 param get environment_attribution_logo` returned '{logo_on}', "
+                  "expected 'false'.", file=sys.stderr)
+            return 1
+        layers = (_param_get("environment_terrain"), _param_get("environment_imagery"))
+        if layers != ("ion:1", "sat"):
+            print(f"FAIL: `ros2 param get` for environment_terrain and environment_imagery "
+                  f"returned {layers}, expected ('ion:1', 'sat').", file=sys.stderr)
+            return 1
+        ignored = "environment_imagery 'sat' is ignored for environment source ''"
+        if _read(log2).count(ignored) != 1:
+            print(f"FAIL: expected one WARN containing {ignored!r}:\n{_read(log2)[-3000:]}",
+                  file=sys.stderr)
+            return 1
         log_text = _read(log2)
         if "theme assets failed to load" in log_text:
             print(f"FAIL: unexpected theme-fallback WARN with light_clay:\n"
                   f"{log_text[-3000:]}", file=sys.stderr)
             return 1
+        if "Mapbox logo off" not in log_text:
+            print(f"FAIL: environment_attribution_logo:=false did not switch the logo off:\n"
+                  f"{log_text[-3000:]}", file=sys.stderr)
+            return 1
         print("PASS (2/3): initial_theme:=light_clay configured cleanly, param reads back "
-              "light_clay, no fallback WARN.")
+              "light_clay, environment_attribution_logo:=false reads back and logs the logo "
+              "off, environment_terrain:=ion:1 and environment_imagery:=sat read back as "
+              "strings and 'sat' is warned once as ignored, no fallback WARN.")
     finally:
         _kill(proc)
         os.remove(log2)

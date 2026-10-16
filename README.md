@@ -168,6 +168,8 @@ Themes are YAML token files in `overlume/assets/themes/`. The tokens cover:
   - Google Photorealistic 3D Tiles: `ion://2275207?materials=original&cache=off`
 
   Streaming supports terrain following, a geo-anchor from NavSatFix, automatic fallback to the baked source, and live switching with no restart. It needs `CESIUM_ION_TOKEN` set in your environment. See the [runbook](docs/runbooks/cesium.md).
+- **Mapbox buildings streaming.** `mapbox://buildings` streams Mapbox's landmark models and extruded building footprints around the vehicle in the theme's clay; `mapbox://buildings?materials=original` keeps Mapbox's own look. Like `ion://`, it falls back to the baked source on network loss and switches live. It draws Mapbox's attribution on screen and needs `MAPBOX_TOKEN` set in your environment. See the [runbook](docs/runbooks/mapbox.md).
+- **Terrain and imagery.** A streamed source can open a second tileset, its terrain, with satellite imagery draped on it: `mapbox://buildings,terrain?imagery=satellite` (Mapbox terrain-DEM and Mapbox Satellite) or `ion://96188?terrain=1&imagery=2` (Cesium World Terrain and Bing Maps Aerial). The terrain replaces the ground plane, the buildings stand on it, and the imagery's credit joins the attribution line. See the [runbook](docs/runbooks/terrain_imagery.md).
 
 ## Install
 

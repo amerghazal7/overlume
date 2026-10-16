@@ -5,6 +5,11 @@
 
 #include "overlume_ros/environment_source_uri.hpp"
 
+#include "overlume/scene.h"
+
+#include <cstdio>
+#include <string>
+
 namespace overlume::ros {
 namespace {
 
@@ -152,4 +157,283 @@ TEST(ComposeEnvironmentSourceUri, RadiusAppendedOnlyWhenNotDefault) {
     EXPECT_EQ(overlume::ros::compose_environment_source_uri("/baked", "", "", true, 0.3, true, 2.0,
                                                             1.0, 250.0),
               "/baked");
+}
+
+TEST(ComposeEnvironmentSourceUri, MapboxGetsFallbackButNeverCache) {
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("/baked/chunks", "mapbox://buildings",
+                                                            "/mnt/data/tiles"),
+              "mapbox://buildings?fallback=/baked/chunks");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri(
+                  "/baked/chunks", "mapbox://buildings?materials=original", "/mnt/data/tiles"),
+              "mapbox://buildings?materials=original&fallback=/baked/chunks");
+}
+
+TEST(ComposeEnvironmentSourceUri, MapboxNeverGetsTheIonOnlyKeys) {
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "mapbox://buildings", "", true, 0.5,
+                                                            false, 5.0),
+              "mapbox://buildings");
+}
+
+TEST(ComposeEnvironmentSourceUri, MapboxGetsBrightnessAndRadiusWhenNotDefault) {
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "mapbox://buildings", "", true, 0.3,
+                                                            true, 2.0, 1.0, 700.0),
+              "mapbox://buildings");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri(
+                  "/baked", "mapbox://buildings", "/tiles", true, 0.5, false, 5.0, 1.8, 250.0),
+              "mapbox://buildings?fallback=/baked&brightness=1.8&radius=250");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("", "mapbox://buildings?radius=300", "",
+                                                            true, 0.3, true, 2.0, 1.8, 250.0),
+              "mapbox://buildings?radius=300&brightness=1.8");
+}
+
+TEST(ComposeEnvironmentSourceUri, IonUriWithEveryKnobSetIsUnchanged) {
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("/baked", "ion://96188", "/tiles", true,
+                                                            0.5, false, 5.0, 1.8, 250.0),
+              "ion://96188?cache=/tiles&fallback=/baked&follow_terrain=on&ground_bias=0.5&"
+              "replaces_ground=off&max_tilt_deg=5&brightness=1.8&radius=250");
+}
+
+TEST(MapboxAttributionKind, TruthTableOverStateVisibilityParameterAndScheme) {
+    using overlume::EnvironmentSourceState;
+    using overlume::ros::AttributionKind;
+    struct Case {
+        const char* uri;
+        AttributionKind when_streaming;
+    };
+    const Case cases[] = {
+        {"", AttributionKind::NONE},
+        {"/baked/chunks", AttributionKind::NONE},
+        {"ion://96188", AttributionKind::NONE},
+        {"ion://2275207?materials=original&cache=off", AttributionKind::GOOGLE},
+        {"mapbox://buildings", AttributionKind::MAPBOX},
+        {"mapbox://buildings?materials=original", AttributionKind::MAPBOX},
+    };
+    const EnvironmentSourceState states[] = {
+        EnvironmentSourceState::NONE, EnvironmentSourceState::BAKED,
+        EnvironmentSourceState::STREAMING, EnvironmentSourceState::STREAMING_FALLBACK};
+    for (const Case& c : cases) {
+        for (const EnvironmentSourceState state : states) {
+            for (const bool visible : {false, true}) {
+                for (const bool enabled : {false, true}) {
+                    const AttributionKind expected =
+                        visible && enabled && state == EnvironmentSourceState::STREAMING
+                            ? c.when_streaming
+                            : AttributionKind::NONE;
+                    EXPECT_EQ(
+                        overlume::ros::environment_attribution_kind(visible, enabled, c.uri, state),
+                        expected)
+                        << "uri '" << c.uri << "' state " << static_cast<int>(state) << " visible "
+                        << visible << " enabled " << enabled;
+                }
+            }
+        }
+    }
+}
+
+namespace {
+// The two layer parameters, with every other node knob at its default.
+std::string compose_layers(const std::string& uri, const std::string& terrain,
+                           const std::string& imagery) {
+    return overlume::ros::compose_environment_source_uri(
+        "", uri, "", false, overlume::ros::kGroundBiasDefaultM,
+        overlume::ros::kReplacesGroundDefault, overlume::ros::kMaxTiltDegDefault,
+        overlume::ros::kBrightnessDefault, overlume::ros::kTileRadiusDefaultM, terrain, imagery);
+}
+}  // namespace
+
+TEST(ComposeEnvironmentSourceUri, MapboxTerrainEnableAddsTheLayerOnce) {
+    EXPECT_EQ(compose_layers("mapbox://buildings", "enable", ""), "mapbox://buildings,terrain");
+    EXPECT_EQ(compose_layers("mapbox://buildings?materials=original", "enable", ""),
+              "mapbox://buildings,terrain?materials=original");
+    EXPECT_EQ(compose_layers("mapbox://buildings,terrain", "enable", ""),
+              "mapbox://buildings,terrain");
+    EXPECT_EQ(compose_layers("mapbox://terrain,buildings?imagery=satellite", "enable", ""),
+              "mapbox://terrain,buildings?imagery=satellite");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri("/baked", "mapbox://buildings",
+                                                            "/tiles", true, 0.5, false, 5.0, 1.8,
+                                                            250.0, "enable", "satellite"),
+              "mapbox://buildings,terrain?fallback=/baked&brightness=1.8&radius=250&"
+              "imagery=satellite");
+}
+
+TEST(ComposeEnvironmentSourceUri, MapboxTerrainDisableOrEmptyLeavesTheLayerList) {
+    EXPECT_EQ(compose_layers("mapbox://buildings", "disable", ""), "mapbox://buildings");
+    EXPECT_EQ(compose_layers("mapbox://buildings,terrain", "disable", ""),
+              "mapbox://buildings,terrain");
+    EXPECT_EQ(compose_layers("mapbox://buildings", "", ""), "mapbox://buildings");
+}
+
+TEST(ComposeEnvironmentSourceUri, MapboxImageryAppendedOnlyWhenTheUriLacksIt) {
+    EXPECT_EQ(compose_layers("mapbox://buildings,terrain", "", "satellite"),
+              "mapbox://buildings,terrain?imagery=satellite");
+    EXPECT_EQ(compose_layers("mapbox://buildings,terrain", "", "disable"),
+              "mapbox://buildings,terrain?imagery=off");
+    EXPECT_EQ(compose_layers("mapbox://buildings,terrain?imagery=satellite", "", "disable"),
+              "mapbox://buildings,terrain?imagery=satellite");
+    EXPECT_EQ(compose_layers("mapbox://buildings,terrain?imagery=off", "", "satellite"),
+              "mapbox://buildings,terrain?imagery=off");
+}
+
+TEST(ComposeEnvironmentSourceUri, IonTerrainAndImageryAppendedOnlyWhenTheUriLacksThem) {
+    EXPECT_EQ(compose_layers("ion://96188", "ion:1", "ion:2"),
+              "ion://96188?follow_terrain=off&terrain=1&imagery=2");
+    EXPECT_EQ(compose_layers("ion://96188", "disable", "disable"),
+              "ion://96188?follow_terrain=off&terrain=off&imagery=off");
+    EXPECT_EQ(compose_layers("ion://96188?terrain=1&imagery=2", "disable", "disable"),
+              "ion://96188?terrain=1&imagery=2&follow_terrain=off");
+    EXPECT_EQ(compose_layers("ion://96188?imagery=3", "ion:1", "ion:2"),
+              "ion://96188?imagery=3&follow_terrain=off&terrain=1");
+}
+
+TEST(ComposeEnvironmentSourceUri, ValuesForTheOtherSchemeOrNoSchemeAreIgnored) {
+    EXPECT_EQ(compose_layers("mapbox://buildings", "ion:1", "ion:2"), "mapbox://buildings");
+    EXPECT_EQ(compose_layers("ion://96188", "enable", "satellite"),
+              "ion://96188?follow_terrain=off");
+    EXPECT_EQ(compose_layers("ion://96188", "1", "ion:"), "ion://96188?follow_terrain=off");
+    EXPECT_EQ(compose_layers("ion://96188", "ion:-1", "ion:2x"), "ion://96188?follow_terrain=off");
+    EXPECT_EQ(compose_layers("mapbox://buildings", "on", "off"), "mapbox://buildings");
+}
+
+TEST(ComposeEnvironmentSourceUri, IonTerrainKeyIsNotFollowTerrain) {
+    EXPECT_EQ(compose_layers("ion://96188?follow_terrain=on", "ion:1", ""),
+              "ion://96188?follow_terrain=on&terrain=1");
+}
+
+TEST(ComposeEnvironmentSourceUri, EmptyLayerParametersAndBakedSourcesAppendNothing) {
+    EXPECT_EQ(compose_layers("ion://96188", "", ""), "ion://96188?follow_terrain=off");
+    EXPECT_EQ(compose_layers("/baked/chunks", "enable", "satellite"), "/baked/chunks");
+    EXPECT_EQ(overlume::ros::compose_environment_source_uri(
+                  "/baked/chunks", "", "", false, 0.3, true, 2.0, 1.0, 700.0, "ion:1", "ion:2"),
+              "/baked/chunks");
+}
+
+TEST(ComposeEnvironmentSourceUri, IonUriWithEveryKnobAndBothLayersKeepsTheOrder) {
+    EXPECT_EQ(
+        overlume::ros::compose_environment_source_uri("/baked", "ion://96188", "/tiles", true, 0.5,
+                                                      false, 5.0, 1.8, 250.0, "ion:1", "ion:2"),
+        "ion://96188?cache=/tiles&fallback=/baked&follow_terrain=on&ground_bias=0.5&"
+        "replaces_ground=off&max_tilt_deg=5&brightness=1.8&radius=250&terrain=1&imagery=2");
+}
+
+TEST(EnvironmentLayerWarning, NamesAValueTheConfiguredSourceIgnores) {
+    using overlume::ros::environment_layer_warning;
+    EXPECT_EQ(
+        environment_layer_warning("environment_terrain", "ion:1", "enable", "mapbox://buildings"),
+        "environment_terrain 'ion:1' is ignored for environment source 'mapbox://buildings' "
+        "(accepted: \"\", disable, enable for mapbox://, ion:<asset id> for ion://)");
+    EXPECT_EQ(
+        environment_layer_warning("environment_imagery", "satellite", "satellite", "ion://96188"),
+        "environment_imagery 'satellite' is ignored for environment source 'ion://96188' "
+        "(accepted: \"\", disable, satellite for mapbox://, ion:<asset id> for ion://)");
+    EXPECT_EQ(environment_layer_warning("environment_imagery", "sat", "satellite", ""),
+              "environment_imagery 'sat' is ignored for environment source '' "
+              "(accepted: \"\", disable, satellite for mapbox://, ion:<asset id> for ion://)");
+}
+
+TEST(EnvironmentLayerWarning, SilentForAValueThatApplies) {
+    using overlume::ros::environment_layer_warning;
+    EXPECT_EQ(
+        environment_layer_warning("environment_terrain", "enable", "enable", "mapbox://buildings"),
+        "");
+    EXPECT_EQ(environment_layer_warning("environment_terrain", "ion:1", "enable", "ion://96188"),
+              "");
+    EXPECT_EQ(
+        environment_layer_warning("environment_imagery", "disable", "satellite", "ion://96188"),
+        "");
+    EXPECT_EQ(environment_layer_warning("environment_imagery", "", "satellite", "ion://96188"), "");
+    EXPECT_EQ(environment_layer_warning("environment_terrain", "ion:1", "enable", "/baked/chunks"),
+              "");
+    EXPECT_EQ(environment_layer_warning("environment_imagery", "satellite", "satellite", ""), "");
+}
+
+TEST(MapboxAttributionKind, CreditsMakeAnIonSourceOtherThanGoogleCredits) {
+    using overlume::EnvironmentSourceState;
+    using overlume::ros::AttributionKind;
+    using overlume::ros::environment_attribution_kind;
+    const auto streaming = EnvironmentSourceState::STREAMING;
+    EXPECT_EQ(environment_attribution_kind(true, true, "ion://96188?terrain=1&imagery=2", streaming,
+                                           true),
+              AttributionKind::CREDITS);
+    EXPECT_EQ(environment_attribution_kind(true, true, "ion://96188?terrain=1&imagery=2", streaming,
+                                           false),
+              AttributionKind::NONE);
+    EXPECT_EQ(environment_attribution_kind(true, true, "ion://2275207?materials=original",
+                                           streaming, true),
+              AttributionKind::GOOGLE);
+    EXPECT_EQ(
+        environment_attribution_kind(true, true, "mapbox://buildings,terrain", streaming, true),
+        AttributionKind::MAPBOX);
+    EXPECT_EQ(environment_attribution_kind(true, true, "/baked/chunks", streaming, true),
+              AttributionKind::NONE);
+    EXPECT_EQ(environment_attribution_kind(true, true, "ion://96188", EnvironmentSourceState::BAKED,
+                                           true),
+              AttributionKind::NONE);
+    EXPECT_EQ(environment_attribution_kind(false, true, "ion://96188", streaming, true),
+              AttributionKind::NONE);
+    EXPECT_EQ(environment_attribution_kind(true, false, "ion://96188", streaming, true),
+              AttributionKind::NONE);
+}
+
+TEST(EnvironmentAttributionText, WithoutCreditsEachKindDrawsTodaysLine) {
+    using overlume::ros::AttributionKind;
+    using overlume::ros::environment_attribution_text;
+    EXPECT_EQ(environment_attribution_text(AttributionKind::MAPBOX, ""),
+              overlume::ros::kMapboxAttributionText);
+    EXPECT_EQ(environment_attribution_text(AttributionKind::GOOGLE, ""),
+              "3D Tiles data (c) Google");
+    EXPECT_EQ(environment_attribution_text(AttributionKind::CREDITS, ""), "");
+    EXPECT_EQ(environment_attribution_text(AttributionKind::NONE, ""), "");
+}
+
+TEST(EnvironmentAttributionText, CreditsFollowTheBaseTextAndPrecedeImproveThisMap) {
+    using overlume::ros::AttributionKind;
+    using overlume::ros::environment_attribution_text;
+    const std::string bing = "Earthstar Geographics; \xC2\xA9 2026 Microsoft Corporation";
+    EXPECT_EQ(environment_attribution_text(AttributionKind::MAPBOX, "\xC2\xA9 Maxar"),
+              "\xC2\xA9 Mapbox \xC2\xA9 OpenStreetMap \xC2\xA9 Maxar Improve this map");
+    EXPECT_EQ(environment_attribution_text(AttributionKind::GOOGLE, bing),
+              "3D Tiles data (c) Google Earthstar Geographics \xC2\xA9 2026 Microsoft Corporation");
+    EXPECT_EQ(environment_attribution_text(AttributionKind::CREDITS, bing),
+              "Earthstar Geographics \xC2\xA9 2026 Microsoft Corporation");
+    EXPECT_EQ(environment_attribution_text(AttributionKind::NONE, bing), "");
+}
+
+TEST(EnvironmentAttributionText, EmptyCreditsBetweenSeparatorsAreSkipped) {
+    EXPECT_EQ(overlume::ros::environment_attribution_text(overlume::ros::AttributionKind::CREDITS,
+                                                          "A; ; B; "),
+              "A B");
+}
+
+// Task 12: the node's once-a-second read of environment_source_credits into the attribution line.
+// The fake reader keeps the library's contract (snprintf-like, returns the length needed).
+struct FakeCredits {
+    std::string text;
+    uint32_t operator()(char* out, uint32_t cap) const {
+        if (cap > 0) std::snprintf(out, cap, "%s", text.c_str());
+        return static_cast<uint32_t>(text.size());
+    }
+};
+
+TEST(EnvironmentCredits, FirstTickReadsThenOncePerSecondOfNodeTime) {
+    FakeCredits library{"\xC2\xA9 Maxar"};
+    std::string credits;
+    double read_sec = -1.0;  // as the node's member starts
+    EXPECT_TRUE(overlume::ros::refresh_environment_credits(0.25, read_sec, credits, library));
+    EXPECT_EQ(credits, "\xC2\xA9 Maxar");
+    library.text = "\xC2\xA9 Microsoft";
+    EXPECT_FALSE(overlume::ros::refresh_environment_credits(1.0, read_sec, credits, library));
+    EXPECT_EQ(credits, "\xC2\xA9 Maxar") << "read again within the second";
+    EXPECT_TRUE(overlume::ros::refresh_environment_credits(1.25, read_sec, credits, library));
+    EXPECT_EQ(credits, "\xC2\xA9 Microsoft");
+    library.text.clear();
+    EXPECT_TRUE(overlume::ros::refresh_environment_credits(2.25, read_sec, credits, library));
+    EXPECT_EQ(credits, "") << "a source without overlays clears the line's credits";
+}
+
+TEST(EnvironmentCredits, LongCreditsAreReadWhole) {
+    const FakeCredits library{std::string(3000, 'c')};
+    std::string credits;
+    double read_sec = -1.0;
+    ASSERT_TRUE(overlume::ros::refresh_environment_credits(0.0, read_sec, credits, library));
+    EXPECT_EQ(credits, library.text) << "cut to " << credits.size() << " bytes";
 }

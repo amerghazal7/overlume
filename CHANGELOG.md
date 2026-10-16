@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `mapbox://buildings`, a streamed environment source selected like `ion://`: Mapbox's landmark models plus building footprints from Mapbox Streets v8, extruded to their heights around the vehicle. URI keys: `materials` (`clay` or `original`), `radius` (default 500 m), `brightness`, `fallback` and `cache=off`. The library reads `MAPBOX_TOKEN` when the source opens; Mapbox tiles are never cached. While the source streams, the node draws the Mapbox logo and "© Mapbox © OpenStreetMap Improve this map" (`environment_attribution`; the logo file is `environment_attribution_logo_path`; `environment_attribution_logo` turns the logo off, leaving the text). The vcam GUI lists two more environment sources, `mapbox` and `mapbox-original`, and `tools/check_mapbox_token.sh` checks the token. See `docs/runbooks/mapbox.md`.
+- Terrain with imagery draped on it, as a second tileset per streamed source, provider-agnostic. `mapbox://` takes a layer list (`buildings`, `terrain`) and `imagery=satellite`: Mapbox terrain-DEM tiles become the ground, the buildings stand on the DEM, and Mapbox Satellite (capped at z18, z17 at the default radius, credited "© Maxar") is draped on it. `ion://` takes `terrain=<asset>` and `imagery=<asset>`, for example Cesium World Terrain (`1`) with Bing Maps Aerial (`2`). The node parameters `environment_terrain` and `environment_imagery` add them when the URI lacks them; the attribution line carries the overlays' credits (`environment_source_credits()`, a new free function in `<overlume/scene.h>`; `kSceneVersion` unchanged); the theme token `environment.terrain_color` colours terrain without imagery. The vcam GUI lists three more environment sources, `mapbox-satellite`, `mapbox-original-satellite` and `osm-terrain`, and `tools/check_mapbox_token.sh` also checks a DEM and a satellite tile. See `docs/runbooks/terrain_imagery.md` and `docs/runbooks/mapbox.md`.
+
+### Fixed
+
+- Network loss now switches a streamed source to its fallback when requests fail in transport. A transport error (DNS failure, refused connection, timeout) rejected the request without reaching the consecutive-failure counter, so a real loss of connectivity never triggered the fallback, for `ion://` as well.
+- `tools/validate_visual_mode.sh` reads the refreshed tokens back on a separate file descriptor, so output from the login shell's startup files (Ubuntu's sudo hint, for one) can no longer end up in `CESIUM_ION_TOKEN`. It now refreshes `MAPBOX_TOKEN` the same way.
+
 ## [1.0.0] - 2026-10-07
 
 The first stable release. Public headers (`<overlume/scene.h>`, `<overlume/api.h>`)
