@@ -17,15 +17,17 @@ Mapbox side (the layer list, `imagery=satellite`, the DEM, request volume, the t
 
 ## 1. What a terrain tileset changes
 
-- **Ground.** The terrain replaces the clay ground plane once the height under the ego has been
-  sampled from it. Until then, when the sample fails, and with `replaces_ground=off` on an
-  `ion://` URI, the plane stays.
+- **Ground.** The terrain replaces the clay ground plane: the plane hides once the first height
+  sample under the ego hits the terrain, and it stays hidden, so a later hole in the terrain
+  shows sky, not the plane. Until that first hit, and with `replaces_ground=off` on an `ion://`
+  URI, the plane stays.
 - **Terrain following.** `follow_terrain`, `ground_bias` and `max_tilt_deg` keep their meaning
   ([`cesium.md`](cesium.md) §5c), but sample the terrain tileset instead of the content tileset.
 - **Buildings.** ion's buildings and Cesium World Terrain already agree, so nothing moves. Mapbox
   buildings are re-based onto the DEM ([`mapbox.md`](mapbox.md) §3).
 - **Colour.** A terrain tile shows `environment.terrain_color` (§4) until its imagery attaches,
-  for good when imagery is off, and where a raster tile failed.
+  and for good when imagery is off or cannot open (§8). A failed raster tile shows its parent's
+  coarser imagery instead.
 - **Radius.** `radius=` selects the tiles of both tilesets.
 - **Fallback.** Terrain and imagery requests count toward the network-loss threshold (eight
   consecutive failed requests). On fallback both tilesets are torn down, the clay plane comes back
@@ -87,16 +89,17 @@ Mapbox side (the layer list, `imagery=satellite`, the DEM, request volume, the t
   '<uri>'` line shows the URI that was opened.
 - Set `environment_imagery` only together with an `environment_terrain` value for the same
   scheme. Imagery without terrain refuses the URI (`mapbox://buildings?imagery=satellite`,
-  `ion://96188?follow_terrain=off&imagery=2`), so every source that lacks terrain fails to open,
-  and a live switch keeps the previous source.
+  `ion://96188?follow_terrain=off&imagery=2`), so every source of that scheme that lacks terrain
+  fails to open (baked sources are never affected), and a live switch keeps the previous source.
 - The values are strings. YAML reads `on`, `off`, `true`, `yes` and bare numbers as booleans and
   integers, and the node declares both parameters as strings, so such a value fails the configure
   transition (`parameter 'environment_terrain' has invalid type: …`). `enable`, `disable`,
   `satellite` and `ion:1` need no quotes, in a YAML file or after `-p`.
 - Read at configure, and applied to every source the node opens afterwards, live switches
-  included. With `environment_terrain: ion:1` and `environment_imagery: ion:2`, the `osm` entry
-  streams like `osm-terrain`, and so does `google`, whose 3D Tiles carry their own ground: leave
-  both unset where `google` is used.
+  included. A runtime `ros2 param set` of `environment_terrain` or `environment_imagery` reads
+  back as set but has no effect until the next configure. With `environment_terrain: ion:1` and
+  `environment_imagery: ion:2`, the `osm` entry streams like `osm-terrain`, and so does `google`,
+  whose 3D Tiles carry their own ground: leave both unset where `google` is used.
 - With `disable` (or `""`), terrain and imagery stay off unless the URI asks for them: these are
   the element's disable knobs.
 
@@ -112,8 +115,8 @@ tools/validate_logger_session.sh "$SESSION_DIR" --arm osm -- \
 - `environment: { tile_radius_m: …, terrain_color: [r, g, b] }` in a theme YAML
   (`overlume/assets/themes/`), beside `tile_radius_m`; both shipped themes set it.
 - Absent, it defaults to the theme's `palette.ground`.
-- It colours a terrain tile until its imagery attaches, for good when imagery is off, and where a
-  raster tile failed. Imagery replaces it, scaled by the source's `brightness`.
+- It colours a terrain tile until its imagery attaches, and for good when imagery is off or cannot
+  open (§8). Imagery replaces it, scaled by the source's `brightness`.
 
 ## 5. Attribution
 
@@ -199,15 +202,23 @@ not run these, and this one does not run that.
   terrain`.** The token is not allowed on that asset; `HTTP 404`: the account has no such asset.
   The buildings still stream on the clay plane. Check the asset in the ion dashboard
   ([`cesium.md`](cesium.md) §2).
-- **Terrain, but no imagery: the ground shows `environment.terrain_color`.** Raster tiles fail
-  (429, 5xx or a transport error). Overlume logs no line of its own for them: cesium-native logs
-  each failed tile through the source's redacting logger, `Received response code <code> for
-  image <url>`, with the token shown as `access_token=<redacted>`. Failed raster requests count
-  toward the network-loss threshold. A token refused on the imagery asset (401 or 403) does not
-  leave the terrain bare for long: each failed tile makes cesium try its parent, the failures
-  pass eight in a row, and the whole source falls back (below).
-- **The clay plane stays under the terrain.** `replaces_ground=off`, or the height under the ego
-  has not been sampled yet, or failed (no terrain tile under the ego).
+- **Terrain, but no imagery: the ground shows `environment.terrain_color`.** Two failures look
+  alike, and Overlume logs no line of its own for either.
+  - **ion refuses the token on the imagery asset** (401 or 403 at its endpoint, or no such asset).
+    cesium-native logs one line, `Could not access Cesium ion asset.`, and installs an empty tile
+    provider. No raster tile is ever requested, so there is one failed request and no fallback,
+    and the terrain stays bare, without attribution. Check the asset and the token in the ion
+    dashboard ([`cesium.md`](cesium.md) §2).
+  - **Raster tiles fail** (429, 5xx or a transport error). cesium-native replaces a failed tile
+    by its parent's coarser imagery, level by level, and logs `Received response code <code> for
+    image <url>` through the source's redacting logger, with the token shown as
+    `access_token=<redacted>`, only when the root tile fails too. A single failed tile therefore
+    shows blurrier ground and no line, not `terrain_color`. Failed raster requests count toward
+    the network-loss threshold: a Mapbox token refused on the satellite tiles (401 or 403) fails
+    every tile, the parents' retries pass eight failures in a row, and the whole source falls
+    back (below).
+- **The clay plane stays under the terrain.** `replaces_ground=off`, or no height sample under the
+  ego has hit the terrain yet (no terrain tile there). After the first hit the plane stays hidden.
 - **Terrain, imagery and buildings disappear, and the node warns `environment source: network
   loss detected -- …`.** Both tilesets are gone and the clay plane is back. Fix the network, then
   select the source again ([`mapbox.md`](mapbox.md) §8 lists the ways).
@@ -217,5 +228,7 @@ not run these, and this one does not run that.
   this deployment (§3).
 - **Configure fails with `parameter 'environment_terrain' has invalid type`.** The value is a YAML
   boolean or number (`on`, `off`, `1`). Use `enable`, `disable` or `ion:1` (§3).
-- **Every switch to a source without terrain fails, and the previous source stays.**
-  `environment_imagery` is set without an `environment_terrain` value for that scheme (§3).
+- **Every switch to a source of one scheme (`mapbox://` or `ion://`) that lacks terrain fails, and
+  the previous source stays.** `environment_imagery` is set for that scheme without an
+  `environment_terrain` value for it (§3). Sources of the other scheme and baked sources open as
+  usual.

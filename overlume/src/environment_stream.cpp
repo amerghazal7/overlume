@@ -827,6 +827,9 @@ std::string StreamingEnvironmentSource::credits() const {
     std::vector<std::string> texts;
     for (const Cesium3DTilesSelection::Tileset* tileset : {tileset_.get(), terrainTileset_.get()}) {
         if (tileset == nullptr || !tileset->getExternals().pCreditSystem) continue;
+        // A terrain tileset that never opened (layer.json refused) still has its overlays
+        // activated, and ion would hand out the imagery's credits over a scene without imagery.
+        if (tileset == terrainTileset_.get() && !has_terrain()) continue;
         CesiumUtility::CreditSystem& creditSystem = *tileset->getExternals().pCreditSystem;
         // CreditReferencer cannot list its credits: reference the overlays' credits, then keep the
         // system's referenced credits that this referencer holds.
@@ -837,8 +840,9 @@ std::string StreamingEnvironmentSource::credits() const {
             }
         }
         // Bing's data-provider credits (Microsoft, Earthstar, Maxar) belong to individual raster
-        // tiles, not to the provider: add those of the rasters mapped onto the tileset's tiles.
-        // The snapshot filter below keeps the ones the view group referenced this frame.
+        // tiles, not to the provider: add those of every ready raster on a loaded tile. The
+        // snapshot below lists every credit that has a reference, not only the ones the view group
+        // holds; overlayCredits is what narrows it to the overlays'.
         for (const Cesium3DTilesSelection::Tile& tile : tileset->loadedTiles()) {
             for (const Cesium3DTilesSelection::RasterMappedTo3DTile& mapped :
                  tile.getMappedRasterTiles()) {
@@ -1075,6 +1079,11 @@ void* StreamRendererResources::prepareRasterInLoadThread(CesiumImage::ImageAsset
                                            std::vector<uint8_t>(pixels * 4, 255)};
     const auto* src = reinterpret_cast<const uint8_t*>(image.pixelData.data());
     for (size_t i = 0; i < pixels; ++i) std::memcpy(&out->rgba[i * 4], &src[i * channels], 3);
+    // cesium keeps this ImageAsset for the tile's life and reads only sizeBytes afterwards: drop
+    // its pixel copy and keep the size, as its cache accounting wants (ImageAsset::sizeBytes).
+    image.sizeBytes = static_cast<int64_t>(out->rgba.size());
+    image.pixelData.clear();
+    image.pixelData.shrink_to_fit();
     return out;
 }
 
@@ -1662,9 +1671,13 @@ EnvironmentSourceState StreamingEnvironmentSource::state() const {
 }
 
 bool StreamingEnvironmentSource::has_disk_cache() const {
-    // build_externals hands the tileset TokenBypassAssetAccessor exactly when it opened a cache.
-    return tileset_ != nullptr && dynamic_cast<const TokenBypassAssetAccessor*>(
-                                      tileset_->getExternals().pAssetAccessor.get()) != nullptr;
+    // build_externals hands a tileset TokenBypassAssetAccessor exactly when it opened a cache. The
+    // terrain tileset counts too: no Mapbox byte may reach the disk through either tileset.
+    const auto cached = [](const Cesium3DTilesSelection::Tileset* tileset) {
+        return tileset != nullptr && dynamic_cast<const TokenBypassAssetAccessor*>(
+                                         tileset->getExternals().pAssetAccessor.get()) != nullptr;
+    };
+    return cached(tileset_.get()) || cached(terrainTileset_.get());
 }
 
 bool StreamingEnvironmentSource::first_primitive_is_building_material(VisualRenderer& r) const {
@@ -2154,6 +2167,28 @@ OverlayProbe environment_stream_overlay_probe(overlume::VisualRenderer* r) {
     if (stream == nullptr) return {};
     const overlume::StreamRendererResources::OverlayCounters c = stream->overlay_counters();
     return {c.rasters_attached, c.rasters_detached, c.textures_alive, c.textures_freed};
+}
+
+OverlayOptionsProbe environment_stream_overlay_options_probe(overlume::VisualRenderer* r) {
+    OverlayOptionsProbe out{0, 0, 0, std::string(), false};
+    if (r == nullptr || !r->environmentSource) return out;
+    auto* stream = dynamic_cast<overlume::StreamingEnvironmentSource*>(r->environmentSource.get());
+    if (stream == nullptr) return out;
+    const auto& activated = stream->overlays_for_testing().getActivatedOverlays();
+    if (activated.empty()) return out;
+    // UrlTemplateRasterOverlay keeps its options private; its tile provider holds what cesium uses.
+    const auto* provider =
+        dynamic_cast<const CesiumRasterOverlays::QuadtreeRasterOverlayTileProvider*>(
+            activated.front()->getTileProvider());
+    if (provider == nullptr) return out;
+    out.maximum_level = provider->getMaximumLevel();
+    out.tile_width = provider->getWidth();
+    out.tile_height = provider->getHeight();
+    if (provider->getCreditSystem() && !provider->getCredits().empty()) {
+        out.credit = provider->getCreditSystem()->getHtml(provider->getCredits().front());
+    }
+    out.found = true;
+    return out;
 }
 
 bool environment_stream_has_terrain_tileset(overlume::VisualRenderer* r) {

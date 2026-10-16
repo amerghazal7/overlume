@@ -334,7 +334,7 @@ def _run_layer_parameter_check() -> int:
             return 1
         expected = ("set_environment_source: failed to open "
                     "'mapbox://buildings,terrain?imagery=satellite'")
-        _wait_until(lambda: expected in _read_log())
+        _wait_until(lambda: expected in _read_log(), timeout=5.0)
         if expected not in _read_log():
             print(f"FAIL (6a): on_activate() did not compose environment_terrain:=enable and "
                   f"environment_imagery:=satellite into the URI -- expected {expected!r}. "
@@ -349,7 +349,7 @@ def _run_layer_parameter_check() -> int:
             return 1
         expected = ("set_environment_source: failed to open "
                     "'mapbox://buildings,terrain?materials=original&imagery=satellite'")
-        _wait_until(lambda: expected in _read_log()[before:])
+        _wait_until(lambda: expected in _read_log()[before:], timeout=5.0)
         log_text = _read_log()[before:]
         if expected not in log_text:
             print(f"FAIL (6b): the live environment_source_uri switch did not compose the two "

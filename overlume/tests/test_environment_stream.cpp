@@ -2019,9 +2019,10 @@ using overlume::testing::IonFixtureNetwork;
 const std::string kContentBase = "https://assets.ion.fixture/96188/";
 const std::string kTerrainBase = "https://assets.ion.fixture/1/";
 const std::string kImageryBase = "https://assets.ion.fixture/2/";
+// Double spaces, in the text and after the closing tag, are what credit_plain_text collapses.
 const std::string kAttributedImageryEndpoint =
     R"({"type":"IMAGERY","url":")" + kImageryBase +
-    R"(","accessToken":"fixture-asset-token","attributions":[{"html":"<span><a href=\"https://fixture.example/terms\">Fixture Imagery</a> &amp; Co.</span>","collapsible":false}]})";
+    R"(","accessToken":"fixture-asset-token","attributions":[{"html":"<span><a href=\"https://fixture.example/terms\">Fixture  Imagery</a>  &amp;  Co.</span>","collapsible":false}]})";
 constexpr char kTerrainDidNotOpen401[] =
     "environment source: terrain tileset did not open (HTTP 401) -- continuing without terrain";
 constexpr size_t kFrameBytes = 320u * 240u * 3u;
@@ -2295,8 +2296,8 @@ TEST(EnvironmentStreamTerrain, CreditsAreThePlainTextOfTheImageryAttributions) {
         << "the imagery credits or the tiles never appeared";
 
     EXPECT_EQ(itf::credits(r), "Fixture Imagery & Co.")
-        << "tags stripped, &amp; decoded, and the content and terrain tilesets' own credits "
-           "(\"Fixture Buildings\", the terrain endpoint's) left out";
+        << "tags stripped, &amp; decoded, the double spaces collapsed, and the content and "
+           "terrain tilesets' own credits (\"Fixture Buildings\", the terrain endpoint's) left out";
     char shortBuf[8];
     EXPECT_EQ(overlume::environment_source_credits(r, shortBuf, sizeof shortBuf), 21u)
         << "the length needed, as snprintf returns it";
@@ -2314,10 +2315,13 @@ TEST(EnvironmentStreamTerrain, ATerrainLayerJsonAnswering401OpensWithoutTerrainA
     auto* n = overlume::testing::make_ion_fixture_network();
     itf::serve_content(n, kTilesFixtureDir);
     itf::serve_terrain(n, 401);
+    // The imagery overlay is activated when it is added, whether or not its terrain ever opens.
+    itf::serve_imagery(n, itf::kAttributedImageryEndpoint);
     const size_t linesBefore =
         itf::count_of(overlume::testing::captured_cesium_log_text(), itf::kTerrainDidNotOpen401);
     ASSERT_TRUE(overlume::testing::install_fixture_ion_source(
-        r, "ion://96188?terrain=1&cache=off", kFixtureAnchor, n, "ion-fixture-token-401"));
+        r, "ion://96188?terrain=1&imagery=2&cache=off", kFixtureAnchor, n,
+        "ion-fixture-token-401"));
     itf::set_ego(r);
 
     std::vector<uint8_t> buf(itf::kFrameBytes);
@@ -2342,6 +2346,19 @@ TEST(EnvironmentStreamTerrain, ATerrainLayerJsonAnswering401OpensWithoutTerrainA
         return url.find(".terrain") != std::string::npos;
     };
     EXPECT_EQ(itf::count_requested(n, terrainTile), 0u) << "no terrain tile without a layer.json";
+
+    // The overlay's own provider comes up beside the dead terrain, and ion's attribution with it
+    // (here, once its tile map resource was fetched): without terrain there is no imagery on
+    // screen, so no credit may ask for a line.
+    const auto imageryResource = [](const std::string& url) {
+        const std::string key = url.substr(0, url.find('?'));
+        return key == itf::kImageryBase || key == itf::kImageryBase + "tilemapresource.xml";
+    };
+    EXPECT_TRUE(itf::pump(r, buf, 300, [&] {
+        return itf::count_requested(n, imageryResource) > 0;
+    })) << "the imagery overlay never opened, so the credits check below would prove nothing";
+    for (int i = 0; i < 100; ++i) overlume::render_frame(r, kStdPose, {buf.data(), 320, 240});
+    EXPECT_EQ(itf::credits(r), "") << "a terrain that never opened must not credit its imagery";
     overlume::destroy_renderer(r);
 }
 

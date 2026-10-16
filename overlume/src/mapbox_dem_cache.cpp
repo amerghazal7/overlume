@@ -127,11 +127,23 @@ CesiumAsync::SharedFuture<std::optional<double>> DemCache::reference_z(const Lon
     const std::array<double, 2> px = dem_pixel_of(anchor, t);
     CesiumAsync::SharedFuture<std::optional<double>> z =
         get(t)
-            .thenImmediately(
-                [px](const std::shared_ptr<const DemTile>& dem) -> std::optional<double> {
-                    if (!dem) return std::nullopt;
-                    return dem_sample(*dem, px[0], px[1]);
-                })
+            .thenImmediately([px, t, log = log_,
+                              seen = seen_](const std::shared_ptr<const DemTile>& dem)
+                                 -> std::optional<double> {
+                if (!dem) {
+                    // Without the anchor's height there is no common zero: every terrain tile
+                    // settles empty and the buildings stay at z = 0. A 204 or 404 says nothing
+                    // else, so name the tile once per source.
+                    if (seen->first_time("terrain-DEM anchor")) {
+                        log->warn(
+                            "mapbox: terrain-DEM has no height at the anchor (tile 14/{}/{}); "
+                            "terrain tiles stay empty and buildings stay at z = 0 until it loads",
+                            t.x, t.y);
+                    }
+                    return std::nullopt;
+                }
+                return dem_sample(*dem, px[0], px[1]);
+            })
             .share();
     std::lock_guard<std::mutex> lock(mutex_);
     reference_ = z;
