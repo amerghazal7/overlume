@@ -1420,7 +1420,7 @@ void synthetic_hill(const char* theme, const char* golden_png, const char* actua
     EXPECT_GT(ssim, overlume::testing::kSsimMin);
 
     // light_clay only (its fog is 40 times thinner than dark_adas's): the SSIM need not notice
-    // mirrored imagery on a dim hill or a block buried in it, so three probes pin them.
+    // mirrored imagery on a dim hill or a block buried in it, so four probes pin them.
     if (probe_colours) {
         ASSERT_TRUE(overlume::render_frame(r, pose, {frame.data(), e2e::kWidth, e2e::kHeight}));
         const e2e::Colour sky = e2e::colour_at_px(frame, 160, 2);
@@ -1432,6 +1432,12 @@ void synthetic_hill(const char* theme, const char* golden_png, const char* actua
         // The summit block's south wall, 4 m up from its base (14.05 m above the anchor's ground).
         ASSERT_TRUE(e2e::colour_at(
             r, frame, e2e::lowered(e2e::px_to_map(a, t, 257.75, 182.2, 18.05)), &atSummit));
+        // West of the summit block, 12 m up at u = 240, v = 172: it projects to row 59, two rows
+        // above the flat-terrain skyline (row 61), so it is terrain only where the mesh keeps its
+        // relief.
+        e2e::Colour belowCrest{};
+        ASSERT_TRUE(e2e::colour_at(r, frame, e2e::lowered(e2e::px_to_map(a, t, 240.0, 172.0, 12.0)),
+                                   &belowCrest));
         EXPECT_TRUE(e2e::looks_like(ne, e2e::kNorthEast))
             << "the hill's north-east flank must be green " << e2e::str(ne);
         EXPECT_TRUE(e2e::looks_like(nw, e2e::kNorthWest))
@@ -1441,6 +1447,8 @@ void synthetic_hill(const char* theme, const char* golden_png, const char* actua
             << e2e::str(atSummit);
         EXPECT_FALSE(e2e::near(atSummit, sky, 10.0))
             << "sky where the summit block stands " << e2e::str(atSummit);
+        EXPECT_FALSE(e2e::near(belowCrest, sky, 10.0))
+            << "sky below the crest: the terrain mesh lost its relief " << e2e::str(belowCrest);
     }
     overlume::destroy_renderer(r);
 }
