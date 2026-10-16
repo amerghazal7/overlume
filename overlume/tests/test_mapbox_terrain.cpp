@@ -1316,11 +1316,10 @@ double hill_m(double u, double v) {
 }
 
 // Filament's temporal dither changes every frame's noise with the frame's index since
-// create_renderer, so the compared frame is this one however early the scene settles. Measured on
-// this machine, the scenes settle at frames 185-190. The settle test's 1 s stillness window is at
-// most 200 frames with the 5 ms sleep and can restart once per raster stage, so a slower machine
-// settles later; ASSERT_LT(frames, kComparedFrame) below is the loud guard against comparing
-// another dither phase. Each frame after settling costs about 1.5 ms.
+// create_renderer, so the compared frame is this one. The scene settles through the stream's
+// update alone (environment_stream_pump) after frame 1, so the index does not depend on how long
+// the tiles take on the machine; 500 keeps the phase the promoted goldens were rendered at. Each
+// frame costs about 1.5 ms here.
 constexpr int kComparedFrame = 500;
 
 // Present: the hill, red west and green east of the north-south line through the ego, and three 8 m
@@ -1367,18 +1366,23 @@ void synthetic_hill(const char* theme, const char* golden_png, const char* actua
 
     const overlume::CameraPose pose{{0.0, -100.0, 35.0}, {0.0, 100.0, 7.0}, 20.0};
     std::vector<uint8_t> frame(e2e::kFrameBytes);
+    // Frame 1 gives the stream's update the camera and the viewport it reads. The scene then
+    // settles through that update alone (environment_stream_pump), so the frame index, and with
+    // it the dither phase, stays at 1 however long the tiles take: the first test in a process
+    // pays llvmpipe's shader compile, and a slow runner once spent a whole frame budget on it.
     // Settled: both loaders built the tile, the ego's ground sample landed, a raster is attached,
-    // and neither the terrain tiles in the scene nor the attached rasters changed for 10 frames
-    // and for a second of wall clock. Upsampling and imagery decoding run on worker threads, so a
-    // pause between raster stages can outlast 10 fast frames.
-    int frames = 0;
+    // and neither the terrain tiles in the scene nor the attached rasters changed for 10 pumps
+    // and for a second of wall clock (upsampling and imagery decoding run on worker threads).
+    ASSERT_TRUE(overlume::render_frame(r, pose, {frame.data(), e2e::kWidth, e2e::kHeight}));
+    int frames = 1;
+    const auto settleStart = std::chrono::steady_clock::now();
     int still = 0;
-    auto stillSince = std::chrono::steady_clock::now();
+    auto stillSince = settleStart;
     bool settled = false;
     uint64_t lastTiles = 0;
     uint32_t lastRasters = 0;
-    for (; frames < 1000 && !settled; ++frames) {
-        ASSERT_TRUE(overlume::render_frame(r, pose, {frame.data(), e2e::kWidth, e2e::kHeight}));
+    while (!settled && std::chrono::steady_clock::now() - settleStart < std::chrono::seconds(180)) {
+        overlume::testing::environment_stream_pump(r);
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
         const overlume::testing::MapboxSourceStats s = e2e::stats();
         const uint64_t tiles = overlume::testing::environment_terrain_tiles_loaded(r);
@@ -1396,12 +1400,12 @@ void synthetic_hill(const char* theme, const char* golden_png, const char* actua
         lastTiles = tiles;
         lastRasters = rasters;
     }
-    ASSERT_TRUE(settled) << "the golden scene never settled";
-    std::cout << "[terrain_golden] " << theme << " settled at frame " << frames << "\n";
-    // ponytail: a machine that settles at frame 500 or later fails here instead of comparing a
-    // frame of another dither phase; raise kComparedFrame (and re-promote) if the gate machine
-    // ever does.
-    ASSERT_LT(frames, kComparedFrame) << "settled at frame " << frames;
+    ASSERT_TRUE(settled) << "the golden scene never settled in 180 s";
+    std::cout << "[terrain_golden] " << theme << " settled "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(
+                     std::chrono::steady_clock::now() - settleStart)
+                     .count()
+              << " ms after frame 1\n";
     for (; frames < kComparedFrame - 1; ++frames) {
         ASSERT_TRUE(overlume::render_frame(r, pose, {frame.data(), e2e::kWidth, e2e::kHeight}));
     }
@@ -1420,6 +1424,7 @@ void synthetic_hill(const char* theme, const char* golden_png, const char* actua
     }
 
     const double ssim = overlume::testing::render_and_compare(r, pose, golden_png, actual_png);
+    std::cout << "[terrain_golden] " << theme << " ssim " << ssim << "\n";
     EXPECT_GT(ssim, overlume::testing::kSsimMin);
 
     // light_clay only (its fog is 40 times thinner than dark_adas's): the SSIM need not notice

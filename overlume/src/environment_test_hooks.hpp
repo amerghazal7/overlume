@@ -141,6 +141,10 @@ bool install_fixture_terrain_with_file_imagery(overlume::VisualRenderer* r, cons
 bool environment_stream_has_terrain_tileset(overlume::VisualRenderer* r);
 // Terrain tiles in the Filament scene (0 while the environment is hidden).
 uint64_t environment_terrain_tiles_loaded(overlume::VisualRenderer* r);
+// Test-only: the streaming source's per-frame update without a Filament frame, after at least one
+// render_frame (the camera and the viewport the update reads), so a golden test can wait for its
+// tiles with the frame index, and with it Filament's dither phase, untouched.
+void environment_stream_pump(overlume::VisualRenderer* r);
 // World z minus local z of a terrain tile's root: the follow-terrain lift when max_tilt_deg is 0.
 // NaN without a terrain tile in the scene.
 double environment_terrain_tile_lift_z(overlume::VisualRenderer* r);

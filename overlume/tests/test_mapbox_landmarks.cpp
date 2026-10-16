@@ -340,6 +340,13 @@ TEST(MapboxLandmarks, InsideAnyFootprintTruthTable) {
         {{ccw}, -1, 2, false, "west of the triangle"},
         {{ccw}, 5, 0, true, "on an edge"},
         {{ccw}, 5, 5, true, "on the edge two triangles of a square share"},
+        // Inexact coordinates: with the products fused into one multiply-add (aarch64), the edge
+        // function on the diagonal read +-1 ulp instead of 0 and both halves rejected the point.
+        {{{0.1, 0.1, 10.3, 0.1, 10.3, 10.3}, {0.1, 0.1, 10.3, 10.3, 0.1, 10.3}},
+         5.2,
+         5.2,
+         true,
+         "on the diagonal of a square with inexact coordinates"},
         {{ccw}, 0, 0, true, "on a corner"},
         {{ccw, distant}, 102, 102, true, "inside the second triangle"},
         {{ccw, distant}, 50, 50, false, "between the triangles"},
