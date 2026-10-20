@@ -9,6 +9,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 set +u
 source /opt/ros/humble/setup.bash
 set -u
+# colcon snapshots its whole environment into ros/build and ros/log, and the build needs neither
+# token (the node reads them when it runs, not when it is built).
+unset MAPBOX_TOKEN CESIUM_ION_TOKEN
 
 export COLCON_DEFAULTS_FILE="${SCRIPT_DIR}/config_colcon.yaml"
 

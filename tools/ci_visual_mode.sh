@@ -114,6 +114,8 @@ if [[ "${NODE_STAGE_OK}" == "1" ]]; then
         source "${ROS_SETUP}"
         source "${MAIN_INSTALL}"
         set -u
+        # colcon snapshots its environment into ros/build and ros/log; nothing here needs a token.
+        unset MAPBOX_TOKEN CESIUM_ION_TOKEN
         cd "${NODE_WS}"
         # tree, not auto: this stage tests the in-tree link, and a value an earlier colcon build
         # forced into the build cache (system) would keep it on the installed library. A missing
@@ -133,7 +135,20 @@ if [[ "${NODE_STAGE_OK}" == "1" ]]; then
         # The tree pin must hold: a ros/build node linking an installed liboverlume.so would have
         # run the tests above against that library, not this checkout's.
         NODE_DYNAMIC="$(readelf -d "${NODE_WS}/build/overlume_ros/liboverlume_node_lib.so" 2>/dev/null || true)"
-        if grep -qF 'Shared library: [liboverlume.so' <<< "${NODE_DYNAMIC}"; then
+        # With the tokens unset above, no file this stage's colcon runs wrote may hold either value
+        # (files are counted; the values go to grep through a pipe and are never shown).
+        NODE_TOKEN_FILES=0
+        for name in MAPBOX_TOKEN CESIUM_ION_TOKEN; do
+            [[ -n "${!name:-}" ]] || continue
+            n="$({ grep -rlF -f <(printf '%s' "${!name}" | tr -d '[:space:]') \
+                "${NODE_WS}/build/overlume_ros"/colcon_command_prefix_*.env \
+                "${NODE_WS}/log/latest_build/" "${NODE_WS}/log/latest_test/" 2>/dev/null || true; } | wc -l)"
+            NODE_TOKEN_FILES=$((NODE_TOKEN_FILES + n))
+        done
+        if (( NODE_TOKEN_FILES > 0 )); then
+            echo "FAIL  node gtests (colcon wrote a token value into ${NODE_TOKEN_FILES} file(s) under ros/build or ros/log)"
+            record_stage "node gtests" FAIL
+        elif grep -qF 'Shared library: [liboverlume.so' <<< "${NODE_DYNAMIC}"; then
             echo "FAIL  node gtests (ros/build links an installed liboverlume.so, not overlume/build)"
             record_stage "node gtests" FAIL
         elif bash "${REPO_ROOT}/tools/check_node_system_overlume.sh" > "${NODE_SYSTEM_LOG}" 2>&1; then
