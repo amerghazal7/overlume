@@ -6,9 +6,10 @@
 # package has it. Stages this checkout's shared library as a package, builds overlume_ros against
 # that package with -DOVERLUME_ROS_LINK=system, asserts the result links the staged
 # liboverlume.so.1 (no static Filament, no checkout headers), and runs the node tests that touch
-# the library. The work directory (OVERLUME_NODE_SYSTEM_DIR, default ros/system-overlume) persists
-# between runs, so later builds are incremental. Run by tools/ci_visual_mode.sh after the node's
-# own build.
+# the library. It also configures the node with overlume hidden and expects the node's own "not
+# found" message, the only guidance a machine with neither the package nor a library build gets.
+# The work directory (OVERLUME_NODE_SYSTEM_DIR, default ros/system-overlume) persists between
+# runs, so later builds are incremental. Run by tools/ci_visual_mode.sh after the node's own build.
 
 set -euo pipefail
 
@@ -29,6 +30,9 @@ fail() {
 
 mkdir -p "${W}"
 W="$(cd "${W}" && pwd)"
+# colcon run from ros/ (colcon_build.sh, the gate) would otherwise find the CMake sub-projects
+# the probe's configure generates under nofind/. Its build, install and log dirs mark themselves.
+touch "${W}/COLCON_IGNORE"
 LOG="${W}/colcon.log"
 LIB="${W}/build/overlume_ros/liboverlume_node_lib.so"
 
@@ -40,6 +44,19 @@ cmake --install "${REPO_ROOT}/overlume/build" --prefix "${W}/prefix" --component
 set +u
 source "${ROS_SETUP}"
 set -u
+
+# A configure with overlume hidden must fail with the node's own "not found" message. Hiding works
+# whether or not this machine has the package, and the FATAL_ERROR stops before the node downloads
+# anything. With a REQUIRED find_package CMake would reject the hiding instead ("A REQUIRED package
+# cannot be disabled"), so this fails if the message is reverted.
+if NOFIND="$(cmake -S "${REPO_ROOT}/ros/src/overlume_ros" -B "${W}/nofind" \
+        -DOVERLUME_ROS_LINK=system -DCMAKE_DISABLE_FIND_PACKAGE_overlume=ON 2>&1)"; then
+    fail "configure without overlume succeeded"
+fi
+if ! grep -qF 'overlume 1.1 or later was not found' <<< "${NOFIND}"; then
+    tail -20 <<< "${NOFIND}"
+    fail "configure without overlume does not name the remedies"
+fi
 
 # Runs a colcon step with its output in the log; on failure prints the log's tail and fails. The
 # tokens are unset because colcon snapshots its environment into the build tree and nothing here
