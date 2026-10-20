@@ -48,100 +48,168 @@ set(THIS_PACKAGE_DEPS
 set(OVERLUME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../overlume")
 get_filename_component(OVERLUME_DIR "${OVERLUME_DIR}" ABSOLUTE)
 set(OVERLUME_LIB "${OVERLUME_DIR}/build/liboverlume.a")
-if(NOT EXISTS "${OVERLUME_LIB}")
+
+# How the node links overlume: tree is this checkout's static build (overlume/build/liboverlume.a),
+# system is an installed overlume (the apt package), auto is tree when the checkout has built it.
+set(OVERLUME_ROS_LINK auto CACHE STRING
+    "How the node links overlume: auto, tree (this checkout's static build) or system (an installed overlume)")
+set_property(CACHE OVERLUME_ROS_LINK PROPERTY STRINGS auto tree system)
+if(NOT OVERLUME_ROS_LINK MATCHES "^(auto|tree|system)$")
     message(FATAL_ERROR
-        "overlume is not built. Build it first (see "
-        "${OVERLUME_DIR}/README.md):\n"
-        "  cd ${OVERLUME_DIR}\n"
-        "  scripts/setup_toolchain_cesium.sh\n"
-        "  cmake --toolchain cmake/toolchain-clang-libcxx.cmake -B build -S .\n"
-        "  cmake --build build\n"
-        "then re-run this configure.")
+        "OVERLUME_ROS_LINK must be one of auto, tree, system (got '${OVERLUME_ROS_LINK}').")
+endif()
+set(_overlume_ros_link "${OVERLUME_ROS_LINK}")
+if(_overlume_ros_link STREQUAL "auto")
+    if(EXISTS "${OVERLUME_LIB}")
+        set(_overlume_ros_link tree)
+    else()
+        set(_overlume_ros_link system)
+    endif()
 endif()
 
-file(STRINGS "${OVERLUME_DIR}/cmake/GetFilament.cmake" _filament_version_line
-     REGEX "^set\\(FILAMENT_VERSION ")
-if(NOT _filament_version_line)
-    message(FATAL_ERROR
-        "Could not find a FILAMENT_VERSION set() line in "
-        "${OVERLUME_DIR}/cmake/GetFilament.cmake")
-endif()
-string(REGEX REPLACE "^set\\(FILAMENT_VERSION \"([^\"]+)\"\\)$" "\\1"
-       FILAMENT_VERSION "${_filament_version_line}")
-set(FILAMENT_ROOT "${OVERLUME_DIR}/build/_deps/filament-${FILAMENT_VERSION}/filament"
-    CACHE PATH "Filament SDK root (reused from overlume's own build)")
-include("${OVERLUME_DIR}/cmake/GetFilament.cmake")
+if(_overlume_ros_link STREQUAL "tree")
+    if(NOT EXISTS "${OVERLUME_LIB}")
+        message(FATAL_ERROR
+            "overlume is not built. Build it first (see "
+            "${OVERLUME_DIR}/README.md):\n"
+            "  cd ${OVERLUME_DIR}\n"
+            "  scripts/setup_toolchain_cesium.sh\n"
+            "  cmake --toolchain cmake/toolchain-clang-libcxx.cmake -B build -S .\n"
+            "  cmake --build build\n"
+            "then re-run this configure.\n"
+            "-DOVERLUME_ROS_LINK=system (or no in-tree build) uses an installed overlume instead.")
+    endif()
+    message(STATUS "overlume_ros: tree link, ${OVERLUME_LIB}")
+    set(OVERLUME_INCLUDE_DIR "${OVERLUME_DIR}/include")
+    set(OVERLUME_THEMES_SOURCE_DIR "${OVERLUME_DIR}/assets/themes")
 
-unset(OVERLUME_CLANGXX CACHE)
-find_program(OVERLUME_CLANGXX clang++)
-if(OVERLUME_CLANGXX)
+    file(STRINGS "${OVERLUME_DIR}/cmake/GetFilament.cmake" _filament_version_line
+         REGEX "^set\\(FILAMENT_VERSION ")
+    if(NOT _filament_version_line)
+        message(FATAL_ERROR
+            "Could not find a FILAMENT_VERSION set() line in "
+            "${OVERLUME_DIR}/cmake/GetFilament.cmake")
+    endif()
+    string(REGEX REPLACE "^set\\(FILAMENT_VERSION \"([^\"]+)\"\\)$" "\\1"
+           FILAMENT_VERSION "${_filament_version_line}")
+    set(FILAMENT_ROOT "${OVERLUME_DIR}/build/_deps/filament-${FILAMENT_VERSION}/filament"
+        CACHE PATH "Filament SDK root (reused from overlume's own build)")
+    include("${OVERLUME_DIR}/cmake/GetFilament.cmake")
+
+    unset(OVERLUME_CLANGXX CACHE)
+    find_program(OVERLUME_CLANGXX clang++)
+    if(OVERLUME_CLANGXX)
+        execute_process(
+            COMMAND "${OVERLUME_CLANGXX}" -stdlib=libc++ -print-file-name=libc++.a
+            OUTPUT_VARIABLE _overlume_node_path_libcxx_a
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET)
+        if(NOT (_overlume_node_path_libcxx_a AND EXISTS "${_overlume_node_path_libcxx_a}"))
+            set(OVERLUME_CLANGXX "")
+        endif()
+    endif()
+    if(NOT OVERLUME_CLANGXX)
+        include("${OVERLUME_DIR}/cmake/clang18-toolchain-common.cmake")
+        set(OVERLUME_CLANGXX "${_overlume_clang18_wrap_clangxx}")
+    endif()
+
     execute_process(
         COMMAND "${OVERLUME_CLANGXX}" -stdlib=libc++ -print-file-name=libc++.a
-        OUTPUT_VARIABLE _overlume_node_path_libcxx_a
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET)
-    if(NOT (_overlume_node_path_libcxx_a AND EXISTS "${_overlume_node_path_libcxx_a}"))
-        set(OVERLUME_CLANGXX "")
-    endif()
-endif()
-if(NOT OVERLUME_CLANGXX)
-    include("${OVERLUME_DIR}/cmake/clang18-toolchain-common.cmake")
-    set(OVERLUME_CLANGXX "${_overlume_clang18_wrap_clangxx}")
-endif()
-
-execute_process(
-    COMMAND "${OVERLUME_CLANGXX}" -stdlib=libc++ -print-file-name=libc++.a
-    OUTPUT_VARIABLE _libcxx_a
-    OUTPUT_STRIP_TRAILING_WHITESPACE)
-get_filename_component(_libcxx_a "${_libcxx_a}" REALPATH)
-if(NOT EXISTS "${_libcxx_a}")
-    message(FATAL_ERROR
-        "Could not resolve a static libc++.a from '${OVERLUME_CLANGXX}' "
-        "(looked at '${_libcxx_a}').")
-endif()
-get_filename_component(_libcxx_lib_dir "${_libcxx_a}" DIRECTORY)
-
-set(_overlume_vr_toolchain_cache "${OVERLUME_DIR}/build/CMakeCache.txt")
-if(NOT EXISTS "${_overlume_vr_toolchain_cache}")
-    message(FATAL_ERROR
-        "Cannot verify toolchain match: '${_overlume_vr_toolchain_cache}' not "
-        "found (overlume's own build tree has no CMakeCache.txt).")
-endif()
-file(STRINGS "${_overlume_vr_toolchain_cache}" _overlume_vr_cxx_line
-     REGEX "^CMAKE_CXX_COMPILER:(FILEPATH|STRING)=")
-if(NOT _overlume_vr_cxx_line)
-    message(FATAL_ERROR
-        "Cannot verify toolchain match: no CMAKE_CXX_COMPILER entry in "
-        "'${_overlume_vr_toolchain_cache}'.")
-endif()
-string(REGEX REPLACE "^CMAKE_CXX_COMPILER:(FILEPATH|STRING)=" "" _overlume_vr_cxx "${_overlume_vr_cxx_line}")
-execute_process(
-    COMMAND "${_overlume_vr_cxx}" -stdlib=libc++ -print-file-name=libc++.a
-    OUTPUT_VARIABLE _overlume_vr_libcxx_a
-    OUTPUT_STRIP_TRAILING_WHITESPACE)
-get_filename_component(_overlume_vr_libcxx_a "${_overlume_vr_libcxx_a}" REALPATH)
-get_filename_component(_overlume_vr_libcxx_lib_dir "${_overlume_vr_libcxx_a}" DIRECTORY)
-if(NOT _overlume_vr_libcxx_lib_dir STREQUAL _libcxx_lib_dir)
-    message(FATAL_ERROR
-        "Toolchain mismatch: this package resolved libc++.a at "
-        "'${_libcxx_lib_dir}' (via compiler '${OVERLUME_CLANGXX}'), but "
-        "${OVERLUME_LIB} was built with compiler '${_overlume_vr_cxx}' "
-        "whose libc++.a lives at '${_overlume_vr_libcxx_lib_dir}'. Linking "
-        "these together would mix two different libc++ ABIs into one "
-        "binary. Delete this package's build directory and reconfigure "
-        "(the find_program() result above may be a stale CACHE entry, or "
-        "overlume needs rebuilding with the same toolchain this "
-        "package resolves).")
-endif()
-
-set(_libcxxabi_a "${_libcxx_lib_dir}/libc++abi.a")
-set(_libunwind_a "${_libcxx_lib_dir}/libunwind.a")
-foreach(_rt_lib "${_libcxxabi_a}" "${_libunwind_a}")
-    if(NOT EXISTS "${_rt_lib}")
+        OUTPUT_VARIABLE _libcxx_a
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    get_filename_component(_libcxx_a "${_libcxx_a}" REALPATH)
+    if(NOT EXISTS "${_libcxx_a}")
         message(FATAL_ERROR
-            "Expected static runtime lib not found: ${_rt_lib} (sibling of ${_libcxx_a}).")
+            "Could not resolve a static libc++.a from '${OVERLUME_CLANGXX}' "
+            "(looked at '${_libcxx_a}').")
     endif()
-endforeach()
+    get_filename_component(_libcxx_lib_dir "${_libcxx_a}" DIRECTORY)
+
+    set(_overlume_vr_toolchain_cache "${OVERLUME_DIR}/build/CMakeCache.txt")
+    if(NOT EXISTS "${_overlume_vr_toolchain_cache}")
+        message(FATAL_ERROR
+            "Cannot verify toolchain match: '${_overlume_vr_toolchain_cache}' not "
+            "found (overlume's own build tree has no CMakeCache.txt).")
+    endif()
+    file(STRINGS "${_overlume_vr_toolchain_cache}" _overlume_vr_cxx_line
+         REGEX "^CMAKE_CXX_COMPILER:(FILEPATH|STRING)=")
+    if(NOT _overlume_vr_cxx_line)
+        message(FATAL_ERROR
+            "Cannot verify toolchain match: no CMAKE_CXX_COMPILER entry in "
+            "'${_overlume_vr_toolchain_cache}'.")
+    endif()
+    string(REGEX REPLACE "^CMAKE_CXX_COMPILER:(FILEPATH|STRING)=" "" _overlume_vr_cxx "${_overlume_vr_cxx_line}")
+    execute_process(
+        COMMAND "${_overlume_vr_cxx}" -stdlib=libc++ -print-file-name=libc++.a
+        OUTPUT_VARIABLE _overlume_vr_libcxx_a
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    get_filename_component(_overlume_vr_libcxx_a "${_overlume_vr_libcxx_a}" REALPATH)
+    get_filename_component(_overlume_vr_libcxx_lib_dir "${_overlume_vr_libcxx_a}" DIRECTORY)
+    if(NOT _overlume_vr_libcxx_lib_dir STREQUAL _libcxx_lib_dir)
+        message(FATAL_ERROR
+            "Toolchain mismatch: this package resolved libc++.a at "
+            "'${_libcxx_lib_dir}' (via compiler '${OVERLUME_CLANGXX}'), but "
+            "${OVERLUME_LIB} was built with compiler '${_overlume_vr_cxx}' "
+            "whose libc++.a lives at '${_overlume_vr_libcxx_lib_dir}'. Linking "
+            "these together would mix two different libc++ ABIs into one "
+            "binary. Delete this package's build directory and reconfigure "
+            "(the find_program() result above may be a stale CACHE entry, or "
+            "overlume needs rebuilding with the same toolchain this "
+            "package resolves).")
+    endif()
+
+    set(_libcxxabi_a "${_libcxx_lib_dir}/libc++abi.a")
+    set(_libunwind_a "${_libcxx_lib_dir}/libunwind.a")
+    foreach(_rt_lib "${_libcxxabi_a}" "${_libunwind_a}")
+        if(NOT EXISTS "${_rt_lib}")
+            message(FATAL_ERROR
+                "Expected static runtime lib not found: ${_rt_lib} (sibling of ${_libcxx_a}).")
+        endif()
+    endforeach()
+
+    set(_overlume_node_extra_link_archives "")
+    set(_overlume_vr_cache "${OVERLUME_DIR}/build/CMakeCache.txt")
+    if(EXISTS "${_overlume_vr_cache}")
+        file(STRINGS "${_overlume_vr_cache}" _overlume_vr_cesium_line
+             REGEX "^OVERLUME_ENABLE_CESIUM:BOOL=ON$")
+        if(_overlume_vr_cesium_line)
+            file(GLOB _overlume_node_cesium_module_archives
+                 "${OVERLUME_DIR}/build/_deps/cesium-native-build/*/*.a")
+            file(GLOB _overlume_node_vcpkg_archives
+                 "$ENV{HOME}/.ezvcpkg/*/installed/x64-linux-clang-libcxx/lib/*.a"
+                 "$ENV{HOME}/.ezvcpkg/*/installed/x64-linux-clang-libcxx/debug/lib/*.a")
+            set(_overlume_node_extra_link_archives
+                ${_overlume_node_cesium_module_archives} ${_overlume_node_vcpkg_archives})
+            if(NOT _overlume_node_extra_link_archives)
+                message(FATAL_ERROR
+                    "overlume was built with OVERLUME_ENABLE_CESIUM=ON but "
+                    "this package found no cesium-native/vcpkg archives to glob "
+                    "at the expected paths -- the merged liboverlume.a "
+                    "needs them (sqlite3/curl/openssl/draco/ktx/... symbols) or "
+                    "this package's own link will fail with undefined "
+                    "references. Did the paths move at a cesium-native/vcpkg "
+                    "version bump?")
+            endif()
+        endif()
+    endif()
+
+    string(JOIN "," _overlume_node_group_items
+        "${_libcxx_a}" "${_libcxxabi_a}" "${_libunwind_a}"
+        ${_overlume_node_extra_link_archives})
+    add_library(overlume_prebuilt STATIC IMPORTED)
+    set_target_properties(overlume_prebuilt PROPERTIES
+        IMPORTED_LOCATION "${OVERLUME_LIB}"
+        INTERFACE_INCLUDE_DIRECTORIES "${OVERLUME_INCLUDE_DIR}"
+        INTERFACE_LINK_LIBRARIES "Filament::filament;$<LINK_GROUP:RESCAN,${_overlume_node_group_items}>")
+else()
+    # 1.1 is the first release with environment_source_credits(), which the node calls.
+    find_package(overlume 1.1 CONFIG REQUIRED)
+    message(STATUS "overlume_ros: system link, overlume ${overlume_VERSION} at ${overlume_DIR}")
+    add_library(overlume_prebuilt INTERFACE)
+    target_link_libraries(overlume_prebuilt INTERFACE overlume::overlume)
+    get_target_property(OVERLUME_INCLUDE_DIR overlume::overlume INTERFACE_INCLUDE_DIRECTORIES)
+    set(OVERLUME_THEMES_SOURCE_DIR "${overlume_THEMES_DIR}")
+endif()
 
 set(OVERLUME_NODE_STB_COMMIT "2c980bb59875b0d32144a71867fbdebb2f77cd20")
 set(OVERLUME_NODE_STB_DIR "${CMAKE_BINARY_DIR}/_deps/stb")
@@ -163,41 +231,6 @@ if(NOT EXISTS "${OVERLUME_NODE_STB_IMAGE_WRITE_H}")
          "${OVERLUME_NODE_STB_IMAGE_WRITE_H}"
          EXPECTED_HASH SHA256=cbd5f0ad7a9cf4468affb36354a1d2338034f2c12473cf1a8e32053cb6914a05)
 endif()
-
-set(_overlume_node_extra_link_archives "")
-set(_overlume_vr_cache "${OVERLUME_DIR}/build/CMakeCache.txt")
-if(EXISTS "${_overlume_vr_cache}")
-    file(STRINGS "${_overlume_vr_cache}" _overlume_vr_cesium_line
-         REGEX "^OVERLUME_ENABLE_CESIUM:BOOL=ON$")
-    if(_overlume_vr_cesium_line)
-        file(GLOB _overlume_node_cesium_module_archives
-             "${OVERLUME_DIR}/build/_deps/cesium-native-build/*/*.a")
-        file(GLOB _overlume_node_vcpkg_archives
-             "$ENV{HOME}/.ezvcpkg/*/installed/x64-linux-clang-libcxx/lib/*.a"
-             "$ENV{HOME}/.ezvcpkg/*/installed/x64-linux-clang-libcxx/debug/lib/*.a")
-        set(_overlume_node_extra_link_archives
-            ${_overlume_node_cesium_module_archives} ${_overlume_node_vcpkg_archives})
-        if(NOT _overlume_node_extra_link_archives)
-            message(FATAL_ERROR
-                "overlume was built with OVERLUME_ENABLE_CESIUM=ON but "
-                "this package found no cesium-native/vcpkg archives to glob "
-                "at the expected paths -- the merged liboverlume.a "
-                "needs them (sqlite3/curl/openssl/draco/ktx/... symbols) or "
-                "this package's own link will fail with undefined "
-                "references. Did the paths move at a cesium-native/vcpkg "
-                "version bump?")
-        endif()
-    endif()
-endif()
-
-string(JOIN "," _overlume_node_group_items
-    "${_libcxx_a}" "${_libcxxabi_a}" "${_libunwind_a}"
-    ${_overlume_node_extra_link_archives})
-add_library(overlume_prebuilt STATIC IMPORTED)
-set_target_properties(overlume_prebuilt PROPERTIES
-    IMPORTED_LOCATION "${OVERLUME_LIB}"
-    INTERFACE_INCLUDE_DIRECTORIES "${OVERLUME_DIR}/include"
-    INTERFACE_LINK_LIBRARIES "Filament::filament;$<LINK_GROUP:RESCAN,${_overlume_node_group_items}>")
 
 add_library(overlume_node_lib SHARED
   src/overlume_node.cpp
@@ -229,6 +262,9 @@ target_include_directories(overlume_node_lib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 target_include_directories(overlume_node_lib PRIVATE "${OVERLUME_NODE_STB_DIR}")
+# ponytail: bowl_projection.hpp is overlume-internal. The shared library exports
+# overlume::bowl::ProjectToCameraUv through its overlume::* map, and a signature drift fails the
+# link loudly. The fix is a public free function in api.h (1.2.0); then drop this include.
 target_include_directories(overlume_node_lib PRIVATE "${OVERLUME_DIR}/src")
 
 ament_target_dependencies(overlume_node_lib ${THIS_PACKAGE_DEPS})
@@ -256,7 +292,7 @@ install(DIRECTORY include/
 install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME})
 
-install(DIRECTORY "${OVERLUME_DIR}/assets/themes"
+install(DIRECTORY "${OVERLUME_THEMES_SOURCE_DIR}"
   DESTINATION share/${PROJECT_NAME}/assets)
 
 install(DIRECTORY assets/fonts
@@ -279,17 +315,17 @@ if(BUILD_TESTING)
   ament_add_gtest(test_ego_anchor test/test_ego_anchor.cpp)
   target_include_directories(test_ego_anchor PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${OVERLUME_DIR}/include)
+    ${OVERLUME_INCLUDE_DIR})
 
   ament_add_gtest(test_environment_source_uri test/test_environment_source_uri.cpp)
   target_include_directories(test_environment_source_uri PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${OVERLUME_DIR}/include)
+    ${OVERLUME_INCLUDE_DIR})
 
   ament_add_gtest(test_scene_layout test/test_scene_layout.cpp)
   target_include_directories(test_scene_layout PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${OVERLUME_DIR}/include)
+    ${OVERLUME_INCLUDE_DIR})
 
   ament_add_test(check_pod_header
     COMMAND bash "${OVERLUME_DIR}/scripts/check_pod_header.sh"
@@ -318,7 +354,7 @@ if(BUILD_TESTING)
   add_library(overlume_node_test_paths INTERFACE)
   target_compile_definitions(overlume_node_test_paths INTERFACE
     TEST_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config"
-    OVERLUME_THEME_DIR="${OVERLUME_DIR}/assets/themes"
+    OVERLUME_THEME_DIR="${OVERLUME_THEMES_SOURCE_DIR}"
     OVERLUME_NODE_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures"
     OVERLUME_NODE_FONT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/NotoSans-Regular.ttf"
     OVERLUME_NODE_MAPBOX_LOGO_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/attribution/mapbox-logo.png")
@@ -328,7 +364,7 @@ if(BUILD_TESTING)
   target_include_directories(test_profile PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/test
-    ${OVERLUME_DIR}/include)
+    ${OVERLUME_INCLUDE_DIR})
   ament_target_dependencies(test_profile ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_profile ${yaml_cpp_vendor_TARGETS} overlume_node_test_paths)
   target_link_libraries(test_profile overlume_prebuilt)
@@ -342,7 +378,7 @@ if(BUILD_TESTING)
   ament_add_gtest(test_scene_assembly test/test_scene_assembly.cpp src/scene_assembly.cpp)
   target_include_directories(test_scene_assembly PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${OVERLUME_DIR}/include)
+    ${OVERLUME_INCLUDE_DIR})
   ament_target_dependencies(test_scene_assembly ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_scene_assembly ${yaml_cpp_vendor_TARGETS})
 
@@ -356,7 +392,7 @@ if(BUILD_TESTING)
   target_include_directories(test_hd_map_adapter PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/test
-    ${OVERLUME_DIR}/include)
+    ${OVERLUME_INCLUDE_DIR})
   ament_target_dependencies(test_hd_map_adapter ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_hd_map_adapter ${yaml_cpp_vendor_TARGETS} overlume_node_test_paths)
 
@@ -369,7 +405,7 @@ if(BUILD_TESTING)
   target_include_directories(test_dynamic_objects_adapter PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/test
-    ${OVERLUME_DIR}/include)
+    ${OVERLUME_INCLUDE_DIR})
   ament_target_dependencies(test_dynamic_objects_adapter ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_dynamic_objects_adapter ${yaml_cpp_vendor_TARGETS} overlume_node_test_paths)
 
@@ -383,7 +419,7 @@ if(BUILD_TESTING)
   target_include_directories(test_path_adapter PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/test
-    ${OVERLUME_DIR}/include)
+    ${OVERLUME_INCLUDE_DIR})
   ament_target_dependencies(test_path_adapter ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_path_adapter ${yaml_cpp_vendor_TARGETS} overlume_node_test_paths)
 
@@ -398,7 +434,7 @@ if(BUILD_TESTING)
   target_include_directories(test_ogm_adapter PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/test
-    ${OVERLUME_DIR}/include)
+    ${OVERLUME_INCLUDE_DIR})
   ament_target_dependencies(test_ogm_adapter ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_ogm_adapter ${yaml_cpp_vendor_TARGETS} overlume_node_test_paths)
 
@@ -413,7 +449,7 @@ if(BUILD_TESTING)
   target_include_directories(test_height_grid_adapter PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/test
-    ${OVERLUME_DIR}/include)
+    ${OVERLUME_INCLUDE_DIR})
   ament_target_dependencies(test_height_grid_adapter ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_height_grid_adapter ${yaml_cpp_vendor_TARGETS} overlume_node_test_paths)
 
@@ -424,7 +460,7 @@ if(BUILD_TESTING)
   target_include_directories(test_grid_placement PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/test
-    ${OVERLUME_DIR}/include)
+    ${OVERLUME_INCLUDE_DIR})
   ament_target_dependencies(test_grid_placement ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_grid_placement ${yaml_cpp_vendor_TARGETS})
 
@@ -438,7 +474,7 @@ if(BUILD_TESTING)
   target_include_directories(test_collision_adapter PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/test
-    ${OVERLUME_DIR}/include)
+    ${OVERLUME_INCLUDE_DIR})
   ament_target_dependencies(test_collision_adapter ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_collision_adapter ${yaml_cpp_vendor_TARGETS} overlume_node_test_paths)
 
@@ -452,7 +488,7 @@ if(BUILD_TESTING)
   target_include_directories(test_generic_marker_adapter PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/test
-    ${OVERLUME_DIR}/include)
+    ${OVERLUME_INCLUDE_DIR})
   ament_target_dependencies(test_generic_marker_adapter ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_generic_marker_adapter ${yaml_cpp_vendor_TARGETS} overlume_node_test_paths)
 
@@ -461,7 +497,7 @@ if(BUILD_TESTING)
     src/adapters/tf_axes.cpp)
   target_include_directories(test_tf_axes_adapter PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${OVERLUME_DIR}/include)
+    ${OVERLUME_INCLUDE_DIR})
   ament_target_dependencies(test_tf_axes_adapter ${THIS_PACKAGE_DEPS})
 
   ament_add_gtest(test_diagnostics test/test_diagnostics.cpp src/diagnostics.cpp)
@@ -472,7 +508,7 @@ if(BUILD_TESTING)
   ament_add_gtest(test_hud_overlay test/test_hud_overlay.cpp src/hud_overlay.cpp)
   target_include_directories(test_hud_overlay PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${OVERLUME_DIR}/include
+    ${OVERLUME_INCLUDE_DIR}
     ${OVERLUME_NODE_STB_DIR})
   ament_target_dependencies(test_hud_overlay ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_hud_overlay overlume_prebuilt overlume_node_test_paths)
@@ -480,7 +516,7 @@ if(BUILD_TESTING)
   ament_add_gtest(test_callouts test/test_callouts.cpp src/callouts.cpp src/hud_overlay.cpp)
   target_include_directories(test_callouts PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${OVERLUME_DIR}/include
+    ${OVERLUME_INCLUDE_DIR}
     ${OVERLUME_NODE_STB_DIR})
   ament_target_dependencies(test_callouts ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_callouts overlume_prebuilt overlume_node_test_paths)
@@ -492,7 +528,7 @@ if(BUILD_TESTING)
     src/scene_assembly.cpp)
   target_include_directories(test_point_cloud_adapter PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${OVERLUME_DIR}/include
+    ${OVERLUME_INCLUDE_DIR}
     ${OVERLUME_NODE_STB_DIR})
   ament_target_dependencies(test_point_cloud_adapter ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_point_cloud_adapter overlume_prebuilt overlume_node_test_paths)
@@ -507,21 +543,21 @@ if(BUILD_TESTING)
   target_include_directories(test_trajectory_carpet_adapter PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/test
-    ${OVERLUME_DIR}/include)
+    ${OVERLUME_INCLUDE_DIR})
   ament_target_dependencies(test_trajectory_carpet_adapter ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_trajectory_carpet_adapter ${yaml_cpp_vendor_TARGETS} overlume_node_test_paths)
 
   ament_add_gtest(test_geo_anchor test/test_geo_anchor.cpp src/geo_anchor.cpp)
   target_include_directories(test_geo_anchor PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${OVERLUME_DIR}/include)
+    ${OVERLUME_INCLUDE_DIR})
   ament_target_dependencies(test_geo_anchor ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_geo_anchor overlume_node_test_paths)
 
   ament_add_gtest(test_camera_ingest test/test_camera_ingest.cpp src/camera_ingest.cpp)
   target_include_directories(test_camera_ingest PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${OVERLUME_DIR}/include)
+    ${OVERLUME_INCLUDE_DIR})
   ament_target_dependencies(test_camera_ingest ${THIS_PACKAGE_DEPS})
   target_link_libraries(test_camera_ingest overlume_prebuilt)
   set_tests_properties(test_camera_ingest PROPERTIES TIMEOUT 30)
@@ -529,7 +565,7 @@ if(BUILD_TESTING)
   ament_add_gtest(test_lidar_colorize test/test_lidar_colorize.cpp src/lidar_colorize.cpp)
   target_include_directories(test_lidar_colorize PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${OVERLUME_DIR}/include
+    ${OVERLUME_INCLUDE_DIR}
     ${OVERLUME_DIR}/src)
   target_link_libraries(test_lidar_colorize overlume_prebuilt)
 
@@ -539,7 +575,7 @@ if(BUILD_TESTING)
 
 ament_add_test(test_exported_symbols
     COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/test/test_exported_symbols.sh"
-      "$<TARGET_FILE:overlume_node_lib>"
+      "$<TARGET_FILE:overlume_node_lib>" ${_overlume_ros_link}
     GENERATE_RESULT_FOR_RETURN_CODE_ZERO)
 endif()
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The ROS node builds against an installed overlume (the apt package, 1.1 or later) when the checkout has no library build. The CMake variable `OVERLUME_ROS_LINK` picks the link: `tree` (this checkout's `overlume/build`, as before), `system` (the installed shared library, with its headers and themes) or `auto`, the default, which is `tree` when `overlume/build/liboverlume.a` exists and `system` otherwise. `tools/check_node_system_overlume.sh` checks the `system` link in the gate.
+
 ## [1.1.0] - 2026-10-16
 
 ### Added

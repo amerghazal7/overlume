@@ -124,8 +124,17 @@ if [[ "${NODE_STAGE_OK}" == "1" ]]; then
     ) > "${NODE_LOG}" 2>&1 && NODE_RC=0 || NODE_RC=$?
     if [[ "${NODE_RC}" -eq 0 ]]; then
         NODE_SUMMARY="$(grep -E 'tests?,.*errors?,.*failures?' "${NODE_LOG}" | tail -1 || true)"
-        echo "PASS  node gtests  (${NODE_SUMMARY:-see log})"
-        record_stage "node gtests" PASS "${NODE_SUMMARY}"
+        # The node must also build against an installed overlume (the apt package). Its output goes
+        # to its own log: a second colcon summary in node_colcon.log would replace the one above.
+        NODE_SYSTEM_LOG="${LOG_DIR}/node_system_overlume.log"
+        if bash "${REPO_ROOT}/tools/check_node_system_overlume.sh" > "${NODE_SYSTEM_LOG}" 2>&1; then
+            echo "PASS  node gtests  (${NODE_SUMMARY:-see log}; installed-overlume check PASS)"
+            record_stage "node gtests" PASS "${NODE_SUMMARY}; installed-overlume check PASS"
+        else
+            echo "FAIL  node gtests (installed-overlume check, see ${NODE_SYSTEM_LOG})"
+            tail -60 "${NODE_SYSTEM_LOG}"
+            record_stage "node gtests" FAIL
+        fi
     else
         echo "FAIL  node gtests (colcon exit ${NODE_RC}, see ${NODE_LOG})"
         tail -60 "${NODE_LOG}"

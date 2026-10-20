@@ -8,6 +8,7 @@ __pycache__/
 ros/build/
 ros/install/
 ros/log/
+ros/system-overlume/
 *.db*CMakeFiles/
 .vscode/
 graphify-out/

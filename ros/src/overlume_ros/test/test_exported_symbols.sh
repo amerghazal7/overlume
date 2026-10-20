@@ -4,12 +4,20 @@
 
 set -euo pipefail
 
-if [ "$#" -ne 1 ]; then
-  echo "usage: $0 <path-to-liboverlume_node_lib.so>" >&2
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+  echo "usage: $0 <path-to-liboverlume_node_lib.so> [tree|system]" >&2
   exit 1
 fi
 
 lib="$1"
+# tree (default): the node lib statically links liboverlume.a and its libc++abi. system: it links an
+# installed liboverlume.so, which keeps its own C++ runtime hidden inside, so the node lib holds no
+# C++ runtime of its own and the ABI check below does not apply.
+link="${2:-tree}"
+if [ "$link" != "tree" ] && [ "$link" != "system" ]; then
+  echo "test_exported_symbols.sh: link mode must be tree or system, not '$link'" >&2
+  exit 1
+fi
 if [ ! -f "$lib" ]; then
   echo "test_exported_symbols.sh: no such file: $lib" >&2
   exit 1
@@ -30,6 +38,12 @@ if [ -n "$offenders" ]; then
   echo "CMakeLists.txt). Offending symbols:" >&2
   printf '%s\n' "$offenders" >&2
   exit 1
+fi
+
+if [ "$link" = "system" ]; then
+  echo "test_exported_symbols.sh: OK -- 0 vendored C-library symbols exported by $lib," \
+       "system link (no static C++ runtime to share)."
+  exit 0
 fi
 
 abi_missing=""
