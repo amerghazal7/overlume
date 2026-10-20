@@ -191,7 +191,7 @@ or newer; the package pulls in `libegl1`, `libgles2`, `libgl1`:
 ```bash
 sudo mkdir -p /etc/apt/keyrings
 sudo curl -fsSL https://amerghazal7.github.io/overlume/overlume-release.asc -o /etc/apt/keyrings/overlume.asc
-echo "deb [signed-by=/etc/apt/keyrings/overlume.asc] https://amerghazal7.github.io/overlume/apt stable main" \
+echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/overlume.asc] https://amerghazal7.github.io/overlume/apt stable main" \
     | sudo tee /etc/apt/sources.list.d/overlume.list
 sudo apt-get update
 sudo apt-get install overlume          # runtime + headers + themes + CMake/pkg-config files
