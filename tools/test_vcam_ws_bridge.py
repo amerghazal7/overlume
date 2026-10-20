@@ -767,6 +767,46 @@ def test_launcher_runs_preflight_after_teardown_and_checks_the_bridge():
 
 
 
+# --- health verdict (tools/validate_visual_mode.sh) --------------------------------------------
+# Runs the launcher's health wait and verdict on their own, with the ros2 readers stubbed and the
+# 40 s deadline cut to 3 s.
+
+def _health(tmp_path, readers):
+    import subprocess
+    with open(os.path.join(os.path.dirname(__file__), "validate_visual_mode.sh")) as f:
+        script = f.read()
+    start = script.index("DEADLINE=$((SECONDS + 40))")
+    end = script.index('echo "Rig is up')
+    block = script[start:end].replace("SECONDS + 40", "SECONDS + 3", 1)
+    return subprocess.run(
+        ["bash", "-c", f"set -euo pipefail\nLIVE=0\nLOG_DIR={tmp_path}\n{readers}\n{block}"
+         'echo "PASS=${PASS}"\n'],
+        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+
+
+def test_health_passes_on_image_and_ego_without_hd_map_or_diagnostics(tmp_path):
+    r = _health(tmp_path, "read_hz() { echo 30.2; }\n"
+                          "read_ego_z_valid() { echo '0.0 1.0'; }\n"
+                          "read_hd_map_hz() { true; }\n"
+                          "read_diagnostics_hz() { true; }")
+    assert r.returncode == 0, r.stderr
+    assert "PASS=1" in r.stdout
+    assert ("PASS  /rendering/image @ 30.2 Hz  |  ego_state valid=1.0 z=0.0"
+            "  |  /hd_map_local_elements @ no-data Hz (info)"
+            "  |  ~/diagnostics @ no-data Hz (info)") in r.stdout
+
+
+def test_health_fails_without_a_valid_ego_even_with_every_feed_live(tmp_path):
+    r = _health(tmp_path, "read_hz() { echo 30.2; }\n"
+                          "read_ego_z_valid() { echo '0.0 0.0'; }\n"
+                          "read_hd_map_hz() { echo 44.5; }\n"
+                          "read_diagnostics_hz() { echo 1.0; }")
+    assert r.returncode == 0, r.stderr
+    assert "PASS=0" in r.stdout
+    assert "FAIL  /rendering/image @ 30.2 Hz  |  ego_state valid=0.0 z=0.0" in r.stdout
+    assert "/hd_map_local_elements @ 44.5 Hz (info)" in r.stdout
+
+
 # --- token refresh (tools/validate_visual_mode.sh) ---------------------------------------------
 # Runs the launcher's refresh block on its own. HOME is a temp dir, so the login shell it starts
 # reads only the fake profile below, never a real token.

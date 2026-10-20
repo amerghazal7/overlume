@@ -323,11 +323,10 @@ else
 fi
 
 if [[ "${LIVE}" == "1" ]]; then
-    echo "[health] waiting up to 20s for >=25 Hz on /rendering/image," \
-         "valid ego_state, and a live /hd_map_local_elements feed ..."
+    echo "[health] waiting up to 40s for >=25 Hz on /rendering/image and a valid ego_state ..."
 else
-    echo "[health] waiting up to 20s for >=25 Hz on /rendering/image," \
-         "valid ego_state with z==0.0, and a live /hd_map_local_elements feed ..."
+    echo "[health] waiting up to 40s for >=25 Hz on /rendering/image and a valid ego_state" \
+         "with z==0.0 ..."
 fi
 
 read_hz() {
@@ -357,14 +356,12 @@ DEADLINE=$((SECONDS + 40))
 HZ=""
 EGO_Z=""
 EGO_VALID=""
-HD_MAP_HZ=""
-DIAG_HZ=""
 PASS=0
+# PASS rests on the render loop's liveness alone: /rendering/image at >= 25 Hz and a valid
+# ego_state. The HD map and ~/diagnostics rates are read once afterwards, for information only.
 while [[ "${SECONDS}" -lt "${DEADLINE}" ]]; do
     HZ="$(read_hz || true)"
     read -r EGO_Z EGO_VALID < <(read_ego_z_valid)
-    HD_MAP_HZ="$(read_hd_map_hz || true)"
-    DIAG_HZ="$(read_diagnostics_hz || true)"
     HZ_OK=0
     if [[ -n "${HZ}" ]] && awk -v h="${HZ}" 'BEGIN{exit !(h>=25)}'; then
         HZ_OK=1
@@ -375,32 +372,26 @@ while [[ "${SECONDS}" -lt "${DEADLINE}" ]]; do
     elif [[ "${EGO_VALID}" == "1.0" && "${EGO_Z}" == "0.0" ]]; then
         EGO_OK=1
     fi
-
-    HD_MAP_OK=0
-    if [[ -n "${HD_MAP_HZ}" ]] && awk -v h="${HD_MAP_HZ}" 'BEGIN{exit !(h>=1)}'; then
-        HD_MAP_OK=1
-    fi
-
-    DIAG_OK=0
-    if [[ -n "${DIAG_HZ}" ]] && awk -v h="${DIAG_HZ}" 'BEGIN{exit !(h>=1)}'; then
-        DIAG_OK=1
-    fi
-    if [[ "${HZ_OK}" == "1" && "${EGO_OK}" == "1" && "${HD_MAP_OK}" == "1" && "${DIAG_OK}" == "1" ]]; then
+    if [[ "${HZ_OK}" == "1" && "${EGO_OK}" == "1" ]]; then
         PASS=1
         break
     fi
 done
+HD_MAP_HZ="$(read_hd_map_hz || true)"
+DIAG_HZ="$(read_diagnostics_hz || true)"
 
 echo "=============================================================="
 if [[ "${PASS}" == "1" ]]; then
     echo "PASS  /rendering/image @ ${HZ} Hz  |  ego_state valid=${EGO_VALID} z=${EGO_Z}" \
-         " |  /hd_map_local_elements @ ${HD_MAP_HZ} Hz  |  ~/diagnostics @ ${DIAG_HZ} Hz"
+         " |  /hd_map_local_elements @ ${HD_MAP_HZ:-no-data} Hz (info)" \
+         " |  ~/diagnostics @ ${DIAG_HZ:-no-data} Hz (info)"
 else
     echo "FAIL  /rendering/image @ ${HZ:-no-data} Hz  |  ego_state valid=${EGO_VALID:-?} z=${EGO_Z:-?}" \
-         " |  /hd_map_local_elements @ ${HD_MAP_HZ:-no-data} Hz  |  ~/diagnostics @ ${DIAG_HZ:-no-data} Hz"
+         " |  /hd_map_local_elements @ ${HD_MAP_HZ:-no-data} Hz (info)" \
+         " |  ~/diagnostics @ ${DIAG_HZ:-no-data} Hz (info)"
     if [[ "${LIVE}" == "1" ]]; then
         echo "  live mode: a FAIL can also mean the autonomy stack is not" \
-             "publishing (yet) -- check TF and /hd_map_local_elements on the stack side."
+             "publishing (yet) -- check TF (the ego pose) on the stack side."
     fi
     echo "  logs: ${LOG_DIR}/"
 fi
