@@ -67,15 +67,19 @@ if(_overlume_ros_link STREQUAL "auto")
     endif()
 endif()
 
+# The steps that build this checkout's library, named by the errors of both modes.
+string(CONCAT _overlume_build_steps
+    "  cd ${OVERLUME_DIR}\n"
+    "  scripts/setup_toolchain_cesium.sh\n"
+    "  cmake --toolchain cmake/toolchain-clang-libcxx.cmake -B build -S .\n"
+    "  cmake --build build\n")
+
 if(_overlume_ros_link STREQUAL "tree")
     if(NOT EXISTS "${OVERLUME_LIB}")
         message(FATAL_ERROR
             "overlume is not built. Build it first (see "
             "${OVERLUME_DIR}/README.md):\n"
-            "  cd ${OVERLUME_DIR}\n"
-            "  scripts/setup_toolchain_cesium.sh\n"
-            "  cmake --toolchain cmake/toolchain-clang-libcxx.cmake -B build -S .\n"
-            "  cmake --build build\n"
+            "${_overlume_build_steps}"
             "then re-run this configure.\n"
             "-DOVERLUME_ROS_LINK=system (or no in-tree build) uses an installed overlume instead.")
     endif()
@@ -203,7 +207,16 @@ if(_overlume_ros_link STREQUAL "tree")
         INTERFACE_LINK_LIBRARIES "Filament::filament;$<LINK_GROUP:RESCAN,${_overlume_node_group_items}>")
 else()
     # 1.1 is the first release with environment_source_credits(), which the node calls.
-    find_package(overlume 1.1 CONFIG REQUIRED)
+    # Not REQUIRED: CMake's own "could not find" error names neither remedy.
+    find_package(overlume 1.1 CONFIG)
+    if(NOT overlume_FOUND)
+        message(FATAL_ERROR
+            "overlume 1.1 or later was not found. Install it (see the Install section of the "
+            "repository README.md) or set overlume_DIR to the directory holding its "
+            "overlumeConfig.cmake. Or build this checkout's library:\n"
+            "${_overlume_build_steps}"
+            "then re-run this configure with OVERLUME_ROS_LINK auto (the default) or tree.")
+    endif()
     message(STATUS "overlume_ros: system link, overlume ${overlume_VERSION} at ${overlume_DIR}")
     add_library(overlume_prebuilt INTERFACE)
     target_link_libraries(overlume_prebuilt INTERFACE overlume::overlume)

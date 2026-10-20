@@ -115,9 +115,12 @@ if [[ "${NODE_STAGE_OK}" == "1" ]]; then
         source "${MAIN_INSTALL}"
         set -u
         cd "${NODE_WS}"
+        # tree, not auto: this stage tests the in-tree link, and a value an earlier colcon build
+        # forced into the build cache (system) would keep it on the installed library. A missing
+        # archive (stage 2 builds it) fails here instead of silently falling back.
         colcon build --packages-select overlume_ros \
             --event-handlers desktop_notification- \
-            --cmake-args -DCMAKE_BUILD_TYPE=Release \
+            --cmake-args -DCMAKE_BUILD_TYPE=Release -DOVERLUME_ROS_LINK=tree \
             && colcon test --packages-select overlume_ros \
                 --event-handlers desktop_notification- \
             && colcon test-result --all --verbose
