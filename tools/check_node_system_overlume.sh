@@ -45,12 +45,19 @@ set +u
 source "${ROS_SETUP}"
 set -u
 
-# A configure with overlume hidden must fail with the node's own "not found" message. Hiding works
-# whether or not this machine has the package, and the FATAL_ERROR stops before the node downloads
-# anything. With a REQUIRED find_package CMake would reject the hiding instead ("A REQUIRED package
-# cannot be disabled"), so this fails if the message is reverted.
-if NOFIND="$(cmake -S "${REPO_ROOT}/ros/src/overlume_ros" -B "${W}/nofind" \
-        -DOVERLUME_ROS_LINK=system -DCMAKE_DISABLE_FIND_PACKAGE_overlume=ON 2>&1)"; then
+# A machine with neither a library build nor the package: the probe configures the node from a
+# layout whose overlume/ has no build/, with the default OVERLUME_ROS_LINK=auto and overlume hidden.
+# auto must choose the installed library, and the node's own "not found" message must name the
+# remedies (a tree choice fails with "overlume is not built" instead). Hiding works whether or not
+# this machine has the package, and the FATAL_ERROR stops before the node downloads anything. With
+# a REQUIRED find_package CMake would reject the hiding ("A REQUIRED package cannot be disabled"),
+# so this fails if the message is reverted. CMake keeps the symlinked source path, so the node's
+# ../../../overlume resolves inside the layout.
+PROBE="${W}/probe"
+mkdir -p "${PROBE}/layout/ros/src" "${PROBE}/layout/overlume"
+ln -sfn "${REPO_ROOT}/ros/src/overlume_ros" "${PROBE}/layout/ros/src/overlume_ros"
+if NOFIND="$(cmake -S "${PROBE}/layout/ros/src/overlume_ros" -B "${PROBE}/build" \
+        -DCMAKE_DISABLE_FIND_PACKAGE_overlume=ON 2>&1)"; then
     fail "configure without overlume succeeded"
 fi
 if ! grep -qF 'overlume 1.1 or later was not found' <<< "${NOFIND}"; then
@@ -81,12 +88,14 @@ colcon_step "colcon build" build --packages-select overlume_ros --base-paths "${
 DYNAMIC="$(readelf -d "${LIB}" 2>/dev/null)"
 grep -qF 'Shared library: [liboverlume.so.1]' <<< "${DYNAMIC}" \
     || fail "liboverlume_node_lib.so does not list NEEDED liboverlume.so.1"
-RESOLVED="$(ldd "${LIB}" | awk '$1 == "liboverlume.so.1" {print $3}')"
+RESOLVED="$(ldd "${LIB}" | awk '$1 == "liboverlume.so.1" {print ($3 == "not" ? "not found" : $3)}')"
 [[ "${RESOLVED}" == "${W}/prefix/"* ]] \
     || fail "ldd resolves liboverlume.so.1 to '${RESOLVED:-nothing}', not into ${W}/prefix/"
 FILAMENT_SYMBOLS="$(nm -C "${LIB}" 2>/dev/null | grep -cF 'filament::' || true)"
 [[ "${FILAMENT_SYMBOLS}" -eq 0 ]] \
     || fail "liboverlume_node_lib.so holds ${FILAMENT_SYMBOLS} filament:: symbols (a static Filament link)"
+[[ -f "${W}/build/overlume_ros/compile_commands.json" ]] \
+    || fail "compile_commands.json was not generated (the checkout-headers assertion reads it)"
 if grep -qF "${REPO_ROOT}/overlume/include" "${W}/build/overlume_ros/compile_commands.json"; then
     fail "compile_commands.json uses the checkout's headers (${REPO_ROOT}/overlume/include)"
 fi

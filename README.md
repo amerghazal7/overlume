@@ -382,9 +382,9 @@ cd ros && ./colcon_build.sh && source install/setup.bash
 ros2 launch overlume_ros overlume_node.launch.py autostart:=true   # pass params_file:=<yaml> for your robot
 ```
 
-With the apt package (overlume 1.1 or later, see [Install](#install)) and no `overlume/build/`, `./colcon_build.sh` links the installed library and installs its themes.
+With the apt package (overlume 1.1 or later, see [Install](#install)) and no `overlume/build/`, `./colcon_build.sh` links the installed library and installs its themes; an overlume outside the loader's default path (a tar.gz prefix) also needs `LD_LIBRARY_PATH` at run time.
 To force a link, run `colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release -DOVERLUME_ROS_LINK=system` (or `=tree`, this checkout's `overlume/build`) in `ros/`; `colcon_build.sh` cannot pass CMake arguments.
-The forced value sticks in the build cache and later `./colcon_build.sh` runs keep it: `-DOVERLUME_ROS_LINK=auto` restores the default.
+A forced value sticks in the build cache and later `./colcon_build.sh` runs keep it (`tools/ci_visual_mode.sh` forces `tree` in `ros/build`): `-DOVERLUME_ROS_LINK=auto` restores the default.
 The node still builds from this checkout: it reads one internal header.
 
 The node has three render modes, which you switch live on `/rendering/set_mode` (Int32) or with the `render_mode` parameter:

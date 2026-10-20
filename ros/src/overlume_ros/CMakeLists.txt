@@ -81,7 +81,7 @@ if(_overlume_ros_link STREQUAL "tree")
             "${OVERLUME_DIR}/README.md):\n"
             "${_overlume_build_steps}"
             "then re-run this configure.\n"
-            "-DOVERLUME_ROS_LINK=system (or no in-tree build) uses an installed overlume instead.")
+            "-DOVERLUME_ROS_LINK=system, or =auto (the default) without an in-tree build, uses an installed overlume instead.")
     endif()
     message(STATUS "overlume_ros: tree link, ${OVERLUME_LIB}")
     set(OVERLUME_INCLUDE_DIR "${OVERLUME_DIR}/include")

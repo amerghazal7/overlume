@@ -130,7 +130,13 @@ if [[ "${NODE_STAGE_OK}" == "1" ]]; then
         # The node must also build against an installed overlume (the apt package). Its output goes
         # to its own log: a second colcon summary in node_colcon.log would replace the one above.
         NODE_SYSTEM_LOG="${LOG_DIR}/node_system_overlume.log"
-        if bash "${REPO_ROOT}/tools/check_node_system_overlume.sh" > "${NODE_SYSTEM_LOG}" 2>&1; then
+        # The tree pin must hold: a ros/build node linking an installed liboverlume.so would have
+        # run the tests above against that library, not this checkout's.
+        NODE_DYNAMIC="$(readelf -d "${NODE_WS}/build/overlume_ros/liboverlume_node_lib.so" 2>/dev/null || true)"
+        if grep -qF 'Shared library: [liboverlume.so' <<< "${NODE_DYNAMIC}"; then
+            echo "FAIL  node gtests (ros/build links an installed liboverlume.so, not overlume/build)"
+            record_stage "node gtests" FAIL
+        elif bash "${REPO_ROOT}/tools/check_node_system_overlume.sh" > "${NODE_SYSTEM_LOG}" 2>&1; then
             echo "PASS  node gtests  (${NODE_SUMMARY:-see log}; installed-overlume check PASS)"
             record_stage "node gtests" PASS "${NODE_SUMMARY}; installed-overlume check PASS"
         else

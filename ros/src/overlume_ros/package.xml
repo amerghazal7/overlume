@@ -46,13 +46,12 @@
        overlume_rendering_node already declares for the identical call. -->
   <depend>cv_bridge</depend>
 
-  <!-- overlume (clang/libc++) is NOT a ROS
-       package and is not resolved via find_package/CMAKE_PREFIX_PATH: it has
-       no install/export (nothing consumed it before this node) and cannot be
-       add_subdirectory'd into this gcc/libstdc++ build (spec §2). This
-       package's CMakeLists.txt imports its prebuilt static lib directly from
-       overlume/build/ (built per that directory's
-       README.md); no rosdep entry applies. -->
+  <!-- overlume (clang/libc++) is NOT a ROS package and cannot be
+       add_subdirectory'd into this gcc/libstdc++ build (spec §2).
+       CMakeLists.txt links it in one of two ways (OVERLUME_ROS_LINK): tree
+       imports the prebuilt static lib from overlume/build/; system takes an
+       installed overlume 1.1+ through find_package (the apt package). No
+       rosdep entry applies to either. -->
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
