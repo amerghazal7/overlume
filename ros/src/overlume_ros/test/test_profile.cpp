@@ -715,6 +715,40 @@ TEST(Profile, ShippedRobotOffroadProfileTargetsTheRealRobotTopics) {
     EXPECT_TRUE(terrain->best_effort);
 }
 
+TEST(Profile, ShippedRobotProfilesSubscribeBestEffortOnEveryRow) {
+    for (const char* name : {"robot-offroad", "replay"}) {
+        std::vector<std::string> errs;
+        auto p = overlume::ros::load_profile(
+            std::string(TEST_CONFIG_DIR) + "/" + name + "_profile.yaml", errs);
+        ASSERT_TRUE(p.has_value()) << name << ": " << (errs.empty() ? "" : errs[0]);
+        EXPECT_TRUE(errs.empty()) << name << ": " << errs[0];
+        for (const auto& row : p->rows) {
+            EXPECT_TRUE(row.best_effort)
+                << name << " " << row.topic
+                << ": the robot and the logger replay publish best-effort; a reliable "
+                   "subscription receives nothing";
+            EXPECT_FALSE(row.transient_local)
+                << name << " " << row.topic
+                << ": a transient-local subscription never matches a volatile publisher";
+        }
+    }
+}
+
+TEST(Profile, ShippedRobotOffroadProfileCarriesTheRobotsHdMapAndCruiseRows) {
+    std::vector<std::string> errs;
+    auto p = overlume::ros::load_profile(
+        std::string(TEST_CONFIG_DIR) + "/robot-offroad_profile.yaml", errs);
+    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
+    for (const char* topic : {"/hd_map_local_elements", "/hd_map_global_elements"}) {
+        const auto* row = find_row(*p, topic);
+        ASSERT_NE(row, nullptr) << topic;
+        EXPECT_EQ(row->adapter, "hd_map") << topic;
+    }
+    const auto* cruise = find_row(*p, "/navigation/debug_cruise_obstacle_marker");
+    ASSERT_NE(cruise, nullptr);
+    EXPECT_EQ(cruise->adapter, "generic");
+}
+
 namespace {
 
 constexpr const char* kHeightRowYaml =

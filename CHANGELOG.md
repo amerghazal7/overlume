@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Point clouds vanished when the map frame puts `base_link` far from z = 0 (the reference robot: 33 m below): under `flatten_z` the ego is drawn at z = 0 but the cloud kept its map heights, so it sat 33 m under the ground and `min_z_m` dropped every point. The cloud now keeps its relief, measured from the ego's height.
 - `tools/validate_visual_mode.sh` gives the node the NVIDIA EGL vendor, and no `DISPLAY`, when an NVIDIA GPU is present. With the desktop on an integrated GPU the node rendered there (102 ms a frame against 2.8 ms on the RTX), and NVIDIA's EGL cannot open a display another GPU drives.
+- The `robot-offroad` and `replay` profiles subscribe best-effort on every row, as the robot and the logger replay publish; a reliable subscription received nothing from them. `robot-offroad` adds the HD map and cruise-obstacle rows the robot publishes.
 
 ## [1.1.0] - 2026-10-16
 

@@ -3,7 +3,7 @@
 
 name: replay
 rows:
-  - {topic: /perception/dynamic_objects_list, type: visualization_msgs/msg/MarkerArray,
+  - {topic: /perception/dynamic_objects_list, best_effort: true, type: visualization_msgs/msg/MarkerArray,
      adapter: dynamic_objects, role: tracked, timeout_sec: 2.0,
      ns_default: drop,
      namespaces: [
@@ -24,7 +24,7 @@ rows:
        {prefix: crosswalk,           render: polygon,  kind: crosswalk},
        {prefix: crosswalk_stopline_, render: polyline, kind: stopline}]}
 
-  - {topic: /hd_map_global_elements, type: visualization_msgs/msg/MarkerArray,
+  - {topic: /hd_map_global_elements, best_effort: true, type: visualization_msgs/msg/MarkerArray,
      adapter: hd_map, role: lane, timeout_sec: 5.0, max_rate_hz: 0.5,
      ns_default: drop,
      namespaces: [
@@ -35,18 +35,18 @@ rows:
        {prefix: crosswalk,           render: polygon,  kind: crosswalk},
        {prefix: crosswalk_stopline_, render: polyline, kind: stopline}]}
 
-  - {topic: /behavior_path_planner/output_path_visualization, type: nav_msgs/msg/Path,
+  - {topic: /behavior_path_planner/output_path_visualization, best_effort: true, type: nav_msgs/msg/Path,
      adapter: path, role: behavior, timeout_sec: 2.0}
-  - {topic: /local_vel_path, type: nav_msgs/msg/Path, adapter: path, role: local}
-  - {topic: /navigation/global_path, type: nav_msgs/msg/Path, adapter: path, role: global}
-  - {topic: /local_path, type: nav_msgs/msg/Path, adapter: path, role: local}
+  - {topic: /local_vel_path, best_effort: true, type: nav_msgs/msg/Path, adapter: path, role: local}
+  - {topic: /navigation/global_path, best_effort: true, type: nav_msgs/msg/Path, adapter: path, role: global}
+  - {topic: /local_path, best_effort: true, type: nav_msgs/msg/Path, adapter: path, role: local}
 
-  - {topic: /perception/dynamic_ogm, type: nav_msgs/msg/OccupancyGrid,
+  - {topic: /perception/dynamic_ogm, best_effort: true, type: nav_msgs/msg/OccupancyGrid,
      adapter: ogm, role: dynamic_ogm, update_topic: /perception/dynamic_ogm_updates}
-  - {topic: /perception/gradient_ogm, type: nav_msgs/msg/OccupancyGrid,
+  - {topic: /perception/gradient_ogm, best_effort: true, type: nav_msgs/msg/OccupancyGrid,
      adapter: ogm, role: gradient_ogm, update_topic: /perception/gradient_ogm_updates}
 
-  - {topic: /behavior_path_planner/collision_markers,
+  - {topic: /behavior_path_planner/collision_markers, best_effort: true,
      type: visualization_msgs/msg/MarkerArray, adapter: collision, role: collision}
   - {topic: /navigation_motion_obstacle_planner_node/collision_markers, best_effort: true,
      type: visualization_msgs/msg/MarkerArray, adapter: collision, role: predicted}
@@ -63,5 +63,5 @@ rows:
      type: visualization_msgs/msg/MarkerArray, adapter: generic, role: neutral,
      timeout_sec: 2.0}
 
-  - {topic: /local_map_corners, type: visualization_msgs/msg/MarkerArray,
+  - {topic: /local_map_corners, best_effort: true, type: visualization_msgs/msg/MarkerArray,
      adapter: generic, role: neutral, timeout_sec: 2.0}
