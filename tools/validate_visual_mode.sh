@@ -14,6 +14,7 @@ NO_GUI=0
 DO_BUILD=0
 PROFILE=""
 PROFILE_DIR=""
+PARAMS_PROFILE=""
 EXTRA_PARAMS=()
 LIVE=0
 BAG_SET=0
@@ -29,6 +30,7 @@ while [[ $# -gt 0 ]]; do
         --build) DO_BUILD=1; shift ;;
         --profile) PROFILE="$2"; shift 2 ;;
         --profile-dir) PROFILE_DIR="$2"; shift 2 ;;
+        --params-profile) PARAMS_PROFILE="$2"; shift 2 ;;
         --param) EXTRA_PARAMS+=("-p" "$2"); shift 2 ;;
         --live) LIVE=1; shift ;;
         --no-dds-tuning) DDS_TUNING=0; shift ;;
@@ -174,6 +176,25 @@ source /opt/ros/humble/setup.bash
 source "${REPO_ROOT}/ros/install/setup.bash"
 set -u
 
+# --- params profile
+# --params-profile NAME layers config/NAME_params.yaml (or a path) over default_params.yaml: ROS 2
+# applies params files in order, so the profile's keys win and every other key keeps its default.
+_share="$(ros2 pkg prefix overlume_ros)/share/overlume_ros"
+PARAMS_FILES=(--params-file "${_share}/config/default_params.yaml")
+if [[ -n "${PARAMS_PROFILE}" ]]; then
+    case "${PARAMS_PROFILE}" in
+        */* | *.yaml) _overlay="${PARAMS_PROFILE}" ;;
+        *) _overlay="${_share}/config/${PARAMS_PROFILE}_params.yaml" ;;
+    esac
+    if [[ ! -f "${_overlay}" ]]; then
+        echo "--params-profile ${PARAMS_PROFILE}: ${_overlay} not found" >&2
+        exit 1
+    fi
+    echo "[params] default_params.yaml, then ${_overlay}"
+    PARAMS_FILES+=(--params-file "${_overlay}")
+fi
+# --- end params profile
+
 # A long-lived terminal can hold a pre-rotation token, so read each one from a fresh login shell.
 # The value comes back on fd 3: the startup files' own output must not end up in the token.
 for _token_name in CESIUM_ION_TOKEN MAPBOX_TOKEN; do
@@ -256,8 +277,23 @@ for spec in "${STATIC_TFS[@]+"${STATIC_TFS[@]}"}"; do
     track_child "$!"
 done
 
-ros2 run overlume_ros overlume_node --ros-args \
-    --params-file "$(ros2 pkg prefix overlume_ros)/share/overlume_ros/config/default_params.yaml" \
+# --- gpu preference
+# The node renders through EGL. With the desktop on an integrated GPU, glvnd hands it that GPU's
+# Mesa driver even when an NVIDIA GPU is present (the reference robot rendered on its Intel iGPU at 102 ms a
+# frame, 2.8 ms on its RTX). Only the node gets the NVIDIA vendor, so the GUI keeps the desktop's
+# driver, and an explicit __EGL_VENDOR_LIBRARY_FILENAMES wins. The node renders off screen and
+# NVIDIA's EGL cannot open a display another GPU drives (create_renderer() failed with DISPLAY
+# still set), so the node also loses DISPLAY and WAYLAND_DISPLAY.
+NODE_ENV=()
+NVIDIA_EGL_VENDOR="${OVERLUME_NVIDIA_EGL_VENDOR:-/usr/share/glvnd/egl_vendor.d/10_nvidia.json}"
+if [[ -z "${__EGL_VENDOR_LIBRARY_FILENAMES:-}" && -f "${NVIDIA_EGL_VENDOR}" ]] \
+        && nvidia-smi -L > /dev/null 2>&1; then
+    NODE_ENV=(-u DISPLAY -u WAYLAND_DISPLAY "__EGL_VENDOR_LIBRARY_FILENAMES=${NVIDIA_EGL_VENDOR}")
+    echo "[gpu] the node renders on NVIDIA (${NVIDIA_EGL_VENDOR})"
+fi
+# --- end gpu preference
+
+env ${NODE_ENV[@]+"${NODE_ENV[@]}"} ros2 run overlume_ros overlume_node --ros-args "${PARAMS_FILES[@]}" \
     -p initial_mode:=3 -p use_sim_time:="${USE_SIM_TIME}" -p bowl_enabled:=true -p hybrid_enabled:=true "${PROFILE_ARGS[@]}" \
     > "${LOG_DIR}/overlume_node.log" 2>&1 &
 track_child "$!"

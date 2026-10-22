@@ -5,7 +5,10 @@
 
 Loads config/default_params.yaml by default:
   ros2 launch overlume_ros overlume_node.launch.py
-Or override with a full path:
+Layer a params profile over it (config/<name>_params.yaml, or a path, overrides the keys it
+names and leaves the rest):
+  ros2 launch overlume_ros overlume_node.launch.py params_profile:=robot
+Or replace the defaults with a full path:
   ros2 launch overlume_ros overlume_node.launch.py \\
       params_file:=/path/to/your_params.yaml
 
@@ -30,7 +33,8 @@ identically, not reinvented.
 import os
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler, SetEnvironmentVariable
+from launch.actions import (DeclareLaunchArgument, EmitEvent, OpaqueFunction, RegisterEventHandler,
+                            SetEnvironmentVariable, SetLaunchConfiguration)
 from launch.conditions import IfCondition
 from launch.events import matches_action
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -38,7 +42,26 @@ from launch_ros.actions import LifecycleNode
 from launch_ros.event_handlers import OnStateTransition
 from launch_ros.events.lifecycle import ChangeState
 from launch_ros.substitutions import FindPackageShare
+from ament_index_python.packages import get_package_share_directory
 from lifecycle_msgs.msg import Transition
+
+def profile_params_file(params_file: str, profile: str, config_dir: str) -> str:
+    """The file the node loads after params_file: config/<profile>_params.yaml for a name, the path
+    itself for a path, and params_file again (a no-op) without a profile, so that a user's own
+    params_file is never overridden by anything they did not ask for."""
+    if not profile:
+        return params_file
+    if profile.endswith(".yaml") or "/" in profile:
+        return profile
+    return os.path.join(config_dir, f"{profile}_params.yaml")
+
+
+def _resolve_params_profile(context):
+    return [SetLaunchConfiguration("params_profile_file", profile_params_file(
+        LaunchConfiguration("params_file").perform(context),
+        LaunchConfiguration("params_profile").perform(context),
+        os.path.join(get_package_share_directory("overlume_ros"), "config")))]
+
 
 def generate_launch_description() -> LaunchDescription:
     default_params = PathJoinSubstitution(
@@ -58,6 +81,12 @@ def generate_launch_description() -> LaunchDescription:
             description="Node parameters YAML (full path).",
         ),
         DeclareLaunchArgument(
+            "params_profile",
+            default_value="",
+            description="config/<name>_params.yaml (or a path), loaded after params_file so "
+                        "its keys win. Empty: params_file alone.",
+        ),
+        DeclareLaunchArgument(
             "autostart",
             default_value="true",
             description="Automatically configure + activate the lifecycle node "
@@ -70,7 +99,8 @@ def generate_launch_description() -> LaunchDescription:
         executable="overlume_node",
         name="overlume_node",
         namespace="",
-        parameters=[LaunchConfiguration("params_file")],
+        parameters=[LaunchConfiguration("params_file"),
+                    LaunchConfiguration("params_profile_file")],
         output="screen",
     )
 
@@ -93,4 +123,5 @@ def generate_launch_description() -> LaunchDescription:
         ),
     ]
 
-    return LaunchDescription(pre_actions + args + [node] + auto)
+    return LaunchDescription(
+        pre_actions + args + [OpaqueFunction(function=_resolve_params_profile), node] + auto)

@@ -344,6 +344,14 @@ if(BUILD_TESTING)
     COMMAND bash "${OVERLUME_DIR}/scripts/check_pod_header.sh"
     GENERATE_RESULT_FOR_RETURN_CODE_ZERO)
 
+  ament_add_test(test_launch_params
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_launch_params.py"
+      "${CMAKE_CURRENT_SOURCE_DIR}/launch/overlume_node.launch.py"
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO)
+  ament_add_test(test_params_profiles
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_params_profiles.py"
+      "${CMAKE_CURRENT_SOURCE_DIR}/config" "${CMAKE_CURRENT_SOURCE_DIR}/scripts"
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO)
   ament_add_test(test_default_params_hybrid
     COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_default_params_hybrid.py"
       "${CMAKE_CURRENT_SOURCE_DIR}/config/default_params.yaml"

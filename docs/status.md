@@ -54,7 +54,7 @@ own per-task ledgers as the detailed record; this page is the roll-up.
 
 ## Open items
 
-- **robot lidar transform unverified.** `robot_params.yaml` ships `pointcloud_transform` R=I, t=(0,0,1.15) (CUDA-era value); replay notes say the real-robot lidar needs a 180 deg yaw. Never measured. The fixture-bag default is 2.444 (fixed 2026-10-02); VM-094 hybrid goldens predate it and need re-capture and human re-promotion.
+- **robot lidar transform: measured 2026-10-21** (the reference robot half of this item is closed). `robot_params.yaml` now carries the robot calibration's top-lidar transform, a 180 deg yaw 1.07 m above the ground (the live cloud's ground plane), in place of the CUDA-era R=I, t=(0,0,1.15). The fixture-bag default is 2.444 (fixed 2026-10-02); VM-094 hybrid goldens predate it and need re-capture and human re-promotion.
 
 From Epic 6's "Post-close tail + final review" section
 (`plans/2026-08-18-visual-mode-epic6.md`), copied faithfully:

@@ -807,6 +807,104 @@ def test_health_fails_without_a_valid_ego_even_with_every_feed_live(tmp_path):
     assert "/hd_map_local_elements @ 44.5 Hz (info)" in r.stdout
 
 
+# --- params profile and GPU preference (tools/validate_visual_mode.sh) -------------------------
+# Each runs one marked block of the launcher on its own, with stub `ros2` and `nvidia-smi` on PATH.
+
+def _launcher_block(name):
+    with open(os.path.join(os.path.dirname(__file__), "validate_visual_mode.sh")) as f:
+        script = f.read()
+    start = script.index(f"# --- {name}\n")
+    return script[start:script.index(f"# --- end {name}\n", start)]
+
+
+def _run_block(tmp_path, name, env_extra, tail):
+    import subprocess
+    env = {k: v for k, v in os.environ.items() if k != "__EGL_VENDOR_LIBRARY_FILENAMES"}
+    env.update(PATH=f"{tmp_path / 'bin'}{os.pathsep}{env['PATH']}", **env_extra)
+    return subprocess.run(["bash", "-c", "set -euo pipefail\n" + _launcher_block(name) + tail],
+                          env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                          timeout=30)
+
+
+def _stub(tmp_path, name, body):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    (bin_dir / name).write_text(f"#!/bin/sh\n{body}\n")
+    (bin_dir / name).chmod(0o755)
+
+
+def _share(tmp_path, profiles):
+    config = tmp_path / "prefix" / "share" / "overlume_ros" / "config"
+    config.mkdir(parents=True)
+    for name in ["default", *profiles]:
+        (config / f"{name}_params.yaml").write_text("/**:\n  ros__parameters: {}\n")
+    _stub(tmp_path, "ros2", f'echo "{tmp_path / "prefix"}"')
+    return config
+
+
+PRINT_FILES = 'printf "%s\\n" "${PARAMS_FILES[@]}"\n'
+
+
+def test_the_node_launch_uses_both_blocks():
+    with open(os.path.join(os.path.dirname(__file__), "validate_visual_mode.sh")) as f:
+        script = f.read()
+    assert ('env ${NODE_ENV[@]+"${NODE_ENV[@]}"} ros2 run overlume_ros overlume_node '
+            '--ros-args "${PARAMS_FILES[@]}"') in script
+
+
+def test_params_profile_is_layered_after_the_defaults(tmp_path):
+    config = _share(tmp_path, ["robot"])
+    r = _run_block(tmp_path, "params profile", {"PARAMS_PROFILE": "robot"}, PRINT_FILES)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.splitlines()[-4:] == ["--params-file", str(config / "default_params.yaml"),
+                                          "--params-file", str(config / "robot_params.yaml")]
+
+
+def test_params_profile_takes_a_path(tmp_path):
+    _share(tmp_path, [])
+    own = tmp_path / "mine.yaml"
+    own.write_text("/**:\n  ros__parameters: {}\n")
+    r = _run_block(tmp_path, "params profile", {"PARAMS_PROFILE": str(own)}, PRINT_FILES)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.splitlines()[-1] == str(own)
+
+
+def test_params_profile_that_does_not_exist_refuses(tmp_path):
+    _share(tmp_path, [])
+    r = _run_block(tmp_path, "params profile", {"PARAMS_PROFILE": "nope"}, PRINT_FILES)
+    assert r.returncode == 1
+    assert "nope_params.yaml not found" in r.stderr
+
+
+def test_no_params_profile_loads_the_defaults_alone(tmp_path):
+    config = _share(tmp_path, ["robot"])
+    r = _run_block(tmp_path, "params profile", {"PARAMS_PROFILE": ""}, PRINT_FILES)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.splitlines() == ["--params-file", str(config / "default_params.yaml")]
+
+
+@pytest.mark.parametrize("nvidia_smi_rc,vendor_exists,preset,expect", [
+    (0, True, None, True),
+    (9, True, None, False),
+    (0, False, None, False),
+    (0, True, "/usr/share/glvnd/egl_vendor.d/50_mesa.json", False),
+], ids=["nvidia", "no-nvidia-gpu", "no-nvidia-egl", "explicit-choice-wins"])
+def test_gpu_preference_gives_the_node_the_nvidia_egl_vendor(tmp_path, nvidia_smi_rc,
+                                                              vendor_exists, preset, expect):
+    _stub(tmp_path, "nvidia-smi", f"exit {nvidia_smi_rc}")
+    vendor = tmp_path / "10_nvidia.json"
+    if vendor_exists:
+        vendor.write_text("{}")
+    env = {"OVERLUME_NVIDIA_EGL_VENDOR": str(vendor)}
+    if preset:
+        env["__EGL_VENDOR_LIBRARY_FILENAMES"] = preset
+    r = _run_block(tmp_path, "gpu preference", env, 'echo "NODE_ENV=${NODE_ENV[*]:-}"\n')
+    assert r.returncode == 0, r.stderr
+    want = (f"NODE_ENV=-u DISPLAY -u WAYLAND_DISPLAY __EGL_VENDOR_LIBRARY_FILENAMES={vendor}"
+            if expect else "NODE_ENV=")
+    assert r.stdout.splitlines()[-1] == want
+
+
 # --- token refresh (tools/validate_visual_mode.sh) ---------------------------------------------
 # Runs the launcher's refresh block on its own. HOME is a temp dir, so the login shell it starts
 # reads only the fake profile below, never a real token.

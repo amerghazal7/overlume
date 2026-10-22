@@ -387,7 +387,12 @@ To force a link, run `colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release -DOVE
 A forced value sticks in the build cache and later `./colcon_build.sh` runs keep it (`tools/ci_visual_mode.sh` forces `tree` in `ros/build`): `-DOVERLUME_ROS_LINK=auto` restores the default.
 The node still builds from this checkout: it reads one internal header.
 
-The node has three render modes, which you switch live on `/rendering/set_mode` (Int32) or with the `render_mode` parameter:
+A params profile layers `config/<name>_params.yaml` over `default_params.yaml`, so its keys win and every other key keeps its default: `tools/validate_visual_mode.sh --params-profile robot`, or `ros2 launch overlume_ros overlume_node.launch.py params_profile:=robot`.
+`robot_params.yaml` holds the reference robot's camera calibration, lidar transform, topics and bowl shape; `scripts/extrinsics_from_calib.py` regenerates the calibration from the robot's `sensors_calib.yaml`.
+The rig passes `initial_mode`, `use_sim_time`, `bowl_enabled` and `hybrid_enabled` after the files, so a profile cannot set those four.
+On a machine with an NVIDIA GPU the rig gives the node the NVIDIA EGL vendor and no `DISPLAY` (it prints `[gpu]`), so a desktop on an integrated GPU does not pull the renderer onto it; an explicit `__EGL_VENDOR_LIBRARY_FILENAMES` wins, and `OVERLUME_NVIDIA_EGL_VENDOR` names another vendor file.
+
+The node has three render modes, which you switch live on `/rendering/set_mode` (Int32) or with the `render_mode` parameter. The topic is reliable and transient-local, so a publisher must be too: `ros2 topic pub --once --qos-reliability reliable --qos-durability transient_local /rendering/set_mode std_msgs/msg/Int32 "{data: 1}"`.
 
 - **1, bowl:** surround view stitched from the camera feeds.
 - **2, hybrid:** the bowl plus colourised lidar.
