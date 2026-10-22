@@ -87,6 +87,13 @@ void PointCloudAdapter::ingest(const sensor_msgs::msg::PointCloud2& msg, double 
         ++stats_.dropped_no_tf;
         return;
     }
+    // flatten_z draws the ego on z = 0 (TfAdapter) and every planar layer projects onto that
+    // plane. A cloud keeps its relief, so it moves down by the ego's height instead: a map frame
+    // with base_link 33 m below its origin (the reference robot) otherwise draws the cloud 33 m under the ground
+    // and min_z_m drops every point. An unknown ego height (no map -> base_link yet) leaves z as
+    // is.
+    double egoZ = 0.0;
+    if (tf_.flatten_z()) tf_.ego_height(header.stamp, egoZ);
 
     const Tier tier = ResolveTier(row_.color_mode, offColor >= 0, offIntensity >= 0);
 
@@ -110,7 +117,7 @@ void PointCloudAdapter::ingest(const sensor_msgs::msg::PointCloud2& msg, double 
             any_nan = true;
             continue;
         }
-        const tf2::Vector3 world = xform * tf2::Vector3(x, y, z);
+        const tf2::Vector3 world = xform * tf2::Vector3(x, y, z) - tf2::Vector3(0.0, 0.0, egoZ);
         if (!std::isfinite(world.x()) || !std::isfinite(world.y()) || !std::isfinite(world.z())) {
             any_nan = true;
             continue;

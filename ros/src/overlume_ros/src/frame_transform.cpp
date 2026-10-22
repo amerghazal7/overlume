@@ -31,4 +31,14 @@ bool FrameTransformer::lookup(const std_msgs::msg::Header& header, tf2::Transfor
     return true;
 }
 
+bool FrameTransformer::ego_height(const builtin_interfaces::msg::Time& stamp, double& z) const {
+    std_msgs::msg::Header ego;
+    ego.frame_id = ego_frame_;
+    ego.stamp = stamp;
+    tf2::Transform out;
+    if (!lookup(ego, out)) return false;
+    z = out.getOrigin().z();
+    return true;
+}
+
 }

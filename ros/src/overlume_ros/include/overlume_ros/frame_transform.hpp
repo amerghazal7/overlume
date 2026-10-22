@@ -12,16 +12,24 @@ namespace overlume::ros {
 class FrameTransformer {
 public:
     explicit FrameTransformer(const tf2_ros::Buffer& buffer, std::string target_frame = "map",
-                              bool flatten_z = true)
-        : buffer_(buffer), target_frame_(std::move(target_frame)), flatten_z_(flatten_z) {}
+                              bool flatten_z = true, std::string ego_frame = "base_link")
+        : buffer_(buffer),
+          target_frame_(std::move(target_frame)),
+          ego_frame_(std::move(ego_frame)),
+          flatten_z_(flatten_z) {}
 
     bool flatten_z() const { return flatten_z_; }
 
     bool lookup(const std_msgs::msg::Header& header, tf2::Transform& out) const;
 
+    // The ego frame's height in the target frame at `stamp` (the latest one when that stamp is not
+    // buffered); false, with z untouched, while there is no such transform.
+    bool ego_height(const builtin_interfaces::msg::Time& stamp, double& z) const;
+
 private:
     const tf2_ros::Buffer& buffer_;
     std::string target_frame_;
+    std::string ego_frame_;
     bool flatten_z_ = true;
 };
 

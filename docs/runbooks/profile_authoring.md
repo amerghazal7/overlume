@@ -56,7 +56,7 @@ all keys `KnownRowKeys()` recognizes (profile.cpp:93–101):
 | `color_mode` | no | `"auto"` | **`adapter: point_cloud` only** — rejected elsewhere (profile.cpp:155–163) |
 | `max_points` | no | `0` | **`adapter: point_cloud` only** — rejected elsewhere (profile.cpp:164–172); `0` = no cap |
 | `stride` | no | `1` | **`adapter: point_cloud` only** — rejected elsewhere (profile.cpp:173–181); must be `>= 1` |
-| `min_z_m` | no | `NaN` (filter off) | **`adapter: point_cloud` only** — rejected elsewhere; finite = drop points whose map-frame z is `< min_z_m`. Road plane is z=0; `0.2` (shipped on `urban`/`replay`) removes ground returns and lane-marking z-fight while keeping curbs/poles/pedestrians |
+| `min_z_m` | no | `NaN` (filter off) | **`adapter: point_cloud` only** — rejected elsewhere; finite = drop points whose height is `< min_z_m`, measured from the ego (`base_link`) under `flatten_z` (the default) and in map-frame z without it; `0.2` (shipped on `urban`/`replay`) removes ground returns and lane-marking z-fight while keeping curbs/poles/pedestrians |
 | `frame_id` | no | the message header's frame | **`adapter: point_cloud` / `ogm` / `height_grid` only** — TF-lookup frame that replaces a mislabelled `header.frame_id`. The the robot's ego model lidar driver stamps `/iv_points_fusion` as `base_link` while its points are still in the 180°-yawed lidar mount, so `robot-offroad` sets `frame_id: seyond` (a `base_link→seyond` TF must exist) |
 | `encoding` | no | `occupancy` | **`adapter: ogm` / `height_grid` only** — on `ogm`, `occupancy` is `nav_msgs/OccupancyGrid` semantics (−1 unknown, 0–100; anything else counted malformed and hidden); `costmap` decodes Nav2 uint8 costs carried in the int8 array (0 free, 1–252 graded, 253/254 inscribed/lethal → occupied, 255 unknown). On `height_grid` the default is `height_linear` (0–100 maps linearly onto `height_min_m..height_max_m`, −1 unknown, anything else counted malformed and hidden); `height_normalized` maps 1–100 onto the window (0 clamps to the minimum) and is **not metric**, for A/B against `/debug_ogm_1` only. The `occupancy` / `costmap` values are rejected on `height_grid` rows and the height values are rejected on `ogm` rows |
 | `height_min_m` | **on `height_grid`** | — | **`adapter: height_grid` only** — metres above the grid origin plane that cell value 0 (`height_linear`) / 1 (`height_normalized`) decodes to. Required on `height_grid` rows, rejected elsewhere; must be finite |
@@ -187,12 +187,14 @@ author needs to reason about placement/behavior.
 - **`point_cloud`** — `PointCloud2` → `PointCloud`. `color_mode` picks the
   per-point coloring tier (`auto|rgb|intensity|height|flat`); `stride`
   decimates (keep every Nth point, `>=1`), `max_points` caps the survivor
-  count (`0` = uncapped). `flatten_z` is deliberately **not** applied here —
-  real 3D height is load-bearing data for this category, unlike every other
-  adapter's 2D map-plane convention. `min_z_m` (default `NaN` = off) drops
-  points whose map-frame z is below `min_z_m` after the per-point transform
-  (the road plane is z=0), so the cloud stops conflicting with other
-  road-drawn elements.
+  count (`0` = uncapped). Real 3D height is load-bearing data here, so under
+  `flatten_z` (the default) the cloud keeps its relief but measures it from the
+  ego's height (the z of `base_link` in `map` at the cloud's stamp), the plane
+  every other adapter flattens onto: a map frame far from z = 0 (the reference robot
+  robot's `base_link` sits 33 m below its origin) cannot sink the cloud under
+  the ground. Without `flatten_z` it keeps map-frame z. `min_z_m` (default
+  `NaN` = off) drops points below that height after the per-point transform,
+  so the cloud stops conflicting with other road-drawn elements.
 - **`trajectory_carpet`** — `MarkerArray` (`TRIANGLE_LIST`, quads of 6
   points) → a centerline-station ribbon, stacked with the `PathRole` ribbons.
   One row ships today; a second would need its own topic, same shape.

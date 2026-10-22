@@ -81,3 +81,18 @@ TEST(FrameTransform, LookupFailureIsReportedNotSilentlyIdentity) {
     tf2::Transform out;
     EXPECT_FALSE(ft.lookup(header, out));
 }
+
+TEST(FrameTransform, EgoHeightIsTheEgoFramesHeightInTheTargetFrame) {
+    tf2_ros::Buffer buffer(std::make_shared<rclcpp::Clock>(RCL_ROS_TIME));
+    FrameTransformer ft(buffer, "map");
+    const builtin_interfaces::msg::Time stamp = rclcpp::Time(0, 0, RCL_ROS_TIME);
+    double z = 1.0;
+    EXPECT_FALSE(ft.ego_height(stamp, z)) << "no map -> base_link transform yet";
+    EXPECT_EQ(z, 1.0) << "a failed lookup leaves z alone";
+
+    auto msg = MapToBaseLinkTransform();
+    msg.transform.translation.z = -33.15;  // the reference robot's base_link sits 33 m below its map origin
+    buffer.setTransform(msg, "test_authority", true);
+    ASSERT_TRUE(ft.ego_height(stamp, z));
+    EXPECT_NEAR(z, -33.15, 1e-9);
+}

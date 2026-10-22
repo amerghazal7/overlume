@@ -469,3 +469,61 @@ TEST(PointCloudAdapter, FrameIdOverrideReplacesAMislabelledHeaderFrame) {
         << "frame_id: seyond must apply the 180-degree seyond transform, not base_link's";
     EXPECT_NEAR(pc->points[0].position.y, -1.0, 1e-6);
 }
+
+namespace {
+
+// the reference robot: base_link sits 33.15 m below the map origin, and the fused cloud carries the top lidar's
+// frame (1.07 m above the ground, yawed 180 degrees) under a base_link header.
+void SetFarBelowMapTf(TfFixture& kTf) {
+    geometry_msgs::msg::TransformStamped base;
+    base.header.frame_id = "map";
+    base.child_frame_id = "base_link";
+    base.transform.translation.x = 100.0;
+    base.transform.translation.z = -33.15;
+    base.transform.rotation.w = 1.0;
+    kTf.buffer.setTransform(base, "test", true);
+    geometry_msgs::msg::TransformStamped lidar;
+    lidar.header.frame_id = "base_link";
+    lidar.child_frame_id = "seyond";
+    lidar.transform.translation.z = 1.07;
+    lidar.transform.rotation.z = 1.0;
+    lidar.transform.rotation.w = 0.0;
+    kTf.buffer.setTransform(lidar, "test", true);
+}
+
+}
+
+TEST(PointCloudAdapter, FlattenZMeasuresHeightsFromTheEgoNotTheMapOrigin) {
+    TfFixture kTf;
+    SetFarBelowMapTf(kTf);
+    auto msg = BuildCloud({{5.0f, 0.0f, -1.07f, 0.0f}, {5.0f, 0.0f, 1.0f, 0.0f}}, "");
+    msg.header.frame_id = "seyond";
+    auto row = MakeRow();
+    row.min_z_m = 0.35;
+    overlume::ros::PointCloudAdapter adapter(row, kTf.tf);
+    adapter.ingest(msg, 1.0);
+    SceneAssembly a;
+    adapter.fill(a);
+    const overlume::PointCloud* pc = OnlyCloud(a);
+    ASSERT_NE(pc, nullptr);
+    ASSERT_EQ(pc->point_count, 1u) << "the ground point lands on z = 0 and min_z_m drops it";
+    EXPECT_NEAR(pc->points[0].position.x, 95.0, 1e-4)
+        << "the 180-degree yaw puts lidar x = 5 behind";
+    EXPECT_NEAR(pc->points[0].position.z, 2.07, 1e-4) << "heights count from the ego, not the map";
+}
+
+TEST(PointCloudAdapter, WithoutFlattenZTheCloudKeepsMapHeights) {
+    TfFixture kTf;
+    SetFarBelowMapTf(kTf);
+    FrameTransformer unflattened{kTf.buffer, "map", false};
+    auto msg = BuildCloud({{5.0f, 0.0f, 1.0f, 0.0f}}, "");
+    msg.header.frame_id = "seyond";
+    overlume::ros::PointCloudAdapter adapter(MakeRow(), unflattened);
+    adapter.ingest(msg, 1.0);
+    SceneAssembly a;
+    adapter.fill(a);
+    const overlume::PointCloud* pc = OnlyCloud(a);
+    ASSERT_NE(pc, nullptr);
+    ASSERT_EQ(pc->point_count, 1u);
+    EXPECT_NEAR(pc->points[0].position.z, -31.08, 1e-4) << "map z: -33.15 + 1.07 + 1.0";
+}
