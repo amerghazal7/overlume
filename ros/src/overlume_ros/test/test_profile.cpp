@@ -749,6 +749,22 @@ TEST(Profile, ShippedRobotOffroadProfileCarriesTheRobotsHdMapAndCruiseRows) {
     EXPECT_EQ(cruise->adapter, "generic");
 }
 
+TEST(Profile, ShippedRobotOffroadCloudRowKeepsTheWholeFusedCloud) {
+    // The reference robot fused cloud is its four bumper lidars back to back, up to about 125k points each
+    // with the front one first, and max_points cuts the cloud off in point order: a cap below the
+    // cloud's size hides the lidars that come last.
+    std::vector<std::string> errs;
+    auto p = overlume::ros::load_profile(
+        std::string(TEST_CONFIG_DIR) + "/robot-offroad_profile.yaml", errs);
+    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
+    const auto* cloud = find_row(*p, "/iv_points_fusion");
+    ASSERT_NE(cloud, nullptr);
+    EXPECT_EQ(cloud->stride, 1u) << "every point of the fused cloud";
+    constexpr uint32_t kFusedCloudPoints = 4u * 125000u;
+    EXPECT_TRUE(cloud->max_points == 0u || cloud->max_points >= kFusedCloudPoints)
+        << "max_points " << cloud->max_points << " truncates the four-lidar fused cloud";
+}
+
 namespace {
 
 constexpr const char* kHeightRowYaml =
