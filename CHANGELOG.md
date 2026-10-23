@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tools/validate_visual_mode.sh` gives the node the NVIDIA EGL vendor, and no `DISPLAY`, when an NVIDIA GPU is present. With the desktop on an integrated GPU the node rendered there (102 ms a frame against 2.8 ms on the RTX), and NVIDIA's EGL cannot open a display another GPU drives.
 - The `robot-offroad` and `replay` profiles subscribe best-effort on every row, as the robot and the logger replay publish; a reliable subscription received nothing from them. `robot-offroad` adds the HD map and cruise-obstacle rows the robot publishes.
 - The `robot-offroad` profile no longer thins or truncates the reference robot fused cloud (`stride: 1`, `max_points: 600000`); `min_z_m` still drops ground returns. That cloud is the four bumper lidars back to back, and `max_points` keeps the first points in message order, so the old 60000-point cap showed only the front lidar and one side lidar.
-- The `robot-offroad` cloud is coloured by height. The reference robot fused cloud's intensity sits near 0 apart from a few bright reflectors, so the per-cloud intensity ramp that `color_mode: auto` picks drew almost every point at its near-black end, invisible against the dark scene.
+- The `robot-offroad` cloud is coloured by height. On 2026-10-23 the reference robot fused cloud's median intensity was 3 of 255, with a few bright reflectors at the top of the per-cloud intensity ramp that `color_mode: auto` picks, so almost every point took the ramp's dark end, low-contrast against the dark scene.
 
 ## [1.1.0] - 2026-10-16
 

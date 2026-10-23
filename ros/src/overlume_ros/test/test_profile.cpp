@@ -766,8 +766,8 @@ TEST(Profile, ShippedRobotOffroadCloudRowKeepsTheWholeFusedCloud) {
 }
 
 TEST(Profile, ShippedRobotOffroadCloudRowColoursByHeight) {
-    // The reference robot fused cloud's intensity sits near 0 apart from a few bright reflectors, so the
-    // per-cloud intensity ramp that auto picks for it draws almost every point at its dark end.
+    // On 2026-10-23 the reference robot fused cloud's median intensity was 3 of 255, so the per-cloud
+    // intensity ramp that auto picks for it drew almost every point at its dark end.
     std::vector<std::string> errs;
     auto p = overlume::ros::load_profile(
         std::string(TEST_CONFIG_DIR) + "/robot-offroad_profile.yaml", errs);
