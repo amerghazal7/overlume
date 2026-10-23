@@ -21,6 +21,7 @@ BAG_SET=0
 DDS_TUNING=1
 STATIC_TFS=()
 RATE=1.0
+BRIDGE_PORT=8765
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -36,6 +37,7 @@ while [[ $# -gt 0 ]]; do
         --no-dds-tuning) DDS_TUNING=0; shift ;;
         --static-tf) STATIC_TFS+=("$2"); shift 2 ;;
         --rate) RATE="$2"; shift 2 ;;
+        --bridge-port) BRIDGE_PORT="$2"; shift 2 ;;
         -h|--help)
             grep '^# ' "${BASH_SOURCE[0]}" | head -6 | sed 's/^# //'
             exit 0 ;;
@@ -55,6 +57,15 @@ for spec in "${STATIC_TFS[@]+"${STATIC_TFS[@]}"}"; do
         exit 1
     fi
 done
+
+# --- bridge port
+# The GUI reaches the node through vcam_ws_bridge.py on this port. Foxglove's bridge defaults to
+# 8765 as well (the reference robot's stack runs it), so such a robot needs another one: --bridge-port 8766.
+if ! [[ "${BRIDGE_PORT}" =~ ^[1-9][0-9]{0,4}$ ]] || ((BRIDGE_PORT > 65535)); then
+    echo "--bridge-port expects a port number from 1 to 65535, got: ${BRIDGE_PORT}" >&2
+    exit 1
+fi
+# --- end bridge port
 
 if [[ "${DDS_TUNING}" == "1" && -z "${CYCLONEDDS_URI:-}" ]]; then
     DDS_XML="${REPO_ROOT}/tools/cyclonedds_udp_large_msgs.xml"
@@ -115,7 +126,10 @@ kill_prior_rig
 # tool's http server): fail now instead of running a rig whose bridge cannot bind.
 # shellcheck source=tools/rig_preflight.sh
 source "${REPO_ROOT}/tools/rig_preflight.sh"
-require_port_free 8765 "vcam_ws_bridge.py" || exit 1
+require_port_free "${BRIDGE_PORT}" "vcam_ws_bridge.py" || {
+    echo "  or start the rig's bridge on another port: --bridge-port N" >&2
+    exit 1
+}
 
 if [[ "${LIVE}" == "1" ]]; then
     for _pass in 1 2; do
@@ -342,15 +356,15 @@ fi
 
 echo "[launch] vcam_ws_bridge.py (log: ${LOG_DIR}/vcam_ws_bridge.log)"
 
-python3 "${REPO_ROOT}/tools/vcam_ws_bridge.py" --local-mode \
+python3 "${REPO_ROOT}/tools/vcam_ws_bridge.py" --local-mode --port "${BRIDGE_PORT}" \
     > "${LOG_DIR}/vcam_ws_bridge.log" 2>&1 &
 BRIDGE_PID=$!
 track_child "${BRIDGE_PID}"
-wait_listening "${BRIDGE_PID}" 8765 15 "${LOG_DIR}/vcam_ws_bridge.log" || exit 1
+wait_listening "${BRIDGE_PID}" "${BRIDGE_PORT}" 15 "${LOG_DIR}/vcam_ws_bridge.log" || exit 1
 
 if [[ "${NO_GUI}" != "1" && -n "${DISPLAY:-}" ]]; then
     echo "[launch] vcam_gui.py (log: ${LOG_DIR}/vcam_gui.log)"
-    python3 "${REPO_ROOT}/tools/vcam_gui.py" \
+    python3 "${REPO_ROOT}/tools/vcam_gui.py" --ws "ws://localhost:${BRIDGE_PORT}" \
         > "${LOG_DIR}/vcam_gui.log" 2>&1 &
     track_child "$!"
 else

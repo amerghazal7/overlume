@@ -432,7 +432,7 @@ To add a topic, add a row to a profile YAML file; see the [profile authoring gui
 <details>
 <summary><b>GUI and WebSocket bridge</b></summary>
 
-`tools/vcam_ws_bridge.py` bridges JSON over WebSocket to ROS; by default it listens on port 8765 on all interfaces (`--host`, `--port`). `tools/vcam_gui.py` is a GTK3 and GStreamer GUI that drives the node through it. Any WebSocket client can send these commands:
+`tools/vcam_ws_bridge.py` bridges JSON over WebSocket to ROS; by default it listens on port 8765 on all interfaces (`--host`, `--port`). Foxglove's bridge defaults to 8765 too, so on a robot that runs it, start `tools/validate_visual_mode.sh` with `--bridge-port 8766`; it hands the port to its bridge and GUI. `tools/vcam_gui.py` is a GTK3 and GStreamer GUI that drives the node through it. Any WebSocket client can send these commands:
 
 `set_look`, `set_preset`, `set_render_mode`, `set_theme`, `get_params`, `set_param`, `save_params`, `set_layers`, `set_quality` (takes effect on restart), `set_surround_profile`, `set_environment_enabled`, `set_environment_source`.
 

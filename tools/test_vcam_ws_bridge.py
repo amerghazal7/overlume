@@ -760,10 +760,11 @@ def test_launcher_runs_preflight_after_teardown_and_checks_the_bridge():
     with open(os.path.join(os.path.dirname(__file__), "validate_visual_mode.sh")) as f:
         script = f.read()
     teardown = script.index("\nkill_prior_rig\n")
-    port_check = script.index('require_port_free 8765 "vcam_ws_bridge.py" || exit 1')
+    port_check = script.index('require_port_free "${BRIDGE_PORT}" "vcam_ws_bridge.py" || {')
+    refuse = script.index("    exit 1\n}", port_check)
     bridge = script.index('tools/vcam_ws_bridge.py" --local-mode')
-    alive = script.index('wait_listening "${BRIDGE_PID}" 8765')
-    assert teardown < port_check < bridge < alive
+    alive = script.index('wait_listening "${BRIDGE_PID}" "${BRIDGE_PORT}"')
+    assert teardown < port_check < refuse < bridge < alive
 
 
 
@@ -903,6 +904,35 @@ def test_gpu_preference_gives_the_node_the_nvidia_egl_vendor(tmp_path, nvidia_sm
     want = (f"NODE_ENV=-u DISPLAY -u WAYLAND_DISPLAY __EGL_VENDOR_LIBRARY_FILENAMES={vendor}"
             if expect else "NODE_ENV=")
     assert r.stdout.splitlines()[-1] == want
+
+
+@pytest.mark.parametrize("port,ok", [("8766", True), ("65535", True), ("0", False),
+                                     ("65536", False), ("08766", False), ("abc", False),
+                                     ("", False)])
+def test_bridge_port_takes_a_port_number(tmp_path, port, ok):
+    r = _run_block(tmp_path, "bridge port", {"BRIDGE_PORT": port},
+                   'echo "BRIDGE_PORT=${BRIDGE_PORT}"\n')
+    if ok:
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.splitlines()[-1] == f"BRIDGE_PORT={port}"
+    else:
+        assert r.returncode == 1
+        assert "--bridge-port expects a port number" in r.stderr
+
+
+def test_every_bridge_use_takes_the_bridge_port():
+    # Foxglove's bridge defaults to 8765 as well, so the preflight, the bridge, its listen check
+    # and the GUI must all follow --bridge-port.
+    with open(os.path.join(os.path.dirname(__file__), "validate_visual_mode.sh")) as f:
+        script = f.read()
+    for use in ('require_port_free "${BRIDGE_PORT}"',
+                'vcam_ws_bridge.py" --local-mode --port "${BRIDGE_PORT}"',
+                'wait_listening "${BRIDGE_PID}" "${BRIDGE_PORT}"',
+                'vcam_gui.py" --ws "ws://localhost:${BRIDGE_PORT}"'):
+        assert use in script, use
+    code = [line.strip() for line in script.splitlines()
+            if "8765" in line and not line.lstrip().startswith("#")]
+    assert code == ["BRIDGE_PORT=8765"], code
 
 
 # --- token refresh (tools/validate_visual_mode.sh) ---------------------------------------------

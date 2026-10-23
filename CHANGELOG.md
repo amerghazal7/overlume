@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Params profiles: `tools/validate_visual_mode.sh --params-profile NAME` and the launch argument `params_profile:=NAME` load `config/NAME_params.yaml` after `default_params.yaml`, so the profile's keys override the defaults and the rest keep them. `robot_params.yaml` is now such a profile, regenerated from the robot's current calibration by `scripts/extrinsics_from_calib.py` (camera extrinsics and the top lidar's 180-degree `pointcloud_transform`, with the lidar's 1.07 m height above the ground), plus the Fixposition odometry and GPS topics, the `robot-offroad` topic profile and the reference robot bowl shape.
+- `tools/validate_visual_mode.sh --bridge-port N` starts the GUI's WebSocket bridge on port N and points the GUI at it, for robots where Foxglove's bridge holds the default 8765 (the reference robot).
 - The ROS node builds against an installed overlume (the apt package, 1.1 or later) when the checkout has no library build. The CMake variable `OVERLUME_ROS_LINK` picks the link: `tree` (this checkout's `overlume/build`, as before), `system` (the installed shared library, with its headers and themes) or `auto`, the default, which is `tree` when `overlume/build/liboverlume.a` exists and `system` otherwise. `tools/check_node_system_overlume.sh` checks the `system` link in the gate.
 
 ### Fixed
