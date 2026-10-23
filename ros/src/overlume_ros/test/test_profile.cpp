@@ -765,6 +765,18 @@ TEST(Profile, ShippedRobotOffroadCloudRowKeepsTheWholeFusedCloud) {
         << "max_points " << cloud->max_points << " truncates the four-lidar fused cloud";
 }
 
+TEST(Profile, ShippedRobotOffroadCloudRowColoursByHeight) {
+    // The reference robot fused cloud's intensity sits near 0 apart from a few bright reflectors, so the
+    // per-cloud intensity ramp that auto picks for it draws almost every point at its dark end.
+    std::vector<std::string> errs;
+    auto p = overlume::ros::load_profile(
+        std::string(TEST_CONFIG_DIR) + "/robot-offroad_profile.yaml", errs);
+    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
+    const auto* cloud = find_row(*p, "/iv_points_fusion");
+    ASSERT_NE(cloud, nullptr);
+    EXPECT_EQ(cloud->color_mode, "height");
+}
+
 namespace {
 
 constexpr const char* kHeightRowYaml =
