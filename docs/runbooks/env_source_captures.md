@@ -4,8 +4,8 @@
 [`env_source_captures/env_source_contact_sheet.png`](env_source_captures/env_source_contact_sheet.png)
 — baked/osm/google side by side. The raw `dark_adas` captures below are the
 canonical, unmodified renders, but baked and osm are near-unjudgeable
-straight off disk (p99 luminance 38.9/255 — see "Display-aid contact sheet"
-below), so the contact sheet applies a documented gain lift to make the
+straight off disk (p99 luminance 61.9/255 and 51.3/255 — see "Display-aid
+contact sheet" below), so the contact sheet applies a documented gain lift to make the
 building massing visible without editing the canonical images.
 
 One render per GUI "Environment Tiles" preset, all at the **same geo anchor**
@@ -28,12 +28,15 @@ already in that file.
 ## Anchor + pose (shared by every capture)
 
 ```cpp
-constexpr overlume::GeoAnchor kFixtureAnchor{25.1972, 55.2744, 0.0};  // Dubai — this
-    // file's own anchor, already used by every environment test in this repo
-    // (test_environment.cpp, test_environment_stream.cpp).
+constexpr overlume::GeoAnchor kFixtureAnchor{25.1972, 55.2744, 0.0};  // Burj Khalifa,
+    // Downtown Dubai — this file's own anchor, the fixture anchor every environment
+    // test in this repo uses (test_environment.cpp, test_environment_stream.cpp).
 
-constexpr overlume::Vec3 kCaptureBuildingsCentroid{-109.2, -17.1, 3.0};  // == test_environment.cpp's
-    // kBuildingsCentroid, the baked fixture town's own real footprint centroid.
+constexpr overlume::Vec3 kCaptureBuildingsCentroid{-106.9, 206.0, 3.0};  // == test_environment.cpp's
+    // kBuildingsCentroid, the vertex centroid of the baked fixture town's main block.
+
+constexpr overlume::Vec3 kCaptureEgo{kCaptureBuildingsCentroid.x + 109.2,
+                                     kCaptureBuildingsCentroid.y + 17.1, 0.0};
 
 overlume::CameraPose{
     {kCaptureBuildingsCentroid.x + 50, kCaptureBuildingsCentroid.y - 70, 40},
@@ -50,6 +53,15 @@ show *something* at the identical spot. The eye/target offset itself is not
 new: it's the same framing
 `test_environment.cpp`'s `SetEnvironmentVisibleFalseHidesLoadedChunksWithoutTearingDown`
 already uses for this exact centroid.
+
+The ego (`kCaptureEgo`, shared by all three captures) sits 109.2 m north and
+17.1 m west of the target. That distance is load-bearing for the streamed
+presets: the theme's `environment.tile_radius_m` (100 m in `dark_adas`) culls
+any tile whose bounding volume lies farther than that from the ego, so with the
+ego at the map origin (about 230 m from the target) the refined Google tiles
+around the target never reach the scene and the capture comes out blank. At
+this offset they do, and the ego's own 120 m ground square stays at the frame's
+right edge instead of covering the photogrammetry ground.
 
 Renders are 960×720 (generous — for eyeballing, not SSIM; `golden.hpp`'s
 `render_and_compare()` is fixed at 320×240 for CI speed and is deliberately
@@ -111,9 +123,9 @@ After running, copy the PNG(s) from `OVERLUME_CAPTURE_OUT_DIR` into
 
 | File | Preset | Content-verification (measured this run) |
 |---|---|---|
-| [`env_source_captures/env_source_baked.png`](env_source_captures/env_source_baked.png) | baked | luminance stddev 5.90, non-background fraction 12.3% |
-| [`env_source_captures/env_source_osm.png`](env_source_captures/env_source_osm.png) | osm (live, ion://96188) | luminance stddev 6.02, non-background fraction 10.5% |
-| [`env_source_captures/env_source_google.png`](env_source_captures/env_source_google.png) | google (live, ion://2275207, original materials) | luminance stddev 24.60, non-background fraction 60.6% |
+| [`env_source_captures/env_source_baked.png`](env_source_captures/env_source_baked.png) | baked | luminance stddev 9.82, non-background fraction 16.9% |
+| [`env_source_captures/env_source_osm.png`](env_source_captures/env_source_osm.png) | osm (live, ion://96188) | luminance stddev 9.06, non-background fraction 75.1% |
+| [`env_source_captures/env_source_google.png`](env_source_captures/env_source_google.png) | google (live, ion://2275207, original materials) | luminance stddev 24.13, non-background fraction 45.3% |
 
 **Attribution caption (Google Map Tiles terms).** `env_source_google.png` is
 committed imagery rendered from Google Photorealistic 3D Tiles — credit:
@@ -138,32 +150,35 @@ anything at all").
 **What each image shows:**
 
 - **baked** — the offline fixture town's clay-shaded buildings (dark_adas
-  theme), same content `tests/goldens/environment_test_town_dark_adas.png`
-  already pins, viewed from this comparison package's shared pose.
+  theme): its main block, with the edge of a second podium at the right, the
+  same content `tests/goldens/environment_test_town_dark_adas.png` pins,
+  viewed from this comparison package's shared pose.
 - **osm** (Cesium OSM Buildings, clay remap — the GUI's default live preset) —
-  real OSM-derived building massing near `kFixtureAnchor` (foreground clay
-  blocks) plus a distant skyline silhouette on the horizon. Confirms the clay
+  real OSM-derived building massing around the target: the same block's podium
+  and tower in the foreground, neighbouring towers behind. Confirms the clay
   remap path renders live ion content, not just the fixture.
 - **google** (Google Photorealistic 3D Tiles, `materials=original` — original
-  textures, no clay remap) — real aerial-photogrammetry imagery: streets,
-  rooftops, ground texture, at the LOD this box's network fetched within the
-  60s settle window (still visibly low-resolution/blurry at close range —
-  expected, not a bug: deeper LOD keeps refining with more real time).
+  textures, no clay remap) — real aerial-photogrammetry imagery: the lake, the
+  tower's base and shaft, rooftops and ground texture around the target, at the
+  LOD this box's network fetched within the 60s settle window (still visibly
+  low-resolution at close range — expected, not a bug: deeper LOD keeps
+  refining with more real time). Tiles farther than the theme's 100 m tile
+  radius from the ego are culled, hence the empty band above the imagery.
 
 ## Display-aid contact sheet
 
 The raw `dark_adas` captures above are the canonical, reproducible renders —
-but two of the three are close to unjudgeable as shipped: measured p99
-luminance is 38.9/255 for both **baked** and **osm** (only 0.04% of
-pixels exceed luminance 40), vs. 117.2/255 for **google**. The content is
-genuinely present and correct for a dark ADAS theme — this is expected
-exposure, not a bug — but a human can't eyeball building massing at that
-brightness without display help.
+but two of the three are dim as shipped: measured p99 luminance is
+61.9/255 for **baked** and 51.3/255 for **osm**, vs. 112.6/255 for
+**google**. The content is genuinely present and correct for a dark ADAS
+theme — this is expected exposure, not a bug — but building massing is hard
+to eyeball at that brightness without display help.
 
 [`env_source_captures/env_source_contact_sheet.png`](env_source_captures/env_source_contact_sheet.png)
-applies a flat **3.0× linear gain** (`pixel * 3.0`, clipped to 255) to the
+applies a flat **2.0× linear gain** (`pixel * 2.0`, clipped to 255) to the
 **baked** and **osm** panels only — chosen so their p99 luminance
-(~117, `38.9 * 3.0`) lands near google's own p99 (117.2), putting all three
+(~124 and ~103, `61.9 * 2.0` and `51.3 * 2.0`) lands near google's own p99
+(112.6), putting all three
 panels at a comparable, readable brightness. **google** is shown unmodified
 (already well-exposed). This is a display aid only, generated from the
 already-committed PNGs above — not a re-render, not a replacement for them,
@@ -175,7 +190,7 @@ python3 - <<'PYEOF'
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 
-GAIN = 3.0  # documented display-aid multiplier -- baked/osm only, see note above
+GAIN = 2.0  # documented display-aid multiplier -- baked/osm only, see note above
 SRC = {
     "baked": ("docs/runbooks/env_source_captures/env_source_baked.png", True),
     "osm": ("docs/runbooks/env_source_captures/env_source_osm.png", True),
@@ -220,7 +235,7 @@ the comparison package. No PNG exists for this preset.
 
 ## What is / isn't committed
 
-- Committed: the 3 PNGs above (`docs/runbooks/env_source_captures/`, ~2.2 MB
+- Committed: the 3 PNGs above (`docs/runbooks/env_source_captures/`, ~2.5 MB
   total) and this note.
 - Not committed: Google tile bytes (licensing — the epic's own recorded
   constraint; only the rendered PNG of the view is shipped), any
