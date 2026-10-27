@@ -23,7 +23,7 @@ note, widened by the same review round to cover this default-build case
 too). tools/ci_visual_mode.sh builds -DCMAKE_BUILD_TYPE=Release; do the same
 before running this test, or every case below fails with no useful signal.
 
-Three cases:
+Four cases (case 0, a provisioned ego model, is described at its code; 1-3 follow):
   1. Launch with --params-file <share>/config/default_params.yaml (the
      installed one, resolved via `ros2 pkg prefix`). `ros2 lifecycle set
      configure` must succeed. `ros2 param get` for theme_assets_dir,
@@ -168,6 +168,9 @@ def main() -> int:
         with open(ego_file, "wb") as f:
             f.write(b"glTF")
         planted = True
+    if not planted and not os.path.exists(ego_file):
+        print(f"SKIP (case 0): '{os.path.dirname(ego_file)}' is not writable -- "
+              "cannot plant a placeholder ego model.")
     if os.path.exists(ego_file):
         log0 = _fresh_log()
         proc = _launch("", log0)
