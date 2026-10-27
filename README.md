@@ -460,7 +460,8 @@ The sensor bags this project was developed against are not distributed. Record y
 tools/record_fixture_bag.sh OUT_DIR
 tools/validate_visual_mode.sh --bag /path/to/your/bag
 tools/validate_visual_mode.sh --live                    # live rig
-ros2 bag play /path/to/your/bag --clock --loop           # then the replay rig: docs/runbooks/replay_bag.md
+# replay rig (docs/runbooks/replay_bag.md): start the rig first, then, once it prints "Rig is up":
+ros2 bag play /path/to/your/bag --clock --loop
 ```
 
 You can still run the examples and the library tests without a bag.

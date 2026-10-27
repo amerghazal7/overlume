@@ -31,7 +31,7 @@ item below being closed or explicitly accepted.
    feather-weighted multi-camera blend** (Decision 5 / Task 5) — visible
    seams at camera-boundary points are expected.
 3. **The robot overlay's asset changes shape.** The deployed real-robot
-   proxy is `robot.obj` + an OBJ→rig `robot_model_transform`
+   proxy is the robot's OBJ model + an OBJ→rig `robot_model_transform`
    (the robot's params profile, kept in the robot overlay; old `default_params.yaml:14`); the merged
    node's ego is `ego_model_path` (glTF; default `""` falls back to a plain
    box, `ego.cpp:106-111`). Unless a robot glTF is provisioned for the

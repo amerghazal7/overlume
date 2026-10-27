@@ -64,8 +64,8 @@ Mapbox side (the layer list, `imagery=satellite`, the DEM, request volume, the t
 | `osm-terrain` | `ion://96188?terrain=1&imagery=2` | Cesium OSM Buildings in the theme's clay, on Cesium World Terrain with Bing Maps Aerial |
 
 - Pick it in the vcam GUI's environment sources list, send
-  `{"cmd":"set_environment_source","preset":"osm-terrain"}` to the bridge, or pass
-  arm it on the replay rig ([`replay_bag.md`](replay_bag.md)).
+  `{"cmd":"set_environment_source","preset":"osm-terrain"}` to the bridge, once the geo anchor
+  solves on the replay rig ([`replay_bag.md`](replay_bag.md)).
 - It is the provider-agnostic proof: the overlay path `mapbox-satellite` uses, with no Mapbox code
   involved.
 
@@ -110,6 +110,10 @@ LIVE_SIM_TIME=true tools/validate_visual_mode.sh --live --profile replay \
     --param gps_topic:=<NavSatFix topic> \
     --param environment_terrain:=ion:1 --param environment_imagery:=ion:2
 ```
+
+Start the player once the rig prints `Rig is up` (`replay_bag.md` §3), then arm `osm` once the
+geo anchor solves (the GUI, or the bridge command
+`{"cmd":"set_environment_source","preset":"osm"}`).
 
 ## 4. The theme token `environment.terrain_color`
 

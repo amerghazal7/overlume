@@ -181,7 +181,7 @@ Steps:
   - If `reason` is non-empty, call `RCLCPP_WARN_THROTTLE(..., 5000, "hybrid: render_mode=%d/profile=%s consumes a lidar cloud but %s -- splats will not render", ...)`.
   - Store `reason` in a member `hybrid_starved_reason_`.
   - In `publish_diagnostics()` (`:1350`), append `BuildHybridStatus(hybrid_starved_reason_)` to `msg.status`.
-- [ ] **A4.** Set `default_params.yaml:169` to `pointcloud_topic: "/iv_points_fusion"`, and `:183` to `splat_radius: 3` (CUDA shipped value, matching `/path/to/robot_params.yaml:32`). Leave the code default for `pointcloud_topic` as `""`, so the library-only/minimal launch stays explicit. The warning covers it.
+- [ ] **A4.** Set `default_params.yaml:169` to `pointcloud_topic: "/iv_points_fusion"`, and `:183` to `splat_radius: 3` (CUDA shipped value, matching the reference robot's params profile). Leave the code default for `pointcloud_topic` as `""`, so the library-only/minimal launch stays explicit. The warning covers it.
 - [ ] **A5 (`splat_radius`).**
   - Replace `declare_parameter<int>("splat_radius", 2);` (`:394`) with `splat_radius_ = declare_parameter<int>("splat_radius", 3);`.
   - Add the member `int splat_radius_{3};`.

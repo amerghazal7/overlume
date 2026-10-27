@@ -145,9 +145,8 @@ holds the supported environment sources. Four of them are Mapbox:
 `osm-terrain`, the same terrain and imagery path on `ion://`, is in
 [`terrain_imagery.md`](terrain_imagery.md) §2.
 
-- Pick one in the GUI, send `{"cmd":"set_environment_source","preset":"mapbox"}` to the bridge,
-  or pass `--param environment_source_uri:=mapbox://buildings` to the replay rig once the anchor
-  is solved (`replay_bag.md`).
+- Pick one in the GUI or send `{"cmd":"set_environment_source","preset":"mapbox"}` to the bridge,
+  once the anchor is solved (`replay_bag.md`).
 - The node refuses the switch until its geo anchor is solved, as for every source.
 - The GUI shows an entry as selected only when the node's `environment_source_uri` is exactly
   that entry's string. A hand-set URI such as `mapbox://buildings?radius=800` leaves the list as
@@ -221,17 +220,18 @@ older path and is unchanged.
 The demo runs at the test site, Downtown Dubai around the Burj Khalifa (25.1972, 55.2744), with the
 replay rig and the vcam GUI's free look. A full geo-datum override (§7.2) puts the map there; without
 one (§7.1) the map stays wherever the bag was recorded. The rig owns the machine: starting it
-stops any rig already running on the box (same process names, port 8765), but not a leftover
-replay player (a `/clock` publisher), which must be stopped by hand;
-the rig's preflight refuses to start and says so.
+stops any rig already running on the box (same process names, port 8765) and any running
+`ros2 bag play`, so start the rig first and the player after it. With `LIVE_SIM_TIME=true` the
+rig's preflight skips its `/clock` check.
 
 Before either run:
 
 1. Build the library with cesium on, and the node, in the checkout you run from (`AGENTS.md`,
    "Build and test").
 2. Export `MAPBOX_TOKEN` (§1) and run `tools/check_mapbox_token.sh` (§2).
-3. Play a recorded bag with `ros2 bag play "$BAG_DIR" --clock --loop`
-   ([`replay_bag.md`](replay_bag.md)).
+3. Start the rig (§7.1 or §7.2). Once it prints `Rig is up`, play a recorded bag with
+   `ros2 bag play "$BAG_DIR" --clock --loop` ([`replay_bag.md`](replay_bag.md)); restart the
+   player after any rig restart.
 
 ### 7.1 At the bag's own anchor
 

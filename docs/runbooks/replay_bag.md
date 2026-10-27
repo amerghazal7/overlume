@@ -33,12 +33,17 @@ it (section 4).
 
 ## 3. Play
 
+Start the rig first (section 5), then, once it prints `Rig is up`, play the
+bag:
+
 ```bash
 ros2 bag play my_bag --clock --loop
 ```
 
-Check it: `ros2 topic hz /clock /tf`. The player owns `/clock`, so run the rig
-with sim time (section 5).
+Check it: `ros2 topic hz /clock /tf`. The player owns `/clock`, so the rig runs
+with sim time. Restart the player after every rig restart: the rig's
+`--live` start kills any running `ros2 bag play` so that it never fights a
+bag for `/clock`.
 
 ## 4. Static transforms the recording lacks
 
@@ -48,7 +53,7 @@ Publish them through the rig, one `--static-tf "parent child x y z qx qy qz qw"`
 per frame (repeatable):
 
 ```bash
---static-tf "base_link lidar 0 0 1.07 0 0 1 0"
+--static-tf "base_link lidar 0 0 1.8 0 0 0 1"
 ```
 
 **Read the whole 4x4** of the calibration you take them from, yaw included. A
@@ -58,6 +63,9 @@ one frame but published in another is relabelled by the profile row's
 `frame_id`.
 
 ## 5. Run
+
+Start the rig before the player (section 3); the player starts once the rig
+prints `Rig is up`.
 
 ```bash
 LIVE_SIM_TIME=true tools/validate_visual_mode.sh --live --profile replay \
@@ -126,7 +134,7 @@ python3 tools/kill_switch_proxy.py 8899 &   # minimal stdlib CONNECT proxy; logs
 env -u CESIUM_ION_TOKEN bash -lic 'https_proxy=http://127.0.0.1:8899 no_proxy=127.0.0.1,localhost LIVE_SIM_TIME=true \
   tools/validate_visual_mode.sh --live --profile replay --param gps_topic:=<NavSatFix topic> \
   --param environment_chunks_dir:=$PWD/overlume/tests/fixtures/environment_test_town_0'
-# arm osm, wait for tunnels: ss -tnp | grep -c ':8899 '   then: kill <proxy pid>
+# start the player once the rig is up, arm osm, wait for tunnels: ss -tnp | grep -c ':8899 '   then: kill <proxy pid>
 ```
 
 What to expect (measured 2026-09-18): resident tiles keep rendering and the

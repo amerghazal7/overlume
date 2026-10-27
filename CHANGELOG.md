@@ -21,8 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The ego model installs as `assets/ego/ego.glb`: `scripts/provision_ego_model.sh <model.glb>` provisions any glTF (`overlume/scripts/obj2gltf.py` converts an OBJ first). Without it the node draws the clay-box ego, as before. The package no longer ships a single-robot params or topic profile.
-- `docs/runbooks/replay_bag.md` replays a rosbag2 recording with the `replay` profile, replacing the logger-session replay wrapper and its runbook.
+- The ego model installs as `assets/ego/ego.glb`: `scripts/provision_ego_model.sh <model.glb>` provisions any glTF (`overlume/scripts/obj2gltf.py` converts an OBJ first). Without it the node draws the clay-box ego, as before.
+  A model provisioned under the previous file name in `assets/ego/` is no longer picked up: re-run `scripts/provision_ego_model.sh <model.glb>`.
+- `docs/runbooks/replay_bag.md` replays a rosbag2 recording with the `replay` profile.
+
+### Removed
+
+- The single-robot params profile and topic profile the package shipped in 1.0.0 and 1.1.0.
+- The logger-session replay wrapper and its runbook, replaced by `docs/runbooks/replay_bag.md`.
 
 ## [1.1.0] - 2026-10-16
 
