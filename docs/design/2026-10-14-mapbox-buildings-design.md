@@ -4,7 +4,7 @@
 **Status:** Approved by the user (2026-10-14) with one change: Mapbox appears in the GUI as two more
 selectable environment sources, not as presets (§4). Implementation plan:
 `docs/plans/2026-10-14-mapbox-buildings.md`.
-**Branch:** `mapbox-environment` (off `main` at f2d0d5b). Local only: nothing from this branch is
+**Branch:** `mapbox-environment` (off `main` at d0cc035). Local only: nothing from this branch is
 pushed to `origin` until the user confirms Mapbox's sign-off.
 **Scope:** sub-project 1 of 2 (buildings). Sub-project 2, provider-agnostic imagery on terrain,
 gets its own spec (§13).

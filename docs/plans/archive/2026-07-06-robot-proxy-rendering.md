@@ -11,7 +11,7 @@
 **Spec:** `docs/superpowers/specs/2026-07-06-robot-proxy-rendering-design.md`.
 **Deviation from spec (deliberate):** the OBJ/MTL loader lives in the `rendering_reprojector` lib (not the node) so it is pytest-testable through the existing `tpscuda` bindings; the node stays a thin caller. Same zero-new-deps property.
 
-**Status note:** Task 1 is COMPLETE (commit e1b6bcd) — mesh_loader.hpp/.cpp + CMake + `tpscuda.load_obj_mesh` binding + `tests/test_robot_proxy.py` (3 tests). Execution resumes at Task 2.
+**Status note:** Task 1 is COMPLETE (commit a5a0da5) — mesh_loader.hpp/.cpp + CMake + `tpscuda.load_obj_mesh` binding + `tests/test_robot_proxy.py` (3 tests). Execution resumes at Task 2.
 
 ## Global Constraints
 
@@ -26,7 +26,7 @@
 
 ---
 
-### Task 1: OBJ+MTL mesh loader in the lib (+ bindings + pytest) — COMPLETE (commit e1b6bcd)
+### Task 1: OBJ+MTL mesh loader in the lib (+ bindings + pytest) — COMPLETE (commit a5a0da5)
 
 Done: `cuda/src/libs/rendering_reprojector/include/rendering_reprojector/mesh_loader.hpp`,
 `src/mesh_loader.cpp`, CMake source entry, `tpscuda.load_obj_mesh` binding,

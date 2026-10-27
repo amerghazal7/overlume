@@ -10,7 +10,7 @@ Command (GPU box, ROS sourced):
         --dump-dir docs/evidence/2026-10-02-hybrid-restore
 
 Bag: `~/overlume-fixtures/stack_v3_full_sensors_2026-09-11`. Code: branch
-`fix/hybrid-composite` at d690a14 (plus this docs commit). Frames are
+`fix/hybrid-composite` at f5f4253 (plus this docs commit). Frames are
 averaged capture windows; the bag keeps moving between them.
 
 | file | content |
@@ -39,7 +39,7 @@ files replace the earlier misregistered candidates; still not promoted.
 
 `hybrid_test_town_merged_node_1280x720_candidate.png` is a 1280x720 candidate for the
 golden; `hybrid_golden_vs_candidate.png` is the side-by-side (left: current golden,
-right: candidate). **Not promoted.** Code: main at 78baa7f (set_hybrid_splats restored,
+right: candidate). **Not promoted.** Code: main at 83c6382 (set_hybrid_splats restored,
 `pointcloud_transform` tz=2.444, `pointcloud_topic` /iv_points_fusion).
 
 Method: the runbook recipe (hybrid-golden-vm094.md, 2026-09-11 re-shot section):
@@ -68,7 +68,7 @@ overlume_ros` re-installed it. Evidence it is in use: `overlume_node.cpp:172` re
 `ego_model_path` to `share/overlume_ros/assets/ego/ego.glb`, that 75 MB mesh is present under
 `ros/install/`, the log has no clay-box fallback line, and the robot silhouette is in the frame.
 
-Camera: no override needed. The golden-era node (362cb89,
+Camera: no override needed. The golden-era node (767e69b,
 `cuda/src/ros_apps/src/overlume_visualization_node/config/default_params.yaml`) and today's
 `default_params.yaml` ship the same `virtual_pose` [-4,0,3.5 | 2,0,-0.5] and vfov 80; the
 "lower, farther" look was the 4.5 m clay box vs. the small robot model. With the robot model the ego

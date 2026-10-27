@@ -34,23 +34,23 @@ where the plan uses it.
 | Task | Lane | State | Commit |
 |------|------|-------|--------|
 | 0. CMake wiring for the Mapbox units | 0 | pending | |
-| 1. MVT building-layer decoder | 1 | done | `9619ee2..9eb2e2a` |
-| 2. `mapbox://` URI parser | 1 | done | `9eb2e2a..f1a87ad` |
-| 3. Extrusion builder | 2 | done | `9619ee2..9de908e` |
-| 4. Tile math and the tile frame | 3 | done | `9619ee2..58aa6fa` |
-| 5. Landmark reader | 3 | done | `58aa6fa..3d6966e` |
-| 6. Count transport errors as network failures | 4 | done | `9619ee2..c116871` |
-| 7. Custom tilesets with area selection | 4 | done | `c116871..ac89dee` |
-| 8. Node URI composition for `mapbox://` | 5 | done | `9619ee2..891db19` |
-| 9. HUD primitives: Latin-1 text, `MeasureText`, `DrawImageRgba` | 5 | done | `891db19..9d3ff95` |
-| 10. Mapbox attribution on screen | 5 | done | `9d3ff95..458e311` |
-| 11. GUI sources, token check, rig token refresh | 6 | done | `9619ee2..8123319` |
-| 12. Docs | 6 | done | `8123319..e40ad03` |
-| 13. Mapbox loader: tiling, extrusions, failures, dispatch | 7 | done | `e714a26..169c033` |
-| 14. Landmarks and conflation in the loader | 7 | done | `169c033..ad8b9da` |
-| 15. Golden candidate and promotion | 8 | done; two goldens (dark_adas and light_clay, both clay) promoted by the user 2026-10-15 | `be29f4d..1028db2` |
-| 16. Opt-in live smoke | 8 | done; live run 2026-10-15 with the user's consent: Downtown tiles 1, landmarks 7, extruded 1222, conflated 62, slowest build 14 ms; the session's anchor (`MapboxLive.TestSite`, since removed) tiles 2, landmarks 0, extruded 564, conflated 0, slowest build 1 ms; `tools/check_mapbox_token.sh` PASS | `6f515f6` |
-| 17. Rig rehearsal at both sites and close-out | 8 | done (see Live acceptance results) | the close-out commit after `ec0a136` |
+| 1. MVT building-layer decoder | 1 | done | `5f2a2df..3e720ff` |
+| 2. `mapbox://` URI parser | 1 | done | `3e720ff..01f99db` |
+| 3. Extrusion builder | 2 | done | `5f2a2df..7360698` |
+| 4. Tile math and the tile frame | 3 | done | `5f2a2df..138682f` |
+| 5. Landmark reader | 3 | done | `138682f..bf4b819` |
+| 6. Count transport errors as network failures | 4 | done | `5f2a2df..1f752a0` |
+| 7. Custom tilesets with area selection | 4 | done | `1f752a0..71d12ae` |
+| 8. Node URI composition for `mapbox://` | 5 | done | `5f2a2df..4ec999d` |
+| 9. HUD primitives: Latin-1 text, `MeasureText`, `DrawImageRgba` | 5 | done | `4ec999d..14e611f` |
+| 10. Mapbox attribution on screen | 5 | done | `14e611f..f70ef7d` |
+| 11. GUI sources, token check, rig token refresh | 6 | done | `5f2a2df..8123319` |
+| 12. Docs | 6 | done | `8123319..8a885e6` |
+| 13. Mapbox loader: tiling, extrusions, failures, dispatch | 7 | done | `521892a..a13ff32` |
+| 14. Landmarks and conflation in the loader | 7 | done | `a13ff32..6355f90` |
+| 15. Golden candidate and promotion | 8 | done; two goldens (dark_adas and light_clay, both clay) promoted by the user 2026-10-15 | `b546001..c0631cf` |
+| 16. Opt-in live smoke | 8 | done; live run 2026-10-15 with the user's consent: Downtown tiles 1, landmarks 7, extruded 1222, conflated 62, slowest build 14 ms; the session's anchor (`MapboxLive.TestSite`, since removed) tiles 2, landmarks 0, extruded 564, conflated 0, slowest build 1 ms; `tools/check_mapbox_token.sh` PASS | `a0bd4f4` |
+| 17. Rig rehearsal at both sites and close-out | 8 | done (see Live acceptance results) | the close-out commit after `2307b79` |
 
 ### Live acceptance results (2026-10-15, replay rig, `session_<stamp>`)
 

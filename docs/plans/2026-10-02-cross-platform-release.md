@@ -567,7 +567,7 @@ include(CPack)
   and debian:11 is pointed at archive.debian.org with libc6 pinned.
   **Step 7 dry runs:** 37022162508 (x86 green); 37037401298 (x86 green; aarch64
   cross build + native cpu tests green; the fedora:40 static rpm failure was fixed
-  by 62595c4); 37045928609 (pending).
+  by eda4cbb); 37045928609 (pending).
   **Task 3 amendment (cross-compiled aarch64, 2026-10-02).** The `package` matrix
   keeps only `linux-x86_64`. aarch64 is two jobs: `package-linux-aarch64-build`
   (ubuntu-22.04, cross image, read-only token: build, `check_glibc_floor.sh` and
@@ -788,7 +788,7 @@ modify `GetFilament.cmake` (mac + ios prebuilt tarballs, SHA256 pinned),
   `publish-homebrew`, `publish-swiftpm`; dry-run green; Linux gate green.
   **Commit** `feat(apple): Metal back end, macOS universal2 pkg + Homebrew, iOS XCFramework + SwiftPM`.
 
-**Task 7 results (2026-10-05, complete; CI dry run 37345214541 on b21c55d, fully green).**
+**Task 7 results (2026-10-05, complete; CI dry run 37345214541 on 0788ea3, fully green).**
 Proved on CI: all three iOS slices and both macOS arches build, link, install and pass the Mach-O export
 check; macOS cpu tests pass on both arches; `package-macos` ran the universal merge, pkg/tar.gz, the
 unsigned warning path, the relocated tar.gz smoke (arm64 + x86_64 under Rosetta), the pkg install + smoke,
@@ -817,7 +817,7 @@ simulator smoke skips its render (`::warning::`). Metal rendering, including row
 run on a real Mac (or a self-hosted macOS runner; `OVERLUME_SMOKE_RENDER=1` re-enables the simulator render)
 before the first tagged release.
 
-Final verification 2026-10-06: dry run 37356177558 on b5feb4b (the Task 7 head) is fully green — iOS device/sim-arm64/sim-x86_64 slices each with 0 'was built for newer iOS' warnings (fe3def4 pins Filament's iOS objects to -mios[-simulator]-version-min=15.0 and the slice build fails on any such warning; b21c55d had 201 per slice), package-ios, package-macos (universal merge, pkg/tar.gz, smokes, pkg install, brew install + test), sign-apple (checksums signed; Apple signing on its no-secrets warning path), Linux x86_64/aarch64, Android 4 ABIs + emulator legs + Maven validate. The Android x86_64 emulator failed to boot once (hosted-runner flake, 600 s boot timeout) and passed on re-run. Deviation (7): the iOS min-version pin above. Release-safety rule from b5feb4b: SwiftPM versions are write-once — sign-apple refuses to clobber release assets once vX is tagged on overlume-swift; `publish_swiftpm.sh push` is idempotent for an identical manifest.
+Final verification 2026-10-06: dry run 37356177558 on 8673d3f (the Task 7 head) is fully green — iOS device/sim-arm64/sim-x86_64 slices each with 0 'was built for newer iOS' warnings (75b788e pins Filament's iOS objects to -mios[-simulator]-version-min=15.0 and the slice build fails on any such warning; 0788ea3 had 201 per slice), package-ios, package-macos (universal merge, pkg/tar.gz, smokes, pkg install, brew install + test), sign-apple (checksums signed; Apple signing on its no-secrets warning path), Linux x86_64/aarch64, Android 4 ABIs + emulator legs + Maven validate. The Android x86_64 emulator failed to boot once (hosted-runner flake, 600 s boot timeout) and passed on re-run. Deviation (7): the iOS min-version pin above. Release-safety rule from 8673d3f: SwiftPM versions are write-once — sign-apple refuses to clobber release assets once vX is tagged on overlume-swift; `publish_swiftpm.sh push` is idempotent for an identical manifest.
 
 ### Task 8: Windows x64 + arm64 (MSVC, WGL/OpenGL)
 
@@ -905,7 +905,7 @@ pal1000/mesa-dist-win. Result: arm64 now runs all 287 `cpu` tests (112 -> all pa
 11/11 `gpu` tests (incl. `ReadbackOrientation.Row0IsTopOfImage`) and the smoke in `render` mode (shared + static, NSIS
 install and ZIP), so the arm64 no-GPU limitation is gone; (b) `test_install_mesa.ps1` now also drives
 `build_windows.ps1 test`'s caller decision table through a stub `install_mesa.ps1` and a stub `ctest` (install exit 1 ->
-fail, no GL context with Mesa -> fail, exit 2 -> `::warning::` + pass; cases 1 and 2 pass on 46764ec, so it fails on
+fail, no GL context with Mesa -> fail, exit 2 -> `::warning::` + pass; cases 1 and 2 pass on d5e481d, so it fails on
 revert); `smoke_windows.ps1`'s twin guards stay uncovered by a self-test (stubbing the vcpkg/consumer builds is
 heavy). The exit-2 warning path remains in the callers only for a future arch without a Mesa build; no current
 target takes it; (c) `sign` and `upload-artifact` steps of the Windows build job no longer carry `!cancelled()`, so a
@@ -915,7 +915,7 @@ a real certificate (no secrets).
 the `platform_wgl.cpp` no-OpenGL-4.1 path (create_renderer() returning nullptr instead of crashing in
 `PlatformWGL::createDriver`). `smoke_windows.ps1` now runs both consumers with `--expect-no-gpu` BEFORE `install_mesa`
 (System32 GDI OpenGL 1.1 in use) and fails with "platform_wgl probe regressed"; it fails if the probe is reverted to
-`usable = true`. Both arches (x64 windows-2022 returns nullptr without Mesa too, so no gating). CI dry run 37409262766 (ee50712), fully green: pre-Mesa `--expect-no-gpu` PASS on x64 and arm64 in both package-windows smokes (installed prefix and relocated zip), then Mesa-backed `render` smoke PASS. (The fail-on-revert property of this check is argued, not run: with the probe forced usable, Filament's PlatformWGL::createDriver calls an unchecked wglCreateContextAttribsARB pointer that is null on GDI GL 1.1, so the exe crashes and Fail() runs.)
+`usable = true`. Both arches (x64 windows-2022 returns nullptr without Mesa too, so no gating). CI dry run 37409262766 (24adea7), fully green: pre-Mesa `--expect-no-gpu` PASS on x64 and arm64 in both package-windows smokes (installed prefix and relocated zip), then Mesa-backed `render` smoke PASS. (The fail-on-revert property of this check is argued, not run: with the probe forced usable, Filament's PlatformWGL::createDriver calls an unchecked wglCreateContextAttribsARB pointer that is null on GDI GL 1.1, so the exe crashes and Fail() runs.)
 
 ### Task 9: vcpkg overlay port + Conan recipe
 
@@ -998,7 +998,7 @@ verified (the SHA256 values were cross-checked against the downloaded files only
 run on a box where 8000 is taken (a local CARLA telemetry service holds it); the dev gate `tools/ci_visual_mode.sh` was deferred this round
 (CARLA running; no library code changed). Dry run after the fix: 37446914731, all jobs green including `channels` on ubuntu-22.04, macos-14, windows-2022.
 **Fix round 2 (review):** (a) Windows Debug consumers: the vcpkg shared port also copies `overlume.dll` to `debug/bin` (vcpkg app-local deps read it there; the API is POD so the release DLL serves /MDd); Conan `validate()` refuses Windows static with `compiler.runtime_type=Debug` (exit 6, LNK2038 otherwise); usage says the static product needs a Release/RelWithDebInfo consumer; `check_vcpkg_conan.sh` builds and runs the vcpkg consumer in Debug on Windows shared and adds the Conan static-Debug negative. (b) The real `vcpkg install` negative now also greps the log for `is only supported on`, so a revert of `supports` fails (verified locally: PASS on the current port, `FAIL: vcpkg refused x64-windows-static, but not by supports` with `supports` reverted). Windows Debug consumer is covered by the windows-2022 channels leg only (no Windows host locally); dry run 37457627284 fully green, incl. "PASS: vcpkg Debug consumer runs" on windows-2022.
-**Fix round 3 (review blocker):** `test_package/CMakeLists.txt` no longer falls back between targets: it picks `overlume::overlume` or `overlume::overlume_static` from `OVERLUME_STATIC` (vcpkg consumers pass `-DOVERLUME_STATIC=ON`; the Conan `test_package` sets it via `CMakeToolchain` from `overlume/*:shared`), so a wrong `cmake_target_name` in `conanfile.py` fails the Conan leg. Verified locally on Linux (x86_64 run 37409262766 archives): `check_vcpkg_conan.sh` shared PASS (vcpkg + Conan), static PASS (ubuntu:24.04 via `check_vcpkg_conan_linux_static.sh`); with `cmake_target_name` swapped in a scratch copy of the rendered recipe the Conan leg FAILS: `CMake Error at CMakeLists.txt:15 (target_link_libraries): ... but the target was not found.` Linux gate not run (CPU 77 C, packaging-only change; deferred). CI dry run 37468626796 on d0e217d fully green incl. the channels matrix (ubuntu-22.04, macos-14, windows-2022).
+**Fix round 3 (review blocker):** `test_package/CMakeLists.txt` no longer falls back between targets: it picks `overlume::overlume` or `overlume::overlume_static` from `OVERLUME_STATIC` (vcpkg consumers pass `-DOVERLUME_STATIC=ON`; the Conan `test_package` sets it via `CMakeToolchain` from `overlume/*:shared`), so a wrong `cmake_target_name` in `conanfile.py` fails the Conan leg. Verified locally on Linux (x86_64 run 37409262766 archives): `check_vcpkg_conan.sh` shared PASS (vcpkg + Conan), static PASS (ubuntu:24.04 via `check_vcpkg_conan_linux_static.sh`); with `cmake_target_name` swapped in a scratch copy of the rendered recipe the Conan leg FAILS: `CMake Error at CMakeLists.txt:15 (target_link_libraries): ... but the target was not found.` Linux gate not run (CPU 77 C, packaging-only change; deferred). CI dry run 37468626796 on 7846390 fully green incl. the channels matrix (ubuntu-22.04, macos-14, windows-2022).
 
 ### Task 10: Signed apt + yum repositories on GitHub Pages (merged with API docs)
 
@@ -1045,12 +1045,12 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   (fits / budget-truncated / N=0 -> exit 1). `channel_smoke.sh repo SITE` PASS on ubuntu:22.04, debian:12,
   almalinux:8, fedora:40 (add repo, install `overlume`, build consumer, `--expect-render`); tamper (byte 200 of
   InRelease flipped) -> `apt-get update` refused; restored -> installs again. `check_docs_links.py` clean.
-- Hosted: `pages.yml` dry run **37486279366** on 872831a is GREEN (docs/build, repos jobs; deploy skipped by
+- Hosted: `pages.yml` dry run **37486279366** on fe18d5c is GREEN (docs/build, repos jobs; deploy skipped by
   `dry_run`). Its `github-pages` artifact (171.8 MB) contains `index.html`, `apt/dists/stable/{InRelease,Release.gpg}`,
   `rpm/{x86_64,aarch64}/repodata/repomd.xml.asc`, `overlume-release.asc`, `overlume.repo`, 4 `.deb` + 4 `.rpm`.
   The earlier dry run 37485336439 FAILED: the `pkg-linux-*-unverified` artifacts duplicated file names of the
-  verified `pkg-linux-*` ones (refused by plain `cp -t`, "will not overwrite just-created"; 872831a had added `cp -n`, which
-  silently skipped duplicates, removed again in the fix commit); fixed in 872831a (dry-run input takes only the verified `pkg-linux-*` artifacts).
+  verified `pkg-linux-*` ones (refused by plain `cp -t`, "will not overwrite just-created"; fe18d5c had added `cp -n`, which
+  silently skipped duplicates, removed again in the fix commit); fixed in fe18d5c (dry-run input takes only the verified `pkg-linux-*` artifacts).
 - Deploy guard verified: the two branch-push runs (37485300843, 37486230472) built the site and SKIPPED deploy.
   Deploy runs only when `inputs.dry_run` is false/null AND (ref is main, a `v*` tag, or a dispatch): a direct
   push deploys from main only, a non-dry dispatch deploys, a `workflow_call` caller must pass `dry_run: false`
@@ -1077,7 +1077,7 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
 
 ### Task 11 results
 
-- Dry run **37580899333** on 7915f16: GREEN (27 jobs success; `create`, `publish-homebrew`, `publish-swiftpm`, `finalize`,
+- Dry run **37580899333** on 29b8ecf: GREEN (27 jobs success; `create`, `publish-homebrew`, `publish-swiftpm`, `finalize`,
   `pages` skipped, as designed). `sums` merged 6 verified per-job checksum files, 22 release files, signed
   `SHA256SUMS.asc`, then verified it in a fresh keyring holding only `packaging/keys/overlume-release.asc` (fpr
   `89281DE0...68FE6404`) plus `sha256sum -c` over every file; the `release-sums` artifact holds both files and
@@ -1102,7 +1102,7 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   `GET /published?namespace=io.github.amerghazal7&name=overlume&version=` and exits 0 when already published (stub case 6 in
   `test_maven_publish.sh` fails if that check is reverted). Remaining limit: while an earlier deployment is still PUBLISHING a
   re-run fails until it lands.
-- **Fix round 1 (review findings), dry run 37589684342 on d19d2ad: GREEN** (`sums` success with the exact-set check
+- **Fix round 1 (review findings), dry run 37589684342 on c87f41a: GREEN** (`sums` success with the exact-set check
   printing the 7 expected artifact names, `merge_sums.sh` PASS 6 verified files / 22 files, `release-sums` artifact =
   `SHA256SUMS` + `SHA256SUMS.asc`, the latter verifying against `packaging/keys/overlume-release.asc`; `create`,
   `publish-homebrew`, `publish-swiftpm`, `finalize`, `pages` skipped; `publish-maven` ran in validate mode).
@@ -1227,7 +1227,7 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
 
 ### Task 12 results
 
-- NOTICE (03ad059): the cesium vcpkg closure of 32 ports with versions + SPDX licenses read from the Android install tree's
+- NOTICE (864ffc9): the cesium vcpkg closure of 32 ports with versions + SPDX licenses read from the Android install tree's
   `share/<port>/vcpkg.spdx.json` and `copyright` files (plus the Linux x64 tree under ~/.ezvcpkg/.../x64-linux-clang-libcxx, same 32 ports; aarch64/Apple/Windows triplets are
   the same manifest at the same baseline and are marked as inferred, `ms-gsl` as manifest-only), LLVM 18.1.8 libc++/libc++abi/libunwind
   (Apache-2.0 WITH LLVM-exception, against the 18.1.8 LICENSE.TXT), NDK libc++ and MSVC redistributable notes, and Filament's bundled
@@ -1253,7 +1253,7 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   manual-archive block and the vcpkg `usage` text now name it, and the smoke installs exactly the documented set. Another stale-cache
   finding: `gh run download` with several `-n` flags returned older artifacts than the run's, so the script downloads one name per call.
 - Strict README URL check (fix round 3): scratch README mutations (dropped v, wrong path, repo typo, other host, SHA256SUMS.sig) FAIL; real README PASS; `channel_smoke.sh all 37589684342 37616385042` ALL PASS.
-- Final full dry run **37606567418** on 890ec19 (all three Task 12 commits): GREEN; `create`, `publish-homebrew`, `publish-swiftpm`, `finalize`, `pages` skipped as designed.
+- Final full dry run **37606567418** on f465378 (all three Task 12 commits): GREEN; `create`, `publish-homebrew`, `publish-swiftpm`, `finalize`, `pages` skipped as designed.
 - Local Linux gate green (302 ctest, 312 node gtests, 75 WS, 20 goldens, 6 examples; no golden change).
 - Fix rounds 4-5 (2026-10-07): ffx_a.h line 27 also carries "Copyright (c) 2014 Michal Drobot" (MIT; 4x in the Windows
   DLL) → NOTICE FSR1 entry, CHANGELOG, `check_notice_strings.sh` (needles now cover every Filament-internal notice incl.
@@ -1263,7 +1263,7 @@ URLs), `apt/` (`dists/stable/{InRelease,Release,Release.gpg}`, `main/binary-{amd
   every `B=` base against the exact GitHub prefix; scratch README mutations (dropped v, `/release/download/`,
   `/overlume/download/`, `/dl/`, repo typo, other host, http gitlab, .sig, vcpkg-port.tgz, linux-x86-64.tgz, .tar.xz)
   all FAIL, the real README PASSes, `channel_smoke.sh all 37589684342 37616385042` ALL PASS.
-- Dry run 37637454829 on 778dd8c (merged tree, first CI of the hybrid splat layer on WGL/GLES): Windows x64/arm64 failed `HybridSplats.ClearingRestoresByteIdenticalFrames`, Android x86/x86_64 `SizeFromThemeTokenWhenZero` (+ x86_64 `EgoStillOccludesSplatsBehindIt` 6 vs 5). Diagnosed per backend (diagnostic dry run 37645646387, Windows + Android only): llvmpipe dither noise exceeds the +-8 oracle on its own (clean-vs-clean max 12), SwANGLE resolves 1 px points into AA blends (colour predicate 0 px) and adds an edge pixel to the occluded sliver. All three were test oracles, not library defects; fixed in the tests with the justification in their comments. Detail in `docs/status.md` known gaps item 17.
+- Dry run 37637454829 on e732e0b (merged tree, first CI of the hybrid splat layer on WGL/GLES): Windows x64/arm64 failed `HybridSplats.ClearingRestoresByteIdenticalFrames`, Android x86/x86_64 `SizeFromThemeTokenWhenZero` (+ x86_64 `EgoStillOccludesSplatsBehindIt` 6 vs 5). Diagnosed per backend (diagnostic dry run 37645646387, Windows + Android only): llvmpipe dither noise exceeds the +-8 oracle on its own (clean-vs-clean max 12), SwANGLE resolves 1 px points into AA blends (colour predicate 0 px) and adds an edge pixel to the occluded sliver. All three were test oracles, not library defects; fixed in the tests with the justification in their comments. Detail in `docs/status.md` known gaps item 17.
 
 ## Open items owned by the user (tracked in `docs/status.md`)
 

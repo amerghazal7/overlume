@@ -14,22 +14,22 @@
 
 | Task | Lane | State | Commit |
 |------|------|-------|--------|
-| 0. Build glue and lane worktrees | 0 | done; globs proven with probes, gate green at the fork db7e359 (442/424/8, 381, 94, 25, 6), lanes l1-l4 built; URL forms with consent: PASS (DEM tile HTTP 200, satellite tile HTTP 200) | none (no tracked change) |
-| 1. DEM decode, sample and mesh | 1 | done | `db7e359..04908a2` |
-| 2. Fixtures: DEM PNG, flat imagery, quantized-mesh | 1 | done | `04908a2..98bb981` |
-| 3. Tiling helper extracted from the buildings loader | 2 | done | `db7e359..5c20d6c` |
-| 4. URI keys: layer list, `imagery`, ion `terrain`/`imagery` | 2 | done | `5c20d6c..23f6bd9` |
-| 5. Terrain material and the renderer's overlay callbacks | 3 | done | `db7e359..277d644` |
-| 6. Node parameters, composer, attribution text | 4 | done | `db7e359..11eaa40` |
-| 7. GUI sources, bridge, token check | 4 | done | `11eaa40..fe09029` |
-| 8. Docs | 4 | done | `fe09029..992c883` |
-| 9. DEM cache and buildings re-based onto the DEM | 5 | done | `199442c..0506187` |
-| 10. Mapbox terrain loader and source wiring | 5 | done | `bf81642..9e22d9a` |
-| 11. Second tileset, ion terrain and imagery, credits API | 6 | done | `199442c..3004004` |
-| 12. End-to-end over the fixture network | 7 | done | `aa48d04..a3bd818` |
-| 13. Golden candidates and promotion | 7 | done | `717415a..29b26f8` |
-| 14. Opt-in live smoke | 7 | done; live run 2026-10-16 with the user's consent: the session's anchor (`MapboxLive.TestSiteTerrain`, since removed) terrain tiles 2, DEM requests 2, building tiles 2, extruded 564, rasters attached 18, Maxar credit yes; `osm-terrain` terrain tiles 10, rasters attached 208; `tools/check_mapbox_token.sh` and `overlume/scripts/check_cesium_token.sh` PASS | `053b7b4` |
-| 15. Rig rehearsal and close-out | 7 | done (see Live acceptance results) | the close-out commit after `e50ae5b` |
+| 0. Build glue and lane worktrees | 0 | done; globs proven with probes, gate green at the fork 978c59c (442/424/8, 381, 94, 25, 6), lanes l1-l4 built; URL forms with consent: PASS (DEM tile HTTP 200, satellite tile HTTP 200) | none (no tracked change) |
+| 1. DEM decode, sample and mesh | 1 | done | `978c59c..82e34c5` |
+| 2. Fixtures: DEM PNG, flat imagery, quantized-mesh | 1 | done | `82e34c5..56bee5a` |
+| 3. Tiling helper extracted from the buildings loader | 2 | done | `978c59c..4796e96` |
+| 4. URI keys: layer list, `imagery`, ion `terrain`/`imagery` | 2 | done | `4796e96..64e17d7` |
+| 5. Terrain material and the renderer's overlay callbacks | 3 | done | `978c59c..643f473` |
+| 6. Node parameters, composer, attribution text | 4 | done | `978c59c..403abee` |
+| 7. GUI sources, bridge, token check | 4 | done | `403abee..59fa980` |
+| 8. Docs | 4 | done | `59fa980..9578044` |
+| 9. DEM cache and buildings re-based onto the DEM | 5 | done | `85b0bfc..0506187` |
+| 10. Mapbox terrain loader and source wiring | 5 | done | `12c2bc5..26f2fc8` |
+| 11. Second tileset, ion terrain and imagery, credits API | 6 | done | `85b0bfc..3004004` |
+| 12. End-to-end over the fixture network | 7 | done | `119c93d..bf1beb6` |
+| 13. Golden candidates and promotion | 7 | done | `f30b0ad..ed203a8` |
+| 14. Opt-in live smoke | 7 | done; live run 2026-10-16 with the user's consent: the session's anchor (`MapboxLive.TestSiteTerrain`, since removed) terrain tiles 2, DEM requests 2, building tiles 2, extruded 564, rasters attached 18, Maxar credit yes; `osm-terrain` terrain tiles 10, rasters attached 208; `tools/check_mapbox_token.sh` and `overlume/scripts/check_cesium_token.sh` PASS | `1567a95` |
+| 15. Rig rehearsal and close-out | 7 | done (see Live acceptance results) | the close-out commit after `24e60c7` |
 
 ### Live acceptance results (2026-10-16, replay rig, `session_<stamp>`)
 
@@ -123,7 +123,7 @@ ROS_DOMAIN_ID=8N CI_VISUAL_MODE_DOMAIN_ID=8N \
 
 Exit 75 means another lane held the lock for 300 s: run the same command again. Any other non-zero exit is a gate failure. Every `pytest` command passes `-p no:anyio`. Expected: six `PASS` lines and exit 0. Lanes 0 and 7 use domain 77 and no prefix.
 
-**Baseline** (`mapbox-environment` at the spec commit 427f5d8, measured 2026-10-15): gate about 150 s. Gate counts: 442 library ctest entries (424 ok, 8 skipped), 381 node tests, 94 WS bridge tests, 25 goldens, 6 examples. A task's gate must show every count unchanged or higher, and the goldens all `ok`.
+**Baseline** (`mapbox-environment` at the spec commit 03cef0d, measured 2026-10-15): gate about 150 s. Gate counts: 442 library ctest entries (424 ok, 8 skipped), 381 node tests, 94 WS bridge tests, 25 goldens, 6 examples. A task's gate must show every count unchanged or higher, and the goldens all `ok`.
 
 ### Per-task loop
 
@@ -928,7 +928,7 @@ binary through the `test_mapbox_*` filter, `:590`).
   34.6 m and a skirt vertex's nearest grid vertex is its own edge vertex (20 m away, every other one
   at least 34.6 m). Decoded codes: 0 → −10000 m; 140000 = (2, 34, 224) → 4000 m; 100000 =
   (1, 134, 160) → 0 m; 16777215 = (255, 255, 255) → 1667721.5 m; 100102 = (1, 135, 6) → 10.2 m.
-- Agreement with spec §5 (as amended in 7ec7092) and the head contract, nothing left for the
+- Agreement with spec §5 (as amended in 84d8a2a) and the head contract, nothing left for the
   orchestrator's ledger: grid vertices sit at u, v = 0, 8, …, 512 (pixel coordinates, so
   neighbours share their edge vertices; Tasks 9, 10 and 12 read this header); the PNG is decoded
   with stb_image, a static PNG-only copy inside the unit, since the unit takes no cesium header;
@@ -1609,7 +1609,7 @@ Expected: `check_format.sh: reformatted 3 files with clang-format 23.1.1`; `git 
 nothing (the code above is already clang-format 23.1.1's output with the repository's
 `.clang-format`, so a diff means a line was typed differently, and the second `git add` stages the
 fix); then `check_format.sh: PASS (218 files, clang-format 23.1.1)` and
-`check_spdx.sh: PASS (376 files carry the SPDX identifier)` (215 and 373 at 427f5d8, which Task 0
+`check_spdx.sh: PASS (376 files carry the SPDX identifier)` (215 and 373 at 03cef0d, which Task 0
 leaves unchanged, plus these three; if the fork's counts differ, each expected count is the fork's
 plus three).
 
@@ -2734,7 +2734,7 @@ Expected: `git status --short` lists exactly the four files, each as `A `; the c
 ### Task 3: Tiling helper extracted from the buildings loader
 
 **Lane:** 2. **Depends on:** Task 0 (the lane worktree forks after it; Task 0 leaves every file this
-task touches as it is at 427f5d8, so the line numbers below are 427f5d8's).
+task touches as it is at 03cef0d, so the line numbers below are 03cef0d's).
 
 **Worktree:** `$WORKTREE` is `$INTEGRATION-l2` (branch `terrain-env/l2`, ROS domain 82, test
 scratch `/tmp/overlume-l2`). Every path in this lane is relative to it, and every bash block starts
@@ -2849,7 +2849,7 @@ struct SourceLog { bool first_time(const std::string& key); };  // members priva
   - `SourceLog::first_time` is thread-safe (one mutex).
 
 **API notes** (cesium-native 0.64.0, paths under `overlume/build/_deps/cesium-native-src/`):
-- What moves, at 427f5d8 in `overlume/src/mapbox_loader.cpp`: `kMaxAttempts`, `kRetryWaitS`,
+- What moves, at 03cef0d in `overlume/src/mapbox_loader.cpp`: `kMaxAttempts`, `kRetryWaitS`,
   `kRegionBelowM`, `kRegionAboveM` (122-127); `LoaderConfig` (150-156); `LoaderState`'s
   `logged_mutex`, `logged` and `first_time` (167-174); `g_testClockS` and `clock_s` (192-201);
   `Fetched`, `Outcome`, `classify`, `fetch` (203-245); `region_of` (247-254), now `tile_region`
@@ -3290,7 +3290,7 @@ void mapbox_set_test_clock(double seconds) { overlume::mapbox::g_testClockS.stor
 
 - [ ] **Step 4: Move the shared code out of `overlume/src/mapbox_loader.cpp`**
 
-Fourteen edits, top to bottom (line numbers at 427f5d8); each quoted block is unique in the file.
+Fourteen edits, top to bottom (line numbers at 03cef0d); each quoted block is unique in the file.
 
 Edit 1 (lines 10-44), the include block (`mapbox_tiling.hpp` joins; the headers only the moved code used leave): replace
 
@@ -3872,7 +3872,7 @@ numbers and the counts below assume Task 3's commit).
 - Modify: `overlume/src/mapbox_loader.hpp` (`struct MapboxSpec`, 13-18; the comment above
   `parse_mapbox_spec`, 26-29)
 - Modify: `overlume/src/mapbox_loader.cpp` (`parse_mapbox_spec`, 58-100 after Task 3, which is
-  65-107 at 427f5d8). The parser lives here (File map row "3, 4, 9, 10"); Task 3 is this lane's,
+  65-107 at 03cef0d). The parser lives here (File map row "3, 4, 9, 10"); Task 3 is this lane's,
   so no merge can conflict.
 - Modify: `overlume/src/environment_stream.cpp`, three places and nothing else: `struct IonSpec`
   and `parse_ion_spec`'s key loop and `return` (63-75, 172-182); the refusal line at the top of
@@ -3958,11 +3958,11 @@ ion://<spec> refused: the asset id or a key has a bad value (terrain= and imager
   at the first bad value of a known key. The new `imagery` branch follows that rule; the terrain
   requirement is checked after the loop, on the last value.
 - `MapboxSpec`'s fields are only ever named (`MapboxSpec out;` in the parser; `spec.materials_original`,
-  `spec.radius_m`, `spec.brightness`, `spec.fallback_dir` in `open_mapbox_source`, 427f5d8
+  `spec.radius_m`, `spec.brightness`, `spec.fallback_dir` in `open_mapbox_source`, 03cef0d
   `mapbox_loader.cpp:660-685`), never aggregate-initialised, so new leading fields break no
   initialiser. The parser sets `out.buildings = false` before reading the list; the struct's
   `true` default serves code that builds a `MapboxSpec` by hand.
-- `open_mapbox_source` logs a refusal as `mapbox://{} refused: {}` (427f5d8
+- `open_mapbox_source` logs a refusal as `mapbox://{} refused: {}` (03cef0d
   `mapbox_loader.cpp:651`), and `MapboxBuildings.RefusedUrisOpenNothing`
   (`test_mapbox_buildings.cpp:413-435`) wants `refused` once per refused URI, so no parser text may
   say it.
@@ -4720,7 +4720,7 @@ and 4 committed: lane 2 is ready to merge.
 `/tmp/overlume-l3`, ROS domain 83). Paths are relative to it, and every bash block starts with
 `cd "$WORKTREE"`.
 
-**Files** (line numbers as they are at the lane's fork, which Task 0 leaves equal to 427f5d8):
+**Files** (line numbers as they are at the lane's fork, which Task 0 leaves equal to 03cef0d):
 - Create: `overlume/assets/materials/terrain.mat`
 - Modify: `overlume/src/theme.hpp` (`struct Environment {`, 133-135)
 - Modify: `overlume/src/theme.cpp` (the `environment` parse, 176-181; the fallback theme's
@@ -4854,7 +4854,7 @@ Float3 terrain_color;  // the contract's detail::Float3, like every theme colour
   content resources (Step 10).
 
   **Contract amendments** (the head.md items below are applied: the plan head and the spec,
-  7ec7092, now carry them; lane 4's item is that lane's to apply):
+  84d8a2a, now carry them; lane 4's item is that lane's to apply):
   - head.md, `terrain.mat` paragraph: no fade parameter (the stream fades no tile; tiles pop in);
     the imagery texture is 8-bit RGBA in the sRGB format (`SRGB8_A8`), mipmapped; detach sets
     `hasImagery = 0` and binds the 1x1 white placeholder back; `renderer_internal.hpp` also gains
@@ -9591,7 +9591,7 @@ code block in this task was compiled with `-fsyntax-only -Wall -Wextra` against
 - `overlume/src/environment_stream.cpp:560-593`: the fixture accessor answers inside
   `createFuture`, on the calling thread, records every URL with its query, and a second
   `serve` of a URL replaces the first answer (the existing `expect_retry_then_load` relies on it).
-- Tests (`test_mapbox_buildings.cpp` at 427f5d8, unchanged by Tasks 3 and 4): `kAttempt2AtS` and
+- Tests (`test_mapbox_buildings.cpp` at 03cef0d, unchanged by Tasks 3 and 4): `kAttempt2AtS` and
   `kAttempt3AtS` 43-44, `serve_square` 108-112, `serve_anchor_tile` 133-138 (square i's box is
   `10 + i` m tall, so the highest is 25 m), `FrozenRetryClock` 273-280, `downtown_tile` 322,
   `landmark_at` 325-332, `kOverSquare10` (4696 z14 units) 337, `glb_json` 342-348,
@@ -9625,7 +9625,7 @@ finish without errors. Exit 75 from the configure means the lock wait ran out: r
 here on `$WORKTREE` is `$INTEGRATION-l5`. The Replace blocks below quote
 `overlume/src/mapbox_loader.cpp` as Task 3 leaves it (lane-2.md Step 4: `region_of` became
 `tile_region`, `make_root` became `quadtree_root`, the attempt bookkeeping became
-`AttemptBook::waiting` and `begin`), and the other files as at 427f5d8. An anchor that is not in
+`AttemptBook::waiting` and `begin`), and the other files as at 03cef0d. An anchor that is not in
 the file exactly once is a plan deviation: report it.
 
 - [ ] **Step 2: The DEM cache and the stats hooks**
@@ -12314,7 +12314,7 @@ blocks quote the code as Tasks 4 and 5 leave it (lane-2.md and lane-3.md).
   `StreamRendererResources`: Task 5's `overlay_counters()`; `StreamingEnvironmentSource`: after
   `void force_fall_back_for_testing(VisualRenderer& r) { fall_back(r); }` 369 and Task 5's
   `overlay_counters()` below it, after `void fall_back(VisualRenderer& r);` 375, after
-  `std::unique_ptr<EnvironmentSource> fallbackSource_;` 409; line numbers at 427f5d8, before Tasks
+  `std::unique_ptr<EnvironmentSource> fallbackSource_;` 409; line numbers at 03cef0d, before Tasks
   4 and 5)
 - Modify: `overlume/src/environment_stream.cpp` (includes after
   `#include <CesiumGltfWriter/GltfWriter.h>` 26; `build_externals` 378-404;
@@ -12461,7 +12461,7 @@ uint64_t environment_terrain_tiles_loaded(overlume::VisualRenderer* r);  // terr
   `environment_source_credits` is Task 12's.
 
 **API notes** (cesium-native 0.64, paths under `overlume/build/_deps/cesium-native-src/`; Overlume
-line numbers at 427f5d8, before Tasks 4 and 5):
+line numbers at 03cef0d, before Tasks 4 and 5):
 - `Cesium3DTilesSelection/include/Cesium3DTilesSelection/Tileset.h:81-86` the ion constructor
   (`ionAssetEndpointUrl` defaults to `https://api.cesium.com/`), `:129` `getRootTileAvailableEvent()`
   (non-const), `:158`/`:164` `getExternals()`, `:206` `getRootTile() const`, `:218-221` `getOverlays()`,
@@ -12543,7 +12543,7 @@ line numbers at 427f5d8, before Tasks 4 and 5):
 - `src/TilesetSelection.cpp:611-627` `renderLeaf` lists a leaf for rendering whether or not its
   rasters are ready (`Tile::isRenderable`, `Tile.cpp:218-239`, only steers kicking), so a level-0
   terrain leaf whose raster request is held still enters the scene.
-- Checked while drafting: the code of Steps 2-8 compiles (`-fsyntax-only`) at 427f5d8 with
+- Checked while drafting: the code of Steps 2-8 compiles (`-fsyntax-only`) at 03cef0d with
   stand-ins for Task 2's headers, Task 4's two `IonSpec` fields and Task 5's `Kind`/
   `OverlayCounters`/`OverlayProbe`, under the `overlume_stream`, `overlume_obj` (with and without
   `OVERLUME_ENABLE_CESIUM`) and `test_environment_stream` flags, and it is clang-format 23.1.1's
@@ -14530,7 +14530,7 @@ staged or not, the orchestrator merges and commits nothing there.
     at 1.7 m looks through the step: without that skirt the ray passes under the high tile's
     surface, which back-face culling hides from below, to the clear colour.
 - Behaviour these tests rely on from Tasks 1–11 (in the spec and the contract, not in the code at
-  427f5d8): a `mapbox://` source with `terrain` runs with the ion follow-terrain defaults fixed
+  03cef0d): a `mapbox://` source with `terrain` runs with the ion follow-terrain defaults fixed
   (follow-terrain on, `ground_bias` 0.3, `replaces_ground` on, `max_tilt_deg` 2.0; spec §4, ruling
   R9), so it samples the terrain tileset under the ego, lowers the environment by 0.3 m on level
   ground and replaces the ground (spec §5, `provides_ground()`); `max_tile_top_m` includes the
@@ -14546,7 +14546,7 @@ staged or not, the orchestrator merges and commits nothing there.
   6 records, owned here):
   - `timer_callback` (`ros/src/overlume_ros/src/overlume_node.cpp:993`) advances `sim_clock_sec_`
     by `kTimerPeriodSec` (0.033 s, `overlume_node.hpp:117-118`) at `:1009`, before the attribution
-    block (`:1339-1352` at 427f5d8). Task 6 leaves that block computing
+    block (`:1339-1352` at 03cef0d). Task 6 leaves that block computing
     `const AttributionKind attribution = environment_attribution_kind(…);` (four lines, no fifth
     argument), then a two-line `// ponytail:` comment, then
     `const std::string attribution_text = environment_attribution_text(attribution, "");`.

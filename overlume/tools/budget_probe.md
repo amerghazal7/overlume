@@ -221,7 +221,7 @@ running process's actual environment (`/proc/<pid>/environ`):
 present, and byte-identical (`diff` against `rendering_node.launch.py`'s own
 `SetEnvironmentVariable` call/value — the only difference is this file's own
 added prose comment) to the SHM-forcing config the original fix commit
-`69b5a3a` shipped. `iox-roudi` (the Iceoryx SHM daemon SHM requires) was
+`42aa148` shipped. `iox-roudi` (the Iceoryx SHM daemon SHM requires) was
 already running on this box throughout (`pgrep iox-roudi`).
 
 **Honest scope note:** reproducing the ORIGINAL fix's exact measured

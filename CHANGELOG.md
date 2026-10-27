@@ -232,12 +232,12 @@ entries with a recorded historical-document discrepancy).
 ### Added
 
 - **Epic 0 — Contract spike**: Filament hello-frame, mode mux, virtual-camera
-  parity, GPU budget probe. Commits `cc900c1`…`5b479bd`, 2026-08-18 (GPU-budget
+  parity, GPU budget probe. Commits `323c214`…`2cecf7e`, 2026-08-18 (GPU-budget
   item VM-043 closed 2026-09-11 on a dev-box proxy).
-- **Epic 1 — Core scene & dark theme**: closed 2026-08-20 at `bd5e11e`.
-- **Epic 2 — Autonomy data ingestion**: closed 2026-09-07 at `c5ea38c` (gate
-  passed at `26f17f0`).
-- **Epic 3 — HUD, polish & controls**: closed 2026-09-09 at `af628df`.
+- **Epic 1 — Core scene & dark theme**: closed 2026-08-20 at `b673f45`.
+- **Epic 2 — Autonomy data ingestion**: closed 2026-09-07 at `b66badb` (gate
+  passed at `9202117`).
+- **Epic 3 — HUD, polish & controls**: closed 2026-09-09 at `1f6a291`.
 - **VM-077 — new-stack rendering / flicker root-cause fix** (Epic 3
   follow-on): closed 2026-09-10.
 - **Epic 4 — Clay buildings (`EnvironmentLayer`), Tasks 1-3**: done

@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to work through this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 > **Execution model (AGENTS.md):** run this as a dynamic workflow. The orchestrator runs on the session model, implementers on Sonnet, review gates on Opus, with at most two fix rounds per task. The orchestrator applies any leftover minor fixes. Each task ends green on `tools/ci_visual_mode.sh`, run in the foreground, and is committed on its own.
 
-**Status: DONE 2026-10-02** (tasks A, B1, B2, D each Opus-gated; see the ledger). Authored 2026-10-02 on branch `fix/hybrid-composite` (from `main` @ `c2e1feb`). Every path:line below was re-checked against that tree while writing. The Filament mechanism was chosen by running a spike and inspecting its rendered output (Decision 1). A second spike, after review, measured the splat colour pipeline and the ego-occlusion revert (Decision 1, *Re-spike*).
+**Status: DONE 2026-10-02** (tasks A, B1, B2, D each Opus-gated; see the ledger). Authored 2026-10-02 on branch `fix/hybrid-composite` (from `main` @ `9ade44c`). Every path:line below was re-checked against that tree while writing. The Filament mechanism was chosen by running a spike and inspecting its rendered output (Decision 1). A second spike, after review, measured the splat colour pipeline and the ego-occlusion revert (Decision 1, *Re-spike*).
 
 ## User decision (the charter)
 
@@ -17,7 +17,7 @@ Fix = **A + B**. **Ground lidar points are KEPT.** This matches CUDA: ground spl
 
 ## Established root cause (input to this plan, adversarially checked)
 
-- **CUDA hybrid was a screen-space composite** (`git show 5247be6^:cuda/src/libs/rendering_reprojector/src/reprojector.cpp`, `render_hybrid` ~L496-554; `src/kernels/splat.cu`). It ran an analytic bowl pass, then a lidar splat pass of `(2r+1)^2` opaque squares (shipped `splat_radius` 3 = 7x7 px, nearest-wins via `atomicMin`, colourised on device from all cameras with feather blending). The composite was "splat where valid, else bowl", with **no depth test against the bowl**. The cloud was ego-motion compensated (`a381b57`: `p' = Rd^T (p - pd)` over `[cloud stamp, t_max]`).
+- **CUDA hybrid was a screen-space composite** (`git show c6a29a5^:cuda/src/libs/rendering_reprojector/src/reprojector.cpp`, `render_hybrid` ~L496-554; `src/kernels/splat.cu`). It ran an analytic bowl pass, then a lidar splat pass of `(2r+1)^2` opaque squares (shipped `splat_radius` 3 = 7x7 px, nearest-wins via `atomicMin`, colourised on device from all cameras with feather blending). The composite was "splat where valid, else bowl", with **no depth test against the bowl**. The cloud was ego-motion compensated (`09ba8a2`: `p' = Rd^T (p - pd)` over `[cloud stamp, t_max]`).
 - **The Filament port (VM-094) drew hybrid as an ordinary `SceneGraph::point_clouds` row.** Those rows are 2 px GL points (`theme.cpp:85`), `blending: fade` (`point_cloud.mat:12`), and **depth-tested against the opaque bowl**. Every row shares one material instance (`point_cloud.cpp:121,156-158`). Ground points sit under the lifted bowl floor (`bowl_mesh.cpp:69`, `kBowlZLiftM`), and points outside the bowl wall sit behind it, so both are hidden. That is why `docs/runbooks/hybrid-golden-vm094.md:51-52` measured hybrid-vs-bowl at 0.493 mean abs delta, "visually indistinguishable". **That number recorded the bug.**
 - `splat_radius` is declared and then discarded (`overlume_node.cpp:394`), although `tools/vcam_gui.py:96,444` and `tools/vcam_ws_bridge.py:97` send it.
 - `default_params.yaml:168-169` sets `hybrid_enabled: true` with `pointcloud_topic: ""`, so `overlume_node.cpp:395` never creates `cloud_sub_`. Hybrid is a silent no-op.
@@ -104,13 +104,13 @@ bool set_hybrid_splats(VisualRenderer*, const PointCloudPoint* rig_points, uint3
 The node already has exactly CUDA's inputs, inside `CameraIngest` (`camera_ingest.hpp:84-125`):
 
 - odometry twists `twists_` from `odom_topic`;
-- `rig_delta(twists, t_from, t_ref, th, px, py)` (`camera_ingest.cpp:~38`), which is the same function CUDA extracted in `a381b57`;
+- `rig_delta(twists, t_from, t_ref, th, px, py)` (`camera_ingest.cpp:~38`), which is the same function CUDA extracted in `09ba8a2`;
 - the image reference time `t_max` from `IngestState::newest_stamp` (used by `update_motion_deltas`, `camera_ingest.cpp:310-338`).
 
 What B2 adds:
 
 - `bool CameraIngest::cloud_motion_delta(double t_cloud, double& th, double& px, double& py)`: snapshot `twists_` under `odom_mtx_`, call `newest_stamp`, then call `rig_delta(t_cloud, t_max, ...)`. **The span is bounded first.** If `|t_max - t_cloud| > kMaxCloudCompSpanS` (0.5 s), it returns false with th/px/py zero, and logs `RCLCPP_WARN_THROTTLE(5000, "hybrid: cloud stamp %.3fs from image ref, compensation skipped")`.
-  - Why: `rig_delta` runs `n = ceil(|span| / 0.005)` steps (`camera_ingest.cpp:39-55`) with no clamp. A lidar clock outside the cameras' time domain (unsynced device clock, a mixed-epoch replay, a zero stamp) gives `|span|` of about 1e9 s, which is about 2e11 iterations inside `timer_callback` on every tick, and the render loop hangs. CUDA `a381b57` only ever saw synced data.
+  - Why: `rig_delta` runs `n = ceil(|span| / 0.005)` steps (`camera_ingest.cpp:39-55`) with no clamp. A lidar clock outside the cameras' time domain (unsynced device clock, a mixed-epoch replay, a zero stamp) gives `|span|` of about 1e9 s, which is about 2e11 iterations inside `timer_callback` on every tick, and the render loop hangs. CUDA `09ba8a2` only ever saw synced data.
   - Why 0.5 s rather than `max_sync_latency_` (0.12 s): a 10 Hz lidar cloud is routinely up to ~0.1 s older than the newest image, plus transport latency, so 0.12 s would skip legitimate compensation. 0.5 s is far above that. Anything beyond it is not motion to compensate but a clock problem. It is also well inside the 2 s twist history (`camera_ingest.cpp:276`), beyond which `twist_at` only extrapolates `twists.back()`.
 - **Shared guard in `rig_delta`** (root cause; it has two callers, `cloud_motion_delta` and `compensation_delta_4x4` for the cameras): return false when `|span| > kTwistHistoryS` (2.0 s, the same constant that trims `twists_` at `:276`). Today a camera whose clock is in another epoch hangs the camera path the same way. With the guard, such a camera gets the identity delta, the existing `rig_delta`-false behaviour of `compensation_delta_4x4` (`:61`). The existing tests use spans ≤ 0.5 s and are unaffected.
 - A pure function `void CompensateCloud(std::vector<Vec3>&, double th, double px, double py)`, which applies `p' = Rd^T (p - pd)`.
@@ -140,10 +140,10 @@ When odometry is absent (`default_params.yaml:81` sets `odom_topic: ""`), compen
 
 | Task | Status | Commit |
 |---|---|---|
-| A: node loud failure, `pointcloud_topic` default, `splat_radius` live | Done 2026-10-02 | a83cd38 |
-| B1: library hybrid splat layer + `set_hybrid_splats` | Done 2026-10-02 | 579acef |
-| B2: node feeds the layer, motion compensation, FREE_LOOK de-dup, pixel checks | Done 2026-10-02 | d690a14 |
-| D: docs, status, changelog, README caption, candidate capture | Done 2026-10-02 | 41a720c |
+| A: node loud failure, `pointcloud_topic` default, `splat_radius` live | Done 2026-10-02 | 4061db1 |
+| B1: library hybrid splat layer + `set_hybrid_splats` | Done 2026-10-02 | 97fefb3 |
+| B2: node feeds the layer, motion compensation, FREE_LOOK de-dup, pixel checks | Done 2026-10-02 | f5f4253 |
+| D: docs, status, changelog, README caption, candidate capture | Done 2026-10-02 | 84c8b6f |
 
 Order: **A → B1 → B2 → D.** A is independent of B1 and could run in parallel, but both touch `overlume_node.cpp`, so they run serially.
 
@@ -334,7 +334,7 @@ constexpr double kTwistHistoryS = 2.0;   // replaces the literal 2.0 at camera_i
 overlume::CameraExtrinsics ApplyMotionDelta(const overlume::CameraExtrinsics&, const double delta_row_major[16]);  // == update_bowl's right/fwd/t math
 void CameraIngest::fill_compensated_extrinsics(std::vector<overlume::CameraExtrinsics>&) const;  // static ext advanced by the last deltas update_motion_deltas() pushed
 // lidar_colorize.hpp
-void CompensateCloud(std::vector<overlume::Vec3>& rig_pts, double th, double px, double py);  // p' = Rd^T (p - pd), z unchanged (a381b57)
+void CompensateCloud(std::vector<overlume::Vec3>& rig_pts, double th, double px, double py);  // p' = Rd^T (p - pd), z unchanged (09ba8a2)
 ```
 
 Steps:
@@ -397,7 +397,7 @@ Steps:
 
   Points stay rig-frame (the library anchors them like the bowl, so hybrid no
   longer needs a valid TF ego), are compensated from the cloud stamp to the
-  image reference time (a381b57 semantics, via CameraIngest's odom twists) and
+  image reference time (09ba8a2 semantics, via CameraIngest's odom twists) and
   colourised through the same per-camera motion deltas the bowl uses; size is
   2*splat_radius+1 px. FREE_LOOK + stitching profile 'hybrid' suppresses the
   profile row on pointcloud_topic it duplicated. test_mode_dispatch_pixels.py

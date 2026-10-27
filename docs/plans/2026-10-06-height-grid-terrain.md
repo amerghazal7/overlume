@@ -15,16 +15,16 @@
 | Task | State | Commit |
 |---|---|---|
 | 1 Public scene API and deep copy | done | `5647382` |
-| 2 Theme tokens | done | `2973c5e`; ramps retuned in `02ab068` after the golden review |
-| 3 Heightfield renderer | done | `5a07aa5` |
-| 4 Ground replacement (deviation: `DiscardReveals*` threshold 10 -> 5; measured ~9.5 with the hole, ~0.5 reverted, light_clay quality 1; a theme change pushing it toward 5 is a signal, not a flake) | done | `6b8bef6` |
-| 5 Grid placement helper | done | `c26677b` |
-| 6 Profile keys, adapter, SceneAssembly | done | `440240c` |
-| 7 Node wiring, layer flag, offroad profile | done | `f2d357f` |
-| 8 Perception encoder and live probe | done | `dda7d10` (probe; perception edits uncommitted in the perception repo) |
-| 9 Goldens | done (promoted by the user, v2 ramps) | `d625323` |
-| 10 Docs, status and live acceptance | done (see Live acceptance results) | `1f49b35` |
-| Follow-up: GUI `height_grids` switch (closes the Task 7 gap: `LAYER_NAMES` in `tools/vcam_gui.py` / `tools/vcam_ws_bridge.py` lacked it, so the terrain toggled only via `ros2 param set`) | done | the `feat(gui)` commit after `1f49b35` |
+| 2 Theme tokens | done | `da5f7a5`; ramps retuned in `abd18af` after the golden review |
+| 3 Heightfield renderer | done | `c237300` |
+| 4 Ground replacement (deviation: `DiscardReveals*` threshold 10 -> 5; measured ~9.5 with the hole, ~0.5 reverted, light_clay quality 1; a theme change pushing it toward 5 is a signal, not a flake) | done | `3644791` |
+| 5 Grid placement helper | done | `06b50be` |
+| 6 Profile keys, adapter, SceneAssembly | done | `c58f802` |
+| 7 Node wiring, layer flag, offroad profile | done | `6a51a00` |
+| 8 Perception encoder and live probe | done | `c992dab` (probe; perception edits uncommitted in the perception repo) |
+| 9 Goldens | done (promoted by the user, v2 ramps) | `a6f0913` |
+| 10 Docs, status and live acceptance | done (see Live acceptance results) | `1f591ae` |
+| Follow-up: GUI `height_grids` switch (closes the Task 7 gap: `LAYER_NAMES` in `tools/vcam_gui.py` / `tools/vcam_ws_bridge.py` lacked it, so the terrain toggled only via `ros2 param set`) | done | the `feat(gui)` commit after `1f591ae` |
 
 ### Live acceptance results (2026-10-06, CARLA offroad stack, RTX 3090)
 
@@ -5407,7 +5407,7 @@ All commands run from the worktree root `$WORKTREE` (branch `feat/height-grid`).
 - Modify `overlume/tests/golden.cpp`. Add `#include <limits>` between `#include <fstream>` and `#include <sstream>` (the include block is `<algorithm> <cmath> <cstdint> <fstream> <sstream> <string> <tuple> <vector>`). Add the builder after the closing brace of `make_two_layer_grids` and before `overlume::Vec3 centroid(const std::vector<overlume::MapElement>& elems) {`.
 - Create `overlume/tests/test_height_grid_golden.cpp`. `overlume/CMakeLists.txt` globs `tests/*.cpp` with `CONFIGURE_DEPENDS` and links `tests/golden.cpp` into every test executable, so no CMake edit is needed. Target name is `test_height_grid_golden`. `OVERLUME_TEST_DATA_DIR` and `OVERLUME_DEFAULT_THEME_DIR` are compile definitions set per test target there.
 - Modify `docs/status.md`: add one row to the `## Shipped` table (Step 10), the status ledger entry for the promoted goldens.
-- Create (human-gated, only after explicit user approval) `overlume/tests/goldens/height_grid_terrain_dark_adas.png`, `overlume/tests/goldens/height_grid_terrain_light_clay.png`, `overlume/tests/goldens/height_grid_terrain_yawed_dark_adas.png`. `.gitattributes` has `*.png filter=lfs diff=lfs merge=lfs -text`, so `git add` stores LFS pointers (git-lfs 3.0.2 is installed). Existing goldens in the worktree are real PNGs (smudged), and the repo's last promotion (a3baf88, "test(goldens): promote the restored hybrid capture (maintainer-approved)") was a plain copy over the file plus a commit with a `Claude-Session:` trailer; we follow the same flow.
+- Create (human-gated, only after explicit user approval) `overlume/tests/goldens/height_grid_terrain_dark_adas.png`, `overlume/tests/goldens/height_grid_terrain_light_clay.png`, `overlume/tests/goldens/height_grid_terrain_yawed_dark_adas.png`. `.gitattributes` has `*.png filter=lfs diff=lfs merge=lfs -text`, so `git add` stores LFS pointers (git-lfs 3.0.2 is installed). Existing goldens in the worktree are real PNGs (smudged), and the repo's last promotion (f2a0760, "test(goldens): promote the restored hybrid capture (maintainer-approved)") was a plain copy over the file plus a commit with a `Claude-Session:` trailer; we follow the same flow.
 
 **Interfaces:**
 - Consumes: Task 1 (`overlume::HeightGridLayer`, `SceneGraph::height_grids` / `height_grid_count`; scene version 9, `sizeof(HeightGridLayer)` 64, `sizeof(SceneGraph)` 232), Task 3 (renderer draws height grids), Task 4 (ground plane gets a hole under the grid including a rotated footprint; it must keep the hybrid-splat stencil state on `groundMaterial`/`gridMaterial` working, but that is Task 4's concern), plus existing `overlume::GroundGridLayer` (fields `kind, origin, resolution_m, width_cells, height_cells, cells, last_update_sec, yaw_rad`, scene.h:87-95), `overlume::testing::render_and_compare` (golden.hpp), `kThemeDir` (`test_paths.hpp`), `OVERLUME_TEST_DATA_DIR`. All of Tasks 1-4 must be committed first, otherwise the candidates would not show the feature and the human review is meaningless. Not consumed (they do not exist on this branch): `OVERLUME_TMP_DIR`, `kSsimMin`.

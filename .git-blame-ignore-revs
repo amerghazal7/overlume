@@ -13,4 +13,4 @@
 # Task 6b (Overlume open-source restructure): repo-wide clang-format
 # reformat (Google-based style, Attach braces) + SPDX header insertion.
 # Hash filled in by the orchestrator after the reformat commit lands:
-790aa0a9f4ccec1e4cf281fd3591cf1d437c9e41
+77bdbfc8aa0c24c163b15e345ce5288d498b7269

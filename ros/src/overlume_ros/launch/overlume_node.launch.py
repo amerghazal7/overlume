@@ -20,7 +20,7 @@ triggers configure + activate programmatically. For manual activation:
 Autostart-lifecycle pattern.
 
 Task 4 (VM-093), Global Constraints (`rendering_node.launch.py:36-45`, fix
-commit `69b5a3a`): this node now ingests the same 6 raw CARLA camera streams
+commit `42aa148`): this node now ingests the same 6 raw CARLA camera streams
 (camera_ingest.cpp, VM-091) rendering_node always has, over the identical
 CYCLONEDDS_URI shared-memory transport -- a transport-layer fact, unrelated
 to which process subscribes, that is trivial to silently lose when copying

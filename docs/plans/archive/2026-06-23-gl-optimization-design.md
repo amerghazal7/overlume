@@ -4,7 +4,7 @@
 **Status:** Approved design, pre-implementation
 **Author:** brainstorming session
 **Builds on:** `2026-06-19-glrenderer-design.md` §8 (GPU optimizations) and the
-merged GL backend (master merge commit 70d8337).
+merged GL backend (master merge commit e5a7f09).
 
 ## 1. Summary
 
