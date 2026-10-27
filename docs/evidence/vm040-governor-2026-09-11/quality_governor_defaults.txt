@@ -1,7 +1,7 @@
 # VM-040 quality governor -- shipped-defaults evidence
 # Command: cuda/build/src/ros_apps/overlume_visualization_node/test_quality_governor
 # Captured: 2026-09-11T13:25:09Z
-# Host: Linux ag7-the integrating company 6.8.0-138-generic #138~22.04.1-Ubuntu SMP PREEMPT_DYNAMIC Fri Aug  7 13:43:15 UTC  x86_64 x86_64 x86_64 GNU/Linux
+# Host: Linux host 6.8.0-138-generic #138~22.04.1-Ubuntu SMP PREEMPT_DYNAMIC Fri Aug  7 13:43:15 UTC  x86_64 x86_64 x86_64 GNU/Linux
 #
 # QualityGovernor.DefaultParamsWalkDownThenUpAcrossASyntheticTrace constructs
 # QualityGovernorParams{} with NO overrides (window_size=30, drop_threshold_ms=28.0,

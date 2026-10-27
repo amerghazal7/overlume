@@ -30,7 +30,7 @@ extrinsics bake in) — the two nodes placed the same cloud 1.15 m apart under
 their own defaults. `overlume_ros/config/default_params.yaml`
 was then set to t=(0,0,1.15) too. **That was wrong for the fixture bag** (2026-10-02): its lidar sits at
 base_link+2.4 m with no yaw, so 1.15 put the splat ground 1.28 m below the bowl floor and doubled the
-crosswalk stripes. The default is now 2.444 (2.4 + the 0.044 rig offset); `robot_params.yaml` carries the reference robot's own
+crosswalk stripes. The default is now 2.444 (2.4 + the 0.044 rig offset); the reference robot's own params profile (kept in the robot overlay) carries its own
 transform (a 180-degree yaw at 1.07 m, from its calibration, 2026-10-21). Any PNG captured at 1.15 is misregistered and needs re-capture and human re-promotion.
 
 ## Review round 1 finding 3: honest hybrid-on/hybrid-off A/B
@@ -52,7 +52,7 @@ photographic noise/JPEG-ish artifacting, not lidar splats.
 > original measurements are kept unedited below.
 > `hybrid_test_town_merged_node.png` was RE-PROMOTED by the maintainer on 2026-10-03 from
 > `docs/evidence/2026-10-02-hybrid-restore/hybrid_test_town_merged_node_1280x720_candidate.png`
-> (the robot's ego model ego, lidar height 2.444 m, hybrid ON/OFF delta 13.0; capture recipe in that directory's
+> (ego model, lidar height 2.444 m, hybrid ON/OFF delta 13.0; capture recipe in that directory's
 > README). The pre-fix image is in git history before this commit.
 
 Measured over two fixed road-surface ROI strips (excluding the ego proxy),

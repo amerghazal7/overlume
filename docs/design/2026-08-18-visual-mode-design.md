@@ -52,7 +52,7 @@ CUDA/GL renderers — months of engine work for lighting, AO, bloom, shadows,
 glTF loading, tone mapping that Filament provides out of the box — and
 (b) web-tech headless three.js — fastest to pretty pixels but drags a
 Node/Chromium runtime into the robot stack and headless-gl is WebGL1-bound.
-Filament is a plain C++ library, fits the host stack C++/CMake conventions,
+Filament is a plain C++ library, fits the host stack's C++/CMake conventions,
 and is proven in headless server-side use.
 
 **Toolchain boundary (known risk, handled by design):** Filament's official
@@ -224,7 +224,7 @@ command drives the same transition.
   the perception bbox dims — so a "car" model stretches to the measured
   box rather than clipping through it. UNKNOWN class renders as a rounded
   clay box.
-- Ego robot: the the robot's ego model OBJ converted to glTF (one-time script), path via
+- Ego robot: the robot's OBJ model converted to glTF (one-time script), path via
   param like today's `robot_model_path`, load failure non-fatal (falls back
   to clay box, warns).
 - SDF font atlas for in-scene (3D-anchored) text and callouts.

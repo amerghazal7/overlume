@@ -220,7 +220,7 @@ and close it. v1.0.0 is tagged without this check (explicit carry, item 13 stays
 - [ ] After the first push to `main` deploys, `curl -s -o /dev/null -w '%{http_code}'` on the live docs index prints 200.
 - [ ] Real-Mac Metal check (above): carried past v1.0.0 by decision; `docs/status.md` item 13 stays OPEN until done.
 - [ ] Open items owned by the user closed or consciously carried: keyserver
-  propagation, Apple and Windows signing secrets, the reference robot real-robot lidar
+  propagation, Apple and Windows signing secrets, the reference robot lidar
   calibration (still unverified; unrelated to packaging).
 - [ ] First real tag: a `vX.Y.Z` run end to end (draft -> published, `pages` on
   `main`), then the "Verify what users get" list above.

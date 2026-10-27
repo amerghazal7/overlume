@@ -32,9 +32,9 @@ item below being closed or explicitly accepted.
    seams at camera-boundary points are expected.
 3. **The robot overlay's asset changes shape.** The deployed real-robot
    proxy is `robot.obj` + an OBJ→rig `robot_model_transform`
-   (`robot_params.yaml:19-20`, old `default_params.yaml:14`); the merged
+   (the robot's params profile, kept in the robot overlay; old `default_params.yaml:14`); the merged
    node's ego is `ego_model_path` (glTF; default `""` falls back to a plain
-   box, `ego.cpp:106-111`). Unless an the robot's ego model glTF is provisioned for the
+   box, `ego.cpp:106-111`). Unless a robot glTF is provisioned for the
    robot's config (the repo already ships the converter,
    `overlume/scripts/obj2gltf.py` — an
    asset/config task, not new code, resolved at Task 6 Step 2b), the bowl's

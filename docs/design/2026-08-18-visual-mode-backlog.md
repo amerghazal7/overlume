@@ -44,7 +44,7 @@ Status per task: the **Status ledger** at the top of each epic plan.
   crossfade); GUI day/night toggle + WS command.
   AC: golden at t=0/0.4/0.8 s of a transition (deterministic clock);
   no frame drop > 1 during switch; toggle mid-transition retargets smoothly.
-- **VM-012 Ego robot.** the robot's ego model→glTF conversion script; TF-driven ego pose +
+- **VM-012 Ego robot.** ego-model-to-glTF conversion script; TF-driven ego pose +
   speed; clay-box fallback.
   AC: golden image with ego; speed matches TF finite difference on a
   recorded fixture. **Partial `[review 2026-09-07]`:** conversion ran (`~/Downloads/ego.glb`, 2026-08-20) but the asset is outside git and `default_params.yaml` carries a per-user absolute path; the only committed ego golden is the clay-box fallback. Closes via VM-044 (install the asset, re-shoot the ego golden). Blocks VM-043 sign-off.
@@ -339,7 +339,7 @@ that on 2026-09-07 — it stays committed v1.1.
 
   **Done (2026-09-11):** `overlume_visualization_node/CMakeLists.txt` installs
   `assets/themes` from `visual_renderer` and this package's own `assets/fonts`
-  into its own `share/`; the converted the robot's ego model ego glTF (~72 MB, past the
+  into its own `share/`; the converted ego glTF (~72 MB, past the
   plain-git convention's practical size, and no Git LFS remote is configured
   in this repo) is provisioned instead by a new
   `scripts/provision_ego_model.sh` (runs the existing

@@ -31,7 +31,7 @@ What this script does, precisely:
   3. Extrude each footprint to a height from Decision 9's fallback chain
      (`height` tag -> `building:levels` * kMetersPerLevel -> kDefaultBuildingHeightM),
      baking the WGS84->map-frame rotation PER-GEOMETRY, never scene-level --
-     the trimesh vertex-baking trap (`obj2gltf.py:17-27`): trimesh's glb
+     the trimesh vertex-baking trap (`obj2gltf.py`): trimesh's glb
      exporter silently normalizes away a scene-level `apply_transform`
      (verified live in this task: a scene-level transform round-trips back
      to the pre-transform centroid; a per-geometry one does not). See
@@ -102,7 +102,7 @@ def wgs_to_map(anchor: GeoAnchor, lat_deg: float, lon_deg: float, alt_m: float =
 def _heading_rotation_matrix(heading_rad: float) -> np.ndarray:
     """4x4 rotation-only matrix matching wgs_to_map's east/north -> x/y
     rotation, for per-geometry apply_transform (never scene-level -- the
-    trimesh vertex-baking trap, obj2gltf.py:17-27)."""
+    trimesh vertex-baking trap, obj2gltf.py)."""
     s, c = math.sin(heading_rad), math.cos(heading_rad)
     return np.array(
         [
@@ -302,7 +302,7 @@ def build_chunk_scene(footprints: List[dict], anchor: GeoAnchor) -> trimesh.Scen
     """Builds every footprint's mesh in unrotated local ENU, adds each as
     its OWN geometry in one Scene, then bakes the heading rotation into
     vertices PER-GEOMETRY -- never scene-level (the trimesh vertex-baking
-    trap, obj2gltf.py:17-27: a scene-level apply_transform is silently
+    trap, obj2gltf.py: a scene-level apply_transform is silently
     normalized away by the glb exporter's Y-up node-matrix rewrite;
     per-geometry vertices survive export/reload, verified directly against
     this trimesh version during implementation)."""

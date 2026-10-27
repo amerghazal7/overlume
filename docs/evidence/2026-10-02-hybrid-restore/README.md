@@ -26,7 +26,7 @@ profile = 16.344 (noise 6.218, need >= 12.436). Pre-fix the same metric was
 5.3-6.4 (= noise).
 
 Registration: the first candidates (shipped `pointcloud_transform` tz=1.15, the
-robot value) showed doubled crosswalk stripes, because the fixture bag's lidar
+reference-robot value) showed doubled crosswalk stripes, because the fixture bag's lidar
 sits 2.4 m above base_link and the splat ground landed 1.28 m below the bowl
 floor. `default_params.yaml` now ships tz=2.444 (tf_static 2.4 + the 0.044
 rig offset the camera extrinsics carry); manhole shift mode 2 vs mode 1 went
@@ -58,20 +58,20 @@ launch (single published `/rendering/image` frame, rgb8, no averaging).
 Frame grab: a ~10-line rclpy subscriber saving one `/rendering/image` frame (the runbooks
 name no grab tool). Log at capture: `hybrid: colorized 83725/163632 lidar points (51.2%)`.
 
-Re-captured 2026-10-03 with the the robot's ego model ego (see below); sha256 prefix of the candidate PNG
+Re-captured 2026-10-03 with the ego (see below); sha256 prefix of the candidate PNG
 `3275158d29195c35`. Log at capture: `hybrid: colorized 84217/160658 lidar points (52.4%)`.
 
 Correction: the first 1280x720 candidate showed a giant clay box because the proprietary,
-git-ignored the robot's ego model mesh (`ros/src/overlume_ros/assets/ego/ATTRIBUTION.md`) was not in this
+git-ignored ego mesh (`ros/src/overlume_ros/assets/ego/ATTRIBUTION.md`) was not in this
 worktree. It is now symlinked from the main checkout (still untracked) and `colcon_build.sh
 overlume_ros` re-installed it. Evidence it is in use: `overlume_node.cpp:172` resolves an empty
 `ego_model_path` to `share/overlume_ros/assets/ego/ego.glb`, that 75 MB mesh is present under
-`ros/install/`, the log has no clay-box fallback line, and the the robot's ego model silhouette is in the frame.
+`ros/install/`, the log has no clay-box fallback line, and the robot silhouette is in the frame.
 
 Camera: no override needed. The golden-era node (362cb89,
 `cuda/src/ros_apps/src/overlume_visualization_node/config/default_params.yaml`) and today's
 `default_params.yaml` ship the same `virtual_pose` [-4,0,3.5 | 2,0,-0.5] and vfov 80; the
-"lower, farther" look was the 4.5 m clay box vs. the small the robot's ego model. With the the robot's ego model the ego
+"lower, farther" look was the 4.5 m clay box vs. the small robot model. With the robot model the ego
 occupies the same pixels as in the golden (x 570-715, y 320-480).
 
 Hybrid ON vs OFF (same bag offset, identical params except `hybrid_enabled`): mean-abs
