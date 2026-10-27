@@ -7,7 +7,7 @@ Loads config/default_params.yaml by default:
   ros2 launch overlume_ros overlume_node.launch.py
 Layer a params profile over it (config/<name>_params.yaml, or a path, overrides the keys it
 names and leaves the rest):
-  ros2 launch overlume_ros overlume_node.launch.py params_profile:=robot
+  ros2 launch overlume_ros overlume_node.launch.py params_profile:=/path/to/robot_params.yaml
 Or replace the defaults with a full path:
   ros2 launch overlume_ros overlume_node.launch.py \\
       params_file:=/path/to/your_params.yaml
@@ -17,8 +17,7 @@ triggers configure + activate programmatically. For manual activation:
   ros2 lifecycle set /overlume_node configure
   ros2 lifecycle set /overlume_node activate
 
-Mirrors overlume_rendering_node/launch/rendering_node.launch.py's
-autostart-lifecycle pattern so both mode-mux nodes come up the same way.
+Autostart-lifecycle pattern.
 
 Task 4 (VM-093), Global Constraints (`rendering_node.launch.py:36-45`, fix
 commit `69b5a3a`): this node now ingests the same 6 raw CARLA camera streams

@@ -146,7 +146,8 @@ holds the supported environment sources. Four of them are Mapbox:
 [`terrain_imagery.md`](terrain_imagery.md) §2.
 
 - Pick one in the GUI, send `{"cmd":"set_environment_source","preset":"mapbox"}` to the bridge,
-  or pass `--arm mapbox` to `tools/validate_logger_session.sh`.
+  or pass `--param environment_source_uri:=mapbox://buildings` to the replay rig once the anchor
+  is solved (`replay_bag.md`).
 - The node refuses the switch until its geo anchor is solved, as for every source.
 - The GUI shows an entry as selected only when the node's `environment_source_uri` is exactly
   that entry's string. A hand-set URI such as `mapbox://buildings?radius=800` leaves the list as
@@ -220,29 +221,32 @@ older path and is unchanged.
 Both sites use the replay rig and the vcam GUI's free look. The rig owns the machine: starting it
 stops any rig already running on the box (same process names, port 8765), but not a leftover
 replay player (a `/clock` publisher), which must be stopped by hand;
-`tools/validate_logger_session.sh` refuses to start and says so.
+the rig's preflight refuses to start and says so.
 
 Before either site:
 
 1. Build the library with cesium on, and the node, in the checkout you run from (`AGENTS.md`,
    "Build and test").
 2. Export `MAPBOX_TOKEN` (§1) and run `tools/check_mapbox_token.sh` (§2).
-3. Set `SESSION_DIR` to the logger session's directory
-   ([`replay_logger_session.md`](replay_logger_session.md)).
+3. Play a recorded bag with `ros2 bag play "$BAG_DIR" --clock --loop`
+   ([`replay_bag.md`](replay_bag.md)).
 
 ### 7.1 Test site
 
-The session's own GPS anchor places the map at the test site (25.1972, 55.2744).
+The bag's own GPS anchor places the map at the test site (25.1972, 55.2744).
 
 ```bash
-tools/validate_logger_session.sh "$SESSION_DIR" --arm mapbox
+LIVE_SIM_TIME=true tools/validate_visual_mode.sh --live --profile replay \
+    --param gps_topic:=<NavSatFix topic>
 ```
 
-- The anchor solves from the replayed GPS after 500 fixes and 20 m of travel. `--arm` retries the
-  switch every 5 s for up to 120 s, then prints `[arm] OK: environment source = mapbox`.
+Then arm `mapbox` from the GUI or the bridge once the anchor solves.
+
+- The anchor solves from the replayed GPS after 500 fixes and 20 m of travel; until then the node
+  refuses the switch.
 - Expect extruded buildings only: Mapbox has no landmark models there.
-- `--arm mapbox-original` shows Mapbox's look. The GUI list switches between the entries live.
-- `--arm mapbox-satellite` adds the terrain and the satellite imagery: imagery under the clay
+- Arming `mapbox-original` shows Mapbox's look. The GUI list switches between the entries live.
+- Arming `mapbox-satellite` adds the terrain and the satellite imagery: imagery under the clay
   extrusions, "© Maxar" on the attribution line, and the buildings standing on the surface along
   the route.
 
@@ -253,18 +257,18 @@ A full geo-datum override moves the map to Downtown:
 - `geo_datum_lat_deg`, `geo_datum_lon_deg` and `geo_datum_heading_deg` must all be set. A partial
   override is logged as an ERROR and ignored. The anchor then waits for GPS, nothing arms at
   activate (the node warns `no geo-anchor solved yet at on_activate()`), and no buildings show
-  until a live switch (a GUI entry or `--arm`) after the GPS solve, which streams them at the
+  until a live switch (a GUI entry or the bridge command) after the GPS solve, which streams them at the
   test site.
 - The override pins where map (0, 0) is, and the compass bearing of map +x (90.0 means map +x
   points east). It does not move the robot: the replayed path keeps its map coordinates. The
-  rehearsal keeps the session's map heading and picks the latitude and longitude so that the path
+  rehearsal keeps the bag's map heading and picks the latitude and longitude so that the path
   runs on open ground near the Burj Khalifa.
-- The table's values fit the rehearsed session. For another session, read its map heading from
+- The table's values fit the rehearsed bag. For another bag, read its map heading from
   `--anchor-heading-deg` in the `geo-anchor solved:` line of a §7.1 run, and choose a latitude
   and longitude that move its route's centre onto open ground near the Burj Khalifa (the target
   minus the route centre's east and north offset).
 - With all three set, the anchor is solved at configure, so the launch-time
-  `environment_source_uri` arms at activate. No `--arm` is needed.
+  `environment_source_uri` arms at activate. No live switch is needed.
 - `geo_datum_height_m` and `geo_anchor_height_offset_m` are optional. They do not move Mapbox
   buildings or terrain: without `terrain` the buildings stand on map z = 0, and with it map z = 0
   is the DEM height at the anchor, at any anchor height.
@@ -279,7 +283,8 @@ A full geo-datum override moves the map to Downtown:
 Set `DATUM_LAT`, `DATUM_LON` and `DATUM_HEADING` to the table's values, then:
 
 ```bash
-tools/validate_logger_session.sh "$SESSION_DIR" -- \
+LIVE_SIM_TIME=true tools/validate_visual_mode.sh --live --profile replay \
+    --param gps_topic:=<NavSatFix topic> \
     --param environment_source_uri:=mapbox://buildings \
     --param "geo_datum_lat_deg:=${DATUM_LAT}" \
     --param "geo_datum_lon_deg:=${DATUM_LON}" \

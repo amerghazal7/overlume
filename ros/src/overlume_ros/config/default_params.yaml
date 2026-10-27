@@ -184,5 +184,5 @@
     - 1.0
     - 0.0
     - 0.0
-    - 2.444  # lidar height in the rig frame: CARLA stack_v3 base_link->seyond 2.4 + 0.044 rig ground offset (as camera_extrinsics). robot_params.yaml carries the reference robot's own.
+    - 2.444  # lidar height in the rig frame: CARLA stack_v3 base_link->seyond 2.4 + 0.044 rig ground offset (as camera_extrinsics).  A robot's params profile carries its own.
     splat_radius: 3

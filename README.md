@@ -387,8 +387,19 @@ To force a link, run `colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release -DOVE
 A forced value sticks in the build cache and later `./colcon_build.sh` runs keep it (`tools/ci_visual_mode.sh` forces `tree` in `ros/build`): `-DOVERLUME_ROS_LINK=auto` restores the default.
 The node still builds from this checkout: it reads one internal header.
 
-A params profile layers `config/<name>_params.yaml` over `default_params.yaml`, so its keys win and every other key keeps its default: `tools/validate_visual_mode.sh --params-profile robot`, or `ros2 launch overlume_ros overlume_node.launch.py params_profile:=robot`.
-`robot_params.yaml` holds the reference robot's camera calibration, lidar transform, topics and bowl shape; `scripts/extrinsics_from_calib.py` regenerates the calibration from the robot's `sensors_calib.yaml`.
+A params profile is a YAML file layered over `default_params.yaml`, so its keys win and every other key keeps its default: `tools/validate_visual_mode.sh --params-profile NAME|/path.yaml`, or `ros2 launch overlume_ros overlume_node.launch.py params_profile:=NAME|/path.yaml` (a bare name resolves to the package's `config/<name>_params.yaml`).
+A robot integration keeps its profile, its calibration and its topic profile in its own package (`profile_dir`, `ego_model_path`) and builds against the installed library (`OVERLUME_ROS_LINK=system`). The simulator is the worked example:
+
+```yaml
+# sim_params.yaml
+/**:
+  ros__parameters:
+    profile: sim                  # topic profile; profile_dir names another directory for your own
+    gps_topic: /sim/feedback/gps  # NavSatFix the geo anchor samples
+    ego_model_path: /path/to/ego.glb
+```
+
+`ros2 launch overlume_ros overlume_node.launch.py params_profile:=$PWD/sim_params.yaml`. No ego model ships: to provision your own, convert an OBJ with `overlume/scripts/obj2gltf.py robot.obj model.glb` and install it with `ros/src/overlume_ros/scripts/provision_ego_model.sh model.glb`.
 The rig passes `initial_mode`, `use_sim_time`, `bowl_enabled` and `hybrid_enabled` after the files, so a profile cannot set those four.
 On a machine with an NVIDIA GPU the rig gives the node the NVIDIA EGL vendor and no `DISPLAY` (it prints `[gpu]`), so a desktop on an integrated GPU does not pull the renderer onto it; an explicit `__EGL_VENDOR_LIBRARY_FILENAMES` wins, and `OVERLUME_NVIDIA_EGL_VENDOR` names another vendor file.
 
@@ -415,7 +426,7 @@ The node has three render modes, which you switch live on `/rendering/set_mode` 
 
 To add a topic, add a row to a profile YAML file; see the [profile authoring guide](docs/runbooks/profile_authoring.md).
 
-**Profiles:** `urban` (default), `offroad`, `robot-offroad`, `sim`, `replay`.
+**Profiles:** `urban` (default), `offroad`, `sim`, `replay`.
 
 **Inputs:** the `~/set_virtual_cam` service, plus the topics `~/set_look` (Float64MultiArray), `~/set_theme` (String) and `/rendering/set_mode` (Int32).
 
@@ -449,7 +460,7 @@ The sensor bags this project was developed against are not distributed. Record y
 tools/record_fixture_bag.sh OUT_DIR
 tools/validate_visual_mode.sh --bag /path/to/your/bag
 tools/validate_visual_mode.sh --live                    # live rig
-tools/validate_logger_session.sh [SESSION_DIR]          # logger-session replay
+ros2 bag play /path/to/your/bag --clock --loop           # then the replay rig: docs/runbooks/replay_bag.md
 ```
 
 You can still run the examples and the library tests without a bag.

@@ -91,7 +91,7 @@ TEST(FrameTransform, EgoHeightIsTheEgoFramesHeightInTheTargetFrame) {
     EXPECT_EQ(z, 1.0) << "a failed lookup leaves z alone";
 
     auto msg = MapToBaseLinkTransform();
-    msg.transform.translation.z = -33.15;  // the reference robot's base_link sits 33 m below its map origin
+    msg.transform.translation.z = -33.15;  // a map origin 33 m above base_link
     buffer.setTransform(msg, "test_authority", true);
     ASSERT_TRUE(ft.ego_height(stamp, z));
     EXPECT_NEAR(z, -33.15, 1e-9);

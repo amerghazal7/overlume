@@ -65,7 +65,7 @@ Mapbox side (the layer list, `imagery=satellite`, the DEM, request volume, the t
 
 - Pick it in the vcam GUI's environment sources list, send
   `{"cmd":"set_environment_source","preset":"osm-terrain"}` to the bridge, or pass
-  `--arm osm-terrain` to `tools/validate_logger_session.sh`.
+  arm it on the replay rig ([`replay_bag.md`](replay_bag.md)).
 - It is the provider-agnostic proof: the overlay path `mapbox-satellite` uses, with no Mapbox code
   involved.
 
@@ -106,7 +106,8 @@ Mapbox side (the layer list, `imagery=satellite`, the DEM, request volume, the t
 On the replay rig:
 
 ```bash
-tools/validate_logger_session.sh "$SESSION_DIR" --arm osm -- \
+LIVE_SIM_TIME=true tools/validate_visual_mode.sh --live --profile replay \
+    --param gps_topic:=<NavSatFix topic> \
     --param environment_terrain:=ion:1 --param environment_imagery:=ion:2
 ```
 

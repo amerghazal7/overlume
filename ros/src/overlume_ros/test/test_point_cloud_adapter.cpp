@@ -472,7 +472,7 @@ TEST(PointCloudAdapter, FrameIdOverrideReplacesAMislabelledHeaderFrame) {
 
 namespace {
 
-// the reference robot: base_link sits 33.15 m below the map origin, and the fused cloud carries the top lidar's
+// base_link sits 33.15 m below the map origin, and the fused cloud carries the top lidar's
 // frame (1.07 m above the ground, yawed 180 degrees) under a base_link header.
 void SetFarBelowMapTf(TfFixture& kTf) {
     geometry_msgs::msg::TransformStamped base;

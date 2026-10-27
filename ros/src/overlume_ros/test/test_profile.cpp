@@ -684,39 +684,8 @@ TEST(Profile, EncodingIsRejectedOffOgmRowsAndForUnknownValues) {
     EXPECT_NE(errs[0].find("encoding"), std::string::npos);
 }
 
-TEST(Profile, ShippedRobotOffroadProfileTargetsTheRealRobotTopics) {
-    std::vector<std::string> errs;
-    auto p = overlume::ros::load_profile(
-        std::string(TEST_CONFIG_DIR) + "/robot-offroad_profile.yaml", errs);
-    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
-    EXPECT_TRUE(errs.empty()) << errs[0];
-    EXPECT_EQ(p->name, "robot-offroad");
-    for (const char* topic : {"/perception/dynamic_costmap", "/perception/geometric_costmap"}) {
-        const auto* row = find_row(*p, topic);
-        ASSERT_NE(row, nullptr) << topic;
-        EXPECT_EQ(row->adapter, "ogm") << topic;
-        EXPECT_EQ(row->encoding, "costmap") << topic << ": the robot publishes Nav2 uint8 costs";
-        EXPECT_TRUE(row->best_effort) << topic << ": the robot publishes costmaps BEST_EFFORT";
-        EXPECT_TRUE(row->update_topic.empty()) << topic;
-    }
-    const auto* lidar = find_row(*p, "/iv_points_fusion");
-    ASSERT_NE(lidar, nullptr);
-    EXPECT_EQ(lidar->frame_id, "seyond")
-        << "the driver stamps base_link but publishes in the 180-degree-yawed lidar frame";
-    EXPECT_EQ(find_row(*p, "/perception/dynamic_ogm"), nullptr);
-    const auto* terrain = find_row(*p, "/debug_ogm_2");
-    ASSERT_NE(terrain, nullptr);
-    EXPECT_EQ(terrain->adapter, "height_grid");
-    EXPECT_EQ(terrain->role, "terrain");
-    EXPECT_EQ(terrain->encoding, "height_linear");
-    EXPECT_DOUBLE_EQ(terrain->height_min_m, -2.0)
-        << "must match debug_height_encoding in the perception geometric_cost_map_config.yaml";
-    EXPECT_DOUBLE_EQ(terrain->height_max_m, 3.0);
-    EXPECT_TRUE(terrain->best_effort);
-}
-
-TEST(Profile, ShippedRobotProfilesSubscribeBestEffortOnEveryRow) {
-    for (const char* name : {"robot-offroad", "replay"}) {
+TEST(Profile, ShippedReplayProfileSubscribesBestEffortOnEveryRow) {
+    for (const char* name : {"replay"}) {
         std::vector<std::string> errs;
         auto p = overlume::ros::load_profile(
             std::string(TEST_CONFIG_DIR) + "/" + name + "_profile.yaml", errs);
@@ -725,7 +694,7 @@ TEST(Profile, ShippedRobotProfilesSubscribeBestEffortOnEveryRow) {
         for (const auto& row : p->rows) {
             EXPECT_TRUE(row.best_effort)
                 << name << " " << row.topic
-                << ": the robot and the logger replay publish best-effort; a reliable "
+                << ": a replayed recording publishes best-effort; a reliable "
                    "subscription receives nothing";
             EXPECT_FALSE(row.transient_local)
                 << name << " " << row.topic
@@ -734,47 +703,22 @@ TEST(Profile, ShippedRobotProfilesSubscribeBestEffortOnEveryRow) {
     }
 }
 
-TEST(Profile, ShippedRobotOffroadProfileCarriesTheRobotsHdMapAndCruiseRows) {
+TEST(Profile, CloudRowParsesFrameIdStrideMaxPointsAndColourMode) {
+    // A fused cloud stamped in one frame but published in another needs frame_id; max_points cuts
+    // the cloud off in point order, so stride/max_points are the knobs that keep all of it.
     std::vector<std::string> errs;
-    auto p = overlume::ros::load_profile(
-        std::string(TEST_CONFIG_DIR) + "/robot-offroad_profile.yaml", errs);
+    auto p = load_profile_string(
+        "name: t\nrows:\n  - {topic: /cloud, type: sensor_msgs/msg/PointCloud2,"
+        " adapter: point_cloud, role: points, frame_id: lidar, color_mode: height,"
+        " max_points: 600000, stride: 1, best_effort: true}\n",
+        errs);
     ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
-    for (const char* topic : {"/hd_map_local_elements", "/hd_map_global_elements"}) {
-        const auto* row = find_row(*p, topic);
-        ASSERT_NE(row, nullptr) << topic;
-        EXPECT_EQ(row->adapter, "hd_map") << topic;
-    }
-    const auto* cruise = find_row(*p, "/navigation/debug_cruise_obstacle_marker");
-    ASSERT_NE(cruise, nullptr);
-    EXPECT_EQ(cruise->adapter, "generic");
-}
-
-TEST(Profile, ShippedRobotOffroadCloudRowKeepsTheWholeFusedCloud) {
-    // The reference robot fused cloud is its four bumper lidars back to back, up to about 125k points each
-    // with the front one first, and max_points cuts the cloud off in point order: a cap below the
-    // cloud's size hides the lidars that come last.
-    std::vector<std::string> errs;
-    auto p = overlume::ros::load_profile(
-        std::string(TEST_CONFIG_DIR) + "/robot-offroad_profile.yaml", errs);
-    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
-    const auto* cloud = find_row(*p, "/iv_points_fusion");
-    ASSERT_NE(cloud, nullptr);
-    EXPECT_EQ(cloud->stride, 1u) << "every point of the fused cloud";
-    constexpr uint32_t kFusedCloudPoints = 4u * 125000u;
-    EXPECT_TRUE(cloud->max_points == 0u || cloud->max_points >= kFusedCloudPoints)
-        << "max_points " << cloud->max_points << " truncates the four-lidar fused cloud";
-}
-
-TEST(Profile, ShippedRobotOffroadCloudRowColoursByHeight) {
-    // On 2026-10-23 the reference robot fused cloud's median intensity was 3 of 255, so the per-cloud
-    // intensity ramp that auto picks for it drew almost every point at its dark end.
-    std::vector<std::string> errs;
-    auto p = overlume::ros::load_profile(
-        std::string(TEST_CONFIG_DIR) + "/robot-offroad_profile.yaml", errs);
-    ASSERT_TRUE(p.has_value()) << (errs.empty() ? "" : errs[0]);
-    const auto* cloud = find_row(*p, "/iv_points_fusion");
-    ASSERT_NE(cloud, nullptr);
-    EXPECT_EQ(cloud->color_mode, "height");
+    const auto& r = p->rows[0];
+    EXPECT_EQ(r.frame_id, "lidar");
+    EXPECT_EQ(r.color_mode, "height");
+    EXPECT_EQ(r.max_points, 600000u);
+    EXPECT_EQ(r.stride, 1u);
+    EXPECT_TRUE(r.best_effort);
 }
 
 namespace {

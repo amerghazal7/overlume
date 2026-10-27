@@ -319,7 +319,7 @@ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/ego/ego.glb"
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets/ego/ego.glb")
   message(WARNING
     "overlume_ros: assets/ego/ego.glb not provisioned -- "
-    "run scripts/provision_ego_model.sh first (needs the real robot.obj). "
+    "run scripts/provision_ego_model.sh <model.glb> first. "
     "ego_model_path will resolve empty and the node falls back to the clay-box ego.")
 endif()
 
@@ -347,10 +347,6 @@ if(BUILD_TESTING)
   ament_add_test(test_launch_params
     COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_launch_params.py"
       "${CMAKE_CURRENT_SOURCE_DIR}/launch/overlume_node.launch.py"
-    GENERATE_RESULT_FOR_RETURN_CODE_ZERO)
-  ament_add_test(test_params_profiles
-    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_params_profiles.py"
-      "${CMAKE_CURRENT_SOURCE_DIR}/config" "${CMAKE_CURRENT_SOURCE_DIR}/scripts"
     GENERATE_RESULT_FOR_RETURN_CODE_ZERO)
   ament_add_test(test_default_params_hybrid
     COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/test/test_default_params_hybrid.py"

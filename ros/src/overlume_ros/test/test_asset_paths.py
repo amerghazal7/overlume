@@ -158,6 +158,35 @@ def main() -> int:
               "package not actually installed under this prefix.")
         return 0
 
+    # Case 0: a model provisioned at <share>/assets/ego/ego.glb is the node's default ego path.
+    # (Fails if the default drifts back to another file name.) Placeholder bytes: only the
+    # resolved parameter is checked here, not the load.
+    ego_file = os.path.join(SHARE_DIR, "assets", "ego", "ego.glb")
+    planted = False
+    if not os.path.exists(ego_file) and os.access(os.path.dirname(os.path.dirname(ego_file)), os.W_OK):
+        os.makedirs(os.path.dirname(ego_file), exist_ok=True)
+        with open(ego_file, "wb") as f:
+            f.write(b"glTF")
+        planted = True
+    if os.path.exists(ego_file):
+        log0 = _fresh_log()
+        proc = _launch("", log0)
+        try:
+            if not _wait_running(proc) or not _lifecycle("configure"):
+                print(f"FAIL: configure failed (case 0):\n{_read(log0)[-2000:]}", file=sys.stderr)
+                return 1
+            got = _param_get("ego_model_path")
+            if got != ego_file:
+                print(f"FAIL: ego_model_path '{got}' is not the installed '{ego_file}'.",
+                      file=sys.stderr)
+                return 1
+            print("PASS (0/3): the installed assets/ego/ego.glb is the default ego_model_path.")
+        finally:
+            _kill(proc)
+            os.remove(log0)
+            if planted:
+                os.remove(ego_file)
+
     log1 = _fresh_log()
     proc = _launch("", log1)
     try:

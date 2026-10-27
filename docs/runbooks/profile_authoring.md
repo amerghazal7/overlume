@@ -57,7 +57,7 @@ all keys `KnownRowKeys()` recognizes (profile.cpp:93–101):
 | `max_points` | no | `0` | **`adapter: point_cloud` only** — rejected elsewhere (profile.cpp:143–151); `0` = no cap. The cap keeps the first points in message order, so it truncates rather than thins (see `point_cloud` below) |
 | `stride` | no | `1` | **`adapter: point_cloud` only** — rejected elsewhere (profile.cpp:152–160); must be `>= 1` |
 | `min_z_m` | no | `NaN` (filter off) | **`adapter: point_cloud` only** — rejected elsewhere; finite = drop points whose height is `< min_z_m`, measured from the ego (`base_link`) under `flatten_z` (the default) and in map-frame z without it; `0.2` (shipped on `urban`/`replay`) removes ground returns and lane-marking z-fight while keeping curbs/poles/pedestrians |
-| `frame_id` | no | the message header's frame | **`adapter: point_cloud` / `ogm` / `height_grid` only** — TF-lookup frame that replaces a mislabelled `header.frame_id`. The the robot's ego model lidar driver stamps `/iv_points_fusion` as `base_link` while its points are still in the 180°-yawed lidar mount, so `robot-offroad` sets `frame_id: seyond` (a `base_link→seyond` TF must exist) |
+| `frame_id` | no | the message header's frame | **`adapter: point_cloud` / `ogm` / `height_grid` only** — TF-lookup frame that replaces a mislabelled `header.frame_id`. A lidar driver that stamps its cloud `base_link` while the points are still in a yawed lidar mount needs `frame_id: <lidar frame>` on that row (a `base_link→<lidar frame>` TF must exist) |
 | `encoding` | no | `occupancy` | **`adapter: ogm` / `height_grid` only** — on `ogm`, `occupancy` is `nav_msgs/OccupancyGrid` semantics (−1 unknown, 0–100; anything else counted malformed and hidden); `costmap` decodes Nav2 uint8 costs carried in the int8 array (0 free, 1–252 graded, 253/254 inscribed/lethal → occupied, 255 unknown). On `height_grid` the default is `height_linear` (0–100 maps linearly onto `height_min_m..height_max_m`, −1 unknown, anything else counted malformed and hidden); `height_normalized` maps 1–100 onto the window (0 clamps to the minimum) and is **not metric**, for A/B against `/debug_ogm_1` only. The `occupancy` / `costmap` values are rejected on `height_grid` rows and the height values are rejected on `ogm` rows |
 | `height_min_m` | **on `height_grid`** | — | **`adapter: height_grid` only** — metres above the grid origin plane that cell value 0 (`height_linear`) / 1 (`height_normalized`) decodes to. Required on `height_grid` rows, rejected elsewhere; must be finite |
 | `height_max_m` | **on `height_grid`** | — | **`adapter: height_grid` only** — metres for cell value 100. Required on `height_grid` rows, rejected elsewhere; must be finite and `> height_min_m` |
@@ -189,13 +189,13 @@ author needs to reason about placement/behavior.
   decimates (keep every Nth point, `>=1`), `max_points` caps the survivor
   count (`0` = uncapped) by keeping the first survivors in message order: it
   truncates, it does not thin. On a cloud built from several sensors back to
-  back (the reference robot's fused cloud is its four bumper lidars, front first) a cap below
+  back (a fused cloud of four bumper lidars, front first) a cap below
   the number of points that survive `stride` and `min_z_m` drops the last
   sensors, so thin with `stride` and keep the cap above that number. Real 3D height is load-bearing data here, so under
   `flatten_z` (the default) the cloud keeps its relief but measures it from the
   ego's height (the z of `base_link` in `map` at the cloud's stamp), the plane
-  every other adapter flattens onto: a map frame far from z = 0 (the reference robot
-  robot's `base_link` sits 33 m below its origin) cannot sink the cloud under
+  every other adapter flattens onto: a map frame far from z = 0 (a
+  robot's `base_link` can sit 33 m below its origin) cannot sink the cloud under
   the ground. Without `flatten_z` it keeps map-frame z. `min_z_m` (default
   `NaN` = off) drops points below that height after the per-point transform,
   so the cloud stops conflicting with other road-drawn elements.

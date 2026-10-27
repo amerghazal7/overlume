@@ -60,7 +60,7 @@ done
 
 # --- bridge port
 # The GUI reaches the node through vcam_ws_bridge.py on this port. Foxglove's bridge defaults to
-# 8765 as well (the reference robot's stack runs it), so such a robot needs another one: --bridge-port 8766.
+# 8765 as well (a host stack may run it), so such a robot needs another one: --bridge-port 8766.
 if ! [[ "${BRIDGE_PORT}" =~ ^[1-9][0-9]{0,4}$ ]] || ((BRIDGE_PORT > 65535)); then
     echo "--bridge-port expects a port number from 1 to 65535, got: ${BRIDGE_PORT}" >&2
     exit 1
@@ -293,7 +293,7 @@ done
 
 # --- gpu preference
 # The node renders through EGL. With the desktop on an integrated GPU, glvnd hands it that GPU's
-# Mesa driver even when an NVIDIA GPU is present (the reference robot rendered on its Intel iGPU at 102 ms a
+# Mesa driver even when an NVIDIA GPU is present (one robot rendered on its Intel iGPU at 102 ms a
 # frame, 2.8 ms on its RTX). Only the node gets the NVIDIA vendor, so the GUI keeps the desktop's
 # driver, and an explicit __EGL_VENDOR_LIBRARY_FILENAMES wins. The node renders off screen and
 # NVIDIA's EGL cannot open a display another GPU drives (create_renderer() failed with DISPLAY

@@ -1,27 +1,29 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Amer Ghazal
+#
+# Usage: provision_ego_model.sh <model.glb>
+# Copies a glTF binary to assets/ego/ego.glb, which the node installs as its default ego model.
+# An OBJ source: convert it first with overlume/scripts/obj2gltf.py <input.obj> <output.glb>.
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_DIR="$(dirname "$HERE")"
-OBJ_SRC="${1:-${EGO_OBJ_SRC:-$HOME/Downloads/robot.obj}}"
 OUT="$PKG_DIR/assets/ego/ego.glb"
-CONVERTER="$PKG_DIR/../../../overlume/scripts/obj2gltf.py"
 
-if [[ ! -f "$OBJ_SRC" ]]; then
-  echo "provision_ego_model.sh: source OBJ not found at '$OBJ_SRC'" >&2
-  echo "  Pass a path, or set EGO_OBJ_SRC, to point at the real robot.obj." >&2
-  echo "  Without it, ego_model_path resolves empty and the node's existing" >&2
-  echo "  clay-box fallback is what ships -- an honest gap, not an error." >&2
-  exit 1
+if [[ $# -ne 1 ]]; then
+  echo "usage: provision_ego_model.sh <model.glb>" >&2
+  echo "  (an OBJ model: overlume/scripts/obj2gltf.py <input.obj> <output.glb> first)" >&2
+  exit 2
 fi
-if [[ ! -f "$CONVERTER" ]]; then
-  echo "provision_ego_model.sh: converter not found at '$CONVERTER'" >&2
+if [[ ! -f "$1" ]]; then
+  echo "provision_ego_model.sh: model not found at '$1'" >&2
+  echo "  Without one, ego_model_path resolves empty and the node's clay-box" >&2
+  echo "  fallback is what ships -- an honest gap, not an error." >&2
   exit 1
 fi
 
 mkdir -p "$(dirname "$OUT")"
-python3 "$CONVERTER" "$OBJ_SRC" "$OUT"
+cp -- "$1" "$OUT"
 echo "provisioned $OUT -- re-run this package's cmake configure to pick it up."

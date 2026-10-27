@@ -5,7 +5,7 @@
 """Generate `camera_extrinsics` (camera->rig [R|t]) from the CARLA sim config.
 
 The live cameras are published by the CARLA bridge, so the ground-truth mounting
-is in the simulator interface/config/carla_interface_config.yaml. This converts each
+is in the simulator interface's carla_interface_config.yaml. This converts each
 camera's CARLA spawn_point into the rig-frame [R(9 row-major) | t(3)] layout the
 rendering node expects.
 

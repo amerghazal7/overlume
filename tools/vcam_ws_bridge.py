@@ -290,7 +290,7 @@ def main() -> int:
                     help="DEPRECATED, no-op post-cutover (VM-095): local-node "
                          "render-mode control is now the ONLY behavior -- the "
                          "two-node mux this flag used to opt out of no longer "
-                         "exists (overlume_rendering_node is decommissioned). "
+                         "exists (the CUDA mux node is decommissioned). "
                          "Kept accepted, not removed, so an existing launch "
                          "command that still passes it keeps working unchanged.")
     args = ap.parse_args()

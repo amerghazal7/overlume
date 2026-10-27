@@ -42,12 +42,11 @@ Task 6 (VM-095) Step 2 -- the post-cutover mode-selection surface:
     assert it resumes the previously-published mode (delivered by the
     topic's VM-037 transient_local+reliable QoS to the relaunched node as a
     late-joiner) rather than falling back to its own declare-time default
-    (1) -- the behavior overlume_rendering_node/test/smoke_test.py's
+    (1) -- the behavior the retired CUDA node's smoke test's
     `test_restart_rejoins_live_mode` hardened, now this node's alone to
     keep (this task's Files list, Decision 8).
 
-Mirrors overlume_rendering_node/test/smoke_test.py's subprocess + rclpy
-pattern. Headless — no GUI, no blocking loop. Hard timeout per scenario.
+Subprocess + rclpy pattern. Headless — no GUI, no blocking loop. Hard timeout per scenario.
 """
 
 import os

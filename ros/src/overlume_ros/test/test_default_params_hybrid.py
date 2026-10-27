@@ -13,7 +13,7 @@ assert p["splat_radius"] == 3, p["splat_radius"]
 print("PASS default_params hybrid")
 
 # Registration: the shipped pointcloud_transform must put the fixture bag's ground at the bowl floor
-# (rig z ~ 0). It was 1.15 (the reference robot value) vs the bag's 2.4 lidar height: ground 1.28 m too low,
+# (rig z ~ 0). It was 1.15 (a robot's own value) vs the bag's 2.4 lidar height: ground 1.28 m too low,
 # crosswalk stripes doubled. Optional argv[2] = bag dir; skipped when bag or ROS is absent.
 import os
 bag = os.path.expanduser(sys.argv[2]) if len(sys.argv) > 2 else ""

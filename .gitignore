@@ -24,7 +24,7 @@ graphify-out/
 **/build-*/
 **/*.mp4
 
-# VM-044: the converted the robot's ego model ego glTF is a provisioned local asset (fetch
+# VM-044: the ego glTF is a provisioned local asset (provisioning
 # script, not plain git — see overlume_ros/scripts/
 # provision_ego_model.sh), not a repo binary. Narrowed to *.glb so
 # assets/ego/ATTRIBUTION.md (same convention as assets/fonts, assets/models)

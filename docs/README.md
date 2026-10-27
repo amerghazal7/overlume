@@ -53,10 +53,10 @@ index; `docs/status.md` is the one status ledger.
 - [`bowl-golden-vm091.md`](runbooks/bowl-golden-vm091.md) /
   [`hybrid-golden-vm094.md`](runbooks/hybrid-golden-vm094.md) — the
   unified-engine migration's parity golden packages.
-- [`replay_logger_session.md`](runbooks/replay_logger_session.md) — validate
-  against a real-robot's logger session: `the logger's player` config, the static
-  transforms the recorder misses, the `replay` profile, `gps_topic`. One
-  command: `tools/validate_logger_session.sh [SESSION_DIR] [--arm osm]`.
+- [`replay_bag.md`](runbooks/replay_bag.md) — validate against a recorded
+  rosbag2 bag: record, `ros2 bag play`, the static transforms a recording
+  lacks, the `replay` profile, `gps_topic`, the anchor height offset, the
+  network-loss check and the options a robot integration uses.
 - [`release.md`](runbooks/release.md) — cut, rehearse (dry run + `tools/release/channel_smoke.sh all`),
   verify and repair a cross-platform release; key rotation, Apple/Windows
   signing secrets, the real-Mac Metal check, Maven/keyserver prerequisites and
