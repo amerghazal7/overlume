@@ -20,8 +20,8 @@ namespace mb = overlume::mapbox;
 
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kDegToRad = kPi / 180.0;
-// The test site (spec section 2, D3), with a heading and a non-zero ellipsoidal height so
-// neither can hide behind a zero.
+// The fixture anchor, Burj Khalifa (spec section 2, D3), with a heading and a non-zero ellipsoidal
+// height so neither can hide behind a zero.
 constexpr overlume::GeoAnchor kAnchor{25.1972, 55.2744, 0.35, 12.0};
 
 // Spherical Web Mercator written out independently of the library: fractional tile x, y at zoom z.
@@ -44,15 +44,16 @@ mb::TileId anchor_tile() {
 
 }
 
-TEST(MapboxTileFrame, XyzLonLatRoundTripAtBothDemoSites) {
+TEST(MapboxTileFrame, XyzLonLatRoundTripAtTwoLandmarks) {
     struct Site {
         const char* name;
         double lon, lat;
         uint32_t x, y;
     };
-    // Downtown Dubai's z14 tile is 10707/7006 (spec section 3).
+    // Downtown Dubai's z14 tile is 10707/7006 (spec section 3); the Sydney Opera House puts the
+    // second row in the southern hemisphere, where the Mercator row runs past the equator's.
     const Site sites[] = {{"Downtown Dubai", 55.2744, 25.1972, 10707, 7006},
-                          {"test site", 55.2744, 25.1972, 10707, 7006}};
+                          {"Sydney Opera House", 151.2153, -33.8568, 15073, 9831}};
     for (const Site& s : sites) {
         const std::array<double, 2> f = mercator_tile_xy(s.lon, s.lat, mb::kLandmarkZoom);
         EXPECT_EQ(static_cast<uint32_t>(std::floor(f[0])), s.x) << s.name;

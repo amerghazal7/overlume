@@ -47,7 +47,7 @@ int main(int argc, char** argv) {
     scene.ego.position = {-128.0, -128.0, 0.0};
     overlume::set_scene(renderer, scene);
 
-    const overlume::Vec3 centroid{-109.2, -17.1, 3.0};
+    const overlume::Vec3 centroid{-106.9, 206.0, 3.0};
     const overlume::CameraPose pose{
         {centroid.x + 50, centroid.y - 70, 40}, {centroid.x, centroid.y, centroid.z}, 60.0};
 

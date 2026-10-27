@@ -52,9 +52,9 @@ std::string default_root() {
     return p;
 }
 
-// Road centre line sits at local y = -14 of the fixture town so it threads
-// between the baked buildings instead of through them.
-const Vec3 kOrigin{-129.2, -37.1, 0.0};
+// Road centre line runs about 11 m east of the fixture town's main block (its east edge is at map
+// y 203.6 to 206 alongside the scene), so the block lines the +y side without touching the road.
+const Vec3 kOrigin{-106.0, 193.0, 0.0};
 constexpr overlume::GeoAnchor kAnchor{25.1972, 55.2744, 0.0};
 
 constexpr double kHalfWidth = 3.5;

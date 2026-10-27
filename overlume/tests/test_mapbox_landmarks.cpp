@@ -20,7 +20,7 @@ namespace glb = overlume::testing::glb;
 namespace mb = overlume::mapbox;
 using overlume::testing::MapboxLandmarkProbe;
 
-// The test site's z14 tile (test_mapbox_tile_frame.cpp pins it), anchored 12 m up.
+// The fixture anchor's z14 tile (test_mapbox_tile_frame.cpp pins it), anchored 12 m up.
 constexpr uint32_t kX14 = 10707, kY14 = 7006;
 constexpr double kOriginHeightM = 12.0;
 // One fixture building after reading: a box of 24 vertices (per-face normals) and 36 u16

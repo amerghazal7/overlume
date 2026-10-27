@@ -25,7 +25,7 @@ namespace mb = overlume::mapbox;
 constexpr uint32_t kSide = mb::kDemGridCells + 1;           // 65 grid vertices per side
 constexpr uint32_t kGridVertices = kSide * kSide;           // 4225
 constexpr uint32_t kSkirtVertices = 4 * mb::kDemGridCells;  // 256: each border vertex once
-// The test site's z14 tile (test_mapbox_tile_frame.cpp), in a frame 12 m up so no height
+// The fixture anchor's z14 tile (test_mapbox_tile_frame.cpp), in a frame 12 m up so no height
 // hides behind a zero.
 const mb::TileId kTile{14, 10707, 7006};
 constexpr double kOriginHeightM = 12.0;

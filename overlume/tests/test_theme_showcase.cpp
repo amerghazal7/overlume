@@ -27,9 +27,11 @@ const std::string kTestTownDir =
 
 constexpr overlume::GeoAnchor kAnchor{25.1972, 55.2744, 0.0};
 
-constexpr Vec3 kBuildingsCentroid{-109.2, -17.1, 3.0};
+constexpr Vec3 kBuildingsCentroid{-106.9, 206.0, 3.0};
 
-constexpr Vec3 kSceneOrigin{kBuildingsCentroid.x - 20.0, kBuildingsCentroid.y - 6.0, 0.0};
+// South-east of the town's main block (kBuildingsCentroid lies just inside its east edge): the
+// road and every object stay clear of the footprint, which fills the view ahead of the camera.
+constexpr Vec3 kSceneOrigin{kBuildingsCentroid.x - 30.0, kBuildingsCentroid.y - 18.0, 0.0};
 
 Vec3 translated(const Vec3& p, double dx, double dy) { return Vec3{p.x + dx, p.y + dy, p.z}; }
 

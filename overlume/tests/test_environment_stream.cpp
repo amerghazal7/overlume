@@ -331,22 +331,22 @@ TEST(EnvironmentStream, EcefToMapAgreesWithCppPinWithinHalfMeter) {
     const std::string json = ss.str();
 
     ASSERT_NE(json.find("\"origin_lat_deg\": 25.1972"), std::string::npos);
-    ASSERT_NE(json.find("\"origin_lon_deg\": 55.274"), std::string::npos);
+    ASSERT_NE(json.find("\"origin_lon_deg\": 55.2744"), std::string::npos);
 
     struct Probe {
         double lat, lon, heading_rad, map_x, map_y, map_z;
     };
     const std::vector<Probe> probes = {
-        {25.1972, 55.274, 0.0, 0.0, 0.0, 0.0},
-        {25.2072, 55.274, 0.0, 1111.9492664458, 0.0, 0.0},
-        {25.1972, 55.284, 0.0, 0.0, -1007.1086827547, 0.0},
-        {25.1822, 55.294, 0.0, -1667.9238996684, -2014.2173655101, 0.0},
-        {25.202, 55.278, 0.35, 629.0654991903, -199.2162324121, 0.0},
+        {25.1972, 55.2744, 0.0, 0.0, 0.0, 0.0},
+        {25.2072, 55.2744, 0.0, 1111.9492664458, 0.0, 0.0},
+        {25.1972, 55.2844, 0.0, 0.0, -1006.1449129341, 0.0},
+        {25.1822, 55.2944, 0.0, -1667.9238996684, -2012.2898258689, 0.0},
+        {25.2019, 55.2784, 0.35, 628.9333093667, -198.8540967831, 0.0},
     };
     for (const Probe& p : probes) {
         double x = 0, y = 0, z = 0;
-        ASSERT_TRUE(overlume::testing::ecef_to_map_probe(25.1972, 55.274, p.heading_rad, 0.0, p.lat,
-                                                         p.lon, 0.0, &x, &y, &z));
+        ASSERT_TRUE(overlume::testing::ecef_to_map_probe(25.1972, 55.2744, p.heading_rad, 0.0,
+                                                         p.lat, p.lon, 0.0, &x, &y, &z));
         const double err = std::sqrt((x - p.map_x) * (x - p.map_x) + (y - p.map_y) * (y - p.map_y));
         EXPECT_LT(err, 0.5) << "lat=" << p.lat << " lon=" << p.lon << " heading=" << p.heading_rad
                             << " got=(" << x << "," << y << "," << z << ") want=(" << p.map_x << ","
@@ -358,7 +358,7 @@ TEST(EnvironmentStream, EcefToMapAgreesWithCppPinWithinHalfMeter) {
 }
 
 TEST(EnvironmentStream, EllipsoidHeightCorrectionRemovesTangentPlaneSag) {
-    constexpr double kAnchorLat = 25.1972, kAnchorLon = 55.274;
+    constexpr double kAnchorLat = 25.1972, kAnchorLon = 55.2744;
     constexpr double kSphereRadiusM = 6371000.0;
     const std::vector<double> offsets_m = {0.0, 1000.0, 2600.0, 10000.0};
     for (const double offset_m : offsets_m) {
@@ -382,7 +382,7 @@ TEST(EnvironmentStream, EllipsoidHeightCorrectionRemovesTangentPlaneSag) {
 }
 
 TEST(EnvironmentStream, AnchorHeightShiftsCorrectedZ) {
-    constexpr double kAnchorLat = 25.1972, kAnchorLon = 55.274;
+    constexpr double kAnchorLat = 25.1972, kAnchorLon = 55.2744;
     constexpr double kOriginHeightM = 25.0;
 
     double zUncorrected = 0.0, zCorrected = 0.0;
@@ -1286,7 +1286,11 @@ TEST(EnvironmentStreamPerf, GooglePresetLiveRenderMsDeltaVsOsmClay) {
 
 namespace {
 
-constexpr overlume::Vec3 kCaptureBuildingsCentroid{-109.2, -17.1, 3.0};
+constexpr overlume::Vec3 kCaptureBuildingsCentroid{-106.9, 206.0, 3.0};
+// 109.2 m north and 17.1 m west of the target: streamed tiles around the target stay inside the
+// theme's 100 m tile radius, and the ego's 120 m ground square stays at the frame's right edge.
+constexpr overlume::Vec3 kCaptureEgo{kCaptureBuildingsCentroid.x + 109.2,
+                                     kCaptureBuildingsCentroid.y + 17.1, 0.0};
 const overlume::CameraPose kCapturePose{
     {kCaptureBuildingsCentroid.x + 50, kCaptureBuildingsCentroid.y - 70, 40},
     {kCaptureBuildingsCentroid.x, kCaptureBuildingsCentroid.y, kCaptureBuildingsCentroid.z},
@@ -1386,11 +1390,11 @@ TEST(EnvSourceCapture, Baked) {
 
     overlume::SceneGraph s{};
     s.ego.valid = 1;
-    s.ego.position = overlume::Vec3{0, 0, 0};
+    s.ego.position = kCaptureEgo;
     overlume::set_scene(r, s);
     std::vector<uint8_t> warm(static_cast<size_t>(kCaptureWidth) * kCaptureHeight * 3);
     ASSERT_GT(pump_and_settle(r, kCapturePose, warm, 5, 1), 0u)
-        << "baked fixture chunk never loaded at ego {0,0,0}";
+        << "baked fixture chunk never loaded at kCaptureEgo";
     capture_and_report(r, "baked");
     overlume::destroy_renderer(r);
 }
@@ -1409,7 +1413,7 @@ TEST(EnvSourceCapture, Osm) {
 
     overlume::SceneGraph s{};
     s.ego.valid = 1;
-    s.ego.position = overlume::Vec3{0, 0, 0};
+    s.ego.position = kCaptureEgo;
     overlume::set_scene(r, s);
     std::vector<uint8_t> warm(static_cast<size_t>(kCaptureWidth) * kCaptureHeight * 3);
     const uint64_t loaded = pump_and_settle(r, kCapturePose, warm, 30, 60);
@@ -1436,7 +1440,7 @@ TEST(EnvSourceCapture, Google) {
 
     overlume::SceneGraph s{};
     s.ego.valid = 1;
-    s.ego.position = overlume::Vec3{0, 0, 0};
+    s.ego.position = kCaptureEgo;
     overlume::set_scene(r, s);
     std::vector<uint8_t> warm(static_cast<size_t>(kCaptureWidth) * kCaptureHeight * 3);
     const uint64_t loaded = pump_and_settle(r, kCapturePose, warm, 30, 60);
@@ -1625,10 +1629,11 @@ struct Rgb {
 };
 
 // 256-px imagery tiles at <dir>/{z}/{x}/{y}.png for every web-mercator tile of levels
-// 0..max_level within one tile of the fixture tileset's region (lon 55.2543..55.3319,
-// lat 25.1668..25.2537), rows counted from the south as cesium fills {y}. Each pixel row takes
-// colour(latitude of the row's centre, degrees); row 0 is the tile's north edge. With decodable
-// false each file holds bytes no image decoder reads: every request answers 200, no raster lands.
+// 0..max_level within one tile of the fixture tileset's root region (ROOT_REGION in
+// make_tile_fixture.py, in degrees in the loops below), rows counted from the south as cesium
+// fills {y}. Each pixel row takes colour(latitude of the row's centre, degrees); row 0 is the
+// tile's north edge. With decodable false each file holds bytes no image decoder reads: every
+// request answers 200, no raster lands.
 template <typename Colour>
 void write_fixture_imagery(const std::string& dir, bool decodable, int max_level, Colour colour) {
     std::error_code ec;

@@ -55,8 +55,8 @@ constexpr double kAttempt5AtS = 30.0;
 constexpr double kPi = 3.14159265358979323846;
 
 // Tile math runs on use, not during static initialisation: it may lean on statics of other
-// translation units. The test site's z14 tile, 10707/7006.
-TileId op_tile() { return overlume::mapbox::tile_containing(55.2744, 25.1972, 14); }
+// translation units. The fixture anchor's z14 tile, 10707/7006.
+TileId site_tile() { return overlume::mapbox::tile_containing(55.2744, 25.1972, 14); }
 
 overlume::GeoAnchor anchor_at(const TileId& t, double u, double v) {
     const overlume::mapbox::LonLatDeg p = overlume::mapbox::tile_point_to_lonlat(t, u, v, 1.0);
@@ -211,7 +211,7 @@ public:
 TEST(MapboxTerrain, TerrainTileBuildsFromItsDem) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_dem(n, t, dem::hill_height_m);
     ASSERT_TRUE(install(r, "mapbox://terrain", anchor_at(t, 0.5, 0.5), n));
@@ -237,7 +237,7 @@ TEST(MapboxTerrain, TerrainTileBuildsFromItsDem) {
 TEST(MapboxTerrain, OneDemFeedsBothLoaders) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_dem(n, t, dem::hill_height_m);
     serve_block(n, t);
@@ -258,7 +258,7 @@ TEST(MapboxTerrain, MissingDemLeavesNoTerrainTile) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     FrozenRetryClock clock;
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     overlume::testing::mapbox_fixture_serve(n, dem_url_of(t), 404, {});
     const size_t logFrom = log_size();
@@ -292,7 +292,7 @@ TEST(MapboxTerrain, FailingDemIsAskedAgainOnTheNextAttempt) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     FrozenRetryClock clock;
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     overlume::testing::mapbox_fixture_serve(n, dem_url_of(t), 503, {});
     const size_t logFrom = log_size();
@@ -320,7 +320,7 @@ TEST(MapboxTerrain, FailingDemSettlesEmptyAfterTheThirdAttempt) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     FrozenRetryClock clock;
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     overlume::testing::mapbox_fixture_serve(n, dem_url_of(t), 503, {});
     ASSERT_TRUE(install(r, "mapbox://terrain", anchor_at(t, 0.5, 0.5), n));
@@ -355,7 +355,7 @@ TEST(MapboxTerrain, FailingDemSettlesEmptyAfterTheThirdAttempt) {
 TEST(MapboxTerrain, SatelliteDrapesXyzTilesOnTheTerrain) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_dem(n, t, dem::hill_height_m);
     // From z0 to the overlay's z18 cap, every XYZ tile over t and the ring of tiles around it
@@ -429,7 +429,7 @@ TEST(MapboxTerrain, SatelliteDrapesXyzTilesOnTheTerrain) {
 TEST(MapboxTerrain, FailedSatelliteTileLogsThroughTheRedactingLogger) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_dem(n, t, dem::hill_height_m);
     // Every imagery tile answers 204, which cesium reads as a failed image and replaces by its
@@ -462,7 +462,7 @@ TEST(MapboxTerrain, TerrainLayerReplacesTheGroundPlane) {
     for (const bool terrain : {true, false}) {
         auto* r = make_renderer();
         if (!r) GTEST_SKIP() << "no GPU/EGL";
-        const TileId t = op_tile();
+        const TileId t = site_tile();
         auto* n = overlume::testing::make_mapbox_fixture_network(204);
         serve_dem(n, t, dem::ramp_height_m);  // 0..20 m west to east
         serve_block(n, t);
@@ -506,7 +506,7 @@ TEST(MapboxTerrain, TerrainLayerReplacesTheGroundPlane) {
 TEST(MapboxTerrain, BrightnessReachesTheTerrainRendererResources) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_dem(n, t, dem::hill_height_m);
     ASSERT_TRUE(
@@ -525,7 +525,7 @@ TEST(MapboxTerrain, InstallThenDestroyWithoutPumpingDoesNotCrash) {
         SCOPED_TRACE(uri);
         auto* r = make_renderer();
         if (!r) GTEST_SKIP() << "no GPU/EGL";
-        const TileId t = op_tile();
+        const TileId t = site_tile();
         auto* n = overlume::testing::make_mapbox_fixture_network(204);
         serve_dem(n, t, dem::hill_height_m);
         serve_block(n, t);
@@ -539,7 +539,7 @@ TEST(MapboxTerrain, InstallThenDestroyWithoutPumpingDoesNotCrash) {
 TEST(MapboxTerrain, SwitchingAwayBeforeTheFirstUpdateDoesNotCrash) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_dem(n, t, dem::hill_height_m);
     ASSERT_TRUE(install(r, "mapbox://buildings,terrain", anchor_at(t, 0.5, 0.5), n));
@@ -590,8 +590,8 @@ constexpr Rgb kAncestor{128, 128, 128};  // levels 0-14 cover all four quadrants
 
 using Colour = std::array<double, 3>;
 
-// The test site's z14 tile, 14/10707/7006.
-TileId op_tile() { return overlume::mapbox::tile_containing(55.2744, 25.1972, 14); }
+// The fixture anchor's z14 tile, 14/10707/7006.
+TileId site_tile() { return overlume::mapbox::tile_containing(55.2744, 25.1972, 14); }
 
 // The anchor at (u, v) of tile t, in fractions of its edge, heading pi/2: map +x east, +y north.
 overlume::GeoAnchor anchor_in(const TileId& t, double u, double v) {
@@ -879,7 +879,7 @@ TEST(MapboxTerrainEndToEnd, CornerTilesFetchEachDemOnceForBothLoaders) {
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     // The ego stands just inside D's north-west corner, where A (north-west), B (north), C (west)
     // and D meet: 500 m reaches all four tiles.
-    const e2e::TileId d = e2e::op_tile();
+    const e2e::TileId d = e2e::site_tile();
     struct Ground {
         e2e::TileId tile;
         double height_m;
@@ -931,7 +931,7 @@ TEST(MapboxTerrainEndToEnd, ImageryRequestedWithTheTokenOnlyInQueryStrings) {
     const e2e::Renderer owner = e2e::make_renderer("dark_adas");
     auto* r = owner.get();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const e2e::TileId t = e2e::op_tile();
+    const e2e::TileId t = e2e::site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     const std::set<std::string> served = e2e::serve_plateau_scene(n, t);
     overlume::testing::capture_stream_glbs(true);
@@ -983,7 +983,7 @@ TEST(MapboxTerrainEndToEnd, BuildingOnThePlateauStandsOnTheDem) {
     const e2e::Renderer owner = e2e::make_renderer("light_clay");
     auto* r = owner.get();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const e2e::TileId t = e2e::op_tile();
+    const e2e::TileId t = e2e::site_tile();
     const overlume::GeoAnchor a = e2e::anchor_in(t, 0.5, 0.5);
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     e2e::serve_plateau_scene(n, t);
@@ -1029,7 +1029,7 @@ TEST(MapboxTerrainEndToEnd, TerrainReplacesTheClayPlaneAndShowsEachQuadrant) {
     const e2e::Renderer owner = e2e::make_renderer("light_clay");
     auto* r = owner.get();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const e2e::TileId t = e2e::op_tile();
+    const e2e::TileId t = e2e::site_tile();
     const overlume::GeoAnchor a = e2e::anchor_in(t, 0.5, 0.5);
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     e2e::serve_dem(n, t, overlume::testing::dem::sea_height_m);
@@ -1079,7 +1079,7 @@ TEST(MapboxTerrainEndToEnd, RejectedImageryKeepsTerrainColourAndCountsTowardFall
     // Both runs read frame kProbeFrame (counted from create_renderer): Filament's temporal dither
     // makes a frame's bytes depend on its index.
     constexpr int kProbeFrame = 120;
-    const e2e::TileId t = e2e::op_tile();
+    const e2e::TileId t = e2e::site_tile();
     const overlume::GeoAnchor a = e2e::anchor_in(t, 0.5, 0.5);
     const overlume::CameraPose pose{{0.0, -45.0, 40.0}, {0.0, 15.0, 0.0}, 60.0};
     const auto terrain_drawn = [](overlume::VisualRenderer* r) {
@@ -1158,7 +1158,7 @@ TEST(MapboxTerrainEndToEnd, NetworkLossTearsDownTerrainAndImagery) {
     const e2e::Renderer owner = e2e::make_renderer("dark_adas");
     auto* r = owner.get();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const e2e::TileId t = e2e::op_tile();
+    const e2e::TileId t = e2e::site_tile();
     const e2e::TileId east{14, t.x + 1, t.y};
     const overlume::GeoAnchor a = e2e::anchor_in(t, 0.5, 0.5);
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
@@ -1214,7 +1214,7 @@ TEST(MapboxTerrainEndToEnd, RefusedLayerListsAndImageryOpenNothing) {
     const e2e::Renderer owner = e2e::make_renderer("dark_adas");
     auto* r = owner.get();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const overlume::GeoAnchor a = e2e::anchor_in(e2e::op_tile(), 0.5, 0.5);
+    const overlume::GeoAnchor a = e2e::anchor_in(e2e::site_tile(), 0.5, 0.5);
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     struct Refusal {
         const char* uri;
@@ -1253,10 +1253,10 @@ TEST(MapboxTerrainEndToEnd, FiveMetreStepBetweenTilesShowsNoSkyAlongTheEdge) {
         const e2e::Renderer owner = e2e::make_renderer("light_clay");
         auto* r = owner.get();
         if (!r) GTEST_SKIP() << "no GPU/EGL";
-        const e2e::TileId west = e2e::op_tile();
+        const e2e::TileId west = e2e::site_tile();
         const e2e::TileId east{14, west.x + 1, west.y};
-        // The ego about 50 m west of the shared edge (the tile is about 2217 m wide there).
-        const overlume::GeoAnchor a = e2e::anchor_in(west, 1.0 - 50.0 / 2217.0, 0.5);
+        // The ego about 50 m west of the shared edge (the tile is about 2215 m wide there).
+        const overlume::GeoAnchor a = e2e::anchor_in(west, 1.0 - 50.0 / 2215.0, 0.5);
         auto* n = overlume::testing::make_mapbox_fixture_network(204);
         e2e::serve_dem(n, west, overlume::testing::dem::sea_height_m);
         e2e::serve_dem(n, east, [](double, double) { return 5.0; });
@@ -1331,7 +1331,7 @@ void synthetic_hill(const char* theme, const char* golden_png, const char* actua
     const e2e::Renderer owner = e2e::make_renderer(theme);
     auto* r = owner.get();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const e2e::TileId t = e2e::op_tile();
+    const e2e::TileId t = e2e::site_tile();
     const overlume::GeoAnchor a = e2e::anchor_in(t, 0.5, 0.5);
     // Unmatched URLs answer 404, so every request the scene needs is served below.
     auto* n = overlume::testing::make_mapbox_fixture_network();
@@ -1522,63 +1522,12 @@ double pump(overlume::VisualRenderer* r, const overlume::CameraPose& pose, const
     return waitS;
 }
 
-// The test site (spec §9), heading pi/2: map +x east.
-const overlume::GeoAnchor kTestSite{25.1972, 55.2744, e2e::kPi / 2.0, 0.0};
+// The fixture anchor, Burj Khalifa (spec §9), heading pi/2: map +x east.
+const overlume::GeoAnchor kFixtureAnchor{25.1972, 55.2744, e2e::kPi / 2.0, 0.0};
 const overlume::CameraPose kLivePose{{0.0, -300.0, 200.0}, {0.0, 0.0, 0.0}, 60.0};
 
 }
 
-}
-
-TEST(MapboxLive, TestSiteTerrain) {
-    if (!live::enabled("MAPBOX_TOKEN", "OVERLUME_LIVE_MAPBOX")) {
-        GTEST_SKIP() << "opt-in live-network check -- set MAPBOX_TOKEN and "
-                        "OVERLUME_LIVE_MAPBOX=1 to run (never required by ctest)";
-    }
-    const e2e::Renderer owner = e2e::make_renderer("dark_adas");
-    auto* r = owner.get();
-    if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const size_t logFrom = e2e::log_size();
-    ASSERT_TRUE(overlume::set_environment_source(r, "mapbox://buildings,terrain?imagery=satellite",
-                                                 live::kTestSite));
-    e2e::set_ego(r, 0.0, 0.0);
-    const std::string png =
-        std::string(OVERLUME_TMP_DIR) + "/mapbox_live_operating_area_terrain.png";
-    const double waitS = live::pump(
-        r, live::kLivePose, png,
-        [&] {
-            return e2e::stats().terrain_tiles_built >= 2 && e2e::overlay(r).rasters_attached >= 1;
-        },
-        [&] {
-            const overlume::testing::MapboxSourceStats s = e2e::stats();
-            return s.tiles_built + s.terrain_tiles_built + e2e::overlay(r).rasters_attached +
-                   overlume::testing::environment_terrain_tiles_loaded(r);
-        });
-    const overlume::testing::MapboxSourceStats s = e2e::stats();
-    const overlume::testing::OverlayProbe o = e2e::overlay(r);
-    const bool maxar = e2e::credits(r).find("\xC2\xA9 Maxar") != std::string::npos;
-    // Counts only, never a URL: every request URL carries the token.
-    std::cerr << "[MapboxLive] operating_area_terrain terrain_tiles_built=" << s.terrain_tiles_built
-              << " dem_requests=" << s.dem_requests << " tiles_built=" << s.tiles_built
-              << " extruded_features=" << s.extruded_features
-              << " rasters_attached=" << o.rasters_attached
-              << " textures_alive=" << o.textures_alive
-              << " terrain_in_scene=" << overlume::testing::environment_terrain_tiles_loaded(r)
-              << " maxar_credit=" << (maxar ? 1 : 0) << " wait_s=" << waitS << " png=" << png
-              << "\n";
-    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING)
-        << "fell back to baked chunks: run tools/check_mapbox_token.sh";
-    EXPECT_EQ(s.terrain_tiles_built, 2u) << "the anchor's tile and its east neighbour, 208 m away";
-    // At least: a transient failure on a live network retries the DEM; the count is printed above.
-    EXPECT_GE(s.dem_requests, 2u) << "one DEM per tile for both loaders";
-    EXPECT_GT(o.rasters_attached, 0u) << "no satellite imagery attached";
-    EXPECT_TRUE(maxar) << "the credits lack the Maxar line";
-    // captured_cesium_log_text stops at 64 KiB: in a full run earlier tests fill it and this check
-    // sees nothing. A live test therefore needs a filtered run, one --gtest_filter per test; the
-    // plan's Step 10 grep of the whole log for the token is the second net.
-    // Compares positions, so a failure prints numbers, never the token.
-    EXPECT_EQ(e2e::log_since(logFrom).find(live::trimmed_env("MAPBOX_TOKEN")), std::string::npos)
-        << "the token reached the log";
 }
 
 TEST(IonLive, WorldTerrainBing) {
@@ -1593,7 +1542,7 @@ TEST(IonLive, WorldTerrainBing) {
     // The vcam GUI's osm-terrain source: OSM Buildings on Cesium World Terrain (asset 1) with
     // Bing Maps Aerial (asset 2).
     ASSERT_TRUE(overlume::set_environment_source(r, "ion://96188?terrain=1&imagery=2",
-                                                 live::kTestSite));
+                                                 live::kFixtureAnchor));
     e2e::set_ego(r, 0.0, 0.0);
     const std::string png = std::string(OVERLUME_TMP_DIR) + "/ion_live_world_terrain_bing.png";
     const double waitS = live::pump(

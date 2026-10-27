@@ -24,7 +24,9 @@ const std::string kTestTownDir =
 constexpr overlume::Vec3 kChunk0Center{-128.0, -128.0, 0.0};
 constexpr overlume::Vec3 kFarFromTown{100000.0, 100000.0, 0.0};
 
-constexpr overlume::Vec3 kBuildingsCentroid{-109.2, -17.1, 3.0};
+// Vertex centroid of chunk_-1_0.glb, the town's main block: chunk_-1_-1 (kChunk0Center, the ego)
+// holds only two ticket kiosks. Both chunks load from kChunk0Center.
+constexpr overlume::Vec3 kBuildingsCentroid{-106.9, 206.0, 3.0};
 
 }
 

@@ -21,12 +21,13 @@ Regenerate with (deterministic output; optional output_root, see below):
 Design notes (see the task's own PROVENANCE.md files for the "why", this is
 the "how"):
 
-  - Region bounding volumes / geometricError in both tileset.json files are
-    copied VERBATIM from the pre-existing (real-tile) fixtures' own
-    tileset.json -- they are just numbers (a lat/lon/height box + an error
-    metric), not licensed OSM data, and reusing them keeps every existing
-    anchor-containment/placement assumption in the test suite valid with no
-    re-derivation needed.
+  - Region bounding volumes / geometricError in both tileset.json files keep
+    the shape of the pre-existing (real-tile) fixtures' own tileset.json --
+    they are just numbers (a lat/lon/height box + an error metric), not
+    licensed OSM data. The boxes are translated, as a whole, to sit around
+    the fixture anchor (DEFAULT_ANCHOR_LAT_DEG / DEFAULT_ANCHOR_LON_DEG,
+    Burj Khalifa) so every tile keeps the same footprint relative to it and
+    every anchor-containment/placement assumption in the test suite holds.
 
   - Vertex positions are baked as REAL, absolute ECEF-scale numbers (not
     RTC-relative small numbers): environment_stream.cpp's own
@@ -422,17 +423,17 @@ def build_b3dm(glb_bytes, rtc_center):
     header = struct.pack("<4sIIIIII", b"b3dm", 1, total_len, len(ft_json), 0, 0, 0)
     return header + ft_json + glb_bytes
 
-ROOT_REGION = [0.9643701171285017, 0.4392441330561471, 0.9657237438818003,
-               0.4407602691614281, -24.79683634514544, 39.20705412661656]
+ROOT_REGION = [0.9643701171285017, 0.43924413305614707, 0.9657237438818003,
+               0.440760269161428, -24.79683634514544, 39.20705412661656]
 ROOT_GEOMETRIC_ERROR = 100000.0
 CHILD_GEOMETRIC_ERROR = 18.81526850096646
 TILE_REGIONS = {
-    "tile_root": [0.9643764945615884, 0.4395958360990458, 0.9649008787353502,
-                  0.4399741763569883, -11.596608468970631, 6.109402182930353],
-    "tile_a": [0.9643722883180911, 0.43999747999316097, 0.9651394547721223,
-               0.4407598415557613, -23.948978754749383, 32.93258501058904],
-    "tile_b": [0.9651388142362868, 0.44049002761603706, 0.9656979548967726,
-               0.4407215298333509, -8.958795091376492, 39.20705412661656],
+    "tile_root": [0.9643764945615885, 0.43959583609904573, 0.9649008787353502,
+                  0.43997417635698827, -11.596608468970631, 6.109402182930353],
+    "tile_a": [0.9643722883180912, 0.4399974799931609, 0.9651394547721223,
+               0.44075984155576126, -23.948978754749383, 32.93258501058904],
+    "tile_b": [0.9651388142362869, 0.440490027616037, 0.9656979548967727,
+               0.4407215298333508, -8.958795091376492, 39.20705412661656],
 }
 
 DEFAULT_ANCHOR_LAT_DEG = 25.1972
@@ -499,9 +500,11 @@ Seed: `{seed}` (module constant `SEED`, `make_tile_fixture.py`).
 
 ## What's here
 
-- `tileset.json`: a content-less root + 3 children, same structure/region
-  numbers (just numbers, not licensed data) as the fixture this replaces --
-  `tile_root.b3dm` (the leaf tile whose region contains the test anchor,
+- `tileset.json`: a content-less root + 3 children, same structure and
+  region boxes (just numbers, not licensed data) as the fixture this
+  replaces, translated to sit around the fixture anchor (`DEFAULT_ANCHOR_*`
+  in `make_tile_fixture.py`) -- `tile_root.b3dm` (the leaf tile whose region
+  contains the test anchor,
   same convention as before), `tile_a.b3dm` (a sibling), `tile_b.b3dm`
   (a second sibling).
 - `tile_root.b3dm`: single glTF buffer, carries NORMAL, and carries a

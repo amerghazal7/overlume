@@ -80,9 +80,10 @@ private:
     std::string saved_;
 };
 
-// Tile math runs on use, not during static initialisation: it may lean on statics of other
+// The fixture anchor's z14 tile, 10707/7006 (Downtown Dubai), where Mapbox also serves landmark
+// models. Tile math runs on use, not during static initialisation: it may lean on statics of other
 // translation units.
-TileId op_tile() { return overlume::mapbox::tile_containing(55.2744, 25.1972, 14); }
+TileId site_tile() { return overlume::mapbox::tile_containing(55.2744, 25.1972, 14); }
 
 overlume::GeoAnchor anchor_at(const TileId& t, double u, double v) {
     const overlume::mapbox::LonLatDeg p = overlume::mapbox::tile_point_to_lonlat(t, u, v, 1.0);
@@ -286,7 +287,7 @@ void expect_retry_then_load(bool transport) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     FrozenRetryClock clock;
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_anchor_tile(n, t);
     const std::string square0 = url_of(overlume::mapbox::footprint_tiles_of(t)[0]);
@@ -319,9 +320,6 @@ void expect_retry_then_load(bool transport) {
 }
 
 namespace {
-
-// Downtown Dubai's z14 tile, 10707/7006, where Mapbox serves landmark models.
-TileId downtown_tile() { return overlume::mapbox::tile_containing(55.2744, 25.1972, 14); }
 
 // A landmark node at (tx, ty) z14 units, with Mapbox's node scale for its own latitude.
 glb::LandmarkSpec landmark_at(const TileId& t, uint64_t id, double tx, double ty) {
@@ -395,7 +393,7 @@ TEST(MapboxBuildings, UnsetTokenRefusesAndNamesTheVariable) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     ScopedUnsetEnv noToken("MAPBOX_TOKEN");
-    const overlume::GeoAnchor anchor = anchor_at(op_tile(), 0.5, 0.5);
+    const overlume::GeoAnchor anchor = anchor_at(site_tile(), 0.5, 0.5);
     const size_t logFrom = log_size();
     EXPECT_FALSE(overlume::set_environment_source(r, "mapbox://buildings", anchor));
     EXPECT_EQ(state(r), EnvironmentSourceState::NONE);
@@ -416,7 +414,7 @@ TEST(MapboxBuildings, RefusedUrisOpenNothing) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     ScopedUnsetEnv noToken("MAPBOX_TOKEN");  // a URI accepted by mistake still reaches no network
-    const overlume::GeoAnchor anchor = anchor_at(op_tile(), 0.5, 0.5);
+    const overlume::GeoAnchor anchor = anchor_at(site_tile(), 0.5, 0.5);
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     for (const char* uri : {"mapbox://roads", "mapbox://buildings?cache=tiles",
                             "mapbox://buildings?radius=-5", "mapbox://buildings?brightness=0"}) {
@@ -439,7 +437,7 @@ TEST(MapboxBuildings, RefusedUrisOpenNothing) {
 TEST(MapboxBuildings, AnchorTileLoadsWithStandardFilterApplied) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_anchor_tile(n, t);
     ASSERT_TRUE(install(r, "mapbox://buildings", anchor_at(t, 0.5, 0.5), n));
@@ -469,7 +467,7 @@ TEST(MapboxBuildings, RequestsOnlyTheTileInsideTheRadius) {
               "https://api.mapbox.com/3dtiles/v1/mapbox.mapbox-3dbuildings-v1-meshopt/14/1/2.glb");
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_anchor_tile(n, t);
     ASSERT_TRUE(install(r, "mapbox://buildings", anchor_at(t, 0.5, 0.5), n));
@@ -488,7 +486,7 @@ TEST(MapboxBuildings, RequestsOnlyTheTileInsideTheRadius) {
 TEST(MapboxBuildings, RadiusKeyWidensTheRequestedTiles) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);  // neighbours answer empty
     serve_anchor_tile(n, t);
     ASSERT_TRUE(install(r, "mapbox://buildings?radius=1300", anchor_at(t, 0.5, 0.5), n));
@@ -499,8 +497,8 @@ TEST(MapboxBuildings, RadiusKeyWidensTheRequestedTiles) {
     const TileId north{14, t.x, t.y - 1}, south{14, t.x, t.y + 1};
     const TileId west{14, t.x - 1, t.y}, east{14, t.x + 1, t.y};
     EXPECT_EQ(requested_mvt(n), squares_of({t, north, south, west, east}))
-        << "1300 m from the tile centre reaches the four edge neighbours (about 1108 m away) but "
-           "no corner neighbour (about 1566 m)";
+        << "1300 m from the tile centre reaches the four edge neighbours (about 1107 m away) but "
+           "no corner neighbour (about 1565 m)";
     EXPECT_EQ(stats().tiles_built, 1u) << "neighbours answering 204 with empty MVTs add nothing";
     EXPECT_EQ(loaded(r), 1u);
     overlume::destroy_renderer(r);
@@ -509,7 +507,7 @@ TEST(MapboxBuildings, RadiusKeyWidensTheRequestedTiles) {
 TEST(MapboxBuildings, TokenRidesOnlyInRequestUrls) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_anchor_tile(n, t);
     overlume::testing::capture_stream_glbs(true);
@@ -538,7 +536,7 @@ TEST(MapboxBuildings, TokenRidesOnlyInRequestUrls) {
 TEST(MapboxBuildings, TokenWhitespaceIsTrimmed) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_anchor_tile(n, t);
     ASSERT_TRUE(
@@ -560,7 +558,7 @@ TEST(MapboxBuildings, TokenWhitespaceIsTrimmed) {
 TEST(MapboxBuildings, RejectedTokenFallsBackAndLogsOnce) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(401);
     const size_t logFrom = log_size();
     ASSERT_TRUE(
@@ -591,7 +589,7 @@ TEST(MapboxBuildings, PersistentServerErrorGivesUpAfterThreeAttempts) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     FrozenRetryClock clock;
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_anchor_tile(n, t);
     const std::string square0 = url_of(overlume::mapbox::footprint_tiles_of(t)[0]);
@@ -623,7 +621,7 @@ TEST(MapboxBuildings, PersistentServerErrorGivesUpAfterThreeAttempts) {
 TEST(MapboxBuildings, TransportLossEverywhereFallsBack) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     for (const TileId& square : overlume::mapbox::footprint_tiles_of(t)) {
         overlume::testing::mapbox_fixture_fail_transport(n, url_of(square));
@@ -644,7 +642,7 @@ TEST(MapboxBuildings, TransportLossEverywhereFallsBack) {
 TEST(MapboxBuildings, GarbageBehindOkSkipsOnlyThoseSquares) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_anchor_tile(n, t);
     const std::array<TileId, 16> squares = overlume::mapbox::footprint_tiles_of(t);
@@ -679,7 +677,7 @@ TEST(MapboxBuildings, CornerLoadsFourTilesWithoutDoubledSeamWalls) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     // The ego stands on the corner where A (north-west), B (north), C (west) and D meet.
-    const TileId d = op_tile();
+    const TileId d = site_tile();
     const TileId a{14, d.x - 1, d.y - 1}, b{14, d.x, d.y - 1}, c{14, d.x - 1, d.y};
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     using overlume::mapbox::footprint_tiles_of;
@@ -721,7 +719,7 @@ TEST(MapboxBuildings, CornerLoadsFourTilesWithoutDoubledSeamWalls) {
 TEST(MapboxBuildings, SwitchingAwayMidBuildIsSafe) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     const overlume::GeoAnchor anchor = anchor_at(t, 0.5, 0.5);
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_anchor_tile(n, t);
@@ -747,7 +745,7 @@ TEST(MapboxBuildings, ClayReplacesAndOriginalKeepsTheExtrusionMaterial) {
     for (const bool original : {false, true}) {
         auto* r = make_renderer();
         if (!r) GTEST_SKIP() << "no GPU/EGL";
-        const TileId t = op_tile();
+        const TileId t = site_tile();
         auto* n = overlume::testing::make_mapbox_fixture_network(204);
         serve_anchor_tile(n, t);
         overlume::testing::capture_stream_glbs(true);
@@ -776,7 +774,7 @@ TEST(MapboxBuildings, ClayReplacesAndOriginalKeepsTheExtrusionMaterial) {
 TEST(MapboxBuildings, BrightnessReachesTheStreamingSource) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_anchor_tile(n, t);
     ASSERT_TRUE(install(r, "mapbox://buildings?materials=original&brightness=1.8",
@@ -791,7 +789,7 @@ TEST(MapboxBuildings, BrightnessReachesTheStreamingSource) {
 TEST(MapboxBuildings, LandmarkReplacesTheExtrusionBeneathIt) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = downtown_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_downtown(n, t,
                    glb::build_landmark_glb({landmark_at(t, 7, kOverSquare5, kOverSquare5)},
@@ -822,7 +820,7 @@ TEST(MapboxBuildings, ClayDropsLandmarkImagesOriginalKeepsOcclusion) {
     for (const bool original : {false, true}) {
         auto* r = make_renderer();
         if (!r) GTEST_SKIP() << "no GPU/EGL";
-        const TileId t = downtown_tile();
+        const TileId t = site_tile();
         auto* n = overlume::testing::make_mapbox_fixture_network(204);
         serve_downtown(n, t,
                        glb::build_landmark_glb({landmark_at(t, 7, kOverSquare5, kOverSquare5)},
@@ -846,7 +844,7 @@ TEST(MapboxBuildings, ClayDropsLandmarkImagesOriginalKeepsOcclusion) {
 }
 
 TEST(MapboxBuildings, CorruptMeshoptKeepsExtrusionsAndLogsTheTileOnce) {
-    const TileId t = downtown_tile();
+    const TileId t = site_tile();
     glb::GlbOptions opts;
     opts.corrupt_meshopt = true;
     expect_extrusions_only(
@@ -854,7 +852,7 @@ TEST(MapboxBuildings, CorruptMeshoptKeepsExtrusionsAndLogsTheTileOnce) {
 }
 
 TEST(MapboxBuildings, BadGlbHeaderKeepsExtrusionsAndLogsTheTileOnce) {
-    const TileId t = downtown_tile();
+    const TileId t = site_tile();
     std::vector<uint8_t> bytes =
         glb::build_landmark_glb({landmark_at(t, 7, kOverSquare5, kOverSquare5)}, glb::GlbOptions{});
     bytes[0] = 'x';  // the "glTF" magic, broken
@@ -864,7 +862,7 @@ TEST(MapboxBuildings, BadGlbHeaderKeepsExtrusionsAndLogsTheTileOnce) {
 TEST(MapboxBuildings, UnexpectedNodeMatrixSkipsOnlyThatLandmark) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = downtown_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     glb::GlbOptions opts;
     opts.bad_matrix_on_first = true;
@@ -894,7 +892,7 @@ TEST(MapboxBuildings, UnexpectedNodeMatrixSkipsOnlyThatLandmark) {
 TEST(MapboxBuildings, LandmarksAloneStillBuildTheTile) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = downtown_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     overlume::testing::mapbox_fixture_serve(
         n, overlume::testing::mapbox_landmark_url(t.x, t.y), 200,
@@ -989,7 +987,7 @@ void expect_buildings_at_ground(uint16_t status, std::vector<uint8_t> body, cons
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     FrozenRetryClock clock;  // the test moves the retry clock itself
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_anchor_tile(n, t);
     overlume::testing::mapbox_fixture_serve(n, dem_url_of(t), status, std::move(body));
@@ -1025,7 +1023,7 @@ void expect_buildings_at_ground(uint16_t status, std::vector<uint8_t> body, cons
 TEST(MapboxBuildings, TerrainLiftsABlockOnTheHill) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_dem(n, t, dem::hill_height_m);
     // Square 10's north-west corner is the tile centre, where the hill peaks.
@@ -1059,7 +1057,7 @@ TEST(MapboxBuildings, TerrainLiftsABlockOnTheHill) {
 TEST(MapboxBuildings, TerrainAsksOneDemPerTile) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId d = op_tile();
+    const TileId d = site_tile();
     const TileId a{14, d.x - 1, d.y - 1}, b{14, d.x, d.y - 1}, c{14, d.x - 1, d.y};
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_dem(n, d, dem::hill_height_m);  // a, b and c answer 204: no DEM there
@@ -1086,7 +1084,7 @@ TEST(MapboxBuildings, TerrainAsksOneDemPerTile) {
 TEST(MapboxBuildings, TerrainKeepsABlockOnASlopeWithinAMetre) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     const double metresPerPx = metres_per_dem_px(t);
     const double rise = 0.05 * metresPerPx;  // a 5 % slope up to the east, per DEM pixel
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
@@ -1124,7 +1122,7 @@ TEST(MapboxBuildings, TerrainKeepsABlockOnASlopeWithinAMetre) {
 TEST(MapboxBuildings, TerrainFloorFollowsABlockBelowTheAnchor) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_dem(n, t, dem::hill_height_m);
     // The anchor stands on the 40 m peak; square 0's block is far down the hill.
@@ -1151,7 +1149,7 @@ TEST(MapboxBuildings, TerrainFloorFollowsABlockBelowTheAnchor) {
 TEST(MapboxBuildings, TerrainLiftsLandmarkNodes) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const TileId t = downtown_tile();
+    const TileId t = site_tile();
     const double rise = 0.05 * metres_per_dem_px(t);  // 5 % up to the east
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     serve_downtown(n, t,
@@ -1184,7 +1182,7 @@ TEST(MapboxBuildings, TerrainRetriesAFailingDem) {
     auto* r = make_renderer();
     if (!r) GTEST_SKIP() << "no GPU/EGL";
     FrozenRetryClock clock;
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     auto* n = overlume::testing::make_mapbox_fixture_network(204);
     overlume::testing::mapbox_fixture_serve(n, dem_url_of(t), 503, {});
     serve_square(n, overlume::mapbox::footprint_tiles_of(t)[10],
@@ -1220,18 +1218,21 @@ TEST(MapboxBuildings, TerrainRetriesAFailingDem) {
 TEST(MapboxBuildings, MissingDemLeavesBuildingsAtGround) {
     expect_buildings_at_ground(
         404, {},
-        "mapbox: terrain-DEM has no height at the anchor (tile " + tile_name(op_tile()) + ")", 1u);
+        "mapbox: terrain-DEM has no height at the anchor (tile " + tile_name(site_tile()) + ")",
+        1u);
 }
 
 TEST(MapboxBuildings, MalformedDemLeavesBuildingsAtGroundAndLogsOnce) {
     const std::string html = "<!DOCTYPE html><html><body>Service Unavailable</body></html>";
-    expect_buildings_at_ground(200, std::vector<uint8_t>(html.begin(), html.end()),
-                               "mapbox:// terrain tile " + tile_name(op_tile()) + " skipped: ", 1u);
+    expect_buildings_at_ground(
+        200, std::vector<uint8_t>(html.begin(), html.end()),
+        "mapbox:// terrain tile " + tile_name(site_tile()) + " skipped: ", 1u);
 }
 
 TEST(MapboxBuildings, FailingDemLeavesBuildingsAtGroundAndLogsOnce) {
     expect_buildings_at_ground(
-        503, {}, "mapbox: terrain-DEM failing (HTTP 503) at tile " + tile_name(op_tile()), 1u, 3u);
+        503, {}, "mapbox: terrain-DEM failing (HTTP 503) at tile " + tile_name(site_tile()), 1u,
+        3u);
 }
 
 TEST(MapboxBuildings, RejectedDemLeavesBuildingsAtGroundAndLogsOnce) {
@@ -1241,7 +1242,7 @@ TEST(MapboxBuildings, RejectedDemLeavesBuildingsAtGroundAndLogsOnce) {
 
 TEST(MapboxBuildings, DemCacheKeepsTheThirtyTwoMostRecentTiles) {
     auto* n = overlume::testing::make_mapbox_fixture_network(404);  // empty answers are cached
-    const TileId t = op_tile();
+    const TileId t = site_tile();
     std::vector<std::array<uint32_t, 2>> order;
     for (uint32_t i = 0; i < 32; ++i) order.push_back({t.x + i, t.y});
     for (uint32_t i : {0u, 32u, 0u, 1u}) order.push_back({t.x + i, t.y});
@@ -1257,7 +1258,7 @@ namespace {
 
 constexpr double kGoldenPi = 3.14159265358979323846;
 
-// The golden's synthetic z14 tile is the test site's (55.2744 E, 25.1972 N). Its anchor is
+// The golden's synthetic z14 tile is the fixture anchor's (55.2744 E, 25.1972 N). Its anchor is
 // the tile centre with heading pi/2: map +x is east, +y north, and map (0, 0) is the corner the
 // four central z16 squares share.
 const overlume::mapbox::TileId kGoldenZ14{14, 10707, 7006};
@@ -1536,29 +1537,5 @@ TEST(MapboxLive, DowntownDubai) {
     EXPECT_EQ(stats.tiles_built, 1u) << "one z14 tile holds the Burj Khalifa, 868 m from its edge";
     EXPECT_GE(stats.landmark_nodes, 1u)
         << "no landmark kept at Downtown: a codec change or a rejected node matrix";
-    overlume::destroy_renderer(r);
-}
-
-TEST(MapboxLive, TestSite) {
-    if (!mapbox_live_enabled()) {
-        GTEST_SKIP() << "opt-in live-network check -- set MAPBOX_TOKEN and "
-                        "OVERLUME_LIVE_MAPBOX=1 to run (never required by ctest)";
-    }
-    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = overlume::create_renderer(cfg);
-    if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const overlume::GeoAnchor anchor{25.1972, 55.2744, kLivePi / 2.0, 0.0};
-    ASSERT_TRUE(overlume::set_environment_source(r, "mapbox://buildings", anchor));
-    overlume::SceneGraph s{};
-    s.ego.valid = 1;
-    overlume::set_scene(r, s);
-
-    const overlume::CameraPose pose{{0.0, -300.0, 200.0}, {0.0, 0.0, 0.0}, 60.0};
-    const overlume::testing::MapboxSourceStats stats =
-        pump_mapbox_live(r, "operating_area", pose, 2);
-    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING)
-        << "fell back to baked chunks: run tools/check_mapbox_token.sh";
-    EXPECT_EQ(stats.tiles_built, 2u) << "the anchor tile and its east neighbour, 208 m away";
-    EXPECT_GT(stats.extruded_features, 0u) << "no footprint extruded at the test site";
     overlume::destroy_renderer(r);
 }
