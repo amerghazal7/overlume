@@ -526,6 +526,10 @@ Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers the toolcha
 
 No test needs a token or network access. Keep tokens such as `CESIUM_ION_TOKEN` in your environment, and never commit them.
 
+## Provenance
+
+Overlume was created by Amer Ghazal as a personal open-source project and is maintained by him. It was integrated at Micropolis Robotics on a deployed robot; the robot-specific integration lives in a private overlay. Copyright 2026 Amer Ghazal, Apache-2.0.
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE), and [NOTICE](NOTICE) for third-party attributions.
