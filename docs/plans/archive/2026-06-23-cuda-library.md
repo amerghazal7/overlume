@@ -2,16 +2,16 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A standalone CUDA C++ reprojection library (bowl/depth/hybrid) following the stack manager conventions, validated by pybind11 parity against the Python reference, with a C++ golden test and a thin ROS2 LifecycleNode integration test.
+**Goal:** A standalone CUDA C++ reprojection library (bowl/depth/hybrid) following the stack manager's conventions, validated by pybind11 parity against the Python reference, with a C++ golden test and a thin ROS2 LifecycleNode integration test.
 
-**Architecture:** Pure C++/CUDA library `overlume::rendering` (the validated NumPy/GL math on CUDA) under `cuda/`, mirroring host stack's two-tier layout. A `pybind11` module exposes it so the existing Python parity harness validates it. A separate ament `LifecycleNode` wraps it. Manager-style CMake package export (`find_package(overlume_rendering)`).
+**Architecture:** Pure C++/CUDA library `overlume::rendering` (the validated NumPy/GL math on CUDA) under `cuda/`, mirroring the host stack's two-tier layout. A `pybind11` module exposes it so the existing Python parity harness validates it. A separate ament `LifecycleNode` wraps it. Manager-style CMake package export (`find_package(overlume_rendering)`).
 
 **Tech Stack:** CUDA 12.4 (`sm_86`), C++14 (lib) / C++17 (node), CMake 3.20, pybind11, ROS2 Humble, GoogleTest, pytest.
 
 ## Global Constraints
 
 - Spec: `docs/superpowers/specs/2026-06-23-cuda-library-design.md`.
-- **Conventions (the stack manager, strict):** namespace `overlume::rendering` (lib) / `overlume::rendering_app` (node); headers `.hpp` + `#pragma once` + Doxygen; C++14 lib / C++17 node / CUDA std 14; Google clang-format (IndentWidth 4, ColumnLimit 100, Allman braces); classes `PascalCase`, methods `snake_case`, members `snake_case_`, enum-class `UPPER_SNAKE_CASE`; GoogleTest aggregated under `BUILD_TESTING` (Debug only).
+- **Conventions (stack manager, strict):** namespace `overlume::rendering` (lib) / `overlume::rendering_app` (node); headers `.hpp` + `#pragma once` + Doxygen; C++14 lib / C++17 node / CUDA std 14; Google clang-format (IndentWidth 4, ColumnLimit 100, Allman braces); classes `PascalCase`, methods `snake_case`, members `snake_case_`, enum-class `UPPER_SNAKE_CASE`; GoogleTest aggregated under `BUILD_TESTING` (Debug only).
 - **CMake:** manager-style package export — `install(EXPORT overlume_renderingTargets NAMESPACE overlume_rendering:: DESTINATION lib/cmake/overlume_rendering)`, `configure_package_config_file` + `write_basic_package_version_file`, per-lib `set_target_properties(... EXPORT_NAME <short>)`, `target_include_directories` with `BUILD_INTERFACE`/`INSTALL_INTERFACE`, install to `install/libs/<lib>/{libs,include/<lib>}`. CUDA via `find_package(CUDAToolkit REQUIRED)` + link `CUDA::cudart`. Arch: `set(CMAKE_CUDA_ARCHITECTURES 86 CACHE STRING "")`.
 - **Build scripts mirror manager:** `cuda/scripts/libs_build/libs_build.sh <Debug|Release>` (Debug ⇒ `-DBUILD_TESTING=ON`; `build/` dir; `cmake --build . --parallel $(($(nproc)/2))`; `cmake --install .`); `cuda/scripts/ros_apps_build/colcon_build.sh [pkgs]` (+ `config_colcon.yaml`, `--symlink-install --event-handlers console_direct+ --cmake-args -DCMAKE_BUILD_TYPE=… -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`).
 - **Numeric parity targets** (vs the validated Python reference, skip-guarded by `cuda_available()`): bowl vs `NumpyRenderer` mask>0.97 & **PSNR>40 dB**; depth vs `DepthRenderer` mask>0.90 & PSNR>28 dB; hybrid vs Python hybrid PSNR>28 dB.
@@ -958,7 +958,7 @@ Manual-verify (node loop). Builds with colcon; the launch smoke test is the inte
 - [ ] **Step 2:** `rendering_node.hpp/.cpp`: `class RenderingNode : public rclcpp_lifecycle::LifecycleNode` in `overlume::rendering_app`. `on_configure` reads params (camera topics list, virtual-pose preset, bowl params), builds `Reprojector`, sets cameras from CameraInfo + tf2 extrinsics; subscribes N `Image`+`CameraInfo`; on a sync/timer calls `render_bowl`, converts via cv_bridge, publishes `Image`+`CameraInfo`. Report component_health.
 - [ ] **Step 3:** `colcon_build.sh` + `config_colcon.yaml` mirror manager's. Build: `cd cuda/scripts/ros_apps_build && ./colcon_build.sh overlume_rendering_node`. (Source ROS 2 Humble first: `source /opt/ros/humble/setup.bash`.)
 - [ ] **Step 4:** `smoke_test.py` launch test: publish synthetic `Image`+`CameraInfo` on N topics with known calibration + static tf, configure+activate the node, assert it publishes a synthesized `Image` whose pixels are not all-zero. This is the integration gate. (Do NOT block on a manual GUI; the test is headless.)
-- [ ] **Step 5:** Update `README.md` roadmap: C++/CUDA library implemented (bowl/depth/hybrid), host stack-convention package, pybind parity numbers, ROS2 node. Commit `feat(cuda): ROS2 LifecycleNode + launch smoke test + README`.
+- [ ] **Step 5:** Update `README.md` roadmap: C++/CUDA library implemented (bowl/depth/hybrid), host-convention package, pybind parity numbers, ROS2 node. Commit `feat(cuda): ROS2 LifecycleNode + launch smoke test + README`.
 
 ---
 
@@ -966,7 +966,7 @@ Manual-verify (node loop). Builds with colcon; the launch smoke test is the inte
 
 **Spec coverage:** §5 layout → Tasks 1,2,8. §6 API+kernels → Tasks 1,3,4,5. §7 CMake package → Task 1 (+example consume Task 6). §8 pybind parity → Tasks 2–5. §9 ROS node → Task 8. §10 testing (pybind, GTest golden, ROS smoke, benchmark) → Tasks 3–8. §11 build scripts → Tasks 1,8. §12 build order → task sequence. All covered.
 
-**Placeholder scan:** Tasks 1–4 carry complete code. Tasks 5–8 give complete code for novel parts (composite kernel rule, golden format, node class shape) and reference Tasks 3–4's verbatim patterns for the mechanical remainder — flagged explicitly, not "TODO". The ROS node (Task 8) is the largest prose-spec'd task; its lib usage is fully specified, ROS plumbing follows the host stack LifecycleNode pattern the Explore report documented.
+**Placeholder scan:** Tasks 1–4 carry complete code. Tasks 5–8 give complete code for novel parts (composite kernel rule, golden format, node class shape) and reference Tasks 3–4's verbatim patterns for the mechanical remainder — flagged explicitly, not "TODO". The ROS node (Task 8) is the largest prose-spec'd task; its lib usage is fully specified, ROS plumbing follows the host stack's LifecycleNode pattern the Explore report documented.
 
 **Type consistency:** `CameraParams{K[9],R[9],t[3],width,height}`, `BowlParams{R0,k,Rmax}`, `CamDev` (in `camdev.hpp`), and the `launch_bowl`/`launch_splat` signatures are consistent across `reproject.cu`, `splat.cu`, `reprojector.cpp`. The pybind `render_bowl(vcam, R0,k,Rmax)` / `render_depth(vcam, radius)` signatures match the test calls. Namespace `overlume::rendering` throughout; package/target names `overlume_rendering` / `overlume_rendering::reprojector` consistent.
 

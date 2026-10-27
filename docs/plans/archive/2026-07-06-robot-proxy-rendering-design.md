@@ -9,7 +9,7 @@ No real camera sees the robot (they are mounted on it, looking outward), so the
 live virtual view published by `overlume_rendering_node` shows an empty hole
 where the robot is. The Python prototype already composites a placeholder box
 (`tpsprojector/robot.py`); the live CUDA path has nothing. The real robot mesh
-is available: `robot.obj` + `the robot's ego model.mtl` (Blender 5 export, 523k verts / ~1M tris
+is available: `robot.obj` + `robot.mtl` (Blender 5 export, 523k verts / ~1M tris
 after triangulation, plain `Kd` materials, no textures).
 
 ## Decision

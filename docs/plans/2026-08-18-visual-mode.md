@@ -280,7 +280,7 @@ structure at planning time — the epic plan's as-built list wins where they dif
 | SceneGraph structs + double buffer + staleness clocks | VM-010 | `visual_renderer/include/visual_renderer/scene.h` (POD), `src/scene_buffer.cpp`, `tests/test_scene_buffer.cpp` |
 | Theme YAML → materials (BOTH `dark_adas.yaml` + `light_clay.yaml`, v1) | VM-011 | `src/theme.cpp`, `assets/themes/{dark_adas,light_clay}.yaml`, `tests/test_theme.cpp`, golden harness `tests/golden.{cpp,py}` |
 | Animated theme toggle (0.8 s eased token lerp, Oklab; GUI day/night toggle + WS `set_theme`) | VM-014 | lib `src/theme_transition.cpp`, `tools/vcam_gui.py`, `tools/vcam_ws_bridge.py`, deterministic-clock goldens |
-| the robot's ego model→glTF script + ego rendering + TF speed | VM-012 | `scripts/obj2gltf.py`, `src/ego.cpp`, node `src/tf_adapter.cpp`, fixtures |
+| ego-model→glTF script + ego rendering + TF speed | VM-012 | `scripts/obj2gltf.py`, `src/ego.cpp`, node `src/tf_adapter.cpp`, fixtures |
 | Preset/tween port shared with Task 5 code | VM-013 | node `src/vcam.cpp` refactor |
 
 ➤ Frozen after Epic 1: `mpviz::SceneGraph` POD layout, `set_scene(VisualRenderer*, const SceneGraph&)` entry point, golden-test harness CLI.
@@ -332,7 +332,7 @@ unified-engine migration (2026-09-10 plan, Decision 10), per its file-overlap
 analysis: **VM-041** and **VM-042's docs half** (profile-authoring + bake
 runbook; deployment notes deferred to post-cutover) pulled forward NOW in
 worktrees; **VM-044** slots after migration Task 2/VM-091 (same
-`visualization_node.cpp` files, and it feeds Task 6's the robot's ego model-glTF sign-off
+`visualization_node.cpp` files, and it feeds Task 6's ego-model-glTF sign-off
 exception); **VM-040** slots after migration Task 5/VM-094 (the governor
 tunes against the perf envelope the camera/bowl work is changing); **VM-043**
 is superseded — its on-robot rerun and parity checklist close inside

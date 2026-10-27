@@ -181,7 +181,7 @@ Steps:
   - If `reason` is non-empty, call `RCLCPP_WARN_THROTTLE(..., 5000, "hybrid: render_mode=%d/profile=%s consumes a lidar cloud but %s -- splats will not render", ...)`.
   - Store `reason` in a member `hybrid_starved_reason_`.
   - In `publish_diagnostics()` (`:1350`), append `BuildHybridStatus(hybrid_starved_reason_)` to `msg.status`.
-- [ ] **A4.** Set `default_params.yaml:169` to `pointcloud_topic: "/iv_points_fusion"`, and `:183` to `splat_radius: 3` (CUDA shipped value, matching `robot_params.yaml:32`). Leave the code default for `pointcloud_topic` as `""`, so the library-only/minimal launch stays explicit. The warning covers it.
+- [ ] **A4.** Set `default_params.yaml:169` to `pointcloud_topic: "/iv_points_fusion"`, and `:183` to `splat_radius: 3` (CUDA shipped value, matching `/path/to/robot_params.yaml:32`). Leave the code default for `pointcloud_topic` as `""`, so the library-only/minimal launch stays explicit. The warning covers it.
 - [ ] **A5 (`splat_radius`).**
   - Replace `declare_parameter<int>("splat_radius", 2);` (`:394`) with `splat_radius_ = declare_parameter<int>("splat_radius", 3);`.
   - Add the member `int splat_radius_{3};`.
@@ -438,6 +438,6 @@ Steps:
 
 ## Open questions
 
-1. **RESOLVED 2026-10-02: calibration of `pointcloud_transform` for the fixture bag.** Measured: tz = 2.444, yaw 0 (1.15 was the reference robot value and doubled the stripes); guarded by `test_default_params_hybrid.py`. Original note: The bag's lidar frame is `seyond`. The default transform (`default_params.yaml:170-182`, identity plus z = 1.15) is unverified for this bag. Mis-registration would still pass the delta floors but give wrong colours or positions. D5's visual inspection is the check. If the cloud is clearly mis-placed, the 180° lidar-yaw trap from the replay notes may apply, and that is a separate fix.
+1. **RESOLVED 2026-10-02: calibration of `pointcloud_transform` for the fixture bag.** Measured: tz = 2.444, yaw 0 (1.15 was the reference robot's value and doubled the stripes); guarded by `test_default_params_hybrid.py`. Original note: The bag's lidar frame is `seyond`. The default transform (`default_params.yaml:170-182`, identity plus z = 1.15) is unverified for this bag. Mis-registration would still pass the delta floors but give wrong colours or positions. D5's visual inspection is the check. If the cloud is clearly mis-placed, the 180° lidar-yaw trap from the replay notes may apply, and that is a separate fix.
 2. **Ego-motion compensation is inert by default.** `odom_topic: ""` is the default, and the fixture has no Odometry topic. Should a TF-derived twist source be added? That is out of scope here, the same limitation as the bowl.
 3. **Should FREE_LOOK map/OGM layers also yield to ground splats?** They are not in the backdrop group, so lane paint at z ≈ 0.01-0.05 can still stripe ground splats in FREE_LOOK + `hybrid`. The current choice keeps them as foreground, which is the conservative reading of "as designed".

@@ -10818,7 +10818,7 @@ Before either site:
    "Build and test").
 2. Export `MAPBOX_TOKEN` (§1) and run `tools/check_mapbox_token.sh` (§2).
 3. Set `SESSION_DIR` to the logger session's directory
-   ([`replay_logger_session.md`](replay_logger_session.md)).
+   ([`replay_bag.md`](replay_bag.md)).
 
 ### 7.1 Test site
 
@@ -14674,7 +14674,7 @@ and 11 with the user, because they reach the network with the real token.
   §3). Test site: (25.1972 N, 55.2744 E) lies 208 m from the east edge of 14/10707/7006 and
   589 m from its north edge, so its east neighbour loads too: two tiles.
 - Volume: 17 requests per z14 tile (one landmark GLB, 16 MVTs), so the green run makes 51.
-- libcurl honours `https_proxy` (`docs/runbooks/replay_logger_session.md` §6). Pointed at a closed
+- libcurl honours `https_proxy` (`docs/runbooks/replay_bag.md` §6). Pointed at a closed
   local port, every request fails in transport before leaving the machine; with Task 6 those
   failures count, and eight in a row trip `STREAMING_FALLBACK` (`environment_stream.hpp:50`,
   `environment_stream.cpp:769-774`). Step 9 uses that for an offline red run.
@@ -15052,7 +15052,7 @@ Never print a token, never use `set -x` with tokens in the environment, and push
 
 **API notes:**
 - Rig: `kill_prior_rig` kills any running node, bridge, GUI or bag player on the machine, whichever
-  checkout started them (`tools/validate_visual_mode.sh:72-110`), but not `the logger's player`: the replay
+  checkout started them (`tools/validate_visual_mode.sh:72-110`), but not the robot logger's player: the replay
   wrapper refuses to start while `/clock` has a publisher (`tools/validate_logger_session.sh:48-51`).
   Port 8765 must be free (`validate_visual_mode.sh:116`). `CESIUM_ION_TOKEN` is refreshed from a
   login shell (`:177-184`), and Task 11 does the same for `MAPBOX_TOKEN`, reading both back on
@@ -15062,7 +15062,7 @@ Never print a token, never use `set -x` with tokens in the environment, and push
 - Replay wrapper: `--` forwards the rest to `validate_visual_mode.sh` (`:24`, `:139-141`). `--arm`
   waits for `Rig is up`, then retries `set_environment_source` over the bridge for 120 s and prints
   `[arm] OK: environment source = …` (`:144-170`). Its teardown runs on INT or TERM (`:94-109`).
-  The −1.8 m antenna offset comes from `docs/runbooks/replay_logger_session.md:129-136`.
+  The −1.8 m antenna offset comes from `docs/runbooks/replay_bag.md:129-136`.
 - Bridge: `{"cmd": "set_environment_source", "preset": "<entry>"}` is acknowledged with
   `{"type": "ack", "cmd": "set_environment_source", "success": …, "reason": …}`
   (`tools/vcam_ws_bridge.py:33`, `:53`), which is what the GUI's selector sends
@@ -15087,7 +15087,7 @@ Never print a token, never use `set -x` with tokens in the environment, and push
   `overlume/tools/sample_diagnostics.py <seconds>` prints
   `render_ms_p50=… render_ms_p99=… render_ms_n=…` (`:15-48`).
 - Network cut: `tools/kill_switch_proxy.py` is a CONNECT proxy that logs no URL, and killing it
-  refuses every new connection (`:5-13`, `:71`; `docs/runbooks/replay_logger_session.md` §6).
+  refuses every new connection (`:5-13`, `:71`; `docs/runbooks/replay_bag.md` §6).
   With Task 6, curl's transport errors count as failures, and at 8 the stream falls back at the
   next update (`environment_stream.hpp:50`, `environment_stream.cpp:769-774`).
 - Session map frame: the route's map → base_link poses are in `$SESSION_DIR/transform/tf/*.csv`,
@@ -15164,7 +15164,7 @@ Expected:
   Without either line, stop and ask the user for the session or `COLLECTOR_INSTALL`.
 - `DISPLAY set`, `no rig running`, `0` (ports 8765 and 8899 free). A listed
   process belongs to a rig the user has just agreed to stop, and the rig's start stops it, which
-  also frees 8765 when that bridge holds it; a running `the logger's player` must be stopped by hand. Port
+  also frees 8765 when that bridge holds it; a running the robot logger's player must be stopped by hand. Port
   8765 held by anything else, or 8899 held at all, must be freed first. With `DISPLAY unset` the
   GUI would not start: stop and ask the user for their display.
 - `PASS: token retrieves the Downtown Dubai tiles (landmark tile HTTP 200, footprint tile HTTP 200)`,

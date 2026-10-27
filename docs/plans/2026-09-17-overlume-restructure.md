@@ -30,7 +30,7 @@ The user renames the GitHub remote themselves.
   after every task, with the same ok/skipped counts as before the task
   (library 242 / 232 ok / 6 skipped; node 281; bridge 74; goldens 20).
 - **Data contracts are not identifiers.** ROS topic/frame/service strings that
-  name the robot's autonomy stack (`/host stack/...`, `/perception/...`),
+  name the robot's autonomy stack (`/<stack>/...`, `/perception/...`),
   fixture bag contents, profile YAML topic rows, and recorded fixtures stay
   byte-identical. Only code identifiers, package names, env vars, paths and
   docs rename.

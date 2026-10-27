@@ -16291,7 +16291,7 @@ because they reach the network with the real tokens.
   Bing tiles through ion.
 - No request recorder exists on the live path, so "imagery requests > 0" (spec §8) is read as
   `rasters_attached > 0`: a raster attaches only after its imagery arrived.
-- libcurl honours `https_proxy` (`docs/runbooks/replay_logger_session.md` §6): pointed at a closed
+- libcurl honours `https_proxy` (`docs/runbooks/replay_bag.md` §6): pointed at a closed
   local port, every request fails in transport on the machine. Step 9 uses that for an offline red
   run. A Mapbox source then reaches `STREAMING_FALLBACK` (eight failures in a row); an ion source
   whose handshake fails stays `STREAMING` with nothing loaded (`docs/status.md` open item 18), so
@@ -16749,7 +16749,7 @@ earlier step passed.
 **API notes:**
 - The rig and its traps are sub-project 1's (its plan's Task 17 API notes,
   `docs/plans/2026-10-14-mapbox-buildings.md`): `kill_prior_rig` stops any node, bridge, GUI or bag
-  player on the machine but not `the logger's player` (`tools/validate_visual_mode.sh:72-110`,
+  player on the machine but not the robot logger's player (`tools/validate_visual_mode.sh:72-110`,
   `tools/validate_logger_session.sh:48-51`); port 8765 must be free; both tokens are refreshed from
   a login shell on fd 3 (`tools/validate_visual_mode.sh:177-190`); the node logs to
   `/tmp/overlume_validate/overlume_node.log`; the GUI needs `DISPLAY`; the rig prints `Rig is up`
@@ -16859,7 +16859,7 @@ Expected:
   `tools/validate_logger_session.sh:32-35`); without either, stop and ask the user for the session
   or `COLLECTOR_INSTALL`.
 - `DISPLAY set`, `no rig running`, `0` (ports 8765 and 8899 free). A listed process belongs to a
-  rig the user has just agreed to stop, and the rig's start stops it; a running `the logger's player` must be
+  rig the user has just agreed to stop, and the rig's start stops it; a running the robot logger's player must be
   stopped by hand. With `DISPLAY unset`, stop and ask the user for their display.
 - `PASS: token retrieves the Downtown Dubai tiles (landmark tile HTTP 200, footprint tile HTTP 200, DEM tile HTTP 200, satellite tile HTTP 200)`,
   then `PASS: token retrieves tileset.json for asset 96188 (endpoint 200, tileset 200)`.

@@ -10,14 +10,14 @@ consumable by other projects."
 ## 1. Summary
 
 Port the validated TPSProjector reprojection (bowl, depth, hybrid) to a
-standalone **CUDA C++ library** that follows the **the stack manager** code and
-CMake conventions, so it drops into the host stack ROS2 ecosystem as
+standalone **CUDA C++ library** that follows the **stack manager** code and
+CMake conventions, so it drops into the host stack's ROS2 ecosystem as
 `overlume_rendering`. The library is **ROS-agnostic**; a thin
 `rclcpp_lifecycle::LifecycleNode` wraps it and is the real integration test.
 Correctness is gated by **pybind11 parity against the existing Python reference**
 (`NumpyRenderer`/`DepthRenderer`), plus a native C++ golden test and a ROS2 launch
 smoke test. Built inside the TPSProjector repo under `cuda/`, mirroring
-host stack's two-tier layout, so it is a clean copy/move into `~/host stack` later.
+The host stack's two-tier layout, so it is a clean copy/move into `$HOST_WS` later.
 
 ## 2. Goals & Non-Goals
 
@@ -33,14 +33,14 @@ host stack's two-tier layout, so it is a clean copy/move into `~/host stack` lat
   (pixel-parity vs `NumpyRenderer`/`DepthRenderer`).
 - A thin `LifecycleNode` ROS2 wrapper (ament_cmake) that synthesizes a virtual
   camera view from real camera topics — the real integration test.
-- Match the stack manager conventions exactly (namespace, headers, CMake, style).
+- Match the stack manager's conventions exactly (namespace, headers, CMake, style).
 
 ### Non-Goals (YAGNI)
 - Device-pointer / zero-copy GL-CUDA interop API (designed-for extension, not v1).
 - Texture-object hardware bilinear (manual in-kernel bilinear first, for exact parity).
 - A real depth source — the ROS2 node's depth/hybrid path awaits perception's
   LiDAR-projection depth; the node's integration test uses **bowl** mode.
-- Moving the package into `~/host stack` (kept drop-in-ready in TPSProjector).
+- Moving the package into `$HOST_WS` (kept drop-in-ready in TPSProjector).
 - Multi-GPU, FP16.
 
 ## 3. Environment (verified on this box)
@@ -48,10 +48,10 @@ host stack's two-tier layout, so it is a clean copy/move into `~/host stack` lat
 - CUDA 12.4 (`nvcc`; also 12.8 present); RTX 3090, compute capability **8.6** → `sm_86`.
 - `g++` 11.4, CMake 3.28, make. ROS2 **Humble** (`/opt/ros/humble`, `ros2`, `colcon`, `rclcpp`).
 - `pybind11` to be installed (`pip install pybind11`, provides its CMake config).
-- host stack's CUDA libs target arch 89 for their deploy GPU; we use `sm_86` for this
+- The host stack's CUDA libs target arch 89 for their deploy GPU; we use `sm_86` for this
   box, exposed as a CMake cache var `CMAKE_CUDA_ARCHITECTURES` so it is retargetable.
 
-## 4. Conventions (the stack manager style — strictly)
+## 4. Conventions (stack manager style — strictly)
 
 - **Namespace:** `overlume::rendering` (manager uses `overlume::<concern>::<module>`,
   e.g. `overlume::system_manager::core`). ROS node: `overlume::rendering_app`.
@@ -73,7 +73,7 @@ host stack's two-tier layout, so it is a clean copy/move into `~/host stack` lat
   (manager rule: root CMake gates `test_*` on `Debug` + `BUILD_TESTING`). Install to
   `install/libs/` and `install/ros_apps/`.
 
-## 5. Repository layout (inside TPSProjector, mirrors host stack two-tier)
+## 5. Repository layout (inside TPSProjector, mirrors the host stack's two-tier)
 
 ```
 cuda/
@@ -164,7 +164,7 @@ validate with no ROS, no GL, and no display.
 
 ## 7. CMake (manager-style package export + CUDA)
 
-Root `cuda/CMakeLists.txt` mirrors `the stack manager/CMakeLists.txt`:
+Root `cuda/CMakeLists.txt` mirrors the stack manager's root `CMakeLists.txt`:
 `cmake_minimum_required(3.20)`; `CMAKE_CXX_STANDARD 14`, PIC on, exports on;
 `project(overlume_rendering VERSION 0.1.0 LANGUAGES CXX CUDA)`;
 `set(CMAKE_CUDA_ARCHITECTURES 86 CACHE STRING "")`; `CMAKE_CUDA_STANDARD 14`;
@@ -177,7 +177,7 @@ configure_package_config_file(cmake/overlume_renderingConfig.cmake.in ...)
 write_basic_package_version_file(... COMPATIBILITY AnyNewerVersion)
 install(FILES <Config.cmake> <ConfigVersion.cmake> DESTINATION lib/cmake/overlume_rendering)
 ```
-Each lib `CMakeLists.txt` mirrors `the stack manager_core`:
+Each lib `CMakeLists.txt` mirrors the stack manager's core library `CMakeLists.txt`:
 `add_library(rendering_reprojector SHARED ...)`,
 `set_target_properties(... EXPORT_NAME reprojector)`,
 `target_include_directories(... BUILD_INTERFACE/INSTALL_INTERFACE ...)`,
@@ -261,4 +261,4 @@ All skip-guarded with a `cuda_available()` probe so the suite still passes witho
 ## 14. Out of scope (future slices)
 Device-pointer / GL-CUDA zero-copy interop; texture-object hardware bilinear; FP16;
 real depth source wiring for the node's depth/hybrid path; moving the package into
-`~/host stack`. Seams (`Reprojector` API, surface dispatch) keep these open.
+`$HOST_WS`. Seams (`Reprojector` API, surface dispatch) keep these open.

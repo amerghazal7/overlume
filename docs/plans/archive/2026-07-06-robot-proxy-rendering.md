@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** The live CUDA pipeline composites the real the robot's ego model robot mesh (OBJ+MTL) into every rendered virtual-camera frame, with the model path configurable.
+**Goal:** The live CUDA pipeline composites the real robot mesh (OBJ+MTL) into every rendered virtual-camera frame, with the model path configurable.
 
 **Architecture:** A host-side OBJ+MTL loader in `rendering_reprojector` bakes per-triangle lit colors and rig-frame vertices; a new CUDA triangle-raster kernel draws them into a packed z-buffer reusing splat.cu's `zbuf_init`/`resolve_kernel`; the existing `launch_composite` overlays the robot layer on the environment inside all three `render_*` paths. The ROS node gains `robot_model_path` + `robot_model_transform` params and calls the loader at `on_configure`.
 
@@ -21,7 +21,7 @@
 - CUDA lib build: `cd cuda/scripts/libs_build && ./libs_build.sh Release` (installs to `cuda/install/libs`, including the `tpscuda` Python module).
 - Node build: `cd cuda/scripts/ros_apps_build && ./colcon_build.sh overlume_rendering_node`.
 - Code style: `namespace overlume::rendering`, doxygen `/** @file ... */` headers, 4-space indent, brace-on-own-line (match `reprojector.cpp`).
-- The model files stay at `$HOME/Downloads/robot.obj` + `$HOME/Downloads/the robot's ego model.mtl` — NOT committed to git.
+- The model files stay at `$HOME/Downloads/robot.obj` + `$HOME/Downloads/robot.mtl` — NOT committed to git.
 - The robot proxy is optional everywhere: empty `robot_model_path` or load failure must leave rendering exactly as it is today.
 
 ---
@@ -155,7 +155,7 @@ __global__ void resolve_kernel(const unsigned long long* zbuf, const float* cols
 // clamp the screen bbox, test pixel centers with barycentric edge functions
 // (signed sub-area / signed area — winding-independent), atomicMin the packed
 // affine-interpolated depth. Affine (not perspective-correct) depth across a
-// triangle is fine here: the the robot's ego model triangles are millimetre-scale.
+// triangle is fine here: the ego-model triangles are millimetre-scale.
 // ponytail: a near triangle spanning the screen would walk a huge bbox; the
 // robot is always >= 1.5 m from the vcam (orbit DIST_MIN), so bboxes stay tiny.
 __global__ void robot_raster_kernel(unsigned long long* zbuf, int OW, int OH,
@@ -381,7 +381,7 @@ Then in `on_configure`, immediately after the "build reprojector" try/catch bloc
     // proxy. robot_model_path = "" disables it; load failure is non-fatal
     // (render without the robot rather than take the node down).
     auto robot_path = declare_parameter<std::string>("robot_model_path", "");
-    // OBJ->rig [R(9 row-major)|t(3)]. Default matches the the robot's ego model Blender export:
+    // OBJ->rig [R(9 row-major)|t(3)]. Default matches the ego-model Blender export:
     // obj x-fwd, y-up, z-right -> rig x-fwd, y-left, z-up.
     auto robot_tf = declare_parameter<std::vector<double>>(
         "robot_model_transform", {1, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0, 0});
@@ -461,7 +461,7 @@ Expected: build succeeds. (The install space symlinks config files, so `default_
 
 - [ ] **Step 5: Headless smoke test**
 
-Run the existing node smoke test to prove configure/activate/render still work with the new params in the config (it loads the full the robot's ego model — expect a few extra seconds of configure time):
+Run the existing node smoke test to prove configure/activate/render still work with the new params in the config (it loads the full ego model — expect a few extra seconds of configure time):
 `source /opt/ros/humble/setup.bash && source cuda/install/ros_apps/setup.bash && python3 cuda/src/ros_apps/src/overlume_rendering_node/test/smoke_test.py`
 (Consult the smoke test's file header if it documents a different invocation.)
 Expected: exit 0.
@@ -513,7 +513,7 @@ Take a screenshot for the user to judge — their acceptance gate is visual.
 In `README.md`, roadmap item 7's ROS2 LifecycleNode bullet, after the sentence about runtime virtual-cam control, add:
 
 ```
-     Robot proxy: `robot_model_path` (OBJ+MTL, e.g. the the robot's ego model model) is loaded at
+     Robot proxy: `robot_model_path` (OBJ+MTL, e.g. the ego model) is loaded at
      configure time, rasterized on the GPU, and depth-composited into every
      rendered frame — the robot's own body is visible in the virtual view even
      though no real camera sees it. `robot_model_transform` ([R|t], default
