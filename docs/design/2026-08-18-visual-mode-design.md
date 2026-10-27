@@ -241,7 +241,7 @@ same technique as Mapbox GL's `fill-extrusion` buildings layer. Because the
 robot operates in a bounded area, v1 uses a **deployment-time bake pipeline**
 instead of runtime tile streaming:
 
-- `scripts/bake_environment.py`: given the test-site bounding box,
+- `scripts/bake_environment.py`: given the test site's bounding box,
   pulls OSM building footprints + height/levels tags (Overpass API or a
   local planet extract; Mapbox vector tiles usable as an alternative source
   where licensed), extrudes them into **chunked, georeferenced glTF tiles**
@@ -427,7 +427,7 @@ Following the repo's TDD convention:
 | MarkerArray formats drift (autonomy team refactors namespaces) | Profile YAML + generic fallback keep data visible; adapter tests use recorded fixtures so drift is caught by re-recording |
 | Filament build complexity in CI | Pin one Filament release; prebuilt-binary first, vendored source build script as fallback; build cached |
 | Geo-anchor wrong/absent → misplaced buildings | Environment layer independently toggleable; bake script renders a verification overlay (footprints vs recorded ego track) before deployment; no datum = layer off, not wrong |
-| OSM height data sparse in test site | Extrude `building:levels`×3 m fallback, then a default height; clay style makes approximate heights acceptable (context, not measurement) |
+| OSM height data sparse at the test site | Extrude `building:levels`×3 m fallback, then a default height; clay style makes approximate heights acceptable (context, not measurement) |
 
 ## 13. Implementation execution note
 

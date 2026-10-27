@@ -318,9 +318,9 @@ cesium's in-memory caches apply; ion keeps `cache=`.
 
 ### Opt-in live (never in the gate)
 
-`MapboxLive.TestSiteTerrain` (`MAPBOX_TOKEN` + `OVERLUME_LIVE_MAPBOX=1`): 2 terrain tiles,
-imagery requests > 0, no token in the log, a PNG in `/tmp`. `IonLive.WorldTerrainBing`
-(`CESIUM_ION_TOKEN` + `OVERLUME_LIVE_ION=1`): terrain tiles > 0 and a raster attached.
+`IonLive.WorldTerrainBing` (`CESIUM_ION_TOKEN` + `OVERLUME_LIVE_ION=1`), at the fixture anchor:
+terrain tiles > 0, a raster attached and no token in the log. Mapbox terrain and imagery have no
+live test of their own; `tools/check_mapbox_token.sh` and the demo cover them.
 
 ### Gate
 
@@ -330,9 +330,10 @@ baseline (library ctest 442 with 424 ok and 8 skipped, node 381, WS bridge 94, g
 
 ## 9. Demo
 
-On the replay rig at both sites: the test site with `mapbox-satellite` (imagery under the
-clay extrusions, Maxar on the line, terrain following the route), Downtown with
-`mapbox-original-satellite` (landmarks on satellite ground), and `osm-terrain` as the provider proof.
+On the replay rig, with and without the geo-datum override: at the bag's own anchor with
+`mapbox-satellite` (imagery under the clay extrusions, Maxar on the line, terrain following the
+route), at Downtown Dubai, the test site, with `mapbox-original-satellite` (landmarks on satellite
+ground), and `osm-terrain` as the provider proof.
 
 ## 10. Delivery
 
@@ -346,8 +347,9 @@ a Shipped row, and the plan its live acceptance results.
 1. Over the fixture network, `mapbox://buildings,terrain?imagery=satellite` builds terrain tiles with
    imagery attached and buildings standing on the DEM; every existing golden unchanged.
 2. The ion proof streams Cesium World Terrain with an ion overlay over fixture endpoints.
-3. On the rig at both sites, the user confirms imagery under the buildings, buildings on the surface
-   along the whole route, the attribution with Maxar, and `osm-terrain` with Bing's credit.
+3. On the rig, with and without the override, the user confirms imagery under the buildings,
+   buildings on the surface along the whole route, the attribution with Maxar, and `osm-terrain`
+   with Bing's credit.
 4. The network cut reaches the fallback with terrain and imagery gone.
 5. `mapbox-satellite` render cost: p50 `render_ms` within 1.5× `osm` at Downtown.
 6. No token in any log; no disk cache file written for Mapbox data; the gate green.

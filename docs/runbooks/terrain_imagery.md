@@ -185,15 +185,17 @@ configure WARN, and
 `ros/src/overlume_ros/test/test_environment_live_switch.py` check 6 proves that activation and a
 live switch both compose them.
 
-Opt-in, never in the gate, each needing its token and the network:
+Opt-in, never in the gate, needing `CESIUM_ION_TOKEN` and the network (it renders at the fixture
+anchor, the Burj Khalifa):
 
 ```bash
 OVERLUME_LIVE_ION=1 overlume/build/test_mapbox_terrain --gtest_filter='IonLive.*'
-OVERLUME_LIVE_MAPBOX=1 overlume/build/test_mapbox_terrain --gtest_filter='MapboxLive.*'
 ```
 
 `OVERLUME_LIVE_ION` is its own switch: the ion performance test's `OVERLUME_LIVE_ION_PERF` does
-not run these, and this one does not run that.
+not run this, and this one does not run that. Mapbox terrain and imagery have no live test of their
+own: `tools/check_mapbox_token.sh` fetches the Downtown terrain-DEM tile, and the demo
+([`mapbox.md`](mapbox.md) §7) shows both.
 
 ## 8. Troubleshooting
 

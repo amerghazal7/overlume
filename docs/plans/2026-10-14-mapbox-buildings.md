@@ -7,8 +7,8 @@
 
 **Goal:** `mapbox://buildings`, a streamed environment source selected like `ion://`: Mapbox's
 landmark models plus extruded streets-v8 footprints around the vehicle, rendered by the existing
-streaming pipeline, with Mapbox's attribution on screen, demo-ready at Downtown Dubai and at the
-test site.
+streaming pipeline, with Mapbox's attribution on screen, demo-ready at the test site, Downtown
+Dubai.
 
 **Architecture:** A custom cesium-native `TilesetContentLoader` models Web Mercator XYZ as a
 quadtree, and cesium's area view selects only the z14 tiles within the radius of the ego. Each
@@ -49,13 +49,13 @@ where the plan uses it.
 | 13. Mapbox loader: tiling, extrusions, failures, dispatch | 7 | done | `e714a26..169c033` |
 | 14. Landmarks and conflation in the loader | 7 | done | `169c033..ad8b9da` |
 | 15. Golden candidate and promotion | 8 | done; two goldens (dark_adas and light_clay, both clay) promoted by the user 2026-10-15 | `be29f4d..1028db2` |
-| 16. Opt-in live smoke | 8 | done; live run 2026-10-15 with the user's consent: Downtown tiles 1, landmarks 7, extruded 1222, conflated 62, slowest build 14 ms; test site tiles 2, landmarks 0, extruded 564, conflated 0, slowest build 1 ms; `tools/check_mapbox_token.sh` PASS | `6f515f6` |
+| 16. Opt-in live smoke | 8 | done; live run 2026-10-15 with the user's consent: Downtown tiles 1, landmarks 7, extruded 1222, conflated 62, slowest build 14 ms; the session's anchor (`MapboxLive.TestSite`, since removed) tiles 2, landmarks 0, extruded 564, conflated 0, slowest build 1 ms; `tools/check_mapbox_token.sh` PASS | `6f515f6` |
 | 17. Rig rehearsal at both sites and close-out | 8 | done (see Live acceptance results) | the close-out commit after `ec0a136` |
 
 ### Live acceptance results (2026-10-15, replay rig, `session_<stamp>`)
 
 - Preflight: tools/check_mapbox_token.sh PASS, overlume/scripts/check_cesium_token.sh PASS. Live smoke (Task 16): ledger row 16.
-- Test site, the session's own anchor (--anchor-lat 25.19691317 --anchor-lon 55.27187784 --anchor-heading-deg 90.1350 --anchor-height 0.35), armed with `--arm mapbox`. Extruded buildings on the map plane and no landmark models: confirmed -- "Confirmed" (clay buildings on the plane along the route, no landmark model). The z14 seam east of the route: confirmed -- no building crosses the z14 line in view; seams pinned by Task 13's CornerLoadsFourTilesWithoutDoubledSeamWalls. Attribution while streaming: confirmed -- "Confirmed" (logo bottom-left, text bottom-right, HUD colour). GUI `mapbox-original`, then `mapbox`: confirmed -- "Both as expected" (mapbox-original warm off-white with the attribution on; mapbox back to the theme clay).
+- At the session's own anchor (--anchor-heading-deg 90.1350 --anchor-height 0.35), armed with `--arm mapbox`. Extruded buildings on the map plane and no landmark models: confirmed -- "Confirmed" (clay buildings on the plane along the route, no landmark model). The z14 seam east of the route: confirmed -- no building crosses the z14 line in view; seams pinned by Task 13's CornerLoadsFourTilesWithoutDoubledSeamWalls. Attribution while streaming: confirmed -- "Confirmed" (logo bottom-left, text bottom-right, HUD colour). GUI `mapbox-original`, then `mapbox`: confirmed -- "Both as expected" (mapbox-original warm off-white with the attribution on; mapbox back to the theme clay).
 - Network cut (kill-switch proxy killed), then a live switch to `mapbox-original` so that new requests fail: the `network loss detected` WARN came 0.08 s after the switch. Attribution after the fallback: confirmed -- "Gone" (no logo, no text while the fallback chunks show).
 - Downtown Dubai: route extent x 111.6..385.8 m, y -210.5..53.6 m, centre (248.7, -78.5), 20418 poses; route centre placed at 25.19451 N, 55.27341 E; datum `geo_datum_lat_deg:=25.1952210`, `geo_datum_lon_deg:=55.2709401`, `geo_datum_heading_deg:=90.1350` (the session's heading), launched with `environment_source_uri:=mapbox://buildings?materials=original`. Landmarks as models with no doubled extrusion: confirmed -- "Confirmed" (textured landmark models, no doubled extrusion in or around them, extruded streets around). Route on open ground: confirmed -- "Confirmed" (one full loop on open ground near the tower, no building crossed). Attribution: confirmed -- "Confirmed" (logo bottom-left, text bottom-right). GUI `mapbox` against `mapbox-original`: confirmed -- "Both as expected" (mapbox: clay on landmarks and extrusions with the attribution on; mapbox-original: Mapbox look back).
 - Render cost at Downtown, `render_ms` from `/overlume_node/diagnostics` over one full replay loop per source, after 30 s of settling, same free-look camera: `mapbox` (clay) p50 5.8 ms, p99 13.3 ms; `osm` p50 6.8 ms, p99 17.4 ms; p50 ratio 0.85 against the 1.5 bar: PASS. Mapbox attribution with `osm` selected: confirmed -- "Gone" (no Mapbox logo or text with osm selected).
@@ -3978,8 +3978,8 @@ namespace mb = overlume::mapbox;
 
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kDegToRad = kPi / 180.0;
-// The test site (spec section 2, D3), with a heading and a non-zero ellipsoidal height so
-// neither can hide behind a zero.
+// The fixture anchor, Burj Khalifa (spec section 2, D3), with a heading and a non-zero ellipsoidal
+// height so neither can hide behind a zero.
 constexpr overlume::GeoAnchor kAnchor{25.1972, 55.2744, 0.35, 12.0};
 
 // Spherical Web Mercator written out independently of the library: fractional tile x, y at zoom z.
@@ -4002,15 +4002,16 @@ mb::TileId anchor_tile() {
 
 }
 
-TEST(MapboxTileFrame, XyzLonLatRoundTripAtBothDemoSites) {
+TEST(MapboxTileFrame, XyzLonLatRoundTripAtTwoLandmarks) {
     struct Site {
         const char* name;
         double lon, lat;
         uint32_t x, y;
     };
-    // Downtown Dubai's z14 tile is 10707/7006 (spec section 3).
+    // Downtown Dubai's z14 tile is 10707/7006 (spec section 3); the Sydney Opera House puts the
+    // second row in the southern hemisphere, where the Mercator row runs past the equator's.
     const Site sites[] = {{"Downtown Dubai", 55.2744, 25.1972, 10707, 7006},
-                          {"test site", 55.2744, 25.1972, 10707, 7006}};
+                          {"Sydney Opera House", 151.2153, -33.8568, 15073, 9831}};
     for (const Site& s : sites) {
         const std::array<double, 2> f = mercator_tile_xy(s.lon, s.lat, mb::kLandmarkZoom);
         EXPECT_EQ(static_cast<uint32_t>(std::floor(f[0])), s.x) << s.name;
@@ -4198,10 +4199,10 @@ TEST(MapboxTileFrame, LandmarkNodeRejectsUnexpectedMatrices) {
 ```
 
 What each test catches when its behaviour is reverted:
-- `XyzLonLatRoundTripAtBothDemoSites`: TMS (south-up) rows in `tile_containing` (y becomes
+- `XyzLonLatRoundTripAtTwoLandmarks`: TMS (south-up) rows in `tile_containing` (y becomes
   16383 − y), a wrong inverse latitude in `tile_point_to_lonlat`, swapped bounds in `tile_bounds`.
   The expected tiles are computed in the test from an independent forward formula and also pinned
-  as literals (Downtown 10707/7006 from spec §3).
+  as literals (Downtown 10707/7006 from spec §3, Sydney Opera House 15073/9831).
 - `TileContainingClampsToTheMercatorSquare`: dropping the `[0, n − 1]` clamp (longitude 180 gives
   column 16384) and a wrong Mercator limit at z0.
 - `FootprintTilesAreTheSixteenZ16SquaresRowMajor`: column-major order, or a zoom other than 16.
@@ -5171,7 +5172,7 @@ namespace glb = overlume::testing::glb;
 namespace mb = overlume::mapbox;
 using overlume::testing::MapboxLandmarkProbe;
 
-// The test site's z14 tile (test_mapbox_tile_frame.cpp pins it), anchored 12 m up.
+// The fixture anchor's z14 tile (test_mapbox_tile_frame.cpp pins it), anchored 12 m up.
 constexpr uint32_t kX14 = 10707, kY14 = 7006;
 constexpr double kOriginHeightM = 12.0;
 // One fixture building after reading: a box of 24 vertices (per-face normals) and 36 u16
@@ -10572,7 +10573,7 @@ with
 - [`mapbox.md`](runbooks/mapbox.md) — the `mapbox://buildings` source: the
   `MAPBOX_TOKEN` contract and `tools/check_mapbox_token.sh`, the URI and the
   two GUI entries, attribution, Mapbox's terms as engineering rules, the demo
-  at the test site and Downtown Dubai, and troubleshooting.
+  at the test site (Downtown Dubai), and troubleshooting.
 ```
 
 In `docs/status.md`, replace (the end of open item 20, its blank line and the next heading)
@@ -10820,9 +10821,9 @@ Before either site:
 3. Set `SESSION_DIR` to the logger session's directory
    ([`replay_bag.md`](replay_bag.md)).
 
-### 7.1 Test site
+### 7.1 At the session's own anchor
 
-The session's own GPS anchor places the map at the test site (25.1972, 55.2744).
+Without an override, the session's own GPS anchor places the map where the session was recorded.
 
 ```bash
 tools/validate_logger_session.sh "$SESSION_DIR" --arm mapbox
@@ -10830,10 +10831,11 @@ tools/validate_logger_session.sh "$SESSION_DIR" --arm mapbox
 
 - The anchor solves from the replayed GPS after 500 fixes and 20 m of travel. `--arm` retries the
   switch every 5 s for up to 120 s, then prints `[arm] OK: environment source = mapbox`.
-- Expect extruded buildings only: Mapbox has no landmark models there.
+- Outside Downtown Dubai and Dubai Marina, expect extruded buildings only: Mapbox has no landmark
+  models there.
 - `--arm mapbox-original` shows Mapbox's look. The GUI list switches between the two live.
 
-### 7.2 Downtown Dubai
+### 7.2 Downtown Dubai, the test site
 
 A full geo-datum override moves the map to Downtown:
 
@@ -10841,7 +10843,7 @@ A full geo-datum override moves the map to Downtown:
   override is logged as an ERROR and ignored. The anchor then waits for GPS, nothing arms at
   activate (the node warns `no geo-anchor solved yet at on_activate()`), and no buildings show
   until a live switch (a GUI entry or `--arm`) after the GPS solve, which streams them at the
-  test site.
+  session's own anchor (§7.1).
 - The override pins where map (0, 0) is, and the compass bearing of map +x (90.0 means map +x
   points east). It does not move the robot: the replayed path keeps its map coordinates. The
   rehearsal keeps the session's map heading and picks the latitude and longitude so that the path
@@ -10910,8 +10912,8 @@ among streets of extruded buildings.
 - **No buildings over the sea.** A footprint tile over open water holds only a `water` layer, so
   there is nothing to extrude. Nothing is wrong.
 - **Extrusions, but no landmark models.** Mapbox serves landmark models in Downtown Dubai and
-  Dubai Marina. None were found in the Abu Dhabi samples or around the test site: there the
-  landmark tile answers 204 and only extrusions show.
+  Dubai Marina. None were found in the Abu Dhabi samples: there the landmark tile answers 204 and
+  only extrusions show.
 - **No landmark models in Downtown, and one log line names a landmark tile.** The landmark tile
   could not be read. Its endpoint (`3dtiles/v1`) is undocumented and can change without notice,
   for example to a new compression codec. Extrusions still show. Run the opt-in live test, which
@@ -11088,7 +11090,7 @@ source: the MAPBOX_TOKEN contract and tools/check_mapbox_token.sh, the URI
 keys and the node's composition, the two GUI entries, the on-screen
 attribution, Mapbox's terms as engineering rules (no caching, no Mapbox
 data in the tree, attribution visible, local until sign-off), the demo at
-the test site and at Downtown Dubai (the full geo-datum override; its
+the session's own anchor and at Downtown Dubai, the test site (the full geo-datum override; its
 values table is filled in by Task 17's rehearsal), and troubleshooting.
 
 The README's Environment sources and the docs index link it, so the link
@@ -11287,9 +11289,9 @@ fact-check notes and these sources agree on every point used):
   only for a valid ego; `test_environment_stream.cpp:49-78` the `ScopedUnsetEnv` and Windows shim
   copied into the new test.
 - Fixtures: `overlume/tests/fixtures/environment_test_town_0` is the baked fallback (chunks within
-  300 m of map (0, 0) load, `environment.cpp:34-38`). The test site's z14 tile is 10707/7006;
-  its anchor point (25.1972, 55.2744) lies 208 m from the tile's east edge, so the tests anchor at
-  the tile's centre (every edge about 1108 m away) or at its north-west corner.
+  300 m of map (0, 0) load, `environment.cpp:34-38`). The fixture anchor's z14 tile is 10707/7006;
+  the tests anchor at the tile's centre (every edge about 1107 m away) or at its north-west
+  corner.
 
 - [ ] **Step 1: Create the lane worktree** (the orchestrator, once Tasks 1–4, 6 and 7 are merged)
 
@@ -11894,8 +11896,8 @@ TEST(MapboxBuildings, RadiusKeyWidensTheRequestedTiles) {
     const TileId north{14, t.x, t.y - 1}, south{14, t.x, t.y + 1};
     const TileId west{14, t.x - 1, t.y}, east{14, t.x + 1, t.y};
     EXPECT_EQ(requested_mvt(n), squares_of({t, north, south, west, east}))
-        << "1300 m from the tile centre reaches the four edge neighbours (about 1108 m away) but "
-           "no corner neighbour (about 1566 m)";
+        << "1300 m from the tile centre reaches the four edge neighbours (about 1107 m away) but "
+           "no corner neighbour (about 1565 m)";
     EXPECT_EQ(stats().tiles_built, 1u) << "neighbours answering 204 with empty MVTs add nothing";
     EXPECT_EQ(loaded(r), 1u);
     overlume::destroy_renderer(r);
@@ -14109,9 +14111,9 @@ four probe pixels catch those (Step 2).
 | Gate span | MVT 106, `building:part`, square (2, 1) | 24..46, 120..126 | 10–18 m | present, floating |
 | Outline | MVT 107, `extrude=false`, square (2, 1) | 25..50, 160..185 | 0–15 m | absent: filtered |
 
-- The anchor is the centre of z14 tile 14/10707/7006, the test site's tile, with heading
+- The anchor is the centre of z14 tile 14/10707/7006, the fixture anchor's tile, with heading
   π/2: map +x is east, +y north, and map (0, 0) is the corner its four central z16 squares share.
-  There 1 m is about 3.698 z14 units and 7.395 z16 units.
+  There 1 m is about 3.701 z14 units and 7.403 z16 units.
 - The ego sits at map (0, 150, 0). That is more than 500 m from every edge of the 2.2 km z14 tile,
   so the area view selects this tile alone (spec §5, Tiling and selection), and its ±60 m ground
   plane holds every element.
@@ -14183,7 +14185,7 @@ namespace {
 
 constexpr double kGoldenPi = 3.14159265358979323846;
 
-// The golden's synthetic z14 tile is the test site's (55.2744 E, 25.1972 N). Its anchor is
+// The golden's synthetic z14 tile is the fixture anchor's (55.2744 E, 25.1972 N). Its anchor is
 // the tile centre with heading pi/2: map +x is east, +y north, and map (0, 0) is the corner the
 // four central z16 squares share.
 const overlume::mapbox::TileId kGoldenZ14{14, 10707, 7006};
@@ -14671,8 +14673,8 @@ and 11 with the user, because they reach the network with the real token.
   only to write a PNG.
 - Downtown: the Burj Khalifa (25.197139 N, 55.274111 E) lies in z14 tile 14/10707/7006, 868 m from
   its nearest (north) edge, so one tile loads. The 2026-10-14 probe found 7 landmarks there (spec
-  §3). Test site: (25.1972 N, 55.2744 E) lies 208 m from the east edge of 14/10707/7006 and
-  589 m from its north edge, so its east neighbour loads too: two tiles.
+  §3). The second site, the session's own anchor, lies 208 m from its z14 tile's east edge, so
+  its east neighbour loads too: two tiles.
 - Volume: 17 requests per z14 tile (one landmark GLB, 16 MVTs), so the green run makes 51.
 - libcurl honours `https_proxy` (`docs/runbooks/replay_bag.md` §6). Pointed at a closed
   local port, every request fails in transport before leaving the machine; with Task 6 those
@@ -14781,33 +14783,15 @@ TEST(MapboxLive, DowntownDubai) {
         << "no landmark kept at Downtown: a codec change or a rejected node matrix";
     overlume::destroy_renderer(r);
 }
-
-TEST(MapboxLive, TestSite) {
-    if (!mapbox_live_enabled()) {
-        GTEST_SKIP() << "opt-in live-network check -- set MAPBOX_TOKEN and "
-                        "OVERLUME_LIVE_MAPBOX=1 to run (never required by ctest)";
-    }
-    overlume::RenderConfig cfg{320, 240, 1, kThemeDir, "dark_adas"};
-    auto* r = overlume::create_renderer(cfg);
-    if (!r) GTEST_SKIP() << "no GPU/EGL";
-    const overlume::GeoAnchor anchor{25.1972, 55.2744, kLivePi / 2.0, 0.0};
-    ASSERT_TRUE(overlume::set_environment_source(r, "mapbox://buildings", anchor));
-    overlume::SceneGraph s{};
-    s.ego.valid = 1;
-    overlume::set_scene(r, s);
-
-    const overlume::CameraPose pose{{0.0, -300.0, 200.0}, {0.0, 0.0, 0.0}, 60.0};
-    const overlume::testing::MapboxSourceStats stats = pump_mapbox_live(r, "operating_area", pose);
-    EXPECT_EQ(overlume::environment_source_state(r), overlume::EnvironmentSourceState::STREAMING)
-        << "fell back to baked chunks: run tools/check_mapbox_token.sh";
-    EXPECT_GT(stats.extruded_features, 0u) << "no footprint extruded at the test site";
-    overlume::destroy_renderer(r);
-}
 ```
+
+`TEST(MapboxLive, TestSite)` followed it: the same check at the session's own anchor, with
+the camera at (0, -300, 200) looking at the origin and an assertion of extrusions instead of a
+landmark. It was removed when the test fixtures moved to the test site (Downtown Dubai).
 
 These tests catch the faults that only real Mapbox data shows. A meshopt codec change, or a
 reverted landmark path, drops Downtown's `landmark_nodes` to 0, as spec §12 predicts. A broken
-MVT path drops the test site's `extruded_features` to 0. A source that never streams (a
+MVT path drops the second site's `extruded_features` to 0. A source that never streams (a
 rejected token, no network) ends in `STREAMING_FALLBACK`. Step 9 shows the failures.
 
 - [ ] **Step 3: Build; without the opt-in both tests skip**
@@ -14860,7 +14844,7 @@ run the same command again. Any other non-zero exit is a gate failure.
 cd "$INTEGRATION"
 git add overlume/tests/test_mapbox_buildings.cpp
 git commit -F - <<'EOF'
-test(mapbox): opt-in live smoke at Downtown Dubai and the test site
+test(mapbox): opt-in live smoke at Downtown Dubai and the session's anchor
 
 MapboxLive.DowntownDubai and MapboxLive.TestSite open
 mapbox://buildings through set_environment_source against the real
@@ -14868,7 +14852,7 @@ endpoints, pump until the ego's tiles land (30 s cap), write a PNG to
 OVERLUME_TMP_DIR and print tile, landmark and extrusion counts and the
 slowest build time, never a URL (every request URL carries the token). They
 assert a landmark at Downtown, which a meshopt codec change would zero
-(spec section 12), and extrusions at the test site. Both skip unless
+(spec section 12), and extrusions at the session's anchor. Both skip unless
 MAPBOX_TOKEN is set and OVERLUME_LIVE_MAPBOX=1, so the gate stays network-
 and token-free.
 
@@ -14985,7 +14969,7 @@ def counts(site):
 
 prefix = "| 16. Opt-in live smoke | 8 |"
 row = (f"{prefix} done; live run {date} with the user's consent: Downtown {counts('downtown')}; "
-       f"test site {counts('operating_area')}; `tools/check_mapbox_token.sh` PASS | "
+       f"the session's anchor {counts('operating_area')}; `tools/check_mapbox_token.sh` PASS | "
        f"`{commit}` |")
 path = "docs/plans/2026-10-14-mapbox-buildings.md"
 lines = open(path).read().split("\n")
@@ -15120,7 +15104,7 @@ Tell the user, and continue only on an explicit yes:
 - The rig owns the machine. `tools/validate_visual_mode.sh` kills any running Overlume node, vcam
   bridge, GUI or bag player on this machine, from any checkout, including another session's, and
   needs port 8765 and the replay's `/clock` for itself.
-- Network: Mapbox with `MAPBOX_TOKEN` (17 requests per z14 tile: two tiles at the test site,
+- Network: Mapbox with `MAPBOX_TOKEN` (17 requests per z14 tile: two tiles at the session's anchor,
   one at Downtown, again after each source switch), and Cesium ion with `CESIUM_ION_TOKEN` for
   the `osm` comparison.
 - About 45 minutes with the user at the GUI: they judge every visual check, and for 15 of those
@@ -15229,7 +15213,7 @@ python3 -m py_compile "$REHEARSAL/set_env_source.py" "$REHEARSAL/datum.py" && ec
 Expected: `helpers OK`. `set_env_source.py` sends what the GUI's Environment Tiles selector sends,
 so the timed steps can switch sources without a click; it gives up after 60 s without an ack.
 
-- [ ] **Step 5: Run A, the test site: start the proxy and the rig**
+- [ ] **Step 5: Run A, the session's own anchor: start the proxy and the rig**
 
 (a) Start the kill-switch proxy with the Bash tool's background mode:
 
@@ -15302,7 +15286,7 @@ Expected:
   the node's environment without printing it). With `0`, Step 9 would test nothing: stop and
   check the proxy variables in Step 5. When the user disconnects instead, skip this check.
 
-- [ ] **Step 7: HUMAN. Visual checks at the test site (mode 3, the GUI on `mapbox`)**
+- [ ] **Step 7: HUMAN. Visual checks at the session's own anchor (mode 3, the GUI on `mapbox`)**
 
 Ask the user to confirm, in the GUI's video:
 1. Extruded clay buildings stand on the map plane along the route, and no landmark model appears.
@@ -15434,7 +15418,7 @@ and find out why the login shell gave no `MAPBOX_TOKEN`.
 The datum pins map (0, 0) to a latitude and longitude, not the robot: the replayed route keeps its
 map coordinates. So pick a target T for the route's centre and solve the datum that puts the
 centre there. Keeping the session's map heading keeps the route's true-north orientation, so it
-has the same shape on the ground as at the test site. `datum.py` reads the route's
+has the same shape on the ground as at the session's own anchor. `datum.py` reads the route's
 map → base_link poses, takes the centre (cx, cy) of their extent, turns it into east and north
 metres with the node's own `MapToWgs` rotation, and subtracts that offset from T on the node's
 6371 km sphere.
@@ -15705,7 +15689,7 @@ SHIPPED = (
     "extruded streets-v8 footprints through a custom cesium-native loader with area selection "
     "around the ego, Mapbox attribution on screen while streaming, and transport errors counted "
     "toward the network-loss fallback (ion too). Rehearsed {date} on the replay rig at the "
-    "test site and at Downtown Dubai; clay `render_ms` p50 {mb_p50} ms against `osm` "
+    "bag's own anchor and at Downtown Dubai, the test site; clay `render_ms` p50 {mb_p50} ms against `osm` "
     "{osm_p50} ms; details in the plan's Live acceptance results. Local only: nothing is pushed "
     "before Mapbox's sign-off | CLOSED {date} at `{head}` (rehearsal and docs in the following "
     "commit) | [`plans/2026-10-14-mapbox-buildings.md`](plans/2026-10-14-mapbox-buildings.md) |\n")
@@ -15734,7 +15718,7 @@ lines[rows[0]] = (LEDGER_17 + " done (see Live acceptance results) | the close-o
 RESULTS = """### Live acceptance results ({date}, replay rig, `{session}`)
 
 - Preflight: {token_checks}. Live smoke (Task 16): ledger row 16.
-- Test site, the session's own anchor ({opa_anchor}), armed with `--arm mapbox`. Extruded buildings on the map plane and no landmark models: {opa_extrusions}. The z14 seam east of the route: {opa_seam}. Attribution while streaming: {opa_attribution}. GUI `mapbox-original`, then `mapbox`: {opa_gui_looks}.
+- At the session's own anchor ({opa_anchor}), armed with `--arm mapbox`. Extruded buildings on the map plane and no landmark models: {opa_extrusions}. The z14 seam east of the route: {opa_seam}. Attribution while streaming: {opa_attribution}. GUI `mapbox-original`, then `mapbox`: {opa_gui_looks}.
 - Network cut ({cut_method}), then a live switch to `mapbox-original` so that new requests fail: the `network loss detected` WARN came {cut_seconds} s after the switch. Attribution after the fallback: {cut_attribution}.
 - Downtown Dubai: route extent {dt_extent}; route centre placed at {dt_target}; datum `geo_datum_lat_deg:={dt_lat}`, `geo_datum_lon_deg:={dt_lon}`, `geo_datum_heading_deg:={dt_hdg}` (the session's heading), launched with `environment_source_uri:=mapbox://buildings?materials=original`. Landmarks as models with no doubled extrusion: {dt_landmarks}. Route on open ground: {dt_open_ground}. Attribution: {dt_attribution}. GUI `mapbox` against `mapbox-original`: {dt_gui_looks}.
 - Render cost at Downtown, `render_ms` from `/overlume_node/diagnostics` over one full replay loop per source, after 30 s of settling, same free-look camera: `mapbox` (clay) p50 {mb_p50} ms, p99 {mb_p99} ms; `osm` p50 {osm_p50} ms, p99 {osm_p99} ms; p50 ratio {ratio} against the 1.5 bar: {ratio_verdict}. Mapbox attribution with `osm` selected: {osm_attribution}.
@@ -15806,7 +15790,7 @@ git add docs/README.md docs/plans/2026-10-14-mapbox-buildings.md docs/runbooks/m
 git commit -F - <<'EOF'
 docs(mapbox): record the replay-rig rehearsal at both sites and close the plan
 
-The rehearsal on the logger-session replay rig covered the test site
+The rehearsal on the logger-session replay rig covered the session's own anchor
 (--arm mapbox, then mapbox-original in the GUI, then a network cut that
 reached the baked fallback) and Downtown Dubai (a full geo-datum override
 that keeps the session's map heading and places the replayed route on open

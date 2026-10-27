@@ -28,14 +28,14 @@
 | 11. Second tileset, ion terrain and imagery, credits API | 6 | done | `199442c..3004004` |
 | 12. End-to-end over the fixture network | 7 | done | `aa48d04..a3bd818` |
 | 13. Golden candidates and promotion | 7 | done | `717415a..29b26f8` |
-| 14. Opt-in live smoke | 7 | done; live run 2026-10-16 with the user's consent: test site terrain tiles 2, DEM requests 2, building tiles 2, extruded 564, rasters attached 18, Maxar credit yes; `osm-terrain` terrain tiles 10, rasters attached 208; `tools/check_mapbox_token.sh` and `overlume/scripts/check_cesium_token.sh` PASS | `053b7b4` |
+| 14. Opt-in live smoke | 7 | done; live run 2026-10-16 with the user's consent: the session's anchor (`MapboxLive.TestSiteTerrain`, since removed) terrain tiles 2, DEM requests 2, building tiles 2, extruded 564, rasters attached 18, Maxar credit yes; `osm-terrain` terrain tiles 10, rasters attached 208; `tools/check_mapbox_token.sh` and `overlume/scripts/check_cesium_token.sh` PASS | `053b7b4` |
 | 15. Rig rehearsal and close-out | 7 | done (see Live acceptance results) | the close-out commit after `e50ae5b` |
 
 ### Live acceptance results (2026-10-16, replay rig, `session_<stamp>`)
 
 - Preflight: tools/check_mapbox_token.sh PASS, overlume/scripts/check_cesium_token.sh PASS. Live smoke (Task 14): ledger row 14.
-- Test site, the session's own anchor (--anchor-lat 25.19691018 --anchor-lon 55.27187549 --anchor-heading-deg 90.0600 --anchor-height 0.35), armed with `--arm mapbox-satellite`. Satellite imagery under the clay extrusions, no clay plane: confirmed -- "Confirmed" (satellite under the clay extrusions, no clay plane). Buildings on the surface along the whole route: confirmed -- "Confirmed" (buildings on the ground surface along the route). The ego on the terrain surface (follow terrain): confirmed -- "Confirmed" (the ego stays on the terrain surface). Attribution with Maxar while streaming: confirmed -- "Confirmed, with © Maxar" (logo bottom-left, full line bottom-right). GUI `mapbox-original-satellite`, then `mapbox-satellite`: confirmed -- "Both as expected" (mapbox-original-satellite: Mapbox look on satellite with attribution; mapbox-satellite: clay again). No tile-cache file written while only Mapbox sources ran: 0 files.
-- Provider proof, GUI `osm-terrain` at the test site: Cesium World Terrain with Bing imagery under OSM buildings: confirmed -- "Confirmed" (Cesium World Terrain with Bing imagery under the clay OSM buildings, ego on the terrain). Bing's credits on screen, bottom-left: confirmed -- "Credits text shown, no logo" (Bing's providers as text bottom-left).
+- At the session's own anchor (--anchor-heading-deg 90.0600 --anchor-height 0.35), armed with `--arm mapbox-satellite`. Satellite imagery under the clay extrusions, no clay plane: confirmed -- "Confirmed" (satellite under the clay extrusions, no clay plane). Buildings on the surface along the whole route: confirmed -- "Confirmed" (buildings on the ground surface along the route). The ego on the terrain surface (follow terrain): confirmed -- "Confirmed" (the ego stays on the terrain surface). Attribution with Maxar while streaming: confirmed -- "Confirmed, with © Maxar" (logo bottom-left, full line bottom-right). GUI `mapbox-original-satellite`, then `mapbox-satellite`: confirmed -- "Both as expected" (mapbox-original-satellite: Mapbox look on satellite with attribution; mapbox-satellite: clay again). No tile-cache file written while only Mapbox sources ran: 0 files.
+- Provider proof, GUI `osm-terrain` at the session's own anchor: Cesium World Terrain with Bing imagery under OSM buildings: confirmed -- "Confirmed" (Cesium World Terrain with Bing imagery under the clay OSM buildings, ego on the terrain). Bing's credits on screen, bottom-left: confirmed -- "Credits text shown, no logo" (Bing's providers as text bottom-left).
 - Network cut (kill-switch proxy killed), then a live switch to `mapbox-original-satellite` so that new requests fail: the `network loss detected` WARN came 0.14 s after the switch. Terrain and imagery gone, the clay plane and the baked fallback back: confirmed -- "Gone, fallback back" (terrain and imagery gone; clay plane and baked chunks back). Attribution after the fallback: confirmed -- "Both gone" (Mapbox logo and text gone after the cut).
 - Downtown Dubai: datum `geo_datum_lat_deg:=25.1952210`, `geo_datum_lon_deg:=55.2709401`, `geo_datum_heading_deg:=90.1350` (runbook `mapbox.md` §7.2), launched with `environment_source_uri:=mapbox://buildings,terrain?materials=original&imagery=satellite`. Landmark models on satellite ground with no doubled extrusion: confirmed -- "Confirmed" (textured landmark models on satellite ground, no doubled blocks). Buildings on the surface over one full loop: confirmed -- "Confirmed" (buildings on the surface and the route on it over a full loop). Attribution with Maxar: confirmed -- "Confirmed, with © Maxar". GUI `mapbox-satellite` against `mapbox-original-satellite`: confirmed -- "Both as expected" (mapbox-satellite: clay on landmarks and extrusions on satellite with attribution; mapbox-original-satellite: Mapbox's look again).
 - Render cost at Downtown, `render_ms` from `/overlume_node/diagnostics` over one full replay loop per source, after 30 s of settling, same free-look camera: `mapbox-satellite` p50 6.0 ms, p99 7.9 ms; `osm` p50 7.1 ms, p99 17.3 ms; p50 ratio 0.84 against the 1.5 bar: PASS. Mapbox attribution with `osm` selected: confirmed -- "Gone" (no Mapbox logo or text on osm).
@@ -923,8 +923,8 @@ binary through the `test_mapbox_*` filter, `:590`).
   `mapbox_tile_frame.hpp` and writes PNGs with `stb_image_write.h` (`stbi_write_png_to_func`,
   `stbi_write_jpg_to_func`, implemented in golden.cpp, as `overlume/tests/mapbox_glb_fixture.hpp:7-12`
   does).
-- Numbers the expectations use: the test site's z14 tile is 14/10707/7006
-  (`overlume/tests/test_mapbox_tile_frame.cpp:54-55`), about 2,217 m across, so 8 px is about
+- Numbers the expectations use: the fixture anchor's z14 tile is 14/10707/7006
+  (`overlume/tests/test_mapbox_tile_frame.cpp:54-55`), about 2,215 m across, so 8 px is about
   34.6 m and a skirt vertex's nearest grid vertex is its own edge vertex (20 m away, every other one
   at least 34.6 m). Decoded codes: 0 → −10000 m; 140000 = (2, 34, 224) → 4000 m; 100000 =
   (1, 134, 160) → 0 m; 16777215 = (255, 255, 255) → 1667721.5 m; 100102 = (1, 135, 6) → 10.2 m.
@@ -1037,7 +1037,7 @@ namespace mb = overlume::mapbox;
 constexpr uint32_t kSide = mb::kDemGridCells + 1;           // 65 grid vertices per side
 constexpr uint32_t kGridVertices = kSide * kSide;           // 4225
 constexpr uint32_t kSkirtVertices = 4 * mb::kDemGridCells;  // 256: each border vertex once
-// The test site's z14 tile (test_mapbox_tile_frame.cpp), in a frame 12 m up so no height
+// The fixture anchor's z14 tile (test_mapbox_tile_frame.cpp), in a frame 12 m up so no height
 // hides behind a zero.
 const mb::TileId kTile{14, 10707, 7006};
 constexpr double kOriginHeightM = 12.0;
@@ -4929,8 +4929,8 @@ cited by path inside the 1.56.5 source release):
   `B3dmToGltfConverter.cpp:168-182` turns `RTC_CENTER` into `CESIUM_RTC`, and
   `RasterOverlayUtilities.cpp:96-99` builds `rootTransform * RTC * Y_UP_TO_Z_UP` before it
   projects the positions to UVs. Each vertex then sits at about twice its ECEF vector, whose
-  geodetic latitude is about 25.007 N for tile_root's centre (25.180 N for its north edge), south
-  of the whole region, so v clamps to 0 (`RasterOverlayUtilities.cpp:309-320`) on every vertex
+  geodetic latitude lies about 0.074° south of the vertex's own; for tile_root's centre that is
+  south of the whole region, so v clamps to 0 (`RasterOverlayUtilities.cpp:309-320`) on every vertex
   while u stays right (scaling keeps the longitude). Flat imagery cannot see it, so the five
   flat-colour tests keep the shipped fixture; `ImageryKeepsNorthUp` runs on a tmp copy whose b3dm
   feature tables drop `RTC_CENTER` (`tiles_fixture_without_rtc`; the JSON keeps its length,
@@ -4991,10 +4991,10 @@ cited by path inside the 1.56.5 source release):
   (`QuadtreeRasterOverlayTileProvider.cpp:145-182`; `RasterOverlayUtilities.cpp:604-647`): a
   target raster tile spans geometric error x 256 x 2 / 48 on the ground (256-px tiles, raster SSE
   2, the stream's `kStreamMaxSseErr` 48), about 200 m for the fixture's 18.8 m leaves, which
-  rounds to level 17. The fixture root region (lon 55.2543..55.3319, lat 25.1668..25.2537,
-  `tileset.json`) sits inside the single level-10 tile x 669, south-row 585, so the hook caps the
+  rounds to level 17. The fixture root region (`tileset.json`, `make_tile_fixture.py`'s
+  ROOT_REGION) sits inside the single level-10 tile x 669, south-row 586, so the hook caps the
   overlay at level 10 by default (one raster tile per leaf, every flat-colour test writes 86
-  files); `ImageryKeepsNorthUp` caps it at 14 (8.7 m texels at this latitude, 188 files) so the
+  files); `ImageryKeepsNorthUp` caps it at 14 (8.7 m texels at this latitude, 185 files) so the
   two probed buildings sit more than two texels either side of the colour line. A tile that fails
   to load or decode falls back to its parent (`QuadtreeRasterOverlayTileProvider.cpp:124-129`),
   so the tests write every level 0..cap within one tile of the region. A 404 counts toward
@@ -5368,10 +5368,11 @@ struct Rgb {
 };
 
 // 256-px imagery tiles at <dir>/{z}/{x}/{y}.png for every web-mercator tile of levels
-// 0..max_level within one tile of the fixture tileset's region (lon 55.2543..55.3319,
-// lat 25.1668..25.2537), rows counted from the south as cesium fills {y}. Each pixel row takes
-// colour(latitude of the row's centre, degrees); row 0 is the tile's north edge. With decodable
-// false each file holds bytes no image decoder reads: every request answers 200, no raster lands.
+// 0..max_level within one tile of the fixture tileset's root region (ROOT_REGION in
+// make_tile_fixture.py, in degrees in the loops below), rows counted from the south as cesium
+// fills {y}. Each pixel row takes colour(latitude of the row's centre, degrees); row 0 is the
+// tile's north edge. With decodable false each file holds bytes no image decoder reads: every
+// request answers 200, no raster lands.
 template <typename Colour>
 void write_fixture_imagery(const std::string& dir, bool decodable, int max_level, Colour colour) {
     std::error_code ec;
@@ -8596,7 +8597,7 @@ In `docs/README.md`, replace
 - [`mapbox.md`](runbooks/mapbox.md) — the `mapbox://buildings` source: the
   `MAPBOX_TOKEN` contract and `tools/check_mapbox_token.sh`, the URI and the
   two GUI entries, attribution, Mapbox's terms as engineering rules, the demo
-  at the test site and Downtown Dubai, and troubleshooting.
+  at the test site (Downtown Dubai), and troubleshooting.
 - [`env_source_captures.md`](runbooks/env_source_captures.md) — one
   committed render per Environment Tiles preset (baked / osm / google) for
   judging the streamed sources side by side. The `mapbox` and
@@ -8612,8 +8613,8 @@ with
   `MAPBOX_TOKEN` contract and `tools/check_mapbox_token.sh`, the URI (the
   `buildings` and `terrain` layers, `imagery=satellite`) and the four GUI
   entries, attribution with the Maxar credit, request volume, Mapbox's terms
-  as engineering rules, the demo at the test site and Downtown Dubai,
-  and troubleshooting.
+  as engineering rules, the demo at the test site (Downtown Dubai), and
+  troubleshooting.
 - [`terrain_imagery.md`](runbooks/terrain_imagery.md) — terrain with imagery
   draped on it, for any streamed source: ion's `terrain=` and `imagery=`
   keys and the `osm-terrain` entry, the `environment_terrain` and
@@ -9594,8 +9595,8 @@ code block in this task was compiled with `-fsyntax-only -Wall -Wextra` against
   `kAttempt3AtS` 43-44, `serve_square` 108-112, `serve_anchor_tile` 133-138 (square i's box is
   `10 + i` m tall, so the highest is 25 m), `FrozenRetryClock` 273-280, `downtown_tile` 322,
   `landmark_at` 325-332, `kOverSquare10` (4696 z14 units) 337, `glb_json` 342-348,
-  `serve_downtown` 352-360. The test site's z14 tile is 2215.6 m across
-  (2π · 6378137 · cos 25.20° / 16384), 4.33 m a DEM pixel; an anchor at (0.25, 0.25) of the tile is
+  `serve_downtown` 352-360. The fixture anchor's z14 tile is 2213.2 m across
+  (2π · 6378137 · cos 25.20° / 16384), 4.32 m a DEM pixel; an anchor at (0.25, 0.25) of the tile is
   554 m from its west and north edges, so the 500 m radius reaches that tile alone. The contract's
   hill (40 m, sigma 400 px) is 36.1 m at the anchor's pixel (128, 128) and 40.0 m at the block's
   (262.25, 262.25): a 3.9 m lift. A 5 % slope is `0.05 · 4.33` = 0.216 m a pixel.
@@ -11318,7 +11319,7 @@ constexpr double kAttempt3AtS = 6.0;
 constexpr double kPi = 3.14159265358979323846;
 
 // Tile math runs on use, not during static initialisation: it may lean on statics of other
-// translation units. The test site's z14 tile, 10707/7006.
+// translation units. The fixture anchor's z14 tile, 10707/7006.
 TileId op_tile() { return overlume::mapbox::tile_containing(55.2744, 25.1972, 14); }
 
 overlume::GeoAnchor anchor_at(const TileId& t, double u, double v) {
@@ -14506,8 +14507,8 @@ staged or not, the orchestrator merges and commits nothing there.
   ground, through the stream's own chain (tile frame, ECEF, map frame, height correction)
   (`overlume/src/mapbox_tile_frame.cpp:150-171`; z ≥ 14 only). The tests place every probe and
   camera with it, in DEM pixels (512 per z14 tile), so nothing depends on a metres-per-pixel
-  estimate. At the test site's tile a DEM pixel is about 4.33 m east-west and 4.31 m
-  north-south (the tile is 2216.8 m by 2204.6 m on WGS84).
+  estimate. At the fixture anchor's tile a DEM pixel is about 4.33 m east-west and 4.30 m
+  north-south (the tile is 2214.6 m by 2202.5 m on WGS84).
 - Scenes (heights checked with a model of the contract's encoder: 0.1 m rounding at pixel centres,
   bilinear sampling):
   - Plateau (`serve_plateau_scene`): 0 m west of DEM column 280, a 35 % ramp to 30 m at column
@@ -14520,10 +14521,10 @@ staged or not, the orchestrator merges and commits nothing there.
   - Flat sea with quadrant imagery: probes 6 pixels (26 m) into the northern quadrants and 3
     (13 m) into the southern ones, all inside the clay plane's 120 m square
     (`renderer.cpp:115`), from (0, −45 m, 40 m) looking at (0, 15 m, 0).
-  - Corner: the anchor 0.2 % of an edge (4.4 m) inside the test-site tile D from its
+  - Corner: the anchor 0.2 % of an edge (4.4 m) inside the fixture anchor's tile D from its
     north-west corner; level DEMs D 0 m, west 12 m, north 6 m, north-west 18 m; a 10 m box in
     square 5 of each. z_ref is D's 0 m, so the north-west box tops out at 28 m.
-  - Step: the anchor about 50 m west of the test-site tile's east edge; that tile at 0 m, its
+  - Step: the anchor about 50 m west of the fixture anchor's tile's east edge; that tile at 0 m, its
     east neighbour at 5 m. Skirts (20 m, Task 1) hang from both edges; seen from the low side, the
     high tile's skirt, if it faces outwards, fills the step between −0.3 m and 4.7 m. The probe row
     at 1.7 m looks through the step: without that skirt the ray passes under the high tile's
@@ -14665,7 +14666,7 @@ constexpr Rgb kAncestor{128, 128, 128};  // levels 0-14 cover all four quadrants
 
 using Colour = std::array<double, 3>;
 
-// The test site's z14 tile, 14/10707/7006.
+// The fixture anchor's z14 tile, 14/10707/7006.
 TileId op_tile() { return overlume::mapbox::tile_containing(55.2744, 25.1972, 14); }
 
 // The anchor at (u, v) of tile t, in fractions of its edge, heading pi/2: map +x east, +y north.
@@ -15777,7 +15778,7 @@ Step 6. No merge and no other commit in `$INTEGRATION` while this task has chang
   `Expected: true`; a failed `EXPECT_NEAR` as `The difference between a and b is …`; a failed
   `EXPECT_GT` as `Expected: (a) > (b), actual: … vs …`. Step 8 greps those.
 
-**Scene.** One synthetic z14 tile, the test site's 14/10707/7006, anchor at its centre with
+**Scene.** One synthetic z14 tile, the fixture anchor's 14/10707/7006, anchor at its centre with
 heading π/2 (map +x east, +y north), the ego at the anchor. Heights below are above the anchor's
 ground, from a model of the contract's encoder (0.1 m rounding at pixel centres, bilinear
 sampling); z_ref, the DEM under the anchor, is 0.95 m (15 · e^(−75² / 2048) = 0.96 m before the
@@ -16281,9 +16282,9 @@ because they reach the network with the real tokens.
   test's opt-in is `OVERLUME_LIVE_ION`, as spec §8 names it. Task 8 documents it beside
   `OVERLUME_LIVE_MAPBOX` (ruling R16); the ion perf test's `OVERLUME_LIVE_ION_PERF` stays
   separate.
-- Test site (25.1972 N, 55.2744 E): 208 m from the east edge of 14/10707/7006 and 589 m from
-  its north edge, so with the 500 m radius its east neighbour loads too: two z14 tiles (sub-project
-  1's live run: `tiles 2`), so two terrain tiles and two DEM requests.
+- The session's own anchor lies 208 m from its z14 tile's east edge, so with the 500 m radius its
+  east neighbour loads too: two z14 tiles (sub-project 1's live run: `tiles 2`), so two terrain
+  tiles and two DEM requests.
 - Volume, Mapbox: per z14 tile one DEM, 16 MVTs and one landmark tile (36 for two tiles); the
   satellite overlay asks 16 tiles of 512 px per z14 tile at most (`maximumTextureSize` 2048) plus
   those of the upsampled tiles near the ego, a few hundred at most; the token check adds four.
@@ -16370,7 +16371,7 @@ double pump(overlume::VisualRenderer* r, const overlume::CameraPose& pose, const
     return waitS;
 }
 
-// The test site (spec §9), heading pi/2: map +x east.
+// The session's own anchor (spec §9), heading pi/2: map +x east.
 const overlume::GeoAnchor kTestSite{25.1972, 55.2744, e2e::kPi / 2.0, 0.0};
 const overlume::CameraPose kLivePose{{0.0, -300.0, 200.0}, {0.0, 0.0, 0.0}, 60.0};
 
@@ -16531,7 +16532,7 @@ git commit -F - <<'EOF'
 test(terrain): opt-in live smoke for Mapbox and ion terrain with Bing
 
 MapboxLive.TestSiteTerrain opens
-mapbox://buildings,terrain?imagery=satellite at the test site and
+mapbox://buildings,terrain?imagery=satellite at the session's anchor and
 IonLive.WorldTerrainBing the osm-terrain source,
 ion://96188?terrain=1&imagery=2, through set_environment_source against
 the real endpoints. Each pumps until its terrain and imagery have landed
@@ -16665,7 +16666,7 @@ for line in open(log):
 m = runs["operating_area_terrain"]
 i = runs["world_terrain_bing"]
 prefix = "| 14. Opt-in live smoke | 7 |"
-row = (f"{prefix} done; live run {date} with the user's consent: test site terrain tiles "
+row = (f"{prefix} done; live run {date} with the user's consent: the session's anchor terrain tiles "
        f"{m['terrain_tiles_built']}, DEM requests {m['dem_requests']}, building tiles "
        f"{m['tiles_built']}, extruded {m['extruded_features']}, rasters attached "
        f"{m['rasters_attached']}, Maxar credit {'yes' if m['maxar_credit'] == '1' else 'no'}; "
@@ -16686,7 +16687,7 @@ docs(plan): record the imagery-on-terrain live smoke counts
 
 Task 14's live run, made with the user's consent: terrain tiles, DEM
 requests, building tiles, extrusions, attached rasters and the Maxar
-credit at the test site, and terrain tiles and rasters for
+credit at the session's anchor, and terrain tiles and rasters for
 osm-terrain (Cesium World Terrain with Bing), from the [MapboxLive] and
 [IonLive] lines, with both token checks PASS. Counts only: no token, no
 URL.
@@ -16899,7 +16900,7 @@ python3 -m py_compile "$REHEARSAL/set_env_source.py" && echo "helper OK"
 Expected: `helper OK`. It sends what the GUI's Environment Tiles selector sends, and gives up after
 60 s without an ack.
 
-- [ ] **Step 5: Run A, the test site: start the proxy and the rig**
+- [ ] **Step 5: Run A, the session's own anchor: start the proxy and the rig**
 
 (a) Start the kill-switch proxy with the Bash tool's background mode:
 
@@ -16964,7 +16965,7 @@ Expected:
   Step 11 would test nothing: stop and check Step 5's variables. Skip this check when the user
   disconnects instead.
 
-- [ ] **Step 7: HUMAN. Visual checks at the test site (mode 3, the GUI on `mapbox-satellite`)**
+- [ ] **Step 7: HUMAN. Visual checks at the session's own anchor (mode 3, the GUI on `mapbox-satellite`)**
 
 Ask the user to confirm, in the GUI's video:
 1. Satellite imagery covers the ground, under the theme's clay extrusions, and no clay ground
@@ -17341,7 +17342,7 @@ SHIPPED = (
     "through ion. GUI sources `mapbox-satellite`, `mapbox-original-satellite` and `osm-terrain`; "
     "node parameters `environment_terrain` and `environment_imagery`; theme token "
     "`environment.terrain_color`; `environment_source_credits` in `scene.h`. Rehearsed {date} on "
-    "the replay rig at the test site and at Downtown Dubai; `mapbox-satellite` `render_ms` "
+    "the replay rig at the bag's own anchor and at Downtown Dubai, the test site; `mapbox-satellite` `render_ms` "
     "p50 {mb_p50} ms against `osm` {osm_p50} ms; details in the plan's Live acceptance results | "
     "CLOSED {date} at `{head}` (rehearsal and docs in the following commit) | "
     "[`plans/2026-10-15-imagery-terrain.md`](plans/2026-10-15-imagery-terrain.md) |\n")
@@ -17370,8 +17371,8 @@ lines[rows[0]] = (LEDGER_15 + " done (see Live acceptance results) | the close-o
 RESULTS = """### Live acceptance results ({date}, replay rig, `{session}`)
 
 - Preflight: {token_checks}. Live smoke (Task 14): ledger row 14.
-- Test site, the session's own anchor ({opa_anchor}), armed with `--arm mapbox-satellite`. Satellite imagery under the clay extrusions, no clay plane: {opa_imagery}. Buildings on the surface along the whole route: {opa_surface}. The ego on the terrain surface (follow terrain): {opa_follow}. Attribution with Maxar while streaming: {opa_attribution}. GUI `mapbox-original-satellite`, then `mapbox-satellite`: {opa_gui_looks}. No tile-cache file written while only Mapbox sources ran: {cache_files_a} files.
-- Provider proof, GUI `osm-terrain` at the test site: Cesium World Terrain with Bing imagery under OSM buildings: {osm_terrain_imagery}. Bing's credits on screen, bottom-left: {osm_terrain_credit}.
+- At the session's own anchor ({opa_anchor}), armed with `--arm mapbox-satellite`. Satellite imagery under the clay extrusions, no clay plane: {opa_imagery}. Buildings on the surface along the whole route: {opa_surface}. The ego on the terrain surface (follow terrain): {opa_follow}. Attribution with Maxar while streaming: {opa_attribution}. GUI `mapbox-original-satellite`, then `mapbox-satellite`: {opa_gui_looks}. No tile-cache file written while only Mapbox sources ran: {cache_files_a} files.
+- Provider proof, GUI `osm-terrain` at the session's own anchor: Cesium World Terrain with Bing imagery under OSM buildings: {osm_terrain_imagery}. Bing's credits on screen, bottom-left: {osm_terrain_credit}.
 - Network cut ({cut_method}), then a live switch to `mapbox-original-satellite` so that new requests fail: the `network loss detected` WARN came {cut_seconds} s after the switch. Terrain and imagery gone, the clay plane and the baked fallback back: {cut_visual}. Attribution after the fallback: {cut_attribution}.
 - Downtown Dubai: datum `geo_datum_lat_deg:={dt_lat}`, `geo_datum_lon_deg:={dt_lon}`, `geo_datum_heading_deg:={dt_hdg}` (runbook `mapbox.md` §7.2), launched with `environment_source_uri:=mapbox://buildings,terrain?materials=original&imagery=satellite`. Landmark models on satellite ground with no doubled extrusion: {dt_landmarks}. Buildings on the surface over one full loop: {dt_surface}. Attribution with Maxar: {dt_attribution}. GUI `mapbox-satellite` against `mapbox-original-satellite`: {dt_gui_looks}.
 - Render cost at Downtown, `render_ms` from `/overlume_node/diagnostics` over one full replay loop per source, after 30 s of settling, same free-look camera: `mapbox-satellite` p50 {mb_p50} ms, p99 {mb_p99} ms; `osm` p50 {osm_p50} ms, p99 {osm_p99} ms; p50 ratio {ratio} against the 1.5 bar: {ratio_verdict}. Mapbox attribution with `osm` selected: {osm_attribution}.
@@ -17567,7 +17568,7 @@ interfaces. Design `docs/design/2026-10-15-imagery-terrain-design.md`, plan
   fixtures, end-to-end tests over the fixture network, and the goldens
   `mapbox_terrain_synthetic_dark_adas` and `mapbox_terrain_synthetic_light_clay`, promoted by the
   maintainer. Opt-in live smoke: `MapboxLive.TestSiteTerrain` and `IonLive.WorldTerrainBing`.
-- Rehearsed {date} on the replay rig at the test site (`mapbox-satellite`,
+- Rehearsed {date} on the replay rig at the session's own anchor (`mapbox-satellite`,
   `mapbox-original-satellite`, `osm-terrain`, and a network cut that reached the fallback) and at
   Downtown Dubai. `mapbox-satellite` p50 `render_ms` {mb_p50} ms against `osm` {osm_p50} ms
   (ratio {ratio}, bar 1.5). No token in any log.

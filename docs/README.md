@@ -32,8 +32,8 @@ index; `docs/status.md` is the one status ledger.
   `MAPBOX_TOKEN` contract and `tools/check_mapbox_token.sh`, the URI (the
   `buildings` and `terrain` layers, `imagery=satellite`) and the four GUI
   entries, attribution with the Maxar credit, request volume, Mapbox's terms
-  as engineering rules, the demo at the test site and Downtown Dubai,
-  and troubleshooting.
+  as engineering rules, the demo at the test site (Downtown Dubai), and
+  troubleshooting.
 - [`terrain_imagery.md`](runbooks/terrain_imagery.md) — terrain with imagery
   draped on it, for any streamed source: ion's `terrain=` and `imagery=`
   keys and the `osm-terrain` entry, the `environment_terrain` and
@@ -85,7 +85,7 @@ index; `docs/status.md` is the one status ledger.
 - [`2026-10-14-mapbox-buildings-design.md`](design/2026-10-14-mapbox-buildings-design.md)
   — the `mapbox://buildings` environment source: Mapbox landmark models plus
   extruded streets-v8 footprints through a custom cesium-native loader, the
-  on-screen attribution, and the demo at Downtown Dubai and the test site.
+  on-screen attribution, and the demo at the test site, Downtown Dubai.
 - [`2026-10-15-imagery-terrain-design.md`](design/2026-10-15-imagery-terrain-design.md)
   — sub-project 2: terrain as a second cesium tileset per source (Mapbox
   terrain-DEM through a loader of ours, Cesium World Terrain through ion),

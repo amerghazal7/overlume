@@ -1,7 +1,7 @@
 # Cesium ion runbook (VM-060)
 
 How a **new deployment** (a second robot/site with no access to this box)
-registers with Cesium ion, picks a tileset for its test site, and proves
+registers with Cesium ion, picks a tileset for its site, and proves
 the token actually works — before Epic 6's `StreamingEnvironmentSource`
 (VM-062) ever tries to use it. Covers only the account/token/smoke-check
 contract; the streaming source itself, its `source_uri` scheme, and its
@@ -28,7 +28,7 @@ config knobs are VM-062/VM-063 (pointers below).
    Same rule as `MAPBOX_TOKEN` (Epic 4 Decision 8) — env var, by name only,
    nowhere else.
 
-## 2. Choosing the tileset for the test site
+## 2. Choosing the tileset for the site
 
 Three supported paths:
 

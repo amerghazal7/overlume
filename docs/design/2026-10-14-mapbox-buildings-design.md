@@ -27,8 +27,8 @@ Mapbox serves two things for Dubai that are better:
    layer), which Mapbox's own Standard style extrudes.
 
 Goal: `mapbox://buildings`, a streamed environment source selected like `ion://`, rendered by the
-existing streaming pipeline, with Mapbox's attribution on screen, demo-ready at Downtown Dubai and
-at the test site.
+existing streaming pipeline, with Mapbox's attribution on screen, demo-ready at the test site,
+Downtown Dubai.
 
 Non-goals: imagery and terrain (sub-project 2); Mapbox style features (per-part colours, window
 lights, LOD meshes, procedural facades); any disk cache; changes to the bake script; new public
@@ -40,7 +40,7 @@ API.
 |---|----------|----------|
 | D1 | Direction | Build buildings (this spec), then imagery on terrain. Demo to Mapbox, then release publicly citing them. The user has checked the licensing side. |
 | D2 | Bake script's Mapbox Tilequery fallback | Leave it as is. |
-| D3 | Demo sites | Both: Downtown Dubai through a geo-datum override, and the test site (25.1972, 55.2744). |
+| D3 | Demo site | Downtown Dubai, the test site (the Burj Khalifa, 25.1972, 55.2744), through a geo-datum override. |
 | D4 | Architecture | A custom cesium-native loader inside the existing `StreamingEnvironmentSource`. Not a separate source class; a Mapbox pre-bake is excluded by the terms (no derived or stored data). |
 | D5 | Publication | The branch stays local until sign-off. Tests use synthetic fixtures in Mapbox's format, never real Mapbox bytes. Whether the Mapbox logo file stays in the tree is part of the release check. |
 | D6 | Execution | Dynamic workflows with as much parallelism as possible (user, 2026-10-14). |
@@ -98,8 +98,8 @@ repo.
 
 ### Coverage
 
-Landmarks exist in Downtown Dubai and Dubai Marina; none in the Abu Dhabi samples and none in the
-3×3 z14 block around the test site. Footprints exist everywhere sampled. In Downtown, 6 of
+Landmarks exist in Downtown Dubai and Dubai Marina; none in the Abu Dhabi samples or the other
+blocks sampled. Footprints exist everywhere sampled. In Downtown, 6 of
 the 7 landmarks stand on streets-v8 extrusions, which must be removed, as GL JS does.
 
 ## 4. Configuration
@@ -396,7 +396,7 @@ named in the terms are rendered as text.
   refreshes `CESIUM_ION_TOKEN`, so the node never runs with a stale value.
 - **Docs:**
   - a new runbook, `docs/runbooks/mapbox.md`: token, URI and the GUI entries, attribution, the terms
-    constraints as engineering rules, the demo at both sites, troubleshooting;
+    constraints as engineering rules, the demo at the test site, troubleshooting;
   - `README.md`, "Environment sources";
   - `docs/README.md`, index entries for this spec, the plan and the runbook;
   - `docs/status.md`, open items: Mapbox sign-off before any push, and the logo/trademark check
@@ -506,11 +506,10 @@ node's `mapbox://` URI back to the right entry, and the two tables stay in locks
 
 Never in the gate. Needs `MAPBOX_TOKEN` and `OVERLUME_LIVE_MAPBOX=1`.
 
-- `MapboxLive.*` renders at Downtown Dubai and at the test site.
+- `MapboxLive.DowntownDubai` renders at Downtown Dubai, the test site.
   - It prints tile, landmark and extrusion counts and per-tile build times (no URLs), and writes
     PNGs to `OVERLUME_TMP_DIR`.
-  - It asserts that Downtown has at least one landmark and that the test site has
-    extrusions.
+  - It asserts that Downtown has at least one landmark.
   - It is the demo rehearsal at library level.
 - `tools/check_mapbox_token.sh`.
 
@@ -520,12 +519,13 @@ Every task ends green on `tools/ci_visual_mode.sh`, run in the foreground.
 
 ## 9. Demo
 
-Both sites use the replay rig (`tools/validate_logger_session.sh`) and the vcam GUI's free-look
+The demo uses the replay rig (`tools/validate_logger_session.sh`) and the vcam GUI's free-look
 camera. The runbook holds the exact commands.
 
-- **Test site:** the session's own GPS anchor, then `--arm mapbox` (or `mapbox-original`).
-  Only extrusions appear: Mapbox has no landmark models there.
-- **Downtown Dubai:** a full geo-datum override passed after `--`, together with
+- **Without an override:** the session's own GPS anchor, then `--arm mapbox` (or
+  `mapbox-original`). Away from Downtown Dubai and Dubai Marina only extrusions appear: Mapbox has
+  no landmark models there.
+- **Downtown Dubai, the test site:** a full geo-datum override passed after `--`, together with
   `environment_source_uri:=mapbox://buildings…`, which arms at activate.
   - The override needs latitude, longitude and heading. A partial override is ignored and the
     anchor falls back to GPS.
@@ -567,11 +567,11 @@ camera. The runbook holds the exact commands.
 ## 11. Acceptance
 
 1. `tools/ci_visual_mode.sh` is green with the promoted golden, and no existing golden moved.
-2. `MapboxLive` passes at both sites, and `tools/check_mapbox_token.sh` passes.
-3. A rehearsal on the replay rig, at both sites, shows:
+2. `MapboxLive.DowntownDubai` passes, and `tools/check_mapbox_token.sh` passes.
+3. A rehearsal on the replay rig, with and without the override, shows:
    - **Downtown:** the Burj Khalifa and the other landmarks render as models with no doubled
      extrusion under them, among streets of extruded buildings.
-   - **Test site:** extruded buildings on the map plane.
+   - **Without an override:** extruded buildings on the map plane.
    - **Attribution:** logo and text visible in mode 3 while streaming; gone in fallback.
    - **GUI:** selecting `mapbox-original` shows Mapbox's look, and `mapbox` the theme's.
    - **Render cost:** steady-state `render_ms` on the diagnostics topic, in clay mode, within

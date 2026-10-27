@@ -218,12 +218,14 @@ older path and is unchanged.
 
 ## 7. The demo
 
-Both sites use the replay rig and the vcam GUI's free look. The rig owns the machine: starting it
+The demo runs at the test site, Downtown Dubai around the Burj Khalifa (25.1972, 55.2744), with the
+replay rig and the vcam GUI's free look. A full geo-datum override (§7.2) puts the map there; without
+one (§7.1) the map stays wherever the bag was recorded. The rig owns the machine: starting it
 stops any rig already running on the box (same process names, port 8765), but not a leftover
 replay player (a `/clock` publisher), which must be stopped by hand;
 the rig's preflight refuses to start and says so.
 
-Before either site:
+Before either run:
 
 1. Build the library with cesium on, and the node, in the checkout you run from (`AGENTS.md`,
    "Build and test").
@@ -231,9 +233,9 @@ Before either site:
 3. Play a recorded bag with `ros2 bag play "$BAG_DIR" --clock --loop`
    ([`replay_bag.md`](replay_bag.md)).
 
-### 7.1 Test site
+### 7.1 At the bag's own anchor
 
-The bag's own GPS anchor places the map at the test site (25.1972, 55.2744).
+Without an override, the bag's own GPS anchor places the map where the bag was recorded.
 
 ```bash
 LIVE_SIM_TIME=true tools/validate_visual_mode.sh --live --profile replay \
@@ -244,13 +246,14 @@ Then arm `mapbox` from the GUI or the bridge once the anchor solves.
 
 - The anchor solves from the replayed GPS after 500 fixes and 20 m of travel; until then the node
   refuses the switch.
-- Expect extruded buildings only: Mapbox has no landmark models there.
+- Outside Downtown Dubai and Dubai Marina, expect extruded buildings only: Mapbox has no landmark
+  models there.
 - Arming `mapbox-original` shows Mapbox's look. The GUI list switches between the entries live.
 - Arming `mapbox-satellite` adds the terrain and the satellite imagery: imagery under the clay
   extrusions, "© Maxar" on the attribution line, and the buildings standing on the surface along
   the route.
 
-### 7.2 Downtown Dubai
+### 7.2 Downtown Dubai, the test site
 
 A full geo-datum override moves the map to Downtown:
 
@@ -258,7 +261,7 @@ A full geo-datum override moves the map to Downtown:
   override is logged as an ERROR and ignored. The anchor then waits for GPS, nothing arms at
   activate (the node warns `no geo-anchor solved yet at on_activate()`), and no buildings show
   until a live switch (a GUI entry or the bridge command) after the GPS solve, which streams them at the
-  test site.
+  bag's own anchor (§7.1).
 - The override pins where map (0, 0) is, and the compass bearing of map +x (90.0 means map +x
   points east). It does not move the robot: the replayed path keeps its map coordinates. The
   rehearsal keeps the bag's map heading and picks the latitude and longitude so that the path
@@ -377,15 +380,15 @@ among streets of extruded buildings.
 - **No buildings over the sea.** A footprint tile over open water holds only a `water` layer, so
   there is nothing to extrude. Nothing is wrong.
 - **Extrusions, but no landmark models.** Mapbox serves landmark models in Downtown Dubai and
-  Dubai Marina. None were found in the Abu Dhabi samples or around the test site: there the
-  landmark tile answers 204 and only extrusions show.
+  Dubai Marina. None were found in the Abu Dhabi samples: there the landmark tile answers 204 and
+  only extrusions show.
 - **No landmark models in Downtown, and one log line names a landmark tile.** The landmark tile
   could not be read. Its endpoint (`3dtiles/v1`) is undocumented and can change without notice,
   for example to a new compression codec. Extrusions still show. Run the opt-in live test, which
   prints tile, landmark and extrusion counts, and report what it prints:
   `OVERLUME_LIVE_MAPBOX=1 overlume/build/test_mapbox_buildings --gtest_filter='MapboxLive.*'`.
-  The terrain and the satellite imagery have their own opt-in live test,
-  `MapboxLive.TestSiteTerrain` in `test_mapbox_terrain`
+  The terrain and the satellite imagery have no live test of their own: `tools/check_mapbox_token.sh`
+  fetches the Downtown terrain-DEM tile, and the demo (§7) shows both
   ([`terrain_imagery.md`](terrain_imagery.md) §7).
 - **The buildings, the terrain, the logo and the text disappear, and the node warns
   `environment source: network loss detected -- switched to fallback dir '…'`** (or

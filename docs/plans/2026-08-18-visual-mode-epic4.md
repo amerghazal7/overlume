@@ -117,7 +117,7 @@ Verified: "env var, never committed" is stated three times in the docs but **no 
 
 ### 9. Building height fallback (spec §12's risk row, applied concretely)
 
-Spec §12: "OSM height data sparse in test site → Extrude `building:levels`×3 m fallback, then a default height; clay style makes approximate heights acceptable." Applied in Task 2, in this order per footprint: (1) OSM `height` tag if present (meters, parsed as float); (2) `building:levels` × `kMetersPerLevel = 3.0`; (3) `kDefaultBuildingHeightM = 6.0` (two levels' worth) if neither tag exists. All three are named constants in `bake_environment.py`, not silently defaulted.
+Spec §12: "OSM height data sparse at the test site → Extrude `building:levels`×3 m fallback, then a default height; clay style makes approximate heights acceptable." Applied in Task 2, in this order per footprint: (1) OSM `height` tag if present (meters, parsed as float); (2) `building:levels` × `kMetersPerLevel = 3.0`; (3) `kDefaultBuildingHeightM = 6.0` (two levels' worth) if neither tag exists. All three are named constants in `bake_environment.py`, not silently defaulted.
 
 ### 10. Disable knob and style tokens, per the STANDING directive (2026-09-09)
 

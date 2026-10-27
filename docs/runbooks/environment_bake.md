@@ -218,14 +218,15 @@ python3 bake_environment.py \
   --out <scratch-dir> \
   --cache ../tests/fixtures/environment_overpass_cache_0.json \
   --ego-track ../../ros/src/overlume_ros/test/fixtures/geo_anchor_samples_0.csv
-# wrote 2 chunk(s), 5 footprint(s), index.yaml, verification_overlay.png
+# wrote 3 chunk(s), 5 footprint(s), index.yaml, verification_overlay.png
 
 python3 bake_environment.py --anchor-file anchor.yaml --out <scratch-dir> \
   --cache ../tests/fixtures/environment_overpass_cache_0.json
-# wrote 2 chunk(s), 5 footprint(s), index.yaml, verification_overlay.png
+# wrote 3 chunk(s), 5 footprint(s), index.yaml, verification_overlay.png
 ```
 
 confirming: `--selfcheck` passes clean; both the `--anchor-lat/-lon/-heading-deg`
 and `--anchor-file` anchor forms produce identical `index.yaml` + `chunks/*.glb`
-+ `verification_overlay.png` output against the committed Overpass cache
-fixture, with no network access in either run.
+output against the committed Overpass cache fixture (the first run's
+`verification_overlay.png` also draws the `--ego-track`), with no network
+access in either run.
