@@ -40,6 +40,9 @@ jobs:
       - name: SPDX header check
         run: tools/check_spdx.sh
 
+      - name: Deny-list check
+        run: tools/check_denylist.sh
+
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
 

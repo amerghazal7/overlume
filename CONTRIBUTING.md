@@ -37,6 +37,12 @@ no root/sudo access, and also fetches the vcpkg toolchain used to build
 cesium-native under the same clang/libc++ overlay triplet — running it once
 covers both cases.
 
+**Pre-commit hook.** `ln -s ../../tools/hooks/pre-commit .git/hooks/pre-commit` once per
+clone runs `tools/check_denylist.sh` before every commit (a symlink, not
+`core.hooksPath`, so git-lfs's own hooks keep running). It keeps names that belong to a
+private downstream integration out of the tree; the lint workflow runs the same
+check.
+
 ## Build commands
 
 **Library:**

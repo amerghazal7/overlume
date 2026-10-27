@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Amer Ghazal
+
+# Enable once per clone (keeps git-lfs's own hooks working):
+#   ln -s ../../tools/hooks/pre-commit .git/hooks/pre-commit
+exec "$(git rev-parse --show-toplevel)/tools/check_denylist.sh"

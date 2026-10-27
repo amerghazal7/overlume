@@ -37,8 +37,8 @@ documents that still cite pre-restructure paths).
   before publishing. Pushed history cannot be recalled, so never push first
   and fix after. In the same pre-push pass, run the lint job's checks, which
   `tools/ci_visual_mode.sh` does not cover: `tools/check_format.sh`,
-  `tools/check_spdx.sh`, `shellcheck --severity=error tools/*.sh` and
-  `python3 tools/check_docs_links.py`.
+  `tools/check_spdx.sh`, `tools/check_denylist.sh`, `shellcheck --severity=error
+  tools/*.sh` and `python3 tools/check_docs_links.py`.
 
 ## How work is done
 
