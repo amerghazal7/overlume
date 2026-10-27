@@ -9,17 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Params profiles: `tools/validate_visual_mode.sh --params-profile NAME` and the launch argument `params_profile:=NAME` load `config/NAME_params.yaml` after `default_params.yaml`, so the profile's keys override the defaults and the rest keep them. The reference robot's params profile (kept in the robot overlay) is now such a profile, regenerated from the robot's current calibration by `scripts/extrinsics_from_calib.py` (camera extrinsics and the top lidar's 180-degree `pointcloud_transform`, with the lidar's 1.07 m height above the ground), plus the Fixposition odometry and GPS topics, the `robot-offroad` topic profile and the reference robot's bowl shape.
-- `tools/validate_visual_mode.sh --bridge-port N` starts the GUI's WebSocket bridge on port N and points the GUI at it, for robots where Foxglove's bridge holds the default 8765 .
+- Params profiles: `tools/validate_visual_mode.sh --params-profile NAME|PATH` and the launch argument `params_profile:=NAME|PATH` load `config/NAME_params.yaml` (or the file at PATH) after `default_params.yaml`, so the profile's keys override the defaults and the rest keep them. A robot integration keeps its params profile, camera calibration and topic profile in its own package and points the node at them with `params_profile:=`, `profile_dir` and `ego_model_path`, building against the installed library (see the README's Params profiles).
+- `tools/validate_visual_mode.sh --bridge-port N` starts the GUI's WebSocket bridge on port N and points the GUI at it, for robots where Foxglove's bridge holds the default 8765.
 - The ROS node builds against an installed overlume (the apt package, 1.1 or later) when the checkout has no library build. The CMake variable `OVERLUME_ROS_LINK` picks the link: `tree` (this checkout's `overlume/build`, as before), `system` (the installed shared library, with its headers and themes) or `auto`, the default, which is `tree` when `overlume/build/liboverlume.a` exists and `system` otherwise. `tools/check_node_system_overlume.sh` checks the `system` link in the gate.
 
 ### Fixed
 
 - Point clouds vanished when the map frame puts `base_link` far from z = 0 (the reference robot: 33 m below): under `flatten_z` the ego is drawn at z = 0 but the cloud kept its map heights, so it sat 33 m under the ground and `min_z_m` dropped every point. The cloud now keeps its relief, measured from the ego's height.
 - `tools/validate_visual_mode.sh` gives the node the NVIDIA EGL vendor, and no `DISPLAY`, when an NVIDIA GPU is present. With the desktop on an integrated GPU the node rendered there (102 ms a frame against 2.8 ms on the RTX), and NVIDIA's EGL cannot open a display another GPU drives.
-- The `robot-offroad` and `replay` profiles subscribe best-effort on every row, as the robot and the logger replay publish; a reliable subscription received nothing from them. `robot-offroad` adds the HD map and cruise-obstacle rows the robot publishes.
-- The `robot-offroad` profile no longer thins or truncates the reference robot's fused cloud (`stride: 1`, `max_points: 600000`); `min_z_m` still drops ground returns. That cloud is the four bumper lidars back to back, and `max_points` keeps the first points in message order, so the old 60000-point cap showed only the front lidar and one side lidar.
-- The `robot-offroad` cloud is coloured by height. On 2026-10-23 the reference robot's fused cloud's median intensity was 3 of 255, with a few bright reflectors at the top of the per-cloud intensity ramp that `color_mode: auto` picks, so almost every point took the ramp's dark end, low-contrast against the dark scene.
+- The `replay` profile subscribes best-effort on every row, as a recorded robot stack publishes; a reliable subscription received nothing from it.
+
+### Changed
+
+- The ego model installs as `assets/ego/ego.glb`: `scripts/provision_ego_model.sh <model.glb>` provisions any glTF (`overlume/scripts/obj2gltf.py` converts an OBJ first). Without it the node draws the clay-box ego, as before. The package no longer ships a single-robot params or topic profile.
+- `docs/runbooks/replay_bag.md` replays a rosbag2 recording with the `replay` profile, replacing the logger-session replay wrapper and its runbook.
 
 ## [1.1.0] - 2026-10-16
 
